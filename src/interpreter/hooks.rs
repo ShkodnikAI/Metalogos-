@@ -14,6 +14,87 @@ impl Interpreter {
         }
     }
 
+    /// Наряд №392: fire the on_deny handler for a refused action.
+    ///
+    /// Selection: an exact sink-class match wins over the `*` fallback;
+    /// no covering handler → `Ok(false)` and the caller keeps the loud
+    /// default error (deny behavior by default is unchanged).
+    ///
+    /// While the handler body runs, `current_deny_event` holds the typed
+    /// event — `deny_event()` / `deny_reason()` read it, everything else
+    /// sees loud errors. The handler runs AFTER the gate has already
+    /// refused the action and its verdict is final: the handler can log,
+    /// notify or degrade, it can never re-allow the refused action.
+    pub(super) fn fire_on_deny(
+        &self,
+        event_args: crate::deny::DenyEventArgs,
+    ) -> Result<bool, String> {
+        let crate::deny::DenyEventArgs {
+            reason,
+            class,
+            sink,
+            argument,
+            label,
+            line,
+            human,
+        } = event_args;
+        // ── Naryad #393 (ADR-0167 §3.4): the deny HAPPENED regardless of
+        // whether a handler covers it — the ledger record is written
+        // BEFORE handler selection, as a side effect of the refusal path
+        // itself. Best-effort (loud stderr on failure, outcome unchanged).
+        crate::ledger::record(
+            &format!("deny.{}", reason),
+            "runtime",
+            &class,
+            &format!("{}|{}|{}|{}|{}", sink, argument, label, line, human),
+        );
+        let handler = crate::deny::select_handler(
+            &self
+                .deny_handlers
+                .iter()
+                .map(|d| (d.class.clone(), ()))
+                .collect::<Vec<_>>(),
+            class.as_str(),
+        )
+        .and_then(|idx| self.deny_handlers.get(idx).cloned());
+        let Some(handler) = handler else {
+            return Ok(false);
+        };
+        // Observability parity with the runtime gate twin: the event is
+        // on stderr with the same audit-event convention (№325/№328).
+        eprintln!(
+            "[DENY_EVENT][audit-event] {} refused {} (class {}, reason {}, line {}) — handled by on_deny({})",
+            sink, argument, class, reason, line, handler.class
+        );
+        let event =
+            crate::deny::make_event(&reason, &sink, &class, &argument, &label, line, &human);
+        *self
+            .current_deny_event
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = Some(event);
+        let mut handler_env = HashMap::new();
+        let result = self.eval_statements(&handler.body, &mut handler_env);
+        *self
+            .current_deny_event
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = None;
+        // A failing handler is loud — a broken degradation path must not
+        // masquerade as a handled refusal.
+        result?;
+        Ok(true)
+    }
+
+    /// Наряд №392: the live deny event (Some exactly while an on_deny
+    /// body runs). Outside a handler this is a loud error — the event is
+    /// runtime-constructed and cannot be forged or stale-read.
+    pub(super) fn take_deny_event(&self) -> Result<Value, String> {
+        self.current_deny_event
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+            .ok_or_else(|| "deny_event() is only available inside an on_deny handler".to_string())
+    }
+
     /// Write-builtin names that trigger on_write hooks.
     pub(super) const WRITE_BUILTINS: &'static [&'static str] = &[
         "mem_set",
@@ -54,11 +135,77 @@ impl Interpreter {
         // Save original few-shot for rollback
         let original_few_shot = std::mem::take(&mut learnable.few_shot);
 
-        // Replace with new examples
-        learnable.few_shot = evaluated_examples;
+        // Replace with new examples (cloned — the build-set inputs are
+        // needed below for the held-out split)
+        learnable.few_shot = evaluated_examples.clone();
 
-        // Compute mock accuracy (always 0.95 for MockLlm)
-        let accuracy: f64 = 0.95;
+        // ── Accuracy: REAL golden-task battery (№375, ADR-0112 addendum) ──
+        //
+        // Mock mode (METALOGOS_MOCK_LLM, default-on — the test-mode
+        // convention used across the codebase): the 0.95 stub stays,
+        // loudly documented here and in ADR-0112 — the rollback MECHANISM
+        // is exercised, not a real quality signal.
+        //
+        // Real mode: the mutated pattern is measured on a golden-task
+        // battery — the eval-block datasets registered for this pattern
+        // (ADR-0050) plus the pre-mutation few-shot (the pattern's
+        // established Q→A behavior) — and accuracy is measured ONLY on
+        // held-out tasks (inputs that are NOT the mutation's own new
+        // examples). The answer path is the pattern's real LLM call.
+        let mock_mode = std::env::var("METALOGOS_MOCK_LLM")
+            .map(|v| v == "1" || v.to_lowercase() == "true")
+            .unwrap_or(true);
+        let pattern_name = m.pattern_name.clone();
+        let (accuracy, battery_note) = if mock_mode {
+            // Compute mock accuracy (always 0.95 for MockLlm) — test mode only.
+            (0.95, String::new())
+        } else {
+            // Battery: eval-block datasets for this pattern first, then the
+            // pre-mutation few-shot; dedup by input (first wins).
+            let mut battery: Vec<(String, String)> = Vec::new();
+            let mut seen = std::collections::HashSet::new();
+            for ed in &self.eval_blocks {
+                if ed.pattern_name == pattern_name {
+                    for (input, expected) in &ed.dataset {
+                        if seen.insert(input.clone()) {
+                            battery.push((input.clone(), expected.clone()));
+                        }
+                    }
+                }
+            }
+            for (input, expected) in &original_few_shot {
+                if seen.insert(input.clone()) {
+                    battery.push((input.clone(), expected.clone()));
+                }
+            }
+            let build_inputs: std::collections::HashSet<String> = evaluated_examples
+                .iter()
+                .map(|(input, _)| input.clone())
+                .collect();
+            let report = crate::interpreter::learnable::measure_battery_accuracy(
+                &battery,
+                &build_inputs,
+                |input| self.call_llm_for_battery(&pattern_name, input),
+            );
+            let note = format!(
+                " (battery: {} tasks, held-out {}, correct {}{})",
+                report.battery_size,
+                report.held_out,
+                report.correct,
+                if report.below_minimum {
+                    ", BELOW MINIMUM 20"
+                } else {
+                    ""
+                }
+            );
+            if report.held_out == 0 {
+                eprintln!(
+                    "[MUTATE] WARNING: no held-out battery tasks for '{}' — accuracy counts as 0.0 (no evidence, no keep)",
+                    pattern_name
+                );
+            }
+            (report.accuracy, note)
+        };
 
         // Check against threshold
         // "kept = true" means the mutation is KEPT (not rolled back).
@@ -82,10 +229,11 @@ impl Interpreter {
         if kept {
             // Keep the new examples (already in place)
             let msg = Ok(format!(
-                "[MUTATE] {}: accuracy={}, kept (>= {:.1})",
+                "[MUTATE] {}: accuracy={}, kept (>= {:.1}){}",
                 m.pattern_name,
                 accuracy,
-                m.rollback_threshold.unwrap_or(0.0)
+                m.rollback_threshold.unwrap_or(0.0),
+                battery_note
             ));
             // Phase 7.5: Audit log for mutate operations (after releasing mutable borrow)
             self.push_audit(format!(
@@ -103,10 +251,11 @@ impl Interpreter {
                 })?;
             learnable.few_shot = original_few_shot;
             let msg = Ok(format!(
-                "[MUTATE] {}: accuracy={}, rolled back (below {:.1})",
+                "[MUTATE] {}: accuracy={}, rolled back (below {:.1}){}",
                 m.pattern_name,
                 accuracy,
-                m.rollback_threshold.unwrap_or(0.0)
+                m.rollback_threshold.unwrap_or(0.0),
+                battery_note
             ));
             // Phase 7.5: Audit log for mutate operations (rolled back)
             self.push_audit(format!(

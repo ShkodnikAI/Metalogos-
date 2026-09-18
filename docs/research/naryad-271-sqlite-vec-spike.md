@@ -1,24 +1,24 @@
-# Наряд №271 — Спайк sqlite-vec: биндинги, размер, платформы, бенчмарк, Go/No-Go
+# Naryad #271 — sqlite-vec spike: bindings, size, platforms, benchmark, Go/No-Go
 
-> **Статус:** вердикт **GO** (вердикт-гейт диспатча #316: решает исполнитель по спайку, ADR пост-фактум → ADR-0134)
-> **Дата:** 2026-09-12 · **Постановка:** issue #307 · **База:** main `2afa719`
-> **Ветка-спайк:** `naryad-271-sqlite-vec` (`4bc40de`, draft PR #334 — никогда не мержится; в main попадает только этот документ и ADR-0134)
-> **Окружение:** cargo/rustc 1.98.1, Linux x86_64, 2 vCPU Intel Xeon, criterion 0.8.2
-> **Исполнитель:** Super Z (агент) по контракту наряда AGENT.md §8
+> **Status:** verdict **GO** (verdict gate of dispatch #316: decided by the spike performer, ADR post-hoc → ADR-0134)
+> **Date:** 2026-09-12 · **Assignment:** issue #307 · **Base:** main `2afa719`
+> **Spike branch:** `naryad-271-sqlite-vec` (`4bc40de`, draft PR #334 — never merged; only this document and ADR-0134 land in main)
+> **Environment:** cargo/rustc 1.98.1, Linux x86_64, 2 vCPU Intel Xeon, criterion 0.8.2
+> **Performer:** Super Z (agent) under the naryad contract AGENTS.md §8
 
-## 1. Постановка и сверка фактов по коду (AGENT.md §1)
+## 1. Assignment and fact verification against the code (AGENTS.md §1)
 
-Все факты постановки подтверждены по коду `2afa719`:
+All assignment facts confirmed against code `2afa719`:
 
-- Память Metalogos — SQLite через `rusqlite 0.40.2` (Cargo.lock; `bundled` — статическая C-сборка SQLite в процессе). Таблица `memories` хранит эмбеддинг как `BLOB` little-endian f32 (`SqliteStore::embedding_to_blob` / `blob_to_embedding`, `src/memory_store.rs:457/466`).
-- Semantic recall — полный скан: `cosine_similarity` из `src/embeddings.rs:297` (скалярный dot/нормы, без SIMD) применяется в 4 местах `src/memory_store.rs` (строки 95, 198, 562, 765): дефолтный TW-путь `recall_top_k`, `SqliteStore::recall_top_k`, `SqliteStore::recall`, kg-блок. Реальная стоимость запроса = SELECT всех строк + decode каждого BLOB + скалярный cosine по каждой строке.
-- `sqlite-vec` в `Cargo.toml` отсутствовал — подтверждено.
-- FEATURE_INTAKE §5: бинарник (Linux x86_64) ~6 MB (warning 8 MB, лимит 12 MB); новые зависимости на версию: warning 2, лимит 5.
-- Крейт выбран по постановке: `sqlite-vec 0.1.9` (asg017, MIT; последняя стабильная на 2026-09-12; 2.8M загрузок; alpha-линия 0.1.10 не используется).
+- Metalogos memory is SQLite via `rusqlite 0.40.2` (Cargo.lock; `bundled` — a statically linked in-process C build of SQLite). The `memories` table stores the embedding as a `BLOB` of little-endian f32 (`SqliteStore::embedding_to_blob` / `blob_to_embedding`, `src/memory_store.rs:457/466`).
+- Semantic recall — a full scan: `cosine_similarity` from `src/embeddings.rs:297` (scalar dot/norms, no SIMD) is applied in 4 places in `src/memory_store.rs` (lines 95, 198, 562, 765): the default TW path `recall_top_k`, `SqliteStore::recall_top_k`, `SqliteStore::recall`, the kg block. The real cost of a query = SELECT of all rows + decode of each BLOB + scalar cosine over each row.
+- `sqlite-vec` was absent from `Cargo.toml` — confirmed.
+- FEATURE_INTAKE §5: binary (Linux x86_64) ~6 MB (warning 8 MB, limit 12 MB); new dependencies per version: warning 2, limit 5.
+- Crate chosen per the assignment: `sqlite-vec 0.1.9` (asg017, MIT; latest stable as of 2026-09-12; 2.8M downloads; the 0.1.10 alpha line is not used).
 
-## 2. Совместимость: sqlite-vec + rusqlite 0.40 bundled
+## 2. Compatibility: sqlite-vec + rusqlite 0.40 bundled
 
-**Факт-чек постановки подтверждён: feature `load_extension` НЕ нужна.** Интеграционный контракт — статическая регистрация расширения как auto-extension, до открытия соединения:
+**Assignment fact-check confirmed: the feature `load_extension` is NOT needed.** The integration contract is static registration of the extension as an auto-extension, before opening the connection:
 
 ```rust
 use rusqlite::ffi::sqlite3_auto_extension;
@@ -27,87 +27,87 @@ unsafe {
         sqlite_vec::sqlite3_vec_init as *const (),
     )));
 }
-// каждый НОВЫЙ Connection (в т.ч. open_in_memory) получает vec0
+// every NEW Connection (including open_in_memory) gets vec0
 ```
 
-- Smoke-тест `tests/naryad_271_sqlite_vec_spike.rs` на rusqlite 0.40.2 bundled: **PASS** — `SELECT vec_version()` → `v0.1.9` (расширение загрузилось), `CREATE VIRTUAL TABLE ... USING vec0(embedding float[384] distance_metric=cosine)`, KNN `MATCH ? AND k = 5` вернул k строк, отсортированных по distance, top-1 совпал с полным скалярным сканом.
-- Статическая линковка работает: cc-крейт компилирует `sqlite-vec.c` в `libsqlite_vec0.a`, которая линкуется в бинарник (см. §4). Динамическая загрузка `.so`/`.dll` не используется вообще — это устраняет целый класс платформенных проблем загрузки расширений.
-- `distance_metric=cosine` в vec0 поддержан и проверен; на единичных векторах ранжирование идентично L2 (проверено диагностическим пробником на обоих метриках — абсолютные дистанции разные, порядок тот же), что даёт совместимость с существующим cosine-контрактом `memory_store`.
+- Smoke test `tests/naryad_271_sqlite_vec_spike.rs` on rusqlite 0.40.2 bundled: **PASS** — `SELECT vec_version()` → `v0.1.9` (the extension loaded), `CREATE VIRTUAL TABLE ... USING vec0(embedding float[384] distance_metric=cosine)`, KNN `MATCH ? AND k = 5` returned k rows sorted by distance, and top-1 matched the full scalar scan.
+- Static linking works: the cc crate compiles `sqlite-vec.c` into `libsqlite_vec0.a`, which is linked into the binary (see §4). Dynamic loading of `.so`/`.dll` is not used at all — this eliminates an entire class of platform-specific extension-loading problems.
+- `distance_metric=cosine` is supported in vec0 and verified; on unit vectors the ranking is identical to L2 (verified with a diagnostic probe on both metrics — absolute distances differ, the order is the same), which gives compatibility with the existing cosine contract of `memory_store`.
 
-## 3. Корректность KNN
+## 3. KNN correctness
 
-- Smoke: 1000 векторов dim=384 (детерминированный PRNG), KNN k=5 — top-1 vec0 == top-1 полного скалярного скана.
-- Бенчмарк: встроенная верификация top-1 на обоих масштабах — `bf=0.815460, vec0=0.815460` (10K и 100K).
-- Два бага в процессе спайка найдены **в собственном коде спайка** (не в vec0) и исправлены; зафиксированы как уроки:
-  1. Сид генератора `seed | 1` схлопывал соседние сиды (42 и 43) в одно состояние — получались векторы-дубликаты, и «расхождение топ-1» было выбором между двумя равными векторами. Диагностика пробником с прямыми дистанциями показала `distance=0.00000000` у обоих rowid — **vec0 считал корректно с самого начала**. Фикс — murmur3-финализатор сида.
-  2. В бенчмарке запрос для полного скана и запрос для vec0 генерировались из разных PRNG-потоков — сравнивались разные запросы. Фикс — единый вектор запроса для обоих путей.
+- Smoke: 1000 vectors dim=384 (deterministic PRNG), KNN k=5 — top-1 of vec0 == top-1 of the full scalar scan.
+- Benchmark: built-in top-1 verification at both scales — `bf=0.815460, vec0=0.815460` (10K and 100K).
+- Two bugs found during the spike were **in the spike's own code** (not in vec0) and were fixed; recorded as lessons:
+  1. The generator seed `seed | 1` collapsed adjacent seeds (42 and 43) into one state — duplicate vectors resulted, and the "top-1 divergence" was a choice between two equal vectors. Diagnosis with a probe using direct distances showed `distance=0.00000000` for both rowids — **vec0 computed correctly from the very start**. Fix — a murmur3 finalizer for the seed.
+  2. In the benchmark, the query for the full scan and the query for vec0 were generated from different PRNG streams — different queries were being compared. Fix — a single query vector for both paths.
 
-## 4. Размер бинарника
+## 4. Binary size
 
-Методика: минимальный probe-крейт с тем же rusqlite 0.40 bundled, что у Metalogos; два релизных бинарника на одном дереве deps — без vec и с реальным использованием vec-пути (регистрация + vec0 + KNN; неиспользуемый код линкер выбрасывает, поэтому замер именно с использованием). Релизный профиль Metalogos (default, без strip-настроек) воспроизведён.
+Method: a minimal probe crate with the same rusqlite 0.40 bundled as Metalogos; two release binaries on the same dep tree — one without vec and one with real use of the vec path (registration + vec0 + KNN; the linker discards unused code, hence the measurement is taken with actual use). The Metalogos release profile (default, no strip settings) was reproduced.
 
-| Замер | Байт | MB |
+| Measurement | Bytes | MB |
 |---|---|---|
-| База (rusqlite bundled, без vec) | 2 590 960 | 2.47 |
-| + sqlite-vec (реальное использование) | 2 740 280 | 2.61 |
-| **Дельта** | **149 320** | **0.15** |
+| Base (rusqlite bundled, no vec) | 2 590 960 | 2.47 |
+| + sqlite-vec (real use) | 2 740 280 | 2.61 |
+| **Delta** | **149 320** | **0.15** |
 
-- Скомпилированный C: `sqlite-vec.o` 256 952 B (~251 KB), `libsqlite_vec0.a` 259 848 B (~254 KB) — заявка upstream «~100KB C» относится к исходнику; скомпилированный объект ~4× больше, в бинарник после линковки попадает ~146 KB.
-- Прогноз для `mlog` (сейчас ~6 MB): ≈ 6.15 MB — заметно ниже warning-порога 8 MB (FEATURE_INTAKE §5).
-- Оговорка честности: дельта мерялась на probe-бинарнике, не на самом `mlog`; добавка аддитивна и от остального бинарника не зависит, финальное подтверждение — релизная сборка №272.
+- Compiled C: `sqlite-vec.o` 256 952 B (~251 KB), `libsqlite_vec0.a` 259 848 B (~254 KB) — the upstream claim "~100KB C" refers to the source; the compiled object is ~4× larger, and ~146 KB ends up in the binary after linking.
+- Projection for `mlog` (currently ~6 MB): ≈ 6.15 MB — noticeably below the 8 MB warning threshold (FEATURE_INTAKE §5).
+- Honesty caveat: the delta was measured on the probe binary, not on `mlog` itself; the addition is additive and independent of the rest of the binary, final confirmation — the release build of naryad #272.
 
-**Go-критерий «дельта < 2 MB»: выполнен с ~13-кратным запасом.**
+**Go criterion "delta < 2 MB": met with a ~13× margin.**
 
-## 5. Производительность: KNN против текущего полного скана
+## 5. Performance: KNN vs the current full scan
 
-criterion 0.8.2, дефолтные параметры, release bench-профиль; три измерения на масштаб: текущий путь (BLOB→decode→скалярный cosine), cosine без decode (нижняя граница текущего пути), sqlite-vec KNN (vec0, cosine-метрика). k=10, dim=384.
+criterion 0.8.2, default parameters, release bench profile; three measurements per scale: the current path (BLOB→decode→scalar cosine), cosine without decode (lower bound of the current path), sqlite-vec KNN (vec0, cosine metric). k=10, dim=384.
 
-| N векторов | полный скан (текущий путь) | cosine без decode | **sqlite-vec KNN** | ускорение |
+| N vectors | full scan (current path) | cosine without decode | **sqlite-vec KNN** | speedup |
 |---|---|---|---|---|
 | 10 000 | 8.78 ms | 6.52 ms | **4.41 ms** | 1.99× |
 | 100 000 | 111.6 ms | 82.0 ms | **57.6 ms** | 1.94× |
 
-- Скорость вставки: **~81–84 тыс. векторов/с** (транзакция, in-memory, float[384]) — 100K-корпус наполняется за ~1.2 с, батч-дозаполнение памяти не будет узким местом.
-- **Честная интерпретация:** sqlite-vec 0.1.9 — это тоже brute-force (линейный скан с SIMD-ядром на C), НЕ ANN-индекс. Выигрыш ~2× складывается из SIMD и скана внутри SQLite (не нужна выгрузка всех строк и decode BLOB в Rust). Декод-часть текущего пути стоит ~25% (8.78→6.52 ms на 10K), математика — остальное.
-- Значение для продукта: на 100K записей текущий recall — 112 мс на запрос (граница интерактивности), vec0 — 58 мс; главное — KNN уходит ВНУТРЬ SQLite (не материализуем всю таблицу в Rust на каждый запрос), что и есть архитектурная база Phase 4 (центроиды сценариев, `recall_from_scenario`).
+- Insert speed: **~81–84K vectors/s** (transaction, in-memory, float[384]) — the 100K corpus fills in ~1.2 s, batch memory backfill will not be a bottleneck.
+- **Honest interpretation:** sqlite-vec 0.1.9 is also brute-force (a linear scan with a SIMD core in C), NOT an ANN index. The ~2× win comes from SIMD and from the scan running inside SQLite (no need to pull all rows and decode BLOBs into Rust). The decode part of the current path costs ~25% (8.78→6.52 ms at 10K), the math is the rest.
+- Product significance: at 100K records the current recall is 112 ms per query (the edge of interactivity), vec0 — 58 ms; the main point — KNN moves INSIDE SQLite (the whole table is no longer materialized in Rust on every query), which is the architectural base of Phase 4 (scenario centroids, `recall_from_scenario`).
 
-**Go-критерий «KNN 10K×384 < 50 ms»: выполнен (4.4 ms, запас ~11×).**
+**Go criterion "KNN 10K×384 < 50 ms": met (4.4 ms, ~11× margin).**
 
-## 6. Платформы
+## 6. Platforms
 
-| Платформа | Статус | Доказательство |
+| Platform | Status | Evidence |
 |---|---|---|
-| Linux x86_64 | **VERIFIED** | локально: cc-сборка + smoke + bench (этот отчёт) |
-| macOS (arm64, github-runner) | **VERIFIED** | джоба `macos-check (non-blocking)` на ветке-спайке: `cargo check --workspace --features portable --all-targets` — success (portable включает vec на спайке) |
-| Windows (github-runner) | **VERIFIED** | та же джоба `windows-check (non-blocking)` на ветке-спайке (`4bc40de`): `cargo check --workspace --features portable --all-targets` — success |
-| wasm32-unknown-unknown (браузер) | **NO-GO на текущем стеке** | см. ниже |
-| wasm32-wasip1 | путь существует, не проверен | требует wasi-sdk (clang-wasi); в build.rs libsqlite3-sys 0.38.2 есть выделенная ветка wasm32-wasi (`SQLITE_THREADSAFE=0`, эмуляции mmap/getpid/signal, опциональный wasm32-wasi-vfs) |
+| Linux x86_64 | **VERIFIED** | locally: cc build + smoke + bench (this report) |
+| macOS (arm64, github-runner) | **VERIFIED** | the `macos-check (non-blocking)` job on the spike branch: `cargo check --workspace --features portable --all-targets` — success (portable includes vec on the spike) |
+| Windows (github-runner) | **VERIFIED** | same `windows-check (non-blocking)` job on the spike branch (`4bc40de`): `cargo check --workspace --features portable --all-targets` — success |
+| wasm32-unknown-unknown (browser) | **NO-GO on the current stack** | see below |
+| wasm32-wasip1 | path exists, not verified | requires wasi-sdk (clang-wasi); the build.rs of libsqlite3-sys 0.38.2 has a dedicated wasm32-wasi branch (`SQLITE_THREADSAFE=0`, mmap/getpid/signal emulations, optional wasm32-wasi-vfs) |
 
-WASM-факты:
-- `cargo check --target wasm32-unknown-unknown` (probe-крейт rusqlite bundled + sqlite-vec): падает — cc-rs не находит C-тулчейн для wasm-таргета; в build.rs libsqlite3-sys 0.38.2 ветки для wasm32-unknown-unknown нет. Браузерный путь через rusqlite невозможен без переписывания стековой базы — согласовано с вердиктом №278 (wasm-спайк: No-Go для рантайма в текущей форме, Go-путь — отдельный Go-стек Playground).
-- Сам sqlite-vec wasm-совместим: upstream поставляет wasm-сборку для SQLite-WASM («in the browser with WASM»). Для Go-пути Playground (№278) память в браузере — это SQLite-WASM + sqlite-vec.wasm, отдельная от rusqlite линия.
+WASM facts:
+- `cargo check --target wasm32-unknown-unknown` (probe crate rusqlite bundled + sqlite-vec): fails — cc-rs does not find a C toolchain for the wasm target; the build.rs of libsqlite3-sys 0.38.2 has no branch for wasm32-unknown-unknown. The browser path through rusqlite is impossible without rewriting the stack base — consistent with the verdict of naryad #278 (wasm spike: No-Go for the runtime in its current form, the Go path is a separate Go-stack Playground).
+- sqlite-vec itself is wasm-compatible: upstream ships a wasm build for SQLite-WASM ("in the browser with WASM"). For the Playground Go path (naryad #278), in-browser memory is SQLite-WASM + sqlite-vec.wasm, a line separate from rusqlite.
 
-**Go-критерий «3 ОС без ручных флагов»: выполнен** (Linux локально; macOS/Windows — CI-джобы на ветке-спайке, без единого ручного флага: cc-сборка из build.rs крейта).
+**Go criterion "3 OSes without manual flags": met** (Linux locally; macOS/Windows — CI jobs on the spike branch, without a single manual flag: the cc build from the crate's build.rs).
 
-## 7. Вердикт: GO
+## 7. Verdict: GO
 
-| Критерий (предложение постановки) | Факт | Итог |
+| Criterion (assignment proposal) | Fact | Result |
 |---|---|---|
-| Дельта бинарника < 2 MB | 0.15 MB | PASS (~13× запас) |
-| KNN 10K×384 < 50 ms | 4.41 ms | PASS (~11× запас) |
-| 3 ОС без ручных флагов | Linux локально + macOS/Windows CI-джобы спайка — все success | PASS |
-| (доп.) корректность KNN | top-1 == полному скану на 1K/10K/100K | PASS |
+| Binary delta < 2 MB | 0.15 MB | PASS (~13× margin) |
+| KNN 10K×384 < 50 ms | 4.41 ms | PASS (~11× margin) |
+| 3 OSes without manual flags | Linux locally + macOS/Windows spike CI jobs — all success | PASS |
+| (extra) KNN correctness | top-1 == full scan at 1K/10K/100K | PASS |
 
-Решение исполнителя по механике вердикт-гейта диспатча #316: **GO** — №272 (embed / vec_store / vec_search) реализуется поверх sqlite-vec; черновик ADR-0134 приложен к этому PR.
+Performer's decision under the mechanics of the verdict gate of dispatch #316: **GO** — naryad #272 (embed / vec_store / vec_search) is implemented on top of sqlite-vec; the ADR-0134 draft is attached to this PR.
 
-## 8. Последствия для №272 (проект, подлежит постановке issue #308)
+## 8. Consequences for naryad #272 (draft, pending tasking in issue #308)
 
-- Фича `vec = ["dep:sqlite-vec"]`, off-by-default; предложение: включить в `portable` при мерже №272 (дельта 0.15 MB это позволяет, кросс-ОС CI покроет её постоянно — паттерн candle/vision, ADR-0104 measured impact).
-- Интеграция: регистрация auto-extension при открытии БД памяти; vec0-таблица эмбеддингов; фильтр по `mem_type` — через partition keys vec0 или post-фильтр (решение №272); гибрид RRF сохраняется — BM25 остаётся на FTS5, vec0 заменяет только cosine-половину.
-- Честная граница: brute-force, не ANN; точка пересмотра — 100K+ записей или появление ANN/квантования в upstream sqlite-vec (зафиксировано в ADR-0134 как условие пересмотра).
+- Feature `vec = ["dep:sqlite-vec"]`, off-by-default; proposal: include it in `portable` at the merge of naryad #272 (the 0.15 MB delta allows it, cross-OS CI will cover it continuously — the candle/vision pattern, ADR-0104 measured impact).
+- Integration: auto-extension registration at memory DB open; a vec0 embeddings table; the `mem_type` filter — via vec0 partition keys or post-filtering (decision of naryad #272); the RRF hybrid is preserved — BM25 stays on FTS5, vec0 replaces only the cosine half.
+- Honest boundary: brute-force, not ANN; revisit point — 100K+ records or the appearance of ANN/quantization in upstream sqlite-vec (recorded in ADR-0134 as a revisit condition).
 
-## 9. Артефакты спайка (остаются на ветке, не мержатся)
+## 9. Spike artifacts (stay on the branch, not merged)
 
-- `benches/naryad_271_vec_knn.rs` — criterion-бенчмарк с встроенной верификацией top-1; без фичи `vec` компилируется в пустую заглушку (harness=false bench — бинарник, main обязателен: E0601 первого CI-прогона спайка поймал это, фикс — main в crate root, criterion_main! внутрь модуля не поместить).
-- `tests/naryad_271_sqlite_vec_spike.rs` — smoke-тест интеграционного контракта.
-- `Cargo.toml` — sqlite-vec 0.1.9 optional, фича `vec`, временно в `portable` (SPIKE-метка).
+- `benches/naryad_271_vec_knn.rs` — criterion benchmark with built-in top-1 verification; without the `vec` feature it compiles to an empty stub (harness=false bench — a binary, main is required: E0601 of the spike's first CI run caught this, fix — main in the crate root, criterion_main! cannot be placed inside a module).
+- `tests/naryad_271_sqlite_vec_spike.rs` — smoke test of the integration contract.
+- `Cargo.toml` — sqlite-vec 0.1.9 optional, feature `vec`, temporarily in `portable` (SPIKE marker).

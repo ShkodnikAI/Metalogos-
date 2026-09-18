@@ -1,0 +1,1 @@
+EXPECTED: HTML_INJECTION — json_body в respond без экранирования

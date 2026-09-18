@@ -10,7 +10,7 @@ ls docs/adr/ | sed 's/-.*//' | sort | uniq -d
 
 Must be empty. If not empty, resolve collisions before proceeding.
 
-Numbers are assigned sequentially. The current maximum is in `0094-*`.
+Numbers are assigned sequentially. The current accepted maximum is `0166-*` (ADR-0151 №309 video I2V pipeline; ADR-0152 №320 C2PA Art 50 slice; ADR-0153 №412 video DiT text path; ADR-0154 №322 label lattice; ADR-0162 №331 media handles; ADR-0163 №333 backend registry; ADR-0164 №332 perception origin chain; ADR-0165 №336 backend ladder; ADR-0166 №337 C2PA contour of handles; ADR-0155 №389 grant algebra); the overall maximum is `0166-*` — numbers 0156–0160 are reserved.
 
 ## Reserved numbers (do not reassign)
 
@@ -22,6 +22,22 @@ reports and must not be changed:
 - **ADR-0075** (`tw-vm-divergence`) — referenced in `CHANGELOG.md`,
   `tests/crosscheck_backends.rs`, past Naryad reports
 - **ADR-0076** (`vm-dispatch-paths`) — referenced in `tests/vm_golden.rs`
+
+## Reserved for plan v2 §19 (booking 0155–0161, naryad №319 / issue #406)
+
+Booked 2026-09-14 by naryad №319. Content — the filling naryads of plan v2 phases,
+not №319. The plan's original block 0151–0158 shifted +3: 0151–0153 were taken by
+real ADRs (№309/№320/№412) before the booking.
+
+| # | File | Theme | Filling naryad |
+|---|---|---|---|
+| 0155 | `0155-grant-algebra.md` | Grant algebra — permissions for irreversible operations | №339 — filled 2026-09-17 by naryad #389 (issue #483) |
+| 0156 | `0156-tw-vm-jit-parity.md` | TW/VM/JIT parity contract | №328 |
+| 0157 | `0157-ledger-profile-prov-intoto.md` | Ledger profile — PROV/in-toto alignment | №343 |
+| 0158 | `0158-declassify-boundaries.md` | Declassify boundaries | №326 |
+| 0159 | `0159-sim-first-stl.md` | Sim-first verification — STL semantics | №354 |
+| 0160 | `0160-identifier-naming-convention.md` | Identifier naming convention | (not assigned) |
+| 0161 | `0161-compat-profile.md` | Legacy compatibility profile | №325 |
 
 ## Index
 
@@ -150,9 +166,38 @@ reports and must not be changed:
 | 0124 | `Value::Vision` as opaque handle + `VisionRegistry` — Reflex patterns, VM-owned state | Accepted |
 | 0125 | Provenance and supply-chain gates for generated media | Accepted |
 | 0131 | Stable diagnostic codes for `mlog check` — extending the existing `audit.rs` convention, not a new one | Accepted |
-| 0132 | MCP-клиент — ручной JSON-RPC поверх stdio, stateless, вывод с taint `UserInput` | Accepted (утверждён владельцем 2026-09-12; taint-род вывода MCP |
+| 0132 | MCP client — manual JSON-RPC over stdio, stateless, output with taint `UserInput` | Accepted (approved by owner 2026-09-12; MCP output taint kind |
 | 0133 | `call_llm_schema` — structured LLM output through a hand-rolled JSON-Schema subset validator | Accepted |
-| 0134 | sqlite-vec как KNN-ускоритель semantic recall — вердикт спайка №271: Go | Accepted (вердикт-гейт, решён исполнителем по спайку 2026-09-12) |
-| 0135 | Semantic cache (cache_semantic) + LRU-граница кэша ADR-0047 | Accepted |
-| 0136 | `redact(text, mode)` — PII/секреты как taint-санитайзер; «mask before sink» — единственный легальный путь снятия `Secret`-taint | Accepted (стоп-гейт СГ-2 утверждён владельцем 2026-09-12) |
+| 0134 | sqlite-vec as a KNN accelerator for semantic recall — spike #271 verdict: Go | Accepted (dispatch verdict gate #316: resolved by the spike executor 2026-09-12, as approved by the gate mechanics) |
+| 0135 | Semantic cache (cache_semantic) + LRU bound of the ADR-0047 cache | Accepted |
+| 0136 | redact(text, mode) — PII/secrets as a taint sanitizer | Accepted (stop-gate SG-2 approved by owner 2026-09-12) |
+| 0137 | LLM streaming — `llm_stream_open/next/close` over `reqwest::blocking` | Accepted |
 | 0138 | Per-call LLM traces — file-based JSONL with OpenTelemetry GenAI field names | Accepted |
+| 0139 | SMFS — memory export as a virtual read-only FS (`sm:`) | Proposed (spike #282 draft; spike verdict |
+| 0140 | Diagnostic codes — addendum (no-reuse rule + SSOT-registry discipline) | Accepted |
+| 0141 | VM production-readiness — staged gap closure + parity-gated default flip | Accepted (owner decision 2026-09-14 |
+| 0142 | Error protocol — structural errors through try-extended semantics (candidate B) | Accepted (owner decision 2026-09-14 |
+| 0143 | Voice pillar — scope (TTS, zero-shot cloning, voice-design) | Accepted |
+| 0144 | Voice value-registry — `Value::Audio(AudioId)` opaque handle + VoiceRegistry | Accepted |
+| 0145 | Voice security gates — consent, provenance, privacy, taint | Accepted |
+| 0146 | Voice wedge — Chatterbox Multilingual V3 primary, Kokoro-82M warm-up | Accepted |
+| 0147 | Video pillar — scope (T2V/I2V primary, v2v phase-gated) | Accepted |
+| 0148 | Video value-registry — `Value::Video(VideoId)` opaque handle + VideoRegistry | Accepted |
+| 0149 | Video security gates — likeness consent, provenance, taint, adult policy | Accepted |
+| 0150 | Video wedge — Wan 2.2 primary, CogVideoX-5B warm-up | Accepted |
+| 0151 | Video I2V pipeline — first/last-frame anchors, RIFE-class interpolation, AV sidecar mux | Accepted |
+| 0152 | C2PA mini-slice — Art. 50 synthetic marking on egress (no clearance lattice) | Accepted |
+| 0153 | Video DiT text path wired — prompt embedding genuinely conditions the denoiser | Accepted |
+| 0154 | Label lattice for taint kinds — (conf, integrity, consent-scope) | Accepted |
+| 0155 | Grant algebra — permissions for irreversible operations — Once / N(n) / Unlimited classes, linearity rules 1–6, prior art (№389) | accepted |
+| 0156 | TW/VM/JIT parity contract | reserved |
+| 0157 | Ledger profile — PROV/in-toto alignment | reserved |
+| 0158 | Declassify boundaries | reserved |
+| 0159 | Sim-first verification — STL semantics | reserved |
+| 0160 | Identifier naming convention | reserved |
+| 0161 | Legacy compatibility profile (№325) | accepted |
+| 0162 | Unified media handles and the media store (№331) | accepted |
+| 0163 | Backend registry — classes, SHA-pin, license classes (№333) | accepted |
+| 0164 | Perception AST — HandleSource/Lift/Sink/ProvBind and the origin chain (№332) | accepted |
+| 0165 | BackendSelect — the backend ladder and Degraded(t), typed degradation (№336) | accepted |
+| 0166 | The C2PA contour of media handles — read/write manifests and the generation guarantee (№337) | accepted |

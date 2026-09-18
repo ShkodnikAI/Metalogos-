@@ -1,0 +1,21 @@
+// Naryad #394 (ADR-0168): the MCP tool-policy is COMPILED from the
+// profile — no manual YAML. This exact file is served by the MCP server
+// integration tests (tests/naryad_394_mcp_server.rs) over stdio AND
+// http/sse: the policy block in each tools/list entry's
+// _meta["metalogos.dev/policy"] is generated mechanically from the No316
+// SSOT classification of the builtins the method body calls —
+// notify.send calls write_file (Role::Sink, class "file"), so the policy
+// lists the sink call, marks both arguments that flow into it
+// (message, channel) as clearance-relevant and leaves publishing to the
+// fail-closed allowlist (unchanged No297 posture).
+tool notify {
+  send(message: String, channel: String) -> String {
+    write_file("target/w2_mcp_policy_out.txt", "to " + channel + ": " + message)
+    return "sent:" + message
+  }
+}
+
+pattern PolicyDemo(_tick: String) -> String {
+  return "policy:auto|tool:notify.send|sinks:1"
+}
+flow Main { input: String = "tick" -> PolicyDemo -> output }

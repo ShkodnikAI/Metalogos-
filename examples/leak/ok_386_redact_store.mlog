@@ -1,0 +1,13 @@
+// Легально (№386 green): вывод LLM санитизируется ДО записи — ключ не
+// становится заражённым, реестр нечего записывать, поток recall→respond
+// во втором паттерне чист.
+pattern StoreDraft(data: String) -> String {
+  let _ = memorize("note386", redact(call_llm(data), "hash_only"))
+  return "stored"
+}
+pattern ShowDraft(_tick: String) -> String {
+  let v = recall("note386")
+  let _ = respond("200 OK", v)
+  return "ok"
+}
+flow Main { input: String = "x" -> ShowDraft -> output }

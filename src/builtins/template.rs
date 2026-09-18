@@ -408,6 +408,13 @@ fn value_to_string(v: &Value) -> String {
         Value::Secret(_) => "[Secret]".to_string(),
         Value::Encrypted(_) => "[Encrypted]".to_string(),
         Value::Hash(_) => "[Hash]".to_string(),
+        // Naryad #390 (ADR-0155): grants render as the bare opaque tag —
+        // no capability detail enters interpolation output.
+        Value::Grant(_) => "[Grant]".to_string(),
+        // Naryad #387 (ADR-0149 D1/D6): likeness handles render as the
+        // bare opaque tag — no ritual detail enters interpolation output.
+        Value::LikenessChallenge(_) => "[LikenessChallenge]".to_string(),
+        Value::Likeness(_) => "[LikenessToken]".to_string(),
         Value::Session(_) => "[Session]".to_string(),
         Value::HttpResponse { status, .. } => format!("[HttpResponse {}]", status),
         Value::Subgraph(snap) => format!(
@@ -430,6 +437,18 @@ fn value_to_string(v: &Value) -> String {
         Value::BpeVocab(id) => format!("[BpeVocab#{}]", id.0),
         // Наряд №210: Vision handle in template rendering — лекала Reflex.
         Value::Vision(id) => format!("[Vision#{}]", id.0),
+        // Наряд №302: Voice/Audio handle in template rendering.
+        Value::Voice(id) => format!("[Voice#{}]", id.0),
+        Value::Audio(id) => format!("[Audio#{}]", id.0),
+        // Наряд №307: Video handle in template rendering.
+        Value::Video(id) => format!("[Video#{}]", id.0),
+        // Наряд №275 (ADR-0137): LLM stream handle in template rendering —
+        // лекала Reflex/Vision. Opaque — printing the handle leaks the
+        // active stream's identity, never the response body.
+        Value::LlmStream(id) => format!("[LlmStream#{}]", id.0),
+        // Наряд №331 (ADR-0162): media handles in template rendering —
+        // лекала Vision/Voice. Opaque — only the per-kind index renders.
+        Value::Media(h) => format!("{}", h),
     }
 }
 

@@ -27,6 +27,17 @@ use crate::llm;
 
 /// The METALOGOS stack-based virtual machine.
 pub struct Vm {
+    /// Runtime label environment (Наряд №328): variable → ADR-0154
+    /// label. Seeded by LabelJoin, consulted by SinkCheck.
+    label_env: std::collections::BTreeMap<String, crate::labels::Label>,
+    /// №370: stack of VALUE-EXPRESSION registers (BeginValueExpr/
+    /// KeepLastValue/EndValueExpr) — the last-value registers of block
+    /// value forms live here, NOT in stack cells, so arbitrary expression
+    /// positions are safe (no temporaries can be clobbered). Nested value
+    /// forms nest registers; execute_code saves/restores the stack per
+    /// invocation so an early Return inside a branch cannot leak a
+    /// register into the caller's execution.
+    value_registers: Vec<Value>,
     /// Global variable slots.
     globals: Vec<Value>,
     /// Global variable names (index = slot).
@@ -62,6 +73,9 @@ pub struct Vm {
     server_json_body: Option<Value>,
     /// Query string parameters (injected by server before route execution).
     server_query_params: Option<std::collections::HashMap<String, String>>,
+    /// Path parameters extracted from a templated route (Наряд №283).
+    /// Parity with server_query_params — `server_path_param(name)` builtin.
+    server_path_params: Option<std::collections::HashMap<String, String>>,
     /// User roles for RBAC (injected by server before route execution).
     server_user_roles: Vec<String>,
     /// Наряд №72: Conversations storage (ADR-0053 parity with interpreter).
@@ -88,14 +102,33 @@ pub struct Vm {
     /// handler to resolve bare-Ident model references like
     /// `reflex_train(TestClassifier, ...)` → `Value::Reflex(id)`.
     reflex_names: HashMap<String, crate::nn::ReflexId>,
+    /// Наряд №392: the DenyEvent currently being handled (Some exactly
+    /// while an on_deny body runs). deny_event()/deny_reason() read it
+    /// inside `call_builtin`; outside a handler both are loud runtime
+    /// errors — the event cannot be forged or stale-read.
+    current_deny_event: Option<Value>,
+    /// №392: deny handlers lifted from `program.deny_handlers` at
+    /// load_program — consulted by the deny path regardless of WHICH
+    /// program reference the executing code sees (flow steps execute
+    /// pattern bodies against a synthetic empty Program, so the handler
+    /// table must live on the VM like the pattern table does).
+    deny_handlers: Vec<CompiledDenyHandler>,
     /// Наряд №240 (Vision R4.2): vision artifact registry — stores generated
     /// PNG buffers. `Value::Vision(VisionId)` indexes into this. No Mutex —
     /// same single-threaded-per-request rationale as `reflex_registry` above.
     vision_registry: crate::vision::VisionRegistry,
+    /// Наряд №331 (ADR-0162): unified media store — the VM's own byte state
+    /// behind `Value::Media(MediaHandle)` opaque handles. No Mutex (same
+    /// single-threaded rationale); the shared dispatches in
+    /// src/builtins/media.rs keep both backends identical.
+    media_store: crate::media::MediaStore,
     /// Наряд №240 (Vision R4.2): maps declaration name → compiled parameters.
     /// Populated by `load_program` when processing `program.vision_decls`.
     /// Used by the `vision_generate` intercept to resolve the declaration.
     vision_decls: HashMap<String, crate::bytecode::CompiledVisionDecl>,
+    /// Наряд №332 (ADR-0164): registered `origin` declarations for the
+    /// media_source_capture / media_bind_origin intercepts.
+    origin_decls: HashMap<String, crate::bytecode::CompiledOriginDecl>,
     /// Наряд №204 (ADR-0121 stage 2): memory persist path from
     /// `memory { persist: "path.db" }` declaration. Enables reflex_save/
     /// reflex_load on the VM (same field the interpreter has at
@@ -122,6 +155,8 @@ impl Vm {
         let builtin_names = crate::builtins::builtin_names();
 
         Vm {
+            label_env: std::collections::BTreeMap::new(),
+            value_registers: Vec::new(),
             globals: Vec::new(),
             global_names: Vec::new(),
             patterns: Vec::new(),
@@ -139,6 +174,7 @@ impl Vm {
             collections_loaded: false,
             server_json_body: None,
             server_query_params: None,
+            server_path_params: None,
             server_user_roles: Vec::new(),
             conversations: std::sync::Mutex::new(HashMap::new()),
             conversation_config: ConversationConfig::default(),
@@ -147,8 +183,12 @@ impl Vm {
             pattern_stats: std::sync::Mutex::new(HashMap::new()),
             reflex_registry: crate::nn::ReflexRegistry::new(),
             reflex_names: HashMap::new(),
+            current_deny_event: None,
+            deny_handlers: Vec::new(),
             vision_registry: crate::vision::VisionRegistry::new(),
+            media_store: crate::media::MediaStore::new(),
             vision_decls: HashMap::new(),
+            origin_decls: HashMap::new(),
             memory_persist_path: None,
             distill_states: HashMap::new(),
         }
@@ -179,6 +219,10 @@ impl Vm {
         self.globals = vec![Value::Unit; program.globals.len()];
         self.global_names = program.globals.clone();
         self.collections_loaded = program.collections_loaded;
+        // №392: lift the deny handler table onto the VM (flow steps run
+        // pattern bodies against a synthetic empty Program — see
+        // invoke_step — so the deny path reads the VM's own table).
+        self.deny_handlers = program.deny_handlers.clone();
 
         // Наряд №250 (ADR-0122 #208): pre-register ALL patterns declared in
         // main_code so route bodies can dispatch user calls. Root (repro:
@@ -257,6 +301,10 @@ impl Vm {
         for decl in &program.vision_decls {
             self.vision_decls.insert(decl.name.clone(), decl.clone());
         }
+        // Наряд №332 (ADR-0164): register origin declarations.
+        for decl in &program.origin_decls {
+            self.origin_decls.insert(decl.name.clone(), decl.clone());
+        }
 
         // Open database connection if URL is specified
         self.db_conn = program.db_url.as_ref().and_then(|url| {
@@ -308,6 +356,93 @@ impl Vm {
                 // ── Constants & Variables ─────────────────────
                 Instruction::Const(v) => {
                     stack.push(v.clone());
+                    ip += 1;
+                }
+                // ── Runtime labels (Наряд №328, ADR-0156) ─────
+                Instruction::LabelJoin { dst, src } => {
+                    let incoming = if let Some(source) = src.strip_prefix('@') {
+                        runtime_source_label(source)
+                    } else {
+                        self.label_env.get(src).cloned().unwrap_or_default()
+                    };
+                    let merged = self
+                        .label_env
+                        .get(dst)
+                        .cloned()
+                        .unwrap_or_default()
+                        .join(&incoming);
+                    self.label_env.insert(dst.clone(), merged);
+                    ip += 1;
+                }
+                Instruction::SinkCheck {
+                    fn_name,
+                    arg,
+                    line,
+                    arg_index,
+                    deny,
+                } => {
+                    let label = if let Some(source) = arg.strip_prefix('@') {
+                        runtime_source_label(source)
+                    } else {
+                        self.label_env.get(arg).cloned().unwrap_or_default()
+                    };
+                    // Quarantine clears nothing; everything else must be
+                    // public at a sink (the №325 contract, runtime twin).
+                    // EXEC additionally refuses untrusted (№325/№327).
+                    let exec_untrusted = fn_name == "exec" || fn_name == "exec_argv";
+                    if label.conf != crate::labels::Conf::Public
+                        || (exec_untrusted
+                            && label.integrity == crate::labels::Integrity::Untrusted)
+                    {
+                        // №392: the reason class is the SAME sink_check_id
+                        // the static audit uses — the event's reason and
+                        // the diagnostic class agree verbatim.
+                        let reason =
+                            crate::audit::sink_check_id(fn_name, *arg_index as usize, &label);
+                        // №385: the stamp goes through the shared `coded_error`
+                        // so the try classifier (ADR-0169) reads the same
+                        // marker the code constant pins — the message text
+                        // after the stamp is unchanged.
+                        let message = crate::interpreter::values::coded_error(
+                            crate::interpreter::values::CODE_SINK_CLEARANCE_RUNTIME,
+                            format!(
+                                "sink clearance violated at runtime: {} argument '{}' carries label '{}' (line {}) — the static gate and the runtime agree on the verdict; deny reason class: {}",
+                                fn_name,
+                                arg,
+                                label,
+                                line,
+                                reason
+                            ),
+                        );
+                        let class = crate::audit::sink_kind(fn_name);
+                        if deny.is_some() {
+                            // №392: a covering on_deny handler handles the
+                            // refusal — the refused call is skipped and a
+                            // degraded Unit becomes its result. The verdict
+                            // itself is final: the handler cannot re-allow.
+                            let handled = self.vm_fire_on_deny(
+                                program,
+                                fn_name,
+                                arg,
+                                class,
+                                reason,
+                                &format!("{}", label),
+                                *line as f64,
+                                &message,
+                                &mut stack,
+                                &mut call_stack,
+                                ip + 1,
+                            )?;
+                            if handled {
+                                if let Some(path) = deny {
+                                    ip = path.skip_to as usize;
+                                    continue;
+                                }
+                            }
+                        }
+                        eprintln!("[SINK_CLEARANCE][audit-event] {}", message);
+                        return Err(message);
+                    }
                     ip += 1;
                 }
                 Instruction::LoadGlobal(slot) => {
@@ -429,7 +564,35 @@ impl Vm {
                             continue;
                         }
                     }
-                    let result = self.call_builtin(&name, &args)?;
+                    // Наряд №392: a grant refusal (GRANT_*) on an
+                    // irreversible action is a runtime deny event — the
+                    // on_deny handler for the db class handles it (degraded
+                    // Unit pushed by the helper); without a handler the
+                    // loud typed error is unchanged.
+                    let result = match self.call_builtin(&name, &args) {
+                        Ok(r) => r,
+                        Err(e) if e.starts_with("GRANT_") => {
+                            let handled = self.vm_fire_on_deny(
+                                program,
+                                &name,
+                                "sql",
+                                "db",
+                                "IRREVERSIBLE_NO_GRANT",
+                                "bottom",
+                                0.0,
+                                &e,
+                                &mut stack,
+                                &mut call_stack,
+                                ip + 1,
+                            )?;
+                            if handled {
+                                ip += 1;
+                                continue;
+                            }
+                            return Err(e);
+                        }
+                        Err(e) => return Err(e),
+                    };
                     stack.push(result);
                     ip += 1;
                 }
@@ -570,6 +733,10 @@ impl Vm {
                     let left = stack.pop().unwrap_or(Value::Unit);
                     let eq_result = self.eval_cmp(left, right, AstCompareOp::Eq);
                     match eq_result {
+                        // №372: Bool encoding (TW parity) — invert the Bool.
+                        Value::Bool(b) => stack.push(Value::Bool(!b)),
+                        // Legacy .mbc safety: old bytecode may still surface
+                        // Float-encoded booleans through custom paths.
                         Value::Float(f) => {
                             stack.push(Value::Float(if f == 1.0 { 0.0 } else { 1.0 }))
                         }
@@ -882,10 +1049,28 @@ impl Vm {
                 // ── Error Handling ──────────────────────────────
                 // Наряд №91: real `try` for the VM — catch errors locally
                 Instruction::TryEval(inner_code) => {
+                    // №374 (ADR-0142): structured result — the shared
+                    // `try_result_struct` builds the SAME shape as the TW
+                    // (error information is no longer discarded as Unit).
                     let inner: Vec<Instruction> = inner_code.clone();
                     match self.execute_code(&inner, &mut stack, &mut call_stack, program) {
-                        Ok(val) => stack.push(val),
-                        Err(_) => stack.push(Value::Unit),
+                        Ok(val) => stack.push(crate::interpreter::values::try_result_struct(
+                            true, val, None,
+                        )),
+                        Err(e) => {
+                            // №385 (ADR-0169): the SAME shared classifier as the
+                            // TW — one error string, one code, both backends.
+                            eprintln!("[try] caught error: {}", e);
+                            stack.push(crate::interpreter::values::try_result_struct(
+                                false,
+                                Value::Unit,
+                                Some((
+                                    crate::interpreter::values::stable_try_error_code(&e)
+                                        .to_string(),
+                                    e,
+                                )),
+                            ));
+                        }
                     }
                     ip += 1;
                 }
@@ -930,11 +1115,59 @@ impl Vm {
                     let haystack = stack.pop().unwrap_or(Value::Unit);
                     let result = match (&haystack, &needle) {
                         (Value::String(h), Value::String(n)) => {
-                            Value::Float(if h.starts_with(n.as_str()) { 1.0 } else { 0.0 })
+                            Value::Bool(h.starts_with(n.as_str()))
                         }
-                        _ => Value::Float(0.0),
+                        _ => Value::Bool(false),
                     };
                     stack.push(result);
+                    ip += 1;
+                }
+                // ── Match (№369, ADR-0141 Stage 1.1) ──────────
+                Instruction::MatchTest(test) => {
+                    // Compare arms pop the threshold FIRST (the compiler
+                    // emits threshold evaluation right before the test),
+                    // then the scrutinee. Other arms pop just the
+                    // scrutinee. The predicate is the SHARED
+                    // MatchTest::matches — same code TW runs.
+                    let ok = match test {
+                        MatchTest::Compare(op) => {
+                            let threshold = stack.pop().unwrap_or(Value::Unit);
+                            let scrutinee = stack.pop().unwrap_or(Value::Unit);
+                            crate::ast::MatchArm::compare_values(&scrutinee, op, &threshold)
+                        }
+                        other => {
+                            let scrutinee = stack.pop().unwrap_or(Value::Unit);
+                            other.matches(&scrutinee, &Value::Unit)
+                        }
+                    };
+                    stack.push(Value::Bool(ok));
+                    ip += 1;
+                }
+                // ── Value expressions (№370, ADR-0141 Stage 1.2) ──
+                Instruction::Dup => {
+                    let top = stack.last().cloned().unwrap_or(Value::Unit);
+                    stack.push(top);
+                    ip += 1;
+                }
+                Instruction::BeginValueExpr => {
+                    self.value_registers.push(Value::Unit);
+                    ip += 1;
+                }
+                Instruction::KeepLastValue => {
+                    // TW eval_statements_cf contract: only a NON-Unit value
+                    // updates the register; a trailing Unit-valued
+                    // statement does not reset it.
+                    let val = stack.pop().unwrap_or(Value::Unit);
+                    if !matches!(val, Value::Unit) {
+                        if let Some(reg) = self.value_registers.last_mut() {
+                            *reg = val;
+                        }
+                    }
+                    ip += 1;
+                }
+                Instruction::EndValueExpr => {
+                    let reg = self.value_registers.pop().unwrap_or(Value::Unit);
+                    stack.push(reg);
                     ip += 1;
                 }
             }
@@ -960,6 +1193,23 @@ impl Vm {
     /// Execute a block of code (e.g., pattern body) and return the result.
     /// This handles the call stack and Return instructions internally.
     pub fn execute_code(
+        &mut self,
+        code: &[Instruction],
+        stack: &mut Vec<Value>,
+        call_stack: &mut Vec<CallFrame>,
+        program: &Program,
+    ) -> Result<Value, String> {
+        // №370: register-stack isolation — a pattern/route executed via a
+        // CallPattern from inside another function's value expression must
+        // not see (or leak through an early Return into) the caller's open
+        // registers. Save/restore around the inner loop.
+        let saved_registers = std::mem::take(&mut self.value_registers);
+        let out = self.execute_code_inner(code, stack, call_stack, program);
+        self.value_registers = saved_registers;
+        out
+    }
+
+    fn execute_code_inner(
         &mut self,
         code: &[Instruction],
         stack: &mut Vec<Value>,
@@ -1047,7 +1297,32 @@ impl Vm {
                             continue;
                         }
                     }
-                    let result = self.call_builtin(&name, &args)?;
+                    // Наряд №392: grant refusal → on_deny (db class),
+                    // same contract as the main-code dispatch site.
+                    let result = match self.call_builtin(&name, &args) {
+                        Ok(r) => r,
+                        Err(e) if e.starts_with("GRANT_") => {
+                            let handled = self.vm_fire_on_deny(
+                                program,
+                                &name,
+                                "sql",
+                                "db",
+                                "IRREVERSIBLE_NO_GRANT",
+                                "bottom",
+                                0.0,
+                                &e,
+                                stack,
+                                call_stack,
+                                ip + 1,
+                            )?;
+                            if handled {
+                                ip += 1;
+                                continue;
+                            }
+                            return Err(e);
+                        }
+                        Err(e) => return Err(e),
+                    };
                     stack.push(result);
                     ip += 1;
                 }
@@ -1160,6 +1435,10 @@ impl Vm {
                     let left = stack.pop().unwrap_or(Value::Unit);
                     let eq_result = self.eval_cmp(left, right, AstCompareOp::Eq);
                     match eq_result {
+                        // №372: Bool encoding (TW parity) — invert the Bool.
+                        Value::Bool(b) => stack.push(Value::Bool(!b)),
+                        // Legacy .mbc safety: old bytecode may still surface
+                        // Float-encoded booleans through custom paths.
                         Value::Float(f) => {
                             stack.push(Value::Float(if f == 1.0 { 0.0 } else { 1.0 }))
                         }
@@ -1324,11 +1603,54 @@ impl Vm {
                     let haystack = stack.pop().unwrap_or(Value::Unit);
                     let result = match (&haystack, &needle) {
                         (Value::String(h), Value::String(n)) => {
-                            Value::Float(if h.starts_with(n.as_str()) { 1.0 } else { 0.0 })
+                            Value::Bool(h.starts_with(n.as_str()))
                         }
-                        _ => Value::Float(0.0),
+                        _ => Value::Bool(false),
                     };
                     stack.push(result);
+                    ip += 1;
+                }
+                // ── Match (№369, ADR-0141 Stage 1.1) ──────────
+                // Same shared dispatch as execute_main_code — pattern
+                // bodies and route handlers run through execute_code,
+                // so match inside pattern/route bodies lands HERE.
+                Instruction::MatchTest(test) => {
+                    let ok = match test {
+                        MatchTest::Compare(op) => {
+                            let threshold = stack.pop().unwrap_or(Value::Unit);
+                            let scrutinee = stack.pop().unwrap_or(Value::Unit);
+                            crate::ast::MatchArm::compare_values(&scrutinee, op, &threshold)
+                        }
+                        other => {
+                            let scrutinee = stack.pop().unwrap_or(Value::Unit);
+                            other.matches(&scrutinee, &Value::Unit)
+                        }
+                    };
+                    stack.push(Value::Bool(ok));
+                    ip += 1;
+                }
+                // ── Value expressions (№370) — see execute_main_code ──
+                Instruction::Dup => {
+                    let top = stack.last().cloned().unwrap_or(Value::Unit);
+                    stack.push(top);
+                    ip += 1;
+                }
+                Instruction::BeginValueExpr => {
+                    self.value_registers.push(Value::Unit);
+                    ip += 1;
+                }
+                Instruction::KeepLastValue => {
+                    let val = stack.pop().unwrap_or(Value::Unit);
+                    if !matches!(val, Value::Unit) {
+                        if let Some(reg) = self.value_registers.last_mut() {
+                            *reg = val;
+                        }
+                    }
+                    ip += 1;
+                }
+                Instruction::EndValueExpr => {
+                    let reg = self.value_registers.pop().unwrap_or(Value::Unit);
+                    stack.push(reg);
                     ip += 1;
                 }
                 Instruction::MakeStruct(type_name, field_names) => {
@@ -1350,20 +1672,13 @@ impl Vm {
                     let needle = stack.pop().unwrap_or(Value::Unit);
                     let haystack = stack.pop().unwrap_or(Value::Unit);
                     let result = match (&haystack, &needle) {
-                        (Value::String(h), Value::String(n)) => {
-                            Value::Float(if h.contains(n.as_str()) { 1.0 } else { 0.0 })
-                        }
-                        (Value::List(items), _) => Value::Float(
-                            if items
+                        (Value::String(h), Value::String(n)) => Value::Bool(h.contains(n.as_str())),
+                        (Value::List(items), _) => Value::Bool(
+                            items
                                 .iter()
-                                .any(|v| format!("{}", v) == format!("{}", needle))
-                            {
-                                1.0
-                            } else {
-                                0.0
-                            },
+                                .any(|v| format!("{}", v) == format!("{}", needle)),
                         ),
-                        _ => Value::Float(0.0),
+                        _ => Value::Bool(false),
                     };
                     stack.push(result);
                     ip += 1;
@@ -1371,10 +1686,28 @@ impl Vm {
                 // ── Error Handling ──────────────────────────────
                 // Наряд №91: real `try` for the VM — catch errors locally
                 Instruction::TryEval(inner_code) => {
+                    // №374 (ADR-0142): structured result — the shared
+                    // `try_result_struct` builds the SAME shape as the TW
+                    // (error information is no longer discarded as Unit).
                     let inner: Vec<Instruction> = inner_code.clone();
                     match self.execute_code(&inner, stack, call_stack, program) {
-                        Ok(val) => stack.push(val),
-                        Err(_) => stack.push(Value::Unit),
+                        Ok(val) => stack.push(crate::interpreter::values::try_result_struct(
+                            true, val, None,
+                        )),
+                        Err(e) => {
+                            // №385 (ADR-0169): the SAME shared classifier as the
+                            // TW — one error string, one code, both backends.
+                            eprintln!("[try] caught error: {}", e);
+                            stack.push(crate::interpreter::values::try_result_struct(
+                                false,
+                                Value::Unit,
+                                Some((
+                                    crate::interpreter::values::stable_try_error_code(&e)
+                                        .to_string(),
+                                    e,
+                                )),
+                            ));
+                        }
                     }
                     ip += 1;
                 }
@@ -1432,7 +1765,110 @@ impl Vm {
         Ok(Value::List(results))
     }
 
+    /// Наряд №392: fire the on_deny handler for a refused action (VM side).
+    ///
+    /// Selection: exact sink-class match wins over `*` (crate::deny is the
+    /// shared selector). No covering handler → `Ok(false)` and the caller
+    /// keeps the loud default error. While the handler runs,
+    /// `current_deny_event` holds the typed event. The handler's return
+    /// value is discarded; on success the degraded `Unit` is pushed as the
+    /// refused call's result and the caller continues. The verdict is
+    /// final — the handler can only handle a refusal, never re-allow it.
+    #[allow(clippy::too_many_arguments)]
+    fn vm_fire_on_deny(
+        &mut self,
+        program: &Program,
+        sink: &str,
+        argument: &str,
+        class: &str,
+        reason: &str,
+        label: &str,
+        line: f64,
+        human: &str,
+        stack: &mut Vec<Value>,
+        call_stack: &mut Vec<CallFrame>,
+        return_ip: usize,
+    ) -> Result<bool, String> {
+        // ── Naryad #393 (ADR-0167 §3.4): the deny HAPPENED regardless of
+        // whether a handler covers it — the ledger record is written
+        // BEFORE handler selection, as a side effect of the refusal path
+        // itself (runtime-twin parity with the TW hook in
+        // src/interpreter/hooks.rs). Best-effort: loud stderr on failure,
+        // outcome unchanged.
+        crate::ledger::record(
+            &format!("deny.{}", reason),
+            "runtime",
+            class,
+            &format!("{}|{}|{}|{}|{}", sink, argument, label, line, human),
+        );
+        let (handler_class, code) = {
+            let classes: Vec<(String, ())> = self
+                .deny_handlers
+                .iter()
+                .map(|h| (h.class.clone(), ()))
+                .collect();
+            let Some(idx) = crate::deny::select_handler(&classes, class) else {
+                return Ok(false);
+            };
+            (
+                self.deny_handlers[idx].class.clone(),
+                self.deny_handlers[idx].code.clone(),
+            )
+        };
+        eprintln!(
+            "[DENY_EVENT][audit-event] {} refused {} (class {}, reason {}, line {}) — handled by on_deny({})",
+            sink, argument, class, reason, line, handler_class
+        );
+        let event = crate::deny::make_event(reason, sink, class, argument, label, line, human);
+        self.current_deny_event = Some(event);
+        let result = self.run_deny_handler(&code, stack, call_stack, program, return_ip);
+        self.current_deny_event = None;
+        // A failing handler is loud — a broken degradation path must not
+        // masquerade as a handled refusal.
+        result?;
+        stack.push(Value::Unit);
+        Ok(true)
+    }
+
+    /// Наряд №392: execute an on_deny handler body (zero-arg code) with
+    /// the CallPattern frame discipline; the handler's value is discarded.
+    fn run_deny_handler(
+        &mut self,
+        handler_code: &[Instruction],
+        stack: &mut Vec<Value>,
+        call_stack: &mut Vec<CallFrame>,
+        program: &Program,
+        return_ip: usize,
+    ) -> Result<(), String> {
+        let base_bp = stack.len();
+        call_stack.push(CallFrame { return_ip, base_bp });
+        let result = self.execute_code(handler_code, stack, call_stack, program);
+        // Pop the handler's frame AND truncate its locals — the same
+        // cleanup the CallPattern arm performs (a leftover frame would
+        // shadow the caller's base_bp and corrupt every later StoreLocal).
+        stack.truncate(base_bp);
+        call_stack.pop();
+        result.map(|_| ())
+    }
+
     fn call_builtin(&mut self, name: &str, args: &[Value]) -> Result<Value, String> {
+        // ── Наряд №392: the DenyEvent surface ──────────────────────
+        // Handler-scoped, runtime-constructed. The analyzer blocks usage
+        // outside an on_deny handler at compile time; this runtime gate
+        // (event live exactly while the handler body runs) is the second
+        // half of the double protection.
+        if name == "deny_event" || name == "deny_reason" {
+            let event = self.current_deny_event.clone().ok_or_else(|| {
+                "deny_event() is only available inside an on_deny handler".to_string()
+            })?;
+            let reason = match &event {
+                Value::Struct { fields, .. } => {
+                    fields.get("reason").cloned().unwrap_or(Value::Unit)
+                }
+                other => other.clone(),
+            };
+            return Ok(if name == "deny_event" { event } else { reason });
+        }
         if name == "recall" {
             let query = match args.first() {
                 Some(Value::String(s)) => s.clone(),
@@ -1546,7 +1982,7 @@ impl Vm {
             let param_refs: Vec<&dyn rusqlite::types::ToSql> =
                 params.iter().map(|p| p.as_ref()).collect();
             conn.execute(&sql, param_refs.as_slice())
-                .map_err(|e| format!("db_insert() SQL error: {}", e))?;
+                .map_err(|e| crate::interpreter::db::sql_err("db_insert() SQL error", e))?;
             let rowid: i64 = conn
                 .query_row("SELECT last_insert_rowid()", [], |row| row.get(0))
                 .unwrap_or(0);
@@ -1559,17 +1995,13 @@ impl Vm {
                 Some(Value::String(s)) => s.clone(),
                 _ => return Err("query_scalar() expected String SQL".to_string()),
             };
-            let params: Vec<String> = if args.len() > 1 {
+            // Naryad #381 parity fix: bind parameters TYPED (the shared
+            // convert_params SSOT) instead of stringifying them — the old
+            // Float→"3"/Bool→"true" string binds degraded types behind
+            // sqlite affinity (tree-walking binds them typed).
+            let params: Vec<rusqlite::types::Value> = if args.len() > 1 {
                 match &args[1] {
-                    Value::List(items) => items
-                        .iter()
-                        .filter_map(|v| match v {
-                            Value::String(s) => Some(s.clone()),
-                            Value::Float(n) => Some(format!("{}", n)),
-                            Value::Bool(b) => Some(format!("{}", b)),
-                            _ => None,
-                        })
-                        .collect(),
+                    Value::List(items) => crate::interpreter::convert_params(items)?,
                     _ => Vec::new(),
                 }
             } else {
@@ -1581,7 +2013,7 @@ impl Vm {
                 .ok_or_else(|| "query_scalar() error: no database connection.".to_string())?;
             let mut stmt = conn
                 .prepare(&sql)
-                .map_err(|e| format!("query_scalar() SQL error: {}", e))?;
+                .map_err(|e| crate::interpreter::db::sql_err("query_scalar() SQL error", e))?;
             let mut rows = stmt
                 .query_map(rusqlite::params_from_iter(params.iter()), |row| {
                     row.get_ref(0).map(|v| match v {
@@ -1596,10 +2028,17 @@ impl Vm {
                         }
                     })
                 })
-                .map_err(|e| format!("query_scalar() execution error: {}", e))?;
+                .map_err(|e| {
+                    crate::interpreter::db::sql_err("query_scalar() execution error", e)
+                })?;
             match rows.next() {
                 Some(Ok(val)) => return Ok(val),
-                Some(Err(e)) => return Err(format!("query_scalar() row error: {}", e)),
+                Some(Err(e)) => {
+                    return Err(crate::interpreter::db::sql_err(
+                        "query_scalar() row error",
+                        e,
+                    ))
+                }
                 None => return Ok(Value::Unit),
             }
         }
@@ -1610,22 +2049,36 @@ impl Vm {
                 Some(Value::String(s)) => s.clone(),
                 _ => return Err("query() expected String SQL".to_string()),
             };
+            // Naryad #381 parity fix: the VM dropped the optional params list
+            // entirely (stmt.query([])) — any parameterized query failed with
+            // "Wrong number of parameters passed to query. Got 0, needed N",
+            // while the tree-walking backend binds them. The Stage 4
+            // benchmark corpus (naryad #381, ADR-0141 §D5) caught the
+            // divergence; both backends now share the typed convert_params.
+            let params: Vec<rusqlite::types::Value> = if args.len() > 1 {
+                match &args[1] {
+                    Value::List(items) => crate::interpreter::convert_params(items)?,
+                    _ => Vec::new(),
+                }
+            } else {
+                Vec::new()
+            };
             let conn = self
                 .db_conn
                 .as_ref()
                 .ok_or_else(|| "query() error: no database connection.".to_string())?;
             let mut stmt = conn
                 .prepare(&sql)
-                .map_err(|e| format!("query() SQL error: {}", e))?;
+                .map_err(|e| crate::interpreter::db::sql_err("query() SQL error", e))?;
             let col_names: Vec<String> =
                 stmt.column_names().iter().map(|s| s.to_string()).collect();
             let mut rows = stmt
-                .query([])
-                .map_err(|e| format!("query() execution error: {}", e))?;
+                .query(rusqlite::params_from_iter(params.iter()))
+                .map_err(|e| crate::interpreter::db::sql_err("query() execution error", e))?;
             let mut results = Vec::new();
             while let Some(row) = rows
                 .next()
-                .map_err(|e| format!("query() row error: {}", e))?
+                .map_err(|e| crate::interpreter::db::sql_err("query() row error", e))?
             {
                 let mut fields = std::collections::HashMap::new();
                 for (i, col) in col_names.iter().enumerate() {
@@ -1661,17 +2114,12 @@ impl Vm {
                 Some(Value::String(s)) => s.clone(),
                 _ => return Err("db_execute() expected String SQL".to_string()),
             };
-            let params: Vec<String> = if args.len() > 1 {
+            // Naryad #381 parity fix: typed param binding (convert_params
+            // SSOT) instead of stringification — same contract as the
+            // tree-walking backend (Bool→0/1, Float→REAL, no affinity hacks).
+            let params: Vec<rusqlite::types::Value> = if args.len() > 1 {
                 match &args[1] {
-                    Value::List(items) => items
-                        .iter()
-                        .filter_map(|v| match v {
-                            Value::String(s) => Some(s.clone()),
-                            Value::Float(n) => Some(format!("{}", n)),
-                            Value::Bool(b) => Some(format!("{}", b)),
-                            _ => None,
-                        })
-                        .collect(),
+                    Value::List(items) => crate::interpreter::convert_params(items)?,
                     _ => Vec::new(),
                 }
             } else {
@@ -1682,8 +2130,82 @@ impl Vm {
                 .as_ref()
                 .ok_or_else(|| "db_execute() error: no database connection.".to_string())?;
             conn.execute(&sql, rusqlite::params_from_iter(params.iter()))
-                .map_err(|e| format!("db_execute() SQL error: {}", e))?;
+                .map_err(|e| crate::interpreter::db::sql_err("db_execute() SQL error", e))?;
             return Ok(Value::Unit);
+        }
+
+        // db_execute_with_grant(g, sql, params?) — Naryad #390 (ADR-0155):
+        // the granted destructive-SQL action. Same gates as the tree-walking
+        // backend (ledger state/TTL/scope via src/grants.rs, typed binding
+        // via convert_params — the №381 contract); consumption happens only
+        // after the statement succeeded.
+        if name == "db_execute_with_grant" {
+            let handle = match args.first() {
+                Some(Value::Grant(h)) => h.clone(),
+                Some(other) => {
+                    return Err(format!(
+                        "db_execute_with_grant() first argument must be a Grant, got {}",
+                        other.type_name()
+                    ))
+                }
+                None => return Err("db_execute_with_grant() missing grant argument".to_string()),
+            };
+            let sql = match args.get(1) {
+                Some(Value::String(s)) => s.clone(),
+                Some(other) => {
+                    return Err(format!(
+                        "db_execute_with_grant() second argument must be String SQL, got {}",
+                        other.type_name()
+                    ))
+                }
+                None => return Err("db_execute_with_grant() missing sql argument".to_string()),
+            };
+            let params: Vec<rusqlite::types::Value> = if args.len() > 2 {
+                match &args[2] {
+                    Value::List(items) => crate::interpreter::convert_params(items)?,
+                    _ => Vec::new(),
+                }
+            } else {
+                Vec::new()
+            };
+            crate::grants::check_active(&handle)?;
+            let ops = crate::grants::extract_destructive_ops(&sql);
+            let destructive = !ops.is_empty();
+            for (op, table) in &ops {
+                if !crate::grants::scope_covers(&handle.scope, op, table) {
+                    return Err(format!(
+                        "GRANT_SCOPE_MISMATCH: grant {} ({}, scope '{}') does not cover {} {}",
+                        handle.grant_id, handle.class, handle.scope, op, table
+                    ));
+                }
+            }
+            let conn = self.db_conn.as_ref().ok_or_else(|| {
+                "db_execute_with_grant() error: no database connection.".to_string()
+            })?;
+            let affected = conn
+                .execute(&sql, rusqlite::params_from_iter(params.iter()))
+                .map_err(|e| {
+                    crate::interpreter::db::sql_err("db_execute_with_grant() SQL error", e)
+                })?;
+            if destructive {
+                crate::grants::grant_use(&handle, &format!("db_execute_with_grant: {}", sql))?;
+                eprintln!(
+                    "[GRANT_USE] grant (scope '{}', class {}) executed {} (affected {}) — remaining {}",
+                    handle.scope,
+                    handle.class,
+                    sql.trim(),
+                    affected,
+                    crate::grants::state_of(&handle.grant_id)
+                        .map(|(_, r)| r)
+                        .unwrap_or(-1)
+                );
+            } else {
+                eprintln!(
+                    "[GRANT_USE] grant (scope '{}') ran non-destructive SQL — no consumption",
+                    handle.scope
+                );
+            }
+            return Ok(Value::String(affected.to_string()));
         }
 
         // resolve_skill_index(dept) — returns compiled skill index as Value::Struct
@@ -1763,6 +2285,25 @@ impl Vm {
                 })
                 .unwrap_or_default();
             if let Some(ref params) = self.server_query_params {
+                if let Some(val) = params.get(&param_name) {
+                    return Ok(Value::String(val.clone()));
+                }
+            }
+            return Ok(Value::String(String::new()));
+        }
+
+        // Наряд №283: server_path_param(name) — path parameter from a
+        // templated route (`/demo/{name}` matched against `/demo/test`).
+        // Parity with query_param: empty string when no match / no context.
+        if name == "server_path_param" {
+            let param_name = args
+                .first()
+                .and_then(|v| match v {
+                    Value::String(s) => Some(s.clone()),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            if let Some(ref params) = self.server_path_params {
                 if let Some(val) = params.get(&param_name) {
                     return Ok(Value::String(val.clone()));
                 }
@@ -2031,7 +2572,7 @@ impl Vm {
                 .ok_or_else(|| "query_row() error: no database connection.".to_string())?;
             let mut stmt = conn
                 .prepare(&sql)
-                .map_err(|e| format!("query_row() SQL error: {}", e))?;
+                .map_err(|e| crate::interpreter::db::sql_err("query_row() SQL error", e))?;
             let col_count = stmt.column_count();
             let mut rows = stmt
                 .query_map(rusqlite::params_from_iter(params.iter()), |row| {
@@ -2053,11 +2594,13 @@ impl Vm {
                     }
                     Ok(vals)
                 })
-                .map_err(|e| format!("query_row() execution error: {}", e))?;
+                .map_err(|e| crate::interpreter::db::sql_err("query_row() execution error", e))?;
 
             match rows.next() {
                 Some(Ok(vals)) => return Ok(Value::List(vals)),
-                Some(Err(e)) => return Err(format!("query_row() row error: {}", e)),
+                Some(Err(e)) => {
+                    return Err(crate::interpreter::db::sql_err("query_row() row error", e))
+                }
                 None => return Ok(Value::List(vec![])),
             }
         }
@@ -2375,6 +2918,14 @@ impl Vm {
             return result;
         }
 
+        // Наряд №331 (ADR-0162): intercept the unified media family before
+        // the generic fallback — routes to the VM's own media_store via the
+        // shared dispatch functions in src/builtins/media.rs (лекало
+        // call_vision_builtin). Byte egress stays №325-gated on the VM too.
+        if let Some(result) = self.call_media_builtin(name, args) {
+            return result;
+        }
+
         if let Some(builtin_fn) = self.builtins.get(name) {
             return builtin_fn(args);
         }
@@ -2526,6 +3077,70 @@ impl Vm {
             ));
         }
         None
+    }
+
+    /// Наряд №331 (ADR-0162): intercept the unified media family before the
+    /// generic builtin fallback. Routes to the VM's own `media_store` via
+    /// the SAME shared dispatch functions the interpreter uses (in
+    /// `src/builtins/media.rs`) — the store/sealing/refcount logic is NOT
+    /// reimplemented per backend.
+    fn call_media_builtin(&mut self, name: &str, args: &[Value]) -> Option<Result<Value, String>> {
+        use crate::media::MediaKind;
+        match name {
+            "media_store_image" => Some(crate::builtins::media_store_dispatch(
+                &mut self.media_store,
+                MediaKind::Image,
+                args,
+            )),
+            "media_store_audio" => Some(crate::builtins::media_store_dispatch(
+                &mut self.media_store,
+                MediaKind::Audio,
+                args,
+            )),
+            "media_store_video_frame" => Some(crate::builtins::media_store_dispatch(
+                &mut self.media_store,
+                MediaKind::VideoFrame,
+                args,
+            )),
+            "media_store_video_segment" => Some(crate::builtins::media_store_dispatch(
+                &mut self.media_store,
+                MediaKind::VideoSegment,
+                args,
+            )),
+            "media_save" => Some(crate::builtins::media_save_dispatch(
+                &self.media_store,
+                args,
+            )),
+            "media_retain" => Some(crate::builtins::media_retain_dispatch(
+                &mut self.media_store,
+                args,
+            )),
+            "media_release" => Some(crate::builtins::media_release_dispatch(
+                &mut self.media_store,
+                args,
+            )),
+            "media_meta" => Some(crate::builtins::media_meta_dispatch(
+                &self.media_store,
+                args,
+            )),
+            // №337 (ADR-0166 §2.4): the in-program provenance read —
+            // entry-level manifest facts, no byte movement.
+            "media_manifest" => Some(crate::builtins::media_manifest_dispatch(
+                &self.media_store,
+                args,
+            )),
+            "media_source_capture" => Some(crate::builtins::media_source_capture_dispatch(
+                &mut self.media_store,
+                &self.origin_decls,
+                args,
+            )),
+            "media_bind_origin" => Some(crate::builtins::media_bind_origin_dispatch(
+                &mut self.media_store,
+                &self.origin_decls,
+                args,
+            )),
+            _ => None,
+        }
     }
 
     // ── Наряд №205 (ADR-0121 stage 6): distillation state machine ──────
@@ -2990,9 +3605,11 @@ impl Vm {
                     rules: Vec::new(),
                     skill_indices: Vec::new(),
                     reflex_decls: Vec::new(),
+                    origin_decls: Vec::new(),
                     reflex_seq_decls: Vec::new(),
                     reflex_gen_decls: Vec::new(),
                     vision_decls: Vec::new(),
+                    deny_handlers: Vec::new(),
                     memory_persist_path: None,
                     db_url: None,
                     schema_ddl: Vec::new(),
@@ -3118,44 +3735,86 @@ impl Vm {
         rollback_op: Option<ConditionOp>,
     ) -> Result<String, String> {
         // Find the learnable
-        for (info, few_shot) in self.learnables.iter_mut() {
-            if info.name == pattern_name {
-                let original = few_shot.clone();
-                *few_shot = new_examples;
+        let idx = self
+            .learnables
+            .iter()
+            .position(|(info, _)| info.name == pattern_name)
+            .ok_or_else(|| format!("VM mutate: learnable pattern '{}' not found", pattern_name))?;
 
-                // Mock accuracy (always 0.95 for MockLlm)
-                let accuracy: f64 = 0.95;
+        let original = self.learnables[idx].1.clone();
+        let base_prompt = self.learnables[idx].0.prompt.clone();
+        let build_inputs: std::collections::HashSet<String> =
+            new_examples.iter().map(|(i, _)| i.clone()).collect();
+        self.learnables[idx].1 = new_examples;
 
-                let kept = match (&rollback_op, &rollback_threshold) {
-                    (Some(ConditionOp::Lt), Some(threshold)) => accuracy >= *threshold,
-                    (Some(ConditionOp::Le), Some(threshold)) => accuracy > *threshold,
-                    (Some(ConditionOp::Gt), Some(_)) | (Some(ConditionOp::Ge), Some(_)) => false,
-                    (Some(ConditionOp::Eq), Some(threshold)) => (accuracy - threshold).abs() < 1e-9,
-                    _ => true,
-                };
-
-                if kept {
-                    return Ok(format!(
-                        "[MUTATE] {}: accuracy={}, kept (>= {:.1})",
-                        pattern_name,
-                        accuracy,
-                        rollback_threshold.unwrap_or(0.0)
-                    ));
+        // ── Accuracy: REAL golden-task battery (№375, ADR-0112 addendum) ──
+        // Mock mode (METALOGOS_MOCK_LLM, default-on): the 0.95 stub stays —
+        // loudly documented in ADR-0112. Real mode: the battery is the
+        // pre-mutation few-shot (the VM's Program carries no eval blocks —
+        // the TW path additionally merges ADR-0050 eval datasets; the
+        // difference is documented in the наряд report). The answer path is
+        // the pattern's real LLM call; errors count as incorrect.
+        let mock_mode = std::env::var("METALOGOS_MOCK_LLM")
+            .map(|v| v == "1" || v.to_lowercase() == "true")
+            .unwrap_or(true);
+        let (accuracy, battery_note) = if mock_mode {
+            // Mock accuracy (always 0.95 for MockLlm) — test mode only.
+            (0.95, String::new())
+        } else {
+            let report = crate::interpreter::learnable::measure_battery_accuracy(
+                &original,
+                &build_inputs,
+                |input| {
+                    let backend = llm::create_llm_backend();
+                    backend.call(&base_prompt, input)
+                },
+            );
+            let note = format!(
+                " (battery: {} tasks, held-out {}, correct {}{})",
+                report.battery_size,
+                report.held_out,
+                report.correct,
+                if report.below_minimum {
+                    ", BELOW MINIMUM 20"
                 } else {
-                    *few_shot = original;
-                    return Ok(format!(
-                        "[MUTATE] {}: accuracy={}, rolled back (below {:.1})",
-                        pattern_name,
-                        accuracy,
-                        rollback_threshold.unwrap_or(0.0)
-                    ));
+                    ""
                 }
+            );
+            if report.held_out == 0 {
+                eprintln!(
+                    "[MUTATE] WARNING: no held-out battery tasks for '{}' — accuracy counts as 0.0 (no evidence, no keep)",
+                    pattern_name
+                );
             }
+            (report.accuracy, note)
+        };
+
+        let kept = match (&rollback_op, &rollback_threshold) {
+            (Some(ConditionOp::Lt), Some(threshold)) => accuracy >= *threshold,
+            (Some(ConditionOp::Le), Some(threshold)) => accuracy > *threshold,
+            (Some(ConditionOp::Gt), Some(_)) | (Some(ConditionOp::Ge), Some(_)) => false,
+            (Some(ConditionOp::Eq), Some(threshold)) => (accuracy - threshold).abs() < 1e-9,
+            _ => true,
+        };
+
+        if kept {
+            Ok(format!(
+                "[MUTATE] {}: accuracy={}, kept (>= {:.1}){}",
+                pattern_name,
+                accuracy,
+                rollback_threshold.unwrap_or(0.0),
+                battery_note
+            ))
+        } else {
+            self.learnables[idx].1 = original;
+            Ok(format!(
+                "[MUTATE] {}: accuracy={}, rolled back (below {:.1}){}",
+                pattern_name,
+                accuracy,
+                rollback_threshold.unwrap_or(0.0),
+                battery_note
+            ))
         }
-        Err(format!(
-            "VM mutate: learnable pattern '{}' not found",
-            pattern_name
-        ))
     }
 
     /// Recall from memory: find best matching entry by substring + decay.
@@ -3236,6 +3895,13 @@ impl Vm {
         self.server_query_params = Some(params);
     }
 
+    /// Set path parameters extracted from a templated route (Наряд №283).
+    /// Parity with `set_server_query_params` — the `server_path_param(name)`
+    /// builtin reads from this map.
+    pub fn set_server_path_params(&mut self, params: std::collections::HashMap<String, String>) {
+        self.server_path_params = Some(params);
+    }
+
     /// Set user roles for RBAC (Наряд №40: VM server backend).
     pub fn set_server_user_roles(&mut self, roles: Vec<String>) {
         self.server_user_roles = roles;
@@ -3245,6 +3911,7 @@ impl Vm {
     pub fn clear_server_context(&mut self) {
         self.server_json_body = None;
         self.server_query_params = None;
+        self.server_path_params = None;
         self.server_user_roles = Vec::new();
     }
 
@@ -3350,43 +4017,72 @@ impl Vm {
     }
 
     /// Evaluate a binary operation.
+    /// Наряд №371 (ADR-0141 Stage 1.3): binop semantics aligned with the TW
+    /// interpreter (`src/interpreter/execution.rs` `eval_binop`). The VM is no
+    /// longer stricter than TW on heterogeneous operands: both reject `+` for
+    /// non-(String|Float) pairs with the SAME loud message, both enforce the
+    /// same opaque-type restriction on concatenation and the same
+    /// MAX_STRING_LENGTH (1 MB) limit. The old VM messages ("type mismatch:
+    /// List Add String", "cannot apply Div to two Strings") diverged from TW
+    /// wording and broke TW↔VM error parity.
     fn eval_binop(
         &self,
         left: Value,
         op: crate::ast::BinOp,
         right: Value,
     ) -> Result<Value, String> {
-        match (left, right) {
-            (Value::String(a), Value::String(b)) => match op {
-                crate::ast::BinOp::Add => Ok(Value::String(format!("{}{}", a, b))),
-                crate::ast::BinOp::Eq => Ok(Value::Float(if a == b { 1.0 } else { 0.0 })),
-                crate::ast::BinOp::Ne => Ok(Value::Float(if a != b { 1.0 } else { 0.0 })),
-                _ => Err(format!("cannot apply {:?} to two Strings", op)),
-            },
-            (Value::Float(a), Value::Float(b)) => match op {
-                crate::ast::BinOp::Add => Ok(Value::Float(a + b)),
-                crate::ast::BinOp::Sub => Ok(Value::Float(a - b)),
-                crate::ast::BinOp::Mul => Ok(Value::Float(a * b)),
-                crate::ast::BinOp::Div => {
-                    if b == 0.0 {
-                        Err("division by zero".to_string())
-                    } else {
-                        Ok(Value::Float(a / b))
-                    }
+        // Same limit as TW (`Interpreter::MAX_STRING_LENGTH`).
+        const MAX_STRING_LENGTH: usize = 1_000_000; // 1 MB
+
+        // Enforce opaque type restrictions for Add (concatenation) — TW parity.
+        if matches!(op, crate::ast::BinOp::Add) {
+            if Self::is_opaque_value(&left) {
+                return Err(format!(
+                    "cannot concatenate opaque type {}",
+                    left.type_name()
+                ));
+            }
+            if Self::is_opaque_value(&right) {
+                return Err(format!(
+                    "cannot concatenate opaque type {}",
+                    right.type_name()
+                ));
+            }
+        }
+        match (op, left, right) {
+            // String concatenation — with the same length limit as TW.
+            (crate::ast::BinOp::Add, Value::String(a), Value::String(b)) => {
+                let result = format!("{}{}", a, b);
+                if result.len() > MAX_STRING_LENGTH {
+                    Err(format!(
+                        "string length {} exceeds maximum allowed {}",
+                        result.len(),
+                        MAX_STRING_LENGTH
+                    ))
+                } else {
+                    Ok(Value::String(result))
                 }
-                crate::ast::BinOp::Gt => Ok(Value::Float(if a > b { 1.0 } else { 0.0 })),
-                crate::ast::BinOp::Lt => Ok(Value::Float(if a < b { 1.0 } else { 0.0 })),
-                crate::ast::BinOp::Ge => Ok(Value::Float(if a >= b { 1.0 } else { 0.0 })),
-                crate::ast::BinOp::Le => Ok(Value::Float(if a <= b { 1.0 } else { 0.0 })),
-                crate::ast::BinOp::Eq => Ok(Value::Float(if a == b { 1.0 } else { 0.0 })),
-                crate::ast::BinOp::Ne => Ok(Value::Float(if a != b { 1.0 } else { 0.0 })),
-                // And/Or are boolean logic operators, not valid for Float operands directly.
-                crate::ast::BinOp::And | crate::ast::BinOp::Or => {
-                    Err(format!("BinOp::{:?} not valid for Float operands", op))
+            }
+            // Arithmetic on Floats.
+            (crate::ast::BinOp::Add, Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b)),
+            (crate::ast::BinOp::Sub, Value::Float(a), Value::Float(b)) => Ok(Value::Float(a - b)),
+            (crate::ast::BinOp::Mul, Value::Float(a), Value::Float(b)) => Ok(Value::Float(a * b)),
+            (crate::ast::BinOp::Div, Value::Float(a), Value::Float(b)) => {
+                if b == 0.0 {
+                    Err("division by zero".to_string())
+                } else {
+                    Ok(Value::Float(a / b))
                 }
-            },
-            (l, r) => Err(format!(
-                "type mismatch: {} {:?} {}",
+            }
+            // Heterogeneous Add — the same loud error as TW.
+            (crate::ast::BinOp::Add, l, r) => Err(format!(
+                "type mismatch in string concatenation: {} + {} (use to_string() explicitly)",
+                l.type_name(),
+                r.type_name()
+            )),
+            // Everything else — the same message as TW.
+            (_, l, r) => Err(format!(
+                "type mismatch in binary operation: {} {:?} {}",
                 l.type_name(),
                 op,
                 r.type_name()
@@ -3394,7 +4090,24 @@ impl Vm {
         }
     }
 
+    /// Opaque types cannot be concatenated (№371 — same set as the TW's
+    /// `Interpreter::is_opaque_type`).
+    fn is_opaque_value(v: &Value) -> bool {
+        matches!(
+            v,
+            Value::Html(_)
+                | Value::Query(_)
+                | Value::Secret(_)
+                | Value::Encrypted(_)
+                | Value::Hash(_)
+                | Value::Subgraph(_)
+        )
+    }
+
     /// Evaluate contains(left, right).
+    /// №372: returns `Value::Bool` — TW parity (the shared `builtin_contains`
+    /// returns Bool; the old Float 1.0/0.0 encoding printed "1"/"0" instead of
+    /// "true"/"false" through `to_string`).
     fn eval_contains(&self, left: Value, right: Value) -> Result<Value, String> {
         let ls = match left {
             Value::String(s) => s,
@@ -3414,20 +4127,25 @@ impl Vm {
                 ))
             }
         };
-        Ok(Value::Float(if ls.contains(&rs) { 1.0 } else { 0.0 }))
+        Ok(Value::Bool(ls.contains(&rs)))
     }
 
-    /// Evaluate a comparison: push 1.0 (true) or 0.0 (false).
+    /// Evaluate a comparison: push Bool (true/false).
+    /// №372 (ADR-0141 Stage 1.4): the result type is `Value::Bool` — TW parity
+    /// (`eval_binop` in the interpreter returns Bool for all comparisons; the
+    /// old Float 1.0/0.0 encoding made `to_string(a == b)` print "1" on the VM
+    /// where TW prints "true"). Truthiness (JumpIfNot) is unchanged — Bool and
+    /// Float 0.0/1.0 are truthy-equivalent.
     fn eval_cmp(&self, left: Value, right: Value, op: AstCompareOp) -> Value {
         // String-string comparisons (Eq, Ne, contains-like)
         match (&left, &right) {
             (Value::String(a), Value::String(b)) => match op {
-                AstCompareOp::Eq => Value::Float(if a == b { 1.0 } else { 0.0 }),
-                AstCompareOp::Ne => Value::Float(if a != b { 1.0 } else { 0.0 }),
-                AstCompareOp::Gt => Value::Float(if a > b { 1.0 } else { 0.0 }),
-                AstCompareOp::Lt => Value::Float(if a < b { 1.0 } else { 0.0 }),
-                AstCompareOp::Ge => Value::Float(if a >= b { 1.0 } else { 0.0 }),
-                AstCompareOp::Le => Value::Float(if a <= b { 1.0 } else { 0.0 }),
+                AstCompareOp::Eq => Value::Bool(a == b),
+                AstCompareOp::Ne => Value::Bool(a != b),
+                AstCompareOp::Gt => Value::Bool(a > b),
+                AstCompareOp::Lt => Value::Bool(a < b),
+                AstCompareOp::Ge => Value::Bool(a >= b),
+                AstCompareOp::Le => Value::Bool(a <= b),
             },
             _ => {
                 // Numeric comparisons (Float/Bool via as_float)
@@ -3442,7 +4160,7 @@ impl Vm {
                     },
                     _ => false,
                 };
-                Value::Float(if result { 1.0 } else { 0.0 })
+                Value::Bool(result)
             }
         }
     }
@@ -3456,5 +4174,32 @@ fn is_truthy(value: &Value) -> bool {
         Value::Bool(b) => *b,
         Value::List(items) => !items.is_empty(),
         _ => false,
+    }
+}
+
+// ── Runtime label seeds (Наряд №328, ADR-0156) ───────────────────────
+
+/// The runtime seed label of a №316 Source builtin — the runtime twin of
+/// the static №323 mapping: Secret sources are `(private, trusted)`,
+/// every other source is untrusted ingress `(public, untrusted)`.
+fn runtime_source_label(name: &str) -> crate::labels::Label {
+    use crate::labels::{Conf, Integrity, Label};
+    match crate::builtins_classification::classify(name) {
+        Some(class) if class.role == crate::builtins_classification::Role::Source => {
+            if class.default_label == crate::builtins_classification::Label::Secret {
+                Label {
+                    conf: Conf::Private,
+                    integrity: Integrity::Trusted,
+                    consent: Default::default(),
+                }
+            } else {
+                Label {
+                    conf: Conf::Public,
+                    integrity: Integrity::Untrusted,
+                    consent: Default::default(),
+                }
+            }
+        }
+        _ => Label::bottom(),
     }
 }

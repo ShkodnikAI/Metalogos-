@@ -1,0 +1,40 @@
+// Наряд №336 (ADR-0165): BackendSelect — лестница бэкендов и Degraded(t).
+// Первая ступень лестницы доступна (mock-режим, контракт №334) → выбор;
+// лестница из отсутствующих/чужого класса ступеней исчерпывается →
+// Degraded(t): типизированный результат с кодом BACKEND_DEGRADED —
+// не падение и не тихий мок. Каждый шаг лестницы — событие аудита
+// (stderr [BACKEND_SELECT] + attempts в результате).
+pattern Pick(_tick: String) -> String {
+  // Статически проверяемая лестница: обе ступени — omni-класс.
+  // Приоритет побеждает: первая доступная ступень выбирается, вторая
+  // не пробуется. В mock-режиме (дефолт) выбор громко помечен mode: mock.
+  let sel = backend_select("omni", ["nemotron-omni", "wall-oss"])
+  if sel.ok {
+    return "selected:" + sel.backend + ":" + sel.mode
+  }
+  return "unexpected"
+}
+pattern Ghost(_x: String) -> String {
+  return "no-such-backend"
+}
+pattern WrongClass(_x: String) -> String {
+  return "chatterbox"
+}
+pattern Degrade(prev: String) -> String {
+  // Динамическая лестница (статически непроверяема — проверяет рантайм):
+  // 'no-such-backend' — нет записи в реестре №333, 'chatterbox' — класс
+  // tts (лестница обслуживает omni). Обе попытки аудированы;
+  // исчерпание → Degraded(omni).
+  let words = [Ghost("a"), WrongClass("b")]
+  let sel = backend_select("omni", words)
+  if sel.ok {
+    return prev + "|unexpected"
+  }
+  if sel.class == "omni" {
+    if sel.error.code == "BACKEND_DEGRADED" {
+      return prev + "|degraded:omni:" + sel.error.code
+    }
+  }
+  return prev + "|degraded-shape-broken"
+}
+flow Main { input: String = "tick-1" -> Pick -> Degrade -> output }

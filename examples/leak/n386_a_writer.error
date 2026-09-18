@@ -1,0 +1,1 @@
+EXPECTED: TAINT_PERSISTENCE — вывод LLM memorize под ключ 'draft386:' (write-сторона; реестр №386 сеет ключ для модуля-читателя)

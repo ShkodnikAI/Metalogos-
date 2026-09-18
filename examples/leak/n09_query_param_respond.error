@@ -1,0 +1,1 @@
+EXPECTED: HTML_INJECTION — query_param в respond без экранирования

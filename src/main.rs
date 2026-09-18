@@ -69,18 +69,86 @@ enum Commands {
         #[arg(long)]
         from: String,
     },
-    /// Run test blocks: execute `test "..." { }` declarations (Наряд №120)
+    /// Run test blocks: execute `test "..." { }` declarations (Наряд №120);
+    /// with --docs: doc-tests on markdown files instead (Наряд №287)
     Test {
-        /// Path to .mlog source file
-        file: PathBuf,
+        /// Path to .mlog source file (required without --docs)
+        file: Option<PathBuf>,
         /// Only run tests whose name contains this substring
         #[arg(long)]
         filter: Option<String>,
+        /// Doc-tests mode (Наряд №287): execute ```mlog blocks from docs
+        #[arg(long)]
+        docs: bool,
+        /// Doc-files/globs to scan (default: REFERENCE.md, README.md, docs/**/*.md)
+        #[arg(long, value_name = "GLOB", requires = "docs")]
+        docs_glob: Vec<String>,
+        /// Execution backend for doc blocks (vm-compile skips are not failures)
+        #[arg(long, default_value = "tw")]
+        backend: String,
     },
     /// Static security analysis without execution (ADR-0057)
     Audit {
         /// Path to .mlog source file
         file: PathBuf,
+    },
+    /// Start MCP server (Наряд №297, ADR-0132) — expose .mlog tool constructs as MCP tools
+    /// Naryad #394 (ADR-0168): transports stdio (default) | http | sse;
+    /// http/sse require the `server` feature and support bearer auth.
+    McpServe {
+        /// Path to .mlog source file
+        file: PathBuf,
+        /// Tool names to expose (fail-closed: required, no default exposure)
+        #[arg(long, value_delimiter = ',')]
+        allowlist: Vec<String>,
+        /// Transport: stdio (default, identical to №297) | http | sse
+        #[arg(long, default_value = "stdio")]
+        transport: String,
+        /// Bind address for http/sse (default 127.0.0.1:8770)
+        #[arg(long)]
+        bind: Option<String>,
+        /// Bearer token for http/sse (else METALOGOS_MCP_AUTH_TOKEN;
+        /// unauthenticated localhost-only bind is the accepted alternative —
+        /// a non-loopback bind without a token is a loud WARN)
+        #[arg(long)]
+        auth_token: Option<String>,
+    },
+    /// Action Ledger v1 (Naryad #393, ADR-0167) — external verification
+    /// and archival of an exported ledger file. Pure file reading: no
+    /// Metalogos runtime, no interpreter, no database.
+    Ledger {
+        #[command(subcommand)]
+        cmd: LedgerCmd,
+    },
+}
+
+#[derive(clap::Subcommand, Debug)]
+enum LedgerCmd {
+    /// Verify an exported ledger JSONL file: seq continuity, prev-hash
+    /// chain, record hashes, key ids, Ed25519 signatures, signer
+    /// continuity across rotations, snapshot anchoring. Exit 0 = valid,
+    /// 1 = INVALID (the loud reason is printed), 2 = usage error.
+    Verify {
+        /// Path to the exported ledger file (JSONL)
+        file: PathBuf,
+        /// External head anchor: fail unless the last record's hash equals this
+        #[arg(long)]
+        expect_head: Option<String>,
+        /// External signer anchor: fail unless the chain's key equals this
+        #[arg(long)]
+        expect_key: Option<String>,
+    },
+    /// Archive: truncate the chain at a snapshot record (inclusive); the
+    /// output starts at the anchor and is verified before it is written.
+    Archive {
+        /// Path to the exported ledger file (JSONL)
+        file: PathBuf,
+        /// Path of the archived output file
+        out: PathBuf,
+        /// Snapshot record seq to anchor at (the snapshot's hash is printed
+        /// by `ledger_snapshot()`)
+        #[arg(long)]
+        at: u64,
     },
 }
 
@@ -107,9 +175,84 @@ fn main() {
         Commands::Serve { file } => cmd_serve(file),
         Commands::Compile { file } => cmd_compile(file),
         Commands::Eval { file } => cmd_eval(file),
-        Commands::Test { file, filter } => cmd_test(file, filter),
+        Commands::Test {
+            file,
+            filter,
+            docs,
+            docs_glob,
+            backend,
+        } => {
+            if docs {
+                cmd_doc_tests(docs_glob, backend);
+            } else {
+                match file {
+                    Some(f) => cmd_test(f, filter),
+                    None => {
+                        eprintln!("error: mlog test requires <file> (or --docs for doc-tests)");
+                        std::process::exit(1);
+                    }
+                }
+            }
+        }
         Commands::Resume { file, flow, from } => cmd_resume(file, &flow, &from),
         Commands::Audit { file } => cmd_audit(file),
+        Commands::McpServe {
+            file,
+            allowlist,
+            transport,
+            bind,
+            auth_token,
+        } => cmd_mcp_serve(file, &allowlist, &transport, bind, auth_token),
+        Commands::Ledger { cmd } => cmd_ledger(cmd),
+    }
+}
+
+/// `mlog ledger verify|archive` — the external Action Ledger verifier
+/// (Naryad #393, ADR-0167 §3.6). No runtime: reads the file, checks the
+/// chain, prints a loud verdict.
+fn cmd_ledger(cmd: LedgerCmd) {
+    match cmd {
+        LedgerCmd::Verify {
+            file,
+            expect_head,
+            expect_key,
+        } => match metalogos::ledger::verify_file(
+            &file,
+            expect_head.as_deref(),
+            expect_key.as_deref(),
+        ) {
+            Ok(report) => {
+                println!(
+                    "VALID: {} records, head {} ({} distinct key(s), anchored start: {}) — schema v{}",
+                    report.records,
+                    report.head_hash,
+                    report.distinct_keys,
+                    report.anchored_start,
+                    report.schema_version,
+                );
+            }
+            Err(e) => {
+                eprintln!("INVALID: {}", e);
+                std::process::exit(1);
+            }
+        },
+        LedgerCmd::Archive { file, out, at } => {
+            match metalogos::ledger::archive_file(&file, &out, at) {
+                Ok(report) => {
+                    println!(
+                        "ARCHIVED: {} records anchored at snapshot seq {} (head {}) → {}",
+                        report.records,
+                        at,
+                        report.head_hash,
+                        out.display(),
+                    );
+                }
+                Err(e) => {
+                    eprintln!("error: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
     }
 }
 
@@ -266,6 +409,39 @@ fn cmd_eval(file: PathBuf) {
     }
 }
 
+/// `mlog test --docs [GLOB...]` — doc-tests on markdown docs (Наряд №287).
+fn cmd_doc_tests(globs: Vec<String>, backend: String) {
+    let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let files = metalogos::doc_tests::resolve_doc_files(&root, &globs);
+    if files.is_empty() {
+        eprintln!("doc-tests: no markdown files matched");
+        std::process::exit(1);
+    }
+    let backend = match backend.as_str() {
+        "tw" => metalogos::doc_tests::DocBackend::Tw,
+        "vm" => metalogos::doc_tests::DocBackend::Vm,
+        other => {
+            eprintln!("error: unknown --backend '{other}' (allowed: tw, vm)");
+            std::process::exit(1);
+        }
+    };
+    match metalogos::doc_tests::run_doc_tests(&files, backend, &root) {
+        Ok(report) => {
+            for f in &report.failures {
+                eprintln!("FAIL {f}");
+            }
+            eprintln!("{}", report.summary());
+            if !report.failures.is_empty() {
+                std::process::exit(1);
+            }
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
 /// `mlog test <file> [--filter=name]` — run test blocks (Наряд №120)
 fn cmd_test(file: PathBuf, filter: Option<String>) {
     let source = match fs::read_to_string(&file) {
@@ -350,6 +526,94 @@ fn cmd_audit(file: PathBuf) {
             eprintln!("error: {}", e);
             std::process::exit(1);
         }
+    }
+}
+
+/// `mlog mcp-serve <file> --allowlist tool1,tool2 [--transport stdio|http|sse]
+/// [--bind addr:port] [--auth-token TOKEN]` — expose tool constructs as MCP
+/// tools. Fail-closed: --allowlist is required (no tools exposed by default).
+/// Transports (Naryad #394, ADR-0168): stdio — JSON-RPC over stdin/stdout
+/// (identical to №297); http — JSON-RPC over HTTP POST /mcp; sse — the MCP
+/// HTTP+SSE transport (GET /sse + POST /mcp). http/sse require the `server`
+/// feature (default builds have it); bearer auth via --auth-token or
+/// METALOGOS_MCP_AUTH_TOKEN, else localhost-only bind (loud WARN otherwise).
+fn cmd_mcp_serve(
+    file: PathBuf,
+    allowlist: &[String],
+    transport: &str,
+    bind: Option<String>,
+    auth_token: Option<String>,
+) {
+    let source = match fs::read_to_string(&file) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("error: cannot read {:?}: {}", file, e);
+            std::process::exit(1);
+        }
+    };
+    let declarations = match metalogos::parser::parse(&source) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("error: parse error: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    // ── Transport dispatch (Naryad #394, ADR-0168) ──
+    if transport == "stdio" {
+        // The default transport: unchanged behavior (no auth surface —
+        // the process boundary IS the boundary).
+        if bind.is_some() || auth_token.is_some() {
+            eprintln!(
+                "[mcp-serve] note: --bind/--auth-token apply to http/sse only; ignoring for stdio"
+            );
+        }
+        if let Err(e) = metalogos::mcp_server::run_mcp_server(&declarations, allowlist) {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+        return;
+    }
+    if transport != "http" && transport != "sse" {
+        eprintln!(
+            "error: unknown --transport '{}' (allowed: stdio, http, sse)",
+            transport
+        );
+        std::process::exit(2);
+    }
+
+    // ── Auth resolution (Naryad #394 §4): explicit flag > env > none ──
+    let token = auth_token
+        .or_else(|| std::env::var("METALOGOS_MCP_AUTH_TOKEN").ok())
+        .filter(|t| !t.trim().is_empty());
+    let auth = match token {
+        Some(t) => metalogos::mcp_server::McpAuth::Bearer(t),
+        None => metalogos::mcp_server::McpAuth::OpenLocal,
+    };
+    let bind_addr = bind.unwrap_or_else(|| "127.0.0.1:8770".to_string());
+
+    #[cfg(feature = "server")]
+    {
+        if let Err(e) = metalogos::mcp_server::run_mcp_server_network(
+            &declarations,
+            allowlist,
+            transport,
+            &bind_addr,
+            &auth,
+        ) {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+    }
+    #[cfg(not(feature = "server"))]
+    {
+        let _ = (bind_addr, auth);
+        eprintln!(
+            "error: mcp-serve --transport {} requires the 'server' feature \
+             (this binary was built without it; stdio transport is available)",
+            transport
+        );
+        std::process::exit(2);
     }
 }
 

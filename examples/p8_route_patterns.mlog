@@ -1,3 +1,9 @@
+// Наряд №325 (ADR-0161): this demo intentionally relays untrusted
+// request data into the HTTP response (its whole point) — it runs under
+// the legacy compatibility profile: the SINK_CLEARANCE gate stays
+// advisory and every hit is recorded as an audit event.
+profile legacy { egress: permissive_with_audit }
+
 // Наряд №8 — Contract: Route handlers call user-defined patterns
 // All 5 contracts must pass.
 

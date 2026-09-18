@@ -1,0 +1,11 @@
+// Угроза: непроверенный вывод LLM переживает сессию через память и уходит в ответ.
+// Атака: отравленная память — инъекция сохраняется и ретранслируется позже (№141/№157).
+pattern Stash(data: String) -> String {
+  let _ = memorize("leak_key", call_llm(data))
+  return "stashed"
+}
+pattern Publish(data: String) -> String {
+  let _ = respond("200 OK", kv_get("leak_key"))
+  return "published"
+}
+flow Main { input: String = data -> Stash -> output }

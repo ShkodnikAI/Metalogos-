@@ -7,9 +7,9 @@
 **AI-native programming language with security by design. Written in Rust.**
 
 [![Rust](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/v0.19.0-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/releases)
+[![Version](https://img.shields.io/badge/v0.20.0-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/releases)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-green.svg)](#license)
-[![CI](https://img.shields.io/badge/CI-15%20blocking%20jobs-brightgreen.svg)](https://github.com/ShkodnikAI/Metalogos-/actions)
+[![CI](https://img.shields.io/badge/CI-19%20blocking%20jobs-brightgreen.svg)](https://github.com/ShkodnikAI/Metalogos-/actions)
 [![Open Collective](https://img.shields.io/opencollective/all/metalogos?label=Backers&logo=open-collective&color=7fadf2)](https://opencollective.com/metalogos)
 
 </div>
@@ -29,6 +29,7 @@
 Metalogos (mlog) is an open source programming language where AI operations — LLM calls, memory, learning, adaptation — are first-class language constructs, not library integrations. An LLM invocation is as natural as calling a function. Security constraints (XSS prevention, SQL injection prevention, secret opacity) are enforced at the language level, not through middleware.
 
 ```mlog
+// doc-test: skip
 // Learnable pattern: LLM call as a language construct
 learnable pattern Classify(msg: String) -> String {
   prompt: "Classify as: question | complaint | greeting | urgent"
@@ -109,7 +110,7 @@ OWASP Top 10 is addressed at the language level through a combination of compile
 - Missing `rate_limit` middleware (external infra may handle it)
 - Missing CSRF middleware (not needed for token-authenticated APIs)
 - Open redirect via user-controlled `respond_html()` (custom validation not recognized)
-- Taint through `memorize`/`recall` persistence (file-level heuristic)
+- ~~Taint through `memorize`/`recall` persistence (file-level heuristic)~~ **cross-module MVP since №386**: literal/prefix memory keys are matched across modules (fingerprint registry, `METALOGOS_TAINT_STRICT=1` strict mode); dynamic keys remain the boundary
 - Taint through trivial passthrough pattern indirection (single-param, `return param` only)
 
 **Runtime exec & env gates** (opt-in flags, denied by default with `EXEC_NOT_PERMITTED` / `ENV_NOT_PERMITTED`):
@@ -120,6 +121,7 @@ OWASP Top 10 is addressed at the language level through a combination of compile
 **MCP tool calls** (Naryad №268, [ADR-0132](docs/adr/0132-mcp-client.md)) — `mcp_call` / `mcp_list_tools` spawn a third-party MCP server over stdio and are denied by default with the same gate stack as `exec()`: exec-gate first (`EXEC_NOT_PERMITTED`), then the MCP allowlist `METALOGOS_MCP_ALLOWLIST` (exact `argv[0]` match — unset does not narrow, an empty value denies all MCP, a non-empty list refuses everything else with `MCP_NOT_ALLOWLISTED`). Every permitted spawn lands in the subprocess audit log; per-phase timeout is 30 s by default (`METALOGOS_MCP_TIMEOUT_SECS`, clamped to 1..=300). Tool **output** is untrusted `UserInput` — poisoning a Reflex model with it is rejected statically (below); tool **metadata** (`mcp_list_tools` names/descriptions/schemas) is untainted by design. Live walkthrough from the repo root, against the fixture server shipped with the test suite:
 
 ```mlog
+// doc-test: skip
 // demo.mlog
 pattern Echo(_: String) -> String {
   return mcp_call("python3", ["tests/fixtures/mcp_echo_server.py"], "echo", "{\"text\":\"hi\"}")
@@ -161,29 +163,36 @@ $ mlog check poison.mlog
   1: строка 1: [UNTRUSTED_TRAINING_DATA] untrusted user input used as reflex_train data/labels (model poisoning / PII baked into weights)
 ```
 
+> **[Known Limitations](docs/limitations.md)** — a unified index of all documented language limitations across static analysis, VM, Vision, adapt, self-hosting, JIT, error protocol, LLM streaming, and MCP server. The truth lives in the primary sources (ADR, source files); this page only references.
+>
+> **[REALITY](docs/REALITY.md)** — the reality-check of plan-v2 asset claims (CONFIRMED / PARTIAL / PHANTOM verdicts with proof commands) and the working P0-readiness estimate (26%) — Naryad №318.
+
 #### Known boundaries of static analysis
 
-These checks use **intraprocedural taint tracking** — they follow `let`-assignment chains within a single pattern body. The following patterns are **not** detected at compile time:
+These checks use **intraprocedural taint tracking** — they follow `let`-assignment chains within a single pattern body, bounded to nesting depth `TAINT_NESTING_MAX_DEPTH = 3` (Naryad #295). **As of naryad №292, summary-based interprocedural taint is also tracked** (configurable depth, default 4 — see `TAINT_INTERP` below). The following patterns are **not** detected at compile time:
 
 | Pattern | Why not caught |
 |---|---|
-| LLM output passed via pattern call (interprocedural) | Taint does not cross pattern boundaries |
-| LLM output stored via `memorize()` then read back via `recall()` | Data flow through persistence is not tracked |
-| `query(format("...", x))` | `format()` output is not a literal string; check requires compile-time constant |
+| LLM output passed via pattern call chains deeper than 2 levels | Interprocedural analysis is bounded (no fixpoint); deeper chains emit `INTERP_DEPTH_LIMIT` warning |
+| LLM output nested deeper than 3 levels of non-pattern function calls | `expr_is_llm_tainted` is bounded (Naryad #295); `TAINT_INTERP` catches via summary if a pattern call is involved |
 | `{{{ var }}}` (raw template substitution) | `template_render` with `raw=true` skips escaping by design — trusted author code only |
 
-`mlog audit` provides **heuristic warnings** (not errors) for two narrow sub-cases:
+`mlog audit` provides **Category-A Errors** for the persistence/passthrough families (enforced on every compile path) and an **advisory Warning** for call cycles:
 
-| Warning | Scope | Example |
-|---|---|---|
-| `TAINT_PERSISTENCE` | Same-scope: `memorize(call_llm(...))` + `recall()` + `respond()` | `memorize call_llm("summarize")` then `let ctx = recall("q"); respond("200 OK", ctx)` |
-| `TAINT_PASSTHROUGH` | Trivial passthrough pattern wrapping LLM output | `pattern Wrap(x: String) { return x }` then `respond("200 OK", Wrap(call_llm("...")))` |
+| Check | Severity | Scope | Example |
+|---|---|---|---|
+| `TAINT_PERSISTENCE` | Error | Same-scope: `memorize(call_llm(...))` + `recall()` + `respond()`; **cross-module since №386**: module B's `recall(<key>)` → `respond()` matched against module A's tainted memory keys (literal/prefix, fingerprint registry; `METALOGOS_TAINT_STRICT=1` key-less strict mode) | `memorize call_llm("summarize")` then `let ctx = recall("q"); respond("200 OK", ctx)` — or the write in one module and the recall in another |
+| `TAINT_PASSTHROUGH` | Error | Trivial passthrough pattern wrapping LLM output (1-param `return x`) | `pattern Wrap(x: String) { return x }` then `respond("200 OK", Wrap(call_llm("...")))` |
+| `TAINT_INTERP` (Naryad #292; #376) | Error | **Interprocedural** — non-trivial pattern wrapping LLM output, bounded depth `METALOGOS_TAINT_DEPTH` (default 4, configurable 1..=16; summaries cached per module — #376) | `pattern Wrap(x: String) { return upper(x) }` then `respond("200 OK", Wrap(call_llm("...")))` |
+| `INTERP_DEPTH_LIMIT` (Naryad #292) | Warning | Recursive / cyclic pattern in the call graph — analysis terminated at depth 2 | `pattern Recurse(x) { return Recurse(x) }` |
 
-These are file-level heuristics, not data-flow guarantees — they may false-positive in safe code and miss complex indirection.
+`TAINT_INTERP` is a Category-A compile-time error (audit_category_a). `INTERP_DEPTH_LIMIT` is advisory only (audit_program, not promoted to a compile error). Sanitizers (`render()`/`escape_html()`) wrapping the LLM source lift the taint — zero false positives on legitimate code.
+
+These are heuristics, not data-flow guarantees — they may false-positive in safe code and miss complex indirection (№386's cross-module match covers literal/prefix memory keys; dynamic keys remain the documented boundary).
 
 ### 3. Dual Execution Backend
 
-Tree-walking interpreter (full language) + bytecode VM (47 instructions; experimental for full-language use — `match` (statement and `let`-binding expression) and block `if/else` **expression** not supported yet, see [ADR-0105](docs/adr/0105-vm-experimental-scope.md)). Programs both backends can run are checked by `crosscheck_backends` for TW↔VM output parity.
+Tree-walking interpreter (full language) + bytecode VM (47 instructions). All VM Stage 1 gaps are **CLOSED** (naryads №369–№372: `Match` statement and `match`-as-value, `Expr::BlockIfElse` if/else-as-value, heterogeneous binop coercion with TW-identical loud messages, shared PRNG state, Bool→String formatting) — see [ADR-0141](docs/adr/0141-vm-production-readiness.md) Stage 1 and the CLOSED rows in [docs/limitations.md](docs/limitations.md), the maintained source of truth. Programs both backends can run are checked by `crosscheck_backends` for TW↔VM output parity (the parity gate, naryad №373), and the nightly soak workflow accumulates 24 h-parity evidence. `mlog serve` stays on the interpreter by default; the VM is opt-in via `METALOGOS_SERVE_BACKEND=vm` (loud WARN at startup), and the default flip is gated by [ADR-0141](docs/adr/0141-vm-production-readiness.md) Stage 4/5 — real-load benchmark numbers plus an explicit owner decision.
 
 ### 4. Typed Semantic Memory with Hybrid Search
 
@@ -191,13 +200,13 @@ More than a key-value store. Hierarchical memory (Memory Tree L0/L1/L2), typed r
 
 ### 5. Self-Modification with Sandbox and Rollback
 
-The `adapt` statement allows a program to modify its own patterns at runtime — with sandboxing, few-shot mutation, and automatic rollback. The rollback mechanism is real and tested. Quality metric is currently a fixed mock value (0.95), not a real accuracy computation — rollback logic exists but does not yet respond to actual quality degradation. See ADR-0112. Revisit point (recorded 2026-09-10 after an external audit): revisit only on a real `mutate` use case where the mock value creates a concrete problem (ADR-0112 addendum).
+The `adapt` statement allows a program to modify its own patterns at runtime — with sandboxing, few-shot mutation, and automatic rollback. The rollback mechanism is real and tested. Since №375 (ADR-0112 addendum) the quality metric is **REAL in real mode**: the mutated pattern is measured on a golden-task battery (its eval-block datasets per ADR-0050 + the pre-mutation few-shot), held-out split, deterministic seeded order, each task answered by the pattern's actual LLM path — keep/rollback responds to measured accuracy (battery < 20 held-out tasks → loud BELOW-MINIMUM warning; no held-out evidence → accuracy 0.0). The 0.95 stub remains ONLY in mock mode (`METALOGOS_MOCK_LLM`, the default-on test mode) and is loudly documented at the call site — it exercises the rollback mechanism, it is not a quality signal. See [ADR-0112](docs/adr/0112-mock-accuracy-metric.md) addendum and [docs/limitations.md](docs/limitations.md) (CLOSED for real mode).
 
 **Sandbox timeout caveat**: when a `sandbox` block specifies `timeout > 0`, both the calling thread's wait AND the underlying LLM request are cancelled at the deadline — on every call path. SmartRouter routes cancel via the HTTP client timeout (real TCP drop; Naryad №156); the legacy backend path cancels via `call_with_deadline` (Naryad №248): RealLlm drops the TCP connection at min(deadline, 120s), the mock sleeps min(delay, deadline). External on-demand abort (a language construct, or cancellation on client disconnect in server mode) is not supported — revisit when a real use case appears.
 
 ### 6. Complete Toolchain in One Binary
 
-`mlog run`, `mlog serve`, `mlog compile`, `mlog repl`, `mlog check`, `mlog audit`, `mlog eval` — all in a single binary. The LSP server (`mlog-lsp`) and package manager (`mlogpkg`) are separate binaries in the same workspace. A VS Code extension with syntax highlighting is included in the repository.
+`mlog run`, `mlog serve`, `mlog mcp-serve`, `mlog compile`, `mlog repl`, `mlog check`, `mlog audit`, `mlog eval` — all in a single binary. The LSP server (`mlog-lsp`) and package manager (`mlogpkg`) are separate binaries in the same workspace. A VS Code extension with syntax highlighting is included in the repository.
 
 ---
 
@@ -221,9 +230,9 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 ```
  .mlog source        Pest PEG          AST                Semantic            TW + VM backends
 ─────────────  ──>  ────────────  ──>  ───────────  ──>  ────────────  ──>  ────────────
- entity             parse tokens      29 Declaration    cross-reference     tree-walking
- pattern            syntax rules      15 Expr           validation          bytecode VM
- flow                                  12 Statement      opaque type       enforcement
+ entity             parse tokens      33 Declaration    cross-reference     tree-walking
+ pattern            syntax rules      14 Expr           validation          bytecode VM
+ flow                                  15 Statement      opaque type       enforcement
  memory                                 4 MatchArm        span-aware
  rule                                                    error messages
  learn
@@ -235,14 +244,14 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 
 | Component | Technology | Lines |
 |---|---|---|
-| Parser | Pest 2.7 PEG grammar (~533 lines, 304 rules) | 2 176 |
-| AST | 33 Declaration variants, 14 Expr, 12 Statement, 4 MatchArm, span tracking (ADR-0111) | 1 289 |
+| Parser | Pest 2.7 PEG grammar (~594 lines, 327 rules) | 2 176 |
+| AST | 33 Declaration variants, 14 Expr, 15 Statement, 4 MatchArm, span tracking (ADR-0111) | 1 289 |
 | Semantic analysis | Opaque types, arity checking, Category A audit (SQL_DYNAMIC, SECRET_LEAK, HTML_INJECTION, VISION_UNSIGNED_EXPORT, MODEL_WEIGHTS_UNSAFE), SVG XSS lint | 473 |
-| Compiler | Bytecode, 404 builtins indexed | 1 516 |
-| Bytecode format | 46 VM instructions | — |
+| Compiler | Bytecode, 457 builtins indexed | 1 516 |
+| Bytecode format | 47 VM instructions | — |
 | Tree-walking interpreter | Full feature support, 12 modules | ~4 400 |
 | VM | Stack-based bytecode executor | 2 143 |
-| Built-in functions | 404 functions across 38 modules | ~18 000 |
+| Built-in functions | 457 functions across 42 modules | ~18 000 |
 | HTTP server | Axum 0.8 + Tokio, security middleware | 2 433 |
 | LLM backend | Trait + mock + real providers | 1 421 |
 | Memory store | Typed memory with FTS5 BM25 + cosine RRF hybrid recall + KV store | 1 540 |
@@ -254,27 +263,32 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 
 ```
 Metalogos-/
-├── Cargo.toml                       # v0.19.0, workspace root
+├── Cargo.toml                       # v0.20.0, workspace root
 ├── logo.jpg                          # Brand logo
 ├── README.md                         # This file
-├── REFERENCE.md                      # Full builtin reference (~180 KB) — 100% of the registry (§6 index)
-├── CHANGELOG.md                      # Version history (~208 KB)
+├── AGENTS.md                         # Canonical methodology file for agent tools (industry-standard AGENTS.md spec — superseded AGENT.md)
+├── CLAUDE.md                         # Bridge copy of AGENTS.md for Claude-compatible tools (synced manually — see issue #299)
+├── GEMINI.md                         # Bridge copy of AGENTS.md for Gemini-compatible tools (synced manually — see issue #299)
+├── REFERENCE.md                      # Full builtin reference (~250 KB) — 100% of the registry (§6 index + №316 classification)
+├── CHANGELOG.md                      # Version history (~340 KB)
 ├── AI_USAGE.md                       # Disclosure: how generative AI is used in this project's development
 ├── FEATURE_INTAKE.md                 # Feature request tracking
 ├── MEMORY_ROADMAP.md                 # Memory system roadmap
 ├── Dockerfile                        # Docker build
 ├── index.html                        # Landing page / docs site
+├── llms.txt                          # LLMs.txt v2 index for agent tools & RAG pipelines (issue #300)
 │
-├── src/                              # Core compiler + interpreter (~59 000 LOC)
-│   ├── main.rs                        # CLI: run/check/repl/compile/serve/eval/resume/test/audit
-│   ├── grammar.pest                   # Pest PEG grammar (530 lines)
+├── src/                              # Core compiler + interpreter (~93 000 LOC)
+│   ├── main.rs                        # CLI: run/check/repl/compile/serve/mcp-serve/eval/resume/test/audit
+│   ├── grammar.pest                   # Pest PEG grammar (534 lines)
 │   ├── ast.rs                         # AST definitions (29 Decl, 15 Expr, 12 Stmt) + Span tracking
 │   ├── semantic.rs                    # Semantic analysis + opaque type enforcement
 │   ├── compiler.rs                    # Bytecode compiler
 │   ├── bytecode.rs                    # VM instruction set (46 instructions)
 │   ├── vm.rs                          # Bytecode VM executor
 │   ├── server.rs                      # Axum HTTP server + cron scheduler
-│   ├── llm.rs                         # LLM backend trait + providers
+│   ├── llm.rs                         # LLM backend trait + providers + streaming
+│   ├── mcp_server.rs                  # MCP server (stdio JSON-RPC, exposes tool constructs)
 │   ├── memory_store.rs               # Semantic memory + KV store (SQLite)
 │   ├── memory_graph.rs               # Knowledge graph (petgraph)
 │   ├── audit.rs                       # Static security audit
@@ -298,7 +312,11 @@ Metalogos-/
 │   │   ├── db.rs                      # SQLite database access
 │   │   └── learnable.rs               # Learnable pattern support
 │   │
-│   └── builtins/                      # 404 built-in functions (38 modules)
+│   ├── vision/                       # Vision pillar (feature-gated: images, ADR-0122)
+│   ├── voice/                        # Voice pillar (feature-gated: speech, ADR-0143)
+│   ├── video/                        # Video pillar (feature-gated: video, ADR-0147)
+│   │
+│   └── builtins/                      # 457 built-in functions (42 modules)
 │       ├── mod.rs                     # Builtin dispatch
 │       ├── registry.rs               # BUILTIN_REGISTRY (SSOT for all builtins)
 │       ├── core.rs                    # print, let, type, inspect, sleep
@@ -337,16 +355,16 @@ Metalogos-/
 │       ├── naryad_198_audit_finds_known_vuln.rs
 │       └── naryad_198_backward_compat.rs
 │
-├── tests/                             # 144 Rust test files
+├── tests/                             # 192 Rust test files
 │   ├── fixtures/                      # PDF test fixtures
 │   ├── golden.rs                      # Golden test runner
 │   ├── vm_golden.rs                   # VM golden tests
 │   ├── crosscheck_backends.rs          # TW vs VM parity (see ADR-0105 for known gaps)
 │   ├── repl_integration.rs            # REPL tests
 │   ├── definition_of_done.rs          # Project completeness validation
-│   └── ...                            # and 130 more contract/feature test files
+│   └── ...                            # and 187 more contract/feature test files
 │
-├── examples/                          # 214 .mlog programs (golden corpus)
+├── examples/                          # 245 .mlog programs (golden corpus)
 │   ├── m1_hello.mlog                  # Hello World
 │   ├── p6_full_app.mlog               # Full web app with routes
 │   ├── p23_ml_learn.mlog              # ML learning
@@ -384,7 +402,7 @@ Metalogos-/
 │       └── 0111-ast-span-tracking.md
 │
 └── .github/workflows/                  # CI/CD
-    ├── ci.yml                         # 15 blocking jobs (branch-freshness, fmt, clippy, test-lib, crosscheck, candle-tests, vision-tests, registry-arity-check, test-llm-cache-contract, minimal-build, test-integration, adr-check, module-size-guard, vscode-extension, cargo-audit)
+    ├── ci.yml                         # 19 blocking jobs (branch-freshness, fmt, clippy, test-lib, crosscheck, candle-tests, vision-tests, voice-tests, video-tests, doc-tests, registry-arity-check, test-llm-cache-contract, minimal-build, test-integration, ledger-golden, adr-check, module-size-guard, vscode-extension, cargo-audit)
     └── build.yml                      # Release build + artifact upload
 ```
 
@@ -397,6 +415,7 @@ Metalogos-/
 The compiler enforces structural security invariants — these are errors, not warnings:
 
 ```mlog
+// doc-test: skip
 // SQL injection — non-literal query() is rejected by Category A
 let user = query("SELECT * FROM users WHERE id = $1", [id])
 
@@ -434,7 +453,7 @@ respond(reply)   // [HTML_INJECTION] — use render() or escape_html()
 - **Bytecode VM** — 46 instructions, stack-based, used for `mlog compile` + `mlog run file.mbc`
 - **JIT** — experimental scaffold, not part of the build (see ADR-0073)
 
-### 404 Built-in Functions
+### 430 Built-in Functions
 
 String ops, math, collections, type conversion, LLM/AI, HTTP, JSON, file I/O, KV store, session memory, encryption, authentication, HTTP server, templates, databases, Telegram/Discord bots, time/date/calendar, geolocation, weather, reminders, cron, goals, todos, memory tree, preferences, approval workflows, fuzzy matching, hashline editing, context compaction, budget awareness, replay logging, policy enforcement, PDF processing (classify, extract, OCR), typed semantic memory (FTS5 BM25 + cosine RRF), SMTP/IMAP email, CalDAV/CardDAV calendar and contacts, native SVG graphics, and more. See [REFERENCE.md](REFERENCE.md) for the full list.
 
@@ -468,6 +487,7 @@ dedicated static security lint (`SVG_AUTO_ESCAPE_BUILTINS` /
 as the rest of the language:
 
 ```mlog
+// doc-test: skip
 let style = color_palette("energy", "dark")
 let chart = chart_bar(revenue_data, style)
 let flow  = diagram_flowchart(nodes, edges, style)
@@ -517,10 +537,14 @@ let reply = human_respond("Alice", "How is my project going?")
 Fuzzy matching (Jaro-Winkler), content-verified hashline editing (CRC32), context compaction, budget awareness, replay logging, shell policy enforcement:
 
 ```mlog
+let code = "1:3f|fn main() {"
+let text = "alpha\nbeta\ngamma"
+let messages = ["a", "b", "c", "d", "e", "f"]
+let events = ["e1", "e2", "e3", "e4", "e5"]
 fuzzy_match("metalogos", "metalogus")           // 0.96
 fuzzy_find_best("Mikhail", ["Michele", "Mikael"])  // FuzzyMatch{index:1, candidate:"Mikael", score:0.82}
 hashline_read(code)                                  // "1:3f|fn main() {"
-hashline_edit(text, [{op:"set_line", ref:"3:ab", content:"..."}])
+hashline_edit(text, [{op:"set_line", ref:"1:6a", content:"..."}])
 compact_list(messages, 2, 4)                          // protect head/tail, compress middle
 budget_check(8, 10)                                   // BudgetStatus{level:"warning", pct_remaining:20}
 policy_check("vim file.txt")                          // PolicyResult{allowed:false, reason:"blocked: interactive..."}
@@ -559,6 +583,7 @@ The Reflex pillar trains, predicts, persists, and distills local neural models �
 **Classification, not generation** — per ADR-0117 §3, `reflex` classifies into a closed-set label list (`labels: ["a", "b", ...]`). Free-form text generation is explicitly out of scope. This is the same boundary that applies to `reflex_seq` (sequence models) — symmetric ADR-0117 enforcement.
 
 ```mlog
+// doc-test: skip
 // 1. Declare a classifier — input dim, dense layers, closed label set.
 reflex SentimentClassifier {
   input: embedding(2)
@@ -582,6 +607,7 @@ let prediction = reflex_predict(SentimentClassifier, [0.15, 0.25])
 **Distillation** — a `learnable pattern` can `distill_to` a reflex model: the LLM is called during the *teaching* phase, then the local head replaces it once confidence exceeds the `fallback_if` threshold.
 
 ```mlog
+// doc-test: skip
 learnable pattern Classify(text: String) -> String {
   distill_to: SentimentClassifier
   fallback_if: confidence < 0.85
@@ -596,6 +622,7 @@ learnable pattern Classify(text: String) -> String {
 **Grouped-Query Attention (GQA, Naryad #188)** — `attention` accepts an optional third parameter for the number of KV heads:
 
 ```mlog
+// doc-test: skip
 reflex_seq GqaModel {
   input: embedding(64)
   seq_len: 16
@@ -610,6 +637,7 @@ When the third parameter is omitted (`attention(8, 64)`), behaviour is identical
 **Stacked transformer blocks (Naryad #190)** — multiple `transformer_block` entries can be chained in the `layers` list. Each block gets its own independent, deterministically different weights (via `VarMap` prefixing — not identical copies):
 
 ```mlog
+// doc-test: skip
 reflex_seq StackedTransformer {
   input: embedding(8)
   seq_len: 4
@@ -626,7 +654,25 @@ Each layer receives `seed.wrapping_add(layer_index)` for deterministic weight in
 
 ### Vision — Generative Media (ADR-0122, ADR-0125)
 
-**Weights run parked — no production PNG yet.** The Vision pillar (images, ADR-0122) is feature-gated (`--features vision`, which implies `candle`) and ships compiler-level provenance and supply-chain gates (ADR-0125); the real-weights run (runbook №237) has not been executed, so no production image has been generated.
+**Weights run parked — no production PNG yet.** The Vision pillar (images, ADR-0122) is feature-gated (`--features vision`, which implies `candle`) and ships compiler-level provenance and supply-chain gates (ADR-0125); the real-weights run (runbook №237) has not been executed, so no production image has been generated. **Naryad #294 (2026-09-14) — formal No-Go**: the container preflight failed (4 GB RAM vs 64 required; 10 GB disk vs 40 required; no GPU). Revisit date — when hardware is allocated. Report: `docs/research/naryad-294-vision-realw-no-go.md`. The Parked status remains (No-Go → not lifted).
+
+### Voice — Speech Synthesis & Cloning (ADR-0143–0146)
+
+The Voice pillar (speech synthesis, zero-shot voice cloning, voice design) is feature-gated (`--features voice`, implies `candle`) and off-by-default. Four ADRs define the scope: [ADR-0143](docs/adr/0143-voice-scope.md) (scope — TTS, cloning, voice-design; non-scope: pre-training, singing, streaming, voice conversion), [ADR-0144](docs/adr/0144-voice-value-registry.md) (opaque `Value::Audio`/`Value::Voice` handles + `VoiceRegistry` with encrypted-at-rest voiceprints), [ADR-0145](docs/adr/0145-voice-security-gates.md) (5 security gates: consent, provenance, privacy, taint, shared `MODEL_WEIGHTS_UNSAFE`), [ADR-0146](docs/adr/0146-voice-wedge.md) (wedge: Chatterbox Multilingual V3 MIT/MIT 500M primary, Kokoro-82M Apache 82M warm-up). Skeleton built (Naryad #302): `src/voice/mod.rs` with `VoiceId`/`AudioId`, `VoiceRegistry`, `KNOWN_VOICE_MODELS` SSOT, 6 stub builtins. Speaker encoder contract (Naryad #303): 192-dim L2-normalized embeddings, `VoiceStore` (SQLite, encrypted BLOB), consent ledger (GDPR Art. 9). Real ECAPA encoder + AES-256-GCM encryption deferred to phase A4.
+
+### Video — I2V Pipeline & Provenance (ADR-0147–0151)
+
+The Video pillar is feature-gated (`--features video`, implies `candle`) and off-by-default. Since №309 ([ADR-0151](docs/adr/0151-video-i2v-pipeline.md)) the pipeline builtins are **real implementations** on the №310 tiny seeded tensors (CPU, milliseconds, seed-deterministic — the no-stubs template; production-weights inference stays a documented №294-class No-Go):
+
+- `video_render(decl, prompt[, ref_first[, ref_last]])` — T2V (2 args) / I2V first-frame anchor (3) / two-anchor first–last contract (4). Seed = `sha256(model | prompt)`; reference hashes are recorded in the `VideoManifest`; anchors are pinned exactly in the final latent after every Euler step ([ADR-0151 D1](docs/adr/0151-video-i2v-pipeline.md)).
+- `frame_interp(handle, factor)` — RIFE-class latent interpolation (2x/4x) with exact endpoint preservation (ADR-0151 D2); `video_extend(handle, extra)` — clip continuation anchored on the source's last latent frame (ADR-0151 D3).
+- `av_mux(video, audio)` — deterministic `.mlgv.av` sidecar container pairing VideoId ↔ AudioId (Voice pillar) with frame-aligned timestamps and recorded A/V drift (ADR-0151 D4).
+- `video_export(handle, path)` — signed-by-construction `.mlgv` container (manifest + watermark embedded); **unsigned export does not exist** — the runtime `VIDEO_UNSIGNED_EXPORT` gate refuses manifest-less artifacts (ADR-0151 D5).
+- Security: `UNTRUSTED_FRAME` advisory taint in `audit.rs` — an I2V reference from user input / http / file is flagged (Warning in `mlog audit`; loud compile error on the check path) until the screen+consent path lands in V6 (ADR-0149 D5, ADR-0151 D6).
+
+### Cross-Pillar Composition (ADR-0151)
+
+The three generative pillars compose across modalities through opaque handles and shared provenance: a Vision-class reference frame (pixels) feeds `video_render(kind: i2v)` (Video), and the composed clip is muxed with a Voice-pillar `AudioId` via `av_mux` — one `VideoManifest` carries the whole chain (`ref_hash`, `source_sha`, `audio_ref`). The E2E "voiced scene" (frame → video → interp → extend → mux with AudioId → export with manifest) runs seed-deterministic on tiny weights in CI (Naryad #309). Full LikenessToken consent mechanics across the pillars land in phase V6 (ADR-0149 D6).
 
 ---
 
@@ -656,6 +702,11 @@ mlog audit examples/p6_full_app.mlog
 
 # Serve as web application
 mlog serve app.mlog
+
+# Start as MCP server (expose .mlog tools to external MCP clients)
+#   --transport stdio (default) | http | sse; --bind; bearer auth via --auth-token
+mlog mcp-serve app.mlog --allowlist my_tool.send,my_tool.get
+mlog mcp-serve app.mlog --allowlist my_tool.send --transport http --bind 127.0.0.1:8770 --auth-token $TOKEN
 
 # Run eval harness (test learnable patterns)
 mlog eval examples/m3_classify.mlog
@@ -963,10 +1014,10 @@ Four integration tests verify the new behavior:
 | Metric | Value |
 |---|---|
 | Effective Rust LOC | ~59 000 |
-| Built-in Functions | 404 (38 modules) |
-| Example Programs | 214 |
+| Built-in Functions | 457 (42 modules) |
+| Example Programs | 245 |
 | Integration Tests | 70 test suites |
-| Architecture Decision Records | 118 |
+| Architecture Decision Records | 161 |
 | Parser Rules | 288 (Pest PEG) |
 | VM Instructions | 46 |
 | Execution Backends | 2 (interpreter + bytecode VM) |
@@ -1017,7 +1068,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 404 builtins, 148 test files, 214 example programs, 129 ADRs. See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
+All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 124+ development narads (work orders) delivered. 457 builtins, 192 test files, 245 example programs, 161 ADRs (158 accepted + 3 reserved; ADR-0154/0161 filled by naryads №322/№325; ADR-0162 — №331 media handles; ADR-0163 — №333 backend registry; ADR-0164 — №332 perception origin chain; ADR-0165 — №336 backend ladder + Degraded(t); ADR-0166 — №337 C2PA contour of handles; ADR-0157/0167 — №393 Action Ledger v1; ADR-0169 — №385 stable try error codes). See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
 
 ### Next
 

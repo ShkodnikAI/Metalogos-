@@ -1,8 +1,15 @@
 // ── Block 4: TW vs VM cross-check test ─────────────────────────────
 // Runs .mlog programs through interpreter (tree-walking) and VM,
 // comparing outputs. JIT is experimental (ADR-0073) — skipped.
-// VM is experimental for full-language coverage (ADR-0105): programs
-// that need `match` / block if-else are excluded (e.g. p_match_switch).
+//
+// №373 (ADR-0141 Stage 2 parity gate): the VM is NO LONGER experimental
+// for Match / block if-else / binop / PRNG / Bool-formatting — all Stage-1
+// gaps are closed (№369–№372). The ONLY sanctioned exclusions below are
+// (a) negative-test contracts (designed to fail) and (b) candle-feature-
+// gated examples (fail identically on both backends without the feature;
+// covered by the candle-tests job). The frozen exclusion list is asserted
+// by tests/naryad_373_parity_gate.rs — adding a new `continue` statement here
+// FAILS that test loudly.
 //
 // Discrepancies are red tests — each mismatch is a separate assertion.
 // Collects ALL mismatches, then fails if any exist.
@@ -32,6 +39,29 @@ fn trim_opt(s: &Option<String>) -> String {
         .unwrap_or_default()
 }
 
+/// №385: an optional per-example environment sidecar `examples/X.env`
+/// (KEY=VALUE lines, `#` comments allowed) is applied before running BOTH
+/// backends and removed afterwards — so the TW↔VM parity gate compares the
+/// fault-injected run (e.g. `METALOGOS_MOCK_LLM_FAULT=timeout`) on both
+/// backends, not a faultless one. The suite runs sequentially in-process.
+fn sidecar_env(mlog_path: &Path) -> Vec<(String, String)> {
+    let sidecar = mlog_path.with_extension("env");
+    if !sidecar.exists() {
+        return Vec::new();
+    }
+    fs::read_to_string(&sidecar)
+        .unwrap_or_else(|e| panic!("cannot read env sidecar {:?}: {}", sidecar, e))
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#') && !l.trim().is_empty())
+        .map(|l| {
+            let (k, v) = l
+                .split_once('=')
+                .unwrap_or_else(|| panic!("bad env sidecar line in {:?}: {}", sidecar, l));
+            (k.trim().to_string(), v.trim().to_string())
+        })
+        .collect()
+}
+
 /// Find all .mlog files with .expected files.
 /// Skips negative-test contracts (e.g. p50_unknown_fn) that are designed
 /// to produce errors — crosscheck only tests valid programs.
@@ -47,29 +77,28 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
                     if name.contains("unknown_fn") || name.contains("wrong_") {
                         continue;
                     }
-                    // Наряд №109 / ADR-0105: p_match_switch exercises `match`,
-                    // which the VM cannot compile. TW has a golden .expected;
-                    // full TW↔VM parity for this file is out of scope until
-                    // a deliberate decision to implement Match in the VM.
-                    if name == "p_match_switch.mlog" {
-                        continue;
-                    }
-                    // Наряд №118 / ADR-0105: p118_collection_utils exercises
-                    // unique/chunk/sort builtins whose results flow through
-                    // string concatenation (+). The VM's eval_binop rejects
-                    // heterogeneous operand types (e.g. List + String),
-                    // whereas the TW interpreter auto-coerces. VM parity
-                    // for these builtins requires a deliberate VM eval_binop
-                    // relaxation — tracked separately.
-                    if name == "p118_collection_utils.mlog" {
-                        continue;
-                    }
-                    // Наряд №177: reflex_math uses random_seed/random (TW-only —
-                    // VM has no PRNG state). Also uses Bool→String formatting
-                    // (to_string(true) → "true" in TW, "1" in VM).
-                    if name == "reflex_math.mlog" {
-                        continue;
-                    }
+                    // №369 (ADR-0141 Stage 1.1): the p_match_switch exclusion
+                    // is LIFTED — Match statement + match_expr compile to
+                    // bytecode natively, and the example now runs end-to-end
+                    // (flow Main drives all four patterns), so TW↔VM parity
+                    // is asserted by the regular crosscheck below.
+                    // №371 (ADR-0141 Stage 1.3): the p118_collection_utils
+                    // exclusion is LIFTED. The VM's eval_binop now mirrors the
+                    // TW interpreter exactly: same opaque-type restriction on
+                    // `+`, same MAX_STRING_LENGTH (1 MB) limit, and the same
+                    // loud messages for heterogeneous operands (List + String
+                    // errors identically in both backends). The example runs
+                    // end-to-end on both backends with identical output, so
+                    // TW↔VM parity is asserted by the regular crosscheck.
+                    // №372 (ADR-0141 Stage 1.4): the reflex_math exclusion
+                    // is LIFTED. PRNG: random_seed/random route through the
+                    // SHARED registry (src/builtins/math.rs thread-local
+                    // xorshift64 state) on BOTH backends — identical seed
+                    // yields identical sequences (the "VM has no PRNG state"
+                    // comment was stale). Bool→String: VM comparisons now
+                    // produce Value::Bool (eval_cmp), so to_string prints
+                    // "true"/"false" exactly like TW. TW↔VM parity asserted
+                    // by the regular crosscheck below.
                     // Наряд №199 (ADR-0121): reflex_train_predict.mlog is now
                     // supported on the VM! The exclusion has been removed and
                     // the test runs on both backends. The VM intercepts
@@ -157,8 +186,17 @@ fn crosscheck_tw_vs_vm_all_golden() {
         let source = fs::read_to_string(mlog_path)
             .unwrap_or_else(|e| panic!("cannot read {:?}: {}", mlog_path, e));
 
+        // №385: same fault-injection env on BOTH backends — parity of the
+        // error path is part of the parity contract.
+        let env_vars = sidecar_env(mlog_path);
+        for (k, v) in &env_vars {
+            std::env::set_var(k, v);
+        }
         let tw_result = run_tw(&source, base_dir);
         let vm_result = run_vm(&source, base_dir);
+        for (k, _) in &env_vars {
+            std::env::remove_var(k);
+        }
 
         match (&tw_result, &vm_result) {
             (Ok(tw), Ok(vm)) => {

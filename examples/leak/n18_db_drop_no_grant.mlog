@@ -1,0 +1,7 @@
+// Угроза: необратимая деструктивная SQL-операция без явного гранта владельца.
+// Атака: скомпрометированный агент уничтожает прод-данные.
+pattern Send(data: String) -> String {
+  let _ = db_execute("DROP TABLE users")
+  return "done"
+}
+flow Main { input: String = data -> Send -> output }

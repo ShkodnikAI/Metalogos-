@@ -2,7 +2,8 @@
 //
 // CRITICAL: This is the FIRST golden contract in the entire project
 // that tests `try` on the SUCCESS path. All 30 previous try-contracts
-// (наряды №80–90) only tested the error path (where try returns Unit),
+// (наряды №80–90) only tested the error path (pre-№374: try discarded the
+// error and returned a bare Unit),
 // leaving a VM correctness bug invisible for the entire project history.
 //
 // The bug: compiler.rs compiled Expr::Try(_) as Const(Unit), meaning
@@ -25,22 +26,22 @@
 pattern P91TrySuccessPath(input: String) -> String {
   // ── 1. Success: try svg_rect → returns SVG string ────────────────
   let r1 = try svg_rect(10.0, 20.0, 100.0, 50.0, "#333333", "none")
-  let ok1 = to_float(type_of(r1) == "String")
+  let ok1 = to_float(r1.ok and type_of(r1.value) == "String")
 
   // ── 2. Success: try svg_text → returns SVG string ────────────────
   let r2 = try svg_text(50.0, 50.0, "Hello", 16.0, "#000000", "start")
-  let ok2 = to_float(type_of(r2) == "String")
+  let ok2 = to_float(r2.ok and type_of(r2.value) == "String")
 
   // ── 3. Error: try svg_rect with negative width → Unit ───────────
   //    (svg_rect with negative dimensions should error)
   let r3 = try svg_rect(0.0, 0.0, -10.0, 10.0, "#000", "none")
-  let ok3 = to_float(type_of(r3) == "Unit")
+  let ok3 = to_float(r3.ok == false)
 
   // ── 4. Error: try nonexistent_builtin → Unit ─────────────────────
   //    (calling a nonexistent function errors; try catches it)
   //    Use svg_rect with 0-width which some implementations reject
   let r4 = try svg_rect(0.0, 0.0, 0.0, 0.0, "#000", "none")
-  let ok4 = to_float(type_of(r4) == "Unit")
+  let ok4 = to_float(r4.ok == false)
 
   let total = ok1 + ok2 + ok3 + ok4
 

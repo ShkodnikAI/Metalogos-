@@ -1,0 +1,1 @@
+EXPECTED: SQL_DYNAMIC — query_param конкатенируется в SQL db_execute

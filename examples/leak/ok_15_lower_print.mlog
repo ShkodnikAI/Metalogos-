@@ -1,0 +1,5 @@
+// Легально: нормализация регистра публичной строки.
+pattern Normalize(data: String) -> String {
+  return lower("ABCD")
+}
+flow Main { input: String = "x" -> Normalize -> output }

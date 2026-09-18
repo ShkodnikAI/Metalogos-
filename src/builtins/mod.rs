@@ -142,7 +142,7 @@ pub(crate) mod math_core;
 use math::*;
 pub(crate) mod collections;
 use collections::*;
-pub(crate) mod string;
+pub mod string;
 use string::*;
 // Наряд №274 (ADR-0136): core-функция маскирования публична для fuzz-цели
 // (конвенция №256) — metalogos::builtins::redact_string.
@@ -209,10 +209,17 @@ pub(crate) mod memory_forget;
 use memory_forget::*;
 #[cfg(feature = "vec")]
 pub use memory_forget::{memory_forget_core, FORGET_BATCH_PREFIX};
+// Наряд №285 (P2, feature/memory): text_chunk — структура-осознанное
+// чанкование для RAG-пайплайна (каскад разделителей + overlap + слияние,
+// markdown-секции с header_path). Без feature-гейта: чистая строковая
+// функция; token-бюджет — реюз token_count (memory.rs SSOT-estimate).
+pub(crate) mod text_chunk;
+use text_chunk::*;
 // Наряд №282 (P3, СПАЙК — Tier 3): SMFS-аналог — память как виртуальная
 // read-only ФС (префикс sm:) поверх user_profile №281, перехват в io.rs.
-// Прототип живёт на ветке naryad-282-smfs-profile — в main НЕ мержится
-// (лекало №271); в main идут отчёт docs/research/ и черновик ADR.
+// Прототип влит в main решением владельца (PR #349): вердикт спайка GO
+// (docs/research/naryad-282-smfs-spike.md), реестр билтинов и аритмии
+// файловых билтинов не меняются.
 pub(crate) mod cron;
 pub(crate) mod smfs;
 pub use cron::init_reminder_persist;
@@ -234,6 +241,30 @@ use regex::*;
 // macro in registry.rs can reference them.
 pub mod reflex;
 pub mod vision;
+// Наряд №331 (ADR-0162): unified media layer — media_store_* / media_save /
+// media_retain / media_release / media_meta. NOT feature-gated: the store,
+// handles, and at-rest sealing have no inference-stack dependencies (mirrors
+// the vision-store reasoning: the contract is testable in the default build).
+pub mod media;
+// Наряд №333 (ADR-0163): backend registry builtins — backend_list().
+pub mod backends;
+// Наряд №335 (spec §7.2 v2): consent grant/revoke + quarantine sink +
+// ledger export — the consent component's language surface.
+pub mod consent;
+// Naryad #390 (ADR-0155): Grant algebra builtins — issue/subgrant/revoke/use
+// + the granted destructive-SQL action surface.
+pub mod grants;
+// Naryad #387 (ADR-0149 D1/D6): the likeness ritual surface —
+// likeness_challenge / likeness_verify over the opaque LikenessToken.
+pub mod likeness;
+// Naryad #393 (ADR-0167): Action Ledger v1 builtins — count/head introspection,
+// the two FILE-EGRESS export profiles (classified Sink), rotation, snapshot.
+pub mod ledger;
+// Наряд №275 (ADR-0137): LLM streaming builtins — llm_stream_open/next/close.
+// Module is NOT feature-gated: the opaque handle + registry + SSE parser
+// live in `crate::llm` (always available); HTTP streaming requires
+// `reqwest::blocking` (always available, no extra feature flag).
+pub mod llm_stream;
 #[cfg(feature = "candle")]
 pub use reflex::{build_reflex_gen_model, build_reflex_seq_model};
 pub use reflex::{
@@ -261,6 +292,16 @@ pub use vision::{
     vision_lora_composite_model_sha256, vision_lora_generate_dispatch, vision_lora_load_dispatch,
     vision_save_dispatch,
 };
+// Наряд №331 (ADR-0162): media dispatch functions (shared TW + VM).
+// The last-resort registry stubs are pub(crate) — registry.rs imports
+// them directly from the module (лекало vision).
+pub use media::{
+    media_bind_origin_dispatch, media_manifest_dispatch, media_meta_dispatch,
+    media_release_dispatch, media_retain_dispatch, media_save_dispatch,
+    media_source_capture_dispatch, media_store_dispatch,
+};
+// Наряд №333 (ADR-0163): backend registry listing.
+pub use backends::builtin_backend_list;
 
 impl Default for Builtins {
     fn default() -> Self {
@@ -281,6 +322,14 @@ impl Builtins {
         }
 
         Builtins { funcs }
+    }
+
+    /// Наряд №287: заменить хендлер билтина на пользовательский
+    /// (doc-тесты: read-only профиль — сетевые/exec-заглушки).
+    /// Реестр НЕ меняется (SSOT нетронут) — подмена только в этом
+    /// экземпляре Builtins данного Interpreter.
+    pub fn override_handler(&mut self, name: &str, f: BuiltinFn) {
+        self.funcs.insert(name.to_string(), f);
     }
 
     /// Verify builtin registry consistency (debug builds).

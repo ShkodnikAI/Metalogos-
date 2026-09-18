@@ -3,7 +3,7 @@ members = [".", "mlogpkg", "mlog-lsp"]
 resolver = "2"
 
 [workspace.package]
-version = "0.19.0"
+version = "0.20.0"
 edition = "2021"
 
 [package]
@@ -34,6 +34,10 @@ axum = { version = "0.8", features = ["macros"], optional = true }
 tokio = { version = "1", features = ["full"], optional = true }
 tower = { version = "0.5", optional = true }
 tower-http = { version = "0.7", features = ["cors", "set-header"], optional = true }
+# Naryad #394 (ADR-0168): the SSE transport's Stream trait — ALREADY in the
+# dependency tree via axum/tower (zero new compiled crates); declared direct
+# under the `server` feature for honest accounting.
+futures-util = { version = "0.3", default-features = false, optional = true }
 hyper = { version = "1", features = ["full"], optional = true }
 hmac = "0.13"
 sha2 = "0.11"
@@ -49,6 +53,11 @@ reqwest = { version = "0.12", features = ["blocking", "json", "rustls-tls", "mul
 # Phase 7.3: Real encryption
 argon2 = "0.6"
 zeroize = "1"
+
+# Naryad #393 (ADR-0167): Action Ledger v1 — Ed25519 signatures over the
+# prev-hash chain. One new top-level crate (FEATURE_INTAKE §5 budget:
+# warning 2, hard 5); hashing (sha2), hex and RNG (rand) were present.
+ed25519-dalek = "3"
 
 # Phase 7.4: Real sessions & CSRF
 rusqlite = { version = "0.40", features = ["bundled"] }
@@ -81,7 +90,7 @@ crc32fast = "1.4"
 pdf-inspector = "1.17"
 
 # Наряд MLG-2: PDF manipulation (pure Rust, zero Python IPC)
-lopdf = "0.44"
+lopdf = "0.45"
 
 # Наряд №54: Regular expressions (linear-time, no backtracking)
 regex = "1"
@@ -140,7 +149,7 @@ llm = []
 # it is now optional behind `server`. Core (parser/compiler/VM) builds without
 # it; clean-build time and dep-graph deltas are recorded in
 # docs/research/naryad-278-wasm-spike.md.
-server = ["dep:axum", "dep:tower", "dep:tower-http", "dep:hyper", "dep:tokio"]
+server = ["dep:axum", "dep:tower", "dep:tower-http", "dep:hyper", "dep:tokio", "dep:futures-util"]
 full = ["svg", "chart", "diagram", "template", "llm", "server"]
 
 # Наряд №183 (ADR-0118): candle for sequence-layer (attention) extension.
@@ -170,6 +179,17 @@ pdf-ocr = ["tesseract"]
 # Enable with: cargo build --features vision
 vision = ["candle", "dep:tokenizers", "dep:image"]
 
+# Наряд №302 (ADR-0143-0146): Voice pillar — TTS, voice cloning, voice design.
+# Off-by-default: voice implies candle (same as vision). No new heavy deps in
+# skeleton — candle-core/candle-nn reused. tokenizers may be added in A2+.
+# Enable with: cargo build --features voice
+voice = ["candle"]
+
+# Наряд №307 (ADR-0147-0150): Video pillar — T2V/I2V, video design.
+# Off-by-default: video implies candle (same as vision/voice).
+# Enable with: cargo build --features video
+video = ["candle"]
+
 # CI-hygiene: максимальный фича-набор, переносимый между GitHub-hosted
 # раннерами (platform-check джобы macos/windows в ci.yml). `pdf-ocr`
 # исключён осознанно: по своему контракту (см. выше) он требует системные
@@ -192,4 +212,12 @@ proptest = "1"
 
 [[bench]]
 name = "core_benchmarks"
+harness = false
+
+# Naryad #381 (issue #467, ADR-0141 §D5): Stage 4 real-load benchmark —
+# production-class corpus, both serve backends, one environment per
+# backend (own process → clean peak-RSS HWM), p50/p95/mean + RSS +
+# startup, JSON report, loud §D5 verdict.
+[[bench]]
+name = "stage4_benchmark"
 harness = false

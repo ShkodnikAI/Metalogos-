@@ -11,7 +11,9 @@
 
 use crate::ast::*;
 use crate::audit::{audit_category_a, Severity};
-use std::collections::{HashMap, HashSet};
+use crate::builtins_classification::{classify, Reversibility, Role};
+use crate::labels::{legacy_taint_label, Label};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// A diagnostic with the AST `Span` of the offending node.
 ///
@@ -147,6 +149,4140 @@ const VALID_MIDDLEWARE: &[&str] = &["session", "csrf", "security_headers", "rate
 /// Valid HTTP methods for route declarations.
 const VALID_METHODS: &[&str] = &["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
 
+// ── Statement-level label inference (Наряд №323, ADR-0154 Appendix A) ──
+//
+// Static propagation of labels `(conf, integrity, consent-scope)` through
+// pattern bodies: every statement kind has a contract (input reading,
+// output label, side effects, merge rule) recorded in ADR-0154 Appendix A
+// and REFERENCE §2.2. Join at merge points is componentwise:
+// if/else-if/else branches, match arms, loop exits.
+//
+// Sources and sanitizers reuse the audit.rs vocabulary (binding_taint),
+// projected onto the lattice via `labels::legacy_taint_label` — the bridge
+// table of ADR-0154 §5. This is the machinery №325's sink-gate reads.
+
+/// Bounded-fixpoint pass cap for `while` bodies. The conf lattice has
+/// height 4 (`public < consented < private < poisoned`); monotone joins
+/// stabilize any var→var loop-carried chain within that many passes —
+/// 8 = height × 2 safety factor. Deterministic, always terminates.
+const LABEL_FIXPOINT_MAX_PASSES: usize = 8;
+
+/// Result of the statement-level label inference for one pattern.
+#[derive(Debug, Clone)]
+pub struct LabelInference {
+    /// Final label of every variable bound in the pattern body (params
+    /// included), after all merge joins.
+    pub var_labels: BTreeMap<String, Label>,
+    /// Componentwise join of every `Return` value label and `ExprStmt`
+    /// result label — the pattern's output label.
+    pub output_label: Label,
+}
+
+/// Source/sanitizer vocabulary — mirrors audit.rs `binding_taint`, keyed
+/// the same way, projected via the ADR-0154 §5 table. `None` = not a
+/// source (the caller falls back to argument propagation).
+fn label_source(fn_name: &str, args: &[Expr], env: &BTreeMap<String, Label>) -> Option<Label> {
+    // Static kind names only — the ADR-0154 §5 table covers them (pinned
+    // by the exhaustiveness test in audit.rs); the fallback never fires.
+    let kind_label = |kind: &str| legacy_taint_label(kind).unwrap_or_else(Label::bottom);
+    match fn_name {
+        // Secret sources.
+        "env" | "secret" => Some(kind_label("Secret")),
+        // LLM-output sources (model output is untrusted — ADR-0117).
+        "call_llm" | "call_claude" | "call_llm_schema" | "reflex_generate" => {
+            Some(kind_label("LlmOutput"))
+        }
+        // Untrusted-input sources (№268: MCP tool output reuses UserInput).
+        "form_data" | "json_body" | "query_param" | "mcp_call" => Some(kind_label("UserInput")),
+        // №325: network ingress and file ingress are untrusted sources —
+        // the sink-clearance gate needs their labels to attribute
+        // UNTRUSTED_EGRESS_* classes (ADR-0161 §3).
+        "http_get" | "read_file" => Some(kind_label("UserInput")),
+        // Sanitizers restore trust.
+        "render" | "escape_html" => Some(kind_label("Sanitized")),
+        // №274 (ADR-0136): redact masks secrets — the ONLY downward move
+        // for `private` until №326 formalizes redact/declassify. Semantics:
+        // mode "secrets"/"all" maps private → public/trusted; every other
+        // label passes through UNCHANGED — quarantine (`poisoned`) is NOT
+        // curable by redact (a channel is not a secret; ADR-0136 D2).
+        "redact" => {
+            let input = args
+                .first()
+                .map(|a| expr_label(a, env))
+                .unwrap_or_else(Label::bottom);
+            // №326: the policy is a VALUE — its target conf comes from
+            // the registry (the single source of truth shared with the
+            // runtime). Unknown/dynamic policies pass the input through
+            // (conservative — no silent downward moves).
+            let target_conf = args.get(1).and_then(|p| match p {
+                Expr::StringLit { value, .. } => {
+                    crate::builtins::string::redact_policy(value).map(|pol| pol.target_conf)
+                }
+                _ => None,
+            });
+            match target_conf {
+                // One-way: the data is destroyed — the result is a
+                // compiler-derived value (bottom: public AND trusted).
+                // Integrity is restored too (№327: hash_only decisions
+                // are legal). QUARANTINE EXCEPTION: poisoned is not
+                // curable by any policy (ADR-0154 §2.1 / §10) — the
+                // channel is not the data.
+                Some("public") => {
+                    if input.conf == crate::labels::Conf::Poisoned {
+                        Some(input)
+                    } else {
+                        Some(Label::bottom())
+                    }
+                }
+                _ => Some(input),
+            }
+        }
+        // №335 (spec §7.2 v2): consent_grant extends the value's
+        // consent-scope set by the granted scope. Non-literal scope
+        // cannot be named statically — conservative no-extension (the
+        // redact dynamic-policy posture); the ledger still records the
+        // runtime grant.
+        "consent_grant" => {
+            let input = args
+                .first()
+                .map(|a| expr_label(a, env))
+                .unwrap_or_else(Label::bottom);
+            match args.get(1) {
+                Some(Expr::StringLit { value, .. }) => {
+                    let consent = input
+                        .consent
+                        .clone()
+                        .meet(crate::labels::ConsentScope::from_scopes([value.as_str()]));
+                    Some(Label {
+                        conf: input.conf,
+                        integrity: input.integrity,
+                        consent,
+                    })
+                }
+                _ => Some(input),
+            }
+        }
+        // №335: consent_revoke — the FLAT cascade entry point. The
+        // revoked value (and every value derived from it) carries the
+        // QUARANTINE label: poison is ABSORBING in the lattice
+        // (ADR-0154 §2.1) — join with anything stays poisoned, so the
+        // cascade is the lattice's own semantics, not a separate
+        // analysis. Quarantine clears the consent scope too.
+        "consent_revoke" => Some(Label {
+            conf: crate::labels::Conf::Poisoned,
+            integrity: crate::labels::Integrity::Untrusted,
+            consent: Default::default(),
+        }),
+        _ => None,
+    }
+}
+
+/// Label of an expression under environment `env`. Join is componentwise;
+/// literals and unknown identifiers are `bottom` (ADR-0154 Appendix A:
+/// unannotated params and unresolved names start open — the sink-gate
+/// №325 reads these labels, it does not trust them).
+fn expr_label(expr: &Expr, env: &BTreeMap<String, Label>) -> Label {
+    match expr {
+        Expr::StringLit { .. } | Expr::FloatLit { .. } | Expr::BoolLit { .. } => Label::bottom(),
+        // №332 (ADR-0164): HandleSource/ProvBind labels are resolved at
+        // the LetBinding/Assign insertion points (origin declarations are
+        // not in scope here). Legal constructions only appear there —
+        // this arm is the conservative fallback (bottom) for the general
+        // walker; the origin pass refuses illegal positions loudly.
+        Expr::HandleSource { .. } => Label::bottom(),
+        Expr::ProvBind { inner, .. } => expr_label(inner, env),
+        Expr::Ident { name, .. } => env.get(name).cloned().unwrap_or_else(Label::bottom),
+        Expr::FieldAccess { object, .. } => expr_label(object, env),
+        Expr::FnCall { name, args, .. } => {
+            if let Some(l) = label_source(name, args, env) {
+                return l;
+            }
+            // Data flows through ordinary functions: join of the arguments.
+            let mut acc = Label::bottom();
+            for a in args {
+                acc = acc.join(&expr_label(a, env));
+            }
+            acc
+        }
+        // Qualified calls (module functions): no source knowledge at this
+        // slice — argument propagation only (recorded boundary).
+        Expr::QualifiedCall { args, .. } => {
+            let mut acc = Label::bottom();
+            for a in args {
+                acc = acc.join(&expr_label(a, env));
+            }
+            acc
+        }
+        Expr::BinaryOp { left, right, .. } => expr_label(left, env).join(&expr_label(right, env)),
+        // Conditions do not taint values; branches do.
+        Expr::IfElse {
+            then_branch,
+            else_branch,
+            ..
+        } => expr_label(then_branch, env).join(&expr_label(else_branch, env)),
+        Expr::List { items, .. } => {
+            let mut acc = Label::bottom();
+            for item in items {
+                acc = acc.join(&expr_label(item, env));
+            }
+            acc
+        }
+        // `list[index]` yields an ELEMENT of the object; the list label is
+        // already the join of its elements, so the object label is the
+        // sound answer (the index selects, it does not contribute).
+        Expr::IndexAccess { object, .. } => expr_label(object, env),
+        Expr::StructLit { fields, .. } => {
+            let mut acc = Label::bottom();
+            for v in fields.values() {
+                acc = acc.join(&expr_label(v, env));
+            }
+            acc
+        }
+        // Block-expression branches: join of every expression label that
+        // appears in the branch bodies (approximation of the block's value
+        // — recorded in Appendix A).
+        Expr::BlockIfElse {
+            then_body,
+            else_ifs,
+            else_body,
+            ..
+        } => {
+            let mut acc = block_expr_label(then_body, env);
+            for (_, body) in else_ifs {
+                acc = acc.join(&block_expr_label(body, env));
+            }
+            if let Some(body) = else_body {
+                acc = acc.join(&block_expr_label(body, env));
+            }
+            acc
+        }
+        // №369: match-as-expression — the value carries the join of the
+        // scrutinee's label (control dependence, REFERENCE §labels: the
+        // scrutinee's label joins every variable assigned in any arm) with
+        // every arm body's expression labels; else body joins too.
+        Expr::MatchExpr {
+            scrutinee,
+            arms,
+            else_body,
+            ..
+        } => {
+            let mut acc = expr_label(scrutinee, env);
+            for arm in arms {
+                acc = acc.join(&block_expr_label(arm.body(), env));
+            }
+            if let Some(eb) = else_body {
+                acc = acc.join(&block_expr_label(eb, env));
+            }
+            acc
+        }
+        // `try expr` returns the value or Unit on error — the value label
+        // is an upper bound, keep the inner label.
+        Expr::Try { expr, .. } => expr_label(expr, env),
+    }
+}
+
+/// Join of every expression label appearing (top-level-ish) in a block —
+/// used for block-expression value approximation only.
+fn block_expr_label(stmts: &[Statement], env: &BTreeMap<String, Label>) -> Label {
+    let mut acc = Label::bottom();
+    for st in stmts {
+        match st {
+            Statement::LetBinding { value, .. } | Statement::Assign { value, .. } => {
+                acc = acc.join(&expr_label(value, env));
+            }
+            Statement::Return { value, .. } | Statement::ExprStmt { expr: value, .. } => {
+                acc = acc.join(&expr_label(value, env));
+            }
+            Statement::IfThen { body, .. } => {
+                acc = acc.join(&block_expr_label(body, env));
+            }
+            Statement::IfElseBlock {
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                acc = acc.join(&block_expr_label(then_body, env));
+                for (_, body) in else_ifs {
+                    acc = acc.join(&block_expr_label(body, env));
+                }
+                if let Some(body) = else_body {
+                    acc = acc.join(&block_expr_label(body, env));
+                }
+            }
+            _ => {}
+        }
+    }
+    acc
+}
+
+/// Merge rule shared by all merge points: per-variable componentwise join
+/// of the entry environment and every branch environment (a branch that
+/// did not assign the variable contributes the entry label — this is what
+/// makes one-sided assignment conservative).
+fn merge_envs(
+    entry: &BTreeMap<String, Label>,
+    branches: &[&BTreeMap<String, Label>],
+) -> BTreeMap<String, Label> {
+    let mut names: Vec<&String> = entry.keys().collect();
+    for b in branches {
+        names.extend(b.keys());
+    }
+    let mut out = BTreeMap::new();
+    for name in names {
+        let mut acc = entry.get(name).cloned().unwrap_or_else(Label::bottom);
+        for b in branches {
+            acc = acc.join(&b.get(name).cloned().unwrap_or_else(Label::bottom));
+        }
+        out.insert(name.clone(), acc);
+    }
+    out
+}
+
+/// Structurally collect every variable ASSIGNED or LET-BOUND in a
+/// statement sequence (recursively through nested blocks) — used by the
+/// Match scrutinee rule, which must trigger on assignment SHAPE, not on
+/// label changes (a branch can assign the same label it inherited).
+fn collect_assigned_vars(stmts: &[Statement], out: &mut std::collections::HashSet<String>) {
+    for st in stmts {
+        match st {
+            Statement::LetBinding { name, .. } | Statement::Assign { name, .. } => {
+                out.insert(name.clone());
+            }
+            Statement::Each { variable, body, .. } => {
+                out.insert(variable.clone());
+                collect_assigned_vars(body, out);
+            }
+            Statement::EachWithIndex {
+                index_var,
+                item_var,
+                body,
+                ..
+            } => {
+                out.insert(index_var.clone());
+                out.insert(item_var.clone());
+                collect_assigned_vars(body, out);
+            }
+            Statement::While { body, .. } => collect_assigned_vars(body, out),
+            Statement::IfThen { body, .. } => collect_assigned_vars(body, out),
+            Statement::IfElseBlock {
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                collect_assigned_vars(then_body, out);
+                for (_, body) in else_ifs {
+                    collect_assigned_vars(body, out);
+                }
+                if let Some(body) = else_body {
+                    collect_assigned_vars(body, out);
+                }
+            }
+            Statement::Match {
+                arms, else_body, ..
+            } => {
+                for arm in arms {
+                    let body = match arm {
+                        MatchArm::Exact(_, b)
+                        | MatchArm::StartsWith(_, b)
+                        | MatchArm::Contains(_, b)
+                        | MatchArm::Compare(_, _, b) => b,
+                    };
+                    collect_assigned_vars(body, out);
+                }
+                if let Some(body) = else_body {
+                    collect_assigned_vars(body, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Infer one statement sequence, mutating `env`; value-producing
+/// statements (Return, ExprStmt) join the pattern `output`.
+fn infer_block(stmts: &[Statement], env: &mut BTreeMap<String, Label>, output: &mut Label) {
+    for st in stmts {
+        infer_stmt(st, env, output);
+    }
+}
+
+fn infer_stmt(st: &Statement, env: &mut BTreeMap<String, Label>, output: &mut Label) {
+    match st {
+        // LetBinding/Assign — the label comes from the RHS (Assign replaces:
+        // reassignment to a safe value lowers the label in straight-line
+        // code, mirroring the TaintTracker untaint semantics; merge points
+        // re-add the conservatism).
+        Statement::LetBinding { name, value, .. } => {
+            let l = expr_label(value, env);
+            env.insert(name.clone(), l);
+        }
+        Statement::Assign { name, value, .. } => {
+            let l = expr_label(value, env);
+            env.insert(name.clone(), l);
+        }
+        // Each: the iterator takes the ITERABLE's label; the body cannot
+        // raise it (restored after the body). Loop exit: join of the entry
+        // and post-body environments for every other variable.
+        Statement::Each {
+            variable,
+            iterable,
+            body,
+            ..
+        } => {
+            let it_label = expr_label(iterable, env);
+            env.insert(variable.clone(), it_label.clone());
+            let entry = env.clone();
+            infer_block(body, env, output);
+            env.insert(variable.clone(), it_label);
+            *env = merge_envs(&entry, &[&*env]);
+        }
+        Statement::EachWithIndex {
+            index_var,
+            item_var,
+            iterable,
+            body,
+            ..
+        } => {
+            let it_label = expr_label(iterable, env);
+            env.insert(item_var.clone(), it_label.clone());
+            // The index is a position, not data: bottom (Appendix A).
+            env.insert(index_var.clone(), Label::bottom());
+            let entry = env.clone();
+            infer_block(body, env, output);
+            env.insert(item_var.clone(), it_label);
+            env.insert(index_var.clone(), Label::bottom());
+            *env = merge_envs(&entry, &[&*env]);
+        }
+        // While — bounded fixpoint: the body runs until the environment
+        // stabilizes (≤ 8 passes). Monotone joins on a finite lattice make
+        // this the exact fixpoint; the cap is a termination guard.
+        // Condition labels are ignored (conditions do not taint values).
+        Statement::While { body, .. } => {
+            for _ in 0..LABEL_FIXPOINT_MAX_PASSES {
+                let before = env.clone();
+                infer_block(body, env, output);
+                // join so loop-carried growth accumulates across passes
+                for (k, v) in env.iter_mut() {
+                    let b = before.get(k).cloned().unwrap_or_else(Label::bottom);
+                    *v = b.join(v);
+                }
+                if *env == before {
+                    break;
+                }
+            }
+        }
+        // If/else-if/else: every branch is inferred from the entry env;
+        // merge is the componentwise join over all branches.
+        Statement::IfElseBlock {
+            then_body,
+            else_ifs,
+            else_body,
+            ..
+        } => {
+            let entry = env.clone();
+            infer_block(then_body, env, output);
+            let then_env = env.clone();
+            let mut branch_envs: Vec<BTreeMap<String, Label>> = vec![then_env];
+            for (_, body) in else_ifs {
+                let mut e = entry.clone();
+                infer_block(body, &mut e, output);
+                branch_envs.push(e);
+            }
+            if let Some(body) = else_body {
+                let mut e = entry.clone();
+                infer_block(body, &mut e, output);
+                branch_envs.push(e);
+            }
+            let refs: Vec<&BTreeMap<String, Label>> = branch_envs.iter().collect();
+            *env = merge_envs(&entry, &refs);
+        }
+        // Single-branch if: merge with an implicit empty else.
+        Statement::IfThen { body, .. } => {
+            let entry = env.clone();
+            infer_block(body, env, output);
+            *env = merge_envs(&entry, &[&*env]);
+        }
+        // Return/ExprStmt — the result label joins the pattern output.
+        Statement::Return { value, .. } => {
+            let l = expr_label(value, env);
+            *output = output.join(&l);
+        }
+        Statement::ExprStmt { expr, .. } => {
+            let l = expr_label(expr, env);
+            *output = output.join(&l);
+        }
+        // Match: join over arms; the scrutinee's label additionally joins
+        // every variable ASSIGNED in any arm — control dependence on the
+        // scrutinee (decisions derived from private data taint outcomes).
+        Statement::Match {
+            scrutinee,
+            arms,
+            else_body,
+            ..
+        } => {
+            let scrut = expr_label(scrutinee, env);
+            let entry = env.clone();
+            let mut branch_envs: Vec<BTreeMap<String, Label>> = Vec::new();
+            let mut assigned: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut run_branch =
+                |body: &Vec<Statement>,
+                 branch_envs: &mut Vec<_>,
+                 assigned: &mut std::collections::HashSet<String>,
+                 entry: &BTreeMap<String, Label>| {
+                    collect_assigned_vars(body, assigned);
+                    let mut e = entry.clone();
+                    let mut out_tmp = Label::bottom();
+                    infer_block(body, &mut e, &mut out_tmp);
+                    // NOTE: arm outputs join the caller's output too (a Return
+                    // inside an arm is still a pattern exit).
+                    *output = output.join(&out_tmp);
+                    branch_envs.push(e);
+                };
+            for arm in arms {
+                let body = match arm {
+                    MatchArm::Exact(_, b)
+                    | MatchArm::StartsWith(_, b)
+                    | MatchArm::Contains(_, b)
+                    | MatchArm::Compare(_, _, b) => b,
+                };
+                run_branch(body, &mut branch_envs, &mut assigned, &entry);
+            }
+            if let Some(body) = else_body {
+                run_branch(body, &mut branch_envs, &mut assigned, &entry);
+            }
+            let refs: Vec<&BTreeMap<String, Label>> = branch_envs.iter().collect();
+            let mut merged = merge_envs(&entry, &refs);
+            for k in &assigned {
+                // The variable is structurally assigned in some branch, so
+                // every branch env (and the merge union) carries it.
+                if let Some(m) = merged.get_mut(k) {
+                    *m = m.join(&scrut);
+                }
+            }
+            *env = merged;
+        }
+        // Loop control: no label effect, no merge contribution (Appendix A).
+        Statement::Break | Statement::Continue => {}
+        // Memory side-effect statements: the payload label does not enter
+        // the value flow here; persistence gating is №325
+        // (TAINT_PERSISTENCE class in the leak-suite vocabulary).
+        Statement::Memorize(_) | Statement::Forget(_) | Statement::Relate(_) => {}
+    }
+}
+
+/// Run the statement-level label inference over one pattern (Наряд №323).
+/// Parameters: annotated → parsed label; unannotated → `bottom`. The
+/// result is what №325's sink-gate will read; see ADR-0154 Appendix A
+/// for the per-statement contracts and REFERENCE §2.2 for the table.
+pub fn infer_pattern_labels(pattern: &PatternDecl) -> LabelInference {
+    let mut env: BTreeMap<String, Label> = BTreeMap::new();
+    for prm in &pattern.params {
+        let l = match &prm.label {
+            Some(ann) => Label::parse(&ann.raw).unwrap_or_else(|_| Label::bottom()),
+            None => Label::bottom(),
+        };
+        env.insert(prm.name.clone(), l);
+    }
+    let mut output = Label::bottom();
+    infer_block(&pattern.body, &mut env, &mut output);
+    LabelInference {
+        var_labels: env,
+        output_label: output,
+    }
+}
+
+// ── Label annotation validation (Наряд №322, ADR-0154) ───────────
+
+/// Validate one label annotation, reporting a parse failure with the
+/// annotation's span. Message follows the existing semantic convention
+/// (context first, reason last) — e.g.
+/// `label annotation '<private, bogus>' on parameter 's' of pattern 'p': unknown label word 'bogus'`.
+fn validate_label_ann(ann: &LabelAnn, context: &str, errors: &mut Vec<SpannedError>) {
+    if let Err(e) = crate::labels::Label::parse(&ann.raw) {
+        errors.push(SpannedError::at(
+            format!("label annotation '<{}>' on {}: {}", ann.raw, context, e),
+            ann.span.clone(),
+        ));
+    }
+}
+
+/// Walk a declaration and validate every label annotation it carries.
+///
+/// Grammar-restricted positions (Наряд №322): pattern / learnable /
+/// template / tool-method parameters, entity-type fields, and the type
+/// position of entity record/simple declarations. Everywhere else a
+/// `<...>` after a type name remains a parse error — annotations cannot
+/// appear where the label system does not see them.
+fn validate_decl_labels(decl: &Declaration, errors: &mut Vec<SpannedError>) {
+    match decl {
+        Declaration::Pattern(p) => {
+            for prm in &p.params {
+                if let Some(ann) = &prm.label {
+                    validate_label_ann(
+                        ann,
+                        &format!("parameter '{}' of pattern '{}'", prm.name, p.name),
+                        errors,
+                    );
+                }
+            }
+        }
+        Declaration::LearnablePattern(lp) => {
+            for prm in &lp.params {
+                if let Some(ann) = &prm.label {
+                    validate_label_ann(
+                        ann,
+                        &format!(
+                            "parameter '{}' of learnable pattern '{}'",
+                            prm.name, lp.name
+                        ),
+                        errors,
+                    );
+                }
+            }
+        }
+        Declaration::Template(t) => {
+            for prm in &t.params {
+                if let Some(ann) = &prm.label {
+                    validate_label_ann(
+                        ann,
+                        &format!("parameter '{}' of template '{}'", prm.name, t.name),
+                        errors,
+                    );
+                }
+            }
+        }
+        Declaration::Tool(t) => {
+            for m in &t.methods {
+                for prm in &m.params {
+                    if let Some(ann) = &prm.label {
+                        validate_label_ann(
+                            ann,
+                            &format!(
+                                "parameter '{}' of tool method '{}.{}'",
+                                prm.name, t.name, m.name
+                            ),
+                            errors,
+                        );
+                    }
+                }
+            }
+        }
+        Declaration::EntityType(e) => {
+            for f in &e.fields {
+                if let Some(ann) = &f.label {
+                    validate_label_ann(
+                        ann,
+                        &format!("field '{}' of entity type '{}'", f.name, e.name),
+                        errors,
+                    );
+                }
+            }
+        }
+        Declaration::EntityRecord(e) => {
+            if let Some(ann) = &e.label {
+                validate_label_ann(ann, &format!("entity '{}'", e.name), errors);
+            }
+        }
+        Declaration::EntitySimple(e) => {
+            if let Some(ann) = &e.label {
+                validate_label_ann(ann, &format!("entity '{}'", e.name), errors);
+            }
+        }
+        _ => {}
+    }
+}
+
+// ── Effect trail (Наряд №324, ADR-0154 §9) ───────────────────────────
+
+/// Parse the declared effect-trail words (`"io, audit"`) into a set.
+/// Errors (unknown word / duplicate) are loud; `⟨⟩` (empty raw) is the
+/// zero-effect declaration.
+fn parse_effect_set(ann: &EffectAnn) -> Result<EffectSet, String> {
+    let raw = ann.raw.trim();
+    if raw.is_empty() {
+        return Ok(EffectSet::new());
+    }
+    let mut set = EffectSet::new();
+    for word in raw.split(',') {
+        let w = word.trim();
+        match Effect::parse_word(w) {
+            Some(e) => {
+                if !set.insert(e) {
+                    return Err(format!("duplicate effect word '{w}'"));
+                }
+            }
+            None => return Err(format!("unknown effect word '{w}'")),
+        }
+    }
+    Ok(set)
+}
+
+/// Validate one effect trail, reporting a bad word with the trail's
+/// span (same convention as `validate_label_ann`).
+fn validate_effect_ann(ann: &EffectAnn, context: &str, errors: &mut Vec<SpannedError>) {
+    if let Err(e) = parse_effect_set(ann) {
+        errors.push(SpannedError::at(
+            format!("effect trail '⟨{}⟩' on {}: {}", ann.raw, context, e),
+            ann.span.clone(),
+        ));
+    }
+}
+
+// ── Media handle opacity (Наряд №331, ADR-0114 / ADR-0162 §2.5) ──────
+//
+// Media handles (`Value::Media`: Image/Audio/VideoFrame/VideoSegment)
+// are opaque: bytes NEVER live in `Value`, so any field access on a
+// media-typed expression is a COMPILE error (loud, with span) — bytes
+// are reachable only through the sanctioned materialization sink
+// (`media_save`, №325-gated). The language has no other byte-extraction
+// syntax on handles; this pass closes the syntactic surface there is.
+
+/// Builtins that PRODUCE a media handle (the four per-type stores +
+/// `media_retain`, which returns the same handle).
+fn is_media_producing_builtin(name: &str) -> bool {
+    matches!(
+        name,
+        "media_store_image"
+            | "media_store_audio"
+            | "media_store_video_frame"
+            | "media_store_video_segment"
+            | "media_retain"
+    )
+}
+
+/// `true` when the expression's value is a media handle by direct
+/// construction (a producing builtin call).
+fn is_media_binding_expr(value: &Expr) -> bool {
+    match value {
+        Expr::FnCall { name, .. } => is_media_producing_builtin(name),
+        // №332 (ADR-0164 §7.4): the perception constructions produce
+        // media handles too — a bound Lift (`from <origin>
+        // media_store_*(...)`) and a source capture (`source <origin>`)
+        // are opaque handles like any other.
+        Expr::ProvBind { inner, .. } => {
+            matches!(inner.as_ref(), Expr::FnCall { name, .. } if is_media_producing_builtin(name))
+        }
+        Expr::HandleSource { .. } => true,
+        _ => false,
+    }
+}
+
+/// Is this expression's static bottom a media-typed binding?
+fn media_typed_object(object: &Expr, media_vars: &std::collections::HashSet<String>) -> bool {
+    match object {
+        Expr::Ident { name, .. } => media_vars.contains(name),
+        Expr::FnCall { name, .. } => is_media_producing_builtin(name),
+        // №332: perception constructions are media-typed bottoms too.
+        Expr::HandleSource { .. } => true,
+        Expr::ProvBind { inner, .. } => {
+            matches!(inner.as_ref(), Expr::FnCall { name, .. } if is_media_producing_builtin(name))
+        }
+        _ => false,
+    }
+}
+
+/// Walk one expression for field accesses on media-typed objects and
+/// for further media bindings (recursively).
+fn check_media_expr(
+    expr: &Expr,
+    media_vars: &mut std::collections::HashSet<String>,
+    container: &str,
+    violations: &mut Vec<MediaOpacityViolation>,
+) {
+    match expr {
+        Expr::FieldAccess {
+            object,
+            field,
+            span,
+        } => {
+            if media_typed_object(object, media_vars) {
+                violations.push(MediaOpacityViolation {
+                    container: container.to_string(),
+                    field: field.clone(),
+                    span: span.clone(),
+                });
+            } else {
+                check_media_expr(object, media_vars, container, violations);
+            }
+        }
+        Expr::FnCall { name, args, .. } => {
+            // The call NAME may be a media binding (checked by the caller
+            // when binding); the arguments still need the field-access walk.
+            let _ = name;
+            for a in args {
+                check_media_expr(a, media_vars, container, violations);
+            }
+        }
+        Expr::QualifiedCall { args, .. } => {
+            for a in args {
+                check_media_expr(a, media_vars, container, violations);
+            }
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            check_media_expr(left, media_vars, container, violations);
+            check_media_expr(right, media_vars, container, violations);
+        }
+        Expr::IfElse {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            check_media_expr(condition, media_vars, container, violations);
+            check_media_expr(then_branch, media_vars, container, violations);
+            check_media_expr(else_branch, media_vars, container, violations);
+        }
+        Expr::List { items, .. } => {
+            for i in items {
+                check_media_expr(i, media_vars, container, violations);
+            }
+        }
+        Expr::IndexAccess { object, index, .. } => {
+            check_media_expr(object, media_vars, container, violations);
+            check_media_expr(index, media_vars, container, violations);
+        }
+        Expr::StructLit { fields, .. } => {
+            for v in fields.values() {
+                check_media_expr(v, media_vars, container, violations);
+            }
+        }
+        Expr::BlockIfElse {
+            condition,
+            then_body,
+            else_ifs,
+            else_body,
+            ..
+        } => {
+            check_media_expr(condition, media_vars, container, violations);
+            check_media_stmts(then_body, media_vars, container, violations);
+            for (cond, body) in else_ifs {
+                check_media_expr(cond, media_vars, container, violations);
+                check_media_stmts(body, media_vars, container, violations);
+            }
+            if let Some(eb) = else_body {
+                check_media_stmts(eb, media_vars, container, violations);
+            }
+        }
+        Expr::MatchExpr {
+            scrutinee,
+            arms,
+            else_body,
+            ..
+        } => {
+            check_media_expr(scrutinee, media_vars, container, violations);
+            for arm in arms {
+                check_media_stmts(arm.body(), media_vars, container, violations);
+            }
+            if let Some(eb) = else_body {
+                check_media_stmts(eb, media_vars, container, violations);
+            }
+        }
+        Expr::Try { expr, .. } => {
+            check_media_expr(expr, media_vars, container, violations);
+        }
+        _ => {}
+    }
+}
+
+/// Walk statements, tracking media-typed bindings (direct production
+/// calls and one-step aliases) and checking every expression.
+fn check_media_stmts(
+    stmts: &[Statement],
+    media_vars: &mut std::collections::HashSet<String>,
+    container: &str,
+    violations: &mut Vec<MediaOpacityViolation>,
+) {
+    for s in stmts {
+        match s {
+            Statement::LetBinding { name, value, .. } => {
+                check_media_expr(value, media_vars, container, violations);
+                if is_media_binding_expr(value) {
+                    media_vars.insert(name.clone());
+                } else if let Expr::Ident { name: src, .. } = value {
+                    if media_vars.contains(src) {
+                        media_vars.insert(name.clone());
+                    }
+                }
+            }
+            Statement::Assign { name, value, .. } => {
+                check_media_expr(value, media_vars, container, violations);
+                if is_media_binding_expr(value) {
+                    media_vars.insert(name.clone());
+                }
+            }
+            Statement::Each {
+                variable,
+                iterable,
+                body,
+                ..
+            } => {
+                let _ = variable;
+                check_media_expr(iterable, media_vars, container, violations);
+                check_media_stmts(body, media_vars, container, violations);
+            }
+            Statement::EachWithIndex {
+                item_var,
+                iterable,
+                body,
+                ..
+            } => {
+                let _ = item_var;
+                check_media_expr(iterable, media_vars, container, violations);
+                check_media_stmts(body, media_vars, container, violations);
+            }
+            Statement::While {
+                condition, body, ..
+            } => {
+                check_media_expr(condition, media_vars, container, violations);
+                check_media_stmts(body, media_vars, container, violations);
+            }
+            Statement::IfElseBlock {
+                condition,
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                check_media_expr(condition, media_vars, container, violations);
+                check_media_stmts(then_body, media_vars, container, violations);
+                for (cond, body) in else_ifs {
+                    check_media_expr(cond, media_vars, container, violations);
+                    check_media_stmts(body, media_vars, container, violations);
+                }
+                if let Some(eb) = else_body {
+                    check_media_stmts(eb, media_vars, container, violations);
+                }
+            }
+            Statement::IfThen {
+                condition, body, ..
+            } => {
+                check_media_expr(condition, media_vars, container, violations);
+                check_media_stmts(body, media_vars, container, violations);
+            }
+            Statement::Return { value, .. } => {
+                check_media_expr(value, media_vars, container, violations);
+            }
+            Statement::ExprStmt { expr, .. } => {
+                check_media_expr(expr, media_vars, container, violations);
+            }
+            Statement::Match {
+                scrutinee,
+                arms,
+                else_body,
+                ..
+            } => {
+                check_media_expr(scrutinee, media_vars, container, violations);
+                for arm in arms {
+                    check_media_stmts(arm.body(), media_vars, container, violations);
+                }
+                if let Some(eb) = else_body {
+                    check_media_stmts(eb, media_vars, container, violations);
+                }
+            }
+            Statement::Memorize(m) => {
+                check_media_expr(&m.value, media_vars, container, violations);
+            }
+            Statement::Forget(f) => {
+                check_media_expr(&f.query, media_vars, container, violations);
+            }
+            Statement::Relate(r) => {
+                check_media_expr(&r.from, media_vars, container, violations);
+                check_media_expr(&r.to, media_vars, container, violations);
+            }
+            Statement::Break | Statement::Continue => {}
+        }
+    }
+}
+
+/// One opacity violation (№331): a field access whose object bottoms out
+/// at a media-typed binding/call. Collected by `media_opacity_violations`;
+/// consumed by `check_program` (semantic errors) and the audit Category-A
+/// check `MEDIA_HANDLE_OPAQUE` (the compile_program path).
+pub struct MediaOpacityViolation {
+    pub container: String,
+    pub field: String,
+    pub span: Span,
+}
+
+impl MediaOpacityViolation {
+    /// The stable compile-error text (pinned by examples/w1_handle_opaque).
+    pub fn message(&self) -> String {
+        format!(
+            "media handle is opaque (ADR-0114): field access '.{}' on a media \
+             handle in {} — bytes never live in Value; use the sanctioned \
+             materialization sink (media_save), gated by №325",
+            self.field, self.container
+        )
+    }
+}
+
+/// Public entry point: every field access on a media-typed expression in
+/// every statement container (the same containers the №324 effect fixpoint
+/// walks). See ADR-0162 §2.5.
+pub fn media_opacity_violations(declarations: &[Declaration]) -> Vec<MediaOpacityViolation> {
+    let mut violations = Vec::new();
+    for decl in declarations {
+        match decl {
+            Declaration::Pattern(p) => {
+                let mut media_vars = std::collections::HashSet::new();
+                // Params are typed (name: Type) — no media params exist
+                // until №332 lands the perception AST; none to pre-track.
+                check_media_stmts(
+                    &p.body,
+                    &mut media_vars,
+                    &format!("pattern '{}'", p.name),
+                    &mut violations,
+                );
+            }
+            Declaration::LearnablePattern(_) => {
+                // A learnable pattern is prompt-declared (no statement body
+                // — the №324 effect walker treats it as an LLM call by
+                // construction). Nothing to walk here.
+            }
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    let mut media_vars = std::collections::HashSet::new();
+                    check_media_stmts(
+                        &m.body,
+                        &mut media_vars,
+                        &format!("tool method '{}.{}'", t.name, m.name),
+                        &mut violations,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+    violations
+}
+
+// ── Origin chain (Наряд №332, ADR-0164 §7.4) ─────────────────────────
+//
+// The rule: a media handle without origin is NOT constructed. Every
+// handle-producing construction must be traceable to a declared source:
+//   - `source <origin>`  (HandleSource) — the origin IS the source;
+//   - `from <origin> media_store_*(...)` (ProvBind over the Lift) — the
+//     bind attaches the construction to the declared origin;
+//   - `vision_generate` handles carry the №241 manifest (generation
+//     provenance already exists — out of this rule's scope).
+// Illegal positions (a construction nested inside another expression, a
+// direct `media_source_capture`/`media_bind_origin` builtin call, an
+// unknown origin name) are loud violations. The check runs in BOTH
+// compile paths: check_program (semantic errors) and audit_category_a
+// (ORIGIN_REQUIRED, Category-A) — mirroring the №331 opacity split.
+
+/// What the origin pass tracks per construction site.
+pub struct OriginViolation {
+    pub message: String,
+    pub span: Span,
+}
+
+/// The declared origin kinds (generation handles are Lift+ProvBind /
+/// vision_generate manifests — `source` capture is camera|file only,
+/// enforced in the runtime dispatch).
+const ORIGIN_KINDS: &[&str] = &["camera", "file", "generation", "likeness"];
+const ORIGIN_FIELDS: &[&str] = &["kind", "media", "label", "path"];
+
+fn validate_origin_decls(declarations: &[Declaration], errors: &mut Vec<SpannedError>) {
+    for decl in declarations {
+        if let Declaration::Origin(o) = decl {
+            let compiled = match crate::bytecode::CompiledOriginDecl::from_ast(o) {
+                Ok(c) => c,
+                Err(e) => {
+                    errors.push(SpannedError::at(e, o.span.clone()));
+                    continue;
+                }
+            };
+            // kind vocabulary
+            if !ORIGIN_KINDS.contains(&compiled.kind.as_str()) {
+                errors.push(SpannedError::at(
+                    format!(
+                        "origin '{}': unknown kind '{}' (expected {})",
+                        o.name,
+                        compiled.kind,
+                        ORIGIN_KINDS.join(" | ")
+                    ),
+                    o.span.clone(),
+                ));
+            }
+            // media vocabulary
+            if crate::media::MediaKind::from_slug(&compiled.media).is_err() {
+                // from_slug's message names the expected words; re-anchor it.
+                errors.push(SpannedError::at(
+                    format!(
+                        "origin '{}': {}",
+                        o.name,
+                        crate::media::MediaKind::from_slug(&compiled.media)
+                            .err()
+                            .unwrap_or_default()
+                    ),
+                    o.span.clone(),
+                ));
+            }
+            // label vocabulary — poisoned is NOT constructible via a
+            // declaration (quarantine comes only from the taint machinery).
+            if crate::media::parse_sensitivity(&compiled.conf).is_err() {
+                errors.push(SpannedError::at(
+                    format!(
+                        "origin '{}': {}",
+                        o.name,
+                        crate::media::parse_sensitivity(&compiled.conf)
+                            .err()
+                            .unwrap_or_default()
+                    ),
+                    o.span.clone(),
+                ));
+            }
+            // unknown fields are loud (a typo must never silently no-op)
+            for (k, _) in &o.fields {
+                if !ORIGIN_FIELDS.contains(&k.as_str()) {
+                    errors.push(SpannedError::at(
+                        format!(
+                            "origin '{}': unknown field '{}' (expected {})",
+                            o.name,
+                            k,
+                            ORIGIN_FIELDS.join(" | ")
+                        ),
+                        o.span.clone(),
+                    ));
+                }
+            }
+        }
+    }
+}
+
+/// Public entry point: the origin-chain rule over every statement
+/// container (the same containers the №331 opacity pass walks).
+pub fn media_origin_violations(declarations: &[Declaration]) -> Vec<OriginViolation> {
+    // №337 (ADR-0166 §2.3): name → declared kind — the generation
+    // contract message needs the KIND of the bound origin. Declared
+    // origins that fail compilation (validate_origin_decls) simply do
+    // not join the map — their own loud error already fired.
+    let origins: std::collections::HashMap<String, String> = declarations
+        .iter()
+        .filter_map(|d| match d {
+            Declaration::Origin(o) => crate::bytecode::CompiledOriginDecl::from_ast(o)
+                .ok()
+                .map(|c| (c.name, c.kind)),
+            _ => None,
+        })
+        .collect();
+    let mut violations = Vec::new();
+    for decl in declarations {
+        match decl {
+            Declaration::Pattern(p) => {
+                let mut media_vars = std::collections::HashSet::new();
+                check_origin_stmts(
+                    &p.body,
+                    &mut media_vars,
+                    &origins,
+                    &format!("pattern '{}'", p.name),
+                    &mut violations,
+                );
+            }
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    let mut media_vars = std::collections::HashSet::new();
+                    check_origin_stmts(
+                        &m.body,
+                        &mut media_vars,
+                        &origins,
+                        &format!("tool method '{}.{}'", t.name, m.name),
+                        &mut violations,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+    violations
+}
+
+fn push_origin(violations: &mut Vec<OriginViolation>, span: &Span, message: String) {
+    violations.push(OriginViolation {
+        message,
+        span: span.clone(),
+    });
+}
+
+/// The construction forms the origin rule accepts at a binding site.
+enum BindingForm {
+    /// `source <origin>` — the origin is the source.
+    Source(String),
+    /// `from <origin> media_store_*(...)` — a bound Lift.
+    BoundLift(String),
+    /// An existing handle variable (alias) — inherits its binding state.
+    Alias(String),
+    /// Anything else: not a handle construction (checked for nested
+    /// violations by the walker).
+    Other,
+}
+
+fn classify_binding(value: &Expr) -> BindingForm {
+    match value {
+        Expr::HandleSource { origin, .. } => BindingForm::Source(origin.clone()),
+        Expr::ProvBind { origin, inner, .. } => {
+            if matches!(inner.as_ref(), Expr::FnCall { name, .. } if is_media_producing_builtin(name))
+            {
+                BindingForm::BoundLift(origin.clone())
+            } else {
+                BindingForm::Other
+            }
+        }
+        Expr::Ident { name, .. } => BindingForm::Alias(name.clone()),
+        _ => BindingForm::Other,
+    }
+}
+
+fn check_origin_stmts(
+    stmts: &[Statement],
+    media_vars: &mut std::collections::HashSet<String>,
+    origins: &std::collections::HashMap<String, String>,
+    container: &str,
+    violations: &mut Vec<OriginViolation>,
+) {
+    for s in stmts {
+        match s {
+            Statement::LetBinding {
+                name, value, span, ..
+            }
+            | Statement::Assign { name, value, span } => {
+                match classify_binding(value) {
+                    BindingForm::Source(origin) => {
+                        if !origins.contains_key(&origin) {
+                            push_origin(
+                                violations,
+                                span,
+                                format!(
+                                    "origin chain violation (ORIGIN_REQUIRED): source '{}' in {} names no declared origin — declare 'origin {} {{ kind: ..., media: ..., label: ... }}' (ADR-0164)",
+                                    origin, container, origin
+                                ),
+                            );
+                        }
+                        media_vars.insert(name.clone());
+                    }
+                    BindingForm::BoundLift(origin) => {
+                        if !origins.contains_key(&origin) {
+                            push_origin(
+                                violations,
+                                span,
+                                format!(
+                                    "origin chain violation (ORIGIN_REQUIRED): from '{}' in {} names no declared origin (ADR-0164)",
+                                    origin, container
+                                ),
+                            );
+                        }
+                        media_vars.insert(name.clone());
+                    }
+                    BindingForm::Alias(src) => {
+                        if media_vars.contains(&src) {
+                            media_vars.insert(name.clone());
+                        }
+                    }
+                    BindingForm::Other => {
+                        // Nested constructions (a bare Lift, a stray
+                        // source/from, a direct builtin call) are loud.
+                        check_origin_expr(value, origins, container, violations);
+                    }
+                }
+            }
+            Statement::ExprStmt { expr, .. } => {
+                // A construction as a bare statement is a discarded handle —
+                // the origin rule still refuses unbound Lifts (bytes enter
+                // the store without provenance, even if the value is dropped).
+                if let Expr::ProvBind { .. } = expr {
+                    // `from o media_store_image(...)` as a statement: legal
+                    // shape (bind + discard) — inner construction is bound.
+                } else {
+                    check_origin_expr(expr, origins, container, violations);
+                }
+            }
+            Statement::Return { value, .. } => {
+                if !matches!(value, Expr::HandleSource { .. } | Expr::ProvBind { .. }) {
+                    check_origin_expr(value, origins, container, violations);
+                }
+            }
+            Statement::Each { iterable, body, .. } => {
+                check_origin_expr(iterable, origins, container, violations);
+                check_origin_stmts(body, media_vars, origins, container, violations);
+            }
+            Statement::EachWithIndex { iterable, body, .. } => {
+                check_origin_expr(iterable, origins, container, violations);
+                check_origin_stmts(body, media_vars, origins, container, violations);
+            }
+            Statement::While { body, .. } => {
+                check_origin_stmts(body, media_vars, origins, container, violations);
+            }
+            Statement::IfElseBlock {
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                check_origin_stmts(then_body, media_vars, origins, container, violations);
+                for (_, b) in else_ifs {
+                    check_origin_stmts(b, media_vars, origins, container, violations);
+                }
+                if let Some(eb) = else_body {
+                    check_origin_stmts(eb, media_vars, origins, container, violations);
+                }
+            }
+            Statement::IfThen { body, .. } => {
+                check_origin_stmts(body, media_vars, origins, container, violations);
+            }
+            Statement::Match {
+                arms, else_body, ..
+            } => {
+                for arm in arms {
+                    check_origin_stmts(arm.body(), media_vars, origins, container, violations);
+                }
+                if let Some(eb) = else_body {
+                    check_origin_stmts(eb, media_vars, origins, container, violations);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Nested-expression check: handle constructions are illegal outside
+/// binding initializers.
+fn check_origin_expr(
+    expr: &Expr,
+    origins: &std::collections::HashMap<String, String>,
+    container: &str,
+    violations: &mut Vec<OriginViolation>,
+) {
+    match expr {
+        Expr::HandleSource { origin, span } => {
+            push_origin(
+                violations,
+                span,
+                format!(
+                    "origin chain violation (ORIGIN_REQUIRED): 'source {}' in {} is only legal as a binding initializer (`let h = source {}`) — a source handle must be bound to a variable to be tracked (ADR-0164)",
+                    origin, container, origin
+                ),
+            );
+        }
+        Expr::ProvBind {
+            origin,
+            inner,
+            span,
+        } => {
+            if !matches!(inner.as_ref(), Expr::FnCall { name, .. } if is_media_producing_builtin(name))
+            {
+                // №337 (ADR-0166 §2.3): a GENERATION bind over a
+                // non-construction is the "generation lift without
+                // synthetic: true" hole — the refusal names the marking
+                // contract (an alias bind would either skip the marking
+                // or falsify it — captured bytes marked synthetic).
+                let msg = if origins.get(origin).map(|k| k.as_str()) == Some("generation") {
+                    format!(
+                        "origin chain violation (ORIGIN_REQUIRED): 'from {}' in {} must wrap a fresh handle construction (media_store_*) — a GENERATION lift sets synthetic: true on the new store entry (ADR-0166 §2.3); binding an existing handle would skip or falsify the Art. 50 marking",
+                        origin, container
+                    )
+                } else {
+                    format!(
+                        "origin chain violation (ORIGIN_REQUIRED): 'from {}' in {} must wrap a handle construction (media_store_*) — a bind attaches provenance to a NEW handle (ADR-0164)",
+                        origin, container
+                    )
+                };
+                push_origin(violations, span, msg);
+            }
+            check_origin_expr(inner, origins, container, violations);
+        }
+        Expr::FnCall { name, args, span } => {
+            if matches!(
+                name.as_str(),
+                "media_store_image"
+                    | "media_store_audio"
+                    | "media_store_video_frame"
+                    | "media_store_video_segment"
+            ) {
+                push_origin(
+                    violations,
+                    span,
+                    format!(
+                        "origin chain violation (ORIGIN_REQUIRED): bare {} in {} — a handle without origin is not constructed (§7.4); wrap it: 'from <origin> {}(...)' with a declared origin (ADR-0164)",
+                        name, container, name
+                    ),
+                );
+            }
+            if matches!(name.as_str(), "media_source_capture" | "media_bind_origin") {
+                push_origin(
+                    violations,
+                    span,
+                    format!(
+                        "origin chain violation (ORIGIN_REQUIRED): direct {} call in {} — use the source/from syntax (ADR-0164)",
+                        name, container
+                    ),
+                );
+            }
+            for a in args {
+                check_origin_expr(a, origins, container, violations);
+            }
+        }
+        Expr::QualifiedCall { args, .. } => {
+            for a in args {
+                check_origin_expr(a, origins, container, violations);
+            }
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            check_origin_expr(left, origins, container, violations);
+            check_origin_expr(right, origins, container, violations);
+        }
+        Expr::IfElse {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            check_origin_expr(condition, origins, container, violations);
+            check_origin_expr(then_branch, origins, container, violations);
+            check_origin_expr(else_branch, origins, container, violations);
+        }
+        Expr::List { items, .. } => {
+            for i in items {
+                check_origin_expr(i, origins, container, violations);
+            }
+        }
+        Expr::IndexAccess { object, index, .. } => {
+            check_origin_expr(object, origins, container, violations);
+            check_origin_expr(index, origins, container, violations);
+        }
+        Expr::StructLit { fields, .. } => {
+            for v in fields.values() {
+                check_origin_expr(v, origins, container, violations);
+            }
+        }
+        Expr::BlockIfElse {
+            condition,
+            then_body,
+            else_ifs,
+            else_body,
+            ..
+        } => {
+            check_origin_expr(condition, origins, container, violations);
+            check_origin_stmts(
+                then_body,
+                &mut std::collections::HashSet::new(),
+                origins,
+                container,
+                violations,
+            );
+            for (_, b) in else_ifs {
+                check_origin_stmts(
+                    b,
+                    &mut std::collections::HashSet::new(),
+                    origins,
+                    container,
+                    violations,
+                );
+            }
+            if let Some(eb) = else_body {
+                check_origin_stmts(
+                    eb,
+                    &mut std::collections::HashSet::new(),
+                    origins,
+                    container,
+                    violations,
+                );
+            }
+        }
+        Expr::MatchExpr {
+            scrutinee,
+            arms,
+            else_body,
+            ..
+        } => {
+            check_origin_expr(scrutinee, origins, container, violations);
+            for arm in arms {
+                for st in arm.body() {
+                    check_origin_expr_stmt(st, origins, container, violations);
+                }
+            }
+            if let Some(eb) = else_body {
+                for st in eb {
+                    check_origin_expr_stmt(st, origins, container, violations);
+                }
+            }
+        }
+        Expr::Try { expr, .. } => {
+            check_origin_expr(expr, origins, container, violations);
+        }
+        _ => {}
+    }
+}
+
+/// Statement-level helper for nested block/match bodies inside the
+/// expression walker (lightweight: only the construction sites matter).
+fn check_origin_expr_stmt(
+    st: &Statement,
+    origins: &std::collections::HashMap<String, String>,
+    container: &str,
+    violations: &mut Vec<OriginViolation>,
+) {
+    match st {
+        Statement::LetBinding { value, .. } | Statement::Assign { value, .. } => {
+            check_origin_expr(value, origins, container, violations);
+        }
+        Statement::ExprStmt { expr, .. } | Statement::Return { value: expr, .. } => {
+            check_origin_expr(expr, origins, container, violations);
+        }
+        _ => {}
+    }
+}
+
+/// Semantic-layer wiring: origin violations are loud compile errors.
+fn check_media_origin_chain(declarations: &[Declaration], errors: &mut Vec<SpannedError>) {
+    validate_origin_decls(declarations, errors);
+    for v in media_origin_violations(declarations) {
+        errors.push(SpannedError::at(v.message, v.span));
+    }
+}
+
+/// Public entry for the audit path (№332): declared-origin shape and
+/// vocabulary errors — the SAME rules `check_program` applies, so a
+/// mis-declared origin is loud on EVERY compile path, not only `mlog
+/// check`. An unknown kind/media/label word must never silently no-op:
+/// a mis-declared provenance source is a provenance lie (ADR-0164 §3).
+pub fn origin_decl_errors(declarations: &[Declaration]) -> Vec<SpannedError> {
+    let mut errors = Vec::new();
+    validate_origin_decls(declarations, &mut errors);
+    errors
+}
+
+/// Semantic-layer wiring: the violations are loud compile errors.
+fn check_media_handle_opacity(declarations: &[Declaration], errors: &mut Vec<SpannedError>) {
+    for v in media_opacity_violations(declarations) {
+        errors.push(SpannedError::at(v.message(), v.span));
+    }
+}
+
+// ── BackendSelect ladder companion check (Наряд №336, ADR-0165 §2.4) ──
+//
+// A statically-visible `backend_select("class", ["rung", …])` call site
+// is verified against the №333 registry SSOT at BUILD time:
+//   - the class word must be a §7.6 class;
+//   - every rung must resolve in the registry (`find_by_name`);
+//   - every rung's class must match the requested class;
+//   - rungs must be unique (a rung tried twice is a contract bug);
+//   - under `profile device { mode: production }` every rung must be
+//     SHA-pinnable — a `ShaPin::PendingNo334` rung is UNVERIFIABLE for
+//     the production profile and fails compilation (the §11.2 rule,
+//     companion-check precedent).
+// Non-literal ladders are not statically verifiable and stay with the
+// runtime checks (documented in ADR-0165 §2.4).
+
+fn check_backend_select_ladders(declarations: &[Declaration], errors: &mut Vec<SpannedError>) {
+    for v in backend_select_ladder_violations(declarations) {
+        errors.push(SpannedError::at(v.message, v.span));
+    }
+}
+
+/// One statically-verifiable ladder defect. `kind` separates the two
+/// Category-A check ids: a malformed ladder (BACKEND_SELECT_INVALID)
+/// vs a ladder unverifiable for the production device profile
+/// (BACKEND_LADDER_UNVERIFIABLE) — ADR-0165 §2.4.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LadderViolationKind {
+    Invalid,
+    UnverifiableForProduction,
+}
+
+#[derive(Debug, Clone)]
+pub struct LadderViolation {
+    pub kind: LadderViolationKind,
+    pub message: String,
+    pub span: Span,
+}
+
+/// Public entry for the audit path (№336): the SAME rules `check_program`
+/// applies, so a statically-broken ladder is loud on EVERY compile path
+/// (`compile_program`/`run_program_with_dir` call `audit_category_a`, not
+/// `check_program` — the №332 origin-chain posture).
+pub fn backend_select_ladder_violations(declarations: &[Declaration]) -> Vec<LadderViolation> {
+    let device_production = crate::profile::resolve(declarations).device_mode_production;
+    let mut violations: Vec<LadderViolation> = Vec::new();
+    for decl in declarations {
+        match decl {
+            Declaration::Pattern(p) => {
+                check_backend_stmts(&p.body, device_production, &mut violations)
+            }
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    check_backend_stmts(&m.body, device_production, &mut violations);
+                }
+            }
+            Declaration::MlogServer(srv) => {
+                for r in &srv.routes {
+                    check_backend_stmts(&r.body, device_production, &mut violations);
+                }
+            }
+            Declaration::Flow(f) => {
+                check_backend_expr(&f.source, device_production, &mut violations)
+            }
+            _ => {}
+        }
+    }
+    violations
+}
+
+fn verify_backend_ladder(
+    args: &[Expr],
+    span: &Span,
+    device_production: bool,
+    out: &mut Vec<LadderViolation>,
+) {
+    let push = |out: &mut Vec<LadderViolation>, kind, message: String| {
+        out.push(LadderViolation {
+            kind,
+            message,
+            span: span.clone(),
+        });
+    };
+    // The class argument: verified only when literal.
+    let class_word = match args.first() {
+        Some(Expr::StringLit { value, .. }) => Some(value.clone()),
+        _ => None,
+    };
+    if let Some(word) = &class_word {
+        if crate::backends::BackendClass::parse(word).is_none() {
+            push(
+                out,
+                LadderViolationKind::Invalid,
+                format!(
+                    "backend_select: unknown backend class '{}' (available: stt, tts, omni, vision-understanding, llm)",
+                    word
+                ),
+            );
+        }
+    }
+    // The ladder argument: verified only when a literal list of strings.
+    let rung_names: Option<Vec<String>> = match args.get(1) {
+        Some(Expr::List { items, .. }) => {
+            let mut names = Vec::with_capacity(items.len());
+            let mut literal = true;
+            for it in items {
+                match it {
+                    Expr::StringLit { value, .. } => names.push(value.clone()),
+                    _ => {
+                        literal = false;
+                        break;
+                    }
+                }
+            }
+            if literal {
+                Some(names)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    };
+    let names = match rung_names {
+        Some(n) => n,
+        None => return, // non-literal ladder: runtime checks own it
+    };
+    if names.is_empty() {
+        push(
+            out,
+            LadderViolationKind::Invalid,
+            "backend_select: ladder is EMPTY — a ladder without rungs cannot \
+             fall back (silent fallback forbidden, ADR-0165 §2.1)"
+                .to_string(),
+        );
+        return;
+    }
+    let mut seen: Vec<&str> = Vec::new();
+    for name in &names {
+        if seen.contains(&name.as_str()) {
+            push(
+                out,
+                LadderViolationKind::Invalid,
+                format!(
+                    "backend_select: duplicate ladder rung '{}' — a rung tried \
+                     twice is a contract bug, not a fallback",
+                    name
+                ),
+            );
+        }
+        seen.push(name.as_str());
+        let entry = match crate::backends::find_by_name(name) {
+            Some(e) => e,
+            None => {
+                push(
+                    out,
+                    LadderViolationKind::Invalid,
+                    format!(
+                        "backend_select: ladder rung '{}' has no registry record \
+                         (the №333 registry is the SSOT)",
+                        name
+                    ),
+                );
+                continue;
+            }
+        };
+        if let Some(word) = &class_word {
+            if let Some(class) = crate::backends::BackendClass::parse(word) {
+                if entry.class != class {
+                    push(
+                        out,
+                        LadderViolationKind::Invalid,
+                        format!(
+                            "backend_select: ladder rung '{}' is class '{}', ladder \
+                             serves '{}' (ADR-0165 §2.4)",
+                            name,
+                            entry.class.as_str(),
+                            class.as_str()
+                        ),
+                    );
+                }
+            }
+        }
+        if device_production {
+            if let crate::backends::ShaPin::PendingNo334 = entry.pin {
+                push(
+                    out,
+                    LadderViolationKind::UnverifiableForProduction,
+                    format!(
+                        "backend_select: ladder rung '{}' (weights '{}') is \
+                         UNVERIFIABLE for device profile production — the weights \
+                         manifest is pending (№334 sha-pin path); a production \
+                         ladder may only contain SHA-pinned backends (ADR-0165 §2.4)",
+                        name, entry.weights_id
+                    ),
+                );
+            }
+        }
+    }
+}
+
+fn check_backend_stmts(stmts: &[Statement], production: bool, out: &mut Vec<LadderViolation>) {
+    for st in stmts {
+        match st {
+            Statement::LetBinding { value, .. } | Statement::Assign { value, .. } => {
+                check_backend_expr(value, production, out)
+            }
+            Statement::ExprStmt { expr, .. } | Statement::Return { value: expr, .. } => {
+                check_backend_expr(expr, production, out)
+            }
+            Statement::Each { iterable, body, .. }
+            | Statement::EachWithIndex { iterable, body, .. } => {
+                check_backend_expr(iterable, production, out);
+                check_backend_stmts(body, production, out);
+            }
+            Statement::While {
+                condition, body, ..
+            } => {
+                check_backend_expr(condition, production, out);
+                check_backend_stmts(body, production, out);
+            }
+            Statement::IfElseBlock {
+                condition,
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                check_backend_expr(condition, production, out);
+                check_backend_stmts(then_body, production, out);
+                for (c, b) in else_ifs {
+                    check_backend_expr(c, production, out);
+                    check_backend_stmts(b, production, out);
+                }
+                if let Some(eb) = else_body {
+                    check_backend_stmts(eb, production, out);
+                }
+            }
+            Statement::IfThen {
+                condition, body, ..
+            } => {
+                check_backend_expr(condition, production, out);
+                check_backend_stmts(body, production, out);
+            }
+            Statement::Match {
+                scrutinee,
+                arms,
+                else_body,
+                ..
+            } => {
+                check_backend_expr(scrutinee, production, out);
+                for arm in arms {
+                    check_backend_stmts(arm.body(), production, out);
+                }
+                if let Some(eb) = else_body {
+                    check_backend_stmts(eb, production, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn check_backend_expr(expr: &Expr, production: bool, out: &mut Vec<LadderViolation>) {
+    match expr {
+        Expr::FnCall { name, args, span } => {
+            if name == "backend_select" {
+                verify_backend_ladder(args, span, production, out);
+            }
+            for a in args {
+                check_backend_expr(a, production, out);
+            }
+        }
+        Expr::QualifiedCall { args, .. } => {
+            for a in args {
+                check_backend_expr(a, production, out);
+            }
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            check_backend_expr(left, production, out);
+            check_backend_expr(right, production, out);
+        }
+        Expr::IfElse {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            check_backend_expr(condition, production, out);
+            check_backend_expr(then_branch, production, out);
+            check_backend_expr(else_branch, production, out);
+        }
+        Expr::List { items, .. } => {
+            for i in items {
+                check_backend_expr(i, production, out);
+            }
+        }
+        Expr::FieldAccess { object, .. } => check_backend_expr(object, production, out),
+        Expr::IndexAccess { object, index, .. } => {
+            check_backend_expr(object, production, out);
+            check_backend_expr(index, production, out);
+        }
+        Expr::StructLit { fields, .. } => {
+            for v in fields.values() {
+                check_backend_expr(v, production, out);
+            }
+        }
+        Expr::BlockIfElse {
+            condition,
+            then_body,
+            else_ifs,
+            else_body,
+            ..
+        } => {
+            check_backend_expr(condition, production, out);
+            check_backend_stmts(then_body, production, out);
+            for (c, body) in else_ifs {
+                check_backend_expr(c, production, out);
+                check_backend_stmts(body, production, out);
+            }
+            if let Some(eb) = else_body {
+                check_backend_stmts(eb, production, out);
+            }
+        }
+        Expr::MatchExpr {
+            scrutinee,
+            arms,
+            else_body,
+            ..
+        } => {
+            check_backend_expr(scrutinee, production, out);
+            for arm in arms {
+                check_backend_stmts(arm.body(), production, out);
+            }
+            if let Some(eb) = else_body {
+                check_backend_stmts(eb, production, out);
+            }
+        }
+        Expr::Try { expr, .. } => check_backend_expr(expr, production, out),
+        Expr::ProvBind { inner, .. } => check_backend_expr(inner, production, out),
+        Expr::HandleSource { .. }
+        | Expr::StringLit { .. }
+        | Expr::FloatLit { .. }
+        | Expr::BoolLit { .. }
+        | Expr::Ident { .. } => {}
+    }
+}
+
+/// Effects of a builtin call site, read from the №316 SSOT map:
+/// `Source` crosses the boundary inwards → `io`; `Sink` crosses
+/// outwards → `io`, plus `audit` when the external effect is not
+/// undoable-pure (a persistent, auditable write: state/db/file/memory
+/// writes, delivery). `Pure`/`Lift` call sites carry no effect.
+fn builtin_effects(name: &str) -> EffectSet {
+    let mut set = EffectSet::new();
+    if let Some(class) = classify(name) {
+        match class.role {
+            Role::Source => {
+                set.insert(Effect::Io);
+            }
+            Role::Sink => {
+                set.insert(Effect::Io);
+                if class.reversibility != Reversibility::Pure {
+                    set.insert(Effect::Audit);
+                }
+            }
+            Role::Pure | Role::Lift => {}
+        }
+    }
+    set
+}
+
+/// Walk one expression collecting effect-bearing call sites.
+/// `contract_of` resolves a call name (pattern, `tool.method`, or a
+/// builtin) to its effect contract.
+fn walk_effects_expr(expr: &Expr, contract_of: &dyn Fn(&str) -> EffectSet, acc: &mut EffectSet) {
+    match expr {
+        // №332 (ADR-0164): HandleSource carries the source-capture effect
+        // (store insert — io by the №316 SSOT); ProvBind delegates to the
+        // inner construction.
+        Expr::HandleSource { .. } => acc.extend(builtin_effects("media_source_capture")),
+        Expr::ProvBind { inner, .. } => walk_effects_expr(inner, contract_of, acc),
+        Expr::FnCall { name, args, .. } => {
+            acc.extend(contract_of(name));
+            for a in args {
+                walk_effects_expr(a, contract_of, acc);
+            }
+        }
+        Expr::QualifiedCall {
+            module,
+            function,
+            args,
+            ..
+        } => {
+            let qualified = format!("{module}.{function}");
+            acc.extend(contract_of(&qualified));
+            for a in args {
+                walk_effects_expr(a, contract_of, acc);
+            }
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            walk_effects_expr(left, contract_of, acc);
+            walk_effects_expr(right, contract_of, acc);
+        }
+        Expr::IfElse {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            walk_effects_expr(condition, contract_of, acc);
+            walk_effects_expr(then_branch, contract_of, acc);
+            walk_effects_expr(else_branch, contract_of, acc);
+        }
+        Expr::BlockIfElse {
+            condition,
+            then_body,
+            else_ifs,
+            else_body,
+            ..
+        } => {
+            walk_effects_expr(condition, contract_of, acc);
+            walk_effects_stmts(then_body, contract_of, acc);
+            for (_, body) in else_ifs {
+                walk_effects_stmts(body, contract_of, acc);
+            }
+            if let Some(eb) = else_body {
+                walk_effects_stmts(eb, contract_of, acc);
+            }
+        }
+        // №369: match-as-expression — scrutinee + arm bodies + else.
+        Expr::MatchExpr {
+            scrutinee,
+            arms,
+            else_body,
+            ..
+        } => {
+            walk_effects_expr(scrutinee, contract_of, acc);
+            for arm in arms {
+                walk_effects_stmts(arm.body(), contract_of, acc);
+            }
+            if let Some(eb) = else_body {
+                walk_effects_stmts(eb, contract_of, acc);
+            }
+        }
+        Expr::Try { expr, .. } => walk_effects_expr(expr, contract_of, acc),
+        Expr::List { items, .. } => {
+            for i in items {
+                walk_effects_expr(i, contract_of, acc);
+            }
+        }
+        Expr::StructLit { fields, .. } => {
+            for v in fields.values() {
+                walk_effects_expr(v, contract_of, acc);
+            }
+        }
+        Expr::IndexAccess { object, index, .. } => {
+            walk_effects_expr(object, contract_of, acc);
+            walk_effects_expr(index, contract_of, acc);
+        }
+        Expr::FieldAccess { object, .. } => walk_effects_expr(object, contract_of, acc),
+        Expr::StringLit { .. } | Expr::FloatLit { .. } | Expr::BoolLit { .. } => {}
+        Expr::Ident { .. } => {}
+    }
+}
+
+/// Walk one statement list collecting effects (recurses into nested
+/// blocks; memory side-effect statements are `audit` effects).
+fn walk_effects_stmts(
+    stmts: &[Statement],
+    contract_of: &dyn Fn(&str) -> EffectSet,
+    acc: &mut EffectSet,
+) {
+    for stmt in stmts {
+        match stmt {
+            Statement::LetBinding { value, .. } | Statement::Assign { value, .. } => {
+                walk_effects_expr(value, contract_of, acc);
+            }
+            Statement::Each { iterable, body, .. }
+            | Statement::EachWithIndex { iterable, body, .. } => {
+                walk_effects_expr(iterable, contract_of, acc);
+                walk_effects_stmts(body, contract_of, acc);
+            }
+            Statement::While {
+                condition, body, ..
+            } => {
+                walk_effects_expr(condition, contract_of, acc);
+                walk_effects_stmts(body, contract_of, acc);
+            }
+            Statement::IfElseBlock {
+                condition,
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                walk_effects_expr(condition, contract_of, acc);
+                walk_effects_stmts(then_body, contract_of, acc);
+                for (_, body) in else_ifs {
+                    walk_effects_stmts(body, contract_of, acc);
+                }
+                if let Some(eb) = else_body {
+                    walk_effects_stmts(eb, contract_of, acc);
+                }
+            }
+            Statement::IfThen {
+                condition, body, ..
+            } => {
+                walk_effects_expr(condition, contract_of, acc);
+                walk_effects_stmts(body, contract_of, acc);
+            }
+            Statement::Return { value, .. } | Statement::ExprStmt { expr: value, .. } => {
+                walk_effects_expr(value, contract_of, acc);
+            }
+            Statement::Match {
+                scrutinee,
+                arms,
+                else_body,
+                ..
+            } => {
+                walk_effects_expr(scrutinee, contract_of, acc);
+                for arm in arms {
+                    let body = match arm {
+                        MatchArm::Exact(_, b)
+                        | MatchArm::StartsWith(_, b)
+                        | MatchArm::Contains(_, b)
+                        | MatchArm::Compare(_, _, b) => b,
+                    };
+                    walk_effects_stmts(body, contract_of, acc);
+                }
+                if let Some(eb) = else_body {
+                    walk_effects_stmts(eb, contract_of, acc);
+                }
+            }
+            Statement::Memorize(m) => {
+                // Persistent memory write — an audit effect (ADR-0154 §9).
+                acc.insert(Effect::Io);
+                acc.insert(Effect::Audit);
+                walk_effects_expr(&m.value, contract_of, acc);
+            }
+            Statement::Forget(f) => {
+                acc.insert(Effect::Io);
+                acc.insert(Effect::Audit);
+                walk_effects_expr(&f.query, contract_of, acc);
+            }
+            Statement::Relate(r) => {
+                acc.insert(Effect::Io);
+                acc.insert(Effect::Audit);
+                walk_effects_expr(&r.from, contract_of, acc);
+                walk_effects_expr(&r.to, contract_of, acc);
+            }
+            Statement::Break | Statement::Continue => {}
+        }
+    }
+}
+
+/// One effect-trail container: a name key resolvable at call sites
+/// (`"P"`, `"tool.method"`, `"LP"`), its optional declared trail, and
+/// the body kind (learnables have no statement body — their factual
+/// effect is fixed `{io}`: a model call).
+struct EffectContainer<'a> {
+    key: String,
+    declared: Option<&'a EffectAnn>,
+    name_for_errors: String,
+    kind: ContainerKind<'a>,
+}
+
+enum ContainerKind<'a> {
+    Statements(&'a [Statement]),
+    Learnable,
+}
+
+/// Compute the whole-program effect trail: fixpoint over the pattern
+/// call graph, then gate every DECLARED trail against the inferred
+/// effects (factual ⊑ declared; excess = compile error with the list).
+///
+/// Recursion (ADR-0154 §9 decision): the effect domain is the
+/// 4-element powerset of `{io, audit}` — union-joins over this finite
+/// flat lattice converge in ≤ 4 passes, so the inference CONVERGES on
+/// recursive patterns without annotations (the dispatcher's No-Go
+/// signal does not fire; an explicit trail on recursive patterns is
+/// welcome but not required). An unannotated recursive pattern
+/// therefore behaves predictably: its effects are inferred, and the
+/// gate applies only where a trail is declared.
+fn check_effect_trails(declarations: &[Declaration], errors: &mut Vec<SpannedError>) {
+    // ── Validate every declared trail (bad words are loud) and collect
+    //    containers; a trail that failed validation is NOT registered
+    //    in `declared`, so the gate skips it — the word error is the
+    //    one the user sees.
+    let mut containers: Vec<EffectContainer> = Vec::new();
+    let mut declared: HashMap<String, EffectSet> = HashMap::new();
+
+    for decl in declarations {
+        match decl {
+            Declaration::Pattern(p) => {
+                if let Some(ann) = &p.effects {
+                    validate_effect_ann(ann, &format!("pattern '{}'", p.name), errors);
+                }
+            }
+            Declaration::LearnablePattern(lp) => {
+                if let Some(ann) = &lp.effects {
+                    validate_effect_ann(ann, &format!("learnable pattern '{}'", lp.name), errors);
+                }
+            }
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    if let Some(ann) = &m.effects {
+                        validate_effect_ann(
+                            ann,
+                            &format!("tool method '{}.{}'", t.name, m.name),
+                            errors,
+                        );
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn register<'a>(
+        containers: &mut Vec<EffectContainer<'a>>,
+        declared: &mut HashMap<String, EffectSet>,
+        key: String,
+        name_for_errors: String,
+        ann: Option<&'a EffectAnn>,
+        kind: ContainerKind<'a>,
+    ) {
+        if let Some(ann) = ann {
+            if let Ok(set) = parse_effect_set(ann) {
+                declared.insert(key.clone(), set);
+            }
+        }
+        containers.push(EffectContainer {
+            key,
+            declared: ann,
+            name_for_errors,
+            kind,
+        });
+    }
+
+    for decl in declarations {
+        match decl {
+            Declaration::Pattern(p) => register(
+                &mut containers,
+                &mut declared,
+                p.name.clone(),
+                format!("pattern '{}'", p.name),
+                p.effects.as_ref(),
+                ContainerKind::Statements(&p.body),
+            ),
+            Declaration::LearnablePattern(lp) => register(
+                &mut containers,
+                &mut declared,
+                lp.name.clone(),
+                format!("learnable pattern '{}'", lp.name),
+                lp.effects.as_ref(),
+                ContainerKind::Learnable,
+            ),
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    register(
+                        &mut containers,
+                        &mut declared,
+                        format!("{}.{}", t.name, m.name),
+                        format!("tool method '{}.{}'", t.name, m.name),
+                        m.effects.as_ref(),
+                        ContainerKind::Statements(&m.body),
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // A DECLARED trail is the call's contract (interface semantics);
+    // otherwise the current fixpoint estimate; builtins via the №316
+    // SSOT; unknown names carry no effects.
+    let contract_of = |name: &str,
+                       inferred: &HashMap<String, EffectSet>,
+                       declared: &HashMap<String, EffectSet>|
+     -> EffectSet {
+        if let Some(d) = declared.get(name) {
+            return d.clone();
+        }
+        if let Some(e) = inferred.get(name) {
+            return e.clone();
+        }
+        builtin_effects(name)
+    };
+
+    let factual_effects = |kind: &ContainerKind,
+                           inferred: &HashMap<String, EffectSet>,
+                           declared: &HashMap<String, EffectSet>|
+     -> EffectSet {
+        match kind {
+            ContainerKind::Learnable => {
+                // A learnable pattern IS an LLM call — io by
+                // construction (№316: call_llm is a Source).
+                let mut s = EffectSet::new();
+                s.insert(Effect::Io);
+                s
+            }
+            ContainerKind::Statements(body) => {
+                let mut acc = EffectSet::new();
+                let resolve = |name: &str| contract_of(name, inferred, declared);
+                walk_effects_stmts(body, &resolve, &mut acc);
+                acc
+            }
+        }
+    };
+
+    // ── Fixpoint over the (possibly recursive) call graph ──
+    let mut inferred: HashMap<String, EffectSet> = containers
+        .iter()
+        .map(|c| (c.key.clone(), EffectSet::new()))
+        .collect();
+    let max_passes = (containers.len() + 2).clamp(4, 16);
+    for _ in 0..max_passes {
+        let mut changed = false;
+        for c in &containers {
+            let new_set = factual_effects(&c.kind, &inferred, &declared);
+            if inferred.get(&c.key) != Some(&new_set) {
+                inferred.insert(c.key.clone(), new_set);
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    // ── Gate every DECLARED trail: factual ⊑ declared ──
+    for c in &containers {
+        let Some(ann) = c.declared else { continue };
+        let Some(declared_set) = declared.get(&c.key) else {
+            continue;
+        };
+        let actual = factual_effects(&c.kind, &inferred, &declared);
+        let excess: Vec<Effect> = actual.difference(declared_set).copied().collect();
+        if excess.is_empty() {
+            continue;
+        }
+        let fmt = |es: &[Effect]| {
+            let words: Vec<&str> = es.iter().map(|e| e.word()).collect();
+            if words.is_empty() {
+                "⟨⟩".to_string()
+            } else {
+                format!("⟨{}⟩", words.join(", "))
+            }
+        };
+        let declared_sorted: Vec<Effect> = declared_set.iter().copied().collect();
+        let actual_sorted: Vec<Effect> = actual.iter().copied().collect();
+        errors.push(SpannedError::at(
+            format!(
+                "effect trail violation on {}: declared {} but body requires {} (excess: {})",
+                c.name_for_errors,
+                fmt(&declared_sorted),
+                fmt(&actual_sorted),
+                excess
+                    .iter()
+                    .map(|e| e.word())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            ),
+            ann.span.clone(),
+        ));
+    }
+}
+
+// ── Sink clearance (Наряд №325, ADR-0161) ────────────────────────────
+
+/// One sink call-site whose argument label does not clear the sink.
+#[derive(Debug, Clone)]
+pub struct SinkViolation {
+    /// Container tag: `pattern P`, `tool t.m`, `route GET /x`, ...
+    pub container: String,
+    /// Sink builtin name (from the №316 classification — never a
+    /// hand-written list).
+    pub fn_name: String,
+    /// 0-based index of the offending argument.
+    pub arg_index: usize,
+    pub span: Span,
+    /// The argument's inferred label (№322/№323 machinery).
+    pub label: Label,
+    /// Which bridge threshold failed (№391): the clearance reason —
+    /// e.g. "untrusted-exec", "secret-exec", "untrusted-egress",
+    /// "private-egress", "private-db", "irreversible-content". Consumed
+    /// by the deny message (explainable refusal) and by №392 DenyEvent.
+    pub reason: &'static str,
+}
+
+/// Conservative confidentiality markers for string LITERALS (ADR-0161
+/// §3): a literal carrying a personal-data marker (passport / SNILS /
+/// diagnosis / confidential wording — the vocabulary is deliberately
+/// small and bilingual-safe) or a private-infrastructure URL marker is
+/// treated as `private, trusted`. Sound: markers are conservative —
+/// a literal without markers stays bottom, an unannotated program
+/// keeps passing unless it actually carries the marked data to a sink.
+fn literal_confidentiality(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    const WORD_MARKERS: &[&str] = &[
+        "паспорт",
+        "снилс",
+        "диагноз",
+        "конфиденциальн",
+        "персональн",
+        "секретн",
+        "confidential",
+        "passport",
+        "social security",
+    ];
+    if WORD_MARKERS.iter().any(|m| lower.contains(m)) {
+        return true;
+    }
+    // Private-infrastructure URL markers (ADR-0161 §3): a literal
+    // address/host pointing at internal infrastructure names private
+    // data — the destination IS the leak vector.
+    const URL_MARKERS: &[&str] = &["internal", "intranet", "corp.", "private", "secret"];
+    if URL_MARKERS.iter().any(|m| lower.contains(m)) {
+        return true;
+    }
+    // Structural markers: passport RU (dddd dddddd / dddddddd), SNILS
+    // (ddd-ddd-ddd d), card-like 16-digit groups are covered by the
+    // word markers above in the corpus; the digit shapes below catch
+    // the bare-number forms.
+    let digits: Vec<char> = lower.chars().collect();
+    let digit_at = |i: usize| digits.get(i).is_some_and(|c| c.is_ascii_digit());
+    let pasp = (0..digits.len()).filter(|i| digit_at(*i)).any(|i| {
+        // 4 digits, optional space/dash, 6 digits
+        (0..4).all(|k| digit_at(i + k))
+            && matches!(digits.get(i + 4), None | Some(' ') | Some('-'))
+            && (0..6).all(|k| digit_at(i + 5 + k))
+            && digits.get(i + 11).is_none_or(|c| !c.is_ascii_digit())
+    });
+    if pasp {
+        return true;
+    }
+    let snils = (0..digits.len()).filter(|i| digit_at(*i)).any(|i| {
+        (0..3).all(|k| digit_at(i + k))
+            && digits.get(i + 3) == Some(&'-')
+            && (0..3).all(|k| digit_at(i + 4 + k))
+            && digits.get(i + 7) == Some(&'-')
+            && (0..3).all(|k| digit_at(i + 8 + k))
+            && digits.get(i + 11).is_none_or(|c| !c.is_ascii_digit())
+    });
+    snils
+}
+
+/// The seed label of a global entity initializer: a literal carrying
+/// confidentiality markers is `private, trusted`; everything else is
+/// bottom (the №322 permissive default).
+fn entity_seed_label(value: Option<&Expr>) -> Label {
+    match value {
+        Some(Expr::StringLit { value, .. }) if literal_confidentiality(value) => Label {
+            conf: crate::labels::Conf::Private,
+            integrity: crate::labels::Integrity::Trusted,
+            consent: Default::default(),
+        },
+        _ => Label::bottom(),
+    }
+}
+
+/// Label of an expression, extending the №323 expression rules with the
+/// literal confidentiality markers (ADR-0161 §3) and the №332 perception
+/// forms: `source <origin>` carries the origin's declared label; `from
+/// <origin> <construction>` carries the JOIN of the origin label and the
+/// construction's data-flow label (conservative — the strongest axis wins).
+fn sink_arg_label(
+    expr: &Expr,
+    env: &BTreeMap<String, Label>,
+    origin_labels: &BTreeMap<String, Label>,
+) -> Label {
+    match expr {
+        Expr::StringLit { value, .. } if literal_confidentiality(value) => Label {
+            conf: crate::labels::Conf::Private,
+            integrity: crate::labels::Integrity::Trusted,
+            consent: Default::default(),
+        },
+        Expr::HandleSource { origin, .. } => origin_labels
+            .get(origin)
+            .cloned()
+            .unwrap_or_else(Label::bottom),
+        Expr::ProvBind { origin, inner, .. } => {
+            let o = origin_labels
+                .get(origin)
+                .cloned()
+                .unwrap_or_else(Label::bottom);
+            o.join(&expr_label(inner, env))
+        }
+        _ => expr_label(expr, env),
+    }
+}
+
+type SinkCheck<'a> =
+    &'a dyn Fn(&Expr, &str, &BTreeMap<String, Label>, &FlowCtx, &mut Vec<SinkViolation>);
+
+/// Flow context for the №325 walk (Naryad #387): the var → origin-kind
+/// alias map (so `let g = f; let h = g;` keeps the media provenance —
+/// the alias-invariance contract), the origin name → kind vocabulary
+/// (a clone — nested fns cannot capture the outer local), and the
+/// likeness-token presence flag (a bound `likeness_verify` result
+/// lexically before the gated call). Conservative by construction:
+/// branch/loop-bound tokens and aliases do NOT escape their fork
+/// (fail-closed — the entry state survives).
+#[derive(Default, Clone)]
+struct FlowCtx {
+    /// var name -> origin kind ("camera" | "likeness" | ...).
+    origin_kinds: BTreeMap<String, String>,
+    /// origin name -> kind (the declared vocabulary, read-only).
+    origin_kind_map: BTreeMap<String, String>,
+    /// a `likeness_verify` result is bound in the current body scope.
+    token_bound: bool,
+}
+
+/// Resolve the origin kind a media argument carries: a direct
+/// `source <origin>` handle, or a variable bound through the alias
+/// chain (the №387 FlowCtx). Unknown provenance -> None.
+fn media_arg_origin_kind(expr: &Expr, ctx: &FlowCtx) -> Option<String> {
+    match expr {
+        Expr::HandleSource { origin, .. } => ctx.origin_kind_map.get(origin).cloned(),
+        // №387: the ProvBind construction (`from <origin> media_store_*`)
+        // carries the same provenance as a direct capture.
+        Expr::ProvBind { origin, .. } => ctx.origin_kind_map.get(origin).cloned(),
+        Expr::Ident { name, .. } => ctx.origin_kinds.get(name).cloned(),
+        _ => None,
+    }
+}
+
+/// Collect sink call-sites whose argument labels do not clear the sink
+/// (№325, ADR-0161 §2). The sink list comes from the №316 SSOT map
+/// (`Role::Sink`) — never a hand-written list. Confidentiality
+/// clearance: a sink requires `public` (and `poisoned` clears nothing).
+/// The EXEC class additionally refuses untrusted data (an integrity
+/// decision gate for command execution; the general integrity gate is
+/// №327). The VOICE class additionally refuses anything without a
+/// consent scope (consent SOURCES are Phase 2, №335 — until then every
+/// voice egress is unconsented by default, loud by design).
+/// ── Naryad #391: the data ↔ action bridge — per-sink thresholds ──────
+///
+/// The bridge rule for ACTION sinks: the decision argument (command /
+/// URL / SQL / addressee) must satisfy BOTH axes of the label lattice
+/// (ADR-0154):
+///   - confidentiality: label.conf ⊑ Public (the action must not leak
+///     secrets into its own trace);
+///   - integrity: label.integrity ≥ Trusted (untrusted data must not
+///     drive an irreversible action).
+///
+/// This is the SYSTEMATIC rule the point classes (UNTRUSTED_EXEC_DECISION,
+/// SECRET_TO_EXEC, SECRET_EGRESS_VCS, SECRET_EGRESS_NETWORK, PII_EGRESS_*)
+/// were hand-expressing; the classes stay (leak-suite vocabulary, DoD в —
+/// nothing is weakened), the table documents the thresholds per sink.
+///
+/// Orthogonality with grants (№390): the grant check authorizes the
+/// ACTION (scope/TTL/quota, runtime); the bridge gates the DATA that
+/// feeds it (labels, compile time). `db_execute_with_grant` is not a
+/// №325 sink — its grant gates are runtime-only; the bridge does not
+/// duplicate them.
+pub struct ActionBridgeThreshold {
+    pub sink: &'static str,
+    /// Human-readable decision-argument description.
+    pub decision_arg: &'static str,
+    /// The confidentiality threshold (always Public today — the action
+    /// trace must not carry secrets).
+    pub max_conf: &'static str,
+    /// The integrity threshold (always Trusted today — untrusted data
+    /// must not drive the action).
+    pub min_integrity: &'static str,
+    /// How the integrity half is enforced for this sink.
+    pub integrity_enforcement: &'static str,
+}
+
+pub const ACTION_BRIDGE: &[ActionBridgeThreshold] = &[
+    ActionBridgeThreshold {
+        sink: "exec",
+        decision_arg: "arg 0 — command",
+        max_conf: "public",
+        min_integrity: "trusted",
+        integrity_enforcement: "clearance (UNTRUSTED_EXEC_DECISION)",
+    },
+    ActionBridgeThreshold {
+        sink: "exec_argv",
+        decision_arg: "arg 0 — binary",
+        max_conf: "public",
+        min_integrity: "trusted",
+        integrity_enforcement: "clearance (UNTRUSTED_EXEC_DECISION)",
+    },
+    ActionBridgeThreshold {
+        sink: "git_push",
+        decision_arg: "arg 0 — remote URL/ref",
+        max_conf: "public",
+        min_integrity: "trusted",
+        integrity_enforcement: "clearance (UNTRUSTED_EGRESS_NETWORK; №391 adds the integrity half)",
+    },
+    ActionBridgeThreshold {
+        sink: "http_post",
+        decision_arg: "arg 0 — URL",
+        max_conf: "public",
+        min_integrity: "trusted",
+        integrity_enforcement: "clearance (UNTRUSTED_EGRESS_NETWORK; body args = egress classes)",
+    },
+    ActionBridgeThreshold {
+        sink: "send_message",
+        decision_arg: "arg 0 — chat/addressee",
+        max_conf: "public",
+        min_integrity: "trusted",
+        integrity_enforcement: "clearance (UNTRUSTED_EGRESS_NETWORK; body args = egress classes)",
+    },
+    ActionBridgeThreshold {
+        sink: "db_execute",
+        decision_arg: "arg 0 — SQL",
+        max_conf: "public",
+        min_integrity: "trusted",
+        integrity_enforcement: "clearance for confidentiality (private-db); integrity via SQL_DYNAMIC (non-literal SQL is refused before the bridge can see it)",
+    },
+];
+
+pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolation> {
+    let mut violations = Vec::new();
+
+    // №332 (ADR-0164): declared origin labels — `source <origin>` /
+    // `from <origin> ...` constructions carry their origin's declared
+    // conf into the flow (joined with the data-flow label).
+    // №387: the parallel name → kind vocabulary feeds the FlowCtx alias
+    // tracking (media provenance through let-chains) and the
+    // video-likeness presence gate.
+    let mut origin_kind_map: BTreeMap<String, String> = BTreeMap::new();
+    let origin_labels: BTreeMap<String, Label> = declarations
+        .iter()
+        .filter_map(|d| match d {
+            Declaration::Origin(o) => {
+                let conf = crate::media::parse_sensitivity(
+                    &o.fields
+                        .iter()
+                        .find(|(k, _)| k == "label")
+                        .map(|(_, v)| v.clone())
+                        .unwrap_or_default(),
+                )
+                .ok()?;
+                if let Some((_, kind)) = o.fields.iter().find(|(k, _)| k == "kind") {
+                    origin_kind_map.insert(o.name.clone(), kind.clone());
+                }
+                Some((
+                    o.name.clone(),
+                    Label {
+                        conf,
+                        integrity: crate::labels::Integrity::Trusted,
+                        consent: Default::default(),
+                    },
+                ))
+            }
+            _ => None,
+        })
+        .collect();
+
+    // Seed environment: global entities (initializers with confidentiality
+    // markers are private — ADR-0161 §3), all other names bottom.
+    let mut seed: BTreeMap<String, Label> = BTreeMap::new();
+    for decl in declarations {
+        match decl {
+            Declaration::EntitySimple(e) => {
+                seed.insert(e.name.clone(), entity_seed_label(Some(&e.value)));
+            }
+            Declaration::EntityRecord(e) => {
+                // Record entities are maps; the entity name itself seeds
+                // with the strongest field marker.
+                let strongest = e
+                    .fields
+                    .iter()
+                    .map(|f| entity_seed_label(Some(&f.value)))
+                    .fold(Label::bottom(), |a, b| a.join(&b));
+                seed.insert(e.name.clone(), strongest);
+            }
+            _ => {}
+        }
+    }
+
+    fn is_sink(name: &str) -> bool {
+        matches!(
+            classify(name).map(|c| c.role),
+            Some(crate::builtins_classification::Role::Sink)
+        )
+    }
+
+    fn sink_kind(name: &str) -> &'static str {
+        // №331 boundary (loud): media GENERATION sinks (vision_*/video_*)
+        // produce synthetic content — their egress is gated by the
+        // marking machinery (MEDIA_SYNTHETIC_UNMARKED, №320) and their
+        // label-side gating is Phase 2; they are outside №325.
+        if name.starts_with("vision_") || name.starts_with("video_") || name == "tts_synthesize" {
+            return "media";
+        }
+        match name {
+            "exec" | "exec_argv" => "exec",
+            "git_push" => "vcs",
+            "tts_send" => "voice",
+            "db_execute" => "db",
+            "print" | "respond" | "respond_html" | "html_response" => "output",
+            "write_file" | "append_file" | "delete_file" => "file",
+            // Persistent memory writes: untrusted data must not persist
+            // (the TAINT_PERSISTENCE vocabulary; №266 statement forms are
+            // covered separately).
+            "memorize" | "mem_set" | "mtree_store" | "kv_set" => "memory",
+            // №331 (ADR-0162): the sanctioned media materialization sink
+            // is FILE egress — private-labelled handles fail the
+            // default clearance (`private-egress`) at compile time; the
+            // runtime backstop (MEDIA_SEALED_EGRESS) refuses non-public
+            // entries even if the static layer was bypassed.
+            "media_save" => "file",
+            _ => "network",
+        }
+    }
+
+    /// Clearance check for one sink argument. Returns the reason the
+    /// argument fails, if any.
+    fn clearance_failure(fn_name: &str, label: &Label) -> Option<&'static str> {
+        // №335: the quarantine sink is the ONLY legal egress for a
+        // poisoned value (unconditional audit event; №326 posture) —
+        // exempt from every clearance class here. Every OTHER sink
+        // still refuses poisoned below (quarantine absorbs them).
+        if fn_name == "quarantine_write" {
+            return None;
+        }
+        // Quarantine clears nothing, anywhere (ADR-0154 §2.1).
+        if label.conf == crate::labels::Conf::Poisoned {
+            return Some("poisoned");
+        }
+        match sink_kind(fn_name) {
+            // Command execution: untrusted data must not drive it, and
+            // secrets must never enter it.
+            "exec" => {
+                if label.integrity == crate::labels::Integrity::Untrusted {
+                    Some("untrusted-exec")
+                } else if label.conf != crate::labels::Conf::Public {
+                    Some("secret-exec")
+                } else {
+                    None
+                }
+            }
+            // Media generation: №331 Phase-2 boundary — the marking
+            // machinery (MEDIA_SYNTHETIC_UNMARKED, №320) owns it here.
+            "media" => None,
+            // Voice egress requires a consent scope (Phase-2 sources, №335;
+            // until then the scope is empty by default — loud by design).
+            "voice" => {
+                if label.consent.is_empty() {
+                    Some("voice-unconsented")
+                } else {
+                    None
+                }
+            }
+            // Irreversible DB writes with destructive literals are gated
+            // regardless of label (grant algebra is Phase 3, №339).
+            // NOTE: only schema-destroying forms (DROP/TRUNCATE) —
+            // DELETE/ALTER are parameterized CRUD, gated by SQL_DYNAMIC.
+            "db" => {
+                if label.conf != crate::labels::Conf::Public {
+                    Some("private-db")
+                } else {
+                    None
+                }
+            }
+            // Public-output and memory sinks also refuse UNTRUSTED data
+            // (the HTML-injection and taint-persistence vocabularies —
+            // the leak-suite classes; the general integrity gate is
+            // №327, these two special cases start here). Everything else:
+            // confidentiality clearance (public only); network sinks
+            // additionally refuse untrusted data (UNTRUSTED_EGRESS_*).
+            _ => {
+                let kind = sink_kind(fn_name);
+                if label.conf != crate::labels::Conf::Public {
+                    Some("private-egress")
+                } else if label.integrity == crate::labels::Integrity::Untrusted
+                    // №391 bridge: "vcs" joins the integrity-gated kinds —
+                    // an untrusted URL must not drive git_push (the
+                    // systematization of the point rules; the class stays
+                    // UNTRUSTED_EGRESS_NETWORK, the leak-suite vocabulary).
+                    && matches!(kind, "network" | "vcs" | "output" | "memory")
+                {
+                    Some("untrusted-egress")
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    let check_calls = |expr: &Expr,
+                       container: &str,
+                       env: &BTreeMap<String, Label>,
+                       ctx: &FlowCtx,
+                       violations: &mut Vec<SinkViolation>| {
+        if let Expr::FnCall { name, args, .. } = expr {
+            // ── Naryad #387 (ADR-0149 D1): VIDEO_LIKENESS_NO_CONSENT ──
+            // video_render with I2V reference frames (positions 2/3 —
+            // the UNTRUSTED_FRAME positions) originating from a
+            // `kind: "likeness"` origin requires the likeness ritual: a
+            // bound `likeness_verify` result in the body scope
+            // (presence-based, the D2 honest boundary). Always a
+            // compile error — no profile downgrades a deepfake gate.
+            if name == "video_render" && args.len() >= 3 {
+                for pos in [2usize, 3usize] {
+                    if let Some(arg) = args.get(pos) {
+                        let kind = media_arg_origin_kind(arg, ctx);
+                        if kind.as_deref() == Some("likeness") && !ctx.token_bound {
+                            violations.push(SinkViolation {
+                                container: container.to_string(),
+                                fn_name: name.clone(),
+                                arg_index: pos,
+                                span: expr.span().clone(),
+                                label: sink_arg_label(arg, env, &origin_labels),
+                                reason: "video-likeness-no-consent",
+                            });
+                        }
+                    }
+                }
+            }
+            if is_sink(name) {
+                for (i, a) in args.iter().enumerate() {
+                    // Destructive DB literals are gated by CONTENT (a
+                    // DROP needs no tainted data to destroy state):
+                    if name == "db_execute"
+                        && matches!(
+                            a,
+                            Expr::StringLit { value, .. }
+                                if ["drop table", "drop database", "drop index", "truncate"].iter().any(|w| value.to_lowercase().contains(w))
+                        )
+                    {
+                        violations.push(SinkViolation {
+                            container: container.to_string(),
+                            fn_name: name.clone(),
+                            arg_index: i,
+                            span: expr.span().clone(),
+                            label: Label::bottom(),
+                            reason: "irreversible-content",
+                        });
+                        continue;
+                    }
+                    let label = sink_arg_label(a, env, &origin_labels);
+                    // ── Naryad #387: the generalized media-sink egress ──
+                    // media_save accepts a private/camera-origin handle
+                    // when the author holds a legal credential: a
+                    // non-empty consent scope (№335 consent_grant), or
+                    // the likeness ritual (a bound likeness_verify
+                    // result) for camera/likeness-kind origins. The
+                    // public label and the poisoned refusal are
+                    // UNCHANGED — the gate stays fail-closed (no
+                    // credential, no egress).
+                    if name == "media_save" {
+                        if label.conf == crate::labels::Conf::Poisoned {
+                            violations.push(SinkViolation {
+                                container: container.to_string(),
+                                fn_name: name.clone(),
+                                arg_index: i,
+                                span: expr.span().clone(),
+                                label,
+                                reason: "poisoned",
+                            });
+                            continue;
+                        }
+                        let kind = media_arg_origin_kind(a, ctx);
+                        let consented = !label.consent.is_empty();
+                        let likenessed =
+                            matches!(kind.as_deref(), Some("likeness") | Some("camera"))
+                                && ctx.token_bound;
+                        if label.conf != crate::labels::Conf::Public && !consented && !likenessed {
+                            violations.push(SinkViolation {
+                                container: container.to_string(),
+                                fn_name: name.clone(),
+                                arg_index: i,
+                                span: expr.span().clone(),
+                                label,
+                                reason: "private-egress",
+                            });
+                        }
+                        continue;
+                    }
+                    if let Some(reason) = clearance_failure(name, &label) {
+                        violations.push(SinkViolation {
+                            container: container.to_string(),
+                            fn_name: name.clone(),
+                            arg_index: i,
+                            span: expr.span().clone(),
+                            label,
+                            reason,
+                        });
+                    }
+                }
+            }
+        }
+    };
+
+    fn walk_expr(
+        expr: &Expr,
+        container: &str,
+        env: &BTreeMap<String, Label>,
+        origin_labels: &BTreeMap<String, Label>,
+        ctx: &FlowCtx,
+        check: SinkCheck,
+        violations: &mut Vec<SinkViolation>,
+    ) {
+        check(expr, container, env, ctx, violations);
+        match expr {
+            Expr::FnCall { args, .. } | Expr::QualifiedCall { args, .. } => {
+                for a in args {
+                    walk_expr(a, container, env, origin_labels, ctx, check, violations);
+                }
+            }
+            Expr::BinaryOp { left, right, .. } => {
+                walk_expr(left, container, env, origin_labels, ctx, check, violations);
+                walk_expr(right, container, env, origin_labels, ctx, check, violations);
+            }
+            Expr::IfElse {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                walk_expr(
+                    condition,
+                    container,
+                    env,
+                    origin_labels,
+                    ctx,
+                    check,
+                    violations,
+                );
+                walk_expr(
+                    then_branch,
+                    container,
+                    env,
+                    origin_labels,
+                    ctx,
+                    check,
+                    violations,
+                );
+                walk_expr(
+                    else_branch,
+                    container,
+                    env,
+                    origin_labels,
+                    ctx,
+                    check,
+                    violations,
+                );
+            }
+            Expr::BlockIfElse {
+                condition,
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                // Expression position: env side effects of the branches do
+                // not escape (№323 D5) — analyze the branches on forks.
+                walk_expr(
+                    condition,
+                    container,
+                    env,
+                    origin_labels,
+                    ctx,
+                    check,
+                    violations,
+                );
+                let mut env_t = env.clone();
+                let mut ctx_t = ctx.clone();
+                walk_stmts(
+                    then_body,
+                    container,
+                    &mut env_t,
+                    origin_labels,
+                    &mut ctx_t,
+                    check,
+                    violations,
+                );
+                for (_, b) in else_ifs {
+                    let mut env_b = env.clone();
+                    let mut ctx_b = ctx.clone();
+                    walk_stmts(
+                        b,
+                        container,
+                        &mut env_b,
+                        origin_labels,
+                        &mut ctx_b,
+                        check,
+                        violations,
+                    );
+                }
+                if let Some(eb) = else_body {
+                    let mut env_e = env.clone();
+                    // №387: conservative fork (branch-local ctx discarded).
+                    let mut ctx_e = ctx.clone();
+                    walk_stmts(
+                        eb,
+                        container,
+                        &mut env_e,
+                        origin_labels,
+                        &mut ctx_e,
+                        check,
+                        violations,
+                    );
+                }
+            }
+            Expr::Try { expr, .. } => {
+                walk_expr(expr, container, env, origin_labels, ctx, check, violations)
+            }
+            Expr::List { items, .. } => {
+                for i in items {
+                    walk_expr(i, container, env, origin_labels, ctx, check, violations);
+                }
+            }
+            Expr::StructLit { fields, .. } => {
+                for v in fields.values() {
+                    walk_expr(v, container, env, origin_labels, ctx, check, violations);
+                }
+            }
+            Expr::IndexAccess { object, index, .. } => {
+                walk_expr(
+                    object,
+                    container,
+                    env,
+                    origin_labels,
+                    ctx,
+                    check,
+                    violations,
+                );
+                walk_expr(index, container, env, origin_labels, ctx, check, violations);
+            }
+            Expr::FieldAccess { object, .. } => walk_expr(
+                object,
+                container,
+                env,
+                origin_labels,
+                ctx,
+                check,
+                violations,
+            ),
+            _ => {}
+        }
+    }
+
+    fn walk_stmts(
+        stmts: &[Statement],
+        container: &str,
+        env: &mut BTreeMap<String, Label>,
+        origin_labels: &BTreeMap<String, Label>,
+        ctx: &mut FlowCtx,
+        check: SinkCheck,
+        violations: &mut Vec<SinkViolation>,
+    ) {
+        for stmt in stmts {
+            match stmt {
+                Statement::LetBinding { name, value, .. }
+                | Statement::Assign { name, value, .. } => {
+                    walk_expr(value, container, env, origin_labels, ctx, check, violations);
+                    // Track the binding (flow-sensitive overwrite, №323
+                    // LetBinding/Assign contract) so later sink calls see
+                    // the carried label.
+                    let label = sink_arg_label(value, env, origin_labels);
+                    env.insert(name.clone(), label);
+                    // ── Naryad #387: the FlowCtx update ──
+                    // (a) alias tracking: a let-bound copy of a media
+                    // handle keeps its origin kind (the alias-invariance
+                    // contract — taint/consent/provenance never detach
+                    // through let-chains);
+                    // (b) token presence: a bound `likeness_verify`
+                    // result marks the scope as likeness-cleared.
+                    if let Expr::FnCall { name: callee, .. } = value {
+                        if callee == "likeness_verify" {
+                            ctx.token_bound = true;
+                        }
+                    }
+                    match value {
+                        Expr::HandleSource { origin, .. } => {
+                            match ctx.origin_kind_map.get(origin).cloned() {
+                                Some(kind) => {
+                                    ctx.origin_kinds.insert(name.clone(), kind);
+                                }
+                                None => {
+                                    ctx.origin_kinds.remove(name);
+                                }
+                            }
+                        }
+                        Expr::ProvBind { origin, .. } => {
+                            match ctx.origin_kind_map.get(origin).cloned() {
+                                Some(kind) => {
+                                    ctx.origin_kinds.insert(name.clone(), kind);
+                                }
+                                None => {
+                                    ctx.origin_kinds.remove(name);
+                                }
+                            }
+                        }
+                        Expr::Ident { name: src_name, .. } => {
+                            match ctx.origin_kinds.get(src_name).cloned() {
+                                Some(kind) => {
+                                    ctx.origin_kinds.insert(name.clone(), kind);
+                                }
+                                None => {
+                                    ctx.origin_kinds.remove(name);
+                                }
+                            }
+                        }
+                        _ => {
+                            ctx.origin_kinds.remove(name);
+                        }
+                    }
+                }
+                Statement::Each {
+                    variable,
+                    iterable,
+                    body,
+                    ..
+                }
+                | Statement::EachWithIndex {
+                    item_var: variable,
+                    iterable,
+                    body,
+                    ..
+                } => {
+                    walk_expr(
+                        iterable,
+                        container,
+                        env,
+                        origin_labels,
+                        ctx,
+                        check,
+                        violations,
+                    );
+                    // The iterant is bound for the body only (scope-local,
+                    // №323 Each contract) — analyze the body with a fork.
+                    let mut env_body = env.clone();
+                    env_body.insert(
+                        variable.clone(),
+                        sink_arg_label(iterable, env, origin_labels),
+                    );
+                    let mut ctx_body = ctx.clone();
+                    match media_arg_origin_kind(iterable, ctx) {
+                        Some(kind) => {
+                            ctx_body.origin_kinds.insert(variable.clone(), kind);
+                        }
+                        None => {
+                            ctx_body.origin_kinds.remove(variable);
+                        }
+                    }
+                    walk_stmts(
+                        body,
+                        container,
+                        &mut env_body,
+                        origin_labels,
+                        &mut ctx_body,
+                        check,
+                        violations,
+                    );
+                }
+                Statement::While {
+                    condition, body, ..
+                } => {
+                    walk_expr(
+                        condition,
+                        container,
+                        env,
+                        origin_labels,
+                        ctx,
+                        check,
+                        violations,
+                    );
+                    // Conservative single-pass join (ADR-0154 §8 D1): the
+                    // body may raise labels; fold the raises back.
+                    let mut env_body = env.clone();
+                    // №387: the ctx fork is discarded (fail-closed) —
+                    // loop-bound tokens/aliases do not escape the loop.
+                    let mut ctx_body = ctx.clone();
+                    walk_stmts(
+                        body,
+                        container,
+                        &mut env_body,
+                        origin_labels,
+                        &mut ctx_body,
+                        check,
+                        violations,
+                    );
+                    for (k, v) in env_body {
+                        let merged = env.get(&k).cloned().unwrap_or_else(Label::bottom).join(&v);
+                        env.insert(k, merged);
+                    }
+                }
+                Statement::IfElseBlock {
+                    condition,
+                    then_body,
+                    else_ifs,
+                    else_body,
+                    ..
+                } => {
+                    walk_expr(
+                        condition,
+                        container,
+                        env,
+                        origin_labels,
+                        ctx,
+                        check,
+                        violations,
+                    );
+                    // Branches fork from the entry env; merge on exit
+                    // (componentwise, №323 rules). A closed merge (else
+                    // present) drops the pre-branch value; an open merge
+                    // keeps the entry env in the join.
+                    let mut env_then = env.clone();
+                    // №387: branch forks are conservative — branch-bound
+                    // tokens/aliases do not escape (the entry ctx wins).
+                    let mut ctx_then = ctx.clone();
+                    walk_stmts(
+                        then_body,
+                        container,
+                        &mut env_then,
+                        origin_labels,
+                        &mut ctx_then,
+                        check,
+                        violations,
+                    );
+                    let mut merged = env_then;
+                    for (_, b) in else_ifs {
+                        let mut env_b = env.clone();
+                        let mut ctx_b = ctx.clone();
+                        walk_stmts(
+                            b,
+                            container,
+                            &mut env_b,
+                            origin_labels,
+                            &mut ctx_b,
+                            check,
+                            violations,
+                        );
+                        for (k, v) in env_b {
+                            let m = merged
+                                .get(&k)
+                                .cloned()
+                                .unwrap_or_else(Label::bottom)
+                                .join(&v);
+                            merged.insert(k, m);
+                        }
+                    }
+                    if let Some(eb) = else_body {
+                        let mut env_e = env.clone();
+                        let mut ctx_e = ctx.clone();
+                        walk_stmts(
+                            eb,
+                            container,
+                            &mut env_e,
+                            origin_labels,
+                            &mut ctx_e,
+                            check,
+                            violations,
+                        );
+                        for (k, v) in env_e {
+                            let m = merged
+                                .get(&k)
+                                .cloned()
+                                .unwrap_or_else(Label::bottom)
+                                .join(&v);
+                            merged.insert(k, m);
+                        }
+                    } else {
+                        // Open merge: the entry env survives.
+                        for (k, v) in env.clone() {
+                            let m = merged
+                                .get(&k)
+                                .cloned()
+                                .unwrap_or_else(Label::bottom)
+                                .join(&v);
+                            merged.insert(k, m);
+                        }
+                    }
+                    *env = merged;
+                }
+                Statement::IfThen {
+                    condition, body, ..
+                } => {
+                    walk_expr(
+                        condition,
+                        container,
+                        env,
+                        origin_labels,
+                        ctx,
+                        check,
+                        violations,
+                    );
+                    let mut env_t = env.clone();
+                    // №387: conservative fork (branch-local ctx discarded).
+                    let mut ctx_t = ctx.clone();
+                    walk_stmts(
+                        body,
+                        container,
+                        &mut env_t,
+                        origin_labels,
+                        &mut ctx_t,
+                        check,
+                        violations,
+                    );
+                    for (k, v) in env_t {
+                        let m = env.get(&k).cloned().unwrap_or_else(Label::bottom).join(&v);
+                        env.insert(k, m);
+                    }
+                }
+                Statement::Return { value, .. } | Statement::ExprStmt { expr: value, .. } => {
+                    walk_expr(value, container, env, origin_labels, ctx, check, violations);
+                }
+                Statement::Match {
+                    scrutinee,
+                    arms,
+                    else_body,
+                    ..
+                } => {
+                    walk_expr(
+                        scrutinee,
+                        container,
+                        env,
+                        origin_labels,
+                        ctx,
+                        check,
+                        violations,
+                    );
+                    let mut merged = env.clone();
+                    for arm in arms {
+                        let body = match arm {
+                            MatchArm::Exact(_, b)
+                            | MatchArm::StartsWith(_, b)
+                            | MatchArm::Contains(_, b)
+                            | MatchArm::Compare(_, _, b) => b,
+                        };
+                        let mut env_b = env.clone();
+                        // №387: match-arm ctx forks are conservative.
+                        let mut ctx_b = ctx.clone();
+                        walk_stmts(
+                            body,
+                            container,
+                            &mut env_b,
+                            origin_labels,
+                            &mut ctx_b,
+                            check,
+                            violations,
+                        );
+                        for (k, v) in env_b {
+                            let m = merged
+                                .get(&k)
+                                .cloned()
+                                .unwrap_or_else(Label::bottom)
+                                .join(&v);
+                            merged.insert(k, m);
+                        }
+                    }
+                    if let Some(eb) = else_body {
+                        let mut env_e = env.clone();
+                        let mut ctx_e = ctx.clone();
+                        walk_stmts(
+                            eb,
+                            container,
+                            &mut env_e,
+                            origin_labels,
+                            &mut ctx_e,
+                            check,
+                            violations,
+                        );
+                        for (k, v) in env_e {
+                            let m = merged
+                                .get(&k)
+                                .cloned()
+                                .unwrap_or_else(Label::bottom)
+                                .join(&v);
+                            merged.insert(k, m);
+                        }
+                    } else {
+                        for (k, v) in env.clone() {
+                            let m = merged
+                                .get(&k)
+                                .cloned()
+                                .unwrap_or_else(Label::bottom)
+                                .join(&v);
+                            merged.insert(k, m);
+                        }
+                    }
+                    *env = merged;
+                }
+                Statement::Memorize(m) => walk_expr(
+                    &m.value,
+                    container,
+                    env,
+                    origin_labels,
+                    ctx,
+                    check,
+                    violations,
+                ),
+                Statement::Forget(f) => walk_expr(
+                    &f.query,
+                    container,
+                    env,
+                    origin_labels,
+                    ctx,
+                    check,
+                    violations,
+                ),
+                Statement::Relate(r) => {
+                    walk_expr(
+                        &r.from,
+                        container,
+                        env,
+                        origin_labels,
+                        ctx,
+                        check,
+                        violations,
+                    );
+                    walk_expr(&r.to, container, env, origin_labels, ctx, check, violations);
+                }
+                Statement::Break | Statement::Continue => {}
+            }
+        }
+    }
+
+    let walk_container = |stmts: &[Statement],
+                          container: &str,
+                          params: &[crate::ast::Param],
+                          violations: &mut Vec<SinkViolation>| {
+        let mut env = seed.clone();
+        for p in params {
+            let l = match &p.label {
+                Some(ann) => Label::parse(&ann.raw).unwrap_or_default(),
+                None => Label::bottom(),
+            };
+            env.insert(p.name.clone(), l);
+        }
+        // №387: a fresh FlowCtx per container — the origin-kind
+        // vocabulary rides inside (nested fns cannot capture locals).
+        let mut ctx = FlowCtx {
+            origin_kind_map: origin_kind_map.clone(),
+            ..FlowCtx::default()
+        };
+        walk_stmts(
+            stmts,
+            container,
+            &mut env,
+            &origin_labels,
+            &mut ctx,
+            &check_calls,
+            violations,
+        );
+    };
+
+    for decl in declarations {
+        match decl {
+            Declaration::Pattern(p) => {
+                walk_container(
+                    &p.body,
+                    &format!("pattern {}", p.name),
+                    &p.params,
+                    &mut violations,
+                );
+            }
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    walk_container(
+                        &m.body,
+                        &format!("tool {}.{}", t.name, m.name),
+                        &m.params,
+                        &mut violations,
+                    );
+                }
+            }
+            Declaration::MlogServer(srv) => {
+                for r in &srv.routes {
+                    walk_container(
+                        &r.body,
+                        &format!("route {} {}", r.method, r.path),
+                        &[],
+                        &mut violations,
+                    );
+                }
+            }
+            Declaration::Hook(h) => {
+                walk_container(
+                    &h.body,
+                    &format!("hook {:?}", h.phase),
+                    &[],
+                    &mut violations,
+                );
+            }
+            Declaration::Test(t) => {
+                walk_container(
+                    &t.body,
+                    &format!("test \"{}\"", t.name),
+                    &[],
+                    &mut violations,
+                );
+            }
+            _ => {}
+        }
+    }
+
+    violations
+}
+
+// ── DenyEvent: handler scope + exhaustive matching (Наряд №392) ─────
+
+/// The deny-event analyzer pass (№392 §1-3):
+///
+/// 1. Class validation — every `on_deny(...)` selector must be `*` or a
+///    known sink-class word; duplicates are loud (two handlers for one
+///    class is almost certainly a copy-paste mistake, and the silent
+///    last-wins resolution would hide it).
+/// 2. Handler scope — `deny_event()` / `deny_reason()` are the only
+///    language surface of the runtime-constructed `DenyEvent`; outside an
+///    `on_deny` body they are a compile error (the event cannot be
+///    forged into existence — the runtime is the only constructor).
+/// 3. Exhaustive matching — a `match` over `deny_reason()` inside a
+///    handler is checked for completeness over the deny-reason enum
+///    (`crate::deny::DENY_REASONS`); an incomplete match without an
+///    `else` arm is a compile error listing every unhandled reason, and
+///    a match arm naming an unknown reason is a compile error (a typo
+///    can never silently match nothing).
+///
+/// Messages carry the `[DENY_` prefix — the run path (`run_program`)
+/// blocks on it the way it blocks on distill_to errors (ADR-0117 §2-3
+/// precedent).
+pub fn check_deny_events(declarations: &[Declaration], errors: &mut Vec<SpannedError>) {
+    // (1) class validation + duplicate detection.
+    let mut seen_classes: HashMap<&str, u32> = HashMap::new();
+    for decl in declarations {
+        if let Declaration::OnDeny(d) = decl {
+            if !crate::deny::is_valid_class(&d.class) {
+                errors.push(SpannedError::at(
+                    format!(
+                        "[DENY_CLASS] unknown on_deny class '{}' — expected '*' or one of: {} (Naryad #392)",
+                        d.class,
+                        crate::deny::SINK_CLASSES.join(", ")
+                    ),
+                    d.span.clone(),
+                ));
+                continue;
+            }
+            if seen_classes
+                .insert(d.class.as_str(), d.span.start_line)
+                .is_some()
+            {
+                errors.push(SpannedError::at(
+                    format!(
+                        "[DENY_CLASS] duplicate on_deny handler for class '{}' — the last one would silently shadow this one (Naryad #392)",
+                        d.class
+                    ),
+                    d.span.clone(),
+                ));
+            }
+        }
+    }
+
+    // (2)+(3) walk every declaration: statements inside an on_deny body
+    // run with in_handler = true, everything else with false.
+    for decl in declarations {
+        match decl {
+            Declaration::OnDeny(d) => {
+                walk_stmts_for_deny(&d.body, true, errors);
+            }
+            Declaration::Pattern(p) => walk_stmts_for_deny(&p.body, false, errors),
+            // Learnable patterns are prompt templates — no statement body
+            // to walk (the LLM call is the body).
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    walk_stmts_for_deny(&m.body, false, errors);
+                }
+            }
+            Declaration::Test(t) => walk_stmts_for_deny(&t.body, false, errors),
+            Declaration::Hook(h) => walk_stmts_for_deny(&h.body, false, errors),
+            Declaration::MlogServer(srv) => {
+                for r in &srv.routes {
+                    walk_stmts_for_deny(&r.body, false, errors);
+                }
+            }
+            Declaration::Flow(f) => {
+                // Flow steps are declarative; pattern references resolve
+                // at runtime — no deny builtins can hide in them.
+                let _ = f;
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Walk a statement list for the №392 deny checks (scope + exhaustive
+/// matching), recursing into every nested statement body.
+fn walk_stmts_for_deny(stmts: &[Statement], in_handler: bool, errors: &mut Vec<SpannedError>) {
+    for stmt in stmts {
+        walk_stmt_for_deny(stmt, in_handler, errors);
+    }
+}
+
+fn walk_stmt_for_deny(stmt: &Statement, in_handler: bool, errors: &mut Vec<SpannedError>) {
+    match stmt {
+        Statement::LetBinding { value, .. } | Statement::Assign { value, .. } => {
+            walk_expr_for_deny(value, in_handler, errors);
+        }
+        Statement::Each { iterable, body, .. }
+        | Statement::EachWithIndex { iterable, body, .. } => {
+            walk_expr_for_deny(iterable, in_handler, errors);
+            walk_stmts_for_deny(body, in_handler, errors);
+        }
+        Statement::While {
+            condition, body, ..
+        } => {
+            walk_expr_for_deny(condition, in_handler, errors);
+            walk_stmts_for_deny(body, in_handler, errors);
+        }
+        Statement::IfElseBlock {
+            condition,
+            then_body,
+            else_ifs,
+            else_body,
+            ..
+        } => {
+            walk_expr_for_deny(condition, in_handler, errors);
+            walk_stmts_for_deny(then_body, in_handler, errors);
+            for (cond, body) in else_ifs {
+                walk_expr_for_deny(cond, in_handler, errors);
+                walk_stmts_for_deny(body, in_handler, errors);
+            }
+            if let Some(else_body) = else_body {
+                walk_stmts_for_deny(else_body, in_handler, errors);
+            }
+        }
+        Statement::IfThen {
+            condition, body, ..
+        } => {
+            walk_expr_for_deny(condition, in_handler, errors);
+            walk_stmts_for_deny(body, in_handler, errors);
+        }
+        Statement::Return { value, .. } => {
+            walk_expr_for_deny(value, in_handler, errors);
+        }
+        Statement::ExprStmt { expr, .. } => {
+            walk_expr_for_deny(expr, in_handler, errors);
+        }
+        Statement::Match {
+            scrutinee,
+            arms,
+            else_body,
+            ..
+        } => {
+            walk_expr_for_deny(scrutinee, in_handler, errors);
+            check_deny_match_exhaustiveness(scrutinee, arms, else_body.is_some(), stmt, errors);
+            for arm in arms {
+                walk_stmts_for_deny(arm.body(), in_handler, errors);
+            }
+            if let Some(else_body) = else_body {
+                walk_stmts_for_deny(else_body, in_handler, errors);
+            }
+        }
+        Statement::Memorize(m) => walk_expr_for_deny(&m.value, in_handler, errors),
+        Statement::Forget(f) => walk_expr_for_deny(&f.query, in_handler, errors),
+        Statement::Relate(r) => {
+            walk_expr_for_deny(&r.from, in_handler, errors);
+            walk_expr_for_deny(&r.to, in_handler, errors);
+        }
+        Statement::Break | Statement::Continue => {}
+    }
+}
+
+/// (3) Exhaustive matching over the deny-reason enum: a Match whose
+/// scrutinee is a bare `deny_reason()` call inside an on_deny handler.
+/// An arm naming an unknown reason is a compile error; a match without
+/// an `else` arm that does not cover every reason is a compile error
+/// listing exactly the unhandled reasons.
+fn check_deny_match_exhaustiveness(
+    scrutinee: &Expr,
+    arms: &[crate::ast::MatchArm],
+    has_else: bool,
+    stmt: &Statement,
+    errors: &mut Vec<SpannedError>,
+) {
+    let is_deny_reason_scrutinee = match scrutinee {
+        Expr::FnCall { name, args, .. } => name == "deny_reason" && args.is_empty(),
+        _ => false,
+    };
+    if !is_deny_reason_scrutinee {
+        return;
+    }
+    let mut covered: Vec<String> = Vec::new();
+    for arm in arms {
+        if let crate::ast::MatchArm::Exact(reason, _) = arm {
+            if !crate::deny::is_known_reason(reason) {
+                errors.push(SpannedError::at_expr(
+                    scrutinee,
+                    format!(
+                        "[DENY_MATCH_UNKNOWN] match over deny_reason() names '{}' — not a deny reason; known reasons: {} (Naryad #392)",
+                        reason,
+                        crate::deny::DENY_REASONS.join(", ")
+                    ),
+                ));
+            }
+            covered.push(reason.clone());
+        }
+        // starts_with / contains / compare arms on a reason word are
+        // honest wildcards-in-parts: they may match unpredictably, so
+        // they disable the exhaustiveness guarantee entirely unless an
+        // else arm exists.
+        if !matches!(arm, crate::ast::MatchArm::Exact(_, _)) {
+            return;
+        }
+    }
+    if has_else {
+        return;
+    }
+    let uncovered = crate::deny::uncovered_reasons(&covered);
+    if !uncovered.is_empty() {
+        errors.push(SpannedError::at(
+            format!(
+                "[DENY_MATCH_EXHAUSTIVE] match over deny_reason() is not exhaustive — unhandled deny reasons: {} (add arms or an else arm) (Naryad #392)",
+                uncovered.join(", ")
+            ),
+            stmt.span().clone(),
+        ));
+    }
+}
+
+/// (2) Handler scope: deny_event()/deny_reason() outside an on_deny body
+/// are a compile error; inside, recursion continues (a handler may call
+/// helpers? no — DenyEvent is handler-scoped, not importable, so nested
+/// calls inside expressions of the handler body are fine but a pattern
+/// called FROM the handler cannot read the event — the runtime gate
+/// enforces the same rule loudly).
+fn walk_expr_for_deny(expr: &Expr, in_handler: bool, errors: &mut Vec<SpannedError>) {
+    match expr {
+        Expr::FnCall { name, args, .. } => {
+            if (name == "deny_event" || name == "deny_reason") && !in_handler {
+                errors.push(SpannedError::at_expr(
+                    expr,
+                    format!(
+                        "[DENY_HANDLER_SCOPE] {}() is only available inside an on_deny handler — the DenyEvent is runtime-constructed, it cannot be forged (Naryad #392)",
+                        name
+                    ),
+                ));
+            }
+            for a in args {
+                walk_expr_for_deny(a, in_handler, errors);
+            }
+        }
+        Expr::QualifiedCall { args, .. } => {
+            for a in args {
+                walk_expr_for_deny(a, in_handler, errors);
+            }
+        }
+        Expr::FieldAccess { object, .. } => {
+            walk_expr_for_deny(object, in_handler, errors);
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            walk_expr_for_deny(left, in_handler, errors);
+            walk_expr_for_deny(right, in_handler, errors);
+        }
+        Expr::IfElse {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            walk_expr_for_deny(condition, in_handler, errors);
+            walk_expr_for_deny(then_branch, in_handler, errors);
+            walk_expr_for_deny(else_branch, in_handler, errors);
+        }
+        Expr::List { items, .. } => {
+            for i in items {
+                walk_expr_for_deny(i, in_handler, errors);
+            }
+        }
+        Expr::IndexAccess { object, index, .. } => {
+            walk_expr_for_deny(object, in_handler, errors);
+            walk_expr_for_deny(index, in_handler, errors);
+        }
+        Expr::StructLit { fields, .. } => {
+            for v in fields.values() {
+                walk_expr_for_deny(v, in_handler, errors);
+            }
+        }
+        Expr::BlockIfElse {
+            condition,
+            then_body,
+            else_ifs,
+            else_body,
+            ..
+        } => {
+            walk_expr_for_deny(condition, in_handler, errors);
+            walk_stmts_for_deny(then_body, in_handler, errors);
+            for (cond, body) in else_ifs {
+                walk_expr_for_deny(cond, in_handler, errors);
+                walk_stmts_for_deny(body, in_handler, errors);
+            }
+            if let Some(else_body) = else_body {
+                walk_stmts_for_deny(else_body, in_handler, errors);
+            }
+        }
+        Expr::MatchExpr {
+            scrutinee,
+            arms,
+            else_body,
+            ..
+        } => {
+            walk_expr_for_deny(scrutinee, in_handler, errors);
+            for arm in arms {
+                walk_stmts_for_deny(arm.body(), in_handler, errors);
+            }
+            if let Some(else_body) = else_body {
+                walk_stmts_for_deny(else_body, in_handler, errors);
+            }
+        }
+        Expr::Try { expr: inner, .. } => {
+            walk_expr_for_deny(inner, in_handler, errors);
+        }
+        Expr::HandleSource { .. } | Expr::ProvBind { .. } => {}
+        Expr::StringLit { .. }
+        | Expr::FloatLit { .. }
+        | Expr::BoolLit { .. }
+        | Expr::Ident { .. } => {}
+    }
+}
+
+// ── Integrity: anti-injection decision gate (Наряд №327) ─────────────
+
+/// One control-flow decision point whose deciding expression carries an
+/// untrusted label (integrity axis — ADR-0154 §2.2).
+#[derive(Debug, Clone)]
+pub struct DecisionViolation {
+    pub container: String,
+    /// `"if" | "while" | "match"` — the kind of the decision point.
+    pub kind: String,
+    pub span: Span,
+    /// The deciding expression's label.
+    pub label: Label,
+    /// The name of the untrusted source, when the deciding expression is
+    /// a direct Source call; `<derived>` otherwise.
+    pub source_name: String,
+}
+
+/// Name of the untrusted source behind a deciding expression: a direct
+/// call of a №316 Source builtin names itself; everything else is
+/// derived (the join poisoned the integrity — the exact origin is not
+/// tracked at this precision; the boundary is documented).
+fn decision_source_name(expr: &Expr, prov: &BTreeMap<String, String>) -> String {
+    // Descend into the deciding expression to name the direct Source
+    // call behind the untrusted label (the naryad: the message names
+    // the untrusted SOURCE and the decision point). Variables bound to
+    // a Source call carry their provenance through the bindings map.
+    if let Expr::FnCall { name, .. } = expr {
+        if matches!(
+            classify(name).map(|c| c.role),
+            Some(crate::builtins_classification::Role::Source)
+        ) {
+            return name.clone();
+        }
+    }
+    if let Expr::Ident { name, .. } = expr {
+        if let Some(origin) = prov.get(name) {
+            return origin.clone();
+        }
+    }
+    for sub in expr_operands(expr) {
+        let found = decision_source_name(sub, prov);
+        if found != "<derived>" {
+            return found;
+        }
+    }
+    "<derived>".to_string()
+}
+
+/// Direct sub-expressions of `expr` (one level).
+fn expr_operands(expr: &Expr) -> Vec<&Expr> {
+    match expr {
+        Expr::BinaryOp { left, right, .. } => vec![left.as_ref(), right.as_ref()],
+        Expr::IfElse {
+            then_branch,
+            else_branch,
+            ..
+        } => vec![then_branch.as_ref(), else_branch.as_ref()],
+        Expr::FieldAccess { object, .. } => vec![object.as_ref()],
+        Expr::IndexAccess { object, index, .. } => vec![object.as_ref(), index.as_ref()],
+        Expr::Try { expr, .. } => vec![expr.as_ref()],
+        Expr::List { items, .. } => items.iter().collect(),
+        Expr::FnCall { args, .. } | Expr::QualifiedCall { args, .. } => args.iter().collect(),
+        _ => vec![],
+    }
+}
+
+/// The №327 anti-injection rule: data that DECIDES control flow must be
+/// `trusted`. Untrusted data as DATA is legal — the gate fires only on
+/// decision positions: `if`/`else if` conditions, `while` conditions,
+/// `match` scrutinees. (Sink-target decisions are the №325 classes:
+/// UNTRUSTED_EXEC_DECISION / UNTRUSTED_EGRESS_NETWORK.)
+pub fn integrity_decision_violations(declarations: &[Declaration]) -> Vec<DecisionViolation> {
+    let mut violations = Vec::new();
+
+    // Seed environment mirrors the sink-clearance pass (№322 annotations
+    // on params; entity initializers via the marker lексикон; otherwise
+    // bottom).
+    let mut seed: BTreeMap<String, Label> = BTreeMap::new();
+    for decl in declarations {
+        match decl {
+            Declaration::EntitySimple(e) => {
+                seed.insert(e.name.clone(), entity_seed_label(Some(&e.value)));
+            }
+            Declaration::EntityRecord(e) => {
+                let strongest = e
+                    .fields
+                    .iter()
+                    .map(|f| entity_seed_label(Some(&f.value)))
+                    .fold(Label::bottom(), |a, b| a.join(&b));
+                seed.insert(e.name.clone(), strongest);
+            }
+            _ => {}
+        }
+    }
+
+    fn check_decision(
+        expr: &Expr,
+        kind: &str,
+        container: &str,
+        env: &BTreeMap<String, Label>,
+        prov: &BTreeMap<String, String>,
+        violations: &mut Vec<DecisionViolation>,
+    ) {
+        let label = sink_arg_label(expr, env, &BTreeMap::new());
+        if label.integrity == crate::labels::Integrity::Untrusted {
+            violations.push(DecisionViolation {
+                container: container.to_string(),
+                kind: kind.to_string(),
+                span: expr.span().clone(),
+                label,
+                source_name: decision_source_name(expr, prov),
+            });
+        }
+    }
+
+    fn walk_stmts(
+        stmts: &[Statement],
+        container: &str,
+        env: &mut BTreeMap<String, Label>,
+        prov: &mut BTreeMap<String, String>,
+        violations: &mut Vec<DecisionViolation>,
+    ) {
+        // Provenance: a variable bound to a DIRECT Source call keeps the
+        // call's name; bindings derived from such a variable inherit it.
+        fn prov_of(value: &Expr, prov: &BTreeMap<String, String>) -> Option<String> {
+            match value {
+                Expr::FnCall { name, .. } => {
+                    if matches!(
+                        classify(name).map(|c| c.role),
+                        Some(crate::builtins_classification::Role::Source)
+                    ) {
+                        return Some(name.clone());
+                    }
+                    // A wrapper call derives from its args' provenance.
+                    for a in args_of(value) {
+                        if let Some(o) = prov_of(a, prov) {
+                            return Some(format!("{o} (via {name})"));
+                        }
+                    }
+                    None
+                }
+                Expr::Ident { name, .. } => prov.get(name).cloned(),
+                Expr::BinaryOp { left, right, .. } => {
+                    prov_of(left, prov).or_else(|| prov_of(right, prov))
+                }
+                Expr::FieldAccess { object, .. } => {
+                    if let Expr::Ident { name, .. } = object.as_ref() {
+                        return prov.get(name).cloned();
+                    }
+                    prov_of(object, prov)
+                }
+                _ => None,
+            }
+        }
+        fn args_of(value: &Expr) -> Vec<&Expr> {
+            match value {
+                Expr::FnCall { args, .. } | Expr::QualifiedCall { args, .. } => {
+                    args.iter().collect()
+                }
+                _ => vec![],
+            }
+        }
+        for stmt in stmts {
+            match stmt {
+                Statement::LetBinding { name, value, .. }
+                | Statement::Assign { name, value, .. } => {
+                    // №327 integrity pass: origin labels are Trusted, so
+                    // the empty origins map is sound here (integrity is
+                    // unaffected by the conf-bearing origin labels).
+                    let label = sink_arg_label(value, env, &BTreeMap::new());
+                    env.insert(name.clone(), label);
+                    if let Some(origin) = prov_of(value, prov) {
+                        prov.insert(name.clone(), origin);
+                    } else {
+                        prov.remove(name);
+                    }
+                }
+                Statement::Each {
+                    variable,
+                    iterable,
+                    body,
+                    ..
+                }
+                | Statement::EachWithIndex {
+                    item_var: variable,
+                    iterable,
+                    body,
+                    ..
+                } => {
+                    let it = sink_arg_label(iterable, env, &BTreeMap::new());
+                    let mut env_body = env.clone();
+                    env_body.insert(variable.clone(), it);
+                    let mut prov_body = prov.clone();
+                    if let Some(origin) = prov_of(iterable, prov) {
+                        prov_body.insert(variable.clone(), origin);
+                    }
+                    walk_stmts(body, container, &mut env_body, &mut prov_body, violations);
+                }
+                Statement::While {
+                    condition, body, ..
+                } => {
+                    check_decision(condition, "while", container, env, prov, violations);
+                    let mut env_body = env.clone();
+                    let mut prov_body = prov.clone();
+                    walk_stmts(body, container, &mut env_body, &mut prov_body, violations);
+                    for (k, v) in env_body {
+                        let m = env.get(&k).cloned().unwrap_or_else(Label::bottom).join(&v);
+                        env.insert(k, m);
+                    }
+                }
+                Statement::IfElseBlock {
+                    condition,
+                    then_body,
+                    else_ifs,
+                    else_body,
+                    ..
+                } => {
+                    check_decision(condition, "if", container, env, prov, violations);
+                    let mut env_then = env.clone();
+                    let mut prov_then = prov.clone();
+                    walk_stmts(
+                        then_body,
+                        container,
+                        &mut env_then,
+                        &mut prov_then,
+                        violations,
+                    );
+                    let mut merged = env_then;
+                    for (cond, b) in else_ifs {
+                        check_decision(cond, "if", container, env, prov, violations);
+                        let mut env_b = env.clone();
+                        let mut prov_b = prov.clone();
+                        walk_stmts(b, container, &mut env_b, &mut prov_b, violations);
+                        for (k, v) in env_b {
+                            let m = merged
+                                .get(&k)
+                                .cloned()
+                                .unwrap_or_else(Label::bottom)
+                                .join(&v);
+                            merged.insert(k, m);
+                        }
+                    }
+                    if let Some(eb) = else_body {
+                        let mut env_e = env.clone();
+                        let mut prov_e = prov.clone();
+                        walk_stmts(eb, container, &mut env_e, &mut prov_e, violations);
+                        for (k, v) in env_e {
+                            let m = merged
+                                .get(&k)
+                                .cloned()
+                                .unwrap_or_else(Label::bottom)
+                                .join(&v);
+                            merged.insert(k, m);
+                        }
+                    } else {
+                        for (k, v) in env.clone() {
+                            let m = merged
+                                .get(&k)
+                                .cloned()
+                                .unwrap_or_else(Label::bottom)
+                                .join(&v);
+                            merged.insert(k, m);
+                        }
+                    }
+                    *env = merged;
+                }
+                Statement::IfThen {
+                    condition, body, ..
+                } => {
+                    check_decision(condition, "if", container, env, prov, violations);
+                    let mut env_t = env.clone();
+                    let mut prov_t = prov.clone();
+                    walk_stmts(body, container, &mut env_t, &mut prov_t, violations);
+                    for (k, v) in env_t {
+                        let m = env.get(&k).cloned().unwrap_or_else(Label::bottom).join(&v);
+                        env.insert(k, m);
+                    }
+                }
+                Statement::Return { .. } | Statement::ExprStmt { .. } => {}
+                Statement::Match {
+                    scrutinee,
+                    arms,
+                    else_body,
+                    ..
+                } => {
+                    check_decision(scrutinee, "match", container, env, prov, violations);
+                    let mut merged = env.clone();
+                    for arm in arms {
+                        let b = match arm {
+                            MatchArm::Exact(_, b)
+                            | MatchArm::StartsWith(_, b)
+                            | MatchArm::Contains(_, b)
+                            | MatchArm::Compare(_, _, b) => b,
+                        };
+                        let mut env_b = env.clone();
+                        let mut prov_b = prov.clone();
+                        walk_stmts(b, container, &mut env_b, &mut prov_b, violations);
+                        for (k, v) in env_b {
+                            let m = merged
+                                .get(&k)
+                                .cloned()
+                                .unwrap_or_else(Label::bottom)
+                                .join(&v);
+                            merged.insert(k, m);
+                        }
+                    }
+                    if let Some(eb) = else_body {
+                        let mut env_e = env.clone();
+                        let mut prov_e = prov.clone();
+                        walk_stmts(eb, container, &mut env_e, &mut prov_e, violations);
+                        for (k, v) in env_e {
+                            let m = merged
+                                .get(&k)
+                                .cloned()
+                                .unwrap_or_else(Label::bottom)
+                                .join(&v);
+                            merged.insert(k, m);
+                        }
+                    } else {
+                        for (k, v) in env.clone() {
+                            let m = merged
+                                .get(&k)
+                                .cloned()
+                                .unwrap_or_else(Label::bottom)
+                                .join(&v);
+                            merged.insert(k, m);
+                        }
+                    }
+                    *env = merged;
+                }
+                Statement::Memorize(_) | Statement::Forget(_) | Statement::Relate(_) => {}
+                Statement::Break | Statement::Continue => {}
+            }
+        }
+    }
+
+    let walk_container = |stmts: &[Statement],
+                          container: &str,
+                          params: &[crate::ast::Param],
+                          violations: &mut Vec<DecisionViolation>| {
+        let mut env = seed.clone();
+        let mut prov: BTreeMap<String, String> = BTreeMap::new();
+        for p in params {
+            let l = match &p.label {
+                Some(ann) => Label::parse(&ann.raw).unwrap_or_default(),
+                None => Label::bottom(),
+            };
+            env.insert(p.name.clone(), l);
+        }
+        walk_stmts(stmts, container, &mut env, &mut prov, violations);
+    };
+
+    for decl in declarations {
+        match decl {
+            Declaration::Pattern(p) => {
+                walk_container(
+                    &p.body,
+                    &format!("pattern {}", p.name),
+                    &p.params,
+                    &mut violations,
+                );
+            }
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    walk_container(
+                        &m.body,
+                        &format!("tool {}.{}", t.name, m.name),
+                        &m.params,
+                        &mut violations,
+                    );
+                }
+            }
+            Declaration::MlogServer(srv) => {
+                for r in &srv.routes {
+                    walk_container(
+                        &r.body,
+                        &format!("route {} {}", r.method, r.path),
+                        &[],
+                        &mut violations,
+                    );
+                }
+            }
+            Declaration::Hook(h) => {
+                walk_container(
+                    &h.body,
+                    &format!("hook {:?}", h.phase),
+                    &[],
+                    &mut violations,
+                );
+            }
+            Declaration::Test(t) => {
+                walk_container(
+                    &t.body,
+                    &format!("test \"{}\"", t.name),
+                    &[],
+                    &mut violations,
+                );
+            }
+            _ => {}
+        }
+    }
+
+    violations
+}
+
 /// Perform semantic analysis on a list of declarations (without executing them).
 /// Validates:
 ///   - Entity types referenced in records exist
@@ -188,6 +4324,56 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
         result.errors.push(SpannedError::at_line(e, 0));
     }
     let alias_names: HashSet<String> = type_alias_map.keys().cloned().collect();
+
+    // Наряд №322 (ADR-0154): validate label annotations everywhere the
+    // grammar allows them. This is what makes the annotation "visible to
+    // semantics" — the label carrier (`ast::LabelAnn`) is parsed with a
+    // span, and unknown words fail here, not silently later.
+    for decl in declarations {
+        validate_decl_labels(decl, &mut result.errors);
+    }
+
+    // Наряд №324 (ADR-0154 §9): effect trail in pattern signatures.
+    // Validates the trail words (io|audit), computes the factual body
+    // effects of every pattern/tool-method/learnable (interprocedural
+    // fixpoint over the call graph — converges on recursion), and gates
+    // every DECLARED trail: factual ⊑ declared, excess = loud error.
+    // Patterns without a declared trail are ungated (zero delta).
+    check_effect_trails(declarations, &mut result.errors);
+
+    // Наряд №331 (ADR-0162 §2.5): media handles are opaque — any field
+    // access on a media-typed expression is a COMPILE error; bytes are
+    // reachable only through the sanctioned materialization sink
+    // (media_save, №325-gated).
+    check_media_handle_opacity(declarations, &mut result.errors);
+
+    // Наряд №332 (ADR-0164): the origin chain — a media handle without
+    // origin is not constructed (§7.4 rule); origin declarations are
+    // validated loudly (unknown kinds/fields/labels).
+    check_media_origin_chain(declarations, &mut result.errors);
+
+    // Наряд №325 (ADR-0161): validate the compatibility profile shape —
+    // unknown profile names / options / egress modes are loud errors
+    // (a compat-profile mistake must never be a silent no-op).
+    for decl in declarations {
+        if let Declaration::Profile(p) = decl {
+            if let Err(e) = crate::profile::validate(p) {
+                result.errors.push(SpannedError::at(e, p.span.clone()));
+            }
+        }
+    }
+
+    // Наряд №336 (ADR-0165 §2.4): the BackendSelect ladder companion
+    // check — statically-visible ladders are verified against the №333
+    // registry SSOT (unknown rung / class mismatch / duplicates), and a
+    // `device { mode: production }` profile refuses unverifiable
+    // (PendingNo334) rungs at BUILD time.
+    check_backend_select_ladders(declarations, &mut result.errors);
+
+    // Наряд №392: deny-event handlers — class validation, handler scope
+    // of deny_event()/deny_reason(), exhaustive matching over the deny
+    // reasons. Messages carry the [DENY_ prefix the run path blocks on.
+    check_deny_events(declarations, &mut result.errors);
 
     // First pass: collect all declarations (names)
     for decl in declarations {
@@ -2270,6 +6456,29 @@ fn walk_expr_for_svg_security(expr: &Expr, result: &mut AnalysisResult, ctx: &st
                 }
             }
         }
+        // №369: match-as-expression — walk scrutinee + arm bodies + else.
+        Expr::MatchExpr {
+            scrutinee,
+            arms,
+            else_body,
+            ..
+        } => {
+            walk_expr_for_svg_security(scrutinee, result, ctx);
+            for arm in arms {
+                for s in arm.body() {
+                    walk_stmt_for_svg_security(s, result, ctx);
+                }
+            }
+            if let Some(eb) = else_body {
+                for s in eb {
+                    walk_stmt_for_svg_security(s, result, ctx);
+                }
+            }
+        }
+        // №332 (ADR-0164): perception constructions — no SVG surface;
+        // ProvBind delegates to the inner construction.
+        Expr::HandleSource { .. } => {}
+        Expr::ProvBind { inner, .. } => walk_expr_for_svg_security(inner, result, ctx),
         Expr::StringLit { .. }
         | Expr::FloatLit { .. }
         | Expr::BoolLit { .. }

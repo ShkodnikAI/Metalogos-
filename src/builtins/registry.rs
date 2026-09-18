@@ -12,7 +12,60 @@ use super::vision::{
     builtin_vision_load_stub, builtin_vision_lora_generate_stub, builtin_vision_lora_load_stub,
     builtin_vision_save_stub,
 };
+// Наряд №307 (ADR-0147-0150): Video pillar builtins. Наряд №309 (ADR-0151):
+// real pipeline implementations — I2V anchors, interp, extend, mux, export.
+#[cfg(feature = "video")]
+use crate::video::{
+    builtin_av_mux, builtin_frame_interp, builtin_video_export, builtin_video_extend,
+    builtin_video_fetch_weights_stub, builtin_video_render,
+};
+
+// Наряд №275 (ADR-0137): LLM streaming builtins — llm_stream_open/next/close.
+use super::llm_stream::{
+    builtin_llm_stream_close, builtin_llm_stream_next, builtin_llm_stream_open,
+};
+// Наряд №331 (ADR-0162): unified media layer — last-resort stubs for the
+// state-carrying media builtins (pub(crate); real paths are interception).
+use super::media::{
+    builtin_media_bind_origin_stub, builtin_media_meta_stub, builtin_media_release_stub,
+    builtin_media_retain_stub, builtin_media_save_stub, builtin_media_source_capture_stub,
+    builtin_media_store_audio_stub, builtin_media_store_image_stub,
+    builtin_media_store_video_frame_stub, builtin_media_store_video_segment_stub,
+};
+use super::media::{builtin_media_manifest_read, builtin_media_manifest_stub};
+// Наряд №333 (ADR-0163): backend registry listing (stateless).
+use super::backends::{builtin_backend_list, builtin_backend_select};
+// Наряд №334: real STT/omni/vision-understanding backends — the mock-first
+// call surface over the №333 registry (SHA-pin path, ADR-0163 §2.1).
+use crate::vision::understand::builtin_vision_understand;
+use crate::voice::backend::{builtin_omni_ask, builtin_stt_transcribe};
+// Наряд №335 (spec §7.2 v2): consent surface — grant/revoke/quarantine/ledger.
+use super::consent::{
+    builtin_consent_grant, builtin_consent_ledger_export, builtin_consent_revoke,
+    builtin_quarantine_write,
+};
+// Naryad #390 (ADR-0155): Grant algebra builtins — issue/subgrant/revoke/use
+// + the granted destructive-SQL action surface.
+use super::grants::{
+    builtin_db_execute_with_grant, builtin_grant_issue, builtin_grant_revoke,
+    builtin_grant_subgrant, builtin_grant_use,
+};
+// Naryad #393 (ADR-0167): Action Ledger v1 surface — count/head/export/
+// export_intoto/rotate/snapshot.
+use super::ledger::{
+    builtin_ledger_count, builtin_ledger_export, builtin_ledger_export_intoto, builtin_ledger_head,
+    builtin_ledger_rotate, builtin_ledger_snapshot,
+};
+// Naryad #387 (ADR-0149 D1/D6): the likeness ritual — challenge/verify
+// over the opaque LikenessToken.
+use super::likeness::{builtin_likeness_challenge, builtin_likeness_verify};
+// Наряд №302 (ADR-0143-0146): Voice pillar skeleton builtins — stubs.
 use super::*;
+#[cfg(feature = "voice")]
+use crate::voice::{
+    builtin_audio_export_stub, builtin_tts_speak_stub, builtin_voice_design_stub,
+    builtin_voice_enroll_stub, builtin_voice_load_stub, builtin_voice_save_stub,
+};
 
 /// Master registry of ALL builtin functions.
 /// Order determines bytecode indices — DO NOT reorder existing entries.
@@ -609,6 +662,46 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // (loudly noted in CHANGELOG).
     spec!("vision_lora_load", 2, "vision"; builtin_vision_lora_load_stub),
     spec!("vision_lora_generate", 3, "vision"; builtin_vision_lora_generate_stub),
+    // ── Наряд №331 (ADR-0162): unified media layer (category "media") ──
+    // Four per-type store builtins (opaque handles — bytes never enter
+    // Value), the sanctioned materialization SINK (media_save), the
+    // refcount pair, and the metadata observer. All state-carrying:
+    // interpreter and VM intercept these names BEFORE the generic
+    // fallback and route through src/builtins/media.rs dispatches; these
+    // specs remain the last-resort handlers + the arity/type contract.
+    // Registry 421→429. media_save egress is gated by №325 (file kind)
+    // + the runtime backstop (MEDIA_SEALED_EGRESS).
+    spec!("media_store_image", 2, "media"; builtin_media_store_image_stub),
+    spec!("media_store_audio", 2, "media"; builtin_media_store_audio_stub),
+    spec!("media_store_video_frame", 2, "media"; builtin_media_store_video_frame_stub),
+    spec!("media_store_video_segment", 2, "media"; builtin_media_store_video_segment_stub),
+    spec!("media_save", 2, 3, "media"; builtin_media_save_stub),
+    spec!("media_retain", 1, "media"; builtin_media_retain_stub),
+    spec!("media_release", 1, "media"; builtin_media_release_stub),
+    spec!("media_meta", 1, "media"; builtin_media_meta_stub),
+    // ── Наряд №332 (ADR-0164): perception origin — HandleSource/ProvBind ──
+    // Both are state-carrying (origin declarations + media store) and are
+    // intercepted like the media family; the compiler lowers
+    // `source <origin>` / `from <origin> <construction>` to these calls.
+    // Registry 430→432.
+    spec!("media_source_capture", 1, "media"; builtin_media_source_capture_stub),
+    spec!("media_bind_origin", 2, "media"; builtin_media_bind_origin_stub),
+    // ── Наряд №333 (ADR-0163): backend registry — read-only metadata ──
+    // The SSOT table lives in src/backends.rs; this builtin is the
+    // language surface (name/class/weights_id/pin/license/license_note).
+    // Registry 429→430; category "registry" (41st module).
+    spec!("backend_list", 0, "registry"; builtin_backend_list),
+    // ── Наряд №336 (ADR-0165): BackendSelect — the backend try-chain ──
+    // Priority ladder over the №333 registry SSOT; exhaustion →
+    // Degraded(t), the typed degradation result (never a panic, never a
+    // silent mock). Registry 439→440; category "registry".
+    spec!("backend_select", 2, "registry"; builtin_backend_select),
+    // ── Наряд №337 (ADR-0166): the C2PA contour of media handles ──
+    // media_manifest is STATE-CARRYING (store read) — intercepted by
+    // interpreter/VM before the generic fallback; media_manifest_read is
+    // stateless (sandboxed sidecar read). Registry 440→442.
+    spec!("media_manifest", 1, "media"; builtin_media_manifest_stub),
+    spec!("media_manifest_read", 1, "media"; builtin_media_manifest_read),
     // ── Наряд №284 (P1, M1): canary-токены недоверенного текста ──
     // Runtime-детектор утечки недоверенного контента через LLM-канал
     // (паттерн rebuff/Spotlighting). Связан с taint-моделью: утечка →
@@ -658,6 +751,134 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // не виден); scope-параметр — на vec_store/vec_search. Не
     // feature-гейт: kv-контур ядровой. Registry 403→404 (append-only).
     spec!("user_profile", 2, "memory"; builtin_user_profile),
+    // ── Наряд №285 (P2, feature/memory): text_chunk — структура-осознанное
+    // чанкование для RAG-пайплайна (первая стадия поверх №272 vec-контур):
+    // strategies markdown|paragraph|fixed; opts{max_chars, overlap,
+    // max_tokens?}; markdown-секции несут header_path ("H1 > H2 > H3") —
+    // готовые метаданные для vec_store. Каскад «заголовок → абзац →
+    // перенос → пробел» + жадное слияние мелких + overlap при окнировании
+    // (RecursiveCharacterTextSplitter-дух, без зависимостей). Token-бюджет —
+    // реюз token_count (memory.rs token_count_estimate). Registry 404→405
+    // (append-only).
+    spec!("text_chunk", 2, 3, "string"; builtin_text_chunk), // text, strategy | +opts{max_chars, overlap, max_tokens}
+    // ── Наряд №275 (P1, feature/llm): LLM streaming — итераторный
+    // стиль над SmartRouter (ADR-0137). Opaque handle Value::LlmStream,
+    // registry crate::llm::LLM_STREAM_REGISTRY (bounded №263). Trace —
+    // одна строка на завершённый стрим (ADR-0138 §D4). Mock / non-SSE →
+    // loud STREAM_UNSUPPORTED. Registry 405→408 (append-only).
+    #[cfg(feature = "llm")]
+    spec!("llm_stream_open", 1, 2, "llm"; builtin_llm_stream_open), // prompt | prompt,input
+    #[cfg(feature = "llm")]
+    spec!("llm_stream_next", 1, "llm"; builtin_llm_stream_next), // handle
+    #[cfg(feature = "llm")]
+    spec!("llm_stream_close", 1, "llm"; builtin_llm_stream_close), // handle
+    // ── Наряд №283 (P2, feature): path-параметры роутов mlogserver —
+    // шаблонный диспетчер {name} / {*path} (axum 0.8.9 syntax). Builtin
+    // stub — real body in interpreter/vm FnCall dispatch (needs access
+    // to server_path_params HashMap). Static routes win over templates;
+    // conflict of two templates matching the same path → loud error at
+    // server start. Registry 408→409 (append-only).
+    spec!("server_path_param", 1, "web"; builtin_server_path_param), // name
+    // ── Наряд №302 (P2, feature/voice): Voice pillar skeleton builtins —
+    // stubs. Loud errors, no silent fallbacks. Real implementation in
+    // phases A2/A3/A4/A5/A6. Feature-gated under `voice` (implies candle).
+    // Registry 409→415 (append-only, bytecode indices stable).
+    #[cfg(feature = "voice")]
+    spec!("voice_enroll", 2, 3, "voice"; builtin_voice_enroll_stub), // decl, audio | +kind
+    #[cfg(feature = "voice")]
+    spec!("tts_speak", 2, "voice"; builtin_tts_speak_stub), // decl, text
+    #[cfg(feature = "voice")]
+    spec!("audio_export", 1, "voice"; builtin_audio_export_stub), // handle
+    #[cfg(feature = "voice")]
+    spec!("voice_design", 2, "voice"; builtin_voice_design_stub), // text, voice
+    #[cfg(feature = "voice")]
+    spec!("voice_save", 2, "voice"; builtin_voice_save_stub), // handle, name
+    #[cfg(feature = "voice")]
+    spec!("voice_load", 1, "voice"; builtin_voice_load_stub), // name
+    // ── Наряд №307/№309 (P2, feature/video): Video pillar builtins.
+    // №309 (ADR-0151): real implementations on the tiny seeded pipeline —
+    // I2V first/last anchors, RIFE-class interp, extension, AV sidecar mux,
+    // signed-by-construction export. video_render: T2V (2) / I2V (3) /
+    // two-anchor first–last (4). MODEL_WEIGHTS_UNSAFE covers
+    // video_fetch_weights via suffix convention (Наряд №300).
+    // Registry 420→421 (append-only).
+    #[cfg(feature = "video")]
+    spec!("video_render", 2, 4, "video"; builtin_video_render),
+    #[cfg(feature = "video")]
+    spec!("video_export", 2, "video"; builtin_video_export),
+    #[cfg(feature = "video")]
+    spec!("av_mux", 2, "video"; builtin_av_mux),
+    #[cfg(feature = "video")]
+    spec!("frame_interp", 2, "video"; builtin_frame_interp),
+    #[cfg(feature = "video")]
+    spec!("video_extend", 2, "video"; builtin_video_extend),
+    #[cfg(feature = "video")]
+    spec!("video_fetch_weights", 2, "video"; builtin_video_fetch_weights_stub),
+    // ── Наряд №334 (P0, feature/backends): real STT/omni/vision-
+    // understanding backends — the SHA-pin path. Mock-first call surface
+    // over the №333 registry: METALOGOS_LLM_MOCK default = deterministic
+    // mock (the golden contract); real mode refuses LOUDLY unless the
+    // SHA-verified weights are on disk (PARKED №294 — no inference is
+    // promised). Handlers: voice::backend (stt/omni), vision::understand.
+    // Registry 432→435 (append-only, bytecode indices stable).
+    spec!("stt_transcribe", 1, 2, "voice"; builtin_stt_transcribe),
+    spec!("omni_ask", 1, 3, "voice"; builtin_omni_ask),
+    spec!("vision_understand", 1, 3, "vision"; builtin_vision_understand),
+    // ── Наряд №335 (spec §7.2 v2): consent grant/revoke + quarantine ──
+    // The consent component's surface (redact precedent: policy as
+    // value, builtins not AST). grant/revoke record the ledger and pass
+    // the value; the STATIC label rules live in semantic.rs label_source
+    // (grant extends the consent scope, revoke = quarantine label — the
+    // flat cascade via lattice absorption). quarantine_write is the ONLY
+    // legal egress for poisoned values (audit event). Ledger export is
+    // file egress, audited. Registry 435→439 (append-only).
+    spec!("consent_grant", 2, 4, "security"; builtin_consent_grant),
+    spec!("consent_revoke", 1, 2, "security"; builtin_consent_revoke),
+    spec!("quarantine_write", 1, 2, "security"; builtin_quarantine_write),
+    spec!("consent_ledger_export", 1, "security"; builtin_consent_ledger_export),
+    // ── Naryad #390 (ADR-0155): Grant algebra — capabilities for ──
+    // irreversible actions (wave 3, dispatch #491). The ungranted
+    // destructive-SQL deny (IRREVERSIBLE_NO_GRANT, №325) is UNCHANGED —
+    // db_execute_with_grant is the additional allowing path, gated by
+    // the grant ledger (state/TTL/scope/quota) at runtime and by the
+    // Once-linearity check (GRANT_REUSED) at compile time. Registry
+    // 442→447 (append-only; bytecode indices must not shift).
+    spec!("grant_issue", 2, 4, "action"; builtin_grant_issue),
+    spec!("grant_subgrant", 3, 5, "action"; builtin_grant_subgrant),
+    spec!("grant_revoke", 1, "action"; builtin_grant_revoke),
+    spec!("grant_use", 1, "action"; builtin_grant_use),
+    spec!("db_execute_with_grant", 2, 3, "action"; builtin_db_execute_with_grant),
+    // ── Naryad #392: the DenyEvent surface ──────────────────────────────
+    // Handler-scoped, intercepted by NAME in BOTH backends (the
+    // interpreter's invoke() and the VM's call_builtin). Registry stubs
+    // exist so the compiler resolves the calls; real dispatch is
+    // backend-side (the event is runtime state). The analyzer blocks
+    // usage outside an on_deny handler at compile time; the runtime
+    // refuses when no event is live. APPENDED at the end — inserting
+    // mid-array would shift existing CallBuiltin indices (.mbc contract).
+    spec!("deny_event", 0, "stub"),
+    spec!("deny_reason", 0, "stub"),
+    // ── Naryad #393 (ADR-0167): Action Ledger v1 surface ────────────────
+    // Introspection reads (count/head — not egress) and the two FILE
+    // EGRESS exports (classified Sink, the consent_ledger_export
+    // precedent) plus the rotation/snapshot writers. The journal writes
+    // for grant/deny/irreversible/session events live in the ACTION
+    // paths themselves (ADR-0167 §3.4) — this surface never becomes a
+    // forgotten "also log it" API. APPENDED at the end — inserting
+    // mid-array would shift existing CallBuiltin indices (.mbc contract).
+    // Registry 451→457 (append-only).
+    spec!("ledger_count", 0, "security"; builtin_ledger_count),
+    spec!("ledger_head", 0, "security"; builtin_ledger_head),
+    spec!("ledger_export", 1, "security"; builtin_ledger_export),
+    spec!("ledger_export_intoto", 1, "security"; builtin_ledger_export_intoto),
+    spec!("ledger_rotate", 0, "security"; builtin_ledger_rotate),
+    spec!("ledger_snapshot", 0, "security"; builtin_ledger_snapshot),
+    // ── Naryad #387 (ADR-0149 D1/D6): the likeness consent ritual ──
+    // The one-time challenge + the opaque LikenessToken. APPENDED at
+    // the end — inserting mid-array would shift existing CallBuiltin
+    // indices (.mbc contract). Registry 457→459 (append-only).
+    spec!("likeness_challenge", 1, 3, "security"; builtin_likeness_challenge),
+    spec!("likeness_verify", 1, 3, "security"; builtin_likeness_verify),
 ];
 
 /// Total number of registered builtins.

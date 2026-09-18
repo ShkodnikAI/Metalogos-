@@ -1,0 +1,38 @@
+// Наряд №329 (issue #423) — dogfooding: the Fosved Office message contour
+// under the Wave-1 gate (№325 sink clearance + №327 integrity), with the
+// minimal annotation set. The ergonomics measurement (share of annotated
+// lines vs the 50% Go threshold) is pinned in tests/naryad_329_dogfood.rs.
+//
+// The contour: the office assistant drafts the morning brief with
+// call_llm (a Source: public conf, UNTRUSTED integrity — №316), delivers
+// it to the owner chat via send_message (an irreversible Sink), and posts
+// a metrics webhook. The gate demands exactly TWO annotations:
+//   1. escape_html(draft)       — the LLM draft is untrusted; network and
+//                                 output sinks refuse untrusted data
+//                                 (UNTRUSTED_EGRESS_NETWORK family).
+//   2. redact(token, hash_only) — the webhook token is a Secret source;
+//                                 the one-way hash is the ONLY downward
+//                                 move (№326); without it the raw token
+//                                 into http_post is SECRET_EGRESS_NETWORK.
+// Everything else is inferred (ADR-0154 Appendix A) — zero label
+// annotations on variables, parameters, or signatures.
+//
+// Determinism: call_llm runs in mock mode by default; the webhook branch
+// is live in production but dead in CI (the constant guard) so tests never
+// touch the network; without TELEGRAM_BOT_TOKEN send_message takes the
+// audit-stub path (an [AUDIT] line on stderr). The static gate sees both
+// branches identically — dead code is still gated code.
+
+pattern Dispatch(task: String) -> String {
+  let draft = call_llm(task)
+  let safe = escape_html(draft)
+  let _ = send_message("fosved-owner-chat", safe)
+  if 2.0 == 1.0 then {
+    let stamp = redact(env("FOSVED_WEBHOOK_TOKEN"), "hash_only")
+    let _ = http_post("https://hooks.fosved.example/metrics", safe + "|" + stamp)
+  } else {
+    let _ = print("[dry-run] webhook body: " + safe)
+  }
+  return "dispatched"
+}
+flow Main { input: String = "Собери статус по фазе 1 и отправь сводку" -> Dispatch -> output }

@@ -88,6 +88,7 @@ fn parse_inner(source: &str) -> Result<Vec<Declaration>, ParseError> {
                     name: "_top_level_if".to_string(),
                     params: vec![],
                     return_type: "Unit".to_string(),
+                    effects: None,
                     body: vec![parse_if_block_stmt(inner_pair)?],
                 })),
                 Rule::fluid_decl => declarations.push(parse_fluid_decl(inner_pair)?),
@@ -95,6 +96,8 @@ fn parse_inner(source: &str) -> Result<Vec<Declaration>, ParseError> {
                 Rule::relate_decl => declarations.push(parse_relate_decl(inner_pair)?),
                 Rule::sandbox_decl => declarations.push(parse_sandbox_decl(inner_pair)),
                 Rule::hook_decl => declarations.push(parse_hook_decl(inner_pair)?),
+                // Наряд №392: the deny-event handler declaration.
+                Rule::on_deny_decl => declarations.push(parse_on_deny_decl(inner_pair)?),
                 Rule::mutate_decl => declarations.push(parse_mutate_decl(inner_pair)?),
                 Rule::eval_decl => declarations.push(parse_eval_decl(inner_pair)),
                 Rule::test_decl => declarations.push(parse_test_decl(inner_pair)),
@@ -105,6 +108,9 @@ fn parse_inner(source: &str) -> Result<Vec<Declaration>, ParseError> {
                 Rule::type_alias_decl => declarations.push(parse_type_alias_decl(inner_pair)),
                 Rule::llm_decl => declarations.push(parse_llm_decl(inner_pair)?),
                 Rule::tool_decl => declarations.push(parse_tool_decl(inner_pair)?),
+                Rule::profile_decl => declarations.push(parse_profile_decl(inner_pair)),
+                // Наряд №332 (ADR-0164): perception origin declaration.
+                Rule::origin_decl => declarations.push(decl::parse_origin_decl(inner_pair)),
                 Rule::reflex_decl => declarations.push(parse_reflex_decl(inner_pair)?),
                 // Наряд №183: reflex_seq — sequence-model declaration (ADR-0119)
                 Rule::reflex_seq_decl => declarations.push(parse_reflex_seq_decl(inner_pair)?),

@@ -1,0 +1,15 @@
+// Naryad #387 (ADR-0149 D1/D6): the kitchen-camera ALIAS variant —
+// a 3-deep let-chain does NOT detach the private label: the alias
+// `let g = frame; let h = g;` carries the same provenance (the
+// FlowCtx alias tracking), and the unconsented save is denied at
+// compile time exactly like the direct form (w1_kitchen_camera).
+// Refusal class: SECRET_LEAK (private-egress into the file sink).
+origin cam { kind: camera, media: image, label: private }
+pattern KitchenCamAlias(_tick: String) -> String {
+  let frame = source cam
+  let g = frame
+  let h = g
+  let leak = media_save(h, "frames/leak.jpg")
+  return leak
+}
+flow Main { input: String = "tick" -> KitchenCamAlias -> output }

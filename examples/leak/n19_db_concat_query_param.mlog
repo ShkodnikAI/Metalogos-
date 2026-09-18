@@ -1,0 +1,7 @@
+// Угроза: SQL-инъекция через параметр запроса, склеенный со строкой запроса.
+// Атака: классическая инъекция через веб-параметр.
+pattern Send(data: String) -> String {
+  let _ = db_execute("SELECT * FROM users WHERE name='" + query_param("name") + "'")
+  return "done"
+}
+flow Main { input: String = data -> Send -> output }

@@ -30,6 +30,7 @@ fn make_learnable_decl(name: &str, prompt: &str) -> Declaration {
             span: metalogos::ast::Span::unknown(),
             name: "input".to_string(),
             type_name: "String".to_string(),
+            label: None,
         }],
         return_type: "String".to_string(),
         prompt: prompt.to_string(),
@@ -47,6 +48,7 @@ fn make_learnable_decl(name: &str, prompt: &str) -> Declaration {
         distill_to: None,
         distill_after: 0,
         fallback_if: None,
+        effects: None,
     })
 }
 
@@ -74,6 +76,7 @@ fn make_while_true_pattern() -> Declaration {
         name: "infinite_loop".to_string(),
         params: vec![],
         return_type: "Unit".to_string(),
+        effects: None,
         body: vec![Statement::While {
             condition: Expr::BoolLit {
                 value: true,
@@ -100,6 +103,7 @@ fn make_counting_while_pattern() -> Declaration {
         name: "counting_loop".to_string(),
         params: vec![],
         return_type: "Unit".to_string(),
+        effects: None,
         body: vec![
             Statement::LetBinding {
                 name: "counter".to_string(),

@@ -14,8 +14,8 @@
 //   3. Cycle embedded in a larger DAG (A→B, B→C, C→B, C→D) — the cycle
 //      B↔C coexists with acyclic edges A→B and C→D
 //
-// All three must return Err (which `try` converts to Unit). The
-// interpreter must NOT crash — `type_of(result) == "Unit"` verifies
+// All three must return Err (which `try` surfaces as ok = false, №374). The
+// interpreter must NOT crash — `result.ok == false` verifies (№374)
 // the error was caught cleanly and propagated as a value.
 //
 // Note: we cannot check the error MESSAGE content (the `try` operator
@@ -41,7 +41,7 @@ pattern P81FlowchartCycleErrorContract(input: String) -> String {
     ]
   }
   let r1 = try diagram_flowchart(data1, style)
-  let ok1 = to_float(type_of(r1) == "Unit")
+  let ok1 = to_float(r1.ok == false)
 
   // ── 2. 3-node cycle: A→B, B→C, C→A ────────────────────────────────
   let data2 = {
@@ -57,7 +57,7 @@ pattern P81FlowchartCycleErrorContract(input: String) -> String {
     ]
   }
   let r2 = try diagram_flowchart(data2, style)
-  let ok2 = to_float(type_of(r2) == "Unit")
+  let ok2 = to_float(r2.ok == false)
 
   // ── 3. Cycle embedded in larger DAG ───────────────────────────────
   // A→B→C→B (cycle B↔C) + C→D (acyclic). The cycle detection must
@@ -77,7 +77,7 @@ pattern P81FlowchartCycleErrorContract(input: String) -> String {
     ]
   }
   let r3 = try diagram_flowchart(data3, style)
-  let ok3 = to_float(type_of(r3) == "Unit")
+  let ok3 = to_float(r3.ok == false)
 
   let total = ok1 + ok2 + ok3
 

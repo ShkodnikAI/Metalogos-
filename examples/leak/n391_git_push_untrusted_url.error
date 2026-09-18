@@ -1,0 +1,1 @@
+EXPECTED: UNTRUSTED_EGRESS_NETWORK — untrusted data drives the git_push target (No391 bridge: integrity >= trusted)

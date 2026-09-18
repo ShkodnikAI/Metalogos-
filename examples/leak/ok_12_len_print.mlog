@@ -1,0 +1,6 @@
+// Легально: длина публичной строки.
+pattern Measure(data: String) -> String {
+  let _ = print(to_string(len("metalogos")))
+  return "measured"
+}
+flow Main { input: String = "x" -> Measure -> output }

@@ -1,0 +1,10 @@
+// Наряд №386 (issue #480): WRITE-половина кросс-модульной пары.
+// Модуль A хранит вывод LLM под литеральным ключом — гейт memory-синка
+// (№325/№157) отказывает самой записи, а реестр №386 записывает
+// заражённый ключ, чтобы модуль-читатель (n386_b_reader) тоже упал
+// в этом же прогоне сьюта (раннер сортирует корпус: a < b).
+pattern StoreDraft(data: String) -> String {
+  let _ = memorize("draft386:", call_llm(data))
+  return "stored"
+}
+flow Main { input: String = "x" -> StoreDraft -> output }

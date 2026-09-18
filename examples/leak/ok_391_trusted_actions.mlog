@@ -1,0 +1,12 @@
+// Legal (No391 bridge): trusted constants drive the action decision args —
+// both bridge axes pass (conf public, integrity trusted) on every action
+// sink; the grant check (No390) is orthogonal and not needed for
+// non-destructive SQL against the in-memory DB.
+db { url: "sqlite::memory:" }
+
+pattern Actions(_tick: String) -> String {
+  let _ = db_execute("CREATE TABLE IF NOT EXISTS ok_log (id INTEGER PRIMARY KEY, note TEXT)")
+  let _ = db_execute("INSERT INTO ok_log (note) VALUES ('trusted constant')")
+  return "actions-ok"
+}
+flow Main { input: String = "tick" -> Actions -> output }

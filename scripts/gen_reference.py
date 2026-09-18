@@ -50,6 +50,8 @@ TODO = "TODO(doc)"
 # no handler anywhere, calling the name errors on both backends.
 MANUAL_DESCRIPTIONS = {
     "recall": "VM-native memory recall (handled inside `src/vm.rs`, no host handler): returns the best memory match for the query, optional minimum-confidence threshold. Registry arity entry kept for VM bytecode validation.",
+    "deny_event": "№392 DenyEvent — returns the typed deny event (`reason`, `sink`, `class`, `argument`, `label`, `line`, `human`) for the refusal being handled. Handler-scoped: intercepted by name inside `src/vm.rs` and `src/interpreter/execution.rs` (no host handler); outside an on_deny body it is a compile error and a loud runtime error.",
+    "deny_reason": "№392 deny reason word — returns the `reason` string of the live DenyEvent (same vocabulary the audit check_ids use). Handler-scoped like deny_event; a match over it inside on_deny is checked for exhaustiveness.",
     "forget": "VM-native memory forget (handled inside `src/vm.rs`, no host handler): removes matching memory entries by query.",
     "find": "VM-native entity-store query (handled inside `src/vm.rs`, no host handler): scans globals for Struct values matching (type, field, operator, threshold).",
     "conv_start": "VM-native conversation context (handled inside `src/vm.rs`, no host handler): opens a conversation by id.",
@@ -88,28 +90,43 @@ def collect_registry():
 
 
 def collect_handler_docs():
-    """handler fn name -> raw /// lines, from src/builtins/*.rs."""
+    """handler fn name -> raw /// lines.
+
+    Наряд №309: the scan covers src/builtins/*.rs AND the three generative
+    pillar modules (src/vision, src/voice, src/video) — their builtins'
+    handlers live there (e.g. `builtin_video_render` in src/video/mod.rs,
+    `builtin_tts_speak_stub` in src/voice/mod.rs). This closes the
+    reference-generator pitfall where feature-gated pillar builtins always
+    degraded to TODO(doc) on regeneration (the video/voice rows in the
+    generated block were drifting from what the generator would emit).
+    """
     docs = {}
-    for f in sorted(BUILTINS_DIR.rglob("*.rs")):
-        if f.name == "registry.rs":
-            continue
-        pending = []
-        for ln in f.read_text(encoding="utf-8").splitlines():
-            m = DOC_RE.match(ln)
-            if m:
-                pending.append(m.group(1).strip())
+    scan_dirs = [BUILTINS_DIR] + [
+        REPO / "src" / pillar for pillar in ("vision", "voice", "video")
+    ]
+    seen_files = set()
+    for d in scan_dirs:
+        for f in sorted(d.rglob("*.rs")):
+            if f.name == "registry.rs" or f in seen_files:
                 continue
-            fm = FN_RE.search(ln)
-            if fm:
-                name = fm.group(1)
-                if name not in docs and pending:
-                    docs[name] = list(pending)
-                pending = []
-                continue
-            if ln.strip() and not ln.strip().startswith("//") and not ln.strip().startswith("#"):
-                # attribute lines (# [cfg]...) between doc and fn are fine —
-                # only real code clears the pending doc buffer
-                pending = []
+            seen_files.add(f)
+            pending = []
+            for ln in f.read_text(encoding="utf-8").splitlines():
+                m = DOC_RE.match(ln)
+                if m:
+                    pending.append(m.group(1).strip())
+                    continue
+                fm = FN_RE.search(ln)
+                if fm:
+                    name = fm.group(1)
+                    if name not in docs and pending:
+                        docs[name] = list(pending)
+                    pending = []
+                    continue
+                if ln.strip() and not ln.strip().startswith("//") and not ln.strip().startswith("#"):
+                    # attribute lines (# [cfg]...) between doc and fn are fine —
+                    # only real code clears the pending doc buffer
+                    pending = []
     return docs
 
 
@@ -182,7 +199,7 @@ def render(entries, curated, docs):
     md.append("")
     md.append(
         "> Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by "
-        "`scripts/gen_reference.py` — the SSOT per `AGENT.md` §5. Arity follows "
+        "`scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows "
         "ADR-0095 (`variadic` = any count). Descriptions are imported from the "
         "curated sections above when present, otherwise from the handler's doc "
         "comment; `TODO(doc)` marks a description nobody has written yet — "

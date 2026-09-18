@@ -282,15 +282,99 @@ fn binding_taint(value: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
     get_expr_taint(value, tracker)
 }
 
+/// Наряд №309 (ADR-0151 D6): an I2V reference frame is untrusted when it
+/// carries UserInput taint (form_data/json_body/query_param/mcp_call) or is
+/// a direct untrusted-source call of the http/file class (`http_get`,
+/// `read_file`) — the http/form/file classes of ADR-0149 D5. Inline calls
+/// are matched by name because these builtins are not global expression-
+/// level taint sources (get_expr_taint only propagates from tainted args;
+/// binding_taint applies to let-bindings), so a direct
+/// `video_render(m, p, form_data("f"))` would otherwise escape.
+fn is_untrusted_frame_expr(expr: &Expr, tracker: &TaintTracker) -> bool {
+    if let Expr::FnCall { name, .. } = expr {
+        if matches!(
+            name.as_str(),
+            "http_get" | "read_file" | "form_data" | "json_body" | "query_param" | "mcp_call"
+        ) {
+            return true;
+        }
+    }
+    get_expr_taint(expr, tracker) == Some(TaintKind::UserInput)
+}
+
+/// Maximum nesting depth for `expr_is_llm_tainted` recursion.
+/// Баунделенная константа — prevent stack overflow on deeply nested
+/// expressions. Громкое примечание при превышении — анализ отказывается
+/// идти глубже, но это не crash, и documented в README "Known boundaries".
+/// Наряд №295 (issue #359): was single-level (depth=1), now 3.
+const TAINT_NESTING_MAX_DEPTH: usize = 3;
+
 /// Check whether an expression carries LLM-output taint.
 /// Handles both variable references (via tracker) and direct LLM
-/// function calls (call_llm / call_claude) without an intermediate
-/// variable binding. Single-level nesting only — interprocedural
-/// analysis is a separate, larger task.
+/// function calls (call_llm / call_claude / reflex_generate) without
+/// an intermediate variable binding.
+///
+/// Наряд №295 (issue #359): was single-level nesting only (`FnCall { name: "call_llm", .. }`
+/// matched directly; `upper(call_llm(...))` did NOT match because the outer
+/// FnCall name was "upper"). Now bounded-recursive up to
+/// `TAINT_NESTING_MAX_DEPTH = 3` — catches `respond(upper(upper(call_llm(...))))`
+/// and equivalent chains. Sanitizers (`render`/`escape_html`) at any depth
+/// return false (taint lifted) — zero false positives on legitimate code.
+///
+/// Interprocedural analysis (across pattern-call boundaries) is a separate
+/// check (`check_taint_interp_pattern`, Наряд №292).
 fn expr_is_llm_tainted(expr: &Expr, tracker: &TaintTracker) -> bool {
+    expr_is_llm_tainted_bounded(expr, tracker, 0)
+}
+
+fn expr_is_llm_tainted_bounded(expr: &Expr, tracker: &TaintTracker, depth: usize) -> bool {
+    if depth > TAINT_NESTING_MAX_DEPTH {
+        // Громкое примечание не выдается здесь (return false) — README
+        // "Known boundaries" документирует границу. Interprocedural
+        // taint (TAINT_INTERP, Наряд №292) ловит через summary-based analysis.
+        return false;
+    }
     match expr {
         Expr::Ident { name, .. } => tracker.get_taint(name) == Some(TaintKind::LlmOutput),
-        Expr::FnCall { name, .. } => is_llm_source(name),
+        Expr::FnCall { name, args, .. } => {
+            // Direct LLM source — return true regardless of depth.
+            if is_llm_source(name) {
+                return true;
+            }
+            // Sanitizers lift the taint — render()/escape_html() at any depth.
+            if name == "render" || name == "escape_html" {
+                return false;
+            }
+            // Recurse into args — bounded nesting. Any arg that's
+            // LLM-tainted (directly or through a bounded sub-chain) → true.
+            args.iter()
+                .any(|arg| expr_is_llm_tainted_bounded(arg, tracker, depth + 1))
+        }
+        // BinaryOp / IfElse / List / FieldAccess / IndexAccess — recurse
+        // into sub-expressions (mirrors `get_expr_taint` propagation).
+        Expr::BinaryOp { left, right, .. } => {
+            expr_is_llm_tainted_bounded(left, tracker, depth + 1)
+                || expr_is_llm_tainted_bounded(right, tracker, depth + 1)
+        }
+        Expr::IfElse {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            expr_is_llm_tainted_bounded(condition, tracker, depth + 1)
+                || expr_is_llm_tainted_bounded(then_branch, tracker, depth + 1)
+                || expr_is_llm_tainted_bounded(else_branch, tracker, depth + 1)
+        }
+        Expr::List { items, .. } => items
+            .iter()
+            .any(|item| expr_is_llm_tainted_bounded(item, tracker, depth + 1)),
+        Expr::FieldAccess { object, .. } => expr_is_llm_tainted_bounded(object, tracker, depth + 1),
+        Expr::IndexAccess { object, index, .. } => {
+            expr_is_llm_tainted_bounded(object, tracker, depth + 1)
+                || expr_is_llm_tainted_bounded(index, tracker, depth + 1)
+        }
+        // Literals, struct literals, etc. — never LLM-tainted directly.
         _ => false,
     }
 }
@@ -340,8 +424,18 @@ fn redact_result_taint(args: &[Expr], tracker: &TaintTracker) -> Option<TaintKin
         Expr::StringLit { value, .. } => Some(value.as_str()),
         _ => None,
     });
+    // №326: the policy is a value — one-way policies (registry
+    // target_conf == "public") destroy the data, so any taint lifts to
+    // Sanitized; conservative policies pass the taint through.
+    let target_public = mode
+        .and_then(crate::builtins::string::redact_policy)
+        .is_some_and(|p| p.target_conf == "public");
     match mode {
-        Some("secrets") | Some("all") => match input {
+        // One-way policies destroy the SECRET DATA (ADR-0136 D2 stays
+        // authoritative): Secret lifts to Sanitized. Channel-level kinds
+        // (LlmOutput) and the quarantine path (CanaryLeak) are NOT
+        // curable by redact — masking is not channel sanitization (№284).
+        Some(_) if target_public => match input {
             Some(TaintKind::Secret) => Some(TaintKind::Sanitized),
             other => other,
         },
@@ -1333,6 +1427,39 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                         }
                     }
                 }
+
+                // Наряд №309 (ADR-0151 D6, ADR-0149 D5): UNTRUSTED_FRAME —
+                // advisory taint по лекалу UNTRUSTED_AUDIO (ADR-0145 D6) и
+                // VISION_PROMPT_USER_INPUT (№240). I2V-референс video_render
+                // (позиции 2 и 3 — first/last anchor) из недоверенного
+                // источника — UserInput taint (form_data/json_body/
+                // query_param/mcp_call) или прямой недоверенный вызов класса
+                // http/file (http_get/read_file) — помечается Warning'ом.
+                // Требование: screen+consent-путь перед I2V (frame_screen /
+                // LikenessToken — полная механика в V6, ADR-0149 D1/D6; до
+                // тех пор детектор — громкий путь). На compile-пути
+                // (audit_category_a → semantic №98-промоция) это громкая
+                // ошибка компиляции; в `mlog audit` — advisory Warning.
+                // Честная граница (та же, что у всех MVP-детекторов taint):
+                // let-связанные переменные с ранее полученными недоверенными
+                // кадрами вне перечисленных источников не отслеживаются —
+                // глобальные taint-источники других столпов не менялись.
+                if fn_name == "video_render" && args.len() >= 3 {
+                    for pos in [2usize, 3usize] {
+                        if let Some(arg) = args.get(pos) {
+                            if is_untrusted_frame_expr(arg, tracker) {
+                                let line = find_line(source, fn_name);
+                                findings.push(AuditFinding {
+                                    severity: Severity::Warning,
+                                    check_id: "UNTRUSTED_FRAME",
+                                    line,
+                                    message: "untrusted frame (user input / http / file) passed as I2V reference to video_render — screen+consent path required before I2V (ADR-0149 D5, ADR-0151 D6)"
+                                        .to_string(),
+                                });
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -1574,6 +1701,21 @@ const VISION_PICKLE_CLASS_EXTS: &[&str] = &[
     ".tar", ".gz", ".7z",
 ];
 
+/// SSOT list of weights-fetch function names (Наряд №300, issue #368).
+/// Adding a new pillar's weights-fetch builtin (e.g., `voice_fetch_weights`)
+/// is a one-line append — no changes to `walk_expr_deep` logic needed.
+/// Additionally, any function name ending in `_fetch_weights` is automatically
+/// covered by the suffix convention — no list update required at all.
+const WEIGHTS_FETCH_FNS: &[&str] = &["vision_fetch_weights"];
+
+/// Check if a function name is a weights-fetch function. Returns true if:
+/// (a) the name is in `WEIGHTS_FETCH_FNS` (explicit SSOT list), OR
+/// (b) the name ends with `_fetch_weights` (suffix convention).
+/// This ensures new pillar weights-fetch builtins are covered automatically.
+fn is_weights_fetch_fn(name: &str) -> bool {
+    WEIGHTS_FETCH_FNS.contains(&name) || name.ends_with("_fetch_weights")
+}
+
 fn check_model_weights_unsafe(
     declarations: &[Declaration],
     source: &str,
@@ -1669,23 +1811,134 @@ fn check_model_weights_unsafe(
             ..
         } = expr
         {
-            if fn_name == "vision_fetch_weights" {
+            if is_weights_fetch_fn(fn_name) {
                 if let Some(Expr::StringLit { value, .. }) = args.first() {
                     if let Some(violation) = literal_url_violation(value) {
-                        let line = find_line(source, "vision_fetch_weights");
+                        let line = find_line(source, fn_name.as_str());
                         findings.push(AuditFinding {
                             severity: Severity::Error,
                             check_id: "MODEL_WEIGHTS_UNSAFE",
                             line,
                             message: format!(
-                                "vision_fetch_weights: {} (ADR-0125; runtime layers: allowlist \
+                                "{}: {} (ADR-0125; runtime layers: allowlist \
                                  default-deny MLOG_VISION_WEIGHTS_ALLOWLIST + SSRF guard + SHA pinning)",
-                                violation
+                                fn_name, violation
                             ),
                         });
                     }
                 }
             }
+            for arg in args {
+                walk_expr_deep(arg, source, findings);
+            }
+        }
+    }
+
+    for decl in declarations {
+        match decl {
+            Declaration::MlogServer(srv) => {
+                for route in &srv.routes {
+                    for s in &route.body {
+                        walk_stmt(s, source, findings);
+                    }
+                }
+            }
+            Declaration::Pattern(p) => {
+                for s in &p.body {
+                    walk_stmt(s, source, findings);
+                }
+            }
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    for s in &m.body {
+                        walk_stmt(s, source, findings);
+                    }
+                }
+            }
+            Declaration::Hook(h) => {
+                for s in &h.body {
+                    walk_stmt(s, source, findings);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+// ── Check: MEDIA_SYNTHETIC_UNMARKED (Наряд №320, ADR-0152) ───────────
+//
+// EU AI Act Art. 50 — marking of synthetic content (window closes
+// 2026-12-02). Every locally generated vision artifact is synthetic by
+// construction (generation is the only artifact writer), so a
+// `vision_export_raw` call site IS the statically visible attempt to
+// egress synthetic content without its manifest. Category-A Error by the
+// MODEL_WEIGHTS_UNSAFE / VISION_UNSIGNED_EXPORT template (1607–1757).
+// The №241 VISION_UNSIGNED_EXPORT_RAW advisory Warning is unchanged — it
+// records the opt-out intent; THIS gate enforces the marking. Runtime
+// backstop lives in vision_export_raw_dispatch (ADR-0152 D3).
+fn check_media_synthetic_unmarked(
+    declarations: &[Declaration],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    fn walk_stmt(stmt: &Statement, source: &str, findings: &mut Vec<AuditFinding>) {
+        match stmt {
+            Statement::LetBinding { value, .. } | Statement::Assign { value, .. } => {
+                walk_expr_deep(value, source, findings);
+            }
+            Statement::ExprStmt { expr, .. } | Statement::Return { value: expr, .. } => {
+                walk_expr_deep(expr, source, findings);
+            }
+            Statement::Each { body, .. }
+            | Statement::While { body, .. }
+            | Statement::IfThen { body, .. } => {
+                for s in body {
+                    walk_stmt(s, source, findings);
+                }
+            }
+            Statement::IfElseBlock {
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                for s in then_body {
+                    walk_stmt(s, source, findings);
+                }
+                for (_, body) in else_ifs {
+                    for s in body {
+                        walk_stmt(s, source, findings);
+                    }
+                }
+                if let Some(body) = else_body {
+                    for s in body {
+                        walk_stmt(s, source, findings);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn walk_expr_deep(expr: &Expr, source: &str, findings: &mut Vec<AuditFinding>) {
+        if let Expr::FnCall { name: fn_name, .. } = expr {
+            if fn_name == "vision_export_raw" {
+                let line = find_line(source, fn_name);
+                findings.push(AuditFinding {
+                    severity: Severity::Error,
+                    check_id: "MEDIA_SYNTHETIC_UNMARKED",
+                    line,
+                    message: "vision_export_raw call site — raw egress ships no provenance \
+                              manifest; locally generated artifacts are synthetic by \
+                              construction, so this is an unmarked synthetic-media egress \
+                              (EU AI Act Art. 50, ADR-0152 D2; runtime backstop refuses \
+                              synthetic/manifest-less artifacts). Use vision_export (signed \
+                              sidecar egress)"
+                        .to_string(),
+                });
+            }
+        }
+        if let Expr::FnCall { name: _, args, .. } = expr {
             for arg in args {
                 walk_expr_deep(arg, source, findings);
             }
@@ -1891,24 +2144,32 @@ fn check_open_redirect(
 // data-flow through the memory subsystem — but the pattern IS a real
 // security issue (FOSVED: HandleX → AuditLog → db_execute).
 // Promoted to Error / Category A by Наряд #157.
+// Наряд #386: extended to the CROSS-MODULE case — see
+// `check_taint_persistence_cross_module` below (memory-key summaries in
+// `PatternSummary` + the fingerprint-keyed module registry).
+
+/// Recursively check if an expression contains an LLM source call.
+/// (Hoisted to module scope by №386 — the cross-module memory-key
+/// collector below reuses it.)
+fn expr_contains_llm_source(expr: &Expr) -> bool {
+    match expr {
+        Expr::FnCall { name, args, .. } => {
+            if is_llm_source(name) {
+                return true;
+            }
+            args.iter().any(expr_contains_llm_source)
+        }
+        _ => false,
+    }
+}
 
 fn check_taint_persistence(
     declarations: &[Declaration],
     source: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    /// Recursively check if an expression contains an LLM source call.
-    fn expr_contains_llm_source(expr: &Expr) -> bool {
-        match expr {
-            Expr::FnCall { name, args, .. } => {
-                if is_llm_source(name) {
-                    return true;
-                }
-                args.iter().any(expr_contains_llm_source)
-            }
-            _ => false,
-        }
-    }
+    // №386: the LLM-source probe lives at module scope (shared with the
+    // cross-module collector below).
 
     // Step 1: Check if any `memorize` declaration stores an LLM-sourced value.
     let has_llm_memorize = declarations.iter().any(|d| {
@@ -2008,6 +2269,618 @@ fn check_taint_persistence(
             return;
         }
     }
+}
+
+// ── №386: cross-module persistence taint — memory-key summaries ────────
+//
+// The file-level heuristic above cannot see a flow that crosses module
+// boundaries: module A (`memorize("draft", call_llm(...))`) and module B
+// (`let y = recall("draft"); respond(y)`) each pass their own audit. The
+// MVP closes the gap for LITERAL / PREFIX keys:
+//
+//   1. `PatternSummary` (the №376 interprocedural summary) now carries
+//      `tainted_memory_keys` — the literal key prefixes under which the
+//      pattern stores LLM output — computed in
+//      `compute_pattern_summaries_with_depth`.
+//   2. Every `audit_category_a` run registers its module's tainted keys
+//      in the fingerprint-keyed registry below and then checks its
+//      `recall()` flows against the OTHER modules' keys. A matching
+//      recall whose value reaches `respond`/`respond_html` is the same
+//      `TAINT_PERSISTENCE` Category-A error (one leak-suite vocabulary).
+//   3. Honest boundary (documented in docs/limitations.md): dynamically
+//      constructed keys without a leading string literal are NOT
+//      covered — full interprocedural points-to is a later phase.
+//      `METALOGOS_TAINT_STRICT=1` arms a stricter mode: any `recall`
+//      reaching a sink flags when ANY other module writes LLM output to
+//      memory at all (no key match). Default: off.
+
+/// The literal prefix of a memory KEY expression (№386 MVP): a string
+/// literal, or the leading string literal of a concatenation
+/// (`"draft:" + user` → `"draft:"`). Anything else is a dynamic key —
+/// honestly uncovered.
+fn memory_key_prefix(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::StringLit { value, .. } => Some(value.clone()),
+        Expr::BinaryOp {
+            op: BinOp::Add,
+            left,
+            ..
+        } => memory_key_prefix(left),
+        _ => None,
+    }
+}
+
+/// `render` / `escape_html` / `redact` at the TOP of an expression lift
+/// the taint (the same sanitizer vocabulary the sink-clearance and
+/// №327 decision gates accept).
+fn is_memory_taint_sanitizer(name: &str) -> bool {
+    name == "render" || name == "escape_html" || name == "redact"
+}
+
+/// Per-module memory-taint summary in the cross-module registry:
+/// tainted key prefix → the scopes that write it, plus whether the
+/// module writes LLM output to memory AT ALL (the strict-mode flag —
+/// covers key-less declarative writes like `memorize <llm> with priority`).
+#[derive(Debug, Default, Clone)]
+struct ModuleMemoryTaint {
+    key_writers: std::collections::HashMap<String, std::collections::HashSet<String>>,
+    any_writes: bool,
+}
+
+/// №386: the cross-module registry. Key = a CONTENT fingerprint of the
+/// module's declarations (stable per module content, distinct across
+/// modules). Why not the №376 summaries cache as the accumulator: that
+/// cache is keyed by the SOURCE STRING hash, and the compile/run paths
+/// (`compile_program`/`run_program_with_dir` → `audit_category_a(&decls, "")`)
+/// pass an empty source — entries for different modules would collide and
+/// overwrite each other. The fingerprint is content-derived instead.
+/// The summaries themselves still come from the extended
+/// `compute_pattern_summaries_with_depth` (naryad step 1) — the registry
+/// only accumulates them per module.
+static MEMORY_TAINT_REGISTRY: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<u64, ModuleMemoryTaint>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+/// Safety valve for long-lived processes auditing unbounded module sets.
+const MEMORY_TAINT_REGISTRY_CAP: usize = 4096;
+
+/// A content fingerprint of a module: pattern/tool/route names in order
+/// plus statement counts. Two audits of the same module fingerprint alike;
+/// two different modules (different names or shapes) do not.
+fn module_memory_fingerprint(declarations: &[Declaration]) -> u64 {
+    let mut sketch = String::new();
+    for d in declarations {
+        match d {
+            Declaration::Pattern(p) => {
+                sketch.push_str(&format!("pattern {}:{};", p.name, p.body.len()));
+            }
+            Declaration::Tool(t) => {
+                sketch.push_str(&format!("tool {}:{};", t.name, t.methods.len()));
+            }
+            Declaration::MlogServer(s) => {
+                sketch.push_str(&format!("server {}:{};", s.port, s.routes.len()));
+            }
+            Declaration::Hook(h) => {
+                sketch.push_str(&format!("hook {:?};", h.phase));
+            }
+            Declaration::Memorize(m) => {
+                sketch.push_str(&format!("memorize {:?};", m.priority));
+            }
+            _ => {}
+        }
+    }
+    fnv1a_source(sketch.as_bytes())
+}
+
+/// #[doc(hidden)] test-isolation hook: clear the cross-module registry.
+#[doc(hidden)]
+pub fn memory_taint_registry_clear() {
+    MEMORY_TAINT_REGISTRY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
+}
+
+/// Register the CURRENT module's memory-taint summary.
+fn register_module_memory_taint(fingerprint: u64, taint: ModuleMemoryTaint) {
+    let mut reg = MEMORY_TAINT_REGISTRY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if reg.len() >= MEMORY_TAINT_REGISTRY_CAP && !reg.contains_key(&fingerprint) {
+        // Loudly bounded: drop the accumulated knowledge rather than grow
+        // without limit (the audit stays CORRECT for same-run module sets
+        // far beyond any real workspace size).
+        reg.clear();
+    }
+    reg.insert(fingerprint, taint);
+}
+
+/// Merge the tainted keys of every OTHER registered module.
+fn other_modules_memory_taint(fingerprint: u64) -> ModuleMemoryTaint {
+    let reg = MEMORY_TAINT_REGISTRY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let mut merged = ModuleMemoryTaint::default();
+    for (fp, taint) in reg.iter() {
+        if *fp == fingerprint {
+            continue; // the module under audit — its own flows are the
+                      // file-level heuristic's domain
+        }
+        for (k, writers) in &taint.key_writers {
+            merged
+                .key_writers
+                .entry(k.clone())
+                .or_default()
+                .extend(writers.iter().cloned());
+        }
+        merged.any_writes |= taint.any_writes;
+    }
+    merged
+}
+
+/// Walk statements collecting tainted memory WRITES: the `memorize(key,
+/// value)` call form with an LLM-sourced, unsanitized value records the
+/// key's literal prefix; the key-less statement/declaration forms
+/// (`memorize <llm> with priority`) only raise `any_writes` (no literal
+/// key exists to record).
+fn collect_tainted_memory_writes_stmts(
+    body: &[Statement],
+    keys: &mut std::collections::HashSet<String>,
+    any: &mut bool,
+) {
+    for stmt in body {
+        match stmt {
+            Statement::LetBinding { value, .. } | Statement::Assign { value, .. } => {
+                collect_tainted_memory_writes_expr(value, keys, any);
+            }
+            Statement::ExprStmt { expr, .. } | Statement::Return { value: expr, .. } => {
+                collect_tainted_memory_writes_expr(expr, keys, any);
+            }
+            Statement::Each { body, .. }
+            | Statement::EachWithIndex { body, .. }
+            | Statement::While { body, .. }
+            | Statement::IfThen { body, .. } => {
+                collect_tainted_memory_writes_stmts(body, keys, any);
+            }
+            Statement::IfElseBlock {
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                collect_tainted_memory_writes_stmts(then_body, keys, any);
+                for (_, b) in else_ifs {
+                    collect_tainted_memory_writes_stmts(b, keys, any);
+                }
+                if let Some(b) = else_body {
+                    collect_tainted_memory_writes_stmts(b, keys, any);
+                }
+            }
+            Statement::Match {
+                arms, else_body, ..
+            } => {
+                for arm in arms {
+                    collect_tainted_memory_writes_stmts(arm.body(), keys, any);
+                }
+                if let Some(b) = else_body {
+                    collect_tainted_memory_writes_stmts(b, keys, any);
+                }
+            }
+            // The №266 statement form has no key — it only arms strict mode.
+            Statement::Memorize(m) if expr_contains_llm_source(&m.value) => {
+                *any = true;
+            }
+            _ => {}
+        }
+    }
+}
+
+fn collect_tainted_memory_writes_expr(
+    expr: &Expr,
+    keys: &mut std::collections::HashSet<String>,
+    any: &mut bool,
+) {
+    if let Expr::FnCall { name, args, .. } = expr {
+        if name == "memorize" && args.len() >= 2 {
+            let value = &args[1];
+            let sanitized =
+                matches!(value, Expr::FnCall { name, .. } if is_memory_taint_sanitizer(name));
+            if !sanitized && expr_contains_llm_source(value) {
+                *any = true;
+                if let Some(k) = memory_key_prefix(&args[0]) {
+                    keys.insert(k);
+                }
+            }
+            // fall through: nested memorize calls inside the args are
+            // still walked below
+        }
+        for a in args {
+            collect_tainted_memory_writes_expr(a, keys, any);
+        }
+    }
+}
+
+/// Does `expr` REACH a tainted recall? True when the expression contains
+/// a `recall(<matching key>)` call (or a reference to a variable already
+/// known to hold one), NOT passing through a top-level sanitizer.
+fn recall_taint_reaches_expr(
+    expr: &Expr,
+    keys: &std::collections::HashMap<String, std::collections::HashSet<String>>,
+    tainted_vars: &std::collections::HashSet<String>,
+    strict_armed: bool,
+    matched: &mut Vec<String>,
+) -> bool {
+    match expr {
+        Expr::Ident { name, .. } => tainted_vars.contains(name),
+        Expr::FnCall { name, args, .. } => {
+            if is_memory_taint_sanitizer(name) {
+                // Sanitized at the top — the taint is lifted (the args are
+                // deliberately not walked: the sanitizer consumed them).
+                return false;
+            }
+            if name == "recall" {
+                // Strict mode: ANY recall is treated as tainted when
+                // another module writes LLM output to memory at all.
+                if strict_armed {
+                    matched.push("<strict: any key>".to_string());
+                    return true;
+                }
+                if let Some(key_arg) = args.first() {
+                    if let Some(k) = memory_key_prefix(key_arg) {
+                        let hit = keys.iter().find(|(prefix, _)| {
+                            k.starts_with(prefix.as_str()) || prefix.starts_with(k.as_str())
+                        });
+                        if let Some((prefix, _)) = hit {
+                            matched.push(prefix.clone());
+                            return true;
+                        }
+                    }
+                    // Dynamic recall keys are honestly uncovered.
+                    return false;
+                }
+                return false;
+            }
+            args.iter()
+                .any(|a| recall_taint_reaches_expr(a, keys, tainted_vars, strict_armed, matched))
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            recall_taint_reaches_expr(left, keys, tainted_vars, strict_armed, matched)
+                || recall_taint_reaches_expr(right, keys, tainted_vars, strict_armed, matched)
+        }
+        Expr::FieldAccess { object, .. } => {
+            recall_taint_reaches_expr(object, keys, tainted_vars, strict_armed, matched)
+        }
+        Expr::IndexAccess { object, index, .. } => {
+            recall_taint_reaches_expr(object, keys, tainted_vars, strict_armed, matched)
+                || recall_taint_reaches_expr(index, keys, tainted_vars, strict_armed, matched)
+        }
+        Expr::IfElse {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            recall_taint_reaches_expr(condition, keys, tainted_vars, strict_armed, matched)
+                || recall_taint_reaches_expr(then_branch, keys, tainted_vars, strict_armed, matched)
+                || recall_taint_reaches_expr(else_branch, keys, tainted_vars, strict_armed, matched)
+        }
+        _ => false,
+    }
+}
+
+/// Scan an expression for `respond`/`respond_html` sink calls and check
+/// whether any of their arguments reaches a tainted recall.
+fn recall_taint_scan_sinks(
+    expr: &Expr,
+    keys: &std::collections::HashMap<String, std::collections::HashSet<String>>,
+    tainted_vars: &std::collections::HashSet<String>,
+    strict_armed: bool,
+    matched: &mut Vec<String>,
+) -> bool {
+    let mut found = false;
+    if let Expr::FnCall { name, args, .. } = expr {
+        if name == "respond" || name == "respond_html" {
+            for a in args {
+                if recall_taint_reaches_expr(a, keys, tainted_vars, strict_armed, matched) {
+                    found = true;
+                }
+            }
+        }
+        for a in args {
+            if recall_taint_scan_sinks(a, keys, tainted_vars, strict_armed, matched) {
+                found = true;
+            }
+        }
+    }
+    found
+}
+
+/// Walk a scope's statements: track which variables hold tainted recall
+/// results and whether a sink consumes them.
+fn recall_taint_walk_stmts(
+    body: &[Statement],
+    keys: &std::collections::HashMap<String, std::collections::HashSet<String>>,
+    tainted_vars: &mut std::collections::HashSet<String>,
+    strict_armed: bool,
+    matched: &mut Vec<String>,
+) -> bool {
+    let mut found = false;
+    for stmt in body {
+        match stmt {
+            Statement::LetBinding { name, value, .. } | Statement::Assign { name, value, .. } => {
+                if recall_taint_scan_sinks(value, keys, tainted_vars, strict_armed, matched) {
+                    found = true;
+                }
+                if recall_taint_reaches_expr(value, keys, tainted_vars, strict_armed, matched) {
+                    tainted_vars.insert(name.clone());
+                } else {
+                    // A clean reassignment kills the variable's taint.
+                    tainted_vars.remove(name);
+                }
+            }
+            Statement::ExprStmt { expr, .. } | Statement::Return { value: expr, .. } => {
+                if recall_taint_scan_sinks(expr, keys, tainted_vars, strict_armed, matched) {
+                    found = true;
+                }
+            }
+            Statement::Each { iterable, body, .. }
+            | Statement::EachWithIndex { iterable, body, .. } => {
+                if recall_taint_scan_sinks(iterable, keys, tainted_vars, strict_armed, matched) {
+                    found = true;
+                }
+                if recall_taint_walk_stmts(body, keys, tainted_vars, strict_armed, matched) {
+                    found = true;
+                }
+            }
+            Statement::While {
+                condition, body, ..
+            } => {
+                if recall_taint_scan_sinks(condition, keys, tainted_vars, strict_armed, matched) {
+                    found = true;
+                }
+                if recall_taint_walk_stmts(body, keys, tainted_vars, strict_armed, matched) {
+                    found = true;
+                }
+            }
+            Statement::IfThen { body, .. } => {
+                if recall_taint_walk_stmts(body, keys, tainted_vars, strict_armed, matched) {
+                    found = true;
+                }
+            }
+            Statement::IfElseBlock {
+                condition,
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                if recall_taint_scan_sinks(condition, keys, tainted_vars, strict_armed, matched) {
+                    found = true;
+                }
+                if recall_taint_walk_stmts(then_body, keys, tainted_vars, strict_armed, matched) {
+                    found = true;
+                }
+                for (cond, b) in else_ifs {
+                    if recall_taint_scan_sinks(cond, keys, tainted_vars, strict_armed, matched) {
+                        found = true;
+                    }
+                    if recall_taint_walk_stmts(b, keys, tainted_vars, strict_armed, matched) {
+                        found = true;
+                    }
+                }
+                if let Some(b) = else_body {
+                    if recall_taint_walk_stmts(b, keys, tainted_vars, strict_armed, matched) {
+                        found = true;
+                    }
+                }
+            }
+            Statement::Match {
+                scrutinee,
+                arms,
+                else_body,
+                ..
+            } => {
+                if recall_taint_scan_sinks(scrutinee, keys, tainted_vars, strict_armed, matched) {
+                    found = true;
+                }
+                for arm in arms {
+                    if recall_taint_walk_stmts(
+                        arm.body(),
+                        keys,
+                        tainted_vars,
+                        strict_armed,
+                        matched,
+                    ) {
+                        found = true;
+                    }
+                }
+                if let Some(b) = else_body {
+                    if recall_taint_walk_stmts(b, keys, tainted_vars, strict_armed, matched) {
+                        found = true;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    found
+}
+
+/// №386: the cross-module half of TAINT_PERSISTENCE.
+///
+/// Registers the current module's tainted memory keys (from the extended
+/// `PatternSummary` fields plus a direct walk of the non-pattern scopes),
+/// then checks every scope's `recall` → sink flows against the OTHER
+/// modules' keys. One Category-A finding per module.
+fn check_taint_persistence_cross_module(
+    declarations: &[Declaration],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    let strict = std::env::var("METALOGOS_TAINT_STRICT")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+
+    // Self taint: patterns contribute through their (extended) summaries;
+    // tools/routes/hooks and key-less statement forms are walked directly.
+    let summaries = compute_pattern_summaries_with_depth(declarations, taint_interp_max_depth());
+    let mut self_taint = ModuleMemoryTaint::default();
+    for (name, s) in &summaries {
+        for k in &s.tainted_memory_keys {
+            self_taint
+                .key_writers
+                .entry(k.clone())
+                .or_default()
+                .insert(name.clone());
+        }
+        self_taint.any_writes |= s.writes_tainted_memory;
+    }
+    let mut direct_keys: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut direct_any = false;
+    for d in declarations {
+        match d {
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    collect_tainted_memory_writes_stmts(&m.body, &mut direct_keys, &mut direct_any);
+                }
+            }
+            Declaration::MlogServer(s) => {
+                for r in &s.routes {
+                    collect_tainted_memory_writes_stmts(&r.body, &mut direct_keys, &mut direct_any);
+                }
+            }
+            Declaration::Hook(h) => {
+                collect_tainted_memory_writes_stmts(&h.body, &mut direct_keys, &mut direct_any);
+            }
+            Declaration::Memorize(m) if expr_contains_llm_source(&m.value) => {
+                direct_any = true;
+            }
+            _ => {}
+        }
+    }
+    for k in direct_keys {
+        self_taint
+            .key_writers
+            .entry(k)
+            .or_default()
+            .insert("<non-pattern scope>".to_string());
+    }
+    self_taint.any_writes |= direct_any;
+
+    let fingerprint = module_memory_fingerprint(declarations);
+    register_module_memory_taint(fingerprint, self_taint.clone());
+    let others = other_modules_memory_taint(fingerprint);
+
+    if others.key_writers.is_empty() && !(strict && others.any_writes) {
+        return; // no other module taints memory — nothing to match
+    }
+
+    // Walk every scope's recall→sink flows. The matching key set for a
+    // scope excludes that scope's OWN writes (a pattern recalling its own
+    // freshly-memorized key is the same-scope/file heuristic's territory,
+    // and the write itself is already gated at the memory sink).
+    let strict_armed = strict && others.any_writes;
+    let mut matched: Vec<String> = Vec::new();
+    for d in declarations {
+        match d {
+            Declaration::Pattern(p) => {
+                let own: std::collections::HashSet<String> = summaries
+                    .get(&p.name)
+                    .map(|s| s.tainted_memory_keys.clone())
+                    .unwrap_or_default();
+                let keys: std::collections::HashMap<String, std::collections::HashSet<String>> =
+                    others
+                        .key_writers
+                        .iter()
+                        .chain(self_taint.key_writers.iter())
+                        .filter(|(k, _)| !own.contains(*k))
+                        .map(|(k, w)| (k.clone(), w.clone()))
+                        .collect();
+                let mut vars = std::collections::HashSet::new();
+                recall_taint_walk_stmts(&p.body, &keys, &mut vars, strict_armed, &mut matched);
+            }
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    let keys: std::collections::HashMap<String, std::collections::HashSet<String>> =
+                        others
+                            .key_writers
+                            .iter()
+                            .chain(self_taint.key_writers.iter())
+                            .map(|(k, w)| (k.clone(), w.clone()))
+                            .collect();
+                    let mut vars = std::collections::HashSet::new();
+                    recall_taint_walk_stmts(&m.body, &keys, &mut vars, strict_armed, &mut matched);
+                }
+            }
+            Declaration::MlogServer(s) => {
+                for r in &s.routes {
+                    let keys: std::collections::HashMap<String, std::collections::HashSet<String>> =
+                        others
+                            .key_writers
+                            .iter()
+                            .chain(self_taint.key_writers.iter())
+                            .map(|(k, w)| (k.clone(), w.clone()))
+                            .collect();
+                    let mut vars = std::collections::HashSet::new();
+                    recall_taint_walk_stmts(&r.body, &keys, &mut vars, strict_armed, &mut matched);
+                }
+            }
+            Declaration::Hook(h) => {
+                let keys: std::collections::HashMap<String, std::collections::HashSet<String>> =
+                    others
+                        .key_writers
+                        .iter()
+                        .chain(self_taint.key_writers.iter())
+                        .map(|(k, w)| (k.clone(), w.clone()))
+                        .collect();
+                let mut vars = std::collections::HashSet::new();
+                recall_taint_walk_stmts(&h.body, &keys, &mut vars, strict_armed, &mut matched);
+            }
+            _ => {}
+        }
+    }
+
+    if matched.is_empty() {
+        return;
+    }
+    matched.sort();
+    matched.dedup();
+    let line = find_line(source, "recall");
+    let reason = if strict_armed && matched.iter().all(|m| m.starts_with("<strict")) {
+        "strict mode (METALOGOS_TAINT_STRICT=1): another module writes LLM output to memory"
+            .to_string()
+    } else {
+        format!("written by other module scope(s): {}", {
+            let mut writers: Vec<String> = Vec::new();
+            for m in &matched {
+                if let Some(ws) = others.key_writers.get(m) {
+                    writers.extend(ws.iter().cloned());
+                }
+            }
+            writers.sort();
+            writers.dedup();
+            if writers.is_empty() {
+                "the matching key prefixes".to_string()
+            } else {
+                writers.join(", ")
+            }
+        })
+    };
+    findings.push(AuditFinding {
+        severity: Severity::Error,
+        check_id: "TAINT_PERSISTENCE",
+        line,
+        message: format!(
+            "cross-module taint through memory: recall() matched tainted key(s) {} — {} — \
+             the recalled value may reach respond(); sanitize with render()/escape_html()/redact() \
+             (№386: literal/prefix keys; dynamic keys are out of the MVP scope)",
+            matched
+                .iter()
+                .map(|k| format!("'{}'", k))
+                .collect::<Vec<_>>()
+                .join(", "),
+            reason
+        ),
+    });
 }
 
 // ── Check: TAINT_PASSTHROUGH_PATTERN — respond(Wrap(call_llm(...))) ────────
@@ -2154,6 +3027,689 @@ fn check_taint_passthrough_pattern(
                     }
                 }
             }
+        }
+    }
+}
+
+// ── Наряд №292 (P0, security): TAINT_INTERP — interprocedural taint MVP ──
+//
+// Summary-based interprocedural taint. The existing TAINT_PASSTHROUGH
+// (Наряд #141/#157) catches only the *trivial* passthrough: a pattern
+// with exactly one parameter whose body is `return <param>`. Real
+// Fosved-class dept-handlers wrap LLM output through non-trivial helpers
+// (e.g. `pattern Wrap(x) { return upper(x) }` + `respond(Wrap(call_llm(...)))`),
+// which the trivial check misses.
+//
+// Approach: compute a summary for each `pattern` declaration — which
+// parameters (by position) flow into the return value, possibly through
+// calls to OTHER user-patterns. Propagate taint through 1–2 levels of
+// calls (bounded, no fixpoint). Recursion/loops in the call graph →
+// loud warning INTERP_DEPTH_LIMIT (not Error — analysis terminates with
+// the boundary documented).
+//
+// **Zero false positives on legitimate code**: render/escape_html are
+// sanitizers — `respond(render(...))` and `respond(escape_html(...))`
+// are NOT flagged (test contract (в) in issue #355).
+
+/// Maximum call-graph depth explored by `check_taint_interp_pattern`.
+/// Bounded — no fixpoint analysis. Patterns deeper than this in the
+/// call graph are flagged with `INTERP_DEPTH_LIMIT` warning (analysis
+/// terminates cleanly, the boundary is documented in README + threat-model).
+/// №376: the interprocedural taint depth limit is CONFIGURABLE via the
+/// `METALOGOS_TAINT_DEPTH` env var (integer, 1..=16; unset or invalid → the
+/// measured default below). The `INTERP_DEPTH_LIMIT` warning and the
+/// `bounded_recursion` flag are PRESERVED — the limit moved, the loudness
+/// stayed.
+///
+/// Default chosen by the №376 overhead measurement (see the наряд report):
+/// auditing the 222-file examples corpus, depth 2 → 4 cost +14.2% cold
+/// analysis time (59.7 ms → 68.1 ms; depth 8 → +23.8%) — within the +50%
+/// dispatch threshold, so the default is 4 (closes the depth-3/4 coverage
+/// hole for office dept/chain patterns).
+const DEFAULT_TAINT_INTERP_MAX_DEPTH: usize = 4;
+
+/// Read the configured depth (once per audit run). Values outside 1..=16 or
+/// non-numeric fall back to the default.
+fn taint_interp_max_depth() -> usize {
+    match std::env::var("METALOGOS_TAINT_DEPTH") {
+        Ok(v) => match v.trim().parse::<usize>() {
+            Ok(d) if (1..=16).contains(&d) => d,
+            _ => DEFAULT_TAINT_INTERP_MAX_DEPTH,
+        },
+        Err(_) => DEFAULT_TAINT_INTERP_MAX_DEPTH,
+    }
+}
+
+/// №376: cross-module summaries cache. Key = FNV-1a hash of the module
+/// source; value = the computed summaries. A workspace audit run visits
+/// many modules — an UNCHANGED module's summaries are computed once and
+/// reused on the next run/visit (recalculation only when the module
+/// content changes, per the наряд contract). Counters are exposed for
+/// tests via [`summaries_cache_stats`].
+type SummariesByModule =
+    std::collections::HashMap<(u64, usize), std::collections::HashMap<String, PatternSummary>>;
+
+static SUMMARIES_CACHE: std::sync::LazyLock<std::sync::Mutex<SummariesByModule>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+static SUMMARIES_CACHE_INSERTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static SUMMARIES_CACHE_HITS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn fnv1a_source(bytes: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in bytes {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100_0000_01b3);
+    }
+    h
+}
+
+/// #[doc(hidden)] test/observability hook: (cache inserts, cache hits).
+#[doc(hidden)]
+pub fn summaries_cache_stats() -> (u64, u64) {
+    (
+        SUMMARIES_CACHE_INSERTS.load(std::sync::atomic::Ordering::SeqCst),
+        SUMMARIES_CACHE_HITS.load(std::sync::atomic::Ordering::SeqCst),
+    )
+}
+
+/// Clear the summaries cache (test isolation / forced recompute).
+#[doc(hidden)]
+pub fn summaries_cache_clear() {
+    SUMMARIES_CACHE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
+    SUMMARIES_CACHE_INSERTS.store(0, std::sync::atomic::Ordering::SeqCst);
+    SUMMARIES_CACHE_HITS.store(0, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Summary of a `pattern` declaration for interprocedural taint analysis.
+///
+/// `params_tainting_return` holds the indices (0-based, into `params`)
+/// of parameters that flow — directly or through user-pattern calls —
+/// into the pattern's `return` expression. If `return` is not present
+/// (control-flow falls through), the set is empty.
+///
+/// `bounded_recursion` is true when the pattern appears (directly or
+/// transitively through other patterns) in its own call chain. The
+/// analysis still computes the summary (best-effort), but emits a
+/// loud `INTERP_DEPTH_LIMIT` warning so the boundary is visible.
+///
+/// №386: `tainted_memory_keys` holds the literal key prefixes under which
+/// this pattern stores LLM output (`memorize(<key>, <llm-derived value>)`);
+/// `writes_tainted_memory` is true when the pattern writes LLM output to
+/// memory at all — including key-less forms (`memorize <llm> with priority`)
+/// and dynamic keys, which the cross-module MVP cannot name.
+#[derive(Debug, Default, Clone)]
+struct PatternSummary {
+    params_tainting_return: std::collections::HashSet<usize>,
+    bounded_recursion: bool,
+    tainted_memory_keys: std::collections::HashSet<String>,
+    writes_tainted_memory: bool,
+}
+
+/// Compute summaries for all `pattern` declarations. Returns a map
+/// keyed by pattern name. Recursion / call cycles are detected via a
+/// visited-set during traversal; `bounded_recursion` is set on every
+/// pattern that participates in a cycle.
+fn compute_pattern_summaries_with_depth(
+    declarations: &[Declaration],
+    max_depth: usize,
+) -> std::collections::HashMap<String, PatternSummary> {
+    use std::collections::{HashMap, HashSet};
+
+    // First pass: index patterns by name + collect the raw (pre-propagation)
+    // summary — which params directly flow into `return`.
+    let mut raw_summaries: HashMap<String, PatternSummary> = HashMap::new();
+    let mut pattern_bodies: HashMap<String, (&[crate::ast::Param], &[crate::ast::Statement])> =
+        HashMap::new();
+    for decl in declarations {
+        if let Declaration::Pattern(p) = decl {
+            let mut summary = PatternSummary::default();
+            // Walk the body, collect `return <expr>` statements — for each,
+            // find which params contribute.
+            collect_params_into_return(&p.body, &p.params, &mut summary.params_tainting_return);
+            // №386: collect the tainted memory-key prefixes this pattern
+            // writes (memorize(<key>, <llm-derived value>) call form) and
+            // the key-less tainted-write flag (strict-mode fuel).
+            collect_tainted_memory_writes_stmts(
+                &p.body,
+                &mut summary.tainted_memory_keys,
+                &mut summary.writes_tainted_memory,
+            );
+            raw_summaries.insert(p.name.clone(), summary);
+            pattern_bodies.insert(p.name.clone(), (&p.params, &p.body));
+        }
+    }
+
+    // Second pass: propagate taint through user-pattern calls. Bounded
+    // depth = the configured `taint_interp_max_depth()`. We track a visited set per starting
+    // pattern so cycles are detected and `bounded_recursion` is set.
+    let pattern_names: HashSet<String> = raw_summaries.keys().cloned().collect();
+    let mut propagated: HashMap<String, PatternSummary> = raw_summaries.clone();
+
+    for start_name in pattern_names.iter() {
+        let mut visited: HashSet<String> = HashSet::new();
+        visited.insert(start_name.clone());
+        propagate_params(
+            start_name,
+            &pattern_bodies,
+            &pattern_names,
+            &mut propagated,
+            &mut visited,
+            0,
+            max_depth,
+        );
+    }
+
+    propagated
+}
+
+/// Helper for `compute_pattern_summaries` — traverse `body`, for each
+/// `return <expr>` statement mark which params (by index) directly
+/// appear in `expr` (Ident references to param names).
+fn collect_params_into_return(
+    body: &[crate::ast::Statement],
+    params: &[crate::ast::Param],
+    out: &mut std::collections::HashSet<usize>,
+) {
+    for stmt in body {
+        match stmt {
+            crate::ast::Statement::Return { value, .. } => {
+                collect_params_in_expr(value, params, out);
+            }
+            crate::ast::Statement::Each { body, .. }
+            | crate::ast::Statement::EachWithIndex { body, .. }
+            | crate::ast::Statement::While { body, .. }
+            | crate::ast::Statement::IfThen { body, .. } => {
+                collect_params_into_return(body, params, out);
+            }
+            crate::ast::Statement::IfElseBlock {
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                collect_params_into_return(then_body, params, out);
+                for (_, b) in else_ifs {
+                    collect_params_into_return(b, params, out);
+                }
+                if let Some(b) = else_body {
+                    collect_params_into_return(b, params, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Walk `expr` and mark every param (by index) whose name appears as
+/// an `Expr::Ident` directly. Does NOT traverse into user-pattern call
+/// args — that's the propagation pass's job.
+fn collect_params_in_expr(
+    expr: &crate::ast::Expr,
+    params: &[crate::ast::Param],
+    out: &mut std::collections::HashSet<usize>,
+) {
+    match expr {
+        crate::ast::Expr::Ident { name, .. } => {
+            for (i, p) in params.iter().enumerate() {
+                if &p.name == name {
+                    out.insert(i);
+                }
+            }
+        }
+        crate::ast::Expr::FnCall { args, .. } => {
+            for a in args {
+                collect_params_in_expr(a, params, out);
+            }
+        }
+        crate::ast::Expr::BinaryOp { left, right, .. } => {
+            collect_params_in_expr(left, params, out);
+            collect_params_in_expr(right, params, out);
+        }
+
+        crate::ast::Expr::FieldAccess { object, .. } => {
+            collect_params_in_expr(object, params, out);
+        }
+        crate::ast::Expr::IndexAccess { object, index, .. } => {
+            collect_params_in_expr(object, params, out);
+            collect_params_in_expr(index, params, out);
+        }
+        crate::ast::Expr::IfElse {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            collect_params_in_expr(condition, params, out);
+            collect_params_in_expr(then_branch, params, out);
+            collect_params_in_expr(else_branch, params, out);
+        }
+        _ => {}
+    }
+}
+
+/// Recursive propagation: for the starting `pattern_name`, traverse
+/// the body looking for `return <expr>` statements; for any user-pattern
+/// call inside the return, mark the called pattern's params-tainting-return
+/// as contributing to the starting pattern's return (if not already).
+///
+/// Bounded by `depth < max_depth` (the configured limit). Cycles → `bounded_recursion`
+/// flag is set on the calling pattern.
+fn propagate_params(
+    pattern_name: &str,
+    pattern_bodies: &std::collections::HashMap<
+        String,
+        (&[crate::ast::Param], &[crate::ast::Statement]),
+    >,
+    pattern_names: &std::collections::HashSet<String>,
+    propagated: &mut std::collections::HashMap<String, PatternSummary>,
+    visited: &mut std::collections::HashSet<String>,
+    depth: usize,
+    max_depth: usize,
+) {
+    if depth >= max_depth {
+        return;
+    }
+    // Get the (params, body) for this pattern; if missing, nothing to do.
+    let Some((params, body)) = pattern_bodies.get(pattern_name) else {
+        return;
+    };
+    let params: &[crate::ast::Param] = params;
+    let body: &[crate::ast::Statement] = body;
+
+    // Find user-pattern calls inside return expressions of this body.
+    let mut calls_to_propagate: Vec<(String, Vec<Option<usize>>)> = Vec::new();
+    for stmt in body {
+        if let crate::ast::Statement::Return { value, .. } = stmt {
+            // Find user-pattern calls in this return expression; for each,
+            // record which params (by index) of THIS pattern are passed in
+            // which arg-position of the called pattern.
+            find_user_pattern_calls(value, params, pattern_names, &mut calls_to_propagate);
+        }
+    }
+
+    for (called_name, caller_param_indices) in calls_to_propagate {
+        // Cycle detection: if `called_name` is already in `visited`, mark
+        // `bounded_recursion` on the current pattern + skip recursion.
+        if visited.contains(&called_name) {
+            if let Some(s) = propagated.get_mut(pattern_name) {
+                s.bounded_recursion = true;
+            }
+            if let Some(s) = propagated.get_mut(&called_name) {
+                s.bounded_recursion = true;
+            }
+            continue;
+        }
+        // Get the called pattern's summary; its `params_tainting_return`
+        // are the param-indices of `called_name` whose values flow into
+        // `called_name`'s return. Map those back to caller pattern's
+        // param indices. Clone the set to release the immutable borrow
+        // before the mutable borrow below.
+        let Some(called_summary) = propagated.get(&called_name) else {
+            continue;
+        };
+        let called_tainting: std::collections::HashSet<usize> =
+            called_summary.params_tainting_return.clone();
+        // `propagated` was built from the same `pattern_bodies` keys as
+        // `pattern_name` (which came from iterating the same map), so this
+        // is guaranteed to be Some. The borrow-checker-pleasing form
+        // `match ... { Some(s) => s, None => return }` avoids `expect()`
+        // (clippy::expect_used is denied for non-test code in lib.rs).
+        let Some(caller_summary) = propagated.get_mut(pattern_name) else {
+            continue;
+        };
+        for &called_param_idx in &called_tainting {
+            // `caller_param_indices[called_param_idx]` (if Some) is the
+            // caller-pattern param index that flows through `called_name`'s
+            // param `called_param_idx` into `called_name`'s return, which
+            // in turn flows into the caller's return.
+            if let Some(Some(caller_idx)) = caller_param_indices.get(called_param_idx) {
+                caller_summary.params_tainting_return.insert(*caller_idx);
+            }
+        }
+        // Recurse: visited now includes `called_name`, depth+1.
+        visited.insert(called_name.clone());
+        propagate_params(
+            &called_name,
+            pattern_bodies,
+            pattern_names,
+            propagated,
+            visited,
+            depth + 1,
+            max_depth,
+        );
+        visited.remove(&called_name);
+    }
+}
+
+/// Walk `expr` and find user-pattern calls. For each call, record a
+/// `(called_name, Vec<caller_param_idx>)` mapping — `Vec[calling_idx]`
+/// is the index (into `params`) of the caller-pattern param passed as
+/// the `calling_idx`-th argument of the called pattern. If the arg is
+/// not a direct param reference, the slot is None — but the call still
+/// propagates other args.
+///
+/// Note: we do NOT traverse into the called pattern's body here — that's
+/// the propagation pass's job. We just identify the call sites and which
+/// caller-params flow into which called-param positions.
+fn find_user_pattern_calls(
+    expr: &crate::ast::Expr,
+    params: &[crate::ast::Param],
+    pattern_names: &std::collections::HashSet<String>,
+    out: &mut Vec<(String, Vec<Option<usize>>)>,
+) {
+    match expr {
+        crate::ast::Expr::FnCall { name, args, .. } => {
+            if pattern_names.contains(name.as_str()) {
+                // Build the caller-param-index mapping for this call.
+                let mapping: Vec<Option<usize>> = args
+                    .iter()
+                    .map(|arg| {
+                        if let crate::ast::Expr::Ident { name: arg_name, .. } = arg {
+                            params.iter().position(|p| &p.name == arg_name)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                out.push((name.clone(), mapping));
+            }
+            // Recurse into args regardless — nested user-pattern calls matter.
+            for a in args {
+                find_user_pattern_calls(a, params, pattern_names, out);
+            }
+        }
+        crate::ast::Expr::BinaryOp { left, right, .. } => {
+            find_user_pattern_calls(left, params, pattern_names, out);
+            find_user_pattern_calls(right, params, pattern_names, out);
+        }
+
+        crate::ast::Expr::FieldAccess { object, .. } => {
+            find_user_pattern_calls(object, params, pattern_names, out);
+        }
+        crate::ast::Expr::IndexAccess { object, index, .. } => {
+            find_user_pattern_calls(object, params, pattern_names, out);
+            find_user_pattern_calls(index, params, pattern_names, out);
+        }
+        crate::ast::Expr::IfElse {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            find_user_pattern_calls(condition, params, pattern_names, out);
+            find_user_pattern_calls(then_branch, params, pattern_names, out);
+            find_user_pattern_calls(else_branch, params, pattern_names, out);
+        }
+        _ => {}
+    }
+}
+
+/// Check: TAINT_INTERP — respond/respond_html/write_file/print sink
+/// receiving the result of a user-pattern call wrapping an LLM source.
+///
+/// Catches the case `check_taint_passthrough_pattern` misses: non-trivial
+/// patterns where `return <param>` is wrapped in another expression
+/// (e.g. `return upper(x)`), or chains through 2 user-pattern calls
+/// (`respond(Wrap2(Wrap1(call_llm(...))))`).
+///
+/// **Sanitizers take precedence** (test contract (в)): if the LLM source
+/// is wrapped in `render(...)` or `escape_html(...)` BEFORE reaching
+/// the user-pattern call, the taint is lifted — no finding is emitted.
+/// This mirrors the intra-procedural `binding_taint` behavior.
+///
+/// **Depth limit**: bounded to the configured `taint_interp_max_depth()` (№376, default 4). If a
+/// pattern is detected as part of a call cycle (`bounded_recursion` flag),
+/// emit `INTERP_DEPTH_LIMIT` warning — analysis terminated cleanly.
+fn check_taint_interp_pattern(
+    declarations: &[Declaration],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    // №376: the configured depth (one read per audit run) + the cross-module
+    // summaries cache — recompute only when the module (source) changed.
+    let max_depth = taint_interp_max_depth();
+    // The cache key includes the depth: the same module measured at a
+    // different `METALOGOS_TAINT_DEPTH` must recompute (summaries differ).
+    let source_key = (fnv1a_source(source.as_bytes()), max_depth);
+    let summaries = {
+        let mut cache = SUMMARIES_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(cached) = cache.get(&source_key) {
+            SUMMARIES_CACHE_HITS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            cached.clone()
+        } else {
+            let computed = compute_pattern_summaries_with_depth(declarations, max_depth);
+            cache.insert(source_key, computed.clone());
+            SUMMARIES_CACHE_INSERTS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            computed
+        }
+    };
+
+    // If there are no patterns at all, nothing to check.
+    if summaries.is_empty() {
+        return;
+    }
+
+    // Emit INTERP_DEPTH_LIMIT warnings for patterns in cycles —
+    // the boundary is documented loudly (issue #355 contract (г)).
+    for (name, summary) in &summaries {
+        if summary.bounded_recursion {
+            let line = find_line(source, name);
+            findings.push(AuditFinding {
+                severity: Severity::Warning,
+                check_id: "INTERP_DEPTH_LIMIT",
+                line,
+                message: format!(
+                    "pattern `{}` participates in a call cycle — interprocedural taint analysis bounded at depth {}, the cycle is not fully explored",
+                    name, max_depth
+                ),
+            });
+        }
+    }
+
+    // For each sink call (respond/respond_html/write_file/print), check
+    // if any arg is a user-pattern call whose summary says some param
+    // taints the return, and that param's corresponding arg-expression
+    // contains an LLM source.
+    let sink_names = ["respond", "respond_html", "write_file", "print"];
+
+    fn is_sanitized_expr(expr: &crate::ast::Expr) -> bool {
+        // render / escape_html wrapping anything is sanitized — taint lifted.
+        if let crate::ast::Expr::FnCall { name, .. } = expr {
+            if name == "render" || name == "escape_html" {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Walk `expr` and find sink calls. For each sink call's args, check
+    /// for user-pattern calls wrapping LLM sources (with sanitization
+    /// override).
+    fn check_sink_calls(
+        expr: &crate::ast::Expr,
+        summaries: &std::collections::HashMap<String, PatternSummary>,
+        sink_names: &[&str; 4],
+        source: &str,
+        findings: &mut Vec<AuditFinding>,
+    ) {
+        match expr {
+            crate::ast::Expr::FnCall { name, args, .. } => {
+                if sink_names.contains(&name.as_str()) {
+                    for arg in args {
+                        // Sanitizer wraps the arg → safe, skip.
+                        if is_sanitized_expr(arg) {
+                            continue;
+                        }
+                        if let Some(finding_line) =
+                            check_user_pattern_call_for_taint(arg, summaries, source)
+                        {
+                            findings.push(AuditFinding {
+                                severity: Severity::Error,
+                                check_id: "TAINT_INTERP",
+                                line: finding_line,
+                                message: format!(
+                                    "LLM output reaches {}() via interprocedural pattern call — use render()/escape_html() for XSS safety",
+                                    name
+                                ),
+                            });
+                        }
+                    }
+                }
+                // Recurse into nested calls — sinks can be nested.
+                for a in args {
+                    check_sink_calls(a, summaries, sink_names, source, findings);
+                }
+            }
+            crate::ast::Expr::BinaryOp { left, right, .. } => {
+                check_sink_calls(left, summaries, sink_names, source, findings);
+                check_sink_calls(right, summaries, sink_names, source, findings);
+            }
+
+            crate::ast::Expr::IfElse {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                check_sink_calls(condition, summaries, sink_names, source, findings);
+                check_sink_calls(then_branch, summaries, sink_names, source, findings);
+                check_sink_calls(else_branch, summaries, sink_names, source, findings);
+            }
+            _ => {}
+        }
+    }
+
+    /// Check if `expr` is a user-pattern call wrapping an LLM source (directly
+    /// or through 1-2 levels of pattern calls). Returns `Some(line)` if a
+    /// finding should be emitted, `None` otherwise.
+    fn check_user_pattern_call_for_taint(
+        expr: &crate::ast::Expr,
+        summaries: &std::collections::HashMap<String, PatternSummary>,
+        source: &str,
+    ) -> Option<usize> {
+        let crate::ast::Expr::FnCall { name, args, .. } = expr else {
+            return None;
+        };
+        let summary = summaries.get(name)?;
+        // For each param-index that taints the return of this pattern,
+        // check if the corresponding arg-expression contains an LLM source
+        // OR is itself a user-pattern call wrapping LLM source (recursively,
+        // bounded by summary depth).
+        for (i, arg) in args.iter().enumerate() {
+            if !summary.params_tainting_return.contains(&i) {
+                continue;
+            }
+            // Does this arg contain an LLM source?
+            if expr_contains_llm_source_direct(arg) {
+                return Some(find_line(source, name));
+            }
+            // Is this arg itself a user-pattern call wrapping LLM source?
+            if let Some(line) = check_user_pattern_call_for_taint(arg, summaries, source) {
+                return Some(line);
+            }
+        }
+        None
+    }
+
+    /// Walk `expr` and return true if any sub-expression is a direct LLM
+    /// source (call_llm, call_claude, reflex_generate). Sanitizers
+    /// (render/escape_html) wrapping the LLM source lift the taint.
+    fn expr_contains_llm_source_direct(expr: &crate::ast::Expr) -> bool {
+        match expr {
+            crate::ast::Expr::FnCall { name, args, .. } => {
+                if is_llm_source(name) {
+                    return true;
+                }
+                // Sanitizer wraps the call → safe.
+                if name == "render" || name == "escape_html" {
+                    return false;
+                }
+                // Recurse into args.
+                args.iter().any(expr_contains_llm_source_direct)
+            }
+            crate::ast::Expr::BinaryOp { left, right, .. } => {
+                expr_contains_llm_source_direct(left) || expr_contains_llm_source_direct(right)
+            }
+            _ => false,
+        }
+    }
+
+    // Walk all declarations looking for sink calls with interprocedural
+    // LLM-tainted args.
+    for decl in declarations {
+        let mut exprs: Vec<&crate::ast::Expr> = Vec::new();
+        match decl {
+            Declaration::Pattern(p) => collect_stmt_exprs_interp(&p.body, &mut exprs),
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    collect_stmt_exprs_interp(&m.body, &mut exprs);
+                }
+            }
+            Declaration::MlogServer(srv) => {
+                for route in &srv.routes {
+                    collect_stmt_exprs_interp(&route.body, &mut exprs);
+                }
+            }
+            Declaration::Hook(h) => collect_stmt_exprs_interp(&h.body, &mut exprs),
+            _ => continue,
+        }
+
+        for expr in &exprs {
+            check_sink_calls(expr, &summaries, &sink_names, source, findings);
+        }
+    }
+}
+
+/// Category-A-only variant of `check_taint_interp_pattern`. Promotes the
+/// Errors (TAINT_INTERP) but drops the Warnings (INTERP_DEPTH_LIMIT) —
+/// the boundary is informational and stays in `audit_program` (advisory).
+/// Mirrors `check_vision_export_gates_errors_only`'s discipline (Наряд №241).
+fn check_taint_interp_pattern_errors_only(
+    declarations: &[Declaration],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    let mut tmp: Vec<AuditFinding> = Vec::new();
+    check_taint_interp_pattern(declarations, source, &mut tmp);
+    for f in tmp {
+        if f.severity == Severity::Error {
+            findings.push(f);
+        }
+    }
+}
+
+/// Helper — collect all expressions inside a statement body (mirrors
+/// `check_taint_passthrough_pattern`'s `collect_stmt_exprs` but kept
+/// local to avoid borrow issues).
+fn collect_stmt_exprs_interp<'a>(stmts: &'a [Statement], acc: &mut Vec<&'a Expr>) {
+    for stmt in stmts {
+        match stmt {
+            Statement::LetBinding { value, .. } => acc.push(value),
+            Statement::Assign { value, .. } => acc.push(value),
+            Statement::ExprStmt { expr, .. } => acc.push(expr),
+            Statement::Return { value, .. } => acc.push(value),
+            Statement::Each { body, .. } => collect_stmt_exprs_interp(body, acc),
+            Statement::EachWithIndex { body, .. } => collect_stmt_exprs_interp(body, acc),
+            Statement::While { body, .. } => collect_stmt_exprs_interp(body, acc),
+            Statement::IfElseBlock {
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                collect_stmt_exprs_interp(then_body, acc);
+                for (_, body) in else_ifs {
+                    collect_stmt_exprs_interp(body, acc);
+                }
+                if let Some(body) = else_body {
+                    collect_stmt_exprs_interp(body, acc);
+                }
+            }
+            Statement::IfThen { body, .. } => collect_stmt_exprs_interp(body, acc),
+            _ => {}
         }
     }
 }
@@ -2473,13 +4029,1230 @@ fn check_canary_leak(declarations: &[Declaration], source: &str, findings: &mut 
 ///   - OPEN_REDIRECT: custom validation not recognized
 ///   - CANARY_LEAK: advisory detector (№284) — WARNING stays in
 ///     audit_program, never promoted to a compile error
+// ── Check: SINK_CLEARANCE (Наряд №325, ADR-0161) ─────────────────────
+//
+// Category-A gate: at every sink-builtin call site (the sink list comes
+// from the №316 SSOT classification — Role::Sink, never a hand-written
+// list), an argument whose inferred label (№322/№323 machinery, via
+// semantic::sink_clearance_violations) does not clear the sink is a
+// Severity::Error with a specialized check_id; `poisoned` clears no
+// sink (ADR-0154 §2.1).
+//
+// Specialized classes (the leak-suite vocabulary):
+//   VOICE_EGRESS_UNCONSENTED  — voice egress without a consent scope
+//                               (consent sources are Phase 2, №335;
+//                               until then voice egress is unconsented
+//                               by default — loud by design);
+//   IRREVERSIBLE_NO_GRANT     — destructive SQL literal in db_execute
+//                               (DROP/DELETE/TRUNCATE/ALTER; grant
+//                               algebra is Phase 3, №339);
+//   UNTRUSTED_EXEC_DECISION   — untrusted data drives exec/exec_argv;
+//   SECRET_TO_EXEC            — a private label enters exec/exec_argv;
+//   SECRET_EGRESS_VCS         — a private label enters git_push;
+//   SECRET_EGRESS_NETWORK     — a private-URL marker in the address
+//                               position of a network sink;
+//   PII_EGRESS_NETWORK        — personal-data label in a network sink
+//                               body;
+//   PII_EGRESS_OUTPUT         — personal-data label in a public output;
+//   UNTRUSTED_EGRESS_NETWORK  — untrusted label in a network sink body;
+//   SINK_CLEARANCE            — every other confidentiality excess.
+//
+// Compatibility profile (ADR-0161): `profile legacy { egress:
+// permissive_with_audit }` switches the gate to ADVISORY — each
+// violation becomes Severity::Info (an audit event in the report and a
+// stderr event on the compile/run path) instead of an Error.
+// The sink-class word for a sink builtin: the vocabulary the №325
+// gate and the №392 `on_deny(...)` selector share. Extracted from
+// sink_check_id (№392) so the runtime deny path classifies sinks with
+// the exact same mapping the static audit uses. (Section comment, not
+// a doc block: the doc above this point belongs to the section header.)
+pub(crate) fn sink_kind(fn_name: &str) -> &'static str {
+    match fn_name {
+        "exec" | "exec_argv" => "exec",
+        "git_push" => "vcs",
+        "tts_send" => "voice",
+        "db_execute" | "db_execute_with_grant" => "db",
+        "print" | "respond" | "respond_html" | "html_response" => "output",
+        "write_file" | "append_file" | "delete_file" => "file",
+        // №331 (ADR-0162): the sanctioned materialization sink is file
+        // egress — same class mapping as write_file (private conf →
+        // SECRET_LEAK, the corpus vocabulary).
+        "media_save" => "file",
+        "memorize" | "mem_set" | "mtree_store" | "kv_set" => "memory",
+        _ => "network",
+    }
+}
+
+/// The deny-reason class (the audit check_id) for a sink call with the
+/// given argument label — the SSOT the №392 DenyEvent reasons mirror.
+/// `pub(crate)` since №392: the VM runtime twin computes the SAME reason
+/// for a runtime refusal, so event and diagnostic always agree.
+pub(crate) fn sink_check_id(
+    fn_name: &str,
+    arg_index: usize,
+    label: &crate::labels::Label,
+) -> &'static str {
+    use crate::labels::Conf;
+    use crate::labels::Integrity;
+    // Quarantine clears no sink (ADR-0154 §2.1) — the generic class.
+    if label.conf == Conf::Poisoned {
+        return "SINK_CLEARANCE";
+    }
+    // №392: the class mapping lives in sink_kind (single source, shared
+    // with the runtime deny path).
+    let kind = sink_kind(fn_name);
+    match kind {
+        "voice" => "VOICE_EGRESS_UNCONSENTED",
+        "exec" => {
+            if label.integrity == Integrity::Untrusted {
+                "UNTRUSTED_EXEC_DECISION"
+            } else if label.conf == Conf::Private {
+                "SECRET_TO_EXEC"
+            } else {
+                "SINK_CLEARANCE"
+            }
+        }
+        "vcs" => {
+            if label.conf == Conf::Private {
+                "SECRET_EGRESS_VCS"
+            } else {
+                "UNTRUSTED_EGRESS_NETWORK"
+            }
+        }
+        "network" => {
+            // Address position (arg 0) of a network sink carrying a
+            // private-infrastructure marker: the destination is the leak.
+            if arg_index == 0 && matches!(fn_name, "http_post" | "send_message") {
+                return "SECRET_EGRESS_NETWORK";
+            }
+            if label.integrity == Integrity::Untrusted {
+                "UNTRUSTED_EGRESS_NETWORK"
+            } else {
+                "PII_EGRESS_NETWORK"
+            }
+        }
+        "output" => {
+            if label.integrity == Integrity::Untrusted {
+                // Untrusted data into a public output — the HTML-injection
+                // class (the leak-suite corpus vocabulary; the lattice
+                // generalizes the legacy LLM-only check).
+                "HTML_INJECTION"
+            } else {
+                "PII_EGRESS_OUTPUT"
+            }
+        }
+        "memory" => "TAINT_PERSISTENCE",
+        "file" => {
+            if label.conf == Conf::Private {
+                // A private label into a file sink — the SECRET_LEAK
+                // class (the corpus vocabulary keeps the legacy name).
+                "SECRET_LEAK"
+            } else {
+                "SINK_CLEARANCE"
+            }
+        }
+        // db_execute: the bottom label marks the CONTENT gate (a
+        // destructive SQL literal needs no tainted data) — the grant
+        // vocabulary of Phase 3 (№339) starts here as
+        // IRREVERSIBLE_NO_GRANT; a NON-bottom label is a plain
+        // confidentiality excess.
+        "db" if *label == crate::labels::Label::bottom() => "IRREVERSIBLE_NO_GRANT",
+        _ => "SINK_CLEARANCE",
+    }
+}
+
+fn check_sink_clearance(
+    declarations: &[Declaration],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    let advisory = crate::profile::resolve(declarations).permissive();
+    let violations = crate::semantic::sink_clearance_violations(declarations);
+    for v in violations {
+        // Attribution: the semantic layer hands us the arg label and
+        // container; recover the arg expression for the URL-position
+        // rule by re-walking — done inside the semantic layer's
+        // sink_arg_label via the label itself; the address-position rule
+        // needs the TEXT, so the semantic layer flags it through the
+        // arg_index==0 + private-label contract (see sink_check_id).
+        // ── Naryad #387 (ADR-0149 D1): the video-likeness gate rides
+        // the same walk but carries its OWN Category-A check_id — no
+        // profile downgrades a deepfake gate (the ORIGIN_REQUIRED
+        // posture, not the №325 advisory posture).
+        if v.reason == "video-likeness-no-consent" {
+            findings.push(AuditFinding {
+                severity: Severity::Error,
+                check_id: "VIDEO_LIKENESS_NO_CONSENT",
+                line: v.span.start_line as usize,
+                message: format!(
+                    "I2V reference (argument {} of {} in {}) originates from a `kind: \"likeness\"` \
+                     origin but no LikenessToken is in scope — bind `likeness_verify(likeness_challenge(<subject>), …)` \
+                     before this call site (ADR-0149 D1/D6; presence-based MVP, not adversarial)",
+                    v.arg_index, v.fn_name, v.container,
+                ),
+            });
+            continue;
+        }
+        let check_id = sink_check_id(&v.fn_name, v.arg_index, &v.label);
+        let severity = if advisory {
+            Severity::Info
+        } else {
+            Severity::Error
+        };
+        findings.push(AuditFinding {
+            severity,
+            check_id,
+            line: v.span.start_line as usize,
+            message: format!(
+                "sink clearance violated: argument {} of {} in {} carries label '{}'; \
+                 sinks require public{} — bridge (№391): the decision/data argument of {} \
+                 must satisfy conf ⊑ public AND integrity ≥ trusted; failed threshold: {}",
+                v.arg_index,
+                v.fn_name,
+                v.container,
+                v.label,
+                if advisory {
+                    " (audit event: profile legacy / egress permissive_with_audit)"
+                } else {
+                    ""
+                },
+                v.fn_name,
+                v.reason
+            ),
+        });
+    }
+    let _ = source;
+}
+
+// ── Check: REDACT_APPLIED audit events (Наряд №326, ADR-0154 §10) ────
+//
+// Every redact() application is an AUDIT EVENT — what was processed
+// (container + argument), which policy ran, which target conf it
+// declares. Events are UNCONDITIONAL (Severity::Info on the report +
+// an [REDACT][audit-event] stderr line): they are the paper trail of
+// the only sanctioned downward move on the conf axis, and they cannot
+// be switched off (no profile, no env toggles — ADR-0154 §10).
+
+/// ── Check: MEDIA_HANDLE_OPAQUE (Наряд №331, ADR-0162 §2.5) ───────────
+/// Field access on a media handle (Image/Audio/VideoFrame/VideoSegment)
+/// is a TYPE-level invariant, not a policy choice: bytes never live in
+/// Value (ADR-0114), so the site can never compile. Always Error —
+/// `profile legacy` cannot downgrade a type contradiction.
+fn check_media_handle_opacity(
+    declarations: &[Declaration],
+    _source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    for v in crate::semantic::media_opacity_violations(declarations) {
+        findings.push(AuditFinding {
+            severity: Severity::Error,
+            check_id: "MEDIA_HANDLE_OPAQUE",
+            line: v.span.start_line as usize,
+            message: v.message(),
+        });
+    }
+}
+
+/// ── Check: ORIGIN_REQUIRED (Наряд №332, ADR-0164) ────────────────────
+/// The origin-chain rule (§7.4): a media handle without origin is not
+/// constructed. Type-of-construction invariant — always Error, no
+/// profile downgrades it (the №331 opacity posture). Runs on BOTH
+/// compile paths (audit_category_a + audit_program), so
+/// `compile_program` refuses unbound constructions too.
+fn check_origin_required(
+    declarations: &[Declaration],
+    _source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    for v in crate::semantic::media_origin_violations(declarations) {
+        findings.push(AuditFinding {
+            severity: Severity::Error,
+            check_id: "ORIGIN_REQUIRED",
+            line: v.span.start_line as usize,
+            message: v.message,
+        });
+    }
+}
+
+/// ── Check: ORIGIN_DECL_INVALID (Наряд №332, ADR-0164) ─────────────
+/// Declared-origin shape/vocabulary validation on EVERY compile path
+/// (the same rules `check_program` applies via validate_origin_decls):
+/// unknown kind/media/label words, unknown fields, `kind: file` without
+/// `path`. Always Error — a mis-declared provenance source is a
+/// provenance lie, and no profile downgrades a lie into silence.
+fn check_origin_decls_valid(
+    declarations: &[Declaration],
+    _source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    for e in crate::semantic::origin_decl_errors(declarations) {
+        findings.push(AuditFinding {
+            severity: Severity::Error,
+            check_id: "ORIGIN_DECL_INVALID",
+            line: e.span.start_line as usize,
+            message: e.message,
+        });
+    }
+}
+
+/// ── Check: COMPAT_PROFILE_INVALID (Наряд №336, ADR-0165 §2.4) ──
+/// A compat-profile mistake must never be a silent no-op (№325 rule):
+/// the shape validation `check_program` applies is mirrored onto EVERY
+/// compile path (the №332 posture). Unknown profile names / option keys
+/// / mode words fail compilation, not just `mlog check`.
+fn check_profile_shape(
+    declarations: &[Declaration],
+    _source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    for decl in declarations {
+        if let Declaration::Profile(p) = decl {
+            if let Err(e) = crate::profile::validate(p) {
+                findings.push(AuditFinding {
+                    severity: Severity::Error,
+                    check_id: "COMPAT_PROFILE_INVALID",
+                    line: p.span.start_line as usize,
+                    message: e,
+                });
+            }
+        }
+    }
+}
+
+/// ── Check: BACKEND_SELECT_INVALID + BACKEND_LADDER_UNVERIFIABLE
+/// (Наряд №336, ADR-0165 §2.4) ──
+/// The BackendSelect ladder companion check on EVERY compile path (the
+/// №332 origin-chain posture): a statically-visible ladder is verified
+/// against the №333 registry SSOT — unknown rung, class mismatch,
+/// unknown class word, duplicate/empty ladders (BACKEND_SELECT_INVALID);
+/// under `profile device { mode: production }` a PendingNo334 rung is
+/// UNVERIFIABLE for the profile and fails compilation
+/// (BACKEND_LADDER_UNVERIFIABLE). Always Error — a broken ladder must
+/// never surface as a runtime surprise; no profile downgrades it.
+fn check_backend_ladder(
+    declarations: &[Declaration],
+    _source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    for v in crate::semantic::backend_select_ladder_violations(declarations) {
+        let check_id = match v.kind {
+            crate::semantic::LadderViolationKind::Invalid => "BACKEND_SELECT_INVALID",
+            crate::semantic::LadderViolationKind::UnverifiableForProduction => {
+                "BACKEND_LADDER_UNVERIFIABLE"
+            }
+        };
+        findings.push(AuditFinding {
+            severity: Severity::Error,
+            check_id,
+            line: v.span.start_line as usize,
+            message: v.message,
+        });
+    }
+}
+
+/// ── Check: BACKEND_LICENSE_DISTRIBUTION (Наряд №333, ADR-0163 §2.2) ──
+/// A program that NAMES non-osi/restrictive weights (string literals at
+/// any position + the `vision { model: … }` field) is a distribution
+/// violation under the default profile: compile-blocking Error naming
+/// the license class and the registry record. Under
+/// `profile licensing { backends: permissive_with_audit }` (the loud
+/// bridge, №325 precedent) the same sites become Info audit events —
+/// usage is allowed but never silent. Restrictive entries are
+/// default-deny (unverified license) and unlock together with non-osi
+/// under the bridge.
+/// ── Check: QUARANTINE_EGRESS + CONSENT_LEDGER_EXPORT (Наряд №335) ────
+/// The consent surface's audit events (№326 posture: unconditional,
+/// Severity::Info — never blocking):
+///   - every `quarantine_write` call site — the legal egress of a
+///     poisoned value (the №325 clearance exempts THIS sink only);
+///   - every `consent_ledger_export` call site — the ledger leaves the
+///     process as file egress.
+fn check_consent_events(
+    declarations: &[Declaration],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    fn walk(expr: &Expr, container: &str, source: &str, findings: &mut Vec<AuditFinding>) {
+        if let Expr::FnCall { name, args, .. } = expr {
+            if name == "quarantine_write" || name == "consent_ledger_export" {
+                let (check_id, message) = if name == "quarantine_write" {
+                    (
+                        "QUARANTINE_EGRESS",
+                        format!(
+                            "poisoned value reaches the quarantine sink in {} — legal egress with audit event (№335)",
+                            container
+                        ),
+                    )
+                } else {
+                    (
+                        "CONSENT_LEDGER_EXPORT",
+                        format!(
+                            "consent ledger exported in {} — grant/TTL/revoke records leave the process with an audit event (№335)",
+                            container
+                        ),
+                    )
+                };
+                eprintln!("[CONSENT][audit-event] {}", message);
+                findings.push(AuditFinding {
+                    severity: Severity::Info,
+                    check_id,
+                    line: find_line(source, name),
+                    message,
+                });
+            }
+            for a in args {
+                walk(a, container, source, findings);
+            }
+        }
+    }
+    fn walk_stmts(
+        stmts: &[Statement],
+        container: &str,
+        source: &str,
+        findings: &mut Vec<AuditFinding>,
+    ) {
+        for st in stmts {
+            match st {
+                Statement::LetBinding { value, .. } | Statement::Assign { value, .. } => {
+                    walk(value, container, source, findings)
+                }
+                Statement::ExprStmt { expr: value, .. } | Statement::Return { value, .. } => {
+                    walk(value, container, source, findings)
+                }
+                Statement::Each { iterable, body, .. }
+                | Statement::EachWithIndex { iterable, body, .. } => {
+                    walk(iterable, container, source, findings);
+                    walk_stmts(body, container, source, findings);
+                }
+                Statement::While {
+                    condition, body, ..
+                } => {
+                    walk(condition, container, source, findings);
+                    walk_stmts(body, container, source, findings);
+                }
+                Statement::IfElseBlock {
+                    condition,
+                    then_body,
+                    else_ifs,
+                    else_body,
+                    ..
+                } => {
+                    walk(condition, container, source, findings);
+                    walk_stmts(then_body, container, source, findings);
+                    for (_, b) in else_ifs {
+                        walk_stmts(b, container, source, findings);
+                    }
+                    if let Some(eb) = else_body {
+                        walk_stmts(eb, container, source, findings);
+                    }
+                }
+                Statement::IfThen {
+                    condition, body, ..
+                } => {
+                    walk(condition, container, source, findings);
+                    walk_stmts(body, container, source, findings);
+                }
+                Statement::Match {
+                    scrutinee,
+                    arms,
+                    else_body,
+                    ..
+                } => {
+                    walk(scrutinee, container, source, findings);
+                    for arm in arms {
+                        let b = match arm {
+                            crate::ast::MatchArm::Exact(_, b)
+                            | crate::ast::MatchArm::StartsWith(_, b)
+                            | crate::ast::MatchArm::Contains(_, b)
+                            | crate::ast::MatchArm::Compare(_, _, b) => b,
+                        };
+                        walk_stmts(b, container, source, findings);
+                    }
+                    if let Some(eb) = else_body {
+                        walk_stmts(eb, container, source, findings);
+                    }
+                }
+                Statement::Memorize(m) => walk(&m.value, container, source, findings),
+                Statement::Forget(f) => walk(&f.query, container, source, findings),
+                Statement::Relate(r) => {
+                    walk(&r.from, container, source, findings);
+                    walk(&r.to, container, source, findings);
+                }
+                _ => {}
+            }
+        }
+    }
+    for decl in declarations {
+        match decl {
+            Declaration::Pattern(p) => {
+                walk_stmts(&p.body, &format!("pattern '{}'", p.name), source, findings);
+            }
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    walk_stmts(
+                        &m.body,
+                        &format!("tool method '{}.{}'", t.name, m.name),
+                        source,
+                        findings,
+                    );
+                }
+            }
+            Declaration::MlogServer(srv) => {
+                for r in &srv.routes {
+                    walk_stmts(
+                        &r.body,
+                        &format!("route {} {}", r.method, r.path),
+                        source,
+                        findings,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn check_backend_license(
+    declarations: &[Declaration],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    fn walk_string_exprs<'a>(expr: &'a Expr, acc: &mut Vec<&'a String>) {
+        match expr {
+            Expr::StringLit { value, .. } => acc.push(value),
+            Expr::FnCall { args, .. } | Expr::QualifiedCall { args, .. } => {
+                for a in args {
+                    walk_string_exprs(a, acc);
+                }
+            }
+            Expr::BinaryOp { left, right, .. } => {
+                walk_string_exprs(left, acc);
+                walk_string_exprs(right, acc);
+            }
+            Expr::IfElse {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                walk_string_exprs(condition, acc);
+                walk_string_exprs(then_branch, acc);
+                walk_string_exprs(else_branch, acc);
+            }
+            Expr::List { items, .. } => {
+                for i in items {
+                    walk_string_exprs(i, acc);
+                }
+            }
+            Expr::FieldAccess { object, .. } => walk_string_exprs(object, acc),
+            Expr::IndexAccess { object, index, .. } => {
+                walk_string_exprs(object, acc);
+                walk_string_exprs(index, acc);
+            }
+            Expr::BlockIfElse {
+                condition,
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                walk_string_exprs(condition, acc);
+                walk_string_stmts(then_body, acc);
+                for (c, body) in else_ifs {
+                    walk_string_exprs(c, acc);
+                    walk_string_stmts(body, acc);
+                }
+                if let Some(eb) = else_body {
+                    walk_string_stmts(eb, acc);
+                }
+            }
+            Expr::MatchExpr {
+                scrutinee,
+                arms,
+                else_body,
+                ..
+            } => {
+                walk_string_exprs(scrutinee, acc);
+                for arm in arms {
+                    walk_string_stmts(arm.body(), acc);
+                }
+                if let Some(eb) = else_body {
+                    walk_string_stmts(eb, acc);
+                }
+            }
+            Expr::Try { expr, .. } => walk_string_exprs(expr, acc),
+            _ => {}
+        }
+    }
+
+    fn walk_string_stmts<'a>(stmts: &'a [Statement], acc: &mut Vec<&'a String>) {
+        for stmt in stmts {
+            match stmt {
+                Statement::LetBinding { value, .. } | Statement::Assign { value, .. } => {
+                    walk_string_exprs(value, acc)
+                }
+                Statement::ExprStmt { expr, .. } | Statement::Return { value: expr, .. } => {
+                    walk_string_exprs(expr, acc)
+                }
+                Statement::Each { iterable, body, .. } => {
+                    walk_string_exprs(iterable, acc);
+                    walk_string_stmts(body, acc);
+                }
+                Statement::EachWithIndex { iterable, body, .. } => {
+                    walk_string_exprs(iterable, acc);
+                    walk_string_stmts(body, acc);
+                }
+                Statement::While {
+                    condition, body, ..
+                } => {
+                    walk_string_exprs(condition, acc);
+                    walk_string_stmts(body, acc);
+                }
+                Statement::IfElseBlock {
+                    condition,
+                    then_body,
+                    else_ifs,
+                    else_body,
+                    ..
+                } => {
+                    walk_string_exprs(condition, acc);
+                    walk_string_stmts(then_body, acc);
+                    for (c, body) in else_ifs {
+                        walk_string_exprs(c, acc);
+                        walk_string_stmts(body, acc);
+                    }
+                    if let Some(eb) = else_body {
+                        walk_string_stmts(eb, acc);
+                    }
+                }
+                Statement::IfThen {
+                    condition, body, ..
+                } => {
+                    walk_string_exprs(condition, acc);
+                    walk_string_stmts(body, acc);
+                }
+                Statement::Match {
+                    scrutinee,
+                    arms,
+                    else_body,
+                    ..
+                } => {
+                    walk_string_exprs(scrutinee, acc);
+                    for arm in arms {
+                        walk_string_stmts(arm.body(), acc);
+                    }
+                    if let Some(eb) = else_body {
+                        walk_string_stmts(eb, acc);
+                    }
+                }
+                Statement::Memorize(m) => walk_string_exprs(&m.value, acc),
+                Statement::Forget(f) => walk_string_exprs(&f.query, acc),
+                Statement::Relate(r) => {
+                    walk_string_exprs(&r.from, acc);
+                    walk_string_exprs(&r.to, acc);
+                }
+                Statement::Break | Statement::Continue => {}
+            }
+        }
+    }
+
+    let permissive = crate::profile::resolve(declarations).backend_license_permissive();
+
+    for decl in declarations {
+        let mut strings: Vec<&String> = Vec::new();
+        match decl {
+            Declaration::Pattern(p) => walk_string_stmts(&p.body, &mut strings),
+            Declaration::LearnablePattern(lp) => {
+                // The prompt is a literal carrier too — a learnable
+                // pattern can name the weights it wants (№334 surface).
+                strings.push(&lp.prompt);
+            }
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    walk_string_stmts(&m.body, &mut strings);
+                }
+            }
+            Declaration::MlogServer(srv) => {
+                for route in &srv.routes {
+                    walk_string_stmts(&route.body, &mut strings);
+                }
+            }
+            Declaration::Hook(h) => walk_string_stmts(&h.body, &mut strings),
+            Declaration::Vision(v) => {
+                // The declaration model field is the canonical reference
+                // position (`vision { model: "z-image-turbo", … }`).
+                strings.push(&v.model);
+            }
+            Declaration::Memorize(m) => walk_string_exprs(&m.value, &mut strings),
+            Declaration::Forget(f) => walk_string_exprs(&f.query, &mut strings),
+            Declaration::Relate(r) => {
+                walk_string_exprs(&r.from, &mut strings);
+                walk_string_exprs(&r.to, &mut strings);
+            }
+            Declaration::Flow(f) => walk_string_exprs(&f.source, &mut strings),
+            Declaration::EntitySimple(e) => walk_string_exprs(&e.value, &mut strings),
+            Declaration::EntityRecord(e) => {
+                for fi in &e.fields {
+                    walk_string_exprs(&fi.value, &mut strings);
+                }
+            }
+            _ => {}
+        }
+
+        for s in strings {
+            // A literal NAMES the weights when it equals (case-insensitive)
+            // a registered weights id. Substring matches would false-positive
+            // on documentation prose — exact (ci) only.
+            let entry = match crate::backends::find_by_weights_id_ci(s) {
+                Some(e) if e.license != crate::backends::LicenseClass::Osi => e,
+                _ => continue,
+            };
+            let snippet = crate::util::safe_byte_truncate(s, 24);
+            let line = find_line(source, snippet);
+            if permissive {
+                findings.push(AuditFinding {
+                    severity: Severity::Info,
+                    check_id: "BACKEND_LICENSE",
+                    line,
+                    message: format!(
+                        "[audit-event] non-osi/restrictive backend weights '{}' ({}),                          license: {} — allowed by profile licensing (bridge, not residence;                          ADR-0163)",
+                        entry.weights_id,
+                        entry.class.as_str(),
+                        entry.license_note
+                    ),
+                });
+            } else {
+                findings.push(AuditFinding {
+                    severity: Severity::Error,
+                    check_id: "BACKEND_LICENSE_DISTRIBUTION",
+                    line,
+                    message: format!(
+                        "backend weights '{}' (class {}) are {} and FORBIDDEN in the \
+                         distribution profile — license: {}. Unlock explicitly with \
+                         'profile licensing {{ backends: permissive_with_audit }}' \
+                         (audited bridge, ADR-0163)",
+                        entry.weights_id,
+                        entry.class.as_str(),
+                        entry.license.as_str(),
+                        entry.license_note
+                    ),
+                });
+            }
+        }
+    }
+}
+
+fn check_redact_events(
+    declarations: &[Declaration],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    fn walk(expr: &Expr, container: &str, source: &str, findings: &mut Vec<AuditFinding>) {
+        if let Expr::FnCall { name, args, .. } = expr {
+            if name == "redact" {
+                let (policy, target) = match args.get(1) {
+                    Some(Expr::StringLit { value, .. }) => {
+                        match crate::builtins::string::redact_policy(value) {
+                            Some(p) => (p.name.to_string(), p.target_conf.to_string()),
+                            None => (value.clone(), "unknown".to_string()),
+                        }
+                    }
+                    _ => ("<dynamic>".to_string(), "source".to_string()),
+                };
+                let message = format!(
+                    "redact applied in {} — policy '{}', target conf '{}'",
+                    container, policy, target
+                );
+                eprintln!("[REDACT][audit-event] {}", message);
+                findings.push(AuditFinding {
+                    severity: Severity::Info,
+                    check_id: "REDACT_APPLIED",
+                    line: find_line(source, "redact"),
+                    message,
+                });
+            }
+            for a in args {
+                walk(a, container, source, findings);
+            }
+        }
+    }
+    fn walk_stmts(
+        stmts: &[Statement],
+        container: &str,
+        source: &str,
+        findings: &mut Vec<AuditFinding>,
+    ) {
+        for st in stmts {
+            match st {
+                Statement::LetBinding { value, .. } | Statement::Assign { value, .. } => {
+                    walk(value, container, source, findings)
+                }
+                Statement::ExprStmt { expr: value, .. } | Statement::Return { value, .. } => {
+                    walk(value, container, source, findings)
+                }
+                Statement::Each { iterable, body, .. }
+                | Statement::EachWithIndex { iterable, body, .. } => {
+                    walk(iterable, container, source, findings);
+                    walk_stmts(body, container, source, findings);
+                }
+                Statement::While {
+                    condition, body, ..
+                } => {
+                    walk(condition, container, source, findings);
+                    walk_stmts(body, container, source, findings);
+                }
+                Statement::IfElseBlock {
+                    condition,
+                    then_body,
+                    else_ifs,
+                    else_body,
+                    ..
+                } => {
+                    walk(condition, container, source, findings);
+                    walk_stmts(then_body, container, source, findings);
+                    for (_, b) in else_ifs {
+                        walk_stmts(b, container, source, findings);
+                    }
+                    if let Some(eb) = else_body {
+                        walk_stmts(eb, container, source, findings);
+                    }
+                }
+                Statement::IfThen {
+                    condition, body, ..
+                } => {
+                    walk(condition, container, source, findings);
+                    walk_stmts(body, container, source, findings);
+                }
+                Statement::Match {
+                    scrutinee,
+                    arms,
+                    else_body,
+                    ..
+                } => {
+                    walk(scrutinee, container, source, findings);
+                    for arm in arms {
+                        let b = match arm {
+                            crate::ast::MatchArm::Exact(_, b)
+                            | crate::ast::MatchArm::StartsWith(_, b)
+                            | crate::ast::MatchArm::Contains(_, b)
+                            | crate::ast::MatchArm::Compare(_, _, b) => b,
+                        };
+                        walk_stmts(b, container, source, findings);
+                    }
+                    if let Some(eb) = else_body {
+                        walk_stmts(eb, container, source, findings);
+                    }
+                }
+                Statement::Memorize(m) => walk(&m.value, container, source, findings),
+                Statement::Forget(f) => walk(&f.query, container, source, findings),
+                Statement::Relate(r) => {
+                    walk(&r.from, container, source, findings);
+                    walk(&r.to, container, source, findings);
+                }
+                _ => {}
+            }
+        }
+    }
+    for decl in declarations {
+        match decl {
+            Declaration::Pattern(p) => {
+                walk_stmts(&p.body, &format!("pattern {}", p.name), source, findings)
+            }
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    walk_stmts(
+                        &m.body,
+                        &format!("tool {}.{}", t.name, m.name),
+                        source,
+                        findings,
+                    );
+                }
+            }
+            Declaration::MlogServer(srv) => {
+                for r in &srv.routes {
+                    walk_stmts(
+                        &r.body,
+                        &format!("route {} {}", r.method, r.path),
+                        source,
+                        findings,
+                    );
+                }
+            }
+            Declaration::Hook(h) => {
+                walk_stmts(&h.body, &format!("hook {:?}", h.phase), source, findings)
+            }
+            Declaration::Test(t) => {
+                walk_stmts(&t.body, &format!("test \"{}\"", t.name), source, findings)
+            }
+            _ => {}
+        }
+    }
+}
+
+// ── Check: UNTRUSTED_DECISION (Наряд №327) ───────────────────────────
+//
+// Category-A anti-injection gate: data that DECIDES control flow —
+// `if`/`else if` conditions, `while` conditions, `match` scrutinees —
+// must be `trusted`. Untrusted data as DATA is legal (the integrity
+// axis is about decisions, not about existence). The message names the
+// untrusted source (a direct №316 Source call) and the decision point.
+
+fn check_integrity_decisions(
+    declarations: &[Declaration],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    for v in crate::semantic::integrity_decision_violations(declarations) {
+        findings.push(AuditFinding {
+            severity: Severity::Error,
+            check_id: "UNTRUSTED_DECISION",
+            line: v.span.start_line as usize,
+            message: format!(
+                "anti-injection: untrusted data (label '{}' from source '{}') decides a '{}' in {} — validate/one-way-redact it before deciding",
+                v.label, v.source_name, v.kind, v.container
+            ),
+        });
+    }
+    let _ = source;
+}
+
+// ── Check: GRANT_REUSED (Naryad #390, ADR-0155 §3.3 rules 1/4) ────────
+//
+// Static half of the Once-grant linearity: within one declaration body,
+// a variable that statically holds a Once-class grant (bound by
+// grant_issue/grant_subgrant with the literal class word "once" or with
+// the class omitted — the safe default) may be CONSUMED exactly once.
+// Consuming positions: grant_use(g), db_execute_with_grant(g, ...),
+// grant_subgrant(g, ...) (a Once parent is consumed by the split —
+// linear transfer), and a move (`let g2 = g1`). A second consuming use
+// on any path the flow walk covers is a compile-time Error.
+//
+// Flow semantics (mirrors the №323 label-flow shape): straight-line
+// order; if/else merges by INTERSECTION (a grant consumed in only one
+// branch may still be alive on the other path); while loops are walked
+// conservatively (a body consumption persists to the next iteration);
+// match arms merge like branches. N(n)/Unlimited holdings are
+// runtime-managed by the grant ledger and are NOT statically linear.
+
+#[derive(Clone)]
+struct GrantLinearState {
+    /// Variables statically known to hold a Once-class grant.
+    linear: std::collections::HashSet<String>,
+    /// Linear grants already consumed (moved or used) on the walked path.
+    consumed: std::collections::HashSet<String>,
+}
+
+/// The consuming builtin positions (arg 0 is the grant).
+const GRANT_CONSUMING_CALLS: &[&str] = &["grant_use", "db_execute_with_grant", "grant_subgrant"];
+
+fn grant_class_is_static_once(args: &[Expr]) -> bool {
+    // class word is arg 2 (grant_issue(scope, ttl, class?, uses?)) —
+    // absent or "once" means statically linear; "n"/"unlimited" are
+    // runtime-managed, a non-literal class is unknown (not tracked).
+    match args.get(2) {
+        None => true,
+        Some(Expr::StringLit { value, .. }) => value.eq_ignore_ascii_case("once"),
+        Some(_) => false,
+    }
+}
+
+fn walk_grant_expr(
+    expr: &Expr,
+    state: &mut GrantLinearState,
+    container: &str,
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    if let Expr::FnCall { name, args, span } = expr {
+        if GRANT_CONSUMING_CALLS.contains(&name.as_str()) {
+            if let Some(Expr::Ident { name: var, .. }) = args.first() {
+                if state.linear.contains(var) {
+                    if state.consumed.contains(var) {
+                        // Spans on call args may be unpopulated in some
+                        // parse paths — fall back to the source scan.
+                        let line = if span.start_line > 0 {
+                            span.start_line as usize
+                        } else {
+                            find_line(source, name)
+                        };
+                        findings.push(AuditFinding {
+                            severity: Severity::Error,
+                            check_id: "GRANT_REUSED",
+                            line,
+                            message: format!(
+                                "grant linearity violated in {}: '{}' is a Once grant already consumed on this path — a Once grant is used exactly once (ADR-0155 §3.3 rule 1); issue a fresh grant or switch the class to \"n\"/\"unlimited\"",
+                                container, var
+                            ),
+                        });
+                    } else {
+                        state.consumed.insert(var.clone());
+                    }
+                }
+            }
+        }
+        for a in args {
+            walk_grant_expr(a, state, container, source, findings);
+        }
+    }
+}
+
+fn walk_grant_stmts(
+    stmts: &[Statement],
+    state: &mut GrantLinearState,
+    container: &str,
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    for st in stmts {
+        match st {
+            Statement::LetBinding {
+                name, value, span, ..
+            } => {
+                walk_grant_expr(value, state, container, source, findings);
+                match value {
+                    Expr::FnCall {
+                        name: callee, args, ..
+                    } if (callee == "grant_issue" || callee == "grant_subgrant")
+                        && grant_class_is_static_once(args) =>
+                    {
+                        state.linear.insert(name.clone());
+                        state.consumed.remove(name);
+                    }
+                    // Move semantics: binding a linear grant to a new name
+                    // consumes the source (ADR-0155 §3.3 rule 1).
+                    Expr::Ident { name: src, .. } if state.linear.contains(src) => {
+                        if state.consumed.contains(src) {
+                            findings.push(AuditFinding {
+                                severity: Severity::Error,
+                                check_id: "GRANT_REUSED",
+                                line: span.start_line as usize,
+                                message: format!(
+                                    "grant linearity violated in {}: '{}' (a Once grant) is moved after being consumed on this path",
+                                    container, src
+                                ),
+                            });
+                        } else {
+                            state.consumed.insert(src.clone());
+                            state.linear.insert(name.clone());
+                            state.consumed.remove(name);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Statement::Assign {
+                name, value, span, ..
+            } => {
+                walk_grant_expr(value, state, container, source, findings);
+                // Re-binding a consumed linear var back into circulation
+                // through assignment is a reuse.
+                if state.linear.contains(name) && state.consumed.contains(name) {
+                    findings.push(AuditFinding {
+                        severity: Severity::Error,
+                        check_id: "GRANT_REUSED",
+                        line: span.start_line as usize,
+                        message: format!(
+                            "grant linearity violated in {}: '{}' (a Once grant) is re-assigned after being consumed on this path",
+                            container, name
+                        ),
+                    });
+                }
+            }
+            Statement::ExprStmt { expr, .. } | Statement::Return { value: expr, .. } => {
+                walk_grant_expr(expr, state, container, source, findings);
+            }
+            Statement::Each { iterable, body, .. }
+            | Statement::EachWithIndex { iterable, body, .. } => {
+                walk_grant_expr(iterable, state, container, source, findings);
+                // Loop body may run many times: what it consumes is consumed
+                // for the loop's exit state too; walk the body once with the
+                // pre-state and once with the post-state (cross-iteration
+                // reuse), dedup by line at the end.
+                let mut body_state = state.clone();
+                walk_grant_stmts(body, &mut body_state, container, source, findings);
+                walk_grant_stmts(body, state, container, source, findings);
+                state.linear.extend(body_state.linear.iter().cloned());
+                state.consumed.extend(body_state.consumed.iter().cloned());
+            }
+            Statement::While {
+                condition, body, ..
+            } => {
+                walk_grant_expr(condition, state, container, source, findings);
+                walk_grant_stmts(body, state, container, source, findings);
+            }
+            Statement::IfElseBlock {
+                condition,
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                walk_grant_expr(condition, state, container, source, findings);
+                let mut merged_consumed: Option<std::collections::HashSet<String>> = None;
+                let mut branches: Vec<&[Statement]> = vec![then_body.as_slice()];
+                for (_, b) in else_ifs {
+                    branches.push(b.as_slice());
+                }
+                if let Some(eb) = else_body {
+                    branches.push(eb.as_slice());
+                }
+                for branch in branches {
+                    let mut branch_state = state.clone();
+                    walk_grant_stmts(branch, &mut branch_state, container, source, findings);
+                    let consumed = branch_state.consumed.clone();
+                    merged_consumed = Some(match merged_consumed {
+                        None => consumed,
+                        Some(prev) => prev.intersection(&consumed).cloned().collect(),
+                    });
+                }
+                // Intersection: a grant consumed in EVERY branch is consumed
+                // after the merge; otherwise it may still be alive on some
+                // path (conservative for the alive direction, loud for the
+                // reuse direction).
+                if let Some(merged) = merged_consumed {
+                    state.consumed = merged;
+                }
+            }
+            Statement::IfThen {
+                condition, body, ..
+            } => {
+                walk_grant_expr(condition, state, container, source, findings);
+                let mut branch_state = state.clone();
+                walk_grant_stmts(body, &mut branch_state, container, source, findings);
+                // Single branch: only what was consumed BEFORE is guaranteed
+                // consumed after (the branch may not run).
+                let _ = branch_state;
+            }
+            Statement::Match {
+                scrutinee,
+                arms,
+                else_body,
+                ..
+            } => {
+                walk_grant_expr(scrutinee, state, container, source, findings);
+                let mut merged_consumed: Option<std::collections::HashSet<String>> = None;
+                for arm in arms {
+                    let mut arm_state = state.clone();
+                    walk_grant_stmts(arm.body(), &mut arm_state, container, source, findings);
+                    let consumed = arm_state.consumed.clone();
+                    merged_consumed = Some(match merged_consumed {
+                        None => consumed,
+                        Some(prev) => prev.intersection(&consumed).cloned().collect(),
+                    });
+                }
+                // A missing else arm may consume nothing — intersect with
+                // the pre-state set.
+                let pre = state.consumed.clone();
+                merged_consumed = match merged_consumed {
+                    None => Some(pre),
+                    Some(m) => match else_body {
+                        Some(eb) => {
+                            let mut eb_state = state.clone();
+                            walk_grant_stmts(eb, &mut eb_state, container, source, findings);
+                            Some(m.intersection(&eb_state.consumed).cloned().collect())
+                        }
+                        None => Some(m.intersection(&pre).cloned().collect()),
+                    },
+                };
+                if let Some(merged) = merged_consumed {
+                    state.consumed = merged;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn check_grant_linearity(
+    declarations: &[Declaration],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    let mut lines_seen: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    let mut push = |f: AuditFinding, findings: &mut Vec<AuditFinding>| {
+        if lines_seen.insert(f.line) {
+            findings.push(f);
+        }
+    };
+    for decl in declarations {
+        match decl {
+            Declaration::Pattern(p) => {
+                let mut state = GrantLinearState {
+                    linear: std::collections::HashSet::new(),
+                    consumed: std::collections::HashSet::new(),
+                };
+                let mut local: Vec<AuditFinding> = Vec::new();
+                walk_grant_stmts(
+                    &p.body,
+                    &mut state,
+                    &format!("pattern {}", p.name),
+                    source,
+                    &mut local,
+                );
+                for f in local {
+                    push(f, findings);
+                }
+            }
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    let mut state = GrantLinearState {
+                        linear: std::collections::HashSet::new(),
+                        consumed: std::collections::HashSet::new(),
+                    };
+                    let mut local: Vec<AuditFinding> = Vec::new();
+                    walk_grant_stmts(
+                        &m.body,
+                        &mut state,
+                        &format!("tool {}.{}", t.name, m.name),
+                        source,
+                        &mut local,
+                    );
+                    for f in local {
+                        push(f, findings);
+                    }
+                }
+            }
+            Declaration::Test(t) => {
+                let mut state = GrantLinearState {
+                    linear: std::collections::HashSet::new(),
+                    consumed: std::collections::HashSet::new(),
+                };
+                let mut local: Vec<AuditFinding> = Vec::new();
+                walk_grant_stmts(
+                    &t.body,
+                    &mut state,
+                    &format!("test \"{}\"", t.name),
+                    source,
+                    &mut local,
+                );
+                for f in local {
+                    push(f, findings);
+                }
+            }
+            _ => {}
+        }
+    }
+    let _ = source;
+}
+
 pub fn audit_category_a(declarations: &[Declaration], source: &str) -> Vec<AuditFinding> {
     let mut findings: Vec<AuditFinding> = Vec::new();
     check_sql_dynamic(declarations, source, &mut findings);
     check_secret_leak(declarations, source, &mut findings);
     check_html_injection(declarations, source, &mut findings);
     check_taint_persistence(declarations, source, &mut findings);
+    // Наряд №386: the cross-module half — memory-key summaries + the
+    // fingerprint registry (see check_taint_persistence_cross_module).
+    check_taint_persistence_cross_module(declarations, source, &mut findings);
     check_taint_passthrough_pattern(declarations, source, &mut findings);
+    // Наряд №292 (P0, security): interprocedural taint MVP — summary-based,
+    // bounded depth 2, catches non-trivial passthrough chains that the
+    // trivial TAINT_PASSTHROUGH misses. Sanitizers (render/escape_html)
+    // lift the taint — zero false positives on legitimate code.
+    // INTERP_DEPTH_LIMIT Warning stays advisory (NOT in audit_category_a
+    // promoted to compile error) — the boundary is informational, not a
+    // security violation.
+    check_taint_interp_pattern_errors_only(declarations, source, &mut findings);
     // Наряд №241 (R5, ADR-0125): vision export gate — ONLY the Error
     // (VISION_UNSIGNED_EXPORT) on the compile path. The raw-export
     // Warning stays advisory (audit_program below): this caller promotes
@@ -2491,6 +5264,46 @@ pub fn audit_category_a(declarations: &[Declaration], source: &str) -> Vec<Audit
     // layers (allowlist default-deny, SSRF guard, SHA pinning) live in
     // vision_fetch_weights — both layers, same check-id.
     check_model_weights_unsafe(declarations, source, &mut findings);
+    // Наряд №320 (ADR-0152 D2): Art. 50 marking gate — vision_export_raw
+    // call sites are statically visible unmarked synthetic egress.
+    check_media_synthetic_unmarked(declarations, source, &mut findings);
+    // Наряд №325 (ADR-0161): sink clearance on classified sinks — LAST so
+    // the pre-existing specialized checks keep their classes on shared
+    // sites (e.g. env→print is SECRET_LEAK first).
+    check_sink_clearance(declarations, source, &mut findings);
+    // Наряд №331 (ADR-0162 §2.5): opaque media handles — type-level
+    // gate, always Error (see the check doc above).
+    check_media_handle_opacity(declarations, source, &mut findings);
+    // Наряд №333 (ADR-0163): backend license gate — distribution
+    // refusal for non-osi/restrictive weights references, audited
+    // bridge under 'profile licensing'.
+    check_backend_license(declarations, source, &mut findings);
+    // Наряд №332 (ADR-0164): the origin chain — unbound handle
+    // constructions are refused (type-of-construction invariant).
+    check_origin_required(declarations, source, &mut findings);
+    // Наряд №332 (ADR-0164): declared origins are validated loudly —
+    // a mis-declared provenance source is a provenance lie.
+    check_origin_decls_valid(declarations, source, &mut findings);
+    // Наряд №326 (ADR-0154 §10): every redact application is an
+    // unconditional audit event (Severity::Info — never blocking).
+    check_redact_events(declarations, source, &mut findings);
+    // Наряд №335: consent surface audit events — quarantine egress and
+    // ledger export are legal but never silent.
+    check_consent_events(declarations, source, &mut findings);
+    // Наряд №327: the integrity axis — untrusted data must not decide
+    // control flow (Category-A Error).
+    check_integrity_decisions(declarations, source, &mut findings);
+    // Наряд №336 (ADR-0165 §2.4): compat-profile shapes are loud on
+    // every compile path, and statically visible BackendSelect ladders
+    // are verified against the registry SSOT; the production device
+    // profile refuses unverifiable (pending-pin) rungs.
+    check_profile_shape(declarations, source, &mut findings);
+    check_backend_ladder(declarations, source, &mut findings);
+    // Naryad #390 (ADR-0155): static Once-grant linearity — the
+    // GRANT_REUSED compile error. The runtime half (ledger state/TTL/
+    // quota/scope) lives in src/grants.rs; the ungranted destructive-SQL
+    // deny keeps its IRREVERSIBLE_NO_GRANT class (fail-closed unchanged).
+    check_grant_linearity(declarations, source, &mut findings);
     findings
 }
 
@@ -2511,7 +5324,12 @@ pub fn audit_program(source: &str) -> Result<AuditResult, String> {
     check_secret_leak(&declarations, source, &mut findings);
     check_open_redirect(&declarations, source, &mut findings);
     check_taint_persistence(&declarations, source, &mut findings);
+    // Наряд №386: cross-module memory-key taint (audit CLI path).
+    check_taint_persistence_cross_module(&declarations, source, &mut findings);
     check_taint_passthrough_pattern(&declarations, source, &mut findings);
+    // Наряд №292 (P0, security): interprocedural taint MVP — full version
+    // (with INTERP_DEPTH_LIMIT advisory Warnings for call cycles).
+    check_taint_interp_pattern(&declarations, source, &mut findings);
     // Наряд №241 (R5, ADR-0125): full vision gates — Error
     // VISION_UNSIGNED_EXPORT + Warning VISION_UNSIGNED_EXPORT_RAW
     // (advisory layer).
@@ -2525,6 +5343,30 @@ pub fn audit_program(source: &str) -> Result<AuditResult, String> {
     // Advisory Warning (audit_program), НЕ Category-A: промоция Warning
     // до compile-error противоречила бы «детектор, не гейт».
     check_canary_leak(&declarations, source, &mut findings);
+    // Наряд №320 (ADR-0152 D2): Art. 50 marking gate (Category-A Error).
+    check_media_synthetic_unmarked(&declarations, source, &mut findings);
+    // Наряд №325 (ADR-0161): sink clearance — strict (Error) or, under
+    // `profile legacy`, advisory audit events.
+    check_sink_clearance(&declarations, source, &mut findings);
+    // Наряд №331 (ADR-0162 §2.5): opaque media handles — type-level
+    // gate, always Error.
+    check_media_handle_opacity(&declarations, source, &mut findings);
+    // Наряд №333 (ADR-0163): backend license gate.
+    check_backend_license(&declarations, source, &mut findings);
+    // Наряд №332 (ADR-0164): the origin chain.
+    check_origin_required(&declarations, source, &mut findings);
+    // Наряд №332 (ADR-0164): declared-origin validation.
+    check_origin_decls_valid(&declarations, source, &mut findings);
+    // Наряд №326 (ADR-0154 §10): every redact application is an
+    // unconditional audit event (Severity::Info — never blocking).
+    check_redact_events(&declarations, source, &mut findings);
+    // Наряд №335: consent surface audit events.
+    check_consent_events(&declarations, source, &mut findings);
+    // Наряд №327: the integrity axis — decision gate.
+    check_integrity_decisions(&declarations, source, &mut findings);
+    // Naryad #390 (ADR-0155): grant linearity on the advisory surface —
+    // `mlog audit` reports GRANT_REUSED alongside the compile path.
+    check_grant_linearity(&declarations, source, &mut findings);
 
     // Sort findings by line number for deterministic output
     findings.sort_by_key(|f| (f.line, f.check_id));
@@ -2536,6 +5378,64 @@ pub fn audit_program(source: &str) -> Result<AuditResult, String> {
 mod tests {
     use super::*;
     use crate::ast;
+
+    // Наряд №322 (ADR-0154 §5): every TaintKind variant must keep an
+    // entry in the label-lattice projection table
+    // (`labels::legacy_taint_label`, keyed by variant name). The table
+    // is the bridge the sink-gate (№325) will read; this test pins that
+    // the enum and the table cannot silently drift apart — adding a
+    // TaintKind variant without a projection fails HERE, at CI, not at
+    // the gate. (The projection itself lives in labels.rs; no dead
+    // accessor is kept on the private enum in this naryad.)
+    #[test]
+    fn n322_taint_kind_label_projection_covers_all_variants() {
+        let all = [
+            TaintKind::LlmOutput,
+            TaintKind::Secret,
+            TaintKind::UserInput,
+            TaintKind::Sanitized,
+            TaintKind::CanaryLeak,
+        ];
+        for kind in all {
+            let name = format!("{:?}", kind);
+            let label = crate::labels::legacy_taint_label(&name)
+                .unwrap_or_else(|| panic!("kind {} lost its ADR-0154 §5 projection", name));
+            assert!(!label.to_string().is_empty());
+        }
+        // Spot-check the quarantine projection: a confirmed-compromised
+        // channel is `poisoned` — no legal sinks (sink-gate №325).
+        assert_eq!(
+            crate::labels::legacy_taint_label("CanaryLeak")
+                .unwrap()
+                .conf,
+            crate::labels::Conf::Poisoned
+        );
+        // Secrets are the confidentiality concern.
+        assert_eq!(
+            crate::labels::legacy_taint_label("Secret").unwrap().conf,
+            crate::labels::Conf::Private
+        );
+        // LLM output / user input are the integrity concern.
+        assert_eq!(
+            crate::labels::legacy_taint_label("LlmOutput")
+                .unwrap()
+                .integrity,
+            crate::labels::Integrity::Untrusted
+        );
+        assert_eq!(
+            crate::labels::legacy_taint_label("UserInput")
+                .unwrap()
+                .integrity,
+            crate::labels::Integrity::Untrusted
+        );
+        // Sanitization restores trust.
+        assert_eq!(
+            crate::labels::legacy_taint_label("Sanitized")
+                .unwrap()
+                .integrity,
+            crate::labels::Integrity::Trusted
+        );
+    }
 
     #[test]
     fn test_clean_program() {
@@ -2628,7 +5528,8 @@ mod tests {
             span: Span::unknown(),
             port: 8080,
             host: None,
-            rate_limit: None, // №263: fixtures do not configure a limit
+            rate_limit: None,
+            redact_mode: None, // №263: fixtures do not configure a limit
             middleware: vec![
                 "session".to_string(),
                 "csrf".to_string(),
@@ -2650,7 +5551,8 @@ mod tests {
             span: Span::unknown(),
             port: 8080,
             host: None,
-            rate_limit: None, // №263: fixtures do not configure a limit
+            rate_limit: None,
+            redact_mode: None, // №263: fixtures do not configure a limit
             middleware: vec!["rate_limit".to_string()],
             routes: vec![],
         };
@@ -2668,7 +5570,8 @@ mod tests {
             span: Span::unknown(),
             port: 8080,
             host: None,
-            rate_limit: None, // №263: fixtures do not configure a limit
+            rate_limit: None,
+            redact_mode: None, // №263: fixtures do not configure a limit
             middleware: vec!["session".to_string()],
             routes: vec![ast::RouteDecl {
                 span: Span::unknown(),
@@ -2692,7 +5595,8 @@ mod tests {
             span: Span::unknown(),
             port: 8080,
             host: None,
-            rate_limit: None, // №263: fixtures do not configure a limit
+            rate_limit: None,
+            redact_mode: None, // №263: fixtures do not configure a limit
             middleware: vec!["csrf".to_string()],
             routes: vec![ast::RouteDecl {
                 span: Span::unknown(),
@@ -2820,7 +5724,8 @@ mod tests {
             span: Span::unknown(),
             port: 8080,
             host: None,
-            rate_limit: None, // №263: fixtures do not configure a limit
+            rate_limit: None,
+            redact_mode: None, // №263: fixtures do not configure a limit
             middleware: vec!["session".to_string()],
             routes: vec![ast::RouteDecl {
                 span: Span::unknown(),
@@ -3197,7 +6102,8 @@ mod tests {
             span: Span::unknown(),
             port: 8080,
             host: None,
-            rate_limit: None, // №263: fixtures do not configure a limit
+            rate_limit: None,
+            redact_mode: None, // №263: fixtures do not configure a limit
             middleware: vec![],
             routes: vec![ast::RouteDecl {
                 span: Span::unknown(),
@@ -3576,6 +6482,156 @@ mod tests {
                 .iter()
                 .any(|f| f.check_id == "TAINT_PASSTHROUGH"),
             "no passthrough pattern -> no TAINT_PASSTHROUGH, got {:?}",
+            result.findings
+        );
+    }
+
+    // ── Наряд №309 (ADR-0151 D6): UNTRUSTED_FRAME taint tests ─────────
+
+    #[test]
+    fn n309_untrusted_frame_form_data_ref_flagged() {
+        let source = r#"
+            pattern Scene() -> String {
+                let frame_ref = form_data("frame")
+                let v = video_render("wan-2.2-ti2v-5b", "scene", frame_ref)
+                return v
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        let findings: Vec<_> = result
+            .findings
+            .iter()
+            .filter(|f| f.check_id == "UNTRUSTED_FRAME")
+            .collect();
+        assert_eq!(
+            findings.len(),
+            1,
+            "UserInput-tainted ref must be flagged exactly once, got {:?}",
+            result.findings
+        );
+        assert_eq!(findings[0].severity, Severity::Warning);
+    }
+
+    #[test]
+    fn n309_untrusted_frame_inline_http_get_flagged() {
+        let source = r#"
+            pattern Scene() -> String {
+                let v = video_render("wan-2.2-ti2v-5b", "scene", http_get("https://cdn.example/frame.png"))
+                return v
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        assert!(
+            result
+                .findings
+                .iter()
+                .any(|f| f.check_id == "UNTRUSTED_FRAME"),
+            "inline http_get ref (http class per ADR-0149 D5) must be flagged, got {:?}",
+            result.findings
+        );
+    }
+
+    #[test]
+    fn n309_untrusted_frame_inline_read_file_flagged() {
+        let source = r#"
+            pattern Scene() -> String {
+                let v = video_render("wan-2.2-ti2v-5b", "scene", read_file("frame.raw"))
+                return v
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        assert!(
+            result
+                .findings
+                .iter()
+                .any(|f| f.check_id == "UNTRUSTED_FRAME"),
+            "inline read_file ref (file class per ADR-0149 D5) must be flagged, got {:?}",
+            result.findings
+        );
+    }
+
+    #[test]
+    fn n309_untrusted_frame_two_anchor_last_ref_flagged() {
+        let source = r#"
+            pattern Scene() -> String {
+                let first = "hero_first_frame.png"
+                let v = video_render("wan-2.2-ti2v-5b", "scene", first, query_param("last"))
+                return v
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        assert!(
+            result
+                .findings
+                .iter()
+                .any(|f| f.check_id == "UNTRUSTED_FRAME"),
+            "tainted ref_last (position 3) must be flagged, got {:?}",
+            result.findings
+        );
+    }
+
+    #[test]
+    fn n309_untrusted_frame_clean_literal_not_flagged() {
+        // T2V (no ref) and a clean literal ref must NOT be flagged.
+        let source = r#"
+            pattern Scene() -> String {
+                let t2v = video_render("wan-2.2-ti2v-5b", "clean scene")
+                let i2v = video_render("wan-2.2-ti2v-5b", "clean i2v", "hero_frame.png")
+                return i2v
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        assert!(
+            !result
+                .findings
+                .iter()
+                .any(|f| f.check_id == "UNTRUSTED_FRAME"),
+            "clean refs must not be flagged, got {:?}",
+            result.findings
+        );
+    }
+
+    // ── Наряд №320 (ADR-0152): MEDIA_SYNTHETIC_UNMARKED gate tests ────
+
+    #[test]
+    fn n320_media_synthetic_unmarked_vision_export_raw_flagged() {
+        let source = r#"
+            pattern Ship() -> String {
+                let v = vision_export_raw(handle, "out.png")
+                return v
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        let findings: Vec<_> = result
+            .findings
+            .iter()
+            .filter(|f| f.check_id == "MEDIA_SYNTHETIC_UNMARKED")
+            .collect();
+        assert_eq!(findings.len(), 1, "got {:?}", result.findings);
+        assert_eq!(findings[0].severity, Severity::Error);
+        // №98 promotion: the Error lands on the compile path too.
+        let cat_a = audit_category_a(&crate::parser::parse(source).unwrap(), source);
+        assert!(cat_a
+            .iter()
+            .any(|f| f.check_id == "MEDIA_SYNTHETIC_UNMARKED"));
+    }
+
+    #[test]
+    fn n320_marked_export_not_flagged() {
+        // Signed egress (vision_export) is the marked path — no finding.
+        let source = r#"
+            pattern Ship() -> String {
+                let v = vision_export(handle, "out.png")
+                return v
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        assert!(
+            !result
+                .findings
+                .iter()
+                .any(|f| f.check_id == "MEDIA_SYNTHETIC_UNMARKED"),
+            "marked egress must not be flagged, got {:?}",
             result.findings
         );
     }

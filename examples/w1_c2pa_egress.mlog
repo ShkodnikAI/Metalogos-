@@ -1,0 +1,38 @@
+// Наряд №337 (ADR-0166): C2PA-контур хэндлов — read/write манифестов.
+// media_save теперь пишет sidecar <path>.manifest.json (преемственность
+// №241), собранный из манифест-фактов записи (origin №332 ↔ поля
+// манифеста не расходятся). Захваченный хэндл → synthetic: false;
+// generation-лифт → synthetic: true (байнд форсирует маркировку,
+// ADR-0166 §2.3). Чтение: media_manifest(handle) — без материализации
+// байтов; media_manifest_read(path) — разбор sidecar (громкие отказы,
+// conservative read №320).
+origin cam_backup { kind: file, media: image, label: public, path: "frames/frame-001.jpg" }
+origin demo_gen { kind: generation, media: image, label: public }
+pattern Capture(_tick: String) -> String {
+  let frame = source cam_backup
+  let p = media_save(frame, "target/n337-captured.png")
+  // Sidecar-имя №241: <path>.manifest.json рядом с байтами (родитель — target/ — существует в любом чекауте после сборки; песочница канонизирует РОДИТЕЛЯ).
+  let m = media_manifest_read(p + ".manifest.json")
+  if m.synthetic == false {
+    if m.origin == "cam_backup" {
+      if m.kind == "image" {
+        return "captured:" + to_string(m.synthetic) + ":" + m.origin
+      }
+    }
+  }
+  return "captured-broken"
+}
+pattern Generate(prev: String) -> String {
+  let img = from demo_gen media_store_image("gen-bytes", "public")
+  // Провенанс БЕЗ материализации: hash — insert-time факт записи.
+  let live = media_manifest(img)
+  let p = media_save(img, "target/n337-generated.png")
+  let m = media_manifest_read(p + ".manifest.json")
+  if live.synthetic == true {
+    if m.synthetic == true {
+      return prev + "|generated:" + to_string(m.synthetic) + ":" + m.origin
+    }
+  }
+  return prev + "|generated-broken"
+}
+flow Main { input: String = "tick-1" -> Capture -> Generate -> output }

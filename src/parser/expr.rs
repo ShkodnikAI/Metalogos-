@@ -269,6 +269,63 @@ pub(super) fn parse_expression(pair: Pair<Rule>) -> Result<Expr, ParseError> {
             })?;
             Ok(parse_expression(inner)?)
         }
+        // Наряд №332 (ADR-0164): HandleSource — `source <origin>`.
+        Rule::source_expr => {
+            let span = pair.as_span();
+            let children = children_of(&pair);
+            let origin = children
+                .iter()
+                .find(|c| c.as_rule() == Rule::IDENT)
+                .map(|c| c.as_str().to_string())
+                .ok_or_else(|| {
+                    pest::error::Error::new_from_pos(
+                        pest::error::ErrorVariant::CustomError {
+                            message: "GRAMMAR INVARIANT: source_expr requires IDENT".to_string(),
+                        },
+                        span.start_pos(),
+                    )
+                })?;
+            Ok(Expr::HandleSource {
+                origin,
+                span: Span::unknown(),
+            })
+        }
+        // Наряд №332 (ADR-0164): ProvBind — `from <origin> <construction>`.
+        Rule::from_expr => {
+            let span = pair.as_span();
+            let children = children_of(&pair);
+            let origin = children
+                .iter()
+                .find(|c| c.as_rule() == Rule::IDENT)
+                .map(|c| c.as_str().to_string())
+                .ok_or_else(|| {
+                    pest::error::Error::new_from_pos(
+                        pest::error::ErrorVariant::CustomError {
+                            message: "GRAMMAR INVARIANT: from_expr requires IDENT".to_string(),
+                        },
+                        span.start_pos(),
+                    )
+                })?;
+            let inner = children
+                .iter()
+                .find(|c| c.as_rule() == Rule::unary_expr || c.as_rule() == Rule::expression)
+                .cloned()
+                .ok_or_else(|| {
+                    pest::error::Error::new_from_pos(
+                        pest::error::ErrorVariant::CustomError {
+                            message: "GRAMMAR INVARIANT: from_expr requires an inner expression"
+                                .to_string(),
+                        },
+                        span.start_pos(),
+                    )
+                })?;
+            let inner = parse_expression(inner)?;
+            Ok(Expr::ProvBind {
+                origin,
+                inner: Box::new(inner),
+                span: Span::unknown(),
+            })
+        }
         // Наряд №14 P1-4: try expression
         Rule::try_expr => {
             let span = pair.as_span();

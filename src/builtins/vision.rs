@@ -316,6 +316,9 @@ pub fn vision_generate_sign_and_insert(
         },
         timestamp: chrono::Utc::now().to_rfc3339(),
         png_sha256: crate::vision::provenance::sha256_hex(&png_bytes),
+        // №320 (ADR-0152 D1): every generation path marks synthetic —
+        // Art. 50 marking by construction.
+        synthetic: true,
     };
 
     let id = registry.insert(VisionArtifact {
@@ -473,6 +476,31 @@ pub fn vision_export_raw_dispatch(
             id.0
         )
     })?;
+    // №320 (ADR-0152 D3): Art. 50 egress gate — raw (unmarked) egress of
+    // SYNTHETIC content is refused. Scoped amendment of ADR-0125 D3
+    // ("raw works on anything"): the marking window closes 2026-12-02.
+    // Marked egress = vision_export (sidecar manifest ships with the bytes).
+    match &artifact.manifest {
+        Some(m) if m.synthetic => {
+            return Err(format!(
+                "MEDIA_SYNTHETIC_UNMARKED: [Vision#{}] is machine-generated (synthetic: \
+                 true, ADR-0152) — raw export ships no manifest, violating the EU AI Act \
+                 Art. 50 marking window (deadline 2026-12-02). Use vision_export (signed \
+                 sidecar egress)",
+                id.0
+            ));
+        }
+        // Unmarked (manifest-less) is treated as synthetic — conservative
+        // default; the remedy is the signed path.
+        None => {
+            return Err(format!(
+                "MEDIA_SYNTHETIC_UNMARKED: [Vision#{}] carries no provenance manifest — \
+                 unmarked media is treated as synthetic (ADR-0152 D3). Use vision_export",
+                id.0
+            ));
+        }
+        Some(_) => {}
+    }
     std::fs::write(&path, &artifact.png_bytes)
         .map_err(|e| format!("vision_export_raw: write to {}: {}", path, e))?;
     Ok(Value::String(path))
@@ -832,6 +860,8 @@ pub fn vision_edit_sign_and_insert(
         policy: source_manifest.policy.clone(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         png_sha256: crate::vision::provenance::sha256_hex(&png_bytes),
+        // №320 (ADR-0152 D1): every generation path marks synthetic.
+        synthetic: true,
     };
     let id = registry.insert(VisionArtifact {
         png_bytes,

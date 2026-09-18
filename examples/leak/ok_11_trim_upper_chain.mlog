@@ -1,0 +1,5 @@
+// Легально: цепочка чистых трансформаций.
+pattern Clean(data: String) -> String {
+  return upper(trim("  data  "))
+}
+flow Main { input: String = "x" -> Clean -> output }

@@ -1,0 +1,9 @@
+// Угроза: приватный адрес внутренней системы уходит наружу как адрес запроса.
+// Атака: раскрытие топологии интранета внешнему analytics-сервису.
+entity endpoint: String = "https://internal.corp.example/secret-endpoint"
+
+pattern Send(data: String) -> String {
+  let _ = http_post(endpoint, "ping")
+  return "sent"
+}
+flow Main { input: String = data -> Send -> output }

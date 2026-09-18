@@ -28,6 +28,10 @@ impl Interpreter {
                     HookPhase::BeforePattern => self.hooks_before.push(h.clone()),
                     HookPhase::AfterPattern => self.hooks_after.push(h.clone()),
                 },
+                // Наряд №392: the deny handlers register in the same
+                // pre-pass (they must be live before any flow/pattern body
+                // can hit a runtime gate).
+                Declaration::OnDeny(d) => self.deny_handlers.push(d.clone()),
                 _ => remaining_decls.push(decl.clone()),
             }
         }
@@ -40,6 +44,11 @@ impl Interpreter {
 
         for decl in remaining_decls {
             match decl {
+                // №325: the compatibility profile is a compile-time
+                // declaration — no runtime effect.
+                Declaration::Profile(_) => {}
+                // №392: registered in the pre-pass — nothing here.
+                Declaration::OnDeny(_) => {}
                 Declaration::Import(import) => {
                     self.handle_import(&import)?;
                 }
@@ -445,6 +454,14 @@ impl Interpreter {
                     let compiled = crate::bytecode::CompiledVisionDecl::from_ast(&v);
                     self.vision_decls.insert(v.name.clone(), compiled);
                 }
+                // Наряд №332 (ADR-0164): register origin declarations for
+                // the media_source_capture dispatch (shape re-checked in
+                // CompiledOriginDecl::from_ast — defense-in-depth).
+                Declaration::Origin(o) => {
+                    let compiled = crate::bytecode::CompiledOriginDecl::from_ast(&o)
+                        .map_err(|e| format!("origin '{}': {}", o.name, e))?;
+                    self.origin_decls.insert(o.name.clone(), compiled);
+                }
             }
         }
 
@@ -577,6 +594,115 @@ impl Interpreter {
                 .map_err(|e| format!("vision registry poisoned: {}", e))?;
             return crate::builtins::vision_export_raw_dispatch(&reg, &args);
         }
+        // Наряд №331 (ADR-0162): unified media layer — state-carrying
+        // interception (лекало vision_export). All media byte state lives
+        // in the per-interpreter MediaStore; the shared dispatches in
+        // src/builtins/media.rs keep the two backends identical.
+        if name == "media_store_image" {
+            let mut store = self
+                .media_store
+                .lock()
+                .map_err(|e| format!("media store poisoned: {}", e))?;
+            return crate::builtins::media_store_dispatch(
+                &mut store,
+                crate::media::MediaKind::Image,
+                &args,
+            );
+        }
+        if name == "media_store_audio" {
+            let mut store = self
+                .media_store
+                .lock()
+                .map_err(|e| format!("media store poisoned: {}", e))?;
+            return crate::builtins::media_store_dispatch(
+                &mut store,
+                crate::media::MediaKind::Audio,
+                &args,
+            );
+        }
+        if name == "media_store_video_frame" {
+            let mut store = self
+                .media_store
+                .lock()
+                .map_err(|e| format!("media store poisoned: {}", e))?;
+            return crate::builtins::media_store_dispatch(
+                &mut store,
+                crate::media::MediaKind::VideoFrame,
+                &args,
+            );
+        }
+        if name == "media_store_video_segment" {
+            let mut store = self
+                .media_store
+                .lock()
+                .map_err(|e| format!("media store poisoned: {}", e))?;
+            return crate::builtins::media_store_dispatch(
+                &mut store,
+                crate::media::MediaKind::VideoSegment,
+                &args,
+            );
+        }
+        if name == "media_save" {
+            let store = self
+                .media_store
+                .lock()
+                .map_err(|e| format!("media store poisoned: {}", e))?;
+            return crate::builtins::media_save_dispatch(&store, &args);
+        }
+        if name == "media_retain" {
+            let mut store = self
+                .media_store
+                .lock()
+                .map_err(|e| format!("media store poisoned: {}", e))?;
+            return crate::builtins::media_retain_dispatch(&mut store, &args);
+        }
+        if name == "media_release" {
+            let mut store = self
+                .media_store
+                .lock()
+                .map_err(|e| format!("media store poisoned: {}", e))?;
+            return crate::builtins::media_release_dispatch(&mut store, &args);
+        }
+        if name == "media_meta" {
+            let store = self
+                .media_store
+                .lock()
+                .map_err(|e| format!("media store poisoned: {}", e))?;
+            return crate::builtins::media_meta_dispatch(&store, &args);
+        }
+        // №337 (ADR-0166 §2.4): the in-program provenance read — the
+        // entry-level manifest facts WITHOUT materializing bytes.
+        if name == "media_manifest" {
+            let store = self
+                .media_store
+                .lock()
+                .map_err(|e| format!("media store poisoned: {}", e))?;
+            return crate::builtins::media_manifest_dispatch(&store, &args);
+        }
+        // Наряд №332 (ADR-0164): HandleSource/ProvBind runtime — the
+        // origin declarations live in the interpreter's declaration pass.
+        if name == "media_source_capture" {
+            let mut store = self
+                .media_store
+                .lock()
+                .map_err(|e| format!("media store poisoned: {}", e))?;
+            return crate::builtins::media_source_capture_dispatch(
+                &mut store,
+                &self.origin_decls,
+                &args,
+            );
+        }
+        if name == "media_bind_origin" {
+            let mut store = self
+                .media_store
+                .lock()
+                .map_err(|e| format!("media store poisoned: {}", e))?;
+            return crate::builtins::media_bind_origin_dispatch(
+                &mut store,
+                &self.origin_decls,
+                &args,
+            );
+        }
         // Наряд №242 (R6.1): SQLite persistence — the dispatch receives
         // the registry and the interpreter's db connection (the
         // Arc<Mutex<Option>> opened by the `db { url: ... }` declaration;
@@ -660,6 +786,23 @@ impl Interpreter {
                 })
                 .unwrap_or_default();
             if let Some(val) = self.get_server_query_param(&param_name) {
+                return Ok(Value::String(val));
+            }
+            return Ok(Value::String(String::new()));
+        }
+
+        // Наряд №283: server_path_param(name) — path parameter from a
+        // templated route. Parity with query_param: empty string when no
+        // templated route matched / no server context.
+        if name == "server_path_param" {
+            let param_name = args
+                .first()
+                .and_then(|v| match v {
+                    Value::String(s) => Some(s.clone()),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            if let Some(val) = self.get_server_path_param(&param_name) {
                 return Ok(Value::String(val));
             }
             return Ok(Value::String(String::new()));
@@ -871,34 +1014,8 @@ impl Interpreter {
     /// Applied to builtin string operations (concat, replace, split, etc.).
     const MAX_STRING_LENGTH: usize = 1_000_000; // 1 MB
 
-    /// Наряд №14: Compare two Values using a CompareOp.
-    /// Used by match statement's Compare arm.
-    fn compare_values(left: &Value, op: &CompareOp, right: &Value) -> Result<bool, String> {
-        // Try numeric comparison first
-        let left_f = left.as_float().ok();
-        let right_f = right.as_float().ok();
-        if let (Some(lf), Some(rf)) = (left_f, right_f) {
-            return Ok(match op {
-                CompareOp::Gt => lf > rf,
-                CompareOp::Lt => lf < rf,
-                CompareOp::Ge => lf >= rf,
-                CompareOp::Le => lf <= rf,
-                CompareOp::Eq => lf == rf,
-                CompareOp::Ne => lf != rf,
-            });
-        }
-        // Fall back to string comparison
-        let ls = format!("{}", left);
-        let rs = format!("{}", right);
-        Ok(match op {
-            CompareOp::Eq => ls == rs,
-            CompareOp::Ne => ls != rs,
-            CompareOp::Gt => ls > rs,
-            CompareOp::Lt => ls < rs,
-            CompareOp::Ge => ls >= rs,
-            CompareOp::Le => ls <= rs,
-        })
-    }
+    // №369: `compare_values` moved to `ast::MatchArm::compare_values` —
+    // the shared predicate both backends run (the interpreter included).
 
     pub(crate) fn eval_statements(
         &self,
@@ -1193,32 +1310,23 @@ impl Interpreter {
                     ..
                 } => {
                     let scrutinee_val = self.eval_expr_with_env(scrutinee, env)?;
-                    let scrutinee_str = format!("{}", scrutinee_val);
                     let mut matched = false;
                     for arm in arms {
+                        // №369: matching now goes through the SHARED
+                        // ast::MatchArm predicates (identical semantics —
+                        // the logic moved verbatim so the VM runs the same
+                        // code; the old inline unwrap_or_default() could
+                        // only turn an impossible Err into false).
                         let arm_matches = match arm {
-                            MatchArm::Exact(val, _) => scrutinee_str == *val,
-                            MatchArm::StartsWith(prefix, _) => {
-                                scrutinee_str.starts_with(prefix.as_str())
-                            }
-                            MatchArm::Contains(substr, _) => {
-                                scrutinee_str.contains(substr.as_str())
-                            }
-                            MatchArm::Compare(op, threshold, _) => {
+                            MatchArm::Compare(_, threshold, _) => {
                                 let threshold_val = self.eval_expr_with_env(threshold, env)?;
-                                Self::compare_values(&scrutinee_val, op, &threshold_val)
-                                    .unwrap_or_default()
+                                arm.matches_value(&scrutinee_val, &threshold_val)
                             }
+                            _ => arm.matches_value(&scrutinee_val, &Value::Unit),
                         };
                         if arm_matches {
                             matched = true;
-                            let body = match arm {
-                                MatchArm::Exact(_, b) => b,
-                                MatchArm::StartsWith(_, b) => b,
-                                MatchArm::Contains(_, b) => b,
-                                MatchArm::Compare(_, _, b) => b,
-                            };
-                            eval_block!(body, env);
+                            eval_block!(arm.body(), env);
                             break;
                         }
                     }
@@ -1291,6 +1399,31 @@ impl Interpreter {
             Expr::StringLit { value: s, .. } => Ok(Value::String(s.clone())),
             Expr::FloatLit { value: f, .. } => Ok(Value::Float(*f)),
             Expr::BoolLit { value: b, .. } => Ok(Value::Bool(*b)),
+            // Наряд №332 (ADR-0164): HandleSource/ProvBind runtime — the
+            // tree-walking evaluator reaches the SAME dispatch functions
+            // the VM's compiled lowering uses (store + origin decls;
+            // camera kind is a loud PARKED boundary).
+            Expr::HandleSource { origin, .. } => {
+                let mut store = self
+                    .media_store
+                    .lock()
+                    .map_err(|e| format!("media store poisoned: {}", e))?;
+                let args = vec![Value::String(origin.clone())];
+                crate::builtins::media_source_capture_dispatch(
+                    &mut store,
+                    &self.origin_decls,
+                    &args,
+                )
+            }
+            Expr::ProvBind { origin, inner, .. } => {
+                let handle = self.eval_expr_with_env(inner, env)?;
+                let mut store = self
+                    .media_store
+                    .lock()
+                    .map_err(|e| format!("media store poisoned: {}", e))?;
+                let args = vec![Value::String(origin.clone()), handle];
+                crate::builtins::media_bind_origin_dispatch(&mut store, &self.origin_decls, &args)
+            }
             Expr::List { items: exprs, .. } => {
                 let mut items = Vec::new();
                 for expr in exprs {
@@ -1334,12 +1467,70 @@ impl Interpreter {
                 }
                 Ok(Value::Unit)
             }
-            // Наряд №14 P1-4: try expression — catch errors, return Unit
+            // №369: match as expression — first-class value (ADR-0141 Stage 1.1).
+            // Value = last non-Unit expression of the matched arm's body
+            // (REFERENCE §Match contract). Mirrors Expr::BlockIfElse (№14
+            // P0-3): block bodies evaluate against a CLONED local env (the
+            // value context does not leak lets — documented divergence from
+            // the statement-form match, which shares env); `return` inside
+            // an arm body is captured as the block value (same as
+            // BlockIfElse — the expression channel cannot carry a control
+            // signal). Arm matching + comparison use the SHARED
+            // `ast::MatchArm` predicates — the same code the VM runs.
+            Expr::MatchExpr {
+                scrutinee,
+                ref arms,
+                ref else_body,
+                ..
+            } => {
+                let scrutinee_val = self.eval_expr_with_env(scrutinee, env)?;
+                let mut matched = false;
+                let mut result = Value::Unit;
+                for arm in arms {
+                    let arm_matches = match arm {
+                        MatchArm::Compare(_, threshold, _) => {
+                            let threshold_val = self.eval_expr_with_env(threshold, env)?;
+                            arm.matches_value(&scrutinee_val, &threshold_val)
+                        }
+                        _ => arm.matches_value(&scrutinee_val, &Value::Unit),
+                    };
+                    if arm_matches {
+                        matched = true;
+                        let mut local_env = env.clone();
+                        result = self.eval_statements(arm.body(), &mut local_env)?;
+                        break;
+                    }
+                }
+                if !matched {
+                    if let Some(eb) = else_body {
+                        let mut local_env = env.clone();
+                        result = self.eval_statements(eb, &mut local_env)?;
+                    }
+                }
+                Ok(result)
+            }
+            // Наряд №14 P1-4: try expression — catch errors.
+            // №374 (ADR-0142 candidate (б)): the result is STRUCTURED —
+            // Struct { ok: Bool, value: Value, error: Unit | Struct{code,message} } —
+            // the error information is no longer discarded as a bare Unit.
+            // The shape is built by the shared `try_result_struct` so the TW
+            // and VM results cannot diverge.
             Expr::Try { expr: inner, .. } => match self.eval_expr_with_env(inner, env) {
-                Ok(val) => Ok(val),
+                Ok(val) => Ok(crate::interpreter::values::try_result_struct(
+                    true, val, None,
+                )),
                 Err(e) => {
+                    // №385 (ADR-0169): the SAME shared classifier as the VM —
+                    // one error string, one code, both backends.
                     eprintln!("[try] caught error: {}", e);
-                    Ok(Value::Unit)
+                    Ok(crate::interpreter::values::try_result_struct(
+                        false,
+                        Value::Unit,
+                        Some((
+                            crate::interpreter::values::stable_try_error_code(&e).to_string(),
+                            e,
+                        )),
+                    ))
                 }
             },
             Expr::IfElse {
@@ -1443,7 +1634,52 @@ impl Interpreter {
                 if function == "db_execute" {
                     return self.invoke_db_execute(&eval_args);
                 }
-                // ADR-0051: inspect() needs interpreter state
+                // Naryad #390 (ADR-0155): the granted destructive-SQL
+                // action — intercepted like db_execute (needs db_conn);
+                // runtime gates live in src/grants.rs.
+                if function == "db_execute_with_grant" {
+                    // Наряд №392: a grant refusal (GRANT_*) is a runtime
+                    // deny event — the on_deny handler for the db class
+                    // handles it (degraded Unit); without a handler the
+                    // loud typed error is unchanged.
+                    return match self.invoke_db_execute_with_grant(&eval_args) {
+                        Err(e) if e.starts_with("GRANT_") => {
+                            let handled = self.fire_on_deny(crate::deny::DenyEventArgs {
+                                reason: "IRREVERSIBLE_NO_GRANT".into(),
+                                class: "db".into(),
+                                sink: "db_execute_with_grant".into(),
+                                argument: "sql".into(),
+                                label: "bottom".into(),
+                                line: 0.0,
+                                human: e.clone(),
+                            })?;
+                            if handled {
+                                Ok(Value::Unit)
+                            } else {
+                                Err(e)
+                            }
+                        }
+                        other => other,
+                    };
+                }
+                if function == "deny_event" || function == "deny_reason" {
+                    // Наряд №392: the DenyEvent surface — handler-scoped,
+                    // runtime-constructed. The analyzer blocks usage
+                    // outside a handler at compile time; this runtime
+                    // gate is the second half of the double protection.
+                    let event = self.take_deny_event()?;
+                    let reason = match &event {
+                        Value::Struct { fields, .. } => {
+                            fields.get("reason").cloned().unwrap_or(Value::Unit)
+                        }
+                        other => other.clone(),
+                    };
+                    return Ok(if function == "deny_event" {
+                        event
+                    } else {
+                        reason
+                    });
+                }
                 if function == "inspect" {
                     return self.invoke_inspect(&eval_args);
                 }
@@ -1653,6 +1889,114 @@ impl Interpreter {
                         .map_err(|e| format!("vision registry poisoned: {}", e))?;
                     return crate::builtins::vision_export_raw_dispatch(&reg, &eval_args);
                 }
+                // Наряд №331 (ADR-0162): unified media layer — expression
+                // path interception (лекало vision_export_raw above). The
+                // same shared dispatches as the statement path keep the
+                // two evaluation routes identical.
+                if name == "media_store_image" {
+                    let mut store = self
+                        .media_store
+                        .lock()
+                        .map_err(|e| format!("media store poisoned: {}", e))?;
+                    return crate::builtins::media_store_dispatch(
+                        &mut store,
+                        crate::media::MediaKind::Image,
+                        &eval_args,
+                    );
+                }
+                if name == "media_store_audio" {
+                    let mut store = self
+                        .media_store
+                        .lock()
+                        .map_err(|e| format!("media store poisoned: {}", e))?;
+                    return crate::builtins::media_store_dispatch(
+                        &mut store,
+                        crate::media::MediaKind::Audio,
+                        &eval_args,
+                    );
+                }
+                if name == "media_store_video_frame" {
+                    let mut store = self
+                        .media_store
+                        .lock()
+                        .map_err(|e| format!("media store poisoned: {}", e))?;
+                    return crate::builtins::media_store_dispatch(
+                        &mut store,
+                        crate::media::MediaKind::VideoFrame,
+                        &eval_args,
+                    );
+                }
+                if name == "media_store_video_segment" {
+                    let mut store = self
+                        .media_store
+                        .lock()
+                        .map_err(|e| format!("media store poisoned: {}", e))?;
+                    return crate::builtins::media_store_dispatch(
+                        &mut store,
+                        crate::media::MediaKind::VideoSegment,
+                        &eval_args,
+                    );
+                }
+                if name == "media_save" {
+                    let store = self
+                        .media_store
+                        .lock()
+                        .map_err(|e| format!("media store poisoned: {}", e))?;
+                    return crate::builtins::media_save_dispatch(&store, &eval_args);
+                }
+                if name == "media_retain" {
+                    let mut store = self
+                        .media_store
+                        .lock()
+                        .map_err(|e| format!("media store poisoned: {}", e))?;
+                    return crate::builtins::media_retain_dispatch(&mut store, &eval_args);
+                }
+                if name == "media_release" {
+                    let mut store = self
+                        .media_store
+                        .lock()
+                        .map_err(|e| format!("media store poisoned: {}", e))?;
+                    return crate::builtins::media_release_dispatch(&mut store, &eval_args);
+                }
+                if name == "media_meta" {
+                    let store = self
+                        .media_store
+                        .lock()
+                        .map_err(|e| format!("media store poisoned: {}", e))?;
+                    return crate::builtins::media_meta_dispatch(&store, &eval_args);
+                }
+                // №337 (ADR-0166 §2.4): the in-program provenance read.
+                if name == "media_manifest" {
+                    let store = self
+                        .media_store
+                        .lock()
+                        .map_err(|e| format!("media store poisoned: {}", e))?;
+                    return crate::builtins::media_manifest_dispatch(&store, &eval_args);
+                }
+                // Наряд №332 (ADR-0164): HandleSource/ProvBind runtime,
+                // expression path.
+                if name == "media_source_capture" {
+                    let mut store = self
+                        .media_store
+                        .lock()
+                        .map_err(|e| format!("media store poisoned: {}", e))?;
+                    return crate::builtins::media_source_capture_dispatch(
+                        &mut store,
+                        &self.origin_decls,
+                        &eval_args,
+                    );
+                }
+                if name == "media_bind_origin" {
+                    let mut store = self
+                        .media_store
+                        .lock()
+                        .map_err(|e| format!("media store poisoned: {}", e))?;
+                    return crate::builtins::media_bind_origin_dispatch(
+                        &mut store,
+                        &self.origin_decls,
+                        &eval_args,
+                    );
+                }
                 // Наряд №242 (R6.1): SQLite persistence — same state-
                 // carrying interception, expression path; the dispatch
                 // also receives the interpreter's db connection (opened
@@ -1732,6 +2076,19 @@ impl Interpreter {
                 }
 
                 // ADR-0051: inspect() — needs interpreter state (pattern_stats)
+                if name == "deny_event" || name == "deny_reason" {
+                    // Наряд №392: same handler-scoped surface as the
+                    // QualifiedCall site — the event is live exactly
+                    // while an on_deny body runs.
+                    let event = self.take_deny_event()?;
+                    let reason = match &event {
+                        Value::Struct { fields, .. } => {
+                            fields.get("reason").cloned().unwrap_or(Value::Unit)
+                        }
+                        other => other.clone(),
+                    };
+                    return Ok(if name == "deny_event" { event } else { reason });
+                }
                 if name == "inspect" {
                     return self.invoke_inspect(&eval_args);
                 }
@@ -1841,6 +2198,22 @@ impl Interpreter {
                     return Ok(Value::String(String::new()));
                 }
 
+                // Наряд №283: server_path_param(name) — path parameter from
+                // a templated route. Parity with query_param.
+                if name == "server_path_param" {
+                    let param_name = eval_args
+                        .first()
+                        .and_then(|v| match v {
+                            Value::String(s) => Some(s.clone()),
+                            _ => None,
+                        })
+                        .unwrap_or_default();
+                    if let Some(val) = self.get_server_path_param(&param_name) {
+                        return Ok(Value::String(val));
+                    }
+                    return Ok(Value::String(String::new()));
+                }
+
                 // Наряд №14 P2-6: require() — RBAC check
                 if name == "require" {
                     let role = eval_args
@@ -1894,6 +2267,30 @@ impl Interpreter {
                 }
                 if name == "db_execute" {
                     return self.invoke_db_execute(&eval_args);
+                }
+                // Naryad #390 (ADR-0155): granted destructive-SQL action.
+                if name == "db_execute_with_grant" {
+                    // Наряд №392: grant refusal → on_deny (db class),
+                    // same contract as the QualifiedCall site above.
+                    return match self.invoke_db_execute_with_grant(&eval_args) {
+                        Err(e) if e.starts_with("GRANT_") => {
+                            let handled = self.fire_on_deny(crate::deny::DenyEventArgs {
+                                reason: "IRREVERSIBLE_NO_GRANT".into(),
+                                class: "db".into(),
+                                sink: "db_execute_with_grant".into(),
+                                argument: "sql".into(),
+                                label: "bottom".into(),
+                                line: 0.0,
+                                human: e.clone(),
+                            })?;
+                            if handled {
+                                Ok(Value::Unit)
+                            } else {
+                                Err(e)
+                            }
+                        }
+                        other => other,
+                    };
                 }
                 // Наряда-26 P1-7: query_scalar / query_row
                 if name == "query_scalar" {
@@ -1987,7 +2384,7 @@ impl Interpreter {
                     let param_refs: Vec<&dyn rusqlite::types::ToSql> =
                         params.iter().map(|p| p.as_ref()).collect();
                     conn.execute(&sql, param_refs.as_slice())
-                        .map_err(|e| format!("db_insert() SQL error: {}", e))?;
+                        .map_err(|e| crate::interpreter::db::sql_err("db_insert() SQL error", e))?;
                     // Return last inserted rowid
                     let rowid: i64 = conn
                         .query_row("SELECT last_insert_rowid()", [], |row| row.get(0))

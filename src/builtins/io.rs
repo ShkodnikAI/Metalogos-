@@ -248,8 +248,10 @@ pub(crate) fn sandbox_path_missing(path: &str) -> bool {
 
 /// Наряд №254: громкий формат отказа песочницы со стабильным кодом
 /// `SANDBOX_VIOLATION` (конвенция ADR-0131: код — контракт, текст может меняться).
+/// Наряд №385: the stamp is produced by the shared `coded_error` so the
+/// `try` classifier (ADR-0169) reads the same marker the code constant pins.
 pub(crate) fn sandbox_violation(msg: impl std::fmt::Display) -> String {
-    format!("[SANDBOX_VIOLATION] {}", msg)
+    crate::interpreter::values::coded_error(crate::interpreter::values::CODE_SANDBOX_VIOLATION, msg)
 }
 
 /// Like `sandbox_path` but allows specifying whether the operation is

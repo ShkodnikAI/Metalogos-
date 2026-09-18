@@ -4,51 +4,563 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
-### Added — language: `user_profile` + scope-изоляция + hybrid-контракт vec_search (Naryad #281, P2/M2)
+### Added
 
-- language: `user_profile(db_path, container) -> Struct{container, count, static, dynamic, buckets}` (arity 2, category `memory`, БЕЗ feature-гейта — kv-контур ядровой) — детерминированная выжимка «что мы знаем о X» одним вызовом (паттерн supermemory user-profiles), БЕЗ LLM-вызова (LLM-синтез — опционально и явно, вне скоупа Tier-1 — громко). Источник записей — KV-контур (memorize/kv_set с `memory { persist: <db_path> }` на тот же файл) по конвенции `container:<container>:<bucket>:<key>`: `static` = долгие факты, `dynamic` = текущий контекст, `buckets` = произвольные топики (Struct{имя: List[Struct{key,value}]}), сортировка по ключу — детерминизм. Профиль без записей — ПУСТОЙ, не ошибка (включая бд без таблицы kv_store); битая запись (нет `<bucket>:<key>` после префикса) — громкая ошибка данных. Кэш ин-процессный (перф-оптимизация, семантику не меняет) с двойной инвалидацией: поколение KV-записей (счётчик на kv_set/mem_set/kv_delete/mem_delete — запись в контейнер инвалидирует мгновенно) + mtime файла (внешние записи мимо билтинов).
-- контейнер-изоляция (containerTag-аналог supermemory): префикс `container:<name>:` — жёсткая граница профиля (записи другого контейнера физически не видны — тест); scope-параметр для РАЗДЕЛЯЕМОЙ поверхности: `vec_store(db, table, id, emb, {scope})` биндит таблицу к namespace на первой записи (ребиндинг — громко), `vec_search(db, table, q, k, {scope})` сверяет биндинг ДО чтений — cross-scope → громкая `[SCOPE_VIOLATION]`, незабинженная таблица с явным scope → громко (fail-closed). Scope-параметр user_profile сознательно не введён: контейнер уже изоляционная граница (громко в PR).
-- hybrid-контракт: `vec_search` 5-й аргумент — тип-дискриминация Bool (include_forgotten №280, back-compat) | Struct opts `{include_forgotten?, mode?, scope?, query_text?}`: mode `"semantic"` (дефолт, прежний KNN) | `"fts"` (BM25 по FTS5-shadow `{table}__fts`, тексты кладутся `vec_store(db, table, id, emb, "text")` — арность 4..5; перезапись текста по id) | `"hybrid"` (RRF-слияние k=60 обоих плеч — формула реюзнута из memory_store ADR-0094/0075; id, попавшие в ОБА плеча, ранжируются выше). Форма хита дополнена `score` ∈ [0,1] (semantic: 1−distance; fts: max-нормализованный bm25; hybrid: max-нормализованный RRF); distance = истинная cosine в semantic, 1−score в fts/hybrid (НЕ физическая дистанция — честно). Пост-фильтр забытых (№280) работает во всех режимах. Неизвестные поля opts / неверные типы / fts-hybrid без query_text / пустой query_text / fts-режим без текстового индекса — громко.
-- «два хранилища» задокументированы в REFERENCE §4.5: документы/чанки (что в источнике, vec-таблицы с текстами) ≠ выведенные факты (что мы знаем о сущности, container-записи профиля) — разные таблицы, разные жизненные циклы.
-- tests: `tests/naryad_281_profile.rs` (23): профиль пустой/без kv_store/группировка static-dynamic-buckets, cross-container изоляция, битая запись громко, инвалидация кэша записью через живой kv_set+persist, sandbox/арность, scope bind/ok/cross-loud/unbound-loud/rebind-loud/legacy-unaffected, fts-режим (лексические хиты, score-нормализация), fts без индекса/без query_text/пустой текст — громко, unknown opts (search+store), semantic-режим неизменен (id+distance байт-в-байт), **hybrid ≥ max(плечей) по recall на фикс. корпусе** (semantic@2 теряет текст-релевантный d4, fts@2 теряет вектор-релевантный d1, hybrid@2 покрывает оба — таблица в PR), forget-фильтр во всех режимах + include_forgotten через opts, формы payload vec_store, TW/VM parity (kv_set → user_profile → vec_store с текстом → fts-поиск, одинаковый результат "2:email:1").
-- docs: REFERENCE §4.5 — обновлены строки vec_store/vec_search (payload/scope/mode/score), новая строка user_profile, блок «два хранилища», пример hybrid+profile; §6 регенерирован (404, 100%, 0 TODO); README counts synced (404 builtins, 38 modules, 148 test files, ~180 KB REFERENCE). Registry 403→404 (user_profile appended; vec_store пин 4→4..5 на месте — громко, индексы не сдвинуты).
+- **Stage 5 evidence — the per-request divisor confirmed, NOT flip-ready, the elimination ADR-proposal (naryad #388, issue #482)**: the re-gate entry №381 asked for — (1) **the divisor is confirmed at CODE level**: after startup route compilation, `execute_route_body_vm` still pays `Program::clone()` + `Vm::new()` + `load_program()` per request (the `'static + Send` spawn_blocking closure) and the TW twin re-clones definitions per request (`clone_definitions_into`) — the №40 startup compilation amortized the compile, not the state construction; (2) **three consecutive pinned-runner benchmark runs** (stage4-benchmark.yml, rounds=30, main @ 307f506, all success — runs 35366524331 / 35367692167 / 35368447002): p95 speedup ×1.66 / ×1.62 / ×1.48, RSS ratio VM/TW 1.10 / 1.09 / 1.12 — both re-gate thresholds (p95 ≥ ×1.5, RSS ≤ ×1.1) hold on TWO of THREE runs and fail on the third → **verdict: NOT flip-ready**, the ratio stays inside the scheduler-noise band (+24–29 %, №381/№398) until the per-request cost is removed; (3) **the ADR-proposal (NO implementation)**: `docs/research/naryad-388-stage5-evidence.md` §4 — two separately-scoped changes: the program cache (`Arc<Program>` — the clone becomes an Arc increment; risk LOW, the program is immutable post-startup) and the warm VM pool / definition-cache (risk MEDIUM — cross-request state leakage is a security regression, the reset protocol must be contract-tested fail-closed; the №381 shared-DB bug is the cautionary precedent); (4) **soak evidence**: `soak.yml` cron active, **3 green nights** (2026-09-16/17/18); (5) the WARN-actualization small diff (task 4): ADR-0105 → ADR-0141, the word *experimental* removed (opt-in backend; full-language parity Stage 1–2 closed; the default flip gated by ADR-0141 Stage 4/5 on soak + real-load evidence — the current process, not the closed gh#446 NO-GO). The N-run protocol (≥3 pinned runs, artifacts per run) is executed as part of this naryad; the re-gate decision stays with the owner. Documentation + a 20-line WARN/comment diff — zero behavior change.
 
-### Added — language: `memory_forget` — управляемое забывание с границами, soft-delete ledger (Naryad #280, P2/M2)
+- **LikenessToken — the opaque consent credential for likeness egress (naryad #387, issue #481, ADR-0149 D1/D6)**: the V6-deferred token mechanics land as the third legal credential for private/camera-origin media egress beside the public label and the №335 consent scope. **The token is NOT a String** (the P1-7 unforgeability contract): `Value::LikenessChallenge`/`Value::Likeness` are new opaque variants (the №390 GrantHandle pattern — serde emits dead `[LIKENESS_TOKEN]` markers, Display is bracketed, non-printable), minted ONLY by the ritual — `likeness_challenge(subject, scope?, ttl?)` issues a one-time challenge, `likeness_verify(challenge, subject?, scope?)` consumes it linearly (replay = typed `LIKENESS_VERIFY_FAILED`), records the consent-ledger grant (the №335 trace) and returns the token; a String in the challenge or credential position never verifies. **Static gate `VIDEO_LIKENESS_NO_CONSENT`** (Category A, no profile downgrades a deepfake gate): `video_render` with an I2V reference (positions 2/3) resolving — directly or through a let-alias chain — to a `kind: "likeness"` origin requires a bound `likeness_verify` result BEFORE the call site (presence-based, the D2 honest boundary; order-sensitive; branch/loop-bound tokens do not escape their fork — fail-closed). **Generalized media egress**: the №325 walk threads a FlowCtx (var → origin-kind alias map + token-presence flag) so `media_save` accepts a private camera/likeness-origin handle with a non-empty consent scope OR the ritual credential; the kitchen-camera deny, the poisoned refusal and every other sink are UNCHANGED, and the runtime `MEDIA_SEALED_EGRESS` backstop holds — non-public saves now unseal ONLY with the token passed as the third argument (`media_save(handle, path, token)`), verified against the likeness registry (forged ids refuse). `kind: "likeness"` joins the origin vocabulary (file-backed capture when `path` is present; the ProvBind construction needs no file). Registry 455→457 (append-only, `security` category); the №316 classification SSOT regenerated. Examples: `w1_likeness_token` (green e2e — challenge/verify → token save → honest C2PA-style sidecar manifest), `w1_kitchen_camera_alias` (red — a 3-deep let-chain never detaches the private label). Leak corpus: `n387_likeness_video_no_token` (VIDEO_LIKENESS_NO_CONSENT) + `n387_likeness_save_no_token` (SECRET_LEAK). Evidence: `tests/naryad_387_likeness_token.rs` (20 tests — unforgeability, linearity, serde markers, the gate red/green matrix incl. order-sensitivity and branch-escape conservatism, alias invariance, the runtime unseal/refuse/forged triplet, the kitchen-camera regression pin). REFERENCE §3/§6 + limitations + threat-model resynced; README anchors resynced (457 builtins / 245 examples).
 
-- language: `memory_forget(db_path, table, query, threshold, max_forget[, dry_run[, ids]]) -> Struct{candidates, applied, batch_id}` (arity 5..7, category `memory`, feature-gate `vec` — Tier 1 поверх vec_search №272). Управляемое забывание по дисциплине supermemory forget-matching: сухой прогон → связанный список id → apply строго по ids → forgetBatchId на каждом стёртом. `dry_run=true` — ДЕФОЛЬТ (арность 5, либо явный `true`): возвращает только кандидатов `List[Struct{id, score}]` — cosine similarity (лучшая на id; дедуп по id; уже забытые — не кандидаты), `applied: 0`, `batch_id: ""`, состояние НЕ меняется. Apply (`dry_run=false`) — СТРОГО по явному списку `ids` из превью, никогда по переисканному запросу: каждый id проверяется точечно против границ превью (существует в таблице + similarity ≥ threshold — ТЕ ЖЕ вычисления, что в превью, не переисканный KNN), несуществующий id / id вне границ — ГРОМКАЯ ошибка ДО любых записей (атомарность apply); количество ≤ `max_forget`.
-- soft-delete: физического удаления НЕТ — стёртые id попадают в forget-ledger `{table}__forgotten` (id, batch_id, reason, forgotten_at) в той же SQLite-бд; `batch_id` `MLOG-FORGET-<base32×26>` (128 бит, rand 0.10 — формат-брат canary-маркера №284) штампуется на каждую запись и возвращается; повторный forget того же id — no-op (`applied: 0`, `batch_id: ""` — пустой apply не оставляет следа в журнале). Физический vacuum — отдельная операция владельца, не builtin.
-- vec_search расширен до arity 4..5: опциональный пятый аргумент `include_forgotten` (Bool, дефолт `false`) — пост-фильтр забытых id из ledger; `k` — размер KNN-выборки ДО фильтра (после фильтра результат может быть меньше `k` — честно задокументировано). Для бд без forget поведение байт-в-байт прежнее; пин арности №272 обновлён (расширение вверх, bytecode-индекс не сдвинулся, реестр append-only 402→403).
-- громкие ошибки: threshold вне [0, 1]; max_forget нецелое/вне [1, 10000] (DoS-граница как у k); `dry_run=false` без ids; `ids` вместе с `dry_run=true`; `List` на позиции `dry_run` (программист забыл dry_run); пустой список ids; не-String элемент ids; dim-рассогласование; отсутствие таблицы; sandbox-нарушения (превью ForRead — файл должен существовать, apply ForWrite). taint-инвариант: забывание оперирует ТОЛЬКО vec0-таблицей и ledger — canary-детекция (№284), taint-метки и журналы LLM не трогаются (забывание не «стирает» компрометацию из логов); секреты не попадают в память вовсе (маскирование №274 до памяти) — forget не обязан их «стирать».
-- вне скоупа (громко): автозабывание v2 (TTL для episode-записей, вытеснение updates-фактом — синергия с LRU №273) — отдельный чекбокс issue #329 остаётся открытым; refill-семантика k после фильтра; JSONL-трейс памяти (ledger сам — журнал операции в духе №276).
-- tests: `tests/naryad_280_forget.rs` (28): превью без мутации (строки живы, ledger не создан), сортировка по score desc, threshold/max_forget отсекают (в т.ч. на 100 записях), дедуп id с лучшей оценкой, исключение уже забытых из превью, все громкие ошибки apply-контракта, полный цикл dry_run → apply по ids → batch_id в ledger (прямое чтение sqlite), no-op повторного forget, уникальность batch_id, back-compat арности 4 vec_search, include_forgotten=true, пины арности/типов, taint-инвариант canary, TW/VM parity (embed → vec_store → превью → apply → vec_search, одинаковый результат обоих бэкендов).
-- docs: REFERENCE §4.5 — строка `memory_forget` + обновлённая строка `vec_search` + пример «превью → apply по ids из превью» + sandbox-абзац; §6 регенерирован (403, 100%, 0 TODO); README counts synced (403 builtins, 38 modules, 147 test files, ~174 KB REFERENCE).
+- **Executable architecture contracts — `tests/architecture_contract.rs` (naryad #382, issue #502, idea A10)**: the ADR culture gets mechanical enforcement after the donor reference (memorax-code `ARCHITECTURE.md` §5.2–5.3, "do not weaken a boundary to get a green build"): a std-only test (zero new dependencies, source scan only, 0.2 s runtime) walks `src/` + the root `Cargo.toml` — parses `use crate::…` (incl. group forms), `pub use`, `use super::…` (resolved to the top-level module) and bare `crate::head` mentions — and pins six contracts: **C1** the root crate never depends on the satellite crates (`mlogpkg`/`mlog-lsp`; manifest sections + source-mention scan; the allowed direction is satellites → `metalogos` only), **C2** `builtins` and **C3** the execution core (`vm`/`interpreter`) never touch transport (`server`/`mcp_server`; the media-handle re-exports in `interpreter/values.rs` are data, not transport), **C5** the frontend (`parser`/`ast`) never touches transport, **C6** the provenance substrate (`ledger`/`consent`) stays below the builtin surface and transport, and **C4** the acyclicity ratchet: the file-level `crate::` graph (Tarjan SCCs over 149 files / ~310 direct edges at `c60651b`) carries exactly two frozen cycles — {`ast`, `builtins/mod`, `bytecode`, `interpreter/mod`, `llm`} and {`audit`, `semantic`} — with their exact intra-cycle edge sets; a NEW cycle or edge is red, and so is the silent disappearance of a frozen one (compression is welcome but loud: `FROZEN_SCCS` is updated in the same PR). A meta-guard test pins the anchors (key module files, head resolvability, workspace members line, scanner sanity ≥100 files / ≥100 edges) so no rule can pass vacuously. The honest scanner boundary is documented in the test header (no macro expansion, no build.rs analysis, no cfg-feature graph, no transitive deps — cfg-gated edges still count, string literals not parsed; not a cargo-deny replacement). The naryad's pre-scan inventory (2026-09-16) was honestly refreshed on HEAD: the interpreter↔nn cycle no longer exists at file level, while `llm.rs` and the audit↔semantic pair joined the frozen set. Mutation-verified (report in the issue): 8 injections — one per rule, plus the C4 edge ratchet, plus the cargo-level cycle refusal — all red naming the rule; clean tree green.
 
-### Added — language: `json_validate` — валидатор ADR-0133 как standalone builtin, «shape-before-use» (Naryad #286, P2/M1)
+- **Benchmark run protocol — the five mechanical rules + fail-closed runner + first executed series (naryad #398, issue #501)**: the direct answer to №381's INSUFFICIENT DATA — `docs/benchmark-protocol.md` fixes the run contract verbatim: (1) fixed run command, only committed code varies between runs (no env flags, no mid-series edits); (2) the normalization divisor is declared BEFORE the run and printed with RAW and normalized numbers (a divisor may not absorb the raw ones); (3) frozen variants — any answered run is final, error-runs that do not answer the hypothesis count as repairs; (4) repair cap 2 per node, stop after 3 consecutive failures per direction; (5) stacked bushes — fans only within one decision, the tree (parent→child) is fixed in the report. `scripts/bench_run.sh` enforces the contract mechanically for the Stage 4 benchmark (refuses an undeclared divisor, prints `RAW | DIVISOR | NORMALIZED`, appends the run-tree log). **First series executed**: decision "does 60 rounds vs 30 change the measured cost" — variant A (main, 30 rounds: interpreter 20505 µs/cycle raw, vm 11363; normalized /14 routes = 1464.6 / 811.7) vs variant B (committed 60-rounds branch: 25405 / 14708; 1814.7 / 1050.6); tree `root → rounds30-main ; root → rounds60-varB`; verdicts: A promote-as-baseline (after 2 wrapper repairs — rule 3 in action), B stop (cross-run noise dominates: +24…29 % between runs regardless of round count → the Stage 4 re-gate stability requirement is a pinned-runner property). Series record: `docs/research/bench-protocol-first-series.md` + `docs/research/bench-tree.log`.
 
-- language: `json_validate(schema_json, value_json) -> Struct{valid, errors}` (arity 2..3, category `llm`) — проверка JSON-строки против подмножества ADR-0133 БЕЗ вызова LLM: `valid` — Bool, `errors` — List<String> с путями нарушений (`value.age: expected type integer, got string "33"`); пустой `errors` ⟺ `valid`. Третий аргумент `strict` (дефолт `true`): `true` = strict-by-default ADR-0133 D2 — поля вне `properties` являются нарушениями (как в `call_llm_schema`); `false` — необъявленные поля разрешены (opt-in №286), остальные правила (type/required/items/enum, подмножество, root-object контракт) НЕ изменены.
-- ГЛАВНОЕ: валидатор ОДИН для обоих путей — извлечён из LLM-пути (№269, `call_llm_schema`) в общий модуль `src/schema/validate.rs` (`check_schema_subset` + `validate_json`), `call_llm_schema` зовёт его через compat-шимы с byte-identical диагностикой (тесты №269 не изменены). Дифференциальный контракт «ни одного нового правила» закреплён тестом: общий корпус схем/значений даёт одинаковые вердикты в `call_llm_schema` (provider-injected, без сети) и `json_validate`, а тексты нарушений совпадают до слова (единственное задуманное различие — корневой ярлык `answer`/`value`).
-- громко: невалидный `schema_json` / ключевое слово вне подмножества / не-object root — `[LLM_SCHEMA_UNSUPPORTED_FEATURE]`, ЕДИНЫЙ код с `call_llm_schema` (один и тот же `check_schema_subset`); невалидный `value_json` — громкая ошибка парсинга (`json_validate() error: value_json is not valid JSON: …`), НЕ `valid=false` — валидатор судит структуру, парсер судит байты; не-Bool `strict` — громкая ошибка типа.
-- robustness-фикс при извлечении (вердикты не меняются): `short_repr` в отчётах нарушений мог ПАНИКОВАТЬ на срезе `&s[..60]` при мультибайтном значении (например, длинная кириллица в type/enum-нарушении) — усечение теперь по границе символа; формат для ASCII не изменился.
-- не feature-гейт: builtin доступен и в minimal-сборке (без `llm`) — проверяет данные НЕ от LLM (MCP tool-outputs №268/#304, HTTP-ответы, `request_body`); реюз семантики taint НЕ входит в наряд: `json_validate` не снимает и не ставит taint-меток (маскирует содержание `redact` №274, форму проверяет `json_validate` №286 — разные оси).
-- tests: `tests/naryad_286_json_validate.rs` (13): точные пути/тексты нарушений (dot-path, indexed path, missing required, strict-by-default), enum-приоритет, громкие ошибки schema/value/strict, strict=false (разрешает только необъявленные; типы/required/enum/nested без изменений), ДИФФЕРЕНЦИАЛЬНЫЙ КОРПУС (11 кейсов × оба пути: вердикты + тексты) + schema-side дифференциал (4 bad-схемы × оба пути, единый код), языковой контракт TW+VM (MCP-style payload: ok/bad), strict явным аргументом TW+VM, пины арности/типов/парсинга. Registry 401→402; REFERENCE §4.5 row + пример «MCP tool-output → json_validate → use» + регенерированный §6; README counts synced (402 builtins, 38 modules, 146 test files).
+- **Public draft: Action Provenance Ledger — a profile over in-toto / W3C PROV (naryad #396, issue #490)**: the ledger v1 design (ADR-0167 + the ADR-0157 mappings) is now written up for external review — `docs/research/action-provenance-ledger-draft.md` (English-only per the owner directive): the native record model (fields, canonical body, the six chain rules including signer continuity), the in-toto ITE-5 profile (fixed versioned `predicateType`, every native field preserved in `predicate`, the subject digest = the args commitment), the PROV-JSON linear-activity-lineage profile (one declared `metalogos:` namespace), the honest threat boundary (tamper-EVIDENT not tamper-PROOF — out-of-band head/key anchoring is the answer; args preimage not stored; metadata-only confidentiality), positioning against SLSA (orthogonal), CycloneDX (no per-action trail document type — in-toto chosen) and OWASP agentic guidance (the audit trail the guidance calls for), a REAL worked corpus — the 20-record `w2_ledger` chain (grant → granted destructive SQL → deny → rotation → snapshot, records verbatim, synthetic dogfood data) plus the blocking 10k-record CI golden for scale — and the prepared liaison letter (§10) with concrete compatibility questions for the in-toto/SLSA/PROV communities and the target channels. Per the naryad: SENDING the letter is deliberately NOT part of this naryad — publication happens by the owner's explicit instruction; the Responses section (§11) is opened and will record each external comment with its accepted/rejected rationale. Documentation-only change; docs_language_lint/consistency gates green.
 
-### Added — language: `canary_insert` / `canary_check` — canary-токены недоверенного текста, детектор «компрометированный канал» (Naryad #284, P1/M1)
+- **Cross-module persistence taint — memory-key summaries (naryad #386, issue #480)**: the `TAINT_PERSISTENCE` Category-A gate now sees across module boundaries. `PatternSummary` (the №376 interprocedural summary) is extended with `tainted_memory_keys` / `writes_tainted_memory` — computed in `compute_pattern_summaries_with_depth` for every `memorize(<key>, <LLM-derived value>)` (sanitizer-wrapped stores are not tainted). A content-fingerprint-keyed module registry (`MEMORY_TAINT_REGISTRY`, bounded at 4096) accumulates each audited module's keys; when a module's `recall(<key>)` result reaches `respond()`/`respond_html()` and the key matches ANOTHER module's recorded key/prefix, the finding fires with the SAME `TAINT_PERSISTENCE` class, naming the matched key and the writer scope. Honest boundary (limitations.md + threat-model resynced): dynamically constructed keys without a leading string literal are not matched — full points-to is a later phase. Optional strict mode `METALOGOS_TAINT_STRICT=1` (default OFF) flags ANY recall→sink flow when another module writes LLM output to memory at all. Why a registry beside the №376 cache: the cache is keyed by the source-string hash, and the compile/run paths pass an empty source (entries would collide/overwrite); the fingerprint is content-derived and stable per module. Overhead measured on the 2344-line production fixture: within noise (~1.62 s with vs without, cold registry). Evidence: `tests/naryad_386_taint_cross_module.rs` (10 tests — red/green cross-module pair with key+writer named, unrelated-key green, sanitize-before-store green, prefix matching, the dynamic-key boundary, strict on/off, in-slice cross-pattern, the №376 cache contract, the registry clear hook), leak corpus `examples/leak/n386_a_writer`/`n386_b_reader` (red pair; the runner's sorted walk seeds the registry) + `ok_386_redact_store`/`ok_386_plain_memory` (BLOCKING green), `n325_leak_suite_corpus_is_closed` now walks the corpus in the same deterministic sorted order as the runner.
+
+- **Stable `try` error codes — origin-stamped classification (naryad #385, issue #479, ADR-0169)**: `try.error.code` is no longer a constant — the three sewing points (TW `Expr::Try`, VM `Instruction::TryEval` in both dispatch arms) classify every caught error through ONE shared function (`values::stable_try_error_code`), so the interpreter and the VM cannot disagree (parity by construction, guarded by the crosscheck gate). **Classification is by ORIGIN STAMP, never by message prose**: the failing subsystem stamps the error where it is born (`values::coded_error` → the unified loud `[<CODE>] ` format, generalizing №254's `[SANDBOX_VIOLATION]`; `MEDIA_SEALED_EGRESS: …` reformatted into the same bracket form — `contains`-based consumers unaffected), and the classifier reads only a strict whitelist at position 0 (a `[CODE]`-looking substring mid-message is content — a program cannot forge a classification). **The frozen set** (ADR-0131 contracts): `RUNTIME_ERROR` (honest fallback — unstamped origins: API-arity refusals, db lock poisoning, HTTP status answers, transport failures of other subsystems), `LLM_TIMEOUT` (reqwest `is_timeout` + the №248 deadline contours, stamp preserved through the legacy wrapper), `LLM_PROVIDER_UNAVAILABLE` (`is_connect` + SmartRouter circuit-open exhaustion — no rung attempted, or the last error's own stamp promoted to the front by `wrap_error_preserving_code`), `SQL_ERROR` (every rusqlite-origin site in BOTH `interpreter/db.rs` and the VM's duplicated dispatch arms — one `sql_err` helper, parity intact), `SANDBOX_VIOLATION` (№254, unchanged format), `SINK_CLEARANCE_RUNTIME` (the №325 runtime twin), `MEDIA_SEALED_EGRESS` (№325/ADR-0162), `BACKEND_DEGRADED` (№336 — stays a TYPED `Degraded(t)` result whose `error.code` reuses the same frozen constant). **Deterministic fault seam** `METALOGOS_MOCK_LLM_FAULT=timeout|unavailable` (mock path; invalid values fail CLOSED with a loud error) exercises the LLM codes offline — golden examples declare it via an `examples/X.env` sidecar honored by BOTH the golden runner and the crosscheck (the parity gate compares the fault-injected run on both backends). The `message` field keeps the full original text (stamp included) — message-reading consumers are unaffected. Evidence: `tests/naryad_385_try_codes.rs` (13 tests — exact code + TW↔VM equality per subsystem, the honest fallback, the fail-closed seam, the message contract, the deadline origin stamp, the position-0 runtime-sink stamp), goldens `w385_try_sandbox/sql/fallback/llm_timeout/llm_unavailable/media/backend_degraded` (7 codes green on both backends) + `w385_office_branch` (criterion (д): the office policy branches by CODE — retry the timeout, hard-fail the sandbox violation — through the sanctioned №327 `redact(…, "hash_only")` decision lift, never substring-matching the message). REFERENCE §3 gained the code table + branching example (doc-test executed); REFERENCE §1 gained the `METALOGOS_MOCK_LLM_FAULT` env row. Registry untouched — 455 builtins, zero new crates.
+
+- **README truth-up post-0.20.0 + `docs_consistency` CI gate (naryad #384, issue #478)**: the external engineering guide (2026-09-17) flagged a docs drift — `docs/limitations.md` honestly marks the VM Stage 1 gaps and the adapt-metric CLOSED, while README still carried stale claims. **Section "Dual Execution Backend"** rewritten to the facts: all VM Stage 1 gaps CLOSED (№369–№372: `Match`/match-as-value, `BlockIfElse` if/else-as-value, binop coercion with TW-identical messages, shared PRNG, Bool→String), the `crosscheck_backends` parity gate (№373) + nightly soak hold TW↔VM parity, `mlog serve` stays on the interpreter by default with the VM opt-in (`METALOGOS_SERVE_BACKEND=vm`, loud WARN) and the default flip gated by ADR-0141 Stage 4/5 (real-load numbers + owner decision); ADR-0141 is now the primary reference (ADR-0105 demoted), `docs/limitations.md` named as the maintained source of truth. **Section "Self-Modification"** rewritten: since №375 (ADR-0112 addendum) the `adapt`/`mutate` quality metric is REAL in real mode — a golden-task battery (eval datasets + pre-mutation few-shot, held-out split, deterministic order, the pattern's actual LLM path) drives keep/rollback (< 20 held-out → loud BELOW-MINIMUM; no held-out evidence → 0.0); the 0.95 stub remains ONLY in mock mode (`METALOGOS_MOCK_LLM`, loudly documented at the call site); the exhausted "Revisit point (2026-09-10)" paragraph removed. **New mechanical gate** `tests/docs_consistency.rs` (std-only, the `readme_consistency` pattern; 8 tests): (а) README never says "not supported yet" next to a VM feature limitations.md marks CLOSED; (б) every README 0.95 claim carries the mock-mode caveat; (в) the Dual Backend section names the parity gate, ADR-0141, the serve opt-in and the default posture; plus source-of-truth pins (limitations.md keeps its CLOSED rows) and mutation checks — the linter is RED on the exact verbatim stale lines this naryad removed. Grep contract: `rg "not supported yet|mock value \(0\.95\)|experimental for full-language" README.md REFERENCE.md` → 0 hits. Honest lines intentionally untouched (JIT scaffold ADR-0073, `authenticate` mock note, 0.95-in-example-data). Numeric anchors unchanged — `readme_consistency`/`reference_consistency` green.
+
+- **MCP server — tool-policy compiled from the profile + HTTP/SSE transports (naryad #394, issue #488, wave 3)**: the server half of the MCP contour (ADR-0168 extends the client ADR-0132 with an explicit "+server transport" scope). **Transports**: `mlog mcp-serve --transport stdio|http|sse` — stdio (default) is byte-identical to №297; `http` serves JSON-RPC over `POST /mcp`; `sse` implements the MCP HTTP+SSE shape (`GET /sse` → `endpoint` event → `POST /mcp?session=…` → 202 → responses as `message` events on the session stream); `--bind` (default `127.0.0.1:8770`); http/sse run on the already-present axum/tokio stack (feature `server`, default-on) — **zero new compiled crates** (`futures-util` moves from transitive to a declared optional dep for honest accounting). **Security without weakening, by construction**: one `McpServer::handle_request` core serves every transport — allowlist fail-closed (empty = refuse, №297), unknown-tool `-32602`, exec/env gates, label clearance and taint rules are transport-blind; bearer auth (`--auth-token` / `METALOGOS_MCP_AUTH_TOKEN`) gates every request with 401 on mismatch, a token-less loopback bind is the accepted alternative and a non-loopback bind without auth is a loud WARN (the №263 posture). **Tool-policy compiled, not authored** (`src/mcp_policy.rs`): each `tools/list` entry carries `_meta["metalogos.dev/policy"]` — `sink_calls` (№316 Role::Sink + `audit::sink_kind` classes), `clearance_args` (params lexically flowing into sink arguments), `irreversible`, `source_calls`, `unclassified` — derived from the method-body AST over the SSOT classification; the policy annotates, the allowlist alone publishes. Evidence: `tests/naryad_394_mcp_server.rs` (8 tests) — an external JSON-RPC client walks `tools/list`/`tools/call` over HTTP, the SSE session stream delivers the tool result, the bearer matrix (401/401/200 + SSE 401) and the exec-gate refusal are green, the policy block is pinned for sink-class/clearance-args/irreversible; REFERENCE §1 gained the `mcp-serve`/`ledger` CLI rows, the env-var rows (`METALOGOS_MCP_AUTH_TOKEN`, `METALOGOS_LEDGER_KEY`) and the MCP-server contract table.
+
+- **Action Ledger v1 — signed append-only journal of actions (naryad #393, issue #487, wave 3)**: the INTEGRITY upgrade the grant ledger promised — every action now leaves a prev-hash-chained, Ed25519-signed record (`src/ledger.rs`, `ed25519-dalek`, ADR-0167). Every record is signed (the head signature is the last record's; `hash = SHA-256` over the canonical body), signer continuity is enforced across key rotations (a `key_rotation` record is signed by the still-active key and names the taking-over key), and `snapshot` records pin the head for anchored archival. The writes are SIDE EFFECTS of the action paths themselves (ADR-0167 §3.4) — grant lifecycle events (`grant.issued/subgranted/consumed/revoked/used`, inside `grants.rs::record_event`), runtime deny events (`deny.<REASON>`, written BEFORE handler selection in both `fire_on_deny` TW and `vm_fire_on_deny` VM), successful irreversible actions (`irreversible.db_execute`, post-success in `db_execute_with_grant`), and HTTP session lifecycle (`session.create/destroy`, feature `server`). Confidentiality: metadata and argument HASHES only — payloads never enter the journal; write failures on action paths are loud stderr, never a silent pass and never a DoS lever. Language surface (registry 451→457, appended; №316 classification rows): `ledger_count()` / `ledger_head()` (reads, not egress), `ledger_export(path)` (FILE EGRESS — the verifiable JSONL chain, classified Sink), `ledger_export_intoto(path)` (FILE EGRESS — the in-toto Statement profile, ADR-0157 filled from its reserved booking), `ledger_rotate()`, `ledger_snapshot()`. The external verifier needs NO runtime: `mlog ledger verify <file> [--expect-head …] [--expect-key …]` checks seq continuity, chain links, hashes, key ids, every signature, rotation seams and snapshot anchoring; `mlog ledger archive <file> <out> --at <seq>` truncates at a snapshot anchor (verified before written). Evidence: `tests/naryad_393_ledger.rs` (12 tests — enumerated single-byte flips break verification at every position, deletion/reordering/truncation detected, key substitution and the fresh-key full rewrite caught by the anchors per the honest §7 boundary, rotation/snapshot/archive, in-toto shape, TW+VM deny integration, grant/irreversible auto-journaling); the 10k-record golden (sign + external verify < 10 s, release-only) is a new blocking CI job `ledger-golden`; `fuzz_target_ledger_tamper` joins fuzz-smoke (panic freedom + soundness of the tamper contract over arbitrary input). Example: `w2_ledger` (grant + deny → full trail → rotate/snapshot/export). Honest boundary (ADR-0167 §7): tamper-EVIDENT, not tamper-PROOF — a full rewrite under a fresh key is caught only against the out-of-band head/key anchors; post-host-compromise write integrity is out of scope. One new top-level dependency (`ed25519-dalek`; sha2/hex/rand were present) — within the FEATURE_INTAKE §5 budget. README/ci.yml blocking-jobs counter resynced (15→19: voice-tests, video-tests and ledger-golden were missing from the stale badge).
+
+- **DenyEvent — typed denials with on_deny handlers (naryad #392, issue #486, wave 3)**: a runtime security refusal is now a typed event instead of a dead end. `on_deny(<sink-class|*>) { ... }` declares a handler (the eight №325 sink classes or `*`; exact class wins over the wildcard); inside, `deny_event()` returns the `DenyEvent` struct (`reason`, `sink`, `class`, `argument`, `label`, `line`, `human`) and `deny_reason()` the reason word. The reason vocabulary is the audit check_id SSOT — the seven core classes (`VOICE_EGRESS_UNCONSENTED`, `IRREVERSIBLE_NO_GRANT`, `UNTRUSTED_EXEC_DECISION`, `SECRET_TO_EXEC`, `SECRET_EGRESS_VCS`, `SECRET_EGRESS_NETWORK`, `PII_EGRESS_NETWORK`) plus the extending pair, the generic `SINK_CLEARANCE`, and the legacy corpus classes — so the static gate, the runtime twin and the event agree verbatim. Double protection: the handler runs AFTER the verdict, can log/notify/degrade and can never re-allow; a handled refusal continues with a degraded `Unit` (the refused call never executes); without a covering handler the loud default is unchanged. The analyzer adds a new capability — Match exhaustiveness over a known enum: a `match deny_reason()` missing a reason without an `else` arm is a compile error listing the unhandled set (`[DENY_MATCH_EXHAUSTIVE]`), unknown reason literals are `[DENY_MATCH_UNKNOWN]`, handler-scope violations are `[DENY_HANDLER_SCOPE]`, and the run path blocks on all `[DENY_` errors. Runtime deny sources: the VM sink-clearance twin and grant refusals on `db_execute_with_grant` (typed `GRANT_*` detail rides in `human`; the reason class stays `IRREVERSIBLE_NO_GRANT`). TW and VM agree on the handled path (parity pinned). Registry 447→449 (two handler-scoped stubs, appended at the END — the CallBuiltin index contract is untouched). Examples: `w2_deny_exhaustive` (green) + `w2_deny_incomplete` (red). REFERENCE §2.9.
+
+- **The data ↔ action bridge (naryad #391, issue #485, wave 3)**: for the six ACTION sinks (`exec`, `exec_argv`, `git_push`, `http_post`, `send_message`, `db_execute`) the №325 clearance gate now enforces BOTH lattice axes on the decision argument — confidentiality `label.conf ⊑ public` AND integrity `label.integrity ≥ trusted` — table-driven (`semantic::ACTION_BRIDGE`, documented in REFERENCE §2 and threat-model Boundary 1). The gap it closes: an untrusted URL driving `git_push` was not gated before (`UNTRUSTED_EGRESS_NETWORK` now fires there; the leak corpus pins it as `n391_git_push_untrusted_url`). The specialized classes keep their names — old reds stay red (contract-tested: `UNTRUSTED_EXEC_DECISION`, `SECRET_TO_EXEC`, `SECRET_EGRESS_VCS`, `SECRET_EGRESS_NETWORK`, `IRREVERSIBLE_NO_GRANT`). Every deny is explainable: argument index, sink, label, both thresholds and the failed one (`reason` travels on `SinkViolation` — the surface №392 DenyEvent consumes). Grants (№390) are orthogonal: the grant authorizes the action, the bridge gates the data; `db_execute_with_grant` is not a №325 sink. Green side pinned by `ok_391_trusted_actions`.
+
+- **Grant value — the ADR-0155 algebra implemented (naryad #390, issue #484, wave 3)**: `Value::Grant` — an opaque capability handle (non-printable, non-serializable; serde emits a dead `[GRANT]` marker) over the grant ledger (the `consent_ledger` pattern; the SSOT for class/quota/revocation state). Builtins (append-only, registry 442→447): `grant_issue(scope, ttl, class?, uses?)`, `grant_subgrant(parent, scope, ttl, class?, uses?)` (attenuation-only — narrower scope, shorter TTL, lower class power; a Once parent is consumed by the split; an N(n) parent is debited by the child quota), `grant_revoke(g)` (cascading), `grant_use(g)` (metered consumption), and `db_execute_with_grant(g, sql, params?)` — the granted destructive-SQL action on BOTH backends (ledger state, TTL, scope coverage of the destructive ops, quota — enforced at runtime; consumption only after success). The static half: `GRANT_REUSED` — a Once grant consumed twice in one body is a compile error (flow walk with branch-intersection merge; move `let g2 = g` flagged; exclusive if/else uses legal). The ungranted deny is unchanged (`IRREVERSIBLE_NO_GRANT`, fail-closed). Fuzzing: `tests/grant_algebra_fuzz.rs` — 4000 differential ops against an independent model, zero amplification. REFERENCE §4.15.1 + classification rows (№316 SSOT); README claims resynced (447 builtins / 42 modules / 231 examples / ~242 KB).
+
+- **ADR-0155 Grant algebra — accepted (naryad #389, issue #483, wave 3)**: the reserved 0155 slot is filled with the decision on permissions for irreversible operations — three grant classes (**Once** — statically linear, move semantics, reuse = `GRANT_REUSED`; **N(n)** — runtime quota metered in the ledger, exhaustion = `GRANT_EXHAUSTED`; **Unlimited** — copyable, every use audited via the `⟨io, audit⟩` effect trail), linearity rules 1–6 (no copy except Unlimited, no serialization, no outliving the revoking context, attenuation-only subgrant, cascading revoke, unchanged fail-closed default), the sink-class mapping over the №316 SSOT inventory (`db_execute` destructive / `exec` / `git_push` / `http_post` / `send_message`), the typed error surface for #390–#392, the ledger state model on the `consent_ledger` pattern (signing is #393), prior art with take/leave conclusions (macaroons, Biscuit, UCAN, Cedar — position: a profile over language-level linear values, not a token format), and the AND-composition interface with the label lattice (data gate first, action gate second — bridge is #391). `IRREVERSIBLE_NO_GRANT` remains the default deny; no compatibility profile can weaken this gate. Documentation-only change.
+
+- **All repository documentation English-only + `docs_language_lint` CI gate (naryad #383, issue #477)**: per the owner directive (2026-09-17), every `.md` in the repo is technical English — 41 inventory files translated (root triplet `AGENTS.md`/`CLAUDE.md`/`GEMINI.md` kept byte-identical, PR template, README lines, `docs/*.md`, ADRs 0132–0142 + index, 17 `docs/research/*` reports, CHANGELOG historical records, `tree-sitter-mlog/README.md`); the README work-plan digest section removed (the canon stays in `docs/PLAN-SUMMARY.md`); the rule is mechanically enforced by `tests/docs_language_lint.rs` (publisher threshold: >=20 Cyrillic letters AND >2% letter share; frozen allowlist = `docs/adr/0043-unicode-fix.md` where Cyrillic is test data; mutation-checked red/green). Numeric anchors preserved — `readme_consistency`/`reference_consistency`/`registry_sync_check` green; the CHANGELOG size claim resynced (~312 KB).
+
+- **Stage 4 real-load benchmark (naryad #381, issue #467, ADR-0141 §D5)**: a production-class corpus (`benches/fixtures/production_workload.mlog`, 2344 lines, FOSVED-like helpdesk — 14 routes over mock-LLM/vision/voice I/O, in-memory SQLite, kv, match/if/each/while/try DSL, path-template routes; deterministic-mock only, sanitize 0) plus a two-process harness (`benches/stage4_benchmark.rs`, `cargo bench --bench stage4_benchmark`): 30 request cycles × 14 routes per backend, per-route p50/p95/mean, peak RSS, startup split (parse+semantic vs VM compile), a DSL-only diagnostic, raw JSON report, and the loud §D5 verdict. Result: request-cycle mean speedup ×1.67–×1.95 across runs, no memory win → **INSUFFICIENT DATA — the default flip is NOT justified by this data** (the decision goes back to the owner re-gate with the numbers). The corpus contract (≥2000 lines, sanitize 0, Category-A clean, VM-compilable, route parity on both backends) is pinned in `tests/naryad_381_stage4_corpus.rs`.
+
+### Fixed
+
+- **VM `query()` dropped its params list (naryad #381)**: the bytecode backend bound `stmt.query([])` unconditionally — every parameterized query failed with "Wrong number of parameters passed to query. Got 0, needed N" while the tree-walking backend bound them; `db_execute()`/`query_scalar()` stringified params (`Float`→`"3"`, `Bool`→`"true"`) instead of typed binds. All three now share the typed `convert_params` SSOT (caught by the Stage 4 corpus; pinned by unit tests).
+- **Server startup clobbered the shared in-memory DB connection (naryad #381)**: `run_server`/`run_test_server_with_backend` build the shared interpreter through a per-declaration merge chain, and `clone_definitions_into` unconditionally assigned `db_conn` — every merge after the `db {}` declaration overwrote the established `sqlite::memory:` connection with `None`, so ALL `query()` calls in route bodies failed with "no database connection" (per-request `reconnect_db()` treats in-memory as "already shared"). The merge now keeps an established connection.
+
+- **Stale VM opt-in warning (naryad #380, issue #466)**: the `METALOGOS_SERVE_BACKEND=vm` startup WARN claimed live Stage 1 limitations ("`match` statements fail to compile, block if/else silently evaluates to Unit") that №369/№370 closed — it loudly discouraged opt-in experiments with restrictions that no longer exist. The WARN now states the truth: experimental opt-in per ADR-0105; full-language parity (Stage 1 gaps closed, Stage 2 crosscheck green, ADR-0141); the default flip is gated (soak + real-load benchmark). Formatting artifacts inside the string literal removed. Historical ADR-0088/ADR-0105 texts untouched (historical accuracy).
+
+## [0.20.0] - 2026-09-16
+
+**The security model becomes a lattice: every value carries a three-component
+label — (conf, integrity, consent-scope) — and the compiler gates egress,
+decisions, and downward moves on it (Wave 1, naryads #322–#329, ADR-0154/0156/0161).
+The VM backend reaches Stage 1 + Stage 2: `match`, if/else as a value, binop
+coercion, PRNG/Bool parity, the parity gate and a nightly soak workflow
+(naryads #369–#373). `try` returns a structured result; `adapt` keeps/rolls
+back on a real measured metric; interprocedural taint depth is configurable.
+395 commits since v0.19.0.**
+
+**BREAKING — `try` returns a structured result (Naryad #374, ADR-0142)**:
+`try expr` no longer returns the bare inner value / a bare `Unit` on error.
+It returns `Struct { ok: Bool, value: Value, error: Unit | Struct { code, message } }`
+on BOTH backends. Old error probes `type_of(r) == "Unit"` / `r == Unit` break —
+migrate to `r.ok == false` (mlog has no unary `!`, so `!r.ok` in the ADR text is
+pseudocode; the full before/after is REFERENCE.md §Migration). 29 golden examples
+were migrated in №374 itself; `.expected` outputs are untouched. Success-path
+code is unaffected: `r.value` on `ok == true` carries the inner value with its
+type preserved.
+
+### Added — provenance: the C2PA contour of media handles — read/write manifests + the generation guarantee (Naryad #337, P1/feature/provenance, issue #464, ADR-0166)
+
+- **Store entries carry their manifest facts** (`src/media/mod.rs`): `MediaEntry` gains `synthetic: bool` (default `false` — captured/stored bytes are NOT synthetic; a false positive would lie in the opposite direction) and `bytes_sha256` (computed ONCE at insert over the plaintext — sealed payloads are never re-decrypted for provenance reads).
+- **Write manifests — the egress sidecar (№241 continuity)**: `media_save` now emits `<path>.manifest.json` next to the bytes — a `MediaManifest { kind, origin, conf, bytes_sha256, synthetic, timestamp }` record built from the ENTRY's facts, so the №332 origin chain and the C2PA record cannot disagree. The sidecar write is part of the SINK: a failed write is a loud error — a manifest-less media egress cannot happen through `media_save`. The returned value stays the path (№331 contract unchanged).
+- **The generation guarantee — compile-verified, not only runtime-marked**: a bind whose declared origin kind is `generation` FORCES `synthetic: true` on the bound entry (`bind_origin` has no synthetic parameter to lie about; no builtin writes the field); every legal generation bind is a fresh `media_store_*` construction (№332), so every legal generation handle is marked BY CONSTRUCTION. A generation bind over a non-construction does NOT compile, and the refusal NAMES the contract: "a GENERATION lift sets synthetic: true on the new store entry (ADR-0166 §2.3); binding an existing handle would skip or falsify the Art. 50 marking".
+- **Read manifests — provenance without materialization**: `media_manifest(handle)` returns `Struct { kind, origin, conf, synthetic, bytes_sha256, refs, sealed }` (state-carrying, interpreter/VM interception); `media_manifest_read(path)` parses a sidecar from the sandbox — missing/empty/corrupt manifests are LOUD refusals (the №320 posture), and a manifest WITHOUT the `synthetic` field reads `true` (conservative, unknown ⇒ marked — pre-№337 sidecars stay readable).
+- Registry 440→442 (`media_manifest`, `media_manifest_read`, category `media`); №316 SSOT classification (Source/Public/Pure, Source/Internal/Pure); `scripts/gen_classification.py`: `media` and `registry` join RISKY_CATEGORIES (their manual rows carry real rationales the Pure default would destroy on regeneration — found and prevented during №336/№337).
+- `examples/w1_c2pa_egress.mlog` (capture → egress → read-back: `synthetic: false`; generation → egress → read-back: `synthetic: true`, both backends); `tests/naryad_337_c2pa_handles.rs` (7 tests). Wave 2 acceptance item 6 closed: generation lifts are REQUIRED to set synthetic: true — at compile time.
+
+### Added — registry: BackendSelect — the backend ladder and Degraded(t) (Naryad #336, P1/feature/registry, issue #463, ADR-0165)
+
+- **`backend_select(class, ladder)`** — the backend try-chain over the №333 registry SSOT: walks the ladder in priority order (list order = priority), picks the FIRST available rung, and returns `Struct { type_name: "BackendSelected", ok: true, backend, weights_id, mode, attempts }` — mode is `"mock"` or `"real"`, never hidden. Both backends through the shared registry dispatch (VM parity for free). Registry 439→440 (category `registry`).
+- **`Degraded(t)` — typed degradation** (the Wave 2 Go/No-Go item 5): when every rung is unavailable the result is `Struct { type_name: "Degraded", ok: false, class: <t>, attempts, error: Struct { code: "BACKEND_DEGRADED", message } }` — NOT a panic and NOT a silent mock substitution. The stable code `BACKEND_DEGRADED` follows the ADR-0131/0140 convention; `ok: false` matches the try-struct (ADR-0142) guard convention (`if sel.ok`).
+- **Every ladder step is an audit event** (№326 posture): a `[BACKEND_SELECT]` stderr line per rung plus the program-visible `attempts` list (`Struct { backend, status: "selected" | "unavailable", reason }`) — the ladder's trace is data, no silent skips.
+- **The loud mock boundary**: mock mode (default) makes every registry rung of the requested class available through the deterministic mock-first contract (№334) with `mode: "mock"` visible in the result; REAL mode (`METALOGOS_LLM_MOCK=false/0`) makes a rung available only with fetched, SHA-verified weights — with the №294 PARKED boundary the ladder honestly exhausts to `Degraded`. A mock NEVER substitutes a rung in real mode (tested).
+- **Build-time ladder verification** (`profile device { mode: production | development }` joins the compat-profile family): a statically-visible `backend_select` call site is verified against the registry on EVERY compile path (`BACKEND_SELECT_INVALID` — unknown class word / unknown rung / class mismatch / duplicate or empty ladder; `BACKEND_LADDER_UNVERIFIABLE` — under `mode: production` a `ShaPin::PendingNo334` rung is unverifiable and fails COMPILATION, the §11.2 build-time rule with the companion-check precedent). Non-literal ladders stay with the runtime checks. The full §11.2 hardware matrix (memory/accelerator tiers) is a documented boundary — the registry does not carry hardware requirements yet.
+- Shape errors (unknown class, empty ladder, duplicate rungs) are loud runtime Errs — catchable by `try` (ADR-0142); exhaustion is a typed value, not an error throw.
+- `examples/w1_degrade.mlog` (the full cycle: static ladder → selection; dynamic ladder → exhaustion → Degraded, on both backends); `tests/naryad_336_backend_ladder.rs` (9 tests). `scripts/gen_classification.py` OVERRIDES synced with the manual №331–№335 rows (the generator no longer destroys them on re-run).
+
+### Added — media: unified media handles + the media store (Naryad #331, P0/feature/perception, issue #458, ADR-0162)
+
+- **Four opaque media handle types as language values** — `media_store_image` / `media_store_audio` / `media_store_video_frame` / `media_store_video_segment` return `Value::Media` handles (`[Image#N]`, `[Audio#N]`, `[VideoFrame#N]`, `[VideoSegment#N]`; language types `Image` / `Audio` / `VideoFrame` / `VideoSegment`, ADR-0114 pattern). Bytes NEVER live in `Value` — only an index into the per-interpreter (or per-VM) `MediaStore`. Loud naming boundary: `media::AudioId` (unified store, u64) is distinct from `voice::AudioId` (TTS skeleton registry, u32).
+- **Media store** (`src/media/mod.rs`): lazy materialization (nothing decrypts/copies until a sanctioned sink asks), explicit refcount (`media_retain` +1, `media_release` −1, eviction at 0 with sealed buffers zeroized on drop — the №172 contour discipline), `media_meta` observer (`Struct { kind, conf, refs, sealed }` — no bytes leave the store).
+- **At-rest sealing**: entries declared `consented`/`private` are AES-256-GCM sealed (same primitive and `nonce‖ciphertext` format as the Phase 7.3 `encrypt()` contour); the 256-bit per-store key lives in `Zeroizing`, is never serialized, and `Debug` never renders key or payload. `poisoned` is deliberately not constructible via the store.
+- **Opaque guarantee is a COMPILE error**: any field access on a media-typed expression fails with `MEDIA_HANDLE_OPAQUE` (Category-A Error, audit + `check_program` — the `examples/w1_handle_opaque` contract pair). The grammar cannot even express `.field` on a call result (postfix ops attach to primaries only); aliases of media bindings are tracked and refused identically.
+- **Byte egress = one sanctioned sink**: `media_save(handle, path)` — classified Sink (№316 SSOT), file-egress kind in the №325 clearance tables (a private-LABELLED handle is `SECRET_LEAK` at compile time by data flow), plus the runtime backstop `MEDIA_SEALED_EGRESS` (sealed entries refuse materialization — declassification is №326 territory; media policies are a later boundary). Writes go through the io sandbox (`SANDBOX_VIOLATION` discipline).
+- Labels work on handles with NO new lattice rules (ADR-0154): the static label of a handle is the join of the producing call's arguments (private data in → private handle out → №325 refuses the egress), and the store entry carries the DECLARED sensitivity (conf axis) for the at-rest decision and the runtime backstop — the №320 static+runtime split.
+- Registry 421→429 (8 builtins, new category `media` → 40 modules); REFERENCE regenerated (429/429, 0 TODO(doc)); ADR-0162 written before code.
+
+### Added — perception: consent grant/revoke + quarantine sink + ledger (Naryad #335, P0/feature/perception, issue #462; absorbs №313 v1)
+
+- **Consent surface (builtins, the redact "policy as value" precedent — no new AST nodes)**: `consent_grant(value, scope, subject?, ttl_seconds?)` records (subject, scope, TTL) in the consent ledger and passes the value through with the consent-scope set EXTENDED (static: `semantic.rs label_source`; non-literal scope = conservative no-extension, the redact dynamic-policy posture); `consent_revoke(value, scope?)` records the revocation (scope or `<all>`) and returns the value under the QUARANTINE label.
+- **The flat revoke cascade is the LATTICE, not a separate analysis**: the revoked value carries (conf: poisoned, integrity: untrusted, consent: ∅) and poison is ABSORBING in the ADR-0154 lattice — every alias, concatenation and merged branch stays poisoned by the lattice's own join. №322's lattice semantics unchanged.
+- **The quarantine sink**: `quarantine_write(value, reason?)` is THE only legal egress for a poisoned value — the №325 clearance exempts exactly this sink; the event is unconditional (program-visible `[QUARANTINE_EGRESS]` return + stderr `[CONSENT][audit-event]` + a Severity::Info `QUARANTINE_EGRESS` finding in the audit report — the №326 posture). Every other sink still refuses poisoned (`SINK_CLEARANCE`).
+- **The consent ledger** (`src/consent.rs`, process-local SQLite — the voice consent_ledger precedent generalized; the LOUD decision: one table, two record kinds): grants carry (subject, scope, ttl_seconds, issued_at, expires_at), revocations (scope or `<all>`); `consent_ledger_export(path)` dumps JSON to a sandboxed path — FILE EGRESS, classified Sink, `CONSENT_LEDGER_EXPORT` audit event; `entry_count`/`export_json` are the in-process read API.
+- **Registry 435→439** (category `security`, append-only); №316 classification: grant/revoke = Lift (label transforms, no egress), quarantine_write/consent_ledger_export = Sink (audited egress); REFERENCE 439/439 (0 TODO); example `examples/w1_consent_revoke.mlog` + `.expected` (the revoke cascade → quarantine egress with the event in the program output); tests `tests/naryad_335_consent.rs` (12). Boundaries (loud): LikenessToken and full media-taint stay Phase 2; C2PA = №337; capability layer = next phase.
+
+### Added — backends: real STT/omni/vision-understanding — the SHA-pin path (Naryad #334, P0/feature/backends, issue #461)
+
+- **The three №334-scoped backends carry REAL pins** (HF LFS oid == SHA-256 of the file, fetched via the HF tree API 2026-09-16; provenance in every manifest path): `whisper-turbo` (STT, NEW registry entry — openai/whisper-large-v3-turbo, MIT → osi; single-file artifact `model.safetensors`), `nemotron-omni` (omni — nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16, non-osi; 17 shards), `molmoact2` (vision-understanding — allenai/MolmoAct2, Apache-2.0 → osi; 5 shards). The remaining entries (chatterbox — gated repo, metadata requires auth; kokoro — out of scope; z-image-turbo — the №212 manifest is still `_TODO_` by design until the executor's download; wall-oss — unverified) stay `PendingNo334` honestly: hashes are never fabricated.
+- **Per-file weights manifests** (`WEIGHTS_SOURCES`, src/backends.rs): every backend = (repo id, revision, files[(path, sha256, bytes)]); `validate_weights_source` refuses loudly a manifest without valid pins, zero bytes, duplicate or escaping paths — a manifest without SHA is a refusal, never a silent fallback (the weights.rs posture).
+- **The loader path** (`src/backends_weights.rs`): `weights_plan` — the dry-run (registry → per-file URL/path/pin/bytes plan; loud on unknown ids, PendingNo334, missing manifest, pin↔manifest disagreement); `fetch_weights` — the REAL fetch: `MLOG_BACKEND_WEIGHTS_ALLOWLIST` default-deny → https-only → SSRF guard with pinned resolves (№130/№261) → download → SHA-256+byte-count verification → write; mismatch = loud Err, file never written, no skip-and-continue; `weights_loaded` — on-disk verification for the real-call path.
+- **The mock-first call surface** (registry 432→435): `stt_transcribe(audio, model?)` + `omni_ask(prompt, media?, model?)` (src/voice/backend.rs) and `vision_understand(image, prompt?, model?)` (src/vision/understand.rs). `METALOGOS_LLM_MOCK` default = DETERMINISTIC mock (the golden contract, TW+VM parity); class checks against the №333 registry (an stt call over omni weights refuses loudly); real mode (`METALOGOS_LLM_MOCK=false`) refuses loudly naming the missing artifact and the PARKED boundary (№294) — never a silent mock substitution. №333 license gate keeps priority: naming non-osi weights is refused at audit before any call surface.
+- **PARKED (loud)**: real inference is gated on hardware (№294 No-Go — ≥64 GB RAM, ≥40 GB disk, GPU). The turnkey path: `fetch_weights` (allowlist + SHA-pinned) → `METALOGOS_LLM_MOCK=false`. `docs/limitations.md` carries the boundary row; REFERENCE regenerated (435/435, 0 TODO) + №316 classification rows; README claims synced.
+
+### Added — perception: origin declarations + the origin chain (Naryad #332, P0/feature/perception, issue #459, ADR-0164)
+
+- **Perception syntax** (+7 grammar rules, 316→323): `origin <name> { kind: camera|file|generation, media: <kind>, label: public|consented|private, path: "..." }` declares the SOURCE of perception handles (`file` requires `path`; a camera CAPTURE is a loud PARKED boundary at runtime — №294 — while the static chain is unaffected; `poisoned` is not constructible by declaration); `source <origin>` (HandleSource) produces a handle FROM a declared origin; `from <origin> media_store_*(...)` (ProvBind over the Lift) binds the provenance of a NEWLY constructed handle. The §7.4 Sink is `media_save` — no second egress vocabulary.
+- **The origin-chain rule is a compile error** `ORIGIN_REQUIRED` (Category-A, always Error, both compile paths — the №331 opacity posture): a bare `media_store_*(...)` is refused ("a handle without origin is not constructed, §7.4"), as are `source`/`from` in illegal positions and direct `media_source_capture`/`media_bind_origin` calls (lowered forms only). Bindings and aliases are tracked, so the chain survives `let alias = img`. Declared-origin shape/vocabulary errors are loud on every path (`ORIGIN_DECL_INVALID`).
+- **Origin labels flow into the №325 sink gate**: `source` carries the origin's declared conf; `from` carries the JOIN of the origin label and the construction's data-flow label. The §5.3 kitchen-camera scenario (`label: private` → `media_save`) is denied AT COMPILE TIME with `SECRET_LEAK` naming the sink, the container and the carried label — a static deny with an explainable reason (`examples/w1_kitchen_camera.mlog` + `.error`). Public origins flow through unchanged.
+- **Runtime lowering**: `media_source_capture(origin)` (file-backed capture reads the sandboxed path, loud on missing files; camera = PARKED) and `media_bind_origin(origin, handle)` (binds the entry's origin, joins the declared conf, re-seals on a public→non-public transition) — state-carrying, intercepted by interpreter AND VM (registry 430→432, category `media`); `media_meta` exposes `m.origin` — the bound provenance, observable without materializing bytes.
+- **№331 corpus adapted to the chain** (the language evolution this naryad mandates): every store construction is origin-bound; the `w1_handle_opaque` error contract is unchanged. REFERENCE §2.8 (origins + chain), ADR-0164 written before code; threat-model gains `ORIGIN_REQUIRED` + `ORIGIN_DECL_INVALID`.
+
+### Added — registry: backend registry + license classes + distribution gate (Naryad #333, P0/feature/registry, issue #460, ADR-0163)
+
+- **Backend registry SSOT** (`src/backends.rs`): `BACKEND_REGISTRY` — spec!-style static table; every entry = (class `STT|TTS|Omni|VisionUnderstanding|LLM`, weights identifier, SHA-pin, license class `osi|non-osi|restrictive`, license note). Seed entries (reported loudly; classes only — legal fine-reading is out of scope): `chatterbox-multilingual-v3` (MIT, osi), `koko-ro-82m` (Apache-2.0, osi), `z-image-turbo` (Apache-2.0, osi), `molmoact2` (Apache-2.0, osi), `wall-oss-0.5` (license NOT verified in-tree → restrictive by default-deny), `nemotron-3-nano-omni-30b-a3b` (NVIDIA Open Model License, non-osi — the MDL-3 test case).
+- **The SHA-pin boundary is a TYPE**: `ShaPin::Pinned(hash)` or `ShaPin::PendingNo334` — real weights are not vendored in-tree (PARKED №294), so there is NO hash to state and fabricating one is forbidden; №334 replaces every `PendingNo334` with a real pin and refuses to load the pending variant.
+- **Distribution gate** `BACKEND_LICENSE_DISTRIBUTION` (Category-A Error): a program that NAMES non-osi/restrictive weights (string literals at any position, case-insensitive exact match + the `vision { model: … }` field) does not compile — the error names the license class and the registry record. Precedent: the `MODEL_WEIGHTS_UNSAFE` literal-URL posture.
+- **The licensing bridge**: `profile licensing { backends: permissive_with_audit }` (№325 precedent — loud, validated, audited) downgrades the gate to Info audit events (`BACKEND_LICENSE`); usage is allowed but never silent. Profiles are INDEPENDENT flags (`ResolvedProfiles`): `licensing` does not weaken the №325 sink clearance; `legacy` does not unlock non-OSI weights. `profile::validate` accepts both shapes loudly (unknown names/options stay semantic errors).
+- **`backend_list()`** — read-only language surface over the registry (`List[Struct { name, class, weights_id, pin, license, license_note }]`). Registry 429→430 (category `registry`, 41st module); classification №316 SSOT 430/430; REFERENCE regenerated (0 TODO); threat-model Category-A table gains `BACKEND_LICENSE_DISTRIBUTION` (+ `MEDIA_HANDLE_OPAQUE` from №331); ADR-0163 written before code.
+
+### Changed — docs/security: SECURITY.md + threat-model.md synchronized with the label lattice (Naryad #377, P1/docs/security, issue #444)
+
+- **SECURITY.md**: new section "Label lattice controls (Wave 1 — ADR-0154/0156/0161, landed 2026-09-15)" — the three-axis label model (conf `public < consented < private < poisoned` with poisoned as an absorbing quarantine; integrity dual; consent join/meet), the compile-time gates (`SINK_CLEARANCE` family with the specialized class vocabulary, `UNTRUSTED_DECISION`, the `redact` policy registry with target confidences, literal markers), the `profile legacy` migration bridge (what it weakens — ONLY the №325 clearance verdicts; what it does NOT weaken — every other Category-A gate; how long — bridge, not residence, exit criterion = per-program burn-down of audit events), the runtime second line (`LabelJoin`/`SinkCheck`, `[SINK_CLEARANCE_RUNTIME]`, JIT dispatch gap), the leak suite as BLOCKING evidence (28 negatives + 16 positives), and honest status (PARKED objects unchanged, consent sources Phase 2 №335, grant algebra Phase 3 №339).
+- **docs/threat-model.md**: new section "Label lattice (Wave 1) — labeled trust boundaries" — three labeled boundaries (egress/decisions/downward moves) + the `profile legacy` bridge + the leak-suite evidence set (28 pinned-class negatives, 16 positives, `BLOCKING = true` since №325, corpus outside the golden cycle) + runtime parity as the second line + phase boundaries (honest). Links to ADR-0154/0156/0158/0161 (ADR-0158 is the booking; implemented declassify contract in ADR-0154 §10).
+- **truth-up in the same pass**: the stale "Known Boundaries" bullet (interprocedural taint "bounded to `TAINT_INTERP_MAX_DEPTH = 2`") updated to the №376 reality — configurable `METALOGOS_TAINT_DEPTH` (1..=16, default 4, measured +14.2%), per-module summaries cache.
+- **grep-verification**: 22 lattice terms cross-checked between SECURITY.md / threat-model.md / REFERENCE.md §2 / the code (`src/audit.rs` class names, `REDACT_POLICIES` registry) — 0 contradictions; every class name in the docs is byte-identical to its `check_id` in `src/audit.rs`.
+- **boundaries (loud)**: documentation only — no new controls, no code changes, no new promises; PARKED (real-weights) status restated, not changed. No `todo!`/`unimplemented!`/`SKELETON` in the new sections.
+
+### Changed — security: configurable interprocedural taint depth + cross-module summaries cache (Naryad #376, P0/security, issue #443)
+
+- **configurable depth**: `TAINT_INTERP_MAX_DEPTH = 2` (const) → `METALOGOS_TAINT_DEPTH` env (integer 1..=16; unset/invalid → default). **Default 4**, chosen by the measured overhead: auditing the 222-file examples corpus, depth 2 → 4 costs **+14.2%** cold analysis time (59.7 ms → 68.1 ms; depth 8 → +23.8%) — within the +50% dispatch threshold (№379 will re-confirm on the real corpus). The depth-3/4 coverage hole for office dept/chain patterns (source → wrapper → router → sink) is closed at the default.
+- **cross-module summaries cache**: pattern summaries are cached per module — key = (FNV-1a hash of the source content, depth); an UNCHANGED module is never recomputed, a changed module is; the depth is part of the key so re-measuring at another `METALOGOS_TAINT_DEPTH` recomputes honestly. Counters exposed for tests via `#[doc(hidden)]` `summaries_cache_stats()`/`summaries_cache_clear()`.
+- **red/green examples**: `examples/taint_chain_d3.mlog` / `taint_chain_d4.mlog` — office dept/chain shapes of depth 3 and 4 (sanitized variant included as the escape-hatch contract). Both flagged at the default configuration (tests).
+- **preserved (loud)**: `INTERP_DEPTH_LIMIT` warning (now reports the CONFIGURED depth), `bounded_recursion` cycles flag, sanitizer lift (`render()`/`escape_html()`), zero-false-positive contracts of №292/№295 — all green unchanged.
+- **truth-up (honest scope note)**: on the current corpus the depth flip is largely PREVENTIVE — pure passthrough nests were already caught by raw summaries + the unbounded sink-arg recursion, and the №322/№328 label-based sink gate catches the shape independently (a `sink clearance violated` Error). The depth config + the cache are the mechanism deliverables; full fixpoint / points-to stays a Phase-7 long-term line.
+- **tests**: `tests/naryad_376_taint_depth.rs` (4): red/green examples caught at default (incl. sanitizer no-double-report), env switch (unset→4, 2, 4, invalid/0/17→fallback; serialized via a process-local mutex), cache recompute-only-on-change (insert/hit counters, changed-module insert, cached-path correctness), no-stubs.
+- **docs**: limitations.md + threat-model.md + README taint rows updated (configurable depth, measured numbers, cache); audit.rs doc comments carry the measurement.
+- **boundaries (loud)**: full fixpoint / points-to (Phase 7) NOT covered; flow-sensitivity NOT covered; `METALOGOS_TAINT_DEPTH` invalid values silently fall back to the default (documented). No `todo!`/`unimplemented!`/`SKELETON`.
+
+### Changed — feature/adapt: real golden-task battery accuracy for mutate keep/rollback (Naryad #375, P0/feature/adapt, issue #442; ADR-0112 addendum)
+
+- **real metric**: the mutate keep/rollback decision no longer runs on the constant 0.95 in REAL mode. The mutated pattern is measured on a golden-task battery: the eval-block datasets registered for the pattern (ADR-0050) + the pattern's pre-mutation few-shot, deduped by input. Held-out split: accuracy is NEVER measured on the tasks the mutation was built from (build set = the mutation's own new-example inputs). Deterministic seeded order (fixed FNV-1a seed `0x9E3779B97F4A7C15`) — same battery + same mutation → byte-identical measurement across runs. The answer path is the pattern's real LLM call; backend errors count as incorrect; an EMPTY held-out set scores 0.0 (no evidence, no keep).
+- **minimum**: battery < 20 tasks → loud `BELOW MINIMUM 20` marker in the mutate log; the measurement still runs.
+- **mock mode unchanged (loud)**: `METALOGOS_MOCK_LLM` (default-on — the codebase-wide test-mode convention) keeps the 0.95 stub with byte-identical message formats; this is the ONLY place the stub survives (ADR-0112 addendum). Mock-mode message contract pinned by tests.
+- **rollback_if semantics UNCHANGED**: the CompareOp/ConditionOp threshold mapping was not touched — only the input value stopped being a constant.
+- **implementation**: shared `measure_battery_accuracy` + `MIN_BATTERY_TASKS` + TW `call_llm_for_battery` in `src/interpreter/learnable.rs`; TW mutate path (`src/interpreter/hooks.rs`) assembles the battery (eval datasets + few-shot) and appends the battery note `(battery: N tasks, held-out H, correct C[, BELOW MINIMUM 20])` to the mutate log in real mode; VM mutate path (`src/vm.rs`) measures the pre-mutation few-shot battery (the VM Program carries no eval blocks — documented difference).
+- **tests**: `tests/naryad_375_mutate_metric.rs` (5, mock mode: message contract, threshold edges, p2 golden, TW↔VM parity) + `tests/naryad_375_real_mode.rs` (5, real mode in a separate process: battery measurement, eval-dataset feed, no-condition keep+report, determinism, VM parity).
+- **docs**: ADR-0112 status → "Accepted + IMPLEMENTED (№375)" with the full methodology addendum; `docs/limitations.md` mock-metric row closed for real mode; REFERENCE §5.15 accuracy note rewritten.
+- **boundaries (loud)**: NN training metrics (`src/nn/*`) — separate line, untouched; real-LLM battery answering requires a configured provider (errors count as incorrect — the honest degradation); VM battery lacks eval-dataset tasks (Program carries no eval blocks — TW-only enrichment); mutation QUALITY itself is decided by the battery, not by this naryad. No `todo!`/`unimplemented!`/`SKELETON`.
+
+### Changed — BREAKING — feature/lang: error-protocol — `try` returns a structured result (Naryad #374, P0/feature/lang, issue #441; ADR-0142 candidate (b))
+
+- **BREAKING**: `try expr` no longer returns the bare inner value / a bare `Unit` on error. It now returns `Struct { ok: Bool, value: Value, error: Unit | Struct { code, message } }` on BOTH backends. Old code probing errors via `type_of(r) == "Unit"` or `r == Unit` breaks — migrate to `r.ok == false` (see the REFERENCE §Migration section; mlog has no unary `!`, so the `!r.ok` form from the ADR is pseudocode).
+- **shape** (shared builder `try_result_struct` in `src/interpreter/values.rs` — TW and VM cannot diverge): success → `ok: true`, `value` = the inner expression's value (type preserved), `error` = Unit; error → `ok: false`, `value` = Unit, `error` = `Struct { code: "RUNTIME_ERROR", message: <the runtime error text> }` (type_name `TryResult`/`TryError`).
+- **`code` convention (loud boundary)**: runtime errors do not yet carry ADR-0131/0140 diagnostic codes — the generic stable code `RUNTIME_ERROR` is used; the full text rides in `message`. Richer per-cause codes land when runtime errors are promoted to structured diagnostics (future ADR-0131 registry extension).
+- **implementation**: TW `Expr::Try` (`src/interpreter/execution.rs`) and VM `Instruction::TryEval` (BOTH dispatch loops) build the result through the same shared function; stderr still logs `[try] caught error: …`; grammar UNCHANGED; builtin signatures UNCHANGED (ADR-0142 constraints).
+- **migration surface (all green, zero output changes)**: 29 golden examples migrated from `type_of(x) == "Unit"` to `x.ok == false` (the `.expected` files are UNTOUCHED — the migrated probes compute the same booleans); `p91_try_success_path` success-path checks migrated to `r.ok and type_of(r.value) == "String"` (golden still `4/4`); stale comments updated (`try → Unit` → `try → ok = false`).
+- **tests**: `tests/naryad_374_try_struct.rs` (7): success/error shape, wrong-arg-type error (unknown functions are a COMPILE-time rejection — outside try's reach, documented), nested try via `let` (grammar binds `try` to `unary_expr`), try in pattern/route bodies (the VM's shared execute_code loop), multiple try sites, p91 migration regression, no-stale-probes gate over all examples, no-stubs.
+- **docs**: REFERENCE §Try rewritten + new §Migration section (before/after); ADR-0142 status → "Accepted + IMPLEMENTED (№374)"; ADR-0106 annotated (no supersede — soft-failure still governs optional paths; try-struct is a plain struct value, not an Option/Result type).
+- **boundaries (loud)**: `?`-operator early return (candidate (a)) — rejected as priority, not excluded from the future; Result/Option types still rejected (ADR-0106 stands); no grammar/bytecode changes (TryEval instruction reused — only its result value changed). No `todo!`/`unimplemented!`/`SKELETON`.
+
+### Added — feature/vm: VM Stage 2 — parity gate + nightly soak (Naryad #373, P0/feature/vm, issue #440)
+
+- **parity gate** (`tests/naryad_373_parity_gate.rs`, 5 tests): (1) the crosscheck source must contain EXACTLY two `continue;` exclusion sites — any NEW exclusion fails loudly and forces naryad-style re-justification; (2) every golden example is classified into exactly one of crosschecked / negative-contract / frozen candle list (the frozen list cannot rot — file renames are caught); (3) all six Stage-1 rows in `docs/limitations.md` must stay CLOSED (№369–№372) while the serve default-flip row stays OPEN (Stage 3 decision); (4) the soak workflow exists, is nightly-scheduled AND dispatchable; (5) no stubs.
+- **exclusion audit (was → remains → why)**: Stage-0 inventory (`docs/research/vm-gaps-inventory.md`) had 4 VM-uncovered classes — Match statement/`match_expr` (CLOSED №369), block if/else as VALUE (CLOSED №370), binop coercion `p118_collection_utils` (CLOSED №371), PRNG + Bool→String `reflex_math` (CLOSED №372 — PRNG via truth-up: shared registry all along). REMAINING (sanctioned, not VM-uncovered): (a) negative-test contracts (`*unknown_fn*`, `*wrong_*`) — designed-to-fail, explicitly sanctioned by ADR-0141 §D3; (b) 11 candle-feature-gated examples (`reflex_seq_*`/`reflex_gen_*`) — fail identically on BOTH backends without the `candle` feature, verified by the candle-tests CI job (№200). **Parity = 100% modulo sanctioned classes.**
+- **crosscheck header**: the stale "VM is experimental … match/block-if-else excluded" comment replaced by the Stage-2 status + the gate pointer.
+- **soak** (`.github/workflows/soak.yml`): nightly cron 02:00 UTC + `workflow_dispatch`; runs lib tests, the parity crosscheck + №373 gate, the FULL integration suite, doc-tests (`mlog test --docs`), and prints a duration/date report; each green run = one 24h-soak data point for the Stage-3 decision (dispatch #379). Job timeout 350 min.
+- **limitations**: verification-only (grep gate in the №373 test) — all Stage-1 VM rows CLOSED; the open "VM is not the default backend for `mlog serve`" row is the Stage-3+ gate, intentionally open.
+- **boundaries (loud)**: the default flip of `mlog serve` is NOT part of this naryad (Stage 3 — the dispatch #379 decision on soak data); JIT (ADR-0073/ADR-0156 §2) — a separate line; no `todo!`/`unimplemented!`/`SKELETON`.
+
+### Added — feature/vm: VM Stage 1.4 — PRNG state + Bool→String parity with TW (Naryad #372, P0/feature/vm, issue #439)
+
+- **PRNG truth-up (loud)**: the "VM has no PRNG state" claim was STALE. `random_seed`/`random` route through the SHARED builtin registry (thread-local xorshift64 state in `src/builtins/math.rs`) on BOTH backends — identical seed yields identical sequences on TW and VM (verified: seed(42) first element `0.16258225917040392` on both; reseeding restarts deterministically; zero-seed fallback identical). No VM code was needed for PRNG — the contract is now LOCKED by test vectors.
+- **vm** (`src/vm.rs`): Bool→String fixed at the ROOT — the encoding, not the formatter. VM comparisons (`eval_cmp` all arms), `CmpNe` (Bool inversion), `eval_contains`/`Instruction::Contains` (String + List arms), `Instruction::StartsWith`, and the MatchTest predicate push sites now produce `Value::Bool` (TW's encoding) instead of Float 1.0/0.0. `to_string(a == b)` prints "true"/"false" on BOTH backends (the old VM printed "1"/"0" because the comparison RESULT was a Float — `str`/`to_string` are shared builtins and were never the divergence). Truthiness (`JumpIfNot`/`is_truthy`) is Bool-aware already — control flow unchanged; CmpNe keeps a legacy Float branch for old `.mbc` safety.
+- **crosscheck**: the `reflex_math.mlog` exclusion (№177) is LIFTED — math builtins + random + Bool formatting run end-to-end with identical output on both backends and match the golden `.expected`.
+- **tests**: `tests/naryad_372_prng_bool_format.rs` (6): PRNG same-seed sequences (seed 42/7, reseed-in-run, zero seed), the locked golden vector, Bool→String parity (eq/ne/ordering/strings/literals/in-concat), Bool control-flow parity (if/while/Ne-instruction), string predicates (contains/starts_with/ends_with), reflex_math golden regression.
+- **limitations**: both `docs/limitations.md` rows closed (PRNG — truth-up "stale claim"; Bool→String — fixed).
+- **boundaries (loud)**: mixed-type comparisons (e.g. `true == 1.0`) still coerce numerically in `eval_cmp` where TW errors — pre-existing, observable only in programs TW rejects; not touched here. The standalone `Instruction::StartsWith`/`Contains` arms are not emitted by the current compiler (calls go through the shared registry) — converted for consistency. No new bytecode instructions; old `.mbc` runs identically. No `todo!`/`unimplemented!`/`SKELETON`.
+
+### Added — feature/vm: VM Stage 1.3 — binop coercion parity with TW (Naryad #371, P0/feature/vm, issue #438)
+
+- **vm** (`src/vm.rs`): `eval_binop` now mirrors the TW interpreter (`src/interpreter/execution.rs`) EXACTLY: (1) the same opaque-type restriction on `+` (Secret/Html/Query/Encrypted/Hash/Subgraph cannot be concatenated — `cannot concatenate opaque type …`); (2) the same `MAX_STRING_LENGTH` (1 MB) limit on concatenation — `string length N exceeds maximum allowed 1000000` (previously the VM had NO limit: a >1 MB concat succeeded on VM and errored on TW — a real parity divergence, not just wording); (3) heterogeneous `+` (List+String, Bool+String, Float+String, List+List, …) errors with the TW wording `type mismatch in string concatenation: … + … (use to_string() explicitly)`; (4) non-Add binops on non-Float operands error with the TW wording `type mismatch in binary operation: …` (the old VM messages `type mismatch: List Add String` / `cannot apply Div to two Strings` diverged from TW and broke TW↔VM error parity).
+- **coercion truth-up (loud)**: the crosscheck comment claimed "TW auto-coerces List+String" — STALE. Current TW does NOT auto-coerce: heterogeneous `+` is a loud error in TW too (the historical lenient behavior was tightened in the string-safety work). Stage 1.3 therefore lands as ERROR-PARITY alignment (VM catches up to the stricter TW), test-vector-fixed: every heterogeneous/opaque/limit vector asserts the two backends produce the IDENTICAL error string.
+- **crosscheck**: the `p118_collection_utils.mlog` exclusion (№118/ADR-0105) is LIFTED — the example (unique/chunk/sort + concatenation chains) runs end-to-end with identical output on both backends and matches its golden `.expected`.
+- **tests**: `tests/naryad_371_binop_coercion.rs` (8): p118 golden regression, heterogeneous-add error parity (5 vectors), string-concat parity (basic/empty/nested/accumulator), float-arith parity incl. division by zero, non-Add type-error parity (String/Bool operands), the 1 MB length-limit parity (over-limit + at-limit), opaque Secret concat parity (both operand orders), `print()`-in-concat parity lock.
+- **limitations**: `docs/limitations.md` row "Binop coercion (heterogeneous List+String)" closed (№371).
+- **boundaries (loud)**: comparison operators (`==`, `<`, …) route through the VM's separate `eval_cmp` (Float 1.0/0.0 encoding) — Bool→String formatting divergence (TW "true" vs VM "1") is №372's scope, untouched here; `And`/`Or` short-circuit unchanged; no new bytecode instructions (binop semantics is a VM-side change, old `.mbc` runs identically). No `todo!`/`unimplemented!`/`SKELETON`.
+
+### Added — feature/vm: VM Stage 1.2 — block if/else as a VALUE compiles to bytecode (Naryad #370, P0/feature/vm, issue #437)
+
+- **bytecode**: `Instruction::Dup` (the match/if scrutinee stays on the stack while copies are tested) + the VALUE-EXPRESSION REGISTER triple `BeginValueExpr` / `KeepLastValue` / `EndValueExpr`. The register lives in VM STATE (`Vm.value_registers`), NOT in stack cells — a value form is safe in ANY expression position (the first №370 draft used a hidden slot and was unsound exactly there: `"[" + (if c {..} else {..}) + "]"` clobbered the `"["` temporary with a register write into the temporaries' stack region — caught by the naryad's own binary-position test). `execute_code` saves/restores the register stack per invocation, so an early `return` inside a branch cannot leak a register into the caller's execution.
+- **compiler** (`src/compiler.rs`): `Expr::BlockIfElse` compiles natively in ANY expression position (let/return/binary/argument — the grammar puts it in `primary_expr`): `Begin`, condition, jump structure (`JumpIfNot` per branch, lazy per-branch condition evaluation — TW side-effect order), branch bodies through the VALUE-MODE statement path, `End`. `compile_value_stmt` (shared with №369's match-expr arms): `ExprStmt` keeps its value via `KeepLastValue` (TW `eval_statements_cf`: only non-Unit updates the register — a trailing print does not reset the value); nested STATEMENT if/else/match inside a branch leaks their branch value into the same register (TW `eval_block!` semantics — observable precisely in value context); everything else falls through to the ordinary statement compiler.
+- **no new dispatch**: the jump structure reuses the existing `Jump`/`JumpIfNot` — the value register is plain VM state; nothing new to dispatch in the two VM loops (the naryad's "dispatch ×2" is satisfied vacuously and recorded loudly).
+- **№369 rework (transparent)**: `compile_let_match` and the value-mode match migrated to the same register scheme (`Dup` + stack-resident scrutinee instead of a scratch slot) — one mechanism for both Stage-1.1 and Stage-1.2, safe everywhere. `Instruction::StoreLastLocal` (№369 draft) removed in favor of `KeepLastValue` before any release cut.
+- **crosscheck example**: `examples/p370_block_if_value.mlog` — the value form was exercised by ZERO examples before (the crosscheck could not see the gap); now let-position + else-if chain + nested block-if value + statement-if value leak run through BOTH backends in CI.
+- **tests**: `tests/naryad_370_block_if_else_vm.rs` (13): basic value, return position, binary/argument position, else-if chain, Unit fallthrough (typed comparison), nested value forms, statement-if value leak, match inside a branch, last-non-Unit rule, early return inside a branch, single condition evaluation, golden contract, no-stub.
+- **boundaries (loud)**: the block if/else as a STATEMENT keeps its existing VM compilation (branch values still discarded mid-body — the fall-through value convention applies only at pattern/route body level, №250); `profile legacy` unaffected; no `todo!`/`unimplemented!`/`SKELETON` (asserted by test).
+
+### Added — feature/vm: VM Stage 1.1 — Match statement + match_expr compile to bytecode (Naryad #369, P0/feature/vm, issue #436)
+
+- **bytecode**: `Instruction::MatchTest(MatchTest)` (one arm test — pops the scrutinee, Compare arms pop the threshold first; the matching predicate is the SHARED `MatchTest::matches` → `ast::MatchArm::compare_values`, the same code TW runs) + `Instruction::StoreLastLocal` (TW-parity last-value store: keep only non-Unit — `eval_statements_cf` contract). Both appended at the END of the enum (bincode positional-index compatibility — old .mbc deserializes and runs identically).
+- **AST**: `Expr::MatchExpr { scrutinee, arms, else_body, span }` — match-as-expression is a first-class value now; `MatchArm::body()/matches_value()` + `MatchArm::compare_values` (moved verbatim from the interpreter — single source of truth for both backends). `CompareOp` gained Serialize/Deserialize/PartialEq (.mbc parity).
+- **parser**: the №173b lossy hack is GONE — `let x = match y { ... }` preserves the full arm structure in `Expr::MatchExpr`. Previously the arms were discarded at parse time and the let bound the raw scrutinee (the REFERENCE §Match contract — "the value of the last expression in the selected arm" — was violated by BOTH backends; the arms were dead code).
+- **compiler** (`src/compiler.rs`): `compile_match_stmt` (statement form, both statement compilers — the shared `compile_stmt_with_locals` had a silent `_ => {}` no-op: a nested match inside an if/while body compiled to NOTHING) + `compile_let_match` (expression form via the LetBinding arms; hidden `#`-slots — impossible in user IDENTs — hold the once-evaluated scrutinee and the last-value register; lazy per-arm threshold compilation = TW side-effect order). `keep_last_value` for a final-body match — №250 parity: the matched arm's trailing value is the body's fall-through value (`respond(...)` inside the final arm IS the route's response).
+- **VM** (`src/vm.rs`): `MatchTest` + `StoreLastLocal` dispatch in BOTH loops (`execute_main_code` + shared `execute_code` — pattern bodies and route handlers).
+- **semantics** (TW): `Statement::Match` routes through the shared predicates (identical behavior); `Expr::MatchExpr` evaluates arms against a CLONED local env (the `Expr::BlockIfElse` №14 P0-3 precedent — the value context does not leak lets).
+- **labels/effects** (`semantic.rs`): MatchExpr walks — label = scrutinee join every arm body (control dependence, REFERENCE §labels), effects = scrutinee + arm bodies + else, flow-env forks per branch (№323 D5), SVG-security walk.
+- **crosscheck**: the `p_match_switch.mlog` exception (№109/ADR-0105) is LIFTED — the example now runs end-to-end (`flow Main` drives all four match patterns; golden `.expected` = `a=correct b=default_hit c=fallback d=second`) through BOTH backends.
+- **superseded contracts**: №41 (`match` must fail route compilation → now compiles + serves, MatchTest asserted), №160 block 1 (match-in-route must fail VM startup → now starts and serves the matched arm; the examples scan inverted into a compile check), №197 sexpr gained the MatchExpr arm.
+- **tests**: `tests/naryad_369_vm_match.rs` (15): statement form (all four arm kinds, first-match-wins, else, nested + loop break/continue), match_expr value contract (last non-Unit wins, Unit fallthrough, compare numeric-first, starts_with/contains, nested, single scrutinee evaluation), TW↔VM parity on every case, .mbc round-trip, crosscheck-exception-lifted grep, golden contract, no-stub.
+- **boundaries (loud)**: `Expr::BlockIfElse` stays TW-only (№370); block-statement trailing VALUES inside arm bodies (if/else as an arm's last statement) remain part of the known VM block-value gap — the documented `ExprStmt` capture covers the REFERENCE contract; nested `let` inside a match_expr arm does not leak to the outer env (BlockIfElse precedent). No `todo!`/`unimplemented!`/`SKELETON` (asserted by test).
+
+### Added — dogfood: the Fosved Office contour under the Wave-1 gate + the ergonomics measurement (Naryad #329, P0/dogfood, issue #423)
+
+- **the contour** `examples/l1_dogfood.mlog`: the office assistant drafts the morning brief with `call_llm` (a Source: public conf, untrusted integrity — №316), delivers it via `send_message` (an irreversible Sink), and posts a metrics webhook via `http_post` (live in production, dead in CI — the static gate sees both branches identically). The golden pair (`l1_dogfood.expected`) runs the contour end-to-end in CI.
+- **the gate on a real contour** (the Phase-1 Go criterion): the contour compiles AND runs under №325/№327 — the run path enforces `audit_category_a`, which promotes the sink gate. `call_llm` runs in mock mode by default; `send_message` without `TELEGRAM_BOT_TOKEN` takes the audit-stub path — deterministic, no network.
+- **the measurement** (plan v2 §13.3): exactly TWO annotations keep the contour green — `escape_html(draft)` (the trust-restoring sanitizer; the un-sanitized draft is UNTRUSTED_EGRESS_NETWORK) and `redact(token, "hash_only")` (the only downward move, №326; the raw token is PII_EGRESS_NETWORK in the body position, SECRET_EGRESS_NETWORK in the address position). 2 annotated lines / 13 code lines ≈ 15% — under the 50% rebuild threshold. Pinned by `tests/naryad_329_dogfood.rs` (12): red/green pairs, the full office sink fact list (send_message, http_post, exec, git_push, write_file + the output/memory vocabulary), the pii_strip conservatism pin, the zero-delta plain contour, the annotation inventory by place, no-stub grep.
+- **boundaries (loud)**: the real Fosved Office codebase integration is outside this repository — the equivalent contour is the §3 deliverable per the naryad; the Go/No-Go decision is №330 (the owner's call). No `todo!`/`unimplemented!`/`SKELETON` (asserted by test).
+
+### Added — feature/vm: runtime label parity — LabelJoin/SinkCheck in the bytecode (Naryad #328, P0/feature/vm, issue #422)
+
+- **bytecode**: `Instruction::LabelJoin { dst, src }` (componentwise runtime label join; `@source` names a №316 Source builtin seed) and `Instruction::SinkCheck { fn_name, arg, line }` (the runtime twin of the №325 gate). `pub fn is_jit_eligible` — the SSOT predicate for the dispatch-gap rule: label instructions are explicitly outside the JIT-eligible class (ADR-0156 §2 — the future JIT dispatcher must reject label-bearing functions with a distinct error, never skip silently; pinned by test).
+- **VM** (`src/vm.rs`): a runtime label environment (`BTreeMap<String, Label>` — the №322 lattice); `LabelJoin` seeds/merges it, `SinkCheck` enforces the clearance (`public`; exec refuses untrusted) with a distinct `[SINK_CLEARANCE_RUNTIME]` error + `[SINK_CLEARANCE][audit-event]` stderr line.
+- **compiler** (`src/compiler.rs`): source-backed `let`/assignments lower into `LabelJoin`; sink call sites lower into `SinkCheck` (identifiers and direct-source arguments) — in both compile paths (top-level statements and pattern bodies via `RegisterPattern`).
+- **golden verdicts**: the run and compile paths agree on rejecting and accepting label programs (pinned by test).
+- **ADR-0156** filled (reserved → Accepted): the parity matrix TW/VM/JIT for Phase 1, the dispatch-gap rule, the instruction contracts.
+- **tests**: `tests/naryad_328_vm_label_parity.rs` (8). **boundaries (loud)**: the JIT compiler is not in the tree — the rule is pinned via the eligibility predicate; media label flows are Phase 2. No `todo!`/`unimplemented!`/`SKELETON` (asserted by test).
+
+### Added — security/labels: integrity axis & anti-injection — untrusted data must not decide control flow (Naryad #327, P0/security/labels, issue #421)
+
+### Added — security/labels: integrity axis & anti-injection — untrusted data must not decide control flow (Naryad #327, P0/security/labels, issue #421)
+
+- **Category-A gate `UNTRUSTED_DECISION`** (`src/audit.rs` + `semantic.rs::integrity_decision_violations`): at every decision position — `if`/`else if` conditions, `while` conditions, `match` scrutinees — the deciding expression's label must be `trusted`; untrusted data in a decision position is a compile error. Untrusted data as DATA is legal (carrying/transforming/returning — pinned by test).
+- **the integrity axis in action**: №316 Source builtins (`http_get`, `env`, `json_body`, `form_data`, `query_param`, `call_llm`, `read_file`, …) produce `untrusted` labels; the componentwise join poisons derivatives (`upper(trim(answer))` stays untrusted — the gate sees through pure wrappers). Provenance tracking names the untrusted SOURCE in the diagnostic (a direct Source call, through variable bindings and wrapper calls: `call_llm (via redact)`), plus the decision point (`decides a 'if' in pattern P`).
+- **the sanctioned paths to a trusted decision**: validate before deciding, or one-way-redact — `hash_only` now restores `trusted` (the data is destroyed; the result is a compiler-derived value, `bottom`). Fixed the static mapping: a one-way policy returns full `bottom` regardless of the input (previously a `public, untrusted` input kept its untrusted integrity through `redact`).
+- **sink-target decisions** keep their №325 classes (UNTRUSTED_EXEC_DECISION, UNTRUSTED_EGRESS_NETWORK) — no double classification.
+- **showcase** `examples/l1_injection.mlog`: `Decide` (LLM answer drives a branch around a destructive action → rejected, source named) vs `Carry` (the same answer as data → compiles).
+- **tests**: `tests/naryad_327_integrity_gate.rs` (11): the red/green scenario, all three decision positions (if/while/match, else-if chains), the integrity join through pure wrappers, private-but-trusted decisions legal (conf ≠ integrity), hash_only-restored decisions, zero delta for plain programs, the showcase, no-stub grep.
+- **boundaries (loud)**: content-level injection analysis is out of the compiler's scope; media sources Phase 2; taint polymorphism deferred. No `todo!`/`unimplemented!`/`SKELETON` (asserted by test).
+
+### Added — feature/labels: redact/declassify — policy as a value, the only sanctioned downward move (Naryad #326, P0/feature/labels, issue #420)
+
+### Added — feature/labels: redact/declassify — policy as a value, the only sanctioned downward move (Naryad #326, P0/feature/labels, issue #420)
+
+- **policy registry** (`src/builtins/string.rs::REDACT_POLICIES` — extensible): the second argument of `redact()` is a policy VALUE naming the transformation and the target conf. Built-ins: `hash_only` → `public` (one-way SHA-256 fingerprint — the sanctioned path down), `all`/`secrets` → `public` (legacy ADR-0136 masking), `pii`/`pii_strip`/`truncate` → `private` (conservative: pattern strips and truncations can miss data — they do NOT declassify, the №325 gate keeps blocking their output). Unknown policy words are loud runtime errors; the registry is open to future user-defined policies (values — later, loud boundary).
+- **static label mapping** (`semantic.rs`): `label_source` reads the same registry — the policy's `target_conf` drives the result label (one-way → bottom for private inputs; conservative → the input label passes through). `audit.rs::redact_result_taint` reads it too — the legacy `SECRET_LEAK` check now understands inline `redact(env(...), "hash_only")`.
+- **unconditional audit events** (`audit.rs::check_redact_events`): every `redact()` application across patterns/tools/routes/hooks/tests records `REDACT_APPLIED` (Severity::Info) — container, policy, target conf — plus a `[REDACT][audit-event]` stderr line. NOT switchable: no profile, no env toggles (ADR-0154 §10 — the paper trail of the downward move). Dynamic (non-literal) policies record `policy '<dynamic>'` with the conservative target.
+- **showcase** `examples/l1_redact.mlog`: hash_only path down (compiles), pii_strip conservatism (the gate keeps blocking raw output); 3 events on the audit report.
+- **tests**: `tests/naryad_326_redact_policies.rs` (14): registry contract, loud unknown words, downward path vs the №325 gate, conservatism, unconditional events incl. legacy and dynamic cases, runtime shapes (hash determinism/data destruction, truncation), the showcase, no-stub grep.
+- **boundaries (loud)**: consent revocation and the poisoned cascade — Phase 2 (№335); `consent_ledger` integration — Phase 2; user-defined policies — the registry is open, values later. No `todo!`/`unimplemented!`/`SKELETON` (asserted by test).
+
+### Added — security/labels: SINK_CLEARANCE gate on classified sinks + `profile legacy` (Naryad #325, P0/security/labels, issue #419)
+
+### Added — security/labels: SINK_CLEARANCE gate on classified sinks + `profile legacy` (Naryad #325, P0/security/labels, issue #419)
+
+- **Category-A gate `SINK_CLEARANCE`** (`src/audit.rs`, wired last into `audit_category_a` so pre-existing specialized checks keep their classes): at every sink-builtin call site the argument's inferred label (№322 annotations + №323 flow inference + №325 literal markers) must clear the sink — default clearance `public`; `poisoned` clears no sink (ADR-0154 §2.1). **The sink list is the №316 SSOT classification** (`Role::Sink`) — never a hand-written list (pinned by test).
+- **specialized classes** (the leak-suite vocabulary): `PII_EGRESS_OUTPUT`, `PII_EGRESS_NETWORK`, `SECRET_EGRESS_NETWORK` (private-infrastructure destination marker in the address position), `SECRET_EGRESS_VCS`, `SECRET_TO_EXEC`, `UNTRUSTED_EXEC_DECISION`, `UNTRUSTED_EGRESS_NETWORK`, `VOICE_EGRESS_UNCONSENTED` (consent sources are Phase 2 №335 — until then voice egress is unconsented by default, loud by design), `IRREVERSIBLE_NO_GRANT` (destructive SQL literals: DROP/DELETE/TRUNCATE/ALTER — the grant algebra is Phase 3 №339), plus the inherited classes for shared sites: `TAINT_PERSISTENCE` (memory writes), `HTML_INJECTION` (untrusted → public output), `SECRET_LEAK` (private → file sink), and the generic `SINK_CLEARANCE`.
+- **literal confidentiality markers** (ADR-0161 §3, `semantic.rs`): string literals carrying personal-data markers (passport/SNILS/diagnosis/confidential wording — a small bilingual vocabulary + structural RU-passport/SNILS digit shapes) or private-infrastructure URL markers (`internal`/`intranet`/`corp.`/`private`/`secret`) are seeded `private, trusted`; entity initializers seed the same way. Sound by conservatism: no markers → bottom → zero delta for plain programs (pinned by test).
+- **`profile legacy { egress: permissive_with_audit }`** (ADR-0161, absorbs №314 v1): a program-level compatibility profile — the gate runs ADVISORY: compilation and execution stay green (Severity::Info is not promoted by №98) and every hit is recorded as an audit event (`[SINK_CLEARANCE][audit-event]` stderr line + Severity::Info finding in `mlog audit`). `legacy` is a migration bridge, not a residence — the burn-down metric is the event count (ADR-0161 §3). New `Declaration::Profile` + `src/profile.rs` (mode resolution + loud validation of unknown profile names/options) + grammar `profile_decl`/`profile_option`/`PROFILE_KW` (313 → 316 rules, additive).
+- **leak-suite → strict**: `tests/run_leak_suite.rs` BLOCKING = true — **28 caught / 0 not caught / 0 mismatches**: every negative scenario fails compilation with its expected class, every positive keeps compiling and running. The two pre-lattice demos that intentionally relay request data into outputs (`p7_json_body`, `p8_route_patterns`) declare `profile legacy` — the honest migration path; the honest strict-mode breakage list is exactly those two.
+- **tests**: `tests/naryad_325_sink_clearance.rs` (16): the red/green scenario (`http_post(url, private_data)` fails strict, compiles with audit events under legacy), classification-backed sink list, all specialized classes, poisoned clears nothing, redact-before-sink passes, zero delta for plain programs, loud unknown profile words, an independent recomputation of the corpus closure, no-stub grep.
+- **boundaries (loud)**: media sinks Phase 2 (№331+); runtime twin of the gate №328; consent sources Phase 2 (№335); the general integrity gate №327; per-call escape policies revisited after Phase 2. No `todo!`/`unimplemented!`/`SKELETON` (asserted by test).
+
+### Added — feature/labels: ADR-0154 — label lattice (conf, integrity, consent-scope) + label carrier + annotation syntax (Naryad #322, P0/feature/labels, issue #416)
+
+### Added — feature/labels: effect trail in pattern signatures ⟨io, audit⟩ (Naryad #324, P0/feature/labels, issue #418)
+
+- **syntax** (`src/grammar.pest`, +2 rules — 311 → 313, strictly additive: a `⟨` after a return type was previously a parse error): `pattern P(x: String) -> String ⟨io, audit⟩ { ... }` — the declared effect trail sits after the return type on patterns, tool methods, and learnable patterns. Shape-only grammar (comma list of bare words; `⟨⟩` = the zero-effect contract); semantic validates the WORDS — the closed set `{io, audit}` — with the trail's span (same grammar-shape/semantic-words division of labor as №322).
+- **AST** (`src/ast.rs`): `Effect { Io, Audit }` (closed set), `EffectSet` (BTreeSet — canonical `⟨io, audit⟩` display), `EffectAnn { span, raw }`; `effects: Option<EffectAnn>` on `PatternDecl` / `ToolMethod` / `LearnablePatternDecl`.
+- **the gate** (`src/semantic.rs::check_effect_trails`): every DECLARED trail is held against the FACTUAL body effects — factual ⊑ declared, excess = loud compile error listing declared / required / excess, caught at the calling boundary. Interface semantics: a call to an annotated pattern contributes its DECLARED contract; a call to an unannotated pattern contributes its inferred effects. Patterns without a trail are ungated — zero behavioral delta for existing programs (pinned by test).
+- **factual effects via the №316 SSOT** (no name re-hardcoding): `Source` builtins → `io`; `Sink` builtins → `io`, plus `audit` when the reversibility is not pure (state/db/file/memory writes, delivery); `Pure`/`Lift` → ∅; the `memorize`/`forget`/`relate` statements → `io, audit`; a learnable pattern is an LLM call — `{io}` by construction.
+- **recursion decision (ADR-0154 §9.3)**: the effect domain is the 4-element powerset of `{io, audit}`; unions are monotone; the interprocedural fixpoint CONVERGES on directly and mutually recursive patterns without annotations (≤ 4 passes) — the dispatcher's No-Go signal does not fire; an explicit trail on a recursive pattern is welcome but not required and is gated against the same fixpoint result.
+- **showcase** `examples/l1_effect_sig.mlog`: `Fetch ⟨io⟩` (env), `Log ⟨io, audit⟩` (memorize), `Run ⟨io, audit⟩` (declared contracts compose) — compiles clean; the exceeding-call compile error is pinned by tests.
+- **tests**: `tests/naryad_324_effect_trail.rs` (18): syntax on all three carriers (span, bare type name), empty trail, unknown/duplicate words loud, the gate (excess list, calling-boundary attribution, undeclared callee shares factual effects), legal composition, zero delta without trails, the №316 mapping (env → io; print → io+audit; upper → ∅), memory statements → audit, direct + mutual recursion convergence, gated recursion, the showcase example, canonical display, no-stub grep.
+- **boundaries (loud)**: grant effects (action-grant algebra) are Phase 3 (№339); polymorphic effects deferred; runtime parity of trails is №328. No `todo!`/`unimplemented!`/`SKELETON` (asserted by test).
+
+### Added — feature/labels: ADR-0154 — label lattice (conf, integrity, consent-scope) + label carrier + annotation syntax (Naryad #322, P0/feature/labels, issue #416)
+
+### Added — feature/labels: statement-level label inference — 10/10 statement kinds, joins at merge points (Naryad #323, P0/feature/labels, issue #417)
+
+- **inference engine** (`src/semantic.rs`, `infer_pattern_labels` / `LabelInference`): static propagation of `(conf, integrity, consent-scope)` labels through pattern bodies with per-statement contracts (ADR-0154 Appendix A). Sources reuse the audit.rs vocabulary projected through the ADR-0154 §5 table (`env`/`secret` → private, `call_llm`/`call_claude`/`call_llm_schema`/`reflex_generate` → public/untrusted, `form_data`/`json_body`/`query_param`/`mcp_call` → public/untrusted, `render`/`escape_html` → trusted, `redact(x, "secrets"|"all")` → private → public, never curing `poisoned`).
+- **joins at merge points — componentwise**: if/else-if/else (every branch inferred from the entry env; one-sided assignment conservative by construction), match arms (+ else), loop exits (each/while).
+- **while — bounded fixpoint** (the decision the naryad demanded, recorded in Appendix A): body re-inferred until the environment stabilizes, cap 8 passes (conf-lattice height 4, monotone joins → the bounded fixpoint IS the exact fixpoint; the cap is a termination guard). A single conservative pass would under-approximate loop-carried chains (`a = b; b = env(...)` needs pass 2) — unsound on a security lattice.
+- **per-kind rules**: LetBinding/Assign — RHS label (Assign replaces, mirroring TaintTracker untaint); Each — iterator = iterable label, body cannot raise it, exit = join; EachWithIndex — index stays bottom (a position, not data); Return/ExprStmt — result joins the pattern output; Match — arms join + the scrutinee's label joins every variable structurally assigned in any arm (control dependence; structural detection, not label-diff — a branch can assign the same label it inherited); Break/Continue — no-op; Memorize/Forget/Relate — memory side effects, persistence gating is №325.
+- **example** `examples/l1_flow_infer.mlog` (+ golden .expected): the private label from env() reaches the output through if/else + each WITHOUT a single annotation; the runtime takes the public branch so the program runs clean. Asserted by the test reading the file and running the inference.
+- **tests**: `tests/naryad_323_flow_infer.rs` (16): example purity (no annotations) + private arrival; all 10 mandatory kinds + redact bridge (private down, poisoned NOT curable — ADR-0136 D2); no-stub markers on the naryad's new files.
+- **docs**: ADR-0154 Appendix A (contracts table + while decision + boundaries: recursion → №324, polymorphism deferred, media handles Phase 2, learnable-call sources need the №325 program context); REFERENCE §2.2 (user-facing table).
+- Boundaries (loud): no new diagnostics in this naryad — the inference is the read-only machinery №325's sink-gate consumes.
+
+### Added — feature/labels: ADR-0154 — label lattice (conf, integrity, consent-scope) + label carrier + annotation syntax (Naryad #322, P0/feature/labels, issue #416)
+
+- **ADR-0154 filled** (`docs/adr/0154-label-lattice.md`, reserved → Accepted): three-component label model — conf axis `public < consented < private < poisoned` where `poisoned` is quarantine and absorbing for BOTH join and meet (a curable meet would be a one-step declassifier); integrity axis `untrusted < trusted` dual to conf (join = min, meet = max — DLM/Jif, FlowCaml, LIO); consent-scope axis = set of consent scopes (join = intersection, meet = union). join/meet are componentwise. Rejected alternatives recorded: single numeric lattice; dimensions without meet; curable quarantine; restrictive-side silent defaults.
+- **new module `src/labels.rs`**: `Conf`, `Integrity`, `ConsentScope`, `Label` (join/meet/bottom, canonical Display `private, untrusted, consent(gdpr)`), `Label::parse` (conf word REQUIRED — a bare `<untrusted>` cannot silently mean `public`; integrity defaults `trusted`; consent defaults empty — defaults only on the permissive side), and `legacy_taint_label` — the additive ADR-0154 §5 projection table from the five legacy `TaintKind`s (LlmOutput→public/untrusted, Secret→private/trusted, UserInput→public/untrusted, Sanitized→public/trusted, CanaryLeak→poisoned/quarantine). No kind removed, no Category-A check touched, zero message diffs; exhaustiveness pinned by a unit test in `src/audit.rs` (enum ↔ table drift fails CI).
+- **annotation syntax** (strictly additive grammar rules, +6): `String<private>`, `String<private, untrusted, consent(gdpr, analytics)>` on pattern/learnable/template/tool-method params, entity-type fields, and entity record/simple type positions — everywhere else a `<...>` after a type remains a parse error. Division of labor: grammar guarantees the SHAPE (word/consent-part list), semantic validates the WORDS via `Label::parse` — the word table stays in one place and the semantic validation is reachable, not dead code.
+- **label carrier** (`src/ast.rs`): `LabelAnn { span, raw }` on `Param`, `FieldDecl`, `EntityRecordDecl`, `EntitySimpleDecl` — `type_name` stays the bare type; the annotation carries its source span.
+- **semantic validation** (`src/semantic.rs`): unknown word / duplicate conf / duplicate integrity / duplicate consent / missing conf / empty consent list are loud errors with the annotation's span, in the existing diagnostic style (`label annotation '<private, bogus>' on parameter 's' of pattern 'p': unknown label word 'bogus'`).
+- **tests**: `tests/naryad_322_labels.rs` (11: carrier + span, three-component parse, both entity forms, no-annotation programs unchanged, join/meet componentwise + poisoned absorbing both operations, semantic loudness incl. span line, projection totality, no-stub grep) + `src/labels.rs` unit tests (14) + audit.rs projection test. README parser-rules counter 305 → 311 (caught by readme_consistency).
+- **boundaries (loud)**: statement-level inference is №323, effect-trail №324, sink-gate + `profile legacy` №325 (reads the §5 table), consent sources (ledger ↔ lattice wiring) Phase 2 №335; parametric label polymorphism deferred. No `todo!`/`unimplemented!`/`SKELETON` (asserted by test).
+
+### Added — docs: doc-sync + ADR booking 0154–0161 (Naryad #319, P0/docs, issue #406)
+
+- **REFERENCE.md header synced with README/Cargo**: version 0.17.0 → 0.19.0; added a "Synced with code" line (2026-09-14, naryad №319) carrying code-derived counters: 421 builtins, 153 ADR files (145 accepted + 8 reserved). Video/voice builtin rows re-verified against the registry (`video_render` 2..4, `video_export` 2, `video_extend` 2; 18 voice/audio rows incl. the recorded `*_stub` loud-No-Go boundaries per ADR-0145) — REFERENCE remains 421/421 (coverage test green).
+- **ADR booking 0154–0161** (honest `reserved` stubs, one-line theme + plan v2 §19 reference, zero fake content): 0154 label lattice (№322), 0155 grant algebra (№339), 0156 TW/VM/JIT parity (№328), 0157 ledger profile PROV/in-toto (№343), 0158 declassify boundaries (№326), 0159 sim-first/STL (№354), 0160 identifier naming convention (filler unassigned), 0161 legacy compat profile (№325). **Collision divergence documented**: the issue's block 0151–0158 was already partially taken (0151–0153 by №309/№320/№412 between the plan snapshot and this booking) — the booking shifted +3, recorded in every stub, in the ADR index, and here.
+- **docs/adr/README.md**: numbering-rule line updated (accepted max 0153, overall max 0161 reserved); new "Reserved for plan v2 §19" booking table; index regenerated (153 entries).
+- **README**: ADR counter 145 → 153 (with the accepted/reserved split stated inline); REFERENCE size claim 214 → 215 KB.
+- **Name-canon (plan v2 §15) — zero-scope finding**: `WALL-OSS-0.5`, `MolmoAct2`, `Nemotron-3-Nano-Omni-30B-A3B` do not occur anywhere in the repository (verified by case-insensitive whole-repo grep, all file types). Nothing to unify; the canon applies when plan v2 lands or these models first appear in wedge/research docs.
+
+### Added — docs: REALITY.md — plan-v2 asset fact-check + honest P0-readiness estimate (Naryad #318, P0/docs, issue #405)
+
+- **`docs/REALITY.md`** — new SSOT page: per-anchor verdicts (CONFIRMED / PARTIAL / PHANTOM) for all 13 asset claims of §2 plan v2, each with a proof command and its actual output, reproducible on the plan snapshot `fc59e9e` via `git show` (no checkout needed). Verdicts: 9 CONFIRMED, 3 PARTIAL, 1 PHANTOM — «84 VM instructions» is PHANTOM (real count 47, second-method-verified; README's own claim already said 47), «10 Statement kinds» is PARTIAL (real count 15; README's stale "12" truth-uped), «143 ADR» is PARTIAL (142 ADR files + index README on the snapshot; canonical counter excludes the index).
+- **taint-effect boundaries** — the six "not ready" items from plan §2 proven absent by command on `1876fdf`: no lattice (0 `lattice` hits), statement-kind inference covers 9/15 kinds in `TAINT_INTERP` (Match/Break/Continue: 0 hits), no join/widen (canary fork is a clone without merge), no effect traces (`effect` in audit.rs: 0), no central exhaustive match over `TaintKind`, no affinity. Each item is pinned to the audit.rs location where it must appear.
+- **working P0-readiness estimate: 26%** — weighted decomposition (labels 30%×55% = 16.5pp, capability 20%×0%, backend registry 15%×10% = 1.5pp, ledger 15%×35% = 5.25pp, memory 20%×13% = 2.6pp; total 25.85 ≈ 26%), inside the ~25% ± 5pp corridor demanded by the issue. Weights are marked UNVERIFIED (plan v2 is not in the repo — proven by `git ls-tree`); per-subsystem readiness rests only on code facts. Divergence from v1 "~60%" documented with five reasons (width ≠ readiness, invisible empty subsystems, advisory ≠ gate, width-without-readiness indicators, taint-engine boundaries).
+- **precedent-asset index** — ADR-0114 (opaque handle → capability), ADR-0125/№241 (Category-A gates), ADR-0136/№274 (sanitizer taint semantics), №284 (path-sensitive fork → future join), №261/№130 (layered network gate), №300 (consent gate over ledger) — each with what it contributes as a template.
+- **README truth-ups found by the fact-check**: Architecture diagram "29 Declaration / 15 Expr / 12 Statement" → 33/14/15, AST table "12 Statement" → 15, component table "46 VM instructions" → 47 (all counters uncovered by consistency tests — now match the verified counts); REALITY.md linked next to Known Limitations.
+
+### Added — tests: LEAK-SUITE — corpus of "must not compile" contracts + reporting runner (Naryad #317, P0/tests, issue #404)
+
+- **corpus**: `examples/leak/` — 28 negative programs (`n*.mlog` + `n*.error` with `EXPECTED: <CLASS> — <scenario>`) + 16 positive legal flows (`ok_*.mlog` + calibrated `.expected`). Mandatory scenarios covered: private text to http_post, unconsented voice to cloud (tts_send), http_get→exec prompt-injection, print(secret) class, irreversible db_execute without grant, unmarked synthetic egress (vision_export_raw), untrusted frame taint, secret concat exfiltration; necessary-negatives (redact-before-sink, local journal for private) are positives that must keep passing after №325.
+- **class vocabulary** (SSOT in the runner header): existing audit check_ids (SECRET_LEAK, HTML_INJECTION, UNTRUSTED_FRAME, MEDIA_SYNTHETIC_UNMARKED, SQL_DYNAMIC) + planned №325 lattice classes (PII_EGRESS_NETWORK/OUTPUT, VOICE_EGRESS_UNCONSENTED, UNTRUSTED_EXEC_DECISION, SECRET_TO_EXEC, IRREVERSIBLE_NO_GRANT, SECRET_EGRESS_VCS/NETWORK, UNTRUSTED_EGRESS_NETWORK, TAINT_PERSISTENCE).
+- **runner**: `tests/run_leak_suite.rs` — separate from the main golden cycle (examples/leak/ is a subdirectory; golden.rs scans non-recursively). Compiles every negative, compares the CLASS of the failure (a foreign reason = corpus integrity violation = fail), runs positives against `.expected`. Reporting (non-blocking) until №325 — `BLOCKING: bool` one-attribute switch flips it blocking. Measured today: **11/28 caught (39%), 17 documented holes, 0 mismatches** — the hole is now measured, not invisible.
+- **calibration tooling**: `#[ignore]`d `leak_corpus_calibration_dump` prints actual failure classes (`cargo test --test run_leak_suite leak_corpus_calibration_dump -- --ignored --nocapture`).
+
+### Changed — video: VIDEO-TEXT-PATH — DiT text conditioning wired, no-stubs re-audit (owner directive 2026-09-14, ADR-0153)
+
+- **text path is real**: `VideoDit::forward` no longer drops the prompt embedding (`_text` dead parameter removed) — the embedding is loudly shape-validated (`[B, text_dim]`), projected by a seeded `Linear(text_dim → hidden_dim)` (streams seed+20/+21, no overlap) and broadcast-added to every token at each denoising step. Prompt conditioning now operates through TWO real paths: seed derivation AND the projected embedding (ADR-0153 D1).
+- **boundary restated** (ADR-0153 D2): the embedding remains hash-derived (`hash_embedding(seed)`), NOT a learned text encoder — umT5-class encoders stay under the №294-class No-Go with `video_fetch_weights` as the loud error; `docs/limitations.md` carries the row.
+- **no-stubs re-audit** (ADR-0153 D4): "stub" wording reserved for recorded loud-error boundaries; test fixture comment in `sampler.rs` relabeled (zeros are a valid input of the real path); №307 historical note in `src/video/mod.rs` marked superseded by №309. Zero `unimplemented!()`/`todo!()`/hidden stubs in the pillar.
+- **tests**: text conditioning changes the velocity field; same text → identical output; shape mismatch is a loud error (width and batch); `hash_embedding` seed-sensitivity. No absolute video hashes pinned anywhere — determinism contracts (two-anchor exactness, endpoint preservation, byte-deterministic mux/export) unaffected by construction.
+
+### Added — feature: MCP_SERVER — Metalogos as MCP server (tool constructs → MCP tools via stdio) (Naryad #297, P1/feature/mcp)
+
+- **new module**: `src/mcp_server.rs` — stdio-based JSON-RPC 2.0 server (newline-framed) that exposes user `tool` constructs from a .mlog file as MCP tools. Reverse of MCP client (Naryad #268, ADR-0132) — Metalogos IS the tool server.
+- **CLI**: `mlog mcp-serve app.mlog --allowlist tool1,tool2` — fail-closed: without --allowlist, server refuses to start.
+- **protocol**: MCP over stdio — `initialize` → capabilities (tools); `tools/list` → array of tool schemas (name/description/inputSchema from ToolDecl); `tools/call` → execute tool method body in TW runtime, return result.
+- **allowlist**: explicit tool names (format: `tool_name.method_name` or bare `method_name`); absent → loud error. Fail-closed — no tools exposed by default.
+- **execution**: tool method body executed via Interpreter::eval_statements with JSON args → Value env; existing gates (exec/env — №253/№259) apply. Max response size 1MB before truncation.
+- **JSON-RPC framing**: newline-delimited (one message per line), consistent with client №268.
+- **errors**: JSON-RPC error codes (parse error -32700, method not found -32601, invalid params -32602). No silent failures.
+- **no HTTP/SSE transport** (Future in ADR-0132 — separately). No changes to client №268.
+
+
+### Added — security: TAINT_DEPTH — bounded nesting depth 3 + README/threat-model truth-up (Naryad #295, P1/security)
+
+- **nesting depth**: `expr_is_llm_tainted` was single-level (caught `respond(call_llm(...))` but NOT `respond(upper(call_llm(...)))`). Now bounded-recursive up to `TAINT_NESTING_MAX_DEPTH = 3` — catches depth 2 (`respond(upper(call_llm(...)))`) and depth 3 (`respond(upper(upper(call_llm(...))))`); depth 5 (call_llm at depth 4) is the documented boundary (not caught intraprocedurally; `TAINT_INTERP` catches if a pattern call is involved).
+- **sanitizers at any depth**: `render()`/`escape_html()` wrapping the LLM source at any depth return false (taint lifted) — zero false positives on legitimate code. Test contract (c) verified.
+- **BinaryOp/IfElse/List/FieldAccess/IndexAccess propagation**: bounded-recursive check now propagates through compound expressions (not just FnCall chains). Test: `respond("prefix: " + call_llm(...))` → HTML_INJECTION (BinaryOp arm).
+- **reflex_generate** (Naryad #201): LLM-output-equivalent source — `is_llm_source("reflex_generate")` returns true regardless of feature gates (static audit, not runtime-gated). Test: `respond(upper(reflex_generate(...)))` → HTML_INJECTION.
+- **persistence truth-up** (no code change — README/threat-model only): `TAINT_PERSISTENCE` check (naryads #141/#157) catches LLM output stored via `memorize()` and read back via `recall()` reaching `respond()` — **at file/module scope** (any scope with `recall + respond` AND any `memorize` with LLM source anywhere in declarations). The previous README row "Data flow through persistence is not tracked" was misleading — the check EXISTS, it's just bounded to file scope, not cross-module data-flow. README row rewritten.
+- **`query(format(...))` truth-up** (no code change): `check_sql_dynamic` (Naryad #78) **loudly rejects** any non-literal in the 1st argument of `query()`/`db_execute()` — including `format(...)` (`Expr::FnCall`, not `Expr::StringLit`). Test: `tests/check_integration.rs:71-90` "non-literal SQL must be a compile-time error". The previous README row "not detected" was wrong — it IS detected and loudly rejected. README row removed; threat-model entry rewritten as "NOT a gap".
+- **README "Known boundaries"** truth-up:
+  * Removed: "LLM output stored via `memorize()` then read back via `recall()` — Data flow through persistence is not tracked" (misleading — check exists since №141, bounded to file scope).
+  * Removed: "`query(format("...", x))` — `format()` output is not a literal string; check requires compile-time constant" (wrong — check_sql_dynamic rejects ALL non-literals, including format).
+  * Added: "LLM output nested deeper than 3 levels of non-pattern function calls — `expr_is_llm_tainted` is bounded (naryad #295); `TAINT_INTERP` catches via summary if a pattern call is involved".
+  * Updated intro: "bounded to nesting depth `TAINT_NESTING_MAX_DEPTH = 3` (naryad #295)".
+- **docs/threat-model.md "Known Boundaries"** truth-up: persistence entry rewritten (file-scope check exists); `query(format(...))` entry rewritten as "NOT a gap"; nesting entry added.
+- **tests** (`tests/naryad_295_taint_depth.rs`, 8 tests, all green):
+  * (a) depth 2 — `respond(upper(call_llm(...)))` → HTML_INJECTION.
+  * (b) depth 3 — `respond(upper(upper(call_llm(...))))` → HTML_INJECTION.
+  * (c) render/escape_html at depth 2 → NOT flagged.
+  * (d) depth 5 (call_llm at depth 4) → NOT flagged (documented boundary).
+  * Additional: depth 1 no regression; BinaryOp with LLM operand; reflex_generate at depth 2.
+- **no changes** to `check_sql_dynamic` (contract: it's correct; only documentation truth-up).
+- **no changes** to existing check_id semantics.
+
+### Added — feature: VISION_REALW — formal No-Go, the real-weights run remains PARKED (Naryad #294, P0/feature)
+
+- **verdict**: **No-Go** — executing the №237 runbook is impossible in the current environment; the hardware gate is not passed. Date: 2026-09-14.
+- **preflight check** (the agent container): 4.1 GB RAM (64 GB needed), 9.9 GB disk (40 GB needed; 32.85 GB for the weights alone), no GPU. 3 of 3 hardware requirements NOT passed.
+- **owner decision 2026-09-14** (issue #357 body): "conditional Go — if a machine is allocated per the preflight, the №237 runbook is executed verbatim; without a machine — a formal No-Go with an explicit revisit date. The audit 'Tiny model' option is rejected." In the agent container there is no machine → a formal No-Go.
+- **revisit date**: when hardware is allocated (≥64 GB RAM, ≥40 GB disk, a GPU contour). Open item outside the repo — the owner's decision on allocation.
+- **report**: `docs/research/naryad-294-vision-realw-no-go.md` — the formal No-Go with the preflight table, the reasons, what was NOT done (because it is impossible), and what is available without hardware.
+- **Parked status remains** (No-Go → not lifted). Updated in three places:
+  * `docs/adr/0122-vision-pillar-scope.md` map row #237 — the №294 No-Go verdict + revisit date + report link added.
+  * `README.md` "Weights run parked" — the №294 No-Go verdict + report link added.
+  * `docs/threat-model.md` — unchanged (did not mention PARKED directly; the vision pillar was covered via README + ADR-0122).
+- **zero diff in `src/**`** — the vision pillar code is GO-ready after №236/№243; the №212/№243 env-gated tests SKIP loudly when `MLOG_VISION_WEIGHTS_DIR` is unset (working behavior, not a blocker). The real problem is hardware, not code.
+
+### Added — adr: ADR-0141 — VM production-readiness: staged gap closure + parity-gated default flip (Naryad #293, P0/adr)
+
+- **ADR-only, no code** (a P0/adr research naryad, issue #356 — VM_COMPLETE). Source: the external Metalogos audit of 2026-09-13. **Owner decision 2026-09-14**: supersede ADR-0105's "Do not implement…" caveat — staged gap closure; the default flip (ADR-0088) remains behind the gates: parity 100% + full crosscheck + soak + real load.
+- **research**: `docs/research/vm-gaps-inventory.md` — a gap inventory with numbers:
+  * **Explicit gaps (compiler.rs)**: 2 — `Match` statement (compiler.rs:1373), `Expr::BlockIfElse` (compiler.rs:902).
+  * **TW-only**: `match_expr` (Naryad #173b) — closed automatically once Match-as-expression is implemented in Stage 1.
+  * **Hidden gaps (crosscheck exclusions)**: 3 — binop coercion (heterogeneous List+String, p118_collection_utils.mlog), PRNG state (reflex_math.mlog), Bool→String formatting ("true" vs "1").
+  * **Closure cost**: ~745 LOC across ~4 naryads (№294-№297), per the №91 precedent (TryEval) — instruction + compiler + VM dispatch + tests + crosscheck exclusion removal.
+- **ADR-0141 staged plan** (D1-D7):
+  * **Stage 0** (this naryad — №293): research + ADR + a README update. Zero code.
+  * **Stage 1** (naryads #294-#297): closing the 4 gaps per the №91 precedent. Each — a separate naryad, a separate PR, separate tests + crosscheck exclusion removal.
+  * **Stage 2**: parity gate — `tests/crosscheck_backends.rs` without VM-uncovered exclusions (except the negative-test contracts).
+  * **Stage 3**: soak — FOSVED on the VM in staging for 1 sprint (≈2 weeks), without panic/regression.
+  * **Stage 4**: real-load benchmark — a representative FOSVED workload (≥2000 lines, with LLM/DB/vision). The VM must show a ≥2× latency improvement OR equivalent latency with a memory/CPU win.
+  * **Stage 5** (only if Stages 2-4 are green): the ADR-0088 default flip `interpreter` → `vm`. A separate ADR (a new number — `0142` or higher). The `METALOGOS_SERVE_BACKEND=interpreter` opt-out preserved for back-compat.
+  * **D7**: ADR-0105 §Decision 1-4 remain in force (TW = the guaranteed full-language backend; VM = experimental until Stage 5). The "Do not implement Match/BlockIfElse in the VM under this ADR" caveat — superseded.
+- **README**: the Dual Execution Backend section updated — a link to ADR-0141 + the staged closure plan; ADR count 132→133.
+- **docs/adr/README.md**: index regenerated (133 entries); max statement updated (0140→0141).
+- **this ADR does NOT**: close the gaps (Stage 1 — naryads #294-#297); change the backend default (Stage 5 — a separate ADR after Stage 2-4); remove ADR-0105 (only the caveat is superseded).
+
+### Added — security: TAINT_INTERP — interprocedural taint MVP, summary-based, bounded depth 2 (Naryad #292, P0/security)
+
+- **new check_id**: `TAINT_INTERP` (Severity: Error, Category A — promoted to compile error via `audit_category_a` → semantic №98). Catches the case `TAINT_PASSTHROUGH` (Naryad #141/#157) misses: non-trivial patterns where `return <param>` is wrapped in another expression (e.g. `return upper(x)`) or chains through 2 user-pattern calls (`respond(Outer(Inner(call_llm(...))))`).
+- **new check_id**: `INTERP_DEPTH_LIMIT` (Severity: Warning, advisory-only in `audit_program` — NOT promoted to compile error). Emitted when a pattern participates in a call cycle (recursion / mutual recursion); analysis terminates cleanly at `TAINT_INTERP_MAX_DEPTH = 2`. The boundary is documented loudly, not silently.
+- **approach** (summary-based interprocedural taint):
+  * `compute_pattern_summaries(decls)` — for each `pattern`, computes `PatternSummary { params_tainting_return: HashSet<param_index>, bounded_recursion: bool }`.
+  * `propagate_params(pattern_name, pattern_bodies, pattern_names, propagated, visited, depth)` — bounded depth 2; cycle detection via `visited` set; `bounded_recursion` flag set on every pattern in a cycle.
+  * `check_taint_interp_pattern` — for each sink call (`respond`/`respond_html`/`write_file`/`print`), check if any arg is a user-pattern call whose summary says some param taints the return, and that param's corresponding arg-expression contains an LLM source (directly or through 1-2 levels of pattern calls).
+- **sanitizers take precedence** (zero false positives on legitimate code, test contract (c)): `render()`/`escape_html()` wrapping the LLM source lift the taint — `respond(render(...))` and `respond(escape_html(...))` are NOT flagged.
+- **wiring**: `check_taint_interp_pattern` is called from `audit_program` (full version, with `INTERP_DEPTH_LIMIT` warnings) and `check_taint_interp_pattern_errors_only` from `audit_category_a` (Errors only, drops the `INTERP_DEPTH_LIMIT` advisory Warnings — mirrors `check_vision_export_gates_errors_only` discipline from Naryad #241).
+- **tests** (`tests/naryad_292_taint_interp.rs`, 10 tests, all green):
+  * (a) `pattern Wrap(x) { return upper(x) }` + `respond(Wrap(call_llm(...)))` → `TAINT_INTERP` (today `TAINT_PASSTHROUGH` misses — non-trivial body).
+  * (b) 2-level chain `respond(Outer(Inner(call_llm(...))))` → `TAINT_INTERP`.
+  * (c) Legitimate path through `render(...)`/`escape_html(...)` → NOT flagged (zero false positives); `render` wrapping pattern call also lifts taint.
+  * (d) Recursive pattern `Recurse(x) { return Recurse(x) }` → `INTERP_DEPTH_LIMIT` warning (analysis terminated, not hung).
+  * Additional: trivial 1-param passthrough (`return x`) still caught by `TAINT_PASSTHROUGH` (not duplicated); pattern not returning its param (`return "constant"`) → no taint flow (correct negative); `respond_html` and `write_file` sinks also trigger `TAINT_INTERP` with non-trivial wrap.
+- **docs**:
+  * README "Known boundaries of static analysis" — `TAINT_INTERP` row added (Error), `INTERP_DEPTH_LIMIT` row added (Warning); "Interprocedural taint deeper than 2 levels" replaces "Taint does not cross pattern boundaries" (now caught at depth ≤2).
+  * `docs/threat-model.md` — `TAINT_INTERP` row added to audit table; "Interprocedural taint" Known Boundaries entry rewritten to reflect bounded depth-2 tracking (was: "LLM output passed through a non-trivial pattern call chain" — now: "deeper than 2 levels").
+- **no changes** to `grammar.pest`/compiler (contract: MVP — pure inference, no `taint`/`sanitized` annotations on signatures — that's a separate naryad after an ADR).
+- **no changes** to existing `TAINT_PASSTHROUGH` semantics — trivial 1-param passthrough still caught by the original check.
+
+### Added — docs: llms.txt — an index for agent tooling and RAG pipelines (Naryad #291, P3/docs)
+
+- **artifact**: `llms.txt` (new) — a plain markdown index at the repository root, following the `llmstxt.org` v2 format (H1 title, optional blockquote description, bullet list of canonical files). 14 working relative links to the key files: AGENTS.md/CLAUDE.md/GEMINI.md (methodology), REFERENCE.md (the full reference), src/grammar.pest (the PEG grammar), tree-sitter-mlog/grammar.js (the parallel tree-sitter grammar), examples/ (214 working .mlog files), README.md, CHANGELOG.md, docs/adr/ (132 ADRs), docs/threat-model.md, FEATURE_INTAKE.md, AI_USAGE.md, MEMORY_ROADMAP.md.
+- **Block 2 — an honest statement of expectations**: the file itself states it explicitly — "an index for IDE agents and RAG pipelines that were explicitly pointed at this repository's URLs. Not for automatic discovery — the major crawlers (GPTBot, ClaudeBot, Google-Extended) practically never request llms.txt systematically." No claim that "agents will automatically find the language through this file" — the source document showed the limitation outright.
+- **README**: 1 line added to Project Structure (`llms.txt` with a description).
+- **not created**: `llms-full.txt` (the extended variant) — not enough value claimed, only the basic index (the naryad contract).
+- **ADR**: not required (`ADR-0110` §1: an established pattern, not new semantics).
+- **contract fulfilled**: the file exists and follows the `llmstxt.org` v2 format (markdown, not an invented structure); all 14 internal links are working relative paths (verified with `ls -e`).
+
+### Changed — docs: AGENT.md → AGENTS.md — canonicalization to the industry standard (Naryad #290, P2/docs)
+
+- **Block 1 — renaming**: `AGENT.md` → `AGENTS.md` (`git mv`, history preserved). `AGENTS.md` is a real, widely adopted industry standard (`agentsmd/agents.md`, 24266★, stewarded by AAIF under the Linux Foundation since December 2025). The former `AGENT.md` (165 lines) was correct in content and needed only the rename.
+- **all references updated** `AGENT.md` → `AGENTS.md` across the repository (10 files): `CHANGELOG.md`, `REFERENCE.md`, `.github/pull_request_template.md`, `.github/ISSUE_TEMPLATE/naryad_form.yml`, `docs/naryads-252-257-security-bugfix.md`, `docs/naryads-258-265-audit-tails.md`, `docs/research/naryad-271-sqlite-vec-spike.md`, `docs/research/naryad-275-streaming-spike.md`, `docs/research/naryad-282-smfs-spike.md`, `tests/reference_consistency.rs` (the "SSOT per AGENTS.md §5" comment). A historically accurate entry — only the file name; no new wording invented.
+- **Block 2 — bridge files**: `CLAUDE.md`, `GEMINI.md` — **copies, not symbolic links** (a deliberate decision): on Windows, without `core.symlinks=true`/developer rights, a symlink turns into a plain text file with a path inside, not a working link — a silent breakage for some contributors. The copies are synchronized manually when `AGENTS.md` is edited (at the cost of a small desync, but without the risk of a silent failure on some platforms). At commit time — byte-identical (verified with `diff -q`).
+- **Block 3 — README**: 3 lines added to the repository structure description (modeled on REFERENCE.md/CHANGELOG.md): `AGENTS.md` as the canonical file for agent tooling, `CLAUDE.md`/`GEMINI.md` as bridge copies.
+- **zero diff** in `src/**` (no references there — verified). In `tests/**` — only the comment in `tests/reference_consistency.rs` (line 4), not functional code.
+- **ADR**: not required (`ADR-0110` §1: an established pattern, not new semantics).
+- **contract fulfilled**: `grep -rln 'AGENT\.md' . --include='*.md' --include='*.yml' --include='*.rs' | grep -v 'node_modules\|target\|/.git/'` is empty (after the edit).
+
+### Added — tooling: the tree-sitter-mlog grammar for .mlog (Naryad #289, P2/tooling)
+
+- **artifact**: `tree-sitter-mlog/` — a parallel artifact inside the repo (not a separate package — publishing as a separate package is a separate naryad when real demand appears). `grammar.js` (the tree-sitter DSL), `package.json` (the tree-sitter-cli dependency), `README.md` (coverage + correctness contract + divergences from grammar.pest + known limitations).
+- **coverage** (Block 1): all major top-level declarations — entity (three forms), pattern, learnable pattern (with the ADR-0117 distill fields in any order), flow (with checkpoint + branch_def), rule, reflex/reflex_seq/reflex_gen, vision, type alias, llm config, mlogserver + route, template, db/schema/skill_index/memory/conversation/context_budget, import/hook/sandbox/mutate/eval/fluid/adapt, memorize/relate/forget, tool, test. All statements — let/let mut/assign, if (block + then), each, while, match (4 arm types + else), break/continue/return. All expressions — layered precedence (or/and/compare/add/mul/unary/access/primary), try, if-then-else, qualified call, struct/list literals, paren expr, all literals.
+- **correctness contract** (Block 2): a `tree-sitter parse` run over 23 representative files from `examples/` (covering all pillars). Result: **12 PASS (no ERROR nodes), 11 PARTIAL (the parser recovered, ERROR nodes in deep constructs), 0 FAIL (no crashes)**. All 23 files parse structurally — not one crashes. Improving PARTIAL → PASS is a separate follow-up naryad when real demand appears.
+- **publication** (Block 3): the grammar lives in the Metalogos repository itself (the naryad spec explicitly said — do not publish as a separate package in this naryad). Usage: `cd tree-sitter-mlog && npm install && ./node_modules/.bin/tree-sitter parse <file.mlog>`.
+- **divergences from grammar.pest recorded explicitly** (not silently resolved one way): pest ordered choice ↔ tree-sitter GLR + conflicts; pest `_{ ... }` silent rules ↔ tree-sitter `inline`; pest keyword-via-ordered-choice ↔ tree-sitter `word` declaration (not set in v1 — a known limitation); pest allows empty-matching rules ↔ tree-sitter forbids them (the `*_body` rules were inlined into parents with `repeat1`); the initial entity record decl shape bug (params in parens vs `: Type = {...}`) fixed to mirror pest exactly.
+- **known limitations**: 11/23 PARTIAL examples (GLR conflicts in deep constructs), `word: $.ident` not set, `block_if_else_expr` self-conflict, simplified multiline-string regex.
+- **zero diff** in `src/**`, `tests/**`, `src/grammar.pest` — a parallel artifact, not part of .mlog compilation (the naryad contract).
+- **docs**: `tree-sitter-mlog/README.md` (the full report: coverage, contract, divergences, known limitations, usage); CHANGELOG (this block).
+
+### Added — adr: the ADR-0140 addendum to ADR-0131 — the no-reuse rule + SSOT-registry discipline for diagnostic codes (Naryad #288, P2/adr)
+
+- **ADR-only, no code**: `docs/adr/0140-diag-codes-adr-addendum.md` — an addendum to ADR-0131 (Accepted 2026-09-10, naryad #255). ADR-0131 already answered questions 1-3 of the spec (format = `UPPER_SNAKE_CASE`; a single convention for `audit.rs` + `semantic.rs`; the JSON output `{code, message, span, severity}`). These questions are NOT reopened.
+- **D1. The no-reuse rule (codes are reserved forever)**: a code once assigned to a diagnostic is never reused for a different meaning — even after the error is removed. A removal is accompanied by `removed_in: <version>` + `replaced_by: Option<code>` + a CHANGELOG entry. Precedent: Rust `rustc_error_codes`.
+- **D2. SSOT-registry discipline**: the `DIAG_CODES: &[DiagCodeSpec]` registry — a separate module `src/diag_codes.rs` (new, not part of `audit.rs`). The `DiagCodeSpec { code, message_template, severity, category, removed_in, replaced_by }` structure. Append-only (the `BUILTIN_REGISTRY` template, naryad #170). Cross-source consistency — every `check_id` in source must have a matching entry in the registry; a collision is caught on CI (an implementation naryad, not this ADR).
+- **D3. Categories inside the single registry**: a `category` field (`"security" | "semantic" | "vm" | "reflex" | "vision" | "voice" | ...`) for machine-readable category distinction within the single registry, rather than via separate registries. Resolves the spec's original rationale ("semantically different categories") through subcategorization, not separation.
+- **D4. A snapshot of the known-code registry**: 17 unique `check_id`s in `audit.rs` at main `d3a1de5` (the naryad #283 merge) — all Category A/B security. The registry automatically includes these 17 as its base at creation; new `semantic.rs` codes are added append-only.
+- **Implementation** (applying the codes to all `semantic.rs` errors + creating `src/diag_codes.rs` + `tests/diag_codes_registry_check.rs` + the `mlog check --json` flag) — a separate, follow-up naryad after this ADR is accepted. The ADR fixes the convention, not the implementation.
+- **ADR-0131 remains in force** — the addendum adds two operational rules (no-reuse, SSOT-registry discipline) and does not revise the format / single convention / JSON shape.
+- **docs**: ADR-0140 (this document); the ADR-README index regenerated (131→132 entries); the README ADR count synced (131→132); CHANGELOG (this block).
+
+### Added — language: `server_path_param` — mlogserver templated routes `{name}`/`{*path}` (Naryad #283, P2/feature)
+
+- **language**: `server_path_param(name) -> String` — the path parameter from a templated route (parity with `query_param`). Returns an empty string when absent (no template / no server context). Category `web`, arity 1.
+- **route templates**: axum 0.8.9 syntax — `{name}` (one segment) and `{*path}` (the path tail, one or more segments). The templated dispatcher is a FALLBACK after the exact (static) match: static routes take priority over templates (axum semantics). A template with no match → the existing 404 path.
+- **TW/VM parity** (Naryad #40): a `server_path_params: Option<HashMap<String, String>>` field in the Interpreter (`src/interpreter/mod.rs`) + Vm (`src/vm.rs`); `set_server_path_params`/`get_server_path_param` in Interpreter + Vm; `clear_server_context` in Vm resets `server_path_params` (parity with `server_query_params`); the builtin intercept `if name == "server_path_param"` in `execution.rs` (the callable form + the FnCall pattern body form) and `vm.rs::call_builtin` — all three arms identical.
+- **percent-decoding** (parity with `query_param`): path segments are percent-decoded through the existing `url_decode_fallback` (the Bug 2.1 fix). `/forge/a%20b` → `server_path_param("name") == "a b"`.
+- **conflict policy**: `check_route_template_conflicts` in `build_state` — a loud error at server startup if two templates can match one path with one method (e.g. `/a/{x}` and `/a/{y}` for GET). Conservative: catches same-shape and prefix+wildcard overlaps; does not attempt full overlap detection (full overlap analysis is the user's responsibility). Run in `build_state`, not in `run_server` — tests see the same behavior as production.
+- **template parser** (`parse_route_template`): validation — empty `{}`, empty `{*}`, a segment after a wildcard (forbidden), nested braces `{{name}}`, unbalanced braces inside a literal segment. All errors are loud.
+- **routing internals**: `route_handler` in `src/server.rs` now: (1) exact static match (as before); (2) if not found — `match_templated_route` (fallback). Returns `(Option<&RouteDecl>, HashMap<String,String>)` — path_params is empty for static, filled for template. `execute_route_body` and `execute_route_body_vm` take `path_params: &HashMap<String,String>` — injected into `interp.set_server_path_params`/`vm.set_server_path_params` (parity with the query_params inject).
+- **tests** (7, all green): `n283_templated_route_basic` (`/demo/{name}` → "test"), `n283_wildcard_captures_tail` (`/files/{*path}` → "a/b/c"), `n283_static_wins_over_template` (literal vs template), `n283_percent_decoding` (`/forge/a%20b` → "a b"), `n283_no_match_returns_404`, `n283_template_conflict_at_startup` (a loud error with `/a/{x}` + `/a/{y}`), `n283_parity_tw_vm_templated_route` (TW and VM return the same body).
+- **test helpers**: `call_route_full` (a new helper — static + template fallback, parity with `route_handler` production behavior) and `call_route_vm_with_path_params` (a VM parity helper for path_params).
+- **docs**: REFERENCE §6 regenerated (408→409 builtins, 100%, 0 TODO); README (408→409 builtins); CHANGELOG (this block). Registry 408→409 (append-only, indices stable).
+- **Related**: Naryad #40 (VM routes — backend parity is mandatory), №262/№263 (the route middleware gates are untouched, but are tested through `call_route_full`), FOSVED FO-023 (FORGE-1 — the first consumer: `/forge/repo?name=` → `/forge/{name}`). An additive router-surface extension: security is not weakened (the route gates apply to the body as before), no ADR required — recorded in the naryad docs.
+
+### Added — language: `llm_stream_open/next/close` — streaming LLM over SmartRouter (Naryad #275, P1/feature/llm)
+
+- **language**: `llm_stream_open(prompt, input?) -> Struct { handle, model, provider }` (arity 1..2); `llm_stream_next(handle) -> String` (one delta / `""` for keep-alive / `"__end__"` for the end); `llm_stream_close(handle) -> Struct { tokens, latency_ms, status, provider, model, input_tokens, output_tokens, aggregated_text }` — iterator-style streaming of the LLM answer as SSE chunks arrive, in the single-core block-in-place style (ADR-0096).
+- **Spike + ADR**: the №275 verdict gate (issue #311, SG-3) — the verdict is **Go** (the spike report `docs/research/naryad-275-streaming-spike.md`, ADR-0137). Deviation from the issue #311 wording (recorded loudly in ADR-0137 §D3): `reqwest::blocking::Response` has no `chunk()` method (that is the async-`Response` API); instead — `impl std::io::Read for Response` + a hand-written incremental SSE parser. Semantically equivalent to "incremental chunked SSE reading without rewriting the backends" and satisfies the spirit of the Go criterion.
+- **Architecture** (ADR-0137): the stream is embedded ON TOP of SmartRouter (ADR-0048) — `SmartRouter::stream_open` reuses the same candidate-selection + circuit-breaker + resolved-model as `SmartRouter::call`, but sends the POST with `stream: true`. `SmartRouter::call` remains unchanged; the single-shot path (`call_llm`/learnables/`call_claude`/`call_llm_schema`) without regressions. Failover **at the open stage only** (switching mid-stream is impossible — the circuit breaker will mark the sick provider, and the next `open` will bypass it).
+- **Opaque handle** (the ADR-0114 template): `Value::LlmStream(LlmStreamId)`, `LlmStreamId = u32` — an index into the process-global `LLM_STREAM_REGISTRY` (lives in `crate::llm`, like `GLOBAL_SMART_ROUTER`/`GLOBAL_LLM_USAGE`). `Display`/`Debug` follow the `Reflex`/`Vision` templates (provider + model, not payload). One body for both backends — TW/VM parity by construction (ADR-0137 §D9).
+- **A bounded state map** (the №263 lesson): `LLM_STREAM_REGISTRY` is limited (default 64, the `METALOGOS_LLM_STREAM_MAX` env override). Exceeding it → a loud `STREAM_LIMIT_REACHED`. Mock / non-SSE backends → a loud `STREAM_UNSUPPORTED` (the issue contract: not a silent full answer).
+- **Trace**: one JSONL line per completed stream (the ADR-0138 §D4 contract — "streams will emit one line per completed call, never per chunk"). Latency = open→close, usage = aggregated from the final SSE event (Anthropic `message_delta` / the OpenAI final chunk with `usage` / Ollama `eval_count` in the final `done: true` chunk). Per-chunk tracing is absent by contract.
+- **SSE parser**: a `\n\n` or `\r\n\r\n` terminator format; `data: <json>` lines; the `[DONE]` marker (OpenAI), the `message_stop` type (Anthropic), `"done": true` (Ollama). Provider-specific delta-text extraction (`choices[0].delta.content` for OpenAI-compatible, `delta.text` for the Anthropic `content_block_delta`, `response` for Ollama) + usage extraction (`prompt_tokens`/`completion_tokens` for OpenAI, `input_tokens`/`output_tokens` for Anthropic, `prompt_eval_count`/`eval_count` for Ollama). An unterminated SSE event left in the buffer at EOF marks the stream ended instead of crashing (loud only on `next` after close on the same handle).
+- **Resource closure**: `llm_stream_close` drops the `reqwest::blocking::Response` → closes the TCP connection — the provider sees a client-side close. A mid-stream close is legitimate (status "ok", with whatever was received). `next` after `close` — a loud unknown-handle error.
+- **Tests**: `tests/naryad_275_stream.rs` (5) with the mock SSE server `tests/p275_stream_server.py` (template: `tests/p76_http_download_server.py`): open→next→…→close basic (the aggregated text == "Hello, world!"), STREAM_UNSUPPORTED without SmartRouter, STREAM_LIMIT_REACHED (METALOGOS_LLM_STREAM_MAX=2 + 3 opens), close-before-end (a mid-stream drop, a next-after-close error), end-marker-after-[DONE] (`next` on an ended stream returns `__end__` without the network).
+- **Documentation**: REFERENCE §6 regenerated (405 → 408 builtins, 100% coverage, 0 TODO); CHANGELOG (this block); ADR-0137 + the spike report + the ADR-README index regenerated (131 entries). Registry 405→408 (append-only, indices stable).
+
+### Added — testing/docs: `mlog test --docs` — the rustdoc doc-tests pattern (Naryad #287, P2/M3)
+
+- CLI: `mlog test --docs [GLOB...] [--backend tw|vm]` (defaults: REFERENCE.md, README.md, docs/book/**/*.md — the living LANGUAGE documentation; docs/adr/** and docs/research/** are historical records, included only by an explicit glob — loud). `mlog test <file>` — backward compatible (file is now an Option).
+- Block contract: no marker — must execute without error; `// expect: <value>` — the last output line == the expectation (flow blocks); `// expect-error: <code?>` — must fail (the code is a substring, fail-closed); `// no-run` — parsing only; `// doc-test: skip` — fully skipped (grammar cheat sheets/sketches, counted).
+- Classification: a flow block → a full run; declarations-only → parse + registration; a fragment → wrapped in a pattern __DocTest + flow Main; the fragment's import lines are lifted to the top level (the doc pattern "an import in the middle of an example").
+- Read-only profile: an ephemeral tempdir-cwd per block (file/db effects are isolated, "no side effects on the CI machine"); the network/exec builtins (http_*, smtp_*, imap_*, mcp_*, exec, exec_argv) are replaced with loud-refusal stubs [DOC_SANDBOX] — the substitution is LOCAL to the interpreter (Interpreter::override_builtin + Builtins::override_handler; the SSOT registry is untouched); call_llm — the mock backend; escapes outward are loud via the №131/№252 sandbox.
+- Interpreter soft errors: `[ERROR: unknown function …]` in the output — a block failure (silent lying is not allowed); boundary: a fragment call to an unknown function is discarded by TW semantics (the wrapper returns "") — documented in docs/doc-tests.md.
+- Report: `doc-tests: N files, N extracted, M executed, K no-run, E expect-error, S skipped, F failures`; every error carries a semantic anchor `file: section: block #k` (the mlog block number + the markdown heading — lines change, the anchor does not); exit 1 on F>0.
+- CI: a blocking doc-tests job after build — `./target/debug/mlog test --docs` — a merge gate; the №270 SSOT pipeline is not broken (generated blocks pass the same checks).
+- Documentation cleaned by the first run (doc rot caught and fixed): REFERENCE §3.2 mutation demos → expect-error; §3.4/§4.x fragments — declarations added; the §4.1 text_chunk example is self-sufficient; §5 Syntax Reference (grammar cheat sheets with placeholders) → doc-test: skip; the §5.15 sandbox example fixed to the current syntax (identifiers in allowed/forbidden; was: the `ttp_post` typo and a ragged list); docs/book: syntax.md — declarations split into 6 fragments + the while example fixed (a let-shadow = an infinite loop → a mut assignment); tutorial.md — entity fields comma-separated, the learnable Greet declared (it was a call to an undeclared one), sandbox forbidden — real keys; stdlib.md — import as the first statement + let instead of entity-with-call; README — the Cron/AI-utilities block is self-sufficient (declarations + working CRC32 hashline hashes). docs/doc-tests.md — the contract (SSOT).
+- tests: tests/naryad_287_doc_tests.rs (10): a fixture of all marker kinds (green/expect/expect-error±code/no-run/skip), the exact anchor of the red block, an expect mismatch, a missing file, the VM backend (execution + skip on the ADR-0105 vm-compile), language filtering of fences, default resolution (ADR/research outside the default), **the repo's real docs are green** (143 blocks, 68 executed, 73 skipped).
+- docs: docs/doc-tests.md (the contract); CHANGELOG (this block); the README builtin counter untouched (405 unchanged — doc-tests add no builtins; test files 149→150).
+
+### Added — language: `text_chunk` — structure-aware chunking for RAG (Naryad #285, P2/feature/memory)
+
+- language: `text_chunk(text, strategy, opts?) -> List<Struct{index, text, chars, tokens, header_path?}>` (arity 2..3, category `string`, NO feature gate — a pure string function) — the first stage of the RAG pipeline (№272 delivered embed/vec_store/vec_search): a chunk producer instead of naive `split()` cutters. The industrial text-splitters pattern (LangChain RecursiveCharacterTextSplitter + MarkdownHeaderTextSplitter, LlamaIndex token budgets) with no dependencies.
+- strategies: `"markdown"` — h1–h3 → sections with `header_path` ("H1 > H2 > H3", a level stack with correct reset when ascending; the preamble before the first heading → `header_path: ""`) — ready-made metadata for `vec_store` (search over document sections with a path filter); long sections are cut by the cascade "paragraph → newline → space"; heading lines are NEVER split (a heading reserves room in the first chunk's budget of its section; a heading longer than the budget is a loud `[TEXT_CHUNK_HEADER_TOO_LONG]` error, fail-closed). `"paragraph"` — blocks by double newline, small blocks greedily merged within the budget, long ones cascaded further down. `"fixed"` — budget windows with overlap (character-wise, deterministic).
+- opts: `max_chars` (default 1200), `overlap` (default 100; CHARACTERS, applied in hard windowing and as the carry tail of the previous chunk when merging atoms — the seam is space-aligned: whole words appear in both chunks), `max_tokens?` — when set, the budget is computed through the reused `token_count` (the `token_count_estimate` SSOT in memory.rs — the same calculation, not a new counter; overlap remains in characters). The budget invariant is stronger than the stitching: a carry that does not fit the budget is dropped (the boundary is documented).
+- loud errors (fail-closed, the №280/№284 pattern): an unknown strategy; `overlap >= max_chars` (and `overlap >= max_tokens` in token mode); `max_tokens <= 0`; `max_chars <= 0` (a spec extension — documented); unknown opts fields; opts not a Struct; a budget smaller than one character (`[TEXT_CHUNK_BUDGET_TOO_SMALL]`). Empty/short text → 1 chunk, NOT an error. `execution.rs` untouched (named in the spec — not needed, loudly).
+- tests: `tests/naryad_285_text_chunk.rs` (18): markdown sections + header_path (3 levels, reset, preamble), long sections → paragraphs with header_path inheritance, headings never split, the budget invariant on all strategies, the token budget = the token_count SSOT (byte parity), overlap stitching (fixed + paragraph, whole words), input coverage by windows, merge/no-merge of small blocks, loud errors (7 forms), empty/short text, an idempotent run, **TW/VM parity**, [feature vec] integration `text_chunk → embed → vec_store(id = header_path#index) → vec_search` — the closest section of a markdown document by query (top-1 = "Животные#0").
+- docs: REFERENCE §4.1 — the text_chunk row + examples (markdown chunks, section-aware RAG via vec_store); §6 regenerated (405, 100%, 0 TODO); README counts synced (405 builtins, 38 modules, 149 test files). Registry 404→405 (append-only, indices not shifted); token_count extracted into the `token_count_estimate` SSOT function (diagnostics/behavior byte-identical, the №-legacy tests green).
+
+### Added — language: `user_profile` + scope isolation + the vec_search hybrid contract (Naryad #281, P2/M2)
+
+- language: `user_profile(db_path, container) -> Struct{container, count, static, dynamic, buckets}` (arity 2, category `memory`, NO feature gate — the kv contour is core) — a deterministic one-call distillation of "what we know about X" (the supermemory user-profiles pattern), WITHOUT an LLM call (LLM synthesis is optional and explicit, out of Tier-1 scope — loud). The record source is the KV contour (memorize/kv_set with `memory { persist: <db_path> }` on the same file) by the `container:<container>:<bucket>:<key>` convention: `static` = long-lived facts, `dynamic` = the current context, `buckets` = arbitrary topics (Struct{name: List[Struct{key,value}]}), sorted by key — determinism. A profile with no records is EMPTY, not an error (including a db without the kv_store table); a malformed record (no `<bucket>:<key>` after the prefix) is a loud data error. The cache is in-process (a perf optimization, semantics unchanged) with double invalidation: the KV record generation (a counter on kv_set/mem_set/kv_delete/mem_delete — a write into the container invalidates instantly) + the file mtime (external writes bypassing the builtins).
+- container isolation (the supermemory containerTag analog): the `container:<name>:` prefix is a hard profile boundary (records of another container are physically invisible — tested); the scope parameter for the SHARED surface: `vec_store(db, table, id, emb, {scope})` binds the table to a namespace on the first record (rebinding is loud), `vec_search(db, table, q, k, {scope})` verifies the binding BEFORE reads — a cross-scope → a loud `[SCOPE_VIOLATION]`, an unbound table with an explicit scope → loud (fail-closed). A user_profile scope parameter was deliberately not introduced: the container is already the isolation boundary (loud in the PR).
+- hybrid contract: the `vec_search` 5th argument is a Bool type discriminator (include_forgotten №280, back-compat) | Struct opts `{include_forgotten?, mode?, scope?, query_text?}`: mode `"semantic"` (the default, the former KNN) | `"fts"` (BM25 over the FTS5 shadow `{table}__fts`, texts stored via `vec_store(db, table, id, emb, "text")` — arity 4..5; text rewritten by id) | `"hybrid"` (an RRF merge with k=60 of both arms — the formula reused from memory_store ADR-0094/0075; ids hitting BOTH arms rank higher). The hit shape gains `score` ∈ [0,1] (semantic: 1−distance; fts: max-normalized bm25; hybrid: max-normalized RRF); distance = true cosine in semantic, 1−score in fts/hybrid (NOT a physical distance — honest). The forgotten post-filter (№280) works in all modes. Unknown opts fields / wrong types / fts-hybrid without query_text / an empty query_text / fts mode without a text index — loud.
+- The "two stores" are documented in REFERENCE §4.5: documents/chunks (what is in the source, vec tables with texts) ≠ derived facts (what we know about an entity, the profile's container records) — different tables, different life cycles.
+- tests: `tests/naryad_281_profile.rs` (23): an empty profile / no kv_store / static-dynamic-buckets grouping, cross-container isolation, a malformed record is loud, cache invalidation by a write through a live kv_set+persist, sandbox/arity, scope bind/ok/cross-loud/unbound-loud/rebind-loud/legacy-unaffected, fts mode (lexical hits, score normalization), fts without an index / without query_text / empty text — loud, unknown opts (search+store), the semantic mode unchanged (id+distance byte-for-byte), **hybrid ≥ max(arms) in recall on a fixed corpus** (semantic@2 loses the text-relevant d4, fts@2 loses the vector-relevant d1, hybrid@2 covers both — the table is in the PR), the forget filter in all modes + include_forgotten via opts, the vec_store payload shapes, TW/VM parity (kv_set → user_profile → vec_store with text → an fts search, the same "2:email:1" result).
+- docs: REFERENCE §4.5 — the vec_store/vec_search rows updated (payload/scope/mode/score), a new user_profile row, the "two stores" block, a hybrid+profile example; §6 regenerated (404, 100%, 0 TODO); README counts synced (404 builtins, 38 modules, 148 test files, ~180 KB REFERENCE). Registry 403→404 (user_profile appended; the vec_store arity pin 4→4..5 in place — loud, indices not shifted).
+
+### Added — language: `memory_forget` — governed forgetting with boundaries, a soft-delete ledger (Naryad #280, P2/M2)
+
+- language: `memory_forget(db_path, table, query, threshold, max_forget[, dry_run[, ids]]) -> Struct{candidates, applied, batch_id}` (arity 5..7, category `memory`, the `vec` feature gate — Tier 1 on top of vec_search №272). Governed forgetting per the supermemory forget-matching discipline: a dry run → the candidate id list → apply strictly by ids → a forgetBatchId on every erased record. `dry_run=true` is the DEFAULT (arity 5, or an explicit `true`): returns only the candidates `List[Struct{id, score}]` — cosine similarity (the best per id; dedup by id; already-forgotten ids are not candidates), `applied: 0`, `batch_id: ""`, the state is NOT changed. Apply (`dry_run=false`) — STRICTLY by the explicit `ids` list from the preview, never by re-running the query: every id is checked pointwise against the preview's bounds (exists in the table + similarity ≥ threshold — the SAME computations as in the preview, not a re-run KNN); a non-existent id / an id out of bounds is a LOUD error BEFORE any writes (apply atomicity); the count ≤ `max_forget`.
+- soft delete: NO physical deletion — erased ids go into the forget-ledger `{table}__forgotten` (id, batch_id, reason, forgotten_at) in the same SQLite db; the `batch_id` `MLOG-FORGET-<base32×26>` (128 bits, rand 0.10 — a format sibling of the №284 canary marker) is stamped on every record and returned; a repeated forget of the same id is a no-op (`applied: 0`, `batch_id: ""` — an empty apply leaves no trace in the journal). Physical vacuum is a separate owner operation, not a builtin.
+- vec_search extended to arity 4..5: an optional fifth argument `include_forgotten` (Bool, default `false`) — a post-filter of forgotten ids from the ledger; `k` is the KNN sample size BEFORE the filter (after the filter the result may be smaller than `k` — honestly documented). For a db without forget the behavior is byte-for-byte the same; the №272 arity pin updated (an upward extension, the bytecode index not shifted, the registry append-only 402→403).
+- loud errors: a threshold outside [0, 1]; a non-integer/out-of-[1, 10000] max_forget (the DoS boundary, same as k); `dry_run=false` without ids; `ids` together with `dry_run=true`; a `List` in the `dry_run` position (the programmer forgot dry_run); an empty ids list; a non-String ids element; a dim mismatch; a missing table; sandbox violations (the preview is ForRead — the file must exist, apply is ForWrite). The taint invariant: forgetting operates ONLY on the vec0 table and the ledger — canary detection (№284), taint labels and the LLM logs are untouched (forgetting does not "erase" a compromise from the logs); secrets never enter memory in the first place (№274 masking before memory) — forget is not obliged to "erase" them.
+- out of scope (loud): auto-forgetting v2 (a TTL for episode records, updates displacing facts — synergy with the №273 LRU) — the separate issue #329 checkbox stays open; refill semantics for k after the filter; a memory JSONL trace (the ledger itself is the operation journal in the №276 spirit).
+- tests: `tests/naryad_280_forget.rs` (28): a preview without mutation (rows alive, no ledger created), sorting by score desc, threshold/max_forget cutting (incl. on 100 records), id dedup with the best score, already-forgotten ids excluded from the preview, all loud errors of the apply contract, the full cycle dry_run → apply by ids → batch_id in the ledger (a direct sqlite read), the no-op of a repeated forget, batch_id uniqueness, the back-compat arity-4 vec_search, include_forgotten=true, the arity/type pins, the canary taint invariant, TW/VM parity (embed → vec_store → preview → apply → vec_search, the same result on both backends).
+- docs: REFERENCE §4.5 — the `memory_forget` row + the updated `vec_search` row + a "preview → apply by the preview's ids" example + the sandbox paragraph; §6 regenerated (403, 100%, 0 TODO); README counts synced (403 builtins, 38 modules, 147 test files, ~174 KB REFERENCE).
+
+### Added — language: `json_validate` — the ADR-0133 validator as a standalone builtin, "shape-before-use" (Naryad #286, P2/M1)
+
+- language: `json_validate(schema_json, value_json) -> Struct{valid, errors}` (arity 2..3, category `llm`) — checking a JSON string against the ADR-0133 subset WITHOUT an LLM call: `valid` is a Bool, `errors` is a List<String> with violation paths (`value.age: expected type integer, got string "33"`); an empty `errors` ⟺ `valid`. The third argument `strict` (default `true`): `true` = the ADR-0133 D2 strict-by-default — fields outside `properties` are violations (as in `call_llm_schema`); `false` — undeclared fields are allowed (the №286 opt-in), the other rules (type/required/items/enum, the subset, the root-object contract) NOT changed.
+- THE MAIN POINT: one validator for both paths — extracted from the LLM path (№269, `call_llm_schema`) into the shared module `src/schema/validate.rs` (`check_schema_subset` + `validate_json`), `call_llm_schema` calls it through compat shims with byte-identical diagnostics (the №269 tests unchanged). The "not a single new rule" differential contract is pinned by a test: a shared corpus of schemas/values yields identical verdicts in `call_llm_schema` (provider-injected, no network) and `json_validate`, and the violation texts match word for word (the only intended difference — the root label `answer`/`value`).
+- loud: an invalid `schema_json` / a keyword outside the subset / a non-object root — `[LLM_SCHEMA_UNSUPPORTED_FEATURE]`, the SAME code as `call_llm_schema` (the same `check_schema_subset`); an invalid `value_json` — a loud parse error (`json_validate() error: value_json is not valid JSON: …`), NOT `valid=false` — the validator judges structure, the parser judges bytes; a non-Bool `strict` — a loud type error.
+- a robustness fix during the extraction (verdicts unchanged): `short_repr` in violation reports could PANIC on the `&s[..60]` slice with a multibyte value (e.g. long Cyrillic in a type/enum violation) — truncation is now on a char boundary; the format for ASCII is unchanged.
+- not feature-gated: the builtin is available in the minimal build too (without `llm`) — it validates data NOT from an LLM (MCP tool outputs №268/#304, HTTP responses, `request_body`); reusing the taint semantics is NOT part of the naryad: `json_validate` neither removes nor sets taint labels (`redact` №274 masks the content, `json_validate` №286 checks the shape — different axes).
+- tests: `tests/naryad_286_json_validate.rs` (13): exact violation paths/texts (dot-path, indexed path, missing required, strict-by-default), enum priority, loud schema/value/strict errors, strict=false (allows only undeclared fields; types/required/enum/nested unchanged), a DIFFERENTIAL CORPUS (11 cases × both paths: verdicts + texts) + the schema-side differential (4 bad schemas × both paths, the same code), the TW+VM language contract (an MCP-style payload: ok/bad), strict as an explicit argument TW+VM, the arity/type/parsing pins. Registry 401→402; the REFERENCE §4.5 row + a "MCP tool output → json_validate → use" example + the regenerated §6; README counts synced (402 builtins, 38 modules, 146 test files).
+
+### Added — language: `canary_insert` / `canary_check` — canary tokens for untrusted text, the "compromised channel" detector (Naryad #284, P1/M1)
 
 - language: `canary_insert(text, opts?) -> Struct{marked_text, canary_id}` (arity 1..2, category `security`) embeds a random canary marker — `MLOG-CANARY-` + 26 base32 chars (128-bit entropy, RFC 4648 alphabet, rand 0.10 as for crypto nonces) — into untrusted text BEFORE it goes into an LLM prompt; opts: `count` (1..=4, default 1, same id inserted count times) and `position` (`"random"|"head"|"tail"`, default `"random"`). `canary_check(text, canary_id, opts?) -> Struct{leaked, id, position}` (arity 2..3) detects the marker in the response: exact occurrence plus resistance to trivial distortions (case, splitting by whitespace/punctuation) via alnum-normalization with a char-index back-map; `position` is the CHAR index of the first hit in the original text (-1.0 when clean); opts `mode="zwsp"` additionally ignores zero-width chars (U+200B/200C/200D/2060/FEFF) inside the marker — in the default `"exact"` they deliberately BREAK the match (honest boundary: suspect zero-width evasion → check in `"zwsp"`).
-- detector, NOT a gate — both halves wired into the language's taint model (не standalone-утилита): RUNTIME — a confirmed leak prints the loud `[CANARY_LEAK]` warning to stderr and increments the new `llm_usage().canary_leaks` counter (global atomic, лекало №273 `cache_hits_semantic`); STATIC — in the then-branch of `if (r.leaked)` (both `let r = canary_check(resp, id)` and the recorded binding) the checked response is labeled `TaintKind::CanaryLeak` («компрометированный канал», path-sensitive fork of the audit tracker), and a CanaryLeak-labeled value reaching a sink (`respond`, `http_post`, `call_llm`, `call_claude`, `reflex_generate`, `mcp_call`) produces the advisory audit-warning `CANARY_LEAK` in `audit_program` only — deliberately NOT in `audit_category_a`, where Warnings are promoted to compile errors (that would contradict «решение об остановке пайплайна — за автором»). `render`/`escape_html` clear the label (Sanitized semantics); `redact` does NOT (masking ≠ channel sanitization, лекало ADR-0136 D2).
-- redact interlock (№274 invariant — «canary не считается секретом, секрет не считается canary»): `redact_string` now carves out `MLOG-CANARY-<id>` spans before masking (segment-scoped redaction) — the 26-char base32 id otherwise trips the base64 entropy net and would be destroyed before reaching the LLM; secrets NEXT TO a marker are still masked. canary_id is strictly format-validated (prefix + 26 × A-Z2-7) — a secret-shaped string is a loud `unknown canary_id` error.
+- detector, NOT a gate — both halves wired into the language's taint model (not a standalone utility): RUNTIME — a confirmed leak prints the loud `[CANARY_LEAK]` warning to stderr and increments the new `llm_usage().canary_leaks` counter (global atomic, the №273 `cache_hits_semantic` template); STATIC — in the then-branch of `if (r.leaked)` (both `let r = canary_check(resp, id)` and the recorded binding) the checked response is labeled `TaintKind::CanaryLeak` ("compromised channel", path-sensitive fork of the audit tracker), and a CanaryLeak-labeled value reaching a sink (`respond`, `http_post`, `call_llm`, `call_claude`, `reflex_generate`, `mcp_call`) produces the advisory audit-warning `CANARY_LEAK` in `audit_program` only — deliberately NOT in `audit_category_a`, where Warnings are promoted to compile errors (that would contradict "the decision to stop the pipeline belongs to the author"). `render`/`escape_html` clear the label (Sanitized semantics); `redact` does NOT (masking ≠ channel sanitization, the ADR-0136 D2 template).
+- redact interlock (№274 invariant — "a canary is not a secret, a secret is not a canary"): `redact_string` now carves out `MLOG-CANARY-<id>` spans before masking (segment-scoped redaction) — the 26-char base32 id otherwise trips the base64 entropy net and would be destroyed before reaching the LLM; secrets NEXT TO a marker are still masked. canary_id is strictly format-validated (prefix + 26 × A-Z2-7) — a secret-shaped string is a loud `unknown canary_id` error.
 - loud errors: empty text (both builtins), double-marking (text already contains `MLOG-CANARY-*`), zero-width chars in text BEFORE insertion (matching hygiene), count outside 1..=4, unknown position/mode/opts field (fail-closed), non-String text/id, non-Struct opts, malformed canary_id.
 - tests: `tests/naryad_284_canary.rs` (28): marker format + 128-bit entropy (no collisions), head/tail/random shapes, count 1..=4, all loud errors, exact/case/space/punct/newline distortions, zero-width exact-miss vs zwsp-detect, char-index position (incl. Cyrillic), zero false positives on a clean corpus, redact×canary interlock both directions, the full leak scenario green in TW and VM (`canary_insert` → mock `call_llm` echo → `canary_check` → leaked) with the counter observable from the language (`llm_usage().canary_leaks`) and from Rust, static then-branch warnings for respond/http_post/call_llm/call_claude, else-branch/no-check negatives, render-washes/redact-does-not, and the not-promoted-to-compile-error guarantee. Registry 399→401, categories 37→38 (new `security`), REFERENCE §4.1 rows + generated §6 `security` section, threat-model Category B row with honest limits.
 
 ### Added — language: `redact(text, mode)` — PII/secrets as a taint-sanitizer (Naryad #274, ADR-0136)
 
-- language: `redact(text, mode) -> String` (arity 2, category `string`) — deterministic typed masking and the ONLY legal path to clear the `Secret` taint statically («mask before sink», owner decision СГ-2 2026-09-12). mode: `"pii"` (email `***@***.tld`, phones `+`/RU-8 formats (7..15 digits), Luhn-validated cards with vendor label, IBAN), `"secrets"` (sk-/AKIA/ghp_-style keys, JWT, PEM blocks, Bearer tokens) and `"all"`; the entropy net (base64/hex runs ≥24 containing a digit AND a hex letter) backs both secret-bearing modes against formats outside the pattern set. Masks keep type + last 4 chars (`[REDACTED:sk-…abc4]`) so logs stay diagnosable; masks are idempotent. Loud unknown mode; accepts `Value::String` and `Value::Secret` (result is a plain `Value::String`).
+- language: `redact(text, mode) -> String` (arity 2, category `string`) — deterministic typed masking and the ONLY legal path to clear the `Secret` taint statically («mask before sink», owner decision SG-2 2026-09-12). mode: `"pii"` (email `***@***.tld`, phones `+`/RU-8 formats (7..15 digits), Luhn-validated cards with vendor label, IBAN), `"secrets"` (sk-/AKIA/ghp_-style keys, JWT, PEM blocks, Bearer tokens) and `"all"`; the entropy net (base64/hex runs ≥24 containing a digit AND a hex letter) backs both secret-bearing modes against formats outside the pattern set. Masks keep type + last 4 chars (`[REDACTED:sk-…abc4]`) so logs stay diagnosable; masks are idempotent. Loud unknown mode; accepts `Value::String` and `Value::Secret` (result is a plain `Value::String`).
 - taint (ADR-0136 D2): `"secrets"/"all"` clear ONLY `Secret` → `Sanitized`; `"pii"` does NOT clear `Secret` (`secret → redact("pii") → http_post` is rejected); `LlmOutput` is never cleared by redact (only `render` sanitizes model output — `HTML_INJECTION` stays); non-literal mode is fail-closed (taint inherited). Implemented statically in `src/audit.rs` (`redact_result_taint`), applied uniformly for let-chains and inline calls.
-- tests: `tests/naryad_274_redact.rs` (34): every pattern class positive+negative ("skating" is not an sk- key; Luhn-fail digits unmasked), determinism + idempotence corpus, loud unknown mode, language-level run incl. `secret()` input, the DoD pair (`secret → respond` rejected vs `secret → redact("secrets") → respond` passing) with the third СГ-2 invariant (`redact("pii")` rejected) and the http_post-body positional pair, LLM-output non-clearing, dynamic-mode fail-closed, arity pin, and a 20k-input deterministic fuzz smoke (panic-freedom/determinism/idempotence). Fuzz target `fuzz_target_redact` added (convention №256); fuzz-smoke CI wiring lands with the owner's workflow patch (PAT without workflow scope, precedent №272).
-- docs: ADR-0136 (Accepted, СГ-2), threat-model SECRET_LEAK mitigation row with honest limits, REFERENCE §4 row + regenerated §6 (398 → 399 builtins), README counts synced.
+- tests: `tests/naryad_274_redact.rs` (34): every pattern class positive+negative ("skating" is not an sk- key; Luhn-fail digits unmasked), determinism + idempotence corpus, loud unknown mode, language-level run incl. `secret()` input, the DoD pair (`secret → respond` rejected vs `secret → redact("secrets") → respond` passing) with the third SG-2 invariant (`redact("pii")` rejected) and the http_post-body positional pair, LLM-output non-clearing, dynamic-mode fail-closed, arity pin, and a 20k-input deterministic fuzz smoke (panic-freedom/determinism/idempotence). Fuzz target `fuzz_target_redact` added (convention №256); fuzz-smoke CI wiring lands with the owner's workflow patch (PAT without workflow scope, precedent №272).
+- docs: ADR-0136 (Accepted, SG-2), threat-model SECRET_LEAK mitigation row with honest limits, REFERENCE §4 row + regenerated §6 (398 → 399 builtins), README counts synced.
 
 
-### Added — language: `cache_semantic` + LRU-граница кэша ADR-0047 (Naryad #273, ADR-0135)
+### Added — language: `cache_semantic` + the ADR-0047 LRU cache boundary (Naryad #273, ADR-0135)
 
 - language: two learnable-pattern fields: `cache_semantic: true` (opt-in, default false — ADR-0047-compatible) and `cache_threshold: 0.92` (default, parser-validated (0, 1]). Check order preserved: few-shot → exact hash → semantic → LLM. On an exact-hash miss the input is embedded (SSOT manager of the `embed` builtin, №272) and scanned by cosine against the lazy SQLite table `llm_cache_semantic` (response + embedding + dim + ttl); similarity ≥ threshold returns the cached response; a miss stores both. Anti-false-hit: high default threshold, opt-in, dim mismatch → cosine 0.0. Loud boundaries: without persist (`memory { persist: ... }`) or without the `vec` feature the semantic mode is a loud config error — in-memory vectors are deliberately not kept. Observability: `llm_usage()` gains `cache_hits_semantic` (exact hits stay separate) and the №276 traces record `cache: "semantic"`. Full-scan cosine, not vec0 (cache-scale tables; ADR-0135 D3).
 - cache: the in-memory cache is bounded by LRU — `METALOGOS_LLM_CACHE_MAX` (default 1000, invalid → stderr warning + default), eviction by recency of USE; closes the "grows without bound" negative in ADR-0047 (reference in its Consequences). The SQLite `llm_cache` surface is unchanged.
@@ -87,7 +599,7 @@ All notable changes to the Metalogos project.
 ### Added — language: `tts_generate` — speech synthesis without delivery; whisper_transcribe arity fact-check fix (Naryad #279)
 
 - language: the voice contour was delivery-shaped: `tts_send(text, voice, bot_token, chat_id, mode?)` synthesized AND shipped to Telegram in one step (FEATURE_INTAKE §4-D Tier-3 form in Tier-1 code — the builtin was named after a delivery service), so the audio file itself was unreachable — no save, no reuse, no alternative transport. New `tts_generate(text, voice, provider?, model?) -> String(path)` (arity 2..4): synthesis ONLY — writes the audio into the file sandbox with the exact write_file semantics (Naryad #252: sandbox-resolve + symlink-safe open) and returns the sandbox-relative path (MP3, provider default format; the language's delivery layer is now the program's decision — read_file, send_document, or whatever comes next). Providers v1: `"openai"`; the model is a plain argument (`tts-1` default / `tts-1-hd` / `gpt-4o-mini-tts`) — the previous `tts-1` hardcode is gone from the synthesis path. Key: `METALOGOS_TTS_API_KEY` (falls back to `OPENAI_API_KEY` — variable name is open, not hardcoded); `METALOGOS_TTS_BASE_URL` overrides `https://api.openai.com/v1` (`/audio/speech` appended) for mock servers and self-host proxies. `tts_send` stays (backward compatible) as the documented delivery convenience: it now DELEGATES synthesis to the same shared exchange (`tts_synth`), so delivery and synthesis cannot drift.
-- bugfix (the fact-check the naryad mandated): `whisper_transcribe` declared `spec!(..., 1, ...)` while the implementation has ALWAYS required THREE string args (`file_id`, `bot_token`, `whisper_key`) plus optional `provider` — per ADR-0095 the single digit meant minimum, so `mlog check` passed 1-arg calls that exploded at runtime with an arity/args error. Registry fixed to 3..4 (AGENT.md §1: check_builtin_arity semantics verified before the fix; REFERENCE already documented the real 4-arg shape — the registry was the liar). STT symmetry: `METALOGOS_STT_BASE_URL` overrides the transcription base for both providers (same convention as the TTS override).
+- bugfix (the fact-check the naryad mandated): `whisper_transcribe` declared `spec!(..., 1, ...)` while the implementation has ALWAYS required THREE string args (`file_id`, `bot_token`, `whisper_key`) plus optional `provider` — per ADR-0095 the single digit meant minimum, so `mlog check` passed 1-arg calls that exploded at runtime with an arity/args error. Registry fixed to 3..4 (AGENTS.md §1: check_builtin_arity semantics verified before the fix; REFERENCE already documented the real 4-arg shape — the registry was the liar). STT symmetry: `METALOGOS_STT_BASE_URL` overrides the transcription base for both providers (same convention as the TTS override).
 - tests: 4 in `tests/naryad_279_voice.rs` — mock TTS server (loop-accept, reads full headers+Content-Length) loud-verifies the Authorization header carries the METALOGOS_TTS_API_KEY key and the JSON body carries model/voice, then serves fixed bytes: TW and VM both produce a sandbox file with byte-for-byte content and a sandbox-relative path (crosscheck contract); missing key → loud error naming `METALOGOS_TTS_API_KEY` (no silent OPENAI fallback when the variable name is what's documented); unknown provider → loud refusal before any HTTP; static arity: `mlog check` REJECTS 1-arg `whisper_transcribe` (the naryad's core bug, now caught on statics) and the registry bounds 3..4 / 2..4 / 4..5 are pinned via check_builtin_arity; `tts_send` with a mocked synthesis but fake Telegram token fails AT DELIVERY — proving delegation (synthesis succeeded, bytes were consumed by the send step). Honest boundary: whisper end-to-end is not integration-tested (the function's first step is a real api.telegram.org call; the STT override is code-symmetric with the TTS one).
 
 ### Added — observability: per-call LLM traces in JSONL with OpenTelemetry GenAI field names (Naryad #276, ADR-0138)
@@ -99,8 +611,8 @@ All notable changes to the Metalogos project.
 
 ### Added — language: `mcp_call` / `mcp_list_tools` — MCP stdio client with language-level security control (Naryad #268, ADR-0132)
 
-- language: Metalogos could not talk to the Model Context Protocol — the main integration standard for AI agents — at all; `tool` (ADR-0054), exec-gates (№253-А) and taint existed, but no bridge. Two new builtins implement the client per ADR-0132 (Accepted by owner 2026-09-12): `mcp_call(command, args_list, tool, arguments_json) -> String` and `mcp_list_tools(command, args_list) -> List[Struct{name, description, input_schema}]`. Stateless lifecycle per call: spawn → legacy `initialize` handshake → `tools/call`/`tools/list` → shutdown (D4: one call = one exec-gate = one audit record). Manual newline-delimited JSON-RPC 2.0 over `std::process` (D1/D2): 0 new dependencies; the official `rmcp` SDK was rejected — 9 new crates exceeds the hard limit of 5 (FEATURE_INTAKE §5) and its tokio-async core fights the blocking-builtin runtime (ADR-0096). Legacy dialect (client declares protocolVersion 2025-03-26, accepts replies 2024-11-05…2025-11-25); modern-only servers, tools/list pagination (`nextCursor`) and `structuredContent` are loud refusals, never silence.
-- security (the grant edge): spawn goes through the №253-А SSOT exec-gate (`METALOGOS_ALLOW_EXEC` in process contexts, `METALOGOS_SERVE_ALLOW_EXEC` in route bodies — replacement, not AND; refusal `EXEC_NOT_PERMITTED`) plus the third Metalogos allowlist `METALOGOS_MCP_ALLOWLIST` (comma-separated with trim/empty-element convention of №259, exact argv[0] match; unset does not narrow, an empty value denies all MCP, otherwise refusal `MCP_NOT_ALLOWLISTED` per ADR-0131). Every permitted spawn is recorded in `METALOGOS_AUDIT_LOG_PATH` (same channel as `exec()`). Tool OUTPUT is untrusted: the `mcp_call` result carries `TaintKind::UserInput` (owner decision — reuse; a new `ToolOutput` kind stays Future until a policy actually differentiates kinds), so `reflex_train` on MCP output is statically rejected with `UNTRUSTED_TRAINING_DATA` — model poisoning via an MCP tool is impossible from day one. The policy is exactly equal to `json_body` (pinned by a parity test — neither wider, nor narrower). Tool METADATA (names/descriptions/inputSchema) is untainted; including descriptions in LLM context is the program's explicit decision (prompt-injection surface documented in threat-model). Children inherit the interpreter environment — the same contract as `exec()`/`exec_argv()` (№259's env-gate governs `env()` reads in route bodies, not child inheritance).
+- language: Metalogos could not talk to the Model Context Protocol — the main integration standard for AI agents — at all; `tool` (ADR-0054), exec-gates (№253-A) and taint existed, but no bridge. Two new builtins implement the client per ADR-0132 (Accepted by owner 2026-09-12): `mcp_call(command, args_list, tool, arguments_json) -> String` and `mcp_list_tools(command, args_list) -> List[Struct{name, description, input_schema}]`. Stateless lifecycle per call: spawn → legacy `initialize` handshake → `tools/call`/`tools/list` → shutdown (D4: one call = one exec-gate = one audit record). Manual newline-delimited JSON-RPC 2.0 over `std::process` (D1/D2): 0 new dependencies; the official `rmcp` SDK was rejected — 9 new crates exceeds the hard limit of 5 (FEATURE_INTAKE §5) and its tokio-async core fights the blocking-builtin runtime (ADR-0096). Legacy dialect (client declares protocolVersion 2025-03-26, accepts replies 2024-11-05…2025-11-25); modern-only servers, tools/list pagination (`nextCursor`) and `structuredContent` are loud refusals, never silence.
+- security (the grant edge): spawn goes through the №253-A SSOT exec-gate (`METALOGOS_ALLOW_EXEC` in process contexts, `METALOGOS_SERVE_ALLOW_EXEC` in route bodies — replacement, not AND; refusal `EXEC_NOT_PERMITTED`) plus the third Metalogos allowlist `METALOGOS_MCP_ALLOWLIST` (comma-separated with trim/empty-element convention of №259, exact argv[0] match; unset does not narrow, an empty value denies all MCP, otherwise refusal `MCP_NOT_ALLOWLISTED` per ADR-0131). Every permitted spawn is recorded in `METALOGOS_AUDIT_LOG_PATH` (same channel as `exec()`). Tool OUTPUT is untrusted: the `mcp_call` result carries `TaintKind::UserInput` (owner decision — reuse; a new `ToolOutput` kind stays Future until a policy actually differentiates kinds), so `reflex_train` on MCP output is statically rejected with `UNTRUSTED_TRAINING_DATA` — model poisoning via an MCP tool is impossible from day one. The policy is exactly equal to `json_body` (pinned by a parity test — neither wider, nor narrower). Tool METADATA (names/descriptions/inputSchema) is untainted; including descriptions in LLM context is the program's explicit decision (prompt-injection surface documented in threat-model). Children inherit the interpreter environment — the same contract as `exec()`/`exec_argv()` (№259's env-gate governs `env()` reads in route bodies, not child inheritance).
 - reliability: per-phase timeout `METALOGOS_MCP_TIMEOUT_SECS` (default 30, clamp 1..=300); Drop-guaranteed shutdown (close stdin → 500 ms grace → kill) leaves no orphan MCP processes on any exit path including `?`-returns and panics; loud phase errors `MCP_SPAWN_FAILED` / `MCP_TIMEOUT` / `MCP_IO_ERROR` / `MCP_PROTOCOL_ERROR` / `MCP_TOOL_NOT_FOUND` (JSON-RPC -32602 on tools/call) / `MCP_TOOL_ERROR` (`isError=true` with the server's text); server JSON-RPC error codes propagate into messages.
 - tests: 21 in `tests/naryad_268_mcp_client.rs` against a fixture stdio server `tests/fixtures/mcp_echo_server.py` (p71/p76 convention): TW/VM parity contracts (tools/list → Struct → json_get; tools/call → String), every loud error path (tool-not-found, isError, -32603, phase timeout, garbage-on-stdout framing violation, crashed-server broken stream), gates (exec process + serve-route on BOTH backends, allowlist unset/empty/exact-match/trim), taint parity with json_body, audit-log record shape. Golden example `examples/p100_mcp_echo.mlog` (`.expected` = `echo: mlog calls MCP`) runs TW==VM in crosscheck. REFERENCE §4 io rows + regenerated §6 (394), threat-model untrusted-entity line, README counters updated.
 
@@ -110,7 +622,7 @@ All notable changes to the Metalogos project.
 
 ### Added — docs: REFERENCE.md at 100% registry coverage — generated index, hard CI gate, grant-review README (Naryad #270)
 
-- docs: `REFERENCE.md` documented ~59% of the builtins registered in `BUILTIN_REGISTRY` (231 of 391 at snapshot; AGENT.md §5 said so out loud) — for grant reviewers (NLnet/Restack) an incomplete reference reads as project immaturity, and NOTHING failed CI when builtins were added undocumented (the coverage note even drifted: it claimed 230 documented while the count test allowed it). New `scripts/gen_reference.py` regenerates a §6 Builtin Index between explicit markers IN PLACE: one row per `spec!` entry (392 at merge), name/category/arity straight from the registry (ADR-0095 arity convention, `variadic` for the 0-arity form), description imported from the curated §4.x rows when present, otherwise from the handler's `///` doc comment, otherwise an explicit `TODO(doc)` — never silence. Registry entries with no host handler are described from a verified MANUAL_DESCRIPTIONS table in the script: VM-native builtins (recall/forget/find/conv_*/event_*/query_*/resolve_skill_index/fit_to_budget — dispatched inside `src/vm.rs`, registry arity entry kept for bytecode validation) vs true registry-only stubs (newline/stdin/split_tokens/if_eq/is_string_token — no handler anywhere, calling errors; the stale "planned, no handler" comment next to event_* is corrected in place). The generated block is excluded from the curated-row extraction so regeneration cannot feed on itself. 100% at merge: every description exists (curated 210 + handler-doc 137 + manual 21 + 24 handlers gained real `///` docs in source — string/math/crypto/http/svg/chart/diagram handlers, improving the code itself).
+- docs: `REFERENCE.md` documented ~59% of the builtins registered in `BUILTIN_REGISTRY` (231 of 391 at snapshot; AGENTS.md §5 said so out loud) — for grant reviewers (NLnet/Restack) an incomplete reference reads as project immaturity, and NOTHING failed CI when builtins were added undocumented (the coverage note even drifted: it claimed 230 documented while the count test allowed it). New `scripts/gen_reference.py` regenerates a §6 Builtin Index between explicit markers IN PLACE: one row per `spec!` entry (392 at merge), name/category/arity straight from the registry (ADR-0095 arity convention, `variadic` for the 0-arity form), description imported from the curated §4.x rows when present, otherwise from the handler's `///` doc comment, otherwise an explicit `TODO(doc)` — never silence. Registry entries with no host handler are described from a verified MANUAL_DESCRIPTIONS table in the script: VM-native builtins (recall/forget/find/conv_*/event_*/query_*/resolve_skill_index/fit_to_budget — dispatched inside `src/vm.rs`, registry arity entry kept for bytecode validation) vs true registry-only stubs (newline/stdin/split_tokens/if_eq/is_string_token — no handler anywhere, calling errors; the stale "planned, no handler" comment next to event_* is corrected in place). The generated block is excluded from the curated-row extraction so regeneration cannot feed on itself. 100% at merge: every description exists (curated 210 + handler-doc 137 + manual 21 + 24 handlers gained real `///` docs in source — string/math/crypto/http/svg/chart/diagram handlers, improving the code itself).
 - tests: new `tests/reference_consistency.rs` (3 tests) — the hard gate: every registered builtin must appear in REFERENCE.md as `` `name(` `` (mention-style, the `gen_reference_check.py` rule made blocking); the §6 generated block markers must exist and the headline must match the registry size exactly; zero `TODO(doc)` rows may remain in the block. Adding an undocumented builtin now fails CI instead of silently rotting the docs.
 - README (grant-review pass, honest-claims discipline): new "Why Metalogos" section — a 30-second pair of live-verified probes (`call_llm_schema` → `json_get` Struct access; `env()` → `respond()` refused with the exact `mlog check` output and exit 1 — both run against the built binary before being pasted), then three pillars: Security by design (taint/sandbox/gates with a pointer to the honest "what static analysis does NOT catch" table), AI-native (eight semantic primitives), MCP-native (honest status: ADR-0132 design under owner review, client lands in №268, reverse bridge per ADR-0054 — no overclaiming). Stale numbers fixed against reality: "373 Built-in Functions" heading → 392, VM "46 instructions" → 47 (counted from `Instruction` enum), REFERENCE size ~84 KB → ~152 KB (with the §6 index note). No crates.io badge added — the crate is not published; a badge would be a lie.
 - docs: `scripts/gen_reference.py --check` mode (exit 1 on staleness) is available for local/CI use; the Rust gate is the blocking enforcement.
@@ -125,7 +637,7 @@ All notable changes to the Metalogos project.
 
 ### Changed — security(io): env() in serve route handlers is gated — ENV_NOT_PERMITTED + allowlist (Naryad #259 — breaking)
 
-- security(io): `env(key)` returned ANY process environment variable in EVERY context with no gate — including serve route bodies, where the code receiving untrusted input could read the process's secrets with one call (`env("FAKE_API_SECRET_TOKEN")` returned `sk-supersecret` on a probe against main; LLM API keys, DB passwords, deploy tokens — external audit 2026-09-11, issue #275). Now `env()` inside serve route bodies is DENIED by default with a loud error carrying the stable diagnostic code `ENV_NOT_PERMITTED` (ADR-0131 naming convention; the code rides in the error text until the mlog-check diagnostic registry lands — same treatment as №253/№254). The gate runs BEFORE the read, so the denial is identical for existing and non-existing names — probing route errors is not an existence oracle. Escape hatches with REPLACING semantics (alternatives, not AND — the №253-А lesson; neither needs nor consults the other): `METALOGOS_SERVE_ALLOW_ENV=1` allows ALL env reads in route bodies, or `METALOGOS_ENV_ALLOWLIST="NAME1,NAME2"` allows exactly the listed names (comma-separated, element edges trimmed, empty elements ignored; an unset/empty list = deny all). Outside serve (`mlog run`, `mlog check`, repl, serve top-level route registration) the behavior is UNCHANGED — a local script reading its own environment is the contract, no flags or allowlist needed. Mechanics: the gate reuses the №253-А SSOT — the same thread-local serve-route context (`ServeRouteExecGuard` set inside the spawn_blocking closures of BOTH route paths, TW and VM) via the new SSOT `env_gate(context, key)` next to `exec_gate` (`src/builtins/io.rs`); no second flag hack. The serve banner lists `METALOGOS_SERVE_ALLOW_ENV=1` and a non-empty `METALOGOS_ENV_ALLOWLIST` among the danger flags and prints a `[serve] route env:` state line (ENABLED — all variables / denied / allowlist: <names>) next to the №253 route-exec line (`src/main.rs`). Breaking for serve routes that read env vars (allowed pre-1.0 — owner decision on naryad №253-А, issue #256). Migration: add the variables your routes must read to `METALOGOS_ENV_ALLOWLIST="NAME1,NAME2"`, or set `METALOGOS_SERVE_ALLOW_ENV=1` where route bodies may read the whole environment. Tests: 7 in `tests/naryad_259_env_gate.rs` (TW+VM denial without flags with the code and both flag names; allowlist positive TW+VM with the soft-empty read preserved for an unset allowed name; allow-all flag; process-context regression — reads as before with no flags and is unaffected by a set allowlist; direct `env_gate` unit table — exact allowlist matching, no prefix hits, trim/empty-element handling, empty = deny, Process always Ok). E2E probe on the built binary: 500 + `ENV_NOT_PERMITTED` without flags, 200 with the allowlist. Merged as PR #294 (PR number ≠ naryad number).
+- security(io): `env(key)` returned ANY process environment variable in EVERY context with no gate — including serve route bodies, where the code receiving untrusted input could read the process's secrets with one call (`env("FAKE_API_SECRET_TOKEN")` returned `sk-supersecret` on a probe against main; LLM API keys, DB passwords, deploy tokens — external audit 2026-09-11, issue #275). Now `env()` inside serve route bodies is DENIED by default with a loud error carrying the stable diagnostic code `ENV_NOT_PERMITTED` (ADR-0131 naming convention; the code rides in the error text until the mlog-check diagnostic registry lands — same treatment as №253/№254). The gate runs BEFORE the read, so the denial is identical for existing and non-existing names — probing route errors is not an existence oracle. Escape hatches with REPLACING semantics (alternatives, not AND — the №253-A lesson; neither needs nor consults the other): `METALOGOS_SERVE_ALLOW_ENV=1` allows ALL env reads in route bodies, or `METALOGOS_ENV_ALLOWLIST="NAME1,NAME2"` allows exactly the listed names (comma-separated, element edges trimmed, empty elements ignored; an unset/empty list = deny all). Outside serve (`mlog run`, `mlog check`, repl, serve top-level route registration) the behavior is UNCHANGED — a local script reading its own environment is the contract, no flags or allowlist needed. Mechanics: the gate reuses the №253-A SSOT — the same thread-local serve-route context (`ServeRouteExecGuard` set inside the spawn_blocking closures of BOTH route paths, TW and VM) via the new SSOT `env_gate(context, key)` next to `exec_gate` (`src/builtins/io.rs`); no second flag hack. The serve banner lists `METALOGOS_SERVE_ALLOW_ENV=1` and a non-empty `METALOGOS_ENV_ALLOWLIST` among the danger flags and prints a `[serve] route env:` state line (ENABLED — all variables / denied / allowlist: <names>) next to the №253 route-exec line (`src/main.rs`). Breaking for serve routes that read env vars (allowed pre-1.0 — owner decision on naryad №253-A, issue #256). Migration: add the variables your routes must read to `METALOGOS_ENV_ALLOWLIST="NAME1,NAME2"`, or set `METALOGOS_SERVE_ALLOW_ENV=1` where route bodies may read the whole environment. Tests: 7 in `tests/naryad_259_env_gate.rs` (TW+VM denial without flags with the code and both flag names; allowlist positive TW+VM with the soft-empty read preserved for an unset allowed name; allow-all flag; process-context regression — reads as before with no flags and is unaffected by a set allowlist; direct `env_gate` unit table — exact allowlist matching, no prefix hits, trim/empty-element handling, empty = deny, Process always Ok). E2E probe on the built binary: 500 + `ENV_NOT_PERMITTED` without flags, 200 with the allowlist. Merged as PR #294 (PR number ≠ naryad number).
 
 ### Changed — security(server): rate-limit keyed by connection peer; bounded state maps (Naryad #263)
 
@@ -133,15 +645,15 @@ All notable changes to the Metalogos project.
 
 ### Fixed — security(server): CSRF accepts only server-issued tokens; the session binding now works (Naryad #262)
 
-- security(server): `check_csrf` (`src/server.rs`) accepted a CSRF token the server NEVER issued: when the `_mlog_csrf` cookie matched the `X-CSRF-Token` header, a token absent from the server-side store was accepted anyway (`.unwrap_or(false)` on the TTL lookup plus an explicit «stateless double-submit client» comment) — the classic naive double-submit bypass: an attacker able to plant a cookie (subdomain injection) sends ANY matching cookie+header pair and passes (external audit 2026-09-11, issue #278). The stateless fallback is REMOVED: the token must be present in `csrf_tokens` (issued by this process); absence → 403 «CSRF token validation failed» + audit entry. «Server restarted» is now an honest 403 with a token re-issue on page reload — UX degradation bounded, not a hole. The dead half of the stored tuple works since this naryad: at issuance the token is recorded with the HMAC-verified session id of the issuing request (route_handler step 3 identity, `""` when sessionless), and validation compares it with the request's session — mismatch → 403 «CSRF session binding mismatch» + audit entry. Honest boundaries, pinned by tests: a token issued WITHOUT a session is bound to `""` and stays valid only for sessionless requests (a request whose session cookie fails HMAC verification counts as sessionless — the same treatment it gets everywhere else in the pipeline); a bound token presented with a valid-signature but expired/deleted session still passes CSRF — binding proves WHO the token belongs to, session liveness stays with the session middleware step that runs right after the CSRF check. TTL 15 minutes unchanged (Наряд №29 §2.2); issuance mechanics unchanged (№125: no HttpOnly — JS reads the cookie for double-submit). Tests: +6 unit in `src/server.rs` (never-issued pair → 403 with audit, binding match passes, foreign session → 403 + audit, bound token without session → 403, sessionless token with session → 403, expired TTL → 403) + 5 HTTP tests in `tests/naryad_262_csrf_strict.rs` (never-issued pair → 403 — the pre-№262 200 regression; issued token → 200; a token of ANOTHER server instance — restart simulation — → 403; sessionless token + validly signed foreign session → 403 with negative control; sessionless token + garbage session cookie → 200, the documented boundary). Merged as PR #291 (PR number ≠ naryad number).
+- security(server): `check_csrf` (`src/server.rs`) accepted a CSRF token the server NEVER issued: when the `_mlog_csrf` cookie matched the `X-CSRF-Token` header, a token absent from the server-side store was accepted anyway (`.unwrap_or(false)` on the TTL lookup plus an explicit «stateless double-submit client» comment) — the classic naive double-submit bypass: an attacker able to plant a cookie (subdomain injection) sends ANY matching cookie+header pair and passes (external audit 2026-09-11, issue #278). The stateless fallback is REMOVED: the token must be present in `csrf_tokens` (issued by this process); absence → 403 «CSRF token validation failed» + audit entry. «Server restarted» is now an honest 403 with a token re-issue on page reload — UX degradation bounded, not a hole. The dead half of the stored tuple works since this naryad: at issuance the token is recorded with the HMAC-verified session id of the issuing request (route_handler step 3 identity, `""` when sessionless), and validation compares it with the request's session — mismatch → 403 «CSRF session binding mismatch» + audit entry. Honest boundaries, pinned by tests: a token issued WITHOUT a session is bound to `""` and stays valid only for sessionless requests (a request whose session cookie fails HMAC verification counts as sessionless — the same treatment it gets everywhere else in the pipeline); a bound token presented with a valid-signature but expired/deleted session still passes CSRF — binding proves WHO the token belongs to, session liveness stays with the session middleware step that runs right after the CSRF check. TTL 15 minutes unchanged (Naryad #29 §2.2); issuance mechanics unchanged (№125: no HttpOnly — JS reads the cookie for double-submit). Tests: +6 unit in `src/server.rs` (never-issued pair → 403 with audit, binding match passes, foreign session → 403 + audit, bound token without session → 403, sessionless token with session → 403, expired TTL → 403) + 5 HTTP tests in `tests/naryad_262_csrf_strict.rs` (never-issued pair → 403 — the pre-№262 200 regression; issued token → 200; a token of ANOTHER server instance — restart simulation — → 403; sessionless token + validly signed foreign session → 403 with negative control; sessionless token + garbage session cookie → 200, the documented boundary). Merged as PR #291 (PR number ≠ naryad number).
 
 ### Fixed — language: immutability contract enforced on every backend — `mlog check` errors, the compiler refuses, the VM never silently assigns (Naryad #264)
 
-- language: the `let mut` contract (Naryad #14, REFERENCE §3.2, `examples/p30_assign_immutable` + `.error`) had exactly one enforcing backend: `mlog check` answered «OK: no issues found.» on a program with `let x = 10` / `x = 20`, `mlog run` (tree-walking) rejected it at runtime — and `mlog compile` + `mlog run x.mbc` SILENTLY printed `20` with exit 0 (external audit 2026-09-11, issue #280; three backends, three answers, the VM quietly violating the contract). Three roots fixed: (1) `src/semantic.rs` — new static immutability pass over pattern and route bodies mirroring the TW model EXACTLY (a flat never-popped set of `let mut` names; params and `each`/`each i, x` loop variables are immutable; assignment to a never-declared name reports the same message — TW checks mutability before resolving the name), so `mlog check` now rejects with the TW лекало text «cannot assign to immutable variable: x (use 'let mut x' to make it mutable)» — the `.error` contract file (TW channel) keeps matching verbatim; (2) `src/compiler.rs` — the compiler knows mut-ness at compile time, so an assignment to a non-`let mut` name (a local, a global, or an unknown name — TW errors on all three identically) is a COMPILE ERROR before serialization: a program the semantics reject can no longer be compiled into a silently-executing .mbc, and route bodies get the same check at server startup; (3) the VM backstop — assignments travel as a new `StoreAssignLocal { slot, name, mutable }` instruction carrying the immutability fact as instruction metadata, and `mutable: false` on the wire fails LOUDLY with the same text (bytecode produced past the check — hand-crafted or future compiler regressions — never silently overwrites the slot again). `.mbc` schema untouched (Program fields unchanged per the №250 precedent): the opcode is appended at the END of the `Instruction` enum, so old .mbc files deserialize and run identically; an OLD binary reading NEW bytecode fails loudly at deserialize time (unknown variant index), never silently. Honest residual, pinned by a test: PRE-№264 .mbc artifacts encode assignments as plain `StoreLocal` — byte-identical to a second `let` binding (the compiler reuses the slot on re-`let`, and TW itself allows `let x = 10; let x = 20` on an immutable), so a sound VM-side detection without the metadata flag is impossible without false-positiving legitimate legacy bytecode; such old artifacts keep running as before. Corpus scan: no example contains a non-`mut` assignment (`p30_assign_immutable.mlog` is the designed `.error` contract); the `let mut` path is green on check/TW/VM (negative control). Tests: `tests/naryad_264_immutability.rs` — 10 (probe-fact inverted on check, TW contract unchanged, compile loud, TW/VM parity on one source, VM backstop on a past-check .mbc round-trip, `let mut` control on all backends, each-var immutability + TW leak model mirror, param immutability, route-body enforcement on both paths, legacy StoreLocal compat). Docs: REFERENCE §3.2 marks the contract as statically enforced. Merged as PR #289 (PR number ≠ naryad number).
+- language: the `let mut` contract (Naryad #14, REFERENCE §3.2, `examples/p30_assign_immutable` + `.error`) had exactly one enforcing backend: `mlog check` answered «OK: no issues found.» on a program with `let x = 10` / `x = 20`, `mlog run` (tree-walking) rejected it at runtime — and `mlog compile` + `mlog run x.mbc` SILENTLY printed `20` with exit 0 (external audit 2026-09-11, issue #280; three backends, three answers, the VM quietly violating the contract). Three roots fixed: (1) `src/semantic.rs` — new static immutability pass over pattern and route bodies mirroring the TW model EXACTLY (a flat never-popped set of `let mut` names; params and `each`/`each i, x` loop variables are immutable; assignment to a never-declared name reports the same message — TW checks mutability before resolving the name), so `mlog check` now rejects with the TW template text «cannot assign to immutable variable: x (use 'let mut x' to make it mutable)» — the `.error` contract file (TW channel) keeps matching verbatim; (2) `src/compiler.rs` — the compiler knows mut-ness at compile time, so an assignment to a non-`let mut` name (a local, a global, or an unknown name — TW errors on all three identically) is a COMPILE ERROR before serialization: a program the semantics reject can no longer be compiled into a silently-executing .mbc, and route bodies get the same check at server startup; (3) the VM backstop — assignments travel as a new `StoreAssignLocal { slot, name, mutable }` instruction carrying the immutability fact as instruction metadata, and `mutable: false` on the wire fails LOUDLY with the same text (bytecode produced past the check — hand-crafted or future compiler regressions — never silently overwrites the slot again). `.mbc` schema untouched (Program fields unchanged per the №250 precedent): the opcode is appended at the END of the `Instruction` enum, so old .mbc files deserialize and run identically; an OLD binary reading NEW bytecode fails loudly at deserialize time (unknown variant index), never silently. Honest residual, pinned by a test: PRE-№264 .mbc artifacts encode assignments as plain `StoreLocal` — byte-identical to a second `let` binding (the compiler reuses the slot on re-`let`, and TW itself allows `let x = 10; let x = 20` on an immutable), so a sound VM-side detection without the metadata flag is impossible without false-positiving legitimate legacy bytecode; such old artifacts keep running as before. Corpus scan: no example contains a non-`mut` assignment (`p30_assign_immutable.mlog` is the designed `.error` contract); the `let mut` path is green on check/TW/VM (negative control). Tests: `tests/naryad_264_immutability.rs` — 10 (probe-fact inverted on check, TW contract unchanged, compile loud, TW/VM parity on one source, VM backstop on a past-check .mbc round-trip, `let mut` control on all backends, each-var immutability + TW leak model mirror, param immutability, route-body enforcement on both paths, legacy StoreLocal compat). Docs: REFERENCE §3.2 marks the contract as statically enforced. Merged as PR #289 (PR number ≠ naryad number).
 
 ### Changed — security(http): 3xx redirects are no longer followed by the http_* builtins (Naryad #261 — breaking)
 
-- security(http): `http_get`, `http_post`, `http_post_multipart`, `http_download` followed 3xx redirects silently (reqwest's default policy, up to 10 hops) — and every hop re-resolved DNS WITHOUT re-running the SSRF pin, so a single redirect turned the №130 resolve-pinning into a no-op (pin `host-a`, hop to an attacker's `host-b`; the `Authorization` header leaked cross-host on the way). All four egress builtins now build their clients with `reqwest::redirect::Policy::none()`: a 3xx response is returned AS-IS — the 3xx body is the return value for `http_get`/`http_post`/`http_post_multipart` (status < 400 is not an error) and the written file content for `http_download`. Security-by-design: following a redirect is now the program's EXPLICIT decision — read `Location`, make a second http_* call, and that call goes through the SSRF gate and redirect policy again. Breaking for programs that relied on transparent redirect following (allowed pre-1.0 — owner decision on naryad №253-А, issue #256). Migration: issue a second call to the URL from the `Location` header yourself (it will be SSRF-gated and redirect-free), or handle the 3xx body/status explicitly. Automatic redirect following WITH per-hop DNS re-pinning — revisit on a real use case. Tests: `tests/naryad_261_ssrf_pack.rs` — a local-bind 302 server: `http_get`/`http_post` return the 302 body verbatim and `/final` is never requested; `http_download` writes the 302 body and does not follow. Merged as PR #287 (PR number ≠ naryad number).
+- security(http): `http_get`, `http_post`, `http_post_multipart`, `http_download` followed 3xx redirects silently (reqwest's default policy, up to 10 hops) — and every hop re-resolved DNS WITHOUT re-running the SSRF pin, so a single redirect turned the №130 resolve-pinning into a no-op (pin `host-a`, hop to an attacker's `host-b`; the `Authorization` header leaked cross-host on the way). All four egress builtins now build their clients with `reqwest::redirect::Policy::none()`: a 3xx response is returned AS-IS — the 3xx body is the return value for `http_get`/`http_post`/`http_post_multipart` (status < 400 is not an error) and the written file content for `http_download`. Security-by-design: following a redirect is now the program's EXPLICIT decision — read `Location`, make a second http_* call, and that call goes through the SSRF gate and redirect policy again. Breaking for programs that relied on transparent redirect following (allowed pre-1.0 — owner decision on naryad №253-A, issue #256). Migration: issue a second call to the URL from the `Location` header yourself (it will be SSRF-gated and redirect-free), or handle the 3xx body/status explicitly. Automatic redirect following WITH per-hop DNS re-pinning — revisit on a real use case. Tests: `tests/naryad_261_ssrf_pack.rs` — a local-bind 302 server: `http_get`/`http_post` return the 302 body verbatim and `/final` is never requested; `http_download` writes the 302 body and does not follow. Merged as PR #287 (PR number ≠ naryad number).
 
 ### Fixed — security(http): http_download is behind the SSRF gate; blocked-address classes widened (Naryad #261)
 
@@ -993,7 +1505,7 @@ self-hosted parser bootstraps. ~1000 commits since v0.18.0.**
   4000 warning).
 - **vscode-extension** CI job: compiles TypeScript, verifies
   `out/extension.js` exists.
-- **AGENT.md**: methodology document — code is source of truth, PR
+- **AGENTS.md**: methodology document — code is source of truth, PR
   mandatory (ADR-0110), proofs by real CI runs.
 
 ### Fixed
@@ -1030,7 +1542,7 @@ self-hosted parser bootstraps. ~1000 commits since v0.18.0.**
 office automation (PDF, email, calendar, contacts), code quality, and 60+ naryads of
 improvements since v0.12.0.**
 
-### Security — НАРЯД №131: `sandbox_path` symlink escape via `canonicalize()`
+### Security — Naryad #131: `sandbox_path` symlink escape via `canonicalize()`
 - `sandbox_path()` blocked absolute paths and `..` in text but did NOT
   resolve symlinks. A symlink inside the CWD pointing outside would pass
   both text checks and allow reading/writing arbitrary files.
@@ -1044,7 +1556,7 @@ improvements since v0.12.0.**
   (file + subdir + dir symlink), write-to-new-file passes, absolute/`..`
   still rejected, broken symlink rejected.
 
-### Fixed — НАРЯД №134: `collect_error_pairs` blind spot — 5 error contracts never ran in CI
+### Fixed — Naryad #134: `collect_error_pairs` blind spot — 5 error contracts never ran in CI
 - `collect_error_pairs` in `tests/golden.rs` had a hardcoded `p30_/p31_` prefix
   filter that silently skipped ALL other `.error` contracts, including
   `p114_secret_no_print.error` (Secret protection contract).
@@ -1066,12 +1578,12 @@ improvements since v0.12.0.**
   `naryad_128_secret_tests.rs` (wrong types: `Secret` takes `SecretString`,
   `Hash` takes `String`). Applied `cargo fmt` to all files.
 
-### Fixed — НАРЯД №128: misleading `#[ignore]` Secret tests removed
+### Fixed — Naryad #128: misleading `#[ignore]` Secret tests removed
 - Two tests in `phase19_22_constraints.rs` (`test_z19_print_secret_forbidden`,
   `test_z19_to_string_secret_forbidden`) were marked `#[ignore]` with a comment
   claiming "Secret type constraints removed" — **incorrect and misleading**.
 - The comment already provoked one incorrect external audit conclusion
-  ("типовая защита секретов удалена").
+  ("standard secret protection removed").
 - Investigation found Secret protection works through *different* mechanisms than
   the obsolete semantic checker the old tests targeted:
   - `print(secret)` → runtime `is_nonprintable()` + audit `SECRET_LEAK`
@@ -1081,7 +1593,7 @@ improvements since v0.12.0.**
 - Old tests deleted; replacement contract tests added in `naryad_128_secret_tests.rs`
   documenting the *actual* protection mechanisms (5 tests).
 
-### Fixed — НАРЯД №127: Dockerfile stub build silently failed — dependency cache never worked
+### Fixed — Naryad #127: Dockerfile stub build silently failed — dependency cache never worked
 - Root cause: `|| true` hid TWO failures in the stub build step: missing
   `src/lib.rs` (needed by mlogpkg/mlog-lsp that depend on metalogos lib)
   AND missing `benches/core_benchmarks.rs` (needed by `[[bench]]` manifest entry).
@@ -1091,7 +1603,7 @@ improvements since v0.12.0.**
 - `2>/dev/null` kept: suppresses noisy dep compilation output (expected),
   but build failures now correctly surface (non-zero exit code).
 
-### Security — НАРЯД №130: SSRF guard for http_get/http_post/http_post_multipart
+### Security — Naryad #130: SSRF guard for http_get/http_post/http_post_multipart
 - Outgoing HTTP requests now resolve DNS **before** connecting and block
   requests to loopback, private, link-local, and cloud metadata addresses.
 - DNS rebinding protection: resolved IPs are pinned via `reqwest::ClientBuilder::resolve()`,
@@ -1103,7 +1615,7 @@ improvements since v0.12.0.**
 - 8 contract tests: C1 loopback blocked, C2 cloud metadata blocked, C3 IP
   classification + public IP passes, C4 opt-out allows private.
 
-### Fixed — Наряд №124: honestly document mock accuracy metric in `adapt`
+### Fixed — Naryad #124: honestly document mock accuracy metric in `adapt`
 - README §5: replaced unconditional "quality metrics, and automatic rollback
   on degradation. No analogues exist" with honest description — rollback
   mechanism is real, quality metric is a fixed mock (0.95). See ADR-0112.
@@ -1111,19 +1623,19 @@ improvements since v0.12.0.**
   decision (what to measure, what to compare against), not mechanical addition.
   Revisit only when mock value creates a concrete problem in real `mutate` usage.
 
-### Fixed — Наряд №126: sandbox timeout is now truly preemptive, not post-factum
+### Fixed — Naryad #126: sandbox timeout is now truly preemptive, not post-factum
 - `invoke_learnable_with_env`: LLM calls in a sandbox with `timeout > 0` now run
   in a separate thread with `mpsc::recv_timeout`. The calling thread stops
   waiting at the deadline instead of detecting the timeout after the call
   already returned.
 - Known limitation (honestly documented): the background HTTP request to
   the LLM provider may still be running — only the *wait* is cancelled.
-  Full request cancellation requires `reqwest::AbortHandle`, a separate наряд.
+  Full request cancellation requires `reqwest::AbortHandle`, a separate naryad.
 - `MockLlm`: added `set_delay_ms`/`reset_delay` for timeout contract tests.
 - 4 contract tests: C1 preemptive timeout within budget, C2 call completes
   within timeout, C3 no sandbox no timeout, C4 timeout=0 backward compat.
 
-### Fixed — Наряд №125: CSRF cookie missing HttpOnly so JS can double-submit
+### Fixed — Naryad #125: CSRF cookie missing HttpOnly so JS can double-submit
 - `_mlog_csrf` cookie: removed `HttpOnly` flag — JS clients must read this
   cookie to perform double-submit. Session cookie `_mlog_session` retains
   `HttpOnly; Secure` (correctly, opposite requirement).
@@ -1131,7 +1643,7 @@ improvements since v0.12.0.**
   reject missing token, reject wrong token.
 - README OWASP wording verified — already correct.
 
-### Fixed — Наряд №123: Taint checks now catch nested calls, not only variables
+### Fixed — Naryad #123: Taint checks now catch nested calls, not only variables
 - `check_html_injection`: `respond(call_llm(...))` and `respond(call_claude(...))` now flagged (previously only `respond(x)` where `x` is a variable was caught).
 - `check_secret_leak`: `http_post(url, env("KEY"), headers)` now flagged
   (previously only variable references in http_post body were checked).
@@ -1142,62 +1654,62 @@ improvements since v0.12.0.**
   added `respond_html(query_param("url"))` (open-redirect inline nesting) as remaining gap.
 - Note: `check_open_redirect` has the same inline-nesting gap; tracked separately.
 
-### Fixed — Наряд №129: BlockIfElse in VM now produces loud compile error
+### Fixed — Naryad #129: BlockIfElse in VM now produces loud compile error
 - `Expr::BlockIfElse` (block if/else used as expression: `let x = if c then { ... } else { ... }`)
   previously compiled to `Const(Value::Unit)` in the VM, silently producing wrong results.
   Now returns a clear compile error: "block if/else expression not yet supported in VM bytecode".
 - `Statement::IfElseBlock` (block if/else used as statement) is **not affected** — still fully supported.
 - Two contract tests added: expression form fails, statement form still compiles.
-- ADR-0105 updated: BlockIfElse gap description corrected, Наряд №129 referenced.
+- ADR-0105 updated: BlockIfElse gap description corrected, Naryad #129 referenced.
 - No golden examples were masking this defect (verified).
 
 
-### Наряд №121 — Отслеживание позиций в AST (span infrastructure, ADR-0111)
+### Naryad #121 — Position tracking in the AST (span infrastructure, ADR-0111)
 
-- **Feature:** Каждый узел АСТ теперь хранит своё положение в исходном коде
-  (`Span { start_line, start_col, end_line, end_col }`). Все 15 вариантов
-  `Expr`, 9 вариантов `Statement` и 41 структура `Declaration` содержат
-  поле `span`.
-- **Feature:** `Span::from_pest()` — метод для прямого преобразования
-  `pest::Span` в `ast::Span`. Улучшен `Display`: однострочные спаны
-  показывают `"строка:столбец"` вместо полного диапазона.
-- **Feature:** `Expr::span()` и `Declaration::span()` — методы для получения
-  ссылки на `span` из любого варианта перечисления.
-- **Feature:** Ошибки семантического анализа показывают номер строки:
-  `"строка N: duplicate entity type: User"` вместо `"duplicate entity type: User"`.
-- **Refactor:** Все 15 кортежных вариантов `Expr` преобразованы в
-  структурные с именованными полями (например, `StringLit(String)` →
-  `StringLit { value, span }`). Аналогично `IfThen`, `Return`, `ExprStmt`
-  в `Statement`.
-- **Tests:** 5 новых тестов в `parser/tests.rs` проверяют реальные позиции
-  в сообщениях об ошибках. Все 539 тестов проходят, crosscheck — 1 passed,
+- **Feature:** Every AST node now stores its position in the source code
+  (`Span { start_line, start_col, end_line, end_col }`). All 15 `Expr`
+  variants, 9 `Statement` variants, and 41 `Declaration` structs contain
+  a `span` field.
+- **Feature:** `Span::from_pest()` — method for direct conversion of
+  `pest::Span` into `ast::Span`. Improved `Display`: single-line spans
+  show `"line:col"` instead of the full range.
+- **Feature:** `Expr::span()` and `Declaration::span()` — methods to get
+  a reference to the `span` from any enum variant.
+- **Feature:** Semantic-analysis errors show the line number:
+  `"line N: duplicate entity type: User"` instead of `"duplicate entity type: User"`.
+- **Refactor:** All 15 tuple variants of `Expr` converted to struct
+  variants with named fields (e.g., `StringLit(String)` →
+  `StringLit { value, span }`). Likewise `IfThen`, `Return`, `ExprStmt`
+  in `Statement`.
+- **Tests:** 5 new tests in `parser/tests.rs` verify real positions
+  in error messages. All 539 tests pass, crosscheck — 1 passed,
   0 failed.
-- **ADR-0111:** Архитектурное решение: inline `span`-поле вместо обёртки
-  `Spanned<T>`, 0-indexed столбцы / 1-indexed строки.
+- **ADR-0111:** Architectural decision: inline `span` field instead of a
+  `Spanned<T>` wrapper, 0-indexed columns / 1-indexed lines.
 
-### Наряд №55 — Дыры в реестре блокируют перенос офиса
+### Naryad #55 — Registry holes block the office port
 
 - **db_execute arity 1..2:** Registry updated to reflect ADR-0068 parameterised queries. Office 86 call sites now pass `mlog check`.
 - **5 missing functions added to registry:** `to_int` (string, arity 1), `cron_add` (cron, 2), `cron_list` (cron, variadic), `cron_remove` (cron, 1), `cron_run` (cron, 1).
 - **Automated sync test:** `registry_sync_check.rs` verifies builtin_count()/builtin_names()/builtin_name_set() agree with BUILTIN_REGISTRY. Catches funcs.insert without matching spec!.
 - **ADR-0098:** Documents registry–dispatcher sync decision and registry-only categories.
 
-### Наряд №52 — Перенос работы наряда №51 на актуальный main
+### Naryad #52 — Porting Naryad #51's work onto current main
 
-- **Cherry-pick onto 74a1631:** 6 commits from naryad-51-workers ported to fresh branch from origin/main (which includes Наряды 49+50).
+- **Cherry-pick onto 74a1631:** 6 commits from naryad-51-workers ported to fresh branch from origin/main (which includes Naryads #49+#50).
 - **ADR-0096 merged:** Combined single-core worker diagnosis (№50) with nested block_in_place panic finding (№51) into one comprehensive ADR.
 - **22 arity registry fixes:** Verified against actual implementations: `format`→variadic, `zip`→2, `filter`/`reduce`→3, `http_get`→1..3, `call_claude`→4, `call_llm`→1..2, `send_message`→2..3, `tts_send`→4..5, `geo_ip`→0..1, `web_search`→1..2, `weather_forecast`→1..3, `graph_query`→1..3, `graph_path`→2, `mtree_retrieve`→1..2, `estimate_tokens`/`extract_param`/`read_file_tokens`→exact, `answer_callback_query`→1..3, `edit_message_text`→3..4, `sort_by`→2..3.
 - **Exhaustive arity test:** `registry_arity_check.rs` now tests every non-variadic builtin at min/max/boundary, plus all variadic builtins.
 - **Block 2 (concurrency benchmark):** Not executed — Rust toolchain not available in this session. Owner can measure on live deployment.
 
-### Наряд №51 — Конкурентность: воркеры tokio
+### Naryad #51 — Concurrency: tokio workers
 
 - **Explicit worker count:** `METALOGOS_WORKERS` env var overrides default `max(4, available_parallelism)` workers. Logged at startup. Invalid values produce warning, not panic.
 - **spawn_blocking fix:** Replaced 6 `block_in_place()` calls with `spawn_blocking()` in server.rs. `reqwest::blocking` inside `block_in_place` caused nested runtime drop panic. Interpreter and Vm verified as Send.
 - **ADR-0097:** Documents spawn_blocking decision.
 - **Branch cleanup:** Deleted 5 stale remote branches (naryad-41/42/43/49/50).
 
-### Наряд №50 — Требования эксплуатации FOSVED
+### Naryad #50 — FOSVED operational requirements
 
 - **ADR-0071 honest re-accounting:** Of 92 original integration test failures, ~22 genuinely fixed, ~67 converted to `#[ignore]`.
 - **Builtin arity range:** Added `max_arity: Option<usize>` to `BuiltinSpec` with `spec!` macro. ~59 registry entries corrected.
@@ -1219,7 +1731,7 @@ improvements since v0.12.0.**
 - ADR-0093: memory typology + FTS5 foundation design decisions.
 - ADR-0094: type-aware recall with RRF merge replacing weighted blend.
 
-### PDF processing via pdf-inspector (Наряд №48)
+### PDF processing via pdf-inspector (Naryad #48)
 - Feature: 4 native PDF builtins — `pdf_classify`, `pdf_to_markdown`,
   `pdf_extract_regions`, `pdf_ocr`. Pure Rust, zero IPC.
 - Feature: `pdf_classify(path)` — classify PDF type (TextBased/Scanned/ImageBased/Mixed).
@@ -1231,7 +1743,7 @@ improvements since v0.12.0.**
 - Test: 8 unit tests in pdf.rs + integration test file phase48_pdf_inspector.rs.
 - Test: CJK fixture tests (5 files from pdf-inspector repo, verify no U+FFFD).
 
-### Rule priority fix and golden cleanup — Наряд №43
+### Rule priority fix and golden cleanup — Naryad #43
 - Fix: `execute_rules()` in both interpreter and VM now implements
   priority-ordered, first-wins semantics (ADR-0090). Previously all
   matching rules executed with last-write-wins, inverting priority.
@@ -1246,7 +1758,7 @@ improvements since v0.12.0.**
   Golden coverage: 66/70 pass (4 remaining are server/env-dependent p7_*).
 - ADR-0090: rule priority semantics with prior art (CLIPS, Drools).
 
-### Fluid Types, confidence, and rule tests — Наряд №42
+### Fluid Types, confidence, and rule tests — Naryad #42
 - Test: 6 golden test pairs (`p42_fluid_*`) covering Fluid collapse
   semantics — type-directed selection, max confidence wins, threshold
   boundary (0.1), no matching variant soft-failure, non-Fluid passthrough.
@@ -1262,7 +1774,7 @@ improvements since v0.12.0.**
   1.0 on concrete values. Open question: future propagation approaches.
 - README verified: no false claims of confidence propagation.
 
-### VM backend parity — Наряд №41
+### VM backend parity — Naryad #41
 - Compiler: `match` statement returns compile error (`Err`) instead of
   silent Unit placeholder. Routes with `match` cannot compile for VM —
   prevents silently wrong results.
@@ -1282,7 +1794,7 @@ improvements since v0.12.0.**
   Acceptable for LLM-heavy routes; negates VM advantage for micro-routes.
 - ADR-0088 updated: Block 1-5 results, corrected session hooks claim.
 
-### VM backend for mlog serve (Наряд №40)
+### VM backend for mlog serve (Naryad #40)
 - `METALOGOS_SERVE_BACKEND` env var: `interpreter` (default) or `vm`.
   Unknown value → warning in log + fallback to interpreter, no panic.
 - `CompiledRoute` struct in `bytecode.rs`: compiled route body bytecode.
@@ -1303,7 +1815,7 @@ improvements since v0.12.0.**
   query param isolation, kv_set cross-request visibility.
 - ADR-0088: VM backend for mlog serve — feasibility and implementation notes.
 
-### And/Or in VM bytecode (Наряд №39)
+### And/Or in VM bytecode (Naryad #39)
 - VM compiler: implemented `and`/`or` short-circuit evaluation using
   `JumpIfNot`/`Jump`/`Const` instructions. Semantics match interpreter:
   result is always `Value::Bool`, right operand not evaluated when left
@@ -1314,7 +1826,7 @@ improvements since v0.12.0.**
   instances moved to 0082-0087. Protected 0073/0075/0076 referenced in code.
 - Created `docs/adr/README.md` with full index and numbering rule.
 
-### Module size policy (Наряд №38)
+### Module size policy (Naryad #38)
 - ADR-0080: module size policy — production files ≤2,000 lines, tests exempt.
   Supersedes the 800-line rule from №37.
 - Interpreter: extracted `execution.rs` (1,645 lines) from `mod.rs` (2,178 → 539).
@@ -1324,7 +1836,7 @@ improvements since v0.12.0.**
 - Builtin form audit: confirmed №37 split preserved `fn builtin_xxx()` form
   in all 8 extracted modules. No closure re-registration occurred.
 
-### Code quality (Наряд №38)
+### Code quality (Naryad #38)
 - Clippy: zero warnings on `--all-targets` (was: compilation failure).
   Fixed unused imports, missing struct fields, private function access,
   bool_assert_comparison, len_zero, unnecessary_mut, cloned_ref_to_slice_refs,
@@ -1333,13 +1845,13 @@ improvements since v0.12.0.**
 - Session store test helpers (`reset_session_store`, `session_key_count`,
   `session_store_count`) made `pub` for integration test access.
 
-### VM feasibility assessment (Наряд №38)
+### VM feasibility assessment (Naryad #38)
 - ADR-0081: VM-for-serve feasibility with FOSVED-office-v2 data.
   22/23 .mlog files pass `mlog check`. 4 files blocked by missing `And`/`Or`
   short-circuit evaluation in VM (92 combined occurrences). Single well-scoped
   fix needed before `mlog serve` can switch to VM backend.
 
-### Code quality (Наряд №37)
+### Code quality (Naryad #37)
 - Clippy: zero warnings (was 192). Categories fixed: get(0)→first(), doc formatting,
   redundant closures, unnecessary mut/return/clone, new_without_default (11 types),
   dead_code cleanup, matches!/sort_by_key/clamp/flatten/Entry API, and more.
@@ -1359,7 +1871,7 @@ improvements since v0.12.0.**
 - Documentation: added docs/refactoring-split-plan.md with per-function module mapping.
 - No logic changes in any split — pure code moves.
 
-### VM backend (Наряд №36)
+### VM backend (Naryad #36)
 - VM: crosscheck 58/58 — all golden examples match between tree-walking interpreter
   and bytecode VM. Zero mismatches, zero VM errors. `assert!(mismatches.is_empty())`
   now enabled in crosscheck test.
@@ -1378,7 +1890,7 @@ improvements since v0.12.0.**
   Name cloning resolves borrow conflicts in CallBuiltin dispatch.
 - ADR-0075 updated: all 9 remaining cases resolved. Crosscheck assertion enabled.
 
-### VM backend (Наряд №35)
+### VM backend (Naryad #35)
 - VM: `eval_cmp()` now handles String-String comparisons (was Float-only via
   `as_float()`). `"" == ""` now correctly returns true. Fixes while/each loops
   that checked `result == ""` — crosscheck 45/58 → 48/58 (3 cases).
@@ -1391,7 +1903,7 @@ improvements since v0.12.0.**
 - Remaining VM divergences: memory subsystem (3), rule/find (1), flow source
   expression BinOp limitation (1), skill_index (1), DB builtins (2), modules (1).
 
-### VM backend (Наряд №34)
+### VM backend (Naryad #34)
 - Compiler: While, Each, EachWithIndex, Assign, IfThen, IfElseBlock, Break,
   Continue, ExprStmt now compiled to bytecode (were silently dropped).
 - Compiler: function-level scoping for LetBinding — `let` inside blocks overwrites
@@ -1410,22 +1922,22 @@ improvements since v0.12.0.**
 - ADR-0086: performance baseline benchmarks (parser 178µs, interpreter 272µs,
   compiler 218µs, VM 36µs — VM 7.5× faster).
 
-### Надёжность
-- Парсер возвращает Result<_, ParseError> вместо аварийного завершения.
-  27 вызовов std::process::abort() убраны, ошибка разбора теперь даёт
-  диагностику с позицией line:col и код возврата 1 (ADR-0070)
-- Golden test runner собирает ВСЕ failures перед panic — сломанные примеры
-  не маскируют последующие тесты (Блок 2)
-- p31_* error contracts покрыты автоматическими тестами (Блок 2)
-- dag_demo.mlog исправлен: Demo() → Demo(input: String) (arity mismatch)
+### Reliability
+- Parser returns Result<_, ParseError> instead of aborting the process.
+  27 std::process::abort() calls removed; a parse error now produces
+  line:col diagnostics and exit code 1 (ADR-0070)
+- Golden test runner collects ALL failures before panicking — broken
+  examples no longer mask subsequent tests (Block 2)
+- p31_* error contracts covered by automated tests (Block 2)
+- dag_demo.mlog fixed: Demo() → Demo(input: String) (arity mismatch)
 
-### Диагностика
-- Триаж 92 integration test failures: 8 категорий (Блок 3, ADR-0071).
-  219/311 integration tests pass. Ключевые группы: missing builtins (Phase 23),
+### Diagnostics
+- Triage of 92 integration test failures: 8 categories (Block 3, ADR-0071).
+  219/311 integration tests pass. Key groups: missing builtins (Phase 23),
   BUILTIN_REGISTRY gaps (8 Telegram/Voice entries), VM unimplemented (5 instructions),
   server-dependent (11 tests), immutable variable (4 tests).
 
-### Added — SVG primitives (наряд №77, ADR-0102)
+### Added — SVG primitives (naryad #77, ADR-0102)
 - `svg_rect`, `svg_circle`, `svg_line`, `svg_text`, `svg_path`,
   `svg_group`, `svg_canvas`, `svg_icon` (10 built-in glyphs),
   `svg_callout`, `svg_sketchy_filter`
@@ -1436,13 +1948,13 @@ improvements since v0.12.0.**
   attempts (including string-concatenation evasion) at `mlog check`
   time
 
-### Added — Palette + first composition (наряд №77)
+### Added — Palette + first composition (naryad #77)
 - `color_palette(intent, mode)` — HSL-cascade generator, 5 intents ×
   2 modes, outputs `DiagramStyle`-compatible tokens
 - `chart_donut`
 - `std/infographic.mlog` — `InfographicPoster` pattern (MVP)
 
-### Added — Chart types (наряды №78–79)
+### Added — Chart types (naryads #78–79)
 - `chart_line`, `chart_scatter` (independent two-axis scaling),
   `chart_area`
 - `chart_heatmap` (HSL interpolation, no user text — intentionally
@@ -1450,13 +1962,13 @@ improvements since v0.12.0.**
   coordinates), `chart_boxplot` (real quartile computation, linear
   interpolation / R-7 method)
 
-### Added — Procedural backgrounds + canvas presets (наряд №80)
+### Added — Procedural backgrounds + canvas presets (naryad #80)
 - `svg_generate("flow"/"grid"/"noise", intent, w, h)` — deterministic,
   hash-based noise (no external noise crate)
 - `svg_canvas_preset` — named viewBox presets (`doc_inline`,
   `slide_16x9`, `social_og`, `print_a4_landscape`, `print_a4_portrait`)
 
-### Added — Diagram types, 22 total (наряды №81–84)
+### Added — Diagram types, 22 total (naryads #81–84)
 - Hierarchies/flow: `diagram_tree`, `diagram_org_chart`,
   `diagram_flowchart` (topological layering, cycle detection with a
   clear error), `diagram_layers`
@@ -1473,33 +1985,33 @@ improvements since v0.12.0.**
   types share a generalized `topological_layers`
 - Shared primitive: `draw_connector` (arrow with computed head angle)
 
-### Added — Retroactive crosscheck coverage (наряд №85)
-- 36 `.expected` files generated for every example from наряды №77–84
+### Added — Retroactive crosscheck coverage (naryad #85)
+- 36 `.expected` files generated for every example from naryads #77–84
   — none had been covered by `crosscheck_backends` before this naryad
 - Found and fixed one real contract bug during the backfill
   (`p83_diagram_venn_2.mlog` used C-style `&&` instead of `and` —
   TW/VM had been "passing" only because both backends produced the
   same parse error)
 
-### Added — Template engine (наряд №86)
+### Added — Template engine (naryad #86)
 - `template_render(template, data) -> Html` — new dedicated engine,
   built from scratch (the existing `render()` does not parse `{{ }}`
   at all and was left untouched)
 - `{{ var }}` (auto-escaped), `{{{ var }}}` (raw, added ahead of
-  schedule for naryад №90's SVG-in-HTML composition needs),
+  schedule for naryad #90's SVG-in-HTML composition needs),
   `{{#if}}/{{else}}`, `{{#each}}` with `{{ this }}` context, verified
   nesting (`{{#each}}` inside `{{#if}}`)
 - Template content itself is intentionally NOT auto-escaped — treated
   as trusted `.mlog`-author code, not end-user input
 
-### Added — Anti-overlap engine (наряд №87)
+### Added — Anti-overlap engine (naryad #87)
 - `estimate_text_width`, `resolve_overlaps` — iterative pairwise
   bounding-box displacement (not force-directed simulation)
 - Wired into `diagram_timeline`, replacing the parity-alternation
   stopgap (kept as the initial seed position, refined by the real
   algorithm)
 
-### Added — `html_render` + `exec()` hardening (наряд №88)
+### Added — `html_render` + `exec()` hardening (naryad #88)
 - `exec()`: configurable timeout (default 30s, ceiling 300s, real
   process kill on expiry), file-based audit log
   (`METALOGOS_AUDIT_LOG_PATH`) — added without moving `exec`/
@@ -1512,13 +2024,13 @@ improvements since v0.12.0.**
   documented, not hidden: caller is responsible for self-contained
   HTML (inline styles, `data:` URIs)
 
-### Added — `infographic_qa` (наряд №89)
+### Added — `infographic_qa` (naryad #89)
 - WCAG-style contrast ratio check, saturation-discipline check
   (counts high-saturation colors in generated SVG), density check
   (element count / canvas area) — advisory only, `passed: false` is a
   suggestion, not a gate
 
-### Added — Full `std/infographic.mlog` suite (наряд №90)
+### Added — Full `std/infographic.mlog` suite (naryad #90)
 - `InfographicDashboard` (KPI cards + 2×2 chart grid),
   `InfographicComparison` (side-by-side, shared `chart_type`
   required), `InfographicTimeline` (thin wrapper over
@@ -1527,25 +2039,25 @@ improvements since v0.12.0.**
 
 ### Fixed — Critical: VM discarded `try`'s result on the success path
 - `src/compiler.rs` compiled `Expr::Try(_)` as `Const(Unit)`
-  unconditionally since наряд №14 — the wrapped expression was never
+  unconditionally since naryad #14 — the wrapped expression was never
   evaluated by the VM at all
 - New `Instruction::TryEval(Vec<Instruction>)` — compiles the inner
   expression into its own block, executes it, pushes the real value on
   success or `Unit` on error (matching tree-walking semantics exactly)
-- Found by accident during наряд №90; masked for the entire project
+- Found by accident during naryad #90; masked for the entire project
   history because all 30 pre-existing `try`-using golden examples only
   tested the error path, where `Unit` happened to be correct either
   way — first golden contract testing the success path is
   `p91_try_success_path.mlog`
 
-### Added — Security audit sweep (наряд №92)
+### Added — Security audit sweep (naryad #92)
 - Classified all 44 SVG/graphics builtins: 0 real gaps found (23
   initial suspects from a naive array-membership grep were false
   positives — either legitimately excluded, e.g. `template_render`,
   `infographic_qa`, `chart_heatmap`, or covered via `SVG_NO_ESCAPE_BUILTINS`
   and dedicated per-function scanners not visible to a literal-array search)
 - Added 26 injection tests for the `diagram_*` family — 0 existed
-  before this naryад, despite наряд №84's report claiming coverage was
+  before this naryad, despite naryad #84's report claiming coverage was
   confirmed (the scanners were real and wired correctly; the tests
   proving they fire were simply never written)
 
@@ -1554,24 +2066,24 @@ improvements since v0.12.0.**
 - `registry_arity_check.rs` promoted from `test-integration` (advisory)
   to its own `registry-arity-check` (blocking) CI job — the same
   regression class that let a stale `http_get`/`http_post` arity
-  assertion sit unnoticed for days (see наряд №73)
+  assertion sit unnoticed for days (see naryad #73)
 
 ## [0.16.0] - 2026-08-13
 
 ### Added
-- card_connect — подключение к CardDAV-серверу (PROPFIND, addressbook-home-set discovery)
-- card_list — список адресных книг (PROPFIND Depth:1)
-- card_contacts — контакты из адресной книги с фильтрацией (CardDAV REPORT addressbook-query, RFC 6352 §8.6)
-- card_read — чтение одного контакта по URL
-- card_create — создание контакта (PUT .vcf, возвращает UID, arity 3..7)
-- card_update — обновление полей контакта (GET+PUT с ETag/If-Match)
-- card_delete — удаление контакта (DELETE с If-Match)
-- card_search — поиск по всем адресным книгам (FN + EMAIL)
-- vcard_parse — парсинг vCard текста в JSON (RFC 6350, hand-rolled parser)
-- vcard_generate — генерация vCard текста из JSON (v4.0)
-- 14 inline-тестов в contacts.rs (UUID, vCard parse/generate/roundtrip, folding, escaping)
-- Интеграционные тесты tests/phase_mlg6_contacts.rs (10 тестов)
-- CardDAV config через env vars: CARDDAV_URL/USER/PASS
+- card_connect — connect to a CardDAV server (PROPFIND, addressbook-home-set discovery)
+- card_list — list address books (PROPFIND Depth:1)
+- card_contacts — contacts from an address book with filtering (CardDAV REPORT addressbook-query, RFC 6352 §8.6)
+- card_read — read a single contact by URL
+- card_create — create a contact (PUT .vcf, returns UID, arity 3..7)
+- card_update — update contact fields (GET+PUT with ETag/If-Match)
+- card_delete — delete a contact (DELETE with If-Match)
+- card_search — search across all address books (FN + EMAIL)
+- vcard_parse — parse vCard text into JSON (RFC 6350, hand-rolled parser)
+- vcard_generate — generate vCard text from JSON (v4.0)
+- 14 inline tests in contacts.rs (UUID, vCard parse/generate/roundtrip, folding, escaping)
+- Integration tests tests/phase_mlg6_contacts.rs (10 tests)
+- CardDAV config via env vars: CARDDAV_URL/USER/PASS
 
 ### Changed
 - Cargo.toml version 0.15.0 → 0.16.0
@@ -1581,20 +2093,20 @@ improvements since v0.12.0.**
 ## [0.15.0] - 2026-08-13
 
 ### Added
-- cal_connect — подключение к CalDAV-серверу (PROPFIND, calendar-home-set discovery)
-- cal_list — список календарей (PROPFIND Depth:1)
-- cal_events — события в диапазоне дат (CalDAV REPORT calendar-query, RFC 4791 §7.8)
-- cal_read — чтение одного события по URL
-- cal_create — создание события (PUT .ics, возвращает UID)
-- cal_update — обновление полей события (GET+PUT с ETag/If-Match)
-- cal_delete — удаление события (DELETE с If-Match)
-- cal_freebusy — запрос занятости (CalDAV REPORT free-busy-query, RFC 4791 §7.10)
-- ical_parse — парсинг iCalendar текста в JSON (ical crate, RFC 5545)
-- ical_generate — генерация iCalendar текста из JSON (VEVENT + VCALENDAR)
+- cal_connect — connect to a CalDAV server (PROPFIND, calendar-home-set discovery)
+- cal_list — list calendars (PROPFIND Depth:1)
+- cal_events — events in a date range (CalDAV REPORT calendar-query, RFC 4791 §7.8)
+- cal_read — read a single event by URL
+- cal_create — create an event (PUT .ics, returns UID)
+- cal_update — update event fields (GET+PUT with ETag/If-Match)
+- cal_delete — delete an event (DELETE with If-Match)
+- cal_freebusy — free/busy query (CalDAV REPORT free-busy-query, RFC 4791 §7.10)
+- ical_parse — parse iCalendar text into JSON (ical crate, RFC 5545)
+- ical_generate — generate iCalendar text from JSON (VEVENT + VCALENDAR)
 - ical (v0.8), chrono-tz (v0.10) dependencies
-- 10 inline-тестов в calendar.rs (datetime formatting, iCal escaping, parse, generate, roundtrip)
-- Интеграционные тесты tests/phase_mlg5_calendar.rs (10 тестов)
-- CalDAV config через env vars: CALDAV_URL/USER/PASS
+- 10 inline tests in calendar.rs (datetime formatting, iCal escaping, parse, generate, roundtrip)
+- Integration tests tests/phase_mlg5_calendar.rs (10 tests)
+- CalDAV config via env vars: CALDAV_URL/USER/PASS
 
 ### Changed
 - Cargo.toml version 0.14.0 → 0.15.0
@@ -1604,17 +2116,17 @@ improvements since v0.12.0.**
 ## [0.14.0] - 2026-08-13
 
 ### Added
-- smtp_send — отправка plain-text email через SMTP (lettre crate, TLS/STARTTLS)
-- smtp_send_html — отправка HTML email через SMTP
-- imap_list — список входящих писем (IMAP, envelope + flags)
-- imap_read — чтение полного письма (заголовки, тело, вложения)
-- imap_search — поиск писем по тексту (TEXT criteria)
-- imap_mark_read — пометка письма как прочитанного
-- imap_move — перемещение письма в другую папку (RFC 6851 MOVE / fallback COPY+DELETE)
+- smtp_send — send plain-text email via SMTP (lettre crate, TLS/STARTTLS)
+- smtp_send_html — send HTML email via SMTP
+- imap_list — list inbox messages (IMAP, envelope + flags)
+- imap_read — read a full message (headers, body, attachments)
+- imap_search — search messages by text (TEXT criteria)
+- imap_mark_read — mark a message as read
+- imap_move — move a message to another folder (RFC 6851 MOVE / fallback COPY+DELETE)
 - lettre (v0.11), imap (v3.0.0-alpha.15), imap-proto (v0.16), native-tls (v0.2) dependencies
-- 6 inline-тестов в email.rs (env guard, content type, header parsing, flag detection)
-- Интеграционные тесты tests/phase_mlg4_email.rs (10 тестов)
-- Email config через env vars: SMTP_HOST/PORT/USER/PASS/FROM, IMAP_HOST/PORT/USER/PASS
+- 6 inline tests in email.rs (env guard, content type, header parsing, flag detection)
+- Integration tests tests/phase_mlg4_email.rs (10 tests)
+- Email config via env vars: SMTP_HOST/PORT/USER/PASS/FROM, IMAP_HOST/PORT/USER/PASS
 
 ### Changed
 - Cargo.toml version 0.13.0 → 0.14.0
@@ -1624,123 +2136,123 @@ improvements since v0.12.0.**
 ## [0.13.0] - 2026-08-12
 
 ### Added
-- pdf_draw_table — таблицы в PDF (Наряд MLG-3)
-- pdf_add_image — вставка PNG/JPEG изображений
-- pdf_set_page_header / pdf_set_page_footer — колонтитулы
-- pdf_page_numbers — автоматическая нумерация страниц
-- pdf_watermark — водяные знаки (диагональный текст с прозрачностью)
-- pdf_fill_form — заполнение AcroForm-полей
-- pdf_rotate_page — поворот страниц (90/180/270°)
-- pdf_delete_pages — удаление страниц
-- pdf_extract_images — извлечение изображений из PDF
-- html_to_pdf улучшен: базовый рендер на чистом Rust с fallback на wkhtmltopdf
-- png crate dependency (v0.17) для декодирования PNG-изображений
-- 18 inline-тестов в pdf.rs для новых функций
-- Интеграционные тесты tests/phase_mlg3_pdf_office.rs (13 тестов)
-- Пример examples/p_pdf_office.mlog
+- pdf_draw_table — tables in PDF (Naryad MLG-3)
+- pdf_add_image — insert PNG/JPEG images
+- pdf_set_page_header / pdf_set_page_footer — page headers/footers
+- pdf_page_numbers — automatic page numbering
+- pdf_watermark — watermarks (diagonal text with transparency)
+- pdf_fill_form — fill AcroForm fields
+- pdf_rotate_page — rotate pages (90/180/270°)
+- pdf_delete_pages — delete pages
+- pdf_extract_images — extract images from a PDF
+- html_to_pdf improved: basic pure-Rust rendering with fallback to wkhtmltopdf
+- png crate dependency (v0.17) for PNG image decoding
+- 18 inline tests in pdf.rs for the new features
+- Integration tests tests/phase_mlg3_pdf_office.rs (13 tests)
+- Example examples/p_pdf_office.mlog
 
 ### Changed
-- PdfDocument struct: добавлены поля header, footer, watermark, page_number_format, page_number_pos
-- PdfElement enum: добавлены вариации Table, Image, Watermark
-- html_to_pdf: приоритет Rust-рендера (простой HTML) над wkhtmltopdf (сложный HTML)
-- render_pdf: поддерживает Table/Image/Watermark элементы, рендерит header/footer/page_numbers/watermark на каждую страницу
+- PdfDocument struct: added fields header, footer, watermark, page_number_format, page_number_pos
+- PdfElement enum: added Table, Image, Watermark variants
+- html_to_pdf: the Rust renderer (simple HTML) takes priority over wkhtmltopdf (complex HTML)
+- render_pdf: supports Table/Image/Watermark elements, renders header/footer/page_numbers/watermark on every page
 
 ## [0.12.0] - 2026-07-30
 
-**Production hardening (наряды №29 и №30).**
+**Production hardening (naryads #29 and #30).**
 
-### Безопасность
-- .env вычищен из истории git и из всех веток
-- HMAC-ключ сессий читается из METALOGOS_HMAC_KEY (раньше генерировался
-  при каждом старте — сессии слетали при рестарте)
-- CSRF-токены получили TTL 15 минут и фоновую очистку (раньше росли без границ)
-- SECRET_LEAK: обнаружение секрета в теле http_post по позиции аргумента
-  (ADR-0064) — заголовки остаются штатной авторизацией
-- unsafe-блоков: 5 -> 1 (остался только Cranelift JIT, задокументирован)
+### Security
+- .env purged from git history and from all branches
+- Session HMAC key read from METALOGOS_HMAC_KEY (previously regenerated
+  on every start — sessions broke on restart)
+- CSRF tokens: 15-minute TTL and background cleanup (previously grew without bound)
+- SECRET_LEAK: secret detection in the http_post body by argument position
+  (ADR-0064) — headers remain the normal authorization channel
+- unsafe blocks: 5 -> 1 (only the Cranelift JIT remains, documented)
 
-### Надёжность
-- Сессии, CSRF и rate limits переведены на DashMap
-- Конкурентная обработка запросов: вызовы интерпретатора обёрнуты в
-  tokio::task::block_in_place, лок планировщика сокращён (ADR-0067)
-- Граф памяти переведён на StableDiGraph: удаление узла больше не портит
-  индексы остальных (ADR-0066)
-- Типизированные ошибки: RuntimeError через thiserror, хелпер lock_or_err
+### Reliability
+- Sessions, CSRF, and rate limits moved to DashMap
+- Concurrent request handling: interpreter calls wrapped in
+  tokio::task::block_in_place, scheduler lock hold time reduced (ADR-0067)
+- Memory graph moved to StableDiGraph: deleting a node no longer corrupts
+  the indices of the others (ADR-0066)
+- Typed errors: RuntimeError via thiserror, lock_or_err helper
 
-### Язык
-- +slice(list, start, end) — срез списка, семантика зеркалит substring (ADR-0069)
-- db_execute принимает необязательный список параметров — паритет с query()
-  (ADR-0068). Склейка SQL больше не единственный способ
-- Семантика зафиксирована golden-контрактами: let во вложенном блоке
-  присваивает внешней переменной; присваивание требует let mut;
-  kv_get на отсутствующем ключе возвращает пустую строку
+### Language
+- +slice(list, start, end) — list slicing, semantics mirrors substring (ADR-0069)
+- db_execute accepts an optional parameter list — parity with query()
+  (ADR-0068). SQL string concatenation is no longer the only way
+- Semantics pinned by golden contracts: let inside a nested block
+  assigns to the outer variable; assignment requires let mut;
+  kv_get on a missing key returns an empty string
 
-### Тесты и CI
-- Unit-тесты: 233 -> 373
-- GitHub Actions: блокирующие test-lib и fmt, advisory test-integration и clippy
-- Устранена гонка env-переменных в параллельных тестах llm.rs
-- Cargo.lock взят под контроль версий, сборки воспроизводимы
+### Tests and CI
+- Unit tests: 233 -> 373
+- GitHub Actions: blocking test-lib and fmt, advisory test-integration and clippy
+- Fixed an env-variable race in the parallel llm.rs tests
+- Cargo.lock brought under version control, builds reproducible
 
-### Сборка
-- Dockerfile: rust 1.85, запуск от непривилегированного пользователя
+### Build
+- Dockerfile: rust 1.85, runs as an unprivileged user
 
-### Известные ограничения
-- 92 из 310 интеграционных тестов красные (накопленный долг, триаж — наряд №31)
-- 191 clippy-предупреждение (джоб advisory)
-- Fluid Types и confidence propagation не покрыты тестами
-- BUILTIN_REGISTRY и Builtins::new() рассинхронизированы: 67 вызываемых
-  функций отсутствуют в реестре, 44 записи реестра не имеют обработчика
+### Known limitations
+- 92 of 310 integration tests red (accumulated debt, triage — naryad #31)
+- 191 clippy warnings (advisory job)
+- Fluid Types and confidence propagation not covered by tests
+- BUILTIN_REGISTRY and Builtins::new() out of sync: 67 callable
+  functions missing from the registry, 44 registry entries have no handler
 
 ## [0.11.0] — 2026-07-23
 
-**Lifecycle hooks + YAML config (Наряд O-2).**
+**Lifecycle hooks + YAML config (Naryad O-2).**
 
-Расширение lifecycle hooks с 2 до 5 точек и поддержка YAML в config_load. Концепции вдохновлены [obsidian-mind](https://github.com/breferrari/obsidian-mind) (TypeScript, 3.5k★, MIT — код НЕ копировался, только архитектурные концепции).
+Lifecycle hooks extended from 2 to 5 points and YAML support in config_load. Concepts inspired by [obsidian-mind](https://github.com/breferrari/obsidian-mind) (TypeScript, 3.5k★, MIT — code NOT copied, only architectural concepts).
 
 ### Lifecycle hooks (2 → 5)
 
-- `hook on_session_start { ... }` — срабатывает один раз в начале `run()`, после регистрации всех деклараций.
-- `hook on_write { ... }` — срабатывает перед каждым мутирующим билтином (mem_set, mtree_store, db_execute, write_file, append_file). Переменные: `target` (String), `args` (List).
-- `hook on_session_end { ... }` — срабатывает один раз в конце `run()`.
-- Существующие `before_pattern` / `after_pattern` без изменений (ADR-0045).
+- `hook on_session_start { ... }` — fires once at the start of `run()`, after all declarations are registered.
+- `hook on_write { ... }` — fires before each mutating builtin (mem_set, mtree_store, db_execute, write_file, append_file). Variables: `target` (String), `args` (List).
+- `hook on_session_end { ... }` — fires once at the end of `run()`.
+- Existing `before_pattern` / `after_pattern` unchanged (ADR-0045).
 
-### config_load — поддержка YAML
+### config_load — YAML support
 
-- `config_load(path)` теперь автоматически определяет формат по расширению: `.yaml`/`.yml` → YAML, иначе → JSON.
+- `config_load(path)` now auto-detects the format by extension: `.yaml`/`.yml` → YAML, otherwise → JSON.
 
-### Новые зависимости
+### New dependencies
 
-- `serde_yaml = "0.9"` — парсинг YAML конфигов.
+- `serde_yaml = "0.9"` — YAML config parsing.
 
-### Изменённые файлы
+### Changed files
 
-- `src/grammar.pest` — 3 новых токена (on_session_start, on_write, on_session_end), расширен hook_kind, step_ident negative lookahead
-- `src/ast.rs` — HookPhase: 2 → 5 вариантов (OnSessionStart, OnWrite, OnSessionEnd)
-- `src/parser.rs` — parse_hook_decl: обработка 5 точек
-- `src/interpreter.rs` — 3 новых поля, two-phase run(), fire_on_write_hooks() в 3 точках вызова
-- `src/builtins.rs` — config_load: YAML поддержка + yaml_to_json_value() helper
-- `Cargo.toml` — версия 0.11.0, serde_yaml
-- `docs/adr/0064-obsidian-mind-lifecycle-hooks.md` — АДР
-- `docs/adr/0065-config-load-yaml.md` — АДР
-- `examples/hooks_lifecycle.mlog` — демо всех 5 lifecycle hooks
+- `src/grammar.pest` — 3 new tokens (on_session_start, on_write, on_session_end), hook_kind extended, step_ident negative lookahead
+- `src/ast.rs` — HookPhase: 2 → 5 variants (OnSessionStart, OnWrite, OnSessionEnd)
+- `src/parser.rs` — parse_hook_decl: handling of the 5 points
+- `src/interpreter.rs` — 3 new fields, two-phase run(), fire_on_write_hooks() at 3 call sites
+- `src/builtins.rs` — config_load: YAML support + yaml_to_json_value() helper
+- `Cargo.toml` — version 0.11.0, serde_yaml
+- `docs/adr/0064-obsidian-mind-lifecycle-hooks.md` — ADR
+- `docs/adr/0065-config-load-yaml.md` — ADR
+- `examples/hooks_lifecycle.mlog` — demo of all 5 lifecycle hooks
 
 ## [0.10.0] — 2026-07-23
 
-**Vault/memory builtins inspired by [obsidian-mind](https://github.com/breferrari/obsidian-mind) (MIT — код НЕ копировался, только архитектурные концепции).**
+**Vault/memory builtins inspired by [obsidian-mind](https://github.com/breferrari/obsidian-mind) (MIT — code NOT copied, only architectural concepts).**
 
-### Новые builtins (3)
+### New builtins (3)
 
-**Семантический поиск:**
+**Semantic search:**
 
-- `semantic_search(query, documents, top_k)` — семантический поиск по списку документов. Возвращает список `SearchResult{index, text, score}`. Использует EmbeddingManager: OpenAI text-embedding-3-small если `METALOGOS_EMBEDDING_API_KEY` задан, иначе TF-IDF fallback. Вдохновлён QMD semantic search из obsidian-mind.
+- `semantic_search(query, documents, top_k)` — semantic search over a list of documents. Returns a list of `SearchResult{index, text, score}`. Uses EmbeddingManager: OpenAI text-embedding-3-small if `METALOGOS_EMBEDDING_API_KEY` is set, otherwise TF-IDF fallback. Inspired by the QMD semantic search from obsidian-mind.
 
-**Конфигурация и валидация:**
+**Configuration and validation:**
 
-- `config_load(path)` — загрузка JSON-файла конфигурации в struct. Имя типа берётся из имени файла (stem). Вдохновлён vault-manifest.json — coordination point pattern из obsidian-mind.
-- `vault_validate(config, required_fields)` — проверка, что struct содержит все указанные обязательные поля. Возвращает `ValidationResult{valid, missing}`. Вдохновлён frontmatter_required из obsidian-mind.
+- `config_load(path)` — loads a JSON configuration file into a struct. The type name is taken from the file name (stem). Inspired by vault-manifest.json — the coordination point pattern from obsidian-mind.
+- `vault_validate(config, required_fields)` — checks that a struct contains all the specified required fields. Returns `ValidationResult{valid, missing}`. Inspired by frontmatter_required from obsidian-mind.
 
-### Изменённые файлы
+### Changed files
 
-- `src/builtins.rs` — 3 новых builtin (semantic_search, config_load, vault_validate), импорт EmbeddingManager, BUILTIN_REGISTRY entries
+- `src/builtins.rs` — 3 new builtins (semantic_search, config_load, vault_validate), EmbeddingManager import, BUILTIN_REGISTRY entries
 
 ## [0.9.6] — 2026-07-23
 
@@ -1748,169 +2260,169 @@ improvements since v0.12.0.**
 
 ### Bug fixes
 
-- **mlogserver `host:` key** (баг №2): блок `mlogserver` теперь принимает опциональный ключ `host: "127.0.0.1"` для биндинга на указанный адрес вместо жёстко зашитого `0.0.0.0`. Закрывает гонку портов на Render. Обратная совместимость: отсутствие `host:` → дефолт `"0.0.0.0"`.
-- **`json_get` SQL NULL** (баг №1): `json_get(row, key, default)` теперь возвращает `default`, когда значение поля — SQL NULL (`Value::Unit`). Раньше возвращал `Unit`, что вызывало `type mismatch` при конкатенации `String + Unit`. Двухаргументная форма (без default) не изменена.
+- **mlogserver `host:` key** (bug №2): the `mlogserver` block now accepts an optional `host: "127.0.0.1"` key for binding to the specified address instead of the hardcoded `0.0.0.0`. Closes the port race on Render. Backward compatibility: missing `host:` → default `"0.0.0.0"`.
+- **`json_get` SQL NULL** (bug №1): `json_get(row, key, default)` now returns `default` when the field value is SQL NULL (`Value::Unit`). Previously it returned `Unit`, which caused a `type mismatch` when concatenating `String + Unit`. The two-argument form (without default) is unchanged.
 
-### Изменённые файлы
+### Changed files
 
-- `src/grammar.pest` — правило `mlogserver_host`, `"host"` в `step_ident` исключениях
-- `src/ast.rs` — поле `host: Option<String>` в `MlogServerDecl`
-- `src/parser.rs` — разбор `host` в `parse_mlogserver_decl`
-- `src/server.rs` — биндинг на `config.host` с fallback `"0.0.0.0"`
-- `src/builtins.rs` — проверка `Value::Unit` в 3-аргументной ветке `json_get`
+- `src/grammar.pest` — the `mlogserver_host` rule, `"host"` in the `step_ident` exceptions
+- `src/ast.rs` — a `host: Option<String>` field in `MlogServerDecl`
+- `src/parser.rs` — parsing of `host` in `parse_mlogserver_decl`
+- `src/server.rs` — binding to `config.host` with the `"0.0.0.0"` fallback
+- `src/builtins.rs` — a `Value::Unit` check in the 3-argument branch of `json_get`
 
 ## [0.9.5] — 2026-07-21
 
 **OpenPlanter-inspired: Agent utility builtins (ADR-0063).**
 
-Концепции заимствованы из https://github.com/ShinMegamiBoson/OpenPlanter (MIT — код НЕ копировался, только идеи).
+Concepts borrowed from https://github.com/ShinMegamiBoson/OpenPlanter (MIT — code NOT copied, only ideas).
 
-### Новые зависимости
+### New dependencies
 
-- `strsim = "0.11"` — Jaro-Winkler нечёткое сравнение строк
-- `crc32fast = "1.4"` — быстрая CRC32-хеширование
+- `strsim = "0.11"` — Jaro-Winkler fuzzy string comparison
+- `crc32fast = "1.4"` — fast CRC32 hashing
 
-### Новые builtins (8)
+### New builtins (8)
 
-**Нечёткое сравнение (fuzzy matching):**
+**Fuzzy comparison (fuzzy matching):**
 
-- `fuzzy_match(a, b)` — Jaro-Winkler сходство двух строк (0.0..1.0). Основано на OpenPlanter `wiki/matching.rs::NameRegistry`.
-- `fuzzy_find_best(query, candidates)` — лучший матч из списка кандидатов → `FuzzyMatch{index, candidate, score}`.
+- `fuzzy_match(a, b)` — Jaro-Winkler similarity of two strings (0.0..1.0). Based on OpenPlanter `wiki/matching.rs::NameRegistry`.
+- `fuzzy_find_best(query, candidates)` — the best match from a list of candidates → `FuzzyMatch{index, candidate, score}`.
 
-**Контент-верифицированное редактирование (hashlines):**
+**Content-verified editing (hashlines):**
 
-- `hashline_read(text)` — аннотировать строки 2-символьным CRC32-хешем: `N:HH|content`. Предотвращает LLM-редактирование устаревшего контента.
-- `hashline_edit(text, edits)` — редактирование с верификацией хешей. 3 операции: `set_line`, `replace_lines`, `insert_after`. Ошибка при несовпадении хеша.
+- `hashline_read(text)` — annotate lines with a 2-character CRC32 hash: `N:HH|content`. Prevents LLM editing of stale content.
+- `hashline_edit(text, edits)` — editing with hash verification. 3 operations: `set_line`, `replace_lines`, `insert_after`. Error on hash mismatch.
 
-**Утилиты агента:**
+**Agent utilities:**
 
-- `compact_list(items, keep_first, keep_last)` — контекстная компактификация: защита головных/хвостовых элементов, среда схлопывается в `Compacted{compacted: true, removed_count: N}`. Аналог OpenPlanter `compact_messages()`.
-- `budget_check(step, total_steps)` — осведомлённость о бюджете → `BudgetStatus{step, total, remaining, pct_remaining, level}`. Уровни: "ok" (≥50%), "warning" (≥25%), "critical" (<25%).
-- `replay_snapshot(data)` — дельта-логирование: seq 0 = полный снапшот → `ReplaySnapshot{seq, count, snapshot}`. Аналог OpenPlanter `ReplayLogger`.
-- `policy_check(command)` — проверка безопасности shell-команды → `PolicyResult{allowed, reason}`. Блокирует heredoc (`<<`) и интерактивные программы (vim, nano, less и т.д.).
+- `compact_list(items, keep_first, keep_last)` — context compaction: head/tail items protected, the middle collapses into `Compacted{compacted: true, removed_count: N}`. Analog of OpenPlanter `compact_messages()`.
+- `budget_check(step, total_steps)` — budget awareness → `BudgetStatus{step, total, remaining, pct_remaining, level}`. Levels: "ok" (≥50%), "warning" (≥25%), "critical" (<25%).
+- `replay_snapshot(data)` — delta logging: seq 0 = full snapshot → `ReplaySnapshot{seq, count, snapshot}`. Analog of OpenPlanter `ReplayLogger`.
+- `policy_check(command)` — shell command safety check → `PolicyResult{allowed, reason}`. Blocks heredocs (`<<`) and interactive programs (vim, nano, less, etc.).
 
-### Изменённые файлы
+### Changed files
 
-- `src/builtins.rs` — 8 новых builtin'ов + 2 helper'а + 20 тестов (~590 строк).
-- `Cargo.toml` — версия 0.9.5, зависимости `strsim`, `crc32fast`.
+- `src/builtins.rs` — 8 new builtins + 2 helpers + 20 tests (~590 lines).
+- `Cargo.toml` — version 0.9.5, dependencies `strsim`, `crc32fast`.
 - `docs/adr/0063-openplanter-agent-utilities.md` — ADR.
-- `examples/openplanter_demo.mlog` — демонстрация всех 8 builtin'ов.
+- `examples/openplanter_demo.mlog` — demonstration of all 8 builtins.
 
 ## [0.9.4] — 2026-07-16
 
 **AgentSkillOS-inspired: Recipe system + DAG orchestration builtins (ADR-0062).**
 
-Концепции заимствованы из https://github.com/ynulihao/AgentSkillOS (MIT — код НЕ копировался, только идеи).
+Concepts borrowed from https://github.com/ynulihao/AgentSkillOS (MIT — code NOT copied, only ideas).
 
-### Новые builtins (5)
+### New builtins (5)
 
-- `recipe_save(name, description, skills, plan)` — построить рецепт (struct с key + recipe), для сохранения через `kv_set`. Возвращает `{key: "__recipe:<name>", recipe: {...}}`.
-- `recipe_search(query)` — placeholder для семантического поиска рецептов. Возвращает пустой список (требует embedding infrastructure).
-- `recipe_list()` — placeholder для списка рецептов. Возвращает пустой список (требует KV access из builtin context).
-- `dag_phases(dag)` — извлечь параллельные фазы выполнения из DAG. Вход: список `{id, depends_on}`. Выход: список фаз (списков ID). Kahn's algorithm + детекция циклов.
-- `topo_sort(dag)` — топологическая сортировка DAG. Тот же формат входа. Выход: плоский список ID в порядке зависимостей.
+- `recipe_save(name, description, skills, plan)` — build a recipe (a struct with key + recipe) for saving via `kv_set`. Returns `{key: "__recipe:<name>", recipe: {...}}`.
+- `recipe_search(query)` — placeholder for semantic recipe search. Returns an empty list (requires embedding infrastructure).
+- `recipe_list()` — placeholder for the recipe list. Returns an empty list (requires KV access from the builtin context).
+- `dag_phases(dag)` — extract parallel execution phases from a DAG. Input: a list of `{id, depends_on}`. Output: a list of phases (lists of IDs). Kahn's algorithm + cycle detection.
+- `topo_sort(dag)` — topological sort of a DAG. Same input format. Output: a flat list of IDs in dependency order.
 
-### Изменённые файлы
+### Changed files
 
-- `src/builtins.rs` — 5 новых builtin'ов + 13 тестов (~300 строк).
-- `docs/adr/0062-agentskillos-recipe-dag.md` — ADR с описанием архитектуры.
-- `examples/dag_demo.mlog` + `.expected` — golden test для dag_phases/topo_sort.
+- `src/builtins.rs` — 5 new builtins + 13 tests (~300 lines).
+- `docs/adr/0062-agentskillos-recipe-dag.md` — ADR with the architecture description.
+- `examples/dag_demo.mlog` + `.expected` — golden test for dag_phases/topo_sort.
 
-### Ограничения
+### Limitations
 
-- `recipe_search`/`recipe_list` — placeholders, полная реализация требует доступа к KV-хранилищу из builtin context.
-- Нет семантического поиска рецептов (требует embeddings).
+- `recipe_search`/`recipe_list` — placeholders; a full implementation requires access to the KV store from the builtin context.
+- No semantic recipe search (requires embeddings).
 
 ## [0.9.3] — 2026-07-12
 
-**sqz-inspired builtins и declaration (P1+P2+P3).**
+**sqz-inspired builtins and declaration (P1+P2+P3).**
 
-Концепции заимствованы из https://github.com/ojuschugh1/sqz (ELv2 — код НЕ копировался, только идеи).
+Concepts borrowed from https://github.com/ojuschugh1/sqz (ELv2 — code NOT copied, only ideas).
 
-### P1 — Строковые/списковые утилиты (10 builtin'ов)
+### P1 — String/list utilities (10 builtins)
 
-- `squeeze(s, chars)` — схлопнуть идентичные соседние символы (аналог Ruby String#squeeze).
-- `dedup(list)` — удалить дубликаты, сохраняя порядок первого вхождения. Сравнение через JSON для сложных типов.
-- `condense(list)` — схлопнуть идентичные соседние строки с подсчётом повторов (формат: элемент, "×N").
-- `strip(s, chars)` — удалить символы с обоих концов строки (аналог Python str.strip).
-- `chomp(s)` — удалить один trailing newline (\n или \r\n, аналог Ruby String#chomp).
-- `repeat(s, n)` — повторить строку n раз. Проверка: n >= 0, целый.
-- `pad_left(s, n, fill)` / `pad_right(s, n, fill)` — дополнить строку символом fill до длины n.
-- `lines(s)` — разбить на список строк по \n, без trailing пустого элемента.
-- `words(s)` — разбить на список слов по whitespace.
+- `squeeze(s, chars)` — collapse identical adjacent characters (analog of Ruby String#squeeze).
+- `dedup(list)` — remove duplicates, preserving first-occurrence order. Comparison via JSON for complex types.
+- `condense(list)` — collapse identical adjacent strings with a repeat count (format: element, "×N").
+- `strip(s, chars)` — remove characters from both ends of a string (analog of Python str.strip).
+- `chomp(s)` — remove one trailing newline (\n or \r\n, analog of Ruby String#chomp).
+- `repeat(s, n)` — repeat a string n times. Validation: n >= 0, integer.
+- `pad_left(s, n, fill)` / `pad_right(s, n, fill)` — pad a string with the fill character to length n.
+- `lines(s)` — split into a list of lines by \n, without a trailing empty element.
+- `words(s)` — split into a list of words by whitespace.
 
 ### P2 — TOON encoding + content-addressed refs
 
-- `toon_encode(value)` — кодировать любое значение в TOON (Token-Optimized Object Notation). Префикс `TOON:`, ключи без кавычек, non-ASCII → `\u{XXXX}`. Lossless.
-- `toon_decode(s)` — декодировать TOON обратно в Value. Recursive descent parser. Проверка префикса, валидация JSON-like синтаксиса.
-- `ref(content)` — SHA-256 хэш, сохранить в KV-хранилище (`__ref:HASH`), вернуть hex-строку (64 символа). Idempotent (INSERT OR IGNORE).
-- `deref(hash)` — восстановить содержимое по хэшу. Валидация формата (64 hex символов), ошибка если не найден.
+- `toon_encode(value)` — encode any value into TOON (Token-Optimized Object Notation). Prefix `TOON:`, keys without quotes, non-ASCII → `\u{XXXX}`. Lossless.
+- `toon_decode(s)` — decode TOON back into a Value. Recursive descent parser. Prefix check, JSON-like syntax validation.
+- `ref(content)` — SHA-256 hash, stored in the KV store (`__ref:HASH`), returns a hex string (64 characters). Idempotent (INSERT OR IGNORE).
+- `deref(hash)` — restore content by hash. Format validation (64 hex characters), error if not found.
 
 ### P3 — Token awareness
 
-- `token_count(text)` — оценка количества токенов: кириллица chars/2, латиница chars/4, порог 50%.
-- `context_budget` — новое объявление верхнего уровня: `context_budget { pattern: "name", limit: 4096 }`. Хранит токенный бюджет для learnable pattern'ов в `Interpreter.context_budgets` HashMap.
+- `token_count(text)` — token count estimation: Cyrillic chars/2, Latin chars/4, threshold 50%.
+- `context_budget` — a new top-level declaration: `context_budget { pattern: "name", limit: 4096 }`. Stores the token budget for learnable patterns in the `Interpreter.context_budgets` HashMap.
 
-### Изменённые файлы
+### Changed files
 
-- `src/builtins.rs` — 15 новых функций + 52 теста.
-- `src/grammar.pest` — правило `context_budget_decl`.
+- `src/builtins.rs` — 15 new functions + 52 tests.
+- `src/grammar.pest` — the `context_budget_decl` rule.
 - `src/ast.rs` — `ContextBudgetDecl` struct + `Declaration::ContextBudget` variant.
 - `src/parser.rs` — `parse_context_budget_decl`.
-- `src/interpreter.rs` — обработка `ContextBudget` в `run()` и `clone_definitions_into()`, поле `context_budgets`.
-- `src/compiler.rs` — `ContextBudget` в catch-all arms (pass1 + pass2).
+- `src/interpreter.rs` — `ContextBudget` handling in `run()` and `clone_definitions_into()`, the `context_budgets` field.
+- `src/compiler.rs` — `ContextBudget` in the catch-all arms (pass1 + pass2).
 
-### Тесты
+### Tests
 
-- 52 новых теста в `mod tests_sqz_builtins`. Все pass.
-- Итого: 196 passed, 3 failed (pre-existing), 3 ignored.
+- 52 new tests in `mod tests_sqz_builtins`. All pass.
+- Totals: 196 passed, 3 failed (pre-existing), 3 ignored.
 
 ## [0.9.2] — 2026-07-12
 
-**Заплатка: исправление 5 ошибок компиляции E0004 (non-exhaustive patterns) после Problem A/B/C/D/E.**
+**Patch: fixing 5 E0004 compilation errors (non-exhaustive patterns) after Problem A/B/C/D/E.**
 
-- `compiler.rs`: `BinOp::And`/`Or` — добавлена явная ветка с ошибкой компиляции (short-circuit evaluation не реализован в VM bytecode, требуется tree-walking interpreter).
-- `vm.rs` main loop: `Instruction::MakeList`, `ListLen`, `Pop`, `StartsWith` — добавлены ветки `unimplemented!` с поясняющим сообщением (VM bytecode support отложен).
-- `vm.rs` `eval_branch_condition`: `ConditionOp::Ne` — реализована семантика `!=` (по аналогии с `Eq`).
-- `vm.rs` `eval_rule_condition`: `&ConditionOp::Ne` — реализована семантика `!=` (по аналогии с `Eq`).
-- `vm.rs` `eval_binop` Float branch: `BinOp::And`/`Or` — добавлена ветка, возвращающая runtime-ошибку (булева логика некорректна для Float operands).
+- `compiler.rs`: `BinOp::And`/`Or` — an explicit arm with a compilation error added (short-circuit evaluation is not implemented in VM bytecode, the tree-walking interpreter is required).
+- `vm.rs` main loop: `Instruction::MakeList`, `ListLen`, `Pop`, `StartsWith` — `unimplemented!` arms with an explanatory message added (VM bytecode support deferred).
+- `vm.rs` `eval_branch_condition`: `ConditionOp::Ne` — the `!=` semantics implemented (by analogy with `Eq`).
+- `vm.rs` `eval_rule_condition`: `&ConditionOp::Ne` — the `!=` semantics implemented (by analogy with `Eq`).
+- `vm.rs` `eval_binop` Float branch: `BinOp::And`/`Or` — an arm returning a runtime error added (boolean logic is incorrect for Float operands).
 
 ## [0.9.1] — 2026-07-12
 
-**Наряд 4-примитивов: Problems B + D (Problem B: aggregation, Problem D: webhook diagnosis).**
+**The 4-primitives naryad: Problems B + D (Problem B: aggregation, Problem D: webhook diagnosis).**
 
 ### Problem B — Aggregation over list of structs (ADR-0059)
 
-- **`map()` в VM** — `map(list, "pattern_name")` теперь работает во всех трёх бэкендах (tree-walking, bytecode/VM, JIT). Ранее — только tree-walking.
-- **`map`, `zip`, `sort_by`, `filter`, `reduce` добавлены в BUILTIN_REGISTRY** — ранее отсутствовали, компилятор не мог создать `CallBuiltin` для них.
-- **`IndexAccess` в execute_code** — паттерны в VM теперь могут использовать `list[N]` и `struct["key"]` (раньше инструкция обрабатывалась только в main loop).
-- **`entity` как struct** — STOP Trigger #1 подтверждён: `entity TypeName { ... }` полностью покрывает потребность в `struct`. Новый ключевой код не добавлен (ADR-0059).
+- **`map()` in the VM** — `map(list, "pattern_name")` now works in all three backends (tree-walking, bytecode/VM, JIT). Previously — tree-walking only.
+- **`map`, `zip`, `sort_by`, `filter`, `reduce` added to BUILTIN_REGISTRY** — previously absent, the compiler could not create `CallBuiltin` for them.
+- **`IndexAccess` in execute_code** — patterns in the VM can now use `list[N]` and `struct["key"]` (previously the instruction was handled only in the main loop).
+- **`entity` as struct** — STOP Trigger #1 confirmed: `entity TypeName { ... }` fully covers the need for `struct`. No new core code added (ADR-0059).
 
 ### Problem D — Webhook routing diagnosis (ADR-0061)
 
-- Диагностика: `Hook` (ADR-0045) — AOP для паттернов, не для HTTP. `route` — полноценный HTTP-роутер, достаточный для Telegram webhook. Корень бага — архитектурный (reverse_proxy.py маршрутизирует `/webhook/*` в Python, mlog-обработчик физически недостижим).
-- Golden test: `telegram_webhook_route.mlog` — проверяет `parse_json` + `json_get` на mock Telegram update JSON.
+- Diagnosis: `Hook` (ADR-0045) is AOP for patterns, not for HTTP. `route` is a full-fledged HTTP router, sufficient for a Telegram webhook. The root of the bug is architectural (reverse_proxy.py routes `/webhook/*` in Python; the mlog handler is physically unreachable).
+- Golden test: `telegram_webhook_route.mlog` — checks `parse_json` + `json_get` on a mock Telegram update JSON.
 
 ### Problem C — Schema-as-code (ADR-0060)
 
-- Новая декларация `schema name { table T { ... } }` — DECLARE таблиц прямо в .mlog файлах
-- Auto-migration при старте: `CREATE TABLE IF NOT EXISTS` (additive-only, никогда не drop/alter)
-- Поддерживаемые типы: Int, Float, String, Text, Bool, DateTime
-- Модификаторы: primary_key, auto_increment, nullable, references(table.field)
-- Дефолты: default("value"), default(now())
-- Интеграционные тесты: schema + db_insert + query round-trip, additive migration
-- **Ограничение**: schema DDL и db_insert работают только в tree-walking режиме (требуют SQLite connection). VM/JIT путь отложен.
+- New declaration `schema name { table T { ... } }` — DECLARE tables directly in .mlog files
+- Auto-migration at startup: `CREATE TABLE IF NOT EXISTS` (additive-only, never drop/alter)
+- Supported types: Int, Float, String, Text, Bool, DateTime
+- Modifiers: primary_key, auto_increment, nullable, references(table.field)
+- Defaults: default("value"), default(now())
+- Integration tests: schema + db_insert + query round-trip, additive migration
+- **Limitation**: schema DDL and db_insert work only in tree-walking mode (they require an SQLite connection). The VM/JIT path is deferred.
 
 ### Problem A — Tiered Skill Index (ADR-0058)
 
-- Новая декларация `skill_index name { tier N always [...] | tier N when_matches [...] budget: N tokens truncation: mode }`
+- New declaration `skill_index name { tier N always [...] | tier N when_matches [...] budget: N tokens truncation: mode }`
 - AST: SkillIndexDecl, SkillTier, SkillTriggerRule, TruncationMode
 - Grammar: 12 new PEG rules (skill_index_decl, skill_tier, tier_always_list, tier_matches_list, etc.)
 - Parser: 2 new parse functions
 - Interpreter: `skill_indices` HashMap, `resolve_skill_index` + `fit_to_budget` builtins
-- `fit_to_budget` MVP: pass-through (полная реализация с file I/O отложена)
-- 5 интеграционных тестов: базовая загрузка, trigger matching, budget/truncation, error handling, 3 tiers
-- STOP Trigger #4 задокументирован: бюджет per-model, не глобальная константа (известное ограничение MVP)
+- `fit_to_budget` MVP: pass-through (a full implementation with file I/O is deferred)
+- 5 integration tests: basic loading, trigger matching, budget/truncation, error handling, 3 tiers
+- STOP Trigger #4 documented: the budget is per-model, not a global constant (a known MVP limitation)
 
 ---
 
@@ -1937,11 +2449,11 @@ improvements since v0.12.0.**
 
 ## [0.7.8] — 2026-06-15
 
-**Наряд №17 closure: BlockIfElse expression in bytecode compiler, format() arity fix.**
+**Naryad №17 closure: BlockIfElse expression in bytecode compiler, format() arity fix.**
 
 ### Bytecode compiler
 
-- **`Expr::BlockIfElse` full bytecode compilation** — `if cond { ... } else { ... }` as expression now compiles to a proper conditional jump chain with result slot, instead of emitting `Const(Unit)` placeholder (Наряд 17 Б.1)
+- **`Expr::BlockIfElse` full bytecode compilation** — `if cond { ... } else { ... }` as an expression now compiles to a proper conditional jump chain with a result slot, instead of emitting a `Const(Unit)` placeholder (Naryad 17 B.1)
 - New `compile_body_expr` method — compiles statement blocks in expression context, storing the last expression's value into a result local slot
 - `format()` arity corrected from `-1` (variadic) to `1` (template-only) in semantic arity checks
 
@@ -1957,19 +2469,19 @@ improvements since v0.12.0.**
 
 ### Language
 
-- **`break` and `continue`** statements in `each`, `each_with_index`, and `while` loops (Наряд 17)
-- **`MatchArm::StartsWith`** — bytecode instruction `StartsWith` + VM execution + compiler codegen (Наряд 17)
+- **`break` and `continue`** statements in `each`, `each_with_index`, and `while` loops (Naryad 17)
+- **`MatchArm::StartsWith`** — the `StartsWith` bytecode instruction + VM execution + compiler codegen (Naryad 17)
 - **`MatchArm::Compare`** — threshold-based match arms with full compiler support
-- **`Statement::IfElseBlock`** — multi-branch `if/else if/else` as statement with full compiler coverage (Наряд 18)
-- **`Expr::BlockIfElse`** — block if/else as expression in interpreter (Наряд 14)
-- **`Expr::Try`** — try/catch expression, catches errors and returns `Unit` (Наряд 14)
+- **`Statement::IfElseBlock`** — multi-branch `if/else if/else` as statement with full compiler coverage (Naryad 18)
+- **`Expr::BlockIfElse`** — block if/else as expression in interpreter (Naryad 14)
+- **`Expr::Try`** — try/catch expression, catches errors and returns `Unit` (Naryad 14)
 
 ### Bytecode compiler
 
-- Full statement compilation: `LetBinding`, `Assign`, `Return`, `ExprStmt`, `Each`, `EachWithIndex`, `While`, `IfElseBlock`, `IfThen`, `Match`, `Break`, `Continue` (Наряд 18)
+- Full statement compilation: `LetBinding`, `Assign`, `Return`, `ExprStmt`, `Each`, `EachWithIndex`, `While`, `IfElseBlock`, `IfThen`, `Match`, `Break`, `Continue` (Naryad 18)
 - Loop context (`LoopCtx`) for break/continue jump patching — continue jumps back to condition, break jumps to loop end
 - `Match` with `Exact`, `StartsWith`, `Contains`, `Compare` arms — all compiled to conditional jump chains
-- Global variable slots, `StoreGlobal` instruction (Наряд 22)
+- Global variable slots, `StoreGlobal` instruction (Naryad 22)
 - 44 total VM instructions in the bytecode instruction set
 
 ### VM
@@ -1985,18 +2497,18 @@ improvements since v0.12.0.**
 - Tool declaration body analysis
 - Static security audit (`mlog audit`) coverage for new statement forms
 
-### Security constraints (Наряды 19–22)
+### Security constraints (Naryads 19–22)
 
-- `inspect` builtin — introspect variable values without violating opaque types (Наряд 19)
-- Context loading from `Entity`/`Memory`/`Fluid` declarations before pattern execution (Наряд 20)
-- Event streaming: `emit`/`on` event hooks (Наряд 20)
-- Conversation state: `Conversation` declaration with TTL and message limits (Наряд 21)
-- LLM response cache with configurable TTL (Наряд 21)
-- Model routing: `LlmConfig` declaration with provider failover (Наряд 21)
-- Context compression for long conversations (Наряд 21)
-- Tool abstraction: `Tool` declaration with typed methods (Наряд 22)
-- `Hook` declaration: before/after pattern hooks (Наряд 22)
-- Session memory: `session_set`/`session_get`/`session_clear` builtins (Наряд 22)
+- `inspect` builtin — introspect variable values without violating opaque types (Naryad 19)
+- Context loading from `Entity`/`Memory`/`Fluid` declarations before pattern execution (Naryad 20)
+- Event streaming: `emit`/`on` event hooks (Naryad 20)
+- Conversation state: `Conversation` declaration with TTL and message limits (Naryad 21)
+- LLM response cache with configurable TTL (Naryad 21)
+- Model routing: `LlmConfig` declaration with provider failover (Naryad 21)
+- Context compression for long conversations (Naryad 21)
+- Tool abstraction: `Tool` declaration with typed methods (Naryad 22)
+- `Hook` declaration: before/after pattern hooks (Naryad 22)
+- Session memory: `session_set`/`session_get`/`session_clear` builtins (Naryad 22)
 
 ### Infrastructure
 
@@ -2112,7 +2624,7 @@ git log --oneline --grep="0\.8\." --reverse
 ```
 
 Future naryads may formalize 0.8.x sections here by extracting
-highlights from the actual commit history (Наряд №166 Block 2 noted
+highlights from the actual commit history (Naryad №166 Block 2 noted
 this gap; recovery requires verifying each highlight against the
 real commit, not invented descriptions — see ADR-0110 §2
 "contract before code").

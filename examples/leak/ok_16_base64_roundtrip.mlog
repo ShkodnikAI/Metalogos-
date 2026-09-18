@@ -1,0 +1,5 @@
+// Легально: обратимое кодирование туда-обратно.
+pattern Roundtrip(data: String) -> String {
+  return base64_decode(base64_encode("roundtrip"))
+}
+flow Main { input: String = "x" -> Roundtrip -> output }

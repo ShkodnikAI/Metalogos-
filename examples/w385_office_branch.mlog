@@ -1,0 +1,28 @@
+// Наряд №385 (ADR-0169), критерий (д): офисный сценарий ветвится по
+// try.error.code БЕЗ substring-matching по message. Политика офиса:
+// SANDBOX_VIOLATION → hard-fail (дефект программы, повтор бессмыслен);
+// LLM_TIMEOUT → один повтор, затем запасной ответ; прочее → эскалация.
+// call_llm — источник LlmOutput (№316), каждое решение по r.* проходит
+// санкционированный шов redact(…, "hash_only") (№327) — ветвление по
+// КОДУ, а не по подстроке сообщения.
+pattern OfficeStep(task: String) -> String {
+  let r = try call_llm("Summarize the task:", task)
+  if redact(to_string(r.ok), "hash_only") == redact("true", "hash_only") {
+    return "done:" + r.value
+  }
+  if redact(r.error.code, "hash_only") == redact("SANDBOX_VIOLATION", "hash_only") {
+    return "hard-fail:" + r.error.code
+  }
+  if redact(r.error.code, "hash_only") == redact("LLM_TIMEOUT", "hash_only") {
+    let r2 = try call_llm("Summarize the task:", task)
+    if redact(to_string(r2.ok), "hash_only") == redact("true", "hash_only") {
+      return "done:" + r2.value
+    }
+    if redact(r2.error.code, "hash_only") == redact("LLM_TIMEOUT", "hash_only") {
+      return "fallback:canned-summary-after-retry"
+    }
+    return "escalate:" + r2.error.code
+  }
+  return "escalate:" + r.error.code
+}
+flow Main { input: String = "quarterly-report" -> OfficeStep -> output }

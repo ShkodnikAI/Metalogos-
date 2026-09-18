@@ -1,0 +1,14 @@
+// Наряд №332 (ADR-0164 §7.4): сценарий «кухонной камеры» (§5.3 спеки) —
+// ОТКАЗ НА КОМПИЛЯЦИИ с объяснимой причиной: камера частного помещения
+// объявлена с label: private, хэндл `source kitchen_cam` несёт эту метку
+// в поток, материализующий sink media_save (файловый egress, гейт №325)
+// refuses the call site — класс SECRET_LEAK, узел: привязка `frame`,
+// правило: SINK_CLEARANCE (private-egress). Не runtime-падение и не
+// тихий пропуск: denial статический, до исполнения.
+origin kitchen_cam { kind: camera, media: image, label: private }
+pattern KitchenCam(_tick: String) -> String {
+  let frame = source kitchen_cam
+  let leak = media_save(frame, "frames/leak.jpg")
+  return leak
+}
+flow Main { input: String = "tick" -> KitchenCam -> output }

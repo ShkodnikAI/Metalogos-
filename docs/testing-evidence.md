@@ -1,51 +1,51 @@
 # Testing Evidence — Metalogos
 
-Материалы для грантовых заявок (NLnet/Restack — раздел Testing Evidence):
-сколько и какие свойства проверяются автоматически, с числами. Всё ниже
-исполняется CI на каждый PR (blocking) или по расписанию (тренды).
+Material for grant applications (NLnet/Restack — the Testing Evidence section):
+how many and which properties are verified automatically, with numbers. Everything below
+is run by CI on every PR (blocking) or on a schedule (trends).
 
-## Property-based тесты (наряд №277, proptest)
+## Property-based tests (naryad #277, proptest)
 
-Быстрые, детерминированные (seeds), зелёные в блокирующем CI:
+Fast, deterministic (seeds), green in the blocking CI:
 
-| Файл | Свойства | Числа |
+| File | Properties | Numbers |
 |---|---|---|
-| `tests/property_builtin_nopanic.rs` | **No-panic по всем чистым билтинам**: случайные `Value`-аргументы (включая unicode, deep nesting до 6 уровней, граничные float) в случайные функции → либо значение, либо Result-ошибка, НЕ паника. Реестр (`BUILTIN_REGISTRY`) перечисляется в рантайме — новые билтины попадают в свип автоматически | **162 чистых билтина** покрываются напрямую (детерминированный свип + 128 proptest-кейсов); 23 stub-записи пропущены честно (вызов — громкая ошибка, пинится другими тестами); side-effectful категории (bot/web/io/email/llm/db/voice/…) исключены и перечислены в выводе теста |
-| `tests/property_json_roundtrip.rs` | `json_encode` любого вложенного `Value` → валидный JSON; canonical stability (parse→encode стабилен со второго круга); `json_get` возвращает ровно те листья, которые были положены по построенным dot-путям; дефолт на произвольных путях — без паник | 256 кейсов × 3 свойства |
-| `tests/property_string_invariants.rs` | `reverse∘reverse = id` на произвольном unicode; `len(s) == chars().count()` (документированная семантика); `substring/char_at` = посимвольные слайсы на всех границах; `escape_html` без сырых угловых скобок | 512 кейсов × 4 свойства |
-| `tests/property_tw_vm_parity.rs` | Программы, сгенерированные из консервативного подмножества грамматики (литералы, арифметика, конкатенация, let, вызовы билтинов, вызовы паттернов), исполняются ИДЕНТИЧНО в TW и VM. Исключения — документированная граница ADR-0105 (`match`, `BlockIfElse`-as-value, memory/learnable/server/IO) | 192 кейса × 2 формы программ |
+| `tests/property_builtin_nopanic.rs` | **No-panic across all pure builtins**: random `Value` arguments (including unicode, deep nesting up to 6 levels, boundary floats) into random functions → either a value or a Result error, NOT a panic. The registry (`BUILTIN_REGISTRY`) is enumerated at runtime — new builtins enter the sweep automatically | **162 pure builtins** covered directly (deterministic sweep + 128 proptest cases); 23 stub entries skipped honestly (a call is a loud error, pinned by other tests); side-effectful categories (bot/web/io/email/llm/db/voice/…) excluded and listed in the test output |
+| `tests/property_json_roundtrip.rs` | `json_encode` of any nested `Value` → valid JSON; canonical stability (parse→encode is stable from the second round on); `json_get` returns exactly the leaves that were put in via the constructed dot-paths; the default on arbitrary paths — no panics | 256 cases × 3 properties |
+| `tests/property_string_invariants.rs` | `reverse∘reverse = id` on arbitrary unicode; `len(s) == chars().count()` (documented semantics); `substring/char_at` = per-character slices at all boundaries; `escape_html` without raw angle brackets | 512 cases × 4 properties |
+| `tests/property_tw_vm_parity.rs` | Programs generated from a conservative subset of the grammar (literals, arithmetic, concatenation, let, builtin calls, pattern calls) execute IDENTICALLY in TW and VM. Exceptions — the documented ADR-0105 boundary (`match`, `BlockIfElse`-as-value, memory/learnable/server/IO) | 192 cases × 2 program shapes |
 
-**Найдено и починено property-тестами сразу при написании (№277):** `strip()`
-паниковал, когда оба конца строки полностью состояли из strip-символов
-(`strip("&", "Ⱥ&")` → slice panic `start > len-end`); починен в
-`builtin_strip`, минимизатор и обычные формы запинены тестом
-`regression_strip_overlap_ends_no_panic`. Задокументированный (не краш):
-`json_encode` печатает float с отклонением до 1 ulp от канонического
-кратчайшего представления serde (наблюдение в J2-комментарии) — фиксация
-поведения, не изменение.
+**Found and fixed by the property tests right as they were written (#277):** `strip()`
+panicked when both ends of the string consisted entirely of strip characters
+(`strip("&", "Ⱥ&")` → slice panic `start > len-end`); fixed in
+`builtin_strip`, the minimizer and the regular forms are pinned by the test
+`regression_strip_overlap_ends_no_panic`. Documented (not a crash):
+`json_encode` prints a float with a deviation of up to 1 ulp from the canonical
+shortest serde representation (observation in the J2 comment) — a record of
+the behavior, not a change.
 
-## Mutational testing (наряд №277, cargo-mutants smoke)
+## Mutational testing (naryad #277, cargo-mutants smoke)
 
-- Цель: `src/builtins/json.rs` — плотная escaping/парсинг/навигация логика.
-- Killer: `tests/property_json_roundtrip` (roundtrip-свойства ловят
-  большинство мутаций сериализации).
-- Прогон: еженедельно (понедельник 06:00 UTC) + ручной dispatch —
-  `.github/workflows/mutants.yml`, НЕ блокирующий мерж, только тренд.
-- Артефакт: `mutants.out/` + `mut-score.txt` (mut-score = killed / (killed +
-  missed + timeouts)) — публикуется как GitHub Actions artifact каждого
-  прогона.
-- Почему не `src/audit.rs` (3232 строки) и не `src/builtins/string.rs`
-  (905 строк) из постановки: часовой масштаб недельного прогона без роста
-  ценности smoke-контракта; выбор модуля — осознанное отклонение,
-  зафиксированное в шапке workflow и PR наряда.
+- Target: `src/builtins/json.rs` — dense escaping/parsing/navigation logic.
+- Killer: `tests/property_json_roundtrip` (the roundtrip properties catch
+  most serialization mutations).
+- Run: weekly (Monday 06:00 UTC) + manual dispatch —
+  `.github/workflows/mutants.yml`, NOT merge-blocking, trends only.
+- Artifact: `mutants.out/` + `mut-score.txt` (mut-score = killed / (killed +
+  missed + timeouts)) — published as a GitHub Actions artifact of each
+  run.
+- Why not `src/audit.rs` (3232 lines) and not `src/builtins/string.rs`
+  (905 lines) from the original brief: an hour-scale weekly run with no gain in
+  value for the smoke contract; the module choice is a deliberate deviation,
+  recorded in the workflow header and the naryad's PR.
 
-## Смежные контуры (уже существовали)
+## Adjacent loops (already existed)
 
-- **Fuzzing** (наряд №256): 3 cargo-fuzz цели (парсер, байткод, url_decode),
-  дымовой прогон в CI (2 мин/цель), non-blocking.
-- **Blocking-набор**: 15 check-runs на каждый PR (lib/integration/crosscheck/
+- **Fuzzing** (naryad #256): 3 cargo-fuzz targets (parser, bytecode, url_decode),
+  a smoke run in CI (2 min/target), non-blocking.
+- **Blocking set**: 15 check-runs per PR (lib/integration/crosscheck/
   candle/vision/registry-arity/llm-cache/minimal-build/fmt/clippy/ADR-numbering/
-  module-size/vscode/cargo-audit/branch-freshness) — мерж только при
-  полностью зелёном наборе на мерж-коммите.
-- **Crosscheck**: TW vs VM parity — отдельный blocking-тест +
-  property-расширение из №277 (см. выше).
+  module-size/vscode/cargo-audit/branch-freshness) — merge only when the set is
+  fully green on the merge commit.
+- **Crosscheck**: TW vs VM parity — a separate blocking test +
+  the property extension from #277 (see above).

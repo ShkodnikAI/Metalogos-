@@ -1,6 +1,7 @@
 # METALOGOS — Language Reference
 
-> **Version:** 0.17.0
+> **Version:** 0.20.0
+> **Synced with code:** 2026-09-16 (naryad №335) · 439 builtins · 156 ADR files (149 accepted + 7 reserved)
 > **Single source of truth** for developers writing in Metalogos.
 > Contains the full list of built-in functions with signatures, types, descriptions, and examples,
 > as well as a reference for syntax, data types, and the CLI.
@@ -55,17 +56,34 @@ The `mlog` binary supports the following commands:
 | `mlog resume <file.mlog> --flow=<name> --from=<checkpoint>` | Resume a flow from a checkpoint |
 | `mlog audit <file.mlog>` | Static security audit without execution |
 | `mlog test <file.mlog> [--filter=substring]` | Run `test` blocks (unit tests) |
+| `mlog mcp-serve <file.mlog> --allowlist t1.m1,t2` | Expose `tool` constructs as MCP tools (transports: stdio default \| http \| sse — see below) |
+| `mlog ledger verify <file.jsonl> [--expect-head H] [--expect-key K]` | External verification of an exported Action Ledger chain (no runtime; Naryad #393, ADR-0167) |
+| `mlog ledger archive <in.jsonl> <out.jsonl> --at <seq>` | Archive the chain at a snapshot anchor (verified before written) |
+
+#### MCP server (`mlog mcp-serve`) — transports, auth, tool-policy (Naryad #394, ADR-0168)
+
+| Aspect | Contract |
+|---|---|
+| Transports | `--transport stdio` (default — newline-framed JSON-RPC 2.0 over stdin/stdout, identical to №297), `--transport http` (JSON-RPC over `POST /mcp`), `--transport sse` (MCP HTTP+SSE: `GET /sse` emits the `endpoint` event, the client POSTs JSON-RPC to that path, responses arrive as `message` events on the session stream). http/sse require the `server` feature (default-on). |
+| Bind | `--bind <addr:port>` (http/sse only; default `127.0.0.1:8770`). |
+| Auth | `--auth-token <token>` or `METALOGOS_MCP_AUTH_TOKEN` → every request (POST and SSE) requires `Authorization: Bearer <token>`, mismatch = 401. Without a token a loopback bind is the accepted alternative; a non-loopback bind without a token is a LOUD WARNING, never silent (the №263 posture). |
+| Fail-closed | `--allowlist` is required on every transport — an empty allowlist refuses to start; unknown tools are JSON-RPC `-32602` refusals. The allowlist alone decides what is published. |
+| Tool-policy | Compiled from the profile — each `tools/list` entry carries `_meta["metalogos.dev/policy"]` with `sink_calls` (№316 Role::Sink calls + `audit::sink_kind` classes), `clearance_args` (params flowing into sink arguments), `irreversible`, `source_calls` — no manual YAML. The policy annotates; it never widens. |
+| Security parity | The same `McpServer::handle_request` core serves every transport: allowlist/exec/env gates, label clearance and taint rules are transport-independent (pinned by `tests/naryad_394_mcp_server.rs`). |
 
 ### Environment variables
 
 | Variable | Description |
 |------------|----------|
 | `METALOGOS_LLM_MOCK` | `true` (default) — mocked LLM responses; `false` — real calls |
+| `METALOGOS_MOCK_LLM_FAULT` | deterministic fault injection for the `call_llm` mock path (Naryad #385, ADR-0169 §3.4): `timeout` → the call fails with the stamped `LLM_TIMEOUT` error; `unavailable` → fails with `LLM_PROVIDER_UNAVAILABLE`; any other value fails CLOSED with a loud error naming the variable (never a silent green mock answer). Unset (default) = no fault. Test seam for try-code contracts and office branching scenarios — golden examples declare it via an `examples/X.env` sidecar |
 | `METALOGOS_LLM_TRACE` | path to a JSONL file — every LLM call (`call_llm`, `call_claude`, `call_llm_schema`, learnables, conversation summaries, `human_respond`) appends one line with OpenTelemetry GenAI semconv fields (`gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`/`output_tokens` when the provider reported them) plus `status`, `cache` (`exact`\|`semantic`\|`miss`), `backend` (`tw`\|`vm`), `provider_alias`, `latency_ms`; unset (default) = tracing off. Trace write errors never fail the call (one warning). No rotation — the operator rotates the file (ADR-0138) |
 | `METALOGOS_TTS_API_KEY` | API key for speech synthesis (`tts_generate`/`tts_send`); falls back to `OPENAI_API_KEY` when unset |
 | `METALOGOS_TTS_BASE_URL` | base URL override for speech synthesis (default `https://api.openai.com/v1`; `/audio/speech` appended) — mock servers / self-host proxies (Naryad #279) |
 | `METALOGOS_STT_BASE_URL` | base URL override for transcription (`whisper_transcribe`; provider default, `/audio/transcriptions` appended) — mock servers / self-host proxies (Naryad #279) |
 | `METALOGOS_FORCE_PIPE` | `1` — force piped-mode REPL (for tests) |
+| `METALOGOS_MCP_AUTH_TOKEN` | bearer token for `mlog mcp-serve --transport http\|sse` when `--auth-token` is not given (Naryad #394, ADR-0168) |
+| `METALOGOS_LEDGER_KEY` | 64-hex signing seed for the Action Ledger (reproducible chains in tests/CI; unset = OS-random key per process; Naryad #393, ADR-0167) |
 
 ---
 
@@ -90,6 +108,266 @@ The `mlog` binary supports the following commands:
 > **Note:** Metalogos has no separate `Int` type — all numbers are `Float`.
 > Integers are written as `42.0`. To convert a string to an integer, use `to_int()`.
 
+### 2.1. Label annotations (ADR-0154)
+
+Types on pattern parameters, entity-type fields, and entity declarations may carry
+a three-component security label — `(conf, integrity, consent-scope)`:
+
+```mlog
+pattern Share(data: String<private>) -> String { return data }
+pattern Mix(a: String<private, untrusted>) -> String { return a }
+pattern Give(c: String<consented, trusted, consent(gdpr, analytics)>) -> String { return c }
+entity k: String<private> = "demo-key-value"
+```
+
+- **conf** (required): `public < consented < private < poisoned` — `poisoned` is
+  quarantine: it absorbs both join and meet and has no legal sinks.
+- **integrity** (optional, default `trusted`): `untrusted < trusted` — data
+  combination takes the weaker integrity, requirement combination the stronger.
+- **consent** (optional, default empty): `consent(scope, ...)` — the scopes the
+  value is covered by; join intersects, meet unions.
+
+The grammar checks the shape; semantic analysis validates the words and reports
+unknown words, duplicates, and a missing conf component with the annotation's span.
+
+### 2.2. Label inference through statements (№323, ADR-0154 Appendix A)
+
+Labels propagate through pattern bodies statically — no annotations needed.
+Sources follow the audit vocabulary: `env`/`secret` → `private`, `call_llm`/
+`call_claude`/`reflex_generate` → `public, untrusted`, `form_data`/`json_body`/
+`query_param`/`mcp_call` → `public, untrusted`, `render`/`escape_html` →
+`public, trusted`; `redact(x, "secrets")` masks `private` → `public` (never
+`poisoned`). Full contract table:
+
+| Statement | Rule |
+|---|---|
+| `let` / assignment | label = RHS (assignment replaces; merges re-add conservatism) |
+| `each x in xs` | `x` = label(iterable); the body cannot raise it; loop exit joins the entry and post-body labels of every other variable |
+| `each i, x in xs` | same; the index `i` stays `public, trusted` (a position, not data) |
+| `while` | bounded fixpoint of the body (≤ 8 passes); condition does not taint |
+| `if/else if/else` | componentwise join over all branches; one-sided assignment = join(entry, branch) |
+| `if ... then` | merge with an implicit empty else |
+| `return` / expression statement | result label joins the pattern output |
+| `match` | join over arms; the scrutinee's label joins every variable assigned in any arm (control dependence) |
+| `break` / `continue` | no label effect |
+| `memorize` / `forget` / `relate` | memory side effects; persistence gating is №325 |
+
+Unannotated parameters, literals, and unresolved names start at
+`public, trusted` (bottom) — the sink-gate (№325) reads the inferred labels.
+
+### 2.3. Effect trail in signatures (№324, ADR-0154 §9)
+
+A pattern (tool method, learnable pattern) may DECLARE what it does — an
+effect trail after the return type:
+
+```mlog
+pattern Fetch(key: String) -> String ⟨io⟩ {
+  return env(key)
+}
+pattern Log(msg: String) -> String ⟨io, audit⟩ {
+  memorize msg with priority=0.5
+  return msg
+}
+```
+
+- `io` — the body touches the outside world: every №316 `Source` (ingress)
+  or `Sink` (egress) builtin — network, files, env, clock, LLM calls,
+  channels;
+- `audit` — a persistent, auditable write: `Sink` builtins whose effect is
+  not undoable-pure (state/db/file/memory writes, delivery) plus the
+  `memorize`/`forget`/`relate` statements.
+
+The closed word set is `{io, audit}`; `⟨⟩` declares the zero-effect
+contract. The gate holds every declared trail against the FACTUAL body
+effects: a call to an annotated pattern contributes its DECLARED contract
+(interface semantics), a call to an unannotated pattern contributes its
+inferred effects; the excess — what the body needs beyond the declaration —
+is a compile error listing declared / required / excess. Patterns without
+a trail are ungated: existing programs are unaffected. Recursion converges
+without annotations (the effect domain is a 4-element lattice; unions are
+monotone), so an explicit trail on a recursive pattern is welcome but not
+required.
+
+### 2.4. Sink clearance & the legacy profile (№325, ADR-0161)
+
+Data entering a **sink** builtin (the list is the №316 classification:
+`http_post`, `print`, `respond`, `write_file`, `db_execute`, `exec`,
+`git_push`, `tts_send`, `memorize`, …) must clear it: the argument's
+inferred label must be `public` (poisoned clears no sink at all). Special
+classes: exec refuses untrusted and private data; voice egress requires a
+consent scope (consent sources are Phase 2, №335 — until then voice is
+unconsented by default); destructive SQL literals (`DROP`/`DELETE`/
+`TRUNCATE`/`ALTER`) are gated without grants; untrusted data into public
+outputs is the HTML-injection class; private data into files is the
+secret-leak class.
+
+```mlog
+// Compile error (strict by default):
+pattern Send(data: String) -> String {
+  let _ = http_post("https://analytics.example", record)   // PII_EGRESS_NETWORK
+  return "sent"
+}
+```
+
+The migration bridge — a program-level compatibility profile:
+
+```mlog
+profile legacy { egress: permissive_with_audit }
+```
+
+Under `profile legacy` the clearance gate is ADVISORY: compilation and
+execution stay green and every gate hit is recorded as an audit event
+(`[SINK_CLEARANCE][audit-event]` on stderr, a Severity::Info finding in
+`mlog audit`). `legacy` is a migration bridge, not a residence — the
+burn-down is measured by the event count (ADR-0161 §3).
+
+**The data ↔ action bridge (№391).** For the six ACTION sinks the
+clearance gate enforces BOTH axes of the label lattice on the decision
+argument (command / URL / SQL / addressee): confidentiality
+`label.conf ⊑ public` AND integrity `label.integrity ≥ trusted`. The
+thresholds are table-driven (`semantic::ACTION_BRIDGE` — the
+systematization of the former point rules; the specialized classes
+keep their names):
+
+| action sink | decision argument | conf threshold | integrity threshold | integrity enforcement |
+|---|---|---|---|---|
+| `exec` | arg 0 — command | public | trusted | clearance (`UNTRUSTED_EXEC_DECISION`) |
+| `exec_argv` | arg 0 — binary | public | trusted | clearance (`UNTRUSTED_EXEC_DECISION`) |
+| `git_push` | arg 0 — remote URL/ref | public | trusted | clearance (`UNTRUSTED_EGRESS_NETWORK`; №391 adds the integrity half) |
+| `http_post` | arg 0 — URL | public | trusted | clearance (`UNTRUSTED_EGRESS_NETWORK`; body args = egress classes) |
+| `send_message` | arg 0 — chat/addressee | public | trusted | clearance (`UNTRUSTED_EGRESS_NETWORK`; body args = egress classes) |
+| `db_execute` | arg 0 — SQL | public | trusted | confidentiality = clearance (`private-db`); integrity = `SQL_DYNAMIC` (non-literal SQL is refused before the bridge can see it) |
+
+Every deny names the argument, its label and the failed threshold
+(explainable refusal — consumed by №392 DenyEvent). Grants (№390) are
+orthogonal: the grant authorizes the ACTION (scope/TTL/quota, runtime),
+the bridge gates the DATA that feeds it (labels, compile time);
+`db_execute_with_grant` is not a №325 sink.
+
+**redact/declassify — the only downward move (№326, ADR-0154 §10).**
+`redact(value, "<policy>")` takes a policy VALUE that determines the
+target label:
+
+| policy       | target conf | notes |
+|--------------|-------------|-------|
+| `hash_only`  | `public`    | one-way SHA-256 fingerprint — the sanctioned path down |
+| `all`        | `public`    | full masking (legacy ADR-0136) |
+| `secrets`    | `public`    | secret-pattern masking (legacy) |
+| `pii`        | `private`   | conservative — pattern strips can miss data |
+| `pii_strip`  | `private`   | conservative (new) |
+| `truncate`   | `private`   | keeps 3 chars, masks the rest (new) |
+
+Every application is an unconditional audit event (`REDACT_APPLIED`,
+`[REDACT][audit-event]`): what was processed, which policy, which target.
+Unknown policy words are loud runtime errors; dynamic (non-literal)
+policies pass the label through — no silent downward moves.
+
+### 2.5. Integrity axis & anti-injection (№327)
+
+The integrity axis (`untrusted < trusted`) is about DECISIONS: data that
+decides control flow must be trusted. Decision positions are `if`/`else
+if` conditions, `while` conditions, and `match` scrutinees:
+
+```mlog
+// Compile error — the LLM answer must not decide the branch:
+pattern Decide() -> String {
+  let answer = call_llm("shutdown the service?")
+  if answer == "yes" {
+    let _ = exec("shutdown -h now")
+    return "shutting down"
+  }
+  return "kept running"
+}
+```
+
+The error names the untrusted source (a direct Source call behind the
+deciding expression) and the decision point. Untrusted data as DATA is
+legal: carrying it, transforming it, returning it — all fine. The
+integrity join is componentwise: untrusted poisons derivatives
+(`upper(trim(answer))` stays untrusted). The sanctioned paths to a
+trusted decision: validate before deciding, or one-way-redact
+(`hash_only` restores `trusted` — the data is destroyed). Sink-target
+decisions keep their №325 classes (UNTRUSTED_EXEC_DECISION,
+UNTRUSTED_EGRESS_NETWORK).
+
+### 2.6. Runtime label parity (№328, ADR-0156)
+
+The compiler lowers static label knowledge into the bytecode:
+source-backed `let`/assignments carry `LabelJoin` (the VM seeds the
+runtime label env from the same №316 mapping), and every sink call site
+carries `SinkCheck` — the runtime twin of the №325 gate. A runtime
+violation is a distinct `[SINK_CLEARANCE_RUNTIME]` error plus an audit
+event line. Label instructions are explicitly outside the JIT-eligible
+class (`bytecode::is_jit_eligible`): the dispatch gap is an explicit
+error, never a silent skip (ADR-0156 §2).
+
+### 2.7. Dogfood contour & ergonomics (№329)
+
+The Wave-1 gate is validated on a real office contour
+(`examples/l1_dogfood.mlog`): an LLM draft delivered to the owner chat
+via `send_message` plus a metrics webhook via `http_post`. The gate
+requires exactly two annotations on the contour: the trust-restoring
+sanitizer (`escape_html`) on the untrusted LLM draft before egress
+(network and output sinks refuse untrusted data — §2.4/§2.5), and the
+one-way `redact(x, "hash_only")` on the webhook secret (the only
+downward move — §2.4). Everything else — labels on variables,
+parameters, signatures — is inferred (§2.2). Measured ergonomics:
+2 annotated lines out of 13 code lines ≈ 15%, well under the 50%
+rebuild threshold of plan v2 §13.3 (pinned by
+`tests/naryad_329_dogfood.rs`). The Go/No-Go decision on these numbers
+is №330 (the owner's call) — the naryad delivers the measurement only.
+
+### 2.8. Perception origins & the origin chain (№332, ADR-0164)
+
+A perception handle's provenance is DECLARED, not guessed. The
+`origin` declaration names the source of perception handles; the
+origin-chain rule (§7.4: "a handle without origin is not constructed")
+is enforced statically on every compile path:
+
+```mlog
+origin kitchen_cam { kind: camera, media: image, label: private }
+
+pattern Capture(_tick: String) -> String {
+  let frame = source kitchen_cam            // HandleSource
+  return frame                              // handles may flow between patterns
+}
+
+pattern Save(frame: String) -> String {
+  let _p = media_save(frame, "frames/today.jpg")
+  return "saved"
+}
+```
+
+Origin fields: `kind: camera | file | generation` (`file` requires the
+`path` field — the sandboxed capture source; a camera CAPTURE is a loud
+PARKED boundary at runtime while the static chain is unaffected;
+`generation` is the kind of bind-constructed handles), `media: image |
+audio | video_frame | video_segment`, `label: public | consented |
+private` (poisoned is not constructible by declaration — quarantine
+comes only from the taint machinery), and the optional `path`.
+
+Handle constructions:
+
+- `source <origin>` — produce a handle FROM a declared origin; legal
+  only as a binding initializer or in `return` position;
+- `from <origin> media_store_*(...)` — bind the provenance of a NEWLY
+  constructed handle (the Lift); the bind joins the declared origin
+  conf into the entry label (re-sealing at rest when a public entry
+  becomes non-public);
+- a bare `media_store_*(...)` is a COMPILE error (`ORIGIN_REQUIRED`):
+  "a handle without origin is not constructed"; direct
+  `media_source_capture`/`media_bind_origin` calls are refused loudly —
+  they are lowered forms, not surface syntax.
+
+Origin labels flow with the handles (through aliases too) into the
+№325 sink clearance: the §5.3 kitchen-camera scenario — a private
+camera whose frames reach `media_save` — is denied AT COMPILE TIME
+(`SECRET_LEAK`) naming the sink, the container and the carried label
+(see `examples/w1_kitchen_camera.mlog`). Public origins flow through
+the gate unchanged. `media_meta(handle)` exposes the bound provenance:
+`m.origin` (empty for unbound entries) alongside `kind`/`conf`/`refs`/
+`sealed` — no bytes leave the store.
+
 ---
 
 ## 3. Syntax
@@ -112,6 +390,7 @@ let result = if x > 10.0 then "big" else "small"   // let with an if-expression
 **Mutable variables (`let mut`):** Since Naryad #14, variables are immutable by default. To reassign, use `let mut`. Since Naryad #264 the contract is enforced statically: `mlog check` reports assignment to a non-`mut` variable as an error, the compiler refuses to emit bytecode for it, and the VM fails loudly on assignment bytecode produced past the check (no backend assigns silently):
 
 ```mlog
+// expect-error
 let mut counter = 0.0
 while counter < 10.0 {
   counter = counter + 1.0   // OK — counter is declared as mut
@@ -134,6 +413,7 @@ If a local redefinition that does not affect the outer `x` is needed, use a diff
 
 **Mutable variables (`let mut`, Naryad #14):** Variables are immutable by default. For assignment, use `let mut` (contract: `examples/p30_assign_mut.mlog` + `.expected`, `examples/p30_assign_immutable.mlog` + `.error`; enforced by `mlog check` and the compiler since Naryad #264):
 ```mlog
+// expect-error
 let mut counter = 0.0
 counter = counter + 1.0   // OK
 let x = 5.0
@@ -156,6 +436,7 @@ x = 10.0                  // ERROR: cannot assign to immutable variable: x
 
 **If-else (block form):**
 ```mlog
+let x = 15.0
 if x > 10.0 {
   print("big")
 } else if x > 5.0 {
@@ -167,11 +448,13 @@ if x > 10.0 {
 
 **If-then-else (expression):**
 ```mlog
+let score = 95.0
 let label = if score >= 90.0 then "A" else "B"
 ```
 
 **Each (loop over a collection):**
 ```mlog
+let items = ["alpha", "beta", "gamma"]
 each item in items {
   print(item)
 }
@@ -179,13 +462,15 @@ each item in items {
 
 **While (conditional loop):**
 ```mlog
+let mut count = 0.0
 while count < 10.0 {
-  let count = count + 1.0
+  count = count + 1.0
 }
 ```
 
 **Match (pattern matching, Naryad #14):**
 ```mlog
+// doc-test: skip
 match command {
   "start" then { print("starting") }
   starts_with "stop" then { print("stopping") }
@@ -196,30 +481,104 @@ match command {
 ```
 Four kinds of arms are supported: an exact match (`"val" then {}`), a prefix (`starts_with "pre" then {}`), a substring (`contains "sub" then {}`), and a comparison (`> expr then {}` with any of `>`, `<`, `>=`, `<=`, `==`, `!=`). Match returns the value of the last expression in the selected arm.
 
-> **TW-only:** `match` (as a statement) and `match` as an expression in a
-> `let` binding (`let x = match y { ... }`, Naryad #173b) work only in the
-> tree-walking interpreter. The bytecode VM does not support them — see
-> [ADR-0105](docs/adr/0105-vm-experimental-scope.md).
+> **TW/VM parity (Naryad #369, ADR-0141 Stage 1.1):** `match` (as a
+> statement) and `match` as an expression in a `let` binding
+> (`let x = match y { ... }`) execute identically on both backends — the
+> arm matching + comparison run the SAME shared predicate
+> (`ast::MatchArm::matches_value` / `compare_values`), the scrutinee is
+> evaluated exactly once, and the let value is the last non-Unit
+> expression of the matched arm. The old Naryad #173b lossy parse (arms
+> discarded, raw scrutinee bound) is fixed end-to-end.
 
 **If-else block as an expression (Naryad #14):**
 ```mlog
+let score = 95.0
+let x = "osp"
 let label = if score >= 90.0 { "A" } else { "B" }
 let dept_color = if x == "osp" { "#FF0000" } else if x == "lz" { "#00FF00" } else { "#999999" }
 ```
 
-**Try expression (error handling, Naryad #14):**
+**Try expression (error handling, Naryad #14; structured result — Naryad #374 / ADR-0142):**
 ```mlog
-let result = try http_post("https://api.example.com", body, "application/json")
-// On error: result = Unit, in stderr: [try] caught error: ...
+let r = try http_post("https://api.example.com", body, "application/json")
+// r is ALWAYS a struct: { ok: Bool, value: Value, error: Unit | Struct }
+// Success:      r.ok == true,   r.value = the call's value,  r.error = Unit
+// Error:        r.ok == false,  r.value = Unit,
+//               r.error.code = "RUNTIME_ERROR", r.error.message = the runtime error text
+if r.ok == false { respond("500", r.error.message) }
 ```
+
+**Migration (Naryad #374 — breaking for old try code):**
+```mlog
+// doc-test: skip
+// BEFORE (№91 semantics — error discarded as Unit):
+let r = try risky_call(x)
+if type_of(r) == "Unit" { ... }        // error probe
+if r == Unit { ... }                   // broken by №374: r is now a Struct
+
+// AFTER (№374 semantics — structured result):
+let r = try risky_call(x)
+if r.ok == false { ... }               // error probe (mlog has no unary `!`)
+let v = r.value                        // the success value
+let msg = r.error.message              // on the error path
+```
+Note: `!r.ok` from ADR-0142 is pseudocode — the mlog grammar has no unary
+`not`, so the real form is `r.ok == false` (or `r.ok == true`). Nested `try`
+binds to a `unary_expr` — parenthesize or use a `let` for compound inner
+expressions (`try (1.0 / 0.0)`, not `try 1.0 / 0.0`).
+
+**Stable `try` error codes (Naryad #385, ADR-0169).** On the error path,
+`r.error.code` is a STABLE diagnostic code (ADR-0131: the code is a
+frozen contract, the message text may change) classified by the shared
+classifier both backends call — the same error yields the same code on
+the interpreter and the VM. Classification reads the origin stamp the
+failing subsystem put on the error where it was born; an error with no
+stamp is honestly `RUNTIME_ERROR`:
+
+| Code | Fires when | Typical branching |
+|---|---|---|
+| `RUNTIME_ERROR` | fallback — the error's origin carries no stamp (API-arity refusals, HTTP status answers, anything unclassified) | log / escalate |
+| `LLM_TIMEOUT` | deadline or provider timeout in the `call_llm` contour | retry with backoff, then fallback |
+| `LLM_PROVIDER_UNAVAILABLE` | connect failure or SmartRouter circuit open | switch provider / degrade gracefully |
+| `SQL_ERROR` | a `rusqlite` failure raised by a `db_*` builtin (bad SQL, missing table) | fix-the-query path, do not blind-retry |
+| `SANDBOX_VIOLATION` | io/exec sandbox refusal (absolute path, traversal, symlink escape) | hard-fail — a program defect, retrying is meaningless |
+| `SINK_CLEARANCE_RUNTIME` | the VM runtime twin of the static sink gate refused a call argument | hard-fail / route to an `on_deny` handler |
+| `MEDIA_SEALED_EGRESS` | sealed private media refused materialization (`media_save`) | request consent / pick a public asset |
+| `BACKEND_DEGRADED` | ladder exhaustion — as a TYPED `Degraded(t)` result's `error.code` (№336), not a raised error | select another backend class / queue for later |
+
+Branching example (office policy: retry a timeout, hard-fail a sandbox
+violation — never substring-match the message). `call_llm` output is an
+untrusted LlmOutput source (№316), so decisions over the result go
+through the sanctioned one-way redact (№327: `hash_only` restores
+integrity for decisions):
+
+```mlog
+let task = "quarterly-report"
+let r = try call_llm("Summarize:", task)
+if redact(to_string(r.ok), "hash_only") == redact("true", "hash_only") {
+  return "done:" + r.value
+}
+if redact(r.error.code, "hash_only") == redact("LLM_TIMEOUT", "hash_only") {
+  return "fallback:canned-summary"   // one retry may precede this
+}
+return "escalate:" + r.error.code
+```
+
+The deterministic fault seam for offline contracts:
+`METALOGOS_MOCK_LLM_FAULT=timeout|unavailable` (mock mode) makes
+`call_llm` fail with the corresponding stamped error (see §1,
+Environment variables); the golden examples `w385_*` pin the full code
+set on both backends.
 
 **Return:**
 ```mlog
+// doc-test: skip
 return result
 ```
 
 **Require (RBAC, Naryad #14):** Checks the current user's role (only in an HTTP context with the session middleware).
 ```mlog
+// doc-test: skip
 let _ = require("admin")   // On refusal: execution aborts with the error "access denied"
 ```
 
@@ -236,6 +595,7 @@ Supported escape sequences: `\"`, `\\`, `\n`, `\t`, `\r`.
 
 Identifiers support ASCII, `_`, and Cyrillic (А-я):
 ```mlog
+// doc-test: skip
 let имя = "Metalogos"
 let счетчик = 0.0
 pattern Приветствие(кто: String) -> String { ... }
@@ -245,7 +605,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.19):** This section documents **100%** of the 404 registered builtins (404 of 404): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 457 registered builtins (457 of 457): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -279,9 +639,11 @@ All built-in functions are registered in a single registry, `BUILTIN_REGISTRY` (
 | `redact(text, mode)` | `String, String -> String` | String | Masks PII/secrets with deterministic typed masks (`[REDACTED:sk-…abc4]`). mode: `"pii"` (email `***@***.tld`, phone, Luhn-validated cards with vendor, IBAN), `"secrets"` (sk-/AKIA/ghp_ keys, JWT, PEM, Bearer + entropy net: base64/hex runs ≥24 with digit+hex-letter), `"all"`. Unknown mode — loud error. The ONLY builtin whose `"secrets"/"all"` modes clear the `Secret` taint statically — «mask before sink» (ADR-0136); `LlmOutput` is never cleared by redact (only `render`). №284: canary markers `MLOG-CANARY-<id>` are NOT masked (canary ≠ secret — the marker survives redact so №284's invariant holds) |
 | `canary_insert(text, opts?)` | `String[, Struct] -> Struct` | Struct `{CanaryMark}` | Embeds a random canary marker (`MLOG-CANARY-` + 26 base32 chars, 128-bit entropy) into untrusted text BEFORE sending it to the LLM. Returns `{marked_text, canary_id}`. opts: `count` (1..=4, default 1 — same id inserted count times), `position` ("random"|"head"|"tail", default "random"). Loud errors: empty text, text already contains a marker (double-marking), zero-width chars in text BEFORE insertion, count outside 1..=4, unknown position/opts field (№284) |
 | `canary_check(text, canary_id, opts?)` | `String, String[, Struct] -> Struct` | Struct `{CanaryCheck}` | Runtime leak detector: checks the LLM response for the canary marker — exact occurrence + resistant to trivial distortions (case, splitting by whitespace/punctuation). opts: `mode` ("exact" default; "zwsp" additionally ignores zero-width chars U+200B/200C/200D/2060/FEFF inside the marker — in "exact" they DELIBERATELY break the match). Returns `{leaked, id, position}` — position is the CHAR index of the first occurrence in the original text, -1.0 when clean. Leak → runtime CANARY_LEAK warning (stderr) + `llm_usage().canary_leaks` counter; statically, inside `if (r.leaked) {...}` the response is labeled «compromised channel» and sink usage warns CANARY_LEAK. Detector, NOT a gate. Unknown/malformed canary_id (a secret is not a canary) — loud error (№284) |
+| `text_chunk(text, strategy, opts?)` | `String, String[, Struct] -> List` | List of Struct `{TextChunk}` | Structure-aware chunking for the RAG pipeline (№285, RecursiveCharacterTextSplitter-аналог без зависимостей). strategies: `"markdown"` (h1–h3 → sections with `header_path` = "H1 > H2 > H3" metadata ready for vec_store; long sections split by paragraphs; header lines are never torn — a header longer than the budget is a loud error), `"paragraph"` (blocks by double newline, small blocks merged within budget), `"fixed"` (windows with overlap). opts: `max_chars` (default 1200), `overlap` (default 100, CHARACTERS, applied at hard windowing; seam is word-aligned), `max_tokens?` — when set the budget is `token_count` (same SSOT estimate). Cascade "header → paragraph → newline → space" + greedy merge of small pieces. Every chunk: `{index, text, chars, tokens}` (+`header_path` for markdown). Loud errors: unknown strategy, `overlap >= max_chars` (or `>= max_tokens` in token mode), `max_tokens <= 0`, `max_chars <= 0`, unknown opts fields, opts not a Struct. Empty/short text → 1 chunk, not an error |
 
 **Examples:**
 ```mlog
+let llm_reply = "untrusted reply text"
 let s = "Hello, world!"
 upper(s)              // "HELLO, WORLD!"
 lower(s)              // "hello, world!"
@@ -309,6 +671,14 @@ let m = canary_insert("untrusted tool output")
   // {marked_text: "untrusted MLOG-CANARY-… tool output", canary_id: "MLOG-CANARY-…"}
 canary_check(llm_reply, m.canary_id, {mode: "zwsp"})
   // {leaked: true, id: "MLOG-CANARY-…", position: 17.0} → CANARY_LEAK
+let doc = "# Guide\n\n## Setup\n\nbody text"
+text_chunk(doc, "markdown", {max_chars: 1200, overlap: 100})
+  // [{index: 0, text: "# Guide\n...", chars: 1180.0, tokens: 295.0,
+  //   header_path: "Guide"}, {…, header_path: "Guide > Setup"}, …]
+let chunks = text_chunk(doc, "markdown")
+let c = chunks[0]
+vec_store("kb.db", "sections", c.header_path + "#" + str(c.index), embed(c.text), c.text)
+  // section-aware RAG: search hits carry the header path as id
 ```
 
 ### 4.2. Numbers and math
@@ -366,6 +736,7 @@ to_int(3.9)        // 3.0
 
 **Examples:**
 ```mlog
+// doc-test: skip
 let items = [10.0, 20.0, 30.0]
 get(items, 1.0)        // 20.0
 push(items, 40.0)      // [10.0, 20.0, 30.0, 40.0]
@@ -405,6 +776,7 @@ let ranked = sort_by(paired, "b", 1.0)
 
 **Example:**
 ```mlog
+// doc-test: skip
 let result = call_llm("Translate to English", "Hello world")
 // By default: "[MOCK: Translate to English | Hello world]"
 
@@ -440,6 +812,7 @@ All HTTP egress builtins (`http_get`, `http_post`, `http_post_multipart`, `http_
 
 **Examples:**
 ```mlog
+// doc-test: skip
 // A simple POST
 let resp = http_post("https://api.example.com/data", json_encode(payload))
 
@@ -626,6 +999,7 @@ Temporary in-memory storage scoped to a session_id. Not persistent — it resets
 
 **Examples:**
 ```mlog
+// doc-test: skip
 entity db_url: Secret = env("DATABASE_URL")
 let key = generate_key()
 let encrypted = encrypt("secret data", key)
@@ -668,6 +1042,7 @@ Functions for use inside route handlers of `mlogserver`/`server` blocks.
 
 **Example:**
 ```mlog
+// doc-test: skip
 mlogserver {
   port: 8080
   route "/hello" method=GET {
@@ -693,6 +1068,7 @@ mlogserver {
 
 **Example:**
 ```mlog
+// doc-test: skip
 template Page(title: String, body: String) -> Html {
   <html><head><title>{{ title }}</title></head><body>{{ body }}</body></html>
 }
@@ -713,6 +1089,7 @@ return page
 **Schema-as-code** (ADR-0060) — declaring tables directly in .mlog:
 
 ```mlog
+// doc-test: skip
 db { url: "sqlite::memory:" }
 
 schema my_dept {
@@ -725,6 +1102,30 @@ schema my_dept {
 ```
 
 Types: Int→INTEGER, Float→REAL, String/Text→TEXT, Bool→INTEGER, DateTime→TEXT. Modifiers: primary_key, auto_increment, nullable, references(table.field). Defaults: default("value"), default(now()). Migration: additive-only (CREATE TABLE IF NOT EXISTS).
+### 4.15.1. Grants and Actions (ADR-0155)
+
+Capability grants for irreversible operations (naryad #390). A Grant is an
+opaque value: non-printable, non-serializable (serde emits a dead marker),
+backed by the grant ledger. Without a grant the destructive-SQL deny
+(`IRREVERSIBLE_NO_GRANT`, №325) is unchanged; with a grant the action is
+allowed only inside the grant scope, metered by the ledger, and audited.
+
+| Function | Signature | Return | Description |
+|---------|-----------|---------|----------|
+| `grant_issue(scope, ttl, class?, uses?)` | `String, Number[, String, Number] -> Grant` | Grant | Mints a capability. class: "once" (default) / "n" + uses / "unlimited"; ttl in seconds |
+| `grant_subgrant(parent, scope, ttl, class?, uses?)` | `Grant, String, Number[, ...] -> Grant` | Grant | Attenuation-only derivation: narrower scope, shorter TTL, lower class power; a Once parent is consumed by the split |
+| `grant_revoke(g)` | `Grant -> Number` | Number | Cascading revocation — the grant and every descendant become revoked; returns the count |
+| `grant_use(g)` | `Grant -> Number` | Number | Consumes one use; returns the remaining count (-1 = unlimited) |
+| `db_execute_with_grant(g, sql, params?)` | `Grant, String[, List] -> String` | String | Executes SQL under the grant: ledger state, TTL, scope coverage of the destructive ops and quota are enforced at runtime; consumption happens only after success |
+
+```mlog
+// doc-test: skip
+db { url: "sqlite::memory:" }
+let g = grant_issue("db:delete:sessions", 3600, "n", 5)
+let n = db_execute_with_grant(g, "DELETE FROM sessions WHERE stale = 1")
+let left = grant_use(g)
+```
+
 ### 4.16. Bots (Telegram/Discord)
 
 | Function | Signature | Return | Description |
@@ -810,6 +1211,7 @@ Zero IPC, <200ms on text-based PDFs.
 
 **Examples:**
 ```mlog
+// doc-test: skip
 // Classifying a PDF
 let info = pdf_classify("report.pdf")
 // -> { type: "TextBased", confidence: 0.95, pages_needing_ocr: [], page_count: 12 }
@@ -838,7 +1240,7 @@ let text = json_get(ocr, "markdown", "")
 
 44 built-in functions, hand-written in pure Rust — with no
 external SVG/chart/rendering library at all. All are dispatched through a
-common path (not a special case), with TW/VM parity for paths that both backends can execute (see ADR-0105; the VM does not yet support `match`/block if-else)
+common path (not a special case), with TW/VM parity for paths that both backends can execute (see ADR-0105; `match` and the block if/else value closed by Naryads #369/#370)
 and verified by `crosscheck`. The full decision history is in ADR-0102 and naryads
 #77-92.
 
@@ -1030,6 +1432,7 @@ The `Reflex` pillar trains, predicts, persistently stores, and distills local ne
 **The `reflex` declaration** (naryad #178):
 
 ```mlog
+// doc-test: skip
 reflex SentimentClassifier {
   input: embedding(2)                          // input dimensionality
   layers: [dense(8, relu), dense(2, softmax)]  // layers from LAYER_REGISTRY
@@ -1041,6 +1444,7 @@ reflex SentimentClassifier {
 **The `reflex_seq` declaration** (naryads #183-185, ADR-0119) — for sequences:
 
 ```mlog
+// doc-test: skip
 reflex_seq TinyClassifier {
   input: embedding(64)
   seq_len: 16                                  // a fixed sequence length
@@ -1079,10 +1483,10 @@ This section documents the **real** built-in provenance/persistence/loading func
 |---|---|---|---|
 | `vision_edit(handle, prompt)` | `(Vision, String) -> Vision` | `Vision` (a new handle) | **In-context editing of a signed artifact** (#243, R6.2). The source MUST be signed: an artifact with no provenance manifest is a loud refusal (there is nothing honest to inherit; producing an unsigned artifact through the real compute path is forbidden by ADR-0125) — raw export (`vision_export_raw`) is unaffected. Pipeline: source PNG to decode to a loud dims contract (R4.1: 256..=4096, x16; a multiple of the VAE factor — silent resizing is forbidden, the output keeps the source's resolution) to the VAE encoder (non-decoder prefixes of the same pinned VAE file; encode in posterior MODE) to a reference latent to Qwen3-4B on the edit prompt to the Z-Image DiT with in-context token concatenation (a noise branch plus the reference at every step, `euler_step` applies only to the noise branch) to `EDIT_STEPS = 8` (the distilled turbo NFE) to decode to PNG. The output is ALWAYS signed: a watermark plus a manifest, where `model_id`/`policy`/`seed` are inherited from the source, `prompt_sha256` is the hash of the edit prompt, and `timestamp`/`png_sha256` are fresh. Loud refusals: an unsigned source, an unknown handle, a wrong type, an empty prompt, dimensions outside R4.1 or not a multiple of the factor, `MLOG_VISION_WEIGHTS_DIR` not set (the variable and how to set it are named verbatim). UserInput taint on the prompt triggers an audit warning, `VISION_PROMPT_USER_INPUT` (the same check-id as `vision_generate`'s). |
 | `vision_save(handle, name)` | `(Vision, String) -> String` | `String` (the name) | **SQLite persistence of an artifact** (#242, R6.1). Writes the artifact (a PNG as a BLOB plus a JSON provenance manifest) to the program's database (the `db { url: "sqlite:..." }` declaration) — the `vision_artifacts` table, whose persistent key is `name` (the registry id is a session-scoped handle and is not persisted). Loud refusals: no database (with a hint at the declaration), an empty name, a name collision (a silent overwrite would be a silent loss of the provenance chain; upsert/delete are out of scope for #242), an unknown handle. A verbatim round trip: the `timestamp` and the manifest's fields are not regenerated. |
-| `vision_load(name)` | `(String) -> Vision` | `Vision` (a new handle) | **Loading an artifact from the program's database** (#242, R6.1): exactly the bytes and the manifest that were saved (provenance persistence neither regenerates nor supplements them). Inserted into the session's registry with a new, monotonic id. Loud refusals: no database, an unknown name (with a list of what is saved), a malformed manifest JSON in the database (silent degradation to unsigned is forbidden). An artifact with `manifest: None` loads as-is and is still refused by a signed `vision_export` (`VISION_UNSIGNED_EXPORT`) / works with `vision_export_raw` — #241's backstop survives persistence. |
+| `vision_load(name)` | `(String) -> Vision` | `Vision` (a new handle) | **Loading an artifact from the program's database** (#242, R6.1): exactly the bytes and the manifest that were saved (provenance persistence neither regenerates nor supplements them). Inserted into the session's registry with a new, monotonic id. Loud refusals: no database, an unknown name (with a list of what is saved), a malformed manifest JSON in the database (silent degradation to unsigned is forbidden). An artifact with `manifest: None` loads as-is and is still refused by a signed `vision_export` (`VISION_UNSIGNED_EXPORT`) — and, since №320/ADR-0152, by `vision_export_raw` too (`MEDIA_SYNTHETIC_UNMARKED`: unmarked media is treated as synthetic) — #241's backstop survives persistence. |
 | `vision_lora_load(name, path)` | `(String, String) -> String` | `String` (the name) | **Loading a LoRA adapter into the SQLite BLOB store** (#244, R6.3; ADR-0124 §6 — the adapter lives ONLY in the program's database, no session state). Reads the safetensors file ONCE — only inside `MLOG_VISION_WEIGHTS_DIR` (a relative path, no traversal, `.safetensors` extension, file must exist; the path contract lives in `vision_lora_check_adapter_path`), validates loudly (both canonical name forms — diffusers-PEFT and ComfyUI; rank = the mean pair dimension, scale = alpha/rank with the loud 1.0 default; non-F32 upcast is loud; targets must be attention projections `to_q/to_k/to_v/to_out.0` per `zimage_expected_keys`; half pairs, non-attention targets, unknown prefixes, orphaned keys, mismatched dimensions are loud errors with the FULL list) and stores the bytes plus fixed-shape metadata (`LoraMeta`: sha256/rank/alpha/scale/targets) into the `vision_lora_adapters` table. The prescribed check order: arity → no-db → env → path → feature gate → read/parse → insert; a name collision is a loud error (no upsert). Returns the persistent key `name`. |
 | `vision_lora_generate(decl_name, prompt, lora_name)` | `(String, String, String) -> Vision` | `Vision` (a new handle) | **Generation with a LoRA adapter applied** (#244, R6.3). The same pipeline as `vision_generate`, but the DiT is built through `from_weights_with_lora`: `W' = W + scale·(up@down)` in F32 over the attention projections; the adapter is resolved from the database on every call with a loud **integrity pin** (`sha256(bytes) != meta.sha256` is an error BEFORE any compute). Provenance: the composite `model_sha256` (see above), `model_id`/watermark/policy/seed/steps from the base declaration; sign ALWAYS. Loud refusals: arity/types, empty prompt, unknown decl (with the list), unknown model, no database, unknown `lora_name` (with `lora_list`), corrupted meta JSON, integrity mismatch, missing env/component, non-1024. UserInput-tainted prompts raise the `VISION_PROMPT_USER_INPUT` audit Warning (the same check id; args 0 and 2 are never flagged). |
-| `vision_export_raw(handle, path)` | `(Vision, String) -> String` | `String` (the path) | **An explicit opt-out from signing** (ADR-0125). Writes the artifact's PNG bytes as-is: no watermark, no sidecar manifest, no signature requirement. Every call triggers an audit warning, `VISION_UNSIGNED_EXPORT_RAW` (advisory, `mlog audit`). Signed export (PNG + `<path>.manifest.json`) goes through `vision_export`; an artifact with no manifest cannot be exported that way (the runtime backstop `VISION_UNSIGNED_EXPORT`). |
+| `vision_export_raw(handle, path)` | `(Vision, String) -> String` | `String` (the path) | **An explicit opt-out from signing** (ADR-0125), amended by №320/ADR-0152 (EU AI Act Art. 50 marking, deadline 2026-12-02): raw egress of a SYNTHETIC artifact (`synthetic: true` — every local generation path marks it) or a manifest-less artifact is refused — runtime error `MEDIA_SYNTHETIC_UNMARKED`, and every call site is a static Category-A compile error of the same check-id; the №241 advisory `VISION_UNSIGNED_EXPORT_RAW` Warning remains in `mlog audit`. Legal only for artifacts explicitly marked `synthetic: false` (foreign non-synthetic ingest; no local path produces them). Signed export (PNG + `<path>.manifest.json` with the `synthetic` field) goes through `vision_export`; an artifact with no manifest cannot be exported that way (the runtime backstop `VISION_UNSIGNED_EXPORT`). |
 | `vision_fetch_weights(manifest_url, dest_dir)` | `(String, String) -> String` | `String` (dest_dir) | **SSRF-guarded, allowlist-gated, SHA-pinned weight downloading** (ADR-0125's `MODEL_WEIGHTS_UNSAFE`). Layers of protection: (1) the `MLOG_VISION_WEIGHTS_ALLOWLIST` allowlist — **default-deny**: an unset/empty env produces a loud refusal before any network access; (2) an SSRF guard (`check_url_ssrf`): private/loopback/link-local/metadata addresses are forbidden, DNS resolutions are pinned against rebinding; (3) only `manifest.json`-class URLs (a bare `.safetensors` has "no pin" and is refused; pickle-class `.pkl/.pt/.pth/.ckpt/.bin/...` is refused by extension); (4) SHA-256 pinning of every manifest entry (reusing `WeightsManifest`) — a mismatch is a loud refusal, and the file is NOT written; entry names must be bare `*.safetensors`. The static gate `MODEL_WEIGHTS_UNSAFE` (an audit Error, Category A) additionally catches literal URLs with an SSRF-blocked host, a bare `.safetensors`, and the pickle class. The downloaded tree (`manifest.json` plus shards) is consumed by `vision_generate` via `MLOG_VISION_WEIGHTS_DIR` — with re-verification of the SHA at load time (defense in depth). |
 
 **Example** (downloading an allowed weight package and generating):
@@ -1193,6 +1597,7 @@ pattern Name(param1: Type, param2: Type) -> ReturnType {
 ### 5.2. Learnable Pattern (an AI function)
 
 ```mlog
+// doc-test: skip
 learnable pattern Classify(text: String) -> Category {
   prompt: "Classify this message. Return JSON: {category, confidence}"
   context: auto
@@ -1232,6 +1637,7 @@ entity db_url: Secret = env("DATABASE_URL")
 ### 5.4. Flow (a pipeline)
 
 ```mlog
+// doc-test: skip
 flow ProcessMessage {
   input: String = "Hello world"
   -> Normalize -> Classify -> checkpoint("classified") -> Format -> output
@@ -1246,12 +1652,14 @@ flow ProcessMessage {
 ### 5.5. Rule
 
 ```mlog
+// doc-test: skip
 rule If(status contains "error") then alert.level = "high" with priority = 10
 ```
 
 ### 5.6. Server / MlogServer (an HTTP server)
 
 ```mlog
+// doc-test: skip
 server {
   port: 8080
   host: "127.0.0.1"
@@ -1277,6 +1685,7 @@ The `csrf` middleware enforces the double-submit pattern STRICTLY (naryad #262):
 ### 5.7. Template (an HTML template)
 
 ```mlog
+// doc-test: skip
 template Page(title: String, body: String) -> Html {
   <!DOCTYPE html>
   <html>
@@ -1291,6 +1700,7 @@ The return type `Html` is opaque, providing automatic XSS escaping.
 ### 5.8. Import (modules)
 
 ```mlog
+// doc-test: skip
 import std/string as str
 import std/math
 import ./my_utils
@@ -1304,6 +1714,7 @@ math.abs(-5.0)
 ### 5.9. Memory
 
 ```mlog
+// doc-test: skip
 // In-memory (default)
 memory { }
 
@@ -1317,6 +1728,7 @@ memory { kv: { type: key_value, persist: true } }
 ### 5.10. DB (database)
 
 ```mlog
+// doc-test: skip
 db {
   url: env("DATABASE_URL")
   pool_size: 10
@@ -1327,6 +1739,7 @@ db {
 ### 5.11. LLM (provider configuration)
 
 ```mlog
+// doc-test: skip
 llm {
   providers: [
     { alias: openai, provider: openai, key: env("OPENAI_KEY") },
@@ -1354,6 +1767,7 @@ llm {
 Write builtins (trigger `on_write`): `mem_set`, `mtree_store`, `db_execute`, `write_file`, `append_file`.
 
 ```mlog
+// doc-test: skip
 hook on_session_start { mem_set("start_time", now_iso()) }
 hook on_write { print("WRITE: " + target) }
 hook before_pattern { print("calling: " + pattern_name) }
@@ -1366,6 +1780,7 @@ Errors inside hooks are ignored (advisory, not blocking).
 ### 5.13. Tool (a tool abstraction)
 
 ```mlog
+// doc-test: skip
 tool telegram {
   send(chat_id: String, text: String) -> String {
     http_post("https://api.telegram.org/bot" + token + "/sendMessage",
@@ -1379,6 +1794,7 @@ Call: `telegram.send("123", "hello")`.
 ### 5.14. Eval (testing patterns)
 
 ```mlog
+// doc-test: skip
 eval Classify {
   dataset: [
     ("Hello", "greeting"),
@@ -1395,6 +1811,7 @@ Run with: `mlog eval file.mlog`.
 ### 5.15. Sandbox, Mutate, Adapt, Memorize, Forget, Relate
 
 ```mlog
+// doc-test: skip
 // Sandbox (execution restriction)
 sandbox safe_executor {
   allowed: [upper, lower, trim, split],
@@ -1437,13 +1854,14 @@ environment, so pattern parameters and locals are visible. Both backends
 into garbage statements — "token soup" — and failed only at runtime).
 Top-level placement remains a declaration evaluated against global entities.
 
-**Note on `accuracy` in `rollback_if` (mock value)**: in the current implementation the `accuracy` compared in `rollback_if` is a fixed mock value (0.95), not a real accuracy computation — the rollback logic exists and is tested, but does not yet respond to actual quality degradation. Revisit point (recorded 2026-09-10 after an external audit): revisit only on a real `mutate` use case where the mock value creates a concrete problem (ADR-0112 addendum).
+**Note on `accuracy` in `rollback_if` (Naryad #375 — real battery metric)**: since №375 the accuracy is REAL in real mode — the mutated pattern is measured on a golden-task battery (the pattern's eval-block datasets per ADR-0050 + its pre-mutation few-shot), held-out split (tasks whose inputs are NOT the mutation's own examples), deterministic seeded order; the LLM backend answers each held-out task and backend errors count as incorrect. The battery surface is reported loudly in the mutate log (`(battery: N tasks, held-out H, correct C[, BELOW MINIMUM 20])`). Mock mode (`METALOGOS_MOCK_LLM`, default-on test mode) keeps the fixed 0.95 value — the rollback mechanism is exercised, not a quality signal (ADR-0112 addendum). A mutation with NO held-out evidence scores 0.0 — a self-modifying system does not keep changes it cannot evaluate.
 
 **Sandbox `timeout` caveat**: `timeout > 0` cancels BOTH the calling thread's wait AND the underlying LLM request at the deadline, on every call path: SmartRouter routes via the HTTP client timeout (real TCP drop; Naryad №156); the legacy backend via `call_with_deadline` (Naryad №248 — RealLlm drops the TCP connection at min(deadline, 120s), the mock sleeps min(delay, deadline)). External on-demand abort is out of scope — revisit when a real use case appears (server client-disconnect or a language construct).
 
 ### 5.16. Conversation (configuration)
 
 ```mlog
+// doc-test: skip
 conversation {
   ttl: 1800,
   max_messages: 50,
@@ -1454,6 +1872,7 @@ conversation {
 ### 5.17. Fluid Types (probabilistic types)
 
 ```mlog
+// doc-test: skip
 fluid x = String["answer"][0.9] or String["question"][0.1]
 ```
 
@@ -1472,6 +1891,7 @@ entity name: UserName = "Alice"      // equivalent to String
 Chains of aliases are resolved automatically (max depth: 10):
 
 ```mlog
+// doc-test: skip
 type A = B
 type B = String
 // A -> B -> String
@@ -1480,6 +1900,7 @@ type B = String
 Cyclic aliases are detected at startup and raise an error:
 
 ```mlog
+// doc-test: skip
 type X = Y
 type Y = X   // ERROR: cyclic type alias
 ```
@@ -1489,6 +1910,7 @@ The syntax does not conflict with `type` inside `memory { kv: { type: key_value 
 ### 5.19. Test (unit tests)
 
 ```mlog
+// doc-test: skip
 test "test name" {
   let result = PatternName(args)
   assert_eq(result, expected)
@@ -1506,6 +1928,7 @@ The standard library lives in `std/` and is imported via `import`:
 ### std/string
 
 ```mlog
+// doc-test: skip
 import std/string as str
 
 str.trim(s: String) -> String       // trim whitespace
@@ -1517,6 +1940,7 @@ str.join(items, sep) -> String      // join list into string
 ### std/math
 
 ```mlog
+// doc-test: skip
 import std/math
 
 math.abs(n: Float) -> Float         // absolute value
@@ -1529,6 +1953,7 @@ math.round(n) -> Float              // round to nearest
 ### std/collections
 
 ```mlog
+// doc-test: skip
 import std/collections
 
 collections.first(items: List) -> String   // first element
@@ -1566,9 +1991,19 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 404 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 457 registered builtins (100% of `spec!`)
 
-> Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENT.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
+> Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
+
+### `action` — 5 builtin(s)
+
+| Builtin | Arity | Signature (curated) | Description |
+|---|---|---|---|
+| `db_execute_with_grant(...)` | 2..3 | `Grant, String[, List] -> String` | Executes SQL under the grant: ledger state, TTL, scope coverage of the destructive ops and quota are enforced at runtime; consumption happens only after success |
+| `grant_issue(...)` | 2..4 | `String, Number[, String, Number] -> Grant` | Mints a capability. class: "once" (default) / "n" + uses / "unlimited"; ttl in seconds |
+| `grant_revoke(...)` | 1 | `Grant -> Number` | Cascading revocation — the grant and every descendant become revoked; returns the count |
+| `grant_subgrant(...)` | 3..5 | `Grant, String, Number[, ...] -> Grant` | Attenuation-only derivation: narrower scope, shorter TTL, lower class power; a Once parent is consumed by the split |
+| `grant_use(...)` | 1 | `Grant -> Number` | Consumes one use; returns the remaining count (-1 = unlimited) |
 
 ### `bot` — 35 builtin(s)
 
@@ -1813,7 +2248,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `unique(...)` | 1 | — | `unique(list)` — remove duplicates preserving first-occurrence order. Uses the same equality semantics as `dedup` (JSON serialization for complex types = deep structural comparison for Struct, not reference identity). |
 | `zip(...)` | 2 | `List, List -> List` | Pairwise combination into `Pair{a, b}` |
 
-### `llm` — 5 builtin(s)
+### `llm` — 8 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
@@ -1821,6 +2256,9 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `call_llm(...)` | 1..2 | `String, String -> String` | Calls the LLM backend. By default returns a mock: `"[MOCK: prompt \ |
 | `call_llm_schema(...)` | 2..3 | `String, String[, String] -> Struct` | Calls the LLM backend and requires the answer to be a single JSON value conforming to the schema. Supported schema subset (ADR-0133): `type`, `properties`, `required`, `items`, `enum`; annotation keywords (`title`, `description`, `$schema`, ...) are ignored; any other keyword is a loud `LLM_SCHEMA_UNSUPPORTED_FEATURE`. Answer fields beyond `properties` are rejected (strict-by-default). The result is a `Dict` Struct usable with `json_get`/`has_field`/`dict_*`. Parse/validation failures (including max_tokens truncation) are loud `LLM_SCHEMA_MISMATCH` and retry up to `METALOGOS_LLM_SCHEMA_RETRIES` (default 2, cap 10) with the validator report fed back into the prompt. Mock tier returns a deterministic minimal instance derived from the schema (default mock settings; `METALOGOS_LLM_MOCK=json` documents the intent explicitly) |
 | `json_validate(...)` | 2..3 | `String, String[, Bool] -> Struct` | Validates a JSON string against the ADR-0133 schema subset WITHOUT calling an LLM («shape-before-use», №286): the SAME validator as `call_llm_schema` (extracted to a shared module, zero new rules — differential corpus green in both paths). Returns `{valid, errors}` where `errors` is a list of violation reports with paths (`value.age: expected type integer, got string "33"`). `strict` (default `true`) = fields beyond `properties` are violations (as in `call_llm_schema`); `strict=false` permits undeclared fields — every other rule (type/required/items/enum, the subset, the root-object contract) is unchanged. Invalid `schema_json`/unsupported keyword — loud `LLM_SCHEMA_UNSUPPORTED_FEATURE` (the SAME code as `call_llm_schema`); invalid `value_json` is a loud parse error, NOT `valid=false` (the validator judges structure, the parser judges bytes) |
+| `llm_stream_close(...)` | 1 | — | `llm_stream_close(handle) -> Struct { tokens, latency_ms, status, provider, model }` |
+| `llm_stream_next(...)` | 1 | — | `llm_stream_next(handle) -> String` |
+| `llm_stream_open(...)` | 1..2 | — | `llm_stream_open(prompt, input?) -> Struct { handle, model, provider }` |
 | `llm_usage(...)` | variadic | `-> Struct` | LLM usage statistics: `total_calls`, `total_tokens`, `total_errors`, `cache_hits_semantic` (№273/ADR-0135), `canary_leaks` (№284 — confirmed canary leaks), `providers` (a list of `{alias, calls, tokens, errors, avg_latency_ms, health_score}`) |
 
 ### `math` — 14 builtin(s)
@@ -1841,6 +2279,23 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `softmax(...)` | 1 | `List -> List` | Numerically stable softmax (subtracts max before exp). Output sums to 1.0 |
 | `sqrt(...)` | 1 | `Float -> Float` | Square root. Soft-failure: `0.0` for `x < 0` |
 | `tanh(...)` | 1 | `Float -> Float` | Hyperbolic tangent. In (−1, 1). `tanh(1000)=1`, `tanh(-1000)=-1` |
+
+### `media` — 12 builtin(s)
+
+| Builtin | Arity | Signature (curated) | Description |
+|---|---|---|---|
+| `media_bind_origin(...)` | 2 | — | `media_bind_origin(origin_name, handle)` — the ProvBind runtime (№332, ADR-0164): binds the store entry's origin and joins the declared origin conf into the entry label (re-sealing when a public entry becomes non-public). The handle value passes through unchanged. Pure: store bookkeeping, no byte movement. State-carrying: interpreter/VM intercept before the generic fallback. |
+| `media_manifest(...)` | 1 | — | `media_manifest(handle)` — the in-program provenance read (№337, ADR-0166 §2.4): Struct { kind, origin, conf, synthetic, bytes_sha256, refs, sealed } WITHOUT materializing bytes. State-carrying: interpreter/VM intercept before the generic fallback. |
+| `media_manifest_read(...)` | 1 | — | `media_manifest_read(path)` — the sidecar READ path (№337, ADR-0166 §2.4): parses a `<...>.manifest.json` from the sandbox and returns the same struct shape as media_manifest. Missing/empty/corrupt manifests are LOUD errors (№320 posture); a manifest without `synthetic` reads TRUE (conservative, unknown ⇒ marked). Stateless — a plain registry builtin. |
+| `media_meta(...)` | 1 | — | `media_meta(handle)` — store metadata WITHOUT materializing bytes: Struct { kind, conf, refs, sealed } (ADR-0162 §2.4). |
+| `media_release(...)` | 1 | — | `media_release(handle)` — refcount −1; at 0 the entry is evicted (sealed bytes zeroized). Returns the remaining refcount. Loud on unknown handles. |
+| `media_retain(...)` | 1 | — | `media_retain(handle)` — refcount +1 on a media handle (ADR-0162 §2.4); returns the same handle (chainable). |
+| `media_save(...)` | 2..3 | — | `media_save(handle, path)` — the ONLY sanctioned media materialization: writes the exact bytes to a sandboxed file (№131/№252). Sink: №325 clearance at compile time (SECRET_LEAK for private labels) + runtime backstop MEDIA_SEALED_EGRESS for sealed entries. Returns the path. |
+| `media_source_capture(...)` | 1 | — | `media_source_capture(origin_name)` — the HandleSource runtime (№332, ADR-0164): resolves the declared origin and captures a handle through the media store. `kind: file` reads the sandboxed path (loud on missing files); `kind: camera` is a loud PARKED boundary (real capture hardware does not exist in this environment). Source: the handle label is the origin's declared conf. State-carrying: interpreter/VM intercept before the generic fallback. |
+| `media_store_audio(...)` | 2 | — | `media_store_audio(data, sensitivity)` — wraps provided bytes into an opaque Audio handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. |
+| `media_store_image(...)` | 2 | — | `media_store_image(data, sensitivity)` — wraps provided bytes into an opaque Image handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. |
+| `media_store_video_frame(...)` | 2 | — | `media_store_video_frame(data, sensitivity)` — wraps provided bytes into an opaque VideoFrame handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. |
+| `media_store_video_segment(...)` | 2 | — | `media_store_video_segment(data, sensitivity)` — wraps provided bytes into an opaque VideoSegment handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. |
 
 ### `memory` — 23 builtin(s)
 
@@ -1944,12 +2399,31 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `reflex_tokenize(...)` | 1 | — | `reflex_tokenize(text) -> List<Float>` |
 | `reflex_train(...)` | 5 | `(Reflex, List<List<Float>>, Float, String, Float) -> Struct` | Trains model `model` on `data`. Each row of `data` is `[features..., class_idx]` (the last element is the label index). An 80/20 holdout split (ADR-0115), a minimum of 10 examples. `epochs` is the number of epochs (>=0), `metric` is a metric name from `METRIC_REGISTRY` (usually `"accuracy"`), `threshold` is a 0.0..1.0 threshold for `threshold_met`. `learning_rate` is fixed at 0.1. |
 
-### `security` — 2 builtin(s)
+### `registry` — 2 builtin(s)
+
+| Builtin | Arity | Signature (curated) | Description |
+|---|---|---|---|
+| `backend_list(...)` | variadic | — | `backend_list()` — the static backend registry as `List[Struct { name, class, weights_id, pin, license, license_note }]`. |
+| `backend_select(...)` | 2 | — | `backend_select(class, ladder)` — the backend try-chain (Наряд №336, ADR-0165). Walks the ladder in priority order over the №333 registry SSOT; every rung attempt is an audit event (stderr line + the program-visible `attempts` list, №326 posture). |
+
+### `security` — 14 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
 | `canary_check(...)` | 2..3 | `String, String[, Struct] -> Struct` | Runtime leak detector: checks the LLM response for the canary marker — exact occurrence + resistant to trivial distortions (case, splitting by whitespace/punctuation). opts: `mode` ("exact" default; "zwsp" additionally ignores zero-width chars U+200B/200C/200D/2060/FEFF inside the marker — in "exact" they DELIBERATELY break the match). Returns `{leaked, id, position}` — position is the CHAR index of the first occurrence in the original text, -1.0 when clean. Leak → runtime CANARY_LEAK warning (stderr) + `llm_usage().canary_leaks` counter; statically, inside `if (r.leaked) {...}` the response is labeled «compromised channel» and sink usage warns CANARY_LEAK. Detector, NOT a gate. Unknown/malformed canary_id (a secret is not a canary) — loud error (№284) |
 | `canary_insert(...)` | 1..2 | `String[, Struct] -> Struct` | Embeds a random canary marker (`MLOG-CANARY-` + 26 base32 chars, 128-bit entropy) into untrusted text BEFORE sending it to the LLM. Returns `{marked_text, canary_id}`. opts: `count` (1..=4, default 1 — same id inserted count times), `position` ("random" |
+| `consent_grant(...)` | 2..4 | — | `consent_grant(value, scope, subject?, ttl_seconds?)` — record the grant in the ledger; the value passes through with its consent scope extended (static: semantic.rs label_source). |
+| `consent_ledger_export(...)` | 1 | — | `consent_ledger_export(path)` — dump the ledger as JSON to a sandboxed path (FILE EGRESS — classified Sink, audited). Returns the written path. |
+| `consent_revoke(...)` | 1..2 | — | `consent_revoke(value, scope?)` — record the revocation (scope or ALL); the value is returned under the quarantine label — the flat cascade poisons every derivative through lattice absorption. |
+| `ledger_count(...)` | variadic | — | `ledger_count()` — number of records in the process-local journal. |
+| `ledger_export(...)` | 1 | — | `ledger_export(path)` — dump the verifiable JSONL chain to a sandboxed path. FILE EGRESS — classified Sink, audited. Returns the written path. |
+| `ledger_export_intoto(...)` | 1 | — | `ledger_export_intoto(path)` — dump the in-toto Statement profile (ADR-0157) to a sandboxed path. FILE EGRESS — classified Sink. |
+| `ledger_head(...)` | variadic | — | `ledger_head()` — the current head hash ("" for an empty journal). |
+| `ledger_rotate(...)` | variadic | — | `ledger_rotate()` — append a key-rotation record (signed by the still-active key); returns the NEW key id. Subsequent records are signed by the fresh key (signer continuity, ADR-0167 §3.2). |
+| `ledger_snapshot(...)` | variadic | — | `ledger_snapshot()` — append a snapshot record pinning the head; returns the snapshot record hash (the `mlog ledger archive` anchor). |
+| `likeness_challenge(...)` | 1..3 | — | `likeness_challenge(subject, scope?, ttl_seconds?)` — issue a one-time likeness challenge (ADR-0149 D1). |
+| `likeness_verify(...)` | 1..3 | — | `likeness_verify(challenge, subject?, scope?)` — consume the challenge, record the consent-ledger grant, return the opaque token. |
+| `quarantine_write(...)` | 1..2 | — | `quarantine_write(value, reason?)` — the quarantine sink: the ONLY legal egress for a poisoned value. Returns the audit-event text (the program-visible half of the event; the static half is the QUARANTINE_EGRESS audit finding + stderr line, №326 posture). |
 
 ### `std` — 11 builtin(s)
 
@@ -1967,7 +2441,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `__split(...)` | 2 | — | `__split(s, sep)` — std-library primitive behind the std/string `split` wrapper: splits on the separator into a List of strings. |
 | `__trim(...)` | 1 | — | `__trim(s)` — std-library primitive behind the std/string `trim` wrapper: strips leading and trailing whitespace. The `__` prefix marks a primitive used by `std/*.mlog` pattern wrappers (prefer the wrapper in user code). |
 
-### `string` — 46 builtin(s)
+### `string` — 47 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
@@ -2006,6 +2480,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `str(...)` | 1 | `Any -> String` | Converts any value to a string |
 | `strip(...)` | 2 | — | `strip(s, chars)` -- remove characters from both ends of string. Naryad #277 (proptest no-panic): the ends are counted independently, so when the two strips overlap (string fully made of strip-chars, e.g. `strip("&", "Ⱥ&")`), `start > len - end` and the slice PANICKED. The correct contract (same as `str::trim_matches` with a set): both ends consuming the whole string yields the empty string. |
 | `substring(...)` | 3 | `String, Float, Float -> String` | Extracts a substring by character indices. Soft-failure: an empty string on out-of-bounds |
+| `text_chunk(...)` | 2..3 | `String, String[, Struct] -> List` | Structure-aware chunking for the RAG pipeline (№285, RecursiveCharacterTextSplitter-аналог без зависимостей). strategies: `"markdown"` (h1–h3 → sections with `header_path` = "H1 > H2 > H3" metadata ready for vec_store; long sections split by paragraphs; header lines are never torn — a header longer than the budget is a loud error), `"paragraph"` (blocks by double newline, small blocks merged within budget), `"fixed"` (windows with overlap). opts: `max_chars` (default 1200), `overlap` (default 100, CHARACTERS, applied at hard windowing; seam is word-aligned), `max_tokens?` — when set the budget is `token_count` (same SSOT estimate). Cascade "header → paragraph → newline → space" + greedy merge of small pieces. Every chunk: `{index, text, chars, tokens}` (+`header_path` for markdown). Loud errors: unknown strategy, `overlap >= max_chars` (or `>= max_tokens` in token mode), `max_tokens <= 0`, `max_chars <= 0`, unknown opts fields, opts not a Struct. Empty/short text → 1 chunk, not an error |
 | `title_case(...)` | 1 | — | `title_case(s)` — uppercases the first character of every word (previous character non-letter acts as the word boundary). |
 | `to_int(...)` | 1 | `String\ | Bool -> Float` |
 | `token_count(...)` | 1 | — | `token_count(text)` — estimate token count. Cyrillic: chars/2, Latin: chars/4. |
@@ -2018,7 +2493,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `word_wrap(...)` | 2 | — | `word_wrap(s, width)` — reflows text to `width` columns without breaking words; errors on width 0. |
 | `words(...)` | 1 | — | `words(s)` -- split string into list of words by whitespace. |
 
-### `stub` — 26 builtin(s)
+### `stub` — 28 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
@@ -2029,6 +2504,8 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `conv_history(...)` | 1 | — | VM-native conversation context (handled inside `src/vm.rs`, no host handler): returns the conversation message history. |
 | `conv_start(...)` | 1 | — | VM-native conversation context (handled inside `src/vm.rs`, no host handler): opens a conversation by id. |
 | `db_insert(...)` | variadic | `String, Struct -> Float` | A parameterized INSERT. Returns last_insert_rowid (Problem C) |
+| `deny_event(...)` | variadic | — | №392 DenyEvent — returns the typed deny event (`reason`, `sink`, `class`, `argument`, `label`, `line`, `human`) for the refusal being handled. Handler-scoped: intercepted by name inside `src/vm.rs` and `src/interpreter/execution.rs` (no host handler); outside an on_deny body it is a compile error and a loud runtime error. |
+| `deny_reason(...)` | variadic | — | №392 deny reason word — returns the `reason` string of the live DenyEvent (same vocabulary the audit check_ids use). Handler-scoped like deny_event; a match over it inside on_deny is checked for exhaustiveness. |
 | `event_count(...)` | variadic | — | VM-native event analytics (handled inside `src/vm.rs`, no host handler): counts events in the event log, optionally filtered by type. (The registry's old "planned, no handler" comment is stale — the VM implements it.) |
 | `event_sum(...)` | 2 | — | VM-native event analytics (handled inside `src/vm.rs`, no host handler): sums a numeric field across events of a type. |
 | `events_since(...)` | 1 | — | VM-native event analytics (handled inside `src/vm.rs`, no host handler): lists events since a sequence/timestamp marker. |
@@ -2118,30 +2595,50 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `semantic_search(...)` | 3 | — | `semantic_search(query, documents, top_k)` — semantic similarity search. |
 | `vault_validate(...)` | 2 | — | `vault_validate(config, required_fields)` — validate a loaded config against required fields. |
 
-### `vision` — 10 builtin(s)
+### `video` — 6 builtin(s)
+
+| Builtin | Arity | Signature (curated) | Description |
+|---|---|---|---|
+| `av_mux(...)` | 2 | — | `av_mux(video, audio)` — deterministic `.mlgv.av` sidecar container pairing VideoId ↔ AudioId with frame-aligned timestamps (ADR-0151 D4). |
+| `frame_interp(...)` | 2 | — | `frame_interp(handle, factor)` — RIFE-class latent interpolation, 2x/4x (ADR-0151 D2). Endpoints preserved: first/last latent frames never move. |
+| `video_export(...)` | 2 | — | `video_export(handle, path)` — signed-by-construction `.mlgv` container: manifest + watermark embedded, unsigned export does not exist (runtime gate VIDEO_UNSIGNED_EXPORT, ADR-0151 D5; contract test pins it). |
+| `video_extend(...)` | 2 | — | `video_extend(handle, extra)` — clip continuation anchored on the last latent frame (ADR-0151 D3). `extra` = number of ADDITIONAL latent frames. |
+| `video_fetch_weights(...)` | 2 | — | `video_fetch_weights(url, dir)` — FORMAL No-Go (№294 class, ADR-0151 D7): production-weights inference is parked in this environment (4 GB RAM, no GPU); the tiny seeded pipeline needs no external weights. The name stays registered so the shared MODEL_WEIGHTS_UNSAFE static gate (№300, `_fetch_weights` suffix convention) and the SSRF-guard vocabulary cover the surface. This is a recorded boundary, not a hidden stub. |
+| `video_render(...)` | 2..4 | — | `video_render(decl, prompt[, ref_first[, ref_last]])` — real tiny pipeline (ADR-0151 D1): T2V (2 args) / I2V first-anchor (3) / two-anchor first–last (4). Seed = sha256(model\|prompt); ref-hash(es) recorded in the manifest. |
+
+### `vision` — 11 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
 | `vision_edit(...)` | 2 | `(Vision, String) -> Vision` | **In-context editing of a signed artifact** (#243, R6.2). The source MUST be signed: an artifact with no provenance manifest is a loud refusal (there is nothing honest to inherit; producing an unsigned artifact through the real compute path is forbidden by ADR-0125) — raw export (`vision_export_raw`) is unaffected. Pipeline: source PNG to decode to a loud dims contract (R4.1: 256..=4096, x16; a multiple of the VAE factor — silent resizing is forbidden, the output keeps the source's resolution) to the VAE encoder (non-decoder prefixes of the same pinned VAE file; encode in posterior MODE) to a reference latent to Qwen3-4B on the edit prompt to the Z-Image DiT with in-context token concatenation (a noise branch plus the reference at every step, `euler_step` applies only to the noise branch) to `EDIT_STEPS = 8` (the distilled turbo NFE) to decode to PNG. The output is ALWAYS signed: a watermark plus a manifest, where `model_id`/`policy`/`seed` are inherited from the source, `prompt_sha256` is the hash of the edit prompt, and `timestamp`/`png_sha256` are fresh. Loud refusals: an unsigned source, an unknown handle, a wrong type, an empty prompt, dimensions outside R4.1 or not a multiple of the factor, `MLOG_VISION_WEIGHTS_DIR` not set (the variable and how to set it are named verbatim). UserInput taint on the prompt triggers an audit warning, `VISION_PROMPT_USER_INPUT` (the same check-id as `vision_generate`'s). |
 | `vision_export(...)` | 2 | — | Last-resort stub — real path is the intercepted `vision_export_dispatch`. |
-| `vision_export_raw(...)` | 2 | `(Vision, String) -> String` | **An explicit opt-out from signing** (ADR-0125). Writes the artifact's PNG bytes as-is: no watermark, no sidecar manifest, no signature requirement. Every call triggers an audit warning, `VISION_UNSIGNED_EXPORT_RAW` (advisory, `mlog audit`). Signed export (PNG + `<path>.manifest.json`) goes through `vision_export`; an artifact with no manifest cannot be exported that way (the runtime backstop `VISION_UNSIGNED_EXPORT`). |
+| `vision_export_raw(...)` | 2 | `(Vision, String) -> String` | **An explicit opt-out from signing** (ADR-0125), amended by №320/ADR-0152 (EU AI Act Art. 50 marking, deadline 2026-12-02): raw egress of a SYNTHETIC artifact (`synthetic: true` — every local generation path marks it) or a manifest-less artifact is refused — runtime error `MEDIA_SYNTHETIC_UNMARKED`, and every call site is a static Category-A compile error of the same check-id; the №241 advisory `VISION_UNSIGNED_EXPORT_RAW` Warning remains in `mlog audit`. Legal only for artifacts explicitly marked `synthetic: false` (foreign non-synthetic ingest; no local path produces them). Signed export (PNG + `<path>.manifest.json` with the `synthetic` field) goes through `vision_export`; an artifact with no manifest cannot be exported that way (the runtime backstop `VISION_UNSIGNED_EXPORT`). |
 | `vision_fetch_weights(...)` | 2 | `(String, String) -> String` | **SSRF-guarded, allowlist-gated, SHA-pinned weight downloading** (ADR-0125's `MODEL_WEIGHTS_UNSAFE`). Layers of protection: (1) the `MLOG_VISION_WEIGHTS_ALLOWLIST` allowlist — **default-deny**: an unset/empty env produces a loud refusal before any network access; (2) an SSRF guard (`check_url_ssrf`): private/loopback/link-local/metadata addresses are forbidden, DNS resolutions are pinned against rebinding; (3) only `manifest.json`-class URLs (a bare `.safetensors` has "no pin" and is refused; pickle-class `.pkl/.pt/.pth/.ckpt/.bin/...` is refused by extension); (4) SHA-256 pinning of every manifest entry (reusing `WeightsManifest`) — a mismatch is a loud refusal, and the file is NOT written; entry names must be bare `*.safetensors`. The static gate `MODEL_WEIGHTS_UNSAFE` (an audit Error, Category A) additionally catches literal URLs with an SSRF-blocked host, a bare `.safetensors`, and the pickle class. The downloaded tree (`manifest.json` plus shards) is consumed by `vision_generate` via `MLOG_VISION_WEIGHTS_DIR` — with re-verification of the SHA at load time (defense in depth). |
 | `vision_generate(...)` | 2 | — | Last-resort stub — real path is the intercepted `vision_generate_dispatch`. |
 | `vision_list(...)` | variadic | — | Last-resort stub — real path is the intercepted `vision_list_dispatch`. |
-| `vision_load(...)` | 1 | `(String) -> Vision` | **Loading an artifact from the program's database** (#242, R6.1): exactly the bytes and the manifest that were saved (provenance persistence neither regenerates nor supplements them). Inserted into the session's registry with a new, monotonic id. Loud refusals: no database, an unknown name (with a list of what is saved), a malformed manifest JSON in the database (silent degradation to unsigned is forbidden). An artifact with `manifest: None` loads as-is and is still refused by a signed `vision_export` (`VISION_UNSIGNED_EXPORT`) / works with `vision_export_raw` — #241's backstop survives persistence. |
+| `vision_load(...)` | 1 | `(String) -> Vision` | **Loading an artifact from the program's database** (#242, R6.1): exactly the bytes and the manifest that were saved (provenance persistence neither regenerates nor supplements them). Inserted into the session's registry with a new, monotonic id. Loud refusals: no database, an unknown name (with a list of what is saved), a malformed manifest JSON in the database (silent degradation to unsigned is forbidden). An artifact with `manifest: None` loads as-is and is still refused by a signed `vision_export` (`VISION_UNSIGNED_EXPORT`) — and, since №320/ADR-0152, by `vision_export_raw` too (`MEDIA_SYNTHETIC_UNMARKED`: unmarked media is treated as synthetic) — #241's backstop survives persistence. |
 | `vision_lora_generate(...)` | 3 | `(String, String, String) -> Vision` | **Generation with a LoRA adapter applied** (#244, R6.3). The same pipeline as `vision_generate`, but the DiT is built through `from_weights_with_lora`: `W' = W + scale·(up@down)` in F32 over the attention projections; the adapter is resolved from the database on every call with a loud **integrity pin** (`sha256(bytes) != meta.sha256` is an error BEFORE any compute). Provenance: the composite `model_sha256` (see above), `model_id`/watermark/policy/seed/steps from the base declaration; sign ALWAYS. Loud refusals: arity/types, empty prompt, unknown decl (with the list), unknown model, no database, unknown `lora_name` (with `lora_list`), corrupted meta JSON, integrity mismatch, missing env/component, non-1024. UserInput-tainted prompts raise the `VISION_PROMPT_USER_INPUT` audit Warning (the same check id; args 0 and 2 are never flagged). |
 | `vision_lora_load(...)` | 2 | `(String, String) -> String` | **Loading a LoRA adapter into the SQLite BLOB store** (#244, R6.3; ADR-0124 §6 — the adapter lives ONLY in the program's database, no session state). Reads the safetensors file ONCE — only inside `MLOG_VISION_WEIGHTS_DIR` (a relative path, no traversal, `.safetensors` extension, file must exist; the path contract lives in `vision_lora_check_adapter_path`), validates loudly (both canonical name forms — diffusers-PEFT and ComfyUI; rank = the mean pair dimension, scale = alpha/rank with the loud 1.0 default; non-F32 upcast is loud; targets must be attention projections `to_q/to_k/to_v/to_out.0` per `zimage_expected_keys`; half pairs, non-attention targets, unknown prefixes, orphaned keys, mismatched dimensions are loud errors with the FULL list) and stores the bytes plus fixed-shape metadata (`LoraMeta`: sha256/rank/alpha/scale/targets) into the `vision_lora_adapters` table. The prescribed check order: arity → no-db → env → path → feature gate → read/parse → insert; a name collision is a loud error (no upsert). Returns the persistent key `name`. |
 | `vision_save(...)` | 2 | `(Vision, String) -> String` | **SQLite persistence of an artifact** (#242, R6.1). Writes the artifact (a PNG as a BLOB plus a JSON provenance manifest) to the program's database (the `db { url: "sqlite:..." }` declaration) — the `vision_artifacts` table, whose persistent key is `name` (the registry id is a session-scoped handle and is not persisted). Loud refusals: no database (with a hint at the declaration), an empty name, a name collision (a silent overwrite would be a silent loss of the provenance chain; upsert/delete are out of scope for #242), an unknown handle. A verbatim round trip: the `timestamp` and the manifest's fields are not regenerated. |
+| `vision_understand(...)` | 1..3 | — | `vision_understand(image, prompt?, model?)` — the vision-understanding backend call (№334). `image` is the image payload reference (String); `prompt` is the question about the image; `model` defaults to the registry canon `molmoact2` (weights: molmoact2, allenai/MolmoAct2). |
 
-### `voice` — 3 builtin(s)
+### `voice` — 11 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
+| `audio_export(...)` | 1 | — | `audio_export(handle)` stub — ADR-0145. |
+| `omni_ask(...)` | 1..3 | — | `omni_ask(prompt, media?, model?)` — the omni-class backend call (№334): a prompt with an OPTIONAL media payload reference (String). Defaults to the registry canon `nemotron-omni`. |
+| `stt_transcribe(...)` | 1..2 | — | `stt_transcribe(audio, model?)` — the STT-class backend call (№334). `audio` is the audio payload reference (String); `model` defaults to the registry canon `whisper-turbo` (weights: whisper-large-v3-turbo). |
 | `tts_generate(...)` | 2..4 | `String, String[, String][, String] -> String` | Speech synthesis WITHOUT delivery (Naryad #279): writes the audio file into the file sandbox (write_file semantics, Naryad #252) and returns the sandbox-relative path — feed it to `read_file`/`send_document` yourself. Providers v1: `"openai"` (default); `model`: `tts-1` (default) / `tts-1-hd` / `gpt-4o-mini-tts`. Key: `METALOGOS_TTS_API_KEY` (falls back to `OPENAI_API_KEY`); `METALOGOS_TTS_BASE_URL` overrides `https://api.openai.com/v1` (mock servers / self-host proxies) — `/audio/speech` is appended. Output format: provider default (MP3) |
 | `tts_send(...)` | 4..5 | `String, String, String, String[, String] -> String` | Delivery convenience: synthesizes speech (delegates to the same exchange as `tts_generate` — `tts-1`, base-URL/key overrides behave identically) and sends the audio to a Telegram chat (`sendVoice`; optional 5th arg `"audio"` switches to `sendAudio`). Key: `METALOGOS_TTS_API_KEY` (falls back to `OPENAI_API_KEY`). For synthesis without delivery use `tts_generate` |
+| `tts_speak(...)` | 2 | — | `tts_speak(decl, text)` stub — ADR-0143. |
+| `voice_design(...)` | 2 | — | `voice_design(text, voice)` stub — ADR-0143. |
+| `voice_enroll(...)` | 2..3 | — | `voice_enroll(decl, audio, kind)` stub — ADR-0145. |
+| `voice_load(...)` | 1 | — | `voice_load(name)` stub — ADR-0143 (persistence). |
+| `voice_save(...)` | 2 | — | `voice_save(handle, name)` stub — ADR-0143 (persistence). |
 | `whisper_transcribe(...)` | 3..4 | `String, String, String[, String] -> String` | Downloads a voice message from Telegram by `file_id`, sends it for transcription to the Whisper API. `provider`: `"openai"` (default) or `"groq"`. `METALOGOS_STT_BASE_URL` overrides the transcription API base (mock servers / self-host proxies) — `/audio/transcriptions` is appended. Returns the recognized text. Arity 3..4 — the registry used to declare min 1 while the runtime always required 3 (Naryad #279 fact-check fix; a 1-arg call now fails `mlog check` on statics instead of exploding at runtime) |
 
-### `web` — 18 builtin(s)
+### `web` — 19 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
@@ -2160,8 +2657,485 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `require(...)` | 1..2 | `Bool -> Unit` | A runtime assertion. Errors if `false` |
 | `respond(...)` | 1..2 | `String -> HttpResponse` | Builds an HTTP response. Format: `"200 OK"`, `"404 Not Found"`, etc. |
 | `respond_html(...)` | 1 | `String, String -> HttpResponse` | An HTML response with the given status |
+| `server_path_param(...)` | 1 | — | `server_path_param(name)` — stub that returns empty string (Наряд №283). Real implementation is handled in interpreter.rs and vm.rs FnCall dispatch (needs access to server_path_params HashMap on the runtime context — same pattern as `query_param`). Returns empty string when no templated route matched (static route, or no server context). |
 | `weather(...)` | 2 | — | `weather(city_or_lat, lon?)` — current weather via Open-Meteo (FREE, no API key). `weather("Minsk")` or `weather(53.9, 27.57)`. Returns Struct {temp, feels_like, temp_min, temp_max, humidity, description, wind_speed, wind_direction, pressure, cloud_cover, is_day, city, country}. |
 | `weather_forecast(...)` | 1..3 | — | `weather_forecast(city_or_lat, lon?, days?)` — multi-day forecast via Open-Meteo (FREE, no API key). `weather_forecast("Minsk", 7)` or `weather_forecast(53.9, 27.57, 3)`. Default: 7 days. Max: 16 days. Returns List of DayForecast structs. |
 | `web_search(...)` | 1..2 | — | `web_search(query, num_results?) -> String` — search via SerpAPI. Uses SERPAPI_KEY env var. Returns raw JSON string. Usage: web_search("query") -> JSON string Usage: web_search("query", 5) -> JSON string with 5 results |
 
 <!-- END GENERATED BUILTIN INDEX -->
+
+## 7. Builtin Classification — role × label × reversibility (№316)
+
+> Generated from `src/builtins_classification.rs` (SSOT, №316) by `scripts/gen_classification.py`. Role: pure / source / lift / sink; label: public / internal / secret / network; reversibility of the external effect: pure / reversible / irreversible.
+
+<!-- BEGIN GENERATED BUILTIN CLASSIFICATION (scripts/gen_classification.py — do not edit inside) -->
+
+| Builtin | Role | Default label | Reversibility |
+|---|---|---|---|
+| `upper` | pure | public | pure | — |
+| `lower` | pure | public | pure | — |
+| `len` | pure | public | pure | — |
+| `str` | pure | public | pure | — |
+| `contains` | pure | public | pure | — |
+| `index_of` | pure | public | pure | — |
+| `substring` | pure | public | pure | — |
+| `char_at` | pure | public | pure | — |
+| `starts_with` | pure | public | pure | — |
+| `ends_with` | pure | public | pure | — |
+| `trim` | pure | public | pure | — |
+| `replace` | pure | public | pure | — |
+| `split` | pure | public | pure | — |
+| `join` | pure | public | pure | — |
+| `length` | pure | public | pure | — |
+| `reverse` | pure | public | pure | — |
+| `escape_html` | lift | public | pure | HTML-escapes its input — taint-sanitizer per audit.rs (Sanitized) |
+| `escape_json` | lift | public | pure | JSON-escapes its input — sanitizer family of escape_html |
+| `redact` | lift | public | pure | taint-sanitizer — removes Secret taint (mask before sink, ADR-0136; audit.rs redact_result_taint) |
+| `escape_js` | lift | public | pure | JS-escapes its input — sanitizer family of escape_html |
+| `fuzzy_match` | pure | public | pure | — |
+| `strip` | pure | public | pure | — |
+| `chomp` | pure | public | pure | — |
+| `repeat` | pure | public | pure | — |
+| `pad_left` | pure | public | pure | — |
+| `pad_right` | pure | public | pure | — |
+| `lines` | pure | public | pure | — |
+| `words` | pure | public | pure | — |
+| `token_count` | pure | public | pure | — |
+| `type_of` | pure | public | pure | — |
+| `format` | pure | public | pure | — |
+| `trim_start` | pure | public | pure | — |
+| `trim_end` | pure | public | pure | — |
+| `truncate` | pure | public | pure | — |
+| `slugify` | pure | public | pure | — |
+| `word_wrap` | pure | public | pure | — |
+| `capitalize` | pure | public | pure | — |
+| `title_case` | pure | public | pure | — |
+| `__trim` | pure | public | pure | — |
+| `__replace` | pure | public | pure | — |
+| `__split` | pure | public | pure | — |
+| `__join` | pure | public | pure | — |
+| `__abs` | pure | public | pure | — |
+| `__min` | pure | public | pure | — |
+| `__max` | pure | public | pure | — |
+| `__clamp` | pure | public | pure | — |
+| `__round` | pure | public | pure | — |
+| `__first` | pure | public | pure | — |
+| `__last` | pure | public | pure | — |
+| `abs` | pure | public | pure | — |
+| `min` | pure | public | pure | — |
+| `max` | pure | public | pure | — |
+| `clamp` | pure | public | pure | — |
+| `round` | pure | public | pure | — |
+| `exp` | pure | public | pure | — |
+| `ln` | pure | public | pure | — |
+| `sqrt` | pure | public | pure | — |
+| `pow` | pure | public | pure | — |
+| `tanh` | pure | public | pure | — |
+| `sigmoid` | pure | public | pure | — |
+| `softmax` | pure | public | pure | — |
+| `random_seed` | pure | public | pure | — |
+| `random` | pure | public | pure | — |
+| `newline` | pure | public | pure | — |
+| `stdin` | source | internal | pure | intended external stdin ingress (registry-only stub) |
+| `split_tokens` | pure | public | pure | — |
+| `if_eq` | pure | public | pure | — |
+| `is_string_token` | pure | public | pure | — |
+| `db_insert` | sink | internal | irreversible | intended DB row insert (registry-only stub) — persistent write |
+| `float` | pure | public | pure | — |
+| `to_string` | pure | public | pure | — |
+| `to_float` | pure | public | pure | — |
+| `print` | sink | public | irreversible | prints to the public stdout channel — SECRET_LEAK semantics (№157), cannot be unsaid |
+| `read_file` | source | internal | pure | ingests external file content into the program (input by provenance) |
+| `write_file` | sink | internal | reversible | writes persistent local state (undoable by file deletion) |
+| `append_file` | sink | internal | reversible | appends to persistent local state (undoable by truncation) |
+| `delete_file` | sink | internal | irreversible | destroys a local file with no undo path (issue minimum list) |
+| `file_exists` | source | internal | pure | reads filesystem metadata (state probe) |
+| `list_dir` | source | internal | pure | reads filesystem directory state |
+| `exec` | sink | internal | irreversible | arbitrary host command execution — external effect on the host that cannot be undone (issue minimum list) |
+| `exec_argv` | sink | internal | irreversible | argv-form of exec — same irreversible host effect |
+| `git_push` | sink | network | irreversible | pushes to a remote repository — external, non-undoable effect (issue minimum list) |
+| `mcp_call` | source | network | pure | ingests untrusted MCP tool output — UserInput taint by ADR-0132 D3 |
+| `mcp_list_tools` | source | network | pure | ingests external tool metadata over MCP (not tainted per ADR-0132, still external ingress) |
+| `get` | pure | public | pure | — |
+| `push` | pure | public | pure | — |
+| `slice` | pure | public | pure | — |
+| `zip` | pure | public | pure | — |
+| `sort_by` | pure | public | pure | — |
+| `filter` | pure | public | pure | — |
+| `reduce` | pure | public | pure | — |
+| `dedup` | pure | public | pure | — |
+| `condense` | pure | public | pure | — |
+| `unique` | pure | public | pure | — |
+| `chunk` | pure | public | pure | — |
+| `sort` | pure | public | pure | — |
+| `first` | pure | public | pure | — |
+| `last` | pure | public | pure | — |
+| `make_list` | pure | public | pure | — |
+| `matches_any` | pure | public | pure | — |
+| `parse_json` | pure | public | pure | — |
+| `json_encode` | pure | public | pure | — |
+| `json_get` | pure | public | pure | — |
+| `has_field` | pure | public | pure | — |
+| `dict_get` | pure | public | pure | — |
+| `dict_set` | pure | public | pure | — |
+| `dict_has` | pure | public | pure | — |
+| `dict_keys` | pure | public | pure | — |
+| `dict_values` | pure | public | pure | — |
+| `respond` | sink | public | irreversible | writes the HTTP response — public channel, cannot be unsent |
+| `respond_html` | sink | public | irreversible | writes the HTTP response as HTML — public channel (escaping contract) |
+| `form_data` | source | internal | pure | ingests untrusted user form input — UserInput taint (№201 vocabulary) |
+| `json_body` | source | internal | pure | ingests untrusted request body — UserInput taint |
+| `query_param` | source | internal | pure | ingests untrusted request query parameter — UserInput taint |
+| `render` | lift | public | pure | taint-sanitizing template render — output is public-safe (audit.rs sanitizer) |
+| `http_get` | source | network | pure | ingests external network data (SSRF-guarded, №130) |
+| `http_post` | sink | network | irreversible | transmits program data to an external endpoint — cannot be unsent (issue minimum list) |
+| `http_post_multipart` | sink | network | irreversible | multipart upload to an external endpoint — same egress as http_post |
+| `http_download` | source | network | reversible | ingests remote bytes to a local file (network ingress with a disk side-effect) |
+| `require` | source | internal | pure | reads and enforces request context (auth/rate precondition state) |
+| `request_body` | source | internal | pure | alias of json_body — untrusted request body ingress |
+| `web_search` | source | network | pure | ingests external search results |
+| `geo_ip` | source | network | pure | ingests external geolocation data |
+| `weather` | source | network | pure | ingests external weather data |
+| `geo_distance` | pure | public | pure | — |
+| `weather_forecast` | source | network | pure | ingests external forecast data |
+| `hash_password` | lift | public | pure | one-way de-identification of a password — output is safe for storage (argon2) |
+| `verify_password` | pure | secret | pure | — |
+| `encrypt` | lift | public | pure | ciphertext is safe for untrusted channels — sensitivity lifted (AES-GCM) |
+| `decrypt` | pure | secret | pure | — |
+| `generate_key` | source | secret | pure | materializes a fresh Secret from CSPRNG entropy |
+| `base64_encode` | pure | public | pure | — |
+| `base64_decode` | pure | public | pure | — |
+| `authenticate` | pure | secret | pure | — |
+| `session_login` | sink | internal | reversible | creates a session (registry-only stub intent) |
+| `session_logout` | sink | internal | reversible | destroys the current session (stub intent) |
+| `session_clear` | sink | internal | irreversible | wipes session state — no undo |
+| `send_message` | sink | network | irreversible | delivers a message to an external chat — cannot be unsent (issue minimum list) |
+| `answer_callback_query` | sink | network | irreversible | answers an external callback query |
+| `edit_message_text` | sink | network | reversible | edits an already-delivered external message (reversible by further edits) |
+| `whisper_transcribe` | source | network | pure | ingests external transcription of user audio; DUAL: uploads the audio to an external STT provider (№317 corpus) |
+| `tts_send` | sink | network | irreversible | synthesizes AND delivers audio externally — cannot be unsent (issue minimum list) |
+| `tts_generate` | source | network | pure | ingests an audio artifact from an external TTS provider; DUAL: transmits the text to the provider (№317 corpus) |
+| `env` | source | secret | pure | ingests environment secrets — Secret taint (audit.rs) |
+| `query` | source | internal | pure | reads the program's persistent DB (state input with provenance) |
+| `db_execute` | sink | internal | irreversible | arbitrary SQL write against the persistent DB — destructive statements are non-undoable (issue minimum list) |
+| `call_llm` | source | network | pure | ingests untrusted model output (LlmOutput taint, ADR-0117); DUAL: the prompt is transmitted to an external provider — №317 corpus must cover prompt-egress |
+| `call_claude` | source | network | pure | ingests untrusted model output (LlmOutput taint); DUAL: prompt egress to provider |
+| `llm_usage` | source | internal | pure | reads LLM usage accounting state |
+| `call_llm_schema` | source | network | pure | ingests schema-validated (still untrusted) model output; DUAL: prompt egress |
+| `kv_set` | sink | internal | reversible | persists to the program KV store (redact-before-persist per ADR-0136 applies) |
+| `kv_get` | source | internal | pure | reads the program KV store — state input |
+| `kv_delete` | sink | internal | irreversible | destroys a persisted KV entry — no undo |
+| `kv_exists` | source | internal | pure | reads KV store state |
+| `kv_list` | source | internal | pure | reads KV store state |
+| `mem_set` | sink | internal | reversible | persists to long-term memory store |
+| `mem_get` | source | internal | pure | reads long-term memory store |
+| `mem_delete` | sink | internal | irreversible | destroys a memory entry — no undo |
+| `memorize` | sink | internal | reversible | alias of kv_set — persists to the memory store |
+| `embed` | pure | public | pure | — |
+| `vec_store` | sink | internal | reversible | persists embeddings into the vector store (ADR-0134) |
+| `vec_search` | source | internal | pure | reads the vector store (KNN state input) |
+| `recall` | source | internal | pure | intended memory recall — state read |
+| `forget` | sink | internal | irreversible | intended destructive memory removal |
+| `find` | source | internal | pure | intended memory search — state read |
+| `inspect` | source | internal | pure | intended runtime introspection — state read |
+| `conv_start` | sink | internal | reversible | intended conversation state creation |
+| `conv_add` | sink | internal | reversible | intended conversation state append |
+| `conv_history` | source | internal | pure | intended conversation state read |
+| `conv_context` | source | internal | pure | intended conversation state read |
+| `conv_end` | sink | internal | reversible | intended conversation state close |
+| `session_set` | sink | internal | reversible | persists web session state |
+| `session_get` | source | internal | pure | reads web session state |
+| `ref` | source | internal | pure | creates a reference into the content store — state read |
+| `deref` | source | internal | pure | reads content store state |
+| `now` | source | public | pure | wall-clock read — external (nondeterministic) input |
+| `sleep` | sink | internal | irreversible | temporal effect — suspends execution (no data flow) |
+| `time` | source | public | pure | wall-clock read — external (nondeterministic) input |
+| `add_days` | pure | public | pure | — |
+| `add_hours` | pure | public | pure | — |
+| `date_parts` | pure | public | pure | — |
+| `format_date` | pure | public | pure | — |
+| `days_between` | pure | public | pure | — |
+| `days_in_month` | pure | public | pure | — |
+| `is_leap_year` | pure | public | pure | — |
+| `weekday_name` | pure | public | pure | — |
+| `graph_query` | source | internal | pure | reads the global memory graph — state input |
+| `graph_path` | source | internal | pure | reads the global memory graph |
+| `graph_neighbors` | source | internal | pure | reads the global memory graph |
+| `memory_decay` | sink | internal | reversible | adjusts memory weights — undoable state change |
+| `memory_boost` | sink | internal | reversible | adjusts memory weights — undoable state change |
+| `memory_prune` | sink | internal | irreversible | destructively removes memory entries — no undo |
+| `memory_revise` | sink | internal | reversible | revises memory entries — undoable state change |
+| `subgraph_extract` | source | internal | pure | extracts a subgraph value from global graph state |
+| `subgraph_nodes` | pure | public | pure | — |
+| `subgraph_json` | pure | public | pure | — |
+| `trace_start` | sink | internal | reversible | mutates trace state |
+| `trace_end` | sink | internal | reversible | mutates trace state |
+| `memory_score` | pure | public | pure | — |
+| `mtree_summarize` | source | internal | pure | reads memory-tree state |
+| `mtree_retrieve` | source | internal | pure | reads memory-tree state |
+| `mtree_store` | sink | internal | reversible | persists to the memory tree |
+| `mtree_stats` | source | internal | pure | reads memory-tree state |
+| `mtree_forget` | sink | internal | irreversible | destructively forgets memory-tree entries |
+| `cron_mark_fired` | sink | internal | reversible | mutates schedule firing state |
+| `cron_add` | sink | internal | reversible | persists a schedule entry (undoable by cron_remove) |
+| `cron_list` | source | internal | pure | reads schedule state |
+| `cron_remove` | sink | internal | irreversible | removes a schedule entry — destructive |
+| `cron_run` | sink | internal | irreversible | fires scheduled flows — downstream external effects |
+| `event_count` | source | internal | pure | VM-native event-log read — state input |
+| `events_since` | source | internal | pure | VM-native event-log read — state input |
+| `event_sum` | source | internal | pure | VM-native event-log aggregation — state input |
+| `query_scalar` | source | internal | pure | VM-native DB read — state input |
+| `query_row` | source | internal | pure | VM-native DB read — state input |
+| `assert_eq` | pure | public | pure | — |
+| `assert_contains` | pure | public | pure | — |
+| `confidence` | pure | public | pure | — |
+| `toon_encode` | pure | public | pure | — |
+| `toon_decode` | pure | public | pure | — |
+| `recipe_save` | sink | internal | reversible | persists a recipe |
+| `recipe_search` | source | internal | pure | reads recipe state |
+| `recipe_list` | source | internal | pure | reads recipe state |
+| `dag_phases` | pure | public | pure | — |
+| `topo_sort` | pure | public | pure | — |
+| `resolve_skill_index` | source | internal | pure | VM-native skill resolver — state read |
+| `fit_to_budget` | pure | public | pure | — |
+| `map` | pure | public | pure | — |
+| `fuzzy_find_best` | pure | public | pure | — |
+| `hashline_read` | pure | public | pure | — |
+| `hashline_edit` | pure | public | pure | — |
+| `compact_list` | pure | public | pure | — |
+| `budget_check` | pure | public | pure | — |
+| `replay_snapshot` | source | internal | pure | reads runtime snapshot state |
+| `policy_check` | source | internal | pure | reads runtime policy state |
+| `semantic_search` | source | internal | pure | reads the semantic vault (KNN state input) |
+| `config_load` | source | internal | pure | ingests a config file from disk |
+| `vault_validate` | pure | public | pure | — |
+| `todo_add` | sink | internal | reversible | persists a todo entry |
+| `todo_list` | source | internal | pure | reads todo state |
+| `todo_update` | sink | internal | reversible | updates todo state — undoable |
+| `goal_get` | source | internal | pure | reads goal state |
+| `goal_set` | sink | internal | reversible | persists goal state |
+| `goals_add` | sink | internal | reversible | persists goal state |
+| `goals_list` | source | internal | pure | reads goal state |
+| `remind` | sink | internal | reversible | schedules a future external delivery (the reminder itself is undoable) |
+| `get_profile` | source | internal | pure | reads persisted profile (PII state input) |
+| `human_mood` | source | internal | pure | reads the persisted human-state model |
+| `ask_approval` | sink | network | irreversible | sends an approval request to the human — external interaction |
+| `goal_complete` | sink | internal | reversible | updates goal state |
+| `goals_reflect` | sink | internal | reversible | updates goal state |
+| `cancel_remind` | sink | internal | reversible | cancels a scheduled reminder |
+| `check_reminders` | source | internal | pure | reads reminder state |
+| `list_reminders` | source | internal | pure | reads reminder state |
+| `remind_recurring` | sink | internal | reversible | schedules recurring future deliveries |
+| `human_create` | sink | internal | reversible | persists a human profile (PII) |
+| `human_delete` | sink | internal | irreversible | destroys a human profile — no undo |
+| `human_forget` | sink | internal | irreversible | destructively forgets human data (GDPR erasure semantics) — no undo |
+| `human_personas` | source | internal | pure | reads persisted personas |
+| `human_recall` | source | internal | pure | reads persisted human data |
+| `human_remember` | sink | internal | reversible | persists human data (PII) |
+| `human_respond` | sink | network | irreversible | delivers a response to the human — cannot be unsent |
+| `compress_html` | pure | public | pure | — |
+| `estimate_tokens` | pure | public | pure | — |
+| `extract_entities` | pure | public | pure | — |
+| `extract_param` | pure | public | pure | — |
+| `learn_preference` | sink | internal | reversible | persists a learned preference (PII) |
+| `read_file_tokens` | source | internal | pure | ingests file content (token-budgeted) |
+| `squeeze` | pure | public | pure | — |
+| `to_int` | pure | public | pure | — |
+| `pdf_classify` | pure | public | pure | — |
+| `pdf_to_markdown` | pure | public | pure | — |
+| `pdf_extract_regions` | pure | public | pure | — |
+| `pdf_ocr` | pure | public | pure | — |
+| `pdf_create` | pure | public | pure | — |
+| `pdf_add_page` | pure | public | pure | — |
+| `pdf_write_text` | pure | public | pure | — |
+| `pdf_draw_line` | pure | public | pure | — |
+| `pdf_draw_rect` | pure | public | pure | — |
+| `pdf_save` | pure | public | pure | — |
+| `pdf_merge` | pure | public | pure | — |
+| `pdf_split` | pure | public | pure | — |
+| `pdf_metadata` | pure | public | pure | — |
+| `pdf_set_metadata` | pure | public | pure | — |
+| `html_to_pdf` | pure | public | pure | — |
+| `send_document` | sink | network | irreversible | delivers a document externally — cannot be unsent |
+| `sha256` | lift | public | pure | one-way digest — de-identifies its input (used to hash secrets) |
+| `hmac_sha256` | lift | public | pure | keyed digest — de-identifies its input |
+| `hex_encode` | pure | public | pure | — |
+| `hex_decode` | pure | public | pure | — |
+| `secret` | source | secret | pure | materializes a Secret value — Secret taint (№172) |
+| `regex_match` | pure | public | pure | — |
+| `regex_captures` | pure | public | pure | — |
+| `regex_replace` | pure | public | pure | — |
+| `pdf_draw_table` | pure | public | pure | — |
+| `pdf_add_image` | pure | public | pure | — |
+| `pdf_set_page_header` | pure | public | pure | — |
+| `pdf_set_page_footer` | pure | public | pure | — |
+| `pdf_page_numbers` | pure | public | pure | — |
+| `pdf_watermark` | pure | public | pure | — |
+| `pdf_fill_form` | pure | public | pure | — |
+| `pdf_rotate_page` | pure | public | pure | — |
+| `pdf_delete_pages` | pure | public | pure | — |
+| `pdf_extract_images` | pure | public | pure | — |
+| `smtp_send` | sink | network | irreversible | sends an email externally — cannot be unsent |
+| `smtp_send_html` | sink | network | irreversible | sends an HTML email externally — cannot be unsent |
+| `imap_list` | source | network | pure | ingests external mailbox listing |
+| `imap_read` | source | network | pure | ingests external email content |
+| `imap_search` | source | network | pure | ingests external mailbox search results |
+| `imap_mark_read` | sink | network | reversible | mutates external mailbox flags (undoable by flag change) |
+| `imap_move` | sink | network | reversible | moves an external email between folders (undoable by moving back) |
+| `cal_connect` | source | network | pure | ingests external calendar connection state |
+| `cal_list` | source | network | pure | ingests external calendar listings |
+| `cal_events` | source | network | pure | ingests external calendar events |
+| `cal_read` | source | network | pure | ingests an external calendar event |
+| `cal_create` | sink | network | irreversible | creates an external calendar event — external state change |
+| `cal_update` | sink | network | reversible | updates an external calendar event (undoable by update) |
+| `cal_delete` | sink | network | irreversible | deletes an external calendar event — external state change |
+| `cal_freebusy` | source | network | pure | ingests external free/busy data |
+| `ical_parse` | pure | public | pure | — |
+| `ical_generate` | pure | public | pure | — |
+| `card_connect` | source | network | pure | ingests external CardDAV connection state |
+| `card_list` | source | network | pure | ingests external address-book listings |
+| `card_contacts` | source | network | pure | ingests external contacts (PII ingress) |
+| `card_read` | source | network | pure | ingests an external contact (PII ingress) |
+| `card_create` | sink | network | irreversible | creates an external contact — external state change |
+| `card_update` | sink | network | reversible | updates an external contact (undoable by update) |
+| `card_delete` | sink | network | irreversible | deletes an external contact — external state change |
+| `card_search` | source | network | pure | ingests external contact search results |
+| `vcard_parse` | pure | public | pure | — |
+| `vcard_generate` | pure | public | pure | — |
+| `svg_rect` | pure | public | pure | — |
+| `svg_circle` | pure | public | pure | — |
+| `svg_line` | pure | public | pure | — |
+| `svg_text` | pure | public | pure | — |
+| `svg_path` | pure | public | pure | — |
+| `svg_group` | pure | public | pure | — |
+| `svg_canvas` | pure | public | pure | — |
+| `diagram_style` | pure | public | pure | — |
+| `svg_sketchy_filter` | pure | public | pure | — |
+| `svg_icon` | pure | public | pure | — |
+| `svg_callout` | pure | public | pure | — |
+| `chart_bar` | pure | public | pure | — |
+| `chart_donut` | pure | public | pure | — |
+| `chart_line` | pure | public | pure | — |
+| `chart_scatter` | pure | public | pure | — |
+| `chart_area` | pure | public | pure | — |
+| `chart_radar` | pure | public | pure | — |
+| `chart_heatmap` | pure | public | pure | — |
+| `chart_boxplot` | pure | public | pure | — |
+| `color_palette` | pure | public | pure | — |
+| `svg_generate` | pure | public | pure | — |
+| `svg_canvas_preset` | pure | public | pure | — |
+| `diagram_tree` | pure | public | pure | — |
+| `diagram_org_chart` | pure | public | pure | — |
+| `diagram_flowchart` | pure | public | pure | — |
+| `diagram_layers` | pure | public | pure | — |
+| `diagram_sequence` | pure | public | pure | — |
+| `diagram_timeline` | pure | public | pure | — |
+| `diagram_gantt` | pure | public | pure | — |
+| `diagram_process` | pure | public | pure | — |
+| `diagram_loop` | pure | public | pure | — |
+| `diagram_venn` | pure | public | pure | — |
+| `diagram_quadrant` | pure | public | pure | — |
+| `diagram_pyramid` | pure | public | pure | — |
+| `diagram_nested` | pure | public | pure | — |
+| `diagram_medallion` | pure | public | pure | — |
+| `diagram_er` | pure | public | pure | — |
+| `diagram_state` | pure | public | pure | — |
+| `diagram_swimlane` | pure | public | pure | — |
+| `diagram_data_flow` | pure | public | pure | — |
+| `diagram_high_level` | pure | public | pure | — |
+| `diagram_architecture` | pure | public | pure | — |
+| `template_render` | lift | public | pure | auto-escaped template rendering — output is public-safe |
+| `html_render` | lift | public | pure | sanitizing HTML render — output is public-safe |
+| `infographic_qa` | pure | public | pure | — |
+| `reflex_train` | sink | internal | reversible | persists trained weights in the Reflex registry (ADR-0114) |
+| `reflex_predict` | pure | public | pure | — |
+| `reflex_save` | sink | internal | reversible | persists weights to SQLite (ADR-0116) |
+| `reflex_load` | source | internal | pure | ingests persisted weights from SQLite |
+| `reflex_metrics` | pure | public | pure | — |
+| `reflex_list` | source | internal | pure | reads the Reflex registry state |
+| `reflex_generate` | source | internal | pure | ingests untrusted model output (LlmOutput-equivalent per №201) |
+| `reflex_tokenize` | pure | public | pure | — |
+| `reflex_detokenize` | pure | public | pure | — |
+| `reflex_bpe_train` | pure | public | pure | — |
+| `reflex_bpe_encode` | pure | public | pure | — |
+| `reflex_bpe_decode` | pure | public | pure | — |
+| `reflex_bpe_save` | sink | internal | reversible | persists the BPE vocab (№195) |
+| `reflex_bpe_load` | source | internal | pure | ingests a persisted BPE vocab |
+| `vision_generate` | sink | internal | reversible | persists a generated artifact in the VisionRegistry (№210) — local compute, egress only at vision_export |
+| `vision_edit` | sink | internal | reversible | persists an edited artifact in the VisionRegistry |
+| `vision_export` | sink | internal | reversible | writes the signed image artifact to disk — egress point (gate VISION_UNSIGNED_EXPORT, ADR-0125) |
+| `vision_export_raw` | sink | internal | reversible | explicit unsigned opt-out (ADR-0125); №320/ADR-0152: raw egress of synthetic or manifest-less artifacts is REFUSED — EU AI Act Art. 50 marking (static gate MEDIA_SYNTHETIC_UNMARKED + runtime backstop); legal only for synthetic: false |
+| `vision_fetch_weights` | source | network | reversible | ingests external weights (allowlist+SSRF+SHA-pinned, №300); writes the local weight cache |
+| `vision_list` | source | internal | pure | reads the VisionRegistry state |
+| `vision_save` | sink | internal | reversible | persists a Vision artifact (№242) |
+| `vision_load` | source | internal | pure | ingests a persisted Vision artifact |
+| `vision_lora_load` | source | internal | pure | ingests a persisted LoRA adapter |
+| `vision_lora_generate` | sink | internal | reversible | persists a LoRA-generated artifact in the VisionRegistry |
+| `media_store_image` | lift | internal | reversible | wraps provided bytes into an opaque Image handle in the media store (ADR-0162) — no egress; declared sensitivity drives at-rest AES-GCM sealing and the runtime backstop |
+| `media_store_audio` | lift | internal | reversible | wraps provided bytes into an opaque Audio handle in the media store (ADR-0162) — no egress; declared sensitivity drives at-rest AES-GCM sealing and the runtime backstop |
+| `media_store_video_frame` | lift | internal | reversible | wraps provided bytes into an opaque VideoFrame handle in the media store (ADR-0162) — no egress; declared sensitivity drives at-rest AES-GCM sealing and the runtime backstop |
+| `media_store_video_segment` | lift | internal | reversible | wraps provided bytes into an opaque VideoSegment handle in the media store (ADR-0162) — no egress; declared sensitivity drives at-rest AES-GCM sealing and the runtime backstop |
+| `media_save` | sink | internal | reversible | the ONLY sanctioned materialization of media bytes — file egress through the io sandbox; №325 sink clearance (private-egress) + runtime backstop MEDIA_SEALED_EGRESS, unsealed ONLY by the №387 LikenessToken credential (static presence + registry check; ADR-0162 §2.5 / ADR-0149 D1) |
+| `media_retain` | pure | public | pure | — |
+| `media_release` | pure | public | pure | — |
+| `media_meta` | source | public | pure | reads media store METADATA only (kind/conf/refs/sealed/origin) — no bytes leave the store |
+| `media_source_capture` | source | internal | pure | HandleSource runtime (№332/ADR-0164): captures a handle from a DECLARED origin (file-backed through the io sandbox; camera is a loud PARKED boundary) — the handle label is the origin's declared conf |
+| `media_bind_origin` | pure | public | pure | — |
+| `backend_list` | source | public | pure | reads the static backend registry metadata (name/class/weights_id/pin/license — ADR-0163) — no weights bytes exist behind the entries |
+| `backend_select` | source | internal | pure | backend try-chain over the №333 registry SSOT (№336, ADR-0165): picks the first available rung or returns Degraded(t) — a typed result, never a panic, never a silent mock; every attempt is an audit event |
+| `media_manifest` | source | public | pure | reads the entry-level manifest facts (kind/origin/conf/synthetic/bytes_sha256 — ADR-0166 §2.4) WITHOUT materializing bytes — store metadata, no egress |
+| `media_manifest_read` | source | internal | pure | ingests a provenance sidecar (<path>.manifest.json) from the sandbox (ADR-0166 §2.4): manifest content enters the flow; missing/empty/corrupt sidecars are loud refusals (№320 posture), synthetic reads conservatively true |
+| `canary_insert` | sink | internal | reversible | plants canary markers into channels — security-instrumentation state write (№284) |
+| `canary_check` | source | internal | pure | reads canary leak-detection state (№284) |
+| `json_validate` | pure | public | pure | — |
+| `memory_forget` | sink | internal | irreversible | destructively forgets memory (№280) — no undo |
+| `user_profile` | source | internal | pure | reads persisted user profile (PII state input) |
+| `text_chunk` | pure | public | pure | — |
+| `llm_stream_open` | source | network | pure | opens an external SSE stream — ingests untrusted model output; DUAL: prompt egress |
+| `llm_stream_next` | source | network | pure | ingests the next untrusted model chunk from the external stream |
+| `llm_stream_close` | sink | network | reversible | closes the external stream (cleanup effect, no data egress) |
+| `server_path_param` | source | internal | pure | ingests untrusted request path parameter — UserInput taint |
+| `voice_enroll` | sink | secret | reversible | persists a BIOMETRIC voiceprint (GDPR Art. 9 — Secret label, encrypted at rest per ADR-0145 D4) |
+| `tts_speak` | sink | internal | reversible | persists a locally synthesized audio artifact (ADR-0143) |
+| `audio_export` | sink | internal | reversible | writes the signed audio artifact to disk (gate AUDIO_UNSIGNED_EXPORT, ADR-0145) |
+| `voice_design` | sink | internal | reversible | persists a designed voice artifact |
+| `voice_save` | sink | internal | reversible | persists a Voice artifact |
+| `voice_load` | source | internal | pure | ingests a persisted Voice artifact |
+| `video_render` | sink | internal | reversible | persists a generated video artifact in VIDEO_REGISTRY — local tiny pipeline; egress only at video_export |
+| `video_export` | sink | internal | reversible | writes the signed .mlgv container to disk — egress point (gate VIDEO_UNSIGNED_EXPORT, ADR-0151 D5) |
+| `av_mux` | sink | internal | reversible | persists the A/V sidecar container in VIDEO_REGISTRY (ADR-0151 D4) |
+| `frame_interp` | sink | internal | reversible | persists an interpolated artifact in VIDEO_REGISTRY (ADR-0151 D2) |
+| `video_extend` | sink | internal | reversible | persists an extended artifact in VIDEO_REGISTRY (ADR-0151 D3) |
+| `video_fetch_weights` | source | network | reversible | intended external weights fetch (formal No-Go №294 class, ADR-0151 D7); covered by MODEL_WEIGHTS_UNSAFE |
+| `stt_transcribe` | source | internal | pure | local STT backend call (№334, whisper-turbo canon): ingests the transcript into the flow; the audio stays local (no upload — unlike whisper_transcribe); real mode requires SHA-pinned weights (PARKED №294) |
+| `omni_ask` | source | internal | pure | local omni backend call (№334, nemotron canon): ingests the model answer into the flow; no network egress; real mode requires SHA-pinned weights (PARKED №294) |
+| `vision_understand` | source | internal | pure | local vision-understanding backend call (№334, molmoact2 canon): ingests the answer about an image into the flow; no upload, no egress; real mode requires SHA-pinned weights (PARKED №294) |
+| `consent_grant` | lift | public | pure | records (subject, scope, TTL) in the consent ledger and passes the value through with the consent scope EXTENDED (semantic.rs label_source) — process-local bookkeeping, no egress |
+| `consent_revoke` | lift | public | pure | records the revocation and returns the value under the QUARANTINE label — the flat cascade is lattice absorption (poison is absorbing, ADR-0154 §2.1); process-local bookkeeping |
+| `quarantine_write` | sink | internal | reversible | THE quarantine sink — the only legal egress for poisoned values (№325 clearance exempts it); unconditional QUARANTINE_EGRESS audit event (№326 posture) |
+| `consent_ledger_export` | sink | internal | reversible | dumps the consent ledger as JSON to a sandboxed path — FILE EGRESS with an audit event (grant/TTL/revoke records never leave the process silently) |
+| `grant_issue` | pure | public | pure | — |
+| `grant_subgrant` | pure | public | pure | — |
+| `grant_revoke` | pure | public | pure | — |
+| `grant_use` | pure | public | pure | — |
+| `db_execute_with_grant` | pure | public | pure | — |
+| `deny_event` | source | internal | pure | №392 DenyEvent read — handler-scoped runtime state, no egress |
+| `deny_reason` | source | internal | pure | №392 deny reason word — handler-scoped runtime state, no egress |
+| `ledger_count` | pure | public | pure | — |
+| `ledger_head` | pure | public | pure | — |
+| `ledger_export` | sink | internal | reversible | dumps the verifiable JSONL chain to a sandboxed path — FILE EGRESS with an audit event (the signed action trail never leaves the process silently, ADR-0167 §3.5) |
+| `ledger_export_intoto` | sink | internal | reversible | dumps the in-toto Statement profile (ADR-0157) to a sandboxed path — FILE EGRESS, same class as ledger_export |
+| `ledger_rotate` | lift | public | irreversible | appends a key-rotation record signed by the still-active key and switches to the fresh key (ADR-0167 §3.3) — the chain transition cannot be undone |
+| `ledger_snapshot` | lift | public | irreversible | appends a snapshot record pinning the head (ADR-0167 §3.2) — the archive anchor is a permanent chain record |
+| `likeness_challenge` | lift | public | pure | issues a one-time opaque likeness challenge (№387, ADR-0149 D1); registry state only, no egress |
+| `likeness_verify` | lift | public | pure | consumes the challenge (linear), records the consent-ledger grant and returns the opaque LikenessToken (№387, ADR-0149 D1/D6) — process-local bookkeeping, no egress |
+
+<!-- END GENERATED BUILTIN CLASSIFICATION -->
+
+
+
+
+
+
+
+

@@ -185,6 +185,8 @@ fn generate_runtime_model_recheck_loud_error() {
             policy: Some(CompiledVisionPolicy::Safe),
             profile: CompiledVisionProfile::Fp16,
         }],
+        origin_decls: vec![],
+        deny_handlers: vec![],
         db_url: None,
         memory_persist_path: None,
         schema_ddl: vec![],

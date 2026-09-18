@@ -1,0 +1,28 @@
+// Наряд №324 (issue #418) — effect trail in pattern signatures (ADR-0154 §9).
+//
+// The contract being demonstrated: a pattern DECLARES what it does
+// (`⟨io⟩`, `⟨io, audit⟩`) and the gate holds every declared signature
+// against the factual body effects:
+//   Fetch reads env → {io} — matches its ⟨io⟩ trail.
+//   Log memorizes   → {io, audit} — matches its ⟨io, audit⟩ trail.
+//   Run calls both  → the callers' declared contracts compose.
+// A call whose factual effects exceed the caller's declared trail is a
+// compile error (excess listed); tests pin exactly that:
+// tests/naryad_324_effect_trail.rs.
+
+pattern Fetch(key: String) -> String ⟨io⟩ {
+  return env(key)
+}
+
+pattern Log(msg: String) -> String ⟨io, audit⟩ {
+  memorize msg with priority=0.5
+  return msg
+}
+
+pattern Run() -> String ⟨io, audit⟩ {
+  let k = Fetch("APP_KEY")
+  let r = Log(k)
+  return r
+}
+
+flow Main { input: String = "" -> Run -> output }

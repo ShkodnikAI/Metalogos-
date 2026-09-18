@@ -1,6 +1,18 @@
 use super::*;
 use crate::ast::*;
 
+/// №385 (ADR-0169): stamp a `rusqlite::Error` with the stable `SQL_ERROR`
+/// code AT THE ORIGIN — the only errors allowed to carry that code (the
+/// SQL layer itself; lock-poisoning and API-validation refusals in this
+/// file stay unstamped and classify as the honest `RUNTIME_ERROR` fallback).
+/// The message text after the stamp is unchanged.
+pub(crate) fn sql_err(ctx: &str, e: rusqlite::Error) -> String {
+    crate::interpreter::values::coded_error(
+        crate::interpreter::values::CODE_SQL_ERROR,
+        format!("{}: {}", ctx, e),
+    )
+}
+
 /// Наряд №99: Unified SQL parameter conversion — one function, four call sites.
 /// Returns typed `rusqlite::types::Value` for each parameter, rejecting
 /// unsupported types with an error instead of silently dropping or
@@ -13,7 +25,7 @@ use crate::ast::*;
 ///   - Unit   → Null
 ///
 /// Unsupported types (Secret, Struct, List, Html, etc.) produce an error.
-fn convert_params(items: &[Value]) -> Result<Vec<rusqlite::types::Value>, String> {
+pub(crate) fn convert_params(items: &[Value]) -> Result<Vec<rusqlite::types::Value>, String> {
     items
         .iter()
         .enumerate()
@@ -85,8 +97,12 @@ impl Interpreter {
                 table.name,
                 col_defs.join(", ")
             );
-            conn.execute(&sql, [])
-                .map_err(|e| format!("schema migration error for table '{}': {}", table.name, e))?;
+            conn.execute(&sql, []).map_err(|e| {
+                sql_err(
+                    &format!("schema migration error for table '{}'", table.name),
+                    e,
+                )
+            })?;
         }
 
         Ok(())
@@ -182,7 +198,7 @@ impl Interpreter {
             // SELECT/PRAGMA → List of Struct
             let mut stmt = conn
                 .prepare(&sql)
-                .map_err(|e| format!("query() SQL error: {}", e))?;
+                .map_err(|e| sql_err("query() SQL error", e))?;
             let col_names: Vec<String> =
                 stmt.column_names().iter().map(|s| s.to_string()).collect();
             let rows: Vec<Value> = stmt
@@ -214,7 +230,7 @@ impl Interpreter {
                         fields,
                     })
                 })
-                .map_err(|e| format!("query() execution error: {}", e))?
+                .map_err(|e| sql_err("query() execution error", e))?
                 .filter_map(|r| r.ok())
                 .collect();
             Ok(Value::List(rows))
@@ -222,7 +238,7 @@ impl Interpreter {
             // INSERT/UPDATE/DELETE/CREATE/ALTER/etc. → affected row count as String
             let affected = conn
                 .execute(&sql, rusqlite::params_from_iter(params.iter()))
-                .map_err(|e| format!("query() SQL error: {}", e))?;
+                .map_err(|e| sql_err("query() SQL error", e))?;
             Ok(Value::String(affected.to_string()))
         }
     }
@@ -264,7 +280,112 @@ impl Interpreter {
         })?;
         let affected = conn
             .execute(&sql, rusqlite::params_from_iter(params.iter()))
-            .map_err(|e| format!("db_execute() SQL error: {}", e))?;
+            .map_err(|e| sql_err("db_execute() SQL error", e))?;
+        Ok(Value::String(affected.to_string()))
+    }
+
+    /// Naryad #390 (ADR-0155 §3.3 rule 6): the granted destructive-SQL
+    /// action. Gates at runtime, in order: ledger state (active /
+    /// not-consumed / not-revoked), TTL, SCOPE coverage of the SQL's
+    /// destructive ops (GRANT_SCOPE_MISMATCH), then execute, then consume
+    /// (Once -> consumed, N(n) -> decrement, Unlimited -> audited event).
+    /// Non-destructive SQL under a grant executes WITHOUT consumption
+    /// (nothing irreversible happened) and still writes the event.
+    pub(super) fn invoke_db_execute_with_grant(&self, args: &[Value]) -> Result<Value, String> {
+        let fn_name = "db_execute_with_grant";
+        if args.len() < 2 || args.len() > 3 {
+            return Err(format!(
+                "{}: expects 2..3 arguments (grant, sql, params?), got {}",
+                fn_name,
+                args.len()
+            ));
+        }
+        let handle = match &args[0] {
+            Value::Grant(h) => h.clone(),
+            other => {
+                return Err(format!(
+                    "{}: first argument must be a Grant, got {}",
+                    fn_name,
+                    other.type_name()
+                ))
+            }
+        };
+        let sql = match &args[1] {
+            Value::String(s) => s.clone(),
+            other => {
+                return Err(format!(
+                    "{}: second argument must be String SQL, got {}",
+                    fn_name,
+                    other.type_name()
+                ))
+            }
+        };
+        let params: Vec<rusqlite::types::Value> = match args.get(2) {
+            Some(Value::List(items)) => convert_params(items)?,
+            Some(other) => {
+                return Err(format!(
+                    "{}: third argument must be List, got {}",
+                    fn_name,
+                    other.type_name()
+                ))
+            }
+            None => Vec::new(),
+        };
+        // Gate BEFORE execution: state/TTL (check_active) + scope coverage
+        // of every destructive op in the statement.
+        crate::grants::check_active(&handle)?;
+        let ops = crate::grants::extract_destructive_ops(&sql);
+        let destructive = !ops.is_empty();
+        for (op, table) in &ops {
+            if !crate::grants::scope_covers(&handle.scope, op, table) {
+                return Err(format!(
+                    "GRANT_SCOPE_MISMATCH: grant {} ({}, scope '{}') does not cover {} {}",
+                    handle.grant_id, handle.class, handle.scope, op, table
+                ));
+            }
+        }
+        let guard = self
+            .db_conn
+            .lock()
+            .map_err(|e| format!("db lock error: {}", e))?;
+        let conn = guard.as_ref().ok_or_else(|| {
+            "db_execute_with_grant() error: no database connection. Declare db { url: \"sqlite::memory:\" } first."
+                .to_string()
+        })?;
+        let affected = conn
+            .execute(&sql, rusqlite::params_from_iter(params.iter()))
+            .map_err(|e| sql_err("db_execute_with_grant() SQL error", e))?;
+        drop(guard);
+        // Post-success consumption/audit (never on SQL failure).
+        if destructive {
+            crate::grants::grant_use(&handle, &format!("db_execute_with_grant: {}", sql))?;
+            // ── Naryad #393 (ADR-0167 §3.4): the irreversible action
+            // SUCCEEDED — the journal entry is a side effect of the
+            // success path itself (not a separate call the caller could
+            // forget). Best-effort, loud on failure; the SQL preimage
+            // never enters the journal — only its SHA-256.
+            crate::ledger::record(
+                "irreversible.db_execute",
+                &handle.issuer,
+                &handle.scope,
+                &format!("{}|{}|{}", handle.grant_id, handle.scope, sql),
+            );
+            eprintln!(
+                "[GRANT_USE] grant (scope '{}', class {}) executed {} (affected {}) — remaining {}",
+                handle.scope,
+                handle.class,
+                sql.trim(),
+                affected,
+                crate::grants::state_of(&handle.grant_id)
+                    .map(|(_, r)| r)
+                    .unwrap_or(-1)
+            );
+        } else {
+            eprintln!(
+                "[GRANT_USE] grant (scope '{}') ran non-destructive SQL — no consumption",
+                handle.scope
+            );
+        }
         Ok(Value::String(affected.to_string()))
     }
 
@@ -304,7 +425,7 @@ impl Interpreter {
 
         let mut stmt = conn
             .prepare(&sql)
-            .map_err(|e| format!("query_scalar() SQL error: {}", e))?;
+            .map_err(|e| sql_err("query_scalar() SQL error", e))?;
         let mut rows = stmt
             .query_map(rusqlite::params_from_iter(params.iter()), |row| {
                 row.get_ref(0).map(|v| match v {
@@ -319,11 +440,11 @@ impl Interpreter {
                     }
                 })
             })
-            .map_err(|e| format!("query_scalar() execution error: {}", e))?;
+            .map_err(|e| sql_err("query_scalar() execution error", e))?;
 
         match rows.next() {
             Some(Ok(val)) => Ok(val),
-            Some(Err(e)) => Err(format!("query_scalar() row error: {}", e)),
+            Some(Err(e)) => Err(sql_err("query_scalar() row error", e)),
             None => Ok(Value::Unit),
         }
     }
@@ -362,7 +483,7 @@ impl Interpreter {
 
         let mut stmt = conn
             .prepare(&sql)
-            .map_err(|e| format!("query_row() SQL error: {}", e))?;
+            .map_err(|e| sql_err("query_row() SQL error", e))?;
         let col_count = stmt.column_count();
         let mut rows = stmt
             .query_map(rusqlite::params_from_iter(params.iter()), |row| {
@@ -384,11 +505,11 @@ impl Interpreter {
                 }
                 Ok(vals)
             })
-            .map_err(|e| format!("query_row() execution error: {}", e))?;
+            .map_err(|e| sql_err("query_row() execution error", e))?;
 
         match rows.next() {
             Some(Ok(vals)) => Ok(Value::List(vals)),
-            Some(Err(e)) => Err(format!("query_row() row error: {}", e)),
+            Some(Err(e)) => Err(sql_err("query_row() row error", e)),
             None => Ok(Value::List(vec![])),
         }
     }

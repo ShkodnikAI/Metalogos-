@@ -1,0 +1,10 @@
+// Наряд №333 (ADR-0163): не-OSI веса в дистрибутивном профиле (по умолчанию)
+// НЕ компилируются — гейт BACKEND_LICENSE_DISTRIBUTION называет лицензию и
+// запись реестра. Сценарий MDL-3 (Nemotron — NVIDIA Open Model License,
+// не OSI-одобрена). Разрешающий мост: 'profile licensing { backends:
+// permissive_with_audit }' — громкие audit-события вместо отказа.
+pattern Serve() -> String {
+  let omni_model = "nemotron-3-nano-omni-30b-a3b"
+  return "ok"
+}
+flow Main { input: String = "x" -> Serve -> output }

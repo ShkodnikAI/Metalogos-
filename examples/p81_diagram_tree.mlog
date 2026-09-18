@@ -6,8 +6,8 @@
 //      error — checks the subtree-width accumulation logic
 //   3. Deep tree (depth 4) renders — checks level spacing math
 //   4. Empty children list (single-node tree) renders
-//   5. Depth > 6 returns Err (via `try` → Unit)
-//   6. Total nodes > 40 returns Err (via `try` → Unit)
+//   5. Depth > 6 returns Err (via `try` → ok = false, №374)
+//   6. Total nodes > 40 returns Err (via `try` → ok = false, №374)
 //
 // The 3-level minimum depth requirement from the narazd spec is
 // satisfied by test case 1 (root → children → grandchildren). This
@@ -74,16 +74,16 @@ pattern P81DiagramTreeContract(input: String) -> String {
   let r4 = diagram_tree(data4, style)
   let ok4 = to_float(starts_with(r4, "<svg "))
 
-  // ── 5. Depth > 6 → Err (try → Unit) ──────────────────────────────
+  // ── 5. Depth > 6 → Err (try → ok = false) ───────────────────────
   // 8-level deep tree: depth exceeds MAX_DEPTH=6.
   let data5 = {
     label: "D0",
     children: [{label: "D1", children: [{label: "D2", children: [{label: "D3", children: [{label: "D4", children: [{label: "D5", children: [{label: "D6", children: [{label: "D7", children: []}]}]}]}]}]}]}]
   }
   let r5 = try diagram_tree(data5, style)
-  let ok5 = to_float(type_of(r5) == "Unit")
+  let ok5 = to_float(r5.ok == false)
 
-  // ── 6. Total nodes > 40 → Err (try → Unit) ───────────────────────
+  // ── 6. Total nodes > 40 → Err (try → ok = false) ────────────────
   // Build a flat tree with 41 leaves (1 root + 41 children = 42 nodes).
   // Each leaf is `{label: "N", children: []}`. We construct the list
   // via a list literal of 41 structs.
@@ -105,7 +105,7 @@ pattern P81DiagramTreeContract(input: String) -> String {
   ]
   let data6 = {label: "root", children: leaves41}
   let r6 = try diagram_tree(data6, style)
-  let ok6 = to_float(type_of(r6) == "Unit")
+  let ok6 = to_float(r6.ok == false)
 
   let total = ok1 + ok2 + ok3 + ok4 + ok5 + ok6
 

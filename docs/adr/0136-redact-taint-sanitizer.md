@@ -1,40 +1,40 @@
-# ADR-0136: redact(text, mode) — PII/секреты как taint-санитайзер
+# ADR-0136: redact(text, mode) — PII/secrets as a taint sanitizer
 
-**Status:** Accepted (стоп-гейт СГ-2 утверждён владельцем 2026-09-12)
+**Status:** Accepted (stop-gate SG-2 approved by the owner 2026-09-12)
 **Date:** 2026-09-12
 **Naryad:** #274 (issue #310)
-**Precedent:** №201/ADR-0117 (taint-классы), ADR-0038/0079 (секреты), №54 (линейный regex-движок — ReDoS-риска паттерны не создают), №256 (конвенция fuzz-целей)
+**Precedent:** #201/ADR-0117 (taint classes), ADR-0038/0079 (secrets), #54 (linear regex engine — the patterns create no ReDoS risk), #256 (fuzz-target convention)
 
 ## Context
 
-Taint-система Metalogos сегодня умеет ЗАПРЕЩАТЬ (sink-отклонения `SECRET_LEAK`, `HTML_INJECTION`, `UNTRUSTED_TRAINING_DATA`), но не умеет ТРАНСФОРМИРОВАТЬ: нет языкового механизма замаскировать секрет/PII перед использованием. `TaintKind::Sanitized` присваивается только `render`/`escape_html` (`src/audit.rs`, `binding_taint()`) и только для HTML-класса. GDPR-аргумент для NLnet: «PII-маскирование на уровне компилятора, а не промпта». Стоп-гейт СГ-2 (диспатч #316): семантика снятия taint — решение владельца, не исполнителя.
+The Metalogos taint system today can DENY (sink rejections `SECRET_LEAK`, `HTML_INJECTION`, `UNTRUSTED_TRAINING_DATA`) but cannot TRANSFORM: there is no language mechanism to mask a secret/PII before use. `TaintKind::Sanitized` is assigned only by `render`/`escape_html` (`src/audit.rs`, `binding_taint()`) and only for the HTML class. GDPR argument for NLnet: "PII masking at the compiler level, not the prompt level". Stop-gate SG-2 (dispatch #316): taint-removal semantics is an owner decision, not an implementer one.
 
 ## Decision
 
-### D1. Билтин и паттерн-наборы
+### D1. Builtin and pattern sets
 
-`redact(text, mode) -> String`, арность 2, категория `string`, mode ∈ `{"pii", "secrets", "all"}` — неизвестный mode это громкая ошибка. Билтин принимает и `Value::String`, и `Value::Secret` (маскирование секрета на месте — и есть его назначение; результат — `Value::String`, `Value::Secret` непечатаем и не прошёл бы runtime-путь к sink'у).
+`redact(text, mode) -> String`, arity 2, category `string`, mode ∈ `{"pii", "secrets", "all"}` — an unknown mode is a loud error. The builtin accepts both `Value::String` and `Value::Secret` (masking a secret in place is exactly its purpose; the result is a `Value::String` — a `Value::Secret` is unprintable and would not survive the runtime path to a sink).
 
-- **secrets**: API-ключи (`sk-…` ≥16 симв., `AKIA…` 16 uppercase, `ghp_/gho_/ghu_/ghs_/ghr_…` ≥20), JWT (`eyJ…` три сегмента), PEM-блоки (`-----BEGIN … -----END …`), `Bearer <token>` (токен ≥8).
-- **pii**: email (маска `***@***.<tld>` — TLD сохраняется для диагностируемости), телефоны (международный `+`-формат и RU `8`-формат, фильтр 7..15 цифр), карты (13–19 цифр + валидация Luhn + вендор по префиксу: visa/mastercard/amex/discover/unionpay), IBAN (верхний регистр, 15–34 симв., хвост группы может быть неполным).
-- **Энтропийная сеть** (только в `secrets`/`all`): прогоны base64/hex ≥24 символов, маскируются только содержащие И цифру И hex-букву (`a-fA-F`). Длинные слова без цифр, чисто цифровые идентификаторы и kebab/snake-идентификаторы (разделители ломают прогон) — проходят. Это страховка против форматов вне паттерн-набора, не исчерпывающая детекция.
+- **secrets**: API keys (`sk-…` ≥16 chars, `AKIA…` 16 uppercase, `ghp_/gho_/ghu_/ghs_/ghr_…` ≥20), JWT (`eyJ…` three segments), PEM blocks (`-----BEGIN … -----END …`), `Bearer <token>` (token ≥8).
+- **pii**: email (mask `***@***.<tld>` — the TLD is preserved for diagnosability), phones (international `+` format and RU `8` format, a 7..15-digit filter), cards (13–19 digits + Luhn validation + vendor by prefix: visa/mastercard/amex/discover/unionpay), IBAN (uppercase, 15–34 chars, the tail group may be incomplete).
+- **Entropy net** (only in `secrets`/`all`): base64/hex runs ≥24 chars; only runs containing BOTH a digit AND a hex letter (`a-fA-F`) are masked. Long words without digits, purely numeric identifiers, and kebab/snake identifiers (separators break the run) pass through. This is insurance against formats outside the pattern sets, not exhaustive detection.
 
-Маски детерминированные и типизированные: `[REDACTED:<тип>…<последние 4>]` (например `[REDACTED:sk-…abc4]`), PEM `[REDACTED:pem-block]`, телефон `[REDACTED:phone]` — логи остаются диагностируемыми. Порядок применения: секреты → PII → энтропийная сеть (последней); маски сами по себе не перетриггерят ни один паттерн (идемпотентность `redact(redact(x)) == redact(x)` — тест-инвариант и инвариант fuzz-цели).
+Masks are deterministic and typed: `[REDACTED:<type>…<last 4>]` (e.g. `[REDACTED:sk-…abc4]`), PEM `[REDACTED:pem-block]`, phone `[REDACTED:phone]` — logs stay diagnosable. Order of application: secrets → PII → entropy net (last); the masks themselves re-trigger none of the patterns (idempotence `redact(redact(x)) == redact(x)` — a test invariant and a fuzz-target invariant).
 
-### D2. Taint-семантика (постановка СГ-2)
+### D2. Taint semantics (SG-2 brief)
 
-- `redact(x, "secrets" | "all")` снимает ТОЛЬКО `Secret`-taint → результат `Sanitized` — легальный путь «mask before sink»: `secret → redact("secrets") → http_post` проходит аудитом, без redact — отклоняется.
-- `redact(x, "pii")` НЕ снимает `Secret` — тест-инвариант `secret → redact("pii") → http_post` отклоняется.
-- `LlmOutput` не снимается redact'ом вообще: санитайзер вывода модели один — `render` (маскирование ≠ HTML-escape; `HTML_INJECTION` остаётся в силе).
-- `UserInput` не снимается: маскирование не меняет происхождение данных.
-- mode читается СТАТИЧЕСКИ из строкового литерала (`src/audit.rs`, `redact_result_taint`, применяется и в `binding_taint`, и в `get_expr_taint` — цепочки через let и инлайн-вызовы равнозначны). Динамический/нелитеральный mode — **fail-closed**: taint наследуется без снятия.
+- `redact(x, "secrets" | "all")` removes ONLY the `Secret` taint → the result is `Sanitized` — the legal "mask before sink" path: `secret → redact("secrets") → http_post` passes the audit; without redact it is rejected.
+- `redact(x, "pii")` does NOT remove `Secret` — the test invariant `secret → redact("pii") → http_post` is rejected.
+- `LlmOutput` is not removed by redact at all: the sanitizer of model output is one — `render` (masking ≠ HTML-escape; `HTML_INJECTION` stays in force).
+- `UserInput` is not removed: masking does not change the data's provenance.
+- mode is read STATICALLY from a string literal (`src/audit.rs`, `redact_result_taint`, applied both in `binding_taint` and in `get_expr_taint` — chains through let and inline calls are equivalent). A dynamic/non-literal mode — **fail-closed**: taint is inherited without removal.
 
-### D3. Остаточный риск (честно)
+### D3. Residual risk (honest)
 
-Доверие паттерн-набору: секрет формата вне набора и без энтропийного профиля (например, короткий base64 без символов-разделителей) не маскируется — энтропийная сеть требует одновременно цифру и hex-букву в прогоне ≥24, чтобы не душить идентификаторы. Ложные срабатывания возможны (направление безопасное: лишнее маскирование, не утечка). Fuzz-цель обязательна (`fuzz_target_redact`: панико-свобода, детерминизм, идемпотентность). Redact не шифрует и не удаляет: оригинал остаётся в исходной строке у вызывающего — санитизируется только результат. Redact не обходится чтение env-гейта (№259): `env()` в route-телах по-прежнему denied независимо от последующего redact.
+Trust in the pattern sets: a secret of a format outside the sets and without an entropy profile (e.g. a short base64 without separator characters) is not masked — the entropy net requires both a digit and a hex letter in a run of ≥24, so as not to strangle identifiers. False positives are possible (the direction is safe: extra masking, not a leak). A fuzz target is mandatory (`fuzz_target_redact`: panic-freedom, determinism, idempotence). Redact neither encrypts nor deletes: the original remains in the caller's source string — only the result is sanitized. Redact does not bypass the env-gate read (#259): `env()` in route bodies remains denied regardless of a subsequent redact.
 
 ## Consequences
 
-- Положительные: «mask before sink» — легальный путь публикации диагностических логов с секретами; GDPR-аргумент «PII-маскирование на уровне компилятора»; `SECRET_LEAK`-строка threat-model получает mitigation-слой; контракт пинится парой тестов DoD и fuzz-целью.
-- Отрицательные: удержание последних 4 символов в маске — компромисс диагностируемости (теоретически различимые хвосты длинных секретов); ложные срабатывания энтропийной сети в `all`-режиме на длинных буквенно-цифровых прогонах.
-- Нейтральные: реестр 398→399; грамматика и bytecode-поверхность не меняются (билтин, не декларация); TW/VM-паритет бесплатный (общий обработчик реестра).
+- Positive: "mask before sink" is a legal path for publishing diagnostic logs containing secrets; the GDPR argument "PII masking at the compiler level"; the `SECRET_LEAK` line of the threat model gets a mitigation layer; the contract is pinned by a pair of DoD tests and the fuzz target.
+- Negative: keeping the last 4 characters in the mask is a diagnosability trade-off (theoretically distinguishable tails of long secrets); false positives of the entropy net in `all` mode on long alphanumeric runs.
+- Neutral: registry 398→399; grammar and bytecode surface unchanged (a builtin, not a declaration); TW/VM parity comes free (shared registry handler).

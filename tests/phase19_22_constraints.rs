@@ -206,6 +206,8 @@ fn test_z21_startswith_instruction_vm() {
         reflex_seq_decls: vec![],
         reflex_gen_decls: vec![],
         vision_decls: vec![],
+        origin_decls: vec![],
+        deny_handlers: vec![],
         memory_persist_path: None,
         db_url: None,
         schema_ddl: vec![],
@@ -245,6 +247,8 @@ fn test_z21_startswith_in_pattern_body() {
                 reflex_seq_decls: vec![],
                 reflex_gen_decls: vec![],
                 vision_decls: vec![],
+                origin_decls: vec![],
+                deny_handlers: vec![],
                 memory_persist_path: None,
                 db_url: None,
                 schema_ddl: vec![],
@@ -253,9 +257,11 @@ fn test_z21_startswith_in_pattern_body() {
             },
         )
         .expect("execute_code should succeed");
+    // №372: predicate instructions now produce Bool (TW encoding) instead of
+    // the legacy Float 1.0/0.0.
     match &result {
-        Value::Float(f) => assert!((*f - 1.0).abs() < f64::EPSILON, "expected 1.0, got {}", f),
-        other => panic!("expected Float, got {:?}", other),
+        Value::Bool(b) => assert!(*b, "expected true, got {}", b),
+        other => panic!("expected Bool, got {:?}", other),
     }
 }
 
@@ -275,6 +281,8 @@ fn test_z21_startswith_negative() {
         memory_persist_path: None,
         db_url: None,
         schema_ddl: vec![],
+        origin_decls: vec![],
+        deny_handlers: vec![],
         main_code: vec![
             Instruction::Const(Value::String("wrong".to_string())),
             Instruction::Const(Value::String("right".to_string())),
@@ -355,6 +363,8 @@ fn test_z22_make_list_in_pattern_body() {
                 memory_persist_path: None,
                 db_url: None,
                 schema_ddl: vec![],
+                origin_decls: vec![],
+                deny_handlers: vec![],
                 main_code: vec![],
                 collections_loaded: false,
             },
@@ -393,6 +403,8 @@ fn test_z22_pop_in_pattern_body() {
                 memory_persist_path: None,
                 db_url: None,
                 schema_ddl: vec![],
+                origin_decls: vec![],
+                deny_handlers: vec![],
                 main_code: vec![],
                 collections_loaded: false,
             },
@@ -431,14 +443,18 @@ fn test_z22_contains_in_pattern_body() {
                 memory_persist_path: None,
                 db_url: None,
                 schema_ddl: vec![],
+                origin_decls: vec![],
+                deny_handlers: vec![],
                 main_code: vec![],
                 collections_loaded: false,
             },
         )
         .expect("execute_code should succeed");
+    // №372: predicate instructions now produce Bool (TW encoding) instead of
+    // the legacy Float 1.0/0.0.
     match &result {
-        Value::Float(f) => assert!((*f - 1.0).abs() < f64::EPSILON, "expected 1.0, got {}", f),
-        other => panic!("expected Float, got {:?}", other),
+        Value::Bool(b) => assert!(*b, "expected true, got {}", b),
+        other => panic!("expected Bool, got {:?}", other),
     }
 }
 
@@ -472,6 +488,8 @@ fn test_z22_index_access_in_pattern_body() {
                 memory_persist_path: None,
                 db_url: None,
                 schema_ddl: vec![],
+                origin_decls: vec![],
+                deny_handlers: vec![],
                 main_code: vec![],
                 collections_loaded: false,
             },
@@ -514,6 +532,8 @@ fn test_z22_struct_in_pattern_body() {
                 memory_persist_path: None,
                 db_url: None,
                 schema_ddl: vec![],
+                origin_decls: vec![],
+                deny_handlers: vec![],
                 main_code: vec![],
                 collections_loaded: false,
             },

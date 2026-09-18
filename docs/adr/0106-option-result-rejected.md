@@ -57,3 +57,21 @@ separate, targeted naryad, not a general type system.
 
 - ADR-0006 — Fluid Types, the source of the soft-failure quote
 - ADR-0105 — the same "don't fix without demonstrated demand" principle
+
+---
+
+## Annotation (2026-09-16, ADR-0142 / Наряд №374 — no supersede)
+
+This ADR remains in force: `Option`/`Result` TYPES are still not introduced,
+and the soft-failure model still governs optional paths (`to_float("abc")` →
+`0.0`, `read_file` miss → `""`, `recall` miss → `Unit`).
+
+What changed since this ADR was written: ADR-0142 (candidate (б), implemented
+by Наряд №374) extended the existing `try` expression (Наряд №91) so that the
+critical-path error handler receives a STRUCT value —
+`Struct { ok: Bool, value: Value, error: Unit | Struct { code, message } }` —
+instead of a bare `Unit`. This is a plain struct value (structs already exist
+in the language), NOT an `Option`/`Result` type: no new type system concept,
+no builtin signature changes, no grammar changes. The distinction:
+- optional paths (soft-failure, this ADR) — unchanged;
+- critical-path error-handling (`try` → structured result, ADR-0142) — added.

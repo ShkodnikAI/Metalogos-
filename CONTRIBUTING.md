@@ -153,6 +153,14 @@ Then open a Pull Request on GitHub.
 - All public APIs must have doc comments (`///`)
 - Use examples in doc comments where helpful
 - Keep README.md up to date
+- **English only.** Per the owner directive (2026-09-17), all repository
+  documentation is written in technical English. Every new CHANGELOG entry and
+  every new document (README sections, `docs/*.md`, ADRs, research reports)
+  must be authored in English; Cyrillic is allowed only inside code examples
+  and test fixtures where it is content (string literals, identifier-support
+  demos), not documentation language. The rule is enforced mechanically by
+  `tests/docs_language_lint.rs`. Fixed terminology: *naryad* («наряд»),
+  *dispatch* («диспатч»).
 
 ### Testing
 

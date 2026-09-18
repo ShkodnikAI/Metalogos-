@@ -151,6 +151,314 @@ pub fn url_decode_fallback(s: &str) -> String {
     String::from_utf8_lossy(&bytes).into_owned()
 }
 
+// ── Наряд №283: path-параметры роутов mlogserver — шаблонный диспетчер ──
+//
+// Axum 0.8.9 syntax: `{name}` matches a single path segment, `{*path}`
+// matches the tail of the path (one or more segments, including `/`).
+// Internal dispatcher matched by exact string equality for static routes;
+// templated routes are matched as a FALLBACK when no static route matches
+// (axum semantics: static routes win).
+//
+// Conflict policy: two templates matching the same path → loud error at
+// server start (checked in `check_route_template_conflicts`); here at
+// request time we return the FIRST matching template (defensive — should
+// not happen if startup check passed).
+
+/// One parsed segment of a route template path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PathSegment {
+    /// Literal segment — must match exactly (after percent-decoding).
+    Literal(String),
+    /// `{name}` — matches exactly one path segment. The captured value
+    /// (percent-decoded) is stored under `name` in the params map.
+    Param(String),
+    /// `{*path}` — wildcard tail. Matches one or more segments (including
+    /// the `/` separators between them). The captured value is the
+    /// remainder of the path AFTER the leading slash of the wildcard
+    /// segment (so `/demo/a/b/c` against `/demo/{*path}` captures
+    /// `"a/b/c"`). Must be the LAST segment — any segment after a
+    /// wildcard is a parse error.
+    Wildcard(String),
+}
+
+/// Parse a route path into segments. Returns `Err` on malformed templates:
+/// - `{` without closing `}` (or vice versa).
+/// - Empty param name `{}`.
+/// - Wildcard not in the last position.
+/// - Nested braces `{{name}}`.
+///
+/// Path must start with `/` (axum convention); leading slash is stripped
+/// before parsing. Trailing slash is preserved as an empty final segment
+/// (matches axum: `/demo/` != `/demo`).
+fn parse_route_template(path: &str) -> Result<Vec<PathSegment>, String> {
+    let path = path.strip_prefix('/').unwrap_or(path);
+    if path.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut segments = Vec::new();
+    let mut wildcard_seen = false;
+    for seg in path.split('/') {
+        if wildcard_seen {
+            return Err(format!(
+                "route template {:?}: segment after wildcard is forbidden",
+                path
+            ));
+        }
+        if seg.starts_with('{') && seg.ends_with('}') {
+            // Inner content — check for `*` prefix (wildcard).
+            let inner = &seg[1..seg.len() - 1];
+            if inner.is_empty() {
+                return Err(format!(
+                    "route template {:?}: empty param name `{{}}`",
+                    path
+                ));
+            }
+            if let Some(stripped) = inner.strip_prefix('*') {
+                let name = stripped.to_string();
+                if name.is_empty() {
+                    return Err(format!(
+                        "route template {:?}: empty wildcard name `{{*}}`",
+                        path
+                    ));
+                }
+                segments.push(PathSegment::Wildcard(name));
+                wildcard_seen = true;
+            } else {
+                // Validate param name (no nested braces, no `/`).
+                if inner.contains('{') || inner.contains('}') || inner.contains('/') {
+                    return Err(format!(
+                        "route template {:?}: invalid param name `{{{}}} — nested braces / slashes forbidden",
+                        path, inner
+                    ));
+                }
+                segments.push(PathSegment::Param(inner.to_string()));
+            }
+        } else if seg.contains('{') || seg.contains('}') {
+            // Unbalanced braces inside a literal segment.
+            return Err(format!(
+                "route template {:?}: unbalanced braces in segment `{:?}`",
+                path, seg
+            ));
+        } else {
+            segments.push(PathSegment::Literal(seg.to_string()));
+        }
+    }
+    Ok(segments)
+}
+
+/// Check whether a route path contains any template segments (`{name}` or
+/// `{*path}`). Used to decide whether to attempt template matching.
+fn is_templated_route(path: &str) -> bool {
+    path.contains('{') && path.contains('}')
+}
+
+/// Match a URI path against a parsed template. On success, returns the
+/// extracted parameters (percent-decoded). On mismatch returns `None`.
+///
+/// Semantics:
+/// - `Literal(s)` — the URI segment must equal `s` exactly (already
+///   percent-decoded by the URI parser — we don't re-decode here).
+/// - `Param(name)` — consumes exactly ONE URI segment. The value is
+///   percent-decoded (parity with `query_param`).
+/// - `Wildcard(name)` — consumes ONE OR MORE remaining URI segments.
+///   The captured value is the raw remaining path (with `/` separators),
+///   percent-decoded.
+fn match_path_against_template(
+    uri_segments: &[&str],
+    template: &[PathSegment],
+) -> Option<std::collections::HashMap<String, String>> {
+    let mut params = std::collections::HashMap::new();
+    let mut i = 0;
+    for (j, seg) in template.iter().enumerate() {
+        match seg {
+            PathSegment::Literal(lit) => {
+                if i >= uri_segments.len() {
+                    return None;
+                }
+                if uri_segments[i] != lit {
+                    return None;
+                }
+                i += 1;
+            }
+            PathSegment::Param(name) => {
+                if i >= uri_segments.len() {
+                    return None;
+                }
+                let raw = uri_segments[i];
+                let decoded = url_decode_fallback(raw);
+                params.insert(name.clone(), decoded);
+                i += 1;
+            }
+            PathSegment::Wildcard(name) => {
+                // Wildcard consumes the rest. Captured value is the
+                // remaining path (segments joined by `/`), percent-decoded.
+                // One-or-more segments: a wildcard with zero remaining
+                // segments is NOT a match (would need at least one).
+                if i >= uri_segments.len() {
+                    return None;
+                }
+                let remaining = uri_segments[i..].join("/");
+                let decoded = url_decode_fallback(&remaining);
+                params.insert(name.clone(), decoded);
+                // Mark that we consumed the wildcard — any template
+                // segment after this is a parse error (checked at parse
+                // time, but defensive here). We return immediately
+                // instead of updating `i` (which would be unused).
+                let _ = j;
+                return Some(params);
+            }
+        }
+    }
+    // All template segments consumed; URI must be fully consumed too.
+    if i == uri_segments.len() {
+        Some(params)
+    } else {
+        None
+    }
+}
+
+/// Find the first templated route that matches `uri_path` for the given
+/// method. Returns `Ok(Some((route, params)))` on match, `Ok(None)` on
+/// no match, `Err` on template-parse error (loud — should have been
+/// caught at server start, but defensive here).
+///
+/// Axum semantics: this is a FALLBACK after static-route matching fails.
+/// Conflict between two templates matching the same path is checked at
+/// startup (`check_route_template_conflicts`); here we return the first
+/// matching template (defensive — startup check makes this unreachable
+/// in practice).
+#[allow(clippy::type_complexity)]
+fn match_templated_route<'a>(
+    routes: &'a [crate::ast::RouteDecl],
+    uri_path: &str,
+    method: &str,
+) -> Result<
+    Option<(
+        &'a crate::ast::RouteDecl,
+        std::collections::HashMap<String, String>,
+    )>,
+    String,
+> {
+    // (The tuple-with-HashMap return shape trips clippy::type_complexity;
+    // `#[allow(...)]` is preferable to introducing a one-shot type alias
+    // for a single internal function — the alternative is worse to read.)
+    // Strip leading slash and split into segments (axum convention).
+    let uri_path_stripped = uri_path.strip_prefix('/').unwrap_or(uri_path);
+    let uri_segments: Vec<&str> = if uri_path_stripped.is_empty() {
+        Vec::new()
+    } else {
+        uri_path_stripped.split('/').collect()
+    };
+
+    for route in routes {
+        if route.method != method {
+            continue;
+        }
+        if !is_templated_route(&route.path) {
+            continue; // static route — skip (handled by exact-match path)
+        }
+        let template = parse_route_template(&route.path)?;
+        if let Some(params) = match_path_against_template(&uri_segments, &template) {
+            return Ok(Some((route, params)));
+        }
+    }
+    Ok(None)
+}
+
+/// Check for template conflicts at server start. Two templates conflict
+/// when they could match the same path AND have the same method:
+/// - Same shape (e.g. `/a/{x}` and `/a/{y}`) — both can match `/a/test`.
+/// - `{name}` and `{*path}` at the same position — both can match a tail.
+///
+/// Returns `Err` with a description of the first conflict found.
+///
+/// This is a conservative check — it does NOT attempt full overlap
+/// detection (e.g. `/a/{x}/c` vs `/a/b/{y}` both matching `/a/b/c`),
+/// but it catches the most common conflicts. The runtime matcher
+/// returns the first match anyway (defensive — startup check makes
+/// the silent-priority case unreachable for the conflicts we catch).
+fn check_route_template_conflicts(routes: &[crate::ast::RouteDecl]) -> Result<(), String> {
+    // Group routes by method.
+    let mut by_method: std::collections::HashMap<&str, Vec<&crate::ast::RouteDecl>> =
+        std::collections::HashMap::new();
+    for r in routes {
+        by_method.entry(r.method.as_str()).or_default().push(r);
+    }
+    for group in by_method.values() {
+        // Parse all templates once.
+        let parsed: Vec<(&crate::ast::RouteDecl, Vec<PathSegment>)> = group
+            .iter()
+            .filter_map(|r| {
+                if !is_templated_route(&r.path) {
+                    return None;
+                }
+                parse_route_template(&r.path).ok().map(|t| (*r, t))
+            })
+            .collect();
+        // Pairwise compare — N^2 but N is small (typical server <100 routes).
+        for i in 0..parsed.len() {
+            for j in (i + 1)..parsed.len() {
+                let (r1, t1) = &parsed[i];
+                let (r2, t2) = &parsed[j];
+                if templates_overlap(t1, t2) {
+                    return Err(format!(
+                        "route template conflict: `{}` and `{}` can both match the same path (method {})",
+                        r1.path, r2.path, r1.method
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Two templates overlap if they have the same shape (literal-vs-param at
+/// each position is irrelevant — both can match the same URI) OR one is
+/// a prefix of the other with a wildcard.
+fn templates_overlap(t1: &[PathSegment], t2: &[PathSegment]) -> bool {
+    // Simple case: same length, same positions of Literal/Param/Wildcard.
+    if t1.len() == t2.len() {
+        for (s1, s2) in t1.iter().zip(t2.iter()) {
+            match (s1, s2) {
+                (PathSegment::Literal(a), PathSegment::Literal(b)) if a == b => continue,
+                (PathSegment::Literal(_), PathSegment::Literal(_)) => return false,
+                (PathSegment::Param(_), PathSegment::Param(_)) => continue,
+                (PathSegment::Wildcard(_), PathSegment::Wildcard(_)) => continue,
+                // Literal vs Param: param can match the literal value → overlap.
+                // Param vs Wildcard: wildcard matches ≥1 segment, param matches exactly 1 — overlap when wildcard's segment count is reachable.
+                _ => return true,
+            }
+        }
+        return true; // all positions overlap
+    }
+    // Different length — overlap only if the longer one ends with a
+    // wildcard that can absorb the extra segments of the shorter path.
+    // Conservative: report overlap only when prefixes match up to the
+    // wildcard. Full overlap analysis is the user's responsibility.
+    let (longer, shorter) = if t1.len() > t2.len() {
+        (t1, t2)
+    } else {
+        (t2, t1)
+    };
+    if let Some(PathSegment::Wildcard(_)) = longer.last() {
+        // Compare prefix up to the wildcard.
+        let prefix_len = longer.len() - 1;
+        if prefix_len >= shorter.len() {
+            return false;
+        }
+        for i in 0..prefix_len {
+            match (&longer[i], &shorter[i]) {
+                (PathSegment::Literal(a), PathSegment::Literal(b)) if a == b => continue,
+                (PathSegment::Literal(_), PathSegment::Literal(_)) => return false,
+                (PathSegment::Param(_), PathSegment::Param(_)) => continue,
+                _ => return true, // mismatched shapes — still overlap (param can match literal)
+            }
+        }
+        return true;
+    }
+    false
+}
+
 // Compile-time check: ServerState must be Send + Sync for axum::State
 fn _assert_state_send_sync(state: ServerState) {
     fn assert_send<T: Send>(_: &T) {}
@@ -211,6 +519,9 @@ pub struct ServerState {
     pub vm_program: Option<Arc<Program>>,
     /// Compiled route bytecodes (Наряд №40: one per route, compiled at startup).
     pub vm_routes: Vec<CompiledRoute>,
+    /// Наряд №296: redact middleware mode ("pii"|"secrets"|"all"), only
+    /// used when "redact" is in middleware list. None → "all" (default).
+    pub redact_mode: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -476,9 +787,20 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
     // ── Наряд №40: Read METALOGOS_SERVE_BACKEND once at startup ──
     let backend = match std::env::var("METALOGOS_SERVE_BACKEND") {
         Ok(ref val) if val == "vm" => {
-            // Наряд №109 / ADR-0105: explicit opt-in — surface known gaps
+            // Наряд №380 (truth-up) + №388 (current process): the VM is an
+            // OPT-IN backend, not an experimental one — ADR-0141 superseded
+            // ADR-0105's reservations, and the full-language parity is real:
+            // the Stage 1 gaps (match, block if/else, binop coercion,
+            // PRNG/Bool) are CLOSED (№369–№372) and the Stage 2 parity gate
+            // is green (№373, ADR-0141). The default flip stays gated by
+            // ADR-0141 Stage 4/5: the owner's decision, on the evidence of
+            // the nightly soak + the real-load benchmark (the №446 re-gate
+            // inputs — see №388 for the memory/perf evidence refresh).
             eprintln!(
-                "[WARN] METALOGOS_SERVE_BACKEND=vm — experimental, known                  limitations: `match` statements fail to compile, block                  if/else silently evaluates to Unit. See ADR-0105.                  Default (tree-walking) does not have these limitations."
+                "[WARN] METALOGOS_SERVE_BACKEND=vm — opt-in backend. \
+                 Full-language parity: Stage 1 gaps closed, Stage 2 crosscheck green (ADR-0141). \
+                 Default remains interpreter; the default flip is gated by ADR-0141 Stage 4/5 \
+                 (nightly soak + real-load benchmark, owner decision)."
             );
             eprintln!("[server] backend: vm (bytecode VM)");
             ServeBackend::Vm
@@ -833,6 +1155,16 @@ pub(crate) async fn build_state(
     config: MlogServerDecl,
     interp: Interpreter,
 ) -> Result<ServerState, Box<dyn std::error::Error + Send + Sync>> {
+    // Наряд №283: route template conflict check — loud error at startup
+    // when two templated routes could match the same path AND have the
+    // same method (axum semantics — silent first-wins is a confusing
+    // source of 404s). Conservative: catches same-shape and
+    // prefix+wildcard overlaps; does NOT attempt full overlap analysis.
+    // Done here (not in run_server) so the test helpers see the same
+    // behavior production does.
+    check_route_template_conflicts(&config.routes)
+        .map_err(|e| format!("server startup aborted — route template conflict: {}", e))?;
+
     // Наряд №29 §2.1: HMAC key from env (METALOGOS_HMAC_KEY) or random fallback.
     // Never panics — random fallback logs WARNING and continues.
     let hmac_key = load_hmac_key();
@@ -871,6 +1203,7 @@ pub(crate) async fn build_state(
         backend: ServeBackend::Interpreter, // set after build_state returns
         vm_program: None,
         vm_routes: Vec::new(),
+        redact_mode: config.redact_mode.clone(),
     })
 }
 
@@ -1017,13 +1350,40 @@ async fn route_handler(
         }
     }
 
-    // 4. Find matching route by path AND method
+    // 4. Find matching route by path AND method.
+    // Наряд №283: first try exact (static) match — static routes win
+    // over templates (axum semantics). If no exact match, fall back to
+    // template matcher (`{name}` single segment, `{*path}` tail).
+    let uri_path = uri.path();
     let matched_route = state
         .routes
         .iter()
-        .find(|r| r.path == uri.path() && r.method == method.as_str());
+        .find(|r| r.path == uri_path && r.method == method.as_str());
 
-    if let Some(route) = matched_route {
+    // Наряд №283: if no static match, try template matching.
+    // Returns (route_ref, extracted_path_params).
+    let (route, path_params): (
+        Option<&crate::ast::RouteDecl>,
+        std::collections::HashMap<String, String>,
+    ) = if let Some(r) = matched_route {
+        (Some(r), std::collections::HashMap::new())
+    } else {
+        match match_templated_route(&state.routes, uri_path, method.as_str()) {
+            Ok(Some((r, params))) => (Some(r), params),
+            Ok(None) => (None, std::collections::HashMap::new()),
+            Err(e) => {
+                // Loud error at request time — should have been caught
+                // at server-start conflict-check, but defensive here too.
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("route template error: {}", e),
+                )
+                    .into_response();
+            }
+        }
+    };
+
+    if let Some(route) = route {
         // Role check
         if !route.requires.is_empty() && state.middleware.contains(&"session".to_string()) {
             if let Err(resp) = check_roles(&state, &headers, &route.requires).await {
@@ -1033,9 +1393,9 @@ async fn route_handler(
 
         // ── Наряд №40: Dispatch to VM or interpreter based on backend ──
         let result = if state.backend == ServeBackend::Vm {
-            execute_route_body_vm(&state, route, &headers, &body, &query).await
+            execute_route_body_vm(&state, route, &headers, &body, &query, &path_params).await
         } else {
-            execute_route_body(&state, &route.body, &headers, &body, &query).await
+            execute_route_body(&state, &route.body, &headers, &body, &query, &path_params).await
         };
         let mut response = match result {
             Ok(response) => response,
@@ -1065,9 +1425,89 @@ async fn route_handler(
             }
         }
 
+        // Наряд №296: opt-in redact/canary middleware on response body.
+        // Applied AFTER route handler returns, BEFORE response is sent to client.
+        // Opt-in (must be in middleware list) — default behavior unchanged.
+        if state.middleware.contains(&"redact".to_string()) {
+            response = apply_redact_middleware(response, &state).await;
+        }
+        if state.middleware.contains(&"canary".to_string()) {
+            response = apply_canary_middleware(response, &state).await;
+        }
+
         response
     } else {
         (StatusCode::NOT_FOUND, "404 Not Found").into_response()
+    }
+}
+
+// ── Наряд №296: redact/canary opt-in middleware ─────────────────────
+//
+// Applied AFTER the route handler builds its response, BEFORE the
+// response is sent to the client. Opt-in (must be in `middleware: [...]`
+// list) — default behavior is byte-for-byte unchanged.
+
+/// Redact middleware: applies `redact_string(body, mode)` to the response
+/// body. Mode comes from `redact_mode` field (default "all"). Reuses
+/// the existing redact builtin logic (Наряд №274, ADR-0136).
+async fn apply_redact_middleware(response: Response, state: &ServerState) -> Response {
+    let mode = state.redact_mode.as_deref().unwrap_or("all");
+    let (parts, body) = response.into_parts();
+    let bytes = match axum::body::to_bytes(body, REQUEST_BODY_LIMIT_BYTES).await {
+        Ok(b) => b,
+        Err(_) => return Response::from_parts(parts, axum::body::Body::empty()),
+    };
+    let body_str = String::from_utf8_lossy(&bytes);
+    match crate::builtins::string::redact_string(&body_str, mode) {
+        Ok(redacted) => {
+            let redacted_bytes = redacted.into_bytes();
+            let mut resp =
+                Response::from_parts(parts, axum::body::Body::from(redacted_bytes.clone()));
+            // Update Content-Length to reflect the (possibly shorter) redacted body.
+            if let Ok(cl) = HeaderValue::from_str(&redacted_bytes.len().to_string()) {
+                resp.headers_mut().insert("content-length", cl);
+            }
+            resp
+        }
+        Err(e) => {
+            eprintln!(
+                "[redact-middleware] warning: redact failed (mode={}): {} — sending original body",
+                mode, e
+            );
+            Response::from_parts(parts, axum::body::Body::from(bytes.to_vec()))
+        }
+    }
+}
+
+/// Canary middleware: checks the response body for visible canary markers
+/// (the `MLGV` prefix from canary.rs). If found — the canary token leaked
+/// into the user-visible response, which is a prompt-injection signal (Наряд №284).
+/// Advisory only — logs a warning to stderr + sets `X-Canary-Leak: detected`
+/// header. Does NOT block the response (consistent with №284's "advisory
+/// detector, not a gate" philosophy — decision to stop is the author's).
+async fn apply_canary_middleware(response: Response, _state: &ServerState) -> Response {
+    let (parts, body) = response.into_parts();
+    let bytes = match axum::body::to_bytes(body, REQUEST_BODY_LIMIT_BYTES).await {
+        Ok(b) => b,
+        Err(_) => return Response::from_parts(parts, axum::body::Body::empty()),
+    };
+    let body_str = String::from_utf8_lossy(&bytes);
+    // Check for the canary watermark prefix "MLGV" — if visible in the
+    // response body, the canary token was not stripped before reaching the
+    // user. This is a prompt-injection exfiltration signal.
+    if body_str.contains("MLGV") {
+        eprintln!(
+            "[canary-middleware] WARNING: canary marker (MLGV prefix) detected in \
+             response body — possible prompt-injection exfiltration. Response sent \
+             with X-Canary-Leak header. Advisory only (Наряд №284)."
+        );
+        let mut resp = Response::from_parts(parts, axum::body::Body::from(bytes.to_vec()));
+        if let Ok(val) = HeaderValue::from_str("detected") {
+            resp.headers_mut().insert("x-canary-leak", val);
+        }
+        resp
+    } else {
+        Response::from_parts(parts, axum::body::Body::from(bytes.to_vec()))
     }
 }
 
@@ -1540,6 +1980,17 @@ pub async fn create_session_db(
         "INSERT INTO sessions (id, user_id, data, created_at, expires_at) VALUES (?1, ?2, '{}', ?3, ?4)",
         rusqlite::params![id, user_id, now, expires_at],
     ).map_err(|e| format!("Failed to create session: {}", e))?;
+    drop(conn);
+    // ── Naryad #393 (ADR-0167 §3.4): session lifecycle lands in the
+    // Action Ledger as a side effect of the lifecycle operation itself
+    // (best-effort — loud stderr on failure, the session is unaffected;
+    // the session id is journaled only as its SHA-256).
+    crate::ledger::record(
+        "session.create",
+        user_id,
+        "http",
+        &crate::ledger::args_hash_of(&id),
+    );
 
     Ok(id)
 }
@@ -1591,6 +2042,15 @@ pub async fn delete_session_db(
         rusqlite::params![session_id],
     )
     .map_err(|e| format!("Failed to delete session: {}", e))?;
+    drop(conn);
+    // ── Naryad #393 (ADR-0167 §3.4): session lifecycle → Action Ledger
+    // (side effect of the destroy path; best-effort; id only as hash).
+    crate::ledger::record(
+        "session.destroy",
+        "runtime",
+        "http",
+        &crate::ledger::args_hash_of(session_id),
+    );
     Ok(())
 }
 
@@ -1658,6 +2118,7 @@ pub(crate) async fn execute_route_body(
     _headers: &HeaderMap,
     raw_body: &bytes::Bytes,
     query_params: &std::collections::HashMap<String, String>,
+    path_params: &std::collections::HashMap<String, String>,
 ) -> Result<Response, String> {
     // Set up interpreter with request context (Наряд №8: route pattern invocation fix)
     let mut interp = Interpreter::new();
@@ -1694,6 +2155,13 @@ pub(crate) async fn execute_route_body(
     // Bug 2.1 fix: inject query string parameters so query_param() works
     if !query_params.is_empty() {
         interp.set_server_query_params(query_params.clone());
+    }
+
+    // Наряд №283: inject path parameters so server_path_param() works.
+    // Empty for static routes — populated by `route_handler` when the
+    // matched route is a template (`/demo/{name}` → {"name": "test"}).
+    if !path_params.is_empty() {
+        interp.set_server_path_params(path_params.clone());
     }
 
     // Наряд №14 P2-6: inject user roles for require() builtin
@@ -1896,6 +2364,7 @@ async fn execute_route_body_vm(
     headers: &HeaderMap,
     raw_body: &bytes::Bytes,
     query_params: &std::collections::HashMap<String, String>,
+    path_params: &std::collections::HashMap<String, String>,
 ) -> Result<Response, String> {
     // Find the compiled route matching this path+method
     let compiled = state
@@ -1938,6 +2407,9 @@ async fn execute_route_body_vm(
     let compiled = compiled.clone();
     let raw_body = raw_body.clone();
     let query_params = query_params.clone();
+    // Наряд №283: clone path_params for the spawn_blocking closure
+    // (parity with query_params — same lifetime requirement).
+    let path_params = path_params.clone();
 
     let (audit_entries, result) = tokio::task::spawn_blocking(move || {
         // Наряд №253 (Вариант А): VM-путь тела роута — тот же serve-роут-контекст,
@@ -1959,6 +2431,11 @@ async fn execute_route_body_vm(
         }
         if !query_params.is_empty() {
             vm.set_server_query_params(query_params.clone());
+        }
+        // Наряд №283: path parameters parity — populated when the matched
+        // route is a template (`/demo/{name}` → {"name": "test"}).
+        if !path_params.is_empty() {
+            vm.set_server_path_params(path_params.clone());
         }
         if !user_roles.is_empty() {
             vm.set_server_user_roles(user_roles);
@@ -3014,6 +3491,7 @@ mlogserver {
             backend: ServeBackend::Interpreter,
             vm_program: None,
             vm_routes: Vec::new(),
+            redact_mode: None,
         }
     }
 
@@ -3234,6 +3712,8 @@ mlogserver {
             &headers,
             &body_bytes,
             &query_map,
+            // Наряд №283: test helper for static routes — empty path params.
+            &std::collections::HashMap::new(),
         )
         .await;
         match result {
@@ -3246,9 +3726,9 @@ mlogserver {
         }
     }
 
-    /// Наряд №41 Block 1: match statement must cause compilation error, not silent stub.
+    /// Наряд №41 Block 1 (superseded by №369, ADR-0141 Stage 1.1): match
     #[tokio::test]
-    async fn test_n41_match_not_compilable_in_vm() {
+    async fn test_n41_match_compiles_in_vm_since_369() {
         use crate::compiler::Compiler;
         use crate::parser;
 
@@ -3274,17 +3754,25 @@ mlogserver {
             })
             .unwrap();
         let compiler = Compiler::new();
-        // compile_routes should return Err because route body contains match
+        // №369 (ADR-0141 Stage 1.1): Match statements compile to bytecode —
+        // the old №41 contract ("match must fail route compilation") is
+        // superseded. Route compilation must now SUCCEED, and the compiled
+        // route code must contain a real MatchTest dispatch (not a silent
+        // no-op, not an error).
         let result = compiler.compile_routes(&config.routes);
         assert!(
-            result.is_err(),
-            "compile_routes must return Err for match statement, got Ok"
+            result.is_ok(),
+            "compile_routes must accept match statements since №369, got Err"
         );
-        let err_msg = result.unwrap_err();
+        let routes = result.unwrap();
+        assert_eq!(routes.len(), 1);
+        let has_match_test = routes[0]
+            .code
+            .iter()
+            .any(|i| matches!(i, crate::bytecode::Instruction::MatchTest(_)));
         assert!(
-            err_msg.contains("Match statement not yet supported"),
-            "error message should mention Match, got: {}",
-            err_msg
+            has_match_test,
+            "compiled route must contain a MatchTest instruction (№369)"
         );
     }
 
@@ -3326,7 +3814,6 @@ mlogserver {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_n41_side_effect_parity() {
         use crate::compiler::Compiler;
-        use crate::vm::Vm;
 
         let source = r#"
 mlogserver {
@@ -3430,5 +3917,419 @@ mlogserver {
             interp_crash.status(),
             vm_is_error
         );
+    }
+
+    // ── Наряд №283: path-параметры роутов mlogserver ──────────────────
+    //
+    // Template matcher (`{name}` / `{*path}`) as a fallback after static
+    // route matching fails. Static routes win over templates (axum
+    // semantics). Conflict of two templates matching the same path →
+    // loud error at server start. TW/VM parity mandatory.
+
+    /// Helper: simulate calling a route on the server state — with template
+    /// matching. Mirrors what `route_handler` does in production: try
+    /// exact (static) match first, fall back to `match_templated_route`.
+    /// Returns 404-shaped Response when no route matches.
+    ///
+    /// Unlike `call_route` (which assumes a static path and panics on
+    /// `.unwrap()` of the missing literal match), this helper is the
+    /// correct way to exercise templated routes in tests.
+    async fn call_route_full(
+        state: &ServerState,
+        method: &str,
+        path: &str,
+        query: &str,
+        body: &str,
+    ) -> axum::response::Response {
+        let _uri: Uri = format!("{}?{}", path, query).parse().unwrap();
+        // (method is passed as &str to match_templated_route and find;
+        // we don't need to convert it to axum::http::Method here — the
+        // HTTP layer is bypassed in this helper.)
+        let _method_str = method;
+        let headers = HeaderMap::new();
+        let body_bytes = bytes::Bytes::from(body.to_string());
+        let query_map: std::collections::HashMap<String, String> = if query.is_empty() {
+            HashMap::new()
+        } else {
+            query
+                .split('&')
+                .filter_map(|pair| {
+                    let mut parts = pair.splitn(2, '=');
+                    let key = parts.next()?.to_string();
+                    let val = parts.next().unwrap_or("").to_string();
+                    Some((key, val))
+                })
+                .collect()
+        };
+
+        // 1. Exact (static) match — wins over templates (axum semantics).
+        let static_match = state
+            .routes
+            .iter()
+            .find(|r| r.path == path && r.method == method);
+
+        if let Some(route) = static_match {
+            let result = execute_route_body(
+                state,
+                &route.body,
+                &headers,
+                &body_bytes,
+                &query_map,
+                // Static route → no path params.
+                &std::collections::HashMap::new(),
+            )
+            .await;
+            return match result {
+                Ok(resp) => resp,
+                Err(e) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Handler error: {}", e),
+                )
+                    .into_response(),
+            };
+        }
+
+        // 2. Fallback: template matching.
+        match match_templated_route(&state.routes, path, method) {
+            Ok(Some((route, path_params))) => {
+                let result = execute_route_body(
+                    state,
+                    &route.body,
+                    &headers,
+                    &body_bytes,
+                    &query_map,
+                    &path_params,
+                )
+                .await;
+                match result {
+                    Ok(resp) => resp,
+                    Err(e) => (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Handler error: {}", e),
+                    )
+                        .into_response(),
+                }
+            }
+            Ok(None) => (StatusCode::NOT_FOUND, "404 Not Found").into_response(),
+            Err(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("route template error: {}", e),
+            )
+                .into_response(),
+        }
+    }
+
+    /// Helper: execute a templated route via VM directly, with path params.
+    /// Parity with `call_route_vm_direct` but injects path_params (Наряд №283).
+    async fn call_route_vm_with_path_params(
+        state: &ServerState,
+        program: &crate::bytecode::Program,
+        compiled: &crate::bytecode::CompiledRoute,
+        query: &std::collections::HashMap<String, String>,
+        path_params: &std::collections::HashMap<String, String>,
+    ) -> Result<axum::response::Response, String> {
+        let program = program.clone();
+        let compiled = compiled.clone();
+        let query = query.clone();
+        let path_params = path_params.clone();
+        let (audit_entries, result) = tokio::task::spawn_blocking(move || {
+            let mut vm = Vm::new();
+            vm.load_program(&program)
+                .map_err(|e| format!("VM route init: {}", e))?;
+            vm.clear_server_context();
+            if !query.is_empty() {
+                vm.set_server_query_params(query.clone());
+            }
+            if !path_params.is_empty() {
+                vm.set_server_path_params(path_params.clone());
+            }
+            let r = vm.execute_route_code(&compiled, &program);
+            let entries = vm.take_audit_log();
+            Result::<_, String>::Ok((entries, r))
+        })
+        .await
+        .map_err(|e| format!("blocking task panicked: {}", e))??;
+        flush_vm_audit_entries_to_db(state, &audit_entries).await;
+        match result {
+            Ok(val) => {
+                if let crate::interpreter::Value::HttpResponse { status, body } = val {
+                    let code = StatusCode::from_u16(status).unwrap_or(StatusCode::OK);
+                    Ok((code, body).into_response())
+                } else {
+                    Ok(value_to_response(val))
+                }
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    #[tokio::test]
+    async fn n283_templated_route_basic() {
+        // `/demo/{name}` matches `/demo/test` → server_path_param("name") = "test"
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/demo/{name}" method=GET {
+        let n = server_path_param("name")
+        respond("200", n)
+    }
+}
+"#;
+        let state = build_test_server_state(source).await;
+        let resp = call_route_full(&state, "GET", "/demo/test", "", "").await;
+        assert_eq!(resp.status(), 200);
+        let body = body_to_string(resp).await;
+        assert_eq!(body, "test");
+    }
+
+    #[tokio::test]
+    async fn n283_wildcard_captures_tail() {
+        // `/files/{*path}` matches `/files/a/b/c` → server_path_param("path") = "a/b/c"
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/files/{*path}" method=GET {
+        let p = server_path_param("path")
+        respond("200", p)
+    }
+}
+"#;
+        let state = build_test_server_state(source).await;
+        let resp = call_route_full(&state, "GET", "/files/a/b/c", "", "").await;
+        assert_eq!(resp.status(), 200);
+        let body = body_to_string(resp).await;
+        assert_eq!(body, "a/b/c");
+    }
+
+    #[tokio::test]
+    async fn n283_static_wins_over_template() {
+        // Both `/demo/static` (literal) and `/demo/{name}` (template) registered.
+        // `/demo/static` must match the literal route; `/demo/test` the template.
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/demo/static" method=GET {
+        respond("200", "LITERAL")
+    }
+    route "/demo/{name}" method=GET {
+        let n = server_path_param("name")
+        respond("200", "TPL:" + n)
+    }
+}
+"#;
+        let state = build_test_server_state(source).await;
+
+        // Static wins
+        let resp_static = call_route_full(&state, "GET", "/demo/static", "", "").await;
+        assert_eq!(resp_static.status(), 200);
+        assert_eq!(body_to_string(resp_static).await, "LITERAL");
+
+        // Template matches when no static route matches
+        let resp_tpl = call_route_full(&state, "GET", "/demo/test", "", "").await;
+        assert_eq!(resp_tpl.status(), 200);
+        assert_eq!(body_to_string(resp_tpl).await, "TPL:test");
+    }
+
+    #[tokio::test]
+    async fn n283_percent_decoding() {
+        // `/forge/a%20b` → server_path_param("name") = "a b" (percent-decoded).
+        // Parity with query_param decoding semantics.
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/forge/{name}" method=GET {
+        let n = server_path_param("name")
+        respond("200", n)
+    }
+}
+"#;
+        let state = build_test_server_state(source).await;
+        // `call_route` parses the path component of the URI. `%20` → space.
+        let resp = call_route_full(&state, "GET", "/forge/a%20b", "", "").await;
+        assert_eq!(resp.status(), 200);
+        let body = body_to_string(resp).await;
+        assert_eq!(body, "a b");
+    }
+
+    #[tokio::test]
+    async fn n283_no_match_returns_404() {
+        // No static route, no template → 404 (existing behavior).
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/demo/{name}" method=GET {
+        respond("200", "ok")
+    }
+}
+"#;
+        let state = build_test_server_state(source).await;
+        // /other/test — doesn't match /demo/{name}
+        let resp = call_route_full(&state, "GET", "/other/test", "", "").await;
+        assert_eq!(resp.status(), 404);
+    }
+
+    #[tokio::test]
+    async fn n283_template_conflict_at_startup() {
+        // Two templates matching the same path (same shape, same method)
+        // → loud error at server start.
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/a/{x}" method=GET {
+        respond("200", "first")
+    }
+    route "/a/{y}" method=GET {
+        respond("200", "second")
+    }
+}
+"#;
+        // build_state surfaces the conflict via the loud startup check.
+        let declarations = crate::parser::parse(source).unwrap();
+        let mut interp = Interpreter::new();
+        for decl in declarations.clone() {
+            if let Declaration::MlogServer(ref srv) = decl {
+                interp = build_interpreter_with_server(srv, interp);
+            }
+        }
+        let config = declarations
+            .iter()
+            .find_map(|d| match d {
+                Declaration::MlogServer(s) => Some(s.clone()),
+                _ => None,
+            })
+            .unwrap();
+        let result = build_state(config, interp).await;
+        assert!(
+            result.is_err(),
+            "expected server startup to fail due to template conflict, but it succeeded"
+        );
+        let err_msg = format!("{}", result.err().unwrap());
+        assert!(
+            err_msg.contains("route template conflict"),
+            "expected 'route template conflict' in error, got: {}",
+            err_msg
+        );
+    }
+
+    #[tokio::test]
+    async fn n283_parity_tw_vm_templated_route() {
+        // Same template route, TW and VM must return the same value.
+        // Нариж №40 parity: execute_route_body (TW) vs execute_route_body_vm.
+        use crate::compiler::Compiler;
+
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/u/{id}" method=GET {
+        let v = server_path_param("id")
+        respond("200", "id=" + v)
+    }
+}
+"#;
+        let state = build_test_server_state(source).await;
+
+        // ── TW path (through call_route → route_handler → execute_route_body) ──
+        let tw_resp = call_route_full(&state, "GET", "/u/42", "", "").await;
+        assert_eq!(tw_resp.status(), 200);
+        let tw_body = body_to_string(tw_resp).await;
+        assert_eq!(tw_body, "id=42");
+
+        // ── VM path (through call_route_vm_with_path_params) ──
+        let mut compiler = Compiler::new();
+        let declarations = crate::parser::parse(source).unwrap();
+        let config = declarations
+            .iter()
+            .find_map(|d| match d {
+                Declaration::MlogServer(s) => Some(s.clone()),
+                _ => None,
+            })
+            .unwrap();
+        let compiled_routes = compiler.compile_routes(&config.routes).unwrap();
+        let program = compiler.compile(declarations).unwrap();
+        let compiled = &compiled_routes[0];
+
+        let path_params: std::collections::HashMap<String, String> =
+            [("id".to_string(), "42".to_string())].into_iter().collect();
+        let empty_query: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        let vm_resp =
+            call_route_vm_with_path_params(&state, &program, compiled, &empty_query, &path_params)
+                .await
+                .expect("VM route should succeed with path_params");
+        assert_eq!(vm_resp.status(), 200);
+        let bytes = axum::body::to_bytes(vm_resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap_or_default();
+        let vm_body = String::from_utf8(bytes.to_vec()).unwrap_or_default();
+        assert_eq!(vm_body, "id=42", "VM body must match TW body (parity)");
+    }
+
+    // ── Наряд №296: redact/canary middleware tests ──────────────────
+    // Middleware functions tested directly (not through call_route which
+    // bypasses route_handler where middleware is applied).
+
+    #[tokio::test]
+    async fn n296_redact_middleware_masks_pii() {
+        let state = build_test_server_state(r#"
+mlogserver { port: 0 host: "127.0.0.1" middleware: [redact] redact_mode: "pii" route "/x" method=GET { respond("ok") } }
+"#).await;
+        let resp = (StatusCode::OK, "Contact: john.doe@example.com").into_response();
+        let redacted = apply_redact_middleware(resp, &state).await;
+        let bytes = axum::body::to_bytes(redacted.into_body(), 8192)
+            .await
+            .unwrap_or_default();
+        let body = String::from_utf8_lossy(&bytes);
+        assert!(
+            !body.contains("john.doe@example.com"),
+            "Email should be redacted, got: {}",
+            body
+        );
+    }
+
+    #[tokio::test]
+    async fn n296_canary_middleware_detects_mlgv() {
+        let state = build_test_server_state(r#"
+mlogserver { port: 0 host: "127.0.0.1" middleware: [canary] route "/x" method=GET { respond("ok") } }
+"#).await;
+        let resp = (StatusCode::OK, "This response contains MLGV canary marker").into_response();
+        let checked = apply_canary_middleware(resp, &state).await;
+        assert!(
+            checked.headers().contains_key("x-canary-leak"),
+            "X-Canary-Leak should be set"
+        );
+    }
+
+    #[tokio::test]
+    async fn n296_canary_middleware_no_false_positive() {
+        let state = build_test_server_state(r#"
+mlogserver { port: 0 host: "127.0.0.1" middleware: [canary] route "/x" method=GET { respond("ok") } }
+"#).await;
+        let resp = (StatusCode::OK, "This is a safe response").into_response();
+        let checked = apply_canary_middleware(resp, &state).await;
+        assert!(
+            !checked.headers().contains_key("x-canary-leak"),
+            "No false positive on safe response"
+        );
+    }
+
+    #[tokio::test]
+    async fn n296_no_middleware_unchanged() {
+        // Without redact in middleware list — build_test_server_state works, no redact applied.
+        // This test just verifies the server starts without redact middleware.
+        let state = build_test_server_state(
+            r#"
+mlogserver { port: 0 host: "127.0.0.1" route "/x" method=GET { respond("ok") } }
+"#,
+        )
+        .await;
+        assert!(!state.middleware.contains(&"redact".to_string()));
+        assert!(!state.middleware.contains(&"canary".to_string()));
     }
 }

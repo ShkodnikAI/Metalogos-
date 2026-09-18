@@ -42,6 +42,13 @@ pub struct Compiler {
     /// Наряд №240 (Vision R4.2): collected `vision` declarations for the VM
     /// and the interpreter's declaration pass.
     vision_decls: Vec<crate::bytecode::CompiledVisionDecl>,
+    /// Наряд №332 (ADR-0164): collected `origin` declarations.
+    origin_decls: Vec<crate::bytecode::CompiledOriginDecl>,
+    /// Наряд №392: compiled on_deny handlers, in declaration order.
+    deny_handlers: Vec<crate::bytecode::CompiledDenyHandler>,
+    /// Наряд №392: class → handler index (read during pass2 to arm
+    /// SinkChecks with the deny path).
+    deny_handler_indices: HashMap<String, u32>,
     /// Наряд №204 (ADR-0121 stage 2): memory persist path from `memory { persist: ... }`.
     /// Passed to the VM so reflex_save/reflex_load work without the interpreter.
     memory_persist_path: Option<String>,
@@ -67,7 +74,150 @@ impl Default for Compiler {
     }
 }
 
+// ── Runtime label emission (Наряд №328, ADR-0156) ────────────────────
+//
+// The compiler lowers the static №323/№325 knowledge into runtime
+// instructions: a `let`/assignment from a №316 Source call carries a
+// LabelJoin (the runtime label env is seeded), and every sink call site
+// gets a SinkCheck for each identifier/direct-source argument. The
+// static gate remains the SSOT — the runtime twin agrees by
+// construction and rejects any divergence loudly (ADR-0156 §2).
+
+fn is_source_call(name: &str) -> bool {
+    matches!(
+        crate::builtins_classification::classify(name).map(|c| c.role),
+        Some(crate::builtins_classification::Role::Source)
+    )
+}
+
+fn is_sink_call(name: &str) -> bool {
+    matches!(
+        crate::builtins_classification::classify(name).map(|c| c.role),
+        Some(crate::builtins_classification::Role::Sink)
+    )
+}
+
+/// Emit a SinkCheck for the argument when it is trackable at runtime:
+/// a variable (by name) or a direct source call (`@name`).
+/// Наряд №392: when the program declares an on_deny handler covering the
+/// sink's class, `deny_handler` carries its index and each emitted
+/// SinkCheck is armed with the deny path (skip_to patched later, once
+/// the refused call's continuation address is known). Returns the
+/// indices of the emitted SinkCheck instructions for that patching.
+fn emit_sink_checks(
+    code: &mut Vec<Instruction>,
+    fn_name: &str,
+    args: &[crate::ast::Expr],
+    line: u32,
+    deny_handler: Option<u32>,
+) -> Vec<usize> {
+    let mut emitted = Vec::new();
+    for (i, a) in args.iter().enumerate() {
+        let trackable = match a {
+            crate::ast::Expr::Ident { name, .. } => Some(name.clone()),
+            crate::ast::Expr::FnCall { name, .. } if is_source_call(name) => {
+                Some(format!("@{name}"))
+            }
+            _ => None,
+        };
+        if let Some(arg) = trackable {
+            emitted.push(code.len());
+            code.push(Instruction::SinkCheck {
+                fn_name: fn_name.to_string(),
+                arg,
+                line: line.max(1),
+                // №392: the argument position feeds the SAME reason
+                // classification the static gate uses (the network
+                // address-position rule).
+                arg_index: i as u32,
+                deny: deny_handler.map(|handler| SinkDenyPath {
+                    handler,
+                    skip_to: 0,
+                }),
+            });
+        }
+    }
+    emitted
+}
+
 impl Compiler {
+    /// Наряд №392: compile the `on_deny(<class|*>) { body }` handlers —
+    /// zero-arg zero-result code ending in `Const(Unit); Return`, run by
+    /// the VM's deny path with the CallPattern frame discipline. The
+    /// class → index map arms SinkCheck emission during pass2.
+    fn compile_deny_handlers(&mut self, declarations: &[Declaration]) -> Result<(), String> {
+        for (i, decl) in declarations.iter().enumerate() {
+            let Declaration::OnDeny(d) = decl else {
+                continue;
+            };
+            let mut locals: HashMap<String, usize> = HashMap::new();
+            let mut mutable: HashSet<String> = HashSet::new();
+            let mut next_slot = 0usize;
+            let mut loop_stack: Vec<(usize, Vec<usize>, Vec<usize>)> = Vec::new();
+            let mut code = Vec::new();
+            for stmt in &d.body {
+                self.compile_stmt_with_locals(
+                    stmt,
+                    &mut code,
+                    &mut locals,
+                    &mut next_slot,
+                    &mut loop_stack,
+                    &mut mutable,
+                )?;
+            }
+            // The handler's value is discarded by the deny path; end with
+            // an explicit Unit so a fall-through body still returns.
+            code.push(Instruction::Const(Value::Unit));
+            code.push(Instruction::Return);
+            self.deny_handler_indices
+                .insert(d.class.clone(), self.deny_handlers.len() as u32);
+            self.deny_handlers
+                .push(crate::bytecode::CompiledDenyHandler {
+                    class: d.class.clone(),
+                    name: format!("__on_deny_{}", i),
+                    code,
+                });
+        }
+        Ok(())
+    }
+
+    /// Наряд №392: emit the SinkChecks for a direct sink call in
+    /// statement position, armed with the on_deny path when the program
+    /// declares a covering handler for the sink's class. Returns the
+    /// emitted SinkCheck indices (skip_to patched once the continuation
+    /// is known).
+    fn emit_armed_sink_checks(
+        &self,
+        code: &mut Vec<Instruction>,
+        expr: &crate::ast::Expr,
+    ) -> Vec<usize> {
+        if let crate::ast::Expr::FnCall {
+            name, args, span, ..
+        } = expr
+        {
+            if is_sink_call(name) {
+                let class = crate::audit::sink_kind(name);
+                let handler = self.deny_handler_indices.get(class).copied();
+                return emit_sink_checks(code, name, args, span.start_line, handler);
+            }
+        }
+        Vec::new()
+    }
+
+    /// Наряд №392: patch the deny paths of the given SinkChecks to jump
+    /// to `skip_to` (the instruction that consumes the degraded Unit —
+    /// the Pop or Return that follows the refused call).
+    fn patch_deny_skip_to(code: &mut [Instruction], indices: &[usize], skip_to: usize) {
+        for &i in indices {
+            if let Instruction::SinkCheck {
+                deny: Some(path), ..
+            } = &mut code[i]
+            {
+                path.skip_to = skip_to as u32;
+            }
+        }
+    }
+
     /// Create a new compiler with default settings.
     pub fn new() -> Self {
         Self::with_std_root(std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
@@ -90,6 +240,9 @@ impl Compiler {
             reflex_seq_decls: Vec::new(),
             reflex_gen_decls: Vec::new(),
             vision_decls: Vec::new(),
+            origin_decls: Vec::new(),
+            deny_handlers: Vec::new(),
+            deny_handler_indices: HashMap::new(),
             memory_persist_path: None,
             db_url: None,
             schema_ddl: Vec::new(),
@@ -126,6 +279,11 @@ impl Compiler {
         // Pass 1: collect struct types, pattern names, learnable names, global slots
         self.pass1(&all_decls)?;
 
+        // Pass 1.5 (№392): compile the on_deny handler bodies — after the
+        // global slots are assigned (a handler may store into a global)
+        // and before pass2 arms SinkChecks with the handler indices.
+        self.compile_deny_handlers(&all_decls)?;
+
         // Pass 2: generate main_code
         let main_code = self.pass2(&all_decls)?;
 
@@ -148,6 +306,8 @@ impl Compiler {
             reflex_seq_decls: std::mem::take(&mut self.reflex_seq_decls),
             reflex_gen_decls: std::mem::take(&mut self.reflex_gen_decls),
             vision_decls: std::mem::take(&mut self.vision_decls),
+            origin_decls: std::mem::take(&mut self.origin_decls),
+            deny_handlers: std::mem::take(&mut self.deny_handlers),
             db_url: self.db_url.take(),
             memory_persist_path: self.memory_persist_path.take(),
             schema_ddl: std::mem::take(&mut self.schema_ddl),
@@ -162,6 +322,9 @@ impl Compiler {
     fn pass1(&mut self, decls: &[Declaration]) -> Result<(), String> {
         for decl in decls {
             match decl {
+                // №325: the compatibility profile is a compile-time
+                // declaration — nothing to emit.
+                Declaration::Profile(_) => {}
                 Declaration::EntityType(e) => {
                     let fields: Vec<String> = e.fields.iter().map(|f| f.name.clone()).collect();
                     self.struct_fields.insert(e.name.clone(), fields);
@@ -363,6 +526,14 @@ impl Compiler {
                     self.vision_decls
                         .push(crate::bytecode::CompiledVisionDecl::from_ast(v));
                 }
+                // Наряд №332 (ADR-0164): collect origin declarations for
+                // the media_source_capture dispatch (shape validated in
+                // semantic; the conversion re-checks the required fields).
+                Declaration::Origin(o) => {
+                    let compiled = crate::bytecode::CompiledOriginDecl::from_ast(o)
+                        .map_err(|e| format!("compile: {}", e))?;
+                    self.origin_decls.push(compiled);
+                }
                 _ => {}
             }
         }
@@ -375,6 +546,12 @@ impl Compiler {
 
         for decl in decls {
             match decl {
+                // №325: the compatibility profile is a compile-time
+                // declaration — nothing to emit.
+                Declaration::Profile(_) => {}
+                // №392: deny handlers were compiled in pass 1.5 — nothing
+                // to emit into main_code.
+                Declaration::OnDeny(_) => {}
                 Declaration::EntityType(e) => {
                     // Struct type already registered in pass1. No runtime instruction needed.
                     // (The VM will need to know about struct types for MakeStruct.)
@@ -648,7 +825,11 @@ impl Compiler {
                 // `Vm::load_program` and the interpreter's declaration pass,
                 // лекало reflex_decls). Minimal arm forced by the
                 // exhaustive match.
-                | Declaration::Vision(_) => {
+                // Наряд №332 (ADR-0164): origin declarations carry no
+                // bytecode — registration via `program.origin_decls`
+                // (лекало vision_decls).
+                | Declaration::Vision(_)
+                | Declaration::Origin(_) => {
                     // Наряд №203 Block 1: no bytecode instruction emitted
                     // for reflex declarations in pass2. Dense classification
                     // (Declaration::Reflex) is handled via program.reflex_decls
@@ -664,16 +845,38 @@ impl Compiler {
     }
 
     /// Compile an AST expression into stack instructions (no locals context).
+    /// №370: the scratch next_slot starts ABOVE the globals snapshot — the
+    /// wrapper serves top-level declaration initializers (main-code
+    /// execution, bp=0), so hidden slots must not overlap global slots.
     fn compile_expr(&self, expr: &Expr, code: &mut Vec<Instruction>) -> Result<(), String> {
-        self.compile_expr_with_locals(expr, code, &HashMap::new())
+        let mut scratch: HashMap<String, usize> = HashMap::new();
+        let mut next_slot = self.next_global.max(self.global_slots.len());
+        let mut loop_stack: Vec<(usize, Vec<usize>, Vec<usize>)> = Vec::new();
+        let mut mutable: HashSet<String> = HashSet::new();
+        self.compile_expr_with_locals(
+            expr,
+            code,
+            &mut scratch,
+            &mut next_slot,
+            &mut loop_stack,
+            &mut mutable,
+        )
     }
 
     /// Compile an AST expression into stack instructions with a locals map.
+    /// №370: `locals` is mutable and `next_slot` is threaded through — the
+    /// BlockIfElse value compilation allocates HIDDEN scratch slots
+    /// (`#`-names, impossible in user IDENTs) for its last-value register,
+    /// exactly like the №369 match-expr machinery. Expression positions can
+    /// nest arbitrarily deep (primary_expr), so the slot counter must follow.
     fn compile_expr_with_locals(
         &self,
         expr: &Expr,
         code: &mut Vec<Instruction>,
-        locals: &HashMap<String, usize>,
+        locals: &mut HashMap<String, usize>,
+        next_slot: &mut usize,
+        loop_stack: &mut Vec<(usize, Vec<usize>, Vec<usize>)>,
+        mutable: &mut HashSet<String>,
     ) -> Result<(), String> {
         match expr {
             Expr::StringLit { value: s, .. } => {
@@ -697,12 +900,14 @@ impl Compiler {
                 field,
                 ..
             } => {
-                self.compile_expr_with_locals(base, code, locals)?;
+                self.compile_expr_with_locals(base, code, locals, next_slot, loop_stack, mutable)?;
                 code.push(Instruction::GetField(field.clone()));
             }
             Expr::FnCall { name, args, .. } => {
                 for arg in args {
-                    self.compile_expr_with_locals(arg, code, locals)?;
+                    self.compile_expr_with_locals(
+                        arg, code, locals, next_slot, loop_stack, mutable,
+                    )?;
                 }
                 let arity = args.len();
                 // Check if it's a builtin
@@ -724,10 +929,14 @@ impl Compiler {
                     // Must NOT eagerly compile both operands.
                     if matches!(op, BinOp::And) {
                         // And: compile left, if falsy → false, else check right
-                        self.compile_expr_with_locals(left, code, locals)?;
+                        self.compile_expr_with_locals(
+                            left, code, locals, next_slot, loop_stack, mutable,
+                        )?;
                         let jump_to_false_1 = code.len();
                         code.push(Instruction::JumpIfNot(0)); // placeholder
-                        self.compile_expr_with_locals(right, code, locals)?;
+                        self.compile_expr_with_locals(
+                            right, code, locals, next_slot, loop_stack, mutable,
+                        )?;
                         let jump_to_false_2 = code.len();
                         code.push(Instruction::JumpIfNot(0)); // placeholder
                         code.push(Instruction::Const(Value::Bool(true)));
@@ -753,7 +962,9 @@ impl Compiler {
                         }
                     } else {
                         // Or: compile left, if truthy → true, else check right
-                        self.compile_expr_with_locals(left, code, locals)?;
+                        self.compile_expr_with_locals(
+                            left, code, locals, next_slot, loop_stack, mutable,
+                        )?;
                         let jump_to_check_right = code.len();
                         code.push(Instruction::JumpIfNot(0)); // placeholder
                                                               // left is truthy
@@ -767,7 +978,9 @@ impl Compiler {
                         {
                             *t = l_check_right;
                         }
-                        self.compile_expr_with_locals(right, code, locals)?;
+                        self.compile_expr_with_locals(
+                            right, code, locals, next_slot, loop_stack, mutable,
+                        )?;
                         let jump_to_false = code.len();
                         code.push(Instruction::JumpIfNot(0)); // placeholder
                                                               // right is truthy
@@ -792,8 +1005,12 @@ impl Compiler {
                     }
                 }
                 _ => {
-                    self.compile_expr_with_locals(left, code, locals)?;
-                    self.compile_expr_with_locals(right, code, locals)?;
+                    self.compile_expr_with_locals(
+                        left, code, locals, next_slot, loop_stack, mutable,
+                    )?;
+                    self.compile_expr_with_locals(
+                        right, code, locals, next_slot, loop_stack, mutable,
+                    )?;
                     match op {
                         BinOp::Add => code.push(Instruction::Add),
                         BinOp::Sub => code.push(Instruction::Sub),
@@ -817,12 +1034,14 @@ impl Compiler {
                 ..
             } => {
                 // Compile condition
-                self.compile_expr_with_locals(cond, code, locals)?;
+                self.compile_expr_with_locals(cond, code, locals, next_slot, loop_stack, mutable)?;
                 // Jump to else branch if falsy
                 let jump_to_else = code.len();
                 code.push(Instruction::JumpIfNot(0)); // placeholder
                                                       // Compile then branch
-                self.compile_expr_with_locals(then_expr, code, locals)?;
+                self.compile_expr_with_locals(
+                    then_expr, code, locals, next_slot, loop_stack, mutable,
+                )?;
                 // Jump past else branch
                 let jump_to_end = code.len();
                 code.push(Instruction::Jump(0)); // placeholder
@@ -832,7 +1051,9 @@ impl Compiler {
                     *target = else_start;
                 }
                 // Compile else branch
-                self.compile_expr_with_locals(else_expr, code, locals)?;
+                self.compile_expr_with_locals(
+                    else_expr, code, locals, next_slot, loop_stack, mutable,
+                )?;
                 // Patch: end jump target
                 let end = code.len();
                 if let Some(Instruction::Jump(ref mut target)) = code.get_mut(jump_to_end) {
@@ -878,7 +1099,9 @@ impl Compiler {
             Expr::List { items, .. } => {
                 // Push each item onto stack, then MakeList(count) pops them into a list.
                 for item in items {
-                    self.compile_expr_with_locals(item, code, locals)?;
+                    self.compile_expr_with_locals(
+                        item, code, locals, next_slot, loop_stack, mutable,
+                    )?;
                 }
                 code.push(Instruction::MakeList(items.len()));
             }
@@ -887,20 +1110,97 @@ impl Compiler {
                 index,
                 ..
             } => {
-                self.compile_expr_with_locals(base, code, locals)?;
-                self.compile_expr_with_locals(index, code, locals)?;
+                self.compile_expr_with_locals(base, code, locals, next_slot, loop_stack, mutable)?;
+                self.compile_expr_with_locals(index, code, locals, next_slot, loop_stack, mutable)?;
                 code.push(Instruction::IndexAccess);
             }
             Expr::StructLit { fields, .. } => {
                 let field_names: Vec<String> = fields.keys().cloned().collect();
                 for val_expr in fields.values() {
-                    self.compile_expr_with_locals(val_expr, code, locals)?;
+                    self.compile_expr_with_locals(
+                        val_expr, code, locals, next_slot, loop_stack, mutable,
+                    )?;
                 }
                 code.push(Instruction::MakeStruct("Struct".to_string(), field_names));
             }
-            Expr::BlockIfElse { .. } => {
-                return Err("compile: block if/else expression not yet supported \
-                     in VM bytecode (use tree-walking interpreter)"
+            // №370: if/else as a VALUE (ADR-0141 Stage 1.2). NO new opcode —
+            // the jump structure (Jump/JumpIfNot) plus the №369 last-value
+            // register (StoreLastLocal into a hidden slot) express it
+            // exactly; the VM dispatch is unchanged by construction (nothing
+            // new to dispatch — the naryad's "dispatch ×2" is vacuously
+            // satisfied, recorded here and in the report). TW parity: the
+            // value is the branch's last non-Unit expression (the
+            // eval_statements contract); branches run against a CLONED env
+            // in TW (lets do not leak — the №14 P0-3 precedent, shared with
+            // the №369 match-expr arms); nothing matched and no else → Unit.
+            // A `return` inside a branch is captured as the block value
+            // (the expression channel cannot carry a control signal — same
+            // as BlockIfElse TW eval and MatchExpr).
+            Expr::BlockIfElse {
+                condition,
+                ref then_body,
+                ref else_ifs,
+                ref else_body,
+                ..
+            } => {
+                // The branch value lives in a VM-STATE register (Begin/End
+                // pair) — safe in any expression position.
+                code.push(Instruction::BeginValueExpr);
+                let mut end_fixups: Vec<usize> = Vec::new();
+                // then branch
+                self.compile_expr_with_locals(
+                    condition, code, locals, next_slot, loop_stack, mutable,
+                )?;
+                code.push(Instruction::JumpIfNot(0));
+                let mut jmp_idx = code.len() - 1;
+                let saved = *next_slot;
+                self.compile_match_expr_arm_body(
+                    then_body, code, locals, next_slot, loop_stack, mutable,
+                )?;
+                *next_slot = saved;
+                code.push(Instruction::Jump(0));
+                end_fixups.push(code.len() - 1);
+                code[jmp_idx] = Instruction::JumpIfNot(code.len());
+                // else-if chain (same lazy per-branch condition evaluation
+                // as TW: an else-if condition is only evaluated when
+                // reached).
+                for (ei_cond, ei_body) in else_ifs {
+                    self.compile_expr_with_locals(
+                        ei_cond, code, locals, next_slot, loop_stack, mutable,
+                    )?;
+                    code.push(Instruction::JumpIfNot(0));
+                    jmp_idx = code.len() - 1;
+                    let saved = *next_slot;
+                    self.compile_match_expr_arm_body(
+                        ei_body, code, locals, next_slot, loop_stack, mutable,
+                    )?;
+                    *next_slot = saved;
+                    code.push(Instruction::Jump(0));
+                    end_fixups.push(code.len() - 1);
+                    code[jmp_idx] = Instruction::JumpIfNot(code.len());
+                }
+                // else branch (or stay Unit)
+                if let Some(eb) = else_body {
+                    self.compile_match_expr_arm_body(
+                        eb, code, locals, next_slot, loop_stack, mutable,
+                    )?;
+                }
+                let end = code.len();
+                for f in end_fixups {
+                    code[f] = Instruction::Jump(end);
+                }
+                // The taken branch's value: pop the register onto the stack.
+                code.push(Instruction::EndValueExpr);
+            }
+            // №369: the match EXPRESSION form is compiled natively — but only
+            // in let-binding position (the grammar's only match_expr site),
+            // handled by `compile_let_match` via the LetBinding arms of the
+            // two statement compilers. If this arm is ever reached, a new
+            // grammar position started producing MatchExpr — fail LOUDLY
+            // instead of silently mis-compiling.
+            Expr::MatchExpr { .. } => {
+                return Err("compile: match expression outside let binding — \
+                     unsupported position (№369 compiles let-bound match only)"
                     .into());
             }
             // Наряд №91: try expression — real compilation for VM
@@ -908,8 +1208,46 @@ impl Compiler {
             // wrapped in TryEval so the VM can catch errors locally.
             Expr::Try { expr: inner, .. } => {
                 let mut inner_code = Vec::new();
-                self.compile_expr_with_locals(inner, &mut inner_code, locals)?;
+                self.compile_expr_with_locals(
+                    inner,
+                    &mut inner_code,
+                    locals,
+                    next_slot,
+                    loop_stack,
+                    mutable,
+                )?;
                 code.push(Instruction::TryEval(inner_code));
+            }
+            // Наряд №332 (ADR-0164): HandleSource lowers to the
+            // state-carrying `media_source_capture(origin_name)` — the
+            // interpreter/VM interception resolves the origin declaration
+            // and captures through the media store (kind camera is a loud
+            // PARKED boundary at runtime).
+            Expr::HandleSource { origin, .. } => {
+                let idx = *self
+                    .builtin_indices
+                    .get("media_source_capture")
+                    .ok_or_else(|| {
+                        "compile: media_source_capture not registered (registry invariant)"
+                            .to_string()
+                    })?;
+                code.push(Instruction::Const(Value::String(origin.clone())));
+                code.push(Instruction::CallBuiltin(idx, 1));
+            }
+            // Наряд №332 (ADR-0164): ProvBind lowers to
+            // `media_bind_origin(origin_name, handle)` — evaluates the
+            // construction, then binds the store entry's origin (and
+            // joins the declared origin conf into the entry label).
+            Expr::ProvBind { origin, inner, .. } => {
+                let idx = *self
+                    .builtin_indices
+                    .get("media_bind_origin")
+                    .ok_or_else(|| {
+                        "compile: media_bind_origin not registered (registry invariant)".to_string()
+                    })?;
+                code.push(Instruction::Const(Value::String(origin.clone())));
+                self.compile_expr_with_locals(inner, code, locals, next_slot, loop_stack, mutable)?;
+                code.push(Instruction::CallBuiltin(idx, 2));
             }
         }
         Ok(())
@@ -936,8 +1274,43 @@ impl Compiler {
         // Each entry: (loop_start_ip, break_fixups, continue_fixups)
         let mut loop_stack: Vec<(usize, Vec<usize>, Vec<usize>)> = Vec::new();
 
-        for stmt in body {
+        // №369/№250: the FINAL statement's value is the body's fall-through
+        // value (execute_code: Ok(stack.pop())) — a match statement in that
+        // position must keep the matched arm's trailing value.
+        let last_stmt_idx = body.len().saturating_sub(1);
+        for (stmt_idx, stmt) in body.iter().enumerate() {
+            let is_last = stmt_idx == last_stmt_idx;
             match stmt {
+                Statement::LetBinding {
+                    name,
+                    value,
+                    mutable: is_mut,
+                    ..
+                } if matches!(value, Expr::MatchExpr { .. }) => {
+                    // №369: the match EXPRESSION form compiles natively
+                    // (ADR-0141 Stage 1.1) — full arm structure, TW parity.
+                    let Expr::MatchExpr {
+                        scrutinee,
+                        arms,
+                        else_body,
+                        ..
+                    } = value
+                    else {
+                        unreachable!("guard guarantees MatchExpr")
+                    };
+                    self.compile_let_match(
+                        name,
+                        *is_mut,
+                        scrutinee,
+                        arms,
+                        else_body,
+                        &mut code,
+                        locals,
+                        &mut next_slot,
+                        &mut loop_stack,
+                        mutable,
+                    )?;
+                }
                 Statement::LetBinding {
                     name,
                     value,
@@ -950,14 +1323,37 @@ impl Compiler {
                     if *is_mut {
                         mutable.insert(name.clone());
                     }
+                    // №328: seed the runtime label env for source-backed lets.
+                    if let crate::ast::Expr::FnCall { name: src, .. } = value {
+                        if is_source_call(src) {
+                            code.push(Instruction::LabelJoin {
+                                dst: name.clone(),
+                                src: format!("@{src}"),
+                            });
+                        }
+                    }
                     if let Some(&existing_slot) = locals.get(name) {
-                        self.compile_expr_with_locals(value, &mut code, locals)?;
+                        self.compile_expr_with_locals(
+                            value,
+                            &mut code,
+                            locals,
+                            &mut next_slot,
+                            &mut loop_stack,
+                            mutable,
+                        )?;
                         code.push(Instruction::StoreLocal(existing_slot));
                     } else {
                         let slot = next_slot;
                         next_slot += 1;
                         locals.insert(name.clone(), slot);
-                        self.compile_expr_with_locals(value, &mut code, locals)?;
+                        self.compile_expr_with_locals(
+                            value,
+                            &mut code,
+                            locals,
+                            &mut next_slot,
+                            &mut loop_stack,
+                            mutable,
+                        )?;
                         code.push(Instruction::StoreLocal(slot));
                     }
                 }
@@ -981,7 +1377,14 @@ impl Compiler {
                     // carries the mutability fact so the VM can backstop
                     // bytecode produced past this check (VM loud, never
                     // silent — see bytecode.rs StoreAssignLocal).
-                    self.compile_expr_with_locals(value, &mut code, locals)?;
+                    self.compile_expr_with_locals(
+                        value,
+                        &mut code,
+                        locals,
+                        &mut next_slot,
+                        &mut loop_stack,
+                        mutable,
+                    )?;
                     code.push(Instruction::StoreAssignLocal {
                         slot,
                         name: name.clone(),
@@ -989,7 +1392,14 @@ impl Compiler {
                     });
                 }
                 Statement::Return { value: expr, .. } => {
-                    self.compile_expr_with_locals(expr, &mut code, locals)?;
+                    self.compile_expr_with_locals(
+                        expr,
+                        &mut code,
+                        locals,
+                        &mut next_slot,
+                        &mut loop_stack,
+                        mutable,
+                    )?;
                     code.push(Instruction::Return);
                 }
                 Statement::While {
@@ -1000,7 +1410,14 @@ impl Compiler {
                     let continue_fixups: Vec<usize> = Vec::new();
 
                     // Evaluate condition
-                    self.compile_expr_with_locals(condition, &mut code, locals)?;
+                    self.compile_expr_with_locals(
+                        condition,
+                        &mut code,
+                        locals,
+                        &mut next_slot,
+                        &mut loop_stack,
+                        mutable,
+                    )?;
                     // JumpIfNot → after loop (placeholder)
                     let jmp_not_idx = code.len();
                     code.push(Instruction::JumpIfNot(0));
@@ -1071,7 +1488,14 @@ impl Compiler {
                     next_slot += 1;
 
                     // Compile iterable expression, store in list_slot
-                    self.compile_expr_with_locals(iterable, &mut code, locals)?;
+                    self.compile_expr_with_locals(
+                        iterable,
+                        &mut code,
+                        locals,
+                        &mut next_slot,
+                        &mut loop_stack,
+                        mutable,
+                    )?;
                     code.push(Instruction::StoreLocal(list_slot));
 
                     // Initialize index = 0
@@ -1174,7 +1598,14 @@ impl Compiler {
                     let item_slot = next_slot;
                     next_slot += 1;
 
-                    self.compile_expr_with_locals(iterable, &mut code, locals)?;
+                    self.compile_expr_with_locals(
+                        iterable,
+                        &mut code,
+                        locals,
+                        &mut next_slot,
+                        &mut loop_stack,
+                        mutable,
+                    )?;
                     code.push(Instruction::StoreLocal(list_slot));
 
                     code.push(Instruction::Const(Value::Float(0.0)));
@@ -1262,7 +1693,14 @@ impl Compiler {
                     body: then_body,
                     ..
                 } => {
-                    self.compile_expr_with_locals(cond, &mut code, locals)?;
+                    self.compile_expr_with_locals(
+                        cond,
+                        &mut code,
+                        locals,
+                        &mut next_slot,
+                        &mut loop_stack,
+                        mutable,
+                    )?;
                     code.push(Instruction::JumpIfNot(0)); // placeholder
                     let jmp_idx = code.len() - 1;
 
@@ -1293,7 +1731,14 @@ impl Compiler {
                     let mut jump_to_end_fixups: Vec<usize> = Vec::new();
 
                     // if condition
-                    self.compile_expr_with_locals(condition, &mut code, locals)?;
+                    self.compile_expr_with_locals(
+                        condition,
+                        &mut code,
+                        locals,
+                        &mut next_slot,
+                        &mut loop_stack,
+                        mutable,
+                    )?;
                     code.push(Instruction::JumpIfNot(0));
                     let jmp_idx = code.len() - 1;
 
@@ -1319,7 +1764,14 @@ impl Compiler {
 
                     // else if chain
                     for (ei_cond, ei_body) in else_ifs {
-                        self.compile_expr_with_locals(ei_cond, &mut code, locals)?;
+                        self.compile_expr_with_locals(
+                            ei_cond,
+                            &mut code,
+                            locals,
+                            &mut next_slot,
+                            &mut loop_stack,
+                            mutable,
+                        )?;
                         code.push(Instruction::JumpIfNot(0));
                         let ei_jmp = code.len() - 1;
 
@@ -1366,30 +1818,82 @@ impl Compiler {
                     }
                 }
                 Statement::ExprStmt { expr, .. } => {
-                    self.compile_expr_with_locals(expr, &mut code, locals)?;
+                    self.compile_expr_with_locals(
+                        expr,
+                        &mut code,
+                        locals,
+                        &mut next_slot,
+                        &mut loop_stack,
+                        mutable,
+                    )?;
                     // Discard result (side-effect expression like respond(), write_file())
                     code.push(Instruction::Pop);
                 }
-                Statement::Match { .. } => {
-                    return Err("compile: Match statement not yet supported in VM bytecode \
-                         (use tree-walking interpreter)"
-                        .into());
+                Statement::Match {
+                    scrutinee,
+                    arms,
+                    else_body,
+                    ..
+                } => {
+                    // №369: Match statement → bytecode (ADR-0141 Stage 1.1) —
+                    // the TW-only gap is closed; see compile_match_stmt.
+                    // №250 parity: as the body's final statement the matched
+                    // arm's trailing value is the fall-through value.
+                    self.compile_match_stmt(
+                        scrutinee,
+                        arms,
+                        else_body,
+                        &mut code,
+                        locals,
+                        &mut next_slot,
+                        &mut loop_stack,
+                        mutable,
+                        is_last,
+                    )?;
                 }
                 // Наряд №266: memory ops as statements — the VM already has the
                 // opcodes (Memorize/Forget/Relate execute the same stores the
                 // top-level declarations compile to in pass2); emit them with
                 // locals-aware expressions so pattern params/locals resolve.
                 Statement::Memorize(m) => {
-                    self.compile_expr_with_locals(&m.value, &mut code, locals)?;
+                    self.compile_expr_with_locals(
+                        &m.value,
+                        &mut code,
+                        locals,
+                        &mut next_slot,
+                        &mut loop_stack,
+                        mutable,
+                    )?;
                     code.push(Instruction::Memorize(m.priority));
                 }
                 Statement::Forget(f) => {
-                    self.compile_expr_with_locals(&f.query, &mut code, locals)?;
+                    self.compile_expr_with_locals(
+                        &f.query,
+                        &mut code,
+                        locals,
+                        &mut next_slot,
+                        &mut loop_stack,
+                        mutable,
+                    )?;
                     code.push(Instruction::Forget(f.days));
                 }
                 Statement::Relate(r) => {
-                    self.compile_expr_with_locals(&r.from, &mut code, locals)?;
-                    self.compile_expr_with_locals(&r.to, &mut code, locals)?;
+                    self.compile_expr_with_locals(
+                        &r.from,
+                        &mut code,
+                        locals,
+                        &mut next_slot,
+                        &mut loop_stack,
+                        mutable,
+                    )?;
+                    self.compile_expr_with_locals(
+                        &r.to,
+                        &mut code,
+                        locals,
+                        &mut next_slot,
+                        &mut loop_stack,
+                        mutable,
+                    )?;
                     code.push(Instruction::Const(Value::String(r.relation.clone())));
                     code.push(Instruction::Relate);
                 }
@@ -1414,10 +1918,360 @@ impl Compiler {
         Ok(code)
     }
 
-    /// Helper: compile a single statement with full loop context and slot tracking.
-    /// Used by While/Each bodies to avoid duplicating the full match logic.
-    /// Наряд №264: `mutable` is the flat set of `let mut` names — same
-    /// immutability contract as compile_pattern_body_with_locals.
+    // ── Match → bytecode (№369, ADR-0141 Stage 1.1) ─────────────────
+
+    /// №369: allocate a fresh hidden local slot for match scratch values.
+    /// Hidden names contain '#' — impossible in a source-level IDENT — so
+    /// they can never collide with user variables; slots are reclaimed by
+    /// the caller's `next_slot` restore exactly like the existing if/else
+    /// body discipline (their live ranges stay nested inside the match
+    /// extent, so reuse is safe).
+    fn alloc_hidden_slot(
+        locals: &mut HashMap<String, usize>,
+        next_slot: &mut usize,
+        tag: &str,
+    ) -> usize {
+        let name = format!("{}#{}", tag, next_slot);
+        let slot = *next_slot;
+        *next_slot += 1;
+        locals.insert(name, slot);
+        slot
+    }
+
+    /// №370: VALUE-MODE statement compilation inside value branches (the
+    /// bodies of a match-expr arm or a BlockIfElse branch). TW's
+    /// `eval_statements_cf` leaks the trailing value of block statements
+    /// (if/else, match) into `last_expr_value` — in a VALUE context that
+    /// leak IS the observable value, so the block-statement forms must
+    /// route their branch values into the same last-value register.
+    /// ExprStmt keeps its value (StoreLastLocal); IfThen/IfElseBlock/Match
+    /// compile their jump structures with value-mode bodies recursively;
+    /// everything else falls through to the ordinary statement compiler
+    /// (lets/assigns never touch the register — TW parity).
+    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::type_complexity)]
+    fn compile_value_stmt(
+        &self,
+        stmt: &Statement,
+        code: &mut Vec<Instruction>,
+        locals: &mut HashMap<String, usize>,
+        next_slot: &mut usize,
+        loop_stack: &mut Vec<(usize, Vec<usize>, Vec<usize>)>,
+        mutable: &mut HashSet<String>,
+    ) -> Result<(), String> {
+        match stmt {
+            Statement::ExprStmt { expr, .. } => {
+                self.compile_expr_with_locals(expr, code, locals, next_slot, loop_stack, mutable)?;
+                code.push(Instruction::KeepLastValue);
+            }
+            Statement::IfThen {
+                condition: cond,
+                body: then_body,
+                ..
+            } => {
+                self.compile_expr_with_locals(cond, code, locals, next_slot, loop_stack, mutable)?;
+                code.push(Instruction::JumpIfNot(0));
+                let jmp_idx = code.len() - 1;
+                let saved = *next_slot;
+                for s in then_body {
+                    self.compile_value_stmt(s, code, locals, next_slot, loop_stack, mutable)?;
+                }
+                *next_slot = saved;
+                code[jmp_idx] = Instruction::JumpIfNot(code.len());
+            }
+            Statement::IfElseBlock {
+                condition,
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                let mut end_fixups: Vec<usize> = Vec::new();
+                self.compile_expr_with_locals(
+                    condition, code, locals, next_slot, loop_stack, mutable,
+                )?;
+                code.push(Instruction::JumpIfNot(0));
+                let mut jmp_idx = code.len() - 1;
+                let saved = *next_slot;
+                for s in then_body {
+                    self.compile_value_stmt(s, code, locals, next_slot, loop_stack, mutable)?;
+                }
+                *next_slot = saved;
+                code.push(Instruction::Jump(0));
+                end_fixups.push(code.len() - 1);
+                code[jmp_idx] = Instruction::JumpIfNot(code.len());
+                for (ei_cond, ei_body) in else_ifs {
+                    self.compile_expr_with_locals(
+                        ei_cond, code, locals, next_slot, loop_stack, mutable,
+                    )?;
+                    code.push(Instruction::JumpIfNot(0));
+                    jmp_idx = code.len() - 1;
+                    let saved = *next_slot;
+                    for s in ei_body {
+                        self.compile_value_stmt(s, code, locals, next_slot, loop_stack, mutable)?;
+                    }
+                    *next_slot = saved;
+                    code.push(Instruction::Jump(0));
+                    end_fixups.push(code.len() - 1);
+                    code[jmp_idx] = Instruction::JumpIfNot(code.len());
+                }
+                if let Some(eb) = else_body {
+                    for s in eb {
+                        self.compile_value_stmt(s, code, locals, next_slot, loop_stack, mutable)?;
+                    }
+                }
+                let end = code.len();
+                for f in end_fixups {
+                    code[f] = Instruction::Jump(end);
+                }
+            }
+            Statement::Match {
+                scrutinee,
+                arms,
+                else_body,
+                ..
+            } => {
+                // Value-mode match statement (№369 machinery, shared
+                // predicates): the scrutinee lives ON THE STACK (single
+                // evaluation, Dup per test — no scratch slot, safe in any
+                // expression position); the matched arm's trailing value
+                // lands in the OPEN value register via KeepLastValue (TW
+                // eval_block! semantics).
+                self.compile_expr_with_locals(
+                    scrutinee, code, locals, next_slot, loop_stack, mutable,
+                )?;
+                let mut end_fixups: Vec<usize> = Vec::new();
+                for arm in arms {
+                    code.push(Instruction::Dup);
+                    let test = match arm {
+                        MatchArm::Exact(s, _) => MatchTest::Exact(s.clone()),
+                        MatchArm::StartsWith(s, _) => MatchTest::StartsWith(s.clone()),
+                        MatchArm::Contains(s, _) => MatchTest::Contains(s.clone()),
+                        MatchArm::Compare(op, threshold, _) => {
+                            self.compile_expr_with_locals(
+                                threshold, code, locals, next_slot, loop_stack, mutable,
+                            )?;
+                            MatchTest::Compare(*op)
+                        }
+                    };
+                    code.push(Instruction::MatchTest(test));
+                    code.push(Instruction::JumpIfNot(0));
+                    let jmp_idx = code.len() - 1;
+                    let saved = *next_slot;
+                    for st in arm.body() {
+                        self.compile_value_stmt(st, code, locals, next_slot, loop_stack, mutable)?;
+                    }
+                    *next_slot = saved;
+                    code.push(Instruction::Jump(0));
+                    end_fixups.push(code.len() - 1);
+                    code[jmp_idx] = Instruction::JumpIfNot(code.len());
+                }
+                if let Some(eb) = else_body {
+                    for st in eb {
+                        self.compile_value_stmt(st, code, locals, next_slot, loop_stack, mutable)?;
+                    }
+                }
+                let end = code.len();
+                for f in end_fixups {
+                    code[f] = Instruction::Jump(end);
+                }
+                // Drop the scrutinee — the value travels in the register.
+                code.push(Instruction::Pop);
+            }
+            other => {
+                self.compile_stmt_with_locals(other, code, locals, next_slot, loop_stack, mutable)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// №369 + №370: TW-parity branch-body compilation, SHARED by the
+    /// match-expr arms and the BlockIfElse branches: every bare expression
+    /// statement stores its value into the branch's last-value slot
+    /// (conditionally on non-Unit — `StoreLastLocal`) instead of being
+    /// popped, so the branch's value is the last non-Unit expression of
+    /// its body — exactly the TW `eval_statements_cf` contract
+    /// (`if !matches!(val, Value::Unit) { last_expr_value = val }`). A
+    /// trailing Unit-valued statement does not reset the value;
+    /// `let`/`assign` statements never touch it.
+    #[allow(clippy::too_many_arguments)]
+    fn compile_match_expr_arm_body(
+        &self,
+        body: &[Statement],
+        code: &mut Vec<Instruction>,
+        locals: &mut HashMap<String, usize>,
+        next_slot: &mut usize,
+        loop_stack: &mut Vec<(usize, Vec<usize>, Vec<usize>)>,
+        mutable: &mut HashSet<String>,
+    ) -> Result<(), String> {
+        for s in body {
+            self.compile_value_stmt(s, code, locals, next_slot, loop_stack, mutable)?;
+        }
+        Ok(())
+    }
+
+    /// №369: `let x = match y { ... }` — the match EXPRESSION form compiled
+    /// natively (ADR-0141 Stage 1.1 row 1). Semantics (TW parity, REFERENCE
+    /// §Match): the scrutinee is evaluated EXACTLY ONCE (hidden slot — a
+    /// side-effecting scrutinee must not re-run per arm); arms are tested
+    /// in source order (first match wins); the let value is the last
+    /// non-Unit expression of the matched arm's body; no match and no
+    /// else → Unit. `Return` inside an arm body follows the VM's existing
+    /// block-expression model (the value-channel cannot carry a control
+    /// signal — same as `Expr::BlockIfElse`, the №14 P0-3 precedent).
+    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::type_complexity)]
+    fn compile_let_match(
+        &self,
+        name: &str,
+        is_mut: bool,
+        scrutinee: &Expr,
+        arms: &[MatchArm],
+        else_body: &Option<Vec<Statement>>,
+        code: &mut Vec<Instruction>,
+        locals: &mut HashMap<String, usize>,
+        next_slot: &mut usize,
+        loop_stack: &mut Vec<(usize, Vec<usize>, Vec<usize>)>,
+        mutable: &mut HashSet<String>,
+    ) -> Result<(), String> {
+        if is_mut {
+            mutable.insert(name.to_string());
+        }
+        // Function-level scoping: reuse the existing slot for `name`
+        // (matches both compilers' plain-LetBinding behavior).
+        let let_slot = match locals.get(name) {
+            Some(&slot) => slot,
+            None => {
+                let slot = *next_slot;
+                *next_slot += 1;
+                locals.insert(name.to_string(), slot);
+                slot
+            }
+        };
+        // №370 rework: the value travels in a VM-STATE register (Begin/End
+        // pair) — no scratch slots, safe in any position; the scrutinee
+        // lives ON THE STACK, evaluated exactly once, Dup'd per test.
+        code.push(Instruction::BeginValueExpr);
+        self.compile_expr_with_locals(scrutinee, code, locals, next_slot, loop_stack, mutable)?;
+        let mut end_fixups: Vec<usize> = Vec::new();
+        for arm in arms {
+            // Threshold expressions are compiled LAZILY, per arm, in
+            // source order — the TW loop evaluates a Compare threshold
+            // only when the loop reaches that arm (side-effect parity).
+            code.push(Instruction::Dup);
+            let test = match arm {
+                MatchArm::Exact(s, _) => MatchTest::Exact(s.clone()),
+                MatchArm::StartsWith(s, _) => MatchTest::StartsWith(s.clone()),
+                MatchArm::Contains(s, _) => MatchTest::Contains(s.clone()),
+                MatchArm::Compare(op, threshold, _) => {
+                    self.compile_expr_with_locals(
+                        threshold, code, locals, next_slot, loop_stack, mutable,
+                    )?;
+                    MatchTest::Compare(*op)
+                }
+            };
+            code.push(Instruction::MatchTest(test));
+            code.push(Instruction::JumpIfNot(0));
+            let jmp_idx = code.len() - 1;
+            let saved = *next_slot;
+            self.compile_match_expr_arm_body(
+                arm.body(),
+                code,
+                locals,
+                next_slot,
+                loop_stack,
+                mutable,
+            )?;
+            *next_slot = saved;
+            code.push(Instruction::Jump(0));
+            end_fixups.push(code.len() - 1);
+            code[jmp_idx] = Instruction::JumpIfNot(code.len());
+        }
+        if let Some(eb) = else_body {
+            self.compile_match_expr_arm_body(eb, code, locals, next_slot, loop_stack, mutable)?;
+        }
+        let end = code.len();
+        for f in end_fixups {
+            code[f] = Instruction::Jump(end);
+        }
+        // Drop the scrutinee, materialize the register as the let value.
+        code.push(Instruction::Pop);
+        code.push(Instruction::EndValueExpr);
+        code.push(Instruction::StoreLocal(let_slot));
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::type_complexity)]
+    fn compile_match_stmt(
+        &self,
+        scrutinee: &Expr,
+        arms: &[MatchArm],
+        else_body: &Option<Vec<Statement>>,
+        code: &mut Vec<Instruction>,
+        locals: &mut HashMap<String, usize>,
+        next_slot: &mut usize,
+        loop_stack: &mut Vec<(usize, Vec<usize>, Vec<usize>)>,
+        mutable: &mut HashSet<String>,
+        keep_last_value: bool,
+    ) -> Result<(), String> {
+        let tmp_slot = Self::alloc_hidden_slot(locals, next_slot, "match_scrutinee");
+        self.compile_expr_with_locals(scrutinee, code, locals, next_slot, loop_stack, mutable)?;
+        code.push(Instruction::StoreLocal(tmp_slot));
+        let mut end_fixups: Vec<usize> = Vec::new();
+        for arm in arms {
+            // (See compile_let_match: single scrutinee load per test.)
+            let test = match arm {
+                MatchArm::Exact(s, _) => {
+                    code.push(Instruction::LoadLocal(tmp_slot));
+                    MatchTest::Exact(s.clone())
+                }
+                MatchArm::StartsWith(s, _) => {
+                    code.push(Instruction::LoadLocal(tmp_slot));
+                    MatchTest::StartsWith(s.clone())
+                }
+                MatchArm::Contains(s, _) => {
+                    code.push(Instruction::LoadLocal(tmp_slot));
+                    MatchTest::Contains(s.clone())
+                }
+                MatchArm::Compare(op, threshold, _) => {
+                    code.push(Instruction::LoadLocal(tmp_slot));
+                    self.compile_expr_with_locals(
+                        threshold, code, locals, next_slot, loop_stack, mutable,
+                    )?;
+                    MatchTest::Compare(*op)
+                }
+            };
+            code.push(Instruction::MatchTest(test));
+            code.push(Instruction::JumpIfNot(0));
+            let jmp_idx = code.len() - 1;
+            let saved = *next_slot;
+            for s in arm.body() {
+                self.compile_stmt_with_locals(s, code, locals, next_slot, loop_stack, mutable)?;
+            }
+            if keep_last_value && matches!(code.last(), Some(Instruction::Pop)) {
+                code.pop();
+            }
+            *next_slot = saved;
+            code.push(Instruction::Jump(0));
+            end_fixups.push(code.len() - 1);
+            code[jmp_idx] = Instruction::JumpIfNot(code.len());
+        }
+        if let Some(eb) = else_body {
+            for s in eb {
+                self.compile_stmt_with_locals(s, code, locals, next_slot, loop_stack, mutable)?;
+            }
+            if keep_last_value && matches!(code.last(), Some(Instruction::Pop)) {
+                code.pop();
+            }
+        }
+        let end = code.len();
+        for f in end_fixups {
+            code[f] = Instruction::Jump(end);
+        }
+        Ok(())
+    }
+
     fn compile_stmt_with_locals(
         &self,
         stmt: &Statement,
@@ -1433,21 +2287,59 @@ impl Compiler {
                 value,
                 mutable: is_mut,
                 ..
+            } if matches!(value, Expr::MatchExpr { .. }) => {
+                // №369: the match EXPRESSION form compiles natively
+                // (ADR-0141 Stage 1.1) — full arm structure, TW parity.
+                let Expr::MatchExpr {
+                    scrutinee,
+                    arms,
+                    else_body,
+                    ..
+                } = value
+                else {
+                    unreachable!("guard guarantees MatchExpr")
+                };
+                self.compile_let_match(
+                    name, *is_mut, scrutinee, arms, else_body, code, locals, next_slot, loop_stack,
+                    mutable,
+                )?;
+            }
+            Statement::LetBinding {
+                name,
+                value,
+                mutable: is_mut,
+                ..
             } => {
                 // Function-level scoping: reuse existing slot if name exists.
                 if *is_mut {
                     mutable.insert(name.clone());
                 }
-                if let Some(&existing_slot) = locals.get(name) {
-                    self.compile_expr_with_locals(value, code, locals)?;
+                let slot = if let Some(&existing_slot) = locals.get(name) {
+                    self.compile_expr_with_locals(
+                        value, code, locals, next_slot, loop_stack, mutable,
+                    )?;
                     code.push(Instruction::StoreLocal(existing_slot));
+                    existing_slot
                 } else {
                     let slot = *next_slot;
                     *next_slot += 1;
                     locals.insert(name.clone(), slot);
-                    self.compile_expr_with_locals(value, code, locals)?;
+                    self.compile_expr_with_locals(
+                        value, code, locals, next_slot, loop_stack, mutable,
+                    )?;
                     code.push(Instruction::StoreLocal(slot));
+                    slot
+                };
+                // №328: seed the runtime label env for source-backed lets.
+                if let crate::ast::Expr::FnCall { name: src, .. } = value {
+                    if is_source_call(src) {
+                        code.push(Instruction::LabelJoin {
+                            dst: name.clone(),
+                            src: format!("@{src}"),
+                        });
+                    }
                 }
+                let _ = slot;
             }
             Statement::Assign { name, value, .. } => {
                 // Наряд №264: same immutability contract as the top-level
@@ -1462,7 +2354,7 @@ impl Compiler {
                     Some(&slot) => slot,
                     None => return Err(crate::semantic::immutability_error_text(name)),
                 };
-                self.compile_expr_with_locals(value, code, locals)?;
+                self.compile_expr_with_locals(value, code, locals, next_slot, loop_stack, mutable)?;
                 code.push(Instruction::StoreAssignLocal {
                     slot,
                     name: name.clone(),
@@ -1470,7 +2362,15 @@ impl Compiler {
                 });
             }
             Statement::Return { value: expr, .. } => {
-                self.compile_expr_with_locals(expr, code, locals)?;
+                // №328: the runtime twin of the №325 gate at sink sites.
+                // №392: armed with the on_deny path when a covering
+                // handler exists — a handled refusal degrades to Unit,
+                // which becomes the return value (skip_to lands on the
+                // Return below; the refused call never executes).
+                let deny_checks = self.emit_armed_sink_checks(code, expr);
+                self.compile_expr_with_locals(expr, code, locals, next_slot, loop_stack, mutable)?;
+                let skip_to = code.len();
+                Self::patch_deny_skip_to(code, &deny_checks, skip_to);
                 code.push(Instruction::Return);
             }
             Statement::While {
@@ -1479,7 +2379,9 @@ impl Compiler {
                 let loop_start = code.len();
                 let break_fixups: Vec<usize> = Vec::new();
 
-                self.compile_expr_with_locals(condition, code, locals)?;
+                self.compile_expr_with_locals(
+                    condition, code, locals, next_slot, loop_stack, mutable,
+                )?;
                 let jmp_not_idx = code.len();
                 code.push(Instruction::JumpIfNot(0));
 
@@ -1519,7 +2421,7 @@ impl Compiler {
                 body: then_body,
                 ..
             } => {
-                self.compile_expr_with_locals(cond, code, locals)?;
+                self.compile_expr_with_locals(cond, code, locals, next_slot, loop_stack, mutable)?;
                 code.push(Instruction::JumpIfNot(0));
                 let jmp_idx = code.len() - 1;
                 let saved = *next_slot;
@@ -1537,7 +2439,9 @@ impl Compiler {
                 ..
             } => {
                 let mut end_fixups: Vec<usize> = Vec::new();
-                self.compile_expr_with_locals(condition, code, locals)?;
+                self.compile_expr_with_locals(
+                    condition, code, locals, next_slot, loop_stack, mutable,
+                )?;
                 code.push(Instruction::JumpIfNot(0));
                 let jmp_idx = code.len() - 1;
                 let saved = *next_slot;
@@ -1550,7 +2454,9 @@ impl Compiler {
                 code[jmp_idx] = Instruction::JumpIfNot(code.len());
 
                 for (ei_cond, ei_body) in else_ifs {
-                    self.compile_expr_with_locals(ei_cond, code, locals)?;
+                    self.compile_expr_with_locals(
+                        ei_cond, code, locals, next_slot, loop_stack, mutable,
+                    )?;
                     code.push(Instruction::JumpIfNot(0));
                     let ei_jmp = code.len() - 1;
                     let saved2 = *next_slot;
@@ -1581,24 +2487,53 @@ impl Compiler {
                 }
             }
             Statement::ExprStmt { expr, .. } => {
-                self.compile_expr_with_locals(expr, code, locals)?;
+                // №328: the runtime twin of the №325 gate at sink sites.
+                // №392: armed the same way — a handled refusal degrades
+                // to Unit, which the Pop below discards.
+                let deny_checks = self.emit_armed_sink_checks(code, expr);
+                self.compile_expr_with_locals(expr, code, locals, next_slot, loop_stack, mutable)?;
+                let skip_to = code.len();
+                Self::patch_deny_skip_to(code, &deny_checks, skip_to);
                 code.push(Instruction::Pop);
             }
             // Наряд №266: memory ops as statements (loop/if bodies route here
             // via compile_stmt_with_locals) — same opcodes as top-level pass2.
             Statement::Memorize(m) => {
-                self.compile_expr_with_locals(&m.value, code, locals)?;
+                self.compile_expr_with_locals(
+                    &m.value, code, locals, next_slot, loop_stack, mutable,
+                )?;
                 code.push(Instruction::Memorize(m.priority));
             }
             Statement::Forget(f) => {
-                self.compile_expr_with_locals(&f.query, code, locals)?;
+                self.compile_expr_with_locals(
+                    &f.query, code, locals, next_slot, loop_stack, mutable,
+                )?;
                 code.push(Instruction::Forget(f.days));
             }
             Statement::Relate(r) => {
-                self.compile_expr_with_locals(&r.from, code, locals)?;
-                self.compile_expr_with_locals(&r.to, code, locals)?;
+                self.compile_expr_with_locals(
+                    &r.from, code, locals, next_slot, loop_stack, mutable,
+                )?;
+                self.compile_expr_with_locals(&r.to, code, locals, next_slot, loop_stack, mutable)?;
                 code.push(Instruction::Const(Value::String(r.relation.clone())));
                 code.push(Instruction::Relate);
+            }
+            Statement::Match {
+                scrutinee,
+                arms,
+                else_body,
+                ..
+            } => {
+                // №369: Match statement → bytecode (ADR-0141 Stage 1.1).
+                // Previously hit the silent `_ => {}` no-op in this shared
+                // statement compiler — a nested match inside an if/while
+                // body compiled to NOTHING. Loud parity now.
+                // Nested position: keep the stack balanced (the fall-through
+                // value convention only applies at pattern/route body level,
+                // handled by compile_pattern_body_with_locals).
+                self.compile_match_stmt(
+                    scrutinee, arms, else_body, code, locals, next_slot, loop_stack, mutable, false,
+                )?;
             }
             _ => {}
         }

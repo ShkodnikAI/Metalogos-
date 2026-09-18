@@ -1,0 +1,25 @@
+// Наряд №327 (issue #421) — the integrity axis and anti-injection.
+//
+// The contract: data that DECIDES control flow must be `trusted`.
+//   Decide  — the LLM answer picks a branch around a destructive action
+//             → compile error UNTRUSTED_DECISION (which source, where).
+//   Carry   — the same answer travels as DATA (returned from the
+//             pattern) → compiles: the integrity axis is about
+//             decisions, not about existence.
+
+pattern Decide() -> String {
+  let answer = call_llm("shutdown the service?")
+  if answer == "yes" {
+    let _ = exec("shutdown -h now")
+    return "shutting down"
+  }
+  return "kept running"
+}
+
+pattern Carry(data: String) -> String {
+  let answer = call_llm("summarize")
+  let shaped = upper(answer)
+  return shaped + "|" + data
+}
+
+flow Main { input: String = data -> Carry -> output }

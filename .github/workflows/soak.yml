@@ -1,0 +1,54 @@
+name: Soak (nightly parity)
+
+# Наряд №373 (ADR-0141 §D3/§D4, Stage 2): parity soak.
+# Nightly full-parity run of the crosscheck + the whole test suite + doc-tests.
+# Each green run accumulates 24h-soak evidence for the Stage 3 decision
+# (default flip of `mlog serve`, ADR-0088 — решение диспатча №379).
+# Manually dispatchable for on-demand soak evidence.
+
+on:
+  schedule:
+    - cron: "0 2 * * *" # nightly 02:00 UTC
+  workflow_dispatch:
+
+jobs:
+  soak-parity:
+    name: soak-parity (nightly)
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Record soak start (UTC)
+        run: |
+          date +%s > /tmp/soak_start
+          echo "soak run started: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+      - name: Lib tests
+        run: cargo test --workspace --lib --no-fail-fast
+
+      - name: Parity crosscheck (№373 gate — no VM-uncovered exclusions)
+        run: cargo test --workspace --test crosscheck_backends --test naryad_373_parity_gate --no-fail-fast
+
+      - name: Integration tests (full)
+        run: cargo test --workspace --tests --no-fail-fast
+
+      - name: Build debug binary for doc-tests/examples
+        run: cargo build --workspace
+
+      - name: Doc-tests on REFERENCE/README/docs (Naryad #287)
+        run: ./target/debug/mlog test --docs
+
+      - name: Soak report (duration, date)
+        if: always()
+        run: |
+          END=$(date +%s)
+          START=$(cat /tmp/soak_start)
+          echo "═══ SOAK RUN REPORT ═══"
+          echo "date: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "duration: $(( (END-START)/60 )) min $(( (END-START)%60 )) s"
+          echo "regressions: see job status above (any red step = a soak regression)"

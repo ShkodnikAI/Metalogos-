@@ -236,10 +236,17 @@ fn n274_masks_idempotent() {
 
 #[test]
 fn n274_invalid_mode_loud() {
+    // №326: the modes are a REGISTRY — the error names it as policies and
+    // enumerates every available word (discoverability).
     let err = redact_string("text", "everything").unwrap_err();
-    assert!(err.contains("unknown mode"), "{}", err);
+    assert!(err.contains("unknown policy"), "{}", err);
     assert!(
-        err.contains("pii") && err.contains("secrets") && err.contains("all"),
+        err.contains("pii")
+            && err.contains("secrets")
+            && err.contains("all")
+            && err.contains("hash_only")
+            && err.contains("pii_strip")
+            && err.contains("truncate"),
         "{}",
         err
     );

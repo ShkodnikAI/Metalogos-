@@ -1,0 +1,10 @@
+// Naryad #387 (ADR-0149 D1): I2V с likeness-origin без ритуала
+// LikenessToken — compile-time ошибка VIDEO_LIKENESS_NO_CONSENT.
+// Атака: анимация лица субъекта без согласия (deepfake-класс).
+origin portrait { kind: likeness, media: image, label: private }
+pattern Send(data: String) -> String {
+  let face = source portrait
+  let _ = video_render("wan-2.2-ti2v-5b", "scene", face)
+  return "rendered"
+}
+flow Main { input: String = data -> Send -> output }

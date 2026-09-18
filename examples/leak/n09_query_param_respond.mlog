@@ -1,0 +1,7 @@
+// Угроза: параметр запроса отражается в ответе без экранирования (reflected XSS).
+// Атака: жертва переходит по ссылке со скриптом в query — скрипт исполняется.
+pattern Send(data: String) -> String {
+  let _ = respond("200 OK", query_param("q"))
+  return "sent"
+}
+flow Main { input: String = data -> Send -> output }

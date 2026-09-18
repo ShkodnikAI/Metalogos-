@@ -1,0 +1,23 @@
+// Naryad #390 (ADR-0155): Grant algebra end-to-end — the ALLOWING path.
+// An N(2) quota grant meters granted destructive deletes through the grant
+// ledger; an Unlimited parent demonstrates attenuation-only subgrant
+// (narrower scope, shorter TTL, lower class power); grant_revoke is
+// cascading (parent + child). The ungranted deny (IRREVERSIBLE_NO_GRANT on
+// bare db_execute with destructive SQL) is unchanged — see examples/leak/
+// for that side of the gate.
+db { url: "sqlite::memory:" }
+
+pattern GrantFlow(_tick: String) -> String {
+  db_execute("CREATE TABLE IF NOT EXISTS sessions (id INTEGER PRIMARY KEY, user TEXT)")
+  db_execute("INSERT INTO sessions (user) VALUES ('alice')")
+  db_execute("INSERT INTO sessions (user) VALUES ('bob')")
+  let g = grant_issue("db:delete:sessions", 3600, "n", 2)
+  let n1 = db_execute_with_grant(g, "DELETE FROM sessions WHERE user = 'alice'")
+  let n2 = grant_use(g)
+  let parent = grant_issue("db:*:*", 3600, "unlimited")
+  let child = grant_subgrant(parent, "db:delete:sessions", 60)
+  let n3 = db_execute_with_grant(child, "DELETE FROM sessions")
+  let rev = grant_revoke(parent)
+  return "deleted:" + n1 + "|remaining:" + to_string(n2) + "|child:" + n3 + "|revoked:" + to_string(rev)
+}
+flow Main { input: String = "tick" -> GrantFlow -> output }

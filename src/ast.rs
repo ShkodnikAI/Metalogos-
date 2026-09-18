@@ -1,7 +1,10 @@
 // ── AST types for METALOGOS ────────────────────────────────────────
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
+
+use crate::interpreter::Value;
 
 /// Source span: line/column position in the source code.
 /// Lines are 1-indexed, columns are 0-indexed (matches pest parser convention).
@@ -105,6 +108,8 @@ pub enum Declaration {
     Sandbox(SandboxDecl),
     /// `hook before_pattern { <statements> }` or `hook after_pattern { <statements> }` (ADR-0045)
     Hook(HookDecl),
+    /// `on_deny(<sink-class|*>) { <statements> }` — the deny-event handler (Наряд №392)
+    OnDeny(OnDenyDecl),
     /// `mutate PatternName { add_example(...) rollback_if: accuracy op threshold }`
     Mutate(MutateDecl),
     /// `eval PatternName { dataset: [("input", "expected"), ...] metric: accuracy threshold: 0.8 }`
@@ -149,6 +154,41 @@ pub enum Declaration {
     /// untouched in R4.1); semantic validation (model SSOT, numeric
     /// contracts) lives in `src/semantic.rs`.
     Vision(VisionDecl),
+    /// `profile legacy { egress: permissive_with_audit }` (Наряд №325,
+    /// ADR-0161): a program-level compatibility profile. Under `legacy`
+    /// the №325 `SINK_CLEARANCE` gate runs in advisory mode — every
+    /// violation becomes an audit event instead of a compile error.
+    Profile(ProfileDecl),
+    Origin(OriginDecl),
+}
+
+/// A program-level compatibility profile (Наряд №325, ADR-0161).
+/// `profile legacy { egress: permissive_with_audit }` — the only shape
+/// in this slice: named `legacy`, one option map (words validated by
+/// semantic).
+#[derive(Debug, Clone)]
+pub struct ProfileDecl {
+    pub span: Span,
+    /// Profile name, e.g. `legacy`.
+    pub name: String,
+    /// Options, e.g. `egress → permissive_with_audit`.
+    pub options: Vec<(String, String)>,
+}
+
+/// Наряд №332 (ADR-0164): perception origin declaration —
+/// `origin name { kind: camera|file|generation, media: image|audio|
+/// video_frame|video_segment, label: public|consented|private, path: "..."
+/// }`. The declared SOURCE of perception handles; the origin-chain rule
+/// ("a handle without origin is not constructed", §7.4) is enforced
+/// statically in semantic.rs. `path` is required for `kind: file` (the
+/// file-backed capture reads it through the io sandbox at runtime);
+/// `kind: camera` runs against real hardware — a loud PARKED boundary
+/// (№294 class) at runtime, the static chain still applies.
+#[derive(Debug, Clone)]
+pub struct OriginDecl {
+    pub span: Span,
+    pub name: String,
+    pub fields: Vec<(String, String)>,
 }
 
 impl Declaration {
@@ -180,6 +220,10 @@ impl Declaration {
             Declaration::ReflexSeq(d) => Some(&d.name),
             Declaration::ReflexGen(d) => Some(&d.name),
             Declaration::Vision(d) => Some(&d.name),
+            // №332: the origin declares a named provenance source.
+            Declaration::Origin(d) => Some(&d.name),
+            // №325: the profile names a mode, not a symbol.
+            Declaration::Profile(_) => None,
             // No name: singleton/config/action declarations
             Declaration::MlogServer(_)
             | Declaration::Db(_)
@@ -189,6 +233,9 @@ impl Declaration {
             | Declaration::Forget(_)
             | Declaration::Relate(_)
             | Declaration::Hook(_)
+            // №392: the deny handler declares no symbol; its class selector
+            // is a gate vocabulary word, not a name.
+            | Declaration::OnDeny(_)
             | Declaration::Conversation(_)
             | Declaration::LlmConfig(_) => None,
         }
@@ -215,6 +262,7 @@ impl Declaration {
             Declaration::Relate(_) => "relate",
             Declaration::Sandbox(_) => "sandbox",
             Declaration::Hook(_) => "hook",
+            Declaration::OnDeny(_) => "on_deny",
             Declaration::Mutate(_) => "mutate",
             Declaration::Eval(_) => "eval",
             Declaration::Test(_) => "test",
@@ -230,6 +278,8 @@ impl Declaration {
             Declaration::ReflexSeq(_) => "reflex_seq",
             Declaration::ReflexGen(_) => "reflex_gen",
             Declaration::Vision(_) => "vision",
+            Declaration::Profile(_) => "profile",
+            Declaration::Origin(_) => "origin",
         }
     }
 
@@ -367,6 +417,10 @@ impl Declaration {
                     d.name, d.model, d.width, d.height, d.steps, d.seed
                 )
             }
+            Declaration::Profile(d) => {
+                format!("profile {} ({} options)", d.name, d.options.len())
+            }
+            Declaration::Origin(d) => format!("origin {} {{ {} fields }}", d.name, d.fields.len()),
             Declaration::TypeAlias(d) => {
                 format!("type {} = {}", d.alias, d.target)
             }
@@ -390,6 +444,8 @@ impl Declaration {
             Declaration::Test(d) => {
                 format!("test \"{}\" {{ {} statements }}", d.name, d.body.len())
             }
+            // №392: the deny handler's type signature is its class selector.
+            Declaration::OnDeny(d) => format!("on_deny({})", d.class),
         }
     }
 
@@ -429,6 +485,10 @@ impl Declaration {
             Declaration::ReflexSeq(d) => &d.span,
             Declaration::ReflexGen(d) => &d.span,
             Declaration::Vision(d) => &d.span,
+            Declaration::Profile(d) => &d.span,
+            Declaration::Origin(d) => &d.span,
+            // №392: the deny handler carries its own span.
+            Declaration::OnDeny(d) => &d.span,
         }
     }
 }
@@ -479,6 +539,9 @@ pub struct MlogServerDecl {
     /// Наряд №263: `rate_limit: N` — requests per client per minute before 429.
     /// `None` → the documented default 100 (DEFAULT_RATE_LIMIT_PER_MINUTE in server.rs).
     pub rate_limit: Option<u32>,
+    /// Наряд №296: `redact_mode: "pii"` — opt-in redact middleware mode.
+    /// Only used when "redact" is in middleware list. Defaults to "all".
+    pub redact_mode: Option<String>,
     pub routes: Vec<RouteDecl>,
 }
 
@@ -629,6 +692,9 @@ pub struct FieldDecl {
     pub span: Span,
     pub name: String,
     pub type_name: String,
+    /// Наряд №322 (ADR-0154): optional label annotation on the field's
+    /// type (e.g. `content: String<private>`).
+    pub label: Option<LabelAnn>,
     pub default: Option<Expr>,
 }
 
@@ -638,6 +704,9 @@ pub struct EntityRecordDecl {
     pub span: Span,
     pub name: String,
     pub type_name: String,
+    /// Наряд №322 (ADR-0154): optional label annotation on the
+    /// entity's type (e.g. `entity m: Message<private> = { ... }`).
+    pub label: Option<LabelAnn>,
     pub fields: Vec<FieldInit>,
 }
 
@@ -654,6 +723,9 @@ pub struct EntitySimpleDecl {
     pub span: Span,
     pub name: String,
     pub type_name: String,
+    /// Наряд №322 (ADR-0154): optional label annotation on the
+    /// entity's type (e.g. `entity k: String<private> = ...`).
+    pub label: Option<LabelAnn>,
     pub value: Expr,
 }
 
@@ -683,7 +755,9 @@ pub enum Condition {
     },
 }
 
-#[derive(Debug, Clone, Copy)]
+/// №369: Serialize/Deserialize so Compare arms can ride inside bytecode
+/// `Instruction::MatchTest` (.mbc parity); PartialEq for golden compile tests.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum CompareOp {
     Gt,
     Lt,
@@ -792,6 +866,30 @@ pub struct HookDecl {
     pub body: Vec<Statement>,
 }
 
+// ── DenyEvent handler (Наряд №392) ─────────────────────────────────
+
+/// `on_deny(<sink-class|*>) { <statements> }` — the deny-event handler.
+///
+/// The body runs when a runtime security gate refuses an action (the VM
+/// sink-clearance twin, a grant refusal on an irreversible action). Inside
+/// the body, `deny_event()` returns the typed `DenyEvent` struct and
+/// `deny_reason()` its reason word, so the program can log, notify, or
+/// degrade instead of dying on the loud default error.
+///
+/// Double protection (№392 §4): the handler runs AFTER the gate has
+/// already refused the action — it can only handle the refusal (observe,
+/// degrade), never re-allow the refused action. Without a covering
+/// handler the loud default error is unchanged.
+#[derive(Debug, Clone)]
+pub struct OnDenyDecl {
+    pub span: Span,
+    /// Sink class covered: `"*"` (every class) or one of the sink-class
+    /// words (`voice`, `exec`, `vcs`, `network`, `output`, `file`,
+    /// `memory`, `db`) — the same mapping the №325 gate uses.
+    pub class: String,
+    pub body: Vec<Statement>,
+}
+
 // ── Mutate (P2) ─────────────────────────────────────────────────
 
 /// `mutate PatternName { add_example("in", "out") rollback_if: accuracy op threshold }`
@@ -878,6 +976,8 @@ pub struct ToolMethod {
     pub params: Vec<Param>,
     /// Return type name.
     pub return_type: String,
+    /// Наряд №324: optional effect trail — `⟨io, audit⟩` (ADR-0154 §9).
+    pub effects: Option<EffectAnn>,
     /// Method body (list of statements).
     pub body: Vec<Statement>,
 }
@@ -1236,6 +1336,10 @@ pub struct LearnablePatternDecl {
     /// E.g. `fallback_if: confidence < 0.85` → (Lt, 0.85).
     /// None = no fallback (always return local prediction once DISTILLED).
     pub fallback_if: Option<(CompareOp, f64)>,
+    /// Наряд №324: optional effect trail — `⟨io, audit⟩` (ADR-0154 §9).
+    /// A learnable pattern is an LLM source by construction ({io}); the
+    /// trail, when declared, gates what its CALLERS may assume.
+    pub effects: Option<EffectAnn>,
 }
 
 // Наряд №181: extend the existing CompareOp (defined at line 635) with
@@ -1265,6 +1369,10 @@ pub struct PatternDecl {
     pub name: String,
     pub params: Vec<Param>,
     pub return_type: String,
+    /// Наряд №324 (ADR-0154 §9): optional effect trail — `⟨io, audit⟩`.
+    /// `None` = not declared: the gate does not apply to this pattern
+    /// (zero delta for existing programs).
+    pub effects: Option<EffectAnn>,
     pub body: Vec<Statement>,
 }
 
@@ -1273,6 +1381,82 @@ pub struct Param {
     pub span: Span,
     pub name: String,
     pub type_name: String,
+    /// Наряд №322 (ADR-0154): optional label annotation — the raw text
+    /// between `<` and `>` (e.g. `"private, untrusted"`). `type_name`
+    /// stays the bare type ("String") — semantic analysis validates the
+    /// annotation via `crate::labels::Label::parse`.
+    pub label: Option<LabelAnn>,
+}
+
+/// A label annotation as written in source (`String<private>`).
+/// Deliberately unvalidated at parse time — the grammar guarantees the
+/// word-list SHAPE (bare words and `consent(...)` parts), semantic
+/// analysis parses the words via `labels::Label::parse` and reports
+/// unknown words with this span (Наряд №322 task 2). This split keeps
+/// the word table in one place and makes the semantic validation
+/// reachable and testable (no dead code).
+#[derive(Debug, Clone)]
+pub struct LabelAnn {
+    pub span: Span,
+    /// Raw annotation body, e.g. `"private, untrusted, consent(gdpr)"`.
+    pub raw: String,
+}
+
+// ── Effect trail (Наряд №324, ADR-0154 §9) ─────────────────────
+
+/// A named effect a pattern body can perform (closed set, №324):
+/// - `Io` — data crosses the expression boundary (№316 `Source`/`Sink`
+///   builtins: network, files, env, clock, LLM calls, channels, print);
+/// - `Audit` — a persistent, auditable write (Sink builtins with a
+///   non-pure reversibility — state/db/file/memory writes, delivery —
+///   plus the `memorize`/`forget`/`relate` statements).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Effect {
+    Io,
+    Audit,
+}
+
+impl Effect {
+    /// Canonical word (ADR-0154 §9).
+    pub fn word(self) -> &'static str {
+        match self {
+            Effect::Io => "io",
+            Effect::Audit => "audit",
+        }
+    }
+
+    /// Parse one effect word; `None` for anything but `io`/`audit` —
+    /// the caller turns that into a loud semantic error.
+    pub fn parse_word(word: &str) -> Option<Effect> {
+        match word {
+            "io" => Some(Effect::Io),
+            "audit" => Some(Effect::Audit),
+            _ => None,
+        }
+    }
+}
+
+/// A set of effects: `BTreeSet` for a deterministic display order
+/// (`audit, io`), join = union (a body that does more can only grow).
+pub type EffectSet = std::collections::BTreeSet<Effect>;
+
+/// Renders as `⟨io, audit⟩` (canonical word order, BTreeSet order).
+pub fn format_effect_set(effects: &EffectSet) -> String {
+    let words: Vec<&str> = effects.iter().map(|e| e.word()).collect();
+    format!("⟨{}⟩", words.join(", "))
+}
+
+/// The declared effect trail in a signature — `pattern P(...) -> T ⟨io, audit⟩`.
+/// Deliberately unvalidated at parse time — the grammar guarantees the
+/// SHAPE (a comma list of bare words inside `⟨…⟩`), semantic analysis
+/// validates the WORDS (only `io`/`audit` exist) with the annotation's
+/// span — same division of labor as `LabelAnn` (№322).
+#[derive(Debug, Clone)]
+pub struct EffectAnn {
+    pub span: Span,
+    /// Raw trail body, e.g. `"io, audit"`; empty string for `⟨⟩` (the
+    /// pure/zero-effect declaration).
+    pub raw: String,
 }
 
 #[derive(Debug, Clone)]
@@ -1356,6 +1540,32 @@ pub enum Statement {
     Relate(RelateDecl),
 }
 
+impl Statement {
+    /// Returns the source span of this statement (Наряд №392: the deny
+    /// analyzer reports exhaustive-match errors at the Match statement).
+    pub fn span(&self) -> &Span {
+        match self {
+            Statement::LetBinding { span, .. }
+            | Statement::Assign { span, .. }
+            | Statement::Each { span, .. }
+            | Statement::EachWithIndex { span, .. }
+            | Statement::While { span, .. }
+            | Statement::IfElseBlock { span, .. }
+            | Statement::IfThen { span, .. }
+            | Statement::Return { span, .. }
+            | Statement::ExprStmt { span, .. }
+            | Statement::Match { span, .. } => span,
+            Statement::Break | Statement::Continue => {
+                static UNKNOWN: std::sync::OnceLock<Span> = std::sync::OnceLock::new();
+                UNKNOWN.get_or_init(Span::unknown)
+            }
+            Statement::Memorize(m) => &m.span,
+            Statement::Forget(f) => &f.span,
+            Statement::Relate(r) => &r.span,
+        }
+    }
+}
+
 /// A single match arm: pattern + body.
 /// Supports exact string, starts_with, contains, and comparison operators.
 #[derive(Debug, Clone)]
@@ -1368,6 +1578,65 @@ pub enum MatchArm {
     Contains(String, Vec<Statement>),
     /// `> expr then { stmts }`, `>= expr then { stmts }`, etc.
     Compare(CompareOp, Expr, Vec<Statement>),
+}
+
+impl MatchArm {
+    /// The arm's body statements (shared by TW and VM execution paths).
+    pub fn body(&self) -> &[Statement] {
+        match self {
+            MatchArm::Exact(_, b)
+            | MatchArm::StartsWith(_, b)
+            | MatchArm::Contains(_, b)
+            | MatchArm::Compare(_, _, b) => b,
+        }
+    }
+
+    /// №369: the SHARED arm-matching predicate — the single source of truth
+    /// used by BOTH the TW interpreter and the bytecode VM, so the two
+    /// backends cannot drift. Exact/starts_with/contains compare the
+    /// scrutinee's Display string form; compare arms use numeric-first,
+    /// string-fallback value comparison (the historical TW `compare_values`).
+    /// `threshold` is only consulted by Compare arms.
+    pub fn matches_value(&self, scrutinee: &Value, threshold: &Value) -> bool {
+        let s = format!("{}", scrutinee);
+        match self {
+            MatchArm::Exact(v, _) => s == *v,
+            MatchArm::StartsWith(p, _) => s.starts_with(p.as_str()),
+            MatchArm::Contains(sub, _) => s.contains(sub.as_str()),
+            MatchArm::Compare(op, _, _) => Self::compare_values(scrutinee, op, threshold),
+        }
+    }
+
+    /// №369: shared comparison semantics (moved verbatim from the TW
+    /// interpreter — numeric first via `as_float`, string fallback via
+    /// Display). Total: never errors; the old `unwrap_or_default()` call
+    /// site could only produce `false` on an Err that could not happen.
+    pub fn compare_values(left: &Value, op: &CompareOp, right: &Value) -> bool {
+        // Try numeric comparison first
+        let left_f = left.as_float().ok();
+        let right_f = right.as_float().ok();
+        if let (Some(lf), Some(rf)) = (left_f, right_f) {
+            return match op {
+                CompareOp::Gt => lf > rf,
+                CompareOp::Lt => lf < rf,
+                CompareOp::Ge => lf >= rf,
+                CompareOp::Le => lf <= rf,
+                CompareOp::Eq => lf == rf,
+                CompareOp::Ne => lf != rf,
+            };
+        }
+        // Fall back to string comparison
+        let ls = format!("{}", left);
+        let rs = format!("{}", right);
+        match op {
+            CompareOp::Eq => ls == rs,
+            CompareOp::Ne => ls != rs,
+            CompareOp::Gt => ls > rs,
+            CompareOp::Lt => ls < rs,
+            CompareOp::Ge => ls >= rs,
+            CompareOp::Le => ls <= rs,
+        }
+    }
 }
 
 // ── Flow (M1 + M2 branching) ────────────────────────────────────────
@@ -1482,9 +1751,38 @@ pub enum Expr {
         else_body: Option<Vec<Statement>>,
         span: Span,
     },
+    /// Match as expression: `let x = match y { ... }` (№173b grammar, №369 semantics).
+    /// Value is the last expression of the matched arm's body (REFERENCE §Match:
+    /// "Match returns the value of the last expression in the selected arm").
+    /// Unit when nothing matched and there is no else. Arms are preserved
+    /// end-to-end so both backends (TW + VM) execute identical semantics.
+    MatchExpr {
+        scrutinee: Box<Expr>,
+        arms: Vec<MatchArm>,
+        else_body: Option<Vec<Statement>>,
+        span: Span,
+    },
     /// Try expression: `try expr` — returns Unit on error instead of propagating (Наряд №14 P1-4)
     Try {
         expr: Box<Expr>,
+        span: Span,
+    },
+    /// Наряд №332 (ADR-0164 §7.4): HandleSource — `source <origin>`.
+    /// Produces a perception handle bound to a DECLARED origin
+    /// (kinds camera | file; generation handles come from Lift+ProvBind
+    /// or vision_generate's manifest). Legal only as a binding
+    /// initializer (the origin rule needs a trackable construction site).
+    HandleSource {
+        origin: String,
+        span: Span,
+    },
+    /// Наряд №332 (ADR-0164 §7.4): ProvBind — `from <origin> <construction>`.
+    /// Binds the provenance of a NEWLY constructed media handle to a
+    /// declared origin; the Lift node (media_store_*) is legal ONLY
+    /// under this bind (the origin-chain rule).
+    ProvBind {
+        origin: String,
+        inner: Box<Expr>,
         span: Span,
     },
 }
@@ -1539,8 +1837,11 @@ impl Expr {
             | Expr::IfElse { span, .. }
             | Expr::List { span, .. }
             | Expr::IndexAccess { span, .. }
+            | Expr::HandleSource { span, .. }
+            | Expr::ProvBind { span, .. }
             | Expr::StructLit { span, .. }
             | Expr::BlockIfElse { span, .. }
+            | Expr::MatchExpr { span, .. }
             | Expr::Try { span, .. } => span,
         }
     }

@@ -1,0 +1,7 @@
+// Угроза: тело JSON-запроса отражается в публичный ответ как есть.
+// Атака: отражённая инъекция через POST-тело.
+pattern Send(data: String) -> String {
+  let _ = respond("200 OK", json_body())
+  return "sent"
+}
+flow Main { input: String = data -> Send -> output }

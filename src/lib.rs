@@ -19,16 +19,46 @@ pub mod ast;
 use crate::audit::{audit_category_a, Severity};
 pub mod audit;
 pub mod builtins;
+// Наряд №335 (spec §7.2 v2): consent ledger — subject/scope/TTL records
+// for every grant and revocation (process-local SQLite; export = egress).
+pub mod consent;
+// Naryad #390 (ADR-0155): Grant algebra — capability ledger + scope math.
+pub mod grants;
+// Naryad #387 (ADR-0149 D1/D6): LikenessToken — the opaque likeness
+// consent credential (challenge/verify ritual + registry).
+pub mod likeness;
+// Naryad #392: DenyEvent — the typed deny-reason vocabulary + event
+// contract shared by the static gate, the TW interpreter and the VM.
+pub mod deny;
+// Naryad #393 (ADR-0167): Action Ledger v1 — signed append-only journal
+// of actions (prev-hash chain + Ed25519 per-record signatures; the
+// in-toto/PROV export profile is ADR-0157). The external verifier
+// (`mlog ledger verify`) reads only the exported file.
+pub mod ledger;
+// Наряд №316 (issue #403): SSOT-классификация builtins — роль × метка ×
+// обратимость. Статическая карта + тесты покрытия 100% (устав §11 Шаг 3).
+pub mod backends;
+pub mod backends_weights;
+pub mod builtins_classification;
 pub mod bytecode;
 pub mod compiler;
+pub mod doc_tests;
 pub mod embeddings;
 pub mod error;
 pub mod interpreter;
+pub mod labels;
 pub mod llm;
+pub mod mcp_policy;
+pub mod mcp_server;
+pub mod media;
 pub mod memory_graph;
 pub mod memory_store;
 pub mod nn;
 pub mod parser;
+// Наряд №325 (issue #419, ADR-0161): compatibility profiles —
+// `profile legacy { egress: permissive_with_audit }` switches the
+// №325 SINK_CLEARANCE gate into advisory mode (audit events, not errors).
+pub mod profile;
 // Наряд №286: shared JSON-Schema validation (ADR-0133) — один валидатор
 // для call_llm_schema и json_validate (дифференциальный контракт «ни одного
 // нового правила»).
@@ -37,8 +67,10 @@ pub mod semantic;
 #[cfg(feature = "server")]
 pub mod server;
 pub mod util;
+pub mod video;
 pub mod vision;
 pub mod vm;
+pub mod voice;
 
 /// Parse and execute a .mlog program. Returns the flow output (if any),
 /// with mutate status messages prepended if present.
@@ -90,6 +122,12 @@ pub fn run_program_with_dir(
                     "Compilation error (ADR-0117 §2-3): {}",
                     err.message
                 ));
+            }
+            // Наряд №392: deny-event analyzer failures block the run path
+            // the same way — handler scope, class validation and
+            // exhaustive matching are compile-time contract, not warnings.
+            if err.message.contains("[DENY_") {
+                return Err(format!("Compilation error (Naryad #392): {}", err.message));
             }
         }
     }

@@ -15,6 +15,33 @@ pub enum Instruction {
     // ── Constants & Variables ───────────────────────────────────
     /// Push a constant value onto the stack.
     Const(Value),
+    /// Наряд №328 (ADR-0156): join the runtime label of `src` into `dst`
+    /// (componentwise, ADR-0154 §2.4). A `src` starting with `@` names a
+    /// №316 Source builtin — the runtime seed label of that source.
+    LabelJoin {
+        dst: String,
+        src: String,
+    },
+    /// Наряд №328 (ADR-0156): the runtime twin of the №325 gate — check
+    /// the runtime label of `arg` against the sink's clearance; a
+    /// violation is a loud runtime error + an audit event.
+    /// Наряд №392: `arg_index` feeds the same reason-classification the
+    /// static gate uses (the network address-position rule), and `deny`
+    /// arms the check with the on_deny path: when the program declares a
+    /// covering handler, the runtime runs it, pushes the degraded Unit
+    /// and jumps PAST the refused call (which never executes). `None`
+    /// keeps the loud default error.
+    SinkCheck {
+        fn_name: String,
+        arg: String,
+        line: u32,
+        /// Argument position of this check within the sink call (0-based).
+        arg_index: u32,
+        /// The on_deny path (Naryad #392): handler index into
+        /// `Program::deny_handlers` + the continuation after the refused
+        /// sink call (patched by the compiler).
+        deny: Option<SinkDenyPath>,
+    },
     /// Push the value of a global variable (by slot index).
     LoadGlobal(usize),
     /// Push a global variable by name (for unresolved references).
@@ -174,6 +201,86 @@ pub enum Instruction {
         name: String,
         mutable: bool,
     },
+
+    // ── Match (№369, ADR-0141 Stage 1.1) ─────────────────
+    /// Test ONE match arm against the scrutinee VALUE on the stack.
+    /// Pops the scrutinee (Compare also pops the threshold first — the
+    /// compiler emits threshold evaluation before the test for Compare
+    /// arms), pushes Float(1.0/0.0) — the VM's boolean form.
+    /// The matching predicate lives in `MatchTest::matches` — the SAME
+    /// code the TW interpreter runs, so the backends cannot drift.
+    /// Jump structure (first match wins, TW order) is emitted by the
+    /// compiler with MatchTest + JumpIfNot + Jump; nothing here decides it.
+    /// Appended at the END of the enum (bincode positional-index
+    /// compatibility — see StoreAssignLocal's note).
+    MatchTest(MatchTest),
+
+    /// №370: duplicate the top stack value (the match scrutinee lives on
+    /// the stack while arms test copies of it — single evaluation, no
+    /// scratch slot). Appended at the END of the enum.
+    Dup,
+
+    /// №370: open a VALUE EXPRESSION register (pushed onto the VM's
+    /// register stack, NOT the value stack) — the last-value register of a
+    /// block-if-else / match expression. Starts as Unit. Registers live in
+    /// VM state (not stack cells), so a value form is safe in ANY
+    /// expression position: intermediate temporaries of enclosing
+    /// expressions can never be clobbered by a register write (the
+    /// slot-based register of the first №370 draft was unsound exactly
+    /// there: `"[" + (if c {..} else {..}) + "]"` overwrote the "["
+    /// temporary). Appended at the END of the enum.
+    BeginValueExpr,
+
+    /// №370: pop the top value; if it is NOT Unit, store it into the
+    /// topmost value register. Mirrors the TW `eval_statements_cf`
+    /// contract (`if !matches!(val, Value::Unit) { last_expr_value = val }`)
+    /// — the branch's value is the last NON-Unit expression of its body,
+    /// and a trailing Unit-valued statement does not reset it. Appended at
+    /// the END of the enum.
+    KeepLastValue,
+
+    /// №370: pop the topmost value register and push its value onto the
+    /// value stack — the value of the whole block-if-else / match
+    /// expression. Pairs with BeginValueExpr (balanced, nestable — nested
+    /// value forms open their own register). Appended at the END of the
+    /// enum.
+    EndValueExpr,
+}
+
+/// №369: the pattern side of one match arm — the payload of
+/// `Instruction::MatchTest`. Appended AFTER the Instruction enum in its own
+/// type (the Instruction enum itself is untouched variant-index-wise:
+/// MatchTest is appended at its END — see StoreAssignLocal's note).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum MatchTest {
+    /// `"literal" then {...}` — scrutinee's Display form equals the literal.
+    Exact(String),
+    /// `starts_with "prefix" then {...}`
+    StartsWith(String),
+    /// `contains "substr" then {...}`
+    Contains(String),
+    /// `> expr then {...}` — numeric-first, string-fallback comparison
+    /// (`ast::MatchArm::compare_values`); threshold is the value below
+    /// the scrutinee on the stack (compiler emits threshold first).
+    Compare(crate::ast::CompareOp),
+}
+
+impl MatchTest {
+    /// The shared predicate — for non-Compare arms `threshold` is ignored
+    /// and `Value::Unit` is passed by the VM. Compare arms go through
+    /// `ast::MatchArm::compare_values` (the same function the TW
+    /// interpreter calls — single source of truth, №369).
+    pub fn matches(&self, scrutinee: &Value, threshold: &Value) -> bool {
+        let s = format!("{}", scrutinee);
+        match self {
+            MatchTest::Exact(v) => s == *v,
+            MatchTest::StartsWith(p) => s.starts_with(p.as_str()),
+            MatchTest::Contains(sub) => s.contains(sub.as_str()),
+            MatchTest::Compare(op) => {
+                crate::ast::MatchArm::compare_values(scrutinee, op, threshold)
+            }
+        }
+    }
 }
 
 /// A flow expression that can be compiled inline.
@@ -236,6 +343,28 @@ pub struct CompiledFn {
     /// Set by the compiler's purity analysis. Used by the JIT to determine
     /// which patterns can be compiled to native code.
     pub is_pure: bool,
+}
+
+/// Наряд №392: the on_deny path compiled into a deny-armed SinkCheck —
+/// the handler to run (index into `Program::deny_handlers`) and the
+/// continuation ip AFTER the refused sink call (the call is skipped, a
+/// degraded Unit becomes its result).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SinkDenyPath {
+    pub handler: u32,
+    pub skip_to: u32,
+}
+
+/// Наряд №392: a compiled `on_deny(<class|*>) { body }` handler. Zero-arg,
+/// zero-result code executed by the VM when a runtime gate refuses an
+/// action covered by `class` (`*` = every class).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompiledDenyHandler {
+    /// The sink class covered: "*" or one of the sink-class words.
+    pub class: String,
+    /// Mangled internal name (`__on_deny_N`) — diagnostics only.
+    pub name: String,
+    pub code: Vec<Instruction>,
 }
 
 /// A compiled learnable pattern: name, prompt, few-shot examples.
@@ -364,6 +493,17 @@ pub struct Program {
     /// Empty vec when no vision declarations are present.
     #[serde(default)]
     pub vision_decls: Vec<CompiledVisionDecl>,
+    /// Наряд №332 (ADR-0164): compiled `origin` declarations.
+    /// Processed by `Vm::load_program` and the interpreter's declaration
+    /// pass for `media_source_capture` dispatch. Empty vec when no origin
+    /// declarations are present.
+    #[serde(default)]
+    pub origin_decls: Vec<CompiledOriginDecl>,
+    /// Наряд №392: compiled `on_deny(<class|*>) { body }` handlers.
+    /// Indexed by the deny-armed SinkCheck's `deny.handler`. Empty vec
+    /// when the program declares no deny handlers.
+    #[serde(default)]
+    pub deny_handlers: Vec<CompiledDenyHandler>,
     /// Database URL (if declared). Enables db_insert, query_scalar, etc.
     pub db_url: Option<String>,
     /// Наряд №204 (ADR-0121 stage 2): memory persist path from
@@ -544,6 +684,61 @@ pub struct CompiledVisionDecl {
     pub profile: CompiledVisionProfile,
 }
 
+/// Наряд №332 (ADR-0164): a compiled perception origin — the declared
+/// SOURCE of handles (kind camera|file|generation, media kind, label
+/// conf, optional file path). Validation lives in semantic (loud);
+/// the runtime re-checks the shape (defense-in-depth, №240 lecalo).
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CompiledOriginDecl {
+    pub name: String,
+    /// camera | file | generation.
+    pub kind: String,
+    /// image | audio | video_frame | video_segment.
+    pub media: String,
+    /// public | consented | private.
+    pub conf: String,
+    /// Required for `kind: file` — the sandboxed capture path.
+    pub path: Option<String>,
+}
+
+impl CompiledOriginDecl {
+    /// Single conversion point from the AST (№240 lecalo): field
+    /// extraction happens HERE only.
+    pub fn from_ast(v: &crate::ast::OriginDecl) -> Result<Self, String> {
+        let get = |k: &str| -> Option<String> {
+            v.fields
+                .iter()
+                .find(|(fk, _)| fk == k)
+                .map(|(_, fv)| fv.clone())
+        };
+        let kind = get("kind")
+            .ok_or_else(|| format!("origin '{}': missing required field 'kind'", v.name))?;
+        let media = get("media")
+            .ok_or_else(|| format!("origin '{}': missing required field 'media'", v.name))?;
+        let conf = get("label")
+            .ok_or_else(|| format!("origin '{}': missing required field 'label'", v.name))?;
+        let path = get("path");
+        // №387: a `kind: file` origin REQUIRES the sandboxed capture
+        // path. A `kind: likeness` origin takes a path OPTIONALLY — the
+        // file-backed capture uses it when present; the ProvBind
+        // construction (`from <origin> media_store_image(…)`) needs no
+        // file at all (the ritual gates the EGRESS side, not capture).
+        if kind == "file" && path.is_none() {
+            return Err(format!(
+                "origin '{}': kind 'file' requires the 'path' field (the sandboxed capture source)",
+                v.name
+            ));
+        }
+        Ok(Self {
+            name: v.name.clone(),
+            kind,
+            media,
+            conf,
+            path,
+        })
+    }
+}
+
 impl CompiledVisionDecl {
     /// Single conversion point from the AST (used by the compiler's pass1
     /// and the interpreter's declaration pass — no field-by-field
@@ -575,4 +770,22 @@ pub struct CallFrame {
     pub return_ip: usize,
     /// Base pointer for local variables (parameters).
     pub base_bp: usize,
+}
+
+// ── JIT eligibility (Наряд №328, ADR-0156) ───────────────────────────
+//
+// The "dispatch gap = explicit error" rule: label instructions are NOT
+// in the JIT-eligible class (arithmetic-only). `is_jit_eligible` is the
+// SSOT predicate for the (future) JIT dispatcher: a function containing
+// LabelJoin/SinkCheck must never be silently skipped by a JIT pass —
+// the dispatcher is required to reject such functions with a distinct
+// error naming ADR-0156.
+
+pub fn is_jit_eligible(instrs: &[Instruction]) -> bool {
+    instrs.iter().all(|i| {
+        !matches!(
+            i,
+            Instruction::LabelJoin { .. } | Instruction::SinkCheck { .. }
+        )
+    })
 }

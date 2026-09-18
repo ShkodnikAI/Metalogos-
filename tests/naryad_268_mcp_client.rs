@@ -367,7 +367,29 @@ fn c12_taint_policy_parity_with_json_body() {
         "политика taint для mcp_call обязана совпадать с json_body (оба {})",
         json_has
     );
-    assert!(!mcp_has, "UserInput-роды в respond не флагаются (паритет); если это изменилось — обнови и ADR-0132, и этот тест");
+    // №325 note: the legacy HTML_INJECTION check does NOT flag UserInput
+    // kinds in respond (that boundary held for the LLM-only vocabulary);
+    // the lattice gate now flags BOTH mcp_call and json_body identically
+    // — the parity contract is what this test pins. The legacy-only
+    // silence is asserted via the message text.
+    let mcp_legacy = metalogos::audit_program(mcp_src)
+        .expect("audit")
+        .findings
+        .iter()
+        .any(|f| {
+            f.check_id == "HTML_INJECTION" && f.message.contains("LLM output passed to respond()")
+        });
+    let json_legacy = metalogos::audit_program(json_src)
+        .expect("audit")
+        .findings
+        .iter()
+        .any(|f| {
+            f.check_id == "HTML_INJECTION" && f.message.contains("LLM output passed to respond()")
+        });
+    assert_eq!(
+        mcp_legacy, json_legacy,
+        "legacy-check parity for mcp_call vs json_body must hold (both silent)"
+    );
 }
 
 // ── 5. Аудит-лог ─────────────────────────────────────────────────────

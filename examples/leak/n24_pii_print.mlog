@@ -1,0 +1,9 @@
+// Угроза: персональные данные (диагноз, паспорт) печатаются без маскирования.
+// Атака: утечка PHI/PII в логи (GDPR/152-ФЗ).
+entity record: String = "диагноз: диабет 2 типа, паспорт 4510 123456"
+
+pattern Send(data: String) -> String {
+  let _ = print(record)
+  return "sent"
+}
+flow Main { input: String = data -> Send -> output }

@@ -54,6 +54,14 @@ pub(super) fn parse_mlogserver_decl(pair: Pair<Rule>) -> Result<Declaration, Par
         .and_then(|c| find_child_str(&children_of(c), Rule::INT))
         .and_then(|s| s.parse().ok());
 
+    // Наряд №296: optional `redact_mode: "pii"` for the redact middleware.
+    // Only used when "redact" is in the middleware list.
+    let redact_mode: Option<String> = body_children
+        .iter()
+        .find(|c| c.as_rule() == Rule::mlogserver_redact_mode)
+        .and_then(|c| find_child_str(&children_of(c), Rule::STRING_LITERAL))
+        .map(|s| s.trim_matches('"').to_string());
+
     let routes: Vec<RouteDecl> = body_children
         .iter()
         .filter(|c| c.as_rule() == Rule::route_decl)
@@ -66,6 +74,7 @@ pub(super) fn parse_mlogserver_decl(pair: Pair<Rule>) -> Result<Declaration, Par
         host,
         middleware,
         rate_limit,
+        redact_mode,
         routes,
     }))
 }
@@ -547,6 +556,8 @@ pub(super) fn parse_field_decl(pair: Pair<Rule>) -> FieldDecl {
         span,
         name,
         type_name,
+        // Наряд №322 (ADR-0154): optional label annotation.
+        label: find_child(&children, Rule::label_ann).map(|p| parse_label_ann(&p)),
         default,
     }
 }
@@ -569,6 +580,8 @@ pub(super) fn parse_entity_record_decl(pair: Pair<Rule>) -> Result<Declaration, 
         span,
         name,
         type_name,
+        // Наряд №322 (ADR-0154): optional label annotation.
+        label: find_child(&children, Rule::label_ann).map(|p| parse_label_ann(&p)),
         fields,
     }))
 }
@@ -609,6 +622,8 @@ pub(super) fn parse_entity_simple_decl(pair: Pair<Rule>) -> Result<Declaration, 
         span,
         name,
         type_name,
+        // Наряд №322 (ADR-0154): optional label annotation.
+        label: find_child(&children, Rule::label_ann).map(|p| parse_label_ann(&p)),
         value,
     }))
 }
@@ -884,6 +899,31 @@ pub(super) fn parse_hook_decl(pair: Pair<Rule>) -> Result<Declaration, ParseErro
         .collect::<Result<_, _>>()?;
 
     Ok(Declaration::Hook(HookDecl { span, phase, body }))
+}
+
+// ── DenyEvent handler (Наряд №392) ─────────────────────────────────
+
+/// `on_deny(<sink-class|*>) { <statements> }` — parse the deny-event
+/// handler declaration. The class selector is `*` (every sink class) or
+/// one of the sink-class words; validity of the word is checked by the
+/// semantic pass (loud, with a span), not silently defaulted here.
+pub(super) fn parse_on_deny_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
+    let span = Span::from_pest(pair.as_span());
+    let children = children_of(&pair);
+    // on_deny_decl = { ON_DENY_KW ~ deny_class_word ~ LBRACE ~ statement* ~ RBRACE }
+    let class = children
+        .iter()
+        .find(|c| c.as_rule() == Rule::IDENT || c.as_rule() == Rule::DENY_ALL_CLASS)
+        .map(|c| c.as_str().trim().to_string())
+        .unwrap_or_else(|| "*".to_string());
+
+    let body: Vec<Statement> = children
+        .iter()
+        .filter(|c| c.as_rule() == Rule::statement)
+        .map(|c| parse_single_statement(c.clone()))
+        .collect::<Result<_, _>>()?;
+
+    Ok(Declaration::OnDeny(OnDenyDecl { span, class, body }))
 }
 
 // ── Sandbox (P2) ────────────────────────────────────────────────
@@ -1258,6 +1298,10 @@ pub(super) fn parse_tool_method(pair: Pair<Rule>) -> Result<ToolMethod, ParseErr
         name,
         params,
         return_type,
+        // Наряд №324 (ADR-0154 §9): optional effect trail after the return type.
+        effects: find_child(&children, Rule::effect_trail)
+            .as_ref()
+            .map(parse_effect_ann),
         body,
     })
 }
@@ -1412,6 +1456,10 @@ pub(super) fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Result<Declarati
         .map(|p| parse_params(p))
         .unwrap_or_default();
     let return_type = find_child_str(&children, Rule::type_name).unwrap_or_default();
+    // Наряд №324 (ADR-0154 §9): optional effect trail after the return type.
+    let effects_ann = find_child(&children, Rule::effect_trail)
+        .as_ref()
+        .map(parse_effect_ann);
 
     // Extract prompt, context, model, max_tokens, cache, cache_ttl from learnable_body
     let mut prompt = String::new();
@@ -1760,6 +1808,7 @@ pub(super) fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Result<Declarati
             distill_to: distill_to_for_decl,
             distill_after,
             fallback_if,
+            effects: effects_ann,
         }))
     } else {
         Ok(Declaration::LearnablePattern(LearnablePatternDecl {
@@ -1781,6 +1830,7 @@ pub(super) fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Result<Declarati
             distill_to: None,
             distill_after: 0,
             fallback_if: None,
+            effects: effects_ann,
         }))
     }
 }
@@ -1807,6 +1857,10 @@ pub(super) fn parse_pattern_decl(pair: Pair<Rule>) -> Result<Declaration, ParseE
         name,
         params,
         return_type,
+        // Наряд №324 (ADR-0154 §9): optional effect trail after the return type.
+        effects: find_child(&children, Rule::effect_trail)
+            .as_ref()
+            .map(parse_effect_ann),
         body,
     }))
 }
@@ -2621,4 +2675,75 @@ pub(super) fn parse_vision_decl(pair: Pair<Rule>) -> Result<Declaration, ParseEr
         policy,
         profile,
     }))
+}
+
+// ── Compatibility profile (Наряд №325, ADR-0161) ────────────────────────
+
+/// `profile legacy { egress: permissive_with_audit }` — parse the
+/// program-level compatibility profile (shape-only grammar; option
+/// words validated by semantic / profile.rs).
+/// Наряд №332 (ADR-0164): `origin name { field: value, ... }`.
+pub(super) fn parse_origin_decl(pair: Pair<Rule>) -> Declaration {
+    let span = Span::from_pest(pair.as_span());
+    let children = children_of(&pair);
+    let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+    let mut fields: Vec<(String, String)> = Vec::new();
+    for c in children
+        .iter()
+        .filter(|c| c.as_rule() == Rule::origin_field)
+    {
+        let oc = children_of(c);
+        // origin_field = { IDENT ~ COLON ~ (STRING_LITERAL | IDENT) }:
+        // first IDENT is the KEY, the following STRING/IDENT is the VALUE
+        // (same shape as profile_option).
+        let mut parts = oc
+            .iter()
+            .filter(|p| matches!(p.as_rule(), Rule::IDENT | Rule::STRING_LITERAL));
+        let key = parts
+            .next()
+            .map(|k| k.as_str().to_string())
+            .unwrap_or_default();
+        let value = parts
+            .next()
+            .map(|v| {
+                let raw = v.as_str().to_string();
+                if v.as_rule() == Rule::STRING_LITERAL {
+                    raw.trim_matches('"').to_string()
+                } else {
+                    raw
+                }
+            })
+            .unwrap_or_default();
+        fields.push((key, value));
+    }
+    Declaration::Origin(OriginDecl { span, name, fields })
+}
+
+pub(super) fn parse_profile_decl(pair: Pair<Rule>) -> Declaration {
+    let span = Span::from_pest(pair.as_span());
+    let children = children_of(&pair);
+    let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+    let mut options: Vec<(String, String)> = Vec::new();
+    for c in children
+        .iter()
+        .filter(|c| c.as_rule() == Rule::profile_option)
+    {
+        let oc = children_of(c);
+        // profile_option = { IDENT ~ COLON ~ (STRING_LITERAL | IDENT) }:
+        // the first IDENT is the KEY, the following STRING/IDENT is the
+        // VALUE (find_child_str would return the key twice).
+        let words: Vec<String> = oc
+            .iter()
+            .filter(|c| c.as_rule() == Rule::STRING_LITERAL || c.as_rule() == Rule::IDENT)
+            .map(pair_str)
+            .collect();
+        if words.len() >= 2 {
+            options.push((words[0].clone(), words[1].trim_matches('"').to_string()));
+        }
+    }
+    Declaration::Profile(crate::ast::ProfileDecl {
+        span,
+        name,
+        options,
+    })
 }

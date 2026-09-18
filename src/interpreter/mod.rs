@@ -5,6 +5,8 @@
 pub(crate) mod context;
 pub(crate) mod conversations;
 pub(crate) mod db;
+
+pub(crate) use db::convert_params;
 pub(crate) mod events;
 pub(crate) mod execution;
 pub(crate) mod flow;
@@ -158,6 +160,12 @@ pub struct Interpreter {
     /// Server context: parsed query string parameters (Bug 2.1 fix).
     /// Set by execute_route_body, returned by query_param() builtin.
     server_query_params: Option<std::collections::HashMap<String, String>>,
+    /// Server context: path parameters extracted from a templated route
+    /// (Наряд №283: `/demo/{name}` matched against `/demo/test` →
+    /// `server_path_params = {"name": "test"}`). Set by execute_route_body
+    /// when the matched route is a template, returned by the
+    /// `server_path_param(name)` builtin. Parity with server_query_params.
+    server_path_params: Option<std::collections::HashMap<String, String>>,
     /// Server context: user roles for RBAC (Наряд №14 P2-6).
     /// Set by execute_route_body, checked by require() builtin.
     server_user_roles: Vec<String>,
@@ -174,6 +182,16 @@ pub struct Interpreter {
     hooks_session_start: Vec<HookDecl>,
     hooks_on_write: Vec<HookDecl>,
     hooks_session_end: Vec<HookDecl>,
+    /// Наряд №392: on_deny handlers — the deny-event handlers, collected
+    /// during run() like the hooks. Matched by sink class (exact match
+    /// wins over `*`) when a runtime gate refuses an action.
+    deny_handlers: Vec<OnDenyDecl>,
+    /// Наряд №392: the DenyEvent currently being handled (Some exactly
+    /// while an on_deny body runs). deny_event()/deny_reason() read it;
+    /// outside a handler both are loud runtime errors — the event cannot
+    /// be forged or stale-read. Mutex: the eval paths run on `&self`
+    /// (the interpreter's interior-mutability convention).
+    current_deny_event: std::sync::Mutex<Option<Value>>,
     /// Eval blocks (ADR-0050): collected during run(), executed by run_eval_blocks().
     eval_blocks: Vec<EvalDecl>,
     /// Test blocks: collected during run(), executed by test runner.
@@ -226,10 +244,19 @@ pub struct Interpreter {
     /// PNG buffers. `Value::Vision(VisionId)` indexes into this. Wrapped in
     /// Mutex for the same `&self` evaluation contexts as `reflex_registry`.
     pub vision_registry: crate::vision::SharedVisionRegistry,
+    /// Наряд №331 (ADR-0162): unified media store — Image/Audio/VideoFrame/
+    /// VideoSegment bytes behind opaque `Value::Media(MediaHandle)` handles.
+    /// Mutex for the same `&self` evaluation contexts as `vision_registry`.
+    /// Byte egress goes only through sanctioned sinks (`media_save`, №325-gated).
+    pub media_store: std::sync::Mutex<crate::media::MediaStore>,
     /// Наряд №240 (Vision R4.2): name → compiled parameters for
     /// `vision_generate` dispatch. Populated by the declaration pass
     /// (`Declaration::Vision` arm in execution.rs).
     pub vision_decls: HashMap<String, crate::bytecode::CompiledVisionDecl>,
+    /// Наряд №332 (ADR-0164): registered `origin` declarations — the
+    /// runtime truth for `media_source_capture` dispatch (static
+    /// validation happened in semantic).
+    pub origin_decls: HashMap<String, crate::bytecode::CompiledOriginDecl>,
     /// Наряд №4: LLM routing config (providers, circuit breaker, failover).
     /// If None → backward compatible (env vars, single provider).
     llm_config: Option<crate::ast::LlmConfigDecl>,
@@ -278,6 +305,7 @@ impl Interpreter {
             embedding_manager: EmbeddingManager::new(),
             server_json_body: None,
             server_query_params: None,
+            server_path_params: None,
             server_user_roles: Vec::new(),
             llm_cache: std::sync::Mutex::new(HashMap::new()),
             hooks_before: Vec::new(),
@@ -285,6 +313,8 @@ impl Interpreter {
             hooks_session_start: Vec::new(),
             hooks_on_write: Vec::new(),
             hooks_session_end: Vec::new(),
+            deny_handlers: Vec::new(),
+            current_deny_event: std::sync::Mutex::new(None),
             eval_blocks: Vec::new(),
             test_blocks: Vec::new(),
             pattern_stats: std::sync::Mutex::new(std::collections::HashMap::new()),
@@ -301,7 +331,9 @@ impl Interpreter {
             reflex_registry: std::sync::Mutex::new(crate::nn::ReflexRegistry::new()),
             reflex_names: HashMap::new(),
             vision_registry: std::sync::Mutex::new(crate::vision::VisionRegistry::new()),
+            media_store: std::sync::Mutex::new(crate::media::MediaStore::new()),
             vision_decls: HashMap::new(),
+            origin_decls: HashMap::new(),
             llm_config: None,
             smart_router: std::sync::Arc::new(std::sync::Mutex::new(None)),
             propagated_confidence: std::sync::Mutex::new(1.0),
@@ -333,6 +365,22 @@ impl Interpreter {
     /// Get a query string parameter by name (Bug 2.1 fix).
     pub fn get_server_query_param(&self, name: &str) -> Option<String> {
         self.server_query_params.as_ref()?.get(name).cloned()
+    }
+
+    /// Set path parameters extracted from a templated route (Наряд №283).
+    /// Called by execute_route_body when the matched route is a template
+    /// (`/demo/{name}` matched against `/demo/test` → `params = {"name": "test"}`).
+    /// Parity with `set_server_query_params`.
+    pub fn set_server_path_params(&mut self, params: std::collections::HashMap<String, String>) {
+        self.server_path_params = Some(params);
+    }
+
+    /// Get a path parameter by name (Наряд №283).
+    /// Returns None when no templated route matched (static route, or no
+    /// server context). The `server_path_param` builtin falls back to ""
+    /// for caller parity with `query_param` semantics.
+    pub fn get_server_path_param(&self, name: &str) -> Option<String> {
+        self.server_path_params.as_ref()?.get(name).cloned()
     }
 
     /// Set user roles for RBAC (Наряд №14 P2-6).
@@ -435,6 +483,14 @@ impl Interpreter {
         self.builtins.get(name)
     }
 
+    /// Наряд №287: заменить хендлер билтина в ЭТОМ интерпретаторе
+    /// (doc-тесты: read-only профиль — сетевые/exec-билтины заменяются
+    /// заглушками с громким отказом). Реестр (SSOT) не меняется;
+    /// подмена локальна для экземпляра интерпретатора.
+    pub fn override_builtin(&mut self, name: &str, f: crate::builtins::BuiltinFn) {
+        self.builtins.override_handler(name, f);
+    }
+
     /// Collect all known declarations from this interpreter into a Vec.
     /// Used by `check_program_with_root` to build a merged declaration list
     /// for semantic analysis.
@@ -454,6 +510,7 @@ impl Interpreter {
                 name: name.clone(),
                 params: cp.params.clone(),
                 return_type: "String".to_string(),
+                effects: None,
                 body: cp.body.clone(),
             }));
         }
@@ -481,6 +538,7 @@ impl Interpreter {
                 distill_to: None,
                 distill_after: 0,
                 fallback_if: None,
+                effects: None,
             }));
         }
         for r in &self.rules {
@@ -550,8 +608,23 @@ impl Interpreter {
         if let Some(ref url) = self.db_url {
             target.db_url = Some(url.clone());
         }
-        // Share db_conn via Arc so in-memory DB persists between requests
-        target.db_conn = self.db_conn.clone();
+        // Share db_conn via Arc so in-memory DB persists between requests.
+        // Guard (naryad №381, found by the Stage 4 benchmark corpus): only
+        // overwrite the target connection when the source actually holds one.
+        // Server startup (run_server / run_test_server_with_backend) runs each
+        // declaration on a throwaway interpreter and merges — every merge AFTER
+        // the db {} declaration carried db_conn = None and clobbered the
+        // established in-memory connection, so every query() in a route body
+        // failed with "no database connection" (reconnect_db() treats
+        // in-memory as "already shared via this Arc" and does not reopen).
+        if self
+            .db_conn
+            .lock()
+            .map(|guard| guard.is_some())
+            .unwrap_or(false)
+        {
+            target.db_conn = self.db_conn.clone();
+        }
         // Copy embedding manager (for recall() — semantic memory search)
         // EmbeddingManager is cheap to clone; it lazily initializes backends.
         // We don't clone the internal cache/embeddings — each interpreter builds its own.
@@ -572,6 +645,10 @@ impl Interpreter {
         for h in &self.hooks_session_end {
             target.hooks_session_end.push(h.clone());
         }
+        // Наряд №392: deny handlers propagate to per-request interpreters
+        // (a route handler that hits a runtime gate must find the same
+        // on_deny surface the top-level program declared).
+        target.deny_handlers = self.deny_handlers.clone();
         // ADR-0053: copy conversation config (conversations themselves are per-session)
         target.conversation_config = self.conversation_config.clone();
 

@@ -368,9 +368,19 @@ fn n325_leak_suite_corpus_is_closed() {
     // caught twice): every negative must fail compilation with its
     // expected class, every positive must keep compiling.
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/leak");
+    // №386: SORT the entries. The cross-module pair (n386_a_writer →
+    // n386_b_reader) only detects when the writer module is audited
+    // BEFORE the reader — the leak-suite runner sorts its corpus, and
+    // this independent double-check must walk the files in the same
+    // deterministic order (read_dir order is arbitrary).
+    let mut paths: Vec<std::path::PathBuf> = std::fs::read_dir(&dir)
+        .expect("leak dir")
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .collect();
+    paths.sort();
     let mut negatives = 0usize;
-    for entry in std::fs::read_dir(&dir).expect("leak dir") {
-        let p = entry.unwrap().path();
+    for p in paths {
         if p.extension().map(|x| x == "mlog") != Some(true) {
             continue;
         }

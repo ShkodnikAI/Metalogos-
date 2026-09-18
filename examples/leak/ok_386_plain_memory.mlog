@@ -1,0 +1,12 @@
+// Легально (№386 green): LLM-источника нет вовсе — запись в память чистая,
+// кросс-модульный реестр нечего регистрировать, recall→respond легален.
+pattern SaveFact(_tick: String) -> String {
+  let _ = memorize("fact386", "plain text, no LLM anywhere")
+  return "saved"
+}
+pattern UseFact(_tick: String) -> String {
+  let v = recall("fact386")
+  let _ = respond("200 OK", v)
+  return "ok"
+}
+flow Main { input: String = "x" -> UseFact -> output }

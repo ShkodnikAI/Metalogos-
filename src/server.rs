@@ -787,17 +787,20 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
     // ── Наряд №40: Read METALOGOS_SERVE_BACKEND once at startup ──
     let backend = match std::env::var("METALOGOS_SERVE_BACKEND") {
         Ok(ref val) if val == "vm" => {
-            // Наряд №109 / ADR-0105: explicit opt-in — the backend stays
-            // experimental. Наряд №380: the publicly declared REASON must
-            // be true — the Stage 1 gaps (match, block if/else, binop
-            // coercion, PRNG/Bool) are CLOSED (№369–№372) and the Stage 2
-            // parity gate is green (№373, ADR-0141); the default flip is
-            // gated on soak + real-load benchmark (owner decision on
-            // gh#446: NO-GO until Stage 3+4).
+            // Наряд №380 (truth-up) + №388 (current process): the VM is an
+            // OPT-IN backend, not an experimental one — ADR-0141 superseded
+            // ADR-0105's reservations, and the full-language parity is real:
+            // the Stage 1 gaps (match, block if/else, binop coercion,
+            // PRNG/Bool) are CLOSED (№369–№372) and the Stage 2 parity gate
+            // is green (№373, ADR-0141). The default flip stays gated by
+            // ADR-0141 Stage 4/5: the owner's decision, on the evidence of
+            // the nightly soak + the real-load benchmark (the №446 re-gate
+            // inputs — see №388 for the memory/perf evidence refresh).
             eprintln!(
-                "[WARN] METALOGOS_SERVE_BACKEND=vm — experimental opt-in backend (ADR-0105). \
+                "[WARN] METALOGOS_SERVE_BACKEND=vm — opt-in backend. \
                  Full-language parity: Stage 1 gaps closed, Stage 2 crosscheck green (ADR-0141). \
-                 Default remains interpreter; the default flip is gated (soak + real-load benchmark)."
+                 Default remains interpreter; the default flip is gated by ADR-0141 Stage 4/5 \
+                 (nightly soak + real-load benchmark, owner decision)."
             );
             eprintln!("[server] backend: vm (bytecode VM)");
             ServeBackend::Vm

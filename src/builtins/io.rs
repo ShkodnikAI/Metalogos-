@@ -11,6 +11,14 @@ use super::core::expect_string_arg;
 use std::io::Write;
 use std::time::Duration;
 
+// ── Наряд №282 (спайк): SMFS — виртуальная ФС памяти ──
+// Путь в зарезервированной зоне `sm:` обрабатывается ВИРТУАЛЬНО
+// (см. src/builtins/smfs.rs): перехват стоит ДО sandbox_path — виртуальные
+// пути вообще не касаются диска (кроме открытия БД профиля, уже
+// песочничного), и песочница №131/№252/№254 НЕ расширяется.
+// Активная песочница с forbidden=["filesystem"] сильнее перехвата:
+// гейт ниже (Phase 7.5) стоит до builtin_fn и отсекает sm:-пути тоже.
+
 // ── Constants for exec() hardening (Наряд №88 Блок 1) ──
 
 /// Default timeout for `exec()` — 30 seconds.
@@ -405,6 +413,10 @@ pub(crate) fn open_sandbox_write(
 /// not environmental failures, and swallowing them hid real defects.
 pub(crate) fn builtin_read_file(args: &[Value]) -> Result<Value, String> {
     let path = expect_string_arg("read_file", args, 0)?;
+    // Наряд №282 (спайк): виртуальная SMFS-зона sm: (read-only экспорт памяти).
+    if super::smfs::is_virtual(&path) {
+        return super::smfs::read(&path);
+    }
     let safe_path = match sandbox_path(&path) {
         Ok(p) => p,
         Err(e) => {
@@ -429,6 +441,10 @@ pub(crate) fn builtin_read_file(args: &[Value]) -> Result<Value, String> {
 /// Returns "ok" on success, empty string on soft-failure.
 pub(crate) fn builtin_write_file(args: &[Value]) -> Result<Value, String> {
     let path = expect_string_arg("write_file", args, 0)?;
+    // Наряд №282 (спайк): sm: монтирование read-only — запись идёт через memorize/kv_set.
+    if super::smfs::is_virtual(&path) {
+        return Err(super::smfs::read_only_reject("write_file", &path));
+    }
     let content = match args.get(1) {
         Some(Value::String(s)) => s.clone(),
         Some(other) => format!("{}", other),
@@ -456,6 +472,10 @@ pub(crate) fn builtin_write_file(args: &[Value]) -> Result<Value, String> {
 /// Returns "ok" on success, empty string on soft-failure.
 pub(crate) fn builtin_append_file(args: &[Value]) -> Result<Value, String> {
     let path = expect_string_arg("append_file", args, 0)?;
+    // Наряд №282 (спайк): sm: монтирование read-only.
+    if super::smfs::is_virtual(&path) {
+        return Err(super::smfs::read_only_reject("append_file", &path));
+    }
     let content = match args.get(1) {
         Some(Value::String(s)) => s.clone(),
         Some(other) => format!("{}", other),
@@ -482,6 +502,10 @@ pub(crate) fn builtin_append_file(args: &[Value]) -> Result<Value, String> {
 /// (Наряд №254: preserved). Sandbox violations are a loud `[SANDBOX_VIOLATION]`.
 pub(crate) fn builtin_delete_file(args: &[Value]) -> Result<Value, String> {
     let path = expect_string_arg("delete_file", args, 0)?;
+    // Наряд №282 (спайк): sm: монтирование read-only (записи памяти не удаляются файловыми builtins).
+    if super::smfs::is_virtual(&path) {
+        return Err(super::smfs::read_only_reject("delete_file", &path));
+    }
     let safe_path = match sandbox_path(&path) {
         Ok(p) => p,
         Err(e) => {
@@ -502,6 +526,10 @@ pub(crate) fn builtin_delete_file(args: &[Value]) -> Result<Value, String> {
 /// `file_exists(path)` — check if a file exists. Returns Bool.
 pub(crate) fn builtin_file_exists(args: &[Value]) -> Result<Value, String> {
     let path = expect_string_arg("file_exists", args, 0)?;
+    // Наряд №282 (спайк): виртуальные sm:-пути — мягкий предикат над памятью.
+    if super::smfs::is_virtual(&path) {
+        return Ok(super::smfs::exists(&path));
+    }
     let safe_path = match sandbox_path(&path) {
         Ok(p) => p,
         Err(_) => return Ok(Value::Bool(false)), // soft-failure on sandbox violation
@@ -516,6 +544,10 @@ pub(crate) fn builtin_list_dir(args: &[Value]) -> Result<Value, String> {
     } else {
         expect_string_arg("list_dir", args, 0)?
     };
+    // Наряд №282 (спайк): навигация по виртуальной SMFS-зоне.
+    if super::smfs::is_virtual(&path) {
+        return super::smfs::list(&path);
+    }
     let safe_path = sandbox_path(&path)?;
     let entries: Vec<Value> = std::fs::read_dir(&safe_path)
         .map_err(|e| format!("list_dir('{}'): {}", path, e))?

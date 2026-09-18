@@ -215,7 +215,13 @@ pub use memory_forget::{memory_forget_core, FORGET_BATCH_PREFIX};
 // функция; token-бюджет — реюз token_count (memory.rs SSOT-estimate).
 pub(crate) mod text_chunk;
 use text_chunk::*;
+// Наряд №282 (P3, СПАЙК — Tier 3): SMFS-аналог — память как виртуальная
+// read-only ФС (префикс sm:) поверх user_profile №281, перехват в io.rs.
+// Прототип влит в main решением владельца (PR #349): вердикт спайка GO
+// (docs/research/naryad-282-smfs-spike.md), реестр билтинов и аритмии
+// файловых билтинов не меняются.
 pub(crate) mod cron;
+pub(crate) mod smfs;
 pub use cron::init_reminder_persist;
 use cron::*;
 // Наряд №253: exec-гейт serve-контекста — публичный контракт для тестов

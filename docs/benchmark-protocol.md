@@ -44,7 +44,7 @@
 - extracts the raw numbers from the bench's JSON report and prints the
   mandatory final line: `RAW … | DIVISOR … | NORMALIZED …`;
 - appends one `parent → child` line per run to
-  `docs/research/bench-tree.log` (the run-tree form the report requires).
+  `docs/research/bench-tree.txt` (the run-tree form the report requires).
 
 The first executed series under this protocol (naryad №398 criterion (б)
 and (в)) is recorded in

@@ -1,0 +1,10 @@
+// Naryad #387: приватный likeness-хэндл в media_save без consent и без
+// токена — refuse (SECRET_LEAK, private-egress); токен и consent —
+// единственные легальные креденшалы (№335/№387).
+origin portrait { kind: likeness, media: image, label: private }
+pattern Send(data: String) -> String {
+  let face = source portrait
+  let _saved = media_save(face, "frames/leak.jpg")
+  return "saved"
+}
+flow Main { input: String = data -> Send -> output }

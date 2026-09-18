@@ -31,7 +31,7 @@ jobs:
       - name: Print the §D5 verdict
         run: grep -E "VERDICT|speedup|RSS ratio|per-route" stage4_run.log || true
       - name: Upload raw JSON report + run log
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: stage4-benchmark-report
           path: |

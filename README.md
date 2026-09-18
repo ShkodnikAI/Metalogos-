@@ -110,7 +110,7 @@ OWASP Top 10 is addressed at the language level through a combination of compile
 - Missing `rate_limit` middleware (external infra may handle it)
 - Missing CSRF middleware (not needed for token-authenticated APIs)
 - Open redirect via user-controlled `respond_html()` (custom validation not recognized)
-- Taint through `memorize`/`recall` persistence (file-level heuristic)
+- ~~Taint through `memorize`/`recall` persistence (file-level heuristic)~~ **cross-module MVP since №386**: literal/prefix memory keys are matched across modules (fingerprint registry, `METALOGOS_TAINT_STRICT=1` strict mode); dynamic keys remain the boundary
 - Taint through trivial passthrough pattern indirection (single-param, `return param` only)
 
 **Runtime exec & env gates** (opt-in flags, denied by default with `EXEC_NOT_PERMITTED` / `ENV_NOT_PERMITTED`):
@@ -177,18 +177,18 @@ These checks use **intraprocedural taint tracking** — they follow `let`-assign
 | LLM output nested deeper than 3 levels of non-pattern function calls | `expr_is_llm_tainted` is bounded (Naryad #295); `TAINT_INTERP` catches via summary if a pattern call is involved |
 | `{{{ var }}}` (raw template substitution) | `template_render` with `raw=true` skips escaping by design — trusted author code only |
 
-`mlog audit` provides **heuristic warnings** (not errors) for two narrow sub-cases, and an **interprocedural Error** for non-trivial passthrough chains:
+`mlog audit` provides **Category-A Errors** for the persistence/passthrough families (enforced on every compile path) and an **advisory Warning** for call cycles:
 
 | Check | Severity | Scope | Example |
 |---|---|---|---|
-| `TAINT_PERSISTENCE` | Warning | Same-scope: `memorize(call_llm(...))` + `recall()` + `respond()` | `memorize call_llm("summarize")` then `let ctx = recall("q"); respond("200 OK", ctx)` |
+| `TAINT_PERSISTENCE` | Error | Same-scope: `memorize(call_llm(...))` + `recall()` + `respond()`; **cross-module since №386**: module B's `recall(<key>)` → `respond()` matched against module A's tainted memory keys (literal/prefix, fingerprint registry; `METALOGOS_TAINT_STRICT=1` key-less strict mode) | `memorize call_llm("summarize")` then `let ctx = recall("q"); respond("200 OK", ctx)` — or the write in one module and the recall in another |
 | `TAINT_PASSTHROUGH` | Error | Trivial passthrough pattern wrapping LLM output (1-param `return x`) | `pattern Wrap(x: String) { return x }` then `respond("200 OK", Wrap(call_llm("...")))` |
 | `TAINT_INTERP` (Naryad #292; #376) | Error | **Interprocedural** — non-trivial pattern wrapping LLM output, bounded depth `METALOGOS_TAINT_DEPTH` (default 4, configurable 1..=16; summaries cached per module — #376) | `pattern Wrap(x: String) { return upper(x) }` then `respond("200 OK", Wrap(call_llm("...")))` |
 | `INTERP_DEPTH_LIMIT` (Naryad #292) | Warning | Recursive / cyclic pattern in the call graph — analysis terminated at depth 2 | `pattern Recurse(x) { return Recurse(x) }` |
 
 `TAINT_INTERP` is a Category-A compile-time error (audit_category_a). `INTERP_DEPTH_LIMIT` is advisory only (audit_program, not promoted to a compile error). Sanitizers (`render()`/`escape_html()`) wrapping the LLM source lift the taint — zero false positives on legitimate code.
 
-These are file-level heuristics, not data-flow guarantees — they may false-positive in safe code and miss complex indirection.
+These are heuristics, not data-flow guarantees — they may false-positive in safe code and miss complex indirection (№386's cross-module match covers literal/prefix memory keys; dynamic keys remain the documented boundary).
 
 ### 3. Dual Execution Backend
 
@@ -355,14 +355,14 @@ Metalogos-/
 │       ├── naryad_198_audit_finds_known_vuln.rs
 │       └── naryad_198_backward_compat.rs
 │
-├── tests/                             # 190 Rust test files
+├── tests/                             # 191 Rust test files
 │   ├── fixtures/                      # PDF test fixtures
 │   ├── golden.rs                      # Golden test runner
 │   ├── vm_golden.rs                   # VM golden tests
 │   ├── crosscheck_backends.rs          # TW vs VM parity (see ADR-0105 for known gaps)
 │   ├── repl_integration.rs            # REPL tests
 │   ├── definition_of_done.rs          # Project completeness validation
-│   └── ...                            # and 185 more contract/feature test files
+│   └── ...                            # and 186 more contract/feature test files
 │
 ├── examples/                          # 243 .mlog programs (golden corpus)
 │   ├── m1_hello.mlog                  # Hello World
@@ -1068,7 +1068,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 124+ development narads (work orders) delivered. 455 builtins, 190 test files, 243 example programs, 161 ADRs (158 accepted + 3 reserved; ADR-0154/0161 filled by naryads №322/№325; ADR-0162 — №331 media handles; ADR-0163 — №333 backend registry; ADR-0164 — №332 perception origin chain; ADR-0165 — №336 backend ladder + Degraded(t); ADR-0166 — №337 C2PA contour of handles; ADR-0157/0167 — №393 Action Ledger v1; ADR-0169 — №385 stable try error codes). See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
+All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 124+ development narads (work orders) delivered. 455 builtins, 191 test files, 243 example programs, 161 ADRs (158 accepted + 3 reserved; ADR-0154/0161 filled by naryads №322/№325; ADR-0162 — №331 media handles; ADR-0163 — №333 backend registry; ADR-0164 — №332 perception origin chain; ADR-0165 — №336 backend ladder + Degraded(t); ADR-0166 — №337 C2PA contour of handles; ADR-0157/0167 — №393 Action Ledger v1; ADR-0169 — №385 stable try error codes). See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
 
 ### Next
 

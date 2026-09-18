@@ -1,0 +1,16 @@
+// Naryad #387 (ADR-0149 D1/D6): the kitchen-camera TOKEN variant —
+// the likeness ritual end-to-end: `from <origin> media_store_image`
+// binds a private likeness-kind handle (no file capture needed), the
+// one-time challenge/verify ritual issues the opaque LikenessToken
+// (consent-ledger trace recorded), and the save passes the token as
+// the runtime credential — the seal unseals for the ritual only.
+// A String can never occupy the token position (P1-7).
+origin portrait { kind: likeness, media: image, label: private }
+pattern Token(_tick: String) -> String {
+  let face = from portrait media_store_image("face-bytes", "private")
+  let challenge = likeness_challenge("subject-1", "likeness")
+  let token = likeness_verify(challenge)
+  let saved = media_save(face, "w387_portrait_saved.jpg", token)
+  return "egress-ok"
+}
+flow Main { input: String = "tick" -> Token -> output }

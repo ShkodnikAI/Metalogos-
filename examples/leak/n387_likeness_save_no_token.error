@@ -1,0 +1,1 @@
+EXPECTED: SECRET_LEAK — приватный likeness-хэндл в media_save без consent/токена

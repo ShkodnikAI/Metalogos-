@@ -605,7 +605,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 455 registered builtins (455 of 455): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 457 registered builtins (457 of 457): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -1991,7 +1991,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 455 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 457 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2290,7 +2290,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `media_meta(...)` | 1 | — | `media_meta(handle)` — store metadata WITHOUT materializing bytes: Struct { kind, conf, refs, sealed } (ADR-0162 §2.4). |
 | `media_release(...)` | 1 | — | `media_release(handle)` — refcount −1; at 0 the entry is evicted (sealed bytes zeroized). Returns the remaining refcount. Loud on unknown handles. |
 | `media_retain(...)` | 1 | — | `media_retain(handle)` — refcount +1 on a media handle (ADR-0162 §2.4); returns the same handle (chainable). |
-| `media_save(...)` | 2 | — | `media_save(handle, path)` — the ONLY sanctioned media materialization: writes the exact bytes to a sandboxed file (№131/№252). Sink: №325 clearance at compile time (SECRET_LEAK for private labels) + runtime backstop MEDIA_SEALED_EGRESS for sealed entries. Returns the path. |
+| `media_save(...)` | 2..3 | — | `media_save(handle, path)` — the ONLY sanctioned media materialization: writes the exact bytes to a sandboxed file (№131/№252). Sink: №325 clearance at compile time (SECRET_LEAK for private labels) + runtime backstop MEDIA_SEALED_EGRESS for sealed entries. Returns the path. |
 | `media_source_capture(...)` | 1 | — | `media_source_capture(origin_name)` — the HandleSource runtime (№332, ADR-0164): resolves the declared origin and captures a handle through the media store. `kind: file` reads the sandboxed path (loud on missing files); `kind: camera` is a loud PARKED boundary (real capture hardware does not exist in this environment). Source: the handle label is the origin's declared conf. State-carrying: interpreter/VM intercept before the generic fallback. |
 | `media_store_audio(...)` | 2 | — | `media_store_audio(data, sensitivity)` — wraps provided bytes into an opaque Audio handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. |
 | `media_store_image(...)` | 2 | — | `media_store_image(data, sensitivity)` — wraps provided bytes into an opaque Image handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. |
@@ -2406,7 +2406,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `backend_list(...)` | variadic | — | `backend_list()` — the static backend registry as `List[Struct { name, class, weights_id, pin, license, license_note }]`. |
 | `backend_select(...)` | 2 | — | `backend_select(class, ladder)` — the backend try-chain (Наряд №336, ADR-0165). Walks the ladder in priority order over the №333 registry SSOT; every rung attempt is an audit event (stderr line + the program-visible `attempts` list, №326 posture). |
 
-### `security` — 12 builtin(s)
+### `security` — 14 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
@@ -2421,6 +2421,8 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `ledger_head(...)` | variadic | — | `ledger_head()` — the current head hash ("" for an empty journal). |
 | `ledger_rotate(...)` | variadic | — | `ledger_rotate()` — append a key-rotation record (signed by the still-active key); returns the NEW key id. Subsequent records are signed by the fresh key (signer continuity, ADR-0167 §3.2). |
 | `ledger_snapshot(...)` | variadic | — | `ledger_snapshot()` — append a snapshot record pinning the head; returns the snapshot record hash (the `mlog ledger archive` anchor). |
+| `likeness_challenge(...)` | 1..3 | — | `likeness_challenge(subject, scope?, ttl_seconds?)` — issue a one-time likeness challenge (ADR-0149 D1). |
+| `likeness_verify(...)` | 1..3 | — | `likeness_verify(challenge, subject?, scope?)` — consume the challenge, record the consent-ledger grant, return the opaque token. |
 | `quarantine_write(...)` | 1..2 | — | `quarantine_write(value, reason?)` — the quarantine sink: the ONLY legal egress for a poisoned value. Returns the audit-event text (the program-visible half of the event; the static half is the QUARANTINE_EGRESS audit finding + stderr line, №326 posture). |
 
 ### `std` — 11 builtin(s)
@@ -3073,7 +3075,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `media_store_audio` | lift | internal | reversible | wraps provided bytes into an opaque Audio handle in the media store (ADR-0162) — no egress; declared sensitivity drives at-rest AES-GCM sealing and the runtime backstop |
 | `media_store_video_frame` | lift | internal | reversible | wraps provided bytes into an opaque VideoFrame handle in the media store (ADR-0162) — no egress; declared sensitivity drives at-rest AES-GCM sealing and the runtime backstop |
 | `media_store_video_segment` | lift | internal | reversible | wraps provided bytes into an opaque VideoSegment handle in the media store (ADR-0162) — no egress; declared sensitivity drives at-rest AES-GCM sealing and the runtime backstop |
-| `media_save` | sink | internal | reversible | the ONLY sanctioned materialization of media bytes — file egress through the io sandbox; №325 sink clearance (private-egress) + runtime backstop MEDIA_SEALED_EGRESS (ADR-0162 §2.5) |
+| `media_save` | sink | internal | reversible | the ONLY sanctioned materialization of media bytes — file egress through the io sandbox; №325 sink clearance (private-egress) + runtime backstop MEDIA_SEALED_EGRESS, unsealed ONLY by the №387 LikenessToken credential (static presence + registry check; ADR-0162 §2.5 / ADR-0149 D1) |
 | `media_retain` | pure | public | pure | — |
 | `media_release` | pure | public | pure | — |
 | `media_meta` | source | public | pure | reads media store METADATA only (kind/conf/refs/sealed/origin) — no bytes leave the store |
@@ -3125,8 +3127,11 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `ledger_export_intoto` | sink | internal | reversible | dumps the in-toto Statement profile (ADR-0157) to a sandboxed path — FILE EGRESS, same class as ledger_export |
 | `ledger_rotate` | lift | public | irreversible | appends a key-rotation record signed by the still-active key and switches to the fresh key (ADR-0167 §3.3) — the chain transition cannot be undone |
 | `ledger_snapshot` | lift | public | irreversible | appends a snapshot record pinning the head (ADR-0167 §3.2) — the archive anchor is a permanent chain record |
+| `likeness_challenge` | lift | public | pure | issues a one-time opaque likeness challenge (№387, ADR-0149 D1); registry state only, no egress |
+| `likeness_verify` | lift | public | pure | consumes the challenge (linear), records the consent-ledger grant and returns the opaque LikenessToken (№387, ADR-0149 D1/D6) — process-local bookkeeping, no egress |
 
 <!-- END GENERATED BUILTIN CLASSIFICATION -->
+
 
 
 

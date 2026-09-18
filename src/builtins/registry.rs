@@ -56,6 +56,9 @@ use super::ledger::{
     builtin_ledger_count, builtin_ledger_export, builtin_ledger_export_intoto, builtin_ledger_head,
     builtin_ledger_rotate, builtin_ledger_snapshot,
 };
+// Naryad #387 (ADR-0149 D1/D6): the likeness ritual — challenge/verify
+// over the opaque LikenessToken.
+use super::likeness::{builtin_likeness_challenge, builtin_likeness_verify};
 // Наряд №302 (ADR-0143-0146): Voice pillar skeleton builtins — stubs.
 use super::*;
 #[cfg(feature = "voice")]
@@ -672,7 +675,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("media_store_audio", 2, "media"; builtin_media_store_audio_stub),
     spec!("media_store_video_frame", 2, "media"; builtin_media_store_video_frame_stub),
     spec!("media_store_video_segment", 2, "media"; builtin_media_store_video_segment_stub),
-    spec!("media_save", 2, "media"; builtin_media_save_stub),
+    spec!("media_save", 2, 3, "media"; builtin_media_save_stub),
     spec!("media_retain", 1, "media"; builtin_media_retain_stub),
     spec!("media_release", 1, "media"; builtin_media_release_stub),
     spec!("media_meta", 1, "media"; builtin_media_meta_stub),
@@ -870,6 +873,12 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("ledger_export_intoto", 1, "security"; builtin_ledger_export_intoto),
     spec!("ledger_rotate", 0, "security"; builtin_ledger_rotate),
     spec!("ledger_snapshot", 0, "security"; builtin_ledger_snapshot),
+    // ── Naryad #387 (ADR-0149 D1/D6): the likeness consent ritual ──
+    // The one-time challenge + the opaque LikenessToken. APPENDED at
+    // the end — inserting mid-array would shift existing CallBuiltin
+    // indices (.mbc contract). Registry 457→459 (append-only).
+    spec!("likeness_challenge", 1, 3, "security"; builtin_likeness_challenge),
+    spec!("likeness_verify", 1, 3, "security"; builtin_likeness_verify),
 ];
 
 /// Total number of registered builtins.

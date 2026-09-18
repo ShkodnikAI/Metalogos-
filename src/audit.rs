@@ -2144,24 +2144,32 @@ fn check_open_redirect(
 // data-flow through the memory subsystem — but the pattern IS a real
 // security issue (FOSVED: HandleX → AuditLog → db_execute).
 // Promoted to Error / Category A by Наряд #157.
+// Наряд #386: extended to the CROSS-MODULE case — see
+// `check_taint_persistence_cross_module` below (memory-key summaries in
+// `PatternSummary` + the fingerprint-keyed module registry).
+
+/// Recursively check if an expression contains an LLM source call.
+/// (Hoisted to module scope by №386 — the cross-module memory-key
+/// collector below reuses it.)
+fn expr_contains_llm_source(expr: &Expr) -> bool {
+    match expr {
+        Expr::FnCall { name, args, .. } => {
+            if is_llm_source(name) {
+                return true;
+            }
+            args.iter().any(expr_contains_llm_source)
+        }
+        _ => false,
+    }
+}
 
 fn check_taint_persistence(
     declarations: &[Declaration],
     source: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    /// Recursively check if an expression contains an LLM source call.
-    fn expr_contains_llm_source(expr: &Expr) -> bool {
-        match expr {
-            Expr::FnCall { name, args, .. } => {
-                if is_llm_source(name) {
-                    return true;
-                }
-                args.iter().any(expr_contains_llm_source)
-            }
-            _ => false,
-        }
-    }
+    // №386: the LLM-source probe lives at module scope (shared with the
+    // cross-module collector below).
 
     // Step 1: Check if any `memorize` declaration stores an LLM-sourced value.
     let has_llm_memorize = declarations.iter().any(|d| {
@@ -2261,6 +2269,618 @@ fn check_taint_persistence(
             return;
         }
     }
+}
+
+// ── №386: cross-module persistence taint — memory-key summaries ────────
+//
+// The file-level heuristic above cannot see a flow that crosses module
+// boundaries: module A (`memorize("draft", call_llm(...))`) and module B
+// (`let y = recall("draft"); respond(y)`) each pass their own audit. The
+// MVP closes the gap for LITERAL / PREFIX keys:
+//
+//   1. `PatternSummary` (the №376 interprocedural summary) now carries
+//      `tainted_memory_keys` — the literal key prefixes under which the
+//      pattern stores LLM output — computed in
+//      `compute_pattern_summaries_with_depth`.
+//   2. Every `audit_category_a` run registers its module's tainted keys
+//      in the fingerprint-keyed registry below and then checks its
+//      `recall()` flows against the OTHER modules' keys. A matching
+//      recall whose value reaches `respond`/`respond_html` is the same
+//      `TAINT_PERSISTENCE` Category-A error (one leak-suite vocabulary).
+//   3. Honest boundary (documented in docs/limitations.md): dynamically
+//      constructed keys without a leading string literal are NOT
+//      covered — full interprocedural points-to is a later phase.
+//      `METALOGOS_TAINT_STRICT=1` arms a stricter mode: any `recall`
+//      reaching a sink flags when ANY other module writes LLM output to
+//      memory at all (no key match). Default: off.
+
+/// The literal prefix of a memory KEY expression (№386 MVP): a string
+/// literal, or the leading string literal of a concatenation
+/// (`"draft:" + user` → `"draft:"`). Anything else is a dynamic key —
+/// honestly uncovered.
+fn memory_key_prefix(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::StringLit { value, .. } => Some(value.clone()),
+        Expr::BinaryOp {
+            op: BinOp::Add,
+            left,
+            ..
+        } => memory_key_prefix(left),
+        _ => None,
+    }
+}
+
+/// `render` / `escape_html` / `redact` at the TOP of an expression lift
+/// the taint (the same sanitizer vocabulary the sink-clearance and
+/// №327 decision gates accept).
+fn is_memory_taint_sanitizer(name: &str) -> bool {
+    name == "render" || name == "escape_html" || name == "redact"
+}
+
+/// Per-module memory-taint summary in the cross-module registry:
+/// tainted key prefix → the scopes that write it, plus whether the
+/// module writes LLM output to memory AT ALL (the strict-mode flag —
+/// covers key-less declarative writes like `memorize <llm> with priority`).
+#[derive(Debug, Default, Clone)]
+struct ModuleMemoryTaint {
+    key_writers: std::collections::HashMap<String, std::collections::HashSet<String>>,
+    any_writes: bool,
+}
+
+/// №386: the cross-module registry. Key = a CONTENT fingerprint of the
+/// module's declarations (stable per module content, distinct across
+/// modules). Why not the №376 summaries cache as the accumulator: that
+/// cache is keyed by the SOURCE STRING hash, and the compile/run paths
+/// (`compile_program`/`run_program_with_dir` → `audit_category_a(&decls, "")`)
+/// pass an empty source — entries for different modules would collide and
+/// overwrite each other. The fingerprint is content-derived instead.
+/// The summaries themselves still come from the extended
+/// `compute_pattern_summaries_with_depth` (naryad step 1) — the registry
+/// only accumulates them per module.
+static MEMORY_TAINT_REGISTRY: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<u64, ModuleMemoryTaint>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+/// Safety valve for long-lived processes auditing unbounded module sets.
+const MEMORY_TAINT_REGISTRY_CAP: usize = 4096;
+
+/// A content fingerprint of a module: pattern/tool/route names in order
+/// plus statement counts. Two audits of the same module fingerprint alike;
+/// two different modules (different names or shapes) do not.
+fn module_memory_fingerprint(declarations: &[Declaration]) -> u64 {
+    let mut sketch = String::new();
+    for d in declarations {
+        match d {
+            Declaration::Pattern(p) => {
+                sketch.push_str(&format!("pattern {}:{};", p.name, p.body.len()));
+            }
+            Declaration::Tool(t) => {
+                sketch.push_str(&format!("tool {}:{};", t.name, t.methods.len()));
+            }
+            Declaration::MlogServer(s) => {
+                sketch.push_str(&format!("server {}:{};", s.port, s.routes.len()));
+            }
+            Declaration::Hook(h) => {
+                sketch.push_str(&format!("hook {:?};", h.phase));
+            }
+            Declaration::Memorize(m) => {
+                sketch.push_str(&format!("memorize {:?};", m.priority));
+            }
+            _ => {}
+        }
+    }
+    fnv1a_source(sketch.as_bytes())
+}
+
+/// #[doc(hidden)] test-isolation hook: clear the cross-module registry.
+#[doc(hidden)]
+pub fn memory_taint_registry_clear() {
+    MEMORY_TAINT_REGISTRY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
+}
+
+/// Register the CURRENT module's memory-taint summary.
+fn register_module_memory_taint(fingerprint: u64, taint: ModuleMemoryTaint) {
+    let mut reg = MEMORY_TAINT_REGISTRY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if reg.len() >= MEMORY_TAINT_REGISTRY_CAP && !reg.contains_key(&fingerprint) {
+        // Loudly bounded: drop the accumulated knowledge rather than grow
+        // without limit (the audit stays CORRECT for same-run module sets
+        // far beyond any real workspace size).
+        reg.clear();
+    }
+    reg.insert(fingerprint, taint);
+}
+
+/// Merge the tainted keys of every OTHER registered module.
+fn other_modules_memory_taint(fingerprint: u64) -> ModuleMemoryTaint {
+    let reg = MEMORY_TAINT_REGISTRY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let mut merged = ModuleMemoryTaint::default();
+    for (fp, taint) in reg.iter() {
+        if *fp == fingerprint {
+            continue; // the module under audit — its own flows are the
+                      // file-level heuristic's domain
+        }
+        for (k, writers) in &taint.key_writers {
+            merged
+                .key_writers
+                .entry(k.clone())
+                .or_default()
+                .extend(writers.iter().cloned());
+        }
+        merged.any_writes |= taint.any_writes;
+    }
+    merged
+}
+
+/// Walk statements collecting tainted memory WRITES: the `memorize(key,
+/// value)` call form with an LLM-sourced, unsanitized value records the
+/// key's literal prefix; the key-less statement/declaration forms
+/// (`memorize <llm> with priority`) only raise `any_writes` (no literal
+/// key exists to record).
+fn collect_tainted_memory_writes_stmts(
+    body: &[Statement],
+    keys: &mut std::collections::HashSet<String>,
+    any: &mut bool,
+) {
+    for stmt in body {
+        match stmt {
+            Statement::LetBinding { value, .. } | Statement::Assign { value, .. } => {
+                collect_tainted_memory_writes_expr(value, keys, any);
+            }
+            Statement::ExprStmt { expr, .. } | Statement::Return { value: expr, .. } => {
+                collect_tainted_memory_writes_expr(expr, keys, any);
+            }
+            Statement::Each { body, .. }
+            | Statement::EachWithIndex { body, .. }
+            | Statement::While { body, .. }
+            | Statement::IfThen { body, .. } => {
+                collect_tainted_memory_writes_stmts(body, keys, any);
+            }
+            Statement::IfElseBlock {
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                collect_tainted_memory_writes_stmts(then_body, keys, any);
+                for (_, b) in else_ifs {
+                    collect_tainted_memory_writes_stmts(b, keys, any);
+                }
+                if let Some(b) = else_body {
+                    collect_tainted_memory_writes_stmts(b, keys, any);
+                }
+            }
+            Statement::Match {
+                arms, else_body, ..
+            } => {
+                for arm in arms {
+                    collect_tainted_memory_writes_stmts(arm.body(), keys, any);
+                }
+                if let Some(b) = else_body {
+                    collect_tainted_memory_writes_stmts(b, keys, any);
+                }
+            }
+            // The №266 statement form has no key — it only arms strict mode.
+            Statement::Memorize(m) if expr_contains_llm_source(&m.value) => {
+                *any = true;
+            }
+            _ => {}
+        }
+    }
+}
+
+fn collect_tainted_memory_writes_expr(
+    expr: &Expr,
+    keys: &mut std::collections::HashSet<String>,
+    any: &mut bool,
+) {
+    if let Expr::FnCall { name, args, .. } = expr {
+        if name == "memorize" && args.len() >= 2 {
+            let value = &args[1];
+            let sanitized =
+                matches!(value, Expr::FnCall { name, .. } if is_memory_taint_sanitizer(name));
+            if !sanitized && expr_contains_llm_source(value) {
+                *any = true;
+                if let Some(k) = memory_key_prefix(&args[0]) {
+                    keys.insert(k);
+                }
+            }
+            // fall through: nested memorize calls inside the args are
+            // still walked below
+        }
+        for a in args {
+            collect_tainted_memory_writes_expr(a, keys, any);
+        }
+    }
+}
+
+/// Does `expr` REACH a tainted recall? True when the expression contains
+/// a `recall(<matching key>)` call (or a reference to a variable already
+/// known to hold one), NOT passing through a top-level sanitizer.
+fn recall_taint_reaches_expr(
+    expr: &Expr,
+    keys: &std::collections::HashMap<String, std::collections::HashSet<String>>,
+    tainted_vars: &std::collections::HashSet<String>,
+    strict_armed: bool,
+    matched: &mut Vec<String>,
+) -> bool {
+    match expr {
+        Expr::Ident { name, .. } => tainted_vars.contains(name),
+        Expr::FnCall { name, args, .. } => {
+            if is_memory_taint_sanitizer(name) {
+                // Sanitized at the top — the taint is lifted (the args are
+                // deliberately not walked: the sanitizer consumed them).
+                return false;
+            }
+            if name == "recall" {
+                // Strict mode: ANY recall is treated as tainted when
+                // another module writes LLM output to memory at all.
+                if strict_armed {
+                    matched.push("<strict: any key>".to_string());
+                    return true;
+                }
+                if let Some(key_arg) = args.first() {
+                    if let Some(k) = memory_key_prefix(key_arg) {
+                        let hit = keys.iter().find(|(prefix, _)| {
+                            k.starts_with(prefix.as_str()) || prefix.starts_with(k.as_str())
+                        });
+                        if let Some((prefix, _)) = hit {
+                            matched.push(prefix.clone());
+                            return true;
+                        }
+                    }
+                    // Dynamic recall keys are honestly uncovered.
+                    return false;
+                }
+                return false;
+            }
+            args.iter()
+                .any(|a| recall_taint_reaches_expr(a, keys, tainted_vars, strict_armed, matched))
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            recall_taint_reaches_expr(left, keys, tainted_vars, strict_armed, matched)
+                || recall_taint_reaches_expr(right, keys, tainted_vars, strict_armed, matched)
+        }
+        Expr::FieldAccess { object, .. } => {
+            recall_taint_reaches_expr(object, keys, tainted_vars, strict_armed, matched)
+        }
+        Expr::IndexAccess { object, index, .. } => {
+            recall_taint_reaches_expr(object, keys, tainted_vars, strict_armed, matched)
+                || recall_taint_reaches_expr(index, keys, tainted_vars, strict_armed, matched)
+        }
+        Expr::IfElse {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            recall_taint_reaches_expr(condition, keys, tainted_vars, strict_armed, matched)
+                || recall_taint_reaches_expr(then_branch, keys, tainted_vars, strict_armed, matched)
+                || recall_taint_reaches_expr(else_branch, keys, tainted_vars, strict_armed, matched)
+        }
+        _ => false,
+    }
+}
+
+/// Scan an expression for `respond`/`respond_html` sink calls and check
+/// whether any of their arguments reaches a tainted recall.
+fn recall_taint_scan_sinks(
+    expr: &Expr,
+    keys: &std::collections::HashMap<String, std::collections::HashSet<String>>,
+    tainted_vars: &std::collections::HashSet<String>,
+    strict_armed: bool,
+    matched: &mut Vec<String>,
+) -> bool {
+    let mut found = false;
+    if let Expr::FnCall { name, args, .. } = expr {
+        if name == "respond" || name == "respond_html" {
+            for a in args {
+                if recall_taint_reaches_expr(a, keys, tainted_vars, strict_armed, matched) {
+                    found = true;
+                }
+            }
+        }
+        for a in args {
+            if recall_taint_scan_sinks(a, keys, tainted_vars, strict_armed, matched) {
+                found = true;
+            }
+        }
+    }
+    found
+}
+
+/// Walk a scope's statements: track which variables hold tainted recall
+/// results and whether a sink consumes them.
+fn recall_taint_walk_stmts(
+    body: &[Statement],
+    keys: &std::collections::HashMap<String, std::collections::HashSet<String>>,
+    tainted_vars: &mut std::collections::HashSet<String>,
+    strict_armed: bool,
+    matched: &mut Vec<String>,
+) -> bool {
+    let mut found = false;
+    for stmt in body {
+        match stmt {
+            Statement::LetBinding { name, value, .. } | Statement::Assign { name, value, .. } => {
+                if recall_taint_scan_sinks(value, keys, tainted_vars, strict_armed, matched) {
+                    found = true;
+                }
+                if recall_taint_reaches_expr(value, keys, tainted_vars, strict_armed, matched) {
+                    tainted_vars.insert(name.clone());
+                } else {
+                    // A clean reassignment kills the variable's taint.
+                    tainted_vars.remove(name);
+                }
+            }
+            Statement::ExprStmt { expr, .. } | Statement::Return { value: expr, .. } => {
+                if recall_taint_scan_sinks(expr, keys, tainted_vars, strict_armed, matched) {
+                    found = true;
+                }
+            }
+            Statement::Each { iterable, body, .. }
+            | Statement::EachWithIndex { iterable, body, .. } => {
+                if recall_taint_scan_sinks(iterable, keys, tainted_vars, strict_armed, matched) {
+                    found = true;
+                }
+                if recall_taint_walk_stmts(body, keys, tainted_vars, strict_armed, matched) {
+                    found = true;
+                }
+            }
+            Statement::While {
+                condition, body, ..
+            } => {
+                if recall_taint_scan_sinks(condition, keys, tainted_vars, strict_armed, matched) {
+                    found = true;
+                }
+                if recall_taint_walk_stmts(body, keys, tainted_vars, strict_armed, matched) {
+                    found = true;
+                }
+            }
+            Statement::IfThen { body, .. } => {
+                if recall_taint_walk_stmts(body, keys, tainted_vars, strict_armed, matched) {
+                    found = true;
+                }
+            }
+            Statement::IfElseBlock {
+                condition,
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                if recall_taint_scan_sinks(condition, keys, tainted_vars, strict_armed, matched) {
+                    found = true;
+                }
+                if recall_taint_walk_stmts(then_body, keys, tainted_vars, strict_armed, matched) {
+                    found = true;
+                }
+                for (cond, b) in else_ifs {
+                    if recall_taint_scan_sinks(cond, keys, tainted_vars, strict_armed, matched) {
+                        found = true;
+                    }
+                    if recall_taint_walk_stmts(b, keys, tainted_vars, strict_armed, matched) {
+                        found = true;
+                    }
+                }
+                if let Some(b) = else_body {
+                    if recall_taint_walk_stmts(b, keys, tainted_vars, strict_armed, matched) {
+                        found = true;
+                    }
+                }
+            }
+            Statement::Match {
+                scrutinee,
+                arms,
+                else_body,
+                ..
+            } => {
+                if recall_taint_scan_sinks(scrutinee, keys, tainted_vars, strict_armed, matched) {
+                    found = true;
+                }
+                for arm in arms {
+                    if recall_taint_walk_stmts(
+                        arm.body(),
+                        keys,
+                        tainted_vars,
+                        strict_armed,
+                        matched,
+                    ) {
+                        found = true;
+                    }
+                }
+                if let Some(b) = else_body {
+                    if recall_taint_walk_stmts(b, keys, tainted_vars, strict_armed, matched) {
+                        found = true;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    found
+}
+
+/// №386: the cross-module half of TAINT_PERSISTENCE.
+///
+/// Registers the current module's tainted memory keys (from the extended
+/// `PatternSummary` fields plus a direct walk of the non-pattern scopes),
+/// then checks every scope's `recall` → sink flows against the OTHER
+/// modules' keys. One Category-A finding per module.
+fn check_taint_persistence_cross_module(
+    declarations: &[Declaration],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    let strict = std::env::var("METALOGOS_TAINT_STRICT")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+
+    // Self taint: patterns contribute through their (extended) summaries;
+    // tools/routes/hooks and key-less statement forms are walked directly.
+    let summaries = compute_pattern_summaries_with_depth(declarations, taint_interp_max_depth());
+    let mut self_taint = ModuleMemoryTaint::default();
+    for (name, s) in &summaries {
+        for k in &s.tainted_memory_keys {
+            self_taint
+                .key_writers
+                .entry(k.clone())
+                .or_default()
+                .insert(name.clone());
+        }
+        self_taint.any_writes |= s.writes_tainted_memory;
+    }
+    let mut direct_keys: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut direct_any = false;
+    for d in declarations {
+        match d {
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    collect_tainted_memory_writes_stmts(&m.body, &mut direct_keys, &mut direct_any);
+                }
+            }
+            Declaration::MlogServer(s) => {
+                for r in &s.routes {
+                    collect_tainted_memory_writes_stmts(&r.body, &mut direct_keys, &mut direct_any);
+                }
+            }
+            Declaration::Hook(h) => {
+                collect_tainted_memory_writes_stmts(&h.body, &mut direct_keys, &mut direct_any);
+            }
+            Declaration::Memorize(m) if expr_contains_llm_source(&m.value) => {
+                direct_any = true;
+            }
+            _ => {}
+        }
+    }
+    for k in direct_keys {
+        self_taint
+            .key_writers
+            .entry(k)
+            .or_default()
+            .insert("<non-pattern scope>".to_string());
+    }
+    self_taint.any_writes |= direct_any;
+
+    let fingerprint = module_memory_fingerprint(declarations);
+    register_module_memory_taint(fingerprint, self_taint.clone());
+    let others = other_modules_memory_taint(fingerprint);
+
+    if others.key_writers.is_empty() && !(strict && others.any_writes) {
+        return; // no other module taints memory — nothing to match
+    }
+
+    // Walk every scope's recall→sink flows. The matching key set for a
+    // scope excludes that scope's OWN writes (a pattern recalling its own
+    // freshly-memorized key is the same-scope/file heuristic's territory,
+    // and the write itself is already gated at the memory sink).
+    let strict_armed = strict && others.any_writes;
+    let mut matched: Vec<String> = Vec::new();
+    for d in declarations {
+        match d {
+            Declaration::Pattern(p) => {
+                let own: std::collections::HashSet<String> = summaries
+                    .get(&p.name)
+                    .map(|s| s.tainted_memory_keys.clone())
+                    .unwrap_or_default();
+                let keys: std::collections::HashMap<String, std::collections::HashSet<String>> =
+                    others
+                        .key_writers
+                        .iter()
+                        .chain(self_taint.key_writers.iter())
+                        .filter(|(k, _)| !own.contains(*k))
+                        .map(|(k, w)| (k.clone(), w.clone()))
+                        .collect();
+                let mut vars = std::collections::HashSet::new();
+                recall_taint_walk_stmts(&p.body, &keys, &mut vars, strict_armed, &mut matched);
+            }
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    let keys: std::collections::HashMap<String, std::collections::HashSet<String>> =
+                        others
+                            .key_writers
+                            .iter()
+                            .chain(self_taint.key_writers.iter())
+                            .map(|(k, w)| (k.clone(), w.clone()))
+                            .collect();
+                    let mut vars = std::collections::HashSet::new();
+                    recall_taint_walk_stmts(&m.body, &keys, &mut vars, strict_armed, &mut matched);
+                }
+            }
+            Declaration::MlogServer(s) => {
+                for r in &s.routes {
+                    let keys: std::collections::HashMap<String, std::collections::HashSet<String>> =
+                        others
+                            .key_writers
+                            .iter()
+                            .chain(self_taint.key_writers.iter())
+                            .map(|(k, w)| (k.clone(), w.clone()))
+                            .collect();
+                    let mut vars = std::collections::HashSet::new();
+                    recall_taint_walk_stmts(&r.body, &keys, &mut vars, strict_armed, &mut matched);
+                }
+            }
+            Declaration::Hook(h) => {
+                let keys: std::collections::HashMap<String, std::collections::HashSet<String>> =
+                    others
+                        .key_writers
+                        .iter()
+                        .chain(self_taint.key_writers.iter())
+                        .map(|(k, w)| (k.clone(), w.clone()))
+                        .collect();
+                let mut vars = std::collections::HashSet::new();
+                recall_taint_walk_stmts(&h.body, &keys, &mut vars, strict_armed, &mut matched);
+            }
+            _ => {}
+        }
+    }
+
+    if matched.is_empty() {
+        return;
+    }
+    matched.sort();
+    matched.dedup();
+    let line = find_line(source, "recall");
+    let reason = if strict_armed && matched.iter().all(|m| m.starts_with("<strict")) {
+        "strict mode (METALOGOS_TAINT_STRICT=1): another module writes LLM output to memory"
+            .to_string()
+    } else {
+        format!("written by other module scope(s): {}", {
+            let mut writers: Vec<String> = Vec::new();
+            for m in &matched {
+                if let Some(ws) = others.key_writers.get(m) {
+                    writers.extend(ws.iter().cloned());
+                }
+            }
+            writers.sort();
+            writers.dedup();
+            if writers.is_empty() {
+                "the matching key prefixes".to_string()
+            } else {
+                writers.join(", ")
+            }
+        })
+    };
+    findings.push(AuditFinding {
+        severity: Severity::Error,
+        check_id: "TAINT_PERSISTENCE",
+        line,
+        message: format!(
+            "cross-module taint through memory: recall() matched tainted key(s) {} — {} — \
+             the recalled value may reach respond(); sanitize with render()/escape_html()/redact() \
+             (№386: literal/prefix keys; dynamic keys are out of the MVP scope)",
+            matched
+                .iter()
+                .map(|k| format!("'{}'", k))
+                .collect::<Vec<_>>()
+                .join(", "),
+            reason
+        ),
+    });
 }
 
 // ── Check: TAINT_PASSTHROUGH_PATTERN — respond(Wrap(call_llm(...))) ────────
@@ -2514,10 +3134,18 @@ pub fn summaries_cache_clear() {
 /// transitively through other patterns) in its own call chain. The
 /// analysis still computes the summary (best-effort), but emits a
 /// loud `INTERP_DEPTH_LIMIT` warning so the boundary is visible.
+///
+/// №386: `tainted_memory_keys` holds the literal key prefixes under which
+/// this pattern stores LLM output (`memorize(<key>, <llm-derived value>)`);
+/// `writes_tainted_memory` is true when the pattern writes LLM output to
+/// memory at all — including key-less forms (`memorize <llm> with priority`)
+/// and dynamic keys, which the cross-module MVP cannot name.
 #[derive(Debug, Default, Clone)]
 struct PatternSummary {
     params_tainting_return: std::collections::HashSet<usize>,
     bounded_recursion: bool,
+    tainted_memory_keys: std::collections::HashSet<String>,
+    writes_tainted_memory: bool,
 }
 
 /// Compute summaries for all `pattern` declarations. Returns a map
@@ -2541,6 +3169,14 @@ fn compute_pattern_summaries_with_depth(
             // Walk the body, collect `return <expr>` statements — for each,
             // find which params contribute.
             collect_params_into_return(&p.body, &p.params, &mut summary.params_tainting_return);
+            // №386: collect the tainted memory-key prefixes this pattern
+            // writes (memorize(<key>, <llm-derived value>) call form) and
+            // the key-less tainted-write flag (strict-mode fuel).
+            collect_tainted_memory_writes_stmts(
+                &p.body,
+                &mut summary.tainted_memory_keys,
+                &mut summary.writes_tainted_memory,
+            );
             raw_summaries.insert(p.name.clone(), summary);
             pattern_bodies.insert(p.name.clone(), (&p.params, &p.body));
         }
@@ -4587,6 +5223,9 @@ pub fn audit_category_a(declarations: &[Declaration], source: &str) -> Vec<Audit
     check_secret_leak(declarations, source, &mut findings);
     check_html_injection(declarations, source, &mut findings);
     check_taint_persistence(declarations, source, &mut findings);
+    // Наряд №386: the cross-module half — memory-key summaries + the
+    // fingerprint registry (see check_taint_persistence_cross_module).
+    check_taint_persistence_cross_module(declarations, source, &mut findings);
     check_taint_passthrough_pattern(declarations, source, &mut findings);
     // Наряд №292 (P0, security): interprocedural taint MVP — summary-based,
     // bounded depth 2, catches non-trivial passthrough chains that the
@@ -4667,6 +5306,8 @@ pub fn audit_program(source: &str) -> Result<AuditResult, String> {
     check_secret_leak(&declarations, source, &mut findings);
     check_open_redirect(&declarations, source, &mut findings);
     check_taint_persistence(&declarations, source, &mut findings);
+    // Наряд №386: cross-module memory-key taint (audit CLI path).
+    check_taint_persistence_cross_module(&declarations, source, &mut findings);
     check_taint_passthrough_pattern(&declarations, source, &mut findings);
     // Наряд №292 (P0, security): interprocedural taint MVP — full version
     // (with INTERP_DEPTH_LIMIT advisory Warnings for call cycles).

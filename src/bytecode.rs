@@ -718,6 +718,11 @@ impl CompiledOriginDecl {
         let conf = get("label")
             .ok_or_else(|| format!("origin '{}': missing required field 'label'", v.name))?;
         let path = get("path");
+        // №387: a `kind: file` origin REQUIRES the sandboxed capture
+        // path. A `kind: likeness` origin takes a path OPTIONALLY — the
+        // file-backed capture uses it when present; the ProvBind
+        // construction (`from <origin> media_store_image(…)`) needs no
+        // file at all (the ritual gates the EGRESS side, not capture).
         if kind == "file" && path.is_none() {
             return Err(format!(
                 "origin '{}': kind 'file' requires the 'path' field (the sandboxed capture source)",

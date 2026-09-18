@@ -411,6 +411,10 @@ fn value_to_string(v: &Value) -> String {
         // Naryad #390 (ADR-0155): grants render as the bare opaque tag —
         // no capability detail enters interpolation output.
         Value::Grant(_) => "[Grant]".to_string(),
+        // Naryad #387 (ADR-0149 D1/D6): likeness handles render as the
+        // bare opaque tag — no ritual detail enters interpolation output.
+        Value::LikenessChallenge(_) => "[LikenessChallenge]".to_string(),
+        Value::Likeness(_) => "[LikenessToken]".to_string(),
         Value::Session(_) => "[Session]".to_string(),
         Value::HttpResponse { status, .. } => format!("[HttpResponse {}]", status),
         Value::Subgraph(snap) => format!(

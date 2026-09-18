@@ -248,6 +248,9 @@ pub mod consent;
 // Naryad #390 (ADR-0155): Grant algebra builtins — issue/subgrant/revoke/use
 // + the granted destructive-SQL action surface.
 pub mod grants;
+// Naryad #387 (ADR-0149 D1/D6): the likeness ritual surface —
+// likeness_challenge / likeness_verify over the opaque LikenessToken.
+pub mod likeness;
 // Naryad #393 (ADR-0167): Action Ledger v1 builtins — count/head introspection,
 // the two FILE-EGRESS export profiles (classified Sink), rotation, snapshot.
 pub mod ledger;

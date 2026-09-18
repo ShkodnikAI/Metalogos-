@@ -24,6 +24,9 @@ pub mod builtins;
 pub mod consent;
 // Naryad #390 (ADR-0155): Grant algebra — capability ledger + scope math.
 pub mod grants;
+// Naryad #387 (ADR-0149 D1/D6): LikenessToken — the opaque likeness
+// consent credential (challenge/verify ritual + registry).
+pub mod likeness;
 // Naryad #392: DenyEvent — the typed deny-reason vocabulary + event
 // contract shared by the static gate, the TW interpreter and the VM.
 pub mod deny;

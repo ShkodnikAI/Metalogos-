@@ -119,6 +119,15 @@ pub enum Value {
     /// use, or reconstructed through deserialization, refuses every
     /// later use with a typed error (GRANT_REUSED / GRANT_EXPIRED).
     Grant(crate::grants::GrantHandle),
+    /// Opaque one-time likeness challenge (Naryad #387, ADR-0149 D1).
+    /// Consumed by `likeness_verify`; serde emits a dead marker.
+    LikenessChallenge(crate::likeness::ChallengeHandle),
+    /// Opaque likeness consent token (Naryad #387, ADR-0149 D1/D6) —
+    /// the cross-pillar credential for private/camera-origin media
+    /// egress. Constructed ONLY by `likeness_verify`; a String can
+    /// never occupy a token position (serde dead marker, non-printable,
+    /// typed challenge parameter — the P1-7 unforgeability contract).
+    Likeness(crate::likeness::TokenHandle),
 }
 
 impl std::fmt::Display for Value {
@@ -205,6 +214,10 @@ impl std::fmt::Display for Value {
             // marker — no scope/class detail leaks through Display (the
             // print()/to_string() surface refuses Grants outright).
             Value::Grant(_) => write!(f, "[Grant]"),
+            // Naryad #387 (ADR-0149 D1/D6): likeness handles display as
+            // opaque markers — no subject/scope detail leaks.
+            Value::LikenessChallenge(_) => write!(f, "[LikenessChallenge]"),
+            Value::Likeness(_) => write!(f, "[LikenessToken]"),
         }
     }
 }
@@ -242,6 +255,10 @@ impl Value {
             // "Image" / "Audio" / "VideoFrame" / "VideoSegment".
             Value::Media(h) => h.kind().type_name(),
             Value::Grant(_) => "Grant",
+            // Naryad #387 (ADR-0149): likeness handle type names —
+            // "LikenessChallenge" / "LikenessToken".
+            Value::LikenessChallenge(_) => "LikenessChallenge",
+            Value::Likeness(_) => "LikenessToken",
         }
     }
 
@@ -463,6 +480,11 @@ pub fn is_nonprintable(v: &Value) -> bool {
             // printing/displaying it is refused like every other opaque
             // security value.
             | Value::Grant(_)
+            // Naryad #387 (ADR-0149 D1/D6): likeness handles are opaque
+            // security credentials — printing them is refused like every
+            // other opaque handle (the ADR-0114 convention).
+            | Value::LikenessChallenge(_)
+            | Value::Likeness(_)
             // Наряд №210: Vision handle is opaque — must not be printed directly.
             | Value::Vision(_)
             // Наряд №302: Voice/Audio handles are opaque.

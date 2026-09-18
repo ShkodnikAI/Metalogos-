@@ -81,15 +81,18 @@ pub fn media_store_dispatch(
     Ok(Value::Media(handle))
 }
 
-/// `media_save(handle, path)` — the sanctioned materialization sink
+/// `media_save(handle, path[, token])` — the sanctioned materialization sink
 /// (ADR-0162 §2.5). Runtime backstop: non-public entries are refused
-/// (they are sealed at rest; declassification is №326 territory).
-/// Writes through the io sandbox (ForWrite, loud violations).
+/// unless the №387 likeness credential is presented — a third argument
+/// carrying a registry-issued `LikenessToken` (the static layer already
+/// restricts the token path to camera/likeness origins; the runtime
+/// verifies the credential itself is real). Writes through the io
+/// sandbox (ForWrite, loud violations).
 pub fn media_save_dispatch(store: &MediaStore, args: &[Value]) -> Result<Value, String> {
     let fn_name = "media_save";
-    if args.len() != 2 {
+    if args.len() != 2 && args.len() != 3 {
         return Err(format!(
-            "{}: expects 2 arguments (handle, path), got {}",
+            "{}: expects 2..3 arguments (handle, path[, likeness_token]), got {}",
             fn_name,
             args.len()
         ));
@@ -98,19 +101,40 @@ pub fn media_save_dispatch(store: &MediaStore, args: &[Value]) -> Result<Value, 
     let path = expect_string(fn_name, args, 1)?;
     let entry = store.entry(handle)?;
     if entry.label.conf != crate::labels::Conf::Public {
-        // №385: stamped via the shared `coded_error` — the marker was
-        // `MEDIA_SEALED_EGRESS: …` before naryad №385 and is now the
-        // uniform `[CODE] ` origin-stamp format the try classifier reads.
-        return Err(crate::interpreter::values::coded_error(
-            crate::interpreter::values::CODE_MEDIA_SEALED_EGRESS,
-            format!(
-                "{} carries declared sensitivity '{}' — private/consented \
-                 media is sealed at rest and cannot be materialized (№325 sink clearance; \
-                 media declassification policies are a later boundary, ADR-0162 §2.5)",
-                handle,
-                entry.label.conf.as_str()
-            ),
-        ));
+        // №387: the likeness credential — the third argument must be a
+        // registry-issued LikenessToken. A String (or any other value)
+        // in the credential position is a LOUD type refusal: a token
+        // cannot be forged from text (the P1-7 unforgeability contract).
+        let cred_ok = match args.get(2) {
+            Some(Value::Likeness(h)) => h.is_issued()?,
+            Some(other) => {
+                return Err(crate::interpreter::values::coded_error(
+                    crate::interpreter::values::CODE_MEDIA_SEALED_EGRESS,
+                    format!(
+                        "the likeness credential must be a LikenessToken (a String can never occupy a token position), got {}",
+                        other.type_name()
+                    ),
+                ))
+            }
+            None => false,
+        };
+        if !cred_ok {
+            // №385: stamped via the shared `coded_error` — the marker was
+            // `MEDIA_SEALED_EGRESS: …` before naryad №385 and is now the
+            // uniform `[CODE] ` origin-stamp format the try classifier reads.
+            return Err(crate::interpreter::values::coded_error(
+                crate::interpreter::values::CODE_MEDIA_SEALED_EGRESS,
+                format!(
+                    "{} carries declared sensitivity '{}' — private/consented \
+                     media is sealed at rest and cannot be materialized without a \
+                     likeness credential (№325 sink clearance + №387: bind \
+                     `likeness_verify(likeness_challenge(<subject>), …)` and pass the \
+                     token as the third argument; ADR-0162 §2.5 / ADR-0149 D1)",
+                    handle,
+                    entry.label.conf.as_str()
+                ),
+            ));
+        }
     }
     let bytes = store.materialize(handle)?;
     // №131 (ForWrite) + №252/№254: sandbox violations are LOUD here —
@@ -333,7 +357,9 @@ fn runtime_origin(
 /// `media_source_capture(origin_name)` — the HandleSource runtime
 /// (№332, ADR-0164): resolves the declared origin and captures through
 /// the store. `kind: file` reads the sandboxed path (loud on missing
-/// files); `kind: camera` is a loud PARKED boundary (real capture
+/// files); `kind: likeness` is file-backed in MVP too (№387 — the same
+/// sandbox discipline, the likeness ritual gates the EGRESS side);
+/// `kind: camera` is a loud PARKED boundary (real capture
 /// hardware does not exist in this environment — №294 class); the
 /// STATIC origin chain is unaffected (compile-time denies still hold).
 pub fn media_source_capture_dispatch(
@@ -352,7 +378,9 @@ pub fn media_source_capture_dispatch(
     let name = expect_string(fn_name, args, 0)?;
     let (kind, media, conf, path) = runtime_origin(origins, fn_name, &name)?;
     match kind.as_str() {
-        "file" => {
+        // №387: likeness origins are file-backed in MVP (path required
+        // at declaration) — the ritual gates the egress side, not capture.
+        "file" | "likeness" => {
             let path = path.ok_or_else(|| {
                 format!("{}: origin '{}' (file) has no path", fn_name, name)
             })?;

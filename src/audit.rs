@@ -4175,6 +4175,24 @@ fn check_sink_clearance(
         // sink_arg_label via the label itself; the address-position rule
         // needs the TEXT, so the semantic layer flags it through the
         // arg_index==0 + private-label contract (see sink_check_id).
+        // ── Naryad #387 (ADR-0149 D1): the video-likeness gate rides
+        // the same walk but carries its OWN Category-A check_id — no
+        // profile downgrades a deepfake gate (the ORIGIN_REQUIRED
+        // posture, not the №325 advisory posture).
+        if v.reason == "video-likeness-no-consent" {
+            findings.push(AuditFinding {
+                severity: Severity::Error,
+                check_id: "VIDEO_LIKENESS_NO_CONSENT",
+                line: v.span.start_line as usize,
+                message: format!(
+                    "I2V reference (argument {} of {} in {}) originates from a `kind: \"likeness\"` \
+                     origin but no LikenessToken is in scope — bind `likeness_verify(likeness_challenge(<subject>), …)` \
+                     before this call site (ADR-0149 D1/D6; presence-based MVP, not adversarial)",
+                    v.arg_index, v.fn_name, v.container,
+                ),
+            });
+            continue;
+        }
         let check_id = sink_check_id(&v.fn_name, v.arg_index, &v.label);
         let severity = if advisory {
             Severity::Info

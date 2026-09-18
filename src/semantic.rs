@@ -1182,7 +1182,7 @@ pub struct OriginViolation {
 /// The declared origin kinds (generation handles are Lift+ProvBind /
 /// vision_generate manifests — `source` capture is camera|file only,
 /// enforced in the runtime dispatch).
-const ORIGIN_KINDS: &[&str] = &["camera", "file", "generation"];
+const ORIGIN_KINDS: &[&str] = &["camera", "file", "generation", "likeness"];
 const ORIGIN_FIELDS: &[&str] = &["kind", "media", "label", "path"];
 
 fn validate_origin_decls(declarations: &[Declaration], errors: &mut Vec<SpannedError>) {
@@ -2552,7 +2552,40 @@ fn sink_arg_label(
     }
 }
 
-type SinkCheck<'a> = &'a dyn Fn(&Expr, &str, &BTreeMap<String, Label>, &mut Vec<SinkViolation>);
+type SinkCheck<'a> =
+    &'a dyn Fn(&Expr, &str, &BTreeMap<String, Label>, &FlowCtx, &mut Vec<SinkViolation>);
+
+/// Flow context for the №325 walk (Naryad #387): the var → origin-kind
+/// alias map (so `let g = f; let h = g;` keeps the media provenance —
+/// the alias-invariance contract), the origin name → kind vocabulary
+/// (a clone — nested fns cannot capture the outer local), and the
+/// likeness-token presence flag (a bound `likeness_verify` result
+/// lexically before the gated call). Conservative by construction:
+/// branch/loop-bound tokens and aliases do NOT escape their fork
+/// (fail-closed — the entry state survives).
+#[derive(Default, Clone)]
+struct FlowCtx {
+    /// var name -> origin kind ("camera" | "likeness" | ...).
+    origin_kinds: BTreeMap<String, String>,
+    /// origin name -> kind (the declared vocabulary, read-only).
+    origin_kind_map: BTreeMap<String, String>,
+    /// a `likeness_verify` result is bound in the current body scope.
+    token_bound: bool,
+}
+
+/// Resolve the origin kind a media argument carries: a direct
+/// `source <origin>` handle, or a variable bound through the alias
+/// chain (the №387 FlowCtx). Unknown provenance -> None.
+fn media_arg_origin_kind(expr: &Expr, ctx: &FlowCtx) -> Option<String> {
+    match expr {
+        Expr::HandleSource { origin, .. } => ctx.origin_kind_map.get(origin).cloned(),
+        // №387: the ProvBind construction (`from <origin> media_store_*`)
+        // carries the same provenance as a direct capture.
+        Expr::ProvBind { origin, .. } => ctx.origin_kind_map.get(origin).cloned(),
+        Expr::Ident { name, .. } => ctx.origin_kinds.get(name).cloned(),
+        _ => None,
+    }
+}
 
 /// Collect sink call-sites whose argument labels do not clear the sink
 /// (№325, ADR-0161 §2). The sink list comes from the №316 SSOT map
@@ -2648,6 +2681,10 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
     // №332 (ADR-0164): declared origin labels — `source <origin>` /
     // `from <origin> ...` constructions carry their origin's declared
     // conf into the flow (joined with the data-flow label).
+    // №387: the parallel name → kind vocabulary feeds the FlowCtx alias
+    // tracking (media provenance through let-chains) and the
+    // video-likeness presence gate.
+    let mut origin_kind_map: BTreeMap<String, String> = BTreeMap::new();
     let origin_labels: BTreeMap<String, Label> = declarations
         .iter()
         .filter_map(|d| match d {
@@ -2660,6 +2697,9 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                         .unwrap_or_default(),
                 )
                 .ok()?;
+                if let Some((_, kind)) = o.fields.iter().find(|(k, _)| k == "kind") {
+                    origin_kind_map.insert(o.name.clone(), kind.clone());
+                }
                 Some((
                     o.name.clone(),
                     Label {
@@ -2808,8 +2848,33 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
     let check_calls = |expr: &Expr,
                        container: &str,
                        env: &BTreeMap<String, Label>,
+                       ctx: &FlowCtx,
                        violations: &mut Vec<SinkViolation>| {
         if let Expr::FnCall { name, args, .. } = expr {
+            // ── Naryad #387 (ADR-0149 D1): VIDEO_LIKENESS_NO_CONSENT ──
+            // video_render with I2V reference frames (positions 2/3 —
+            // the UNTRUSTED_FRAME positions) originating from a
+            // `kind: "likeness"` origin requires the likeness ritual: a
+            // bound `likeness_verify` result in the body scope
+            // (presence-based, the D2 honest boundary). Always a
+            // compile error — no profile downgrades a deepfake gate.
+            if name == "video_render" && args.len() >= 3 {
+                for pos in [2usize, 3usize] {
+                    if let Some(arg) = args.get(pos) {
+                        let kind = media_arg_origin_kind(arg, ctx);
+                        if kind.as_deref() == Some("likeness") && !ctx.token_bound {
+                            violations.push(SinkViolation {
+                                container: container.to_string(),
+                                fn_name: name.clone(),
+                                arg_index: pos,
+                                span: expr.span().clone(),
+                                label: sink_arg_label(arg, env, &origin_labels),
+                                reason: "video-likeness-no-consent",
+                            });
+                        }
+                    }
+                }
+            }
             if is_sink(name) {
                 for (i, a) in args.iter().enumerate() {
                     // Destructive DB literals are gated by CONTENT (a
@@ -2832,6 +2897,44 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                         continue;
                     }
                     let label = sink_arg_label(a, env, &origin_labels);
+                    // ── Naryad #387: the generalized media-sink egress ──
+                    // media_save accepts a private/camera-origin handle
+                    // when the author holds a legal credential: a
+                    // non-empty consent scope (№335 consent_grant), or
+                    // the likeness ritual (a bound likeness_verify
+                    // result) for camera/likeness-kind origins. The
+                    // public label and the poisoned refusal are
+                    // UNCHANGED — the gate stays fail-closed (no
+                    // credential, no egress).
+                    if name == "media_save" {
+                        if label.conf == crate::labels::Conf::Poisoned {
+                            violations.push(SinkViolation {
+                                container: container.to_string(),
+                                fn_name: name.clone(),
+                                arg_index: i,
+                                span: expr.span().clone(),
+                                label,
+                                reason: "poisoned",
+                            });
+                            continue;
+                        }
+                        let kind = media_arg_origin_kind(a, ctx);
+                        let consented = !label.consent.is_empty();
+                        let likenessed =
+                            matches!(kind.as_deref(), Some("likeness") | Some("camera"))
+                                && ctx.token_bound;
+                        if label.conf != crate::labels::Conf::Public && !consented && !likenessed {
+                            violations.push(SinkViolation {
+                                container: container.to_string(),
+                                fn_name: name.clone(),
+                                arg_index: i,
+                                span: expr.span().clone(),
+                                label,
+                                reason: "private-egress",
+                            });
+                        }
+                        continue;
+                    }
                     if let Some(reason) = clearance_failure(name, &label) {
                         violations.push(SinkViolation {
                             container: container.to_string(),
@@ -2852,19 +2955,20 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
         container: &str,
         env: &BTreeMap<String, Label>,
         origin_labels: &BTreeMap<String, Label>,
+        ctx: &FlowCtx,
         check: SinkCheck,
         violations: &mut Vec<SinkViolation>,
     ) {
-        check(expr, container, env, violations);
+        check(expr, container, env, ctx, violations);
         match expr {
             Expr::FnCall { args, .. } | Expr::QualifiedCall { args, .. } => {
                 for a in args {
-                    walk_expr(a, container, env, origin_labels, check, violations);
+                    walk_expr(a, container, env, origin_labels, ctx, check, violations);
                 }
             }
             Expr::BinaryOp { left, right, .. } => {
-                walk_expr(left, container, env, origin_labels, check, violations);
-                walk_expr(right, container, env, origin_labels, check, violations);
+                walk_expr(left, container, env, origin_labels, ctx, check, violations);
+                walk_expr(right, container, env, origin_labels, ctx, check, violations);
             }
             Expr::IfElse {
                 condition,
@@ -2872,12 +2976,21 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                 else_branch,
                 ..
             } => {
-                walk_expr(condition, container, env, origin_labels, check, violations);
+                walk_expr(
+                    condition,
+                    container,
+                    env,
+                    origin_labels,
+                    ctx,
+                    check,
+                    violations,
+                );
                 walk_expr(
                     then_branch,
                     container,
                     env,
                     origin_labels,
+                    ctx,
                     check,
                     violations,
                 );
@@ -2886,6 +2999,7 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                     container,
                     env,
                     origin_labels,
+                    ctx,
                     check,
                     violations,
                 );
@@ -2899,45 +3013,88 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
             } => {
                 // Expression position: env side effects of the branches do
                 // not escape (№323 D5) — analyze the branches on forks.
-                walk_expr(condition, container, env, origin_labels, check, violations);
+                walk_expr(
+                    condition,
+                    container,
+                    env,
+                    origin_labels,
+                    ctx,
+                    check,
+                    violations,
+                );
                 let mut env_t = env.clone();
+                let mut ctx_t = ctx.clone();
                 walk_stmts(
                     then_body,
                     container,
                     &mut env_t,
                     origin_labels,
+                    &mut ctx_t,
                     check,
                     violations,
                 );
                 for (_, b) in else_ifs {
                     let mut env_b = env.clone();
-                    walk_stmts(b, container, &mut env_b, origin_labels, check, violations);
+                    let mut ctx_b = ctx.clone();
+                    walk_stmts(
+                        b,
+                        container,
+                        &mut env_b,
+                        origin_labels,
+                        &mut ctx_b,
+                        check,
+                        violations,
+                    );
                 }
                 if let Some(eb) = else_body {
                     let mut env_e = env.clone();
-                    walk_stmts(eb, container, &mut env_e, origin_labels, check, violations);
+                    // №387: conservative fork (branch-local ctx discarded).
+                    let mut ctx_e = ctx.clone();
+                    walk_stmts(
+                        eb,
+                        container,
+                        &mut env_e,
+                        origin_labels,
+                        &mut ctx_e,
+                        check,
+                        violations,
+                    );
                 }
             }
             Expr::Try { expr, .. } => {
-                walk_expr(expr, container, env, origin_labels, check, violations)
+                walk_expr(expr, container, env, origin_labels, ctx, check, violations)
             }
             Expr::List { items, .. } => {
                 for i in items {
-                    walk_expr(i, container, env, origin_labels, check, violations);
+                    walk_expr(i, container, env, origin_labels, ctx, check, violations);
                 }
             }
             Expr::StructLit { fields, .. } => {
                 for v in fields.values() {
-                    walk_expr(v, container, env, origin_labels, check, violations);
+                    walk_expr(v, container, env, origin_labels, ctx, check, violations);
                 }
             }
             Expr::IndexAccess { object, index, .. } => {
-                walk_expr(object, container, env, origin_labels, check, violations);
-                walk_expr(index, container, env, origin_labels, check, violations);
+                walk_expr(
+                    object,
+                    container,
+                    env,
+                    origin_labels,
+                    ctx,
+                    check,
+                    violations,
+                );
+                walk_expr(index, container, env, origin_labels, ctx, check, violations);
             }
-            Expr::FieldAccess { object, .. } => {
-                walk_expr(object, container, env, origin_labels, check, violations)
-            }
+            Expr::FieldAccess { object, .. } => walk_expr(
+                object,
+                container,
+                env,
+                origin_labels,
+                ctx,
+                check,
+                violations,
+            ),
             _ => {}
         }
     }
@@ -2947,6 +3104,7 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
         container: &str,
         env: &mut BTreeMap<String, Label>,
         origin_labels: &BTreeMap<String, Label>,
+        ctx: &mut FlowCtx,
         check: SinkCheck,
         violations: &mut Vec<SinkViolation>,
     ) {
@@ -2954,12 +3112,59 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
             match stmt {
                 Statement::LetBinding { name, value, .. }
                 | Statement::Assign { name, value, .. } => {
-                    walk_expr(value, container, env, origin_labels, check, violations);
+                    walk_expr(value, container, env, origin_labels, ctx, check, violations);
                     // Track the binding (flow-sensitive overwrite, №323
                     // LetBinding/Assign contract) so later sink calls see
                     // the carried label.
                     let label = sink_arg_label(value, env, origin_labels);
                     env.insert(name.clone(), label);
+                    // ── Naryad #387: the FlowCtx update ──
+                    // (a) alias tracking: a let-bound copy of a media
+                    // handle keeps its origin kind (the alias-invariance
+                    // contract — taint/consent/provenance never detach
+                    // through let-chains);
+                    // (b) token presence: a bound `likeness_verify`
+                    // result marks the scope as likeness-cleared.
+                    if let Expr::FnCall { name: callee, .. } = value {
+                        if callee == "likeness_verify" {
+                            ctx.token_bound = true;
+                        }
+                    }
+                    match value {
+                        Expr::HandleSource { origin, .. } => {
+                            match ctx.origin_kind_map.get(origin).cloned() {
+                                Some(kind) => {
+                                    ctx.origin_kinds.insert(name.clone(), kind);
+                                }
+                                None => {
+                                    ctx.origin_kinds.remove(name);
+                                }
+                            }
+                        }
+                        Expr::ProvBind { origin, .. } => {
+                            match ctx.origin_kind_map.get(origin).cloned() {
+                                Some(kind) => {
+                                    ctx.origin_kinds.insert(name.clone(), kind);
+                                }
+                                None => {
+                                    ctx.origin_kinds.remove(name);
+                                }
+                            }
+                        }
+                        Expr::Ident { name: src_name, .. } => {
+                            match ctx.origin_kinds.get(src_name).cloned() {
+                                Some(kind) => {
+                                    ctx.origin_kinds.insert(name.clone(), kind);
+                                }
+                                None => {
+                                    ctx.origin_kinds.remove(name);
+                                }
+                            }
+                        }
+                        _ => {
+                            ctx.origin_kinds.remove(name);
+                        }
+                    }
                 }
                 Statement::Each {
                     variable,
@@ -2973,7 +3178,15 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                     body,
                     ..
                 } => {
-                    walk_expr(iterable, container, env, origin_labels, check, violations);
+                    walk_expr(
+                        iterable,
+                        container,
+                        env,
+                        origin_labels,
+                        ctx,
+                        check,
+                        violations,
+                    );
                     // The iterant is bound for the body only (scope-local,
                     // №323 Each contract) — analyze the body with a fork.
                     let mut env_body = env.clone();
@@ -2981,11 +3194,21 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                         variable.clone(),
                         sink_arg_label(iterable, env, origin_labels),
                     );
+                    let mut ctx_body = ctx.clone();
+                    match media_arg_origin_kind(iterable, ctx) {
+                        Some(kind) => {
+                            ctx_body.origin_kinds.insert(variable.clone(), kind);
+                        }
+                        None => {
+                            ctx_body.origin_kinds.remove(variable);
+                        }
+                    }
                     walk_stmts(
                         body,
                         container,
                         &mut env_body,
                         origin_labels,
+                        &mut ctx_body,
                         check,
                         violations,
                     );
@@ -2993,15 +3216,27 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                 Statement::While {
                     condition, body, ..
                 } => {
-                    walk_expr(condition, container, env, origin_labels, check, violations);
+                    walk_expr(
+                        condition,
+                        container,
+                        env,
+                        origin_labels,
+                        ctx,
+                        check,
+                        violations,
+                    );
                     // Conservative single-pass join (ADR-0154 §8 D1): the
                     // body may raise labels; fold the raises back.
                     let mut env_body = env.clone();
+                    // №387: the ctx fork is discarded (fail-closed) —
+                    // loop-bound tokens/aliases do not escape the loop.
+                    let mut ctx_body = ctx.clone();
                     walk_stmts(
                         body,
                         container,
                         &mut env_body,
                         origin_labels,
+                        &mut ctx_body,
                         check,
                         violations,
                     );
@@ -3017,24 +3252,45 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                     else_body,
                     ..
                 } => {
-                    walk_expr(condition, container, env, origin_labels, check, violations);
+                    walk_expr(
+                        condition,
+                        container,
+                        env,
+                        origin_labels,
+                        ctx,
+                        check,
+                        violations,
+                    );
                     // Branches fork from the entry env; merge on exit
                     // (componentwise, №323 rules). A closed merge (else
                     // present) drops the pre-branch value; an open merge
                     // keeps the entry env in the join.
                     let mut env_then = env.clone();
+                    // №387: branch forks are conservative — branch-bound
+                    // tokens/aliases do not escape (the entry ctx wins).
+                    let mut ctx_then = ctx.clone();
                     walk_stmts(
                         then_body,
                         container,
                         &mut env_then,
                         origin_labels,
+                        &mut ctx_then,
                         check,
                         violations,
                     );
                     let mut merged = env_then;
                     for (_, b) in else_ifs {
                         let mut env_b = env.clone();
-                        walk_stmts(b, container, &mut env_b, origin_labels, check, violations);
+                        let mut ctx_b = ctx.clone();
+                        walk_stmts(
+                            b,
+                            container,
+                            &mut env_b,
+                            origin_labels,
+                            &mut ctx_b,
+                            check,
+                            violations,
+                        );
                         for (k, v) in env_b {
                             let m = merged
                                 .get(&k)
@@ -3046,7 +3302,16 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                     }
                     if let Some(eb) = else_body {
                         let mut env_e = env.clone();
-                        walk_stmts(eb, container, &mut env_e, origin_labels, check, violations);
+                        let mut ctx_e = ctx.clone();
+                        walk_stmts(
+                            eb,
+                            container,
+                            &mut env_e,
+                            origin_labels,
+                            &mut ctx_e,
+                            check,
+                            violations,
+                        );
                         for (k, v) in env_e {
                             let m = merged
                                 .get(&k)
@@ -3071,13 +3336,24 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                 Statement::IfThen {
                     condition, body, ..
                 } => {
-                    walk_expr(condition, container, env, origin_labels, check, violations);
+                    walk_expr(
+                        condition,
+                        container,
+                        env,
+                        origin_labels,
+                        ctx,
+                        check,
+                        violations,
+                    );
                     let mut env_t = env.clone();
+                    // №387: conservative fork (branch-local ctx discarded).
+                    let mut ctx_t = ctx.clone();
                     walk_stmts(
                         body,
                         container,
                         &mut env_t,
                         origin_labels,
+                        &mut ctx_t,
                         check,
                         violations,
                     );
@@ -3087,7 +3363,7 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                     }
                 }
                 Statement::Return { value, .. } | Statement::ExprStmt { expr: value, .. } => {
-                    walk_expr(value, container, env, origin_labels, check, violations);
+                    walk_expr(value, container, env, origin_labels, ctx, check, violations);
                 }
                 Statement::Match {
                     scrutinee,
@@ -3095,7 +3371,15 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                     else_body,
                     ..
                 } => {
-                    walk_expr(scrutinee, container, env, origin_labels, check, violations);
+                    walk_expr(
+                        scrutinee,
+                        container,
+                        env,
+                        origin_labels,
+                        ctx,
+                        check,
+                        violations,
+                    );
                     let mut merged = env.clone();
                     for arm in arms {
                         let body = match arm {
@@ -3105,11 +3389,14 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                             | MatchArm::Compare(_, _, b) => b,
                         };
                         let mut env_b = env.clone();
+                        // №387: match-arm ctx forks are conservative.
+                        let mut ctx_b = ctx.clone();
                         walk_stmts(
                             body,
                             container,
                             &mut env_b,
                             origin_labels,
+                            &mut ctx_b,
                             check,
                             violations,
                         );
@@ -3124,7 +3411,16 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                     }
                     if let Some(eb) = else_body {
                         let mut env_e = env.clone();
-                        walk_stmts(eb, container, &mut env_e, origin_labels, check, violations);
+                        let mut ctx_e = ctx.clone();
+                        walk_stmts(
+                            eb,
+                            container,
+                            &mut env_e,
+                            origin_labels,
+                            &mut ctx_e,
+                            check,
+                            violations,
+                        );
                         for (k, v) in env_e {
                             let m = merged
                                 .get(&k)
@@ -3145,15 +3441,35 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                     }
                     *env = merged;
                 }
-                Statement::Memorize(m) => {
-                    walk_expr(&m.value, container, env, origin_labels, check, violations)
-                }
-                Statement::Forget(f) => {
-                    walk_expr(&f.query, container, env, origin_labels, check, violations)
-                }
+                Statement::Memorize(m) => walk_expr(
+                    &m.value,
+                    container,
+                    env,
+                    origin_labels,
+                    ctx,
+                    check,
+                    violations,
+                ),
+                Statement::Forget(f) => walk_expr(
+                    &f.query,
+                    container,
+                    env,
+                    origin_labels,
+                    ctx,
+                    check,
+                    violations,
+                ),
                 Statement::Relate(r) => {
-                    walk_expr(&r.from, container, env, origin_labels, check, violations);
-                    walk_expr(&r.to, container, env, origin_labels, check, violations);
+                    walk_expr(
+                        &r.from,
+                        container,
+                        env,
+                        origin_labels,
+                        ctx,
+                        check,
+                        violations,
+                    );
+                    walk_expr(&r.to, container, env, origin_labels, ctx, check, violations);
                 }
                 Statement::Break | Statement::Continue => {}
             }
@@ -3172,11 +3488,18 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
             };
             env.insert(p.name.clone(), l);
         }
+        // №387: a fresh FlowCtx per container — the origin-kind
+        // vocabulary rides inside (nested fns cannot capture locals).
+        let mut ctx = FlowCtx {
+            origin_kind_map: origin_kind_map.clone(),
+            ..FlowCtx::default()
+        };
         walk_stmts(
             stmts,
             container,
             &mut env,
             &origin_labels,
+            &mut ctx,
             &check_calls,
             violations,
         );

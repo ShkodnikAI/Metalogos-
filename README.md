@@ -85,7 +85,7 @@ $ mlog check api_leak.mlog
 
 **AI-native** — eight semantic primitives (Entity, Pattern, Flow, Memory, Rule, Learn, Adapt, Reflex) make AI operations first-class: learnable patterns teach from examples, Memory combines BM25 + vector search with rank fusion, `adapt` modifies the program's own patterns under a sandbox, Reflex distills LLM teachers into local models.
 
-**MCP-native** — Metalogos speaks the integration standard of 2026-era AI agents in both directions, with the same security gates: the MCP client design is pinned in [ADR-0132](docs/adr/0132-mcp-client.md) and implemented as two stateless builtins, `mcp_call` / `mcp_list_tools` (Naryad №268) — stdio transport, hand-rolled JSON-RPC, exec-gated server spawn, untrusted `UserInput` taint on tool output; a live security-gate walkthrough is in [Security by Design](#2-security-by-design--zero-configuration). The reverse bridge (expose Metalogos `tool` constructs as MCP servers) follows [ADR-0054](docs/adr/0054-tool-abstraction.md) §Future Directions.
+**MCP-native** — Metalogos speaks the integration standard of 2026-era AI agents in both directions, with the same security gates: the MCP client design is pinned in [ADR-0132](docs/adr/0132-mcp-client.md) and implemented as two stateless builtins, `mcp_call` / `mcp_list_tools` (Naryad №268) — stdio transport, hand-rolled JSON-RPC, exec-gated server spawn, untrusted `UserInput` taint on tool output; a live security-gate walkthrough is in [Security by Design](#2-security-by-design--zero-configuration). The reverse bridge is live: `mlog mcp-serve` exposes Metalogos `tool` constructs as MCP tools (Naryad №297; transports `stdio|http|sse` per [ADR-0168](docs/adr/0168-mcp-server-transports.md)/№394 — fail-closed allowlist on every transport, the per-tool policy compiled from the №316 classification, Bearer auth or a token-less localhost-only bind; externally verified by a raw JSON-RPC client over HTTP and SSE in naryad №401 — protocol in gh#488).
 
 ---
 
@@ -269,8 +269,8 @@ Metalogos-/
 ├── AGENTS.md                         # Canonical methodology file for agent tools (industry-standard AGENTS.md spec — superseded AGENT.md)
 ├── CLAUDE.md                         # Bridge copy of AGENTS.md for Claude-compatible tools (synced manually — see issue #299)
 ├── GEMINI.md                         # Bridge copy of AGENTS.md for Gemini-compatible tools (synced manually — see issue #299)
-├── REFERENCE.md                      # Full builtin reference (~250 KB) — 100% of the registry (§6 index + №316 classification)
-├── CHANGELOG.md                      # Version history (~346 KB)
+├── REFERENCE.md                      # Full builtin reference (~254 KB) — 100% of the registry (§6 index + №316 classification)
+├── CHANGELOG.md                      # Version history (~351 KB)
 ├── AI_USAGE.md                       # Disclosure: how generative AI is used in this project's development
 ├── FEATURE_INTAKE.md                 # Feature request tracking
 ├── MEMORY_ROADMAP.md                 # Memory system roadmap

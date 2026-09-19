@@ -1,6 +1,6 @@
 # ADR-0155: Grant algebra — permissions for irreversible operations
 
-**Status:** Accepted (fills the reserved booking of 2026-09-14; approved direction per owner dispatch #491, wave 3)
+**Status:** Implemented (naryads #389–#393 landed the algebra in main: `grant_issue`/`grant_subgrant`/`grant_revoke`/`grant_use`/`db_execute_with_grant` with scope/TTL/quota enforcement, the action bridge over the №316 sink SSOT, the exhaustive DenyEvent reasons with `on_deny` handlers, and the signed Action Ledger v1. Anchors: `tests/naryad_390_grants.rs`, `tests/grant_algebra_fuzz.rs`, `tests/naryad_391_bridge.rs`, `tests/naryad_392_deny_event.rs`, `tests/naryad_393_ledger.rs`; independently accepted by the wave-3 audit and the external audit 2026-09-19; exercised end-to-end by the kitchen-camera e2e and the #395 dogfood run. Originally Accepted 2026-09-17 — filling the reserved booking of 2026-09-14, approved direction per owner dispatch #491, wave 3)
 **Date:** 2026-09-17
 **Naryad:** #389 (issue #483; fills the booking made by naryad #319 — plan v2 §19 originally mapped this slot to naryad #339, renumbered by wave 3)
 **Pillar:** cross-cutting (security/action); consumes the label lattice (ADR-0154) and the effect trail (ADR-0154 §9)

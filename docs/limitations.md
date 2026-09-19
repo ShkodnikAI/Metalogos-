@@ -70,7 +70,7 @@
 
 | Limitation | Primary source | Status / condition for removal |
 |---|---|---|
-| ~~`try` returns `Unit` on error — loses error information (code/message)~~ **CLOSED (№374)** | [ADR-0142](adr/0142-error-protocol.md) | Closed: `try` returns `Struct{ok,value,error}` on BOTH backends (shared builder, TW/VM cannot diverge); `code` carries the generic `RUNTIME_ERROR` until runtime errors are promoted to structured ADR-0131/0140 diagnostics — richer per-cause codes are the remaining boundary |
+| ~~`try` returns `Unit` on error — loses error information (code/message)~~ **CLOSED (№374)**; ~~`code` is a generic `RUNTIME_ERROR`~~ **CLOSED (№385)** | [ADR-0142](adr/0142-error-protocol.md); [ADR-0169](adr/0169-try-stable-error-codes.md) | Closed: `try` returns `Struct{ok,value,error}` on BOTH backends (shared builder, TW/VM cannot diverge). The `code` field carries a frozen origin-stamped diagnostic (№385, ADR-0169 §3.1): `LLM_TIMEOUT`, `LLM_PROVIDER_UNAVAILABLE`, `SQL_ERROR`, `SANDBOX_VIOLATION`, `SINK_CLEARANCE_RUNTIME`, `MEDIA_SEALED_EGRESS`, `BACKEND_DEGRADED` — classified ONCE per caught error by the origin stamp at position 0, never by message text. Remaining honest boundary: an error whose origin carries no stamp falls back to the generic `RUNTIME_ERROR` (API-arity refusals, lock poisoning, generic HTTP status answers); widening the stamp surface is incremental and explicitly not a blocker (audit P2-4, dispatch gh#529) |
 
 ## LLM Streaming (ADR-0137)
 
@@ -79,9 +79,10 @@
 | Stream API is separate from single-shot `call_llm` — not a replacement | [ADR-0137](adr/0137-llm-streaming.md) §D4 | By design — prevents regressions on single-shot path |
 | Failover in mid-stream is impossible — provider chosen at `open` only | [ADR-0137](adr/0137-llm-streaming.md) §D5 | By design — circuit breaker marks provider sick, next `open` skips it |
 
-## MCP Server (ADR-0132, Наряд №297)
+## MCP Server (ADR-0132, ADR-0168, Наряды №297/№394)
 
 | Limitation | Primary source | Status / condition for removal |
 |---|---|---|
-| MCP server is stdio-only — no HTTP/SSE transport | [ADR-0132](adr/0132-mcp-client.md); [src/mcp_server.rs](../src/mcp_server.rs) | HTTP/SSE is Future in ADR-0132 — separate naryad |
-| MCP server is fail-closed — no tools exposed without explicit allowlist | [src/mcp_server.rs](../src/mcp_server.rs) | By design — explicitness principle |
+| ~~MCP server is stdio-only — no HTTP/SSE transport~~ **CLOSED (№394)** | [ADR-0168](adr/0168-mcp-server-transports.md); [src/mcp_server.rs](../src/mcp_server.rs) | Closed: `mlog mcp-serve --transport stdio\|http\|sse` (`src/main.rs`); http/sse run on the axum stack (feature `server`, default-on). First-stage boundary (live external verification, naryad #401, gh#488): Bearer auth per request (`--auth-token` / `METALOGOS_MCP_AUTH_TOKEN`, 401 on mismatch) or a token-less localhost-only bind with a loud posture line; a `0.0.0.0` bind without a token is a loud WARNING, never a silent open port. No built-in TLS and no multi-tenant identity yet — terminate TLS and scope identities at a reverse proxy for remote exposure |
+| MCP server is fail-closed — no tools exposed without explicit allowlist | [src/mcp_server.rs](../src/mcp_server.rs) | By design — explicitness principle (the server refuses to start on EVERY transport without `--allowlist`) |
+| Tool methods execute on the TW interpreter; the runtime sink backstop (`SINK_CLEARANCE_RUNTIME`) is VM-side, and the №259 env gate is serve-route-scoped — `env()` is readable inside a tool method | [src/mcp_server.rs](../src/mcp_server.rs); [src/vm.rs](../src/vm.rs); [src/builtins/io.rs](../src/builtins/io.rs) | The compile-time gates are the main line (`mlog check`/`mlog serve` refuse destructive SQL with `IRREVERSIBLE_NO_GRANT` and dynamic SQL with `SQL_DYNAMIC` inside tool bodies), the `tools/list` policy block discloses `irreversible`/`sink_calls` per tool before any call, and the VM path carries the runtime backstop. Runtime TW backstop for tool methods and a tool-method env posture are the open decision (gh#536) |

@@ -368,6 +368,26 @@ the gate unchanged. `media_meta(handle)` exposes the bound provenance:
 `m.origin` (empty for unbound entries) alongside `kind`/`conf`/`refs`/
 `sealed` — no bytes leave the store.
 
+### 2.9. Credentials — the opaque-credential matrix (№401)
+
+Metalogos issues agent-facing capabilities through credentials that share
+ONE style: an opaque (non-printable, non-serializable) value — or a label
+component that never materializes as data — with its own scope and a ledger
+trail, so a capability never travels as a plain string. A NEW credential is
+added ONLY by adding a row to this matrix (an ADR is required) — never as a
+fourth ad-hoc style (audit 2026-09-19 P2-1).
+
+| Credential | Purpose | Opaque value | Linear / metered | Ledger trail |
+|---|---|---|---|---|
+| Consent scope (`consent(scope, …)` label component, ADR-0154; sources №335) | media/voice egress gating — the consent scopes a value may flow under | carried on the LABEL lattice (a scope set on the value's label, never a runtime string) | not linear — a scope is a property, not a consumable | `consent_ledger` records (№335; `src/consent.rs`) |
+| LikenessToken (`likeness_challenge` / `likeness_verify`, №387, ADR-0149 D5/D6) | likeness/deepfake gate — the RUNTIME credential that unseals `media_save` for camera/likeness origins | yes — `Value::LikenessChallenge` / `Value::Likeness` (a String can never occupy a token position; serde emits a dead marker) | yes — one-time challenge consumed linearly by the ritual; branch/loop-bound tokens do not escape their fork (fail-closed) | consent-ledger grant trace recorded by `likeness_verify` + Action Ledger side effects |
+| Grant (`grant_issue` / `grant_subgrant` / `grant_revoke` / `grant_use`, №390, ADR-0155) | authorizes irreversible operations (destructive SQL) inside a scope, TTL and quota | yes — `Value::Grant` (an opaque `GrantHandle`, non-printable, non-serializable; REFERENCE §4.15.1) | policy-dependent — `"once"` (linear), `"n"` (metered uses) or `"unlimited"`; subgrants are attenuation-only | Action Ledger v1 — signed Ed25519 chain (№393, ADR-0167); every granted use journals itself |
+
+The credentials compose with the label lattice (§2.1) and the sink
+clearance (§2.4): the static gates check the LABEL, the runtime gates check
+the CREDENTIAL, and both leave the effect trail `⟨io, audit⟩` (§2.3). For
+the threat view see [threat-model §Runtime Protections](docs/threat-model.md).
+
 ---
 
 ## 3. Syntax

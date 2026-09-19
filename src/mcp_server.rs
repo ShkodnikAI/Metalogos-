@@ -17,10 +17,28 @@
 // — no manual YAML.
 //
 // Fail-closed: without `--allowlist`, the server refuses to start — on
-// EVERY transport. The same allowlist/exec/env gates, label clearance
-// and taint rules apply to tool execution regardless of transport: the
-// request core (`McpServer::handle_request`) is transport-agnostic and
-// single-sourced.
+// EVERY transport. The same allowlist/exec/env gates apply to tool
+// execution regardless of transport: the request core
+// (`McpServer::handle_request`) is transport-agnostic and single-sourced.
+//
+// Enforcement (the №401 live-verification findings, gh#536):
+//   - Finding 1 (env): tool method bodies execute under the SAME
+//     `ServeRouteExecGuard` thread-local as serve route bodies (№253-А
+//     mechanic) — `env()` is №259-gated (ENV_NOT_PERMITTED unless
+//     METALOGOS_SERVE_ALLOW_ENV=1 or the name is in
+//     METALOGOS_ENV_ALLOWLIST) and `exec()` is №253-gated
+//     (METALOGOS_SERVE_ALLOW_EXEC=1). Previously tool methods ran in the
+//     Process context, so `env(key)` leaked process secrets to the
+//     MCP caller.
+//   - Finding 2 (unchecked files): mcp-serve used to only PARSE the
+//     file, so a tool file that was never `mlog check`-ed ran tool
+//     bodies unchecked on the interpreter path. Every serve entrypoint
+//     (stdio, http, sse — and the test harness) now enforces the
+//     Category A startup gate (the №98 `run_server` precedent):
+//     IRREVERSIBLE_NO_GRANT, SQL_DYNAMIC, SECRET_LEAK, … refuse the
+//     process loudly. The runtime taint twin (VM SinkCheck) stays
+//     VM-side — the interpreter has no runtime labels (№405 layer);
+//     the startup gate is the TW-side backstop this boundary relies on.
 
 use crate::ast::{Declaration, Param};
 use crate::interpreter::Interpreter;
@@ -91,6 +109,27 @@ impl McpServer {
                 .map(|t| t.full_name.clone())
                 .collect::<Vec<_>>()
                 .join(", ")
+        );
+        // №401 findings (gh#536): the tool-method gate state is loud at
+        // startup, mirroring the №253/№259 serve posture — the operator
+        // must see WHEN tool methods may read env/exec.
+        let env_all = std::env::var("METALOGOS_SERVE_ALLOW_ENV").unwrap_or_default() == "1";
+        let env_list = std::env::var("METALOGOS_ENV_ALLOWLIST").unwrap_or_default();
+        let env_state = if env_all {
+            "allow-all (METALOGOS_SERVE_ALLOW_ENV=1)".to_string()
+        } else if env_list.trim().is_empty() {
+            "deny (set METALOGOS_SERVE_ALLOW_ENV=1 or METALOGOS_ENV_ALLOWLIST to allow)".to_string()
+        } else {
+            format!("allowlist: {}", env_list)
+        };
+        eprintln!(
+            "[mcp-serve] tool env: {}; tool exec: {}",
+            env_state,
+            if std::env::var("METALOGOS_SERVE_ALLOW_EXEC").unwrap_or_default() == "1" {
+                "ENABLED (METALOGOS_SERVE_ALLOW_EXEC=1)"
+            } else {
+                "denied"
+            }
         );
 
         Ok(McpServer {
@@ -244,9 +283,42 @@ impl McpServer {
     }
 }
 
+/// The Category A startup gate for every mcp-serve entrypoint (the
+/// №401 live-verification findings, gh#536; the №98 `run_server`
+/// precedent). mcp-serve used to only PARSE the file, so a tool file
+/// that was never `mlog check`-ed ran tool bodies unchecked — a literal
+/// `DROP TABLE` reached the SQL layer (`IRREVERSIBLE_NO_GRANT` was a
+/// front-door-only defense) and dynamic SQL reached it too. Now the
+/// same `audit_category_a` pass the HTTP server enforces refuses the
+/// process loudly, with the exact `[CODE] message` lines `mlog check`
+/// prints — the codes, not the prose, are the contract (ADR-0131).
+pub fn enforce_category_a_startup(declarations: &[Declaration]) -> Result<(), String> {
+    let cat_a = crate::audit::audit_category_a(declarations, "");
+    let errors: Vec<String> = cat_a
+        .iter()
+        .filter_map(|f| match f.severity {
+            crate::audit::Severity::Error | crate::audit::Severity::Warning => {
+                Some(format!("[{}] {}", f.check_id, f.message))
+            }
+            crate::audit::Severity::Info => None,
+        })
+        .collect();
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "mcp-serve: Category A security invariant violated:\n{}",
+            errors.join("\n")
+        ))
+    }
+}
+
 /// Run the MCP server loop over stdio: read JSON-RPC from stdin, write
 /// to stdout. Behavior identical to №297 (the default transport).
 pub fn run_mcp_server(declarations: &[Declaration], allowlist: &[String]) -> Result<(), String> {
+    // gh#536 Finding 2: the gate runs BEFORE the allowlist check — a
+    // dangerous file is refused for what it IS, not for what it exposes.
+    enforce_category_a_startup(declarations)?;
     let server = McpServer::new(declarations, allowlist)?;
 
     let stdin = io::stdin();
@@ -332,6 +404,18 @@ fn execute_tool_method(
     method_name: &str,
     arguments: &serde_json::Value,
 ) -> Result<String, String> {
+    // gh#536 Finding 1: a tool method body runs under the SAME
+    // exec-context guard as serve route bodies (№253-А thread-local
+    // mechanic) — the header contract ("the same allowlist/exec/env
+    // gates apply to tool execution") is now enforced, not just
+    // declared. The guard is alive for the whole call: env() inside the
+    // body is №259-gated (ENV_NOT_PERMITTED unless
+    // METALOGOS_SERVE_ALLOW_ENV=1 or the name is allowlisted) and
+    // exec() is №253-gated (METALOGOS_SERVE_ALLOW_EXEC=1; the
+    // process-level METALOGOS_ALLOW_EXEC flag does NOT apply — the
+    // MCP caller is untrusted, the exact route-body threat shape).
+    let _serve_guard = crate::builtins::ServeRouteExecGuard::new();
+
     // Find the tool declaration.
     let tool_decl = declarations
         .iter()
@@ -437,6 +521,10 @@ pub fn run_mcp_server_network(
     bind: &str,
     auth: &McpAuth,
 ) -> Result<(), String> {
+    // gh#536 Finding 2: same startup gate as the stdio transport — the
+    // transports cannot drift (the request core is shared; so is the
+    // front door).
+    enforce_category_a_startup(declarations)?;
     let server = std::sync::Arc::new(McpServer::new(declarations, allowlist)?);
 
     // ── The loud auth posture (№263 WARN precedent, Naryad #394 §4) ──
@@ -636,6 +724,10 @@ pub async fn run_test_mcp_server(
     ),
     String,
 > {
+    // gh#536 Finding 2: the test harness walks the REAL entrypoint
+    // surface — the startup gate is part of it (the №394 suite's clean
+    // sources pass it; a dirty source is refused before any bind).
+    enforce_category_a_startup(declarations)?;
     let server = std::sync::Arc::new(McpServer::new(declarations, allowlist)?);
     let app = mcp_router(server, auth);
 

@@ -352,6 +352,128 @@ impl Vm {
         Ok(())
     }
 
+    /// Наряд №403: fail-closed reset between POOLED serve requests.
+    ///
+    /// The warm VM pool (src/vm_pool.rs) recycles `Vm` objects across
+    /// requests. Reuse is ONLY sound when every piece of execution state
+    /// a request could have touched is provably gone before the next
+    /// request checks the VM out. This method IS that proof, enforced
+    /// three ways:
+    ///
+    ///   1. Every mutable field NOT wholesale-reassigned by
+    ///      `load_program` is explicitly reset here, one comment per
+    ///      state class (the field-level contract tests in
+    ///      `mod n403_reset_tests` pin the enumeration — adding a
+    ///      mutable Vm field without resetting it here must fail those
+    ///      tests, that is their purpose);
+    ///   2. The program-scoped fields ARE wholesale-reassigned by
+    ///      `load_program` (globals, patterns, rules, skill_indices,
+    ///      deny_handlers, global_names, collections_loaded,
+    ///      memory_persist_path, db_conn) — the reset re-runs it, so a
+    ///      half-updated future `load_program` cannot silently skip a
+    ///      class;
+    ///   3. Anything the reset cannot guarantee is not reset but
+    ///      DISCARDED by the caller: the pool never checks a VM back in
+    ///      after a failed route execution, a failed reset, or a panic
+    ///      (fail-closed, not best-effort reuse — the №381 shared-DB
+    ///      bug is the cautionary precedent).
+    ///
+    /// The db connection is dropped FIRST: an open connection (its
+    /// transactions, temp tables, in-memory content) must never survive
+    /// into the next request even if `load_program` below fails midway.
+    /// `load_program` re-opens it from `program.db_url` and re-executes
+    /// the schema DDL — exactly what a fresh per-request VM pays today.
+    pub fn reset_for_reuse(&mut self, program: &Program) -> Result<(), String> {
+        // ── 0. the №381 class: database connection goes FIRST ──
+        self.db_conn = None;
+
+        // ── 1. execution scratch ──
+        // Value-expression registers (№370): block-value temporaries.
+        self.value_registers = Vec::new();
+        // Runtime label environment (№328/ADR-0154): a label attached to
+        // a variable name in request A must not clear sink checks in
+        // request B.
+        self.label_env = std::collections::BTreeMap::new();
+        // Mutate log: per-execution messages, never carried over.
+        self.mutate_log = Vec::new();
+        // Propagated confidence (ADR-0089): resets to the neutral 1.0.
+        self.propagated_confidence = 1.0;
+
+        // ── 2. in-memory stores (byte/knowledge state behind handles) ──
+        // Memory store entries (`self.memory`): request A's memories must
+        // be invisible to request B (the in-memory-db content class).
+        self.memory = Vec::new();
+        // Knowledge-graph relations: same class as memory.
+        self.relations = Vec::new();
+        // Media store (№331/ADR-0162): bytes behind Value::Media handles —
+        // request A's bytes must not be reachable in request B.
+        self.media_store = crate::media::MediaStore::new();
+        // Vision artifact registry (№240 R4.2): generated PNG buffers.
+        self.vision_registry = crate::vision::VisionRegistry::new();
+        // Distillation runtime state (№205): per-pattern training state.
+        self.distill_states = HashMap::new();
+
+        // ── 3. security-sensitive single-value state ──
+        // №392: the deny event being handled is Some exactly while an
+        // on_deny body runs. A stale event surviving into request B would
+        // let deny_reason()/deny_event() succeed OUTSIDE a handler —
+        // a forgeable, stale security read. None is the only legal
+        // resting state.
+        self.current_deny_event = None;
+
+        // ── 4. program-scoped tables that load_program INSERTS into
+        //      (not wholesale) — cleared BEFORE the reload so nothing
+        //      accumulates across pooled generations ──
+        self.reflex_registry = crate::nn::ReflexRegistry::new();
+        self.reflex_names = HashMap::new();
+        self.vision_decls = HashMap::new();
+        self.origin_decls = HashMap::new();
+        // Learnables are populated by RegisterLearnable during main_code
+        // execution (and mutated by distillation) — load_program never
+        // assigns this field; on the serve path it must rest empty.
+        self.learnables = Vec::new();
+
+        // ── 5. logs/stats/event streams exposed through &self ──
+        // audit_log: take_audit_log() already drained it post-execution;
+        // drained again here — belt and braces (a double-reported audit
+        // trail is a lying trail).
+        self.audit_log
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        // №72 conversation state: request A's dialogue must not continue
+        // in request B.
+        self.conversations
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        // №72 event stream + id counter.
+        self.event_log
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        self.event_next_id
+            .store(0, std::sync::atomic::Ordering::SeqCst);
+        // №72 per-pattern runtime statistics.
+        self.pattern_stats
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+
+        // ── 6. per-request server context ──
+        // The isolation boundary (pinned by tests/naryad_402_step_a.rs);
+        // cleared again here so a checked-in VM rests context-free even
+        // before the next checkout injects fresh context.
+        self.clear_server_context();
+
+        // ── 7. program-scoped reload ──
+        // Wholesale reassignment of globals/global_names/patterns/rules/
+        // skill_indices/deny_handlers/collections_loaded/
+        // memory_persist_path + db re-open + schema DDL + re-registration
+        // of reflex/vision/origin declarations on the (now empty) tables.
+        self.load_program(program)
+    }
+
     /// Execute main_code (the top-level instruction sequence).
     /// Called by `run()` after `load_program()`.
     fn execute_main_code(&mut self, program: &Program) -> Result<Option<String>, String> {
@@ -4319,5 +4441,429 @@ fn runtime_source_label(name: &str) -> crate::labels::Label {
             }
         }
         _ => Label::bottom(),
+    }
+}
+
+// ── Наряд №403: fail-closed reset contract (pooled serve requests) ──
+//
+// Two pins live here:
+//   1. `vm_state_enumeration` — a destructure of EVERY `Vm` field with
+//      no `..` rest. Adding a mutable field to `Vm` breaks this
+//      function's compile, forcing the author to either reset it in
+//      `reset_for_reuse` or extend the assertions below. This is the
+//      compiler-enforced "canary on EVERY state class" the naryad
+//      demands.
+//   2. `reset_restores_every_state_class_to_fresh_load` — dirty every
+//      cheaply-constructible state class, reset, and assert the VM is
+//      observationally equivalent to a fresh `new()+load_program` VM.
+//      The heavy registries (media/vision/reflex) are pinned
+//      structurally by reset_for_reuse (`= X::new()`) — their element
+//      types are not cheaply constructible — and behaviorally by the
+//      HTTP-level tests in tests/naryad_403_vm_pool.rs.
+#[cfg(test)]
+mod n403_reset_tests {
+    use super::*;
+    use crate::interpreter::types::{
+        ConvMessage, Conversation, DistillMode, DistillRuntimeState, Event, PatternStats,
+    };
+    use std::collections::HashMap;
+
+    /// The exhaustive field enumeration (pin 1). Compile-only.
+    #[allow(clippy::type_complexity)] // the complexity IS the pin: one tuple per Vm field
+    fn vm_state_enumeration(
+        vm: &Vm,
+    ) -> (
+        &std::collections::BTreeMap<String, crate::labels::Label>,
+        &Vec<Value>,
+        &Vec<Value>,
+        &std::sync::Arc<Vec<String>>,
+        &std::sync::Arc<Vec<CompiledFn>>,
+        &Vec<(CompiledLearnableInfo, Vec<(String, String)>)>,
+        &Builtins,
+        &Vec<String>,
+        &Vec<VmMemoryEntry>,
+        &Vec<VmRelation>,
+        &std::sync::Arc<Vec<CompiledRule>>,
+        &std::sync::Arc<Vec<CompiledSkillIndex>>,
+        &Option<rusqlite::Connection>,
+        &Vec<String>,
+        &Mutex<Vec<String>>,
+        &f64,
+        &bool,
+        &Option<Value>,
+        &Option<std::collections::HashMap<String, String>>,
+        &Option<std::collections::HashMap<String, String>>,
+        &Vec<String>,
+        &Mutex<HashMap<String, Conversation>>,
+        &ConversationConfig,
+        &Mutex<Vec<Event>>,
+        &std::sync::atomic::AtomicU64,
+        &Mutex<HashMap<String, PatternStats>>,
+        &crate::nn::ReflexRegistry,
+        &HashMap<String, crate::nn::ReflexId>,
+        &Option<Value>,
+        &std::sync::Arc<Vec<CompiledDenyHandler>>,
+        &crate::vision::VisionRegistry,
+        &crate::media::MediaStore,
+        &HashMap<String, crate::bytecode::CompiledVisionDecl>,
+        &HashMap<String, crate::bytecode::CompiledOriginDecl>,
+        &Option<String>,
+        &HashMap<String, crate::interpreter::types::DistillRuntimeState>,
+    ) {
+        let Vm {
+            label_env,
+            value_registers,
+            globals,
+            global_names,
+            patterns,
+            learnables,
+            builtins,
+            builtin_names,
+            memory,
+            relations,
+            rules,
+            skill_indices,
+            db_conn,
+            mutate_log,
+            audit_log,
+            propagated_confidence,
+            collections_loaded,
+            server_json_body,
+            server_query_params,
+            server_path_params,
+            server_user_roles,
+            conversations,
+            conversation_config,
+            event_log,
+            event_next_id,
+            pattern_stats,
+            reflex_registry,
+            reflex_names,
+            current_deny_event,
+            deny_handlers,
+            vision_registry,
+            media_store,
+            vision_decls,
+            origin_decls,
+            memory_persist_path,
+            distill_states,
+        } = vm;
+        // Note: `label_env` sits in a private type alias position; the
+        // tuple returns references so nothing here runs — this function
+        // exists to break the build when a field is added unhandled.
+        let _ = (
+            label_env,
+            value_registers,
+            globals,
+            global_names,
+            patterns,
+            learnables,
+            builtins,
+            builtin_names,
+            memory,
+            relations,
+            rules,
+            skill_indices,
+            db_conn,
+            mutate_log,
+            audit_log,
+            propagated_confidence,
+            collections_loaded,
+            server_json_body,
+            server_query_params,
+            server_path_params,
+            server_user_roles,
+            conversations,
+            conversation_config,
+            event_log,
+            event_next_id,
+            pattern_stats,
+            reflex_registry,
+            reflex_names,
+            current_deny_event,
+            deny_handlers,
+            vision_registry,
+            media_store,
+            vision_decls,
+            origin_decls,
+            memory_persist_path,
+            distill_states,
+        );
+        (
+            label_env,
+            value_registers,
+            globals,
+            global_names,
+            patterns,
+            learnables,
+            builtins,
+            builtin_names,
+            memory,
+            relations,
+            rules,
+            skill_indices,
+            db_conn,
+            mutate_log,
+            audit_log,
+            propagated_confidence,
+            collections_loaded,
+            server_json_body,
+            server_query_params,
+            server_path_params,
+            server_user_roles,
+            conversations,
+            conversation_config,
+            event_log,
+            event_next_id,
+            pattern_stats,
+            reflex_registry,
+            reflex_names,
+            current_deny_event,
+            deny_handlers,
+            vision_registry,
+            media_store,
+            vision_decls,
+            origin_decls,
+            memory_persist_path,
+            distill_states,
+        )
+    }
+
+    fn compiled(source: &str) -> Program {
+        let decls = crate::parser::parse(source).expect("parse");
+        crate::compiler::Compiler::new()
+            .compile(decls)
+            .expect("compile")
+    }
+
+    fn loaded_vm(source: &str) -> (Vm, Program) {
+        let program = compiled(source);
+        let mut vm = Vm::new();
+        vm.load_program(&program).expect("load");
+        (vm, program)
+    }
+
+    const N403_SOURCE: &str = r#"
+db { url: "sqlite::memory:" }
+pattern Ping(n: String) -> String { return n }
+entity base: String = "7"
+"#;
+
+    #[test]
+    fn field_enumeration_is_callable() {
+        // The enumeration must stay live and callable: adding a field to
+        // `Vm` without updating the destructure breaks the crate's
+        // compilation — that break IS the canary mechanism.
+        let (vm, _) = loaded_vm(N403_SOURCE);
+        let fields = vm_state_enumeration(&vm);
+        assert_eq!(fields.2.len(), vm.globals.len(), "globals slot count");
+        assert!(fields.12.is_some(), "in-memory db connection present");
+        assert!(fields.0.is_empty(), "label env starts empty");
+    }
+
+    #[test]
+    fn reset_restores_every_state_class_to_fresh_load() {
+        let (mut vm, program) = loaded_vm(N403_SOURCE);
+        let (fresh, _) = loaded_vm(N403_SOURCE);
+        let gslots = vm.globals.len();
+        assert!(gslots > 0, "the fixture program must have globals");
+
+        // ── dirty every cheaply-constructible state class ──
+        vm.value_registers.push(Value::Float(9.0));
+        vm.label_env
+            .insert("leakvar".into(), crate::labels::Label::default());
+        vm.globals[0] = Value::Float(12345.0);
+        vm.memory.push(VmMemoryEntry {
+            value: "leak-secret".into(),
+            priority: 1.0,
+            timestamp: 1,
+            decay_rate: 0.0,
+            mem_type: "episodic".into(),
+        });
+        vm.relations.push(VmRelation {
+            from: "a".into(),
+            to: "b".into(),
+            relation: "leak".into(),
+        });
+        vm.mutate_log.push("[AUDIT] fake-mutate".into());
+        *vm.audit_log.lock().unwrap() = vec!["fake-audit".to_string()];
+        vm.propagated_confidence = 0.42;
+        // №381 class: a live connection with CONTENT of its own.
+        {
+            let conn = rusqlite::Connection::open_in_memory().unwrap();
+            conn.execute_batch("CREATE TABLE leak(t TEXT); INSERT INTO leak VALUES('x');")
+                .unwrap();
+            vm.db_conn = Some(conn);
+        }
+        vm.conversations.lock().unwrap().insert(
+            "leak-conv".into(),
+            Conversation {
+                id: "leak-conv".into(),
+                messages: vec![ConvMessage {
+                    role: "user".into(),
+                    text: "stale".into(),
+                    timestamp: 0,
+                }],
+                created_at: 0,
+                last_active: 0,
+                metadata: HashMap::new(),
+            },
+        );
+        vm.event_log.lock().unwrap().push(Event {
+            id: 7,
+            timestamp: 0,
+            event_type: "leak".into(),
+            source: "test".into(),
+            data: HashMap::new(),
+            duration_ms: None,
+        });
+        vm.event_next_id
+            .store(99, std::sync::atomic::Ordering::SeqCst);
+        vm.pattern_stats.lock().unwrap().insert(
+            "leak".into(),
+            PatternStats {
+                calls: 5,
+                confidence_sum: 5.0,
+                cache_hits: 1,
+                last_adapt: 0,
+                last_call: 0,
+                examples_count: 0,
+            },
+        );
+        // №392 class: a stale deny event outside a handler is FORGED
+        // state — the reset must remove it.
+        vm.current_deny_event = Some(Value::String("stale-reason".into()));
+        vm.distill_states.insert(
+            "leak-distill".into(),
+            DistillRuntimeState {
+                mode: DistillMode::Teaching,
+                examples: vec![("a".into(), "b".into())],
+                last_train_attempt: 3,
+            },
+        );
+        vm.reflex_names
+            .insert("leak".into(), crate::nn::ReflexId(0));
+        // server context (pub setters — the 402 isolation boundary)
+        vm.set_server_json_body(Value::String("stale-body".into()));
+        let mut q = std::collections::HashMap::new();
+        q.insert("q".into(), "stale".into());
+        vm.set_server_query_params(q);
+        let mut p = std::collections::HashMap::new();
+        p.insert("p".into(), "stale".into());
+        vm.set_server_path_params(p);
+        vm.set_server_user_roles(vec!["stale-role".into()]);
+
+        // ── reset ──
+        vm.reset_for_reuse(&program).expect("reset must succeed");
+
+        // ── assert observational equivalence with a fresh load ──
+        assert_eq!(
+            format!("{:?}", vm.globals),
+            format!("{:?}", fresh.globals),
+            "globals slots must be rebuilt"
+        );
+        assert_eq!(vm.globals.len(), gslots);
+        assert!(vm.label_env.is_empty(), "label_env must not survive");
+        assert!(
+            vm.value_registers.is_empty(),
+            "value registers must not survive"
+        );
+        assert!(vm.memory.is_empty(), "memory store must not survive");
+        assert!(vm.relations.is_empty(), "relations must not survive");
+        assert!(vm.mutate_log.is_empty(), "mutate log must not survive");
+        assert!(
+            vm.audit_log.lock().unwrap().is_empty(),
+            "audit log must not survive"
+        );
+        assert_eq!(
+            vm.propagated_confidence, 1.0,
+            "confidence must reset to 1.0"
+        );
+        // №381 canary: the reopened connection must be FRESH — the leaked
+        // table from the dirty connection must be gone.
+        let leaked = {
+            let conn = vm.db_conn.as_ref().expect("in-memory db must be reopened");
+            conn.query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='leak'",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap_or(-1)
+        };
+        assert_eq!(
+            leaked, 0,
+            "reset must NEVER carry the previous connection's content"
+        );
+        assert!(
+            vm.conversations.lock().unwrap().is_empty(),
+            "conversations must not survive"
+        );
+        assert!(
+            vm.event_log.lock().unwrap().is_empty(),
+            "event log must not survive"
+        );
+        assert_eq!(
+            vm.event_next_id.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "event id counter must reset"
+        );
+        assert!(
+            vm.pattern_stats.lock().unwrap().is_empty(),
+            "pattern stats must not survive"
+        );
+        assert!(
+            vm.current_deny_event.is_none(),
+            "a stale deny event outside a handler is forged state"
+        );
+        assert!(
+            vm.distill_states.is_empty(),
+            "distill states must not survive"
+        );
+        assert!(
+            vm.reflex_names.is_empty(),
+            "reflex name map must not accumulate"
+        );
+        assert!(
+            vm.server_json_body.is_none(),
+            "body context must not survive"
+        );
+        assert!(
+            vm.server_query_params.is_none(),
+            "query context must not survive"
+        );
+        assert!(
+            vm.server_path_params.is_none(),
+            "path context must not survive"
+        );
+        assert!(
+            vm.server_user_roles.is_empty(),
+            "roles context must not survive"
+        );
+        // Program-scoped reload parity with a fresh load.
+        assert_eq!(vm.global_names, fresh.global_names);
+        assert_eq!(
+            vm.patterns.len(),
+            fresh.patterns.len(),
+            "pattern table must reload identically"
+        );
+        assert_eq!(vm.rules.len(), fresh.rules.len());
+        assert_eq!(vm.skill_indices.len(), fresh.skill_indices.len());
+        assert_eq!(vm.collections_loaded, fresh.collections_loaded);
+        assert!(
+            vm.learnables.is_empty(),
+            "serve-path learnables must rest empty"
+        );
+    }
+
+    #[test]
+    fn reset_is_repeatable() {
+        // Reset twice in a row (pool reuse across several generations):
+        // the second reset must also succeed and leave fresh state.
+        let (mut vm, program) = loaded_vm(N403_SOURCE);
+        vm.reset_for_reuse(&program).expect("first reset");
+        vm.globals[0] = Value::Float(777.0);
+        vm.reset_for_reuse(&program).expect("second reset");
+        let (fresh, _) = loaded_vm(N403_SOURCE);
+        assert_eq!(format!("{:?}", vm.globals), format!("{:?}", fresh.globals));
     }
 }

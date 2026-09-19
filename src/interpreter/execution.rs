@@ -649,6 +649,23 @@ impl Interpreter {
                 .map_err(|e| format!("media store poisoned: {}", e))?;
             return crate::builtins::media_save_dispatch(&store, &args);
         }
+        // №397 (kitchen-camera e2e): consent as a RUNTIME credential —
+        // the scope lands on the media entry (the runtime twin of the
+        // static consented-egress rule; statement-position calls).
+        if name == "consent_grant" {
+            let mut store = self
+                .media_store
+                .lock()
+                .map_err(|e| format!("media store poisoned: {}", e))?;
+            return crate::builtins::consent::consent_grant_dispatch(&mut store, &args);
+        }
+        if name == "consent_revoke" {
+            let mut store = self
+                .media_store
+                .lock()
+                .map_err(|e| format!("media store poisoned: {}", e))?;
+            return crate::builtins::consent::consent_revoke_dispatch(&mut store, &args);
+        }
         if name == "media_retain" {
             let mut store = self
                 .media_store
@@ -1943,6 +1960,27 @@ impl Interpreter {
                         .lock()
                         .map_err(|e| format!("media store poisoned: {}", e))?;
                     return crate::builtins::media_save_dispatch(&store, &eval_args);
+                }
+                // №397 (kitchen-camera e2e): consent as a RUNTIME
+                // credential — expression path, the same shared dispatches
+                // (the runtime twin of the static consented-egress rule).
+                if name == "consent_grant" {
+                    let mut store = self
+                        .media_store
+                        .lock()
+                        .map_err(|e| format!("media store poisoned: {}", e))?;
+                    return crate::builtins::consent::consent_grant_dispatch(
+                        &mut store, &eval_args,
+                    );
+                }
+                if name == "consent_revoke" {
+                    let mut store = self
+                        .media_store
+                        .lock()
+                        .map_err(|e| format!("media store poisoned: {}", e))?;
+                    return crate::builtins::consent::consent_revoke_dispatch(
+                        &mut store, &eval_args,
+                    );
                 }
                 if name == "media_retain" {
                     let mut store = self

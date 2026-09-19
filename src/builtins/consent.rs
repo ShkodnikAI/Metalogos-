@@ -24,6 +24,7 @@
 //     a sandboxed path: FILE EGRESS, classified Sink, audit event.
 
 use crate::interpreter::values::Value;
+use crate::media::MediaStore;
 
 /// `consent_grant(value, scope, subject?, ttl_seconds?)` — record the
 /// grant in the ledger; the value passes through with its consent scope
@@ -98,6 +99,73 @@ pub(crate) fn builtin_consent_revoke(args: &[Value]) -> Result<Value, String> {
     };
     crate::consent::record_revoke(scope)?;
     Ok(args[0].clone())
+}
+
+// ── №397 (kitchen-camera e2e): the store-aware consent interception ──
+//
+// The static gate accepts a consent scope as the media_save credential
+// (the №387 generalized egress: non-empty consent scope → no
+// private-egress violation). The runtime backstop must AGREE or the
+// layers disagree (a consent-clean compile was sealed at runtime —
+// MEDIA_SEALED_EGRESS — and the kitchen-camera e2e could not run end to
+// end). The scope therefore lands ON THE STORE ENTRY (capabilities
+// accumulate — the ConsentScope meet), where the media_save backstop
+// reads it. The consent-ledger record and the pass-through remain the
+// plain builtins' — unchanged.
+
+/// `consent_grant(value, scope, subject?, ttl_seconds?)` — store-aware
+/// interception: for a media handle the granted scope is recorded on the
+/// ENTRY (the runtime credential media_save honors); the consent-ledger
+/// record and validation are `builtin_consent_grant` (unchanged).
+pub(crate) fn consent_grant_dispatch(
+    store: &mut MediaStore,
+    args: &[Value],
+) -> Result<Value, String> {
+    let fn_name = "consent_grant";
+    if args.len() < 2 || args.len() > 4 {
+        return Err(format!(
+            "{}: expects 2..4 arguments (value, scope, subject?, ttl_seconds?), got {}",
+            fn_name,
+            args.len()
+        ));
+    }
+    let scope = match &args[1] {
+        Value::String(s) => s.clone(),
+        other => {
+            return Err(format!(
+                "{}: scope must be String, got {}",
+                fn_name,
+                other.type_name()
+            ))
+        }
+    };
+    if let Some(Value::Media(h)) = args.first() {
+        store.extend_entry_consent(*h, &scope)?;
+    }
+    builtin_consent_grant(args)
+}
+
+/// `consent_revoke(value, scope?)` — the revoke twin: the runtime
+/// credential is WITHDRAWN (every scope clears — the flat cascade). The
+/// static revoke poisons ABSORBING (ADR-0154 §2.1); the runtime twin
+/// re-seals the entry. Ledger record and quarantine return value are
+/// `builtin_consent_revoke` (unchanged).
+pub(crate) fn consent_revoke_dispatch(
+    store: &mut MediaStore,
+    args: &[Value],
+) -> Result<Value, String> {
+    let fn_name = "consent_revoke";
+    if args.is_empty() || args.len() > 2 {
+        return Err(format!(
+            "{}: expects 1..2 arguments (value, scope?), got {}",
+            fn_name,
+            args.len()
+        ));
+    }
+    if let Some(Value::Media(h)) = args.first() {
+        store.clear_entry_consent(*h)?;
+    }
+    builtin_consent_revoke(args)
 }
 
 /// `quarantine_write(value, reason?)` — the quarantine sink: the ONLY

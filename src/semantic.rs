@@ -2879,11 +2879,19 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                 for (i, a) in args.iter().enumerate() {
                     // Destructive DB literals are gated by CONTENT (a
                     // DROP needs no tainted data to destroy state):
+                    // the vocabulary is the runtime twin's population
+                    // (grants.rs::extract_destructive_ops — the ops the
+                    // grant algebra meters), plus the DROP-<object>
+                    // superset the runtime scanner doesn't parse. The
+                    // naryad-397 e2e caught DELETE/ALTER slipping
+                    // through the static gate while the runtime gates
+                    // metered them (the doc comment already claimed
+                    // DROP/DELETE/TRUNCATE/ALTER).
                     if name == "db_execute"
                         && matches!(
                             a,
                             Expr::StringLit { value, .. }
-                                if ["drop table", "drop database", "drop index", "truncate"].iter().any(|w| value.to_lowercase().contains(w))
+                                if ["drop table", "drop database", "drop index", "truncate", "delete from", "alter table"].iter().any(|w| value.to_lowercase().contains(w))
                         )
                     {
                         violations.push(SinkViolation {

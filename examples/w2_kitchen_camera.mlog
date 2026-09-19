@@ -1,0 +1,69 @@
+// Naryad #397 (wave-3 acceptance #1, gh#491): the kitchen-camera e2e —
+// the §5.3 scenario with the wave-3 capability layer integrated end to
+// end. ONE flow carries BOTH sides of the contract:
+//
+//   GREEN (allowed AND traced): the private frame is captured against
+//   the kitchen-camera origin, the household member's one-time likeness
+//   ritual issues the consent credential, and the local retention is
+//   allowed (media_save passes the №325 clearance with the token) and
+//   traced (the ritual records the consent-ledger trace, №387; the
+//   sidecar manifest carries the origin chain, №337).
+//
+//   DENY (explainable AND signed): the housekeeping purge of old motion
+//   events runs under an N(1) grant; the first granted DELETE executes
+//   (irreversible.db_execute record), the second exhausts the quota and
+//   refuses — GRANT_EXHAUSTED becomes a runtime DenyEvent with reason
+//   IRREVERSIBLE_NO_GRANT (№392), the signed deny record lands in the
+//   ledger BEFORE handler selection (№393 ADR §3.4), on_deny(db)
+//   explains the refusal via deny_reason() and degrades it to Unit —
+//   the refused DELETE never runs and the flow continues.
+//
+// The flow then rotates the signing key, takes a snapshot and EXPORTS
+// the chain: `mlog ledger verify target/w2_kitchen_camera_ledger.jsonl`
+// validates the exported file without the Metalogos runtime (pure hash
+// + Ed25519, №393). The static egress deny keeps its canonical red
+// contracts: examples/w1_kitchen_camera.mlog and its alias variant.
+//
+// Origin kind note: camera-kind hardware capture is a PARKED runtime
+// boundary (№294 class) — the e2e uses the MVP file-free likeness
+// capture; the origin chain and every static deny are unaffected.
+on_deny(db) {
+  match deny_reason() {
+    "IRREVERSIBLE_NO_GRANT" then { print("deny:IRREVERSIBLE_NO_GRANT") }
+    else { print("deny:other") }
+  }
+}
+
+db { url: "sqlite::memory:" }
+
+origin kitchen_cam { kind: likeness, media: image, label: private }
+
+pattern KitchenCamE2E(_tick: String) -> String {
+  // 1. CAPTURE: the frame is private and carries the kitchen-camera
+  //    origin (№332 chain) — an unconsented egress of it is denied.
+  let frame = from kitchen_cam media_store_image("frame-bytes", "private")
+  // 2. GREEN PATH: the one-time likeness ritual → the consented local
+  //    retention is ALLOWED (token as the runtime credential) and each
+  //    sidecar manifest records the origin chain + C2PA facts (№337).
+  let challenge = likeness_challenge("owner", "retention")
+  let token = likeness_verify(challenge)
+  let saved = media_save(frame, "target/w2_kitchen_camera_frame.jpg", token)
+  // 3. GRANTED HOUSEKEEPING: the destructive purge runs only under a
+  //    grant — the first call executes and journals itself (№393).
+  db_execute("CREATE TABLE IF NOT EXISTS motion_events (id INTEGER PRIMARY KEY, ts TEXT)")
+  db_execute("INSERT INTO motion_events (ts) VALUES ('2026-08-30')")
+  let g = grant_issue("db:delete:motion_events", 60, "n", 1)
+  let purged = db_execute_with_grant(g, "DELETE FROM motion_events WHERE ts < '2026-09-01'")
+  // 4. DENY: the N(1) quota is exhausted — the second granted call
+  //    refuses (GRANT_EXHAUSTED), on_deny(db) explains and degrades
+  //    the call to Unit; the DELETE never executes.
+  let refused = db_execute_with_grant(g, "DELETE FROM motion_events")
+  // 5. SIGNED TRAIL: rotation (signed by the still-active key), the
+  //    snapshot anchor, then the verifiable JSONL export. Results are
+  //    opaque key/hash material — the program sees only their types.
+  let _rot = ledger_rotate()
+  let _snap = ledger_snapshot()
+  let trail = ledger_export("target/w2_kitchen_camera_ledger.jsonl")
+  return "frame:" + type_of(frame) + "|saved:" + type_of(saved) + "|purged:" + purged + "|refused:" + type_of(refused) + "|trail:" + type_of(trail)
+}
+flow Main { input: String = "tick" -> KitchenCamE2E -> output }

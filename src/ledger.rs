@@ -279,8 +279,18 @@ pub fn append_record(
         "action ledger unavailable (in-memory sqlite failed to initialize)".to_string()
     })?;
     let pubkey = hex::encode(guard.signing.verifying_key().as_bytes());
+    // ADR-0167 §Genesis: the first record of a chain is seq 0 with the
+    // all-zeros genesis prev_hash — the external verifier refuses any
+    // other start (verify_records). head_seq/head_hash start at the
+    // genesis position, so an untouched ledger appends its first record
+    // AT seq 0; every later record advances the head by one.
+    let seq = if guard.head_hash == GENESIS_PREV_HASH {
+        0
+    } else {
+        guard.head_seq + 1
+    };
     let record = LedgerRecord {
-        seq: guard.head_seq + 1,
+        seq,
         ts: now_secs(),
         kind: kind.to_string(),
         actor: actor.to_string(),

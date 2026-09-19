@@ -269,8 +269,8 @@ Metalogos-/
 ├── AGENTS.md                         # Canonical methodology file for agent tools (industry-standard AGENTS.md spec — superseded AGENT.md)
 ├── CLAUDE.md                         # Bridge copy of AGENTS.md for Claude-compatible tools (synced manually — see issue #299)
 ├── GEMINI.md                         # Bridge copy of AGENTS.md for Gemini-compatible tools (synced manually — see issue #299)
-├── REFERENCE.md                      # Full builtin reference (~250 KB) — 100% of the registry (§6 index + №316 classification)
-├── CHANGELOG.md                      # Version history (~343 KB)
+├── REFERENCE.md                      # Full builtin reference (~251 KB) — 100% of the registry (§6 index + №316 classification)
+├── CHANGELOG.md                      # Version history (~345 KB)
 ├── AI_USAGE.md                       # Disclosure: how generative AI is used in this project's development
 ├── FEATURE_INTAKE.md                 # Feature request tracking
 ├── MEMORY_ROADMAP.md                 # Memory system roadmap
@@ -355,16 +355,16 @@ Metalogos-/
 │       ├── naryad_198_audit_finds_known_vuln.rs
 │       └── naryad_198_backward_compat.rs
 │
-├── tests/                             # 194 Rust test files
+├── tests/                             # 195 Rust test files
 │   ├── fixtures/                      # PDF test fixtures
 │   ├── golden.rs                      # Golden test runner
 │   ├── vm_golden.rs                   # VM golden tests
 │   ├── crosscheck_backends.rs          # TW vs VM parity (see ADR-0105 for known gaps)
 │   ├── repl_integration.rs            # REPL tests
 │   ├── definition_of_done.rs          # Project completeness validation
-│   └── ...                            # and 189 more contract/feature test files
+│   └── ...                            # and 190 more contract/feature test files
 │
-├── examples/                          # 245 .mlog programs (golden corpus)
+├── examples/                          # 246 .mlog programs (golden corpus)
 │   ├── m1_hello.mlog                  # Hello World
 │   ├── p6_full_app.mlog               # Full web app with routes
 │   ├── p23_ml_learn.mlog              # ML learning
@@ -1015,7 +1015,7 @@ Four integration tests verify the new behavior:
 |---|---|
 | Effective Rust LOC | ~59 000 |
 | Built-in Functions | 457 (42 modules) |
-| Example Programs | 245 |
+| Example Programs | 246 |
 | Integration Tests | 70 test suites |
 | Architecture Decision Records | 161 |
 | Parser Rules | 288 (Pest PEG) |
@@ -1068,7 +1068,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 124+ development narads (work orders) delivered. 457 builtins, 194 test files, 245 example programs, 161 ADRs (158 accepted + 3 reserved; ADR-0154/0161 filled by naryads №322/№325; ADR-0162 — №331 media handles; ADR-0163 — №333 backend registry; ADR-0164 — №332 perception origin chain; ADR-0165 — №336 backend ladder + Degraded(t); ADR-0166 — №337 C2PA contour of handles; ADR-0157/0167 — №393 Action Ledger v1; ADR-0169 — №385 stable try error codes). See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
+All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 124+ development narads (work orders) delivered. 457 builtins, 195 test files, 246 example programs, 161 ADRs (158 accepted + 3 reserved; ADR-0154/0161 filled by naryads №322/№325; ADR-0162 — №331 media handles; ADR-0163 — №333 backend registry; ADR-0164 — №332 perception origin chain; ADR-0165 — №336 backend ladder + Degraded(t); ADR-0166 — №337 C2PA contour of handles; ADR-0157/0167 — №393 Action Ledger v1; ADR-0169 — №385 stable try error codes). See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
 
 ### Next
 

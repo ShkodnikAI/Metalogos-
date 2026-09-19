@@ -247,11 +247,11 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 | Parser | Pest 2.7 PEG grammar (~594 lines, 327 rules) | 2 176 |
 | AST | 33 Declaration variants, 14 Expr, 15 Statement, 4 MatchArm, span tracking (ADR-0111) | 1 289 |
 | Semantic analysis | Opaque types, arity checking, Category A audit (SQL_DYNAMIC, SECRET_LEAK, HTML_INJECTION, VISION_UNSIGNED_EXPORT, MODEL_WEIGHTS_UNSAFE), SVG XSS lint | 473 |
-| Compiler | Bytecode, 457 builtins indexed | 1 516 |
+| Compiler | Bytecode, 458 builtins indexed | 1 516 |
 | Bytecode format | 47 VM instructions | — |
 | Tree-walking interpreter | Full feature support, 12 modules | ~4 400 |
 | VM | Stack-based bytecode executor | 2 143 |
-| Built-in functions | 457 functions across 42 modules | ~18 000 |
+| Built-in functions | 458 functions across 42 modules | ~18 000 |
 | HTTP server | Axum 0.8 + Tokio, security middleware | 2 433 |
 | LLM backend | Trait + mock + real providers | 1 421 |
 | Memory store | Typed memory with FTS5 BM25 + cosine RRF hybrid recall + KV store | 1 540 |
@@ -316,7 +316,7 @@ Metalogos-/
 │   ├── voice/                        # Voice pillar (feature-gated: speech, ADR-0143)
 │   ├── video/                        # Video pillar (feature-gated: video, ADR-0147)
 │   │
-│   └── builtins/                      # 457 built-in functions (42 modules)
+│   └── builtins/                      # 458 built-in functions (42 modules)
 │       ├── mod.rs                     # Builtin dispatch
 │       ├── registry.rs               # BUILTIN_REGISTRY (SSOT for all builtins)
 │       ├── core.rs                    # print, let, type, inspect, sleep
@@ -1014,7 +1014,7 @@ Four integration tests verify the new behavior:
 | Metric | Value |
 |---|---|
 | Effective Rust LOC | ~59 000 |
-| Built-in Functions | 457 (42 modules) |
+| Built-in Functions | 458 (42 modules) |
 | Example Programs | 246 |
 | Integration Tests | 70 test suites |
 | Architecture Decision Records | 161 |
@@ -1068,7 +1068,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 124+ development narads (work orders) delivered. 457 builtins, 196 test files, 246 example programs, 161 ADRs (158 accepted + 3 reserved; ADR-0154/0161 filled by naryads №322/№325; ADR-0162 — №331 media handles; ADR-0163 — №333 backend registry; ADR-0164 — №332 perception origin chain; ADR-0165 — №336 backend ladder + Degraded(t); ADR-0166 — №337 C2PA contour of handles; ADR-0157/0167 — №393 Action Ledger v1; ADR-0169 — №385 stable try error codes). See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
+All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 124+ development narads (work orders) delivered. 458 builtins, 196 test files, 246 example programs, 161 ADRs (158 accepted + 3 reserved; ADR-0154/0161 filled by naryads №322/№325; ADR-0162 — №331 media handles; ADR-0163 — №333 backend registry; ADR-0164 — №332 perception origin chain; ADR-0165 — №336 backend ladder + Degraded(t); ADR-0166 — №337 C2PA contour of handles; ADR-0157/0167 — №393 Action Ledger v1; ADR-0169 — №385 stable try error codes). See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
 
 ### Next
 

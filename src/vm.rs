@@ -2535,6 +2535,81 @@ impl Vm {
             return Ok(Value::Unit);
         }
 
+        // ── Bug #530 (FO-050 / office #182): recall_top_k — parity with the
+        // interpreter's invoke_recall_top_k_fn ──
+        // The TW resolves the name through its interception table; the VM
+        // compiler consults the builtin registry — with neither a registry
+        // entry nor a VM dispatch, every program calling recall_top_k failed
+        // to COMPILE on the VM while running on the TW. The VM's memory is
+        // the simple in-process Vec (memorize/forget parity above): the
+        // search is token-level AND over the value with a matched-words
+        // score weighted by priority — the honest simple-memory twin of the
+        // TW's FTS5+cosine hybrid (each backend reads its own store, the
+        // same posture as memorize/forget). Returns the same JSON shape:
+        // [{value, score, type, priority}] as a String.
+        if name == "recall_top_k" {
+            if args.is_empty() {
+                return Err("recall_top_k() requires at least 1 argument (query)".to_string());
+            }
+            let query = match &args[0] {
+                Value::String(s) => s.clone(),
+                other => {
+                    return Err(format!(
+                        "recall_top_k() expected String as first arg, got {}",
+                        other.type_name()
+                    ))
+                }
+            };
+            let k = if args.len() > 1 {
+                args[1].as_float().unwrap_or(5.0) as usize
+            } else {
+                5
+            };
+            let type_filter = if args.len() > 2 {
+                match &args[2] {
+                    Value::String(s) => s.clone(),
+                    Value::Unit => String::new(),
+                    other => format!("{}", other),
+                }
+            } else {
+                String::new()
+            };
+            let query_lower = query.to_lowercase();
+            let query_words: Vec<&str> = query_lower.split_whitespace().collect();
+            let mut scored: Vec<(f64, &VmMemoryEntry)> = Vec::new();
+            for entry in &self.memory {
+                if !type_filter.is_empty() && entry.mem_type != type_filter {
+                    continue;
+                }
+                // Zero-hit entries STAY (score 0.0) — the TW hybrid returns
+                // top-k over the whole store, weak matches included (the
+                // contract is "top-k by score", not "only hits").
+                let val_lower = entry.value.to_lowercase();
+                let hits = query_words
+                    .iter()
+                    .filter(|w| val_lower.contains(*w))
+                    .count() as f64;
+                let score = (hits / query_words.len() as f64) * (1.0 + entry.priority);
+                scored.push((score, entry));
+            }
+            scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+            let json_results: Vec<serde_json::Value> = scored
+                .into_iter()
+                .take(k)
+                .map(|(score, entry)| {
+                    serde_json::json!({
+                        "value": entry.value,
+                        "score": score,
+                        "type": entry.mem_type,
+                        "priority": entry.priority,
+                    })
+                })
+                .collect();
+            return Ok(Value::String(
+                serde_json::to_string(&json_results).unwrap_or_default(),
+            ));
+        }
+
         // ── Наряд №72: query_row — parity with interpreter::invoke_query_row ──
         if name == "query_row" {
             let sql = match args.first() {

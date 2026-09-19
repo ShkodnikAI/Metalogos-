@@ -271,6 +271,17 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("mem_get", 1, "memory"; builtin_mem_get),
     spec!("mem_delete", 1, "memory"; builtin_mem_delete),
     spec!("memorize", 2, 3, "memory"; builtin_kv_set),
+    // Bug #530 (FO-050 / office #182): recall_top_k is the memory READ the
+    // interpreter dispatches through its interception table
+    // (interpreter::memory::invoke_recall_top_k_fn — hybrid search over the
+    // interpreter's memory store); it had NO registry entry, so the VM
+    // compiler refused every program calling it ("undefined function") while
+    // the TW ran it — a TW/VM registry disagreement. The name is now
+    // registered (compile parity); the VM dispatches it through its own
+    // state-carrying block (vm.rs call_builtin) against the VM's memory —
+    // handler stays None here because both backends intercept by name before
+    // the generic fallback (the media_store_* stub pattern).
+    spec!("recall_top_k", 1, 3, "memory"),
     // Наряд №272 (ADR-0134): векторный контур поверх sqlite-vec — KNN
     // (distance_metric=cosine), песочница через sandbox_path_ex, dim-гейт.
     #[cfg(feature = "vec")]

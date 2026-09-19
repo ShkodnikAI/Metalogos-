@@ -313,6 +313,7 @@ impl Compiler {
             schema_ddl: std::mem::take(&mut self.schema_ddl),
             main_code,
             collections_loaded: self.collections_loaded,
+            shared_cache: crate::bytecode::ProgramSharedCache::new(),
         };
 
         Ok(program)

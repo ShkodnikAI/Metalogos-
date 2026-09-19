@@ -54,6 +54,7 @@ fn test_make_list_instruction() {
             Instruction::Halt,
         ],
         collections_loaded: false,
+        shared_cache: metalogos::bytecode::ProgramSharedCache::new(),
     };
     let result = vm.run(program).expect("vm run should succeed");
     // No flow output, but list was created on stack (discarded by Halt)
@@ -86,6 +87,7 @@ fn test_list_len_instruction() {
             Instruction::Halt,
         ],
         collections_loaded: false,
+        shared_cache: metalogos::bytecode::ProgramSharedCache::new(),
     };
     let result = vm.run(program).expect("vm run should succeed");
     assert!(result.is_none());
@@ -116,6 +118,7 @@ fn test_pop_instruction() {
             Instruction::Halt,
         ],
         collections_loaded: false,
+        shared_cache: metalogos::bytecode::ProgramSharedCache::new(),
     };
     let result = vm.run(program).expect("vm run should succeed");
     assert!(result.is_none());

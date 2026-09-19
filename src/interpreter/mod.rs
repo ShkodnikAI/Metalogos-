@@ -648,7 +648,24 @@ impl Interpreter {
         // Наряд №392: deny handlers propagate to per-request interpreters
         // (a route handler that hits a runtime gate must find the same
         // on_deny surface the top-level program declared).
-        target.deny_handlers = self.deny_handlers.clone();
+        // Наряд №399 (bug gh#520): UNION, not overwrite — and idempotent.
+        // Server startup (run_server / run_test_server_with_backend_in_dir)
+        // merges one declaration at a time; every non-OnDeny declaration
+        // carries an EMPTY handler list, so an overwrite silently dropped
+        // the handlers accumulated from earlier merges (the №381 db_conn
+        // clobber class) and routes failed loud instead of degrading
+        // through on_deny. Identity is (class, span): the parser gives
+        // every declaration a unique span, so re-merging the same program
+        // re-meets the same span and is a no-op — no duplicate handlers.
+        for d in &self.deny_handlers {
+            if !target
+                .deny_handlers
+                .iter()
+                .any(|t| t.class == d.class && t.span == d.span)
+            {
+                target.deny_handlers.push(d.clone());
+            }
+        }
         // ADR-0053: copy conversation config (conversations themselves are per-session)
         target.conversation_config = self.conversation_config.clone();
 
@@ -669,5 +686,81 @@ impl Interpreter {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod n399_deny_handler_merge_tests {
+    use super::*;
+    use crate::ast::{Declaration, OnDenyDecl};
+
+    // Handlers are constructed directly (no parser mention — the C4
+    // acyclicity ratchet counts cfg(test) file edges, and an
+    // interpreter→parser edge would grow the frozen SCC). The bodies are
+    // empty: these tests pin the MERGE mechanics, handlers never fire.
+    fn on_deny(class: &str) -> Declaration {
+        Declaration::OnDeny(OnDenyDecl {
+            span: Span::unknown(),
+            class: class.to_string(),
+            body: Vec::new(),
+        })
+    }
+
+    fn interp_with_handlers(classes: &[&str]) -> Interpreter {
+        let mut interp = Interpreter::new();
+        let decls = classes.iter().map(|c| on_deny(c)).collect();
+        interp
+            .run(decls)
+            .expect("on_deny declarations register clean");
+        interp
+    }
+
+    // Наряд №399 (bug gh#520): merging a non-OnDeny declaration must not
+    // clobber the handlers accumulated from earlier merges (server startup
+    // merges one declaration at a time — overwrite dropped the handler).
+    #[test]
+    fn n399_union_not_overwrite() {
+        // handler merged FIRST, then a handler-less interpreter merges:
+        // the handler must survive.
+        let with_handler = interp_with_handlers(&["db"]);
+        assert_eq!(with_handler.deny_handlers.len(), 1);
+        let handlerless = Interpreter::new();
+        let mut target = with_handler;
+        handlerless.clone_definitions_into(&mut target);
+        assert_eq!(
+            target.deny_handlers.len(),
+            1,
+            "an empty source list must not clobber accumulated handlers"
+        );
+        // reverse order: handler merged into a target that already merged
+        // other declarations must still land (and not be overwritten away).
+        let mut acc = Interpreter::new();
+        let handler = interp_with_handlers(&["db"]);
+        handler.clone_definitions_into(&mut acc);
+        assert_eq!(acc.deny_handlers.len(), 1, "union must append");
+        assert_eq!(acc.deny_handlers[0].class, "db");
+    }
+
+    // Наряд №399 (item 2): merge idempotency — repeated merges of the same
+    // program (same declaration, same span) must not duplicate handlers.
+    #[test]
+    fn n399_merge_idempotent_no_duplicates() {
+        let source = interp_with_handlers(&["db"]);
+        let mut target = Interpreter::new();
+        source.clone_definitions_into(&mut target);
+        source.clone_definitions_into(&mut target);
+        source.clone_definitions_into(&mut target);
+        assert_eq!(
+            target.deny_handlers.len(),
+            1,
+            "the same on_deny declaration re-merged must dedupe by (class, span)"
+        );
+        // two DIFFERENT on_deny declarations (distinct classes) coexist.
+        let both = interp_with_handlers(&["db", "*"]);
+        assert_eq!(both.deny_handlers.len(), 2);
+        let mut target2 = Interpreter::new();
+        both.clone_definitions_into(&mut target2);
+        both.clone_definitions_into(&mut target2);
+        assert_eq!(target2.deny_handlers.len(), 2, "distinct handlers coexist");
     }
 }

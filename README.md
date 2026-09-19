@@ -355,14 +355,14 @@ Metalogos-/
 │       ├── naryad_198_audit_finds_known_vuln.rs
 │       └── naryad_198_backward_compat.rs
 │
-├── tests/                             # 195 Rust test files
+├── tests/                             # 196 Rust test files
 │   ├── fixtures/                      # PDF test fixtures
 │   ├── golden.rs                      # Golden test runner
 │   ├── vm_golden.rs                   # VM golden tests
 │   ├── crosscheck_backends.rs          # TW vs VM parity (see ADR-0105 for known gaps)
 │   ├── repl_integration.rs            # REPL tests
 │   ├── definition_of_done.rs          # Project completeness validation
-│   └── ...                            # and 190 more contract/feature test files
+│   └── ...                            # and 191 more contract/feature test files
 │
 ├── examples/                          # 246 .mlog programs (golden corpus)
 │   ├── m1_hello.mlog                  # Hello World

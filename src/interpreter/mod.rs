@@ -692,14 +692,26 @@ impl Interpreter {
 #[cfg(test)]
 mod n399_deny_handler_merge_tests {
     use super::*;
+    use crate::ast::{Declaration, OnDenyDecl};
 
-    const ON_DENY_SRC: &str = "on_deny(db) { print(\"deny caught\") }";
-    const OTHER_DECL_SRC: &str = "pattern P(_x: String) -> String { return _x }";
+    // Handlers are constructed directly (no parser mention — the C4
+    // acyclicity ratchet counts cfg(test) file edges, and an
+    // interpreter→parser edge would grow the frozen SCC). The bodies are
+    // empty: these tests pin the MERGE mechanics, handlers never fire.
+    fn on_deny(class: &str) -> Declaration {
+        Declaration::OnDeny(OnDenyDecl {
+            span: Span::unknown(),
+            class: class.to_string(),
+            body: Vec::new(),
+        })
+    }
 
-    fn interp_with(source: &str) -> Interpreter {
+    fn interp_with_handlers(classes: &[&str]) -> Interpreter {
         let mut interp = Interpreter::new();
-        let decls = crate::parser::parse(source).expect("test source must parse");
-        interp.run(decls).expect("test declarations must run clean");
+        let decls = classes.iter().map(|c| on_deny(c)).collect();
+        interp
+            .run(decls)
+            .expect("on_deny declarations register clean");
         interp
     }
 
@@ -708,13 +720,13 @@ mod n399_deny_handler_merge_tests {
     // merges one declaration at a time — overwrite dropped the handler).
     #[test]
     fn n399_union_not_overwrite() {
-        // handler merged FIRST, then an empty-source declaration merges:
+        // handler merged FIRST, then a handler-less interpreter merges:
         // the handler must survive.
-        let with_handler = interp_with(ON_DENY_SRC);
+        let with_handler = interp_with_handlers(&["db"]);
         assert_eq!(with_handler.deny_handlers.len(), 1);
-        let other = interp_with(OTHER_DECL_SRC);
+        let handlerless = Interpreter::new();
         let mut target = with_handler;
-        other.clone_definitions_into(&mut target);
+        handlerless.clone_definitions_into(&mut target);
         assert_eq!(
             target.deny_handlers.len(),
             1,
@@ -722,8 +734,8 @@ mod n399_deny_handler_merge_tests {
         );
         // reverse order: handler merged into a target that already merged
         // other declarations must still land (and not be overwritten away).
-        let mut acc = interp_with(OTHER_DECL_SRC);
-        let handler = interp_with(ON_DENY_SRC);
+        let mut acc = Interpreter::new();
+        let handler = interp_with_handlers(&["db"]);
         handler.clone_definitions_into(&mut acc);
         assert_eq!(acc.deny_handlers.len(), 1, "union must append");
         assert_eq!(acc.deny_handlers[0].class, "db");
@@ -733,7 +745,7 @@ mod n399_deny_handler_merge_tests {
     // program (same declaration, same span) must not duplicate handlers.
     #[test]
     fn n399_merge_idempotent_no_duplicates() {
-        let source = interp_with(ON_DENY_SRC);
+        let source = interp_with_handlers(&["db"]);
         let mut target = Interpreter::new();
         source.clone_definitions_into(&mut target);
         source.clone_definitions_into(&mut target);
@@ -743,9 +755,8 @@ mod n399_deny_handler_merge_tests {
             1,
             "the same on_deny declaration re-merged must dedupe by (class, span)"
         );
-        // two DIFFERENT on_deny declarations (distinct spans) coexist.
-        let two_handlers_src = "on_deny(db) { print(\"a\") }\non_deny(*) { print(\"b\") }";
-        let both = interp_with(two_handlers_src);
+        // two DIFFERENT on_deny declarations (distinct classes) coexist.
+        let both = interp_with_handlers(&["db", "*"]);
         assert_eq!(both.deny_handlers.len(), 2);
         let mut target2 = Interpreter::new();
         both.clone_definitions_into(&mut target2);

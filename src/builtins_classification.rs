@@ -581,6 +581,7 @@ pub static BUILTIN_CLASSES: &[BuiltClassEntry] = &[
     BuiltClassEntry { name: "ledger_snapshot", class: BuiltClass { role: Role::Lift, default_label: Label::Public, reversibility: Reversibility::Irreversible, rationale: "appends a snapshot record pinning the head (ADR-0167 §3.2) — the archive anchor is a permanent chain record" } },
     BuiltClassEntry { name: "likeness_challenge", class: BuiltClass { role: Role::Lift, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "issues a one-time opaque likeness challenge (№387, ADR-0149 D1); registry state only, no egress" } },
     BuiltClassEntry { name: "likeness_verify", class: BuiltClass { role: Role::Lift, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "consumes the challenge (linear), records the consent-ledger grant and returns the opaque LikenessToken (№387, ADR-0149 D1/D6) — process-local bookkeeping, no egress" } },
+    BuiltClassEntry { name: "ocr_extract", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "local OCR backend call (№407, trocr-base-printed canon): ingests the text extracted from an image into the flow; no upload, no egress; real mode requires SHA-pinned weights (PARKED №294)" } },
 ];
 
 #[cfg(test)]

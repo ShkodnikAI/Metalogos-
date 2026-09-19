@@ -35,6 +35,11 @@ pub enum BackendClass {
     Omni,
     VisionUnderstanding,
     Llm,
+    /// Optical character recognition — text extraction FROM an image
+    /// (Naryad №407, wave 4.5). Reading/understanding, NOT generation:
+    /// no Art. 50 synthetic marking on the output (the №331/№332
+    /// provenance discipline applies unchanged).
+    Ocr,
 }
 
 impl BackendClass {
@@ -45,6 +50,7 @@ impl BackendClass {
             BackendClass::Omni => "omni",
             BackendClass::VisionUnderstanding => "vision-understanding",
             BackendClass::Llm => "llm",
+            BackendClass::Ocr => "ocr",
         }
     }
 
@@ -58,6 +64,7 @@ impl BackendClass {
             "omni" => Some(BackendClass::Omni),
             "vision-understanding" => Some(BackendClass::VisionUnderstanding),
             "llm" => Some(BackendClass::Llm),
+            "ocr" => Some(BackendClass::Ocr),
             _ => None,
         }
     }
@@ -191,6 +198,21 @@ pub const BACKEND_REGISTRY: &[BackendEntry] = &[
         license: LicenseClass::Osi,
         license_note: "Whisper large-v3-turbo (OpenAI) — MIT (osi)",
     },
+    // №407 (wave 4.5): the OCR class joins the registry — the canon
+    // printed-text wedge (single-artifact manifest, the whisper-pin
+    // pattern №334: the registry pin IS the primary artifact's hash).
+    BackendEntry {
+        name: "trocr-printed",
+        class: BackendClass::Ocr,
+        weights_id: "trocr-base-printed",
+        // №407: real pin — HF LFS oid (sha256) of the primary artifact
+        // of microsoft/trocr-base-printed, fetched via the HF tree API
+        // 2026-09-20 (the full per-file manifest is WEIGHTS_SOURCES
+        // below — the loader verifies every manifest file).
+        pin: ShaPin::Pinned("1cf4a6eedab26afaaf505f1c7f73d9634944924dbd1ed049d569db98039cd596"),
+        license: LicenseClass::Osi,
+        license_note: "TrOCR base-printed (Microsoft) — MIT (osi)",
+    },
 ];
 
 /// Find a registry entry by weights identifier (exact, case-sensitive —
@@ -242,10 +264,23 @@ pub struct WeightsSource {
 }
 
 /// The manifest SSOT, keyed by weights_id (the registry's artifact id).
-/// Only the №334-scoped backends (STT, omni, vision-understanding) carry
-/// sources; TTS/z-image/wall-oss stay PendingNo334 — hashes for gated or
-/// unfilled-manifest artifacts are not invented, they are fetched.
+/// Only the №334-scoped backends (STT, omni, vision-understanding) and
+/// the №407 OCR canon carry sources; TTS/z-image/wall-oss stay
+/// PendingNo334 — hashes for gated or unfilled-manifest artifacts are
+/// not invented, they are fetched.
 pub const WEIGHTS_SOURCES: &[(&str, WeightsSource)] = &[
+    (
+        "trocr-base-printed",
+        WeightsSource {
+            repo: "microsoft/trocr-base-printed",
+            revision: "main",
+            files: &[WeightsFile {
+                path: "model.safetensors",
+                sha256: "1cf4a6eedab26afaaf505f1c7f73d9634944924dbd1ed049d569db98039cd596",
+                bytes: 1_333_384_464,
+            }],
+        },
+    ),
     (
         "whisper-large-v3-turbo",
         WeightsSource {

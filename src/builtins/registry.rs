@@ -37,6 +37,7 @@ use super::media::{builtin_media_manifest_read, builtin_media_manifest_stub};
 use super::backends::{builtin_backend_list, builtin_backend_select};
 // Наряд №334: real STT/omni/vision-understanding backends — the mock-first
 // call surface over the №333 registry (SHA-pin path, ADR-0163 §2.1).
+use crate::vision::ocr::builtin_ocr_extract;
 use crate::vision::understand::builtin_vision_understand;
 use crate::voice::backend::{builtin_omni_ask, builtin_stt_transcribe};
 // Наряд №335 (spec §7.2 v2): consent surface — grant/revoke/quarantine/ledger.
@@ -890,6 +891,13 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // indices (.mbc contract). Registry 457→459 (append-only).
     spec!("likeness_challenge", 1, 3, "security"; builtin_likeness_challenge),
     spec!("likeness_verify", 1, 3, "security"; builtin_likeness_verify),
+    // ── Naryad #407 (wave 4.5): the OCR class — text extraction from an
+    // image. Donor contract = №334's vision_understand (mock-first,
+    // deterministic golden path; real mode refuses loudly naming the
+    // weights artifact — PARKED №294). Handler: vision::ocr. APPENDED
+    // at the end — inserting mid-array would shift existing CallBuiltin
+    // indices (.mbc contract). Registry 458→459 (append-only).
+    spec!("ocr_extract", 1, 3, "vision"; builtin_ocr_extract),
 ];
 
 /// Total number of registered builtins.

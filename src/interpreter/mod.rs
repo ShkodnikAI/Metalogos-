@@ -601,6 +601,31 @@ impl Interpreter {
         for (k, v) in &self.variables {
             target.variables.entry(k.clone()).or_insert(v.clone());
         }
+        // Наряд №332/№387 (bug gh#544, found by the №402 pin test):
+        // origin declarations propagate to per-request interpreters —
+        // the route-body media contour (`from <origin> media_store_*`,
+        // `media_source_capture`) dispatches through
+        // `media_bind_origin_dispatch(&store, &self.origin_decls, …)`,
+        // and a per-request interpreter without the decls failed loud
+        // with "media_bind_origin: unknown origin" while the SAME
+        // program worked on the VM backend (`Vm::load_program`
+        // registers `program.origin_decls` per request) and at the TW
+        // top level (the declaration pass populates `origin_decls`
+        // directly). UNION, not overwrite, first-wins on the name —
+        // the same merge discipline as every other definition class
+        // above: the startup chain (run_server / run_test_server_*)
+        // merges one declaration at a time through throwaway
+        // interpreters, so re-meeting the same origin is a no-op
+        // (the №399 idempotency lesson). Per-request store isolation
+        // is NOT affected: `media_store` is a per-interpreter
+        // `Mutex<MediaStore>` and a fresh per-request interpreter
+        // still starts with its own empty store.
+        for (k, v) in &self.origin_decls {
+            target
+                .origin_decls
+                .entry(k.clone())
+                .or_insert_with(|| v.clone());
+        }
         if let Some(ref db) = self.db_config {
             target.db_config = Some(db.clone());
         }

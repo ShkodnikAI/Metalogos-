@@ -279,8 +279,24 @@ pub fn append_record(
         "action ledger unavailable (in-memory sqlite failed to initialize)".to_string()
     })?;
     let pubkey = hex::encode(guard.signing.verifying_key().as_bytes());
+    // №397 (kitchen-camera e2e): the genesis record is seq 0 — the design
+    // contract the external verifier enforces ("chain must start at seq
+    // 0 or at a snapshot anchor"). The empty ledger carries the GENESIS
+    // prev-hash as its head, so the first record takes the CURRENT
+    // head_seq (0) and every next one increments. Before it, the runtime
+    // started at seq 1 with a genesis prev_hash — the external verifier
+    // refused EVERY fresh runtime export (an e2e-only defect: the library
+    // tests build synthetic chains via build_chain and never reach the
+    // runtime append path). A non-empty ledger can never hash to the
+    // all-zeros genesis value (SHA-256), so the empty-ledger test below
+    // is exact, not heuristic.
+    let seq = if guard.head_hash == GENESIS_PREV_HASH {
+        guard.head_seq
+    } else {
+        guard.head_seq + 1
+    };
     let record = LedgerRecord {
-        seq: guard.head_seq + 1,
+        seq,
         ts: now_secs(),
         kind: kind.to_string(),
         actor: actor.to_string(),
@@ -356,12 +372,15 @@ pub fn count() -> Result<u64, String> {
 }
 
 /// Current head hash ("" for an empty chain) — designed to be published
-/// out-of-band (the external anchor, ADR-0167 §7).
+/// out-of-band (the external anchor, ADR-0167 §7). The empty-ledger test
+/// is the GENESIS prev-hash (a record hash can never equal it), so a
+/// one-record chain reports its real head (№397 fix: the old head_seq==0
+/// sentinel conflated "empty" with "the genesis record itself").
 pub fn head_hash() -> Result<String, String> {
     let guard = ledger_state()
         .lock()
         .map_err(|e| format!("action ledger lock: {}", e))?;
-    Ok(if guard.head_seq == 0 {
+    Ok(if guard.head_hash == GENESIS_PREV_HASH {
         String::new()
     } else {
         guard.head_hash.clone()

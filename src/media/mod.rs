@@ -379,6 +379,41 @@ impl MediaStore {
         })
     }
 
+    /// №397 (kitchen-camera e2e): mutable entry access for the consent
+    /// credential writes — the store stays the single owner of the
+    /// entry label (no caller copies or caches it).
+    fn entry_mut(&mut self, handle: MediaHandle) -> Result<&mut MediaEntry, String> {
+        self.entries.get_mut(&handle.id()).ok_or_else(|| {
+            format!(
+                "media_store: unknown handle {} (evicted or never stored)",
+                handle
+            )
+        })
+    }
+
+    /// №397: the runtime consent credential — `consent_grant` extends
+    /// the entry's consent scope set (capabilities accumulate — the
+    /// ConsentScope meet, the same operation the static №335 rule
+    /// applies to the inferred label). The conf/integrity axes are
+    /// untouched: consent is its own axis. Loud on unknown handles.
+    pub fn extend_entry_consent(&mut self, handle: MediaHandle, scope: &str) -> Result<(), String> {
+        let current = self.entry_mut(handle)?.label.consent.clone();
+        self.entry_mut(handle)?.label.consent = current
+            .meet(crate::labels::ConsentScope::from_scopes([scope]));
+        Ok(())
+    }
+
+    /// №397: `consent_revoke` withdraws the runtime credential — every
+    /// scope clears (the flat-cascade twin). The static side poisons
+    /// ABSORBING (ADR-0154 §2.1); the runtime twin re-seals the entry:
+    /// the payload stays sealed at rest and media_save refuses a
+    /// credential-less entry again. Loud on unknown handles.
+    pub fn clear_entry_consent(&mut self, handle: MediaHandle) -> Result<(), String> {
+        let entry = self.entry_mut(handle)?;
+        entry.label.consent = crate::labels::ConsentScope::new();
+        Ok(())
+    }
+
     /// Materialize the bytes behind a handle (the ONLY byte path; every
     /// language-level caller is a sanctioned sink gated by №325 + the
     /// runtime backstop). Sealed payloads are unsealed on the fly;

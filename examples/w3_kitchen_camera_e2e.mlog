@@ -1,0 +1,59 @@
+// Wave-3 acceptance №1 (dispatch gh#491): the kitchen camera END TO END —
+// origin → consent → egress of private media, grant-metered cleanup, an
+// explainable runtime deny and the signed ledger trail, composed into ONE
+// runnable program. w1_kitchen_camera tells the deny-at-compile-time half
+// (the unconsented leak refuses statically); this example adds the
+// capability layer on top of the green story:
+//
+//   1. A private kitchen-camera frame enters the flow (origin cam,
+//      label: private) — at rest the bytes are sealed.
+//   2. GREEN (consent): consent_grant extends the scope; media_save
+//      materializes the frame + the C2PA-style sidecar manifest. The
+//      runtime honors the SAME credential the static audit accepts
+//      (№397: the layers agree — before it, a consent-clean compile was
+//      sealed at runtime with MEDIA_SEALED_EGRESS and the e2e could not
+//      run).
+//   3. GRANT: an N(1) quota grant meters ONE destructive DELETE; the
+//      granted call runs and journals itself (irreversible.db_execute —
+//      a ledger side effect of the success path, ADR-0167 §3.4).
+//   4. DENY: the second granted call exhausts the quota — a runtime
+//      DenyEvent with reason IRREVERSIBLE_NO_GRANT; on_deny(db) logs it
+//      and the call degrades to Unit. The refusal is FINAL: the refused
+//      DELETE never executes, the handler can never re-allow it. The
+//      denial lands in the signed chain (deny.IRREVERSIBLE_NO_GRANT) as
+//      a side effect of the refusal path itself.
+//   5. EXPORT: the verifiable JSONL chain leaves through the classified
+//      file sink; `mlog ledger verify target/w3_kitchen_camera_e2e_export.jsonl`
+//      validates it OUTSIDE the runtime (pure hash + Ed25519).
+on_deny(db) {
+  match deny_reason() {
+    "IRREVERSIBLE_NO_GRANT" then { print("deny:IRREVERSIBLE_NO_GRANT") }
+    else { print("deny:other") }
+  }
+}
+
+db { url: "sqlite::memory:" }
+
+origin cam { kind: camera, media: image, label: private }
+
+pattern KitchenCamE2E(_tick: String) -> String {
+  db_execute("CREATE TABLE IF NOT EXISTS frames (id INTEGER PRIMARY KEY, path TEXT)")
+  db_execute("INSERT INTO frames (path) VALUES ('frames/old-001.jpg')")
+  // GREEN (consent): the scope extends, the private frame materializes
+  // (sealed at rest, unsealed only inside the sanctioned sink).
+  let frame = from cam media_store_image("frame-bytes", "private")
+  let ok = consent_grant(frame, "household", "owner-1")
+  let saved = media_save(ok, "target/w3_kitchen_e2e_frame-001.jpg")
+  // GRANT + DENY: the N(1) quota meters one destructive DELETE...
+  let g = grant_issue("db:delete:frames", 60, "n", 1)
+  let n1 = db_execute_with_grant(g, "DELETE FROM frames WHERE path = 'frames/old-001.jpg'")
+  // ...the second call exhausts the quota (GRANT_EXHAUSTED → the
+  // DenyEvent reason IRREVERSIBLE_NO_GRANT) — on_deny(db) handles it,
+  // the call degrades to Unit and execution CONTINUES.
+  let n2 = db_execute_with_grant(g, "DELETE FROM frames")
+  // EXPORT: the signed chain (a classified Sink). The chain verifies
+  // externally without the Metalogos runtime.
+  let path = ledger_export("target/w3_kitchen_camera_e2e_export.jsonl")
+  return "saved:" + saved + "|deleted:" + n1 + "|refused:" + type_of(n2) + "|exported:" + type_of(path)
+}
+flow Main { input: String = "tick" -> KitchenCamE2E -> output }

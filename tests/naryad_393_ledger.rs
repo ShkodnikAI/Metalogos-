@@ -680,3 +680,67 @@ fn runtime_record_and_count_and_head_move_together() {
     let records = all_records().expect("readable");
     assert_eq!(records.last().expect("non-empty").hash, head);
 }
+
+// ── Наряд №400 (bug gh#521, wave 4 / dispatch №406) ────────────────────
+// The runtime writer's OWN journal — the records the process appended
+// through `append_record` (the same writer `grant_issue`, the deny path
+// and the irreversible gates use) — must verify through the external
+// verifier with NO anchor: genesis sits at seq 0 (ADR-0167 §3), so the
+// export → verify round-trip of a live process needs no `ledger archive`
+// bypass. Pre-fix the first runtime record took seq 1 and this round-trip
+// was red; the fix (`head_seq: Option<u64>`, PR #531) lands the genesis
+// position — this test pins the contract in the naryad's letter.
+#[test]
+fn n400_runtime_journal_roundtrip_verifies_from_genesis_without_anchor() {
+    // Runtime writer × N (interleaved with whatever earlier tests in this
+    // binary wrote — every record in the process journal is post-fix, so
+    // the first one ever appended here took seq 0).
+    for i in 0..3 {
+        append_record(
+            "action",
+            "n400-genesis",
+            &format!("test.probe.{}", i),
+            "s",
+            &args_hash_of("probe"),
+            None,
+        )
+        .expect("runtime append");
+    }
+    let records = all_records().expect("journal readable");
+    assert_eq!(
+        records.first().expect("non-empty").seq,
+        0,
+        "the first runtime record of the process sits at genesis seq 0"
+    );
+    assert_eq!(
+        records.first().expect("non-empty").prev_hash,
+        GENESIS_PREV_HASH,
+        "the genesis record links to the canonical genesis prev-hash"
+    );
+    // export shape: records_to_jsonl → reparse → verify with NO anchor.
+    let jsonl = records_to_jsonl(&records);
+    let reparsed = records_from_jsonl(&jsonl).expect("jsonl reparse");
+    verify_records(&reparsed, None, None)
+        .expect("the runtime journal verifies from genesis WITHOUT an anchor");
+    // ledger_count() stays a plain row count over the same journal (the
+    // same-root item of gh#521): COUNT(*) and all_records() read the same
+    // table under the same mutex, so at any single instant the count equals
+    // the journal length — and the +1-per-append contract is pinned by
+    // runtime_record_and_count_and_head_move_together. In a PARALLEL test
+    // process these are two separate lock acquisitions (sibling tests may
+    // append in between — the exact equality raced red on CI once), so the
+    // race-free observable is: the count never LAGS the snapshot taken
+    // earlier, and my own three records are all present.
+    let n = count().expect("count");
+    assert!(
+        n as usize >= records.len(),
+        "ledger_count() must never lag the journal (count={}, snapshot={})",
+        n,
+        records.len()
+    );
+    let mine = records.iter().filter(|r| r.actor == "n400-genesis").count();
+    assert_eq!(
+        mine, 3,
+        "the three probe records of this test must all be in the journal"
+    );
+}

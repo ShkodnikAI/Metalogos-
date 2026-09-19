@@ -3111,6 +3111,18 @@ impl Vm {
                 &self.media_store,
                 args,
             )),
+            // №397 (kitchen-camera e2e): consent as a RUNTIME credential —
+            // the same shared dispatches the interpreter uses (the scope
+            // lands on the VM's own store entry; the runtime twin of the
+            // static consented-egress rule).
+            "consent_grant" => Some(crate::builtins::consent::consent_grant_dispatch(
+                &mut self.media_store,
+                args,
+            )),
+            "consent_revoke" => Some(crate::builtins::consent::consent_revoke_dispatch(
+                &mut self.media_store,
+                args,
+            )),
             "media_retain" => Some(crate::builtins::media_retain_dispatch(
                 &mut self.media_store,
                 args,

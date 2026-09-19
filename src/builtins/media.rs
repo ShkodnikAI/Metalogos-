@@ -101,6 +101,18 @@ pub fn media_save_dispatch(store: &MediaStore, args: &[Value]) -> Result<Value, 
     let path = expect_string(fn_name, args, 1)?;
     let entry = store.entry(handle)?;
     if entry.label.conf != crate::labels::Conf::Public {
+        // №397 (kitchen-camera e2e): quarantine never materializes (the
+        // static twin: poisoned clears every sink, ADR-0154 §2.1) — no
+        // credential lifts it, the likeness path included.
+        if entry.label.conf == crate::labels::Conf::Poisoned {
+            return Err(crate::interpreter::values::coded_error(
+                crate::interpreter::values::CODE_MEDIA_SEALED_EGRESS,
+                format!(
+                    "{} is quarantined (consent revoked) — poisoned media materializes through no sink (ADR-0154 §2.1)",
+                    handle
+                ),
+            ));
+        }
         // №387: the likeness credential — the third argument must be a
         // registry-issued LikenessToken. A String (or any other value)
         // in the credential position is a LOUD type refusal: a token
@@ -118,7 +130,15 @@ pub fn media_save_dispatch(store: &MediaStore, args: &[Value]) -> Result<Value, 
             }
             None => false,
         };
-        if !cred_ok {
+        // №397: the consent credential — consent_grant recorded the
+        // scope ON THE ENTRY (consent_grant_dispatch), so a consented
+        // entry materializes. This is the runtime twin of the static
+        // consented-egress rule (the №387 audit accepts a non-empty
+        // consent scope): before it, a consent-clean compile was sealed
+        // at runtime — the layers disagreed and the kitchen-camera e2e
+        // could not run end to end.
+        let consented = !entry.label.consent.is_empty();
+        if !cred_ok && !consented {
             // №385: stamped via the shared `coded_error` — the marker was
             // `MEDIA_SEALED_EGRESS: …` before naryad №385 and is now the
             // uniform `[CODE] ` origin-stamp format the try classifier reads.
@@ -127,9 +147,10 @@ pub fn media_save_dispatch(store: &MediaStore, args: &[Value]) -> Result<Value, 
                 format!(
                     "{} carries declared sensitivity '{}' — private/consented \
                      media is sealed at rest and cannot be materialized without a \
-                     likeness credential (№325 sink clearance + №387: bind \
-                     `likeness_verify(likeness_challenge(<subject>), …)` and pass the \
-                     token as the third argument; ADR-0162 §2.5 / ADR-0149 D1)",
+                     likeness credential or an in-force consent grant (№325 sink \
+                     clearance + №387: bind `likeness_verify(likeness_challenge(<subject>), …)` \
+                     and pass the token, or extend the scope with `consent_grant`; \
+                     ADR-0162 §2.5 / ADR-0149 D1 / №397 runtime consent)",
                     handle,
                     entry.label.conf.as_str()
                 ),

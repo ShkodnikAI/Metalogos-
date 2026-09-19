@@ -29,6 +29,7 @@ fn minimal_program() -> Program {
             Instruction::Halt,
         ],
         collections_loaded: false,
+        shared_cache: metalogos::bytecode::ProgramSharedCache::new(),
     }
 }
 

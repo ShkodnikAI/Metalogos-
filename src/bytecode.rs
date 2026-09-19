@@ -518,6 +518,42 @@ pub struct Program {
     pub main_code: Vec<Instruction>,
     /// Whether std/collections has been imported (enables map/filter/reduce).
     pub collections_loaded: bool,
+    /// Naryad #402 (step A): lazily-built IMMUTABLE shared snapshots of the
+    /// collections the per-request VM installs on every `load_program`
+    /// (rules pre-sorted, the RegisterPattern scan of main_code, deny
+    /// handlers, skill indices, global names). Built ONCE per program on
+    /// the first load, then every per-request `load_program` pays one Arc
+    /// increment instead of a deep clone — the honest content of the
+    /// "Arc<Program> step A" (the ServerState itself has shared the
+    /// program as `Arc<Program>` since naryad #40; the aggregate deep copy
+    /// actually lived here, inside load_program). NOT serialized — the
+    /// snapshots are pure derivations of the wire fields and are rebuilt
+    /// on deserialization.
+    #[serde(skip, default = "ProgramSharedCache::new")]
+    pub shared_cache: ProgramSharedCache,
+}
+
+/// Naryad #402 (step A): the lazily-built shared snapshots behind
+/// `Program::shared_cache`. `OnceLock` per snapshot: the FIRST
+/// `load_program` pays the build (the same deep copy the old code paid
+/// on EVERY request); every later request clones an `Arc` (one atomic
+/// increment). Mutation paths (the run()-only `RegisterPattern` push)
+/// go through `Arc::make_mut` — copy-on-write, so the mutable run path
+/// keeps today's semantics at today's cost, and the serve path (which
+/// never executes main_code) never pays it.
+#[derive(Debug, Default, Clone)]
+pub struct ProgramSharedCache {
+    rules_sorted: std::sync::OnceLock<std::sync::Arc<Vec<CompiledRule>>>,
+    pre_registered_patterns: std::sync::OnceLock<std::sync::Arc<Vec<CompiledFn>>>,
+    deny_handlers: std::sync::OnceLock<std::sync::Arc<Vec<CompiledDenyHandler>>>,
+    skill_indices: std::sync::OnceLock<std::sync::Arc<Vec<CompiledSkillIndex>>>,
+    global_names: std::sync::OnceLock<std::sync::Arc<Vec<String>>>,
+}
+
+impl ProgramSharedCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
 }
 
 /// Maximum accepted size for .mbc byte input. Real programs compile to
@@ -530,6 +566,74 @@ impl Program {
     pub fn serialize(&self) -> Result<Vec<u8>, String> {
         bincode::serde::encode_to_vec(self, bincode::config::legacy())
             .map_err(|e| format!("serialize: {}", e))
+    }
+
+    // ── Naryad #402 (step A): the shared-snapshot accessors ────────────
+    // Each builds ONCE (the exact same content the per-request path used
+    // to deep-copy on every load), then hands out Arc clones.
+
+    /// The rules table, pre-sorted by priority descending — the order
+    /// `Vm::load_program` used to establish per request. Read-only at
+    /// runtime: no Vm path mutates the rule table after load.
+    pub fn rules_sorted(&self) -> std::sync::Arc<Vec<CompiledRule>> {
+        self.shared_cache
+            .rules_sorted
+            .get_or_init(|| {
+                let mut rules = self.rules.clone();
+                rules.sort_by_key(|b| std::cmp::Reverse(b.priority));
+                std::sync::Arc::new(rules)
+            })
+            .clone()
+    }
+
+    /// The patterns pre-registered from main_code's `RegisterPattern`
+    /// instructions — the scan `Vm::load_program` used to run per request
+    /// (№250 ADR-0122 #208: the serve path never executes main_code, so
+    /// the scan+clone ran on every request). Compiler index order is
+    /// preserved 1:1 (pass1 assigns idx by declaration order, pass2 emits
+    /// RegisterPattern in the same order).
+    pub fn pre_registered_patterns(&self) -> std::sync::Arc<Vec<CompiledFn>> {
+        self.shared_cache
+            .pre_registered_patterns
+            .get_or_init(|| {
+                std::sync::Arc::new(
+                    self.main_code
+                        .iter()
+                        .filter_map(|instr| match instr {
+                            Instruction::RegisterPattern(fn_def) => Some(fn_def.clone()),
+                            _ => None,
+                        })
+                        .collect(),
+                )
+            })
+            .clone()
+    }
+
+    /// The deny handler table (№392) — read-only after load
+    /// (`select_handler` + handler lookup).
+    pub fn deny_handlers_shared(&self) -> std::sync::Arc<Vec<CompiledDenyHandler>> {
+        self.shared_cache
+            .deny_handlers
+            .get_or_init(|| std::sync::Arc::new(self.deny_handlers.clone()))
+            .clone()
+    }
+
+    /// The skill index declarations — read-only after load
+    /// (`resolve_skill_index`).
+    pub fn skill_indices_shared(&self) -> std::sync::Arc<Vec<CompiledSkillIndex>> {
+        self.shared_cache
+            .skill_indices
+            .get_or_init(|| std::sync::Arc::new(self.skill_indices.clone()))
+            .clone()
+    }
+
+    /// The global variable NAMES (index = slot) — read-only after load
+    /// (slot resolution for `LoadGlobalByName`).
+    pub fn global_names_shared(&self) -> std::sync::Arc<Vec<String>> {
+        self.shared_cache
+            .global_names
+            .get_or_init(|| std::sync::Arc::new(self.globals.clone()))
+            .clone()
     }
 
     /// Deserialize a program from binary .mbc data.

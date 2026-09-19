@@ -29,6 +29,7 @@ fn program_with(main_code: Vec<Instruction>) -> Program {
         schema_ddl: vec![],
         main_code,
         collections_loaded: false,
+        shared_cache: metalogos::bytecode::ProgramSharedCache::new(),
     }
 }
 

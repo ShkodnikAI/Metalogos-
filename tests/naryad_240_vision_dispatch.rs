@@ -192,6 +192,7 @@ fn generate_runtime_model_recheck_loud_error() {
         schema_ddl: vec![],
         main_code: vec![],
         collections_loaded: false,
+        shared_cache: metalogos::bytecode::ProgramSharedCache::new(),
     };
     // Empty main_code — the VM registers declarations at load_program time.
     // The re-check fires on dispatch; to trigger dispatch we call the

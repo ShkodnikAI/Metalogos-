@@ -40,10 +40,14 @@ pub struct Vm {
     value_registers: Vec<Value>,
     /// Global variable slots.
     globals: Vec<Value>,
-    /// Global variable names (index = slot).
-    global_names: Vec<String>,
-    /// Pattern table: index → CompiledFn (modified at runtime by RegisterPattern).
-    patterns: Vec<CompiledFn>,
+    /// Global variable names (index = slot). Naryad #402 step A: SHARED
+    /// with the Program (Arc snapshot) — read-only after load.
+    global_names: std::sync::Arc<Vec<String>>,
+    /// Pattern table: index → CompiledFn. Naryad #402 step A: SHARED with
+    /// the Program (Arc snapshot of the main_code RegisterPattern scan);
+    /// the run()-only RegisterPattern mutation goes through
+    /// `Arc::make_mut` (copy-on-write — the serve path never pays it).
+    patterns: std::sync::Arc<Vec<CompiledFn>>,
     /// Learnable pattern table: index → (info, few_shot, original_few_shot).
     learnables: Vec<(CompiledLearnableInfo, Vec<(String, String)>)>,
     /// Built-in function registry.
@@ -54,10 +58,12 @@ pub struct Vm {
     memory: Vec<VmMemoryEntry>,
     /// Knowledge graph relations.
     relations: Vec<VmRelation>,
-    /// Rule table (from program.rules).
-    rules: Vec<CompiledRule>,
-    /// Skill index declarations (for resolve_skill_index).
-    skill_indices: Vec<CompiledSkillIndex>,
+    /// Rule table (from program.rules, PRE-SORTED by priority — naryad
+    /// #402 step A: SHARED with the Program, read-only after load).
+    rules: std::sync::Arc<Vec<CompiledRule>>,
+    /// Skill index declarations (for resolve_skill_index). Naryad #402
+    /// step A: SHARED with the Program, read-only after load.
+    skill_indices: std::sync::Arc<Vec<CompiledSkillIndex>>,
     /// Database connection (opened from program.db_url if present).
     db_conn: Option<rusqlite::Connection>,
     /// Mutate log messages.
@@ -112,7 +118,7 @@ pub struct Vm {
     /// program reference the executing code sees (flow steps execute
     /// pattern bodies against a synthetic empty Program, so the handler
     /// table must live on the VM like the pattern table does).
-    deny_handlers: Vec<CompiledDenyHandler>,
+    deny_handlers: std::sync::Arc<Vec<CompiledDenyHandler>>,
     /// Наряд №240 (Vision R4.2): vision artifact registry — stores generated
     /// PNG buffers. `Value::Vision(VisionId)` indexes into this. No Mutex —
     /// same single-threaded-per-request rationale as `reflex_registry` above.
@@ -158,15 +164,15 @@ impl Vm {
             label_env: std::collections::BTreeMap::new(),
             value_registers: Vec::new(),
             globals: Vec::new(),
-            global_names: Vec::new(),
-            patterns: Vec::new(),
+            global_names: std::sync::Arc::new(Vec::new()),
+            patterns: std::sync::Arc::new(Vec::new()),
             learnables: Vec::new(),
             builtins: Builtins::new(),
             builtin_names,
             memory: Vec::new(),
             relations: Vec::new(),
-            rules: Vec::new(),
-            skill_indices: Vec::new(),
+            rules: std::sync::Arc::new(Vec::new()),
+            skill_indices: std::sync::Arc::new(Vec::new()),
             db_conn: None,
             mutate_log: Vec::new(),
             audit_log: Mutex::new(Vec::new()),
@@ -184,7 +190,7 @@ impl Vm {
             reflex_registry: crate::nn::ReflexRegistry::new(),
             reflex_names: HashMap::new(),
             current_deny_event: None,
-            deny_handlers: Vec::new(),
+            deny_handlers: std::sync::Arc::new(Vec::new()),
             vision_registry: crate::vision::VisionRegistry::new(),
             media_store: crate::media::MediaStore::new(),
             vision_decls: HashMap::new(),
@@ -215,14 +221,23 @@ impl Vm {
     /// and database connection. Used by server backend to set up VM state
     /// per request without re-executing flows (Наряд №40).
     pub fn load_program(&mut self, program: &Program) -> Result<(), String> {
-        // Initialize globals
+        // Initialize globals (the Value slots stay PER-REQUEST: globals are
+        // mutable execution state — never shared).
         self.globals = vec![Value::Unit; program.globals.len()];
-        self.global_names = program.globals.clone();
+        // Naryad #402 (step A): the immutable collections below are SHARED
+        // with the Program through lazily-built Arc snapshots
+        // (Program::shared_cache) — the first load builds, every later
+        // load pays one Arc increment instead of a deep clone. Read-only
+        // after load on every Vm path (the run()-only RegisterPattern
+        // mutation is copy-on-write); per-request server context
+        // (body/query/path/roles) is injected AFTER load_program and stays
+        // per-request — the isolation boundary is unchanged.
+        self.global_names = program.global_names_shared();
         self.collections_loaded = program.collections_loaded;
         // №392: lift the deny handler table onto the VM (flow steps run
         // pattern bodies against a synthetic empty Program — see
         // invoke_step — so the deny path reads the VM's own table).
-        self.deny_handlers = program.deny_handlers.clone();
+        self.deny_handlers = program.deny_handlers_shared();
 
         // Наряд №250 (ADR-0122 #208): pre-register ALL patterns declared in
         // main_code so route bodies can dispatch user calls. Root (repro:
@@ -240,21 +255,17 @@ impl Vm {
         // honors the documented load_program contract ("Initializes globals,
         // patterns, learnables, rules, skill_indices") and works identically
         // for deserialized .mbc programs (their main_code carries the same
-        // instructions). The clear() keeps repeated load_program calls
-        // idempotent; the run() path re-registers via the RegisterPattern
-        // handler, which is index-stable (replace-in-place) — no duplicates.
-        self.patterns.clear();
-        for instr in &program.main_code {
-            if let Instruction::RegisterPattern(fn_def) = instr {
-                self.patterns.push(fn_def.clone());
-            }
-        }
+        // instructions). Idempotence across repeated load_program calls:
+        // the shared snapshot REPLACES the table (assignment, not append) —
+        // same effect as the old clear()+scan; the run() path re-registers
+        // via the RegisterPattern handler (copy-on-write), which is
+        // index-stable (replace-in-place) — no duplicates.
+        self.patterns = program.pre_registered_patterns();
 
-        // Sort rules by priority descending (matches interpreter semantics)
-        let mut rules = program.rules.clone();
-        rules.sort_by_key(|b| std::cmp::Reverse(b.priority));
-        self.rules = rules;
-        self.skill_indices = program.skill_indices.clone();
+        // Rules arrive PRE-SORTED by priority descending (matches
+        // interpreter semantics; the sort is part of the shared snapshot).
+        self.rules = program.rules_sorted();
+        self.skill_indices = program.skill_indices_shared();
 
         // Наряд №199 (ADR-0121): register reflex models from compiled
         // declarations. Mirrors the interpreter's `Declaration::Reflex(r)`
@@ -534,9 +545,14 @@ impl Vm {
                     // fresh single registration (same instruction sequence
                     // over the pre-registered table; rposition makes the
                     // k-th occurrence replace the k-th slot).
-                    match self.patterns.iter().rposition(|p| p.name == fn_def.name) {
-                        Some(i) => self.patterns[i] = fn_def.clone(),
-                        None => self.patterns.push(fn_def.clone()),
+                    // Naryad #402 step A: the table is a SHARED Arc snapshot —
+                    // Arc::make_mut copies it once (COW) on the first
+                    // run()-path mutation; the serve path (which never
+                    // executes main_code) never pays the copy.
+                    let patterns = std::sync::Arc::make_mut(&mut self.patterns);
+                    match patterns.iter().rposition(|p| p.name == fn_def.name) {
+                        Some(i) => patterns[i] = fn_def.clone(),
+                        None => patterns.push(fn_def.clone()),
                     }
                     ip += 1;
                 }
@@ -3716,6 +3732,7 @@ impl Vm {
                     schema_ddl: Vec::new(),
                     main_code: Vec::new(),
                     collections_loaded: false,
+                    shared_cache: crate::bytecode::ProgramSharedCache::new(),
                 };
                 for arg in collapsed_args {
                     stack.push(arg);

@@ -2399,6 +2399,29 @@ async fn execute_route_body_vm(
         Vec::new()
     };
 
+    // ── Naryad #402 (step A) — per-request cost anchor ─────────────────
+    // What the per-request VM path pays AFTER step A (for №403/№404: read
+    // this, no archaeology needed):
+    //   * `p.clone()` — an Arc INCREMENT (the program has been shared as
+    //     `Arc<Program>` since №40; the №388 evidence mislabeled this as
+    //     a deep clone — there never was a deep `Program::clone` on this
+    //     path);
+    //   * `Vm::new()` — one allocation-heavy struct (builtins registry),
+    //     unchanged by step A (its cost is №403's warm-pool territory);
+    //   * `vm.load_program(&program)` — per-request: the globals Value
+    //     slots (mutable execution state, never shared), reflex/vision
+    //     model registration (real construction when the program declares
+    //     them), learnables copy, the db connection open. The immutable
+    //     collections (rules pre-sorted, pre-registered patterns, deny
+    //     handlers, skill indices, global names) are now SHARED Arc
+    //     snapshots (`Program::shared_cache`) — one atomic increment, no
+    //     deep copy, no per-request sort/scan;
+    //   * `vm.clear_server_context()` + the injections below — per-request
+    //     by design (body/query/path/roles; the isolation boundary —
+    //     pinned by tests/naryad_402_step_a.rs).
+    // Step B (warm VM pool / definition-cache, reset fail-closed) is
+    // №403; the serve-default flip decision is №404.
+
     // Clone data needed inside spawn_blocking (closure must be 'static + Send)
     let program = match state.vm_program.as_ref() {
         Some(p) => p.clone(),

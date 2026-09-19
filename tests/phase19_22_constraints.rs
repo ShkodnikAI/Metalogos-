@@ -218,6 +218,7 @@ fn test_z21_startswith_instruction_vm() {
             Instruction::Halt,
         ],
         collections_loaded: false,
+        shared_cache: metalogos::bytecode::ProgramSharedCache::new(),
     };
     let result = vm.run(program).expect("run should succeed");
     assert!(result.is_none()); // Halt consumes the value, but instruction executes OK
@@ -254,6 +255,7 @@ fn test_z21_startswith_in_pattern_body() {
                 schema_ddl: vec![],
                 main_code: vec![],
                 collections_loaded: false,
+                shared_cache: metalogos::bytecode::ProgramSharedCache::new(),
             },
         )
         .expect("execute_code should succeed");
@@ -290,6 +292,7 @@ fn test_z21_startswith_negative() {
             Instruction::Halt,
         ],
         collections_loaded: false,
+        shared_cache: metalogos::bytecode::ProgramSharedCache::new(),
     };
     let result = vm.run(program).expect("run should succeed");
     assert!(result.is_none());
@@ -367,6 +370,7 @@ fn test_z22_make_list_in_pattern_body() {
                 deny_handlers: vec![],
                 main_code: vec![],
                 collections_loaded: false,
+                shared_cache: metalogos::bytecode::ProgramSharedCache::new(),
             },
         )
         .expect("execute_code should succeed");
@@ -407,6 +411,7 @@ fn test_z22_pop_in_pattern_body() {
                 deny_handlers: vec![],
                 main_code: vec![],
                 collections_loaded: false,
+                shared_cache: metalogos::bytecode::ProgramSharedCache::new(),
             },
         )
         .expect("execute_code should succeed");
@@ -447,6 +452,7 @@ fn test_z22_contains_in_pattern_body() {
                 deny_handlers: vec![],
                 main_code: vec![],
                 collections_loaded: false,
+                shared_cache: metalogos::bytecode::ProgramSharedCache::new(),
             },
         )
         .expect("execute_code should succeed");
@@ -492,6 +498,7 @@ fn test_z22_index_access_in_pattern_body() {
                 deny_handlers: vec![],
                 main_code: vec![],
                 collections_loaded: false,
+                shared_cache: metalogos::bytecode::ProgramSharedCache::new(),
             },
         )
         .expect("execute_code should succeed");
@@ -536,6 +543,7 @@ fn test_z22_struct_in_pattern_body() {
                 deny_handlers: vec![],
                 main_code: vec![],
                 collections_loaded: false,
+                shared_cache: metalogos::bytecode::ProgramSharedCache::new(),
             },
         )
         .expect("execute_code should succeed");

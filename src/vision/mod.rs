@@ -180,6 +180,10 @@ pub mod weights;
 // the loud real-mode refusal are available in all builds).
 pub mod understand;
 
+// №407 (wave 4.5): OCR backend wiring (trocr-base-printed) — the same
+// mock-first contract, the OCR class of the №333 registry.
+pub mod ocr;
+
 #[cfg(test)]
 mod tests {
     use super::*;

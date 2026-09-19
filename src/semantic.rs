@@ -1754,7 +1754,7 @@ fn verify_backend_ladder(
                 out,
                 LadderViolationKind::Invalid,
                 format!(
-                    "backend_select: unknown backend class '{}' (available: stt, tts, omni, vision-understanding, llm)",
+                    "backend_select: unknown backend class '{}' (available: stt, tts, omni, vision-understanding, llm, ocr)",
                     word
                 ),
             );

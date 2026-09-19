@@ -115,10 +115,7 @@ pub struct BuiltClassEntry {
 /// Classification lookup — linear scan over a small static array; the map
 /// is compile-time data, uniqueness is test-enforced.
 pub fn classify(name: &str) -> Option<&'static BuiltClass> {
-    BUILTIN_CLASSES
-        .iter()
-        .find(|e| e.name == name)
-        .map(|e| &e.class)
+    BUILTIN_CLASSES.iter().find(|e| e.name == name).map(|e| &e.class)
 }
 
 /// SSOT map: имя → BuiltClass for EVERY registered builtin (№316).
@@ -581,6 +578,7 @@ pub static BUILTIN_CLASSES: &[BuiltClassEntry] = &[
     BuiltClassEntry { name: "ledger_snapshot", class: BuiltClass { role: Role::Lift, default_label: Label::Public, reversibility: Reversibility::Irreversible, rationale: "appends a snapshot record pinning the head (ADR-0167 §3.2) — the archive anchor is a permanent chain record" } },
     BuiltClassEntry { name: "likeness_challenge", class: BuiltClass { role: Role::Lift, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "issues a one-time opaque likeness challenge (№387, ADR-0149 D1); registry state only, no egress" } },
     BuiltClassEntry { name: "likeness_verify", class: BuiltClass { role: Role::Lift, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "consumes the challenge (linear), records the consent-ledger grant and returns the opaque LikenessToken (№387, ADR-0149 D1/D6) — process-local bookkeeping, no egress" } },
+    BuiltClassEntry { name: "ocr_extract", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "local OCR backend call (№407, trocr-base-printed canon): ingests the text extracted from an image into the flow; no upload, no egress; real mode requires SHA-pinned weights (PARKED №294)" } },
 ];
 
 #[cfg(test)]
@@ -642,11 +640,7 @@ mod tests {
             .map(|e| e.name)
             .filter(|n| !registry.contains(*n))
             .collect();
-        assert!(
-            extras.is_empty(),
-            "classified names not in registry: {:?}",
-            extras
-        );
+        assert!(extras.is_empty(), "classified names not in registry: {:?}", extras);
     }
 
     /// №316 «Сделано, когда» (а): rationale on every non-Pure entry.
@@ -676,12 +670,7 @@ mod tests {
     #[test]
     fn issue_minimum_classes() {
         let expect_sink = [
-            "http_post",
-            "write_file",
-            "send_message",
-            "print",
-            "db_execute",
-            "tts_send",
+            "http_post", "write_file", "send_message", "print", "db_execute", "tts_send",
         ];
         for n in expect_sink {
             let c = classify(n).unwrap_or_else(|| panic!("{}", n));
@@ -697,11 +686,7 @@ mod tests {
             assert_eq!(c.reversibility, Reversibility::Irreversible, "{}", n);
         }
         let redact = classify("redact").unwrap();
-        assert_eq!(
-            redact.role,
-            Role::Lift,
-            "redact — taint-sanitizer lift (ADR-0136)"
-        );
+        assert_eq!(redact.role, Role::Lift, "redact — taint-sanitizer lift (ADR-0136)");
     }
 
     /// №316: Sink/Source/Lift/Pure distribution is sane (sanity counts,
@@ -728,13 +713,11 @@ mod tests {
             (Some(b), Some(e)) if b < e => (&reference[b..e], true),
             _ => ("", false),
         };
-        assert!(
-            found,
-            "REFERENCE.md must contain the classification block markers"
-        );
+        assert!(found, "REFERENCE.md must contain the classification block markers");
 
-        let mut expected =
-            String::from("| Builtin | Role | Default label | Reversibility |\n|---|---|---|---|\n");
+        let mut expected = String::from(
+            "| Builtin | Role | Default label | Reversibility |\n|---|---|---|---|\n",
+        );
         for e in BUILTIN_CLASSES {
             let role = e.class.role.as_str();
             let label = e.class.default_label.as_str();

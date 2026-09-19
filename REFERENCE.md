@@ -625,7 +625,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 457 registered builtins (457 of 457): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 458 registered builtins (458 of 458): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -943,7 +943,7 @@ Fusion (k=60). Each entry carries a type tag for differentiated search.
 | Function | Signature | Return | Description |
 |---------|-----------|---------|----------|
 | `memorize(text, priority, type)` | `String, Float, String -> Unit` | Unit | Saves a fact with a priority (0.0-1.0) and a type. Example: `memorize("likes spicy food", 0.9, "persona")` |
-| `recall_top_k(query, k, type)` | `String, Float, String -> String` | String (JSON) | Returns the top-K entries sorted by RRF score. A JSON array: `[{text, type, priority, score, created_at}]`. An empty type searches across all types |
+| `recall_top_k(query, k, type)` | `String, Float, String -> String` | String (JSON) | Returns the top-K entries sorted by RRF score. A JSON array: `[{value, score, type, priority}]` (the interpreter's hybrid FTS5+cosine search; Bug #530: the VM now compiles the name and searches its own backend-local store with token-level scoring). An empty type searches across all types |
 
 **Scoring:** Reciprocal Rank Fusion (k=60). The BM25 and cosine-similarity
 (with temporal decay and priority) results are ranked separately, then merged:
@@ -2011,7 +2011,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 457 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 458 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2310,14 +2310,14 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `media_meta(...)` | 1 | — | `media_meta(handle)` — store metadata WITHOUT materializing bytes: Struct { kind, conf, refs, sealed } (ADR-0162 §2.4). |
 | `media_release(...)` | 1 | — | `media_release(handle)` — refcount −1; at 0 the entry is evicted (sealed bytes zeroized). Returns the remaining refcount. Loud on unknown handles. |
 | `media_retain(...)` | 1 | — | `media_retain(handle)` — refcount +1 on a media handle (ADR-0162 §2.4); returns the same handle (chainable). |
-| `media_save(...)` | 2..3 | — | `media_save(handle, path)` — the ONLY sanctioned media materialization: writes the exact bytes to a sandboxed file (№131/№252). Sink: №325 clearance at compile time (SECRET_LEAK for private labels) + runtime backstop MEDIA_SEALED_EGRESS for sealed entries; a sealed entry unseals ONLY for a legal credential — the №387 LikenessToken (third argument) or an in-force consent grant recorded on the entry by `consent_grant` (№397: the runtime twin of the static consented-egress rule). Quarantine (poisoned) materializes through no sink. Returns the path. |
+| `media_save(...)` | 2..3 | — | `media_save(handle, path)` — the ONLY sanctioned media materialization: writes the exact bytes to a sandboxed file (№131/№252). Sink: №325 clearance at compile time (SECRET_LEAK for private labels) + runtime backstop MEDIA_SEALED_EGRESS for sealed entries. Returns the path. |
 | `media_source_capture(...)` | 1 | — | `media_source_capture(origin_name)` — the HandleSource runtime (№332, ADR-0164): resolves the declared origin and captures a handle through the media store. `kind: file` reads the sandboxed path (loud on missing files); `kind: camera` is a loud PARKED boundary (real capture hardware does not exist in this environment). Source: the handle label is the origin's declared conf. State-carrying: interpreter/VM intercept before the generic fallback. |
 | `media_store_audio(...)` | 2 | — | `media_store_audio(data, sensitivity)` — wraps provided bytes into an opaque Audio handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. |
 | `media_store_image(...)` | 2 | — | `media_store_image(data, sensitivity)` — wraps provided bytes into an opaque Image handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. |
 | `media_store_video_frame(...)` | 2 | — | `media_store_video_frame(data, sensitivity)` — wraps provided bytes into an opaque VideoFrame handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. |
 | `media_store_video_segment(...)` | 2 | — | `media_store_video_segment(data, sensitivity)` — wraps provided bytes into an opaque VideoSegment handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. |
 
-### `memory` — 23 builtin(s)
+### `memory` — 24 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
@@ -2337,6 +2337,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `memory_forget(...)` | 5..7 | `(String, String, List, Float, Float[, Bool[, List]]) -> Struct` | Managed forgetting with boundaries (supermemory forget-matching discipline; №280). `dry_run=true` (the DEFAULT — arity 5, or an explicit `true`) returns only candidates: `List[Struct{id, score}]` where `score` is the cosine similarity (best per id; ids deduplicated; already-forgotten ids are not candidates), `applied: 0`, `batch_id: ""`. Apply (`dry_run=false`) works STRICTLY over an explicit `ids` list taken from a preview — never over a re-searched query: every id is point-checked against the preview bounds (exists in the table, similarity ≥ `threshold` — the same computation as the preview, not a re-search), an unknown id or an id outside the bounds is a LOUD error BEFORE anything is written (atomic apply); the id count may not exceed `max_forget`. Soft delete: nothing is physically removed — applied ids go into the forget ledger `{table}__forgotten` (id, batch_id, reason, forgotten_at); `batch_id` (`MLOG-FORGET-<base32×26>`, 128 bits) is stamped on every applied id and returned; a repeated forget of the same id is a no-op (`applied: 0`, `batch_id: ""`). Loud refusals: `threshold` outside `[0, 1]`, `max_forget` non-integer / outside `[1, 10000]`, `ids` non-empty-violations (empty list, non-String element), `dry_run=false` without ids, `ids` together with `dry_run=true`, a `List` in the `dry_run` position, dimension mismatch, a missing table, sandbox violations (preview opens ForRead, apply opens ForWrite). Auto-forgetting (TTL, displacement by updates) is deliberately v2 / out of scope. |
 | `memory_prune(...)` | variadic | — | `memory_prune(threshold?, min_age_hours?)` — remove dead memory nodes. `threshold`: minimum score to keep (default 0.05). `min_age_hours`: minimum age in hours before pruning (default 24, protects fresh entries). Returns Struct { pruned: <count>, remaining: <total> }. |
 | `memory_revise(...)` | variadic | — | `memory_revise(id, new_text, new_score?)` — update a node and resolve Contradicts. If the node contradicts others, the system keeps the higher-scoring belief and demotes the loser (score *= 0.3, adds Supersedes edge). Returns Struct { action, winner_id, superseded_id? }. |
+| `recall_top_k(...)` | 1..3 | `String, Float, String -> String` | Returns the top-K entries sorted by RRF score. A JSON array: `[{text, type, priority, score, created_at}]`. An empty type searches across all types |
 | `ref(...)` | 1 | — | `ref(content)` — compute SHA-256 hash, store in KV, return hash string. Idempotent. |
 | `session_clear(...)` | variadic | `String -> String` | Deletes all of the session's data. Returns `"ok"` |
 | `session_get(...)` | 1 | `String, String -> String` | Reads a value from the session (an empty string if absent) |
@@ -2432,9 +2433,9 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 |---|---|---|---|
 | `canary_check(...)` | 2..3 | `String, String[, Struct] -> Struct` | Runtime leak detector: checks the LLM response for the canary marker — exact occurrence + resistant to trivial distortions (case, splitting by whitespace/punctuation). opts: `mode` ("exact" default; "zwsp" additionally ignores zero-width chars U+200B/200C/200D/2060/FEFF inside the marker — in "exact" they DELIBERATELY break the match). Returns `{leaked, id, position}` — position is the CHAR index of the first occurrence in the original text, -1.0 when clean. Leak → runtime CANARY_LEAK warning (stderr) + `llm_usage().canary_leaks` counter; statically, inside `if (r.leaked) {...}` the response is labeled «compromised channel» and sink usage warns CANARY_LEAK. Detector, NOT a gate. Unknown/malformed canary_id (a secret is not a canary) — loud error (№284) |
 | `canary_insert(...)` | 1..2 | `String[, Struct] -> Struct` | Embeds a random canary marker (`MLOG-CANARY-` + 26 base32 chars, 128-bit entropy) into untrusted text BEFORE sending it to the LLM. Returns `{marked_text, canary_id}`. opts: `count` (1..=4, default 1 — same id inserted count times), `position` ("random" |
-| `consent_grant(...)` | 2..4 | — | `consent_grant(value, scope, subject?, ttl_seconds?)` — record the grant in the ledger; the value passes through with its consent scope extended (static: semantic.rs label_source). For a media handle the scope lands ON THE STORE ENTRY — the runtime credential `media_save` honors (№397: static and runtime agree on the consented egress). |
+| `consent_grant(...)` | 2..4 | — | `consent_grant(value, scope, subject?, ttl_seconds?)` — record the grant in the ledger; the value passes through with its consent scope extended (static: semantic.rs label_source). |
 | `consent_ledger_export(...)` | 1 | — | `consent_ledger_export(path)` — dump the ledger as JSON to a sandboxed path (FILE EGRESS — classified Sink, audited). Returns the written path. |
-| `consent_revoke(...)` | 1..2 | — | `consent_revoke(value, scope?)` — record the revocation (scope or ALL); the value is returned under the quarantine label — the flat cascade poisons every derivative through lattice absorption. For a media handle the entry's consent scopes clear (№397: the runtime credential is withdrawn, the entry re-seals). |
+| `consent_revoke(...)` | 1..2 | — | `consent_revoke(value, scope?)` — record the revocation (scope or ALL); the value is returned under the quarantine label — the flat cascade poisons every derivative through lattice absorption. |
 | `ledger_count(...)` | variadic | — | `ledger_count()` — number of records in the process-local journal. |
 | `ledger_export(...)` | 1 | — | `ledger_export(path)` — dump the verifiable JSONL chain to a sandboxed path. FILE EGRESS — classified Sink, audited. Returns the written path. |
 | `ledger_export_intoto(...)` | 1 | — | `ledger_export_intoto(path)` — dump the in-toto Statement profile (ADR-0157) to a sandboxed path. FILE EGRESS — classified Sink. |
@@ -2851,6 +2852,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `mem_get` | source | internal | pure | reads long-term memory store |
 | `mem_delete` | sink | internal | irreversible | destroys a memory entry — no undo |
 | `memorize` | sink | internal | reversible | alias of kv_set — persists to the memory store |
+| `recall_top_k` | source | internal | pure | reads the backend-local memory store (top-k search; Bug #530 — registered so the VM compiles the name both backends intercept) |
 | `embed` | pure | public | pure | — |
 | `vec_store` | sink | internal | reversible | persists embeddings into the vector store (ADR-0134) |
 | `vec_search` | source | internal | pure | reads the vector store (KNN state input) |
@@ -3095,7 +3097,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `media_store_audio` | lift | internal | reversible | wraps provided bytes into an opaque Audio handle in the media store (ADR-0162) — no egress; declared sensitivity drives at-rest AES-GCM sealing and the runtime backstop |
 | `media_store_video_frame` | lift | internal | reversible | wraps provided bytes into an opaque VideoFrame handle in the media store (ADR-0162) — no egress; declared sensitivity drives at-rest AES-GCM sealing and the runtime backstop |
 | `media_store_video_segment` | lift | internal | reversible | wraps provided bytes into an opaque VideoSegment handle in the media store (ADR-0162) — no egress; declared sensitivity drives at-rest AES-GCM sealing and the runtime backstop |
-| `media_save` | sink | internal | reversible | the ONLY sanctioned materialization of media bytes — file egress through the io sandbox; №325 sink clearance (private-egress) + runtime backstop MEDIA_SEALED_EGRESS, unsealed ONLY by a legal credential: the №387 LikenessToken (static presence + registry check) or an in-force consent grant on the entry (№397 runtime consent; ADR-0162 §2.5 / ADR-0149 D1) |
+| `media_save` | sink | internal | reversible | the ONLY sanctioned materialization of media bytes — file egress through the io sandbox; №325 sink clearance (private-egress) + runtime backstop MEDIA_SEALED_EGRESS, unsealed ONLY by the №387 LikenessToken credential (static presence + registry check; ADR-0162 §2.5 / ADR-0149 D1) |
 | `media_retain` | pure | public | pure | — |
 | `media_release` | pure | public | pure | — |
 | `media_meta` | source | public | pure | reads media store METADATA only (kind/conf/refs/sealed/origin) — no bytes leave the store |
@@ -3130,7 +3132,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `stt_transcribe` | source | internal | pure | local STT backend call (№334, whisper-turbo canon): ingests the transcript into the flow; the audio stays local (no upload — unlike whisper_transcribe); real mode requires SHA-pinned weights (PARKED №294) |
 | `omni_ask` | source | internal | pure | local omni backend call (№334, nemotron canon): ingests the model answer into the flow; no network egress; real mode requires SHA-pinned weights (PARKED №294) |
 | `vision_understand` | source | internal | pure | local vision-understanding backend call (№334, molmoact2 canon): ingests the answer about an image into the flow; no upload, no egress; real mode requires SHA-pinned weights (PARKED №294) |
-| `consent_grant` | lift | public | pure | records (subject, scope, TTL) in the consent ledger and passes the value through with the consent scope EXTENDED (semantic.rs label_source) — process-local bookkeeping, no egress; for a media handle the scope additionally lands on the store entry (the runtime credential, №397) |
+| `consent_grant` | lift | public | pure | records (subject, scope, TTL) in the consent ledger and passes the value through with the consent scope EXTENDED (semantic.rs label_source) — process-local bookkeeping, no egress |
 | `consent_revoke` | lift | public | pure | records the revocation and returns the value under the QUARANTINE label — the flat cascade is lattice absorption (poison is absorbing, ADR-0154 §2.1); process-local bookkeeping |
 | `quarantine_write` | sink | internal | reversible | THE quarantine sink — the only legal egress for poisoned values (№325 clearance exempts it); unconditional QUARANTINE_EGRESS audit event (№326 posture) |
 | `consent_ledger_export` | sink | internal | reversible | dumps the consent ledger as JSON to a sandboxed path — FILE EGRESS with an audit event (grant/TTL/revoke records never leave the process silently) |
@@ -3151,6 +3153,8 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `likeness_verify` | lift | public | pure | consumes the challenge (linear), records the consent-ledger grant and returns the opaque LikenessToken (№387, ADR-0149 D1/D6) — process-local bookkeeping, no egress |
 
 <!-- END GENERATED BUILTIN CLASSIFICATION -->
+
+
 
 
 

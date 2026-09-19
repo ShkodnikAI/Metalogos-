@@ -420,6 +420,7 @@ OVERRIDES = {
     "mem_get": ("Source", "Internal", "Pure", "reads long-term memory store"),
     "mem_delete": ("Sink", "Internal", "Irreversible", "destroys a memory entry — no undo"),
     "memorize": ("Sink", "Internal", "Reversible", "alias of kv_set — persists to the memory store"),
+    "recall_top_k": ("Source", "Internal", "Pure", "reads the backend-local memory store (top-k search; Bug #530 — registered so the VM compiles the name both backends intercept)"),
     "session_set": ("Sink", "Internal", "Reversible", "persists web session state"),
     "session_get": ("Source", "Internal", "Pure", "reads web session state"),
     "session_clear": ("Sink", "Internal", "Irreversible", "wipes session state — no undo"),

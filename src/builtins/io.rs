@@ -652,8 +652,8 @@ pub fn exec_gate(context: ExecContext) -> Result<(), String> {
                 Ok(())
             } else {
                 Err(
-                    "[EXEC_NOT_PERMITTED] exec() is denied in serve route handlers. \
-                     In route bodies set METALOGOS_SERVE_ALLOW_EXEC=1 to allow exec; \
+                    "[EXEC_NOT_PERMITTED] exec() is denied in serve route handlers and MCP tool methods. \
+                     In route bodies and tool methods set METALOGOS_SERVE_ALLOW_EXEC=1 to allow exec; \
                      the process-level METALOGOS_ALLOW_EXEC flag does NOT apply to \
                      route bodies (Naryad #253, Variant A)."
                         .to_string(),
@@ -720,8 +720,8 @@ pub fn env_gate(context: ExecContext, key: &str) -> Result<(), String> {
                 return Ok(());
             }
             Err(format!(
-                "[ENV_NOT_PERMITTED] env(\"{}\") is denied in serve route handlers. \
-                 In route bodies set METALOGOS_SERVE_ALLOW_ENV=1 to allow all env \
+                "[ENV_NOT_PERMITTED] env(\"{}\") is denied in serve route handlers and MCP tool methods. \
+                 In route bodies and tool methods set METALOGOS_SERVE_ALLOW_ENV=1 to allow all env \
                  reads, or add the variable name to \
                  METALOGOS_ENV_ALLOWLIST=\"NAME1,NAME2\" to allow specific \
                  variables (Naryad #259).",

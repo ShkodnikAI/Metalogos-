@@ -87,7 +87,11 @@ fn ocr_class_word_round_trips_and_registry_entry_holds() {
 fn weights_plan_dry_run_is_pinned_and_hf_shaped() {
     let plan = metalogos::backends_weights::weights_plan("trocr-base-printed")
         .expect("the dry run validates (manifest mandatory, pin matches)");
-    assert_eq!(plan.len(), 1, "single-artifact manifest (the whisper pattern)");
+    assert_eq!(
+        plan.len(),
+        1,
+        "single-artifact manifest (the whisper pattern)"
+    );
     assert_eq!(plan[0].path, "model.safetensors");
     assert_eq!(
         plan[0].sha256,
@@ -267,8 +271,9 @@ fn backend_select_accepts_ocr_on_both_ends() {
 
 #[test]
 fn limitations_names_the_ocr_parked_boundary() {
-    let doc = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/limitations.md"))
-        .expect("limitations.md exists");
+    let doc =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/limitations.md"))
+            .expect("limitations.md exists");
     assert!(
         doc.contains("№407") && doc.contains("ocr_extract"),
         "limitations.md must name the №407 OCR real-weights PARKED boundary"

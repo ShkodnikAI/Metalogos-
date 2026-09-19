@@ -37,8 +37,8 @@ use super::media::{builtin_media_manifest_read, builtin_media_manifest_stub};
 use super::backends::{builtin_backend_list, builtin_backend_select};
 // Наряд №334: real STT/omni/vision-understanding backends — the mock-first
 // call surface over the №333 registry (SHA-pin path, ADR-0163 §2.1).
-use crate::vision::understand::builtin_vision_understand;
 use crate::vision::ocr::builtin_ocr_extract;
+use crate::vision::understand::builtin_vision_understand;
 use crate::voice::backend::{builtin_omni_ask, builtin_stt_transcribe};
 // Наряд №335 (spec §7.2 v2): consent surface — grant/revoke/quarantine/ledger.
 use super::consent::{

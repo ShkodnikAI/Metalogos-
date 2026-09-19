@@ -519,6 +519,12 @@ pub struct ServerState {
     pub vm_program: Option<Arc<Program>>,
     /// Compiled route bytecodes (Наряд №40: one per route, compiled at startup).
     pub vm_routes: Vec<CompiledRoute>,
+    /// Наряд №403: warm VM pool (step B of the VM-serve divisor work).
+    /// None = disabled (the pre-№403 behavior; default OFF until the
+    /// №404 re-gate — ADR-0141). The pool recycles `Vm` objects across
+    /// requests behind a fail-closed reset (`Vm::reset_for_reuse`):
+    /// errors, panics and failed resets all discard instead of reusing.
+    pub vm_pool: Option<Arc<crate::vm_pool::VmPool>>,
     /// Наряд №296: redact middleware mode ("pii"|"secrets"|"all"), only
     /// used when "redact" is in middleware list. None → "all" (default).
     pub redact_mode: Option<String>,
@@ -842,12 +848,22 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
         );
 
         // Build VM template with program data (patterns, learnables, etc.)
-        // Note: Vm is !Send, so we cannot store it in ServerState (Arc<Vm>).
-        // Instead, we store Arc<Program> and create a fresh Vm per request.
-        // Vm::run() is cheap (just initializes globals/patterns from program).
+        // We store Arc<Program> and create a Vm per request — BUT the Vm
+        // type IS Send (verified by the compile-time probe in
+        // src/vm_pool.rs; the №40-era "Vm is !Send" note here was stale).
+        // №403 therefore allows the warm pool to hold checked-in Vms on
+        // ServerState (fail-closed reset between requests).
 
-        state.vm_program = Some(Arc::new(program));
+        let program = Arc::new(program);
+        state.vm_program = Some(program.clone());
         state.vm_routes = compiled_routes;
+        // №403: warm VM pool — env opt-in, read ONCE at startup (the №263
+        // read-once discipline; default OFF until the №404 re-gate, the
+        // decision is fixed in ADR-0141).
+        state.vm_pool = crate::vm_pool::VmPool::from_env(program);
+        if let Some(p) = &state.vm_pool {
+            eprintln!("[vm/pool] enabled (max idle = {})", p.max_idle());
+        }
     }
 
     let app = build_router(state.clone());
@@ -1072,6 +1088,69 @@ pub async fn run_test_server_with_backend_in_dir(
     ),
     Box<dyn std::error::Error + Send + Sync>,
 > {
+    let (port, handle, _pool) =
+        run_test_server_in_dir_impl(source, backend, base_dir, None).await?;
+    Ok((port, handle))
+}
+
+/// Наряд №403: CWD-delegating wrapper over
+/// `run_test_server_with_backend_pool_in_dir` (the same ergonomics as
+/// `run_test_server_with_backend`).
+pub async fn run_test_server_with_backend_pool(
+    source: &str,
+    backend: ServeBackend,
+    pool_max: usize,
+) -> Result<
+    (
+        u16,
+        tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
+        std::sync::Arc<crate::vm_pool::VmPool>,
+    ),
+    Box<dyn std::error::Error + Send + Sync>,
+> {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    run_test_server_with_backend_pool_in_dir(source, backend, cwd, pool_max).await
+}
+
+/// Наряд №403: test helper that ALSO enables the warm VM pool with an
+/// EXPLICIT size (no env reads — parallel tests must not race on env
+/// vars) and returns the pool handle so tests can assert on the
+/// lifecycle counters (reuse / fail-closed discards).
+pub async fn run_test_server_with_backend_pool_in_dir(
+    source: &str,
+    backend: ServeBackend,
+    base_dir: std::path::PathBuf,
+    pool_max: usize,
+) -> Result<
+    (
+        u16,
+        tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
+        std::sync::Arc<crate::vm_pool::VmPool>,
+    ),
+    Box<dyn std::error::Error + Send + Sync>,
+> {
+    let (port, handle, pool) =
+        run_test_server_in_dir_impl(source, backend, base_dir, Some(pool_max)).await?;
+    let pool = pool.ok_or("pool requested but not attached (VM backend only)")?;
+    Ok((port, handle, pool))
+}
+
+/// Shared implementation of the test-server constructors. `pool_max`
+/// attaches a warm VM pool to the VM-backend state before the router is
+/// built.
+async fn run_test_server_in_dir_impl(
+    source: &str,
+    backend: ServeBackend,
+    base_dir: std::path::PathBuf,
+    pool_max: Option<usize>,
+) -> Result<
+    (
+        u16,
+        tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
+        Option<std::sync::Arc<crate::vm_pool::VmPool>>,
+    ),
+    Box<dyn std::error::Error + Send + Sync>,
+> {
     let declarations = crate::parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
 
     let server_config = declarations
@@ -1110,10 +1189,15 @@ pub async fn run_test_server_with_backend_in_dir(
         let compiled_routes = compiler
             .compile_routes(&server_config.routes)
             .map_err(|e| format!("VM route compile error: {}", e))?;
-        state.vm_program = Some(Arc::new(program));
+        let program = Arc::new(program);
+        state.vm_program = Some(program.clone());
         state.vm_routes = compiled_routes;
+        // №403: explicit test pool (never env-driven — tests must not
+        // race on env vars); None keeps the pre-pool behavior.
+        state.vm_pool = pool_max.map(|max| crate::vm_pool::VmPool::with_max(program, max));
     }
 
+    let pool_handle = state.vm_pool.clone();
     let app = build_router(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
@@ -1129,7 +1213,7 @@ pub async fn run_test_server_with_backend_in_dir(
         Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
     });
 
-    Ok((port, handle))
+    Ok((port, handle, pool_handle))
 }
 
 /// НАРЯД #207: Backward-compatible wrapper — прежнее поведение (CWD как base_dir).
@@ -1203,6 +1287,9 @@ pub(crate) async fn build_state(
         backend: ServeBackend::Interpreter, // set after build_state returns
         vm_program: None,
         vm_routes: Vec::new(),
+        // Наряд №403: the pool needs the compiled program — attached
+        // after compilation (run_server / test helpers), never here.
+        vm_pool: None,
         redact_mode: config.redact_mode.clone(),
     })
 }
@@ -2433,14 +2520,27 @@ async fn execute_route_body_vm(
     // Наряд №283: clone path_params for the spawn_blocking closure
     // (parity with query_params — same lifetime requirement).
     let path_params = path_params.clone();
+    // Наряд №403: warm VM pool handle for the closure (None = disabled,
+    // the exact pre-№403 per-request path).
+    let pool = state.vm_pool.clone();
 
     let (audit_entries, result) = tokio::task::spawn_blocking(move || {
         // Наряд №253 (Вариант А): VM-путь тела роута — тот же serve-роут-контекст,
         // exec()/exec_argv() требуют METALOGOS_SERVE_ALLOW_EXEC=1 (паритет с TW-путём).
         let _serve_exec_guard = ServeRouteExecGuard::new();
-        let mut vm = Vm::new();
-        vm.load_program(&program)
-            .map_err(|e| format!("VM route init: {}", e))?;
+        // №403: warm checkout — the returned VM has already run
+        // load_program successfully (either a pooled reset-and-reload VM
+        // or a cold build; both are indistinguishable from the pre-pool
+        // per-request VM at this point).
+        let mut vm = match pool.as_ref() {
+            Some(p) => p.checkout()?,
+            None => {
+                let mut vm = Vm::new();
+                vm.load_program(&program)
+                    .map_err(|e| format!("VM route init: {}", e))?;
+                vm
+            }
+        };
         vm.clear_server_context();
 
         // Inject per-request server context
@@ -2467,6 +2567,14 @@ async fn execute_route_body_vm(
         let result = vm.execute_route_code(&compiled, &program);
         // Наряд №41 Block 2: collect audit entries before vm is dropped
         let entries = vm.take_audit_log();
+        // №403: fail-closed checkin — ONLY a successful route execution
+        // is pooled. Errors discard here; panics never reach this line
+        // (the JoinError unwinds the closure and the VM drops with it);
+        // a VM whose reset fails is discarded inside checkin. No path
+        // reuses unproven state.
+        if let Some(p) = pool.as_ref() {
+            p.checkin(vm, result.is_ok());
+        }
         Result::<_, String>::Ok((entries, result))
     })
     .await
@@ -3514,6 +3622,7 @@ mlogserver {
             backend: ServeBackend::Interpreter,
             vm_program: None,
             vm_routes: Vec::new(),
+            vm_pool: None,
             redact_mode: None,
         }
     }

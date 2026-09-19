@@ -70,6 +70,7 @@ pub mod util;
 pub mod video;
 pub mod vision;
 pub mod vm;
+pub mod vm_pool;
 pub mod voice;
 
 /// Parse and execute a .mlog program. Returns the flow output (if any),

@@ -84,3 +84,24 @@ The caveat "Do not implement Match/BlockIfElse in the VM under this ADR" is **su
 - **Does not change the backend default** — Stage 5 (a separate ADR) after Stages 2-4.
 - **Does not remove ADR-0105** — only supersedes the caveat "Do not implement…". ADR-0105 remains in force for §Decision 1-4.
 - **Does not add new constructs to the language** — Match/BlockIfElse/binop/random are already defined in the grammar and work in TW. Extending the VM bytecode is implementation work.
+
+## Addendum 2 — Step B executed: the warm VM pool config decision (naryad #403, 2026-09-20)
+
+Step B (§4 of the Stage-5 evidence, MEDIUM risk, separate naryad) is implemented on main as an
+ENV OPT-IN — **the default remains pool OFF** until the #404 re-gate:
+
+- `METALOGOS_VM_POOL=1` enables the pool (`ServerState.vm_pool`, read once at startup, the #263
+  read-once discipline); `METALOGOS_VM_POOL_MAX` caps the idle set (default 8; beyond-capacity
+  checkins are dropped — a bounded pool, the #263 no-unbounded-growth discipline).
+- The reset protocol is contract-tested FAIL-CLOSED as §4 demanded: `Vm::reset_for_reuse` clears
+  every mutable state class (the db connection first — the #381 shared-DB precedent) and
+  `load_program` rebuilds the program-scoped tables wholesale; the field enumeration is
+  compiler-enforced (a `Vm` field added without a reset story breaks the build); the HTTP-level
+  tests pin per-request db content, grant linearity, the deny surface and the fail-closed discard
+  via the pool's own counters.
+- Honest indicative delta (debug profile, sequential minimal route, one box): 1090 → 895 µs per
+  request (1.22x) — the `Vm::new` share. This is NOT the flip evidence: the #404 re-gate runs the
+  #398 protocol (3x pinned, release profile) and owns the decision.
+- Correction of a stale premise: the #40-era note "Vm is !Send" (server.rs) was wrong — `Vm` is
+  `Send` (compile-time probe pinned in `src/vm_pool.rs`), which is what makes a shared in-process
+  pool legal at all.

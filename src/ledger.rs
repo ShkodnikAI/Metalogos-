@@ -153,8 +153,12 @@ struct LedgerState {
     signing: SigningKey,
     /// Currently active public key hex (changes on rotation).
     active_pubkey: String,
-    /// Head cache: (last seq, last hash). Empty chain = genesis position.
-    head_seq: u64,
+    /// Head cache: (last seq, last hash). `None` = the empty chain sits at
+    /// the genesis position — the FIRST record takes seq 0 (ADR-0167 §3:
+    /// "Genesis. seq = 0"; the 1-based slip made fresh runtime exports
+    /// unverifiable by the external verifier, caught by the wave-3
+    /// kitchen-camera acceptance e2e).
+    head_seq: Option<u64>,
     head_hash: String,
     /// Count of loud ledger-write failures on action paths (observability).
     write_failures: u64,
@@ -206,8 +210,8 @@ fn ledger_state() -> &'static Mutex<LedgerState> {
                 )
                 .ok()
             })
-            .map(|(s, h, p)| (s, h, Some(p)))
-            .unwrap_or((0, GENESIS_PREV_HASH.to_string(), None));
+            .map(|(s, h, p)| (Some(s), h, Some(p)))
+            .unwrap_or((None, GENESIS_PREV_HASH.to_string(), None));
         // The active key on recovery: the last rotation target if any.
         let active = conn
             .as_ref()
@@ -280,7 +284,10 @@ pub fn append_record(
     })?;
     let pubkey = hex::encode(guard.signing.verifying_key().as_bytes());
     let record = LedgerRecord {
-        seq: guard.head_seq + 1,
+        seq: match guard.head_seq {
+            None => 0,
+            Some(s) => s + 1,
+        },
         ts: now_secs(),
         kind: kind.to_string(),
         actor: actor.to_string(),
@@ -321,7 +328,7 @@ pub fn append_record(
         ],
     )
     .map_err(|e| format!("action ledger insert: {}", e))?;
-    guard.head_seq = record.seq;
+    guard.head_seq = Some(record.seq);
     guard.head_hash = record.hash.clone();
     Ok(record)
 }
@@ -361,7 +368,7 @@ pub fn head_hash() -> Result<String, String> {
     let guard = ledger_state()
         .lock()
         .map_err(|e| format!("action ledger lock: {}", e))?;
-    Ok(if guard.head_seq == 0 {
+    Ok(if guard.head_seq.is_none() {
         String::new()
     } else {
         guard.head_hash.clone()

@@ -382,7 +382,13 @@ pub(crate) fn open_sandbox_write(
             if append {
                 opts.append(true);
             } else {
-                opts.write(true);
+                // №254 regression (wave-3 acceptance CI, 2026-09-19): the
+                // reopen of an EXISTING file used write() without
+                // truncate — overwriting longer content with shorter
+                // left the old bytes as a tail (a cached sidecar read
+                // back as "corrupt sidecar JSON: trailing characters").
+                // Overwrite mode truncates; append mode must not.
+                opts.write(true).truncate(true);
             }
             #[cfg(unix)]
             {

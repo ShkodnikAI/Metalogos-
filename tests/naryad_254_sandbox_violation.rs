@@ -94,3 +94,24 @@ fn n254_read_existing_file_still_works() {
         "содержимое файла должно читаться"
     );
 }
+
+#[test]
+fn n254_write_overwrite_truncates_stale_tail() {
+    // Regression (wave-3 acceptance CI, 2026-09-19): the AlreadyExists
+    // branch of open_sandbox_write reopened an existing file with
+    // write() WITHOUT truncate — an overwrite with shorter content left
+    // the old bytes as a tail (the w1_c2pa_egress sidecar in a warm
+    // rust-cache target/ read back as "corrupt sidecar JSON: trailing
+    // characters" and failed the crosscheck in the coverage build).
+    // Overwrite mode must truncate; append_file must not.
+    let long = "L".repeat(400);
+    let out = eval_expr(&format!("write_file(\"n254_tmp_trunc.txt\", \"{}\")", long))
+        .expect("long write should succeed");
+    assert_eq!(out, "ok");
+    let out = eval_expr("write_file(\"n254_tmp_trunc.txt\", \"short\")")
+        .expect("short overwrite should succeed");
+    assert_eq!(out, "ok");
+    let back = eval_expr("read_file(\"n254_tmp_trunc.txt\")").expect("read back");
+    assert_eq!(back, "short", "overwrite must truncate the stale tail");
+    let _ = eval_expr("delete_file(\"n254_tmp_trunc.txt\")");
+}

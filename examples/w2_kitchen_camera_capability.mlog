@@ -1,0 +1,66 @@
+// Wave-3 acceptance item 1 (dispatch №397, gh#491): the kitchen camera
+// END-TO-END under the capability layer — one story, all four sides.
+//
+//   * ORIGIN→CAPTURE (№331/ADR-0162): a private kitchen-camera frame enters
+//     with declared provenance — the handle is sealed at rest, no bytes
+//     float around untyped;
+//   * GREEN PATH (consent, №387/ADR-0149): the one-time likeness ritual
+//     issues the opaque LikenessToken — the consent-ledger grant is
+//     recorded by verify itself — and the seal unseals for this one save:
+//     media_save is ALLOWED with the token as the runtime credential;
+//   * IRREVERSIBLE ACTION under GRANT (№390/№391): the archive cleanup is
+//     destructive SQL metered by a linear N(1) grant — the granted call
+//     runs and journals itself;
+//   * DENY PATH (№392): the exhausted quota refuses (GRANT_EXHAUSTED —
+//     the typed reason is IRREVERSIBLE_NO_GRANT), the on_deny(db) handler
+//     receives the DenyEvent, explains the refusal and the call DEGRADES
+//     to Unit — execution continues, the refused DELETE never runs.
+//
+// Every event above is a SIGNED LEDGER side effect of the action path
+// itself (№393/ADR-0167 §3.4 — there is no "also log it" call in the
+// program): grant lifecycle, the granted delete, the deny event. The
+// snapshot pins the head and the export hands the chain to the external
+// verifier: `mlog ledger verify target/w2_kitchen_camera_export.jsonl`.
+//
+// The static twin of the deny side is examples/w1_kitchen_camera.mlog:
+// without the consent ritual the SAME egress is refused AT COMPILE TIME
+// (SECRET_LEAK) — the program never runs at all. This example is the
+// program that carries the credential and therefore runs, traced.
+
+on_deny(db) {
+  match deny_reason() {
+    "IRREVERSIBLE_NO_GRANT" then { print("deny:IRREVERSIBLE_NO_GRANT") }
+    else { print("deny:other") }
+  }
+}
+
+origin kitchen_cam { kind: likeness, media: image, label: private }
+
+db { url: "sqlite::memory:" }
+
+pattern ArchiveFrame(_tick: String) -> String {
+  // 1) capture: the private frame, provenance bound at construction.
+  let frame = from kitchen_cam media_store_image("kitchen-frame-bytes", "private")
+  // 2) the consent ritual: one-time challenge → opaque token.
+  let challenge = likeness_challenge("resident", "kitchen-archive")
+  let token = likeness_verify(challenge)
+  // 3) GREEN egress: the credential unseals the frame for this one save.
+  let saved = media_save(frame, "target/w2_kitchen_camera_frame.jpg", token)
+  // 4) the archive index: plain bookkeeping first (non-destructive SQL).
+  db_execute("CREATE TABLE IF NOT EXISTS frames (id INTEGER PRIMARY KEY, path TEXT)")
+  db_execute("INSERT INTO frames (path) VALUES ('archive/today.jpg')")
+  // 5) the irreversible cleanup under a linear N(1) grant.
+  let g = grant_issue("db:delete:frames", 60, "n", 1)
+  let n1 = db_execute_with_grant(g, "DELETE FROM frames WHERE path = 'archive/today.jpg'")
+  // 6) DENY: the quota is exhausted — the second granted call refuses,
+  //    on_deny(db) explains it and the call degrades to Unit.
+  let refused = db_execute_with_grant(g, "DELETE FROM frames")
+  // 7) the signed trace: both ledgers leave the process as verifiable
+  //    files (FILE EGRESS — classified sinks, audited).
+  let snap = ledger_snapshot()
+  let consent = consent_ledger_export("target/w2_kitchen_camera_consent.json")
+  let path = ledger_export("target/w2_kitchen_camera_export.jsonl")
+  return "saved:" + type_of(saved) + "|deleted:" + n1 + "|refused:" + type_of(refused) + "|snapshot:" + type_of(snap) + "|consent:" + type_of(consent) + "|exported:" + type_of(path)
+}
+
+flow Main { input: String = "tick" -> ArchiveFrame -> output }

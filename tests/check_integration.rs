@@ -419,8 +419,36 @@ fn n152_db_execute_dynamic_rejected_by_check() {
 }
 
 /// SQL_DYNAMIC: db_execute() with literal SQL passes check (parameterized).
+/// The literal keeps the SQL_DYNAMIC guard out of the way — injection is
+/// not the concern for a compile-known template. The IRREVERSIBLE content
+/// contract is a DIFFERENT layer (wave 3): a destructive literal is routed
+/// to the grant algebra — see n397 below.
 #[test]
 fn n152_db_execute_literal_passes_check() {
+    let source = r#"
+        pattern InsertRow(id: String) -> String {
+            db_execute("INSERT INTO t (id) VALUES ($1)", [id])
+            return "ok"
+        }
+    "#;
+    let result = metalogos::check_program(source).unwrap();
+    assert!(
+        result.is_ok(),
+        "db_execute(literal) should pass check, got: {:?}",
+        result.errors
+    );
+}
+
+/// Naryad #397 follow-up gate parity: a destructive literal in BARE
+/// db_execute is a compile-time IRREVERSIBLE_NO_GRANT — the runtime grant
+/// algebra meters DELETE/ALTER (grants.rs::extract_destructive_ops),
+/// REFERENCE.md and the audit doc comment always claimed the static
+/// coverage, and the bare runtime path trusts the static gate (no second
+/// runtime gate). The parameterized form is no exception: destructiveness
+/// does not depend on the parameters. The granted path
+/// (db_execute_with_grant) is the legal route (examples/w2_grant_linear.mlog).
+#[test]
+fn n397_destructive_literal_needs_a_grant() {
     let source = r#"
         pattern SafeDelete(id: String) -> String {
             db_execute("DELETE FROM t WHERE id = $1", [id])
@@ -429,8 +457,16 @@ fn n152_db_execute_literal_passes_check() {
     "#;
     let result = metalogos::check_program(source).unwrap();
     assert!(
-        result.is_ok(),
-        "db_execute(literal) should pass check, got: {:?}",
+        !result.is_ok(),
+        "bare db_execute with a destructive literal must fail check (grant algebra), got: {:?}",
+        result.errors
+    );
+    assert!(
+        result
+            .errors
+            .iter()
+            .any(|e| e.message.contains("IRREVERSIBLE_NO_GRANT")),
+        "error should mention IRREVERSIBLE_NO_GRANT, got: {:?}",
         result.errors
     );
 }

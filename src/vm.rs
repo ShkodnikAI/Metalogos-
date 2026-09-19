@@ -2189,6 +2189,20 @@ impl Vm {
                 })?;
             if destructive {
                 crate::grants::grant_use(&handle, &format!("db_execute_with_grant: {}", sql))?;
+                // ── Naryad #393 (ADR-0167 §3.4), runtime-twin parity with
+                // src/interpreter/db.rs (the naryad-397 follow-up caught
+                // the VM side missing this record — the wave-3 e2e could
+                // not see it because the TW+VM records share one process
+                // ledger and the content assertions were not per-run): the
+                // irreversible action SUCCEEDED — the journal entry is a
+                // side effect of the success path itself. The SQL preimage
+                // never enters the journal — only its SHA-256.
+                crate::ledger::record(
+                    "irreversible.db_execute",
+                    &handle.issuer,
+                    &handle.scope,
+                    &format!("{}|{}|{}", handle.grant_id, handle.scope, sql),
+                );
                 eprintln!(
                     "[GRANT_USE] grant (scope '{}', class {}) executed {} (affected {}) — remaining {}",
                     handle.scope,

@@ -722,13 +722,25 @@ fn n400_runtime_journal_roundtrip_verifies_from_genesis_without_anchor() {
     let reparsed = records_from_jsonl(&jsonl).expect("jsonl reparse");
     verify_records(&reparsed, None, None)
         .expect("the runtime journal verifies from genesis WITHOUT an anchor");
-    // ledger_count() stays a plain row count over the same journal
-    // (the same-root item of gh#521): +1 per runtime append, so the
-    // route-visible count and the chain numbering agree.
+    // ledger_count() stays a plain row count over the same journal (the
+    // same-root item of gh#521): COUNT(*) and all_records() read the same
+    // table under the same mutex, so at any single instant the count equals
+    // the journal length — and the +1-per-append contract is pinned by
+    // runtime_record_and_count_and_head_move_together. In a PARALLEL test
+    // process these are two separate lock acquisitions (sibling tests may
+    // append in between — the exact equality raced red on CI once), so the
+    // race-free observable is: the count never LAGS the snapshot taken
+    // earlier, and my own three records are all present.
     let n = count().expect("count");
+    assert!(
+        n as usize >= records.len(),
+        "ledger_count() must never lag the journal (count={}, snapshot={})",
+        n,
+        records.len()
+    );
+    let mine = records.iter().filter(|r| r.actor == "n400-genesis").count();
     assert_eq!(
-        n as usize,
-        records.len(),
-        "ledger_count() must equal the number of records in the journal"
+        mine, 3,
+        "the three probe records of this test must all be in the journal"
     );
 }

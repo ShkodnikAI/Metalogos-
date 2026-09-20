@@ -213,3 +213,29 @@ connection per idle VM (the №403 reset re-opened it eagerly).
   re-opens a fresh db — request A's content never survives). Mutations M1 (re-eager the open),
   M2 (un-share the registry), M3 (keep the connection across a reset) each made the named test
   fall.
+
+## Addendum 5 — Step E executed: the re-gate №2 series (naryad №410, 2026-09-20)
+
+The fresh re-gate Addendum 3 promised, on main @ `434a871` (precondition №409 in main — the
+footprint compression, Addendum 4): 3 consecutive pinned runs (rounds=30, all success), divisor
+declared before the runs = 14 (claim comment `w5: n410-claim`, issue #527, 2026-09-20), no env
+flags. The series record and the raw numbers:
+[`docs/research/naryad-410-stage5-regate2.md`](../research/naryad-410-stage5-regate2.md).
+
+- Latency gate (p95 ≥ ×1.5): **3/3 PASS** — ×3.32 / ×3.83 / ×3.09 (the margin WIDENED vs
+  Addendum 3's ×3.04/×2.50/×3.56: the №409 per-request compression is also a latency lever).
+- Memory gate (peak RSS ≤ ×1.1): **0/3 FAIL** — ×1.126 / ×1.128 / ×1.129 (Addendum 3 was
+  ×1.136/×1.143/×1.129).
+- **Verdict: NOT flip-ready** by the fixed two-threshold gate (thresholds unchanged per protocol
+  rule 2). The default remains `interpreter`; the pool remains opt-in.
+- Where the remaining delta lives (Addendum 4's decomposition + this series): the CI-runner peak
+  gap (VM − TW ≈ 4.3–4.6 MB) is a RETAINED class — the compiled `Arc<Program>` bytecode + the 14
+  compiled route bodies + the shared-cache snapshots vs TW's AST — which per-request compression
+  cannot move (the local bench ratio moved ×1.08–1.11 → ×0.96–1.03 precisely because the local
+  peak was per-request-dominated; the CI peak is representation-dominated).
+- Next lever (a candidate naryad, owner's call, issue #527): shrink or share the retained
+  bytecode representation — candidates: price the AST-vs-bytecode retained delta precisely on
+  the fixture; route-body compilation laziness; dropping/compacting the `RegisterPattern`
+  shared-cache snapshot (it duplicates pattern bytecode). A fresh re-gate under the SAME fixed
+  thresholds remains the honest path after any such lever. The alternative — accepting the
+  latency-vs-retained-memory trade — is the owner's decision, not the executor's.

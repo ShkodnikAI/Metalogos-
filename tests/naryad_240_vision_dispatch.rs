@@ -168,7 +168,7 @@ fn generate_runtime_model_recheck_loud_error() {
     // bypassing semantic validation (deserialized bytecode / hand-built).
     let mut program = Program {
         globals: vec![],
-        patterns: vec![],
+        patterns: std::sync::Arc::new(vec![]),
         learnables: vec![],
         rules: vec![],
         skill_indices: vec![],

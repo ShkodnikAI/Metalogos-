@@ -11,7 +11,7 @@ use metalogos::bytecode::{Instruction, Program};
 fn minimal_program() -> Program {
     Program {
         globals: vec!["x".to_string()],
-        patterns: vec![],
+        patterns: std::sync::Arc::new(vec![]),
         learnables: vec![],
         rules: vec![],
         skill_indices: vec![],
@@ -25,7 +25,7 @@ fn minimal_program() -> Program {
         db_url: None,
         schema_ddl: vec![],
         main_code: vec![
-            Instruction::Const(metalogos::interpreter::Value::String("hello".to_string())),
+            Instruction::const_(metalogos::interpreter::Value::String("hello".to_string())),
             Instruction::Halt,
         ],
         collections_loaded: false,

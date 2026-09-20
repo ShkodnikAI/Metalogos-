@@ -33,7 +33,7 @@ fn test_make_list_instruction() {
     let mut vm = Vm::new();
     let program = Program {
         globals: vec![],
-        patterns: vec![],
+        patterns: std::sync::Arc::new(vec![]),
         learnables: vec![],
         rules: vec![],
         skill_indices: vec![],
@@ -47,9 +47,9 @@ fn test_make_list_instruction() {
         db_url: None,
         schema_ddl: vec![],
         main_code: vec![
-            Instruction::Const(Value::String("a".to_string())),
-            Instruction::Const(Value::String("b".to_string())),
-            Instruction::Const(Value::String("c".to_string())),
+            Instruction::const_(Value::String("a".to_string())),
+            Instruction::const_(Value::String("b".to_string())),
+            Instruction::const_(Value::String("c".to_string())),
             Instruction::MakeList(3),
             Instruction::Halt,
         ],
@@ -66,7 +66,7 @@ fn test_list_len_instruction() {
     let mut vm = Vm::new();
     let program = Program {
         globals: vec![],
-        patterns: vec![],
+        patterns: std::sync::Arc::new(vec![]),
         learnables: vec![],
         rules: vec![],
         skill_indices: vec![],
@@ -80,8 +80,8 @@ fn test_list_len_instruction() {
         db_url: None,
         schema_ddl: vec![],
         main_code: vec![
-            Instruction::Const(Value::String("a".to_string())),
-            Instruction::Const(Value::String("b".to_string())),
+            Instruction::const_(Value::String("a".to_string())),
+            Instruction::const_(Value::String("b".to_string())),
             Instruction::MakeList(2),
             Instruction::ListLen,
             Instruction::Halt,
@@ -98,7 +98,7 @@ fn test_pop_instruction() {
     let mut vm = Vm::new();
     let program = Program {
         globals: vec![],
-        patterns: vec![],
+        patterns: std::sync::Arc::new(vec![]),
         learnables: vec![],
         rules: vec![],
         skill_indices: vec![],
@@ -112,9 +112,9 @@ fn test_pop_instruction() {
         origin_decls: vec![],
         deny_handlers: vec![],
         main_code: vec![
-            Instruction::Const(Value::String("x".to_string())),
+            Instruction::const_(Value::String("x".to_string())),
             Instruction::Pop,
-            Instruction::Const(Value::String("y".to_string())),
+            Instruction::const_(Value::String("y".to_string())),
             Instruction::Halt,
         ],
         collections_loaded: false,

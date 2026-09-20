@@ -239,3 +239,27 @@ flags. The series record and the raw numbers:
   shared-cache snapshot (it duplicates pattern bytecode). A fresh re-gate under the SAME fixed
   thresholds remains the honest path after any such lever. The alternative — accepting the
   latency-vs-retained-memory trade — is the owner's decision, not the executor's.
+
+## Addendum 6 — the retained-representation lever executed (naryad №415, 2026-09-21)
+
+The owner took **path A** of Addendum 5's decision menu (gh#527, comment 5751899756,
+one-wave limit): shrink the retained bytecode representation, then re-gate №3 under the
+SAME fixed thresholds. The compression record and the before/after probe:
+[`docs/research/naryad-415-retained-compression.md`](../research/naryad-415-retained-compression.md).
+
+- The diagnostic closed Addendum 5's question about where the retained delta lives:
+  175 pattern bodies (9 243 instructions) sat INLINE in `main_code` AND were cloned once
+  into the №402 shared snapshot (`Program::patterns` was a dead, never-filled field) —
+  ≈ 2.96 MB in-RAM of pure duplicate at `size_of::<Instruction>() = 160 B` (the enum's
+  size was dictated by its fattest payloads, not by what programs contain).
+- The lever: the compiler fills the `Program::patterns` TABLE exactly once and emits the
+  append-only `RegisterPatternRef(u32)`; the shared snapshot becomes a zero-clone Arc
+  increment; fat `Instruction` payloads are boxed (wire-transparent for bincode — the
+  .mbc format of every existing variant is byte-identical; old .mbc keeps loading via
+  the legacy boxed variant + scan fallback). `size_of::<Instruction>()` 160 → ≤ 32 B.
+- Lazy route-body compilation: evaluated, **N/A for this gate** — the Stage-4 plan hits
+  all 14 routes every round (route bodies total ~2 KiB), so laziness moves no watermark.
+- Re-gate №3 (the series that decides): 3 pinned runs on the merged main, protocol №398,
+  thresholds UNCHANGED (p95 ≥ ×1.5 AND peak RSS ≤ ×1.1 on 3/3) — claim before the runs,
+  verdict package to gh#527, flip remains the owner's decision. The one-wave limit holds:
+  a red memory gate here is the honest trigger for the path-B/C conversation.

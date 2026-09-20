@@ -14,7 +14,7 @@ use metalogos::vm::Vm;
 fn program_with(main_code: Vec<Instruction>) -> Program {
     Program {
         globals: vec![],
-        patterns: vec![],
+        patterns: std::sync::Arc::new(vec![]),
         learnables: vec![],
         rules: vec![],
         skill_indices: vec![],
@@ -41,17 +41,17 @@ fn n328_label_instructions_are_not_jit_eligible() {
     // explicitly OUTSIDE the JIT-eligible class — the future dispatcher
     // must reject them with a distinct error, never skip silently.
     let label_code = vec![
-        Instruction::LabelJoin {
+        Instruction::LabelJoin(Box::new(metalogos::bytecode::LabelJoinData {
             dst: "k".to_string(),
             src: "@env".to_string(),
-        },
-        Instruction::SinkCheck {
+        })),
+        Instruction::SinkCheck(Box::new(metalogos::bytecode::SinkCheckData {
             fn_name: "print".to_string(),
             arg: "k".to_string(),
             line: 1,
             arg_index: 0,
             deny: None,
-        },
+        })),
     ];
     assert!(!is_jit_eligible(&label_code));
     assert!(is_jit_eligible(&[]));
@@ -62,17 +62,17 @@ fn n328_label_instructions_are_not_jit_eligible() {
 #[test]
 fn n328_vm_sink_check_rejects_private_labels_at_runtime() {
     let program = program_with(vec![
-        Instruction::LabelJoin {
+        Instruction::LabelJoin(Box::new(metalogos::bytecode::LabelJoinData {
             dst: "k".to_string(),
             src: "@env".to_string(),
-        },
-        Instruction::SinkCheck {
+        })),
+        Instruction::SinkCheck(Box::new(metalogos::bytecode::SinkCheckData {
             fn_name: "print".to_string(),
             arg: "k".to_string(),
             line: 3,
             arg_index: 0,
             deny: None,
-        },
+        })),
     ]);
     let result = Vm::new().run(program);
     let err = result.expect_err("runtime gate must reject");
@@ -84,13 +84,15 @@ fn n328_vm_sink_check_rejects_private_labels_at_runtime() {
 
 #[test]
 fn n328_vm_sink_check_passes_bottom_labels() {
-    let program = program_with(vec![Instruction::SinkCheck {
-        fn_name: "print".to_string(),
-        arg: "plain".to_string(),
-        line: 1,
-        arg_index: 0,
-        deny: None,
-    }]);
+    let program = program_with(vec![Instruction::SinkCheck(Box::new(
+        metalogos::bytecode::SinkCheckData {
+            fn_name: "print".to_string(),
+            arg: "plain".to_string(),
+            line: 1,
+            arg_index: 0,
+            deny: None,
+        },
+    ))]);
     let result = Vm::new().run(program);
     assert!(
         result.is_ok(),
@@ -104,33 +106,33 @@ fn n328_runtime_source_labels_match_the_static_mapping() {
     // env → (private, trusted); network sources → (public, untrusted) —
     // the runtime seed equals the static №323 mapping (ADR-0156 §2).
     let program = program_with(vec![
-        Instruction::LabelJoin {
+        Instruction::LabelJoin(Box::new(metalogos::bytecode::LabelJoinData {
             dst: "k".to_string(),
             src: "@env".to_string(),
-        },
-        Instruction::SinkCheck {
+        })),
+        Instruction::SinkCheck(Box::new(metalogos::bytecode::SinkCheckData {
             fn_name: "write_file".to_string(),
             arg: "k".to_string(),
             line: 1,
             arg_index: 0,
             deny: None,
-        },
+        })),
     ]);
     let err = Vm::new().run(program).expect_err("private must fail");
     assert!(err.contains("private, trusted"), "{err}");
 
     let program = program_with(vec![
-        Instruction::LabelJoin {
+        Instruction::LabelJoin(Box::new(metalogos::bytecode::LabelJoinData {
             dst: "resp".to_string(),
             src: "@http_get".to_string(),
-        },
-        Instruction::SinkCheck {
+        })),
+        Instruction::SinkCheck(Box::new(metalogos::bytecode::SinkCheckData {
             fn_name: "exec".to_string(),
             arg: "resp".to_string(),
             line: 1,
             arg_index: 0,
             deny: None,
-        },
+        })),
     ]);
     let err = Vm::new().run(program).expect_err("untrusted must fail");
     assert!(err.contains("public, untrusted"), "{err}");
@@ -183,14 +185,13 @@ fn n328_compiler_emits_label_instructions() {
         "#,
     )
     .expect("clean program compiles");
-    // Patterns live in main_code as RegisterPattern payloads (the VM
-    // promotes them into its pattern table on load).
-    let has_label_join = program.main_code.iter().any(|i| match i {
-        Instruction::RegisterPattern(f) => f
-            .code
+    // Naryad №415: pattern bodies live in the Program::patterns TABLE
+    // (main_code carries RegisterPatternRef indices) — the VM promotes the
+    // table into its pattern store on load.
+    let has_label_join = program.patterns.iter().any(|f| {
+        f.code
             .iter()
-            .any(|c| matches!(c, Instruction::LabelJoin { .. })),
-        _ => false,
+            .any(|c| matches!(c, Instruction::LabelJoin(_)))
     });
     assert!(
         has_label_join,
@@ -205,21 +206,21 @@ fn n328_runtime_label_is_the_adr0154_label() {
     // The runtime env stores `labels::Label` values (the №322 lattice) —
     // the join is componentwise (LabelJoin merges into dst).
     let program = program_with(vec![
-        Instruction::LabelJoin {
+        Instruction::LabelJoin(Box::new(metalogos::bytecode::LabelJoinData {
             dst: "k".to_string(),
             src: "@env".to_string(),
-        },
-        Instruction::LabelJoin {
+        })),
+        Instruction::LabelJoin(Box::new(metalogos::bytecode::LabelJoinData {
             dst: "k".to_string(),
             src: "@http_get".to_string(),
-        },
-        Instruction::SinkCheck {
+        })),
+        Instruction::SinkCheck(Box::new(metalogos::bytecode::SinkCheckData {
             fn_name: "print".to_string(),
             arg: "k".to_string(),
             line: 1,
             arg_index: 0,
             deny: None,
-        },
+        })),
     ]);
     let err = Vm::new()
         .run(program)

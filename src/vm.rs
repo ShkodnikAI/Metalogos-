@@ -595,11 +595,12 @@ impl Vm {
             match instr {
                 // ── Constants & Variables ─────────────────────
                 Instruction::Const(v) => {
-                    stack.push(v.clone());
+                    stack.push((**v).clone());
                     ip += 1;
                 }
                 // ── Runtime labels (Наряд №328, ADR-0156) ─────
-                Instruction::LabelJoin { dst, src } => {
+                Instruction::LabelJoin(lj) => {
+                    let LabelJoinData { dst, src } = &**lj;
                     let incoming = if let Some(source) = src.strip_prefix('@') {
                         runtime_source_label(source)
                     } else {
@@ -614,13 +615,14 @@ impl Vm {
                     self.label_env.insert(dst.clone(), merged);
                     ip += 1;
                 }
-                Instruction::SinkCheck {
-                    fn_name,
-                    arg,
-                    line,
-                    arg_index,
-                    deny,
-                } => {
+                Instruction::SinkCheck(sc) => {
+                    let SinkCheckData {
+                        fn_name,
+                        arg,
+                        line,
+                        arg_index,
+                        deny,
+                    } = &**sc;
                     let label = if let Some(source) = arg.strip_prefix('@') {
                         runtime_source_label(source)
                     } else {
@@ -736,11 +738,12 @@ impl Vm {
                     stack[idx] = val;
                     ip += 1;
                 }
-                Instruction::StoreAssignLocal {
-                    slot,
-                    name,
-                    mutable,
-                } => {
+                Instruction::StoreAssignLocal(sal) => {
+                    let StoreAssignLocalData {
+                        slot,
+                        name,
+                        mutable,
+                    } = &**sal;
                     // Наряд №264: VM backstop — an assignment encoded by the
                     // compiler carries its immutability fact; `mutable: false`
                     // means bytecode produced past the compile-time check.
@@ -765,12 +768,12 @@ impl Vm {
                 // ── Registration ──────────────────────────────
                 Instruction::RegisterPattern(fn_def) => {
                     // Наряд №250: index-stable (re)registration. load_program
-                    // pre-registers patterns from main_code (route/serve path
-                    // and the documented contract); when execute_main_code
-                    // then re-runs the SAME RegisterPattern instructions
-                    // (run path), replacing the existing entry in place keeps
-                    // every positional CallPattern(idx) index valid — no
-                    // duplicates, and the final layout is identical to a
+                    // pre-registers patterns (table or legacy main_code scan —
+                    // №415); when execute_main_code then re-runs the SAME
+                    // RegisterPattern instructions (run path — legacy .mbc
+                    // only after №415), replacing the existing entry in place
+                    // keeps every positional CallPattern(idx) index valid —
+                    // no duplicates, and the final layout is identical to a
                     // fresh single registration (same instruction sequence
                     // over the pre-registered table; rposition makes the
                     // k-th occurrence replace the k-th slot).
@@ -780,13 +783,31 @@ impl Vm {
                     // executes main_code) never pays the copy.
                     let patterns = std::sync::Arc::make_mut(&mut self.patterns);
                     match patterns.iter().rposition(|p| p.name == fn_def.name) {
-                        Some(i) => patterns[i] = fn_def.clone(),
-                        None => patterns.push(fn_def.clone()),
+                        Some(i) => patterns[i] = (**fn_def).clone(),
+                        None => patterns.push((**fn_def).clone()),
+                    }
+                    ip += 1;
+                }
+                Instruction::RegisterPatternRef(idx) => {
+                    // Naryad №415: the body already lives in the table at
+                    // `idx` (the compiler fills Program::patterns 1:1 with
+                    // the RegisterPatternRef emission order, and load_program
+                    // installed the table). Validation-only no-op on the run
+                    // path — re-executing main_code cannot drift from the
+                    // table. Out-of-range = bytecode produced past the
+                    // compiler check → fail LOUDLY (the №264 backstop
+                    // contract), never silently skip.
+                    if (*idx as usize) >= self.patterns.len() {
+                        return Err(format!(
+                            "VM: RegisterPatternRef index {} out of range (pattern table has {} entries) — bytecode produced past the compiler check",
+                            idx,
+                            self.patterns.len()
+                        ));
                     }
                     ip += 1;
                 }
                 Instruction::RegisterLearnable(info) => {
-                    self.learnables.push((info.clone(), Vec::new()));
+                    self.learnables.push(((**info).clone(), Vec::new()));
                     ip += 1;
                 }
 
@@ -991,7 +1012,11 @@ impl Vm {
                 }
 
                 // ── Struct Operations ─────────────────────────
-                Instruction::MakeStruct(type_name, field_names) => {
+                Instruction::MakeStruct(ms) => {
+                    let MakeStructData {
+                        type_name,
+                        field_names,
+                    } = &**ms;
                     let mut fields = HashMap::new();
                     // Values are on stack in field order (first pushed = bottom)
                     // Pop in reverse to get correct order
@@ -1206,12 +1231,13 @@ impl Vm {
                     self.push_audit(format!("[AUDIT] relate {} -[{}]-> {}", from, relation, to));
                     ip += 1;
                 }
-                Instruction::Mutate {
-                    pattern_name,
-                    example_count,
-                    rollback_threshold,
-                    rollback_op,
-                } => {
+                Instruction::Mutate(md) => {
+                    let MutateData {
+                        pattern_name,
+                        example_count,
+                        rollback_threshold,
+                        rollback_op,
+                    } = &**md;
                     // Pop example_count pairs of (input, output)
                     let mut new_examples = Vec::new();
                     for _ in 0..*example_count {
@@ -1241,10 +1267,11 @@ impl Vm {
 
                 // ── Pipeline ───────────────────────────────────
                 // New: FlowPipeline — pop source from stack (compiled via compile_expr)
-                Instruction::FlowPipeline {
-                    pipeline,
-                    branch_defs,
-                } => {
+                Instruction::FlowPipeline(fp) => {
+                    let FlowPipelineData {
+                        pipeline,
+                        branch_defs,
+                    } = &**fp;
                     let source_val = stack.pop().unwrap_or(Value::Unit);
 
                     // Execute pipeline steps
@@ -1260,11 +1287,12 @@ impl Vm {
                 }
 
                 // Legacy: FlowExec — load source from embedded expression
-                Instruction::FlowExec {
-                    source_expr,
-                    pipeline,
-                    branch_defs,
-                } => {
+                Instruction::FlowExec(fe) => {
+                    let FlowExecData {
+                        source_expr,
+                        pipeline,
+                        branch_defs,
+                    } = &**fe;
                     // Load the source value (legacy path)
                     let source_val = match source_expr {
                         FlowExpr::GlobalSlot(slot) => {
@@ -1374,7 +1402,7 @@ impl Vm {
                     // then the scrutinee. Other arms pop just the
                     // scrutinee. The predicate is the SHARED
                     // MatchTest::matches — same code TW runs.
-                    let ok = match test {
+                    let ok = match &**test {
                         MatchTest::Compare(op) => {
                             let threshold = stack.pop().unwrap_or(Value::Unit);
                             let scrutinee = stack.pop().unwrap_or(Value::Unit);
@@ -1494,11 +1522,12 @@ impl Vm {
                     stack[idx] = val;
                     ip += 1;
                 }
-                Instruction::StoreAssignLocal {
-                    slot,
-                    name,
-                    mutable,
-                } => {
+                Instruction::StoreAssignLocal(sal) => {
+                    let StoreAssignLocalData {
+                        slot,
+                        name,
+                        mutable,
+                    } = &**sal;
                     // Наряд №264: VM backstop (mirrors execute_main_code) —
                     // `mutable: false` on the wire must fail loudly with the
                     // TW-parity text, never silently overwrite the slot.
@@ -1516,7 +1545,7 @@ impl Vm {
                     ip += 1;
                 }
                 Instruction::Const(v) => {
-                    stack.push(v.clone());
+                    stack.push((**v).clone());
                     ip += 1;
                 }
                 Instruction::LoadGlobal(slot) => {
@@ -1860,7 +1889,7 @@ impl Vm {
                 // bodies and route handlers run through execute_code,
                 // so match inside pattern/route bodies lands HERE.
                 Instruction::MatchTest(test) => {
-                    let ok = match test {
+                    let ok = match &**test {
                         MatchTest::Compare(op) => {
                             let threshold = stack.pop().unwrap_or(Value::Unit);
                             let scrutinee = stack.pop().unwrap_or(Value::Unit);
@@ -1898,7 +1927,11 @@ impl Vm {
                     stack.push(reg);
                     ip += 1;
                 }
-                Instruction::MakeStruct(type_name, field_names) => {
+                Instruction::MakeStruct(ms) => {
+                    let MakeStructData {
+                        type_name,
+                        field_names,
+                    } = &**ms;
                     let mut fields = HashMap::new();
                     let mut values = Vec::new();
                     for _ in 0..field_names.len() {
@@ -3962,7 +3995,7 @@ impl Vm {
                 }];
                 let program = Program {
                     globals: Vec::new(),
-                    patterns: Vec::new(),
+                    patterns: std::sync::Arc::new(Vec::new()),
                     learnables: Vec::new(),
                     rules: Vec::new(),
                     skill_indices: Vec::new(),

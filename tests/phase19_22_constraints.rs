@@ -514,7 +514,10 @@ fn test_z22_struct_in_pattern_body() {
     let code = vec![
         Instruction::const_(Value::String("Alice".to_string())),
         Instruction::const_(Value::Float(30.0)),
-        Instruction::make_struct("Person".to_string(), vec!["name".to_string(), "age".to_string()]),
+        Instruction::make_struct(
+            "Person".to_string(),
+            vec!["name".to_string(), "age".to_string()],
+        ),
         Instruction::GetField("name".to_string()),
         Instruction::Return,
     ];

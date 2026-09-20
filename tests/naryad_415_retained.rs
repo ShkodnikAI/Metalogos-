@@ -212,7 +212,10 @@ pattern Greet(who: String) -> String {
         .to_string(),
     };
     let program = compile(&src);
-    assert!(!program.patterns.is_empty(), "pattern compiled into the table");
+    assert!(
+        !program.patterns.is_empty(),
+        "pattern compiled into the table"
+    );
     let routes_decl: Vec<_> = metalogos::parser::parse(&src)
         .unwrap()
         .iter()
@@ -223,7 +226,9 @@ pattern Greet(who: String) -> String {
         .flatten()
         .collect();
     let mut comp = metalogos::compiler::Compiler::with_std_root(Path::new(MANIFEST).to_path_buf());
-    let program2 = comp.compile(metalogos::parser::parse(&src).unwrap()).unwrap();
+    let program2 = comp
+        .compile(metalogos::parser::parse(&src).unwrap())
+        .unwrap();
     let routes = comp.compile_routes(&routes_decl).unwrap();
     let mut vm = metalogos::vm::Vm::new();
     vm.load_program(&program2)

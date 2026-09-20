@@ -730,9 +730,7 @@ impl Program {
                     self.main_code
                         .iter()
                         .filter_map(|instr| match instr {
-                            Instruction::RegisterPattern(fn_def) => {
-                                Some((**fn_def).clone())
-                            }
+                            Instruction::RegisterPattern(fn_def) => Some((**fn_def).clone()),
                             _ => None,
                         })
                         .collect(),
@@ -1031,10 +1029,7 @@ pub struct CallFrame {
 // error naming ADR-0156.
 
 pub fn is_jit_eligible(instrs: &[Instruction]) -> bool {
-    instrs.iter().all(|i| {
-        !matches!(
-            i,
-            Instruction::LabelJoin(_) | Instruction::SinkCheck(_)
-        )
-    })
+    instrs
+        .iter()
+        .all(|i| !matches!(i, Instruction::LabelJoin(_) | Instruction::SinkCheck(_)))
 }

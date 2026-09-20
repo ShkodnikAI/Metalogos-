@@ -1013,7 +1013,10 @@ impl Vm {
 
                 // ── Struct Operations ─────────────────────────
                 Instruction::MakeStruct(ms) => {
-                    let MakeStructData { type_name, field_names } = &**ms;
+                    let MakeStructData {
+                        type_name,
+                        field_names,
+                    } = &**ms;
                     let mut fields = HashMap::new();
                     // Values are on stack in field order (first pushed = bottom)
                     // Pop in reverse to get correct order
@@ -1925,7 +1928,10 @@ impl Vm {
                     ip += 1;
                 }
                 Instruction::MakeStruct(ms) => {
-                    let MakeStructData { type_name, field_names } = &**ms;
+                    let MakeStructData {
+                        type_name,
+                        field_names,
+                    } = &**ms;
                     let mut fields = HashMap::new();
                     let mut values = Vec::new();
                     for _ in 0..field_names.len() {

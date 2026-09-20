@@ -84,13 +84,15 @@ fn n328_vm_sink_check_rejects_private_labels_at_runtime() {
 
 #[test]
 fn n328_vm_sink_check_passes_bottom_labels() {
-    let program = program_with(vec![Instruction::SinkCheck(Box::new(metalogos::bytecode::SinkCheckData {
-        fn_name: "print".to_string(),
-        arg: "plain".to_string(),
-        line: 1,
-        arg_index: 0,
-        deny: None,
-    }))]);
+    let program = program_with(vec![Instruction::SinkCheck(Box::new(
+        metalogos::bytecode::SinkCheckData {
+            fn_name: "print".to_string(),
+            arg: "plain".to_string(),
+            line: 1,
+            arg_index: 0,
+            deny: None,
+        },
+    ))]);
     let result = Vm::new().run(program);
     assert!(
         result.is_ok(),

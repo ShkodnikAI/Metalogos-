@@ -63,7 +63,8 @@ fn main() {
         .iter()
         .filter_map(|i| match i {
             Instruction::RegisterPattern(f) => Some(
-                bincode::serde::encode_to_vec(f, bincode::config::legacy()).unwrap_or_default()
+                bincode::serde::encode_to_vec(f, bincode::config::legacy())
+                    .unwrap_or_default()
                     .len(),
             ),
             _ => None,
@@ -81,8 +82,8 @@ fn main() {
     println!("  Program.patterns table entries: {}  <-- naryad 415: the CANONICAL body store (was dead/always empty pre-415)", program.patterns.len());
 
     // ── 2. Rules ──
-    let rules_bytes =
-        bincode::serde::encode_to_vec(&program.rules, bincode::config::legacy()).unwrap_or_default();
+    let rules_bytes = bincode::serde::encode_to_vec(&program.rules, bincode::config::legacy())
+        .unwrap_or_default();
     println!("== rules ==");
     println!(
         "  count: {} | serialized wire copy: {} B ({} KiB) | sorted snapshot = second copy",
@@ -92,21 +93,16 @@ fn main() {
     );
 
     // ── 3. Small tables ──
-    let dh =
-        bincode::serde::encode_to_vec(&program.deny_handlers, bincode::config::legacy())
-            .unwrap_or_default();
-    let si =
-        bincode::serde::encode_to_vec(&program.skill_indices, bincode::config::legacy())
-            .unwrap_or_default();
-    let gl =
-        bincode::serde::encode_to_vec(&program.globals, bincode::config::legacy())
-            .unwrap_or_default();
-    let ddl =
-        bincode::serde::encode_to_vec(&program.schema_ddl, bincode::config::legacy())
-            .unwrap_or_default();
-    let ln =
-        bincode::serde::encode_to_vec(&program.learnables, bincode::config::legacy())
-            .unwrap_or_default();
+    let dh = bincode::serde::encode_to_vec(&program.deny_handlers, bincode::config::legacy())
+        .unwrap_or_default();
+    let si = bincode::serde::encode_to_vec(&program.skill_indices, bincode::config::legacy())
+        .unwrap_or_default();
+    let gl = bincode::serde::encode_to_vec(&program.globals, bincode::config::legacy())
+        .unwrap_or_default();
+    let ddl = bincode::serde::encode_to_vec(&program.schema_ddl, bincode::config::legacy())
+        .unwrap_or_default();
+    let ln = bincode::serde::encode_to_vec(&program.learnables, bincode::config::legacy())
+        .unwrap_or_default();
     println!("== small tables (serialized; each also cloned once into the snapshot) ==");
     println!(
         "  deny_handlers: {} entries, {} B | skill_indices: {} entries, {} B",
@@ -128,7 +124,11 @@ fn main() {
     // ── 4. Route bodies ──
     let route_bytes: usize = routes
         .iter()
-        .map(|r| bincode::serde::encode_to_vec(&r.code, bincode::config::legacy()).unwrap_or_default().len())
+        .map(|r| {
+            bincode::serde::encode_to_vec(&r.code, bincode::config::legacy())
+                .unwrap_or_default()
+                .len()
+        })
         .sum();
     let route_instrs: usize = routes.iter().map(|r| r.code.len()).sum();
     println!("== routes (server startup compile) ==");
@@ -143,7 +143,11 @@ fn main() {
     // ── 5. Whole-program wire size ──
     let mbc = program.serialize().unwrap_or_default();
     println!("== totals ==");
-    println!("  .mbc serialized Program: {} B ({} KiB)", mbc.len(), mbc.len() / 1024);
+    println!(
+        "  .mbc serialized Program: {} B ({} KiB)",
+        mbc.len(),
+        mbc.len() / 1024
+    );
     println!(
         "  Leftover inline+snapshot duplicate mass (0 after 415): ~{} KiB per Program",
         (inline_bytes * 2) / 1024
@@ -161,8 +165,17 @@ fn main() {
 mod sizes {
     #[test]
     fn print_sizes() {
-        println!("size_of Instruction = {}", std::mem::size_of::<metalogos::bytecode::Instruction>());
-        println!("size_of CompiledFn  = {}", std::mem::size_of::<metalogos::bytecode::CompiledFn>());
-        println!("size_of Value       = {}", std::mem::size_of::<metalogos::interpreter::Value>());
+        println!(
+            "size_of Instruction = {}",
+            std::mem::size_of::<metalogos::bytecode::Instruction>()
+        );
+        println!(
+            "size_of CompiledFn  = {}",
+            std::mem::size_of::<metalogos::bytecode::CompiledFn>()
+        );
+        println!(
+            "size_of Value       = {}",
+            std::mem::size_of::<metalogos::interpreter::Value>()
+        );
     }
 }

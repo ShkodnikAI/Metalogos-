@@ -401,7 +401,7 @@ fn n385_vm_runtime_sink_refusal_carries_classifier_stamp() {
     use metalogos::vm::Vm;
     let program = Program {
         globals: vec![],
-        patterns: vec![],
+        patterns: std::sync::Arc::new(vec![]),
         learnables: vec![],
         rules: vec![],
         skill_indices: vec![],
@@ -415,17 +415,17 @@ fn n385_vm_runtime_sink_refusal_carries_classifier_stamp() {
         memory_persist_path: None,
         schema_ddl: vec![],
         main_code: vec![
-            Instruction::LabelJoin {
+            Instruction::LabelJoin(Box::new(metalogos::bytecode::LabelJoinData {
                 dst: "k".to_string(),
                 src: "@env".to_string(),
-            },
-            Instruction::SinkCheck {
+            })),
+            Instruction::SinkCheck(Box::new(metalogos::bytecode::SinkCheckData {
                 fn_name: "print".to_string(),
                 arg: "k".to_string(),
                 line: 3,
                 arg_index: 0,
                 deny: None,
-            },
+            })),
         ],
         collections_loaded: false,
         shared_cache: metalogos::bytecode::ProgramSharedCache::new(),

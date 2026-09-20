@@ -198,7 +198,7 @@ fn test_z21_startswith_instruction_vm() {
     let mut vm = Vm::new();
     let program = Program {
         globals: vec![],
-        patterns: vec![],
+        patterns: std::sync::Arc::new(vec![]),
         learnables: vec![],
         rules: vec![],
         skill_indices: vec![],
@@ -212,8 +212,8 @@ fn test_z21_startswith_instruction_vm() {
         db_url: None,
         schema_ddl: vec![],
         main_code: vec![
-            Instruction::Const(Value::String("hello world".to_string())),
-            Instruction::Const(Value::String("hello".to_string())),
+            Instruction::const_(Value::String("hello world".to_string())),
+            Instruction::const_(Value::String("hello".to_string())),
             Instruction::StartsWith,
             Instruction::Halt,
         ],
@@ -228,8 +228,8 @@ fn test_z21_startswith_instruction_vm() {
 fn test_z21_startswith_in_pattern_body() {
     let mut vm = Vm::new();
     let code = vec![
-        Instruction::Const(Value::String("prefix_match".to_string())),
-        Instruction::Const(Value::String("prefix".to_string())),
+        Instruction::const_(Value::String("prefix_match".to_string())),
+        Instruction::const_(Value::String("prefix".to_string())),
         Instruction::StartsWith,
         Instruction::Return,
     ];
@@ -240,7 +240,7 @@ fn test_z21_startswith_in_pattern_body() {
             &mut Vec::new(),
             &Program {
                 globals: vec![],
-                patterns: vec![],
+                patterns: std::sync::Arc::new(vec![]),
                 learnables: vec![],
                 rules: vec![],
                 skill_indices: vec![],
@@ -272,7 +272,7 @@ fn test_z21_startswith_negative() {
     let mut vm = Vm::new();
     let program = Program {
         globals: vec![],
-        patterns: vec![],
+        patterns: std::sync::Arc::new(vec![]),
         learnables: vec![],
         rules: vec![],
         skill_indices: vec![],
@@ -286,8 +286,8 @@ fn test_z21_startswith_negative() {
         origin_decls: vec![],
         deny_handlers: vec![],
         main_code: vec![
-            Instruction::Const(Value::String("wrong".to_string())),
-            Instruction::Const(Value::String("right".to_string())),
+            Instruction::const_(Value::String("wrong".to_string())),
+            Instruction::const_(Value::String("right".to_string())),
             Instruction::StartsWith,
             Instruction::Halt,
         ],
@@ -342,8 +342,8 @@ rule If(data.urgency != 0.0) then data.name = "active" with priority=5
 fn test_z22_make_list_in_pattern_body() {
     let mut vm = Vm::new();
     let code = vec![
-        Instruction::Const(Value::String("a".to_string())),
-        Instruction::Const(Value::String("b".to_string())),
+        Instruction::const_(Value::String("a".to_string())),
+        Instruction::const_(Value::String("b".to_string())),
         Instruction::MakeList(2),
         Instruction::ListLen,
         Instruction::Return,
@@ -355,7 +355,7 @@ fn test_z22_make_list_in_pattern_body() {
             &mut Vec::new(),
             &Program {
                 globals: vec![],
-                patterns: vec![],
+                patterns: std::sync::Arc::new(vec![]),
                 learnables: vec![],
                 rules: vec![],
                 skill_indices: vec![],
@@ -384,9 +384,9 @@ fn test_z22_make_list_in_pattern_body() {
 fn test_z22_pop_in_pattern_body() {
     let mut vm = Vm::new();
     let code = vec![
-        Instruction::Const(Value::String("discard_me".to_string())),
+        Instruction::const_(Value::String("discard_me".to_string())),
         Instruction::Pop,
-        Instruction::Const(Value::String("keep_me".to_string())),
+        Instruction::const_(Value::String("keep_me".to_string())),
         Instruction::Return,
     ];
     let result = vm
@@ -396,7 +396,7 @@ fn test_z22_pop_in_pattern_body() {
             &mut Vec::new(),
             &Program {
                 globals: vec![],
-                patterns: vec![],
+                patterns: std::sync::Arc::new(vec![]),
                 learnables: vec![],
                 rules: vec![],
                 skill_indices: vec![],
@@ -425,8 +425,8 @@ fn test_z22_pop_in_pattern_body() {
 fn test_z22_contains_in_pattern_body() {
     let mut vm = Vm::new();
     let code = vec![
-        Instruction::Const(Value::String("hello world".to_string())),
-        Instruction::Const(Value::String("world".to_string())),
+        Instruction::const_(Value::String("hello world".to_string())),
+        Instruction::const_(Value::String("world".to_string())),
         Instruction::Contains,
         Instruction::Return,
     ];
@@ -437,7 +437,7 @@ fn test_z22_contains_in_pattern_body() {
             &mut Vec::new(),
             &Program {
                 globals: vec![],
-                patterns: vec![],
+                patterns: std::sync::Arc::new(vec![]),
                 learnables: vec![],
                 rules: vec![],
                 skill_indices: vec![],
@@ -468,11 +468,11 @@ fn test_z22_contains_in_pattern_body() {
 fn test_z22_index_access_in_pattern_body() {
     let mut vm = Vm::new();
     let code = vec![
-        Instruction::Const(Value::String("x".to_string())),
-        Instruction::Const(Value::String("y".to_string())),
-        Instruction::Const(Value::String("z".to_string())),
+        Instruction::const_(Value::String("x".to_string())),
+        Instruction::const_(Value::String("y".to_string())),
+        Instruction::const_(Value::String("z".to_string())),
         Instruction::MakeList(3),
-        Instruction::Const(Value::Float(1.0)),
+        Instruction::const_(Value::Float(1.0)),
         Instruction::IndexAccess,
         Instruction::Return,
     ];
@@ -483,7 +483,7 @@ fn test_z22_index_access_in_pattern_body() {
             &mut Vec::new(),
             &Program {
                 globals: vec![],
-                patterns: vec![],
+                patterns: std::sync::Arc::new(vec![]),
                 learnables: vec![],
                 rules: vec![],
                 skill_indices: vec![],
@@ -512,12 +512,9 @@ fn test_z22_index_access_in_pattern_body() {
 fn test_z22_struct_in_pattern_body() {
     let mut vm = Vm::new();
     let code = vec![
-        Instruction::Const(Value::String("Alice".to_string())),
-        Instruction::Const(Value::Float(30.0)),
-        Instruction::MakeStruct(
-            "Person".to_string(),
-            vec!["name".to_string(), "age".to_string()],
-        ),
+        Instruction::const_(Value::String("Alice".to_string())),
+        Instruction::const_(Value::Float(30.0)),
+        Instruction::make_struct("Person".to_string(), vec!["name".to_string(), "age".to_string()]),
         Instruction::GetField("name".to_string()),
         Instruction::Return,
     ];
@@ -528,7 +525,7 @@ fn test_z22_struct_in_pattern_body() {
             &mut Vec::new(),
             &Program {
                 globals: vec![],
-                patterns: vec![],
+                patterns: std::sync::Arc::new(vec![]),
                 learnables: vec![],
                 rules: vec![],
                 skill_indices: vec![],

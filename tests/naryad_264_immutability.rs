@@ -121,22 +121,20 @@ fn n264_vm_backstop_loud_on_past_check_mbc() {
     let mut program = metalogos::compile_program(MUT_CONTROL).unwrap();
 
     // Simulate "compiled past-check": flip the immutability fact the
-    // compiler recorded on every assignment instruction. BOTH copies must
-    // be flipped — the VM pre-registers patterns from main_code's
-    // RegisterPattern instructions (№250) and re-registers them during
-    // execute_main_code, so main_code's clone is what actually executes.
-    for pat in program.patterns.iter_mut() {
-        for instr in pat.code.iter_mut() {
-            if let Instruction::StoreAssignLocal { mutable, .. } = instr {
-                *mutable = false;
-            }
-        }
-    }
-    for instr in program.main_code.iter_mut() {
-        if let Instruction::RegisterPattern(fn_def) = instr {
-            for code_instr in fn_def.code.iter_mut() {
-                if let Instruction::StoreAssignLocal { mutable, .. } = code_instr {
-                    *mutable = false;
+    // compiler recorded on every assignment instruction. Naryad №415: the
+    // pattern bodies live in the Program::patterns TABLE (main_code carries
+    // only RegisterPatternRef indices) — the table IS the copy that
+    // executes, exactly one place to corrupt. The load_program snapshot is
+    // an Arc increment of the same table (zero clone), so a flip here is
+    // visible to the VM by construction — the backstop stays honest.
+    {
+        let patterns = std::sync::Arc::make_mut(&mut program.patterns);
+        for pat in patterns.iter_mut() {
+            for instr in pat.code.iter_mut() {
+                if let Instruction::StoreAssignLocal(sal) = instr {
+                    if sal.mutable {
+                        sal.mutable = false;
+                    }
                 }
             }
         }
@@ -331,9 +329,9 @@ fn n264_legacy_storelocal_shape_still_runs() {
     let mut stack = vec![Value::String("dummy".into())]; // param slot 0 (bp = 0)
     let mut call_stack = Vec::new();
     let code = vec![
-        Instruction::Const(Value::Float(1.0)),
+        Instruction::const_(Value::Float(1.0)),
         Instruction::StoreLocal(1), // let x = 1.0 (binding)
-        Instruction::Const(Value::Float(2.0)),
+        Instruction::const_(Value::Float(2.0)),
         Instruction::StoreLocal(1), // pre-№264 assign encoding — indistinguishable
         Instruction::LoadLocal(1),
         Instruction::Return,

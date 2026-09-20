@@ -14,14 +14,15 @@ use crate::interpreter::Value;
 pub enum Instruction {
     // ── Constants & Variables ───────────────────────────────────
     /// Push a constant value onto the stack.
-    Const(Value),
+    /// Naryad №415: payload boxed — `Value` is 96 B (its largest variant
+    /// carries a HashMap); boxing keeps the enum at pointer size.
+    /// `Box<T>` serializes exactly as `T` under bincode — .mbc unchanged.
+    Const(Box<Value>),
     /// Наряд №328 (ADR-0156): join the runtime label of `src` into `dst`
     /// (componentwise, ADR-0154 §2.4). A `src` starting with `@` names a
     /// №316 Source builtin — the runtime seed label of that source.
-    LabelJoin {
-        dst: String,
-        src: String,
-    },
+    /// Naryad №415: payload boxed into `LabelJoinData` (wire-transparent).
+    LabelJoin(Box<LabelJoinData>),
     /// Наряд №328 (ADR-0156): the runtime twin of the №325 gate — check
     /// the runtime label of `arg` against the sink's clearance; a
     /// violation is a loud runtime error + an audit event.
@@ -31,17 +32,9 @@ pub enum Instruction {
     /// covering handler, the runtime runs it, pushes the degraded Unit
     /// and jumps PAST the refused call (which never executes). `None`
     /// keeps the loud default error.
-    SinkCheck {
-        fn_name: String,
-        arg: String,
-        line: u32,
-        /// Argument position of this check within the sink call (0-based).
-        arg_index: u32,
-        /// The on_deny path (Naryad #392): handler index into
-        /// `Program::deny_handlers` + the continuation after the refused
-        /// sink call (patched by the compiler).
-        deny: Option<SinkDenyPath>,
-    },
+    /// Naryad №415: payload boxed into `SinkCheckData` (wire-transparent:
+    /// bincode encodes the struct's fields in the same order).
+    SinkCheck(Box<SinkCheckData>),
     /// Push the value of a global variable (by slot index).
     LoadGlobal(usize),
     /// Push a global variable by name (for unresolved references).
@@ -55,9 +48,18 @@ pub enum Instruction {
 
     // ── Function Registration ──────────────────────────────────
     /// Register a compiled pattern function. Stores it in the VM's pattern table.
-    RegisterPattern(CompiledFn),
+    /// Naryad №415: LEGACY wire form, kept for old-.mbc deserialization only —
+    /// the compiler no longer emits it. The payload is `Box`ed: bincode
+    /// serializes `Box<T>` transparently as `T`, so existing .mbc files
+    /// deserialize and run identically (the №264 append-compat precedent),
+    /// while the enum's in-RAM footprint drops from CompiledFn-sized to a
+    /// single pointer. New programs use `RegisterPatternRef` (appended at
+    /// the END of this enum) + the `Program::patterns` table.
+    RegisterPattern(Box<CompiledFn>),
     /// Register a compiled learnable pattern. Stores it in the VM's learnable table.
-    RegisterLearnable(CompiledLearnableInfo),
+    /// Naryad №415: payload boxed (wire-transparent) — the info struct is
+    /// prompt-heavy (strings); boxing keeps the enum at pointer size.
+    RegisterLearnable(Box<CompiledLearnableInfo>),
 
     // ── Function Calls ──────────────────────────────────────────
     /// Call a built-in function. arity = number of args already on stack.
@@ -87,7 +89,8 @@ pub enum Instruction {
     // ── Struct Operations ─────────────────────────────────────
     /// Pop N field values (in reverse order), create a Struct with the given type name
     /// and field names. N = len(field_names). Values on stack are in field order.
-    MakeStruct(String, Vec<String>),
+    /// Naryad №415: payload boxed into `MakeStructData` (wire-transparent).
+    MakeStruct(Box<MakeStructData>),
     /// Get a field from the struct on TOS. Pushes the field value.
     GetField(String),
     /// Pop index and base; push base[index] (list/struct/string index access).
@@ -135,31 +138,22 @@ pub enum Instruction {
     /// Pop from, to, relation strings; add relation to knowledge graph.
     Relate,
     /// Execute mutate: pop example_count*2 values, apply to learnable pattern.
-    Mutate {
-        pattern_name: String,
-        example_count: usize,
-        rollback_threshold: Option<f64>,
-        rollback_op: Option<ConditionOp>,
-    },
+    /// Naryad №415: payload boxed into `MutateData` (wire-transparent).
+    Mutate(Box<MutateData>),
 
     // ── Pipeline ──────────────────────────────────────────────
     /// Begin flow execution: pop source from stack, step through pipeline.
     /// The source value is already compiled as regular bytecode expressions
     /// (LoadGlobal, Const, Add, etc.) that push the result onto the stack.
     /// This instruction pops TOS as the source, then executes each step.
-    FlowPipeline {
-        pipeline: Vec<String>,
-        branch_defs: Vec<(String, Vec<BranchDef>)>,
-    },
+    /// Naryad №415: payload boxed into `FlowPipelineData` (wire-transparent).
+    FlowPipeline(Box<FlowPipelineData>),
 
     // ── Pipeline (legacy) ──────────────────────────────────────
     /// Legacy flow instruction with embedded source expression.
     /// Kept for backward compatibility with serialized programs.
-    FlowExec {
-        source_expr: FlowExpr,
-        pipeline: Vec<String>,
-        branch_defs: Vec<(String, Vec<BranchDef>)>,
-    },
+    /// Naryad №415: payload boxed into `FlowExecData` (wire-transparent).
+    FlowExec(Box<FlowExecData>),
 
     // ── Error Handling ───────────────────────────────────────
     /// Evaluate inner bytecode in a try-catch: on Ok push result, on Err push Unit.
@@ -196,11 +190,9 @@ pub enum Instruction {
     /// OLD binary reading NEW bytecode fails loudly at deserialize time
     /// (unknown variant index), never silently. The `Program` struct is
     /// untouched (schema frozen per the №250 precedent).
-    StoreAssignLocal {
-        slot: usize,
-        name: String,
-        mutable: bool,
-    },
+    /// StoreAssignLocal — the №264 loud backstop. Naryad №415: payload
+    /// boxed into `StoreAssignLocalData` (wire-transparent).
+    StoreAssignLocal(Box<StoreAssignLocalData>),
 
     // ── Match (№369, ADR-0141 Stage 1.1) ─────────────────
     /// Test ONE match arm against the scrutinee VALUE on the stack.
@@ -213,7 +205,9 @@ pub enum Instruction {
     /// compiler with MatchTest + JumpIfNot + Jump; nothing here decides it.
     /// Appended at the END of the enum (bincode positional-index
     /// compatibility — see StoreAssignLocal's note).
-    MatchTest(MatchTest),
+    /// Naryad №415: payload boxed (wire-transparent) — `MatchTest` is a
+    /// 32 B enum; boxing keeps `Instruction` at pointer size.
+    MatchTest(Box<MatchTest>),
 
     /// №370: duplicate the top stack value (the match scrutinee lives on
     /// the stack while arms test copies of it — single evaluation, no
@@ -245,6 +239,23 @@ pub enum Instruction {
     /// value forms open their own register). Appended at the END of the
     /// enum.
     EndValueExpr,
+
+    // ── Naryad №415: retained-representation compaction ────────────
+    /// Register the pattern whose body lives at `index` in the
+    /// `Program::patterns` TABLE. The compiler emits this instead of the
+    /// legacy inline `RegisterPattern(CompiledFn)`: the body is stored
+    /// EXACTLY ONCE (in the table), main_code carries a 4-byte index, and
+    /// the №402 shared snapshot becomes an Arc increment (zero clone).
+    /// Appended at the END of the enum (bincode positional-index
+    /// compatibility — see StoreAssignLocal's note): old binaries reading
+    /// new bytecode fail loudly at deserialize, old .mbc files still load
+    /// on new binaries via the legacy `RegisterPattern` variant.
+    /// The run() path treats this as a validation no-op: the table already
+    /// holds the body at `index` (compiler fills both 1:1 in pass2 order),
+    /// so re-executing main_code cannot drift — and an out-of-range index
+    /// (bytecode produced past the compiler check) fails LOUDLY, the same
+    /// backstop contract as №264's StoreAssignLocal.
+    RegisterPatternRef(u32),
 }
 
 /// №369: the pattern side of one match arm — the payload of
@@ -280,6 +291,109 @@ impl MatchTest {
                 crate::ast::MatchArm::compare_values(scrutinee, op, threshold)
             }
         }
+    }
+}
+
+// ── Naryad №415: boxed variant payloads ────────────────────────────
+// Each struct below is the payload of the same-named `Instruction`
+// variant, boxed to keep `size_of::<Instruction>()` at pointer size
+// (was 160 B — the enum's size was dictated by its fattest variant even
+// when that variant never occurred in a program). `Box<T>` serializes
+// exactly as `T` under bincode (serde impls deref), and a struct-variant
+// payload becomes a struct with the SAME fields in the SAME order — so
+// the .mbc wire format is byte-identical for every boxed variant.
+
+/// Payload of `Instruction::SinkCheck` (№328/№392 runtime sink gate).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SinkCheckData {
+    pub fn_name: String,
+    pub arg: String,
+    pub line: u32,
+    /// Argument position of this check within the sink call (0-based).
+    pub arg_index: u32,
+    /// The on_deny path (Naryad #392): handler index into
+    /// `Program::deny_handlers` + the continuation after the refused
+    /// sink call (patched by the compiler).
+    pub deny: Option<SinkDenyPath>,
+}
+
+/// Payload of `Instruction::LabelJoin` (№328 runtime label join).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LabelJoinData {
+    pub dst: String,
+    pub src: String,
+}
+
+/// Payload of `Instruction::MakeStruct`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MakeStructData {
+    pub type_name: String,
+    pub field_names: Vec<String>,
+}
+
+/// Payload of `Instruction::FlowPipeline`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FlowPipelineData {
+    pub pipeline: Vec<String>,
+    pub branch_defs: Vec<(String, Vec<BranchDef>)>,
+}
+
+/// Payload of the legacy `Instruction::FlowExec`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FlowExecData {
+    pub source_expr: FlowExpr,
+    pub pipeline: Vec<String>,
+    pub branch_defs: Vec<(String, Vec<BranchDef>)>,
+}
+
+/// Payload of `Instruction::Mutate`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MutateData {
+    pub pattern_name: String,
+    pub example_count: usize,
+    pub rollback_threshold: Option<f64>,
+    pub rollback_op: Option<ConditionOp>,
+}
+
+/// Payload of `Instruction::StoreAssignLocal` (the №264 loud backstop).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoreAssignLocalData {
+    pub slot: usize,
+    pub name: String,
+    pub mutable: bool,
+}
+
+impl Instruction {
+    /// №415: boxed-`Const` constructor — push sites stay one-liners.
+    pub fn const_(value: Value) -> Self {
+        Instruction::Const(Box::new(value))
+    }
+
+    /// №415: boxed-`MatchTest` constructor.
+    pub fn match_test(test: MatchTest) -> Self {
+        Instruction::MatchTest(Box::new(test))
+    }
+
+    /// №415: boxed-`MakeStruct` constructor.
+    pub fn make_struct(type_name: String, field_names: Vec<String>) -> Self {
+        Instruction::MakeStruct(Box::new(MakeStructData {
+            type_name,
+            field_names,
+        }))
+    }
+
+    /// №415: boxed-`RegisterLearnable` constructor.
+    pub fn register_learnable(info: CompiledLearnableInfo) -> Self {
+        Instruction::RegisterLearnable(Box::new(info))
+    }
+
+    /// №415: boxed-`StoreAssignLocal` constructor.
+    pub fn store_assign_local(slot: usize, name: String, mutable: bool) -> Self {
+        Instruction::StoreAssignLocal(Box::new(StoreAssignLocalData {
+            slot,
+            name,
+            mutable,
+        }))
     }
 }
 
@@ -467,7 +581,14 @@ pub struct Program {
     /// Global variable names (index = slot).
     pub globals: Vec<String>,
     /// Compiled user-defined patterns.
-    pub patterns: Vec<CompiledFn>,
+    /// Naryad №415: the CANONICAL pattern-body store — the compiler fills
+    /// it exactly once (pass2 emission order = pass1 index order) and
+    /// main_code references bodies by `RegisterPatternRef(u32)` index.
+    /// `Arc` (serde `rc` feature) serializes identically to `Vec` (the
+    /// .mbc wire format is unchanged), while the №402 shared snapshot
+    /// becomes a plain Arc increment — the body mass exists EXACTLY ONCE
+    /// per process instead of twice (inline in main_code + snapshot clone).
+    pub patterns: std::sync::Arc<Vec<CompiledFn>>,
     /// Compiled learnable patterns (LLM-backed).
     pub learnables: Vec<CompiledLearnableInfo>,
     /// Compiled rules.
@@ -589,13 +710,19 @@ impl Program {
             .clone()
     }
 
-    /// The patterns pre-registered from main_code's `RegisterPattern`
-    /// instructions — the scan `Vm::load_program` used to run per request
-    /// (№250 ADR-0122 #208: the serve path never executes main_code, so
-    /// the scan+clone ran on every request). Compiler index order is
-    /// preserved 1:1 (pass1 assigns idx by declaration order, pass2 emits
-    /// RegisterPattern in the same order).
+    /// The patterns pre-registered for the VM's pattern table.
+    /// Naryad №415: when the compiled-in TABLE is non-empty, this is a
+    /// plain Arc increment over `Program::patterns` — the canonical body
+    /// store — and pays ZERO clone. When the table is empty (a legacy
+    /// .mbc whose main_code still carries inline `RegisterPattern`
+    /// bodies), the pre-№415 scan runs as the fallback: the scan
+    /// preserves the compiler's index order 1:1 (pass1 assigns idx by
+    /// declaration order, pass2 emitted RegisterPattern in the same
+    /// order), so the positional CallPattern indices resolve identically.
     pub fn pre_registered_patterns(&self) -> std::sync::Arc<Vec<CompiledFn>> {
+        if !self.patterns.is_empty() {
+            return self.patterns.clone();
+        }
         self.shared_cache
             .pre_registered_patterns
             .get_or_init(|| {
@@ -603,7 +730,9 @@ impl Program {
                     self.main_code
                         .iter()
                         .filter_map(|instr| match instr {
-                            Instruction::RegisterPattern(fn_def) => Some(fn_def.clone()),
+                            Instruction::RegisterPattern(fn_def) => {
+                                Some((**fn_def).clone())
+                            }
                             _ => None,
                         })
                         .collect(),
@@ -905,7 +1034,7 @@ pub fn is_jit_eligible(instrs: &[Instruction]) -> bool {
     instrs.iter().all(|i| {
         !matches!(
             i,
-            Instruction::LabelJoin { .. } | Instruction::SinkCheck { .. }
+            Instruction::LabelJoin(_) | Instruction::SinkCheck(_)
         )
     })
 }

@@ -17,6 +17,10 @@ pub struct Compiler {
     global_slots: HashMap<String, usize>,
     /// Next available global slot.
     next_global: usize,
+    /// Наряд №415: pattern bodies collected during pass2 (emission order ==
+    /// pass1's `pattern_indices` order). Becomes `Program::patterns` — the
+    /// single canonical copy of every compiled body.
+    pattern_bodies: Vec<CompiledFn>,
     /// Pattern name -> index in program.patterns.
     pattern_indices: HashMap<String, usize>,
     /// Learnable pattern name -> index in program.learnables.
@@ -122,7 +126,7 @@ fn emit_sink_checks(
         };
         if let Some(arg) = trackable {
             emitted.push(code.len());
-            code.push(Instruction::SinkCheck {
+            code.push(Instruction::SinkCheck(Box::new(SinkCheckData {
                 fn_name: fn_name.to_string(),
                 arg,
                 line: line.max(1),
@@ -134,7 +138,7 @@ fn emit_sink_checks(
                     handler,
                     skip_to: 0,
                 }),
-            });
+            })));
         }
     }
     emitted
@@ -167,7 +171,7 @@ impl Compiler {
             }
             // The handler's value is discarded by the deny path; end with
             // an explicit Unit so a fall-through body still returns.
-            code.push(Instruction::Const(Value::Unit));
+            code.push(Instruction::const_(Value::Unit));
             code.push(Instruction::Return);
             self.deny_handler_indices
                 .insert(d.class.clone(), self.deny_handlers.len() as u32);
@@ -209,11 +213,10 @@ impl Compiler {
     /// the Pop or Return that follows the refused call).
     fn patch_deny_skip_to(code: &mut [Instruction], indices: &[usize], skip_to: usize) {
         for &i in indices {
-            if let Instruction::SinkCheck {
-                deny: Some(path), ..
-            } = &mut code[i]
-            {
-                path.skip_to = skip_to as u32;
+            if let Instruction::SinkCheck(sc) = &mut code[i] {
+                if let Some(path) = sc.deny.as_mut() {
+                    path.skip_to = skip_to as u32;
+                }
             }
         }
     }
@@ -230,6 +233,7 @@ impl Compiler {
         Compiler {
             global_slots: HashMap::new(),
             next_global: 0,
+            pattern_bodies: Vec::new(),
             pattern_indices: HashMap::new(),
             learnable_indices: HashMap::new(),
             builtin_indices,
@@ -298,7 +302,7 @@ impl Compiler {
                         .unwrap_or_default()
                 })
                 .collect(),
-            patterns: Vec::new(), // will be filled from pass1 data
+            patterns: std::sync::Arc::new(std::mem::take(&mut self.pattern_bodies)), // №415: filled from the pass2 collector (was: always empty)
             learnables: Vec::new(),
             rules: std::mem::take(&mut self.rules),
             skill_indices: std::mem::take(&mut self.skill_indices),
@@ -572,12 +576,12 @@ impl Compiler {
                         let init = e.fields.iter().find(|fi| fi.name == *fd_name);
                         match init {
                             Some(fi) => self.compile_expr(&fi.value, &mut code)?,
-                            None => code.push(Instruction::Const(Value::Unit)),
+                            None => code.push(Instruction::const_(Value::Unit)),
                         }
                     }
 
                     let slot = self.global_slots[&e.name];
-                    code.push(Instruction::MakeStruct(
+                    code.push(Instruction::make_struct(
                         e.type_name.clone(),
                         field_names.clone(),
                     ));
@@ -618,7 +622,14 @@ impl Compiler {
                     // Actually, let's store directly. The problem is that we're building
                     // the program in compile(), not here. Let's use a different approach.
                     // We'll add a pseudo-instruction to register the pattern.
-                    code.push(Instruction::RegisterPattern(compiled));
+                    // Naryad №415: the body goes into the Program::patterns TABLE
+                    // (exactly once) and main_code carries a 4-byte index. The
+                    // collector order == pass1's pattern_indices order (both walk
+                    // all_decls top-to-bottom), so the positional CallPattern
+                    // indices resolve to the same bodies as before.
+                    let idx = self.pattern_bodies.len();
+                    self.pattern_bodies.push(compiled);
+                    code.push(Instruction::RegisterPatternRef(idx as u32));
                 }
                 Declaration::LearnablePattern(lp) => {
                     // Compile context mode
@@ -649,7 +660,7 @@ impl Compiler {
                         }
                         None => crate::bytecode::CompiledContextMode::None,
                     };
-                    code.push(Instruction::RegisterLearnable(CompiledLearnableInfo {
+                    code.push(Instruction::register_learnable(CompiledLearnableInfo {
                         name: lp.name.clone(),
                         param_count: lp.params.len(),
                         prompt: lp.prompt.clone(),
@@ -692,7 +703,7 @@ impl Compiler {
                     for v in &fl.variants {
                         self.compile_expr(&v.value, &mut code)?;
                         // Push confidence
-                        code.push(Instruction::Const(Value::Float(v.confidence)));
+                        code.push(Instruction::const_(Value::Float(v.confidence)));
                     }
                     let slot = self.global_slots[&fl.name];
                     code.push(Instruction::MakeFluid(fl.variants.len()));
@@ -708,7 +719,7 @@ impl Compiler {
                 Declaration::Relate(r) => {
                     self.compile_expr(&r.from, &mut code)?;
                     self.compile_expr(&r.to, &mut code)?;
-                    code.push(Instruction::Const(Value::String(r.relation.clone())));
+                    code.push(Instruction::const_(Value::String(r.relation.clone())));
                     code.push(Instruction::Relate);
                 }
                 Declaration::Sandbox(_) => {
@@ -730,12 +741,12 @@ impl Compiler {
                         AstCompareOp::Eq => ConditionOp::Eq,
                         _ => ConditionOp::Eq, // Ne and others fall back to Eq
                     });
-                    code.push(Instruction::Mutate {
+                    code.push(Instruction::Mutate(Box::new(MutateData {
                         pattern_name: m.pattern_name.clone(),
                         example_count: m.new_examples.len(),
                         rollback_threshold: m.rollback_threshold,
                         rollback_op,
-                    });
+                    })));
                 }
                 Declaration::Flow(f) => {
                     // Emit ExecuteRules before the flow (if any rules exist)
@@ -771,10 +782,10 @@ impl Compiler {
                             .collect();
                         branch_defs.push((step_name.clone(), compiled_branches));
                     }
-                    code.push(Instruction::FlowPipeline {
+                    code.push(Instruction::FlowPipeline(Box::new(FlowPipelineData {
                         pipeline: f.pipeline.clone(),
                         branch_defs,
-                    });
+                    })));
                 }
                 Declaration::Import(_) => {
                     // Already resolved in import preprocessing
@@ -881,10 +892,10 @@ impl Compiler {
     ) -> Result<(), String> {
         match expr {
             Expr::StringLit { value: s, .. } => {
-                code.push(Instruction::Const(Value::String(s.clone())));
+                code.push(Instruction::const_(Value::String(s.clone())));
             }
             Expr::FloatLit { value: f, .. } => {
-                code.push(Instruction::Const(Value::Float(*f)));
+                code.push(Instruction::const_(Value::Float(*f)));
             }
             Expr::Ident { name, .. } => {
                 // Check if it's a local (parameter or let binding) first
@@ -940,7 +951,7 @@ impl Compiler {
                         )?;
                         let jump_to_false_2 = code.len();
                         code.push(Instruction::JumpIfNot(0)); // placeholder
-                        code.push(Instruction::Const(Value::Bool(true)));
+                        code.push(Instruction::const_(Value::Bool(true)));
                         let jump_to_end = code.len();
                         code.push(Instruction::Jump(0)); // placeholder
                                                          // L_false:
@@ -955,7 +966,7 @@ impl Compiler {
                         {
                             *t = l_false;
                         }
-                        code.push(Instruction::Const(Value::Bool(false)));
+                        code.push(Instruction::const_(Value::Bool(false)));
                         // L_end:
                         let l_end = code.len();
                         if let Some(Instruction::Jump(ref mut t)) = code.get_mut(jump_to_end) {
@@ -969,7 +980,7 @@ impl Compiler {
                         let jump_to_check_right = code.len();
                         code.push(Instruction::JumpIfNot(0)); // placeholder
                                                               // left is truthy
-                        code.push(Instruction::Const(Value::Bool(true)));
+                        code.push(Instruction::const_(Value::Bool(true)));
                         let jump_to_end_1 = code.len();
                         code.push(Instruction::Jump(0)); // placeholder
                                                          // L_check_right:
@@ -985,7 +996,7 @@ impl Compiler {
                         let jump_to_false = code.len();
                         code.push(Instruction::JumpIfNot(0)); // placeholder
                                                               // right is truthy
-                        code.push(Instruction::Const(Value::Bool(true)));
+                        code.push(Instruction::const_(Value::Bool(true)));
                         let jump_to_end_2 = code.len();
                         code.push(Instruction::Jump(0)); // placeholder
                                                          // L_false:
@@ -994,7 +1005,7 @@ impl Compiler {
                         {
                             *t = l_false;
                         }
-                        code.push(Instruction::Const(Value::Bool(false)));
+                        code.push(Instruction::const_(Value::Bool(false)));
                         // L_end:
                         let l_end = code.len();
                         if let Some(Instruction::Jump(ref mut t)) = code.get_mut(jump_to_end_1) {
@@ -1071,7 +1082,7 @@ impl Compiler {
                 // .mbc format is unchanged (Value::Bool already serializable);
                 // old .mbc files keep their float encoding and behave as
                 // before. TW is unaffected (it never used this path).
-                code.push(Instruction::Const(Value::Bool(*b)));
+                code.push(Instruction::const_(Value::Bool(*b)));
             }
             Expr::QualifiedCall {
                 module,
@@ -1122,7 +1133,7 @@ impl Compiler {
                         val_expr, code, locals, next_slot, loop_stack, mutable,
                     )?;
                 }
-                code.push(Instruction::MakeStruct("Struct".to_string(), field_names));
+                code.push(Instruction::make_struct("Struct".to_string(), field_names));
             }
             // №370: if/else as a VALUE (ADR-0141 Stage 1.2). NO new opcode —
             // the jump structure (Jump/JumpIfNot) plus the №369 last-value
@@ -1232,7 +1243,7 @@ impl Compiler {
                         "compile: media_source_capture not registered (registry invariant)"
                             .to_string()
                     })?;
-                code.push(Instruction::Const(Value::String(origin.clone())));
+                code.push(Instruction::const_(Value::String(origin.clone())));
                 code.push(Instruction::CallBuiltin(idx, 1));
             }
             // Наряд №332 (ADR-0164): ProvBind lowers to
@@ -1246,7 +1257,7 @@ impl Compiler {
                     .ok_or_else(|| {
                         "compile: media_bind_origin not registered (registry invariant)".to_string()
                     })?;
-                code.push(Instruction::Const(Value::String(origin.clone())));
+                code.push(Instruction::const_(Value::String(origin.clone())));
                 self.compile_expr_with_locals(inner, code, locals, next_slot, loop_stack, mutable)?;
                 code.push(Instruction::CallBuiltin(idx, 2));
             }
@@ -1327,10 +1338,10 @@ impl Compiler {
                     // №328: seed the runtime label env for source-backed lets.
                     if let crate::ast::Expr::FnCall { name: src, .. } = value {
                         if is_source_call(src) {
-                            code.push(Instruction::LabelJoin {
+                            code.push(Instruction::LabelJoin(Box::new(LabelJoinData {
                                 dst: name.clone(),
                                 src: format!("@{src}"),
-                            });
+                            })));
                         }
                     }
                     if let Some(&existing_slot) = locals.get(name) {
@@ -1386,11 +1397,7 @@ impl Compiler {
                         &mut loop_stack,
                         mutable,
                     )?;
-                    code.push(Instruction::StoreAssignLocal {
-                        slot,
-                        name: name.clone(),
-                        mutable: true,
-                    });
+                    code.push(Instruction::store_assign_local(slot, name.clone(), true));
                 }
                 Statement::Return { value: expr, .. } => {
                     self.compile_expr_with_locals(
@@ -1500,7 +1507,7 @@ impl Compiler {
                     code.push(Instruction::StoreLocal(list_slot));
 
                     // Initialize index = 0
-                    code.push(Instruction::Const(Value::Float(0.0)));
+                    code.push(Instruction::const_(Value::Float(0.0)));
                     code.push(Instruction::StoreLocal(idx_slot));
 
                     let loop_start = code.len();
@@ -1561,7 +1568,7 @@ impl Compiler {
 
                     // Increment index
                     code.push(Instruction::LoadLocal(idx_slot));
-                    code.push(Instruction::Const(Value::Float(1.0)));
+                    code.push(Instruction::const_(Value::Float(1.0)));
                     code.push(Instruction::Add);
                     code.push(Instruction::StoreLocal(idx_slot));
 
@@ -1609,7 +1616,7 @@ impl Compiler {
                     )?;
                     code.push(Instruction::StoreLocal(list_slot));
 
-                    code.push(Instruction::Const(Value::Float(0.0)));
+                    code.push(Instruction::const_(Value::Float(0.0)));
                     code.push(Instruction::StoreLocal(idx_slot));
 
                     let loop_start = code.len();
@@ -1664,7 +1671,7 @@ impl Compiler {
                     loop_stack.pop();
 
                     code.push(Instruction::LoadLocal(idx_slot));
-                    code.push(Instruction::Const(Value::Float(1.0)));
+                    code.push(Instruction::const_(Value::Float(1.0)));
                     code.push(Instruction::Add);
                     code.push(Instruction::StoreLocal(idx_slot));
 
@@ -1895,7 +1902,7 @@ impl Compiler {
                         &mut loop_stack,
                         mutable,
                     )?;
-                    code.push(Instruction::Const(Value::String(r.relation.clone())));
+                    code.push(Instruction::const_(Value::String(r.relation.clone())));
                     code.push(Instruction::Relate);
                 }
                 _ => {}
@@ -2055,7 +2062,7 @@ impl Compiler {
                             MatchTest::Compare(*op)
                         }
                     };
-                    code.push(Instruction::MatchTest(test));
+                    code.push(Instruction::match_test(test));
                     code.push(Instruction::JumpIfNot(0));
                     let jmp_idx = code.len() - 1;
                     let saved = *next_slot;
@@ -2171,7 +2178,7 @@ impl Compiler {
                     MatchTest::Compare(*op)
                 }
             };
-            code.push(Instruction::MatchTest(test));
+            code.push(Instruction::match_test(test));
             code.push(Instruction::JumpIfNot(0));
             let jmp_idx = code.len() - 1;
             let saved = *next_slot;
@@ -2243,7 +2250,7 @@ impl Compiler {
                     MatchTest::Compare(*op)
                 }
             };
-            code.push(Instruction::MatchTest(test));
+            code.push(Instruction::match_test(test));
             code.push(Instruction::JumpIfNot(0));
             let jmp_idx = code.len() - 1;
             let saved = *next_slot;
@@ -2334,10 +2341,10 @@ impl Compiler {
                 // №328: seed the runtime label env for source-backed lets.
                 if let crate::ast::Expr::FnCall { name: src, .. } = value {
                     if is_source_call(src) {
-                        code.push(Instruction::LabelJoin {
+                        code.push(Instruction::LabelJoin(Box::new(LabelJoinData {
                             dst: name.clone(),
                             src: format!("@{src}"),
-                        });
+                        })));
                     }
                 }
                 let _ = slot;
@@ -2356,11 +2363,7 @@ impl Compiler {
                     None => return Err(crate::semantic::immutability_error_text(name)),
                 };
                 self.compile_expr_with_locals(value, code, locals, next_slot, loop_stack, mutable)?;
-                code.push(Instruction::StoreAssignLocal {
-                    slot,
-                    name: name.clone(),
-                    mutable: true,
-                });
+                code.push(Instruction::store_assign_local(slot, name.clone(), true));
             }
             Statement::Return { value: expr, .. } => {
                 // №328: the runtime twin of the №325 gate at sink sites.
@@ -2516,7 +2519,7 @@ impl Compiler {
                     &r.from, code, locals, next_slot, loop_stack, mutable,
                 )?;
                 self.compile_expr_with_locals(&r.to, code, locals, next_slot, loop_stack, mutable)?;
-                code.push(Instruction::Const(Value::String(r.relation.clone())));
+                code.push(Instruction::const_(Value::String(r.relation.clone())));
                 code.push(Instruction::Relate);
             }
             Statement::Match {

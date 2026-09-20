@@ -259,7 +259,11 @@ SAME fixed thresholds. The compression record and the before/after probe:
   the legacy boxed variant + scan fallback). `size_of::<Instruction>()` 160 → ≤ 32 B.
 - Lazy route-body compilation: evaluated, **N/A for this gate** — the Stage-4 plan hits
   all 14 routes every round (route bodies total ~2 KiB), so laziness moves no watermark.
-- Re-gate №3 (the series that decides): 3 pinned runs on the merged main, protocol №398,
-  thresholds UNCHANGED (p95 ≥ ×1.5 AND peak RSS ≤ ×1.1 on 3/3) — claim before the runs,
-  verdict package to gh#527, flip remains the owner's decision. The one-wave limit holds:
-  a red memory gate here is the honest trigger for the path-B/C conversation.
+- Re-gate №3 EXECUTED on the merged main @ `5f9da64` (claim `w6: n415-claim` BEFORE the
+  runs, protocol rule 2): **3/3 GREEN on BOTH thresholds** — latency ×3.00/×3.49/×3.11
+  (≥ ×1.5), peak RSS ×0.95/×1.07/×0.98 (≤ ×1.1; in 2 of 3 runs the VM peak is BELOW the
+  TW peak). The memory gate is green for the first time in three series (№404: ×1.136–
+  ×1.143; №410: ×1.126–×1.129) — the №410 "retained class" diagnosis confirmed by action.
+  Series record: the research doc §6; verdict package `w6: n415-verdict` in gh#527
+  (comment 5752838305). The default flip remains the OWNER's decision — flip-ready data,
+  not a flip.

@@ -92,3 +92,25 @@ Full suite: 739 lib tests + 206 integration targets green locally (batched runs;
 the one local failure `naryad_335_consent::ledger_export_builtin_writes_sandboxed_file`
 reproduces on clean main `b8a5976` via `git stash` — a local-environment artifact,
 not a №415 regression; blocking CI is the arbiter).
+
+## 6. Re-gate №3 — the series record (post-merge, main @ `5f9da64`)
+
+Ran AFTER the compression merged (claim `w6: n415-claim`, gh#527 comment 5752763580,
+declared before the runs per protocol rule 2): 3 consecutive workflow-dispatch runs of
+`stage4-benchmark.yml` on main @ `5f9da64`, rounds=30, divisor = 14, no env flags,
+thresholds UNCHANGED (p95 ≥ ×1.5 AND peak RSS ≤ ×1.1 on 3/3).
+
+| Run | TW p95 µs | VM p95 µs | p95 ratio | ≥ ×1.5 | TW RSS | VM RSS | RSS VM/TW | ≤ ×1.1 |
+|---|---|---|---|---|---|---|---|---|
+| [35538598882](https://github.com/ShkodnikAI/Metalogos-/actions/runs/35538598882) | 15968 | 5320 | ×3.00 | PASS | 36.6 MB | 34.7 MB | **0.95** | **PASS** |
+| [35538606322](https://github.com/ShkodnikAI/Metalogos-/actions/runs/35538606322) | 12603 | 3609 | ×3.49 | PASS | 35.7 MB | 38.1 MB | **1.07** | **PASS** |
+| [35538613574](https://github.com/ShkodnikAI/Metalogos-/actions/runs/35538613574) | 16855 | 5422 | ×3.11 | PASS | 35.2 MB | 34.5 MB | **0.98** | **PASS** |
+
+**Series verdict: 3/3 GREEN on BOTH thresholds.** The memory gate is green for the
+first time in three series (№404: 0/3 ×1.136–×1.143; №410: 0/3 ×1.126–×1.129 → №415:
+3/3 ×0.95–×1.07) — in 2 of 3 runs the VM-variant peak is BELOW the TW-variant peak.
+The №410 diagnosis ("the residual is a RETAINED class") was confirmed by action:
+shrinking exactly that class (the pattern-body table with zero duplicate + the
+Instruction payload compaction) removed it. The verdict package (`w6: n415-verdict`,
+gh#527 comment 5752838305) hands the flip decision to the owner — the executor does
+not flip (naryad №404 boundary).

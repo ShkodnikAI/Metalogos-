@@ -51,7 +51,7 @@ old = """fn cron_stamped(e: String) -> String {
     }
 }"""
 new = """fn cron_stamped(e: String) -> String {
-    let _ = (&split_origin_stamp, &coded_error, &CODE_CRON_JOB_FAILED); // MUTATION M-CRON: stamp neutered
+    // MUTATION M-CRON: the stamp is neutered (the pass-through identity)
     e
 }"""
 assert old in src, "cron_stamped anchor not found"

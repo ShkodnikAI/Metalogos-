@@ -45,8 +45,8 @@
 
 use super::io::{append_subprocess_audit, current_exec_context, exec_gate};
 use super::json::json_value_to_mlog_value;
-use crate::interpreter::values::wrap_error_preserving_code;
 use super::Value;
+use crate::interpreter::values::wrap_error_preserving_code;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{self, Receiver};

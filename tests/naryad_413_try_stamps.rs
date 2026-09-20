@@ -134,10 +134,8 @@ flow Main { input: String = "x" -> Probe -> output }
 "#;
     let result = (|| -> Result<(String, String), String> {
         let base = Path::new(MANIFEST);
-        let tw = run_tw(src, base)?
-            .ok_or("TW output missing")?;
-        let vm = run_vm(src, base)?
-            .ok_or("VM output missing")?;
+        let tw = run_tw(src, base)?.ok_or("TW output missing")?;
+        let vm = run_vm(src, base)?.ok_or("VM output missing")?;
         Ok((tw, vm))
     })();
     std::env::remove_var("METALOGOS_ALLOW_EXEC");
@@ -147,7 +145,11 @@ flow Main { input: String = "x" -> Probe -> output }
     }
     let (tw, vm) = result.expect("both backends must run");
     assert_eq!(tw.trim(), "MCP_SPAWN_FAILED", "TW transport code");
-    assert_eq!(vm.trim(), "MCP_SPAWN_FAILED", "VM transport code — parity broken");
+    assert_eq!(
+        vm.trim(),
+        "MCP_SPAWN_FAILED",
+        "VM transport code — parity broken"
+    );
 }
 
 #[test]

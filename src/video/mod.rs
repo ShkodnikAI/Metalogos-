@@ -270,7 +270,13 @@ pub mod i2v;
 pub mod interp;
 pub mod mux;
 pub mod sampler;
+pub mod understand;
 pub mod vae;
+// №408: the video-understanding builtin lives in its own module (mirrors
+// the vision family's per-file layout) — re-exported for the registry.
+// (gated like the item itself: the module is empty without the feature)
+#[cfg(feature = "video")]
+pub(crate) use understand::builtin_video_understand;
 
 // ── Pipeline builtins (Наряд №309, ADR-0151) ─────────────────────────
 // Real implementations on the №310 tiny-tensor machinery. The heavy

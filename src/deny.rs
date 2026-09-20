@@ -23,7 +23,13 @@
 //
 // Extending classes (same gate, same dictionary — audit.rs:3405-3422):
 //   PII_EGRESS_OUTPUT         — personal-data label in a public output;
-//   UNTRUSTED_EGRESS_NETWORK  — untrusted label in a network sink.
+//   UNTRUSTED_EGRESS_NETWORK  — untrusted label in a network sink;
+//   MEDIA_SEALED_EGRESS       — the №331 runtime backstop refused to
+//                               materialize a sealed media entry (№397:
+//                               the kitchen-camera e2e wires the backstop
+//                               refusal into this layer — the deny event
+//                               and the ledger record are the backstop's
+//                               observable trail).
 // Generic class:
 //   SINK_CLEARANCE            — every other confidentiality excess.
 // Legacy corpus classes emitted by the same gate (the leak-suite
@@ -41,8 +47,8 @@ use std::collections::HashMap;
 
 /// The canonical deny-reason vocabulary — exhaustive over every reason
 /// the gates can emit. The seven core classes first, then the extending
-/// pair, the generic class, then the legacy corpus classes.
-pub const DENY_REASONS: [&str; 13] = [
+/// classes, the generic class, then the legacy corpus classes.
+pub const DENY_REASONS: [&str; 14] = [
     // ── the seven core classes (№392) ─────────────────────────────
     "VOICE_EGRESS_UNCONSENTED",
     "IRREVERSIBLE_NO_GRANT",
@@ -54,6 +60,7 @@ pub const DENY_REASONS: [&str; 13] = [
     // ── extending classes (same gate dictionary) ──────────────────
     "PII_EGRESS_OUTPUT",
     "UNTRUSTED_EGRESS_NETWORK",
+    "MEDIA_SEALED_EGRESS",
     // ── the generic class ──────────────────────────────────────────
     "SINK_CLEARANCE",
     // ── legacy corpus classes (same gate, historical names) ───────
@@ -89,6 +96,41 @@ pub fn uncovered_reasons(covered: &[String]) -> Vec<&'static str> {
         .copied()
         .filter(|r| !covered.iter().any(|c| c == r))
         .collect()
+}
+
+/// The sensitivity word carried by a MEDIA_SEALED_EGRESS refusal message
+/// (№397). `media_save_dispatch` stamps the refusal with the entry's
+/// declared sensitivity — `… carries declared sensitivity 'private' …` —
+/// and the deny event's `label` field mirrors it so the event is
+/// self-explanatory without re-reading the media store. Returns
+/// `"unknown"` when the message does not carry the marker (a forward
+/// compatibility fallback — the event stays truthful about what it
+/// knows).
+pub fn media_seal_sensitivity(human: &str) -> &str {
+    const MARKER: &str = "declared sensitivity '";
+    match human.find(MARKER) {
+        Some(start) => {
+            let rest = &human[start + MARKER.len()..];
+            match rest.find('\'') {
+                Some(end) => &rest[..end],
+                None => "unknown",
+            }
+        }
+        None => "unknown",
+    }
+}
+
+/// The `argument` field for a media_save sealed-egress deny event (№397):
+/// the materialization PATH the sink was asked to write (the forensic
+/// answer to "where would the bytes have gone"), best-effort — a String
+/// argument is carried verbatim, anything else degrades to the argument
+/// WORD `"path"` (the same word convention the grant wire's `"sql"`
+/// uses when no better name exists).
+pub fn sealed_egress_argument(args: &[Value]) -> String {
+    match args.get(1) {
+        Some(Value::String(path)) => path.clone(),
+        _ => "path".to_string(),
+    }
 }
 
 /// The argument bundle for firing an on_deny handler (№392). The fields
@@ -155,8 +197,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn media_seal_sensitivity_extracts_the_declared_word() {
+        let human = "media:image#3 carries declared sensitivity 'private' — private/consented \
+                     media is sealed at rest";
+        assert_eq!(media_seal_sensitivity(human), "private");
+        assert_eq!(media_seal_sensitivity("no marker here"), "unknown");
+        assert_eq!(
+            media_seal_sensitivity("dangling marker: declared sensitivity '"),
+            "unknown"
+        );
+    }
+
+    #[test]
+    fn sealed_egress_argument_prefers_the_path_string() {
+        use crate::interpreter::values::Value;
+        let args = vec![Value::Unit, Value::String("frames/leak.jpg".into())];
+        assert_eq!(sealed_egress_argument(&args), "frames/leak.jpg");
+        assert_eq!(sealed_egress_argument(&[Value::Unit]), "path");
+    }
+
+    #[test]
     fn deny_reason_vocabulary_is_exhaustive_over_unique_words() {
-        // 13 distinct words, every one uppercase snake case (the audit
+        // 14 distinct words, every one uppercase snake case (the audit
         // check_id convention).
         let mut seen = std::collections::HashSet::new();
         for r in DENY_REASONS {

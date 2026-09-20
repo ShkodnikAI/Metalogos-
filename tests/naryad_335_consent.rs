@@ -286,6 +286,14 @@ fn ledger_records_grant_revoke_and_exports() {
 #[test]
 fn ledger_export_builtin_writes_sandboxed_file() {
     fresh_dir("target/n335-ledger");
+    // Self-contained population: the consent ledger is process-global and
+    // this test must not depend on a sibling test having populated it first
+    // (the standalone repro `cargo test --test naryad_335_consent
+    // ledger_export` exported `[]` on a fresh process — a latent order
+    // flake, present on main before naryad №397; the probe record makes
+    // the export non-empty in every scheduling).
+    metalogos::consent::record_grant("consent-probe", "n335-export", 60)
+        .expect("probe grant recorded");
     let src = r#"
 pattern P(_x: String) -> String {
   return consent_ledger_export("target/n335-ledger/out.json")

@@ -279,8 +279,19 @@ pub fn append_record(
         "action ledger unavailable (in-memory sqlite failed to initialize)".to_string()
     })?;
     let pubkey = hex::encode(guard.signing.verifying_key().as_bytes());
+    // №397 e2e catch (the acceptance item did its job): the FIRST record
+    // of a fresh chain is seq 0 (ADR-0167 §3.2 "genesis (seq 0)" — the
+    // start rule `verify_records` enforces). head_seq == 0 is ambiguous
+    // between "empty chain" and "last seq 0" — the genesis prev_hash
+    // disambiguates: an empty chain sits at the genesis position, a chain
+    // whose last record is seq 0 has that record's hash as the head.
+    let seq = if guard.head_seq == 0 && guard.head_hash == GENESIS_PREV_HASH {
+        0
+    } else {
+        guard.head_seq + 1
+    };
     let record = LedgerRecord {
-        seq: guard.head_seq + 1,
+        seq,
         ts: now_secs(),
         kind: kind.to_string(),
         actor: actor.to_string(),

@@ -647,7 +647,31 @@ impl Interpreter {
                 .media_store
                 .lock()
                 .map_err(|e| format!("media store poisoned: {}", e))?;
-            return crate::builtins::media_save_dispatch(&store, &args);
+            let dispatched = crate::builtins::media_save_dispatch(&store, &args);
+            drop(store);
+            // №397 (kitchen-camera e2e): the sealed-egress backstop refusal
+            // is a runtime deny event — on_deny(file/*) handles it (degraded
+            // Unit), the ledger journals it (fire_on_deny side effect); with
+            // no covering handler the loud coded error is unchanged.
+            return match dispatched {
+                Err(e) if e.starts_with("[MEDIA_SEALED_EGRESS]") => {
+                    let handled = self.fire_on_deny(crate::deny::DenyEventArgs {
+                        reason: "MEDIA_SEALED_EGRESS".into(),
+                        class: "file".into(),
+                        sink: "media_save".into(),
+                        argument: crate::deny::sealed_egress_argument(&args),
+                        label: crate::deny::media_seal_sensitivity(&e).into(),
+                        line: 0.0,
+                        human: e.clone(),
+                    })?;
+                    if handled {
+                        Ok(Value::Unit)
+                    } else {
+                        Err(e)
+                    }
+                }
+                other => other,
+            };
         }
         if name == "media_retain" {
             let mut store = self
@@ -1942,7 +1966,29 @@ impl Interpreter {
                         .media_store
                         .lock()
                         .map_err(|e| format!("media store poisoned: {}", e))?;
-                    return crate::builtins::media_save_dispatch(&store, &eval_args);
+                    let dispatched = crate::builtins::media_save_dispatch(&store, &eval_args);
+                    drop(store);
+                    // №397: sealed-egress backstop refusal → deny event
+                    // (class file), same contract as the invoke() site.
+                    return match dispatched {
+                        Err(e) if e.starts_with("[MEDIA_SEALED_EGRESS]") => {
+                            let handled = self.fire_on_deny(crate::deny::DenyEventArgs {
+                                reason: "MEDIA_SEALED_EGRESS".into(),
+                                class: "file".into(),
+                                sink: "media_save".into(),
+                                argument: crate::deny::sealed_egress_argument(&eval_args),
+                                label: crate::deny::media_seal_sensitivity(&e).into(),
+                                line: 0.0,
+                                human: e.clone(),
+                            })?;
+                            if handled {
+                                Ok(Value::Unit)
+                            } else {
+                                Err(e)
+                            }
+                        }
+                        other => other,
+                    };
                 }
                 if name == "media_retain" {
                     let mut store = self

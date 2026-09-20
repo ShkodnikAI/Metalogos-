@@ -58,6 +58,7 @@ on_deny(db) {
     "PII_EGRESS_NETWORK" then { print("deny:PII_EGRESS_NETWORK") }
     "PII_EGRESS_OUTPUT" then { print("deny:PII_EGRESS_OUTPUT") }
     "UNTRUSTED_EGRESS_NETWORK" then { print("deny:UNTRUSTED_EGRESS_NETWORK") }
+    "MEDIA_SEALED_EGRESS" then { print("deny:MEDIA_SEALED_EGRESS") }
     "SINK_CLEARANCE" then { print("deny:SINK_CLEARANCE") }
     "HTML_INJECTION" then { print("deny:HTML_INJECTION") }
     "TAINT_PERSISTENCE" then { print("deny:TAINT_PERSISTENCE") }

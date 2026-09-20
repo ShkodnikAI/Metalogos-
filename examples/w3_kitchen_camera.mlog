@@ -1,0 +1,66 @@
+// Naryad №397 (acceptance item 1 of the wave-3 dispatch): the
+// kitchen-camera e2e — the canon §5.3 scenario over the FULL wave-3
+// runtime stack (grants + deny events + signed ledger).
+//
+// The static half of the story is examples/w1_kitchen_camera.mlog: a
+// camera DECLARED private is refused at compile time (SECRET_LEAK). This
+// program is the RUNTIME half: the frame's sensitivity is decided at
+// runtime (the static layer cannot know it — the origin is declared
+// public, the night classifier marks THIS frame private), so the refusal
+// comes from the №331 sealed-egress backstop inside media_save. The
+// backstop refusal is a typed deny event (reason MEDIA_SEALED_EGRESS,
+// class file): on_deny(*) handles it, the ledger journals it (a side
+// effect of the refusal path itself, ADR-0167 §3.4), and the program
+// degrades — the frame stays sealed in the store, nothing materializes.
+//
+// The same flow then runs the office-shaped irreversible action: a
+// granted destructive DELETE on the motion-event night log. The N(1)
+// grant meters ONE delete; the second granted call refuses
+// (GRANT_EXHAUSTED — the typed detail rides in the event's human field,
+// reason IRREVERSIBLE_NO_GRANT) and the same handler degrades it.
+//
+// Every event above (grant lifecycle + both denies) is a ledger SIDE
+// EFFECT of the action path itself — there is no "also log it" call in
+// the program. The flow rotates the signing key, snapshots the head and
+// EXPORTS the chain: `mlog ledger verify target/w3_kitchen_camera_export.jsonl`
+// validates the signed file WITHOUT the Metalogos runtime (pure hash +
+// Ed25519) — the external-verifier contract of the acceptance item.
+on_deny(*) {
+  match deny_reason() {
+    "MEDIA_SEALED_EGRESS" then { print("deny:MEDIA_SEALED_EGRESS") }
+    "IRREVERSIBLE_NO_GRANT" then { print("deny:IRREVERSIBLE_NO_GRANT") }
+    else { print("deny:other") }
+  }
+}
+
+db { url: "sqlite::memory:" }
+
+origin hall_cam { kind: camera, media: image, label: public }
+
+pattern KitchenCamNightLog(_tick: String) -> String {
+  db_execute("CREATE TABLE IF NOT EXISTS motion_events (id INTEGER PRIMARY KEY, ts INTEGER, kind TEXT)")
+  db_execute("INSERT INTO motion_events (ts, kind) VALUES (100, 'old-motion')")
+  db_execute("INSERT INTO motion_events (ts, kind) VALUES (200, 'fresh-motion')")
+  // RUNTIME-SEALED FRAME: the origin is public (the static gate passes),
+  // the night classifier marks THIS frame private (runtime knowledge the
+  // static layer cannot see).
+  let frame = from hall_cam media_store_image("hall-cam-frame-2026-09-20", "private")
+  // THE DENY: materializing the sealed frame refuses — the deny event
+  // fires, the handler degrades the call to Unit, the ledger journals it.
+  let leak = media_save(frame, "frames/hall-latest.jpg")
+  // The sanctioned degraded path: the frame stays sealed in the store.
+  let kept = media_retain(frame)
+  // THE OFFICE-SHAPED ACTION: a granted destructive delete on the night
+  // log; the second granted call exhausts the N(1) quota and refuses.
+  let g = grant_issue("db:delete:motion_events", 60, "n", 1)
+  let n1 = db_execute_with_grant(g, "DELETE FROM motion_events WHERE ts < 150")
+  let n2 = db_execute_with_grant(g, "DELETE FROM motion_events")
+  // Ledger: rotate the signing key, snapshot the head, EXPORT — the
+  // externally verifiable chain (opaque key/hash material in-program).
+  let rot = ledger_rotate()
+  let snap = ledger_snapshot()
+  let path = ledger_export("target/w3_kitchen_camera_export.jsonl")
+  let head = ledger_head()
+  return "refused:" + type_of(leak) + "|kept:" + type_of(kept) + "|deleted:" + n1 + "|second:" + type_of(n2) + "|new-key:" + type_of(rot) + "|snapshot:" + type_of(snap) + "|head:" + type_of(head) + "|exported:" + type_of(path)
+}
+flow Main { input: String = "tick" -> KitchenCamNightLog -> output }

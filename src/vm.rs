@@ -569,6 +569,10 @@ impl Vm {
                     // on_deny handler for the db class handles it (degraded
                     // Unit pushed by the helper); without a handler the
                     // loud typed error is unchanged.
+                    // №397: the media sealed-egress backstop refusal is a
+                    // runtime deny event too — on_deny(file/*) handles it
+                    // (degraded Unit pushed by the helper); without a
+                    // handler the loud coded error is unchanged.
                     let result = match self.call_builtin(&name, &args) {
                         Ok(r) => r,
                         Err(e) if e.starts_with("GRANT_") => {
@@ -579,6 +583,28 @@ impl Vm {
                                 "db",
                                 "IRREVERSIBLE_NO_GRANT",
                                 "bottom",
+                                0.0,
+                                &e,
+                                &mut stack,
+                                &mut call_stack,
+                                ip + 1,
+                            )?;
+                            if handled {
+                                ip += 1;
+                                continue;
+                            }
+                            return Err(e);
+                        }
+                        Err(e) if e.starts_with("[MEDIA_SEALED_EGRESS]") => {
+                            let argument = crate::deny::sealed_egress_argument(&args);
+                            let label = crate::deny::media_seal_sensitivity(&e).to_string();
+                            let handled = self.vm_fire_on_deny(
+                                program,
+                                &name,
+                                &argument,
+                                "file",
+                                "MEDIA_SEALED_EGRESS",
+                                &label,
                                 0.0,
                                 &e,
                                 &mut stack,
@@ -1299,6 +1325,8 @@ impl Vm {
                     }
                     // Наряд №392: grant refusal → on_deny (db class),
                     // same contract as the main-code dispatch site.
+                    // №397: the media sealed-egress backstop refusal joins
+                    // the deny-event layer (class file) — same contract.
                     let result = match self.call_builtin(&name, &args) {
                         Ok(r) => r,
                         Err(e) if e.starts_with("GRANT_") => {
@@ -1309,6 +1337,28 @@ impl Vm {
                                 "db",
                                 "IRREVERSIBLE_NO_GRANT",
                                 "bottom",
+                                0.0,
+                                &e,
+                                stack,
+                                call_stack,
+                                ip + 1,
+                            )?;
+                            if handled {
+                                ip += 1;
+                                continue;
+                            }
+                            return Err(e);
+                        }
+                        Err(e) if e.starts_with("[MEDIA_SEALED_EGRESS]") => {
+                            let argument = crate::deny::sealed_egress_argument(&args);
+                            let label = crate::deny::media_seal_sensitivity(&e).to_string();
+                            let handled = self.vm_fire_on_deny(
+                                program,
+                                &name,
+                                &argument,
+                                "file",
+                                "MEDIA_SEALED_EGRESS",
+                                &label,
                                 0.0,
                                 &e,
                                 stack,

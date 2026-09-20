@@ -4,6 +4,8 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+## [0.20.1] - 2026-09-20
+
 ### Added
 
 - **Stage 5 re-gate №2 — the №398 protocol series on the compressed VM (naryad #410, issue #555, ADR-0141 Addendum 5)**: the fresh re-gate Addendum 3 promised, on main @ `434a871` (precondition: №409 in main), divisor declared before the runs (=14, claim `w5: n410-claim` in issue #527 per protocol rule 2), 3 consecutive pinned `workflow_dispatch` runs (rounds=30, no env flags, repo-versioned workflow unmodified since №404), all `success`. Latency gate (p95 ≥ ×1.5): **3/3 PASS** ×3.32/×3.83/×3.09 — the margin WIDENED vs №404 (the №409 per-request compression is also a latency lever). Memory gate (peak RSS ≤ ×1.1): **0/3 FAIL** ×1.126/×1.128/×1.129 (№404 was ×1.136/×1.143/×1.129) → **verdict NOT flip-ready**; thresholds untouched (rule 2), the serve default remains the interpreter, the pool remains opt-in. The series record with exact `rss_peak_kb` values and run links: `docs/research/naryad-410-stage5-regate2.md`. The residual CI-runner gap (VM − TW ≈ 4.3–4.6 MB) is pinned down as a RETAINED class (compiled `Arc<Program>` bytecode + 14 compiled route bodies + shared-cache snapshots vs TW's AST) that per-request compression cannot move — the honest next lever (retained-representation shrink: route-body laziness, snapshot compaction, priced AST-vs-bytecode delta) and the alternative latency-vs-memory trade are recorded for the owner's decision in issue #527 (the executor does not flip).

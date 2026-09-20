@@ -105,3 +105,24 @@ ENV OPT-IN — **the default remains pool OFF** until the #404 re-gate:
 - Correction of a stale premise: the #40-era note "Vm is !Send" (server.rs) was wrong — `Vm` is
   `Send` (compile-time probe pinned in `src/vm_pool.rs`), which is what makes a shared in-process
   pool legal at all.
+
+## Addendum 3 — Step C executed: the Stage 5 re-gate series (naryad #404, 2026-09-20)
+
+The #398-protocol re-run on main @ `fe89aa3` (preconditions: #402 in main — mandatory;
+#403 in main — desired, pool default-OFF): 3 consecutive pinned runs (rounds=30, all success),
+divisor declared before the runs = corpus route count 14, no env flags. The series record and
+the raw numbers: [`docs/research/naryad-404-stage5-rerun.md`](../research/naryad-404-stage5-rerun.md).
+
+- Latency gate (p95 ≥ ×1.5): **3/3 PASS** — ×3.04 / ×2.50 / ×3.56 (№388 was ×1.66/×1.62/×1.48,
+  2/3): the #402 `Arc<Program>` divisor elimination is confirmed at the p95 level.
+- Memory gate (peak RSS ≤ ×1.1): **0/3 FAIL** — ×1.136 / ×1.143 / ×1.129 (№388 was
+  1.10/1.09/1.12, 2/3): the clone removal is a LATENCY lever, not a resident-state lever, and
+  the pool is likewise a latency lever (idle VMs stay resident).
+- **Verdict: NOT flip-ready** by the fixed two-threshold gate (audit 2026-09-19 P0-1, thresholds
+  unchanged per protocol rule 2). What holds: parity (Stages 1–2), soak (3 green nights, №388),
+  and now the latency criterion with a wide margin. What does not hold: the memory criterion —
+  the VM's per-request resident footprint (in-memory sqlite + per-VM state classes) sits at
+  ×1.13–1.14 of TW.
+- Decision ownership: the flip is the owner's call — the executor does not flip. The honest next
+  lever is a VM memory-footprint naryad (the per-request resident state), then a fresh re-gate
+  under the SAME thresholds. The default remains `interpreter`; the pool remains opt-in.

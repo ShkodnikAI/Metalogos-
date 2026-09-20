@@ -126,3 +126,90 @@ the raw numbers: [`docs/research/naryad-404-stage5-rerun.md`](../research/naryad
 - Decision ownership: the flip is the owner's call — the executor does not flip. The honest next
   lever is a VM memory-footprint naryad (the per-request resident state), then a fresh re-gate
   under the SAME thresholds. The default remains `interpreter`; the pool remains opt-in.
+
+## Addendum 4 — Step D executed: the VM-serve footprint compressed (naryad №409, 2026-09-20)
+
+The memory gate of Addendum 3 failed because the VM's per-request peak sat at ×1.13–1.14 of TW.
+№409 (issue #554, audit 2026-09-20 P0-1 steps A+B) decomposed that footprint by state class and
+applied the candidates that measured effective. Thresholds were NOT touched (protocol №398 rule 2);
+the serve default is NOT flipped (the owner decides after the fresh re-gate №410).
+
+### Step A — the peak-RSS decomposition (method + table)
+
+Method: one probe process per class (`examples/rss_decomposition.rs`, driver
+`scripts/rss_decomposition.sh`); inside the process the probe allocates N live instances of the
+class and reports the RSS slope (ΔVmRSS / N); the RSS source is `/proc/self/status` — the same
+source the pinned Stage 4 benchmark uses. Fixture: the №398/№404 production-class corpus
+(`benches/fixtures/production_workload.mlog`, 2344 lines, 14 routes, `db { sqlite::memory: }`,
+8 entity globals, no `reflex`/`vision` DECLARATIONS — vision/reflex appear only as mock builtins).
+
+| State class (per instance) | Before №409 | After №409 | Δ |
+|---|---|---|---|
+| `Vm::new()` — builtins registry + name table | ~70 KB | ~17 KB | −76% |
+| `load_program` without db (globals slots + shared snapshots) | ~76 KB | ~19 KB | −75% |
+| `load_program` with db declared (probe never touches the db) | ~161 KB | ~21 KB | −87% |
+| per-request db class (in-memory sqlite open + schema DDL) — paid by db routes only, on first access | ~86 KB (every request) | ~86 KB (db-touching requests only: 2/14 fixture routes) | moved, not removed |
+| pool idle set (per idle VM, resident) | ~228–236 KB | ~56 KB | −76% |
+| reflex model registration (1 dense model, synthetic probe) | ~89 KB per VM | ~34 KB per VM | −62% (registry share effect) |
+| per-request execution scratch (db route, sequential loop) | ~1 MB transient peak | ~1 MB transient peak | unchanged (freed per request; retained-per-request ≈ 0) |
+
+Read of the table (honest): the dominant per-request classes were the builtins registry rebuild
+(~70 KB) and the unconditional in-memory sqlite open + DDL (~86 KB) — both paid by EVERY request,
+including the 12/14 fixture routes that never touch the db. The pool's idle set held a LIVE sqlite
+connection per idle VM (the №403 reset re-opened it eagerly).
+
+### Step B — the applied candidates (measured before/after on the pinned fixture)
+
+- **C1 — share the immutable builtins registry (applied).** `Builtins` is a pure derivation of
+  `BUILTIN_REGISTRY` (№170 SSOT) and is read-only on every VM path — the only mutation affordance
+  (`override_handler`, №287) is Interpreter-only, and the interpreter keeps its own owned instance
+  (the TW baseline is untouched). `Vm::builtins` and `Vm::builtin_names` are now process-wide
+  `Arc` (one `OnceLock` each): `Vm::new()` pays two atomic increments instead of rebuilding the
+  ~460-entry map + ~460 `String`s. Measured: the `Vm::new` class 70 → 17 KB.
+- **C2 — lazy db open (applied).** `load_program` records the declared URL and takes the SHARED
+  schema-DDL snapshot (`Program::schema_ddl_shared`, one Arc increment — program-immutable data
+  previously deep-copied implicitly per request); the connection opens on the FIRST db access
+  (`Vm::ensure_db_open`) with semantics identical to the eager open: same WAL pragma, same DDL
+  application (log + continue), same "Connected"/"Failed to connect" lines, same legacy
+  "no database connection" access error, fail-fast per VM generation on connect failure
+  (`db_open_failed` resets on `reset_for_reuse` — a fresh VM = a fresh attempt, exactly the eager
+  per-request retry semantics). The №381 isolation class is UNCHANGED: the connection is still
+  per-VM, never shared across requests; `reset_for_reuse` still drops it FIRST. Measured: the
+  per-request db class moved from "every request" to "db-touching requests only"; the pool idle
+  set dropped 236 → 56 KB per idle VM (no live sqlite in the idle set).
+- **C3 — share vision/origin decl maps (measured, not applied).** The fixture declares no
+  `vision {}`/`origin {}` blocks, so the candidate's pinned-fixture effect is definitionally
+  ~0; per the naryad's rule ("apply only what measurably reduces RSS on the pinned fixture")
+  it is recorded, not merged. The benefit would accrue to decl-bearing workloads.
+- **C4 — lazy reflex/vision model construction (measured, not applied).** Same reasoning: the
+  pinned fixture declares no reflex/vision models (the synthetic probe prices the class at
+  ~13 KB per declared dense model), so the fixture effect is ~0. Not merged.
+- **C5/C6 — pool reset and `METALOGOS_VM_POOL_MAX` (covered by C2; default kept).** The
+  "defer heavy tables out of the pooled checkout" candidate IS C2 (a pooled checkout no longer
+  opens sqlite; the reset leaves the VM connection-free). The default idle cap stays 8: with C2
+  the measured idle residency is ~56 KB/VM → 8 idle VMs ≈ 0.45 MB, which does not justify a
+  behavioral default change (data-driven decision, recorded here).
+
+### The full-bench before/after (same machine, pinned command `cargo bench --bench stage4_benchmark -- --rounds 30`)
+
+| Run | TW p95 µs | VM p95 µs | p95 ratio | TW RSS MB | VM RSS MB | RSS VM/TW |
+|---|---|---|---|---|---|---|
+| before 1 | 25427 | 5199 | ×4.89 | 36.2 | 39.1 | 1.08 |
+| before 2 | 23443 | 5021 | ×4.67 | 36.5 | 40.4 | 1.11 |
+| after 1 | 35572 | 4069 | ×8.74 | 39.2 | 37.5 | 0.96 |
+| after 2 | 24962 | 3632 | ×6.87 | 38.9 | 39.2 | 1.01 |
+| after 3 | 40548 | 4192 | ×9.67 | 36.4 | 37.6 | 1.03 |
+
+- The VM p95 improved (5.0–5.2 → 3.6–4.2 ms local): the removed per-request registry rebuild
+  and eager open are latency, not just memory. The p95 ≥ ×1.5 criterion holds with a WIDER margin.
+- The peak-RSS ratio moved from ×1.08–1.11 (local) to ×0.96–1.03 (local). The CI-runner readings
+  (Addendum 3: ×1.129–1.143) are the ones the GATE measures — the fresh re-gate under the SAME
+  thresholds is naryad №410's verdict, not this addendum. No threshold was renegotiated; no
+  default was flipped; fail-closed pool and TW/VM parity (Stages 1–2) are unchanged.
+- Tests (red→green, mutation-verified per the №382 protocol): `mod n409_tests` pins the lazy-open
+  invariants (load defers; db-free route never opens; db route opens + DDL on first access;
+  fail-fast with the legacy message), the registry sharing (`Arc::ptr_eq` process-wide) and the
+  new discard invariant (a pooled reset rests CONNECTION-FREE; the next generation's first access
+  re-opens a fresh db — request A's content never survives). Mutations M1 (re-eager the open),
+  M2 (un-share the registry), M3 (keep the connection across a reset) each made the named test
+  fall.

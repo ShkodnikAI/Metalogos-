@@ -51,9 +51,17 @@ pub struct Vm {
     /// Learnable pattern table: index → (info, few_shot, original_few_shot).
     learnables: Vec<(CompiledLearnableInfo, Vec<(String, String)>)>,
     /// Built-in function registry.
-    builtins: Builtins,
+    /// №409 (step B, candidate C1): SHARED process-wide (`shared_builtins_registry`) —
+    /// the registry is a pure derivation of `BUILTIN_REGISTRY` and is read-only on
+    /// every VM path (handler override is an Interpreter-only affordance, №287),
+    /// so each `Vm::new()` pays one Arc increment instead of rebuilding the
+    /// ~460-entry map. The interpreter (TW) keeps its own owned instance — the
+    /// benchmark baseline is untouched.
+    builtins: std::sync::Arc<Builtins>,
     /// Builtin name lookup table (index → name).
-    builtin_names: Vec<String>,
+    /// №409 (C1): shared process-wide for the same reason — one allocation
+    /// for the whole process instead of ~460 `String`s per `Vm::new()`.
+    builtin_names: std::sync::Arc<Vec<String>>,
     /// Memory store.
     memory: Vec<VmMemoryEntry>,
     /// Knowledge graph relations.
@@ -65,7 +73,26 @@ pub struct Vm {
     /// step A: SHARED with the Program, read-only after load.
     skill_indices: std::sync::Arc<Vec<CompiledSkillIndex>>,
     /// Database connection (opened from program.db_url if present).
+    /// №409 (step B, candidate C2): opens LAZILY on the first db access
+    /// (`ensure_db_open`) — `load_program` only records the declared URL,
+    /// so requests that never touch the db never pay the in-memory sqlite
+    /// open + schema DDL (the per-request class measured in the ADR-0141
+    /// Addendum 4 decomposition). Pooled idle VMs rest connection-free.
     db_conn: Option<rusqlite::Connection>,
+    /// №409 (C2): the declared db URL, recorded at `load_program`. The
+    /// connection itself opens on demand; `None` = no db declared (the
+    /// access sites produce the same legacy error as before).
+    db_url: Option<String>,
+    /// №409 (C2): shared schema-DDL snapshot (`Program::schema_ddl_shared`)
+    /// applied once per connection open — program-immutable data, shared
+    /// not copied.
+    db_schema_ddl: std::sync::Arc<Vec<String>>,
+    /// №409 (C2): a FAILED connection attempt is remembered for this VM
+    /// generation (load → reset cycle). The eager open produced exactly one
+    /// attempt + one error line per request and left every access failing
+    /// with the legacy "no database connection" message; the lazy open
+    /// reproduces those semantics (fail fast, no silent retry storm).
+    db_open_failed: bool,
     /// Mutate log messages.
     mutate_log: Vec<String>,
     /// Audit log entries (Наряд №41 Block 2: parity with interpreter).
@@ -149,6 +176,58 @@ pub struct Vm {
 /// Collapse threshold for Fluid values (matches interpreter).
 const COLLAPSE_THRESHOLD: f64 = 0.1;
 
+/// №409 (step B, candidate C1): the process-wide builtin registry.
+///
+/// `Builtins` is a pure derivation of `BUILTIN_REGISTRY` (№170 SSOT) and is
+/// READ-ONLY on every VM path — the only mutation affordance
+/// (`override_handler`, №287) is an Interpreter-only mechanism and the
+/// interpreter keeps its own owned instance. Sharing one `Arc<Builtins>`
+/// across all VMs therefore preserves behavior exactly while removing the
+/// per-`Vm::new()` registry rebuild (~460-entry map) — the largest single
+/// per-request allocation class measured in the ADR-0141 Addendum 4
+/// decomposition (~70 KB per instance).
+fn shared_builtins_registry() -> std::sync::Arc<Builtins> {
+    static SHARED: std::sync::OnceLock<std::sync::Arc<Builtins>> = std::sync::OnceLock::new();
+    SHARED
+        .get_or_init(|| std::sync::Arc::new(Builtins::new()))
+        .clone()
+}
+
+/// №409 (C1): the process-wide builtin NAME table (index → name, parallel
+/// to the compiler's index ordering). One allocation per process instead
+/// of ~460 `String`s per `Vm::new()`.
+fn shared_builtin_names() -> std::sync::Arc<Vec<String>> {
+    static SHARED: std::sync::OnceLock<std::sync::Arc<Vec<String>>> = std::sync::OnceLock::new();
+    SHARED
+        .get_or_init(|| std::sync::Arc::new(crate::builtins::builtin_names()))
+        .clone()
+}
+
+/// №409 (step B, candidate C2): open a database connection and apply the
+/// schema DDL — the exact steps the eager `load_program` path performed
+/// per request, extracted verbatim so the lazy open reproduces the same
+/// pragmas, the same DDL error tolerance (log + continue) and the same
+/// "Connected" log line.
+fn open_db_connection(
+    url: &str,
+    schema_ddl: &[String],
+) -> Result<rusqlite::Connection, rusqlite::Error> {
+    let conn = if url == "sqlite::memory:" {
+        rusqlite::Connection::open_in_memory()?
+    } else {
+        let path = url.trim_start_matches("sqlite:");
+        rusqlite::Connection::open(path)?
+    };
+    let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
+    eprintln!("[vm/db] Connected: {}", url);
+    for ddl in schema_ddl {
+        if let Err(e) = conn.execute_batch(ddl) {
+            eprintln!("[vm/db] DDL error: {}", e);
+        }
+    }
+    Ok(conn)
+}
+
 impl Default for Vm {
     fn default() -> Self {
         Self::new()
@@ -158,8 +237,6 @@ impl Default for Vm {
 impl Vm {
     /// Create a new VM with empty state.
     pub fn new() -> Self {
-        let builtin_names = crate::builtins::builtin_names();
-
         Vm {
             label_env: std::collections::BTreeMap::new(),
             value_registers: Vec::new(),
@@ -167,13 +244,16 @@ impl Vm {
             global_names: std::sync::Arc::new(Vec::new()),
             patterns: std::sync::Arc::new(Vec::new()),
             learnables: Vec::new(),
-            builtins: Builtins::new(),
-            builtin_names,
+            builtins: shared_builtins_registry(),
+            builtin_names: shared_builtin_names(),
             memory: Vec::new(),
             relations: Vec::new(),
             rules: std::sync::Arc::new(Vec::new()),
             skill_indices: std::sync::Arc::new(Vec::new()),
             db_conn: None,
+            db_url: None,
+            db_schema_ddl: std::sync::Arc::new(Vec::new()),
+            db_open_failed: false,
             mutate_log: Vec::new(),
             audit_log: Mutex::new(Vec::new()),
             propagated_confidence: 1.0,
@@ -317,39 +397,60 @@ impl Vm {
             self.origin_decls.insert(decl.name.clone(), decl.clone());
         }
 
-        // Open database connection if URL is specified
-        self.db_conn = program.db_url.as_ref().and_then(|url| {
-            let conn = if url == "sqlite::memory:" {
-                rusqlite::Connection::open_in_memory()
-            } else if url.starts_with("sqlite:") {
-                let path = url.trim_start_matches("sqlite:");
-                rusqlite::Connection::open(path)
-            } else {
-                return None;
-            };
-            match conn {
-                Ok(c) => {
-                    let _ = c.execute_batch("PRAGMA journal_mode=WAL;");
-                    eprintln!("[vm/db] Connected: {}", url);
-                    Some(c)
-                }
-                Err(e) => {
-                    eprintln!("[vm/db] Failed to connect to '{}': {}", url, e);
-                    None
-                }
-            }
-        });
-
-        // Execute schema DDL statements (CREATE TABLE IF NOT EXISTS)
-        if let Some(conn) = self.db_conn.as_mut() {
-            for ddl in &program.schema_ddl {
-                if let Err(e) = conn.execute_batch(ddl) {
-                    eprintln!("[vm/db] DDL error: {}", e);
-                }
-            }
-        }
+        // ── №409 (candidate C2): the db connection is LAZY ────────
+        // The eager path opened the connection (in-memory sqlite or file)
+        // and ran the schema DDL here, on EVERY load_program — i.e. on
+        // every serve request and every pooled checkout, even when the
+        // request never touched the db. The measured cost of that class
+        // is ~86 KB peak per instance (ADR-0141 Addendum 4 decomposition,
+        // load_db minus load_nodb). load_program now only RECORDS the
+        // declared URL and takes the SHARED schema-DDL snapshot (one Arc
+        // increment — program-immutable data, previously deep-copied
+        // implicitly per request); the connection itself opens on the
+        // first db access (ensure_db_open) with semantics identical to
+        // the eager open (same pragmas, same DDL tolerance, same log
+        // lines, same legacy access error). The №381 isolation class is
+        // UNCHANGED: the connection is still per-VM — never shared across
+        // requests; reset_for_reuse still drops it FIRST.
+        self.db_url = program.db_url.clone();
+        self.db_schema_ddl = program.schema_ddl_shared();
 
         Ok(())
+    }
+
+    /// №409 (candidate C2): open the database connection on the FIRST db
+    /// access — the lazy twin of the eager open this file used to perform
+    /// inside `load_program` on every request.
+    ///
+    /// Semantics contract (pinned by `mod n409_tests`):
+    ///   * no db declared → no-op; access sites produce the same legacy
+    ///     "no database connection" error as before;
+    ///   * unsupported scheme → no-op (the eager open was equally silent);
+    ///   * connect failure → ONE "[vm/db] Failed to connect" line, then
+    ///     `db_open_failed` makes every later access fail fast with the
+    ///     same legacy message the eager path produced (no retry storm) —
+    ///     the flag resets on `reset_for_reuse`, matching the per-request
+    ///     retry semantics of the eager path (a fresh VM = a fresh attempt);
+    ///   * success → same WAL pragma, same DDL application (log +
+    ///     continue on error), same "[vm/db] Connected" line.
+    fn ensure_db_open(&mut self) {
+        if self.db_conn.is_some() || self.db_open_failed {
+            return;
+        }
+        let url = match self.db_url.as_ref() {
+            Some(u) => u.clone(),
+            None => return,
+        };
+        if !(url == "sqlite::memory:" || url.starts_with("sqlite:")) {
+            return;
+        }
+        match open_db_connection(&url, &self.db_schema_ddl) {
+            Ok(c) => self.db_conn = Some(c),
+            Err(e) => {
+                eprintln!("[vm/db] Failed to connect to '{}': {}", url, e);
+                self.db_open_failed = true;
+            }
+        }
     }
 
     /// Наряд №403: fail-closed reset between POOLED serve requests.
@@ -369,9 +470,9 @@ impl Vm {
     ///   2. The program-scoped fields ARE wholesale-reassigned by
     ///      `load_program` (globals, patterns, rules, skill_indices,
     ///      deny_handlers, global_names, collections_loaded,
-    ///      memory_persist_path, db_conn) — the reset re-runs it, so a
-    ///      half-updated future `load_program` cannot silently skip a
-    ///      class;
+    ///      memory_persist_path, db_url, db_schema_ddl) — the reset
+    ///      re-runs it, so a half-updated future `load_program` cannot
+    ///      silently skip a class;
     ///   3. Anything the reset cannot guarantee is not reset but
     ///      DISCARDED by the caller: the pool never checks a VM back in
     ///      after a failed route execution, a failed reset, or a panic
@@ -381,11 +482,17 @@ impl Vm {
     /// The db connection is dropped FIRST: an open connection (its
     /// transactions, temp tables, in-memory content) must never survive
     /// into the next request even if `load_program` below fails midway.
-    /// `load_program` re-opens it from `program.db_url` and re-executes
-    /// the schema DDL — exactly what a fresh per-request VM pays today.
+    /// №409: with the LAZY db open the reload no longer re-opens the
+    /// connection — a checked-in VM rests CONNECTION-FREE (the measured
+    /// idle-VM residency drops by the live-sqlite share) and the next
+    /// request's first db access re-opens it exactly like a fresh
+    /// per-request VM would. `db_open_failed` resets with the same
+    /// per-generation semantics (a fresh VM = a fresh attempt).
     pub fn reset_for_reuse(&mut self, program: &Program) -> Result<(), String> {
         // ── 0. the №381 class: database connection goes FIRST ──
         self.db_conn = None;
+        // №409: a failed lazy open must not poison the next generation.
+        self.db_open_failed = false;
 
         // ── 1. execution scratch ──
         // Value-expression registers (№370): block-value temporaries.
@@ -2094,6 +2201,9 @@ impl Vm {
                 Some(Value::Struct { fields, .. }) => fields.clone(),
                 _ => return Err("db_insert() expects second argument to be a Struct".to_string()),
             };
+            // №409: LAZY db open — the connection (in-memory sqlite +
+            // schema DDL) materializes here, on first use.
+            self.ensure_db_open();
             let conn = self.db_conn.as_mut().ok_or_else(|| {
                 "db_insert() error: no database connection. Declare db { url: \"sqlite::memory:\" } first.".to_string()
             })?;
@@ -2145,6 +2255,8 @@ impl Vm {
             } else {
                 Vec::new()
             };
+            // №409: lazy db open on first use.
+            self.ensure_db_open();
             let conn = self
                 .db_conn
                 .as_ref()
@@ -2201,6 +2313,8 @@ impl Vm {
             } else {
                 Vec::new()
             };
+            // №409: lazy db open on first use.
+            self.ensure_db_open();
             let conn = self
                 .db_conn
                 .as_ref()
@@ -2263,6 +2377,8 @@ impl Vm {
             } else {
                 Vec::new()
             };
+            // №409: lazy db open on first use.
+            self.ensure_db_open();
             let conn = self
                 .db_conn
                 .as_ref()
@@ -2317,6 +2433,8 @@ impl Vm {
                     ));
                 }
             }
+            // №409: lazy db open on first use.
+            self.ensure_db_open();
             let conn = self.db_conn.as_ref().ok_or_else(|| {
                 "db_execute_with_grant() error: no database connection.".to_string()
             })?;
@@ -2793,6 +2911,8 @@ impl Vm {
                 Vec::new()
             };
 
+            // №409: lazy db open on first use.
+            self.ensure_db_open();
             let conn = self
                 .db_conn
                 .as_mut()
@@ -3263,7 +3383,10 @@ impl Vm {
         // the registry and the VM's database connection (no-db → loud Err
         // naming the `db { url: ... }` declaration; load returns a fresh
         // monotonic session handle, the persisted key is the name).
+        // №409: lazy db open on first use (the connection materializes
+        // here for save/load/LoRA; vision_edit keeps its no-db contract).
         if name == "vision_save" {
+            self.ensure_db_open();
             return Some(crate::builtins::vision_save_dispatch(
                 &self.vision_registry,
                 self.db_conn.as_ref(),
@@ -4479,13 +4602,16 @@ mod n403_reset_tests {
         &std::sync::Arc<Vec<String>>,
         &std::sync::Arc<Vec<CompiledFn>>,
         &Vec<(CompiledLearnableInfo, Vec<(String, String)>)>,
-        &Builtins,
-        &Vec<String>,
+        &std::sync::Arc<Builtins>,
+        &std::sync::Arc<Vec<String>>,
         &Vec<VmMemoryEntry>,
         &Vec<VmRelation>,
         &std::sync::Arc<Vec<CompiledRule>>,
         &std::sync::Arc<Vec<CompiledSkillIndex>>,
         &Option<rusqlite::Connection>,
+        &Option<String>,
+        &std::sync::Arc<Vec<String>>,
+        &bool,
         &Vec<String>,
         &Mutex<Vec<String>>,
         &f64,
@@ -4524,6 +4650,9 @@ mod n403_reset_tests {
             rules,
             skill_indices,
             db_conn,
+            db_url,
+            db_schema_ddl,
+            db_open_failed,
             mutate_log,
             audit_log,
             propagated_confidence,
@@ -4565,6 +4694,9 @@ mod n403_reset_tests {
             rules,
             skill_indices,
             db_conn,
+            db_url,
+            db_schema_ddl,
+            db_open_failed,
             mutate_log,
             audit_log,
             propagated_confidence,
@@ -4603,6 +4735,9 @@ mod n403_reset_tests {
             rules,
             skill_indices,
             db_conn,
+            db_url,
+            db_schema_ddl,
+            db_open_failed,
             mutate_log,
             audit_log,
             propagated_confidence,
@@ -4654,11 +4789,25 @@ entity base: String = "7"
         // The enumeration must stay live and callable: adding a field to
         // `Vm` without updating the destructure breaks the crate's
         // compilation — that break IS the canary mechanism.
-        let (vm, _) = loaded_vm(N403_SOURCE);
-        let fields = vm_state_enumeration(&vm);
-        assert_eq!(fields.2.len(), vm.globals.len(), "globals slot count");
-        assert!(fields.12.is_some(), "in-memory db connection present");
-        assert!(fields.0.is_empty(), "label env starts empty");
+        let (mut vm, _) = loaded_vm(N403_SOURCE);
+        {
+            let fields = vm_state_enumeration(&vm);
+            assert_eq!(fields.2.len(), vm.globals.len(), "globals slot count");
+            // №409: the db open is DEFERRED — load_program records the URL and
+            // the shared DDL snapshot but must NOT open a connection.
+            assert!(fields.12.is_none(), "№409: load must not open the db");
+            assert_eq!(
+                fields.13.as_deref(),
+                Some("sqlite::memory:"),
+                "declared URL recorded"
+            );
+            assert!(!fields.15, "no failed attempt recorded on a clean load");
+            assert!(fields.0.is_empty(), "label env starts empty");
+        }
+        // The first access opens the connection (the lazy twin of the old
+        // eager open) and applies the schema DDL.
+        vm.ensure_db_open();
+        assert!(vm.db_conn.is_some(), "first access must open the db");
     }
 
     #[test]
@@ -4779,10 +4928,18 @@ entity base: String = "7"
             vm.propagated_confidence, 1.0,
             "confidence must reset to 1.0"
         );
-        // №381 canary: the reopened connection must be FRESH — the leaked
-        // table from the dirty connection must be gone.
+        // №381 canary: the reset leaves the VM CONNECTION-FREE (№409 lazy
+        // contract) and the FIRST ACCESS afterwards opens a FRESH
+        // connection — the leaked table from the dirty connection must be
+        // gone from it.
+        assert!(vm.db_conn.is_none(), "№409: reset must not leave a live db");
+        assert!(!vm.db_open_failed, "№409: reset must clear the failed flag");
+        vm.ensure_db_open();
         let leaked = {
-            let conn = vm.db_conn.as_ref().expect("in-memory db must be reopened");
+            let conn = vm
+                .db_conn
+                .as_ref()
+                .expect("first access after reset must re-open");
             conn.query_row(
                 "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='leak'",
                 [],
@@ -4865,5 +5022,224 @@ entity base: String = "7"
         vm.reset_for_reuse(&program).expect("second reset");
         let (fresh, _) = loaded_vm(N403_SOURCE);
         assert_eq!(format!("{:?}", vm.globals), format!("{:?}", fresh.globals));
+    }
+}
+
+/// ── Naryad №409 (issue #554): the new VM-serve footprint invariants ──
+///
+/// Red→green + mutation verification (№382 protocol): each test below
+/// names the invariant it pins; kicking the corresponding candidate out
+/// (re-eagering the db open, un-sharing the builtin registry, keeping a
+/// live connection across a pooled reset) MUST make the named test fall.
+#[cfg(test)]
+mod n409_tests {
+    use super::*;
+
+    fn compiled_with_routes(source: &str) -> (Program, Vec<crate::bytecode::CompiledRoute>) {
+        let decls = crate::parser::parse(source).expect("parse");
+        let server_cfg = decls
+            .iter()
+            .find_map(|d| match d {
+                crate::ast::Declaration::MlogServer(s) => Some(s.clone()),
+                _ => None,
+            })
+            .expect("mlogserver block");
+        let mut comp = crate::compiler::Compiler::new();
+        let program = comp.compile(decls).expect("compile");
+        let routes = comp.compile_routes(&server_cfg.routes).expect("routes");
+        (program, routes)
+    }
+
+    /// Program WITH a db declaration AND a schema (→ schema_ddl)
+    /// AND one db-free route AND one db route.
+    const N409_SOURCE: &str = r#"
+db { url: "sqlite::memory:" }
+schema n409_dept {
+  table n409_probe {
+    a: String
+  }
+}
+pattern Echo409(n: String) -> String { return n }
+mlogserver {
+  port: 0
+  route "/echo409" method=GET {
+    respond("200", Echo409("pong"))
+  }
+  route "/put409" method=POST {
+    db_insert("n409_probe", {a: "x"})
+    respond("200", "stored")
+  }
+}
+"#;
+
+    #[test]
+    fn n409_load_defers_db_open_until_first_access() {
+        // INVARIANT (candidate C2): load_program records the declared URL
+        // and the shared DDL snapshot but opens NO connection.
+        let (program, _) = compiled_with_routes(N409_SOURCE);
+        assert!(
+            !program.schema_ddl.is_empty(),
+            "fixture must carry schema DDL (the entity table)"
+        );
+        let mut vm = Vm::new();
+        vm.load_program(&program).expect("load");
+        assert!(vm.db_conn.is_none(), "load must NOT open the db");
+        // First db access opens AND applies the schema DDL.
+        vm.ensure_db_open();
+        let conn = vm.db_conn.as_ref().expect("first access must open");
+        let have = conn
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='n409_probe'",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap_or(-1);
+        assert_eq!(have, 1, "schema DDL must be applied on the lazy open");
+    }
+
+    #[test]
+    fn n409_db_free_route_never_opens_the_db() {
+        // INVARIANT (candidate C2): a request whose route body never
+        // touches the db pays NO sqlite open + DDL — the connection rests
+        // None through load + route execution. This is the measured
+        // ~86 KB/request class the lazy open removes (ADR-0141 Add. 4).
+        let (program, routes) = compiled_with_routes(N409_SOURCE);
+        let mut vm = Vm::new();
+        vm.load_program(&program).expect("load");
+        let route = routes
+            .iter()
+            .find(|r| r.path == "/echo409")
+            .expect("db-free route")
+            .clone();
+        let out = vm.execute_route_code(&route, &program);
+        assert!(out.is_ok(), "db-free route must succeed: {:?}", out);
+        assert!(
+            vm.db_conn.is_none(),
+            "a db-free request must not open a connection"
+        );
+        // Mutation pin: re-eagering the open inside load_program makes the
+        // assertion above fail — that IS the red phase of this test.
+    }
+
+    #[test]
+    fn n409_db_route_opens_and_serves_on_first_access() {
+        // INVARIANT (candidate C2): a request that DOES touch the db gets
+        // the same behavior as the eager path — open + DDL + write succeed.
+        let (program, routes) = compiled_with_routes(N409_SOURCE);
+        let mut vm = Vm::new();
+        vm.load_program(&program).expect("load");
+        let route = routes
+            .iter()
+            .find(|r| r.path == "/put409")
+            .expect("db route")
+            .clone();
+        let out = vm.execute_route_code(&route, &program);
+        assert!(out.is_ok(), "db route must succeed: {:?}", out);
+        assert!(vm.db_conn.is_some(), "the db route must have opened");
+    }
+
+    #[test]
+    fn n409_db_open_failure_fails_fast_with_legacy_message() {
+        // INVARIANT (candidate C2): a failed connect is remembered for the
+        // VM generation (fail fast, no silent retry storm) and the access
+        // sites surface the SAME legacy message the eager path produced.
+        let source = r#"
+db { url: "sqlite:/nonexistent-dir-n409/probe.db" }
+pattern Echo409(n: String) -> String { return n }
+mlogserver {
+  port: 0
+  route "/read409" method=GET {
+    query("SELECT 1", [])
+    respond("200", "unreachable")
+  }
+}
+"#;
+        let (program, routes) = compiled_with_routes(source);
+        let mut vm = Vm::new();
+        vm.load_program(&program).expect("load");
+        assert!(vm.db_conn.is_none());
+        vm.ensure_db_open();
+        assert!(vm.db_conn.is_none(), "a bad path must not open");
+        assert!(vm.db_open_failed, "the failed attempt must be remembered");
+        // No retry on the second access (fail fast).
+        vm.ensure_db_open();
+        assert!(vm.db_conn.is_none() && vm.db_open_failed);
+        // The access site's error is the legacy message (via a real route
+        // body — the query() builtin arm).
+        let route = routes
+            .iter()
+            .find(|r| r.path == "/read409")
+            .expect("read route")
+            .clone();
+        let err = vm
+            .execute_route_code(&route, &program)
+            .expect_err("access must fail with the legacy error");
+        assert!(
+            err.contains("no database connection"),
+            "legacy message expected, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn n409_shared_registry_is_process_wide() {
+        // INVARIANT (candidate C1): every Vm::new() shares ONE builtin
+        // registry and ONE name table (Arc identity) — the per-request
+        // ~70 KB rebuild is gone. Mutation pin: reverting Vm::new to a
+        // fresh Builtins::new() per VM makes the ptr_eq assertions fail.
+        let a = Vm::new();
+        let b = Vm::new();
+        assert!(
+            std::sync::Arc::ptr_eq(&a.builtins, &b.builtins),
+            "the builtin registry must be shared process-wide"
+        );
+        assert!(
+            std::sync::Arc::ptr_eq(&a.builtin_names, &b.builtin_names),
+            "the builtin name table must be shared process-wide"
+        );
+    }
+
+    #[test]
+    fn n409_pool_reset_restores_lazy_state_and_kills_bytes() {
+        // INVARIANT (the new discard invariant, pool path): a pooled VM
+        // whose request OPENED the db and wrote private content resets to
+        // the CONNECTION-FREE lazy resting state — the next generation's
+        // first access opens a FRESH db with the schema DDL and none of
+        // the previous request's content (the №381 canary, lazy edition).
+        let (program, _) = compiled_with_routes(N409_SOURCE);
+        let program = std::sync::Arc::new(program);
+        let mut vm = Vm::new();
+        vm.load_program(&program).expect("load");
+        vm.ensure_db_open();
+        {
+            let conn = vm.db_conn.as_ref().expect("opened for the request");
+            conn.execute_batch(
+                "CREATE TABLE req_private(x TEXT); INSERT INTO req_private VALUES('leak');",
+            )
+            .unwrap();
+        }
+        // The pool's checkin path: fail-closed reset.
+        vm.reset_for_reuse(&program).expect("reset");
+        assert!(vm.db_conn.is_none(), "reset must rest connection-free");
+        assert!(!vm.db_open_failed, "reset must clear the failed flag");
+        // Next generation: first access re-opens fresh — no request A bytes.
+        vm.ensure_db_open();
+        let conn = vm.db_conn.as_ref().expect("re-opened");
+        let leaked = conn
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='req_private'",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap_or(-1);
+        assert_eq!(leaked, 0, "request A's content must never survive");
+        let schema = conn
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='n409_probe'",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap_or(-1);
+        assert_eq!(schema, 1, "the shared DDL snapshot must re-apply");
     }
 }

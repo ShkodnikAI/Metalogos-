@@ -548,6 +548,9 @@ pub struct ProgramSharedCache {
     deny_handlers: std::sync::OnceLock<std::sync::Arc<Vec<CompiledDenyHandler>>>,
     skill_indices: std::sync::OnceLock<std::sync::Arc<Vec<CompiledSkillIndex>>>,
     global_names: std::sync::OnceLock<std::sync::Arc<Vec<String>>>,
+    /// №409: the schema-DDL snapshot — applied once per LAZY connection
+    /// open (see `Vm::ensure_db_open`), never deep-copied per request.
+    schema_ddl: std::sync::OnceLock<std::sync::Arc<Vec<String>>>,
 }
 
 impl ProgramSharedCache {
@@ -633,6 +636,19 @@ impl Program {
         self.shared_cache
             .global_names
             .get_or_init(|| std::sync::Arc::new(self.globals.clone()))
+            .clone()
+    }
+
+    /// №409: the schema-DDL statements (CREATE TABLE IF NOT EXISTS ...) —
+    /// read-only program data the per-request VM used to receive only
+    /// indirectly (the eager open ran it from `&program.schema_ddl` at
+    /// every `load_program`). With the LAZY db open the VM stores this
+    /// shared snapshot at load and applies it once per connection open —
+    /// one Arc increment per request instead of retaining a private copy.
+    pub fn schema_ddl_shared(&self) -> std::sync::Arc<Vec<String>> {
+        self.shared_cache
+            .schema_ddl
+            .get_or_init(|| std::sync::Arc::new(self.schema_ddl.clone()))
             .clone()
     }
 

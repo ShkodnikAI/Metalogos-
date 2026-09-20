@@ -201,3 +201,7 @@ real ADRs (№309/№320/№412) before the booking.
 | 0164 | Perception AST — HandleSource/Lift/Sink/ProvBind and the origin chain (№332) | accepted |
 | 0165 | BackendSelect — the backend ladder and Degraded(t), typed degradation (№336) | accepted |
 | 0166 | The C2PA contour of media handles — read/write manifests and the generation guarantee (№337) | accepted |
+| 0167 | Action Ledger v1 — the signed append-only journal, prev-hash + Ed25519, in-toto/PROV profile (№393) | accepted |
+| 0168 | MCP server transports — stdio/HTTP/SSE behind the serve gates (№394) | accepted |
+| 0169 | Stable `try` error codes — origin-stamped classification (№385) | accepted |
+| 0170 | Persistence taint layer 2 — locally-bound key prefixes; points-to deferred (№405) | accepted |

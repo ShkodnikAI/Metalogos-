@@ -1,0 +1,16 @@
+// Наряд №405 (green): LLM-источника нет вовсе — let-связанные ключи
+// (обе стороны) пишут и читают чистый текст; слой №405 нечего
+// регистрировать, recall→respond легален (зеркало ok_386_plain_memory
+// в форме №405).
+pattern SaveFact(_tick: String) -> String {
+  let key = "fact405:" + "plain"
+  let _ = memorize(key, "plain text, no LLM anywhere")
+  return "saved"
+}
+pattern UseFact(_tick: String) -> String {
+  let k = "fact405:" + "plain"
+  let v = recall(k)
+  let _ = respond("200 OK", v)
+  return "ok"
+}
+flow Main { input: String = "x" -> UseFact -> output }

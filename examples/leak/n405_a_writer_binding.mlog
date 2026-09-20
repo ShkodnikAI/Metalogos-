@@ -1,0 +1,12 @@
+// Наряд №405 (issue #528, ADR-0170): WRITE-половина кросс-модульной пары
+// со связанным ключом. Ключ строится в let-биндинге (офисная форма:
+// app.mlog:579 `let key = "rate_limit:" + provider`) — слой №405
+// резолвит префикс через биндинг, запись отказывает (гейт memory-синка)
+// и реестр сеет заражённый префикс для модуля-читателя
+// (n405_b_reader_binding; раннер сортирует корпус: a < b).
+pattern StoreSummary(data: String) -> String {
+  let key = "user405:" + data + ":summary"
+  let _ = memorize(key, call_llm(data))
+  return "stored"
+}
+flow Main { input: String = "x" -> StoreSummary -> output }

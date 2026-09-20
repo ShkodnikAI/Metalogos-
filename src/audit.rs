@@ -2288,11 +2288,16 @@ fn check_taint_persistence(
 //      recall whose value reaches `respond`/`respond_html` is the same
 //      `TAINT_PERSISTENCE` Category-A error (one leak-suite vocabulary).
 //   3. Honest boundary (documented in docs/limitations.md): dynamically
-//      constructed keys without a leading string literal are NOT
-//      covered — full interprocedural points-to is a later phase.
-//      `METALOGOS_TAINT_STRICT=1` arms a stricter mode: any `recall`
-//      reaching a sink flags when ANY other module writes LLM output to
-//      memory at all (no key match). Default: off.
+//      constructed keys are covered through their LEADING LITERAL only —
+//      both inline and through local `let` bindings (№405:
+//      `let key = "user:" + id; memorize(key, …)` names the prefix
+//      `"user:"`; the walkers thread a binding map and an unresolvable
+//      re-assignment keeps the previous prefix — fail-closed). Keys with
+//      NO leading literal anywhere (call results, field reads) remain
+//      uncovered — full interprocedural points-to is explicitly deferred
+//      to Phase 7 (ADR-0170). `METALOGOS_TAINT_STRICT=1` arms a stricter
+//      mode: any `recall` reaching a sink flags when ANY other module
+//      writes LLM output to memory at all (no key match). Default: off.
 
 /// The literal prefix of a memory KEY expression (№386 MVP): a string
 /// literal, or the leading string literal of a concatenation
@@ -2315,6 +2320,37 @@ fn memory_key_prefix(expr: &Expr) -> Option<String> {
 /// №327 decision gates accept).
 fn is_memory_taint_sanitizer(name: &str) -> bool {
     name == "render" || name == "escape_html" || name == "redact"
+}
+
+/// №405: resolve the memory-key prefix THROUGH local let-bindings —
+/// `let key = "user:" + user_id + ":summary"; memorize(key, …)` names the
+/// prefix `"user:"` (the exact shape the office dogfood №395 writes:
+/// `let key = "rate_limit:" + provider` at app.mlog:579,
+/// `"model_cost:" + model + ":" + direction` at app.mlog:707,
+/// `"legal_jx_" + jurisdiction` at dept/legal.mlog:325). An `Ident`
+/// resolves to the prefix recorded for that binding by the walkers
+/// (linear statement walk; branch bodies share the map — the same
+/// monotone convention the recall walker's taint vars use). A
+/// re-assignment with an UNRESOLVABLE value keeps the previous prefix —
+/// fail-closed: a taint detector must not silently drop a flow it has
+/// already seen. Any other expression shape stays honestly unresolvable
+/// (the №386 boundary; points-to is a Phase-7 problem, ADR-0170).
+fn resolve_memory_key_prefix(
+    expr: &Expr,
+    bindings: &std::collections::HashMap<String, String>,
+) -> Option<String> {
+    match expr {
+        Expr::Ident { name, .. } => bindings.get(name).cloned(),
+        // №405: the concatenation HEAD recurses through THIS resolver, not
+        // the MVP's memory_key_prefix — a chained binding
+        // (`let k2 = k1 + ":summary"`) carries its Ident head into the map.
+        Expr::BinaryOp {
+            op: BinOp::Add,
+            left,
+            ..
+        } => resolve_memory_key_prefix(left, bindings),
+        other => memory_key_prefix(other),
+    }
 }
 
 /// Per-module memory-taint summary in the cross-module registry:
@@ -2426,20 +2462,27 @@ fn collect_tainted_memory_writes_stmts(
     body: &[Statement],
     keys: &mut std::collections::HashSet<String>,
     any: &mut bool,
+    bindings: &mut std::collections::HashMap<String, String>,
 ) {
     for stmt in body {
         match stmt {
-            Statement::LetBinding { value, .. } | Statement::Assign { value, .. } => {
-                collect_tainted_memory_writes_expr(value, keys, any);
+            Statement::LetBinding { name, value, .. } | Statement::Assign { name, value, .. } => {
+                // №405: the RHS is evaluated in the PRE-statement key
+                // environment (runtime evaluation order) — scan first,
+                // record the binding after.
+                collect_tainted_memory_writes_expr(value, keys, any, bindings);
+                if let Some(prefix) = resolve_memory_key_prefix(value, bindings) {
+                    bindings.insert(name.clone(), prefix);
+                }
             }
             Statement::ExprStmt { expr, .. } | Statement::Return { value: expr, .. } => {
-                collect_tainted_memory_writes_expr(expr, keys, any);
+                collect_tainted_memory_writes_expr(expr, keys, any, bindings);
             }
             Statement::Each { body, .. }
             | Statement::EachWithIndex { body, .. }
             | Statement::While { body, .. }
             | Statement::IfThen { body, .. } => {
-                collect_tainted_memory_writes_stmts(body, keys, any);
+                collect_tainted_memory_writes_stmts(body, keys, any, bindings);
             }
             Statement::IfElseBlock {
                 then_body,
@@ -2447,22 +2490,22 @@ fn collect_tainted_memory_writes_stmts(
                 else_body,
                 ..
             } => {
-                collect_tainted_memory_writes_stmts(then_body, keys, any);
+                collect_tainted_memory_writes_stmts(then_body, keys, any, bindings);
                 for (_, b) in else_ifs {
-                    collect_tainted_memory_writes_stmts(b, keys, any);
+                    collect_tainted_memory_writes_stmts(b, keys, any, bindings);
                 }
                 if let Some(b) = else_body {
-                    collect_tainted_memory_writes_stmts(b, keys, any);
+                    collect_tainted_memory_writes_stmts(b, keys, any, bindings);
                 }
             }
             Statement::Match {
                 arms, else_body, ..
             } => {
                 for arm in arms {
-                    collect_tainted_memory_writes_stmts(arm.body(), keys, any);
+                    collect_tainted_memory_writes_stmts(arm.body(), keys, any, bindings);
                 }
                 if let Some(b) = else_body {
-                    collect_tainted_memory_writes_stmts(b, keys, any);
+                    collect_tainted_memory_writes_stmts(b, keys, any, bindings);
                 }
             }
             // The №266 statement form has no key — it only arms strict mode.
@@ -2478,6 +2521,7 @@ fn collect_tainted_memory_writes_expr(
     expr: &Expr,
     keys: &mut std::collections::HashSet<String>,
     any: &mut bool,
+    bindings: &std::collections::HashMap<String, String>,
 ) {
     if let Expr::FnCall { name, args, .. } = expr {
         if name == "memorize" && args.len() >= 2 {
@@ -2486,7 +2530,7 @@ fn collect_tainted_memory_writes_expr(
                 matches!(value, Expr::FnCall { name, .. } if is_memory_taint_sanitizer(name));
             if !sanitized && expr_contains_llm_source(value) {
                 *any = true;
-                if let Some(k) = memory_key_prefix(&args[0]) {
+                if let Some(k) = resolve_memory_key_prefix(&args[0], bindings) {
                     keys.insert(k);
                 }
             }
@@ -2494,7 +2538,7 @@ fn collect_tainted_memory_writes_expr(
             // still walked below
         }
         for a in args {
-            collect_tainted_memory_writes_expr(a, keys, any);
+            collect_tainted_memory_writes_expr(a, keys, any, bindings);
         }
     }
 }
@@ -2506,6 +2550,7 @@ fn recall_taint_reaches_expr(
     expr: &Expr,
     keys: &std::collections::HashMap<String, std::collections::HashSet<String>>,
     tainted_vars: &std::collections::HashSet<String>,
+    bindings: &std::collections::HashMap<String, String>,
     strict_armed: bool,
     matched: &mut Vec<String>,
 ) -> bool {
@@ -2525,7 +2570,7 @@ fn recall_taint_reaches_expr(
                     return true;
                 }
                 if let Some(key_arg) = args.first() {
-                    if let Some(k) = memory_key_prefix(key_arg) {
+                    if let Some(k) = resolve_memory_key_prefix(key_arg, bindings) {
                         let hit = keys.iter().find(|(prefix, _)| {
                             k.starts_with(prefix.as_str()) || prefix.starts_with(k.as_str())
                         });
@@ -2539,19 +2584,34 @@ fn recall_taint_reaches_expr(
                 }
                 return false;
             }
-            args.iter()
-                .any(|a| recall_taint_reaches_expr(a, keys, tainted_vars, strict_armed, matched))
+            args.iter().any(|a| {
+                recall_taint_reaches_expr(a, keys, tainted_vars, bindings, strict_armed, matched)
+            })
         }
         Expr::BinaryOp { left, right, .. } => {
-            recall_taint_reaches_expr(left, keys, tainted_vars, strict_armed, matched)
-                || recall_taint_reaches_expr(right, keys, tainted_vars, strict_armed, matched)
+            recall_taint_reaches_expr(left, keys, tainted_vars, bindings, strict_armed, matched)
+                || recall_taint_reaches_expr(
+                    right,
+                    keys,
+                    tainted_vars,
+                    bindings,
+                    strict_armed,
+                    matched,
+                )
         }
         Expr::FieldAccess { object, .. } => {
-            recall_taint_reaches_expr(object, keys, tainted_vars, strict_armed, matched)
+            recall_taint_reaches_expr(object, keys, tainted_vars, bindings, strict_armed, matched)
         }
         Expr::IndexAccess { object, index, .. } => {
-            recall_taint_reaches_expr(object, keys, tainted_vars, strict_armed, matched)
-                || recall_taint_reaches_expr(index, keys, tainted_vars, strict_armed, matched)
+            recall_taint_reaches_expr(object, keys, tainted_vars, bindings, strict_armed, matched)
+                || recall_taint_reaches_expr(
+                    index,
+                    keys,
+                    tainted_vars,
+                    bindings,
+                    strict_armed,
+                    matched,
+                )
         }
         Expr::IfElse {
             condition,
@@ -2559,9 +2619,28 @@ fn recall_taint_reaches_expr(
             else_branch,
             ..
         } => {
-            recall_taint_reaches_expr(condition, keys, tainted_vars, strict_armed, matched)
-                || recall_taint_reaches_expr(then_branch, keys, tainted_vars, strict_armed, matched)
-                || recall_taint_reaches_expr(else_branch, keys, tainted_vars, strict_armed, matched)
+            recall_taint_reaches_expr(
+                condition,
+                keys,
+                tainted_vars,
+                bindings,
+                strict_armed,
+                matched,
+            ) || recall_taint_reaches_expr(
+                then_branch,
+                keys,
+                tainted_vars,
+                bindings,
+                strict_armed,
+                matched,
+            ) || recall_taint_reaches_expr(
+                else_branch,
+                keys,
+                tainted_vars,
+                bindings,
+                strict_armed,
+                matched,
+            )
         }
         _ => false,
     }
@@ -2573,6 +2652,7 @@ fn recall_taint_scan_sinks(
     expr: &Expr,
     keys: &std::collections::HashMap<String, std::collections::HashSet<String>>,
     tainted_vars: &std::collections::HashSet<String>,
+    bindings: &std::collections::HashMap<String, String>,
     strict_armed: bool,
     matched: &mut Vec<String>,
 ) -> bool {
@@ -2580,13 +2660,14 @@ fn recall_taint_scan_sinks(
     if let Expr::FnCall { name, args, .. } = expr {
         if name == "respond" || name == "respond_html" {
             for a in args {
-                if recall_taint_reaches_expr(a, keys, tainted_vars, strict_armed, matched) {
+                if recall_taint_reaches_expr(a, keys, tainted_vars, bindings, strict_armed, matched)
+                {
                     found = true;
                 }
             }
         }
         for a in args {
-            if recall_taint_scan_sinks(a, keys, tainted_vars, strict_armed, matched) {
+            if recall_taint_scan_sinks(a, keys, tainted_vars, bindings, strict_armed, matched) {
                 found = true;
             }
         }
@@ -2600,6 +2681,7 @@ fn recall_taint_walk_stmts(
     body: &[Statement],
     keys: &std::collections::HashMap<String, std::collections::HashSet<String>>,
     tainted_vars: &mut std::collections::HashSet<String>,
+    bindings: &mut std::collections::HashMap<String, String>,
     strict_armed: bool,
     matched: &mut Vec<String>,
 ) -> bool {
@@ -2607,42 +2689,105 @@ fn recall_taint_walk_stmts(
     for stmt in body {
         match stmt {
             Statement::LetBinding { name, value, .. } | Statement::Assign { name, value, .. } => {
-                if recall_taint_scan_sinks(value, keys, tainted_vars, strict_armed, matched) {
+                // №405: the RHS is evaluated in the PRE-statement key
+                // environment (runtime evaluation order) — scan first,
+                // record the binding after. An unresolvable re-assignment
+                // keeps the previous prefix (fail-closed).
+                if recall_taint_scan_sinks(
+                    value,
+                    keys,
+                    tainted_vars,
+                    bindings,
+                    strict_armed,
+                    matched,
+                ) {
                     found = true;
                 }
-                if recall_taint_reaches_expr(value, keys, tainted_vars, strict_armed, matched) {
+                if recall_taint_reaches_expr(
+                    value,
+                    keys,
+                    tainted_vars,
+                    bindings,
+                    strict_armed,
+                    matched,
+                ) {
                     tainted_vars.insert(name.clone());
                 } else {
                     // A clean reassignment kills the variable's taint.
                     tainted_vars.remove(name);
                 }
+                if let Some(prefix) = resolve_memory_key_prefix(value, bindings) {
+                    bindings.insert(name.clone(), prefix);
+                }
             }
             Statement::ExprStmt { expr, .. } | Statement::Return { value: expr, .. } => {
-                if recall_taint_scan_sinks(expr, keys, tainted_vars, strict_armed, matched) {
+                if recall_taint_scan_sinks(
+                    expr,
+                    keys,
+                    tainted_vars,
+                    bindings,
+                    strict_armed,
+                    matched,
+                ) {
                     found = true;
                 }
             }
             Statement::Each { iterable, body, .. }
             | Statement::EachWithIndex { iterable, body, .. } => {
-                if recall_taint_scan_sinks(iterable, keys, tainted_vars, strict_armed, matched) {
+                if recall_taint_scan_sinks(
+                    iterable,
+                    keys,
+                    tainted_vars,
+                    bindings,
+                    strict_armed,
+                    matched,
+                ) {
                     found = true;
                 }
-                if recall_taint_walk_stmts(body, keys, tainted_vars, strict_armed, matched) {
+                if recall_taint_walk_stmts(
+                    body,
+                    keys,
+                    tainted_vars,
+                    bindings,
+                    strict_armed,
+                    matched,
+                ) {
                     found = true;
                 }
             }
             Statement::While {
                 condition, body, ..
             } => {
-                if recall_taint_scan_sinks(condition, keys, tainted_vars, strict_armed, matched) {
+                if recall_taint_scan_sinks(
+                    condition,
+                    keys,
+                    tainted_vars,
+                    bindings,
+                    strict_armed,
+                    matched,
+                ) {
                     found = true;
                 }
-                if recall_taint_walk_stmts(body, keys, tainted_vars, strict_armed, matched) {
+                if recall_taint_walk_stmts(
+                    body,
+                    keys,
+                    tainted_vars,
+                    bindings,
+                    strict_armed,
+                    matched,
+                ) {
                     found = true;
                 }
             }
             Statement::IfThen { body, .. } => {
-                if recall_taint_walk_stmts(body, keys, tainted_vars, strict_armed, matched) {
+                if recall_taint_walk_stmts(
+                    body,
+                    keys,
+                    tainted_vars,
+                    bindings,
+                    strict_armed,
+                    matched,
+                ) {
                     found = true;
                 }
             }
@@ -2653,22 +2798,57 @@ fn recall_taint_walk_stmts(
                 else_body,
                 ..
             } => {
-                if recall_taint_scan_sinks(condition, keys, tainted_vars, strict_armed, matched) {
+                if recall_taint_scan_sinks(
+                    condition,
+                    keys,
+                    tainted_vars,
+                    bindings,
+                    strict_armed,
+                    matched,
+                ) {
                     found = true;
                 }
-                if recall_taint_walk_stmts(then_body, keys, tainted_vars, strict_armed, matched) {
+                if recall_taint_walk_stmts(
+                    then_body,
+                    keys,
+                    tainted_vars,
+                    bindings,
+                    strict_armed,
+                    matched,
+                ) {
                     found = true;
                 }
                 for (cond, b) in else_ifs {
-                    if recall_taint_scan_sinks(cond, keys, tainted_vars, strict_armed, matched) {
+                    if recall_taint_scan_sinks(
+                        cond,
+                        keys,
+                        tainted_vars,
+                        bindings,
+                        strict_armed,
+                        matched,
+                    ) {
                         found = true;
                     }
-                    if recall_taint_walk_stmts(b, keys, tainted_vars, strict_armed, matched) {
+                    if recall_taint_walk_stmts(
+                        b,
+                        keys,
+                        tainted_vars,
+                        bindings,
+                        strict_armed,
+                        matched,
+                    ) {
                         found = true;
                     }
                 }
                 if let Some(b) = else_body {
-                    if recall_taint_walk_stmts(b, keys, tainted_vars, strict_armed, matched) {
+                    if recall_taint_walk_stmts(
+                        b,
+                        keys,
+                        tainted_vars,
+                        bindings,
+                        strict_armed,
+                        matched,
+                    ) {
                         found = true;
                     }
                 }
@@ -2679,7 +2859,14 @@ fn recall_taint_walk_stmts(
                 else_body,
                 ..
             } => {
-                if recall_taint_scan_sinks(scrutinee, keys, tainted_vars, strict_armed, matched) {
+                if recall_taint_scan_sinks(
+                    scrutinee,
+                    keys,
+                    tainted_vars,
+                    bindings,
+                    strict_armed,
+                    matched,
+                ) {
                     found = true;
                 }
                 for arm in arms {
@@ -2687,6 +2874,7 @@ fn recall_taint_walk_stmts(
                         arm.body(),
                         keys,
                         tainted_vars,
+                        bindings,
                         strict_armed,
                         matched,
                     ) {
@@ -2694,7 +2882,14 @@ fn recall_taint_walk_stmts(
                     }
                 }
                 if let Some(b) = else_body {
-                    if recall_taint_walk_stmts(b, keys, tainted_vars, strict_armed, matched) {
+                    if recall_taint_walk_stmts(
+                        b,
+                        keys,
+                        tainted_vars,
+                        bindings,
+                        strict_armed,
+                        matched,
+                    ) {
                         found = true;
                     }
                 }
@@ -2740,16 +2935,37 @@ fn check_taint_persistence_cross_module(
         match d {
             Declaration::Tool(t) => {
                 for m in &t.methods {
-                    collect_tainted_memory_writes_stmts(&m.body, &mut direct_keys, &mut direct_any);
+                    // №405: a FRESH binding map per scope — bindings do not
+                    // leak across tool methods (over-approximating across
+                    // scopes would manufacture flows that do not exist).
+                    let mut scope_bindings = std::collections::HashMap::new();
+                    collect_tainted_memory_writes_stmts(
+                        &m.body,
+                        &mut direct_keys,
+                        &mut direct_any,
+                        &mut scope_bindings,
+                    );
                 }
             }
             Declaration::MlogServer(s) => {
                 for r in &s.routes {
-                    collect_tainted_memory_writes_stmts(&r.body, &mut direct_keys, &mut direct_any);
+                    let mut scope_bindings = std::collections::HashMap::new();
+                    collect_tainted_memory_writes_stmts(
+                        &r.body,
+                        &mut direct_keys,
+                        &mut direct_any,
+                        &mut scope_bindings,
+                    );
                 }
             }
             Declaration::Hook(h) => {
-                collect_tainted_memory_writes_stmts(&h.body, &mut direct_keys, &mut direct_any);
+                let mut scope_bindings = std::collections::HashMap::new();
+                collect_tainted_memory_writes_stmts(
+                    &h.body,
+                    &mut direct_keys,
+                    &mut direct_any,
+                    &mut scope_bindings,
+                );
             }
             Declaration::Memorize(m) if expr_contains_llm_source(&m.value) => {
                 direct_any = true;
@@ -2796,7 +3012,15 @@ fn check_taint_persistence_cross_module(
                         .map(|(k, w)| (k.clone(), w.clone()))
                         .collect();
                 let mut vars = std::collections::HashSet::new();
-                recall_taint_walk_stmts(&p.body, &keys, &mut vars, strict_armed, &mut matched);
+                let mut bindings = std::collections::HashMap::new();
+                recall_taint_walk_stmts(
+                    &p.body,
+                    &keys,
+                    &mut vars,
+                    &mut bindings,
+                    strict_armed,
+                    &mut matched,
+                );
             }
             Declaration::Tool(t) => {
                 for m in &t.methods {
@@ -2808,7 +3032,15 @@ fn check_taint_persistence_cross_module(
                             .map(|(k, w)| (k.clone(), w.clone()))
                             .collect();
                     let mut vars = std::collections::HashSet::new();
-                    recall_taint_walk_stmts(&m.body, &keys, &mut vars, strict_armed, &mut matched);
+                    let mut bindings = std::collections::HashMap::new();
+                    recall_taint_walk_stmts(
+                        &m.body,
+                        &keys,
+                        &mut vars,
+                        &mut bindings,
+                        strict_armed,
+                        &mut matched,
+                    );
                 }
             }
             Declaration::MlogServer(s) => {
@@ -2821,7 +3053,15 @@ fn check_taint_persistence_cross_module(
                             .map(|(k, w)| (k.clone(), w.clone()))
                             .collect();
                     let mut vars = std::collections::HashSet::new();
-                    recall_taint_walk_stmts(&r.body, &keys, &mut vars, strict_armed, &mut matched);
+                    let mut bindings = std::collections::HashMap::new();
+                    recall_taint_walk_stmts(
+                        &r.body,
+                        &keys,
+                        &mut vars,
+                        &mut bindings,
+                        strict_armed,
+                        &mut matched,
+                    );
                 }
             }
             Declaration::Hook(h) => {
@@ -2833,7 +3073,15 @@ fn check_taint_persistence_cross_module(
                         .map(|(k, w)| (k.clone(), w.clone()))
                         .collect();
                 let mut vars = std::collections::HashSet::new();
-                recall_taint_walk_stmts(&h.body, &keys, &mut vars, strict_armed, &mut matched);
+                let mut bindings = std::collections::HashMap::new();
+                recall_taint_walk_stmts(
+                    &h.body,
+                    &keys,
+                    &mut vars,
+                    &mut bindings,
+                    strict_armed,
+                    &mut matched,
+                );
             }
             _ => {}
         }
@@ -2872,7 +3120,8 @@ fn check_taint_persistence_cross_module(
         message: format!(
             "cross-module taint through memory: recall() matched tainted key(s) {} — {} — \
              the recalled value may reach respond(); sanitize with render()/escape_html()/redact() \
-             (№386: literal/prefix keys; dynamic keys are out of the MVP scope)",
+             (№386: literal/prefix keys; №405: let-bound key prefixes; fully dynamic keys without \
+             a leading literal stay out of scope — ADR-0170)",
             matched
                 .iter()
                 .map(|k| format!("'{}'", k))
@@ -3172,10 +3421,14 @@ fn compute_pattern_summaries_with_depth(
             // №386: collect the tainted memory-key prefixes this pattern
             // writes (memorize(<key>, <llm-derived value>) call form) and
             // the key-less tainted-write flag (strict-mode fuel).
+            // №405: the walker threads a let-binding map, so a key built
+            // in a local (`let key = "rate_limit:" + provider; memorize(key, …)`)
+            // resolves to its leading literal prefix.
             collect_tainted_memory_writes_stmts(
                 &p.body,
                 &mut summary.tainted_memory_keys,
                 &mut summary.writes_tainted_memory,
+                &mut std::collections::HashMap::new(),
             );
             raw_summaries.insert(p.name.clone(), summary);
             pattern_bodies.insert(p.name.clone(), (&p.params, &p.body));

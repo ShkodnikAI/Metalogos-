@@ -4936,7 +4936,10 @@ entity base: String = "7"
         assert!(!vm.db_open_failed, "№409: reset must clear the failed flag");
         vm.ensure_db_open();
         let leaked = {
-            let conn = vm.db_conn.as_ref().expect("first access after reset must re-open");
+            let conn = vm
+                .db_conn
+                .as_ref()
+                .expect("first access after reset must re-open");
             conn.query_row(
                 "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='leak'",
                 [],
@@ -5032,9 +5035,7 @@ entity base: String = "7"
 mod n409_tests {
     use super::*;
 
-    fn compiled_with_routes(
-        source: &str,
-    ) -> (Program, Vec<crate::bytecode::CompiledRoute>) {
+    fn compiled_with_routes(source: &str) -> (Program, Vec<crate::bytecode::CompiledRoute>) {
         let decls = crate::parser::parse(source).expect("parse");
         let server_cfg = decls
             .iter()
@@ -5212,8 +5213,10 @@ mlogserver {
         vm.ensure_db_open();
         {
             let conn = vm.db_conn.as_ref().expect("opened for the request");
-            conn.execute_batch("CREATE TABLE req_private(x TEXT); INSERT INTO req_private VALUES('leak');")
-                .unwrap();
+            conn.execute_batch(
+                "CREATE TABLE req_private(x TEXT); INSERT INTO req_private VALUES('leak');",
+            )
+            .unwrap();
         }
         // The pool's checkin path: fail-closed reset.
         vm.reset_for_reuse(&program).expect("reset");

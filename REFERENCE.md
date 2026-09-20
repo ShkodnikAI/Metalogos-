@@ -625,7 +625,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 459 registered builtins (459 of 459): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 460 registered builtins (460 of 460): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -2011,7 +2011,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 459 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 460 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2626,6 +2626,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `video_extend(...)` | 2 | — | `video_extend(handle, extra)` — clip continuation anchored on the last latent frame (ADR-0151 D3). `extra` = number of ADDITIONAL latent frames. |
 | `video_fetch_weights(...)` | 2 | — | `video_fetch_weights(url, dir)` — FORMAL No-Go (№294 class, ADR-0151 D7): production-weights inference is parked in this environment (4 GB RAM, no GPU); the tiny seeded pipeline needs no external weights. The name stays registered so the shared MODEL_WEIGHTS_UNSAFE static gate (№300, `_fetch_weights` suffix convention) and the SSRF-guard vocabulary cover the surface. This is a recorded boundary, not a hidden stub. |
 | `video_render(...)` | 2..4 | — | `video_render(decl, prompt[, ref_first[, ref_last]])` — real tiny pipeline (ADR-0151 D1): T2V (2 args) / I2V first-anchor (3) / two-anchor first–last (4). Seed = sha256(model\|prompt); ref-hash(es) recorded in the manifest. |
+| `video_understand(...)` | 1..3 | — | `video_understand(segment, prompt?, model?)` — the video-understanding backend call (№408, feature `video`): answers questions ABOUT a segment (comprehension, not generation). `segment` is the segment payload reference (String); `prompt` is the question; `model` defaults to the registry canon `qwen2.5-vl-7b-instruct` (donors: qwen2.5-vl-7b-instruct / llava-video-7b-qwen2 / internvl3-8b — real HF LFS pins, Apache-2.0 per the HF card declarations). Mock-first deterministic golden `[MOCK: video_understand \| weights \| segment \| prompt]`; real mode refuses loudly (PARKED №294). Real-mode frame-sampling policy (fixed in advance): deterministic stride over the segment's frame table + first/last anchor frames — no randomness, no wall-clock time. |
 
 ### `vision` — 12 builtin(s)
 
@@ -3125,6 +3126,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `voice_save` | sink | internal | reversible | persists a Voice artifact |
 | `voice_load` | source | internal | pure | ingests a persisted Voice artifact |
 | `video_render` | sink | internal | reversible | persists a generated video artifact in VIDEO_REGISTRY — local tiny pipeline; egress only at video_export |
+| `video_understand` | source | internal | pure | video-understanding backend call (№408, qwen2.5-vl-7b-instruct canon): ingests the comprehension answer for a segment into the flow; no upload, no egress; real mode requires SHA-pinned weights (PARKED №294) |
 | `video_export` | sink | internal | reversible | writes the signed .mlgv container to disk — egress point (gate VIDEO_UNSIGNED_EXPORT, ADR-0151 D5) |
 | `av_mux` | sink | internal | reversible | persists the A/V sidecar container in VIDEO_REGISTRY (ADR-0151 D4) |
 | `frame_interp` | sink | internal | reversible | persists an interpolated artifact in VIDEO_REGISTRY (ADR-0151 D2) |

@@ -426,3 +426,73 @@ Summary: the factual layer of plan v2 is accurate on file positions and
 most numbers; the erroneous numbers are "84 instructions" (PHANTOM) and
 the basis-dependent "10 Statement kinds" / "143 ADRs"; all anchors that
 shifted on main are recorded in this table and in section 0.
+
+---
+
+## 6. Recheck on main `b05d36c` (naryad №414, wave 5, 2026-09-20)
+
+> **Snapshot of this check:** main `b05d36c9f9aaa1f70114f6c854f1157717b0792c`
+> (2026-09-20, merge #564 — naryad №413). The methodology is UNCHANGED from
+> section 3: the same subsystem decomposition, the same (UNVERIFIED) weights,
+> readiness per code facts only. Every command below was executed on this
+> snapshot from the repository root; its verbatim output is recorded.
+
+### 6.1. What landed since `1876fdf` (the section-3 snapshot)
+
+Waves 3 / 4 / 4.5 / 5: the grant algebra №389–№393 (ADR-0155 — the capability
+model), the consent runtime №397, the LikenessToken №387 (ADR-0149), the label
+lattice + runtime labels №322–№328 (ADR-0154/0156), the backend ladder №336
+(ADR-0165), MCP HTTP/SSE №394/№401 (ADR-0168), OCR №407 and video-understanding
+№408 (per-shard HF pins), taint layer 2 №405 (ADR-0170), the architecture
+contracts №382, the stable try-codes №385/№413 (ADR-0169), the Stage 5
+evidence + two re-gates №404/№410 (ADR-0141 Addenda 3–5), the footprint
+compression №409, SMFS №282, release 0.20.1 №411.
+
+### 6.2. Re-verification of the section-2 "missing" list (the taint engine)
+
+| Item (section 2) | Verdict on `b05d36c` | Proof command + verbatim output |
+|---|---|---|
+| 2.1 Label lattice — was NO | **YES** — a two-axis lattice (`Conf` × `Integrity`) with LUB/absorption `join` operators landed (№322/№328, ADR-0154/0156): `src/labels.rs` | `ls src/labels.rs && grep -c "pub enum\|pub struct" src/labels.rs` → `src/labels.rs` / `6` |
+| 2.3 Join at merges — was NO | **YES (runtime labels)** — `join` is a lattice operator consumed by the runtime `LabelJoin` instruction on BOTH backends | `grep -n "pub fn join" src/labels.rs` → `src/labels.rs:89` / `src/labels.rs:151` |
+| 2.2 Full inference over statement kinds | PARTIAL — the static interp engine covers the statement set it covers; `Match`/`Break`/`Continue` still outside `TAINT_INTERP` | `grep -c 'check_id: "' src/audit.rs` → `43` (was 21 on `1876fdf`) |
+| 2.4 Effects module — was NO | **still NO** — no `EffectKind`/effects module; the effect trail `⟨io, audit⟩` is declarative (ADR-0154 §9) | `grep -rn "EffectKind\|effect_trace" src/ --include="*.rs"` → empty |
+| 2.5 Exhaustive matching — was NO | PARTIAL — a central `match kind` exists in the deny path (`audit.rs:4357`); the transformation/absorption contract is the lattice's `join`, not yet a single exhaustive sweep of every check | `grep -n "match kind" src/audit.rs` → `4357:    match kind {` |
+| 2.6 Affinity — was NO | **still NO** (only "sqlite affinity" column-affinity comments — not the affine-types concept) | `grep -rni affinity src/` → 2 comment hits in `vm.rs` (2249, 2371) |
+
+New since the last check: **taint layer 2** — persistence-surface taint with
+prefix bindings (№405, ADR-0170): `TAINT_PERSISTENCE`/`TAINT_PASSTHROUGH`
+(`src/audit.rs:5,2140`).
+
+### 6.3. The subsystem facts that moved the readiness
+
+| Fact | Proof command + verbatim output |
+|---|---|
+| The capability model EXISTS (was 0%): the grant algebra with an opaque linear handle | `grep -n "pub struct GrantHandle" src/grants.rs` → `src/grants.rs:111: pub struct GrantHandle {`; `grep -c "GRANT_" src/grants.rs` → `19` |
+| A unified compute-backend registry EXISTS (was content-registries only) | `grep -n "pub const BACKEND_REGISTRY" src/backends.rs` → `src/backends.rs:143` |
+| The signed action ledger EXISTS (was consent-ledger only) | `ls src/ledger.rs` → `src/ledger.rs`; `grep -n "verify_file" src/ledger.rs` → `src/ledger.rs:691: pub fn verify_file(` |
+| Linearity enforcement (static Once-linearity flow walk) | `grep -n "GRANT_CONSUMING_CALLS" src/audit.rs` → `src/audit.rs:5199` |
+| The consent runtime is language surface (№335/№397) | `sed -n '1p' src/builtins/consent.rs` → `// ── Наряд №335 (spec §7.2 v2): consent grant/revoke + quarantine sink ──` |
+| Memory: the plan-v2 contract is still unknown, `recall` is STILL a registry stub | `grep -n '"recall"' src/builtins/registry.rs` → `295:    spec!("recall", 0, "stub"),` |
+| Width counters moved | VM instructions: `awk '/pub enum Instruction/,/^\}/' src/bytecode.rs \| grep -cE '^\s{4}[A-Z]'` → `54` (was 47); builtins → `460` (was 421); ADRs → `162` (was 145); top-level examples → `247` (was 214) |
+
+### 6.4. Recomputed P0 readiness: **68%** (working figure after wave 5)
+
+Same decomposition and weights as section 3 (still UNVERIFIED — plan v2 is
+still absent from the repository); readiness per the code facts of 6.2–6.3.
+
+| Subsystem | Weight (UNVERIFIED) | Readiness `1876fdf` | Readiness `b05d36c` | Contribution | Basis for the new readiness |
+|---|---|---|---|---|---|
+| Labels (taint) | 30% | 55% | **75%** | 22.5pp | the lattice + join landed (2.1/2.3 YES), taint layer 2 (№405), 43 check_ids, the blocking ones in Category-A; **missing**: effects module, affinity, full static-engine inference/join (2.2/2.4/2.5 PARTIAL), points-to/fixpoint (parked P2-1) |
+| Capability model | 20% | 0% | **85%** | 17pp | the grant algebra end-to-end (opaque linear `Value::Grant`, scope/TTL/quota, subgrant attenuation, static linearity + runtime gates, ledger integration), consent runtime, LikenessToken; **missing**: grant-gating covers destructive SQL only — exec/network irreversible ops are deny-only, not every builtin's capability attribute is expressed through grants |
+| Backend registry | 15% | 10% | **85%** | 12.75pp | unified `BACKEND_REGISTRY` + ladder + `Degraded(t)` (№336/ADR-0165), per-shard HF pins for OCR/video-understanding (№407/№408); **deduction**: real-weights execution is PARKED by hardware (№294) — the registry/pins/loader are real, the execution proof is not |
+| Ledger | 15% | 35% | **90%** | 13.5pp | Action Ledger v1 — signed Ed25519 chain + `mlog ledger verify` (№393/ADR-0167), consent ledger, subprocess audit, deny events journal; **missing**: the runtime `ledger_verify()` hook (parked P2-2 — verification is CLI-only) |
+| Memory | 20% | 13% | **13%** | 2.6pp | facts unchanged: real local infrastructure (memory_store/graph/embeddings, BM25+vector fusion), `recall` still a stub, the plan-v2 memory contract still unknown (plan absent) |
+| **Total** | **100%** | **25.85 ≈ 26%** | — | **68.35 ≈ 68%** | |
+
+**Honest reading.** The 26% → 68% move is real and code-proven (the three
+zero/near-zero subsystems of the 2026-09-19 audit — capability, registry,
+ledger — are now the best-covered ones), but it is NOT a P0-green claim:
+the weights remain UNVERIFIED without plan v2, the memory subsystem did not
+move, and the remaining taint gaps (effects, affinity, full static inference)
+are exactly the parked P2 items. Recomputation at the next wave boundary,
+same protocol.

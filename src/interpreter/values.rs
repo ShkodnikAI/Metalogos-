@@ -391,6 +391,29 @@ pub const CODE_MEDIA_SEALED_EGRESS: &str = "MEDIA_SEALED_EGRESS";
 /// see `src/builtins/backends.rs`) — the typed path stays typed; if such a
 /// failure ever travels the String error channel, it carries this stamp.
 pub const CODE_BACKEND_DEGRADED: &str = "BACKEND_DEGRADED";
+/// A cron/reminder mechanics failure (naryad №413): arg/type refusals,
+/// the 5-field cron-expression contract, persistence lock errors — the
+/// subsystem = the scheduler support surface (`src/builtins/cron.rs`).
+pub const CODE_CRON_JOB_FAILED: &str = "CRON_JOB_FAILED";
+/// The MCP server process failed to spawn (existing origin marker
+/// `src/builtins/mcp.rs`, now whitelisted for `try`; naryad №413).
+pub const CODE_MCP_SPAWN_FAILED: &str = "MCP_SPAWN_FAILED";
+/// An MCP contour timeout (existing origin marker, now whitelisted).
+pub const CODE_MCP_TIMEOUT: &str = "MCP_TIMEOUT";
+/// An MCP stdio IO failure (existing origin marker, now whitelisted).
+pub const CODE_MCP_IO_ERROR: &str = "MCP_IO_ERROR";
+/// The MCP server reported `isError=true` for the tool call (existing
+/// origin marker `src/builtins/mcp.rs`, now whitelisted for `try`).
+pub const CODE_MCP_TOOL_ERROR: &str = "MCP_TOOL_ERROR";
+/// The MCP server does not know the tool (JSON-RPC -32602 on tools/call;
+/// existing origin marker, now whitelisted for `try`).
+pub const CODE_MCP_TOOL_NOT_FOUND: &str = "MCP_TOOL_NOT_FOUND";
+/// An MCP JSON-RPC protocol violation or unsupported shape (existing
+/// origin marker, now whitelisted for `try`).
+pub const CODE_MCP_PROTOCOL_ERROR: &str = "MCP_PROTOCOL_ERROR";
+/// The MCP allowlist refused the server (№268/ADR-0132 D3 policy refusal;
+/// existing origin marker, now whitelisted for `try`).
+pub const CODE_MCP_NOT_ALLOWLISTED: &str = "MCP_NOT_ALLOWLISTED";
 
 /// The whitelist of codes a subsystem may stamp onto the String error
 /// channel. `RUNTIME_ERROR` is deliberately NOT in this list: it is the
@@ -403,6 +426,19 @@ const ORIGIN_STAMPED_CODES: &[&str] = &[
     CODE_SINK_CLEARANCE_RUNTIME,
     CODE_MEDIA_SEALED_EGRESS,
     CODE_BACKEND_DEGRADED,
+    // №413: the cron mechanics + the MCP contour. The MCP taxonomy ALREADY
+    // existed as position-0 markers at the origin (spawn/timeout/io/
+    // protocol/tool-error/tool-not-found/allowlist) — the naryad whitelists
+    // them for `try` instead of adding a coarser duplicate; see the
+    // constant docs and the report in issue #558.
+    CODE_CRON_JOB_FAILED,
+    CODE_MCP_SPAWN_FAILED,
+    CODE_MCP_TIMEOUT,
+    CODE_MCP_IO_ERROR,
+    CODE_MCP_TOOL_ERROR,
+    CODE_MCP_TOOL_NOT_FOUND,
+    CODE_MCP_PROTOCOL_ERROR,
+    CODE_MCP_NOT_ALLOWLISTED,
 ];
 
 /// Stamp an error at its ORIGIN with a stable code (naryad №385, ADR-0169).

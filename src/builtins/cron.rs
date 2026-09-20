@@ -2,12 +2,48 @@
 
 use std::sync::Mutex as StdMutex;
 
+use crate::interpreter::values::{coded_error, split_origin_stamp, CODE_CRON_JOB_FAILED};
 use crate::interpreter::Value;
 
 use super::chrono_now_timestamp;
 use super::core::*;
 use super::http::make_date_struct;
 use super::memory::*;
+
+/// №413 (issue #558, ADR-0169 §3.1 extension): stamp every cron/reminder
+/// mechanics failure with the subsystem code at the place that KNOWS what
+/// failed. Never double-stamps: an inner origin stamp (e.g. `SQL_ERROR`
+/// from the persistence layer) stays authoritative at position 0.
+fn cron_stamped(e: String) -> String {
+    if split_origin_stamp(&e).is_some() {
+        e
+    } else {
+        coded_error(CODE_CRON_JOB_FAILED, e)
+    }
+}
+
+/// The registry-facing wrappers: every cron/reminder builtin's failures
+/// (arg/type refusals, the 5-field cron contract, lock errors) travel the
+/// error channel stamped `CRON_JOB_FAILED` — the `try` classifier can then
+/// branch the office's reschedule/alert policies on the subsystem code.
+macro_rules! cron_wrapped {
+    ($vis:vis fn $name:ident = $inner:ident;) => {
+        $vis fn $name(args: &[Value]) -> Result<Value, String> {
+            $inner(args).map_err(cron_stamped)
+        }
+    };
+}
+
+cron_wrapped!(pub(crate) fn builtin_remind_stamped = builtin_remind;);
+cron_wrapped!(pub(crate) fn builtin_remind_recurring_stamped = builtin_remind_recurring;);
+cron_wrapped!(pub(crate) fn builtin_cancel_remind_stamped = builtin_cancel_remind;);
+cron_wrapped!(pub(crate) fn builtin_list_reminders_stamped = builtin_list_reminders;);
+cron_wrapped!(pub(crate) fn builtin_check_reminders_stamped = builtin_check_reminders;);
+cron_wrapped!(pub(crate) fn builtin_cron_add_stamped = builtin_cron_add;);
+cron_wrapped!(pub(crate) fn builtin_cron_list_stamped = builtin_cron_list;);
+cron_wrapped!(pub(crate) fn builtin_cron_remove_stamped = builtin_cron_remove;);
+cron_wrapped!(pub(crate) fn builtin_cron_run_stamped = builtin_cron_run;);
+cron_wrapped!(pub(crate) fn builtin_cron_mark_fired_stamped = builtin_cron_mark_fired;);
 
 // ── v0.8.0 — Reminders builtins ─────────────────────────────────────
 

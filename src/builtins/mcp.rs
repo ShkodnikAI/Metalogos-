@@ -45,6 +45,7 @@
 
 use super::io::{append_subprocess_audit, current_exec_context, exec_gate};
 use super::json::json_value_to_mlog_value;
+use crate::interpreter::values::wrap_error_preserving_code;
 use super::Value;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -471,6 +472,9 @@ fn with_mcp_server<T>(
                 &mcp_audit_detail(command, argv),
                 &format!("ERROR: {}", e),
             );
+            // №413: the spawn failure already carries its own origin stamp
+            // (`[MCP_SPAWN_FAILED] …`, whitelisted for `try`) — pass it
+            // through untouched.
             return Err(e);
         }
     };
@@ -482,7 +486,10 @@ fn with_mcp_server<T>(
             &mcp_audit_detail(command, argv),
             &format!("ERROR: {}", e),
         );
-        return Err(format!("{}(): {}", builtin, e));
+        // №413: keep the origin stamp at position 0 — the naive prefix
+        // buried `[MCP_PROTOCOL_ERROR]` mid-message and demoted the try
+        // classification to RUNTIME_ERROR.
+        return Err(wrap_error_preserving_code(&format!("{}()", builtin), &e));
     }
     match op(&mut conn, timeout) {
         Ok(v) => {
@@ -495,7 +502,8 @@ fn with_mcp_server<T>(
                 &mcp_audit_detail(command, argv),
                 &format!("ERROR: {}", e),
             );
-            Err(format!("{}(): {}", builtin, e))
+            // №413: stamp-preserving wrap (see the handshake site above).
+            Err(wrap_error_preserving_code(&format!("{}()", builtin), &e))
         }
     }
 }
@@ -538,6 +546,14 @@ fn value_as_argv(builtin: &str, v: &Value) -> Result<Vec<String>, String> {
     }
 }
 
+/// №413 (issue #558, ADR-0169 §3.1 extension): the MCP contour's failure
+/// taxonomy (`MCP_SPAWN_FAILED`, `MCP_TIMEOUT`, `MCP_IO_ERROR`,
+/// `MCP_PROTOCOL_ERROR`, `MCP_TOOL_NOT_FOUND`, `MCP_TOOL_ERROR`,
+/// `MCP_NOT_ALLOWLISTED`) already sits at position 0 of the error strings
+/// the contour raises — it is now whitelisted for the `try` classifier in
+/// `values::ORIGIN_STAMPED_CODES`. The wrapper below no longer buries
+/// those stamps mid-message.
+///
 /// `mcp_call(command, args_list, tool_name, arguments_json) -> String`.
 ///
 /// Вызов инструмента внешнего MCP-сервера (stdio, stateless — ADR-0132 D4):

@@ -40,6 +40,12 @@ pub enum BackendClass {
     /// no Art. 50 synthetic marking on the output (the №331/№332
     /// provenance discipline applies unchanged).
     Ocr,
+    /// Video comprehension — answering questions about a video segment
+    /// (Naryad №408, wave 4.5). Reading/understanding, NOT generation:
+    /// no Art. 50 synthetic marking on the output (the №331/№332
+    /// provenance discipline applies unchanged); real inference is
+    /// PARKED by hardware (№294) — the mock-first call surface is live.
+    VideoUnderstanding,
 }
 
 impl BackendClass {
@@ -51,6 +57,7 @@ impl BackendClass {
             BackendClass::VisionUnderstanding => "vision-understanding",
             BackendClass::Llm => "llm",
             BackendClass::Ocr => "ocr",
+            BackendClass::VideoUnderstanding => "video-understanding",
         }
     }
 
@@ -65,6 +72,7 @@ impl BackendClass {
             "vision-understanding" => Some(BackendClass::VisionUnderstanding),
             "llm" => Some(BackendClass::Llm),
             "ocr" => Some(BackendClass::Ocr),
+            "video-understanding" => Some(BackendClass::VideoUnderstanding),
             _ => None,
         }
     }
@@ -213,6 +221,40 @@ pub const BACKEND_REGISTRY: &[BackendEntry] = &[
         license: LicenseClass::Osi,
         license_note: "TrOCR base-printed (Microsoft) — MIT (osi)",
     },
+    // №408 (wave 4.5): the video-understanding class joins the registry —
+    // the canon video-comprehension wedge. Pins are REAL HF LFS oids
+    // (sha256) of the primary shard of each repo, fetched via the HF tree
+    // API 2026-09-20 (full per-shard manifests in WEIGHTS_SOURCES below —
+    // the loader verifies EVERY shard). License classification follows
+    // the ACTUAL repo declaration (ADR-0163 §2.1): all three declare
+    // Apache-2.0 in the HF card metadata (cardData + tags); the naryad's
+    // "InternVL3 (MIT)" assumption was STALE — the card declares
+    // apache-2.0 and the repo ships no separate LICENSE text, recorded
+    // here per the actual declaration, not the assumption.
+    BackendEntry {
+        name: "qwen25-vl-7b",
+        class: BackendClass::VideoUnderstanding,
+        weights_id: "qwen2.5-vl-7b-instruct",
+        pin: ShaPin::Pinned("e97b877e47fde53a6c6e77aafb36e58e91ee9d95c4a3eeac6f1b5c0e6a1c986e"),
+        license: LicenseClass::Osi,
+        license_note: "Qwen2.5-VL-7B-Instruct (Qwen) — Apache-2.0 (osi; HF cardData + tags)",
+    },
+    BackendEntry {
+        name: "llava-video-7b",
+        class: BackendClass::VideoUnderstanding,
+        weights_id: "llava-video-7b-qwen2",
+        pin: ShaPin::Pinned("2625213dd97a944180a7ba6776501709f6094e9c07295101518d69ca8ccfb5ad"),
+        license: LicenseClass::Osi,
+        license_note: "LLaVA-Video-7B-Qwen2 (lmms-lab) — Apache-2.0 (osi; HF cardData + tags)",
+    },
+    BackendEntry {
+        name: "internvl3-8b",
+        class: BackendClass::VideoUnderstanding,
+        weights_id: "internvl3-8b",
+        pin: ShaPin::Pinned("7ea1f92eaae35cb927e7c7b0f87568ccc046a2446aa68066dfdccb7ebbe0c7f0"),
+        license: LicenseClass::Osi,
+        license_note: "InternVL3-8B (OpenGVLab) — Apache-2.0 per the HF card declaration (osi; cardData + tags; the naryad's MIT assumption was stale — no separate LICENSE text ships in the repo)",
+    },
 ];
 
 /// Find a registry entry by weights identifier (exact, case-sensitive —
@@ -279,6 +321,98 @@ pub const WEIGHTS_SOURCES: &[(&str, WeightsSource)] = &[
                 sha256: "1cf4a6eedab26afaaf505f1c7f73d9634944924dbd1ed049d569db98039cd596",
                 bytes: 1_333_384_464,
             }],
+        },
+    ),
+    (
+        "qwen2.5-vl-7b-instruct",
+        WeightsSource {
+            repo: "Qwen/Qwen2.5-VL-7B-Instruct",
+            revision: "main",
+            files: &[
+                WeightsFile {
+                    path: "model-00001-of-00005.safetensors",
+                    sha256: "e97b877e47fde53a6c6e77aafb36e58e91ee9d95c4a3eeac6f1b5c0e6a1c986e",
+                    bytes: 3_900_233_256,
+                },
+                WeightsFile {
+                    path: "model-00002-of-00005.safetensors",
+                    sha256: "a9a300a43b4724eee2abe7c18ceb26768d0ab011eb0cad19d9bfd2476a24d024",
+                    bytes: 3_864_726_320,
+                },
+                WeightsFile {
+                    path: "model-00003-of-00005.safetensors",
+                    sha256: "111223d173e00bbee81cba1216fad28668df3476706b7fd26f4d5b50f8b3a507",
+                    bytes: 3_864_726_424,
+                },
+                WeightsFile {
+                    path: "model-00004-of-00005.safetensors",
+                    sha256: "ef47f634fa57d46ee134edcc09f34085a47da1e16c12a2abe0d67118be6d72ed",
+                    bytes: 3_864_733_680,
+                },
+                WeightsFile {
+                    path: "model-00005-of-00005.safetensors",
+                    sha256: "0c859795ad3a627a9b95bcb762e059d5b768a4a36fdd4affeff269d93fdecc67",
+                    bytes: 1_089_994_880,
+                },
+            ],
+        },
+    ),
+    (
+        "llava-video-7b-qwen2",
+        WeightsSource {
+            repo: "lmms-lab/LLaVA-Video-7B-Qwen2",
+            revision: "main",
+            files: &[
+                WeightsFile {
+                    path: "model-00001-of-00004.safetensors",
+                    sha256: "2625213dd97a944180a7ba6776501709f6094e9c07295101518d69ca8ccfb5ad",
+                    bytes: 4_877_668_032,
+                },
+                WeightsFile {
+                    path: "model-00002-of-00004.safetensors",
+                    sha256: "bc4fadb1419522b41c58d36f46e29d6f0cba5fcb35b74c0d1887692852f3d98b",
+                    bytes: 4_932_751_008,
+                },
+                WeightsFile {
+                    path: "model-00003-of-00004.safetensors",
+                    sha256: "94aca0e44c71e4640b40cdbadd995a234937168c72c552e0d2d13036ca96cc68",
+                    bytes: 4_994_571_904,
+                },
+                WeightsFile {
+                    path: "model-00004-of-00004.safetensors",
+                    sha256: "3cbb8d7cfb44f868dd672a11b677dadcbde5428dc744a23f4393508aaeb1f22d",
+                    bytes: 1_255_812_224,
+                },
+            ],
+        },
+    ),
+    (
+        "internvl3-8b",
+        WeightsSource {
+            repo: "OpenGVLab/InternVL3-8B",
+            revision: "main",
+            files: &[
+                WeightsFile {
+                    path: "model-00001-of-00004.safetensors",
+                    sha256: "7ea1f92eaae35cb927e7c7b0f87568ccc046a2446aa68066dfdccb7ebbe0c7f0",
+                    bytes: 4_991_123_960,
+                },
+                WeightsFile {
+                    path: "model-00002-of-00004.safetensors",
+                    sha256: "05f9f1bf63d946d2963bd68c9d1ee7f93bdc5fc05a9b39a3fb91734d5ef4362d",
+                    bytes: 4_958_443_072,
+                },
+                WeightsFile {
+                    path: "model-00003-of-00004.safetensors",
+                    sha256: "904aa0f2fbdbf504cd7bce1a8ec5633ee4e3e1769b48c5b3e08369a23875aaa1",
+                    bytes: 4_796_984_024,
+                },
+                WeightsFile {
+                    path: "model-00004-of-00004.safetensors",
+                    sha256: "50e048a88254db95e0aa397a4e4012a353eaf650a18d7b291e1522d16e83d389",
+                    bytes: 1_142_280_864,
+                },
+            ],
         },
     ),
     (

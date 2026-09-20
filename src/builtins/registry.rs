@@ -17,7 +17,7 @@ use super::vision::{
 #[cfg(feature = "video")]
 use crate::video::{
     builtin_av_mux, builtin_frame_interp, builtin_video_export, builtin_video_extend,
-    builtin_video_fetch_weights_stub, builtin_video_render,
+    builtin_video_fetch_weights_stub, builtin_video_render, builtin_video_understand,
 };
 
 // Наряд №275 (ADR-0137): LLM streaming builtins — llm_stream_open/next/close.
@@ -826,6 +826,11 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("video_extend", 2, "video"; builtin_video_extend),
     #[cfg(feature = "video")]
     spec!("video_fetch_weights", 2, "video"; builtin_video_fetch_weights_stub),
+    // №408 (wave 4.5): the comprehension side of the video pillar —
+    // mock-first backend call (the understanding twin of №309's
+    // generation pipeline), behind the same feature gate.
+    #[cfg(feature = "video")]
+    spec!("video_understand", 1, 3, "video"; builtin_video_understand),
     // ── Наряд №334 (P0, feature/backends): real STT/omni/vision-
     // understanding backends — the SHA-pin path. Mock-first call surface
     // over the №333 registry: METALOGOS_LLM_MOCK default = deterministic

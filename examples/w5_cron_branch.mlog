@@ -1,0 +1,20 @@
+// ── Naryad №413 (issue #558, ADR-0169 §3.1 extension) ────────────────
+//
+// Office branching by the STABLE try-code: a cron-mechanics failure
+// branches on `r.error.code` — never on message prose (ADR-0131: the
+// code is the frozen contract, the text may change). The failure here
+// is the 5-field cron-expression contract, stamped `CRON_JOB_FAILED`
+// at the origin (src/builtins/cron.rs).
+
+pattern ScheduleDigest(x: String) -> String {
+  let r = try cron_add("every morning at nine", "digest_pattern")
+  if r.ok {
+    return "scheduled"
+  }
+  if r.error.code == "CRON_JOB_FAILED" {
+    return "reschedule-with-valid-expr"
+  }
+  return "unhandled:" + r.error.code
+}
+
+flow Main { input: String = "x" -> ScheduleDigest -> output }

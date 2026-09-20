@@ -564,6 +564,14 @@ stamp is honestly `RUNTIME_ERROR`:
 | `SANDBOX_VIOLATION` | io/exec sandbox refusal (absolute path, traversal, symlink escape) | hard-fail — a program defect, retrying is meaningless |
 | `SINK_CLEARANCE_RUNTIME` | the VM runtime twin of the static sink gate refused a call argument | hard-fail / route to an `on_deny` handler |
 | `MEDIA_SEALED_EGRESS` | sealed private media refused materialization (`media_save`) | request consent / pick a public asset |
+| `CRON_JOB_FAILED` | a cron/reminder mechanics failure (№413): the 5-field cron-expression contract, arg/type refusals, persistence lock errors | fix the job definition / alert the operator |
+| `MCP_SPAWN_FAILED` | the MCP server process failed to spawn (№413) | check the server path/permissions, alert |
+| `MCP_TIMEOUT` | an MCP contour phase exceeded the timeout (№413) | retry with a longer timeout / degrade |
+| `MCP_IO_ERROR` | an MCP stdio IO failure (№413) | restart the server call, alert |
+| `MCP_PROTOCOL_ERROR` | a JSON-RPC protocol violation or unsupported server shape (№413) | hard-fail — the server is incompatible |
+| `MCP_TOOL_NOT_FOUND` | the server does not know the tool (JSON-RPC -32602) | fix the tool name / list tools first |
+| `MCP_TOOL_ERROR` | the server reported `isError=true` for the tool call | inspect the tool error text, do not blind-retry |
+| `MCP_NOT_ALLOWLISTED` | the allowlist refused the server (№268 policy) | policy decision — add to the allowlist explicitly |
 | `BACKEND_DEGRADED` | ladder exhaustion — as a TYPED `Degraded(t)` result's `error.code` (№336), not a raised error | select another backend class / queue for later |
 
 Branching example (office policy: retry a timeout, hard-fail a sandbox

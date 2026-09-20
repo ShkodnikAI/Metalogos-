@@ -335,11 +335,11 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("mtree_store", 2, "mtree"; builtin_mtree_store),
     spec!("mtree_stats", 0, "mtree"; builtin_mtree_stats),
     spec!("mtree_forget", 1, "mtree"; builtin_mtree_forget), // ── Cron builtins ──
-    spec!("cron_mark_fired", 1, "cron"; builtin_cron_mark_fired),
-    spec!("cron_add", 2, "cron"; builtin_cron_add), // cron_expr, prompt
-    spec!("cron_list", 0, "cron"; builtin_cron_list),
-    spec!("cron_remove", 1, "cron"; builtin_cron_remove),
-    spec!("cron_run", 1, "cron"; builtin_cron_run), // ── Event / query analytics stubs ──
+    spec!("cron_mark_fired", 1, "cron"; builtin_cron_mark_fired_stamped),
+    spec!("cron_add", 2, "cron"; builtin_cron_add_stamped), // cron_expr, prompt
+    spec!("cron_list", 0, "cron"; builtin_cron_list_stamped),
+    spec!("cron_remove", 1, "cron"; builtin_cron_remove_stamped),
+    spec!("cron_run", 1, "cron"; builtin_cron_run_stamped), // ── Event / query analytics stubs ──
     // event_count/events_since/event_sum: planned event analytics; no handler (use query with SQL instead)
     spec!("event_count", 0, "stub"),
     spec!("events_since", 1, "stub"),
@@ -378,16 +378,16 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("goal_set", 2, "bot" => "ext"; builtin_goal_set),
     spec!("goals_add", 1, "bot" => "ext"; builtin_goals_add),
     spec!("goals_list", 0, "bot" => "ext"; builtin_goals_list),
-    spec!("remind", 3, "bot"; builtin_remind),
+    spec!("remind", 3, "bot"; builtin_remind_stamped),
     spec!("get_profile", 0, "bot" => "ext"; builtin_get_profile),
     spec!("human_mood", 3, "bot"; builtin_human_mood),
     spec!("ask_approval", 1, "bot" => "ext"; builtin_ask_approval),
     spec!("goal_complete", 0, "bot" => "ext"; builtin_goal_complete),
     spec!("goals_reflect", 0, "bot" => "ext"; builtin_goals_reflect),
-    spec!("cancel_remind", 1, "bot"; builtin_cancel_remind),
-    spec!("check_reminders", 0, "bot"; builtin_check_reminders),
-    spec!("list_reminders", 0, "bot"; builtin_list_reminders),
-    spec!("remind_recurring", 2, "bot"; builtin_remind_recurring),
+    spec!("cancel_remind", 1, "bot"; builtin_cancel_remind_stamped),
+    spec!("check_reminders", 0, "bot"; builtin_check_reminders_stamped),
+    spec!("list_reminders", 0, "bot"; builtin_list_reminders_stamped),
+    spec!("remind_recurring", 2, "bot"; builtin_remind_recurring_stamped),
     spec!("human_create", 2, "bot"; builtin_human_create),
     spec!("human_delete", 1, "bot" => "ext"; builtin_human_delete),
     spec!("human_forget", 2, "bot"; builtin_human_forget),

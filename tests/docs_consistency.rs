@@ -13,7 +13,8 @@
 //       mock-mode caveat (`mock mode` / `METALOGOS_MOCK_LLM`);
 //   (в) the "Dual Execution Backend" section mentions the parity gate
 //       (`crosscheck_backends`), the staged plan owner (ADR-0141) and
-//       the serve opt-in knob — the newcomer contract.
+//       the serve knob contract — the VM default with the interpreter
+//       opt-out (ADR-0171 flip) — the newcomer contract.
 //
 // The check is purely textual (std-only, the readme_consistency.rs
 // pattern): file reads + line asserts, no interpreter, no language run.
@@ -137,7 +138,7 @@ fn readme_095_claims_carry_the_mock_mode_caveat() {
 // ── (в) The Dual Backend section names the parity contract ────────────
 
 #[test]
-fn dual_backend_section_mentions_parity_gate_and_gated_flip() {
+fn dual_backend_section_mentions_parity_gate_and_the_flipped_default() {
     let readme = readme_lines();
     let start = readme
         .iter()
@@ -151,10 +152,10 @@ fn dual_backend_section_mentions_parity_gate_and_gated_flip() {
     let section: String = readme[start..end].join("\n");
 
     for needle in [
-        "crosscheck_backends",        // the parity gate (№373)
-        "ADR-0141",                   // the staged plan owner
-        "METALOGOS_SERVE_BACKEND=vm", // the serve opt-in knob
-        "CLOSED",                     // Stage 1 gaps are closed, not "not supported yet"
+        "crosscheck_backends",                 // the parity gate (№373)
+        "ADR-0141",                            // the staged plan owner
+        "METALOGOS_SERVE_BACKEND=interpreter", // the explicit opt-out of the flipped default (ADR-0171)
+        "CLOSED",                              // Stage 1 gaps are closed, not "not supported yet"
     ] {
         assert!(
             section.contains(needle),
@@ -162,10 +163,11 @@ fn dual_backend_section_mentions_parity_gate_and_gated_flip() {
             needle
         );
     }
-    // The default-serve posture and the gated flip must both be stated.
+    // The flipped default (ADR-0171) and the preserved opt-out must both
+    // be stated.
     assert!(
-        section.contains("interpreter by default"),
-        "the section must state that mlog serve defaults to the interpreter"
+        section.contains("VM by default"),
+        "the section must state that mlog serve defaults to the VM (ADR-0171 flip)"
     );
 }
 

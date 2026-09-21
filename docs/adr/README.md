@@ -151,7 +151,7 @@ real ADRs (№309/№320/№412) before the booking.
 | 0109 | `imap` 3.0.0-alpha.15 — intentional pre-release dependency | Accepted |
 | 0110 | Language Enrichment Protocol | Accepted |
 | 0111 | Inline span tracking in AST nodes | Accepted |
-| 0112 | `adapt` quality metric — current mock, not an implemented function | Accepted |
+| 0112 | `adapt` quality metric — current mock, not an implemented function | Accepted + IMPLEMENTED (реализовано в наряде №375, 2026-09-16 |
 | 0113 | Pattern-name collision warnings on `run` / `serve` | Accepted |
 | 0114 | `Value::Reflex` as an opaque handle, not a tensor type | Accepted |
 | 0115 | What "accuracy" means for `Reflex` | Accepted |
@@ -166,17 +166,17 @@ real ADRs (№309/№320/№412) before the booking.
 | 0124 | `Value::Vision` as opaque handle + `VisionRegistry` — Reflex patterns, VM-owned state | Accepted |
 | 0125 | Provenance and supply-chain gates for generated media | Accepted |
 | 0131 | Stable diagnostic codes for `mlog check` — extending the existing `audit.rs` convention, not a new one | Accepted |
-| 0132 | MCP client — manual JSON-RPC over stdio, stateless, output with taint `UserInput` | Accepted (approved by owner 2026-09-12; MCP output taint kind |
+| 0132 | MCP client — hand-rolled JSON-RPC over stdio, stateless, output with taint `UserInput` | Accepted (approved by the owner 2026-09-12; taint kind of MCP output |
 | 0133 | `call_llm_schema` — structured LLM output through a hand-rolled JSON-Schema subset validator | Accepted |
-| 0134 | sqlite-vec as a KNN accelerator for semantic recall — spike #271 verdict: Go | Accepted (dispatch verdict gate #316: resolved by the spike executor 2026-09-12, as approved by the gate mechanics) |
-| 0135 | Semantic cache (cache_semantic) + LRU bound of the ADR-0047 cache | Accepted |
-| 0136 | redact(text, mode) — PII/secrets as a taint sanitizer | Accepted (stop-gate SG-2 approved by owner 2026-09-12) |
+| 0134 | sqlite-vec as a KNN accelerator for semantic recall — spike #271 verdict: Go | Accepted (verdict gate of dispatch #316: resolved by the implementer per the spike 2026-09-12, as the gate mechanics prescribe) |
+| 0135 | Semantic cache (cache_semantic) + LRU bound for the ADR-0047 cache | Accepted |
+| 0136 | redact(text, mode) — PII/secrets as a taint sanitizer | Accepted (stop-gate SG-2 approved by the owner 2026-09-12) |
 | 0137 | LLM streaming — `llm_stream_open/next/close` over `reqwest::blocking` | Accepted |
 | 0138 | Per-call LLM traces — file-based JSONL with OpenTelemetry GenAI field names | Accepted |
-| 0139 | SMFS — memory export as a virtual read-only FS (`sm:`) | Proposed (spike #282 draft; spike verdict |
+| 0139 | SMFS — memory export as a virtual read-only FS (`sm:`) | Proposed (draft of spike #282; spike verdict |
 | 0140 | Diagnostic codes — addendum (no-reuse rule + SSOT-registry discipline) | Accepted |
 | 0141 | VM production-readiness — staged gap closure + parity-gated default flip | Accepted (owner decision 2026-09-14 |
-| 0142 | Error protocol — structural errors through try-extended semantics (candidate B) | Accepted (owner decision 2026-09-14 |
+| 0142 | Error protocol — structural errors through try-extended semantics (candidate B) | Accepted + IMPLEMENTED (owner decision 2026-09-14 |
 | 0143 | Voice pillar — scope (TTS, zero-shot cloning, voice-design) | Accepted |
 | 0144 | Voice value-registry — `Value::Audio(AudioId)` opaque handle + VoiceRegistry | Accepted |
 | 0145 | Voice security gates — consent, provenance, privacy, taint | Accepted |
@@ -189,19 +189,20 @@ real ADRs (№309/№320/№412) before the booking.
 | 0152 | C2PA mini-slice — Art. 50 synthetic marking on egress (no clearance lattice) | Accepted |
 | 0153 | Video DiT text path wired — prompt embedding genuinely conditions the denoiser | Accepted |
 | 0154 | Label lattice for taint kinds — (conf, integrity, consent-scope) | Accepted |
-| 0155 | Grant algebra — permissions for irreversible operations — Once / N(n) / Unlimited classes, linearity rules 1–6, prior art (№389) | accepted |
-| 0156 | TW/VM/JIT parity contract | reserved |
-| 0157 | Ledger profile — PROV/in-toto alignment | reserved |
+| 0155 | Grant algebra — permissions for irreversible operations | Implemented (naryads #389–#393 landed the algebra in main: `grant_issue`/`grant_subgrant`/`grant_revoke`/`grant_use`/`db_execute_with_grant` with scope/TTL/quota enforcement, the action bridge over the №316 sink SSOT, the exhaustive DenyEvent reasons with `on_deny` handlers, and the signed Action Ledger v1. Anchors: `tests/naryad_390_grants.rs`, `tests/grant_algebra_fuzz.rs`, `tests/naryad_391_bridge.rs`, `tests/naryad_392_deny_event.rs`, `tests/naryad_393_ledger.rs`; independently accepted by the wave-3 audit and the external audit 2026-09-19; exercised end-to-end by the kitchen-camera e2e and the #395 dogfood run. Originally Accepted 2026-09-17 |
+| 0156 | TW/VM/JIT label parity — LabelJoin/SinkCheck in the bytecode | Accepted |
+| 0157 | Ledger profile — PROV/in-toto alignment | Accepted (fills the reserved booking of 2026-09-14) |
 | 0158 | Declassify boundaries | reserved |
 | 0159 | Sim-first verification — STL semantics | reserved |
 | 0160 | Identifier naming convention | reserved |
-| 0161 | Legacy compatibility profile (№325) | accepted |
-| 0162 | Unified media handles and the media store (№331) | accepted |
-| 0163 | Backend registry — classes, SHA-pin, license classes (№333) | accepted |
-| 0164 | Perception AST — HandleSource/Lift/Sink/ProvBind and the origin chain (№332) | accepted |
-| 0165 | BackendSelect — the backend ladder and Degraded(t), typed degradation (№336) | accepted |
-| 0166 | The C2PA contour of media handles — read/write manifests and the generation guarantee (№337) | accepted |
-| 0167 | Action Ledger v1 — the signed append-only journal, prev-hash + Ed25519, in-toto/PROV profile (№393) | accepted |
-| 0168 | MCP server transports — stdio/HTTP/SSE behind the serve gates (№394) | accepted |
-| 0169 | Stable `try` error codes — origin-stamped classification (№385) | accepted |
-| 0170 | Persistence taint layer 2 — locally-bound key prefixes; points-to deferred (№405) | accepted |
+| 0161 | Legacy compatibility profile (`profile legacy`) | Accepted |
+| 0162 | Unified media handles and the media store (lazy materialization, refcount, at-rest sealing) | Accepted |
+| 0163 | Backend registry — classes, SHA-pin contract, license classes and the distribution gate | Accepted |
+| 0164 | Perception AST — HandleSource/Lift/Sink/ProvBind and the origin chain | Accepted |
+| 0165 | BackendSelect — the backend ladder and Degraded(t), typed degradation | Accepted |
+| 0166 | The C2PA contour of media handles — read/write manifests and the generation guarantee | Accepted |
+| 0167 | Action Ledger v1 — signed append-only journal of actions | Accepted |
+| 0168 | MCP server transports — stdio + HTTP/SSE, bearer auth, compiled tool-policy | Accepted |
+| 0169 | Stable `try` error codes — origin-stamped classification | Accepted |
+| 0170 | Persistence taint layer 2 — locally-bound key prefixes; points-to deferred | Accepted |
+| 0171 | `mlog serve` default backend flip — the VM becomes the default (Stage 5 executed) | Accepted |

@@ -267,3 +267,22 @@ SAME fixed thresholds. The compression record and the before/after probe:
   Series record: the research doc §6; verdict package `w6: n415-verdict` in gh#527
   (comment 5752838305). The default flip remains the OWNER's decision — flip-ready data,
   not a flip.
+
+## Addendum 7 — Stage 5 EXECUTED: the serve default flipped to VM (2026-09-21)
+
+The owner's directive («Флипай», 2026-09-21, issue #527 — recorded as comment 5754930273)
+executed Stage 5 on the re-gate №3 evidence: **3/3 GREEN on BOTH thresholds** (p95
+×3.00/×3.49/×3.11 ≥ ×1.5; peak RSS ×0.95/×1.07/×0.98 ≤ ×1.1) on main @ `5f9da64`
+(claim `w6: n415-claim` 5752763580 BEFORE the runs, verdict `w6: n415-verdict`
+5752838305). The flip lands as [ADR-0171](0171-serve-default-flip-vm.md) — the separate
+ADR D6 requires — and ADR-0088's status line is amended there (not inside ADR-0088).
+
+- The interpreter opt-out (`METALOGOS_SERVE_BACKEND=interpreter`) is preserved — D7 holds:
+  TW remains the guaranteed full-language backend, now as the explicit opt-out.
+- The VM pool remains default-OFF — D2/ADR-0141 pool posture is untouched by the flip.
+- The one-wave path-A limit (owner decision 5751899756) is discharged honestly: the
+  retained-representation lever moved the memory gate from 0/6 (№404+№410 series) to
+  3/3 (№415 series) within exactly one wave, under the SAME fixed thresholds (rule 2).
+- The Stage-3 sprint-length staging-soak criterion was not formally complete at flip
+  time; the owner's explicit directive supersedes the schedule (recorded as the honest
+  boundary in ADR-0171 §2). The nightly soak keeps accumulating parity evidence.

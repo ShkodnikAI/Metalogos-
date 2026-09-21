@@ -144,14 +144,17 @@ fn naryad_373_limitations_stage1_rows_closed() {
             row
         );
     }
-    // The default-flip row stays OPEN (Stage 3 decision — диспатч №379).
-    let open_row = doc
+    // The default-flip row is CLOSED: Stage 5 was EXECUTED 2026-09-21 — the
+    // owner's flip decision («Флипай») on the re-gate №3 3/3 GREEN evidence
+    // (both thresholds), recorded in ADR-0171 + ADR-0141 Addendum 7.
+    let flip_row = doc
         .lines()
         .find(|l| l.contains("VM is not the default backend"))
-        .expect("default-flip row must remain present");
+        .expect("default-flip row must remain present (as the CLOSED history row)");
     assert!(
-        !open_row.contains("CLOSED"),
-        "the serve default-flip row must stay OPEN until Stage 3 (ADR-0088/ADR-0141)"
+        flip_row.contains("CLOSED") && flip_row.contains("№404"),
+        "the serve default-flip row must be marked CLOSED (№404 Stage 5, ADR-0171) — got: {}",
+        flip_row
     );
 }
 

@@ -73,3 +73,12 @@ is an explicit opt-in and is not the default path.
 - ADR-0073 — JIT experimental (same honesty principle)
 - ADR-0086 — VM microbenchmark (arithmetic only; not full-server cost)
 - Naryad №91 — cost precedent for one deferred-construct fix
+
+## Addendum (2026-09-21): Stage 5 executed — the serve default is the VM
+
+The `mlog serve` default backend flipped to the bytecode VM per
+[ADR-0171](0171-serve-default-flip-vm.md) — the owner's decision on the re-gate №3
+evidence (3/3 GREEN on both thresholds). §Decision 1–4 of this ADR remain in force
+unchanged (ADR-0141 D7): TW is still the guaranteed full-language backend, now as the
+explicit `METALOGOS_SERVE_BACKEND=interpreter` opt-out. The "experimental" label was
+already lifted by the №388 truth-up; the default flip closes the staged plan.

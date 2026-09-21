@@ -240,7 +240,9 @@ flags. The series record and the raw numbers:
   thresholds remains the honest path after any such lever. The alternative — accepting the
   latency-vs-retained-memory trade — is the owner's decision, not the executor's.
 
-## Addendum 6 — the retained-representation lever executed (naryad №415, 2026-09-21)
+## Addendum 6 — the retained-representation lever executed (naryad №417 — issued as №415 before the 2026-09-21 renumbering, issue #569)
+
+> **Renumbering note (№422).** This naryad was issued under the mistaken label №415 (a collision with issue #567) and renumbered to **№417** (issue #569) on 2026-09-21. The historical anchors keep their pre-renumbering `415` names ON PURPOSE — the research doc (`naryad-415-retained-compression.md`), the test file (`tests/naryad_415_retained.rs`) and the gh#527 comment anchors (`w6: n415-claim` 5752763580 / `w6: n415-verdict` 5752838305) — renaming would break them. A recorded deviation from the renumbering dispatch note: Addendum 6 documents the retained lever (№417); naryad №416 has no addendum of its own — its record is the held-class decomposition doc and the CHANGELOG row (issue #582).
 
 The owner took **path A** of Addendum 5's decision menu (gh#527, comment 5751899756,
 one-wave limit): shrink the retained bytecode representation, then re-gate №3 under the

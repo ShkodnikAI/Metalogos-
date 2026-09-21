@@ -24,11 +24,16 @@ pattern VerifyChain(_tick: String) -> String {
   let used = db_execute_with_grant(g, "DELETE FROM runbook_demo")
   let refused = db_execute_with_grant(g, "DELETE FROM runbook_demo")
   let path = ledger_export("target/w7_ledger_cron_verify.jsonl")
+  // The verdict branch is the contract: branch on v.ok, report the TYPES
+  // (state-independent — the crosscheck runs TW and VM in ONE process, so
+  // the process-global grant ledger grows across runs and a records COUNT
+  // would diverge; the w2_ledger example established the type-only report
+  // pattern for exactly this reason).
   let v = ledger_verify("target/w7_ledger_cron_verify.jsonl")
   if v.ok {
-    return "verify-ok,records=" + to_string(v.records) + ",used=" + type_of(used) + ",refused=" + type_of(refused) + ",exported=" + type_of(path)
+    return "verify-ok,used=" + type_of(used) + ",refused=" + type_of(refused) + ",exported=" + type_of(path)
   }
-  return "verify-fault,record=" + to_string(v.error_record) + ",reason=" + v.error_reason
+  return "verify-fault,reason=" + v.error_reason
 }
 
 flow Main { input: String = "tick" -> VerifyChain -> output }

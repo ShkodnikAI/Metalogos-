@@ -1,1 +1,1 @@
-verify-ok,records=4,used=String,refused=Unit,exported=String
+verify-ok,used=String,refused=Unit,exported=String

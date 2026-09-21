@@ -25,6 +25,10 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added
+
+- **Action Ledger operator runbook + the verify-branch example (naryad №424, issue #584)**: `docs/ledger-runbook.md` — the operator protocol the audit-21.09 P2-3 asked for: the `METALOGOS_LEDGER_KEY` identity and rotation seams, the export cadence, the OUT-OF-BAND `expect_head`/`expect_key` anchor (the wholesale-rewrite catch — the tamper-EVIDENT boundary stated honestly), the periodic verification via the native cron (№418: a minute-window job whose handler branches on the STRUCT `ledger_verify` verdict, never on message prose), the reaction protocol on `ok=false` (stop destructive, alert with `error_record`/`error_reason`, freeze, recover, re-anchor), and the known boundaries (read-only hook, the vacuous empty-ledger case, the cron-context db boundary observed on 0.21.0 and filed on #583). The runnable example `examples/w7_ledger_cron_verify.mlog` + `.expected` (golden-tested, both backends via crosscheck): a metered N(1) grant, its granted use, the refused second use journaled as a deny event, the export, and the `verify-ok,records=4` branch.
+
 ### Fixed
 
 - **README truth-up: the P0-readiness line follows REALITY.md (naryad №421, issue #581)**: the README still carried the stale `(26%) — Naryad №318` estimate after №414 recomputed the working P0-readiness figure to **68%** (2026-09-20) — the README may lag the limitations/REALITY SSOT only by hours, and this was the last docs lag the 2026-09-21 audit (P0-1) listed; the README line now cites 68% with the #414 anchor.

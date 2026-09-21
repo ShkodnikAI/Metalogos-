@@ -166,6 +166,8 @@ $ mlog check poison.mlog
 > **[Known Limitations](docs/limitations.md)** — a unified index of all documented language limitations across static analysis, VM, Vision, adapt, self-hosting, JIT, error protocol, LLM streaming, and MCP server. The truth lives in the primary sources (ADR, source files); this page only references.
 >
 > **[REALITY](docs/REALITY.md)** — the reality-check of plan-v2 asset claims (CONFIRMED / PARTIAL / PHANTOM verdicts with proof commands) and the working P0-readiness estimate (68% as of naryad #414, 2026-09-20).
+>
+> **[Action Ledger runbook](docs/ledger-runbook.md)** — the operator protocol for the signed action trail: the key lifecycle, the export, the out-of-band `expect_head`/`expect_key` anchor, the periodic verification via the native cron (0.21.0) and the reaction on a failed verdict.
 
 #### Known boundaries of static analysis
 

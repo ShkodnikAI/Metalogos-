@@ -130,3 +130,99 @@ pub(crate) fn builtin_ledger_snapshot(args: &[Value]) -> Result<Value, String> {
     let hash = crate::ledger::snapshot()?;
     Ok(Value::String(hash))
 }
+
+/// `ledger_verify(path)` — Naryad #415 (P2-2 residue): READ (ingress, NOT
+/// egress) — a sandboxed read of an exported JSONL chain that returns the
+/// STRUCTURAL verification verdict as a `LedgerVerdict` struct:
+///   `ok`, `records`, `head_hash`, `distinct_keys`, `anchored_start`,
+///   `error_record` (1-based Float, or Unit when the fault is chain-level
+///   or absent), `error_reason` ("" when ok).
+/// The chain checks are the library's `ledger_verify` — the crypto is not
+/// re-implemented here. A missing file is a soft verdict (`ok=false`,
+/// "cannot read") per the №254 read contract; a sandbox escape stays a
+/// loud `[SANDBOX_VIOLATION]`.
+pub(crate) fn builtin_ledger_verify(args: &[Value]) -> Result<Value, String> {
+    const FN_NAME: &str = "ledger_verify";
+    if args.len() != 1 {
+        return Err(format!(
+            "{}: expects 1 argument (path), got {}",
+            FN_NAME,
+            args.len()
+        ));
+    }
+    let path = match &args[0] {
+        Value::String(s) => s.clone(),
+        other => {
+            return Err(format!(
+                "{}: path must be String, got {}",
+                FN_NAME,
+                other.type_name()
+            ))
+        }
+    };
+    if crate::builtins::io::sandbox_path_missing(&path) {
+        // №254 soft read contract: the file is not there — report it as a
+        // failed verification instead of a loud breach (nothing escaped).
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("ok".to_string(), Value::Bool(false));
+        fields.insert("records".to_string(), Value::Float(0.0));
+        fields.insert("head_hash".to_string(), Value::String(String::new()));
+        fields.insert("distinct_keys".to_string(), Value::Float(0.0));
+        fields.insert("anchored_start".to_string(), Value::Bool(false));
+        fields.insert("error_record".to_string(), Value::Unit);
+        fields.insert(
+            "error_reason".to_string(),
+            Value::String(format!("cannot read ledger file {}: no such file", path)),
+        );
+        return Ok(Value::Struct {
+            type_name: "LedgerVerdict".to_string(),
+            fields,
+        });
+    }
+    let safe_path =
+        crate::builtins::io::sandbox_path_ex(&path, crate::builtins::io::SandboxMode::ForRead)
+            .map_err(crate::builtins::io::sandbox_violation)?;
+    let verdict = crate::ledger::ledger_verify(
+        crate::ledger::LedgerVerifySource::File(&safe_path),
+        None,
+        None,
+    );
+    Ok(verdict_to_value(&verdict))
+}
+
+/// `LedgerVerdict` → the script-visible struct value (flat fields; the
+/// fault position is a Float when the fault points at a record).
+fn verdict_to_value(v: &crate::ledger::LedgerVerdict) -> Value {
+    let mut fields = std::collections::HashMap::new();
+    fields.insert("ok".to_string(), Value::Bool(v.ok));
+    fields.insert("records".to_string(), Value::Float(v.records as f64));
+    fields.insert("head_hash".to_string(), Value::String(v.head_hash.clone()));
+    fields.insert(
+        "distinct_keys".to_string(),
+        Value::Float(v.distinct_keys as f64),
+    );
+    fields.insert("anchored_start".to_string(), Value::Bool(v.anchored_start));
+    fields.insert(
+        "error_record".to_string(),
+        match &v.fault {
+            Some(f) => match f.record {
+                Some(n) => Value::Float(n as f64),
+                None => Value::Unit,
+            },
+            None => Value::Unit,
+        },
+    );
+    fields.insert(
+        "error_reason".to_string(),
+        Value::String(
+            v.fault
+                .as_ref()
+                .map(|f| f.reason.clone())
+                .unwrap_or_default(),
+        ),
+    );
+    Value::Struct {
+        type_name: "LedgerVerdict".to_string(),
+        fields,
+    }
+}

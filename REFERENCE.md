@@ -633,7 +633,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 460 registered builtins (460 of 460): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 461 registered builtins (461 of 461): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -2019,7 +2019,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 460 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 461 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2234,7 +2234,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `file_exists(...)` | 1 | `String -> Bool` | Checks whether a file exists |
 | `git_push(...)` | 1 | — | `git_push(message?) -> String` — git add/commit/push via subprocess. Uses GITHUB_TOKEN and GITHUB_REPO env vars for authentication. Usage: git_push("commit message") -> "ok" \| "nothing to commit" \| error |
 | `list_dir(...)` | 1 | `String -> List` | A list of files in a directory. With no argument — the current directory |
-| `mcp_call(...)` | 4 | — | `mcp_call(command, args_list, tool_name, arguments_json) -> String`. |
+| `mcp_call(...)` | 4 | — | №413 (issue #558, ADR-0169 §3.1 extension): the MCP contour's failure taxonomy (`MCP_SPAWN_FAILED`, `MCP_TIMEOUT`, `MCP_IO_ERROR`, `MCP_PROTOCOL_ERROR`, `MCP_TOOL_NOT_FOUND`, `MCP_TOOL_ERROR`, `MCP_NOT_ALLOWLISTED`) already sits at position 0 of the error strings the contour raises — it is now whitelisted for the `try` classifier in `values::ORIGIN_STAMPED_CODES`. The wrapper below no longer buries those stamps mid-message. |
 | `mcp_list_tools(...)` | 2 | — | `mcp_list_tools(command, args_list) -> List[Struct{name, description, input_schema}]`. |
 | `print(...)` | 1 | `String -> String` | Prints a string to stdout, returns it |
 | `read_file(...)` | 1 | `String -> String` | Reads a file. Soft-failure: an empty string when the file is missing or unreadable. Sandbox violations (absolute path, `..`, symlink escape, broken symlink) are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) |
@@ -2435,7 +2435,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `backend_list(...)` | variadic | — | `backend_list()` — the static backend registry as `List[Struct { name, class, weights_id, pin, license, license_note }]`. |
 | `backend_select(...)` | 2 | — | `backend_select(class, ladder)` — the backend try-chain (Наряд №336, ADR-0165). Walks the ladder in priority order over the №333 registry SSOT; every rung attempt is an audit event (stderr line + the program-visible `attempts` list, №326 posture). |
 
-### `security` — 14 builtin(s)
+### `security` — 15 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
@@ -2450,6 +2450,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `ledger_head(...)` | variadic | — | `ledger_head()` — the current head hash ("" for an empty journal). |
 | `ledger_rotate(...)` | variadic | — | `ledger_rotate()` — append a key-rotation record (signed by the still-active key); returns the NEW key id. Subsequent records are signed by the fresh key (signer continuity, ADR-0167 §3.2). |
 | `ledger_snapshot(...)` | variadic | — | `ledger_snapshot()` — append a snapshot record pinning the head; returns the snapshot record hash (the `mlog ledger archive` anchor). |
+| `ledger_verify(...)` | 1 | — | `ledger_verify(path)` — Naryad #415 (P2-2 residue): READ (ingress, NOT egress) — a sandboxed read of an exported JSONL chain that returns the STRUCTURAL verification verdict as a `LedgerVerdict` struct: `ok`, `records`, `head_hash`, `distinct_keys`, `anchored_start`, `error_record` (1-based Float, or Unit when the fault is chain-level or absent), `error_reason` ("" when ok). The chain checks are the library's `ledger_verify` — the crypto is not re-implemented here. A missing file is a soft verdict (`ok=false`, "cannot read") per the №254 read contract; a sandbox escape stays a loud `[SANDBOX_VIOLATION]`. |
 | `likeness_challenge(...)` | 1..3 | — | `likeness_challenge(subject, scope?, ttl_seconds?)` — issue a one-time likeness challenge (ADR-0149 D1). |
 | `likeness_verify(...)` | 1..3 | — | `likeness_verify(challenge, subject?, scope?)` — consume the challenge, record the consent-ledger grant, return the opaque token. |
 | `quarantine_write(...)` | 1..2 | — | `quarantine_write(value, reason?)` — the quarantine sink: the ONLY legal egress for a poisoned value. Returns the audit-event text (the program-visible half of the event; the static half is the QUARANTINE_EGRESS audit finding + stderr line, №326 posture). |
@@ -2624,7 +2625,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `semantic_search(...)` | 3 | — | `semantic_search(query, documents, top_k)` — semantic similarity search. |
 | `vault_validate(...)` | 2 | — | `vault_validate(config, required_fields)` — validate a loaded config against required fields. |
 
-### `video` — 6 builtin(s)
+### `video` — 7 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
@@ -2634,7 +2635,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `video_extend(...)` | 2 | — | `video_extend(handle, extra)` — clip continuation anchored on the last latent frame (ADR-0151 D3). `extra` = number of ADDITIONAL latent frames. |
 | `video_fetch_weights(...)` | 2 | — | `video_fetch_weights(url, dir)` — FORMAL No-Go (№294 class, ADR-0151 D7): production-weights inference is parked in this environment (4 GB RAM, no GPU); the tiny seeded pipeline needs no external weights. The name stays registered so the shared MODEL_WEIGHTS_UNSAFE static gate (№300, `_fetch_weights` suffix convention) and the SSRF-guard vocabulary cover the surface. This is a recorded boundary, not a hidden stub. |
 | `video_render(...)` | 2..4 | — | `video_render(decl, prompt[, ref_first[, ref_last]])` — real tiny pipeline (ADR-0151 D1): T2V (2 args) / I2V first-anchor (3) / two-anchor first–last (4). Seed = sha256(model\|prompt); ref-hash(es) recorded in the manifest. |
-| `video_understand(...)` | 1..3 | — | `video_understand(segment, prompt?, model?)` — the video-understanding backend call (№408, feature `video`): answers questions ABOUT a segment (comprehension, not generation). `segment` is the segment payload reference (String); `prompt` is the question; `model` defaults to the registry canon `qwen2.5-vl-7b-instruct` (donors: qwen2.5-vl-7b-instruct / llava-video-7b-qwen2 / internvl3-8b — real HF LFS pins, Apache-2.0 per the HF card declarations). Mock-first deterministic golden `[MOCK: video_understand \| weights \| segment \| prompt]`; real mode refuses loudly (PARKED №294). Real-mode frame-sampling policy (fixed in advance): deterministic stride over the segment's frame table + first/last anchor frames — no randomness, no wall-clock time. |
+| `video_understand(...)` | 1..3 | — | `video_understand(segment, prompt?, model?)` — the video-understanding backend call (№408). `segment` is the segment payload reference (String; a `VideoSegmentId` surface); `prompt` is the comprehension question (e.g. "what happens in this clip"); `model` defaults to the registry canon `qwen2.5-vl-7b-instruct` (weights: qwen2.5-vl-7b-instruct, Qwen/Qwen2.5-VL-7B-Instruct). |
 
 ### `vision` — 12 builtin(s)
 
@@ -3134,12 +3135,12 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `voice_save` | sink | internal | reversible | persists a Voice artifact |
 | `voice_load` | source | internal | pure | ingests a persisted Voice artifact |
 | `video_render` | sink | internal | reversible | persists a generated video artifact in VIDEO_REGISTRY — local tiny pipeline; egress only at video_export |
-| `video_understand` | source | internal | pure | video-understanding backend call (№408, qwen2.5-vl-7b-instruct canon): ingests the comprehension answer for a segment into the flow; no upload, no egress; real mode requires SHA-pinned weights (PARKED №294) |
 | `video_export` | sink | internal | reversible | writes the signed .mlgv container to disk — egress point (gate VIDEO_UNSIGNED_EXPORT, ADR-0151 D5) |
 | `av_mux` | sink | internal | reversible | persists the A/V sidecar container in VIDEO_REGISTRY (ADR-0151 D4) |
 | `frame_interp` | sink | internal | reversible | persists an interpolated artifact in VIDEO_REGISTRY (ADR-0151 D2) |
 | `video_extend` | sink | internal | reversible | persists an extended artifact in VIDEO_REGISTRY (ADR-0151 D3) |
 | `video_fetch_weights` | source | network | reversible | intended external weights fetch (formal No-Go №294 class, ADR-0151 D7); covered by MODEL_WEIGHTS_UNSAFE |
+| `video_understand` | source | internal | pure | video-understanding backend call (№408, qwen2.5-vl-7b-instruct canon): ingests the comprehension answer for a segment into the flow; no upload, no egress; real mode requires SHA-pinned weights (PARKED №294) |
 | `stt_transcribe` | source | internal | pure | local STT backend call (№334, whisper-turbo canon): ingests the transcript into the flow; the audio stays local (no upload — unlike whisper_transcribe); real mode requires SHA-pinned weights (PARKED №294) |
 | `omni_ask` | source | internal | pure | local omni backend call (№334, nemotron canon): ingests the model answer into the flow; no network egress; real mode requires SHA-pinned weights (PARKED №294) |
 | `vision_understand` | source | internal | pure | local vision-understanding backend call (№334, molmoact2 canon): ingests the answer about an image into the flow; no upload, no egress; real mode requires SHA-pinned weights (PARKED №294) |
@@ -3163,8 +3164,10 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `likeness_challenge` | lift | public | pure | issues a one-time opaque likeness challenge (№387, ADR-0149 D1); registry state only, no egress |
 | `likeness_verify` | lift | public | pure | consumes the challenge (linear), records the consent-ledger grant and returns the opaque LikenessToken (№387, ADR-0149 D1/D6) — process-local bookkeeping, no egress |
 | `ocr_extract` | source | internal | pure | local OCR backend call (№407, trocr-base-printed canon): ingests the text extracted from an image into the flow; no upload, no egress; real mode requires SHA-pinned weights (PARKED №294) |
+| `ledger_verify` | source | internal | pure | reads an exported JSONL chain from a sandboxed path and returns the structural verification verdict (№415) — ingress of the signed trail for verification; the runtime ledger is never written and nothing egresses |
 
 <!-- END GENERATED BUILTIN CLASSIFICATION -->
+
 
 
 

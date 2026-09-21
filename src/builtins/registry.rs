@@ -55,7 +55,7 @@ use super::grants::{
 // export_intoto/rotate/snapshot.
 use super::ledger::{
     builtin_ledger_count, builtin_ledger_export, builtin_ledger_export_intoto, builtin_ledger_head,
-    builtin_ledger_rotate, builtin_ledger_snapshot,
+    builtin_ledger_rotate, builtin_ledger_snapshot, builtin_ledger_verify,
 };
 // Naryad #387 (ADR-0149 D1/D6): the likeness ritual — challenge/verify
 // over the opaque LikenessToken.
@@ -903,6 +903,12 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // at the end — inserting mid-array would shift existing CallBuiltin
     // indices (.mbc contract). Registry 458→459 (append-only).
     spec!("ocr_extract", 1, 3, "vision"; builtin_ocr_extract),
+    // ── Naryad #415 (P1, security/ledger): the runtime verify hook —
+    // read-only structural verification of an exported chain (the audit
+    // P2-2 residue). APPENDED at the end — inserting mid-array would
+    // shift existing CallBuiltin indices (.mbc contract).
+    // Registry 459→460 (append-only).
+    spec!("ledger_verify", 1, "security"; builtin_ledger_verify),
 ];
 
 /// Total number of registered builtins.

@@ -200,7 +200,7 @@ fn registry_arity_exhaustive() {
         // ── Cron builtins ──
         ("cron_mark_fired", 1, 1),
         // ── Cron (Наряд №55) ──
-        ("cron_add", 2, 2),
+        ("cron_add", 2, 5), // №418: the optional tz / catch_up / payload extensions
         // cron_list is variadic (arity=0) — not tested here, see registry_sync_check
         ("cron_remove", 1, 1),
         ("cron_run", 1, 1),

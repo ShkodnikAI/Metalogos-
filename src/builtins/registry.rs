@@ -336,7 +336,9 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("mtree_stats", 0, "mtree"; builtin_mtree_stats),
     spec!("mtree_forget", 1, "mtree"; builtin_mtree_forget), // ── Cron builtins ──
     spec!("cron_mark_fired", 1, "cron"; builtin_cron_mark_fired_stamped),
-    spec!("cron_add", 2, "cron"; builtin_cron_add_stamped), // cron_expr, prompt
+    // №418: 2..5 — the optional tz / catch_up / payload extensions
+    // (additive arity widening; the 2-arg 0.20.x call shape is unchanged).
+    spec!("cron_add", 2, 5, "cron"; builtin_cron_add_stamped), // cron_expr, prompt, tz?, catch_up?, payload?
     spec!("cron_list", 0, "cron"; builtin_cron_list_stamped),
     spec!("cron_remove", 1, "cron"; builtin_cron_remove_stamped),
     spec!("cron_run", 1, "cron"; builtin_cron_run_stamped), // ── Event / query analytics stubs ──

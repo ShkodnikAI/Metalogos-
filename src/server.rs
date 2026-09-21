@@ -23,87 +23,12 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_http::set_header::SetResponseHeaderLayer;
 
-use chrono::{Datelike, Timelike};
-
 use crate::ast::*;
 use crate::builtins::io::ServeRouteExecGuard;
 use crate::bytecode::{CompiledRoute, Program};
 use crate::compiler::Compiler;
 use crate::interpreter::{Interpreter, Value};
 use crate::vm::Vm;
-
-/// Check if a cron field (min/hour/dom/month/dow) matches a value.
-/// Supports: `*`, `*/N`, `N`, `N-M`, `N,M,O`, `N-M/S`.
-fn cron_field_matches(field: &str, value: u32) -> bool {
-    for part in field.split(',') {
-        let part = part.trim();
-        if part == "*" {
-            return true;
-        }
-        if let Some(step_str) = part.strip_prefix("*/") {
-            if let Ok(step) = step_str.parse::<u32>() {
-                if step == 0 {
-                    continue;
-                }
-                if value.is_multiple_of(step) {
-                    return true;
-                }
-            }
-            continue;
-        }
-        // Handle range with optional step: N-M or N-M/S
-        if part.contains('-') {
-            let segments: Vec<&str> = part.split('/').collect();
-            let range_str = segments[0];
-            let step: u32 = if segments.len() > 1 {
-                segments[1].parse().unwrap_or(1)
-            } else {
-                1
-            };
-            if step == 0 {
-                continue;
-            }
-            let bounds: Vec<&str> = range_str.split('-').collect();
-            if bounds.len() == 2 {
-                if let (Ok(lo), Ok(hi)) = (bounds[0].parse::<u32>(), bounds[1].parse::<u32>()) {
-                    if value >= lo && value <= hi && (value - lo).is_multiple_of(step) {
-                        return true;
-                    }
-                }
-            }
-            continue;
-        }
-        // Plain number
-        if let Ok(n) = part.parse::<u32>() {
-            if n == value {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-/// Check if a 5-field cron expression matches the current time.
-/// Fields: min hour dom month dow
-/// dow: 0=Sunday (chrono), same as standard cron.
-fn cron_expr_matches(expr: &str) -> bool {
-    let parts: Vec<&str> = expr.split_whitespace().collect();
-    if parts.len() != 5 {
-        return false;
-    }
-    let now = chrono::Local::now();
-    let min = now.minute();
-    let hour = now.hour();
-    let dom = now.day(); // 1-31
-    let month = now.month(); // 1-12
-    let dow = now.weekday().num_days_from_sunday(); // 0=Sun
-
-    cron_field_matches(parts[0], min)
-        && cron_field_matches(parts[1], hour)
-        && cron_field_matches(parts[2], dom)
-        && cron_field_matches(parts[3], month)
-        && cron_field_matches(parts[4], dow)
-}
 
 /// Percent-decode a query-string key/value (RFC 3986 semantics with the
 /// form-urlencoded `+` convention — chosen and documented, Naryad #257).
@@ -880,28 +805,20 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
             // ── Phase 1: collect reminder + cron data under short write lock ──
-            let (check_result, cron_check) = {
+            let check_result = {
                 let interp = scheduler_state.interpreter.write().await;
-                let cr = {
-                    if let Some(builtin_fn) = interp.get_builtin("check_reminders") {
-                        builtin_fn(&[])
-                    } else {
-                        Ok(crate::interpreter::Value::List(vec![]))
-                    }
-                };
-                let cc = {
-                    if let Some(builtin_fn) = interp.get_builtin("cron_list") {
-                        builtin_fn(&[])
-                    } else {
-                        Ok(crate::interpreter::Value::List(vec![]))
-                    }
-                };
-                (cr, cc)
+                if let Some(builtin_fn) = interp.get_builtin("check_reminders") {
+                    builtin_fn(&[])
+                } else {
+                    Ok(crate::interpreter::Value::List(vec![]))
+                }
                 // write lock released here
             };
 
-            // ── Phase 2: process reminders (no lock needed) ──
+            // ── Phase 2: process reminders (delivery to the dispatch
+            // surface, №418 D5; the eprintln stays the journal) ──
             if let Ok(crate::interpreter::Value::List(items)) = check_result {
+                let mut due: Vec<(String, String, String)> = Vec::new();
                 for item in &items {
                     if let crate::interpreter::Value::Struct { fields, .. } = item {
                         let msg = fields
@@ -912,70 +829,83 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
                             .get("type")
                             .map(|v| format!("{}", v))
                             .unwrap_or_default();
-                        eprintln!(
-                            "[scheduler] due {}: [{}] {}",
-                            rtype,
-                            msg,
-                            fields
-                                .get("data")
-                                .map(|v| format!("{}", v))
-                                .unwrap_or_default()
-                        );
+                        let data = fields
+                            .get("data")
+                            .map(|v| format!("{}", v))
+                            .unwrap_or_default();
+                        eprintln!("[scheduler] due {}: [{}] {}", rtype, msg, data);
+                        due.push((msg, data, rtype));
+                    }
+                }
+                if !due.is_empty() {
+                    // Short write lock: the delivery dispatches the
+                    // registered `ReminderCheck` pattern (if defined).
+                    let interp = scheduler_state.interpreter.read().await;
+                    let failures = crate::builtins::cron::deliver_due_reminders(
+                        &due,
+                        Some("ReminderCheck"),
+                        |name, args| interp.call_pattern(name, args),
+                    );
+                    for f in failures {
+                        eprintln!("[scheduler] {}", f);
                     }
                 }
             }
 
             // ── Phase 3: dispatch cron jobs (per-job write lock) ──
-            if let Ok(crate::interpreter::Value::List(jobs)) = cron_check {
-                for job in &jobs {
-                    if let crate::interpreter::Value::Struct { fields, .. } = job {
-                        let job_id = fields
-                            .get("id")
-                            .map(|v| format!("{}", v))
-                            .unwrap_or_default();
-                        let cron_expr = fields
-                            .get("cron_expr")
-                            .map(|v| format!("{}", v))
-                            .unwrap_or_default();
-                        let enabled = fields.get("enabled").map(|v| format!("{}", v))
-                            == Some("1".to_string());
-                        let force_run = fields.get("force_run").map(|v| format!("{}", v))
-                            == Some("1".to_string());
-                        let prompt = fields
-                            .get("prompt")
-                            .map(|v| format!("{}", v))
-                            .unwrap_or_default();
-
-                        if !enabled {
-                            continue;
-                        }
-
-                        let should_fire = force_run || cron_expr_matches(&cron_expr);
-                        if !should_fire {
-                            continue;
-                        }
-
-                        // Short write lock: fire + mark in one hold
-                        {
-                            let interp = scheduler_state.interpreter.write().await;
-                            eprintln!("[cron] firing: {} — {}", cron_expr, prompt);
-                            if let Some(builtin_fn) = interp.get_builtin(&prompt) {
-                                if let Err(e) = builtin_fn(&[]) {
-                                    eprintln!("[cron] builtin '{}' error: {}", prompt, e);
-                                }
-                            } else if let Err(e) = interp.call_pattern(&prompt, &[]) {
-                                eprintln!("[cron] pattern '{}' error: {}", prompt, e);
-                            }
-                            if let Some(mark_fn) = interp.get_builtin("cron_mark_fired") {
-                                if let Err(e) =
-                                    mark_fn(&[crate::interpreter::Value::String(job_id)])
-                                {
-                                    eprintln!("[cron] mark_fired error: {}", e);
-                                }
-                            }
-                            // write lock released here
+            // №418: the fire decision is the subsystem's pure core
+            // (`cron_fire_decision` — dedup window D1, catch-up D2,
+            // per-job timezone D3); the loop only EXECUTES it. The specs
+            // come from the persisted job store (lock-free read).
+            let now_epoch = chrono::Utc::now().timestamp();
+            let specs = crate::builtins::cron::enabled_job_specs();
+            for spec in &specs {
+                let decision = match crate::builtins::cron::cron_fire_decision(spec, now_epoch) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        eprintln!(
+                            "[cron] {}",
+                            crate::builtins::cron::cron_stamped(format!(
+                                "job '{}' decision: {}",
+                                spec.id, e
+                            ))
+                        );
+                        continue;
+                    }
+                };
+                if !decision.fire {
+                    if decision.advance {
+                        if let Some(w) = decision.window {
+                            let _ = crate::builtins::cron::advance_window(&spec.id, w);
                         }
                     }
+                    continue;
+                }
+                let args = crate::builtins::cron::cron_dispatch_args(spec.payload.as_deref());
+                {
+                    let interp = scheduler_state.interpreter.write().await;
+                    eprintln!(
+                        "[cron] firing: {} — {} ({})",
+                        spec.cron_expr, spec.prompt, decision.reason
+                    );
+                    let result = if let Some(builtin_fn) = interp.get_builtin(&spec.prompt) {
+                        builtin_fn(&args)
+                    } else {
+                        interp.call_pattern(&spec.prompt, &args)
+                    };
+                    if let Err(e) = result {
+                        eprintln!(
+                            "[cron] dispatch '{}' error: {}",
+                            spec.prompt,
+                            crate::builtins::cron::cron_stamped(e)
+                        );
+                    }
+                    if let Err(e) =
+                        crate::builtins::cron::mark_fired_with_window(&spec.id, decision.window)
+                    {
+                        eprintln!("[cron] mark_fired error: {}", e);
+                    }
+                    // write lock released here
                 }
             }
         }

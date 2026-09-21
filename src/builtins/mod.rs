@@ -220,7 +220,9 @@ use text_chunk::*;
 // Прототип влит в main решением владельца (PR #349): вердикт спайка GO
 // (docs/research/naryad-282-smfs-spike.md), реестр билтинов и аритмии
 // файловых билтинов не меняются.
-pub(crate) mod cron;
+// №418: the reliability core (fire decision, window scans, delivery) is
+// part of the public crate API — the integration tests pin it.
+pub mod cron;
 pub(crate) mod smfs;
 pub use cron::init_reminder_persist;
 use cron::*;

@@ -545,6 +545,7 @@ OVERRIDES = {
     "omni_ask": ("Source", "Internal", "Pure", "local omni backend call (№334, nemotron canon): ingests the model answer into the flow; no network egress; real mode requires SHA-pinned weights (PARKED №294)"),
     "vision_understand": ("Source", "Internal", "Pure", "local vision-understanding backend call (№334, molmoact2 canon): ingests the answer about an image into the flow; no upload, no egress; real mode requires SHA-pinned weights (PARKED №294)"),
     "ocr_extract": ("Source", "Internal", "Pure", "local OCR backend call (№407, trocr-base-printed canon): ingests the text extracted from an image into the flow; no upload, no egress; real mode requires SHA-pinned weights (PARKED №294)"),
+    "video_understand": ("Source", "Internal", "Pure", "video-understanding backend call (№408, qwen2.5-vl-7b-instruct canon): ingests the comprehension answer for a segment into the flow; no upload, no egress; real mode requires SHA-pinned weights (PARKED №294)"),
     "consent_grant": ("Lift", "Public", "Pure", "records (subject, scope, TTL) in the consent ledger and passes the value through with the consent scope EXTENDED (semantic.rs label_source) — process-local bookkeeping, no egress"),
     "likeness_challenge": ("Lift", "Public", "Pure", "issues a one-time opaque likeness challenge (№387, ADR-0149 D1); registry state only, no egress"),
     "likeness_verify": ("Lift", "Public", "Pure", "consumes the challenge (linear), records the consent-ledger grant and returns the opaque LikenessToken (№387, ADR-0149 D1/D6) — process-local bookkeeping, no egress"),
@@ -558,6 +559,8 @@ OVERRIDES = {
     "ledger_export_intoto": ("Sink", "Internal", "Reversible", "dumps the in-toto Statement profile (ADR-0157) to a sandboxed path — FILE EGRESS, same class as ledger_export"),
     "ledger_rotate": ("Lift", "Public", "Irreversible", "appends a key-rotation record signed by the still-active key and switches to the fresh key (ADR-0167 §3.3) — the chain transition cannot be undone"),
     "ledger_snapshot": ("Lift", "Public", "Irreversible", "appends a snapshot record pinning the head (ADR-0167 §3.2) — the archive anchor is a permanent chain record"),
+    # ── Naryad #415 (P1, security/ledger): the runtime verify hook ──
+    "ledger_verify": ("Source", "Internal", "Pure", "reads an exported JSONL chain from a sandboxed path and returns the structural verification verdict (№415) — ingress of the signed trail for verification; the runtime ledger is never written and nothing egresses"),
     # ── media (№331, ADR-0162 / №332, ADR-0164) ──
     "media_store_image": ("Lift", "Internal", "Reversible", "wraps provided bytes into an opaque Image handle in the media store (ADR-0162) — no egress; declared sensitivity drives at-rest AES-GCM sealing and the runtime backstop"),
     "media_store_audio": ("Lift", "Internal", "Reversible", "wraps provided bytes into an opaque Audio handle in the media store (ADR-0162) — no egress; declared sensitivity drives at-rest AES-GCM sealing and the runtime backstop"),

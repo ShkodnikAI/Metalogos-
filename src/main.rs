@@ -137,6 +137,12 @@ enum LedgerCmd {
         /// External signer anchor: fail unless the chain's key equals this
         #[arg(long)]
         expect_key: Option<String>,
+        /// Print the machine-readable structural verdict (one-line JSON,
+        /// Naryad №415: ok/records/head_hash/distinct_keys/anchored_start/
+        /// fault{record,reason}) instead of the human line; exit codes
+        /// unchanged (0 = ok, 1 = fault).
+        #[arg(long)]
+        json: bool,
     },
     /// Archive: truncate the chain at a snapshot record (inclusive); the
     /// output starts at the anchor and is verified before it is written.
@@ -216,26 +222,48 @@ fn cmd_ledger(cmd: LedgerCmd) {
             file,
             expect_head,
             expect_key,
-        } => match metalogos::ledger::verify_file(
-            &file,
-            expect_head.as_deref(),
-            expect_key.as_deref(),
-        ) {
-            Ok(report) => {
-                println!(
-                    "VALID: {} records, head {} ({} distinct key(s), anchored start: {}) — schema v{}",
-                    report.records,
-                    report.head_hash,
-                    report.distinct_keys,
-                    report.anchored_start,
-                    report.schema_version,
+            json,
+        } => {
+            if json {
+                // №415: the machine-readable structural verdict — the
+                // external verifier's parseable surface (same checks, same
+                // exit-code contract as the human line).
+                let verdict = metalogos::ledger::ledger_verify(
+                    metalogos::ledger::LedgerVerifySource::File(&file),
+                    expect_head.as_deref(),
+                    expect_key.as_deref(),
                 );
+                println!(
+                    "{}",
+                    serde_json::to_string(&verdict)
+                        .unwrap_or_else(|_| "{\"ok\":false}".to_string())
+                );
+                if !verdict.ok {
+                    std::process::exit(1);
+                }
+            } else {
+                match metalogos::ledger::verify_file(
+                    &file,
+                    expect_head.as_deref(),
+                    expect_key.as_deref(),
+                ) {
+                    Ok(report) => {
+                        println!(
+                            "VALID: {} records, head {} ({} distinct key(s), anchored start: {}) — schema v{}",
+                            report.records,
+                            report.head_hash,
+                            report.distinct_keys,
+                            report.anchored_start,
+                            report.schema_version,
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!("INVALID: {}", e);
+                        std::process::exit(1);
+                    }
+                }
             }
-            Err(e) => {
-                eprintln!("INVALID: {}", e);
-                std::process::exit(1);
-            }
-        },
+        }
         LedgerCmd::Archive { file, out, at } => {
             match metalogos::ledger::archive_file(&file, &out, at) {
                 Ok(report) => {

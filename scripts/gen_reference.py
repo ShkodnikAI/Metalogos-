@@ -49,6 +49,15 @@ TODO = "TODO(doc)"
 # bytecode arity validation and the index stay complete; (b) true stubs —
 # no handler anywhere, calling the name errors on both backends.
 MANUAL_DESCRIPTIONS = {
+    # №415 drive-by: the reminder stubs' handlers are `cron_wrapped!` macro
+    # aliases (`n_stamped` etc. in src/builtins/cron.rs), so the handler-doc
+    # scan cannot resolve them and regeneration degraded the rows to
+    # TODO(doc) (the pre-existing hand-maintained texts preserved verbatim).
+    "remind": "`remind(message, timestamp, data?)` — one-time reminder. Returns ID.",
+    "remind_recurring": "`remind_recurring(message, interval_seconds, data?)` — recurring reminder. Returns ID.",
+    "cancel_remind": "`cancel_remind(id)` — cancel reminder. Returns \"ok\" or \"not_found\".",
+    "check_reminders": "`check_reminders()` — get due reminders. One-shot deactivated; recurring advanced.",
+    "list_reminders": "`list_reminders()` — list all active reminders.",
     "recall": "VM-native memory recall (handled inside `src/vm.rs`, no host handler): returns the best memory match for the query, optional minimum-confidence threshold. Registry arity entry kept for VM bytecode validation.",
     "deny_event": "№392 DenyEvent — returns the typed deny event (`reason`, `sink`, `class`, `argument`, `label`, `line`, `human`) for the refusal being handled. Handler-scoped: intercepted by name inside `src/vm.rs` and `src/interpreter/execution.rs` (no host handler); outside an on_deny body it is a compile error and a loud runtime error.",
     "deny_reason": "№392 deny reason word — returns the `reason` string of the live DenyEvent (same vocabulary the audit check_ids use). Handler-scoped like deny_event; a match over it inside on_deny is checked for exhaustiveness.",

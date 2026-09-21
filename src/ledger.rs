@@ -560,45 +560,143 @@ pub struct VerifyReport {
 /// Verify a record sequence (ADR-0167 §3.6). `expect_head` / `expect_key`
 /// pin the out-of-band anchors (§7): a self-consistent full rewrite under
 /// a fresh key is detected ONLY against them.
+///
+/// String-error facade over [`verify_records_structural`] (the №415 runtime
+/// hook needs the STRUCTURAL verdict; the CLI/legacy callers keep theirs).
 pub fn verify_records(
     records: &[LedgerRecord],
     expect_head: Option<&str>,
     expect_key: Option<&str>,
 ) -> Result<VerifyReport, String> {
+    verify_records_structural(records, expect_head, expect_key).map_err(|f| f.to_string())
+}
+
+// ── Naryad #415 (P1, security/ledger): the structural runtime hook ─────
+//
+// The audit P2-2 residue of №393: verification existed only as a
+// library call with STRING errors (`Err(String)` — the position of the
+// first fault had to be guessed out of the message text). The №415
+// contract: a deterministic STRUCTURAL verdict (ok/fail + the position
+// of the first fault + the reason), aggregated over the SAME crypto
+// checks — nothing about the record format, hashing or signatures is
+// re-implemented here (the single implementation stays in
+// `verify_records_structural` below).
+
+/// A structural verification fault (№415): the 1-based position of the
+/// first offending record in the supplied sequence (`None` = the failure
+/// is chain-level: parse, start rule, or the head anchor) plus the reason
+/// WITHOUT the positional prefix.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct VerifyFault {
+    /// 1-based record position in the supplied sequence; `None` when the
+    /// failure is chain-level (parse / start rule / head anchor).
+    pub record: Option<u64>,
+    /// What exactly failed (no "record N: " prefix — the position is the
+    /// `record` field's job).
+    pub reason: String,
+}
+
+impl std::fmt::Display for VerifyFault {
+    /// The display keeps the historical message format of the string
+    /// errors byte-for-byte (the CLI and the №393 tests print these).
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.record {
+            Some(n) => write!(f, "record {}: {}", n, self.reason),
+            None => write!(f, "{}", self.reason),
+        }
+    }
+}
+
+/// The structural verdict of the runtime hook (№415): ok/fail plus the
+/// same stats a successful `verify_records` reports, plus the first fault
+/// on failure. No string guessing — the position is a field, not prose.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct LedgerVerdict {
+    /// `true` iff the chain (or the documented empty-ledger case) verifies.
+    pub ok: bool,
+    pub schema_version: u32,
+    /// Record count: the verified chain length, or 0 for the empty case.
+    pub records: u64,
+    /// The verified head hash ("" for an empty chain or a parse failure).
+    pub head_hash: String,
+    pub distinct_keys: u64,
+    pub anchored_start: bool,
+    /// The FIRST fault (verification stops at the first failure).
+    pub fault: Option<VerifyFault>,
+}
+
+/// Where the hook reads the chain from (№415: путь/снапшот → вердикт).
+pub enum LedgerVerifySource<'a> {
+    /// Raw JSONL content (an exported chain snapshot held in memory).
+    Jsonl(&'a str),
+    /// Path to an exported JSONL ledger file (READ-ONLY — the hook never
+    /// writes; the caller's sandbox discipline governs how the path got here).
+    File(&'a std::path::Path),
+}
+
+/// The structural core of chain verification (ADR-0167 §3.6 checks):
+/// start rule, seq continuity, prev-hash linkage, record-hash recompute,
+/// key_id↔pubkey match, signer continuity across rotations, Ed25519
+/// signatures, kind whitelist, head/key anchors. The ONLY implementation —
+/// `verify_records` (string facade) and `ledger_verify` (structural
+/// verdict) both delegate here.
+fn verify_records_structural(
+    records: &[LedgerRecord],
+    expect_head: Option<&str>,
+    expect_key: Option<&str>,
+) -> Result<VerifyReport, VerifyFault> {
     if records.is_empty() {
-        return Err("ledger is empty: no records to verify".to_string());
+        return Err(VerifyFault {
+            record: None,
+            reason: "ledger is empty: no records to verify".to_string(),
+        });
     }
     // Start rule: genesis (seq 0) or an anchored snapshot start.
     let first = &records[0];
     let anchored = first.kind == "snapshot";
     if anchored {
         if first.seq == 0 {
-            return Err("record 1: snapshot anchor at seq 0 is not a valid anchor (snapshots pin a non-empty head)".to_string());
+            return Err(VerifyFault {
+                record: Some(1),
+                reason: "snapshot anchor at seq 0 is not a valid anchor (snapshots pin a non-empty head)".to_string(),
+            });
         }
         if first.new_pubkey.is_empty() && first.pubkey.is_empty() {
-            return Err("record 1: anchored start carries no signer key".to_string());
+            return Err(VerifyFault {
+                record: Some(1),
+                reason: "anchored start carries no signer key".to_string(),
+            });
         }
     } else {
         if first.seq != 0 {
-            return Err(format!(
-                "record 1: chain must start at seq 0 or at a snapshot anchor, got seq {}",
-                first.seq
-            ));
+            return Err(VerifyFault {
+                record: Some(1),
+                reason: format!(
+                    "chain must start at seq 0 or at a snapshot anchor, got seq {}",
+                    first.seq
+                ),
+            });
         }
         if first.prev_hash != GENESIS_PREV_HASH {
-            return Err(format!(
-                "record 1: genesis prev_hash must be {} zeros, got '{}'",
-                GENESIS_PREV_HASH.len(),
-                first.prev_hash
-            ));
+            return Err(VerifyFault {
+                record: Some(1),
+                reason: format!(
+                    "genesis prev_hash must be {} zeros, got '{}'",
+                    GENESIS_PREV_HASH.len(),
+                    first.prev_hash
+                ),
+            });
         }
     }
     if let Some(expect_key) = expect_key {
         if first.pubkey != expect_key {
-            return Err(format!(
-                "record 1: anchored signer key mismatch: expected {}, got {}",
-                expect_key, first.pubkey
-            ));
+            return Err(VerifyFault {
+                record: Some(1),
+                reason: format!(
+                    "anchored signer key mismatch: expected {}, got {}",
+                    expect_key, first.pubkey
+                ),
+            });
         }
     }
     let mut active_pubkey = first.pubkey.clone();
@@ -609,60 +707,88 @@ pub fn verify_records(
     for (i, r) in records.iter().enumerate() {
         let n = i + 1;
         if r.seq != expected_seq {
-            return Err(format!(
-                "record {}: seq gap (expected {}, got {})",
-                n, expected_seq, r.seq
-            ));
+            return Err(VerifyFault {
+                record: Some(n as u64),
+                reason: format!("seq gap (expected {}, got {})", expected_seq, r.seq),
+            });
         }
         if r.prev_hash != prev_hash {
-            return Err(format!(
-                "record {}: prev_hash chain break (expected {}, got {})",
-                n, prev_hash, r.prev_hash
-            ));
+            return Err(VerifyFault {
+                record: Some(n as u64),
+                reason: format!(
+                    "prev_hash chain break (expected {}, got {})",
+                    prev_hash, r.prev_hash
+                ),
+            });
         }
         let recomputed = record_hash(r);
         if recomputed != r.hash {
-            return Err(format!("record {}: hash mismatch (body modified?)", n));
+            return Err(VerifyFault {
+                record: Some(n as u64),
+                reason: "hash mismatch (body modified?)".to_string(),
+            });
         }
         let recomputed_key_id = key_id_of(&r.pubkey).unwrap_or_default();
         if recomputed_key_id != r.key_id {
-            return Err(format!("record {}: key_id does not match pubkey", n));
+            return Err(VerifyFault {
+                record: Some(n as u64),
+                reason: "key_id does not match pubkey".to_string(),
+            });
         }
         if r.pubkey != active_pubkey {
-            return Err(format!(
-                "record {}: signer continuity break (signed by {} while active key is {})",
-                n,
-                r.key_id,
-                key_id_of(&active_pubkey).unwrap_or_default()
-            ));
+            return Err(VerifyFault {
+                record: Some(n as u64),
+                reason: format!(
+                    "signer continuity break (signed by {} while active key is {})",
+                    r.key_id,
+                    key_id_of(&active_pubkey).unwrap_or_default()
+                ),
+            });
         }
         // Signature over the hash bytes, under the record's declared key.
         let sig_arr: [u8; 64] = decode_hex_32_plus(&r.sig)
             .and_then(|v| <[u8; 64]>::try_from(v).ok())
-            .ok_or_else(|| format!("record {}: signature is not 64 bytes of hex", n))?;
+            .ok_or_else(|| VerifyFault {
+                record: Some(n as u64),
+                reason: "signature is not 64 bytes of hex".to_string(),
+            })?;
         let sig = Signature::from_bytes(&sig_arr);
         let vk_bytes: [u8; 32] = decode_hex_32_plus(&r.pubkey)
             .and_then(|v| <[u8; 32]>::try_from(v).ok())
-            .ok_or_else(|| format!("record {}: pubkey is not 32 bytes", n))?;
-        let vk = VerifyingKey::from_bytes(&vk_bytes)
-            .map_err(|e| format!("record {}: malformed pubkey: {}", n, e))?;
+            .ok_or_else(|| VerifyFault {
+                record: Some(n as u64),
+                reason: "pubkey is not 32 bytes".to_string(),
+            })?;
+        let vk = VerifyingKey::from_bytes(&vk_bytes).map_err(|e| VerifyFault {
+            record: Some(n as u64),
+            reason: format!("malformed pubkey: {}", e),
+        })?;
         vk.verify(r.hash.as_bytes(), &sig)
-            .map_err(|_| format!("record {}: signature verification FAILED", n))?;
+            .map_err(|_| VerifyFault {
+                record: Some(n as u64),
+                reason: "signature verification FAILED".to_string(),
+            })?;
         // Rotation transition (AFTER the record itself verified).
         if r.kind == "key_rotation" {
             if r.new_pubkey.is_empty() {
-                return Err(format!("record {}: key_rotation without new_pubkey", n));
+                return Err(VerifyFault {
+                    record: Some(n as u64),
+                    reason: "key_rotation without new_pubkey".to_string(),
+                });
             }
             active_pubkey = r.new_pubkey.clone();
             distinct_keys.insert(key_id_of(&active_pubkey).unwrap_or_default());
         } else if !r.new_pubkey.is_empty() {
-            return Err(format!(
-                "record {}: new_pubkey set on a {} record",
-                n, r.kind
-            ));
+            return Err(VerifyFault {
+                record: Some(n as u64),
+                reason: format!("new_pubkey set on a {} record", r.kind),
+            });
         }
         if r.kind != "action" && r.kind != "key_rotation" && r.kind != "snapshot" {
-            return Err(format!("record {}: unknown kind '{}'", n, r.kind));
+            return Err(VerifyFault {
+                record: Some(n as u64),
+                reason: format!("unknown kind '{}'", r.kind),
+            });
         }
         distinct_keys.insert(r.key_id.clone());
         prev_hash = r.hash.clone();
@@ -671,10 +797,13 @@ pub fn verify_records(
     if let Some(expect_head) = expect_head {
         let head = records.last().map(|r| r.hash.clone()).unwrap_or_default();
         if head != expect_head {
-            return Err(format!(
-                "head anchor mismatch: expected {}, got {}",
-                expect_head, head
-            ));
+            return Err(VerifyFault {
+                record: None,
+                reason: format!(
+                    "head anchor mismatch: expected {}, got {}",
+                    expect_head, head
+                ),
+            });
         }
     }
     Ok(VerifyReport {
@@ -684,6 +813,108 @@ pub fn verify_records(
         distinct_keys: distinct_keys.len() as u64,
         anchored_start: anchored,
     })
+}
+
+/// The runtime verify hook (№415): a deterministic structural verdict over
+/// a signed ledger chain from a read-only source. A wrapper/aggregator —
+/// every crypto check lives in `verify_records_structural`; nothing about
+/// the wire format or the primitives is duplicated.
+///
+/// The documented EMPTY-ledger case (a debatable call, pinned by the №415
+/// test): a chain with zero records verifies VACUOUSLY as `ok: true` —
+/// nothing in it contradicts. The honest caveat: the verifier CANNOT
+/// distinguish "no actions were taken" from "all records were deleted"
+/// without the out-of-band head anchor (ADR-0167 §7); when `expect_head`
+/// is pinned, an empty ledger fails loudly instead (wholesale deletion is
+/// exactly what the anchor exists to catch).
+pub fn ledger_verify(
+    source: LedgerVerifySource<'_>,
+    expect_head: Option<&str>,
+    expect_key: Option<&str>,
+) -> LedgerVerdict {
+    let parsed = match &source {
+        LedgerVerifySource::Jsonl(content) => {
+            records_from_jsonl(content).map_err(|e| VerifyFault {
+                record: None,
+                reason: e,
+            })
+        }
+        LedgerVerifySource::File(path) => std::fs::read_to_string(path)
+            .map_err(|e| VerifyFault {
+                record: None,
+                reason: format!("cannot read ledger file {}: {}", path.display(), e),
+            })
+            .and_then(|content| {
+                records_from_jsonl(&content).map_err(|e| VerifyFault {
+                    record: None,
+                    reason: e,
+                })
+            }),
+    };
+    let records = match parsed {
+        Err(fault) => {
+            return LedgerVerdict {
+                ok: false,
+                schema_version: LEDGER_SCHEMA_VERSION,
+                records: 0,
+                head_hash: String::new(),
+                distinct_keys: 0,
+                anchored_start: false,
+                fault: Some(fault),
+            };
+        }
+        Ok(records) => records,
+    };
+    if records.is_empty() {
+        // The documented vacuous case; the head anchor turns it loud.
+        let fault = if let Some(h) = expect_head {
+            Some(VerifyFault {
+                record: None,
+                reason: format!(
+                    "head anchor mismatch on an empty ledger: expected {}, got none (nothing to verify)",
+                    h
+                ),
+            })
+        } else if expect_key.is_some() {
+            Some(VerifyFault {
+                record: None,
+                reason:
+                    "key anchor mismatch on an empty ledger: no records to carry the signer key"
+                        .to_string(),
+            })
+        } else {
+            None
+        };
+        return LedgerVerdict {
+            ok: fault.is_none(),
+            schema_version: LEDGER_SCHEMA_VERSION,
+            records: 0,
+            head_hash: String::new(),
+            distinct_keys: 0,
+            anchored_start: false,
+            fault,
+        };
+    }
+    match verify_records_structural(&records, expect_head, expect_key) {
+        Ok(report) => LedgerVerdict {
+            ok: true,
+            schema_version: report.schema_version,
+            records: report.records,
+            head_hash: report.head_hash,
+            distinct_keys: report.distinct_keys,
+            anchored_start: report.anchored_start,
+            fault: None,
+        },
+        Err(fault) => LedgerVerdict {
+            ok: false,
+            schema_version: LEDGER_SCHEMA_VERSION,
+            records: records.len() as u64,
+            head_hash: String::new(),
+            distinct_keys: 0,
+            anchored_start: false,
+            fault: Some(fault),
+        },
+    }
 }
 
 /// Verify a JSONL ledger file — the external verifier's entry point

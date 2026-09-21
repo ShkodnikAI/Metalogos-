@@ -52,3 +52,33 @@ jobs:
           echo "date: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           echo "duration: $(( (END-START)/60 )) min $(( (END-START)%60 )) s"
           echo "regressions: see job status above (any red step = a soak regression)"
+
+  serve-soak:
+    name: serve-soak (Fosved-class, VM default)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release --workspace
+
+      # Naryad №423 (issue #583): the audit-21.09-P0-2 soak — the real
+      # `mlog serve` (VM default) under a Fosved-class seed: a native-cron
+      # minute tick (№418), a granted destructive path (№390/№412) and an
+      # exported signed ledger verified externally by the №415 CLI.
+      # Any RED criterion fails the job — the nightly red IS the alert.
+      - name: Fosved-class serve-soak
+        run: ./scripts/soak/serve_soak.sh
+
+      - name: Publish the serve-soak report
+        if: always()
+        run: |
+          echo '### Fosved-class serve-soak' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/serve_soak_report.txt >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

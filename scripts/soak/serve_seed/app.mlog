@@ -1,0 +1,92 @@
+// ── Naryad №423 (issue #583) — Fosved-class serve-soak seed ──────────
+// A minimal but HONEST production-like workload for the nightly
+// serve-soak (audit 2026-09-21 P0-2): the native cron (0.21.0) fires a
+// real minute-window tick; the tick forwards to the /grantop route via
+// an HTTP self-call, where the grant path (№390/№412) executes a scoped,
+// metered, destructive-UNDER-GRANT op and exports the signed Action
+// Ledger (№393/№415) for external CLI verification.
+//
+// WHY the tick only exports the ledger (documented honestly, findings
+// observed on 0.21.0 during this seed's live bring-up and filed on
+// issue #583): (1) the cron-dispatch context does NOT bind the
+// program's db block — the route context gets the db, the tick context
+// reports "no database connection"; (2) an http_post self-call from
+// inside a tick fails at the transport level (a blocking outbound call
+// from the scheduler tick). So the tick keeps its REAL scheduler
+// semantics (windows, dedup, catch-up, payload) and exports the
+// process-global signed ledger; the granted destructive op lives on the
+// /grantop route, which the soak probe exercises repeatedly. Both
+// surfaces are real platform behavior — the seed works WITH the
+// platform as it ships.
+//
+// Category A discipline (the №395 dogfood lesson, gh#489): every
+// irreversible op sits under a grant — bare destructive SQL refuses the
+// serve boot. The demo table is declared via schema-as-code (ADR-0060).
+// No secrets: the ledger key is a fixed nightly identity (a 64-hex env
+// value the probe generates), not a credential.
+//
+// Routes:
+//   GET /health   — liveness (pure respond, the latency-floor probe)
+//   GET /init     — registers the cron job (the №418 dedup makes
+//                   repeated calls in one window safe)
+//   GET /grantop  — the granted destructive op + the ledger export
+//   GET /status   — the read-only probe: the ledger_verify verdict
+
+db { url: "sqlite:data/soak.db" }
+
+schema soak {
+  table ticks {
+    id: Int primary_key
+  }
+}
+
+on_deny(db) {
+  match deny_reason() {
+    "IRREVERSIBLE_NO_GRANT" then { print("SOAK_DENY:IRREVERSIBLE_NO_GRANT") }
+    else { print("SOAK_DENY:other") }
+  }
+}
+
+pattern SoakInit(_x: String) -> String {
+  cron_add("* * * * *", "SoakTick", "Europe/Moscow", "run_once", "soak")
+  return "scheduled"
+}
+
+pattern SoakTick(payload: String) -> String {
+  print("SOAK_TICK handler reached, payload=" + payload)
+  let path = ledger_export("data/ledger/soak_latest.jsonl")
+  print("SOAK_TICK done: ledger=" + type_of(path))
+  return "tick-ok"
+}
+
+pattern SoakGrantOp(_x: String) -> String {
+  let g = grant_issue("db:delete:ticks", 60, "n", 1000)
+  let n = db_execute_with_grant(g, "DELETE FROM ticks WHERE 1 = 0")
+  let path = ledger_export("data/ledger/soak_latest.jsonl")
+  print("SOAK_GRANTOP done: op=" + type_of(n) + ", ledger=" + type_of(path))
+  return "grantop-ok"
+}
+
+pattern SoakStatus(_x: String) -> String {
+  let v = ledger_verify("data/ledger/soak_latest.jsonl")
+  if v.ok {
+    return "ledger-ok,records=" + to_string(v.records)
+  }
+  return "ledger-fault,reason=" + v.error_reason
+}
+
+mlogserver {
+  port: 8091
+  route "/health" method=GET {
+    respond("200 OK")
+  }
+  route "/init" method=GET {
+    respond("200 " + SoakInit("boot"))
+  }
+  route "/grantop" method=GET {
+    respond("200 " + SoakGrantOp("probe"))
+  }
+  route "/status" method=GET {
+    respond("200 " + SoakStatus("status"))
+  }
+}

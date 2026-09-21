@@ -1191,19 +1191,28 @@ let left = grant_use(g)
 |---------|-----------|---------|----------|
 | `budget_check(step, total_steps)` | `Float, Float -> Dict` | Dict | (See 4.17.1 — listed under the `system` category, also used in fluid pipelines to control a cascade of edits) |
 
-### 4.17.3. Cron scheduler (naryad #35)
+### 4.17.3. Cron scheduler (naryad #35; reliability №418 / 0.21.0)
 
 A persistent cron scheduler for deferred tasks. Jobs are saved to
 JSON and survive a process restart. Expressions use the standard 5-field
 cron format (`min hour dom month dow`).
 
+Reliability semantics (№418, 0.21.0): every matched WINDOW fires AT MOST
+once (the window identity = the start of the matched wall-clock minute in
+the job's timezone; the dedup stamp `last_window` is persisted and
+idempotent across restarts and manual `cron_run` fires). Windows missed
+while the process was down follow the per-job `catch_up` policy.
+Reminders are delivered to the same dispatch surface as cron jobs (a
+pattern named `ReminderCheck`, if defined; failures are stamped
+`CRON_JOB_FAILED`).
+
 | Function | Signature | Return | Description |
 |---------|-----------|---------|----------|
-| `cron_add(cron_expr, prompt)` | `String, String -> String` | String (id) | Adds a cron job. `cron_expr` is a 5-field cron expression (e.g. `"0 9 * * 1-5"` — every weekday at 9:00). `prompt` is what to run. Returns the job's ID |
-| `cron_list()` | `-> List` | List | A list of all cron jobs. Each element is `CronJob { id, cron_expr, prompt, force_run, run_count, last_run, created_at }` |
+| `cron_add(cron_expr, prompt, tz?, catch_up?, payload?)` | `String, String, String?, String?, String? -> String` | String (id) | Adds a cron job. `cron_expr` is a 5-field cron expression (e.g. `"0 9 * * 1-5"` — every weekday at 9:00). `prompt` is what to run. Optional: `tz` — the job's IANA timezone (windows are matched in it; default `MLOG_CRON_TZ` env, else UTC); `catch_up` — `"run_once"` (default: all missed windows coalesce into ONE fire at the next tick) or `"skip"` (missed windows are dropped); `payload` — a fixed DATA string handed to the target as its single String argument (never interpreted as code; zero-arg patterns must not set it). Unknown TZ / bad policy refuse loudly (`CRON_JOB_FAILED`) |
+| `cron_list()` | `-> List` | List | A list of all cron jobs. Each element is `CronJob { id, cron_expr, prompt, enabled, force_run, run_count, created_at, last_run, last_run_tz, last_window, tz, catch_up, payload, next_run, next_run_tz }` — `next_run`/`last_run` are epoch seconds; the `*_tz` fields are ISO strings in the JOB's timezone |
 | `cron_remove(id)` | `String -> Float` | Float | Deletes a job by ID. Returns `1.0` if deleted, `0.0` if not found |
-| `cron_run(id)` | `String -> Float` | Float | Forces a job to run outside its schedule (sets `force_run=true`). Returns `1.0` if found, `0.0` if not |
-| `cron_mark_fired(id)` | `String -> Float` | Float | Marks a job as run: clears `force_run`, increments `run_count`, updates `last_run`. Returns `1.0` if found, `0.0` if not |
+| `cron_run(id)` | `String -> Float` | Float | Forces a job to run outside its schedule (sets `force_run=true`; the fire stamps the current window, so the scheduled tick in the same window will not re-fire). Returns `1.0` if found, `0.0` if not |
+| `cron_mark_fired(id)` | `String -> Float` | Float | Marks a job as run: clears `force_run`, increments `run_count`, updates `last_run` and the window dedup stamp. Returns `1.0` if found, `0.0` if not |
 
 ### 4.17.4. Time and dates
 
@@ -2128,11 +2137,11 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
-| `cron_add(...)` | 2 | `String, String -> String` | Adds a cron job. `cron_expr` is a 5-field cron expression (e.g. `"0 9 * * 1-5"` — every weekday at 9:00). `prompt` is what to run. Returns the job's ID |
-| `cron_list(...)` | variadic | `-> List` | A list of all cron jobs. Each element is `CronJob { id, cron_expr, prompt, force_run, run_count, last_run, created_at }` |
-| `cron_mark_fired(...)` | 1 | `String -> Float` | Marks a job as run: clears `force_run`, increments `run_count`, updates `last_run`. Returns `1.0` if found, `0.0` if not |
+| `cron_add(...)` | 2..5 | `String, String, String?, String?, String? -> String` | Adds a cron job. `cron_expr` is a 5-field cron expression (e.g. `"0 9 * * 1-5"` — every weekday at 9:00). `prompt` is what to run. Optional: `tz` — the job's IANA timezone (windows are matched in it; default `MLOG_CRON_TZ` env, else UTC); `catch_up` — `"run_once"` (default: all missed windows coalesce into ONE fire at the next tick) or `"skip"` (missed windows are dropped); `payload` — a fixed DATA string handed to the target as its single String argument (never interpreted as code; zero-arg patterns must not set it). Unknown TZ / bad policy refuse loudly (`CRON_JOB_FAILED`) |
+| `cron_list(...)` | variadic | `-> List` | A list of all cron jobs. Each element is `CronJob { id, cron_expr, prompt, enabled, force_run, run_count, created_at, last_run, last_run_tz, last_window, tz, catch_up, payload, next_run, next_run_tz }` — `next_run`/`last_run` are epoch seconds; the `*_tz` fields are ISO strings in the JOB's timezone |
+| `cron_mark_fired(...)` | 1 | `String -> Float` | Marks a job as run: clears `force_run`, increments `run_count`, updates `last_run` and the window dedup stamp. Returns `1.0` if found, `0.0` if not |
 | `cron_remove(...)` | 1 | `String -> Float` | Deletes a job by ID. Returns `1.0` if deleted, `0.0` if not found |
-| `cron_run(...)` | 1 | `String -> Float` | Forces a job to run outside its schedule (sets `force_run=true`). Returns `1.0` if found, `0.0` if not |
+| `cron_run(...)` | 1 | `String -> Float` | Forces a job to run outside its schedule (sets `force_run=true`; the fire stamps the current window, so the scheduled tick in the same window will not re-fire). Returns `1.0` if found, `0.0` if not |
 
 ### `crypto` — 10 builtin(s)
 

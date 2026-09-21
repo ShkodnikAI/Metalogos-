@@ -165,7 +165,7 @@ $ mlog check poison.mlog
 
 > **[Known Limitations](docs/limitations.md)** — a unified index of all documented language limitations across static analysis, VM, Vision, adapt, self-hosting, JIT, error protocol, LLM streaming, and MCP server. The truth lives in the primary sources (ADR, source files); this page only references.
 >
-> **[REALITY](docs/REALITY.md)** — the reality-check of plan-v2 asset claims (CONFIRMED / PARTIAL / PHANTOM verdicts with proof commands) and the working P0-readiness estimate (26%) — Naryad №318.
+> **[REALITY](docs/REALITY.md)** — the reality-check of plan-v2 asset claims (CONFIRMED / PARTIAL / PHANTOM verdicts with proof commands) and the working P0-readiness estimate (68% as of naryad #414, 2026-09-20).
 
 #### Known boundaries of static analysis
 

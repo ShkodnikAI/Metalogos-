@@ -1,0 +1,3 @@
+# Runtime state of the soak seed (the probe resets it every run)
+data/
+mlog

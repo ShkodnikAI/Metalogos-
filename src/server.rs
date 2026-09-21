@@ -693,9 +693,12 @@ fn ip_in_cidr(ip: IpAddr, net: IpAddr, prefix: u8) -> bool {
 /// Which backend to use for route execution (Наряд №40).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServeBackend {
-    /// Tree-walking interpreter (default).
+    /// Tree-walking interpreter — the explicit opt-out
+    /// (`METALOGOS_SERVE_BACKEND=interpreter`; ADR-0141 D7: TW remains the
+    /// guaranteed full-language backend).
     Interpreter,
-    /// Stack-based bytecode VM.
+    /// Stack-based bytecode VM — the serve default since the ADR-0171 flip
+    /// (2026-09-21, owner decision on the re-gate №3 3/3 GREEN evidence).
     Vm,
 }
 
@@ -791,40 +794,41 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
     }
 
     // ── Наряд №40: Read METALOGOS_SERVE_BACKEND once at startup ──
+    // ADR-0171 (ADR-0141 Stage 5 EXECUTED): the DEFAULT is the bytecode VM.
+    // The flip is the owner's decision (directive «Флипай», 2026-09-21,
+    // issue #527) on the re-gate №3 evidence — 3/3 GREEN on BOTH thresholds
+    // (p95 ×3.00/×3.49/×3.11 ≥ ×1.5; peak RSS ×0.95/×1.07/×0.98 ≤ ×1.1;
+    // main @ 5f9da64; claim `w6: n415-claim` 5752763580, verdict
+    // `w6: n415-verdict` 5752838305). The tree-walking interpreter remains
+    // the explicit opt-out (ADR-0141 D7). The VM pool stays default-OFF —
+    // this flip does not touch the ADR-0141 pool posture.
     let backend = match std::env::var("METALOGOS_SERVE_BACKEND") {
         Ok(ref val) if val == "vm" => {
-            // Наряд №380 (truth-up) + №388 (current process): the VM is an
-            // OPT-IN backend, not an experimental one — ADR-0141 superseded
-            // ADR-0105's reservations, and the full-language parity is real:
-            // the Stage 1 gaps (match, block if/else, binop coercion,
-            // PRNG/Bool) are CLOSED (№369–№372) and the Stage 2 parity gate
-            // is green (№373, ADR-0141). The default flip stays gated by
-            // ADR-0141 Stage 4/5: the owner's decision, on the evidence of
-            // the nightly soak + the real-load benchmark (the №446 re-gate
-            // inputs — see №388 for the memory/perf evidence refresh).
-            eprintln!(
-                "[WARN] METALOGOS_SERVE_BACKEND=vm — opt-in backend. \
-                 Full-language parity: Stage 1 gaps closed, Stage 2 crosscheck green (ADR-0141). \
-                 Default remains interpreter; the default flip is gated by ADR-0141 Stage 4/5 \
-                 (nightly soak + real-load benchmark, owner decision)."
-            );
-            eprintln!("[server] backend: vm (bytecode VM)");
+            eprintln!("[server] backend: vm (bytecode VM, explicit)");
             ServeBackend::Vm
         }
         Ok(ref val) if val == "interpreter" => {
-            eprintln!("[server] backend: interpreter (tree-walking)");
+            eprintln!(
+                "[server] backend: interpreter (tree-walking) — explicit opt-out \
+                 of the VM default (ADR-0171; ADR-0141 D7: TW remains the \
+                 guaranteed full-language backend)"
+            );
             ServeBackend::Interpreter
         }
         Ok(val) => {
             eprintln!(
-                "[WARN] METALOGOS_SERVE_BACKEND='{}' is unknown, falling back to interpreter",
+                "[WARN] METALOGOS_SERVE_BACKEND='{}' is unknown, falling back to vm \
+                 (the default per ADR-0171)",
                 val
             );
-            ServeBackend::Interpreter
+            ServeBackend::Vm
         }
         Err(_) => {
-            eprintln!("[server] backend: interpreter (default)");
-            ServeBackend::Interpreter
+            eprintln!(
+                "[server] backend: vm (bytecode VM, default per ADR-0171 — \
+                 owner flip decision 2026-09-21 on the re-gate №3 3/3 GREEN evidence)"
+            );
+            ServeBackend::Vm
         }
     };
     state.backend = backend;
@@ -3630,28 +3634,28 @@ mlogserver {
     // ── Наряд №40 Tests: VM backend ──────────────────────────────
 
     #[tokio::test]
-    async fn test_n40_backend_env_default_is_interpreter() {
-        // Ensure default (no env var) is Interpreter
+    async fn test_n40_backend_env_default_is_vm() {
+        // ADR-0171: default (no env var) is the VM — the flip contract
         std::env::remove_var("METALOGOS_SERVE_BACKEND");
         let backend = match std::env::var("METALOGOS_SERVE_BACKEND") {
             Ok(val) if val == "vm" => ServeBackend::Vm,
             Ok(val) if val == "interpreter" => ServeBackend::Interpreter,
-            Ok(_) => ServeBackend::Interpreter,  // fallback
-            Err(_) => ServeBackend::Interpreter, // default
+            Ok(_) => ServeBackend::Vm,  // fallback = the default
+            Err(_) => ServeBackend::Vm, // default
         };
-        assert_eq!(backend, ServeBackend::Interpreter);
+        assert_eq!(backend, ServeBackend::Vm);
     }
 
     #[tokio::test]
     async fn test_n40_backend_env_unknown_falls_back() {
-        // "typo" → fallback to Interpreter, not panic
+        // "typo" → fallback to the VM (the default, ADR-0171), not panic
         let backend = match Some("typo".to_string()) {
             Some(ref val) if *val == "vm" => ServeBackend::Vm,
             Some(ref val) if *val == "interpreter" => ServeBackend::Interpreter,
-            Some(_) => ServeBackend::Interpreter, // fallback on unknown
-            None => ServeBackend::Interpreter,
+            Some(_) => ServeBackend::Vm, // fallback on unknown
+            None => ServeBackend::Vm,
         };
-        assert_eq!(backend, ServeBackend::Interpreter);
+        assert_eq!(backend, ServeBackend::Vm);
     }
 
     #[tokio::test]

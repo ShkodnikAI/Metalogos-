@@ -192,7 +192,7 @@ These are heuristics, not data-flow guarantees — they may false-positive in sa
 
 ### 3. Dual Execution Backend
 
-Tree-walking interpreter (full language) + bytecode VM (47 instructions). All VM Stage 1 gaps are **CLOSED** (naryads №369–№372: `Match` statement and `match`-as-value, `Expr::BlockIfElse` if/else-as-value, heterogeneous binop coercion with TW-identical loud messages, shared PRNG state, Bool→String formatting) — see [ADR-0141](docs/adr/0141-vm-production-readiness.md) Stage 1 and the CLOSED rows in [docs/limitations.md](docs/limitations.md), the maintained source of truth. Programs both backends can run are checked by `crosscheck_backends` for TW↔VM output parity (the parity gate, naryad №373), and the nightly soak workflow accumulates 24 h-parity evidence. `mlog serve` stays on the interpreter by default; the VM is opt-in via `METALOGOS_SERVE_BACKEND=vm` (loud WARN at startup), and the default flip is gated by [ADR-0141](docs/adr/0141-vm-production-readiness.md) Stage 4/5 — real-load benchmark numbers plus an explicit owner decision.
+Tree-walking interpreter (full language) + bytecode VM (47 instructions). All VM Stage 1 gaps are **CLOSED** (naryads №369–№372: `Match` statement and `match`-as-value, `Expr::BlockIfElse` if/else-as-value, heterogeneous binop coercion with TW-identical loud messages, shared PRNG state, Bool→String formatting) — see [ADR-0141](docs/adr/0141-vm-production-readiness.md) Stage 1 and the CLOSED rows in [docs/limitations.md](docs/limitations.md), the maintained source of truth. Programs both backends can run are checked by `crosscheck_backends` for TW↔VM output parity (the parity gate, naryad №373), and the nightly soak workflow accumulates 24 h-parity evidence. `mlog serve` ships **the VM by default** since 2026-09-21 (the flip — owner decision on the re-gate №3 evidence, 3/3 GREEN on both thresholds: p95 ≥ ×1.5 and peak RSS ≤ ×1.1 — [ADR-0171](docs/adr/0171-serve-default-flip-vm.md), Stage 5 of [ADR-0141](docs/adr/0141-vm-production-readiness.md)); the tree-walking interpreter remains the guaranteed full-language opt-out via `METALOGOS_SERVE_BACKEND=interpreter`, and `METALOGOS_SERVE_BACKEND=vm` still pins the VM explicitly.
 
 ### 4. Typed Semantic Memory with Hybrid Search
 
@@ -270,7 +270,7 @@ Metalogos-/
 ├── CLAUDE.md                         # Bridge copy of AGENTS.md for Claude-compatible tools (synced manually — see issue #299)
 ├── GEMINI.md                         # Bridge copy of AGENTS.md for Gemini-compatible tools (synced manually — see issue #299)
 ├── REFERENCE.md                      # Full builtin reference (~255 KB) — 100% of the registry (§6 index + №316 classification)
-├── CHANGELOG.md                      # Version history (~382 KB)
+├── CHANGELOG.md                      # Version history (~385 KB)
 ├── AI_USAGE.md                       # Disclosure: how generative AI is used in this project's development
 ├── FEATURE_INTAKE.md                 # Feature request tracking
 ├── MEMORY_ROADMAP.md                 # Memory system roadmap
@@ -1068,7 +1068,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 124+ development narads (work orders) delivered. 460 builtins, 205 test files, 247 example programs, 162 ADRs (159 accepted + 3 reserved; ADR-0154/0161 filled by naryads №322/№325; ADR-0162 — №331 media handles; ADR-0163 — №333 backend registry; ADR-0164 — №332 perception origin chain; ADR-0165 — №336 backend ladder + Degraded(t); ADR-0166 — №337 C2PA contour of handles; ADR-0157/0167 — №393 Action Ledger v1; ADR-0169 — №385 stable try error codes; ADR-0170 — №405 persistence taint layer 2). See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
+All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 124+ development narads (work orders) delivered. 460 builtins, 205 test files, 247 example programs, 163 ADRs (159 accepted + 3 reserved; ADR-0154/0161 filled by naryads №322/№325; ADR-0162 — №331 media handles; ADR-0163 — №333 backend registry; ADR-0164 — №332 perception origin chain; ADR-0165 — №336 backend ladder + Degraded(t); ADR-0166 — №337 C2PA contour of handles; ADR-0157/0167 — №393 Action Ledger v1; ADR-0169 — №385 stable try error codes; ADR-0170 — №405 persistence taint layer 2). See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
 
 ### Next
 

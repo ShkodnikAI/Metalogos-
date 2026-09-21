@@ -26,6 +26,10 @@ All notable changes to the Metalogos project.
 
 - **REALITY.md recheck on main `b05d36c` + the credential matrix verification (naryad #414, issue #559)**: the P0-readiness figure recomputed mechanically under the section-3 methodology (same UNVERIFIED weights, readiness per code facts only): **26% → 68%** — the capability model (0% → 85%, the №389–№393 grant algebra), the backend registry (10% → 85%, `BACKEND_REGISTRY` + ladder + per-shard HF pins), and the ledger (35% → 90%, the signed Ed25519 Action Ledger v1) moved from the audit's zero/near-zero band to best-covered; labels (55% → 75%, the lattice + join + taint layer 2) with the honest remainder recorded (effects, affinity, full static inference — the parked P2 items); memory unchanged at 13% (`recall` still a registry stub, the plan-v2 contract still unknown). Section 6 re-verifies every section-2 "missing" verdict with verbatim proof commands (lattice/join now YES; effects/affinity still NO). The credential matrix requirement is verified as ALREADY satisfied by REFERENCE §2.9 (№401): one canonical matrix (purpose / opaque / linear / ledger) with the consent-scope, LikenessToken and Grant rows; the threat model links to it without duplication. CHANGELOG (EN, №383).
 
+### Fixed
+
+- **README truth-up: the P0-readiness line follows REALITY.md (naryad №421, issue #581)**: the README still carried the stale `(26%) — Naryad №318` estimate after №414 recomputed the working P0-readiness figure to **68%** (2026-09-20) — the README may lag the limitations/REALITY SSOT only by hours, and this was the last docs lag the 2026-09-21 audit (P0-1) listed; the README line now cites 68% with the #414 anchor.
+
 ## [0.20.1] - 2026-09-20
 
 ### Added

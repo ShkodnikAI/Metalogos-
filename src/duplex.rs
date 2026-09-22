@@ -119,6 +119,34 @@ fn ledger_duplex_event(kind: &str, channel_id: &str, detail: &str) {
     crate::ledger::record(&format!("duplex.{}", kind), channel_id, "duplex", detail);
 }
 
+/// №428: the audio consent gate — speak/listen are directed audio
+/// egress/ingress, so they require an ACTIVE consent grant for the
+/// direction (`audio.speak` / `audio.listen`), recorded through the №335
+/// consent contour (`consent_grant`). Fail-closed: on any store error the
+/// answer is NO (`consent::active_grant_for` contract). The refusal is
+/// itself a ledger record (`duplex.speak_denied` / `duplex.listen_denied`)
+/// — no silent egress OR silent refusal. The error is origin-stamped
+/// `AUDIO_CONSENT_REQUIRED` (№413 convention, never double-stamped) so
+/// the `try` classifier can branch the office's ask-for-consent policy.
+fn require_audio_consent(direction_flow: &str, channel_id: &str) -> Result<(), String> {
+    let scope = format!("audio.{}", direction_flow);
+    if crate::consent::active_grant_for(&scope) {
+        return Ok(());
+    }
+    let detail = format!(
+        "no active consent grant '{}' — audio {} refused fail-closed (№428/ADR-0174 §4)",
+        scope, direction_flow
+    );
+    ledger_duplex_event(&format!("{}_denied", direction_flow), channel_id, &detail);
+    Err(crate::interpreter::values::coded_error(
+        crate::interpreter::values::CODE_AUDIO_CONSENT_REQUIRED,
+        format!(
+            "{}: channel '{}' has {}",
+            direction_flow, channel_id, detail
+        ),
+    ))
+}
+
 /// Extract the channel id from a `Value::Duplex` handle argument (the
 /// session_id_arg template).
 pub fn channel_id_arg(fn_name: &str, args: &[Value], idx: usize) -> Result<String, String> {
@@ -423,19 +451,23 @@ fn stop_stream(fn_name: &str, channel_id: &str, direction: &'static str) -> Resu
 
 /// `speak_start(duplex, text, priority?)` — the SPEAK flow engine.
 /// The text never enters the ledger (a digest only — the №415 posture).
+/// №428: requires an active `audio.speak` consent grant (fail-closed).
 pub fn speak_start(
     channel_id: &str,
     _text: &str,
     priority: Option<&str>,
 ) -> Result<(Stream, Vec<Stream>), String> {
+    require_audio_consent("speak", channel_id)?;
     start_stream("speak_start", channel_id, "speak", "listen", priority)
 }
 
 /// `listen_start(duplex, priority?)` — the LISTEN flow engine.
+/// №428: requires an active `audio.listen` consent grant (fail-closed).
 pub fn listen_start(
     channel_id: &str,
     priority: Option<&str>,
 ) -> Result<(Stream, Vec<Stream>), String> {
+    require_audio_consent("listen", channel_id)?;
     start_stream("listen_start", channel_id, "listen", "speak", priority)
 }
 

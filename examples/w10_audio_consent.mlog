@@ -1,0 +1,41 @@
+// Naryad #428: the audio consent gate — speak/listen without consent are
+// refused fail-closed (AUDIO_CONSENT_REQUIRED), consented audio flows and
+// every refusal land in the Action Ledger (no silent egress, no silent
+// refusal).
+//
+// The scenario: the agent opens a duplex channel, tries to speak WITHOUT
+// consent (typed refusal, `try` catches), grants audio.speak, speaks
+// successfully, revokes, is refused again; the listen direction mirrors
+// the contract in tests/naryad_428_audio_consent.rs.
+pattern AudioConsent(_tick: String) -> String ⟨io, audit, listen, speak⟩ {
+  let sess = session_login("consent-demo-user", "pw-not-checked-by-design")
+  let ch = duplex_open(sess, "normal")
+
+  // 0. Deterministic start: the consent ledger is PROCESS-GLOBAL and
+  //    grants survive across runs (revocable, TTL-bounded by design), so
+  //    the scenario re-arms both gates explicitly before refusing.
+  let _r1 = consent_revoke(ch, "audio.speak")
+  let _r2 = consent_revoke(ch, "audio.listen")
+
+  // 1. NO consent — the speak refusal is typed and caught by `try`.
+  let r1 = try speak_start(ch, "should be refused", "normal")
+  let refused = to_string(r1.error.code == "AUDIO_CONSENT_REQUIRED")
+
+  // 2. Grant the speak direction — the same call now succeeds.
+  let _g = consent_grant(ch, "audio.speak", "consent-demo-user")
+  let r2 = try speak_start(ch, "consented speak", "normal")
+  let spoke = to_string(r2.ok == true)
+
+  // 3. The other direction is still gated — listen without its own grant
+  //    refuses even though speak was granted.
+  let r3 = try listen_start(ch, "normal")
+  let listen_refused = to_string(r3.error.code == "AUDIO_CONSENT_REQUIRED")
+
+  // 4. Consent granted — the listen flow opens.
+  let _g2 = consent_grant(ch, "audio.listen", "consent-demo-user")
+  let r4 = try listen_start(ch, "normal")
+  let listened = to_string(r4.ok == true)
+
+  return "refused:" + refused + "|spoke:" + spoke + "|listen_refused:" + listen_refused + "|listened:" + listened
+}
+flow Main { input: String = "tick" -> AudioConsent -> output }

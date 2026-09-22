@@ -64,7 +64,19 @@ fn open_channel(session: &Value, priority: Option<&str>) -> Result<Value, String
     if let Some(p) = priority {
         args.push(s(p));
     }
-    call_builtin("duplex_open", &args)
+    let ch = call_builtin("duplex_open", &args)?;
+    // №428: speak/listen are consent-gated (audio.speak / audio.listen,
+    // fail-closed). The barge-in CONTRACT under test (D1–D5) is orthogonal
+    // to consent, so the harness grants both directions up front — the
+    // consent gate itself is contracted in tests/naryad_428_audio_consent.rs.
+    for scope in ["audio.speak", "audio.listen"] {
+        call_builtin(
+            "consent_grant",
+            &[s("naryad-352"), s(scope), s("duplex-harness")],
+        )
+        .unwrap_or_else(|e| panic!("consent_grant({scope}) must succeed: {e}"));
+    }
+    Ok(ch)
 }
 
 fn channel_id(handle: &Value) -> String {

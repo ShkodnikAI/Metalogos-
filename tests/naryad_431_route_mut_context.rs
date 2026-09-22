@@ -1,4 +1,6 @@
 //! Issue #600 — route-body assignment in branches (mut context).
+//! Naryad №431 (Wave 10): the naryad-numbered contract file for the same
+//! fix (landed via PR #611 on main; this file is its §3 regression suite).
 //!
 //! The route executor (`execute_route_body`) handles top-level route-body
 //! statements manually: `let` bindings went into the env WITHOUT registering

@@ -11,9 +11,10 @@
 #                    n428_speak_without_consent_is_typed_and_audited MUST
 #                    FAIL (no silent refusal).
 #
-# Reproducibility contract: the harness is versioned IN THE REPO and works
-# in a throwaway worktree sharing the main target dir — no manual edits,
-# the working tree is never touched. Run AFTER the code lands in a commit.
+# Reproducibility contract (the №418 harness pattern): the mutations are
+# applied in a throwaway worktree sharing the main target dir; cargo runs
+# IN THE WORKTREE; every injection asserts its anchor; the working tree is
+# never touched. Run AFTER the code lands in a commit.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"
@@ -27,52 +28,60 @@ git worktree add --detach "$WT" HEAD >/dev/null 2>&1
 export CARGO_TARGET_DIR="$PWD/target"
 
 echo "── sanity: the unmutated corpus is green at HEAD ──"
-cargo test --test naryad_428_audio_consent 2>&1 | rg "test result:" | head -1
+S=$( ( cd "$WT" && cargo test --test naryad_428_audio_consent 2>&1 | grep -E "test result" | head -1 ) || true )
+echo "  test verdict: $S"
+case "$S" in
+  *"0 failed"*) echo "  sanity OK: the corpus is green before mutating" ;;
+  *) echo "  SANITY FAILED — the corpus must be green BEFORE mutation"; exit 1 ;;
+esac
 
-mutate_and_run() {
-  local name="$1" file="$2" expect_fail="$3"
-  local backup="$WT/$(basename "$file").bak"
-  cp "$WT/$file" "$backup"
-  echo "── mutant $name ──"
-  if [ "$name" = "M-CONSENT-GATE" ]; then
-    # Neuter the gate: the direction check always passes.
-    python3 - "$WT" <<'EOF'
-import sys, pathlib
-wt = sys.argv[1]
-p = pathlib.Path(wt) / "src/duplex.rs"
-s = p.read_text()
-s = s.replace(
-    '    let scope = format!("audio.{}", direction_flow);\n    if crate::consent::active_grant_for(&scope) {\n        return Ok(());\n    }',
-    '    let scope = format!("audio.{}", direction_flow);\n    if true {\n        return Ok(());\n    }')
-p.write_text(s)
-EOF
-  elif [ "$name" = "M-LEDGER-EGRESS" ]; then
-    # Neuter the denial ledger record: the refusal goes unrecorded.
-    python3 - "$WT" <<'EOF'
-import sys, pathlib
-wt = sys.argv[1]
-p = pathlib.Path(wt) / "src/duplex.rs"
-s = p.read_text()
-s = s.replace(
-    '    ledger_duplex_event(\n        &format!("{}_denied", direction_flow),\n        channel_id,\n        &detail,\n    );\n',
-    '')
-p.write_text(s)
-EOF
-  fi
-  set +e
-  cargo test --test naryad_428_audio_consent 2>&1 | rg "test result:|panicked at|FAILED" | head -4
-  local rc=${PIPESTATUS[0]}
-  set -e
-  cp "$backup" "$WT/$file"
-  if [ "$rc" -ne 0 ]; then
-    echo "   KILLED by $expect_fail (exit $rc) — MUTATION VERIFIED"
-  else
-    echo "   SURVIVED — MUTATION FAILED"
-    exit 1
-  fi
+mutate() { # (file, python snippet) — apply one injection in the worktree
+  python3 - "$WT/$1" << PYEOF
+import sys
+p = sys.argv[1]
+src = open(p).read()
+$2
+open(p, "w").write(src)
+PYEOF
 }
 
-mutate_and_run M-CONSENT-GATE src/duplex.rs n428_speak_without_consent_is_typed_and_audited
-mutate_and_run M-LEDGER-EGRESS src/duplex.rs n428_speak_without_consent_is_typed_and_audited
+echo "── M-CONSENT-GATE: neuter the direction consent check ──"
+mutate "src/duplex.rs" '
+old = """    let scope = format!(\"audio.{}\", direction_flow);
+    if crate::consent::active_grant_for(&scope) {
+        return Ok(());
+    }"""
+new = """    let scope = format!(\"audio.{}\", direction_flow);
+    if true {
+        // MUTATION M-CONSENT-GATE: the gate is neutered — unconsented
+        // audio flows are no longer refused.
+        let _ = scope;
+        return Ok(());
+    }"""
+assert old in src, "M-CONSENT-GATE anchor not found (the direction consent check)"
+src = src.replace(old, new, 1)'
+R=$( ( cd "$WT" && cargo test --test naryad_428_audio_consent n428_speak_without_consent_is_typed_and_audited 2>&1 | grep -E "test result" | head -1 ) || true )
+echo "  test verdict: $R"
+case "$R" in
+  *FAILED*) echo "  M-CONSENT-GATE VERIFIED: the negative test falls when the gate is neutered" ;;
+  *) echo "  M-CONSENT-GATE NOT VERIFIED — the test survived a neutered gate"; exit 1 ;;
+esac
+( cd "$WT" && git checkout -- src/duplex.rs )
+
+echo "── M-LEDGER-EGRESS: neuter the denial ledger record ──"
+mutate "src/duplex.rs" '
+old = """    ledger_duplex_event(&format!(\"{}_denied\", direction_flow), channel_id, &detail);"""
+new = """    // MUTATION M-LEDGER-EGRESS: the refusal goes unrecorded — a silent
+    // refusal (the audit trail is gone).
+    let _ = (&direction_flow, &channel_id, &detail);"""
+assert old in src, "M-LEDGER-EGRESS anchor not found (the denial ledger record)"
+src = src.replace(old, new, 1)'
+R=$( ( cd "$WT" && cargo test --test naryad_428_audio_consent n428_speak_without_consent_is_typed_and_audited 2>&1 | grep -E "test result" | head -1 ) || true )
+echo "  test verdict: $R"
+case "$R" in
+  *FAILED*) echo "  M-LEDGER-EGRESS VERIFIED: the audit test falls when the denial record is neutered" ;;
+  *) echo "  M-LEDGER-EGRESS NOT VERIFIED — the test survived a silent refusal"; exit 1 ;;
+esac
+( cd "$WT" && git checkout -- src/duplex.rs )
 
 echo "── mutation verification 2/2 VERIFIED ──"

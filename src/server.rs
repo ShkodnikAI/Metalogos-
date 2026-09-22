@@ -883,16 +883,17 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
                 }
                 let args = crate::builtins::cron::cron_dispatch_args(spec.payload.as_deref());
                 {
-                    let interp = scheduler_state.interpreter.write().await;
                     eprintln!(
                         "[cron] firing: {} — {} ({})",
                         spec.cron_expr, spec.prompt, decision.reason
                     );
-                    let result = if let Some(builtin_fn) = interp.get_builtin(&spec.prompt) {
-                        builtin_fn(&args)
-                    } else {
-                        interp.call_pattern(&spec.prompt, &args)
-                    };
+                    // №426 (ADR-0175 §3.1): the tick executes in the
+                    // PROGRAM context (the route-style stor-set: db{},
+                    // schema DDL, patterns) on a BLOCKING thread — no
+                    // interpreter lock is held, so routes serve while
+                    // the tick runs and an HTTP self-call loops back
+                    // into a live server (the №423 defects 1/2 closed).
+                    let result = execute_tick_call(&scheduler_state, &spec.prompt, args).await;
                     if let Err(e) = result {
                         eprintln!(
                             "[cron] dispatch '{}' error: {}",
@@ -905,7 +906,6 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
                     {
                         eprintln!("[cron] mark_fired error: {}", e);
                     }
-                    // write lock released here
                 }
             }
         }
@@ -1182,6 +1182,14 @@ pub(crate) async fn build_state(
     // behavior production does.
     check_route_template_conflicts(&config.routes)
         .map_err(|e| format!("server startup aborted — route template conflict: {}", e))?;
+
+    // №426 (ADR-0175 §3.4): the startup merge carries the program's
+    // schema declarations AND the db connection from DIFFERENT
+    // throwaway interpreters (each declaration runs isolated) — the
+    // replay here guarantees the SHARED startup connection is
+    // schema-ready regardless of the declaration order (schema before
+    // db, db before schema — both land).
+    interp.replay_schemas();
 
     // Наряд №29 §2.1: HMAC key from env (METALOGOS_HMAC_KEY) or random fallback.
     // Never panics — random fallback logs WARNING and continues.
@@ -2132,6 +2140,182 @@ pub fn json_value_to_value(val: &serde_json::Value) -> Value {
 }
 
 // ── Route Body Execution ────────────────────────────────────────────
+
+/// №426 (ADR-0175 §3.1): the route-style program context — the SAME
+/// construction every request handler uses (definitions cloned from the
+/// shared interpreter, memory persistence re-attached, db reconnected).
+/// The cron tick gets THIS, not the raw shared interpreter: «тик
+/// исполняется в контексте программы».
+async fn fresh_program_context(state: &ServerState) -> Interpreter {
+    let mut interp = Interpreter::new();
+    {
+        let shared = state.interpreter.read().await;
+        shared.clone_definitions_into(&mut interp);
+    }
+    interp.set_base_dir(std::path::PathBuf::from("."));
+    if let Some(ref persist_path) = state.memory_persist {
+        interp.configure_memory(&MemoryDecl {
+            span: Span::unknown(),
+            persist: Some(persist_path.clone()),
+        });
+    }
+    interp.reconnect_db();
+    interp
+}
+
+/// №426 (ADR-0175 §3.1-3.3): the cron-dispatch executor. The tick call
+/// runs on a FRESH program context (the same stor-set a route sees —
+/// db{}, schema DDL, patterns, templates) on a BLOCKING thread — the
+/// route-path posture (ADR-0096): blocking builtins (http_post's
+/// reqwest::blocking, the №423 transport failure) are safe here, and
+/// the scheduler holds NO interpreter lock while the tick executes, so
+/// an HTTP self-call loops back into a live server. Target resolution
+/// is the №418 contract: a builtin name first, then a pattern.
+pub(crate) async fn execute_tick_call(
+    state: &ServerState,
+    target: &str,
+    args: Vec<Value>,
+) -> Result<Value, String> {
+    let interp = fresh_program_context(state).await;
+    let target = target.to_string();
+    tokio::task::spawn_blocking(move || -> Result<Value, String> {
+        if let Some(builtin_fn) = interp.get_builtin(&target) {
+            builtin_fn(&args)
+        } else {
+            interp.call_pattern(&target, &args)
+        }
+    })
+    .await
+    .map_err(|e| format!("tick executor join error: {}", e))?
+}
+
+/// №426 (ADR-0175 §3.6): the test surface for the tick context — builds
+/// the serve state exactly like `run_test_server` (declaration merge,
+/// build_state) WITHOUT a listener and executes one cron tick through
+/// the SAME executor the scheduler uses. Integration tests assert the
+/// db binding, the schema replay and the memory: unification against
+/// this surface.
+pub async fn test_tick_call(source: &str, target: &str, args: Vec<Value>) -> Result<Value, String> {
+    let declarations = crate::parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
+    let server_config = declarations
+        .iter()
+        .find_map(|d| match d {
+            Declaration::MlogServer(srv) => Some(srv.clone()),
+            _ => None,
+        })
+        .ok_or("no mlogserver block")?;
+    let mut interp = Interpreter::new();
+    for decl in declarations {
+        if !matches!(decl, Declaration::Flow(_)) {
+            let mut tmp = Interpreter::new();
+            tmp.set_base_dir(std::path::PathBuf::from("."));
+            let _ = tmp.run(vec![decl]);
+            interp = merge_interpreter(tmp, interp);
+        }
+    }
+    let mut config = server_config;
+    config.port = 0;
+    let state = build_state(config, interp)
+        .await
+        .map_err(|e| format!("build_state: {}", e))?;
+    execute_tick_call(&state, target, args).await
+}
+
+/// №426 (ADR-0175 §3.3): a SEQUENCE of ticks on ONE serve boot — the
+/// cross-context contract (a write in one tick context is visible in
+/// the next tick context AND in routes: the startup connection is
+/// shared for `sqlite::memory:`, the file is shared for file URLs).
+pub async fn test_tick_sequence(
+    source: &str,
+    calls: Vec<(String, Vec<Value>)>,
+) -> Vec<Result<Value, String>> {
+    let declarations = match crate::parser::parse(source) {
+        Ok(d) => d,
+        Err(e) => return vec![Err(format!("parse error: {}", e))],
+    };
+    let server_config = match declarations.iter().find_map(|d| match d {
+        Declaration::MlogServer(srv) => Some(srv.clone()),
+        _ => None,
+    }) {
+        Some(c) => c,
+        None => return vec![Err("no mlogserver block".to_string())],
+    };
+    let mut interp = Interpreter::new();
+    for decl in declarations {
+        if !matches!(decl, Declaration::Flow(_)) {
+            let mut tmp = Interpreter::new();
+            tmp.set_base_dir(std::path::PathBuf::from("."));
+            let _ = tmp.run(vec![decl]);
+            interp = merge_interpreter(tmp, interp);
+        }
+    }
+    let mut config = server_config;
+    config.port = 0;
+    let state = match build_state(config, interp).await {
+        Ok(st) => st,
+        Err(e) => return vec![Err(format!("build_state: {}", e))],
+    };
+    let mut results = Vec::with_capacity(calls.len());
+    for (target, args) in calls {
+        results.push(execute_tick_call(&state, &target, args).await);
+    }
+    results
+}
+
+/// №426 (ADR-0175 §3.3): the test surface for the HTTP SELF-CALL from a
+/// tick — boots a REAL listener (the run_test_server shape), hands the
+/// self-URL to the tick as its single String argument, and executes the
+/// tick through the scheduler executor. This is the deterministic
+/// reproduction of the №423 defect 2 (blocking outbound from the tick)
+/// and its fix: the self-call lands on a live server while the
+/// scheduler holds no lock.
+pub async fn test_tick_self_call(
+    source: &str,
+    target: &str,
+    self_path: &str,
+) -> Result<Value, String> {
+    let declarations = crate::parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
+    let server_config = declarations
+        .iter()
+        .find_map(|d| match d {
+            Declaration::MlogServer(srv) => Some(srv.clone()),
+            _ => None,
+        })
+        .ok_or("no mlogserver block")?;
+    let mut interp = Interpreter::new();
+    for decl in declarations {
+        if !matches!(decl, Declaration::Flow(_)) {
+            let mut tmp = Interpreter::new();
+            tmp.set_base_dir(std::path::PathBuf::from("."));
+            let _ = tmp.run(vec![decl]);
+            interp = merge_interpreter(tmp, interp);
+        }
+    }
+    let mut config = server_config;
+    config.port = 0;
+    let state = build_state(config, interp)
+        .await
+        .map_err(|e| format!("build_state: {}", e))?;
+    let app = build_router(state.clone());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .map_err(|e| format!("bind: {}", e))?;
+    let port = listener
+        .local_addr()
+        .map_err(|e| format!("local_addr: {}", e))?
+        .port();
+    tokio::spawn(async move {
+        let _ = axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await;
+    });
+    // Give the listener a beat to accept (the run_test_server posture).
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    let url = format!("http://127.0.0.1:{}{}", port, self_path);
+    execute_tick_call(&state, target, vec![Value::String(url)]).await
+}
 
 pub(crate) async fn execute_route_body(
     state: &ServerState,

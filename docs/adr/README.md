@@ -209,3 +209,4 @@ real ADRs (№309/№320/№412) before the booking.
 | 0172 | Session model — wake/interrupt/duty over a process-global registry | Accepted |
 | 0173 | The derived-from graph and cascading forgetting over Memory<K> | Accepted |
 | 0174 | Directed audio effects (`listen`/`speak`) and the duplex channel — barge-in over the session priority ladder | Accepted |
+| 0175 | The tick context — the cron dispatch executes in the program context | Accepted |

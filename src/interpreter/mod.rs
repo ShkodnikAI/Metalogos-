@@ -148,6 +148,15 @@ pub struct Interpreter {
     /// Resolved DB URL string for re-opening connections (Наряд №8).
     /// Set by init_db_connection() so per-request interpreters can open new connections.
     db_url: Option<String>,
+    /// №426 (ADR-0175 §3.4): the program's schema-as-code declarations
+    /// (ADR-0060) — stored DECLARATIVELY so any context that opens a
+    /// connection REPLAYS the DDL additively (CREATE TABLE IF NOT
+    /// EXISTS). The serve startup runs each declaration on a throwaway
+    /// interpreter, so a `schema {}` decl lands on a conn-less context
+    /// and its immediate apply fails silently — the stored copy makes
+    /// the DDL order-independent and route/tick-visible (the seed №423
+    /// workaround "DDL-хендлер внутри тика" closes here).
+    schemas: Vec<crate::ast::SchemaDecl>,
     /// Audit log (Phase 7.5): uses Mutex for interior mutability + Send/Sync.
     audit_log: Mutex<Vec<String>>,
     /// Server config (Phase 6.1)
@@ -300,6 +309,7 @@ impl Interpreter {
             db_store: Vec::new(),
             db_conn: std::sync::Arc::new(std::sync::Mutex::new(None)),
             db_url: None,
+            schemas: Vec::new(),
             audit_log: Mutex::new(Vec::new()),
             server_config: None,
             embedding_manager: EmbeddingManager::new(),
@@ -625,6 +635,15 @@ impl Interpreter {
                 .origin_decls
                 .entry(k.clone())
                 .or_insert_with(|| v.clone());
+        }
+        // №426 (ADR-0175 §3.4): the schema DDL travels with the
+        // definitions — every fresh context can replay it against its
+        // own connection (UNION by name, first-wins — the merge
+        // discipline of every other definition class).
+        for schema in &self.schemas {
+            if !target.schemas.iter().any(|sk| sk.name == schema.name) {
+                target.schemas.push(schema.clone());
+            }
         }
         if let Some(ref db) = self.db_config {
             target.db_config = Some(db.clone());

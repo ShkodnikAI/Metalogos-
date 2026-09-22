@@ -165,7 +165,7 @@ $ mlog check poison.mlog
 
 > **[Known Limitations](docs/limitations.md)** — a unified index of all documented language limitations across static analysis, VM, Vision, adapt, self-hosting, JIT, error protocol, LLM streaming, and MCP server. The truth lives in the primary sources (ADR, source files); this page only references.
 >
-> **[REALITY](docs/REALITY.md)** — the reality-check of plan-v2 asset claims (CONFIRMED / PARTIAL / PHANTOM verdicts with proof commands) and the working P0-readiness estimate (68% as of naryad #414, 2026-09-20).
+> **[REALITY](docs/REALITY.md)** — the reality-check of plan-v2 asset claims (CONFIRMED / PARTIAL / PHANTOM verdicts with proof commands) and the working P0-readiness estimate (76% as of naryad #425 / wave 9, 2026-09-22).
 >
 > **[Action Ledger runbook](docs/ledger-runbook.md)** — the operator protocol for the signed action trail: the key lifecycle, the export, the out-of-band `expect_head`/`expect_key` anchor, the periodic verification via the native cron (0.21.0) and the reaction on a failed verdict.
 
@@ -661,6 +661,17 @@ Each layer receives `seed.wrapping_add(layer_index)` for deterministic weight in
 ### Voice — Speech Synthesis & Cloning (ADR-0143–0146)
 
 The Voice pillar (speech synthesis, zero-shot voice cloning, voice design) is feature-gated (`--features voice`, implies `candle`) and off-by-default. Four ADRs define the scope: [ADR-0143](docs/adr/0143-voice-scope.md) (scope — TTS, cloning, voice-design; non-scope: pre-training, singing, streaming, voice conversion), [ADR-0144](docs/adr/0144-voice-value-registry.md) (opaque `Value::Audio`/`Value::Voice` handles + `VoiceRegistry` with encrypted-at-rest voiceprints), [ADR-0145](docs/adr/0145-voice-security-gates.md) (5 security gates: consent, provenance, privacy, taint, shared `MODEL_WEIGHTS_UNSAFE`), [ADR-0146](docs/adr/0146-voice-wedge.md) (wedge: Chatterbox Multilingual V3 MIT/MIT 500M primary, Kokoro-82M Apache 82M warm-up). Skeleton built (Naryad #302): `src/voice/mod.rs` with `VoiceId`/`AudioId`, `VoiceRegistry`, `KNOWN_VOICE_MODELS` SSOT, 6 stub builtins. Speaker encoder contract (Naryad #303): 192-dim L2-normalized embeddings, `VoiceStore` (SQLite, encrypted BLOB), consent ledger (GDPR Art. 9). Real ECAPA encoder + AES-256-GCM encryption deferred to phase A4.
+
+### Always-on Agent Runtime — Session, Typed Memory, Duplex (ADR-0172–0175)
+
+The registry Phase 4 lane ("Always-on, память, забывание") is landed and real (wave 9, naryads №348/№349/№350/№351/№352/№426):
+
+- **Session model** (№348/[ADR-0172](docs/adr/0172-session-model.md)) — `session_login`/`session_logout` over a live registry, `session_wake` (keyword|event|schedule), `session_take_interrupt` with the typed priority ladder `low < normal < high < critical`, the duty profile (`profile duty { materialization: denied; surfaces: local_only }` — a compile-time contour, №349); every transition is an Action-Ledger record.
+- **Typed Memory<K>** (№350) — label-typed containers (`public`/`private`), private storage is consent-gated (№335) and AES-256-GCM encrypted at rest under a per-subject key, reads return `Secret` (the lattice/redact contract is the only egress), every operation is a ledger record.
+- **The derived-from graph and cascading forgetting** (№351/[ADR-0173](docs/adr/0173-memory-derived-graph-cascade.md)) — `memory_forget_cascade` deletes the full descendant closure; the delete is a GRANTED linear action (ADR-0155: scope `memory:forget:<container>`, `GRANT_*` refusal matrix, the post-success `irreversible.memory_forget` ledger record); `memory_retain` pins a subtree — a retained node VETOES the whole forget (provenance integrity by construction, fuzz-pinned against an independent model); the dry-run preview (`memory_cascade_preview`) is the №280 discipline.
+- **Persistent typed memory** (№351/[ADR-0175](docs/adr/0175-tick-context.md) §3.5) — the env anchor `METALOGOS_MEMORY_DB` makes a bundled-rusqlite file DB the authoritative store (additive-only DDL, write-through, load-on-open); restart-stable decryption via `METALOGOS_MEMORY_MASTER`.
+- **Directed audio effects and the duplex channel** (№352/[ADR-0174](docs/adr/0174-directed-audio-effects-duplex.md)) — `listen`/`speak` are typed EFFECT WORDS in the №324 trail vocabulary: a pattern using an undeclared direction is a COMPILE error; the duplex channel binds a live session and implements barge-in over the session priority ladder (the preempted stream ends typed, every transition is a ledger record).
+- **The tick context** (№426/[ADR-0175](docs/adr/0175-tick-context.md)) — cron ticks execute in the PROGRAM context (the same db/schema/patterns stor-set as routes) on a blocking thread while the scheduler holds no lock; the schema-as-code DDL replays into every context (declaration order does not matter); `sqlite::memory:` is unified across contexts. Verified nightly by the serve-soak (11/0 GREEN).
 
 ### Video — I2V Pipeline & Provenance (ADR-0147–0151)
 

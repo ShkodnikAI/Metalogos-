@@ -633,7 +633,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 473 registered builtins (473 of 473): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 478 registered builtins (478 of 478): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -2028,7 +2028,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 473 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 478 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2334,7 +2334,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `media_store_video_frame(...)` | 2 | — | `media_store_video_frame(data, sensitivity)` — wraps provided bytes into an opaque VideoFrame handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. |
 | `media_store_video_segment(...)` | 2 | — | `media_store_video_segment(data, sensitivity)` — wraps provided bytes into an opaque VideoSegment handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. |
 
-### `memory` — 30 builtin(s)
+### `memory` — 35 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
@@ -2350,15 +2350,20 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `mem_set(...)` | 2 | `String, String -> String` | Equivalent to `kv_set`, but returns the value written |
 | `memorize(...)` | 2..3 | `String, Float, String -> Unit` | Saves a fact with a priority (0.0-1.0) and a type. Example: `memorize("likes spicy food", 0.9, "persona")` |
 | `memory_boost(...)` | variadic | — | `memory_boost(id, amount?)` — boost a memory node's score by amount (default 0.1, capped at 1.0). Updates last_accessed timestamp. Returns Struct { id, new_score, access_count }. |
+| `memory_cascade_preview(...)` | 2 | — | `memory_cascade_preview(handle, key) -> Struct` |
 | `memory_decay(...)` | variadic | — | `memory_decay(lambda?)` — apply exponential decay to all memory node scores. `lambda` controls decay rate (default 0.01 = gentle). Formula: score *= e^(-lambda * hours_since_access). Returns Struct { decayed: <count>, nodes: <total>, edges: <total> }. |
 | `memory_export(...)` | 3 | — | `memory_export(handle, key, path) -> String` |
 | `memory_forget(...)` | 5..7 | `(String, String, List, Float, Float[, Bool[, List]]) -> Struct` | Managed forgetting with boundaries (supermemory forget-matching discipline; №280). `dry_run=true` (the DEFAULT — arity 5, or an explicit `true`) returns only candidates: `List[Struct{id, score}]` where `score` is the cosine similarity (best per id; ids deduplicated; already-forgotten ids are not candidates), `applied: 0`, `batch_id: ""`. Apply (`dry_run=false`) works STRICTLY over an explicit `ids` list taken from a preview — never over a re-searched query: every id is point-checked against the preview bounds (exists in the table, similarity ≥ `threshold` — the same computation as the preview, not a re-search), an unknown id or an id outside the bounds is a LOUD error BEFORE anything is written (atomic apply); the id count may not exceed `max_forget`. Soft delete: nothing is physically removed — applied ids go into the forget ledger `{table}__forgotten` (id, batch_id, reason, forgotten_at); `batch_id` (`MLOG-FORGET-<base32×26>`, 128 bits) is stamped on every applied id and returned; a repeated forget of the same id is a no-op (`applied: 0`, `batch_id: ""`). Loud refusals: `threshold` outside `[0, 1]`, `max_forget` non-integer / outside `[1, 10000]`, `ids` non-empty-violations (empty list, non-String element), `dry_run=false` without ids, `ids` together with `dry_run=true`, a `List` in the `dry_run` position, dimension mismatch, a missing table, sandbox violations (preview opens ForRead, apply opens ForWrite). Auto-forgetting (TTL, displacement by updates) is deliberately v2 / out of scope. |
+| `memory_forget_cascade(...)` | 3 | — | `memory_forget_cascade(handle, key, grant) -> Struct` |
 | `memory_keys(...)` | 1 | — | `memory_keys(handle) -> List<String>` |
 | `memory_open(...)` | 2 | — | `memory_open(subject, label) -> Memory` |
 | `memory_provenance(...)` | 2 | — | `memory_provenance(handle, key) -> List<String>` |
 | `memory_prune(...)` | variadic | — | `memory_prune(threshold?, min_age_hours?)` — remove dead memory nodes. `threshold`: minimum score to keep (default 0.05). `min_age_hours`: minimum age in hours before pruning (default 24, protects fresh entries). Returns Struct { pruned: <count>, remaining: <total> }. |
 | `memory_put(...)` | 3..4 | — | `memory_put(handle, key, value, parents?) -> Unit` |
 | `memory_read(...)` | 2 | — | `memory_read(handle, key) -> String \| Secret` |
+| `memory_release(...)` | 2 | — | `memory_release(handle, key) -> Unit` |
+| `memory_retain(...)` | 2 | — | `memory_retain(handle, key) -> Unit` |
+| `memory_retained(...)` | 1 | — | `memory_retained(handle) -> List<String>` |
 | `memory_revise(...)` | variadic | — | `memory_revise(id, new_text, new_score?)` — update a node and resolve Contradicts. If the node contradicts others, the system keeps the higher-scoring belief and demotes the loser (score *= 0.3, adds Supersedes edge). Returns Struct { action, winner_id, superseded_id? }. |
 | `recall_top_k(...)` | 1..3 | `String, Float, String -> String` | Returns the top-K entries sorted by RRF score. A JSON array: `[{value, score, type, priority}]` (the interpreter's hybrid FTS5+cosine search; Bug #530: the VM now compiles the name and searches its own backend-local store with token-level scoring). An empty type searches across all types |
 | `ref(...)` | 1 | — | `ref(content)` — compute SHA-256 hash, store in KV, return hash string. Idempotent. |
@@ -2906,6 +2911,11 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `memory_keys` | source | internal | pure | lists the container's keys (metadata only; audited) (№350) |
 | `memory_provenance` | source | internal | pure | reads the derived-from parent keys of one entry — the raw material of the №351 derived graph; records memory.provenance (№350) |
 | `memory_export` | sink | internal | irreversible | file-egress sink through the io sandbox — private entries REFUSE (MEMORY_REDACT_REQUIRED: №326 is the only private egress path); records memory.export (№350) |
+| `memory_cascade_preview` | source | internal | pure | computes the cascade plan READ-ONLY ({closure, blocked_by}) — the №280 dry-run discipline: preview before any grant is touched; when blocked_by is empty the would-delete set IS the closure; records memory.cascade_preview (№351/ADR-0173 §3.2) |
+| `memory_retain` | sink | internal | reversible | pins the descendant closure of the key (the CASCADE retain) against cascading forgetting — a retained node inside a forget closure VETOES the whole forget (fail-closed, ADR-0173 §3.3); records memory.retain (№351) |
+| `memory_release` | sink | internal | reversible | unpins the descendant closure of the key — the surgical idempotent inverse of memory_retain; records memory.release (№351/ADR-0173 §3.3) |
+| `memory_retained` | source | internal | pure | lists the pinned keys of the container (sorted introspection; audited) (№351) |
+| `memory_forget_cascade` | sink | internal | irreversible | THE GRANT-GATED CASCADE FORGET (ADR-0173 §3.4): the ADR-0155 linear action — GRANT_MISSING without a grant, scope memory:forget:<container_id>, grant_use consumption, the post-success irreversible.memory_forget ledger record; delete-class per №316; the delete set is the FULL descendant closure (provenance integrity by construction) and any retained node inside it vetoes the whole forget (MEMORY_RETAIN_PROTECTED) |
 | `forget` | sink | internal | irreversible | intended destructive memory removal |
 | `find` | source | internal | pure | intended memory search — state read |
 | `inspect` | source | internal | pure | intended runtime introspection — state read |
@@ -3205,6 +3215,8 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `ledger_verify` | source | internal | pure | reads an exported JSONL chain from a sandboxed path and returns the structural verification verdict (№415) — ingress of the signed trail for verification; the runtime ledger is never written and nothing egresses |
 
 <!-- END GENERATED BUILTIN CLASSIFICATION -->
+
+
 
 
 

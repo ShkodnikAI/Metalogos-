@@ -313,6 +313,15 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("memory_keys", 1, "memory"; builtin_memory_keys),
     spec!("memory_provenance", 2, "memory"; builtin_memory_provenance),
     spec!("memory_export", 3, "memory"; builtin_memory_export),
+    // №351 (ADR-0173): the derived-graph surfaces — the cascade preview
+    // (the №280 dry-run discipline), the retain pins, and the grant-gated
+    // cascading forget (the ADR-0155 linear action, `irreversible.
+    // memory_forget` ledger record; scope `memory:forget:<container>`).
+    spec!("memory_cascade_preview", 2, "memory"; builtin_memory_cascade_preview),
+    spec!("memory_retain", 2, "memory"; builtin_memory_retain),
+    spec!("memory_release", 2, "memory"; builtin_memory_release),
+    spec!("memory_retained", 1, "memory"; builtin_memory_retained),
+    spec!("memory_forget_cascade", 3, "memory"; builtin_memory_forget_cascade),
     spec!("forget", 0, "stub"),
     spec!("find", 4, "stub"),
     spec!("inspect", 1, "stub"),

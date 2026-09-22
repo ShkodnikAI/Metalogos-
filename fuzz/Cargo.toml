@@ -54,3 +54,12 @@ path = "fuzz_targets/fuzz_target_ledger_tamper.rs"
 test = false
 doc = false
 bench = false
+
+# Наряд №351 (ADR-0173 §3.7): the derived-graph cascade plan — panic
+# freedom + closure soundness + determinism over arbitrary graphs/pins.
+[[bin]]
+name = "fuzz_target_memory_cascade"
+path = "fuzz_targets/fuzz_target_memory_cascade.rs"
+test = false
+doc = false
+bench = false

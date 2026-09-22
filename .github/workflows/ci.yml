@@ -384,6 +384,9 @@ jobs:
       - name: Fuzz ledger verifier tampering (120s budget, Naryad #393)
         working-directory: fuzz
         run: cargo fuzz run --target x86_64-unknown-linux-gnu -j 2 fuzz_target_ledger_tamper -- -max_total_time=120
+      - name: Fuzz the memory cascade plan (120s budget, Naryad #351)
+        working-directory: fuzz
+        run: cargo fuzz run --target x86_64-unknown-linux-gnu -j 2 fuzz_target_memory_cascade -- -max_total_time=120
 
   # Наряд №265: advisory-матрица переносимости + бейзлайн покрытия.
   # НЕ блокирующие: ubuntu-набор остаётся единственным blocking-набором;

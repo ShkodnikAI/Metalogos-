@@ -79,3 +79,27 @@ ADR-0106 §Decision (Option/Result — Rejected) remains in force. The error-str
 - The soft-failure model (empty string / Unit / false) remains for optional paths.
 - Critical-path error-handling via `try` → Struct — a separate pattern, not a replacement for soft-failure.
 - ADR-0106 "soft-failure remains the error model" — true for optional paths; for critical-path errors — `try` → Struct adds structured error-handling without introducing Result.
+
+## Addendum (2026-09-22, issue #602): the STRING projection of a TryResult
+
+The structural contract above is unchanged: `try expr` still returns
+`Struct { ok: Bool, value: Value, error: Unit | Struct { code, message } }`,
+and `.ok` / `.value` / `.error.code` / `.error.message` keep working on both
+backends. What changes is the STRING projection only — the `Value` Display
+impl shared by `to_string`, `print`, and string interpolation:
+
+- **Success** (`ok = true`): the projection renders the `value` field —
+  `to_string(try trim("hello"))` is `"hello"`, exactly the 0.19
+  transparency on the success path.
+- **Failure** (`ok = false`): the `value` field is `Unit`, so the projection
+  renders `"()"` — the 0.19 failure probe idiom
+  (`if to_string(x) == "()" { fallback }`) works again in both branches.
+
+Rationale (issue #602, office migration 0.19 → 0.21): the office's verified
+workaround `TryVal(x) = x.value` reproduced exactly this projection on both
+paths; ~570 try-sites made a per-site migration the higher-risk option. The
+projection does not weaken the stable-code contract (№385/ADR-0169): the
+codes live in the `error` field, which remains structurally accessible, and
+branching on `r.error.code` — not on the rendered string — stays the
+sanctioned pattern. A generic struct dump remains available by rendering
+individual fields explicitly.

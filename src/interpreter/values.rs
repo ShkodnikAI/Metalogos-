@@ -151,6 +151,24 @@ impl std::fmt::Display for Value {
             Value::Float(n) => write!(f, "{}", n),
             Value::Bool(b) => write!(f, "{}", b),
             Value::Struct { type_name, fields } => {
+                // Issue #602 — the string projection of a `try` result is the
+                // `value` field, restoring the 0.19 contract end-to-end: on
+                // success `to_string(try X)` renders the inner value (0.19
+                // was transparent on success), on failure the `value` field is
+                // Unit so it renders "()" — the exact contract of the office
+                // migration workaround `TryVal(x) = x.value`. The structural
+                // contract (№374/ADR-0142) is untouched: `.ok`, `.value`,
+                // `.error.code` / `.error.message` keep working, and the
+                // stable error codes (№385/ADR-0169) live in the `error`
+                // field, which this projection does not remove. Display is
+                // shared by BOTH backends through the shared
+                // `try_result_struct` builder, so the projection cannot
+                // diverge between TW and VM.
+                if type_name == "TryResult" {
+                    if let Some(v) = fields.get("value") {
+                        return write!(f, "{}", v);
+                    }
+                }
                 write!(f, "{} {{", type_name)?;
                 let pairs: Vec<_> = fields.iter().collect();
                 for (i, (k, v)) in pairs.iter().enumerate() {

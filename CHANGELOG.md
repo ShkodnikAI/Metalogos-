@@ -2,6 +2,12 @@
 
 All notable changes to the Metalogos project.
 
+## [Unreleased]
+
+### Fixed
+
+- **`try` string projection restored to the 0.19 contract (issue #602, ADR-0142 addendum)**: `to_string(try X)` in 0.21.0 rendered the full `TryResult {ok, value, error}` struct dump on both paths — the office migration idiom `let x = try f(); if to_string(x) == "()" { fallback }` was broken in both branches (~570 try-sites). The `Value` Display projection of a TryResult now renders only the `value` field: success → the inner value (0.19 transparency), failure → `()` (the `value` field is Unit on the error path) — the exact contract of the office's verified `TryVal(x) = x.value` workaround. The structural contract (№374/ADR-0142) is untouched: `.ok` / `.value` / `.error.code` / `.error.message` keep working on both backends, and the stable error codes (№385/ADR-0169) live in the `error` field. REFERENCE §try documents the projection; parity tests in `tests/naryad_602_try_to_string_transparency.rs`.
+
 ## [0.21.0] - 2026-09-21
 
 ### Added

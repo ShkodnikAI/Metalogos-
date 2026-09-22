@@ -496,3 +496,29 @@ the weights remain UNVERIFIED without plan v2, the memory subsystem did not
 move, and the remaining taint gaps (effects, affinity, full static inference)
 are exactly the parked P2 items. Recomputation at the next wave boundary,
 same protocol.
+
+### 6.5. Wave 9 recount (naryad №425): **76%** (main @ `5ed4ced6`, 2026-09-22)
+
+Same decomposition and weights as §6.4 (still UNVERIFIED — plan v2 is still
+absent from the repository); readiness per the code facts only, the №414
+protocol (the same UNVERIFIED weights, no P0-green claims without a contract).
+
+| Subsystem | Weight (UNVERIFIED) | №414 `b05d36c` | Wave 9 `5ed4ced6` | Contribution | Basis for the new readiness |
+|---|---|---|---|---|---|
+| Labels (taint) | 30% | 75% | **75%** (unchanged) | 22.5pp | no taint work in Wave 9 — the parked P2 set (effects, affinity, full static inference) is unchanged |
+| Capability model | 20% | 85% | **88%** | 17.6pp | grant-gating extended BEYOND destructive SQL: the memory cascade forget is a granted, previewable, ledgered delete capability (№351/ADR-0173 §3.4 — check_active → scope `memory:forget:<container>` → the retained VETO → apply → grant_use → the post-success `irreversible.memory_forget` record); proof: `grep -n "pub fn forget_cascade" src/memory_typed.rs`; **still missing**: exec/network irreversible ops remain deny-only, not every builtin carries a capability attribute |
+| Backend registry | 15% | 85% | **85%** (unchanged) | 12.75pp | no compute-registry work in Wave 9 (the tick context, №426/ADR-0175, is serve infrastructure — it un-blocks the office dogfood path but does not move the registry row) |
+| Ledger | 15% | 90% | **95%** | 14.25pp | the parked P2-2 residual CLOSED: the runtime `ledger_verify()` hook (№415, 0.21.0 — `ledger_verify(source, expect_head, expect_key) -> LedgerVerdict` + `mlog ledger verify --json`); proof: `grep -n "pub fn ledger_verify" src/ledger.rs`; the record surface extended (`memory.*`, `duplex.*`, `session.*` families, №348/№350/№351/№352); **missing**: nothing structural — the out-of-band anchor discipline stays user-side (ADR-0167 §7) |
+| Memory | 20% | 13% | **45%** | 9pp | the FIRST move of the subsystem: the Phase-8 "real DB" debt CLOSED (№351/ADR-0173 §3.5 — the persistent rusqlite store behind `METALOGOS_MEMORY_DB`, additive-only DDL per ADR-0060, a TRUE 3-process restart test); typed `Memory<K>` with consent-gated private storage and AES-256-GCM at-rest (№350); the derived-from graph + cascading forgetting with the retained VETO (ADR-0173 §3.3, fuzz-pinned P1/P2/P3); the session model (№348/ADR-0172) and the duplex barge-in (№352/ADR-0174) as the actor surfaces; proof: `grep -n "METALOGOS_MEMORY_DB" src/memory_typed.rs`, `ls src/session.rs src/duplex.rs`; **still missing**: `recall` remains a registry stub (`grep -n '"recall"' src/builtins/registry.rs`), the plan-v2 memory contract is still unknown (plan absent), the FTS5-recall lane is not integrated with the typed lane, decay/boost are legacy-lane only |
+| **Total** | **100%** | **68.35 ≈ 68%** | — | **76.1 ≈ 76%** | |
+
+**Honest reading.** The 68% → 76% move is real and code-proven — the memory
+subsystem moved for the first time in four recount rounds (13% → 45%: the
+persistence, the typed layer, the grant-gated forgetting are landings, not
+promises), and the ledger's last structural gap (the runtime verification
+hook) closed. It is still NOT a P0-green claim: the weights remain UNVERIFIED
+without plan v2; `recall` is still a stub; the taint gaps (effects, affinity,
+full static inference) are exactly the parked P2 set; the capability model's
+remaining holes (exec/network deny-only, per-builtin capability attributes)
+are named, not hand-waved. Recomputation at the next wave boundary, same
+protocol.

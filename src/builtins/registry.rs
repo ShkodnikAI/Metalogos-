@@ -303,6 +303,16 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("vec_search", 4, 5, "memory"; builtin_vec_search), // db_path,table,query,k | +include_forgotten (№280, дефолт false)
     // recall/forget/find/inspect: planned high-level memory API; no handler (use kv_*/mem_* instead)
     spec!("recall", 0, "stub"),
+    // ── Typed Memory<K> (№350): label-typed containers over the
+    // process-global registry (src/memory_typed.rs) — private is
+    // consent-gated + encrypted at rest, reads/exports are audited
+    // sinks, redact is the only private egress. Category "memory".
+    spec!("memory_open", 2, "memory"; builtin_memory_open),
+    spec!("memory_put", 3, 4, "memory"; builtin_memory_put),
+    spec!("memory_read", 2, "memory"; builtin_memory_read),
+    spec!("memory_keys", 1, "memory"; builtin_memory_keys),
+    spec!("memory_provenance", 2, "memory"; builtin_memory_provenance),
+    spec!("memory_export", 3, "memory"; builtin_memory_export),
     spec!("forget", 0, "stub"),
     spec!("find", 4, "stub"),
     spec!("inspect", 1, "stub"),

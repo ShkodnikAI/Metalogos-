@@ -432,6 +432,13 @@ OVERRIDES = {
     "session_poll_wake": ("Source", "Internal", "Pure", "dequeues the oldest wake (FIFO) — reads the session's own queue, records session.wake_delivered; Unit when empty (№348)"),
     "session_interrupt": ("Sink", "Internal", "Reversible", "enqueues a typed-priority interrupt (low|normal|high|critical), records session.interrupt (№348/ADR-0172 §4.2)"),
     "session_take_interrupt": ("Source", "Internal", "Pure", "takes the highest-priority pending interrupt (FIFO within) — the №352 preemption lever; every take is ledger-recorded so preemption loses no audit (№348)"),
+    # Naryad 350: the typed Memory<K> layer (the "memory" category rows).
+    "memory_open": ("Source", "Internal", "Reversible", "returns the Memory<K> container handle — the ingress of the typed-memory surface; a private open is consent-gated INSIDE (active consent for memory:<subject>, №335 — the db_execute_with_grant capability precedent); records memory.open (№350)"),
+    "memory_put": ("Pure", "Public", "Pure", "writes a text entry under the container-handle capability (the handle exists only through the consent-gated memory_open — the db_execute_with_grant precedent: the №325 static clearance does not apply, the authority is enforced at runtime); private entries are AES-GCM encrypted at rest; derived-from parents must exist; records memory.put (№350)"),
+    "memory_read": ("Source", "Internal", "Reversible", "THE AUDITED READ SINK: public returns String, private returns Secret — print refuses it and redact() (№326/ADR-0136) is the only egress; records memory.read (№350)"),
+    "memory_keys": ("Source", "Internal", "Pure", "lists the container's keys (metadata only; audited) (№350)"),
+    "memory_provenance": ("Source", "Internal", "Pure", "reads the derived-from parent keys of one entry — the raw material of the №351 derived graph; records memory.provenance (№350)"),
+    "memory_export": ("Sink", "Internal", "Irreversible", "file-egress sink through the io sandbox — private entries REFUSE (MEMORY_REDACT_REQUIRED: №326 is the only private egress path); records memory.export (№350)"),
     "authenticate": ("Pure", "Secret", "Pure", "credential verification — handles secrets locally, no egress (stub intent)"),
     "vec_store": ("Sink", "Internal", "Reversible", "persists embeddings into the vector store (ADR-0134)"),
     "vec_search": ("Source", "Internal", "Pure", "reads the vector store (KNN state input)"),

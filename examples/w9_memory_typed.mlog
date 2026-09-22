@@ -1,0 +1,29 @@
+// Naryad #350: the typed Memory<K> layer — label-typed containers with
+// consent-gated private storage, audited sink reads and the redact-only
+// private egress.
+//
+// The scenario: the office agent keeps public notes and private data in
+// SEPARATE typed containers. The private container opens only under an
+// active consent grant (№335), stores its entries ENCRYPTED at rest
+// under the subject's derived key, and its READ returns Secret — the
+// lattice refuses its egress, and redact() (№326) is the only legal
+// path out. Public reads/exports are plain but every operation is an
+// Action-Ledger record (the memory.* family, ADR-0167 §3.4).
+pattern MemoryFlow(_tick: String) -> String {
+  // Public container: no consent needed, plaintext at rest.
+  let pub_mem = memory_open("office-agent", "public")
+  memory_put(pub_mem, "greeting", "hello office")
+  let raw = memory_read(pub_mem, "greeting")
+  // Private container: consent-gated open; AES-GCM at rest.
+  consent_grant("office-context", "memory:office-agent", "office-agent", 0)
+  let priv_mem = memory_open("office-agent", "private")
+  memory_put(priv_mem, "credential", "api token deadBEEF42cafe1234567890abcdef42 stored")
+  let secret_read = memory_read(priv_mem, "credential")
+  // The only legal egress of private content is redact().
+  let masked = redact(secret_read, "all")
+  // Public file export goes through the io sandbox; a private export
+  // would refuse with MEMORY_REDACT_REQUIRED.
+  memory_export(pub_mem, "greeting", "target/w9_memory_export.txt")
+  return "open:" + type_of(pub_mem) + "|read:" + raw + "|secret:" + type_of(secret_read) + "|masked:" + masked
+}
+flow Main { input: String = "tick" -> MemoryFlow -> output }

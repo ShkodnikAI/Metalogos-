@@ -119,6 +119,39 @@ pub fn record_revoke(scope: Option<&str>) -> Result<(), String> {
     })
 }
 
+/// Is there an ACTIVE consent grant for `scope`? (Naryad #350 — the
+/// typed-memory cross-subject gate reads it; additive reader, the store
+/// semantics are untouched.)
+///
+/// Active = a 'grant' row for the scope whose issued_at is NEWER than
+/// the last 'revoke' row for the same scope and whose TTL has not
+/// expired (expires_at NULL = no expiry). Fail-closed: on any store
+/// error the answer is NO.
+pub fn active_grant_for(scope: &str) -> bool {
+    let now = now_secs() as i64;
+    with_conn(|conn| {
+        let found: Option<i64> = conn
+            .query_row(
+                "SELECT 1 FROM consent_ledger \
+                 WHERE kind = 'grant' AND scope = ?1 \
+                   AND (expires_at IS NULL OR expires_at > ?2) \
+                   AND issued_at > COALESCE((SELECT MAX(issued_at) FROM consent_ledger \
+                                             WHERE kind = 'revoke' AND scope = ?1), -1) \
+                 LIMIT 1",
+                rusqlite::params![scope, now],
+                |_row| Ok(1),
+            )
+            .map(|_| Some(1))
+            .or_else(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                other => Err(other),
+            })
+            .unwrap_or(None);
+        Ok(found.is_some())
+    })
+    .unwrap_or(false)
+}
+
 /// Number of records (in-process read — not egress).
 pub fn entry_count() -> Result<i64, String> {
     with_conn(|conn| {

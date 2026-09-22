@@ -416,6 +416,9 @@ fn value_to_string(v: &Value) -> String {
         Value::LikenessChallenge(_) => "[LikenessChallenge]".to_string(),
         Value::Likeness(_) => "[LikenessToken]".to_string(),
         Value::Session(_) => "[Session]".to_string(),
+        // Naryad #350: the typed-memory handle renders as the bare
+        // opaque tag — container state never enters interpolation output.
+        Value::Memory(_) => "[Memory]".to_string(),
         Value::HttpResponse { status, .. } => format!("[HttpResponse {}]", status),
         Value::Subgraph(snap) => format!(
             "[Subgraph {} nodes, {} edges]",

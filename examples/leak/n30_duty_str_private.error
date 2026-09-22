@@ -1,0 +1,1 @@
+EXPECTED: DUTY_MATERIALIZATION — дежурный профиль: str() материализует private-литерал в текст (№349)

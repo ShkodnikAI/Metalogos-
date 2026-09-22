@@ -4446,6 +4446,43 @@ fn check_sink_clearance(
             });
             continue;
         }
+        // ── Naryad #349: the duty-profile compile rules carry their OWN
+        // Category-A check_ids — `profile legacy` does NOT downgrade
+        // them (the deepfake-gate posture, not the №325 advisory
+        // posture): the duty contour is a SECURITY DECLARATION of the
+        // program itself, and a program that declares it and violates
+        // it is contradictory regardless of the compatibility profile.
+        if v.reason == "duty-network-sink" {
+            findings.push(AuditFinding {
+                severity: Severity::Error,
+                check_id: "DUTY_NETWORK_SINK",
+                line: v.span.start_line as usize,
+                message: format!(
+                    "duty profile: {} is a network surface — `profile duty {{ surfaces: local_only }}` \
+                     makes every Network-class builtin (the №316 class) a compile error: the \
+                     duty (background) contour is local-only; egress belongs to the foreground \
+                     contour (№349, the carrier is №348/ADR-0172 §3.4)",
+                    v.fn_name,
+                ),
+            });
+            continue;
+        }
+        if v.reason == "duty-materialization" {
+            findings.push(AuditFinding {
+                severity: Severity::Error,
+                check_id: "DUTY_MATERIALIZATION",
+                line: v.span.start_line as usize,
+                message: format!(
+                    "duty profile: argument {} of {} in {} materializes a private-labeled value \
+                     into text — `profile duty {{ materialization: denied }}` refuses the lift: \
+                     the background contour never renders private data, even locally; the data \
+                     path ends here (redact() in the FOREGROUND contour is the sanctioned \
+                     downward move, №326/ADR-0136) (№349)",
+                    v.arg_index, v.fn_name, v.container,
+                ),
+            });
+            continue;
+        }
         let check_id = sink_check_id(&v.fn_name, v.arg_index, &v.label);
         let severity = if advisory {
             Severity::Info

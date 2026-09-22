@@ -1,0 +1,6 @@
+profile duty { surfaces: local_only }
+pattern DutyMsg(_t: String) -> String {
+  let r = send_message("chat-1", "hello from the background")
+  return type_of(r)
+}
+flow Main { input: String = "x" -> DutyMsg -> output }

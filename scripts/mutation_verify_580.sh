@@ -66,3 +66,14 @@ echo "$RESULT" | grep -q "FAILED" && echo "  M-HAS-FIELD: VERIFIED (the new prop
   echo "  M-HAS-FIELD: NOT VERIFIED"; exit 1; }
 
 echo "── 2/2 VERIFIED ──"
+
+# ── Post-run hygiene (mandatory) ─────────────────────────────────────
+# The shared CARGO_TARGET_DIR now holds artifacts built from MUTATED
+# worktree sources (that is how the shared-target protocol saves disk).
+# A later `cargo test` in the main tree can hit a stale mutant binary
+# (observed 2026-09-22: the property suite "failed" with exactly the
+# M-DICT-SET/M-HAS-FIELD symptoms until `cargo clean -p metalogos`).
+# Clean the package artifacts so the main tree rebuilds from true
+# sources.
+cargo clean -p metalogos
+echo "── post-run: cargo clean -p metalogos done (stale mutant artifacts purged) ──"

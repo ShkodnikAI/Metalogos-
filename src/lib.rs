@@ -53,6 +53,10 @@ pub mod mcp_server;
 pub mod media;
 pub mod memory_graph;
 pub mod memory_store;
+// Наряд №350: the typed Memory<K> layer — label-typed containers over
+// the process-global registry; at-rest AES-GCM under per-subject keys,
+// consent-gated private opens, audited sink reads/exports.
+pub mod memory_typed;
 pub mod nn;
 pub mod parser;
 // Наряд №325 (issue #419, ADR-0161): compatibility profiles —

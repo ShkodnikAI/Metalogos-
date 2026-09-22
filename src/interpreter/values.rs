@@ -128,6 +128,14 @@ pub enum Value {
     /// never occupy a token position (serde dead marker, non-printable,
     /// typed challenge parameter — the P1-7 unforgeability contract).
     Likeness(crate::likeness::TokenHandle),
+    /// Opaque typed-memory container handle (Naryad #350 — the
+    /// Memory<K> layer; K is the Phase-1 confidentiality label carried
+    /// in the projection map). The registry in `src/memory_typed.rs` is
+    /// the state; the map (`id`/`subject`/`label`) is the printable
+    /// projection only (the ADR-0114 opaque pattern, the Session
+    /// precedent). Appended LAST — bincode variant indices of the
+    /// existing variants stay stable (.mbc compat, the №250/№264 rule).
+    Memory(std::collections::HashMap<String, String>),
 }
 
 impl std::fmt::Display for Value {
@@ -188,6 +196,7 @@ impl std::fmt::Display for Value {
             Value::Encrypted(_) => write!(f, "[Encrypted]"),
             Value::Hash(_) => write!(f, "[Hash]"),
             Value::Session(_) => write!(f, "[Session]"),
+            Value::Memory(_) => write!(f, "[Memory]"),
             Value::HttpResponse { status, .. } => write!(f, "[HttpResponse {}]", status),
             Value::Subgraph(snap) => write!(
                 f,
@@ -238,6 +247,7 @@ impl Value {
             Value::Encrypted(_) => "Encrypted",
             Value::Hash(_) => "Hash",
             Value::Session(_) => "Session",
+            Value::Memory(_) => "Memory",
             Value::HttpResponse { .. } => "HttpResponse",
             Value::Subgraph(_) => "Subgraph",
             Value::Reflex(_) => "Reflex",

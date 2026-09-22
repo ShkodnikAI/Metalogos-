@@ -185,8 +185,10 @@ pub use http::{check_url_ssrf, is_blocked_address};
 pub(crate) mod mcp;
 use mcp::*;
 pub(crate) mod memory;
+pub(crate) mod memory_typed;
 pub use memory::init_kv_persist;
 use memory::*;
+use memory_typed::*;
 // Наряд №272 (ADR-0134): векторный контур — embed / vec_store / vec_search.
 // Feature-gate `vec` off-by-default (паттерн candle/vision, ADR-0104);
 // в `portable` включён (ADR-0134 D3).

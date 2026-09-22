@@ -11,7 +11,7 @@ Fast, deterministic (seeds), green in the blocking CI:
 | File | Properties | Numbers |
 |---|---|---|
 | `tests/property_builtin_nopanic.rs` | **No-panic across all pure builtins**: random `Value` arguments (including unicode, deep nesting up to 6 levels, boundary floats) into random functions → either a value or a Result error, NOT a panic. The registry (`BUILTIN_REGISTRY`) is enumerated at runtime — new builtins enter the sweep automatically | **162 pure builtins** covered directly (deterministic sweep + 128 proptest cases); 23 stub entries skipped honestly (a call is a loud error, pinned by other tests); side-effectful categories (bot/web/io/email/llm/db/voice/…) excluded and listed in the test output |
-| `tests/property_json_roundtrip.rs` | `json_encode` of any nested `Value` → valid JSON; canonical stability (parse→encode is stable from the second round on); `json_get` returns exactly the leaves that were put in via the constructed dot-paths; the default on arbitrary paths — no panics | 256 cases × 3 properties |
+| `tests/property_json_roundtrip.rs` | `json_encode` of any nested `Value` → valid JSON; canonical stability (parse→encode is stable from the second round on); `json_get` returns exactly the leaves that were put in via the constructed dot-paths; the default on arbitrary paths — no panics. gh#580 killer extension (2026-09-22): `parse_json ∘ json_encode` full-cycle stability; `has_field` exact 1.0/0.0 answers (including the documented fields-only navigation); `dict_set`/`keys`/`values`/`has` keyed-store consistency + parse-back restore; `parse_json` on arbitrary text — value or loud error, never a panic | 256 cases × 7 properties |
 | `tests/property_string_invariants.rs` | `reverse∘reverse = id` on arbitrary unicode; `len(s) == chars().count()` (documented semantics); `substring/char_at` = per-character slices at all boundaries; `escape_html` without raw angle brackets | 512 cases × 4 properties |
 | `tests/property_tw_vm_parity.rs` | Programs generated from a conservative subset of the grammar (literals, arithmetic, concatenation, let, builtin calls, pattern calls) execute IDENTICALLY in TW and VM. Exceptions — the documented ADR-0105 boundary (`match`, `BlockIfElse`-as-value, memory/learnable/server/IO) | 192 cases × 2 program shapes |
 
@@ -28,7 +28,13 @@ the behavior, not a change.
 
 - Target: `src/builtins/json.rs` — dense escaping/parsing/navigation logic.
 - Killer: `tests/property_json_roundtrip` (the roundtrip properties catch
-  most serialization mutations).
+  most serialization mutations). gh#580 (2026-09-21 smoke failure): the
+  killer covered only `json_encode`/`json_get` — mutants in the file's
+  other five builtins (`parse_json`, `has_field`, `dict_set`, `dict_keys`,
+  `dict_values`, `dict_has`) survived BY CONSTRUCTION. Fixed 2026-09-22
+  by extending the killer to the whole module surface (J5–J8; mutation
+  verification `scripts/mutation_verify_580.sh`, 2/2 VERIFIED per the
+  №382 protocol).
 - Run: weekly (Monday 06:00 UTC) + manual dispatch —
   `.github/workflows/mutants.yml`, NOT merge-blocking, trends only.
 - Artifact: `mutants.out/` + `mut-score.txt` (mut-score = killed / (killed +

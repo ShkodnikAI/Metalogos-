@@ -1,0 +1,30 @@
+// Naryad #430: the duty contract, end to end — the POSITIVE office example.
+//
+// The office agent enters the duty profile (№348 duty_enter — the runtime
+// half; `profile duty` + №349 is the static half), runs the nightly
+// cleanup: the expired rows are deleted through the GRANT path
+// (ADR-0155: grant_issue → db_execute_with_grant — the irreversible
+// action costs a metered grant), every step lands in the Action Ledger,
+// and the session exits duty mode. The duty compile rule (№349) keeps
+// private materialization and network sinks OUT of this contour — the
+// leak negatives n30–n33 are the BLOCKING side of that contract.
+profile duty { materialization: denied }
+db { url: "sqlite::memory:" }
+
+pattern DutyCleanup(_tick: String) -> String {
+  // The session enters duty mode (the background contour).
+  let sess = session_login("duty-cleaner", "pw-not-checked-by-design")
+  let _ = session_duty_enter(sess)
+  // The nightly maintenance: expired sessions table.
+  db_execute("CREATE TABLE IF NOT EXISTS expired (id INTEGER PRIMARY KEY, user TEXT)")
+  db_execute("INSERT INTO expired (user) VALUES ('stale-a')")
+  db_execute("INSERT INTO expired (user) VALUES ('stale-b')")
+  db_execute("INSERT INTO expired (user) VALUES ('stale-c')")
+  // The irreversible delete costs a Once grant — the ADR-0155 algebra.
+  let g = grant_issue("db:delete:expired", 60, "once")
+  let deleted = db_execute_with_grant(g, "DELETE FROM expired")
+  // Leave duty mode; the ledger carries the whole trail.
+  let _ = session_duty_exit(sess)
+  return "duty:1|deleted:" + deleted
+}
+flow Main { input: String = "tick" -> DutyCleanup -> output }

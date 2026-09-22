@@ -437,6 +437,14 @@ pub const CODE_CRON_JOB_FAILED: &str = "CRON_JOB_FAILED";
 /// / `audio.listen` — recorded through the №335 consent contour). The
 /// subsystem = the duplex surface (`src/duplex.rs`, `src/builtins/duplex.rs`).
 pub const CODE_AUDIO_CONSENT_REQUIRED: &str = "AUDIO_CONSENT_REQUIRED";
+/// Unknown/ended session on a session-surface call (№348; origin-stamped
+/// by naryad №430): `session_get`/`duty_enter`/... on an id that is not
+/// live. The subsystem = the session registry (`src/session.rs`).
+pub const CODE_SESSION_UNKNOWN: &str = "SESSION_UNKNOWN";
+/// A session-contract refusal (naryad №430): the closed-vocabulary
+/// violations — an unknown wake source or an unknown interrupt priority
+/// (the ADR-0172 §4.1/§4.2 ladders). The subsystem = the session surface.
+pub const CODE_SESSION_CONTRACT: &str = "SESSION_CONTRACT";
 /// The MCP server process failed to spawn (existing origin marker
 /// `src/builtins/mcp.rs`, now whitelisted for `try`; naryad №413).
 pub const CODE_MCP_SPAWN_FAILED: &str = "MCP_SPAWN_FAILED";
@@ -477,6 +485,10 @@ const ORIGIN_STAMPED_CODES: &[&str] = &[
     // №428: the audio consent gate — speak/listen without an active
     // consent grant are refused fail-closed and typed for `try`.
     CODE_AUDIO_CONSENT_REQUIRED,
+    // №430: the session surface — unknown sessions and the closed-
+    // vocabulary contract violations (wake sources, interrupt priorities).
+    CODE_SESSION_UNKNOWN,
+    CODE_SESSION_CONTRACT,
     CODE_MCP_SPAWN_FAILED,
     CODE_MCP_TIMEOUT,
     CODE_MCP_IO_ERROR,

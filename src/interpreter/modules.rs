@@ -309,6 +309,11 @@ impl Interpreter {
                     self.init_db_connection(&db);
                 }
                 Declaration::Schema(schema) => {
+                    // №426 (ADR-0175 §3.4): store FIRST (the replay
+                    // discipline — every later connection re-applies),
+                    // then apply immediately (the historical contract:
+                    // schema-without-db is a loud error on a direct run).
+                    self.store_schema(&schema);
                     self.apply_schema(&schema)?;
                 }
                 Declaration::SkillIndex(idx) => {

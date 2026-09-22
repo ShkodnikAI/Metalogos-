@@ -57,6 +57,42 @@ impl Interpreter {
     }
 
     /// Problem C: Apply schema declaration — CREATE TABLE IF NOT EXISTS for each table.
+    /// №426 (ADR-0175 §3.4): store a schema-as-code declaration for
+    /// later replay (order-independent DDL — a `schema {}` decl may
+    /// precede the `db {}` block or land on a conn-less context).
+    pub(super) fn store_schema(&mut self, schema: &SchemaDecl) {
+        if !self.schemas.iter().any(|sk| sk.name == schema.name) {
+            self.schemas.push(schema.clone());
+        }
+    }
+
+    /// №426 (ADR-0175 §3.4): replay EVERY stored schema against the
+    /// live connection — additive-only, idempotent (CREATE TABLE IF NOT
+    /// EXISTS, the ADR-0060 discipline). Failures are LOUD on stderr
+    /// and never abort the context (the same best-effort posture as the
+    /// ledger side effects). Called whenever a fresh connection becomes
+    /// available (init_db_connection / reconnect_db) and once after the
+    /// serve startup merge (build_state) — so routes AND cron ticks see
+    /// the same schema as the program itself.
+    pub fn replay_schemas(&self) {
+        let has_conn = self
+            .db_conn
+            .lock()
+            .map(|guard| guard.is_some())
+            .unwrap_or(false);
+        if !has_conn || self.schemas.is_empty() {
+            return;
+        }
+        for schema in &self.schemas {
+            if let Err(e) = self.apply_schema(schema) {
+                eprintln!(
+                    "[db] schema replay '{}' failed (loud, best-effort): {}",
+                    schema.name, e
+                );
+            }
+        }
+    }
+
     pub(super) fn apply_schema(&self, schema: &SchemaDecl) -> Result<(), String> {
         let guard = self
             .db_conn
@@ -151,7 +187,12 @@ impl Interpreter {
                 *guard = Some(c);
                 // Store resolved URL for per-request interpreter reconnection
                 self.db_url = Some(url.clone());
+                drop(guard); // the replay re-locks — release first (no self-deadlock)
                 eprintln!("[db] Connected: {}", url);
+                // №426 (ADR-0175 §3.4): the connection is live — the
+                // stored schema DDL replays NOW (order-independent:
+                // schema-before-db and fresh files both work).
+                self.replay_schemas();
             }
             Err(e) => {
                 eprintln!("[db] Failed to connect to '{}': {}", url, e);
@@ -535,6 +576,12 @@ impl Interpreter {
                         // Only set if no connection yet (in-memory may have set it)
                         if guard.is_none() {
                             *guard = Some(c);
+                            // №426 (ADR-0175 §3.4): a fresh file connection
+                            // replays the program's schema DDL (additive,
+                            // idempotent) — the route/tick context is
+                            // schema-ready without any startup handshake.
+                            drop(guard);
+                            self.replay_schemas();
                         }
                     }
                     Err(e) => {

@@ -1,23 +1,24 @@
 // ── Naryad №423 (issue #583) — Fosved-class serve-soak seed ──────────
 // A minimal but HONEST production-like workload for the nightly
 // serve-soak (audit 2026-09-21 P0-2): the native cron (0.21.0) fires a
-// real minute-window tick; the tick forwards to the /grantop route via
-// an HTTP self-call, where the grant path (№390/№412) executes a scoped,
-// metered, destructive-UNDER-GRANT op and exports the signed Action
-// Ledger (№393/№415) for external CLI verification.
+// real minute-window tick; the tick executes the granted destructive op
+// DIRECTLY in its own context (№426/ADR-0175: the tick is a full
+// program context — db{} bound, the schema DDL replayed, patterns
+// available) and exports the signed Action Ledger (№393/№415) for
+// external CLI verification.
 //
-// WHY the tick only exports the ledger (documented honestly, findings
-// observed on 0.21.0 during this seed's live bring-up and filed on
-// issue #583): (1) the cron-dispatch context does NOT bind the
-// program's db block — the route context gets the db, the tick context
-// reports "no database connection"; (2) an http_post self-call from
-// inside a tick fails at the transport level (a blocking outbound call
-// from the scheduler tick). So the tick keeps its REAL scheduler
-// semantics (windows, dedup, catch-up, payload) and exports the
-// process-global signed ledger; the granted destructive op lives on the
-// /grantop route, which the soak probe exercises repeatedly. Both
-// surfaces are real platform behavior — the seed works WITH the
-// platform as it ships.
+// HISTORY (the №423 bring-up findings, filed on issue #583 and FIXED by
+// naryad №426/ADR-0175 — the workarounds are GONE): (1) the
+// cron-dispatch context did NOT bind the program's db block; (2) an
+// http_post self-call from inside a tick failed at the transport level
+// — the transport fix is pinned by tests/naryad_426_cron_context.rs
+// (test_tick_self_call); the seed keeps the tick self-contained because
+// the loopback SSRF policy (№130) is a separate, DELIBERATE gate and
+// stays ON; (3) sqlite::memory: was per-context isolated — now UNIFIED
+// (the startup connection is Arc-shared; this seed runs memory: to
+// prove it nightly); (4) the schema DDL did not reach the contexts —
+// now replayed on every connection (the ticks below use the
+// schema-declared table with NO manual CREATE).
 //
 // Category A discipline (the №395 dogfood lesson, gh#489): every
 // irreversible op sits under a grant — bare destructive SQL refuses the
@@ -32,11 +33,11 @@
 //   GET /grantop  — the granted destructive op + the ledger export
 //   GET /status   — the read-only probe: the ledger_verify verdict
 
-db { url: "sqlite:data/soak.db" }
+db { url: "sqlite::memory:" }
 
 schema soak {
   table ticks {
-    id: Int primary_key
+    id: Int primary_key auto_increment
   }
 }
 
@@ -54,6 +55,12 @@ pattern SoakInit(_x: String) -> String {
 
 pattern SoakTick(payload: String) -> String {
   print("SOAK_TICK handler reached, payload=" + payload)
+  // The №426 proof in the nightly: the tick binds db{} (the route's
+  // stor-set), sees the schema-declared table and executes the granted
+  // destructive op IN the tick context.
+  let g = grant_issue("db:delete:ticks", 60, "n", 1000)
+  let n = db_execute_with_grant(g, "DELETE FROM ticks WHERE 1 = 0")
+  print("SOAK_TICK db op done: " + type_of(n))
   let path = ledger_export("data/ledger/soak_latest.jsonl")
   print("SOAK_TICK done: ledger=" + type_of(path))
   return "tick-ok"

@@ -212,7 +212,10 @@ fn property_has_field_exact_answers() {
         let root = Value::Struct {
             type_name: "Dict".to_string(),
             fields: HashMap::from([
-                (key.clone(), Value::List(vec![Value::Float(0.0), extra.clone()])),
+                (
+                    key.clone(),
+                    Value::List(vec![Value::Float(0.0), extra.clone()]),
+                ),
                 ("data".to_string(), v.clone()),
             ]),
         };
@@ -267,22 +270,53 @@ fn property_dict_store_consistency() {
             builtin(name)(&args).unwrap_or_else(|e| panic!("{} must be Ok: {}", name, e))
         };
         // set k1→v1, k2→v2; overwrite k1→v2.
-        let d1 = call("dict_set", vec![empty, Value::String(k1.clone()), v1.clone()]);
-        let d2 = call("dict_set", vec![d1.clone(), Value::String(k2.clone()), v2.clone()]);
+        let d1 = call(
+            "dict_set",
+            vec![empty, Value::String(k1.clone()), v1.clone()],
+        );
+        let d2 = call(
+            "dict_set",
+            vec![d1.clone(), Value::String(k2.clone()), v2.clone()],
+        );
         let d3 = call("dict_set", vec![d2, Value::String(k1.clone()), v2.clone()]);
         // has: both keys present; an unset key absent.
-        prop_assert_eq!(format!("{:?}", call("dict_has", vec![d3.clone(), Value::String(k1.clone())])), "Bool(true)");
-        prop_assert_eq!(format!("{:?}", call("dict_has", vec![d3.clone(), Value::String(k2.clone())])), "Bool(true)");
+        prop_assert_eq!(
+            format!(
+                "{:?}",
+                call("dict_has", vec![d3.clone(), Value::String(k1.clone())])
+            ),
+            "Bool(true)"
+        );
+        prop_assert_eq!(
+            format!(
+                "{:?}",
+                call("dict_has", vec![d3.clone(), Value::String(k2.clone())])
+            ),
+            "Bool(true)"
+        );
         if k1 != k2 {
-            prop_assert_eq!(format!("{:?}", call("dict_has", vec![d3.clone(), Value::String("unset_key".to_string())])), "Bool(false)");
+            prop_assert_eq!(
+                format!(
+                    "{:?}",
+                    call(
+                        "dict_has",
+                        vec![d3.clone(), Value::String("unset_key".to_string())]
+                    )
+                ),
+                "Bool(false)"
+            );
             // keys: exactly the two set keys (overwriting does not grow).
             let keys = call("dict_keys", vec![d3.clone()]);
-            let Value::List(ks) = keys else { panic!("dict_keys must return List") };
+            let Value::List(ks) = keys else {
+                panic!("dict_keys must return List")
+            };
             prop_assert_eq!(ks.len(), 2, "dict_keys must observe exactly the set keys");
             // values: the overwritten k1 value is v2, not v1 (replacement)
             // — observable only when v1 and v2 actually differ.
             let values = call("dict_values", vec![d3]);
-            let Value::List(vs) = values else { panic!("dict_values must return List") };
+            let Value::List(vs) = values else {
+                panic!("dict_values must return List")
+            };
             prop_assert_eq!(vs.len(), 2);
             if format!("{:?}", v1) != format!("{:?}", v2) {
                 prop_assert!(
@@ -313,7 +347,10 @@ fn property_dict_store_consistency() {
             "J7: dict stability from the second encode round on"
         );
         // Non-dict input to dict_set/dict_has → loud error, no panic.
-        assert!(builtin("dict_set")(&[Value::Float(1.0), Value::String("k".into()), v1.clone()]).is_err());
+        assert!(
+            builtin("dict_set")(&[Value::Float(1.0), Value::String("k".into()), v1.clone()])
+                .is_err()
+        );
         assert!(builtin("dict_has")(&[Value::Float(1.0), Value::String("k".into())]).is_err());
         Ok(())
     });
@@ -330,7 +367,11 @@ fn property_parse_json_never_panics_on_arbitrary_text() {
         match builtin("parse_json")(std::slice::from_ref(&Value::String(text.clone()))) {
             Ok(_) => {} // valid JSON input — a value
             Err(e) => {
-                prop_assert!(e.contains("parse_json()"), "error must name the builtin: {}", e);
+                prop_assert!(
+                    e.contains("parse_json()"),
+                    "error must name the builtin: {}",
+                    e
+                );
             }
         }
         // Known-shape sanity: a valid object round-trips its leaf.

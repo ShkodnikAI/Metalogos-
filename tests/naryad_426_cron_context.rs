@@ -141,7 +141,9 @@ fn memory_db_is_unified_across_tick_contexts() {
         other => panic!("the memory insert failed: {other:?}"),
     }
     match &results[1] {
-        Ok(Value::String(v)) => assert_eq!(v, "rows:1", "the memory DB is shared, not per-context: {v}"),
+        Ok(Value::String(v)) => {
+            assert_eq!(v, "rows:1", "the memory DB is shared, not per-context: {v}")
+        }
         other => panic!("the memory read failed: {other:?}"),
     }
 }

@@ -2233,12 +2233,10 @@ pub async fn test_tick_sequence(
         Ok(d) => d,
         Err(e) => return vec![Err(format!("parse error: {}", e))],
     };
-    let server_config = match declarations
-        .iter()
-        .find_map(|d| match d {
-            Declaration::MlogServer(srv) => Some(srv.clone()),
-            _ => None,
-        }) {
+    let server_config = match declarations.iter().find_map(|d| match d {
+        Declaration::MlogServer(srv) => Some(srv.clone()),
+        _ => None,
+    }) {
         Some(c) => c,
         None => return vec![Err("no mlogserver block".to_string())],
     };

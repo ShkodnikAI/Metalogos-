@@ -200,25 +200,11 @@ pub(crate) fn builtin_authenticate(args: &[Value]) -> Result<Value, String> {
     Ok(Value::Unit)
 }
 
-pub(crate) fn builtin_session_login(args: &[Value]) -> Result<Value, String> {
-    let _user_id = expect_string_arg("session_login", args, 0)?;
-    // In interpreter mode, return empty session
-    Ok(Value::Session(std::collections::HashMap::new()))
-}
-
-pub(crate) fn builtin_session_logout(args: &[Value]) -> Result<Value, String> {
-    let _session = match args.first() {
-        Some(Value::Session(_)) => true,
-        Some(other) => {
-            return Err(format!(
-                "session_logout() expected Session, got {}",
-                other.type_name()
-            ))
-        }
-        None => return Err("session_logout() requires 1 argument".to_string()),
-    };
-    Ok(Value::Unit)
-}
+// ── Naryad №348: the session mock handlers (builtin_session_login /
+// builtin_session_logout) MOVED to src/builtins/session.rs — the real
+// session surface over the process-global registry (src/session.rs,
+// ADR-0172). `authenticate` stays a mock here: a server user-store is a
+// separate pillar slice, not part of №348.
 
 // ── Наряд №50 Block 3: SHA-256 / HMAC-SHA-256 / hex builtins ──
 

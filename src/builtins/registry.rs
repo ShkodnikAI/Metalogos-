@@ -233,11 +233,21 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("decrypt", 2, "crypto"; builtin_decrypt),
     spec!("generate_key", 0, "crypto"; builtin_generate_key),
     spec!("base64_encode", 1, "encoding"; builtin_base64_encode),
-    spec!("base64_decode", 1, "encoding"; builtin_base64_decode), // ── Auth stubs (interpreter-mode mocks; real auth requires server mode; builtin_base64_decode) ──
+    spec!("base64_decode", 1, "encoding"; builtin_base64_decode),
+    // ── Auth stubs (interpreter-mode mocks; real auth requires server mode; builtin_base64_decode) ──
     // authenticate: always returns Unit — mock; no user database in interpreter
-    spec!("authenticate", 2, "stub"; builtin_authenticate), // session_login: returns empty Session HashMap — mock; no auth backend in interpreter
-    spec!("session_login", 2, "stub"; builtin_session_login), // session_logout: no-op — mock; no sessions to invalidate in interpreter
-    spec!("session_logout", 1, "stub"; builtin_session_logout),
+    spec!("authenticate", 2, "stub"; builtin_authenticate),
+    // ── Session (№348, ADR-0172): real session surface over the process-global
+    // registry (src/session.rs) — the pre-№348 mock handlers lived above in
+    // crypto.rs. Every transition is an Action-Ledger record (ADR-0167 §3.4).
+    spec!("session_login", 2, "session"; builtin_session_login),
+    spec!("session_logout", 1, "session"; builtin_session_logout),
+    spec!("session_duty_enter", 1, "session"; builtin_session_duty_enter),
+    spec!("session_duty_exit", 1, "session"; builtin_session_duty_exit),
+    spec!("session_wake", 2, 3, "session"; builtin_session_wake),
+    spec!("session_poll_wake", 1, "session"; builtin_session_poll_wake),
+    spec!("session_interrupt", 2, 3, "session"; builtin_session_interrupt),
+    spec!("session_take_interrupt", 1, "session"; builtin_session_take_interrupt),
     spec!("session_clear", 0, "memory"; builtin_session_clear), // ── Bot — Telegram messaging ──
     spec!("send_message", 2, 3, "bot"; builtin_send_message),   // chat_id,text | +reply_markup
     spec!("answer_callback_query", 1, 3, "bot"; builtin_answer_callback_query), // id | id,text | id,text,show_alert

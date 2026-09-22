@@ -115,10 +115,7 @@ pub struct BuiltClassEntry {
 /// Classification lookup — linear scan over a small static array; the map
 /// is compile-time data, uniqueness is test-enforced.
 pub fn classify(name: &str) -> Option<&'static BuiltClass> {
-    BUILTIN_CLASSES
-        .iter()
-        .find(|e| e.name == name)
-        .map(|e| &e.class)
+    BUILTIN_CLASSES.iter().find(|e| e.name == name).map(|e| &e.class)
 }
 
 /// SSOT map: имя → BuiltClass for EVERY registered builtin (№316).
@@ -257,8 +254,14 @@ pub static BUILTIN_CLASSES: &[BuiltClassEntry] = &[
     BuiltClassEntry { name: "base64_encode", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     BuiltClassEntry { name: "base64_decode", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     BuiltClassEntry { name: "authenticate", class: BuiltClass { role: Role::Pure, default_label: Label::Secret, reversibility: Reversibility::Pure, rationale: "" } },
-    BuiltClassEntry { name: "session_login", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "creates a session (registry-only stub intent)" } },
-    BuiltClassEntry { name: "session_logout", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "destroys the current session (stub intent)" } },
+    BuiltClassEntry { name: "session_login", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "creates a session in the process-global registry and records session.create in the Action Ledger (№348, ADR-0172; credentials are NOT verified — no server user-store, loud boundary)" } },
+    BuiltClassEntry { name: "session_logout", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "ends the session — removes it from the registry and records session.end (SESSION_UNKNOWN on unknown/ended; №348)" } },
+    BuiltClassEntry { name: "session_duty_enter", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "switches the session into duty (background) mode — runtime half of the duty-profile carrier, records session.duty_enter (№348/ADR-0172; the static enforcement is №349)" } },
+    BuiltClassEntry { name: "session_duty_exit", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "leaves duty (background) mode, records session.duty_exit (№348/ADR-0172)" } },
+    BuiltClassEntry { name: "session_wake", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "enqueues a wake event with a closed source vocabulary (keyword|event|schedule — schedule strictly via the №418 cron payload-dispatch), records session.wake (№348)" } },
+    BuiltClassEntry { name: "session_poll_wake", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "dequeues the oldest wake (FIFO) — reads the session's own queue, records session.wake_delivered; Unit when empty (№348)" } },
+    BuiltClassEntry { name: "session_interrupt", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "enqueues a typed-priority interrupt (low|normal|high|critical), records session.interrupt (№348/ADR-0172 §4.2)" } },
+    BuiltClassEntry { name: "session_take_interrupt", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "takes the highest-priority pending interrupt (FIFO within) — the №352 preemption lever; every take is ledger-recorded so preemption loses no audit (№348)" } },
     BuiltClassEntry { name: "session_clear", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Irreversible, rationale: "wipes session state — no undo" } },
     BuiltClassEntry { name: "send_message", class: BuiltClass { role: Role::Sink, default_label: Label::Network, reversibility: Reversibility::Irreversible, rationale: "delivers a message to an external chat — cannot be unsent (issue minimum list)" } },
     BuiltClassEntry { name: "answer_callback_query", class: BuiltClass { role: Role::Sink, default_label: Label::Network, reversibility: Reversibility::Irreversible, rationale: "answers an external callback query" } },
@@ -645,11 +648,7 @@ mod tests {
             .map(|e| e.name)
             .filter(|n| !registry.contains(*n))
             .collect();
-        assert!(
-            extras.is_empty(),
-            "classified names not in registry: {:?}",
-            extras
-        );
+        assert!(extras.is_empty(), "classified names not in registry: {:?}", extras);
     }
 
     /// №316 «Сделано, когда» (а): rationale on every non-Pure entry.
@@ -679,12 +678,7 @@ mod tests {
     #[test]
     fn issue_minimum_classes() {
         let expect_sink = [
-            "http_post",
-            "write_file",
-            "send_message",
-            "print",
-            "db_execute",
-            "tts_send",
+            "http_post", "write_file", "send_message", "print", "db_execute", "tts_send",
         ];
         for n in expect_sink {
             let c = classify(n).unwrap_or_else(|| panic!("{}", n));
@@ -700,11 +694,7 @@ mod tests {
             assert_eq!(c.reversibility, Reversibility::Irreversible, "{}", n);
         }
         let redact = classify("redact").unwrap();
-        assert_eq!(
-            redact.role,
-            Role::Lift,
-            "redact — taint-sanitizer lift (ADR-0136)"
-        );
+        assert_eq!(redact.role, Role::Lift, "redact — taint-sanitizer lift (ADR-0136)");
     }
 
     /// №316: Sink/Source/Lift/Pure distribution is sane (sanity counts,
@@ -731,13 +721,11 @@ mod tests {
             (Some(b), Some(e)) if b < e => (&reference[b..e], true),
             _ => ("", false),
         };
-        assert!(
-            found,
-            "REFERENCE.md must contain the classification block markers"
-        );
+        assert!(found, "REFERENCE.md must contain the classification block markers");
 
-        let mut expected =
-            String::from("| Builtin | Role | Default label | Reversibility |\n|---|---|---|---|\n");
+        let mut expected = String::from(
+            "| Builtin | Role | Default label | Reversibility |\n|---|---|---|---|\n",
+        );
         for e in BUILTIN_CLASSES {
             let role = e.class.role.as_str();
             let label = e.class.default_label.as_str();

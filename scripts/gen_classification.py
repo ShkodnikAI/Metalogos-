@@ -424,8 +424,14 @@ OVERRIDES = {
     "session_set": ("Sink", "Internal", "Reversible", "persists web session state"),
     "session_get": ("Source", "Internal", "Pure", "reads web session state"),
     "session_clear": ("Sink", "Internal", "Irreversible", "wipes session state — no undo"),
-    "session_login": ("Sink", "Internal", "Reversible", "creates a session (registry-only stub intent)"),
-    "session_logout": ("Sink", "Internal", "Reversible", "destroys the current session (stub intent)"),
+    "session_login": ("Sink", "Internal", "Reversible", "creates a session in the process-global registry and records session.create in the Action Ledger (№348, ADR-0172; credentials are NOT verified — no server user-store, loud boundary)"),
+    "session_logout": ("Sink", "Internal", "Reversible", "ends the session — removes it from the registry and records session.end (SESSION_UNKNOWN on unknown/ended; №348)"),
+    "session_duty_enter": ("Sink", "Internal", "Reversible", "switches the session into duty (background) mode — runtime half of the duty-profile carrier, records session.duty_enter (№348/ADR-0172; the static enforcement is №349)"),
+    "session_duty_exit": ("Sink", "Internal", "Reversible", "leaves duty (background) mode, records session.duty_exit (№348/ADR-0172)"),
+    "session_wake": ("Sink", "Internal", "Reversible", "enqueues a wake event with a closed source vocabulary (keyword|event|schedule — schedule strictly via the №418 cron payload-dispatch), records session.wake (№348)"),
+    "session_poll_wake": ("Source", "Internal", "Pure", "dequeues the oldest wake (FIFO) — reads the session's own queue, records session.wake_delivered; Unit when empty (№348)"),
+    "session_interrupt": ("Sink", "Internal", "Reversible", "enqueues a typed-priority interrupt (low|normal|high|critical), records session.interrupt (№348/ADR-0172 §4.2)"),
+    "session_take_interrupt": ("Source", "Internal", "Pure", "takes the highest-priority pending interrupt (FIFO within) — the №352 preemption lever; every take is ledger-recorded so preemption loses no audit (№348)"),
     "authenticate": ("Pure", "Secret", "Pure", "credential verification — handles secrets locally, no egress (stub intent)"),
     "vec_store": ("Sink", "Internal", "Reversible", "persists embeddings into the vector store (ADR-0134)"),
     "vec_search": ("Source", "Internal", "Pure", "reads the vector store (KNN state input)"),
@@ -657,8 +663,11 @@ RISKY_CATEGORIES = {
     "io", "web", "db", "system", "email", "calendar", "contacts", "crypto",
     "llm", "voice", "vision", "video", "vault", "recipe", "cron", "mtree",
     "security", "memory", "bot", "reflex", "orchestration", "graph",
-    "fluid", "stub", "test", "media", "registry",
+    "fluid", "stub", "test", "media", "registry", "session",
 }
+# №348: "session" joins the risky set — the session surface mutates the
+# process-global registry and appends to the Action Ledger; every row
+# carries a manual classification (ADR-0172).
 # №337: "media" and "registry" join the risky set — their manual rows
 # (№331/№333–№337) carry real rationales the Pure default would destroy
 # on regeneration (found and prevented during №336/№337).

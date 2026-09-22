@@ -193,7 +193,7 @@ real ADRs (№309/№320/№412) before the booking.
 | 0156 | TW/VM/JIT label parity — LabelJoin/SinkCheck in the bytecode | Accepted |
 | 0157 | Ledger profile — PROV/in-toto alignment | Accepted (fills the reserved booking of 2026-09-14) |
 | 0158 | Declassify boundaries | reserved |
-| 0159 | Sim-first verification — STL semantics | reserved |
+| 0159 | Sim-first verification — STL semantics | Accepted (№354) |
 | 0160 | Identifier naming convention | reserved |
 | 0161 | Legacy compatibility profile (`profile legacy`) | Accepted |
 | 0162 | Unified media handles and the media store (lazy materialization, refcount, at-rest sealing) | Accepted |

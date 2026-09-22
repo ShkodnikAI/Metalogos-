@@ -1045,7 +1045,25 @@ impl Interpreter {
         env: &mut HashMap<String, Value>,
     ) -> Result<Value, String> {
         let mut mutable_vars: std::collections::HashSet<String> = std::collections::HashSet::new();
-        match self.eval_statements_cf(stmts, env, &mut mutable_vars)? {
+        self.eval_statements_with_mutability(stmts, env, &mut mutable_vars)
+    }
+
+    /// Issue #600: statement evaluation with an EXTERNAL mutability set.
+    /// The route executor (`server.rs execute_route_body`) handles
+    /// top-level route statements manually and must thread ONE
+    /// `mutable_vars` set through the whole body — a fresh set per nested
+    /// block made `x = ...` inside an if/each branch fail with
+    /// "cannot assign to immutable variable" (the VM compiles the same
+    /// program fine: the compiler tracks mutability per №264, branch
+    /// assigns compile to `StoreAssignLocal { mutable: true }`). Same
+    /// control-flow mapping as [`Self::eval_statements`].
+    pub(crate) fn eval_statements_with_mutability(
+        &self,
+        stmts: &[Statement],
+        env: &mut HashMap<String, Value>,
+        mutable_vars: &mut std::collections::HashSet<String>,
+    ) -> Result<Value, String> {
+        match self.eval_statements_cf(stmts, env, mutable_vars)? {
             ControlFlow::ContinueNormal(v) => Ok(v),
             ControlFlow::Return(v) => Ok(v),
             ControlFlow::Break | ControlFlow::ContinueLoop => {

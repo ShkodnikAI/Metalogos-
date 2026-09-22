@@ -633,7 +633,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 478 registered builtins (478 of 478): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 484 registered builtins (484 of 484): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -2028,7 +2028,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 478 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 484 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2685,12 +2685,18 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `vision_save(...)` | 2 | `(Vision, String) -> String` | **SQLite persistence of an artifact** (#242, R6.1). Writes the artifact (a PNG as a BLOB plus a JSON provenance manifest) to the program's database (the `db { url: "sqlite:..." }` declaration) — the `vision_artifacts` table, whose persistent key is `name` (the registry id is a session-scoped handle and is not persisted). Loud refusals: no database (with a hint at the declaration), an empty name, a name collision (a silent overwrite would be a silent loss of the provenance chain; upsert/delete are out of scope for #242), an unknown handle. A verbatim round trip: the `timestamp` and the manifest's fields are not regenerated. |
 | `vision_understand(...)` | 1..3 | — | `vision_understand(image, prompt?, model?)` — the vision-understanding backend call (№334). `image` is the image payload reference (String); `prompt` is the question about the image; `model` defaults to the registry canon `molmoact2` (weights: molmoact2, allenai/MolmoAct2). |
 
-### `voice` — 11 builtin(s)
+### `voice` — 17 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
 | `audio_export(...)` | 1 | — | `audio_export(handle)` stub — ADR-0145. |
+| `duplex_open(...)` | 1..2 | — | `duplex_open(session, priority?) -> Duplex` |
+| `duplex_state(...)` | 1 | — | `duplex_state(duplex) -> Struct` |
+| `listen_start(...)` | 1..2 | — | `listen_start(duplex, priority?) -> Struct` |
+| `listen_stop(...)` | 1 | — | `listen_stop(duplex) -> Struct` |
 | `omni_ask(...)` | 1..3 | — | `omni_ask(prompt, media?, model?)` — the omni-class backend call (№334): a prompt with an OPTIONAL media payload reference (String). Defaults to the registry canon `nemotron-omni`. |
+| `speak_start(...)` | 2..3 | — | `speak_start(duplex, text, priority?) -> Struct` |
+| `speak_stop(...)` | 1 | — | `speak_stop(duplex) -> Struct` |
 | `stt_transcribe(...)` | 1..2 | — | `stt_transcribe(audio, model?)` — the STT-class backend call (№334). `audio` is the audio payload reference (String); `model` defaults to the registry canon `whisper-turbo` (weights: whisper-large-v3-turbo). |
 | `tts_generate(...)` | 2..4 | `String, String[, String][, String] -> String` | Speech synthesis WITHOUT delivery (Naryad #279): writes the audio file into the file sandbox (write_file semantics, Naryad #252) and returns the sandbox-relative path — feed it to `read_file`/`send_document` yourself. Providers v1: `"openai"` (default); `model`: `tts-1` (default) / `tts-1-hd` / `gpt-4o-mini-tts`. Key: `METALOGOS_TTS_API_KEY` (falls back to `OPENAI_API_KEY`); `METALOGOS_TTS_BASE_URL` overrides `https://api.openai.com/v1` (mock servers / self-host proxies) — `/audio/speech` is appended. Output format: provider default (MP3) |
 | `tts_send(...)` | 4..5 | `String, String, String, String[, String] -> String` | Delivery convenience: synthesizes speech (delegates to the same exchange as `tts_generate` — `tts-1`, base-URL/key overrides behave identically) and sends the audio to a Telegram chat (`sendVoice`; optional 5th arg `"audio"` switches to `sendAudio`). Key: `METALOGOS_TTS_API_KEY` (falls back to `OPENAI_API_KEY`). For synthesis without delivery use `tts_generate` |
@@ -2916,6 +2922,12 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `memory_release` | sink | internal | reversible | unpins the descendant closure of the key — the surgical idempotent inverse of memory_retain; records memory.release (№351/ADR-0173 §3.3) |
 | `memory_retained` | source | internal | pure | lists the pinned keys of the container (sorted introspection; audited) (№351) |
 | `memory_forget_cascade` | sink | internal | irreversible | THE GRANT-GATED CASCADE FORGET (ADR-0173 §3.4): the ADR-0155 linear action — GRANT_MISSING without a grant, scope memory:forget:<container_id>, grant_use consumption, the post-success irreversible.memory_forget ledger record; delete-class per №316; the delete set is the FULL descendant closure (provenance integrity by construction) and any retained node inside it vetoes the whole forget (MEMORY_RETAIN_PROTECTED) |
+| `duplex_open` | source | internal | reversible | opens a duplex channel bound to ONE live session (№348 — SESSION_UNKNOWN otherwise, fail-closed); the priority word is the SESSION ladder (low|normal|high|critical, default normal); the ingress of the barge-in surface; records duplex.open (№352/ADR-0174 §3.3) |
+| `speak_start` | sink | internal | reversible | starts the SPEAK directed flow — the barge-in engine: same-direction busy refuses (DUPLEX_BUSY), an opposite stream of rank <= incoming is PREEMPTED typed (InterruptedBy; equal wins), a higher-rank opposite refuses (DUPLEX_PREEMPT_DENIED); the text never enters the ledger (digest only); records duplex.speak_start/preempt/interrupted (№352) |
+| `listen_start` | source | internal | reversible | starts the LISTEN directed flow — the symmetric barge-in engine (same-direction DUPLEX_BUSY, opposite preempt typed when rank >= active, DUPLEX_PREEMPT_DENIED otherwise); records duplex.listen_start/preempt/interrupted (№352) |
+| `speak_stop` | sink | internal | reversible | ends the active speak stream — outcome Completed; an idle direction refuses loudly (DUPLEX_IDLE, fail-closed); records duplex.stop (№352) |
+| `listen_stop` | sink | internal | reversible | ends the active listen stream — outcome Completed; an idle direction refuses loudly (DUPLEX_IDLE, fail-closed); records duplex.stop (№352) |
+| `duplex_state` | source | internal | pure | reads the channel projection — both stream outcomes (metadata only, no content ever; audited introspection) (№352) |
 | `forget` | sink | internal | irreversible | intended destructive memory removal |
 | `find` | source | internal | pure | intended memory search — state read |
 | `inspect` | source | internal | pure | intended runtime introspection — state read |
@@ -3215,6 +3227,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `ledger_verify` | source | internal | pure | reads an exported JSONL chain from a sandboxed path and returns the structural verification verdict (№415) — ingress of the signed trail for verification; the runtime ledger is never written and nothing egresses |
 
 <!-- END GENERATED BUILTIN CLASSIFICATION -->
+
 
 
 

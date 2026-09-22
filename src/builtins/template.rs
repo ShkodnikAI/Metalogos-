@@ -395,6 +395,9 @@ fn value_to_string(v: &Value) -> String {
             let parts: Vec<String> = items.iter().map(value_to_string).collect();
             parts.join(", ")
         }
+        // №352: the duplex handle renders as the bare opaque tag
+        // (the Display posture — channel state never enters output).
+        Value::Duplex(_) => "[Duplex]".to_string(),
         Value::Struct { type_name, fields } => {
             let pairs: Vec<String> = fields
                 .iter()

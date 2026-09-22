@@ -2014,6 +2014,23 @@ fn check_backend_expr(expr: &Expr, production: bool, out: &mut Vec<LadderViolati
 /// writes, delivery). `Pure`/`Lift` call sites carry no effect.
 fn builtin_effects(name: &str) -> EffectSet {
     let mut set = EffectSet::new();
+    // ── №352 (ADR-0174 §3.1): the directed audio effects ride the same
+    //    trail gate — the direction table is the SSOT (beside the №332
+    //    media-producing table). A call in an undeclared direction is a
+    //    compile error (factual ⊑ declared).
+    match audio_direction(name) {
+        AudioDirection::Listen => {
+            set.insert(Effect::Listen);
+        }
+        AudioDirection::Speak => {
+            set.insert(Effect::Speak);
+        }
+        AudioDirection::Both => {
+            set.insert(Effect::Listen);
+            set.insert(Effect::Speak);
+        }
+        AudioDirection::None => {}
+    }
     if let Some(class) = classify(name) {
         match class.role {
             Role::Source => {
@@ -2029,6 +2046,35 @@ fn builtin_effects(name: &str) -> EffectSet {
         }
     }
     set
+}
+
+// ── №352 (ADR-0174 §3.1): the directed-audio SSOT table ─────────────
+
+/// The audio direction of a builtin (the naryad's two directed effects
+/// over Audio). Channel-state builtins (`duplex_open`/`duplex_state`)
+/// are direction-NEUTRAL: opening a channel and reading its state are
+/// not flows of audio.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AudioDirection {
+    None,
+    Listen,
+    Speak,
+    Both,
+}
+
+fn audio_direction(name: &str) -> AudioDirection {
+    match name {
+        // listen (audio in): STT-class surfaces + the listen stream.
+        "stt_transcribe" | "whisper_transcribe" | "voice_enroll" | "listen_start"
+        | "listen_stop" => AudioDirection::Listen,
+        // speak (audio out): TTS-class surfaces + the speak stream.
+        "tts_generate" | "tts_send" | "tts_speak" | "speak_start" | "speak_stop" => {
+            AudioDirection::Speak
+        }
+        // The omni surface is both directions in one call (№334).
+        "omni_ask" => AudioDirection::Both,
+        _ => AudioDirection::None,
+    }
 }
 
 /// Walk one expression collecting effect-bearing call sites.

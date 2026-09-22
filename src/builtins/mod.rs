@@ -189,6 +189,9 @@ pub(crate) mod memory_typed;
 pub use memory::init_kv_persist;
 use memory::*;
 use memory_typed::*;
+// Наряд №352 (ADR-0174): дуплекс-канал — barge-in по лестнице приоритетов сессии №348.
+pub(crate) mod duplex;
+use duplex::*;
 // Наряд №272 (ADR-0134): векторный контур — embed / vec_store / vec_search.
 // Feature-gate `vec` off-by-default (паттерн candle/vision, ADR-0104);
 // в `portable` включён (ADR-0134 D3).

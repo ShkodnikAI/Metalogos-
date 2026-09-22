@@ -1414,6 +1414,13 @@ pub struct LabelAnn {
 pub enum Effect {
     Io,
     Audit,
+    /// Directed audio INPUT (№352, ADR-0174 §3.1): the audio flows INTO
+    /// the program (STT-class surfaces). A pattern using a direction it
+    /// did not declare is a COMPILE error (the №324 trail gate).
+    Listen,
+    /// Directed audio OUTPUT (№352, ADR-0174 §3.1): the audio flows OUT
+    /// of the program (TTS-class surfaces).
+    Speak,
 }
 
 impl Effect {
@@ -1422,15 +1429,19 @@ impl Effect {
         match self {
             Effect::Io => "io",
             Effect::Audit => "audit",
+            Effect::Listen => "listen",
+            Effect::Speak => "speak",
         }
     }
 
-    /// Parse one effect word; `None` for anything but `io`/`audit` —
-    /// the caller turns that into a loud semantic error.
+    /// Parse one effect word; `None` for anything unknown — the caller
+    /// turns that into a loud semantic error.
     pub fn parse_word(word: &str) -> Option<Effect> {
         match word {
             "io" => Some(Effect::Io),
             "audit" => Some(Effect::Audit),
+            "listen" => Some(Effect::Listen),
+            "speak" => Some(Effect::Speak),
             _ => None,
         }
     }

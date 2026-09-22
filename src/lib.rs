@@ -66,6 +66,7 @@ pub mod profile;
 // Наряд №348 (ADR-0172): the real session model — process-global
 // session registry, wake/interrupt queues, duty-profile runtime state;
 // every transition is an Action-Ledger record (surfaces №393/№415).
+pub mod duplex;
 pub mod session;
 // Наряд №286: shared JSON-Schema validation (ADR-0133) — один валидатор
 // для call_llm_schema и json_validate (дифференциальный контракт «ни одного

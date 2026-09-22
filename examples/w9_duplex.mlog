@@ -11,6 +11,10 @@
 pattern DuplexFlow(_tick: String) -> String ⟨io, audit, listen, speak⟩ {
   let sess = session_login("duplex-demo-user", "pw-not-checked-by-design")
   let ch = duplex_open(sess, "normal")
+  // №428: speak/listen are consent-gated (audio.speak / audio.listen,
+  // fail-closed) — the grants go through the №335 consent contour.
+  let _g1 = consent_grant(ch, "audio.speak", "duplex-demo-user")
+  let _g2 = consent_grant(ch, "audio.listen", "duplex-demo-user")
   // The agent speaks; the channel is silent otherwise.
   let spk = speak_start(ch, "Привет, я агент", "normal")
   let first = len(spk.preempted)

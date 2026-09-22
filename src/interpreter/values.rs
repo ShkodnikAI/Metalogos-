@@ -431,6 +431,12 @@ pub const CODE_BACKEND_DEGRADED: &str = "BACKEND_DEGRADED";
 /// the 5-field cron-expression contract, persistence lock errors — the
 /// subsystem = the scheduler support surface (`src/builtins/cron.rs`).
 pub const CODE_CRON_JOB_FAILED: &str = "CRON_JOB_FAILED";
+/// Audio egress/ingress without consent (naryad №428, ADR-0174 §4):
+/// `speak_start`/`listen_start` refused fail-closed because the duplex
+/// channel has no active consent grant for the direction (`audio.speak`
+/// / `audio.listen` — recorded through the №335 consent contour). The
+/// subsystem = the duplex surface (`src/duplex.rs`, `src/builtins/duplex.rs`).
+pub const CODE_AUDIO_CONSENT_REQUIRED: &str = "AUDIO_CONSENT_REQUIRED";
 /// The MCP server process failed to spawn (existing origin marker
 /// `src/builtins/mcp.rs`, now whitelisted for `try`; naryad №413).
 pub const CODE_MCP_SPAWN_FAILED: &str = "MCP_SPAWN_FAILED";
@@ -468,6 +474,9 @@ const ORIGIN_STAMPED_CODES: &[&str] = &[
     // them for `try` instead of adding a coarser duplicate; see the
     // constant docs and the report in issue #558.
     CODE_CRON_JOB_FAILED,
+    // №428: the audio consent gate — speak/listen without an active
+    // consent grant are refused fail-closed and typed for `try`.
+    CODE_AUDIO_CONSENT_REQUIRED,
     CODE_MCP_SPAWN_FAILED,
     CODE_MCP_TIMEOUT,
     CODE_MCP_IO_ERROR,

@@ -123,9 +123,14 @@ pub fn record_revoke(scope: Option<&str>) -> Result<(), String> {
 /// typed-memory cross-subject gate reads it; additive reader, the store
 /// semantics are untouched.)
 ///
-/// Active = a 'grant' row for the scope whose issued_at is NEWER than
-/// the last 'revoke' row for the same scope and whose TTL has not
-/// expired (expires_at NULL = no expiry). Fail-closed: on any store
+/// Active = a 'grant' row for the scope that is NEWER than the last
+/// 'revoke' row for the same scope and whose TTL has not expired
+/// (expires_at NULL = no expiry). "Newer" is ROW ORDER (rowid), not the
+/// wall clock: `issued_at` has second granularity, so a grant recorded
+/// the same second as the revoke it supersedes must still win (the
+/// operation order is the ledger truth — №428 surfaced the flaw through
+/// the audio consent gate; the rowid comparison keeps the same rule
+/// without the clock-granularity hole). Fail-closed: on any store
 /// error the answer is NO.
 pub fn active_grant_for(scope: &str) -> bool {
     let now = now_secs() as i64;
@@ -135,8 +140,8 @@ pub fn active_grant_for(scope: &str) -> bool {
                 "SELECT 1 FROM consent_ledger \
                  WHERE kind = 'grant' AND scope = ?1 \
                    AND (expires_at IS NULL OR expires_at > ?2) \
-                   AND issued_at > COALESCE((SELECT MAX(issued_at) FROM consent_ledger \
-                                             WHERE kind = 'revoke' AND scope = ?1), -1) \
+                   AND rowid > COALESCE((SELECT MAX(rowid) FROM consent_ledger \
+                                         WHERE kind = 'revoke' AND scope = ?1), 0) \
                  LIMIT 1",
                 rusqlite::params![scope, now],
                 |_row| Ok(1),

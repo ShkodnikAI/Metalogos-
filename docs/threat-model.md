@@ -73,6 +73,24 @@ explicit Warning severities — the three Vision warnings below stay advisory
   intra-procedural and positional — the prompt is argument 1; interprocedural
   flows are not tracked (see Known Boundaries above). No stronger claim is made.
 
+## Audio — the duplex consent gate (0.22+, №428)
+
+`listen_start`/`speak_start` (ADR-0174) are DIRECTED audio effects: speak is
+egress (the agent's voice out), listen is ingress (the caller's voice in).
+Both are consent-gated (naryad №428) under the media principles: no silent
+egress, consent-gated surfaces.
+
+| Threat | Vector | Mitigation |
+|---|---|---|
+| Silent audio egress — the agent speaks (transmits audio/text-to-speech outbound) without the subject's knowledge | any `speak_start` call site | Consent gate: an ACTIVE `audio.speak` grant (the №335 consent contour, `consent_grant`) is required; the refusal is typed `AUDIO_CONSENT_REQUIRED` (fail-closed, origin-stamped) and is itself a ledger record (`duplex.speak_denied`) — a refused egress is as auditable as an allowed one |
+| Silent audio ingress — the agent records/transcribes the caller without consent | any `listen_start` call site | The same gate for `audio.listen`; refusal typed and audited identically |
+| Consent-laundering through a stale grant | a grant recorded once, used forever | The grant is revocable (`consent_revoke`) and TTL-bounded; `active_grant_for` honors revocation (a revoke row newer than the grant disarms it) — re-arm tested in `tests/naryad_428_audio_consent.rs` |
+| Unaudited audio flow | a custom path around the duplex surface | Every transition is a ledger record (№352 `duplex.*` family, digest-only — the text never enters the ledger); there is no language surface that starts an audio flow without a ledger record |
+
+**Honest boundary:** the gate protects the REGISTRY contour (the duplex
+state machine and its language surface). Real-weight audio backends stay
+PARKED (№294); no new codecs/audio backends were added (№428 boundary).
+
 ## Label lattice (Wave 1) — labeled trust boundaries
 
 Since Wave 1 (наряды №322–№328, 2026-09-15) the taint system has a lattice underneath it: every value carries a three-component label **(conf, integrity, consent-scope)** (ADR-0154). Confidentiality `public < consented < private < poisoned` — with `poisoned` an **absorbing quarantine**: neither `join` nor `meet` cures it, so a confirmed-compromised channel (`CanaryLeak`) cannot be laundered by lattice arithmetic and has no legal sinks. Integrity `untrusted < trusted`, dual to confidentiality (mixing data lowers integrity, combining requirements takes the max). Consent scopes intersect on data combination and union on requirement combination. The legacy `TaintKind` kinds project onto the lattice additively — no Category-A check changed behavior (the mapping table lives in `labels::legacy_taint_label`, pinned by an exhaustiveness test).

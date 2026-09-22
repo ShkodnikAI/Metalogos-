@@ -4,6 +4,12 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-09-22
+
+### Added
+
+- **Phase 4 surfaces — «Always-on, память, забывание» (Wave 9, issues #591–#597)**: the real session surface (№348/ADR-0172: wake/interrupt ladder, duty enter/exit, SESSION_UNKNOWN fail-closed), the duty-profile compile rule (№349: private materialization and network sinks are compile errors in the duty profile), typed `Memory<K>` with consent-gated private storage and audited sink reads (№350), the derived-from graph with grant-gated cascade forget over a persistent rusqlite store (№351/ADR-0173), directed audio effects + duplex with barge-in over the session ladder (№352/ADR-0174), the tick context (№426/ADR-0175: cron dispatch executes in the program context — `db{}` binding, loud http self-call diagnostics, sqlite isolation decision, schema DDL replication), and the post-wave doc sync (№425: REFERENCE 4.17.3 drift fix, REALITY recount 76%). Registry 461→484; mutant verifications: №426 2/2 (M-CRON-BIND, M-SCHEMA-REPL); serve-soak №423 11/0.
+
 ### Fixed
 
 - **`try` string projection restored to the 0.19 contract (issue #602, ADR-0142 addendum)**: `to_string(try X)` in 0.21.0 rendered the full `TryResult {ok, value, error}` struct dump on both paths — the office migration idiom `let x = try f(); if to_string(x) == "()" { fallback }` was broken in both branches (~570 try-sites). The `Value` Display projection of a TryResult now renders only the `value` field: success → the inner value (0.19 transparency), failure → `()` (the `value` field is Unit on the error path) — the exact contract of the office's verified `TryVal(x) = x.value` workaround. The structural contract (№374/ADR-0142) is untouched: `.ok` / `.value` / `.error.code` / `.error.message` keep working on both backends, and the stable error codes (№385/ADR-0169) live in the `error` field. REFERENCE §try documents the projection; parity tests in `tests/naryad_602_try_to_string_transparency.rs`.

@@ -1,0 +1,27 @@
+// Naryad #352: the duplex channel — barge-in over the session ladder (ADR-0174).
+//
+// The scenario: the office agent opens a duplex channel on its live
+// session (№348), starts SPEAKING, gets barge-in'd by a LISTEN at equal
+// rank (equal wins — barge-in is the point of duplex), then takes the
+// floor back with a HIGHER priority (preempting the listen). The
+// preempted streams end TYPED (InterruptedBy), every transition is a
+// ledger record (duplex.* — nothing lost on interruption), and the
+// direction typing lives in the effect trail (⟨io, audit, listen,
+// speak⟩ on the pattern below would be the duplex signature).
+pattern DuplexFlow(_tick: String) -> String ⟨io, audit, listen, speak⟩ {
+  let sess = session_login("duplex-demo-user", "pw-not-checked-by-design")
+  let ch = duplex_open(sess, "normal")
+  // The agent speaks; the channel is silent otherwise.
+  let spk = speak_start(ch, "Привет, я агент", "normal")
+  let first = len(spk.preempted)
+  // BARGE-IN: a listen at the SAME rank preempts the speak.
+  let lis = listen_start(ch, "normal")
+  let barge1 = len(lis.preempted)
+  // The agent takes the floor back with a HIGHER priority.
+  let spk2 = speak_start(ch, "Итак, ответ", "high")
+  let barge2 = len(spk2.preempted)
+  // Same-direction concurrency refuses (one flow per direction) —
+  // exercised at the contract level in tests/naryad_352_duplex.rs.
+  return "first:" + to_string(first) + "|barge1:" + to_string(barge1) + "|barge2:" + to_string(barge2)
+}
+flow Main { input: String = "tick" -> DuplexFlow -> output }

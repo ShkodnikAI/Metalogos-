@@ -136,6 +136,12 @@ pub enum Value {
     /// precedent). Appended LAST — bincode variant indices of the
     /// existing variants stay stable (.mbc compat, the №250/№264 rule).
     Memory(std::collections::HashMap<String, String>),
+    /// Opaque duplex-channel handle (Naryad #352, ADR-0174 §3.3) —
+    /// the barge-in channel binding ONE live session (№348) to the two
+    /// directed audio flows. The registry in `src/duplex.rs` is the
+    /// state; the map (`id`/`session`) is the printable projection
+    /// only. Appended LAST — bincode variant indices stable (.mbc).
+    Duplex(std::collections::HashMap<String, String>),
 }
 
 impl std::fmt::Display for Value {
@@ -197,6 +203,7 @@ impl std::fmt::Display for Value {
             Value::Hash(_) => write!(f, "[Hash]"),
             Value::Session(_) => write!(f, "[Session]"),
             Value::Memory(_) => write!(f, "[Memory]"),
+            Value::Duplex(_) => write!(f, "[Duplex]"),
             Value::HttpResponse { status, .. } => write!(f, "[HttpResponse {}]", status),
             Value::Subgraph(snap) => write!(
                 f,
@@ -248,6 +255,7 @@ impl Value {
             Value::Hash(_) => "Hash",
             Value::Session(_) => "Session",
             Value::Memory(_) => "Memory",
+            Value::Duplex(_) => "Duplex",
             Value::HttpResponse { .. } => "HttpResponse",
             Value::Subgraph(_) => "Subgraph",
             Value::Reflex(_) => "Reflex",

@@ -322,6 +322,17 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("memory_release", 2, "memory"; builtin_memory_release),
     spec!("memory_retained", 1, "memory"; builtin_memory_retained),
     spec!("memory_forget_cascade", 3, "memory"; builtin_memory_forget_cascade),
+    // №352 (ADR-0174): the duplex channel — barge-in over the №348
+    // session priority ladder. NOT feature-gated: the CI contour
+    // exercises the same state machine as the serve contour. The
+    // direction is STATIC (separate *_start/*_stop surfaces) so the
+    // №324 effect trail can type it (speak_start → ⟨speak⟩ etc.).
+    spec!("duplex_open", 1, 2, "voice"; builtin_duplex_open),
+    spec!("speak_start", 2, 3, "voice"; builtin_speak_start),
+    spec!("listen_start", 1, 2, "voice"; builtin_listen_start),
+    spec!("speak_stop", 1, "voice"; builtin_speak_stop),
+    spec!("listen_stop", 1, "voice"; builtin_listen_stop),
+    spec!("duplex_state", 1, "voice"; builtin_duplex_state),
     spec!("forget", 0, "stub"),
     spec!("find", 4, "stub"),
     spec!("inspect", 1, "stub"),

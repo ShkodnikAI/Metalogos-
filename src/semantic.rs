@@ -2571,6 +2571,12 @@ struct FlowCtx {
     origin_kind_map: BTreeMap<String, String>,
     /// a `likeness_verify` result is bound in the current body scope.
     token_bound: bool,
+    /// №349: `profile duty { materialization: denied }` resolved — the
+    /// text-materialization of private-labeled values is a compile error.
+    duty_materialization_denied: bool,
+    /// №349: `profile duty { surfaces: local_only }` resolved — network
+    /// sinks (the №316 Network label class) are compile errors.
+    duty_surfaces_local_only: bool,
 }
 
 /// Resolve the origin kind a media argument carries: a direct
@@ -2677,6 +2683,18 @@ pub const ACTION_BRIDGE: &[ActionBridgeThreshold] = &[
 
 pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolation> {
     let mut violations = Vec::new();
+
+    // ── Naryad #349: the duty-profile compile rules ──
+    // The carrier is the `profile duty` declaration (№348/ADR-0172 §3.4):
+    // `materialization: denied` makes the text-materialization of
+    // private-labeled values compile errors; `surfaces: local_only`
+    // makes network sinks (the №316 Network label class) compile errors.
+    // Absent the declaration BOTH flags are false and this walk behaves
+    // exactly as before — the existing corpus (214+ examples, legacy
+    // profile included) is untouched by construction.
+    let duty = crate::profile::resolve(declarations);
+    let duty_materialization_denied = duty.duty_materialization_denied;
+    let duty_surfaces_local_only = duty.duty_surfaces_local_only;
 
     // №332 (ADR-0164): declared origin labels — `source <origin>` /
     // `from <origin> ...` constructions carry their origin's declared
@@ -2872,6 +2890,48 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                                 reason: "video-likeness-no-consent",
                             });
                         }
+                    }
+                }
+            }
+            // ── Naryad #349: the duty-profile compile rules ──
+            // (а) `surfaces: local_only` — a network-class builtin (the
+            // №316 Network label, the SSOT class list) is a compile
+            // error in duty mode: the background contour is local-only.
+            // Fires once per call site, regardless of argument labels.
+            if ctx.duty_surfaces_local_only {
+                let network_classed = classify(name)
+                    .map(|c| c.default_label == crate::builtins_classification::Label::Network)
+                    .unwrap_or(false);
+                if network_classed {
+                    violations.push(SinkViolation {
+                        container: container.to_string(),
+                        fn_name: name.clone(),
+                        arg_index: 0,
+                        span: expr.span().clone(),
+                        label: Label::bottom(),
+                        reason: "duty-network-sink",
+                    });
+                }
+            }
+            // (б) `materialization: denied` — lifting a private-labeled
+            // value into TEXT (the canonical materializers: `str`,
+            // `json_encode`) is a compile error in duty mode: the
+            // background contour never renders private data, even
+            // locally. The №325 sink gate does NOT catch these (the
+            // materializers are Pure/Lift — the result may never
+            // egress); duty mode refuses the lift itself.
+            if ctx.duty_materialization_denied && matches!(name.as_str(), "str" | "json_encode") {
+                for (i, a) in args.iter().enumerate() {
+                    let l = sink_arg_label(a, env, &origin_labels);
+                    if l.conf == crate::labels::Conf::Private {
+                        violations.push(SinkViolation {
+                            container: container.to_string(),
+                            fn_name: name.clone(),
+                            arg_index: i,
+                            span: expr.span().clone(),
+                            label: l,
+                            reason: "duty-materialization",
+                        });
                     }
                 }
             }
@@ -3499,8 +3559,12 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
         }
         // №387: a fresh FlowCtx per container — the origin-kind
         // vocabulary rides inside (nested fns cannot capture locals).
+        // №349: the duty-profile compile flags resolve ONCE per program
+        // and ride the same ctx (the carrier is `profile duty`, №348).
         let mut ctx = FlowCtx {
             origin_kind_map: origin_kind_map.clone(),
+            duty_materialization_denied,
+            duty_surfaces_local_only,
             ..FlowCtx::default()
         };
         walk_stmts(

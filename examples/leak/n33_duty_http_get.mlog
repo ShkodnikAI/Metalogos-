@@ -1,0 +1,6 @@
+profile duty { surfaces: local_only }
+pattern DutyGet(_t: String) -> String {
+  let r = http_get("https://example.com/status")
+  return type_of(r)
+}
+flow Main { input: String = "x" -> DutyGet -> output }

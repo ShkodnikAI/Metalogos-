@@ -1,0 +1,10 @@
+profile duty { materialization: denied surfaces: local_only }
+// A fully public duty contour: local compute only, no network, no
+// private data — compiles and runs clean under the strictest duty knobs.
+pattern DutyPublic(_t: String) -> String {
+  let a = "alpha"
+  let b = upper(a)
+  let n = len(b)
+  return "public:" + b + ":" + str(n)
+}
+flow Main { input: String = "x" -> DutyPublic -> output }

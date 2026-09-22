@@ -1,0 +1,7 @@
+profile duty { materialization: denied }
+pattern DutyJson(_t: String) -> String {
+  let doc = "personal dossier: паспорт 4509 123456"
+  let j = json_encode(doc)
+  return j
+}
+flow Main { input: String = "x" -> DutyJson -> output }

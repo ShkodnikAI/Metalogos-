@@ -1,0 +1,13 @@
+profile duty { materialization: denied surfaces: local_only }
+// The LEGAL duty flow: private data stays local (memory_put stores it
+// encrypted at rest, №350), the only text lift goes through redact()
+// (№326) — the sanctioned downward move — and no network surface runs.
+pattern DutyLegal(_t: String) -> String {
+  let doc = "confidential report"
+  let masked = redact(doc, "all")
+  let pub_mem = memory_open("duty-agent", "public")
+  memory_put(pub_mem, "masked", masked)
+  let stored = memory_read(pub_mem, "masked")
+  return "duty-ok:" + stored
+}
+flow Main { input: String = "x" -> DutyLegal -> output }

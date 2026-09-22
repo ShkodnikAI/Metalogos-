@@ -1,0 +1,6 @@
+profile duty { surfaces: local_only }
+pattern DutyNet(_t: String) -> String {
+  let r = http_post("https://example.com", "heartbeat")
+  return type_of(r)
+}
+flow Main { input: String = "x" -> DutyNet -> output }

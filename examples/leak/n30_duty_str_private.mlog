@@ -1,0 +1,7 @@
+profile duty { materialization: denied }
+pattern DutyStr(_t: String) -> String {
+  let doc = "confidential report"
+  let text = str(doc)
+  return text
+}
+flow Main { input: String = "x" -> DutyStr -> output }

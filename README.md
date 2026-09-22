@@ -1028,7 +1028,7 @@ Four integration tests verify the new behavior:
 |---|---|
 | Effective Rust LOC | ~59 000 |
 | Built-in Functions | 473 (43 modules) |
-| Example Programs | 252 |
+| Example Programs | 253 |
 | Integration Tests | 70 test suites |
 | Architecture Decision Records | 161 |
 | Parser Rules | 288 (Pest PEG) |

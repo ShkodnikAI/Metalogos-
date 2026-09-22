@@ -2395,17 +2395,35 @@ pub(crate) async fn execute_route_body(
             // (процесс-флаг METALOGOS_ALLOW_EXEC на тела роутов не распространяется).
             let _serve_exec_guard = ServeRouteExecGuard::new();
             let mut env = HashMap::new();
+            // Issue #600: ONE mutability set threaded through the WHOLE route
+            // body. Top-level `let mut` registers here; nested blocks (if /
+            // each / match bodies) evaluate through
+            // `eval_statements_with_mutability` so branch assignments to a
+            // `let mut` route local work on the TW backend exactly as they
+            // do on the VM (which tracks mutability at compile time, №264).
+            let mut mutable_vars: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
             for stmt in &body_stmts_owned {
                 match stmt {
-                    Statement::LetBinding { name, value, .. } => {
+                    Statement::LetBinding { name, value, mutable, .. } => {
                         let val = interp.eval_expr_with_env(value, &env)?;
+                        if *mutable {
+                            mutable_vars.insert(name.clone());
+                        }
                         env.insert(name.clone(), val);
                     }
                     Statement::Assign { name, value, .. } => {
-                        let val = interp.eval_expr_with_env(value, &env)?;
-                        if env.contains_key(name) {
-                            env.insert(name.clone(), val);
+                        // Same contract as `eval_statements_cf` (pattern
+                        // bodies): assignment targets `let mut` locals only —
+                        // loud error, never a silent overwrite (№264 parity).
+                        if !mutable_vars.contains(name) {
+                            return Err(format!(
+                                "cannot assign to immutable variable: {} (use 'let mut {}' to make it mutable)",
+                                name, name
+                            ));
                         }
+                        let val = interp.eval_expr_with_env(value, &env)?;
+                        env.insert(name.clone(), val);
                     }
                     Statement::Return { value: expr, .. } => {
                         let val = interp.eval_expr_with_env(expr, &env)?;
@@ -2425,7 +2443,11 @@ pub(crate) async fn execute_route_body(
                         if cond_val.as_bool().unwrap_or(false) {
                             // On a blocking thread, safe to call eval_statements directly
                             // (no block_in_place needed)
-                            let result = interp.eval_statements(body, &mut env)?;
+                            let result = interp.eval_statements_with_mutability(
+                                body,
+                                &mut env,
+                                &mut mutable_vars,
+                            )?;
                             if !matches!(result, Value::Unit) {
                                 let entries = interp.take_audit_log();
                                 let sandbox = interp
@@ -2475,8 +2497,11 @@ pub(crate) async fn execute_route_body(
                                             sandbox,
                                         ));
                                     }
-                                    Statement::LetBinding { name, value, .. } => {
+                                    Statement::LetBinding { name, value, mutable, .. } => {
                                         let val = interp.eval_expr_with_env(value, &env)?;
+                                        if *mutable {
+                                            mutable_vars.insert(name.clone());
+                                        }
                                         env.insert(name.clone(), val);
                                     }
                                     Statement::ExprStmt { expr, .. } => {
@@ -2496,8 +2521,11 @@ pub(crate) async fn execute_route_body(
                                     }
                                     _ => {
                                         // On a blocking thread, safe to call directly
-                                        interp
-                                            .eval_statements(std::slice::from_ref(s), &mut env)?;
+                                        interp.eval_statements_with_mutability(
+                                            std::slice::from_ref(s),
+                                            &mut env,
+                                            &mut mutable_vars,
+                                        )?;
                                     }
                                 }
                             }
@@ -2518,8 +2546,11 @@ pub(crate) async fn execute_route_body(
                     }
                     _ => {
                         // On a blocking thread, safe to call directly
-                        let result =
-                            interp.eval_statements(std::slice::from_ref(stmt), &mut env)?;
+                        let result = interp.eval_statements_with_mutability(
+                            std::slice::from_ref(stmt),
+                            &mut env,
+                            &mut mutable_vars,
+                        )?;
                         // If the statement produced an HttpResponse (e.g., respond("ok")),
                         // use it as the route response (final integration)
                         if let Value::HttpResponse { .. } = result {

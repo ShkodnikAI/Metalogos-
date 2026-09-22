@@ -15,15 +15,15 @@
 //! live in the `error` field. Both backends share the builder and the
 //! Display impl, so parity is by construction — asserted anyway.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Execute via tree-walking interpreter.
-fn run_tw(source: &str, base_dir: &PathBuf) -> Result<Option<String>, String> {
+fn run_tw(source: &str, base_dir: &Path) -> Result<Option<String>, String> {
     metalogos::run_program_with_dir(source, base_dir.to_path_buf())
 }
 
 /// Execute via bytecode VM.
-fn run_vm(source: &str, base_dir: &PathBuf) -> Result<Option<String>, String> {
+fn run_vm(source: &str, base_dir: &Path) -> Result<Option<String>, String> {
     let declarations =
         metalogos::parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
     let mut comp = metalogos::compiler::Compiler::with_std_root(base_dir.to_path_buf());
@@ -59,11 +59,12 @@ fn program(body: &str) -> String {
 fn naryad_602_success_renders_value() {
     let out = assert_parity(
         "602 success value",
-        &program(
-            "  let a = to_string(try trim(\"hello\"))\n  return \"v:\" + a",
-        ),
+        &program("  let a = to_string(try trim(\"hello\"))\n  return \"v:\" + a"),
     );
-    assert_eq!(out, "v:hello", "success must render the inner value, not the struct dump");
+    assert_eq!(
+        out, "v:hello",
+        "success must render the inner value, not the struct dump"
+    );
 }
 
 /// Failure: `to_string(try X)` renders "()" — the `value` field is Unit on
@@ -74,7 +75,10 @@ fn naryad_602_failure_renders_unit() {
         "602 failure unit",
         &program("  let a = to_string(try float(\"not-a-number\"))\n  return \"v:\" + a"),
     );
-    assert_eq!(out, "v:()", "failure must render the Unit value field, not the struct dump");
+    assert_eq!(
+        out, "v:()",
+        "failure must render the Unit value field, not the struct dump"
+    );
 }
 
 /// The 0.19 office idiom works in BOTH branches again:
@@ -87,7 +91,10 @@ fn naryad_602_office_idiom_success_path() {
             "  let x = try trim(\"payload\")\n  if to_string(x) == \"()\" { return \"fallback\" }\n  return \"use:\" + to_string(x)",
         ),
     );
-    assert_eq!(out, "use:payload", "the success branch must use the real value");
+    assert_eq!(
+        out, "use:payload",
+        "the success branch must use the real value"
+    );
 }
 
 #[test]
@@ -141,10 +148,17 @@ fn naryad_602_no_stubs() {
     let markers = ["todo", "unimplemented"];
     for m in markers {
         let marker = format!("{}{}", m, bang);
-        assert!(!src.contains(&marker), "stub marker {} found in test file", marker);
+        assert!(
+            !src.contains(&marker),
+            "stub marker {} found in test file",
+            marker
+        );
     }
     let skeleton = ["SKELE", "TON"].concat();
-    assert!(!src.contains(&skeleton), "stub marker (assembled) found in test file");
+    assert!(
+        !src.contains(&skeleton),
+        "stub marker (assembled) found in test file"
+    );
 }
 
 fn fs_self() -> String {

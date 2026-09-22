@@ -1,0 +1,28 @@
+// Naryad #348 (ADR-0172): the real session surface — wake, typed
+// interrupts, duty mode. Every transition below is an Action-Ledger
+// SIDE EFFECT (the session.* record family, ADR-0167 §3.4) — the
+// program contains no "also log it" calls. A schedule wake arrives
+// through the №418 cron payload-dispatch calling session_wake(source:
+// "schedule"); the CI contour exercises the very same surface.
+pattern SessionFlow(_tick: String) -> String {
+  let s = session_login("alice", "pw")
+  let duty_on = session_duty_enter(s)
+  let duty_again = session_duty_enter(s)
+  // Wakes queue FIFO; the surface returns the accepted source.
+  let w_schedule = session_wake(s, "schedule", "cron-tick")
+  let w_keyword = session_wake(s, "keyword", "hello")
+  let w1 = session_poll_wake(s)
+  // Interrupts carry the typed ladder low < normal < high < critical;
+  // take = highest first, FIFO within a rank (the №352 preemption lever).
+  session_interrupt(s, "low", "ambient")
+  session_interrupt(s, "critical", "shutdown")
+  session_interrupt(s, "high", "barge-in")
+  let i1 = session_take_interrupt(s)
+  let i2 = session_take_interrupt(s)
+  let i3 = session_take_interrupt(s)
+  let i4 = session_take_interrupt(s)
+  session_duty_exit(s)
+  session_logout(s)
+  return "login:" + type_of(s) + "|duty:" + str(duty_on) + str(duty_again) + "|wake1:" + w_schedule + "|wake2:" + w_keyword + "|poll1:" + w1.source + ":" + w1.payload + "|int1:" + i1.priority + "|int2:" + i2.priority + "|int3:" + i3.priority + "|int4:" + type_of(i4)
+}
+flow Main { input: String = "tick" -> SessionFlow -> output }

@@ -633,7 +633,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 461 registered builtins (461 of 461): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 467 registered builtins (467 of 467): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -2028,7 +2028,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 461 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 467 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2464,6 +2464,19 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `likeness_verify(...)` | 1..3 | — | `likeness_verify(challenge, subject?, scope?)` — consume the challenge, record the consent-ledger grant, return the opaque token. |
 | `quarantine_write(...)` | 1..2 | — | `quarantine_write(value, reason?)` — the quarantine sink: the ONLY legal egress for a poisoned value. Returns the audit-event text (the program-visible half of the event; the static half is the QUARANTINE_EGRESS audit finding + stderr line, №326 posture). |
 
+### `session` — 8 builtin(s)
+
+| Builtin | Arity | Signature (curated) | Description |
+|---|---|---|---|
+| `session_duty_enter(...)` | 1 | — | `session_duty_enter(session) -> Bool` |
+| `session_duty_exit(...)` | 1 | — | `session_duty_exit(session) -> Bool` |
+| `session_interrupt(...)` | 2..3 | — | `session_interrupt(session, priority, reason?) -> String` |
+| `session_login(...)` | 2 | `String -> Session` | Creates a session for the user |
+| `session_logout(...)` | 1 | `Session -> Unit` | Destroys the session |
+| `session_poll_wake(...)` | 1 | — | `session_poll_wake(session) -> Struct \| Unit` |
+| `session_take_interrupt(...)` | 1 | — | `session_take_interrupt(session) -> Struct \| Unit` |
+| `session_wake(...)` | 2..3 | — | `session_wake(session, source, payload?) -> Number` |
+
 ### `std` — 11 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
@@ -2532,7 +2545,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `word_wrap(...)` | 2 | — | `word_wrap(s, width)` — reflows text to `width` columns without breaking words; errors on width 0. |
 | `words(...)` | 1 | — | `words(s)` -- split string into list of words by whitespace. |
 
-### `stub` — 28 builtin(s)
+### `stub` — 26 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
@@ -2560,8 +2573,6 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `query_scalar(...)` | variadic | — | VM-native DB helper (handled inside `src/vm.rs`, no host handler): executes an SQL query and returns the first column of the first row as a scalar. |
 | `recall(...)` | variadic | — | VM-native memory recall (handled inside `src/vm.rs`, no host handler): returns the best memory match for the query, optional minimum-confidence threshold. Registry arity entry kept for VM bytecode validation. |
 | `resolve_skill_index(...)` | 1 | — | VM-native skill resolver (handled inside `src/vm.rs`, no host handler): resolves a skill index entry for the VM execution path. |
-| `session_login(...)` | 2 | `String -> Session` | Creates a session for the user |
-| `session_logout(...)` | 1 | `Session -> Unit` | Destroys the session |
 | `split_tokens(...)` | variadic | — | Registry-only stub — no handler on TW or VM; calling the name errors on both backends (entry kept for registry/opcode indexing completeness). |
 | `stdin(...)` | variadic | — | Registry-only stub — no handler on TW or VM; calling the name errors on both backends (entry kept for registry/opcode indexing completeness). |
 
@@ -2847,8 +2858,14 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `base64_encode` | pure | public | pure | — |
 | `base64_decode` | pure | public | pure | — |
 | `authenticate` | pure | secret | pure | — |
-| `session_login` | sink | internal | reversible | creates a session (registry-only stub intent) |
-| `session_logout` | sink | internal | reversible | destroys the current session (stub intent) |
+| `session_login` | sink | internal | reversible | creates a session in the process-global registry and records session.create in the Action Ledger (№348, ADR-0172; credentials are NOT verified — no server user-store, loud boundary) |
+| `session_logout` | sink | internal | reversible | ends the session — removes it from the registry and records session.end (SESSION_UNKNOWN on unknown/ended; №348) |
+| `session_duty_enter` | sink | internal | reversible | switches the session into duty (background) mode — runtime half of the duty-profile carrier, records session.duty_enter (№348/ADR-0172; the static enforcement is №349) |
+| `session_duty_exit` | sink | internal | reversible | leaves duty (background) mode, records session.duty_exit (№348/ADR-0172) |
+| `session_wake` | sink | internal | reversible | enqueues a wake event with a closed source vocabulary (keyword|event|schedule — schedule strictly via the №418 cron payload-dispatch), records session.wake (№348) |
+| `session_poll_wake` | source | internal | pure | dequeues the oldest wake (FIFO) — reads the session's own queue, records session.wake_delivered; Unit when empty (№348) |
+| `session_interrupt` | sink | internal | reversible | enqueues a typed-priority interrupt (low|normal|high|critical), records session.interrupt (№348/ADR-0172 §4.2) |
+| `session_take_interrupt` | source | internal | pure | takes the highest-priority pending interrupt (FIFO within) — the №352 preemption lever; every take is ledger-recorded so preemption loses no audit (№348) |
 | `session_clear` | sink | internal | irreversible | wipes session state — no undo |
 | `send_message` | sink | network | irreversible | delivers a message to an external chat — cannot be unsent (issue minimum list) |
 | `answer_callback_query` | sink | network | irreversible | answers an external callback query |
@@ -3176,6 +3193,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `ledger_verify` | source | internal | pure | reads an exported JSONL chain from a sandboxed path and returns the structural verification verdict (№415) — ingress of the signed trail for verification; the runtime ledger is never written and nothing egresses |
 
 <!-- END GENERATED BUILTIN CLASSIFICATION -->
+
 
 
 

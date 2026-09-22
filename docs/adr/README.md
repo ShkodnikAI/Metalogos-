@@ -206,3 +206,4 @@ real ADRs (№309/№320/№412) before the booking.
 | 0169 | Stable `try` error codes — origin-stamped classification | Accepted |
 | 0170 | Persistence taint layer 2 — locally-bound key prefixes; points-to deferred | Accepted |
 | 0171 | `mlog serve` default backend flip — the VM becomes the default (Stage 5 executed) | Accepted |
+| 0172 | Session model — wake/interrupt/duty over a process-global registry | Accepted |

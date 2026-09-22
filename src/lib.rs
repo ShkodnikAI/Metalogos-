@@ -59,6 +59,10 @@ pub mod parser;
 // `profile legacy { egress: permissive_with_audit }` switches the
 // №325 SINK_CLEARANCE gate into advisory mode (audit events, not errors).
 pub mod profile;
+// Наряд №348 (ADR-0172): the real session model — process-global
+// session registry, wake/interrupt queues, duty-profile runtime state;
+// every transition is an Action-Ledger record (surfaces №393/№415).
+pub mod session;
 // Наряд №286: shared JSON-Schema validation (ADR-0133) — один валидатор
 // для call_llm_schema и json_validate (дифференциальный контракт «ни одного
 // нового правила»).

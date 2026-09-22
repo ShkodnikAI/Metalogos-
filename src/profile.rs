@@ -44,6 +44,15 @@ pub struct ResolvedProfiles {
     /// statically-visible `backend_select` ladders may only contain
     /// SHA-pinnable rungs (`PendingNo334` = unverifiable = build error).
     pub device_mode_production: bool,
+    /// `profile duty { materialization: denied }` declared (№348 /
+    /// ADR-0172) — the static carrier for the №349 rule that makes
+    /// private-handle materialization a compile error in duty mode.
+    /// №348 lands the carrier; enforcement is №349.
+    pub duty_materialization_denied: bool,
+    /// `profile duty { surfaces: local_only }` declared (№348 /
+    /// ADR-0172) — the static carrier for the №349 rule that makes
+    /// network sinks compile errors in duty mode.
+    pub duty_surfaces_local_only: bool,
 }
 
 impl ResolvedProfiles {
@@ -61,9 +70,12 @@ impl ResolvedProfiles {
 
 /// Validate one `profile` declaration. Closed shapes: name `legacy` with
 /// option `egress: permissive_with_audit` (№325); name `licensing` with
-/// option `backends: permissive_with_audit` (№333). Anything else is a
-/// loud error (unknown words are compat-profile mistakes, not silent
-/// no-ops).
+/// option `backends: permissive_with_audit` (№333); name `device` with
+/// `mode: production|development` (№336); name `duty` (№348/ADR-0172)
+/// with `materialization: denied` and/or `surfaces: local_only` — the
+/// static carrier of the session duty profile; the №349 compiler rule
+/// keys on the resolved flags. Anything else is a loud error (unknown
+/// words are compat-profile mistakes, not silent no-ops).
 pub fn validate(p: &crate::ast::ProfileDecl) -> Result<(), String> {
     match p.name.as_str() {
         "legacy" => {
@@ -78,8 +90,39 @@ pub fn validate(p: &crate::ast::ProfileDecl) -> Result<(), String> {
             validate_options(p, "mode", &["production", "development"])?;
             Ok(())
         }
+        "duty" => {
+            // Two independent knobs (ADR-0172 §5): materialization of
+            // private handles and network surfaces. At least one is
+            // required — a duty declaration without either is a no-op
+            // mistake, and no-ops must be loud (the §16.0 honesty rule).
+            if p.options.is_empty() {
+                return Err(
+                    "profile 'duty' requires options (materialization: denied, surfaces: local_only)"
+                        .to_string(),
+                );
+            }
+            for (k, v) in &p.options {
+                match (k.as_str(), v.as_str()) {
+                    ("materialization", "denied") => {}
+                    ("surfaces", "local_only") => {}
+                    ("materialization", other) | ("surfaces", other) => {
+                        return Err(format!(
+                            "unknown duty-profile mode '{}' for option '{}' (available: materialization: denied; surfaces: local_only)",
+                            other, k
+                        ));
+                    }
+                    (other, _) => {
+                        return Err(format!(
+                            "unknown profile option '{}' for 'duty' (available: materialization, surfaces)",
+                            other
+                        ));
+                    }
+                }
+            }
+            Ok(())
+        }
         other => Err(format!(
-            "unknown compatibility profile '{}' (available: legacy, licensing, device)",
+            "unknown compatibility profile '{}' (available: legacy, licensing, device, duty)",
             other
         )),
     }
@@ -142,6 +185,24 @@ pub fn resolve(declarations: &[Declaration]) -> ResolvedProfiles {
                         .options
                         .iter()
                         .any(|(k, v)| k == "mode" && v == "production");
+                }
+                "duty" => {
+                    // №348/ADR-0172: the duty-profile carrier. Each knob
+                    // resolves independently; the №349 compile rule keys
+                    // on these flags (materialization of private
+                    // handles / network sinks).
+                    if p.options
+                        .iter()
+                        .any(|(k, v)| k == "materialization" && v == "denied")
+                    {
+                        resolved.duty_materialization_denied = true;
+                    }
+                    if p.options
+                        .iter()
+                        .any(|(k, v)| k == "surfaces" && v == "local_only")
+                    {
+                        resolved.duty_surfaces_local_only = true;
+                    }
                 }
                 _ => {}
             }

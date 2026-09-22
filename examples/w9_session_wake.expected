@@ -1,0 +1,1 @@
+login:Session|duty:truefalse|wake1:schedule|wake2:keyword|poll1:schedule:cron-tick|int1:critical|int2:high|int3:low|int4:Unit

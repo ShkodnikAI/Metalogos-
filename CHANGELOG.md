@@ -8,6 +8,10 @@ All notable changes to the Metalogos project.
 
 - **The audio consent gate on the duplex path (naryad #428, issue #614)**: `speak_start`/`listen_start` are directed audio egress/ingress and now require an ACTIVE consent grant for their direction (`audio.speak` / `audio.listen`, recorded through the №335 consent contour `consent_grant`) — fail-closed on any store error. The refusal is typed `AUDIO_CONSENT_REQUIRED` (the №413 origin-stamp convention, `try`-branchable) and is itself a ledger record (`duplex.speak_denied` / `duplex.listen_denied`) — no silent egress AND no silent refusal. Revocation re-arms the gate; the barge-in state machine (№352/ADR-0174) is untouched. threat-model: the audio section; limitations: the runtime-gate boundary; tests `tests/naryad_428_audio_consent.rs` (T1–T6 incl. TW/VM `try` parity); mutation 2/2 (`M-CONSENT-GATE`, `M-LEDGER-EGRESS`, `scripts/mutation_verify_428.sh`).
 
+### Added
+
+- **The memory office-path integration contract (naryad #429, issue #615)**: the end-to-end office scenario through the language surface — session_login → consent-granted `memory_open<private>` → put with derived-from provenance → audited read (the private payload stays sealed; redact is the sanctioned egress) → cascade preview → the Once-grant spend on the irreversible `memory_forget_cascade` (ADR-0155) → derived gone, independent intact; the Action Ledger records every step (`memory.put` / `memory.read` / `memory.cascade_preview` / `memory.forget_cascade`). limitations.md: the static-boundary row (the taint contour sees Memory<K> entries as sealed values; the cascade graph is a runtime fact). Tests `tests/naryad_429_memory_office_path.rs`; mutation 2/2 (`M-CASCADE-LEDGER`, `M-CONSENT-PATH`, `scripts/mutation_verify_429.sh`).
+
 ## [0.22.0] - 2026-09-22
 
 ### Added

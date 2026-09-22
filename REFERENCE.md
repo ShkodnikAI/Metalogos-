@@ -584,6 +584,8 @@ stamp is honestly `RUNTIME_ERROR`:
 | `SINK_CLEARANCE_RUNTIME` | the VM runtime twin of the static sink gate refused a call argument | hard-fail / route to an `on_deny` handler |
 | `MEDIA_SEALED_EGRESS` | sealed private media refused materialization (`media_save`) | request consent / pick a public asset |
 | `AUDIO_CONSENT_REQUIRED` | speak/listen refused — no active consent grant for the audio direction (`audio.speak`/`audio.listen`, №428) | grant consent via `consent_grant`, then retry |
+| `SESSION_UNKNOWN` | a session-surface call named an id that is not live (unknown or already ended — №348/№430) | re-login; never reuse session handles across flows |
+| `SESSION_CONTRACT` | a closed session vocabulary violation — an unknown wake source (§4.1) or an unknown interrupt priority (§4.2) (№430) | use the documented vocabulary; the word lists are contracts |
 | `CRON_JOB_FAILED` | a cron/reminder mechanics failure (№413): the 5-field cron-expression contract, arg/type refusals, persistence lock errors | fix the job definition / alert the operator |
 | `MCP_SPAWN_FAILED` | the MCP server process failed to spawn (№413) | check the server path/permissions, alert |
 | `MCP_TIMEOUT` | an MCP contour phase exceeded the timeout (№413) | retry with a longer timeout / degrade |

@@ -1,6 +1,6 @@
 # ADR-0172: Session model — wake/interrupt/duty over a process-global registry
 
-**Status:** Accepted
+**Status:** Implemented (Accepted 2026-09-22 by №348; Implemented 2026-09-22 — №430 closed the last gate: origin-stamped refusals + the duty example)
 **Date:** 2026-09-22
 **Naryad:** #348 (issue #591; dispatch #598, wave 9 — registry Phase 4 "Always-on, память, забывание")
 **Pillar:** session (cross-cutting: interpreter builtins + ledger + profiles)
@@ -72,6 +72,22 @@ Runtime: `session_duty_enter/exit` flip the session-side `duty` flag and record 
 ## 6. Honest boundaries
 
 1. **Credentials are NOT verified** — no user-store exists in the interpreter; `session_login` mints a session for any well-typed arguments. The boundary is loud here, in the builtin doc comment, and in the classification rationale.
-2. **The duty profile does not enforce anything in this naryad** — the static compile rule is №349. Until it lands, `profile duty` validates and resolves; it does not yet reject anything.
+2. **The duty profile does not enforce anything in this naryad** — the static compile rule is №349. Until it lands, `profile duty` validates and resolves; it does not yet reject anything. *(Superseded: №349 landed in the same wave — the compile rule denies private materialization and network sinks in the duty profile; see the Evidence section.)*
 3. **Wake/interrupt delivery is cooperative** — the model queues and records events; it does not preempt a running interpreter frame (that is the №352 duplex surface's job, typed at its signature).
 4. **Ledger writes are best-effort** (ADR-0167 §2 driver 5): a journal failure is loud on stderr and never flips the session operation.
+
+
+## 7. Evidence (Implemented — naryad №430)
+
+The decision is Implemented: both halves are live in main and pinned by
+tests.
+
+| Contract piece | Evidence |
+|---|---|
+| Lifecycle (login → wake/interrupt → duty enter/exit → end), fail-closed `SESSION_UNKNOWN` | `tests/naryad_348_session.rs`; `tests/session_memory_contract.rs` |
+| Origin-stamped refusals (№430): unknown/ended session `[SESSION_UNKNOWN]`; closed-vocabulary violations (wake source §4.1, interrupt priority §4.2) `[SESSION_CONTRACT]`; try-classifier parity on both backends | `tests/naryad_430_duty_stamps.rs` (T1–T5) |
+| Duty-profile COMPILE rule (private materialization and network sinks are compile errors) | №349: `tests/naryad_349_duty_profile.rs`; the leak negatives `examples/leak/n30`–`n33` (BLOCKING suite) |
+| Duty-profile RUNTIME half (duty_enter/exit, ledger-recorded) | `src/session.rs`; `tests/naryad_348_session.rs` |
+| The positive duty example (office-style nightly cleanup with the grant path) | `examples/w10_duty_cleanup.mlog` (+ `.expected`) — №430 |
+| Duplex consumes the interruption ladder | №352 / ADR-0174: `tests/naryad_352_duplex.rs` (D1–D5), `tests/naryad_352_effects.rs` |
+| Ledger trail (`session.*` family) | №393/№415 surfaces; `tests/naryad_393_ledger.rs` |

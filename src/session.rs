@@ -195,9 +195,12 @@ fn with_state<T>(
     let mut reg = lock_registry()?;
     match reg.get_mut(id) {
         Some(state) => Ok(f(state)),
-        None => Err(format!(
-            "{}: unknown session '{}' (SESSION_UNKNOWN)",
-            fn_name, id
+        None => Err(crate::interpreter::values::coded_error(
+            crate::interpreter::values::CODE_SESSION_UNKNOWN,
+            format!(
+                "{}: unknown session '{}' — the id is not live (№348 fail-closed)",
+                fn_name, id
+            ),
         )),
     }
 }
@@ -211,9 +214,12 @@ pub fn end(fn_name: &str, id: &str) -> Result<(), String> {
             ledger_session_event("end", id, &format!("user={}", state.user));
             Ok(())
         }
-        None => Err(format!(
-            "{}: unknown session '{}' (SESSION_UNKNOWN)",
-            fn_name, id
+        None => Err(crate::interpreter::values::coded_error(
+            crate::interpreter::values::CODE_SESSION_UNKNOWN,
+            format!(
+                "{}: unknown session '{}' — the id is not live (№348 fail-closed)",
+                fn_name, id
+            ),
         )),
     }
 }
@@ -245,10 +251,13 @@ pub fn duty_exit(id: &str) -> Result<bool, String> {
 /// Enqueue a wake event (closed source vocabulary) + `session.wake`.
 pub fn wake(id: &str, source: &str, payload: &str) -> Result<(), String> {
     if !WAKE_SOURCES.contains(&source) {
-        return Err(format!(
-            "session_wake: unknown wake source '{}' (available: {})",
-            source,
-            WAKE_SOURCES.join(", ")
+        return Err(crate::interpreter::values::coded_error(
+            crate::interpreter::values::CODE_SESSION_CONTRACT,
+            format!(
+                "session_wake: unknown wake source '{}' (available: {}) — the vocabulary is closed (ADR-0172 §4.1)",
+                source,
+                WAKE_SOURCES.join(", ")
+            ),
         ));
     }
     with_state("session_wake", id, |s| {
@@ -284,10 +293,13 @@ pub fn interrupt(id: &str, priority: &str, reason: &str) -> Result<(), String> {
     let rank = match priority_rank(priority) {
         Some(r) => r,
         None => {
-            return Err(format!(
-                "session_interrupt: unknown priority '{}' (available: {})",
-                priority,
-                INTERRUPT_PRIORITIES.join(", ")
+            return Err(crate::interpreter::values::coded_error(
+                crate::interpreter::values::CODE_SESSION_CONTRACT,
+                format!(
+                    "session_interrupt: unknown priority '{}' (available: {}) — the ladder is closed (ADR-0172 §4.2)",
+                    priority,
+                    INTERRUPT_PRIORITIES.join(", ")
+                ),
             ))
         }
     };

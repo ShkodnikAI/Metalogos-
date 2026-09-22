@@ -4,6 +4,10 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Changed
+
+- **The duty/session refusals are origin-stamped (naryad #430, issue #616)**: unknown/ended session refusals carry the position-0 `[SESSION_UNKNOWN]` stamp, the closed-vocabulary violations (unknown wake source §4.1, unknown interrupt priority §4.2) carry `[SESSION_CONTRACT]` — the `try` classifier branches the office's session policies on the subsystem, never on message text (the №413 convention, never double-stamped). ADR-0172: Accepted → Implemented with the Evidence section; the positive duty example `examples/w10_duty_cleanup.mlog` (duty profile + the ADR-0155 grant path); the audit table (error → stamp → test) in `tests/naryad_430_duty_stamps.rs`.
+
 ### Security
 
 - **The audio consent gate on the duplex path (naryad #428, issue #614)**: `speak_start`/`listen_start` are directed audio egress/ingress and now require an ACTIVE consent grant for their direction (`audio.speak` / `audio.listen`, recorded through the №335 consent contour `consent_grant`) — fail-closed on any store error. The refusal is typed `AUDIO_CONSENT_REQUIRED` (the №413 origin-stamp convention, `try`-branchable) and is itself a ledger record (`duplex.speak_denied` / `duplex.listen_denied`) — no silent egress AND no silent refusal. Revocation re-arms the gate; the barge-in state machine (№352/ADR-0174) is untouched. threat-model: the audio section; limitations: the runtime-gate boundary; tests `tests/naryad_428_audio_consent.rs` (T1–T6 incl. TW/VM `try` parity); mutation 2/2 (`M-CONSENT-GATE`, `M-LEDGER-EGRESS`, `scripts/mutation_verify_428.sh`).

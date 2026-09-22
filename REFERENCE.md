@@ -547,6 +547,25 @@ Note: `!r.ok` from ADR-0142 is pseudocode — the mlog grammar has no unary
 binds to a `unary_expr` — parenthesize or use a `let` for compound inner
 expressions (`try (1.0 / 0.0)`, not `try 1.0 / 0.0`).
 
+**String projection of a `try` result (issue #602 — the 0.19 contract).**
+The STRING projection of a TryResult — `to_string`, `print`, string
+interpolation — renders ONLY the `value` field: on success the inner value
+(`to_string(try trim("hello"))` is `"hello"`, as in 0.19), on failure `"()"`
+(the `value` field is `Unit` on the error path). The 0.19 idiom works in
+both branches again:
+
+```mlog
+// doc-test: skip
+let x = try risky_call(x)
+if to_string(x) == "()" { ... }   // failure probe — the 0.19 idiom
+return "use:" + x                 // success: the real value, not a dump
+```
+
+The STRUCTURAL contract is untouched (№374/ADR-0142): branch on `r.ok` and
+`r.error.code` (the stable codes table below), read the payload via
+`r.value` and the message via `r.error.message` — the projection changes
+the rendered string only, never the fields.
+
 **Stable `try` error codes (Naryad #385, ADR-0169).** On the error path,
 `r.error.code` is a STABLE diagnostic code (ADR-0131: the code is a
 frozen contract, the message text may change) classified by the shared

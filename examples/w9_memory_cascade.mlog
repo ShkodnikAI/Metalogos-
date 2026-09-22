@@ -1,0 +1,33 @@
+// Naryad #351: the derived-from graph and the cascading forget (ADR-0173).
+//
+// The scenario: the office agent keeps a derived chain (raw sources →
+// summary → report). Forgetting a SOURCE must reach every transitive
+// derivative — but the operator previews first (the №280 dry-run
+// discipline), pins what must survive (the retained VETO refuses the
+// whole forget without spending the grant), releases it, and only then
+// spends a Once grant on the irreversible, ledger-recorded cascade.
+pattern Cascade(_tick: String) -> String {
+  let mem = memory_open("cascade-demo", "public")
+  memory_put(mem, "source1", "raw one")
+  memory_put(mem, "source2", "raw two")
+  memory_put(mem, "summary", "the summary", ["source1", "source2"])
+  memory_put(mem, "report", "the report", ["summary"])
+  memory_put(mem, "standalone", "an unrelated fact")
+  // The preview: forgetting source1 reaches 3 entries
+  // (source1 → summary → report).
+  let plan1 = memory_cascade_preview(mem, "source1")
+  let reach = len(plan1.closure)
+  // The pin: the report vetoes the whole forget.
+  memory_retain(mem, "report")
+  let plan2 = memory_cascade_preview(mem, "source1")
+  let blocked = len(plan2.blocked_by)
+  // The release, then the grant spends ONCE on the real cascade.
+  memory_release(mem, "report")
+  let grant = grant_issue("memory:forget:*", 60, "once")
+  let res = memory_forget_cascade(mem, "source1", grant)
+  let deleted = len(res.deleted)
+  // source2 and standalone survive; the closure is gone.
+  let left = len(memory_keys(mem))
+  return "reach:" + to_string(reach) + "|blocked:" + to_string(blocked) + "|deleted:" + to_string(deleted) + "|left:" + to_string(left)
+}
+flow Main { input: String = "tick" -> Cascade -> output }

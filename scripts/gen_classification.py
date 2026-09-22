@@ -439,6 +439,12 @@ OVERRIDES = {
     "memory_keys": ("Source", "Internal", "Pure", "lists the container's keys (metadata only; audited) (№350)"),
     "memory_provenance": ("Source", "Internal", "Pure", "reads the derived-from parent keys of one entry — the raw material of the №351 derived graph; records memory.provenance (№350)"),
     "memory_export": ("Sink", "Internal", "Irreversible", "file-egress sink through the io sandbox — private entries REFUSE (MEMORY_REDACT_REQUIRED: №326 is the only private egress path); records memory.export (№350)"),
+    # Naryad 351: the derived-graph surfaces (ADR-0173 §3.6).
+    "memory_cascade_preview": ("Source", "Internal", "Pure", "computes the cascade plan READ-ONLY ({closure, blocked_by}) — the №280 dry-run discipline: preview before any grant is touched; when blocked_by is empty the would-delete set IS the closure; records memory.cascade_preview (№351/ADR-0173 §3.2)"),
+    "memory_retain": ("Sink", "Internal", "Reversible", "pins the descendant closure of the key (the CASCADE retain) against cascading forgetting — a retained node inside a forget closure VETOES the whole forget (fail-closed, ADR-0173 §3.3); records memory.retain (№351)"),
+    "memory_release": ("Sink", "Internal", "Reversible", "unpins the descendant closure of the key — the surgical idempotent inverse of memory_retain; records memory.release (№351/ADR-0173 §3.3)"),
+    "memory_retained": ("Source", "Internal", "Pure", "lists the pinned keys of the container (sorted introspection; audited) (№351)"),
+    "memory_forget_cascade": ("Sink", "Internal", "Irreversible", "THE GRANT-GATED CASCADE FORGET (ADR-0173 §3.4): the ADR-0155 linear action — GRANT_MISSING without a grant, scope memory:forget:<container_id>, grant_use consumption, the post-success irreversible.memory_forget ledger record; delete-class per №316; the delete set is the FULL descendant closure (provenance integrity by construction) and any retained node inside it vetoes the whole forget (MEMORY_RETAIN_PROTECTED)"),
     "authenticate": ("Pure", "Secret", "Pure", "credential verification — handles secrets locally, no egress (stub intent)"),
     "vec_store": ("Sink", "Internal", "Reversible", "persists embeddings into the vector store (ADR-0134)"),
     "vec_search": ("Source", "Internal", "Pure", "reads the vector store (KNN state input)"),

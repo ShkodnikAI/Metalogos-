@@ -179,3 +179,131 @@ pub(crate) fn builtin_memory_export(args: &[Value]) -> Result<Value, String> {
         .map_err(|e| format!("memory_export: write failed: {}", e))?;
     Ok(Value::String(path))
 }
+
+// ── Naryad #351 (ADR-0173 §3.6): the derived-graph surfaces ─────────
+//
+//   memory_cascade_preview(handle, key) -> Struct{closure, blocked_by}
+//       the №280 dry-run discipline — read-only, no grant touched;
+//       when blocked_by is empty the would-delete set IS the closure
+//   memory_retain(handle, key)   -> Unit    pin the descendant closure
+//       of the key (the CASCADE retain; reversible via release)
+//   memory_release(handle, key)  -> Unit    unpin the descendant closure
+//   memory_retained(handle)      -> List<String>   pinned keys
+//   memory_forget_cascade(handle, key, grant) -> Struct{root, deleted,
+//       batch_id}   the ADR-0155 linear action: GRANT_MISSING without a
+//       grant; scope `memory:forget:<container_id>`; the retained VETO
+//       (MEMORY_RETAIN_PROTECTED) refuses before anything is deleted;
+//       the post-success ledger record `irreversible.memory_forget`
+
+use crate::memory_typed::ForgetOutcome;
+
+fn forget_outcome_value(o: &ForgetOutcome) -> Value {
+    let fields: Vec<(&str, Value)> = vec![
+        ("root", Value::String(o.root.clone())),
+        (
+            "deleted",
+            Value::List(o.deleted.iter().cloned().map(Value::String).collect()),
+        ),
+        ("batch_id", Value::String(o.batch_id.clone())),
+    ];
+    super::core::make_struct("MemoryForgetResult", fields)
+}
+
+/// `memory_cascade_preview(handle, key) -> Struct`
+pub(crate) fn builtin_memory_cascade_preview(args: &[Value]) -> Result<Value, String> {
+    let fn_name = "memory_cascade_preview";
+    if args.len() != 2 {
+        return Err(format!(
+            "{}: expects 2 arguments (handle, key), got {}",
+            fn_name,
+            args.len()
+        ));
+    }
+    let handle_id = memory_typed::container_id_arg(fn_name, args, 0)?;
+    let key = expect_string_arg(fn_name, args, 1)?;
+    let (closure, blocked_by, _ops) = memory_typed::cascade_preview(&handle_id, &key)?;
+    let fields: Vec<(&str, Value)> = vec![
+        (
+            "closure",
+            Value::List(closure.into_iter().map(Value::String).collect()),
+        ),
+        (
+            "blocked_by",
+            Value::List(blocked_by.into_iter().map(Value::String).collect()),
+        ),
+    ];
+    Ok(super::core::make_struct("MemoryCascadePlan", fields))
+}
+
+/// `memory_retain(handle, key) -> Unit`
+pub(crate) fn builtin_memory_retain(args: &[Value]) -> Result<Value, String> {
+    let fn_name = "memory_retain";
+    if args.len() != 2 {
+        return Err(format!(
+            "{}: expects 2 arguments (handle, key), got {}",
+            fn_name,
+            args.len()
+        ));
+    }
+    let handle_id = memory_typed::container_id_arg(fn_name, args, 0)?;
+    let key = expect_string_arg(fn_name, args, 1)?;
+    memory_typed::retain(&handle_id, &key)?;
+    Ok(Value::Unit)
+}
+
+/// `memory_release(handle, key) -> Unit`
+pub(crate) fn builtin_memory_release(args: &[Value]) -> Result<Value, String> {
+    let fn_name = "memory_release";
+    if args.len() != 2 {
+        return Err(format!(
+            "{}: expects 2 arguments (handle, key), got {}",
+            fn_name,
+            args.len()
+        ));
+    }
+    let handle_id = memory_typed::container_id_arg(fn_name, args, 0)?;
+    let key = expect_string_arg(fn_name, args, 1)?;
+    memory_typed::release(&handle_id, &key)?;
+    Ok(Value::Unit)
+}
+
+/// `memory_retained(handle) -> List<String>`
+pub(crate) fn builtin_memory_retained(args: &[Value]) -> Result<Value, String> {
+    let fn_name = "memory_retained";
+    if args.len() != 1 {
+        return Err(format!(
+            "{}: expects 1 argument (handle), got {}",
+            fn_name,
+            args.len()
+        ));
+    }
+    let handle_id = memory_typed::container_id_arg(fn_name, args, 0)?;
+    let keys = memory_typed::retained_keys(&handle_id)?;
+    Ok(Value::List(keys.into_iter().map(Value::String).collect()))
+}
+
+/// `memory_forget_cascade(handle, key, grant) -> Struct`
+pub(crate) fn builtin_memory_forget_cascade(args: &[Value]) -> Result<Value, String> {
+    let fn_name = "memory_forget_cascade";
+    if args.len() != 3 {
+        return Err(format!(
+            "{}: expects 3 arguments (handle, key, grant), got {}",
+            fn_name,
+            args.len()
+        ));
+    }
+    let handle_id = memory_typed::container_id_arg(fn_name, args, 0)?;
+    let key = expect_string_arg(fn_name, args, 1)?;
+    let grant = match &args[2] {
+        Value::Grant(h) => h.clone(),
+        other => {
+            return Err(format!(
+                "GRANT_MISSING: {} requires a Grant as argument 3 (issue it with grant_issue(scope, ttl, class) — scope \"memory:forget:<container>\"), got {}",
+                fn_name,
+                other.type_name()
+            ))
+        }
+    };
+    let outcome = memory_typed::forget_cascade(&handle_id, &key, &grant)?;
+    Ok(forget_outcome_value(&outcome))
+}

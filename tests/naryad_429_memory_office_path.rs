@@ -76,7 +76,11 @@ fn n429_office_path_end_to_end() {
     );
     call_builtin(
         "consent_grant",
-        &[s("office-user-429"), s("memory:office-user-429"), s("office-user-429")],
+        &[
+            s("office-user-429"),
+            s("memory:office-user-429"),
+            s("office-user-429"),
+        ],
     )
     .expect("consent_grant arms the private contour");
 
@@ -142,7 +146,10 @@ fn n429_office_path_end_to_end() {
         },
         other => panic!("preview must be a Struct, got {}", other.type_name()),
     };
-    assert_eq!(reach, 2, "source1 reaches summary -> (its own) closure: source1 + summary");
+    assert_eq!(
+        reach, 2,
+        "source1 reaches summary -> (its own) closure: source1 + summary"
+    );
 
     let grant = call_builtin(
         "grant_issue",
@@ -197,11 +204,14 @@ fn n429_ledger_records_every_office_step() {
     let _g = test_lock();
     call_builtin(
         "consent_grant",
-        &[s("ledger-user-429"), s("memory:ledger-user-429"), s("ledger-user-429")],
+        &[
+            s("ledger-user-429"),
+            s("memory:ledger-user-429"),
+            s("ledger-user-429"),
+        ],
     )
     .expect("consent");
-    let mem = call_builtin("memory_open", &[s("ledger-user-429"), s("private")])
-        .expect("open");
+    let mem = call_builtin("memory_open", &[s("ledger-user-429"), s("private")]).expect("open");
     let before = ledger_kinds();
     call_builtin(
         "memory_put",
@@ -209,8 +219,7 @@ fn n429_ledger_records_every_office_step() {
     )
     .expect("put");
     call_builtin("memory_read", &[mem.clone(), s("root")]).expect("read");
-    call_builtin("memory_cascade_preview", &[mem.clone(), s("root")])
-        .expect("preview");
+    call_builtin("memory_cascade_preview", &[mem.clone(), s("root")]).expect("preview");
     let grant = call_builtin(
         "grant_issue",
         &[s("memory:forget:*"), Value::Float(60.0), s("once")],
@@ -249,8 +258,7 @@ fn n429_public_container_needs_no_consent() {
     let _g = test_lock();
     let mem = call_builtin("memory_open", &[s("public-user-429"), s("public")])
         .expect("public open needs no consent");
-    call_builtin("memory_put", &[mem, s("k"), s("v"), Value::List(vec![])])
-        .expect("public put");
+    call_builtin("memory_put", &[mem, s("k"), s("v"), Value::List(vec![])]).expect("public put");
 }
 
 /// №16.0-D: no stubs in this test file (markers assembled from parts).

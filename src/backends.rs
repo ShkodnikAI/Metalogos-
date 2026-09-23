@@ -46,6 +46,14 @@ pub enum BackendClass {
     /// provenance discipline applies unchanged); real inference is
     /// PARKED by hardware (№294) — the mock-first call surface is live.
     VideoUnderstanding,
+    /// The embodied sim contour (Naryad №355, registry В5 — Phase 5
+    /// «Embodied, sim-only», ADR-0159). In-tree deterministic
+    /// simulators and mock device records — NO external weights
+    /// artifact exists, so the №334 pin contract does not apply (the
+    /// entries declare PendingNo334 honestly and are never loaded
+    /// through the weights loader). The contour is sim-only: no real
+    /// hardware path (the №294 hardware gate + the GPU-budget gate).
+    EmbodiedSim,
 }
 
 impl BackendClass {
@@ -58,6 +66,7 @@ impl BackendClass {
             BackendClass::Llm => "llm",
             BackendClass::Ocr => "ocr",
             BackendClass::VideoUnderstanding => "video-understanding",
+            BackendClass::EmbodiedSim => "embodied-sim",
         }
     }
 
@@ -73,6 +82,7 @@ impl BackendClass {
             "llm" => Some(BackendClass::Llm),
             "ocr" => Some(BackendClass::Ocr),
             "video-understanding" => Some(BackendClass::VideoUnderstanding),
+            "embodied-sim" => Some(BackendClass::EmbodiedSim),
             _ => None,
         }
     }
@@ -254,6 +264,31 @@ pub const BACKEND_REGISTRY: &[BackendEntry] = &[
         pin: ShaPin::Pinned("7ea1f92eaae35cb927e7c7b0f87568ccc046a2446aa68066dfdccb7ebbe0c7f0"),
         license: LicenseClass::Osi,
         license_note: "InternVL3-8B (OpenGVLab) — Apache-2.0 per the HF card declaration (osi; cardData + tags; the naryad's MIT assumption was stale — no separate LICENSE text ships in the repo)",
+    },
+    // №355 (wave 10, registry В5 — Phase 5 «Embodied, sim-only»,
+    // ADR-0159): the embodied-sim class joins the registry — the sim/
+    // mock device records the contour runs on. Honest entries: the
+    // simulators are IN-TREE deterministic code — no external weights
+    // artifact exists, so there is NOTHING to fetch or pin
+    // (PendingNo334 declared loudly; never routed through the weights
+    // loader), and the governing license is the repository's own
+    // (MIT OR Apache-2.0 — both osi). The contour is sim-only: no real
+    // hardware path exists (№294 + the GPU-budget gate, ADR-0159 §3.1).
+    BackendEntry {
+        name: "embodied-sim-kinematic",
+        class: BackendClass::EmbodiedSim,
+        weights_id: "in-tree-kinematics-sim",
+        pin: ShaPin::PendingNo334,
+        license: LicenseClass::Osi,
+        license_note: "in-tree deterministic kinematics simulator — no external weights artifact exists (nothing to fetch or pin; the №334 loader never routes sim records); governed by the repository license (MIT OR Apache-2.0 — osi)",
+    },
+    BackendEntry {
+        name: "embodied-mock-device",
+        class: BackendClass::EmbodiedSim,
+        weights_id: "in-tree-mock-device",
+        pin: ShaPin::PendingNo334,
+        license: LicenseClass::Osi,
+        license_note: "in-tree mock device record (trace-recording contour, no kinematics) — no external weights artifact exists (nothing to fetch or pin; the №334 loader never routes sim records); governed by the repository license (MIT OR Apache-2.0 — osi)",
     },
 ];
 

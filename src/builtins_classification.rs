@@ -115,10 +115,7 @@ pub struct BuiltClassEntry {
 /// Classification lookup — linear scan over a small static array; the map
 /// is compile-time data, uniqueness is test-enforced.
 pub fn classify(name: &str) -> Option<&'static BuiltClass> {
-    BUILTIN_CLASSES
-        .iter()
-        .find(|e| e.name == name)
-        .map(|e| &e.class)
+    BUILTIN_CLASSES.iter().find(|e| e.name == name).map(|e| &e.class)
 }
 
 /// SSOT map: имя → BuiltClass for EVERY registered builtin (№316).
@@ -310,6 +307,16 @@ pub static BUILTIN_CLASSES: &[BuiltClassEntry] = &[
     BuiltClassEntry { name: "speak_stop", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "ends the active speak stream — outcome Completed; an idle direction refuses loudly (DUPLEX_IDLE, fail-closed); records duplex.stop (№352)" } },
     BuiltClassEntry { name: "listen_stop", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "ends the active listen stream — outcome Completed; an idle direction refuses loudly (DUPLEX_IDLE, fail-closed); records duplex.stop (№352)" } },
     BuiltClassEntry { name: "duplex_state", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "reads the channel projection — both stream outcomes (metadata only, no content ever; audited introspection) (№352)" } },
+    BuiltClassEntry { name: "device_open", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "opens a SIM device handle over an `embodied-sim` registry record (the ADR-0163 SSOT; EMBODIED_BACKEND_UNKNOWN / EMBODIED_CLASS_MISMATCH otherwise — the contour is sim-only, fail-closed); the ingress of the embodied surface; records embodied.device_open (№355/ADR-0159)" } },
+    BuiltClassEntry { name: "bounds_attach", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "attaches (or replaces) the bounds formula on a device profile — the verbatim STL-style text stored OPAQUE (digests only outside the contour; private-by-default state, ADR-0159 §2.4.4); records embodied.bounds_attach (№355)" } },
+    BuiltClassEntry { name: "device_state", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "reads the device introspection projection — {id, backend, bounds_present, bounds_digest}; the bounds text itself never surfaces; audited introspection (№355)" } },
+    BuiltClassEntry { name: "world_state", class: BuiltClass { role: Role::Source, default_label: Label::Secret, reversibility: Reversibility::Reversible, rationale: "snapshots the deterministic stage-A world state (step 0) — PRIVATE by default: the handle carries the private label (the Phase-1 lattice) and every materialization surface refuses it (WORLD_STATE_PRIVATE + audit, the №349 consistency); records embodied.world_state (№355/ADR-0159)" } },
+    BuiltClassEntry { name: "pose_make", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "constructs a Pose handle — the numeric payload lives in the registry (the ADR-0114 opaque pattern, no geometry in Value); non-finite coordinates refuse loudly (№355)" } },
+    BuiltClassEntry { name: "trajectory_make", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "constructs a Trajectory over Pose handles — empty and over-capacity trajectories refuse loudly (no silent truncation); a data constructor over the registry (№355)" } },
+    BuiltClassEntry { name: "goal_make", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "declares a GoalPredicate — the verbatim text stored opaque, evaluated by the №356 monitor (not in №355) (№355)" } },
+    BuiltClassEntry { name: "chunk_make", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "binds a trajectory (and optional goal) to a device — WITHOUT a bounds formula the refusal is typed EMBODIED_UNBOUNDED (ADR-0159 §2.4.2: no unmonitored action, fail-closed); records embodied.chunk_make/chunk_denied (№355)" } },
+    BuiltClassEntry { name: "proof_seal", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "seals the signed Proof trace {hash(world), chunk, bounds, telemetry-digest, verdict, hash(sim)} — the stage-A verdict is PENDING by construction (the monitor lands with №356; no program-forged satisfied); the signature covers the canonical fields (the №343 contract); records embodied.proof_seal (№355)" } },
+    BuiltClassEntry { name: "proof_verify", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "validates the Proof CONTRACT FIELDS only — signature integrity, verdict vocabulary, bounds/backend-pin resolution; execution/re-simulation is №356; audited introspection (records embodied.proof_verify) (№355)" } },
     BuiltClassEntry { name: "forget", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Irreversible, rationale: "intended destructive memory removal" } },
     BuiltClassEntry { name: "find", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "intended memory search — state read" } },
     BuiltClassEntry { name: "inspect", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "intended runtime introspection — state read" } },
@@ -668,11 +675,7 @@ mod tests {
             .map(|e| e.name)
             .filter(|n| !registry.contains(*n))
             .collect();
-        assert!(
-            extras.is_empty(),
-            "classified names not in registry: {:?}",
-            extras
-        );
+        assert!(extras.is_empty(), "classified names not in registry: {:?}", extras);
     }
 
     /// №316 «Сделано, когда» (а): rationale on every non-Pure entry.
@@ -702,12 +705,7 @@ mod tests {
     #[test]
     fn issue_minimum_classes() {
         let expect_sink = [
-            "http_post",
-            "write_file",
-            "send_message",
-            "print",
-            "db_execute",
-            "tts_send",
+            "http_post", "write_file", "send_message", "print", "db_execute", "tts_send",
         ];
         for n in expect_sink {
             let c = classify(n).unwrap_or_else(|| panic!("{}", n));
@@ -723,11 +721,7 @@ mod tests {
             assert_eq!(c.reversibility, Reversibility::Irreversible, "{}", n);
         }
         let redact = classify("redact").unwrap();
-        assert_eq!(
-            redact.role,
-            Role::Lift,
-            "redact — taint-sanitizer lift (ADR-0136)"
-        );
+        assert_eq!(redact.role, Role::Lift, "redact — taint-sanitizer lift (ADR-0136)");
     }
 
     /// №316: Sink/Source/Lift/Pure distribution is sane (sanity counts,
@@ -754,13 +748,11 @@ mod tests {
             (Some(b), Some(e)) if b < e => (&reference[b..e], true),
             _ => ("", false),
         };
-        assert!(
-            found,
-            "REFERENCE.md must contain the classification block markers"
-        );
+        assert!(found, "REFERENCE.md must contain the classification block markers");
 
-        let mut expected =
-            String::from("| Builtin | Role | Default label | Reversibility |\n|---|---|---|---|\n");
+        let mut expected = String::from(
+            "| Builtin | Role | Default label | Reversibility |\n|---|---|---|---|\n",
+        );
         for e in BUILTIN_CLASSES {
             let role = e.class.role.as_str();
             let label = e.class.default_label.as_str();

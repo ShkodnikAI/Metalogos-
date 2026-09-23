@@ -655,7 +655,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 484 registered builtins (484 of 484): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 494 registered builtins (494 of 494): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -2050,7 +2050,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 484 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 494 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2159,7 +2159,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
-| `cron_add(...)` | 2..5 | `String, String, String?, String?, String? -> String` | Adds a cron job. `cron_expr` is a 5-field cron expression (e.g. `"0 9 * * 1-5"` — every weekday at 9:00). `prompt` is what to run. Optional: `tz` — the job's IANA timezone (windows are matched in it; default `MLOG_CRON_TZ` env, else UTC); `catch_up` — `"run_once"` (default: all missed windows coalesce into ONE fire at the next tick) or `"skip"` (missed windows are dropped); `payload` — a fixed DATA string handed to the target as its single String argument (never interpreted as code; zero-arg patterns must not set it). Unknown TZ / bad policy refuse loudly (`CRON_JOB_FAILED`) |
+| `cron_add(...)` | 2..5 | `String, String, String?, String?, String? -> CronJob` | Adds a cron job and returns `CronJob { id, cron_expr, prompt, enabled, status }` — the job id for `cron_run(id)`/`cron_remove(id)` is the `.id` field (verified against the 0.21.0 runtime; gh#590). `cron_expr` is a 5-field cron expression (e.g. `"0 9 * * 1-5"` — every weekday at 9:00). `prompt` is what to run. Optional: `tz` — the job's IANA timezone (windows are matched in it; default `MLOG_CRON_TZ` env, else UTC); `catch_up` — `"run_once"` (default: all missed windows coalesce into ONE fire at the next tick) or `"skip"` (missed windows are dropped); `payload` — a fixed DATA string handed to the target as its single String argument (never interpreted as code; zero-arg patterns must not set it). Unknown TZ / bad policy refuse loudly (`CRON_JOB_FAILED`) |
 | `cron_list(...)` | variadic | `-> List` | A list of all cron jobs. Each element is `CronJob { id, cron_expr, prompt, enabled, force_run, run_count, created_at, last_run, last_run_tz, last_window, tz, catch_up, payload, next_run, next_run_tz }` — `next_run`/`last_run` are epoch seconds; the `*_tz` fields are ISO strings in the JOB's timezone |
 | `cron_mark_fired(...)` | 1 | `String -> Float` | Marks a job as run: clears `force_run`, increments `run_count`, updates `last_run` and the window dedup stamp. Returns `1.0` if found, `0.0` if not |
 | `cron_remove(...)` | 1 | `String -> Float` | Deletes a job by ID. Returns `1.0` if deleted, `0.0` if not found |
@@ -2224,6 +2224,21 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `imap_search(...)` | 2 | `String, String -> String` | A text search (the IMAP `TEXT` criteria) |
 | `smtp_send(...)` | 3..6 | `String×3, String?×3 -> String` | Sends a plain-text email, TLS/STARTTLS. Arity 3..6 |
 | `smtp_send_html(...)` | 3..4 | `String×3, String? -> String` | An HTML email. Arity 3..4 |
+
+### `embodied` — 10 builtin(s)
+
+| Builtin | Arity | Signature (curated) | Description |
+|---|---|---|---|
+| `bounds_attach(...)` | 2 | — | `bounds_attach(device, formula) -> Device` |
+| `chunk_make(...)` | 2..3 | — | `chunk_make(device, trajectory, goal?) -> ActionChunk` |
+| `device_open(...)` | 1..2 | — | `device_open(backend, bounds?) -> Device` |
+| `device_state(...)` | 1 | — | `device_state(device) -> Struct` |
+| `goal_make(...)` | 1 | — | `goal_make(predicate) -> GoalPredicate` |
+| `pose_make(...)` | 4 | — | `pose_make(x, y, z, yaw) -> Pose` |
+| `proof_seal(...)` | 2..3 | — | `proof_seal(world, chunk, telemetry?) -> Proof` |
+| `proof_verify(...)` | 1 | — | `proof_verify(proof) -> Struct` |
+| `trajectory_make(...)` | 1 | — | `trajectory_make(poses) -> Trajectory` |
+| `world_state(...)` | 1 | — | `world_state(device) -> WorldState` |
 
 ### `encoding` — 4 builtin(s)
 
@@ -2714,10 +2729,10 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `audio_export(...)` | 1 | — | `audio_export(handle)` stub — ADR-0145. |
 | `duplex_open(...)` | 1..2 | — | `duplex_open(session, priority?) -> Duplex` |
 | `duplex_state(...)` | 1 | — | `duplex_state(duplex) -> Struct` |
-| `listen_start(...)` | 1..2 | — | `listen_start(duplex, priority?) -> Struct` — consent-gated (№428): requires an active `audio.listen` grant; without it the refusal is typed `AUDIO_CONSENT_REQUIRED` and lands in the ledger (`duplex.listen_denied`) |
+| `listen_start(...)` | 1..2 | — | `listen_start(duplex, priority?) -> Struct` |
 | `listen_stop(...)` | 1 | — | `listen_stop(duplex) -> Struct` |
 | `omni_ask(...)` | 1..3 | — | `omni_ask(prompt, media?, model?)` — the omni-class backend call (№334): a prompt with an OPTIONAL media payload reference (String). Defaults to the registry canon `nemotron-omni`. |
-| `speak_start(...)` | 2..3 | — | `speak_start(duplex, text, priority?) -> Struct` — consent-gated (№428): requires an active `audio.speak` grant (`consent_grant`); without it the refusal is typed `AUDIO_CONSENT_REQUIRED` and lands in the ledger (`duplex.speak_denied`) |
+| `speak_start(...)` | 2..3 | — | `speak_start(duplex, text, priority?) -> Struct` |
 | `speak_stop(...)` | 1 | — | `speak_stop(duplex) -> Struct` |
 | `stt_transcribe(...)` | 1..2 | — | `stt_transcribe(audio, model?)` — the STT-class backend call (№334). `audio` is the audio payload reference (String); `model` defaults to the registry canon `whisper-turbo` (weights: whisper-large-v3-turbo). |
 | `tts_generate(...)` | 2..4 | `String, String[, String][, String] -> String` | Speech synthesis WITHOUT delivery (Naryad #279): writes the audio file into the file sandbox (write_file semantics, Naryad #252) and returns the sandbox-relative path — feed it to `read_file`/`send_document` yourself. Providers v1: `"openai"` (default); `model`: `tts-1` (default) / `tts-1-hd` / `gpt-4o-mini-tts`. Key: `METALOGOS_TTS_API_KEY` (falls back to `OPENAI_API_KEY`); `METALOGOS_TTS_BASE_URL` overrides `https://api.openai.com/v1` (mock servers / self-host proxies) — `/audio/speech` is appended. Output format: provider default (MP3) |
@@ -2950,6 +2965,16 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `speak_stop` | sink | internal | reversible | ends the active speak stream — outcome Completed; an idle direction refuses loudly (DUPLEX_IDLE, fail-closed); records duplex.stop (№352) |
 | `listen_stop` | sink | internal | reversible | ends the active listen stream — outcome Completed; an idle direction refuses loudly (DUPLEX_IDLE, fail-closed); records duplex.stop (№352) |
 | `duplex_state` | source | internal | pure | reads the channel projection — both stream outcomes (metadata only, no content ever; audited introspection) (№352) |
+| `device_open` | source | internal | reversible | opens a SIM device handle over an `embodied-sim` registry record (the ADR-0163 SSOT; EMBODIED_BACKEND_UNKNOWN / EMBODIED_CLASS_MISMATCH otherwise — the contour is sim-only, fail-closed); the ingress of the embodied surface; records embodied.device_open (№355/ADR-0159) |
+| `bounds_attach` | sink | internal | reversible | attaches (or replaces) the bounds formula on a device profile — the verbatim STL-style text stored OPAQUE (digests only outside the contour; private-by-default state, ADR-0159 §2.4.4); records embodied.bounds_attach (№355) |
+| `device_state` | source | internal | reversible | reads the device introspection projection — {id, backend, bounds_present, bounds_digest}; the bounds text itself never surfaces; audited introspection (№355) |
+| `world_state` | source | secret | reversible | snapshots the deterministic stage-A world state (step 0) — PRIVATE by default: the handle carries the private label (the Phase-1 lattice) and every materialization surface refuses it (WORLD_STATE_PRIVATE + audit, the №349 consistency); records embodied.world_state (№355/ADR-0159) |
+| `pose_make` | source | internal | reversible | constructs a Pose handle — the numeric payload lives in the registry (the ADR-0114 opaque pattern, no geometry in Value); non-finite coordinates refuse loudly (№355) |
+| `trajectory_make` | source | internal | reversible | constructs a Trajectory over Pose handles — empty and over-capacity trajectories refuse loudly (no silent truncation); a data constructor over the registry (№355) |
+| `goal_make` | source | internal | reversible | declares a GoalPredicate — the verbatim text stored opaque, evaluated by the №356 monitor (not in №355) (№355) |
+| `chunk_make` | sink | internal | reversible | binds a trajectory (and optional goal) to a device — WITHOUT a bounds formula the refusal is typed EMBODIED_UNBOUNDED (ADR-0159 §2.4.2: no unmonitored action, fail-closed); records embodied.chunk_make/chunk_denied (№355) |
+| `proof_seal` | sink | internal | reversible | seals the signed Proof trace {hash(world), chunk, bounds, telemetry-digest, verdict, hash(sim)} — the stage-A verdict is PENDING by construction (the monitor lands with №356; no program-forged satisfied); the signature covers the canonical fields (the №343 contract); records embodied.proof_seal (№355) |
+| `proof_verify` | source | internal | reversible | validates the Proof CONTRACT FIELDS only — signature integrity, verdict vocabulary, bounds/backend-pin resolution; execution/re-simulation is №356; audited introspection (records embodied.proof_verify) (№355) |
 | `forget` | sink | internal | irreversible | intended destructive memory removal |
 | `find` | source | internal | pure | intended memory search — state read |
 | `inspect` | source | internal | pure | intended runtime introspection — state read |
@@ -3249,6 +3274,9 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `ledger_verify` | source | internal | pure | reads an exported JSONL chain from a sandboxed path and returns the structural verification verdict (№415) — ingress of the signed trail for verification; the runtime ledger is never written and nothing egresses |
 
 <!-- END GENERATED BUILTIN CLASSIFICATION -->
+
+
+
 
 
 

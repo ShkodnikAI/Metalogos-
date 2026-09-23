@@ -192,6 +192,11 @@ use memory_typed::*;
 // Наряд №352 (ADR-0174): дуплекс-канал — barge-in по лестнице приоритетов сессии №348.
 pub(crate) mod duplex;
 use duplex::*;
+// Наряд №355 (registry В5 — Phase 5 «Embodied, sim-only», ADR-0159): the
+// embodied type surfaces — Device/WorldState/ActionChunk/Pose/Trajectory/
+// GoalPredicate/Proof over the sim-only contour (state: src/embodied.rs).
+pub(crate) mod embodied;
+use embodied::*;
 // Наряд №272 (ADR-0134): векторный контур — embed / vec_store / vec_search.
 // Feature-gate `vec` off-by-default (паттерн candle/vision, ADR-0104);
 // в `portable` включён (ADR-0134 D3).

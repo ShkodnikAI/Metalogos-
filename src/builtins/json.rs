@@ -83,6 +83,22 @@ pub(crate) fn mlog_value_to_json(val: &Value) -> serde_json::Value {
             }
             serde_json::Value::Object(map)
         }
+        // №355 (ADR-0159): the embodied handles — the metadata projection
+        // map is the sanctioned JSON shape (the Session/Memory printable-
+        // projection precedent; WorldState is refused earlier at the
+        // guard — its map never reaches serialization).
+        Value::Device(map)
+        | Value::Pose(map)
+        | Value::Trajectory(map)
+        | Value::GoalPredicate(map)
+        | Value::ActionChunk(map)
+        | Value::Proof(map) => {
+            let mut obj = serde_json::Map::new();
+            for (k, v) in map {
+                obj.insert(k.clone(), serde_json::Value::String(v.clone()));
+            }
+            serde_json::Value::Object(obj)
+        }
         // Opaque/internal types: convert to string representation
         other => serde_json::Value::String(format!("{}", other)),
     }
@@ -95,6 +111,10 @@ pub(crate) fn builtin_json_encode(args: &[Value]) -> Result<Value, String> {
     if args.is_empty() {
         return Err("json_encode() requires 1 argument".to_string());
     }
+    // №355: WorldState is private-by-default state — json_encode is the
+    // one surface where the projection map would become CONTENT, so the
+    // typed refusal + the audit record fire before serialization.
+    super::embodied::guard_world_state_json(&args[0])?;
     let json = mlog_value_to_json(&args[0]);
     let serialized = serde_json::to_string(&json)
         .map_err(|e| format!("json_encode() serialization error: {}", e))?;

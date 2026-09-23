@@ -1,0 +1,31 @@
+// ── Волна 10, наряд №355 (registry В5 — Phase 5 «Embodied, sim-only»,
+//    ADR-0159): the embodied sim contour end-to-end ─────────────────────
+//
+// The sim-only loud boundary in action: a device opens ONLY over an
+// `embodied-sim` registry record (ADR-0163 SSOT); the bounds formula
+// attaches opaque (digests only — private-by-default state); the world
+// snapshot is PRIVATE by default; the chunk is UNMAKABLE without a
+// bounds formula on the device profile (ADR-0159 §2.4.2 — no
+// unmonitored action); the proof seals PENDING by construction (the
+// monitor lands with №356) and verifies on the contract fields only.
+
+pattern EmbodiedSimDemo(_tick: String) -> String {
+  let dev = device_open("embodied-sim-kinematic")
+  let dev2 = bounds_attach(dev, "always(|pose.velocity| <= v_max) and always(distance_to(obstacle) >= d_safe)")
+  let st = device_state(dev2)
+  let ws = world_state(dev2)
+  let p1 = pose_make(0.0, 0.0, 0.0, 0.0)
+  let p2 = pose_make(1.0, 0.0, 0.0, 0.0)
+  let traj = trajectory_make([p1, p2])
+  let goal = goal_make("eventually(within(5s, at(goal)))")
+  let chunk = chunk_make(dev2, traj, goal)
+  let proof = proof_seal(ws, chunk)
+  let rep = proof_verify(proof)
+  return "bounds=" + to_string(st.bounds_present)
+       + "|chunk=" + type_of(chunk)
+       + "|world=" + type_of(ws)
+       + "|proof=" + type_of(proof)
+       + "|valid=" + to_string(rep.valid)
+       + "|verdict=" + rep.verdict
+}
+flow Main { input: String = "tick" -> EmbodiedSimDemo -> output }

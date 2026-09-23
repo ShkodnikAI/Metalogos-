@@ -142,6 +142,36 @@ pub enum Value {
     /// state; the map (`id`/`session`) is the printable projection
     /// only. Appended LAST — bincode variant indices stable (.mbc).
     Duplex(std::collections::HashMap<String, String>),
+    /// Opaque embodied device handle (Naryad #355, registry В5 — Phase
+    /// 5 «Embodied, sim-only», ADR-0159). The registry in
+    /// `src/embodied.rs` is the state; the map (`id`/`backend`) is the
+    /// printable projection only. Appended LAST — bincode variant
+    /// indices stable (.mbc).
+    Device(std::collections::HashMap<String, String>),
+    /// Opaque embodied world snapshot (Naryad #355, ADR-0159).
+    /// PRIVATE-BY-DEFAULT: the map carries `label: "private"` (the
+    /// Phase-1 lattice) and every materialization surface refuses it
+    /// (the typed WORLD_STATE_PRIVATE stamp + the audit record).
+    WorldState(std::collections::HashMap<String, String>),
+    /// Opaque embodied action chunk (Naryad #355, ADR-0159 §2.4.2).
+    /// Unmakable without a bounds formula on the device profile —
+    /// no unmonitored action, fail-closed (EMBODIED_UNBOUNDED).
+    ActionChunk(std::collections::HashMap<String, String>),
+    /// Opaque embodied pose (Naryad #355) — the numeric payload lives
+    /// in the registry (the ADR-0114 opaque rationale), the map is the
+    /// projection only.
+    Pose(std::collections::HashMap<String, String>),
+    /// Opaque embodied trajectory (Naryad #355) — the pose sequence
+    /// lives in the registry; the map is the projection only.
+    Trajectory(std::collections::HashMap<String, String>),
+    /// Opaque embodied goal predicate (Naryad #355) — the verbatim
+    /// text lives in the registry (evaluated by the №356 monitor).
+    GoalPredicate(std::collections::HashMap<String, String>),
+    /// Opaque embodied Proof handle (Naryad #355, the №343 signed
+    /// trace: {hash(world), chunk, bounds, telemetry, verdict,
+    /// hash(sim)}). The signed record lives in the registry; runtime
+    /// validation checks the CONTRACT FIELDS only — execution is №356.
+    Proof(std::collections::HashMap<String, String>),
 }
 
 impl std::fmt::Display for Value {
@@ -252,6 +282,16 @@ impl std::fmt::Display for Value {
             // opaque markers — no subject/scope detail leaks.
             Value::LikenessChallenge(_) => write!(f, "[LikenessChallenge]"),
             Value::Likeness(_) => write!(f, "[LikenessToken]"),
+            // Naryad #355 (ADR-0159): the embodied handles display as
+            // opaque markers — no device/world/proof detail leaks
+            // through Display (the Grant/Likeness convention).
+            Value::Device(_) => write!(f, "[Device]"),
+            Value::WorldState(_) => write!(f, "[WorldState]"),
+            Value::ActionChunk(_) => write!(f, "[ActionChunk]"),
+            Value::Pose(_) => write!(f, "[Pose]"),
+            Value::Trajectory(_) => write!(f, "[Trajectory]"),
+            Value::GoalPredicate(_) => write!(f, "[GoalPredicate]"),
+            Value::Proof(_) => write!(f, "[Proof]"),
         }
     }
 }
@@ -295,6 +335,14 @@ impl Value {
             // "LikenessChallenge" / "LikenessToken".
             Value::LikenessChallenge(_) => "LikenessChallenge",
             Value::Likeness(_) => "LikenessToken",
+            // Naryad #355 (ADR-0159): the embodied handle type names.
+            Value::Device(_) => "Device",
+            Value::WorldState(_) => "WorldState",
+            Value::ActionChunk(_) => "ActionChunk",
+            Value::Pose(_) => "Pose",
+            Value::Trajectory(_) => "Trajectory",
+            Value::GoalPredicate(_) => "GoalPredicate",
+            Value::Proof(_) => "Proof",
         }
     }
 
@@ -464,6 +512,16 @@ pub const CODE_MCP_PROTOCOL_ERROR: &str = "MCP_PROTOCOL_ERROR";
 /// The MCP allowlist refused the server (№268/ADR-0132 D3 policy refusal;
 /// existing origin marker, now whitelisted for `try`).
 pub const CODE_MCP_NOT_ALLOWLISTED: &str = "MCP_NOT_ALLOWLISTED";
+/// №355 (ADR-0159): the embodied contour — the typed refusals of the
+/// sim-only surface (the №413 origin-stamp convention, try-branchable).
+pub const CODE_EMBODIED_BACKEND_UNKNOWN: &str = "EMBODIED_BACKEND_UNKNOWN";
+pub const CODE_EMBODIED_CLASS_MISMATCH: &str = "EMBODIED_CLASS_MISMATCH";
+pub const CODE_EMBODIED_UNBOUNDED: &str = "EMBODIED_UNBOUNDED";
+pub const CODE_EMBODIED_HANDLE_UNKNOWN: &str = "EMBODIED_HANDLE_UNKNOWN";
+pub const CODE_EMBODIED_PROOF_INVALID: &str = "EMBODIED_PROOF_INVALID";
+/// №355: the WorldState private-by-default materialization refusal
+/// (the Phase-1 lattice / №349 consistency — ошибка + аудит).
+pub const CODE_WORLD_STATE_PRIVATE: &str = "WORLD_STATE_PRIVATE";
 
 /// The whitelist of codes a subsystem may stamp onto the String error
 /// channel. `RUNTIME_ERROR` is deliberately NOT in this list: it is the
@@ -494,6 +552,15 @@ const ORIGIN_STAMPED_CODES: &[&str] = &[
     CODE_MCP_IO_ERROR,
     CODE_MCP_TOOL_ERROR,
     CODE_MCP_TOOL_NOT_FOUND,
+    // №355: the embodied contour — the sim-only refusals and the
+    // WorldState private-materialization leg (branchable office
+    // policies: normalize/ask-for-elevation on WORLD_STATE_PRIVATE).
+    CODE_EMBODIED_BACKEND_UNKNOWN,
+    CODE_EMBODIED_CLASS_MISMATCH,
+    CODE_EMBODIED_UNBOUNDED,
+    CODE_EMBODIED_HANDLE_UNKNOWN,
+    CODE_EMBODIED_PROOF_INVALID,
+    CODE_WORLD_STATE_PRIVATE,
     CODE_MCP_PROTOCOL_ERROR,
     CODE_MCP_NOT_ALLOWLISTED,
 ];
@@ -594,6 +661,18 @@ pub fn is_nonprintable(v: &Value) -> bool {
             // them exposes only the index, but the convention for ALL
             // opaque handles is non-printable.
             | Value::Media(_)
+            // Наряд №355 (ADR-0159): the embodied handles are opaque —
+            // the WorldState leg additionally carries the private-by-
+            // default contract (the typed WORLD_STATE_PRIVATE refusal
+            // with the audit record lives in the materialization
+            // surfaces; the generic opaque refusal is the floor).
+            | Value::Device(_)
+            | Value::WorldState(_)
+            | Value::ActionChunk(_)
+            | Value::Pose(_)
+            | Value::Trajectory(_)
+            | Value::GoalPredicate(_)
+            | Value::Proof(_)
     )
 }
 

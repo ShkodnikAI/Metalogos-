@@ -151,13 +151,11 @@ fn exec_restricted(
 pub(crate) fn builtin_print(args: &[Value]) -> Result<Value, String> {
     // Наряд №114: refuse Secret / other opaque values with a clear message.
     // expect_string_arg would also reject Secret, but with a generic wording.
+    // №355: the WorldState leg is TYPED (WORLD_STATE_PRIVATE + the audit
+    // record — the private-by-default materialization refusal); the
+    // remaining embodied handles keep the generic opaque refusal.
     if let Some(arg) = args.first() {
-        if crate::interpreter::values::is_nonprintable(arg) {
-            return Err(format!(
-                "print() refused: {} values cannot be printed (Secret and other opaque types)",
-                arg.type_name()
-            ));
-        }
+        super::embodied::check_print_arg(arg)?;
     }
     let s = expect_string_arg("print", args, 0)?;
     eprintln!("[print] {}", s);

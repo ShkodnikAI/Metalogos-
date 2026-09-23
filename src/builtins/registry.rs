@@ -333,6 +333,21 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("speak_stop", 1, "voice"; builtin_speak_stop),
     spec!("listen_stop", 1, "voice"; builtin_listen_stop),
     spec!("duplex_state", 1, "voice"; builtin_duplex_state),
+    // №355 (registry В5 — Phase 5 «Embodied, sim-only», ADR-0159): the
+    // embodied surface over the sim contour. NOT feature-gated: the
+    // contour is sim-only (in-tree deterministic records — no hardware,
+    // no GPU, no weights); the monitor/state evolution lands with №356
+    // BEHIND the GPU-budget gate, the TYPES are live now.
+    spec!("device_open", 1, 2, "embodied"; builtin_device_open),
+    spec!("bounds_attach", 2, "embodied"; builtin_bounds_attach),
+    spec!("device_state", 1, "embodied"; builtin_device_state),
+    spec!("world_state", 1, "embodied"; builtin_world_state),
+    spec!("pose_make", 4, "embodied"; builtin_pose_make),
+    spec!("trajectory_make", 1, "embodied"; builtin_trajectory_make),
+    spec!("goal_make", 1, "embodied"; builtin_goal_make),
+    spec!("chunk_make", 2, 3, "embodied"; builtin_chunk_make),
+    spec!("proof_seal", 2, 3, "embodied"; builtin_proof_seal),
+    spec!("proof_verify", 1, "embodied"; builtin_proof_verify),
     spec!("forget", 0, "stub"),
     spec!("find", 4, "stub"),
     spec!("inspect", 1, "stub"),

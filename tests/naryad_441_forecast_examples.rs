@@ -56,10 +56,9 @@ fn field_of(report: &str, key: &str) -> String {
 fn n441_expected_golden_matches() {
     let out = run_example();
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
-    let expected = fs::read_to_string(Path::new(&manifest_dir).join(
-        "examples/w12_forecast_ladder.expected",
-    ))
-    .expect("examples/w12_forecast_ladder.expected exists");
+    let expected =
+        fs::read_to_string(Path::new(&manifest_dir).join("examples/w12_forecast_ladder.expected"))
+            .expect("examples/w12_forecast_ladder.expected exists");
     assert_eq!(
         out.trim(),
         expected.trim(),
@@ -126,14 +125,23 @@ fn n441_interpolation_marker_is_fail_closed() {
 #[test]
 fn n441_ledger_family_records_the_story() {
     let _guard = LEDGER_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    let before = metalogos::ledger::all_records().map(|r| r.len()).unwrap_or(0);
+    let before = metalogos::ledger::all_records()
+        .map(|r| r.len())
+        .unwrap_or(0);
     let _ = run_example();
     let records = metalogos::ledger::all_records().expect("the ledger reads back");
     let tail = &records[records.len().saturating_sub(before + 40).min(records.len())..];
-    let has = |prefix: &str| {
-        tail.iter().any(|r| r.action.starts_with(prefix))
-    };
-    assert!(has("forecast.series_make"), "series_make is an audited ledger record");
-    assert!(has("forecast.run"), "forecast_next records forecast.run (rung/pin/quantiles/degraded)");
-    assert!(has("forecast.denied"), "the export refusal records forecast.denied");
+    let has = |prefix: &str| tail.iter().any(|r| r.action.starts_with(prefix));
+    assert!(
+        has("forecast.series_make"),
+        "series_make is an audited ledger record"
+    );
+    assert!(
+        has("forecast.run"),
+        "forecast_next records forecast.run (rung/pin/quantiles/degraded)"
+    );
+    assert!(
+        has("forecast.denied"),
+        "the export refusal records forecast.denied"
+    );
 }

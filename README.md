@@ -357,14 +357,14 @@ Metalogos-/
 │       ├── naryad_198_audit_finds_known_vuln.rs
 │       └── naryad_198_backward_compat.rs
 │
-├── tests/                             # 208 Rust test files
+├── tests/                             # 226 Rust test files
 │   ├── fixtures/                      # PDF test fixtures
 │   ├── golden.rs                      # Golden test runner
 │   ├── vm_golden.rs                   # VM golden tests
 │   ├── crosscheck_backends.rs          # TW vs VM parity (see ADR-0105 for known gaps)
 │   ├── repl_integration.rs            # REPL tests
 │   ├── definition_of_done.rs          # Project completeness validation
-│   └── ...                            # and 200 more contract/feature test files
+│   └── ...                            # and 218 more contract/feature test files
 │
 ├── examples/                          # 255 .mlog programs (golden corpus)
 │   ├── m1_hello.mlog                  # Hello World
@@ -1081,7 +1081,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 124+ development narads (work orders) delivered. 494 builtins, 216 test files, 253 example programs, 167 ADRs (159 accepted + 3 reserved; ADR-0154/0161 filled by naryads №322/№325; ADR-0162 — №331 media handles; ADR-0163 — №333 backend registry; ADR-0164 — №332 perception origin chain; ADR-0165 — №336 backend ladder + Degraded(t); ADR-0166 — №337 C2PA contour of handles; ADR-0157/0167 — №393 Action Ledger v1; ADR-0169 — №385 stable try error codes; ADR-0170 — №405 persistence taint layer 2; ADR-0171 — №404 serve-default flip; ADR-0172 — №348 session model; ADR-0173 — №351 derived graph + cascade; ADR-0174 — №352 directed audio effects + duplex; ADR-0175 — №426 tick context). See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
+All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 124+ development narads (work orders) delivered. 494 builtins, 226 test files, 255 example programs, 167 ADRs (158 accepted/implemented + 2 reserved + 2 proposed + 3 rejected + 1 assessed + 1 partially implemented; ADR-0154/0161 filled by naryads №322/№325; ADR-0162 — №331 media handles; ADR-0163 — №333 backend registry; ADR-0164 — №332 perception origin chain; ADR-0165 — №336 backend ladder + Degraded(t); ADR-0166 — №337 C2PA contour of handles; ADR-0157/0167 — №393 Action Ledger v1; ADR-0169 — №385 stable try error codes; ADR-0170 — №405 persistence taint layer 2; ADR-0171 — №404 serve-default flip; ADR-0172 — №348 session model; ADR-0173 — №351 derived graph + cascade; ADR-0174 — №352 directed audio effects + duplex; ADR-0175 — №426 tick context; ADR-0159 — №354 sim-first STL monitor). See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
 
 ### Next
 

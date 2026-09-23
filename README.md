@@ -366,7 +366,7 @@ Metalogos-/
 │   ├── definition_of_done.rs          # Project completeness validation
 │   └── ...                            # and 218 more contract/feature test files
 │
-├── examples/                          # 256 .mlog programs (golden corpus)
+├── examples/                          # 257 .mlog programs (golden corpus)
 │   ├── m1_hello.mlog                  # Hello World
 │   ├── p6_full_app.mlog               # Full web app with routes
 │   ├── p23_ml_learn.mlog              # ML learning
@@ -1028,7 +1028,7 @@ Four integration tests verify the new behavior:
 |---|---|
 | Effective Rust LOC | ~59 000 |
 | Built-in Functions | 494 (44 modules) |
-| Example Programs | 256 |
+| Example Programs | 257 |
 | Integration Tests | 70 test suites |
 | Architecture Decision Records | 161 |
 | Parser Rules | 288 (Pest PEG) |

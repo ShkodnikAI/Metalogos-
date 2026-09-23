@@ -1,0 +1,1 @@
+speak=AUDIO_CONSENT_REQUIRED|denied_speak=1|listen=AUDIO_CONSENT_REQUIRED|denied_listen=1|granted_speak=Struct|speak_stop=Struct|granted_listen=Struct|listen_stop=Struct|after_revoke=AUDIO_CONSENT_REQUIRED|denied_again=1

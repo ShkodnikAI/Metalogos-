@@ -229,7 +229,7 @@ struct SeriesSourceParts {
 /// word is a loud refusal, never a silent public).
 fn parse_series_source(fn_name: &str, arg: &Value) -> Result<SeriesSourceParts, String> {
     const MAX: usize = MAX_SERIES_LENGTH;
-    let mut parts = match arg {
+    let parts = match arg {
         Value::List(items) => {
             let mut values = Vec::with_capacity(items.len());
             for it in items {

@@ -564,3 +564,38 @@ that. The wave's real deliverable for the office path is the №429 contract
 for Phase 5 — the carrier-independent semantics the gated stages will
 reuse. P0 items unchanged: `recall` stub, plan v2 absent, taint P2 set.
 Recomputation at the next wave boundary, same protocol.
+
+### 6.7. Wave 11 recount (naryad №438): **76%** (main @ `d2295ce`, 2026-09-23)
+
+Same decomposition and weights as §6.4–§6.6 (still UNVERIFIED — plan v2 is
+still absent from the repository); readiness per the code facts only. The
+honest headline: **the total does not move** — Wave 11's substance is (a)
+office reliability INFRASTRUCTURE (№435: the waker moved into the public
+repo, GH-hosted schedule; the paired FO-051 demoted the dead self-hosted
+schedule in the office repo), which has NO row in this decomposition at
+all, and (b) EVIDENCE hardening on already-counted surfaces (№436/№437:
+the red/green example line + the mutation harnesses for the №354/№355
+embodied refusals and the №428 audio consent gate — the audit 2026-09-23
+P1-1/P1-2 live remains). The builtin registry does not grow: 494 before,
+494 after.
+
+| Subsystem | Weight (UNVERIFIED) | Wave 10 `b18fb254` | Wave 11 `d2295ce` | Contribution | Basis for the readiness (recounted by proof commands) |
+|---|---|---|---|---|---|
+| Labels (taint) | 30% | 75% | **75%** (unchanged) | 22.5pp | the dogfood examples (№436/№437) OBSERVE the runtime gates, the static contour is untouched: `audio.speak`/`audio.listen` grants and the WorldState opacity remain runtime facts (limitations.md L103/L104 unchanged); the parked P2 set (effects, affinity, full static inference) unchanged |
+| Capability model | 20% | 88% | **88%** (unchanged) | 17.6pp | no NEW grant-gated capability landed: the waker (№435) is repo infrastructure (a workflow pinging `/health`), not a language capability; the consent dogfood (№437) exercises the EXISTING №335 grant contour (`consent_grant`/`consent_revoke`); proof: `grep -c 'spec!(' src/builtins/registry.rs` = 494, unchanged |
+| Backend registry | 15% | 85% | **85%** (unchanged) | 12.75pp | no compute-backend work: the wave adds examples/tests/workflow files only; the `embodied-sim` registry records (№355) unchanged; the TimesFM/forecast ladder (№440) is Wave-12 BACKLOG, not landed |
+| Ledger | 15% | 95% | **95%** (unchanged) | 14.25pp | no new record family: the №437 example OBSERVES the existing `duplex.*` records (`duplex.speak_denied`/`duplex.listen_denied`/`duplex.speak_start`/`duplex.stop`) via `ledger_count` deltas; proof: `grep -rn "duplex\." src/duplex.rs | head`; the verification hook (№415) unchanged |
+| Memory | 20% | 45% | **45%** (unchanged) | 9pp | no memory work in Wave 11; the "still missing" list is INTACT: `recall` remains a registry stub (`grep -n '"recall"' src/builtins/registry.rs`), the plan-v2 memory contract is still unknown, the FTS5-recall lane is not integrated with the typed lane |
+| **Total** | **100%** | **76.1 ≈ 76%** | — | **76.1 ≈ 76%** | |
+
+**Honest reading.** 76% → 76% is the honest outcome: a wave whose code is
+(a) repo/office infrastructure (the office's native cron got its alarm
+clock back — the waker now runs where the runners are alive), (b) example
+and mutation EVIDENCE for refusals that were already counted with their
+surfaces, and (c) a doc sync, does not shorten any "still missing" list —
+and readiness here tracks exactly that. The wave's real deliverable is
+operational: the audit 2026-09-23 P1 items are closed by evidence (P1-1 →
+№436, P1-2 → №437), and the office voice-path adaptation contract is
+written down where the office will read it — in the example header.
+P0 items unchanged: `recall` stub, plan v2 absent, taint P2 set.
+Recomputation at the next wave boundary, same protocol.

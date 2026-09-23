@@ -1754,7 +1754,7 @@ fn verify_backend_ladder(
                 out,
                 LadderViolationKind::Invalid,
                 format!(
-                    "backend_select: unknown backend class '{}' (available: stt, tts, omni, vision-understanding, llm, ocr)",
+                    "backend_select: unknown backend class '{}' (available: stt, tts, omni, vision-understanding, llm, ocr, video-understanding, embodied-sim, timeseries)",
                     word
                 ),
             );
@@ -1999,6 +1999,255 @@ fn check_backend_expr(expr: &Expr, production: bool, out: &mut Vec<LadderViolati
         }
         Expr::Try { expr, .. } => check_backend_expr(expr, production, out),
         Expr::ProvBind { inner, .. } => check_backend_expr(inner, production, out),
+        Expr::HandleSource { .. }
+        | Expr::StringLit { .. }
+        | Expr::FloatLit { .. }
+        | Expr::BoolLit { .. }
+        | Expr::Ident { .. } => {}
+    }
+}
+
+// ── Naryad №440: the forecast surface companion (the backend_select
+//    companion convention, ADR-0165 §2.4 template) ─────────────────────
+//
+// A statically-visible forecast constructor call site is verified at
+// BUILD time:
+//   - `series_make` with a literal struct form: the `label` field must
+//     parse through the №322 lattice (ADR-0154) — an unknown word is a
+//     loud compile error (FORECAST_LABEL_INVALID), never a silent
+//     bottom label (under-tainting must be impossible by construction);
+//   - `forecast_next` with a literal horizon: it must be a whole
+//     number in 1..=1024 (FORECAST_HORIZON_INVALID — the allocation
+//     guard, mirrored from the runtime refusal).
+// Non-literal call sites are not statically verifiable and stay with
+// the runtime checks (documented here, loud there).
+
+/// One statically-verifiable forecast defect (the LadderViolation
+/// template; the kind separates the two Category-A check ids).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ForecastViolationKind {
+    LabelInvalid,
+    HorizonInvalid,
+}
+
+#[derive(Debug, Clone)]
+pub struct ForecastViolation {
+    pub kind: ForecastViolationKind,
+    pub message: String,
+    pub span: Span,
+}
+
+/// Public entry for the audit path (№440): the SAME rules the
+/// companion applies, so a statically-broken forecast call site is
+/// loud on EVERY compile path (`compile_program`/`run_program_with_dir`
+/// call `audit_category_a`, not `check_program` — the №332 posture).
+pub fn forecast_surface_violations(declarations: &[Declaration]) -> Vec<ForecastViolation> {
+    let mut violations: Vec<ForecastViolation> = Vec::new();
+    for decl in declarations {
+        match decl {
+            Declaration::Pattern(p) => check_forecast_stmts(&p.body, &mut violations),
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    check_forecast_stmts(&m.body, &mut violations);
+                }
+            }
+            Declaration::MlogServer(srv) => {
+                for r in &srv.routes {
+                    check_forecast_stmts(&r.body, &mut violations);
+                }
+            }
+            Declaration::Flow(f) => check_forecast_expr(&f.source, &mut violations),
+            _ => {}
+        }
+    }
+    violations
+}
+
+fn verify_forecast_call(name: &str, args: &[Expr], span: &Span, out: &mut Vec<ForecastViolation>) {
+    let push = |out: &mut Vec<ForecastViolation>, kind, message: String| {
+        out.push(ForecastViolation {
+            kind,
+            message,
+            span: span.clone(),
+        });
+    };
+    if name == "series_make" {
+        // The struct form's `label` field: verified only when BOTH the
+        // struct literal and the field value are literal.
+        if let Some(Expr::StructLit { fields, .. }) = args.first() {
+            if let Some(Expr::StringLit { value, .. }) = fields.get("label") {
+                if let Err(e) = crate::labels::Label::parse(value) {
+                    push(
+                        out,
+                        ForecastViolationKind::LabelInvalid,
+                        format!(
+                            "series_make: invalid label '{}' — the label must be a №322 lattice annotation ({})",
+                            value, e
+                        ),
+                    );
+                }
+            }
+        }
+    }
+    if name == "forecast_next" {
+        // The literal horizon: whole number in 1..=1024 (the runtime
+        // guard mirrored at check time).
+        if let Some(Expr::FloatLit { value, .. }) = args.get(1) {
+            if !value.is_finite()
+                || value.fract() != 0.0
+                || *value < 1.0
+                || *value > crate::forecast::MAX_HORIZON
+            {
+                push(
+                    out,
+                    ForecastViolationKind::HorizonInvalid,
+                    format!(
+                        "forecast_next: horizon {} is outside the loud guard (a whole number in 1..={})",
+                        value, crate::forecast::MAX_HORIZON as i64
+                    ),
+                );
+            }
+        }
+    }
+}
+
+fn check_forecast_stmts(stmts: &[Statement], out: &mut Vec<ForecastViolation>) {
+    for st in stmts {
+        match st {
+            Statement::LetBinding { value, .. } | Statement::Assign { value, .. } => {
+                check_forecast_expr(value, out)
+            }
+            Statement::ExprStmt { expr, .. } | Statement::Return { value: expr, .. } => {
+                check_forecast_expr(expr, out)
+            }
+            Statement::Each { iterable, body, .. }
+            | Statement::EachWithIndex { iterable, body, .. } => {
+                check_forecast_expr(iterable, out);
+                check_forecast_stmts(body, out);
+            }
+            Statement::While {
+                condition, body, ..
+            } => {
+                check_forecast_expr(condition, out);
+                check_forecast_stmts(body, out);
+            }
+            Statement::IfElseBlock {
+                condition,
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                check_forecast_expr(condition, out);
+                check_forecast_stmts(then_body, out);
+                for (c, b) in else_ifs {
+                    check_forecast_expr(c, out);
+                    check_forecast_stmts(b, out);
+                }
+                if let Some(eb) = else_body {
+                    check_forecast_stmts(eb, out);
+                }
+            }
+            Statement::IfThen {
+                condition, body, ..
+            } => {
+                check_forecast_expr(condition, out);
+                check_forecast_stmts(body, out);
+            }
+            Statement::Match {
+                scrutinee,
+                arms,
+                else_body,
+                ..
+            } => {
+                check_forecast_expr(scrutinee, out);
+                for arm in arms {
+                    check_forecast_stmts(arm.body(), out);
+                }
+                if let Some(eb) = else_body {
+                    check_forecast_stmts(eb, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn check_forecast_expr(expr: &Expr, out: &mut Vec<ForecastViolation>) {
+    match expr {
+        Expr::FnCall { name, args, span } => {
+            verify_forecast_call(name, args, span, out);
+            for a in args {
+                check_forecast_expr(a, out);
+            }
+        }
+        Expr::QualifiedCall { args, .. } => {
+            for a in args {
+                check_forecast_expr(a, out);
+            }
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            check_forecast_expr(left, out);
+            check_forecast_expr(right, out);
+        }
+        Expr::IfElse {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            check_forecast_expr(condition, out);
+            check_forecast_expr(then_branch, out);
+            check_forecast_expr(else_branch, out);
+        }
+        Expr::List { items, .. } => {
+            for i in items {
+                check_forecast_expr(i, out);
+            }
+        }
+        Expr::FieldAccess { object, .. } => check_forecast_expr(object, out),
+        Expr::IndexAccess { object, index, .. } => {
+            check_forecast_expr(object, out);
+            check_forecast_expr(index, out);
+        }
+        Expr::StructLit { fields, .. } => {
+            for v in fields.values() {
+                check_forecast_expr(v, out);
+            }
+        }
+        Expr::BlockIfElse {
+            condition,
+            then_body,
+            else_ifs,
+            else_body,
+            ..
+        } => {
+            check_forecast_expr(condition, out);
+            check_forecast_stmts(then_body, out);
+            for (c, body) in else_ifs {
+                check_forecast_expr(c, out);
+                check_forecast_stmts(body, out);
+            }
+            if let Some(eb) = else_body {
+                check_forecast_stmts(eb, out);
+            }
+        }
+        Expr::MatchExpr {
+            scrutinee,
+            arms,
+            else_body,
+            ..
+        } => {
+            check_forecast_expr(scrutinee, out);
+            for arm in arms {
+                check_forecast_stmts(arm.body(), out);
+            }
+            if let Some(eb) = else_body {
+                check_forecast_stmts(eb, out);
+            }
+        }
+        Expr::Try { expr, .. } => check_forecast_expr(expr, out),
+        Expr::ProvBind { inner, .. } => check_forecast_expr(inner, out),
         Expr::HandleSource { .. }
         | Expr::StringLit { .. }
         | Expr::FloatLit { .. }

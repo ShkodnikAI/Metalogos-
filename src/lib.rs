@@ -73,6 +73,12 @@ pub mod session;
 // для call_llm_schema и json_validate (дифференциальный контракт «ни одного
 // нового правила»).
 pub mod schema;
+// Наряд №440 (P1, feature/forecast): the forecasting domain —
+// SeriesHandle/ForecastHandle over the `timeseries` registry class, the
+// degradation ladder (timesfm-2.5 -> statsforecast -> seasonal_naive),
+// the LabelJoin taint transfer and the gated forecast export (the
+// typed FORECAST_TAINTED refusal + the forecast.* ledger family).
+pub mod forecast;
 pub mod semantic;
 #[cfg(feature = "server")]
 pub mod server;

@@ -4640,6 +4640,33 @@ fn check_backend_ladder(
     }
 }
 
+/// ── Check: FORECAST_LABEL_INVALID + FORECAST_HORIZON_INVALID (Наряд
+/// №440) ── The forecast surface companion on EVERY compile path (the
+/// BACKEND_SELECT_INVALID template): a statically-visible
+/// `series_make` label word must parse through the №322 lattice
+/// (FORECAST_LABEL_INVALID — under-tainting must be impossible by
+/// construction), and a literal `forecast_next` horizon must respect
+/// the allocation guard (FORECAST_HORIZON_INVALID). Always Error — a
+/// broken forecast call site must never surface as a runtime surprise.
+fn check_forecast_surface(
+    declarations: &[Declaration],
+    _source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    for v in crate::semantic::forecast_surface_violations(declarations) {
+        let check_id = match v.kind {
+            crate::semantic::ForecastViolationKind::LabelInvalid => "FORECAST_LABEL_INVALID",
+            crate::semantic::ForecastViolationKind::HorizonInvalid => "FORECAST_HORIZON_INVALID",
+        };
+        findings.push(AuditFinding {
+            severity: Severity::Error,
+            check_id,
+            line: v.span.start_line as usize,
+            message: v.message,
+        });
+    }
+}
+
 /// ── Check: BACKEND_LICENSE_DISTRIBUTION (Наряд №333, ADR-0163 §2.2) ──
 /// A program that NAMES non-osi/restrictive weights (string literals at
 /// any position + the `vision { model: … }` field) is a distribution
@@ -5589,6 +5616,10 @@ pub fn audit_category_a(declarations: &[Declaration], source: &str) -> Vec<Audit
     // profile refuses unverifiable (pending-pin) rungs.
     check_profile_shape(declarations, source, &mut findings);
     check_backend_ladder(declarations, source, &mut findings);
+    // Наряд №440: the forecast surface companion on EVERY compile path
+    // — a literal bad label word or an out-of-guard literal horizon is
+    // a compile error (Category-A), never a runtime surprise.
+    check_forecast_surface(declarations, source, &mut findings);
     // Naryad #390 (ADR-0155): static Once-grant linearity — the
     // GRANT_REUSED compile error. The runtime half (ledger state/TTL/
     // quota/scope) lives in src/grants.rs; the ungranted destructive-SQL
@@ -5657,6 +5688,9 @@ pub fn audit_program(source: &str) -> Result<AuditResult, String> {
     // Naryad #390 (ADR-0155): grant linearity on the advisory surface —
     // `mlog audit` reports GRANT_REUSED alongside the compile path.
     check_grant_linearity(&declarations, source, &mut findings);
+    // Наряд №440: the forecast surface companion (the audit CLI path —
+    // the same rules audit_category_a applies).
+    check_forecast_surface(&declarations, source, &mut findings);
 
     // Sort findings by line number for deterministic output
     findings.sort_by_key(|f| (f.line, f.check_id));

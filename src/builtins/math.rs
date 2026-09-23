@@ -24,6 +24,10 @@ pub(crate) fn builtin_to_string(args: &[Value]) -> Result<Value, String> {
     // (the Phase-1 lattice / №349 consistency). Every other embodied
     // handle projects through its opaque Display marker (no content).
     super::embodied::guard_world_state_to_string(&args[0])?;
+    // №440: a FORECAST handle materializes TAINT-CONDITIONALLY — a clean
+    // forecast renders its read-only content, a tainted one refuses with
+    // the typed FORECAST_TAINTED stamp + the forecast.denied record.
+    super::forecast::guard_forecast_to_string(&args[0])?;
     // Use Value's Display impl — Float omits .0 for integers automatically
     Ok(Value::String(format!("{}", args[0])))
 }

@@ -144,6 +144,13 @@ chart = ["svg"]      # charts use shared + polar etc from svg module
 diagram = ["svg"]    # diagrams.rs imports icon_path_data from primitives
 template = []
 llm = []
+# Naryad #440: the off-process timesfm-2.5 rung (the `timeseries`
+# ladder top). The rung is INERT without the feature: seasonal_naive
+# (the built-in deterministic rung) always computes, the timesfm rung
+# refuses loudly naming the missing feature; even with the feature on,
+# the №334 contract still demands the Apache-2.0 weights fetched and
+# SHA-verified on disk before real inference.
+timesfm = []
 # Naryad #278 (wasm spike): tokio is ONLY needed by the server stack (verified
 # by use-graph: src/server.rs + the cfg(server) cmd_serve runtime in main.rs) —
 # it is now optional behind `server`. Core (parser/compiler/VM) builds without
@@ -221,3 +228,4 @@ harness = false
 [[bench]]
 name = "stage4_benchmark"
 harness = false
+

@@ -156,6 +156,11 @@ pub(crate) fn builtin_print(args: &[Value]) -> Result<Value, String> {
     // remaining embodied handles keep the generic opaque refusal.
     if let Some(arg) = args.first() {
         super::embodied::check_print_arg(arg)?;
+        // №440: print(tainted_forecast) gives the typed FORECAST_TAINTED
+        // refusal (more precise than the generic String-arity error);
+        // a clean forecast still fails the String arity below — its
+        // sanctioned materialization is to_string/json_encode.
+        super::forecast::check_print_forecast(arg)?;
     }
     let s = expect_string_arg("print", args, 0)?;
     eprintln!("[print] {}", s);

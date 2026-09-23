@@ -1,0 +1,43 @@
+// Naryad #441: the forecast-domain red/green example (the domain lands
+// with №440). The wave-12 example line convention (№436/№437): a real
+// run against examples/w12_forecast_ladder.expected, the contract
+// pinned in tests/naryad_441_forecast_examples.rs, the mutation
+// harness scripts/mutation_verify_441.sh (2/2).
+//
+// The scenario: a CLEAN in-program series forecasts through the
+// degradation ladder — in this build the built-in seasonal_naive rung
+// computes (timesfm-2.5 is feature-gated, statsforecast is not
+// vendored: both skips are AUDITED, never silent — the prov block
+// carries rung=seasonal_naive + degraded=true); a series from a
+// TAINTED source carries its label through forecast_next (LabelJoin),
+// and every data export refuses fail-closed with the typed
+// FORECAST_TAINTED stamp (the №413 convention, branchable in try) —
+// the refusal itself is a forecast.denied ledger record (no silent
+// egress, no silent refusal).
+pattern ForecastLadder(_tick: String) -> String {
+  // ── GREEN: the clean ladder leg ──
+  // A 14-value daily series: two full weeks — the daily season (7) fits,
+  // seasonal_naive repeats the last observed week.
+  let s = series_make([10.0, 12.0, 11.0, 13.0, 10.0, 12.0, 11.0, 13.0, 10.0, 12.0, 11.0, 13.0, 10.0, 12.0], "daily")
+  let f = forecast_next(s, 4.0)
+  let prov = forecast_state(f)
+  let rung = to_string(prov.rung)
+  let degraded = to_string(prov.degraded)
+  let pts = forecast_points(f)
+  let p0 = to_string(pts.points[0])
+
+  // ── RED: the taint gate ──
+  // The explicit-form constructor carries the source label ("private"):
+  // the forecast inherits it, and the DATA export refuses typed.
+  let t = series_make({values: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], frequency: "daily", label: "private"})
+  let tf = forecast_next(t, 3.0)
+  let r = try to_string(tf)
+  let red = if r.ok == false { r.error.code } else { "LEAK" }
+
+  // The non-gated surface is fail-closed too: interpolation renders the
+  // opaque marker, never the tainted content.
+  let marker = format("{}", tf)
+
+  return "rung:" + rung + "|degraded:" + degraded + "|p0:" + p0 + "|red:" + red + "|marker:" + marker
+}
+flow Main { input: String = "tick" -> ForecastLadder -> output }

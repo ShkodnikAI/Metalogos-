@@ -522,3 +522,45 @@ full static inference) are exactly the parked P2 set; the capability model's
 remaining holes (exec/network deny-only, per-builtin capability attributes)
 are named, not hand-waved. Recomputation at the next wave boundary, same
 protocol.
+
+### 6.6. Wave 10 recount (naryad №434): **76%** (main @ `b18fb254`, 2026-09-23)
+
+Same decomposition and weights as §6.4/§6.5 (still UNVERIFIED — plan v2 is
+still absent from the repository); readiness per the code facts only, no
+P0-green claims without a contract. The honest headline: **the total does
+not move** — Wave 10's substance is (a) the START of Phase 5 «Embodied,
+sim-only» (№354/№355), which has NO row in this decomposition at all, and
+(b) enforcement hardening + integration contracts on surfaces that were
+already counted.
+
+| Subsystem | Weight (UNVERIFIED) | Wave 9 `5ed4ced6` | Wave 10 `b18fb254` | Contribution | Basis for the readiness (recounted by proof commands) |
+|---|---|---|---|---|---|
+| Labels (taint) | 30% | 75% | **75%** (unchanged) | 22.5pp | the audio consent gate (№428) is ENFORCEMENT on a surface, not lattice work: the runtime `consent::active_grant_for` check + the ledgered refusal + the try-stamp; proof: `grep -n "fn require_audio_consent" src/duplex.rs`, `grep -n "CODE_AUDIO_CONSENT_REQUIRED" src/interpreter/values.rs`; the static contour still does not model `audio.speak`/`audio.listen` grants (limitations.md, the №428 row); the parked P2 set (effects, affinity, full static inference) unchanged |
+| Capability model | 20% | 88% | **88%** (unchanged) | 17.6pp | the duty/session origin stamps (№430) harden the session contract's observability (position-0 `SESSION_UNKNOWN`/`SESSION_CONTRACT`, ADR-0172 Implemented); proof: `grep -n "CODE_SESSION_CONTRACT" src/interpreter/values.rs`; no NEW grant-gated capability landed — exec/network irreversible ops remain deny-only |
+| Backend registry | 15% | 85% | **85%** (unchanged) | 12.75pp | the `embodied-sim` class + two in-tree sim records (№355) are registry GROWTH, not compute-backend readiness (no weights, nothing to pin — the honest `PendingNo334`); proof: `grep -n "EmbodiedSim" src/backends.rs`; the ladder class word `embodied-sim` parses; the compute rows (STT/omni/vision/video/OCR) unchanged |
+| Ledger | 15% | 95% | **95%** (unchanged) | 14.25pp | the `embodied.*` record family joins `memory.*`/`duplex.*`/`session.*` (№355 — device_open/bounds_attach/world_state/chunk_make|denied/proof_seal/proof_verify/world_state_denied); proof: `grep -rn "embodied\." src/embodied.rs | head`; the verification hook (№415) unchanged — the out-of-band anchor discipline stays user-side (ADR-0167 §7) |
+| Memory | 20% | 45% | **45%** (unchanged) | 9pp | the office-path integration contract (№429) PINS the end-to-end scenario (session_login → consent-granted private memory → provenance put → audited read → cascade preview → the Once-grant spend) — `tests/naryad_429_memory_office_path.rs`; the duty stamps (№430) harden the session surface; the "still missing" list is INTACT: `recall` remains a registry stub (`grep -n '"recall"' src/builtins/registry.rs`), the plan-v2 memory contract is still unknown, the FTS5-recall lane is not integrated with the typed lane |
+| **Total** | **100%** | **76.1 ≈ 76%** | — | **76.1 ≈ 76%** | |
+
+**The Phase-5 note (out of the decomposition).** Wave 10 lands the START of
+registry §16.7 (В5): ADR-0159 (№354 — SafetyBounds as an STL-formula
+monitor, carrier-independent semantics) and the embodied type surfaces
+(№355 — seven opaque handles, the no-unmonitored-action refusal
+`EMBODIED_UNBOUNDED`, the signed Pending-by-construction Proof, the
+WorldState private-materialization refusal, the `embodied-sim` registry
+profile). The decomposition above has NO embodied row — plan v2 §2 is
+absent and the row set was reconstructed for the Phase-1..4 subsystems;
+inventing a weight now would be a fabrication. The contour is recorded,
+not scored; the monitor/stages are behind the GPU-budget gate (№356–№361,
+owner decision) and will enter a recount only when the row set has a
+plan-v2 basis.
+
+**Honest reading.** 76% → 76% is the honest outcome: a wave whose code is
+(a) a new contour's TYPES (scored nowhere without plan v2), (b) gates and
+stamps on already-counted surfaces, and (c) an integration CONTRACT, does
+not shorten any "still missing" list — and readiness here tracks exactly
+that. The wave's real deliverable for the office path is the №429 contract
++ the №430 stamps (the dogfood №395 loop closes cleanly end to end), and
+for Phase 5 — the carrier-independent semantics the gated stages will
+reuse. P0 items unchanged: `recall` stub, plan v2 absent, taint P2 set.
+Recomputation at the next wave boundary, same protocol.

@@ -101,7 +101,7 @@ fn forecast_handles_follow_the_opaque_pattern() {
     assert!(rendered.contains("degraded: true"));
 
     // The prov block: metadata only, no points.
-    let st = metalogos::forecast::forecast_state("t", &[f.clone()]).unwrap();
+    let st = metalogos::forecast::forecast_state("t", std::slice::from_ref(&f)).unwrap();
     if let Value::Struct { type_name, fields } = &st {
         assert_eq!(type_name, "ForecastState");
         assert_eq!(format!("{}", fields.get("rung").unwrap()), "seasonal_naive");

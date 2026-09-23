@@ -1,0 +1,94 @@
+// ── Волна 11, наряд №437 (audit 2026-09-23 P1-2): the audio consent
+//    gate is LOAD-BEARING on the duplex path — the dogfood reference ──
+//
+// Red/green/revoke over the №428 anchor (ADR-0174 §4, №335 contour):
+//   RED 1   speak_start without an ACTIVE audio.speak grant refuses
+//           typed AUDIO_CONSENT_REQUIRED and the refusal itself is a
+//           ledger record (duplex.speak_denied) — no silent egress AND
+//           no silent refusal.
+//   RED 2   listen_start symmetric (audio.listen / duplex.listen_denied).
+//   GREEN   grants issued through the №335 contour (consent_grant) open
+//           the full audited duplex cycle: open → start → stop in the
+//           Action Ledger (№352 completeness preserved).
+//   REVOKE  consent_revoke re-arms the gate — the SAME call refuses
+//           typed again (the revocation is the same fact class as the
+//           grant; one table, two record kinds).
+//
+// ── OFFICE ADAPTATION CONTRACT (audit 23.09 P1-2) ──────────────────────
+// The office voice path (FOSVED-office-v2) calls ZERO native audio
+// builtins today; when it adapts the duplex builtins, THIS example is
+// the reference transition:
+//   1. Before EVERY speak_start/listen_start the office path must hold
+//      an ACTIVE direction grant (audio.speak / audio.listen) recorded
+//      through the №335 contour (consent_grant). The gate is
+//      fail-closed: a store error refuses — the office path must treat
+//      "no readable grant" exactly like "no grant".
+//   2. The ask-for-consent policy branches on r.error.code ==
+//      AUDIO_CONSENT_REQUIRED in try (the №413 convention) — never on
+//      message prose. The refusal is origin-stamped and is itself the
+//      ledger record; the office path must NEVER swallow it or retry
+//      silently.
+//   3. Revocation is immediate and total for the direction: after
+//      consent_revoke the next speak/listen refuses (the grant is not
+//      a session attribute — it is ledger state). Office sessions must
+//      re-check before every stream, not once per dialogue.
+//   4. The full consented cycle stays audited end-to-end
+//      (open → start → stop): the office voice log may be reconstructed
+//      from the Action Ledger alone.
+//
+// Branching reads r.error.code (№413) — never message prose (ADR-0131).
+// The report is type-only plus ledger DELTAS (no ids, timestamps or
+// prose) so TW and VM agree byte-for-byte in the crosscheck. The grant
+// ledger is process-local, so the example re-arms both scopes first
+// (precedent: the №428 harness) — the red legs are deterministic
+// wherever the example runs in the corpus.
+pattern AudioConsent(_tick: String) -> String ⟨io, audit, listen, speak⟩ {
+  let sess = session_login("consent-dogfood-user", "pw-not-checked-by-design")
+  let ch = duplex_open(sess, "normal")
+
+  // Re-arm: the consent store is process-global — start each leg from
+  // the no-grant state deterministically.
+  let _ra = consent_revoke(ch, "audio.speak")
+  let _rb = consent_revoke(ch, "audio.listen")
+
+  // RED 1 — speak without an active grant: typed refusal + one ledger
+  // record (duplex.speak_denied).
+  let c0 = ledger_count()
+  let rs = try speak_start(ch, "Привет, я агент", "normal")
+  let red_speak = if rs.ok { "unexpected-ok" } else { rs.error.code }
+  let denied_speak = ledger_count() - c0
+
+  // RED 2 — listen without an active grant: symmetric refusal.
+  let c1 = ledger_count()
+  let rl = try listen_start(ch, "normal")
+  let red_listen = if rl.ok { "unexpected-ok" } else { rl.error.code }
+  let denied_listen = ledger_count() - c1
+
+  // GREEN — grants through the №335 contour open the full audited
+  // duplex cycle: start → stop on both directions.
+  let _g1 = consent_grant(ch, "audio.speak", "consent-dogfood-user")
+  let _g2 = consent_grant(ch, "audio.listen", "consent-dogfood-user")
+  let spk = speak_start(ch, "Согласие получено", "normal")
+  let spk_stop = speak_stop(ch)
+  let lis = listen_start(ch, "normal")
+  let lis_stop = listen_stop(ch)
+
+  // REVOKE — the gate re-arms; the same call refuses typed again.
+  let _rv = consent_revoke(ch, "audio.speak")
+  let c2 = ledger_count()
+  let rs2 = try speak_start(ch, "После отзыва", "normal")
+  let red_revoked = if rs2.ok { "unexpected-ok" } else { rs2.error.code }
+  let denied_again = ledger_count() - c2
+
+  return "speak=" + red_speak
+       + "|denied_speak=" + to_string(denied_speak)
+       + "|listen=" + red_listen
+       + "|denied_listen=" + to_string(denied_listen)
+       + "|granted_speak=" + type_of(spk)
+       + "|speak_stop=" + type_of(spk_stop)
+       + "|granted_listen=" + type_of(lis)
+       + "|listen_stop=" + type_of(lis_stop)
+       + "|after_revoke=" + red_revoked
+       + "|denied_again=" + to_string(denied_again)
+}
+flow Main { input: String = "tick" -> AudioConsent -> output }

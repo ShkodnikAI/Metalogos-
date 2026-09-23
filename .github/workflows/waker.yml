@@ -1,0 +1,55 @@
+name: Waker (office keep-alive)
+
+# Наряд №435 (Волна 11, диспатч #633): ремонт waker офиса — переезд
+# keep-alive из офисного self-hosted раннера (мёртв с 2026-09-22T21:13Z:
+# schedule-тики queued → снимаются concurrency-группой) в публичный
+# репозиторий Metalogos-. GH-hosted раннеры (ubuntu-latest) бесплатны
+# на публичном репо и не зависят от квоты приватных минут; прецеденты
+# schedule-воркфлоу в этом же репо — soak.yml, mutants.yml.
+#
+# Граница наряда №420 сохраняется: waker ТОЛЬКО будит инстанс
+# (GET /health — публичен и секретов не несёт, поза №420).
+# Бизнес-расписания («задания по времени и дате», dept/schedules.mlog)
+# исполняет нативный cron офиса (№418/№419) — waker лишь его будильник:
+# prod Render free спит после ~15 минут без трафика, тик каждые 10 минут
+# держит инстанс тёплым.
+#
+# Prod-пинг — БЛОКИРУЮЩИЙ: код != 200 → ::error:: + exit 1 (инстанс не
+# проснулся или деградировал). Staging-пинг (FO-050) — non-blocking,
+# сигнальный (continue-on-error).
+
+on:
+  schedule:
+    - cron: "*/10 * * * *" # каждые 10 минут
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: keep-alive
+  cancel-in-progress: true
+
+jobs:
+  wake-office:
+    name: wake-office (prod blocking, staging non-blocking)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Wake prod (blocking)
+        run: |
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 120 https://fosved-office-v2.onrender.com/health)
+          echo "prod /health -> HTTP ${CODE}"
+          if [ "${CODE}" != "200" ]; then
+            echo "::error::prod /health returned HTTP ${CODE} (expected 200) — instance did not wake or degraded"
+            exit 1
+          fi
+
+      - name: Wake staging (non-blocking)
+        continue-on-error: true
+        run: |
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 120 https://fosved-office-v2-staging.onrender.com/health)
+          echo "staging /health -> HTTP ${CODE}"
+          if [ "${CODE}" != "200" ]; then
+            echo "::warning::staging /health returned HTTP ${CODE} (expected 200) — non-blocking signal"
+            exit 1
+          fi

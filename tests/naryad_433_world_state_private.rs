@@ -122,11 +122,7 @@ fn print_world_state_refuses_typed_and_audits_on_tw() {
 fn print_world_state_refuses_typed_on_vm() {
     let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let err = run_vm(&refusal_source("print(ws)"), &base_dir()).unwrap_err();
-    assert!(
-        err.contains("[WORLD_STATE_PRIVATE]"),
-        "got: {}",
-        err
-    );
+    assert!(err.contains("[WORLD_STATE_PRIVATE]"), "got: {}", err);
 }
 
 // ── (3) to_string / json_encode — the same typed refusal ────────────────

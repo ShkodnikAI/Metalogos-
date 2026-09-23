@@ -115,7 +115,10 @@ pub struct BuiltClassEntry {
 /// Classification lookup — linear scan over a small static array; the map
 /// is compile-time data, uniqueness is test-enforced.
 pub fn classify(name: &str) -> Option<&'static BuiltClass> {
-    BUILTIN_CLASSES.iter().find(|e| e.name == name).map(|e| &e.class)
+    BUILTIN_CLASSES
+        .iter()
+        .find(|e| e.name == name)
+        .map(|e| &e.class)
 }
 
 /// SSOT map: имя → BuiltClass for EVERY registered builtin (№316).
@@ -675,7 +678,11 @@ mod tests {
             .map(|e| e.name)
             .filter(|n| !registry.contains(*n))
             .collect();
-        assert!(extras.is_empty(), "classified names not in registry: {:?}", extras);
+        assert!(
+            extras.is_empty(),
+            "classified names not in registry: {:?}",
+            extras
+        );
     }
 
     /// №316 «Сделано, когда» (а): rationale on every non-Pure entry.
@@ -705,7 +712,12 @@ mod tests {
     #[test]
     fn issue_minimum_classes() {
         let expect_sink = [
-            "http_post", "write_file", "send_message", "print", "db_execute", "tts_send",
+            "http_post",
+            "write_file",
+            "send_message",
+            "print",
+            "db_execute",
+            "tts_send",
         ];
         for n in expect_sink {
             let c = classify(n).unwrap_or_else(|| panic!("{}", n));
@@ -721,7 +733,11 @@ mod tests {
             assert_eq!(c.reversibility, Reversibility::Irreversible, "{}", n);
         }
         let redact = classify("redact").unwrap();
-        assert_eq!(redact.role, Role::Lift, "redact — taint-sanitizer lift (ADR-0136)");
+        assert_eq!(
+            redact.role,
+            Role::Lift,
+            "redact — taint-sanitizer lift (ADR-0136)"
+        );
     }
 
     /// №316: Sink/Source/Lift/Pure distribution is sane (sanity counts,
@@ -748,11 +764,13 @@ mod tests {
             (Some(b), Some(e)) if b < e => (&reference[b..e], true),
             _ => ("", false),
         };
-        assert!(found, "REFERENCE.md must contain the classification block markers");
-
-        let mut expected = String::from(
-            "| Builtin | Role | Default label | Reversibility |\n|---|---|---|---|\n",
+        assert!(
+            found,
+            "REFERENCE.md must contain the classification block markers"
         );
+
+        let mut expected =
+            String::from("| Builtin | Role | Default label | Reversibility |\n|---|---|---|---|\n");
         for e in BUILTIN_CLASSES {
             let role = e.class.role.as_str();
             let label = e.class.default_label.as_str();

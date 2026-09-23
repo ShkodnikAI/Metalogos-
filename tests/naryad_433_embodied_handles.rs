@@ -106,8 +106,7 @@ fn pose_trajectory_goal_proof_are_opaque_markers() {
 
 #[test]
 fn device_open_refuses_unknown_backend() {
-    let err = metalogos::embodied::device_open("device_open", "no-such-backend", None)
-        .unwrap_err();
+    let err = metalogos::embodied::device_open("device_open", "no-such-backend", None).unwrap_err();
     assert!(
         err.starts_with("[EMBODIED_BACKEND_UNKNOWN]"),
         "typed stamp expected, got: {}",
@@ -136,8 +135,8 @@ fn device_open_accepts_both_sim_records_and_validates_bounds() {
     }
     // An empty bounds formula is a loud shape refusal (no silent
     // "unbounded-but-open" state).
-    let err = metalogos::embodied::device_open("t", "embodied-mock-device", Some("   "))
-        .unwrap_err();
+    let err =
+        metalogos::embodied::device_open("t", "embodied-mock-device", Some("   ")).unwrap_err();
     assert!(err.contains("non-empty"), "got: {}", err);
 }
 
@@ -152,10 +151,9 @@ fn chunk_without_bounds_refuses_fail_closed() {
         _ => panic!("device"),
     };
     let pose = metalogos::embodied::pose_make("t", 0.0, 0.0, 0.0, 0.0).unwrap();
-    let traj =
-        metalogos::embodied::trajectory_make("t", std::slice::from_ref(&pose)).unwrap();
-    let err = metalogos::embodied::chunk_make("chunk_make", &dev_id, traj_id(&traj), None)
-        .unwrap_err();
+    let traj = metalogos::embodied::trajectory_make("t", std::slice::from_ref(&pose)).unwrap();
+    let err =
+        metalogos::embodied::chunk_make("chunk_make", &dev_id, traj_id(&traj), None).unwrap_err();
     assert!(
         err.starts_with("[EMBODIED_UNBOUNDED]"),
         "the typed refusal expected, got: {}",
@@ -178,20 +176,15 @@ fn chunk_with_bounds_passes() {
     let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dev = metalogos::embodied::device_open("t", "embodied-mock-device", None).unwrap();
     let dev_id = handle_id(&dev, "id");
-    let dev2 =
-        metalogos::embodied::bounds_attach("t", &dev_id, "always(|pose.velocity| <= v_max)")
-            .unwrap();
+    let dev2 = metalogos::embodied::bounds_attach("t", &dev_id, "always(|pose.velocity| <= v_max)")
+        .unwrap();
     let dev2_id = handle_id(&dev2, "id");
     let pose = metalogos::embodied::pose_make("t", 1.0, 2.0, 3.0, 0.25).unwrap();
     let traj = metalogos::embodied::trajectory_make("t", std::slice::from_ref(&pose)).unwrap();
     let goal = metalogos::embodied::goal_make("t", "eventually(at(goal))").unwrap();
-    let chunk = metalogos::embodied::chunk_make(
-        "t",
-        &dev2_id,
-        traj_id(&traj),
-        Some(goal_id(&goal)),
-    )
-    .expect("a bounded device makes chunks");
+    let chunk =
+        metalogos::embodied::chunk_make("t", &dev2_id, traj_id(&traj), Some(goal_id(&goal)))
+            .expect("a bounded device makes chunks");
     assert_eq!(chunk.type_name(), "ActionChunk");
     assert_eq!(format!("{}", chunk), "[ActionChunk]");
     // The chunk_make leg is a ledger record against the device.
@@ -212,9 +205,7 @@ fn trajectory_refuses_empty_and_over_capacity() {
     let err = metalogos::embodied::trajectory_make("t", &[]).unwrap_err();
     assert!(err.contains("empty"), "got: {}", err);
     let too_many: Vec<metalogos::interpreter::values::Value> = (0..1025)
-        .map(|i| {
-            metalogos::embodied::pose_make("t", i as f64, 0.0, 0.0, 0.0).unwrap()
-        })
+        .map(|i| metalogos::embodied::pose_make("t", i as f64, 0.0, 0.0, 0.0).unwrap())
         .collect();
     let err = metalogos::embodied::trajectory_make("t", &too_many).unwrap_err();
     assert!(
@@ -308,10 +299,7 @@ fn embodied_sim_registry_profile() {
         assert!(matches!(e.license, metalogos::backends::LicenseClass::Osi));
         assert!(e.license_note.contains("in-tree"), "{}", e.license_note);
         // The honest pin declaration: nothing to fetch or pin.
-        assert!(matches!(
-            e.pin,
-            metalogos::backends::ShaPin::PendingNo334
-        ));
+        assert!(matches!(e.pin, metalogos::backends::ShaPin::PendingNo334));
     }
 }
 

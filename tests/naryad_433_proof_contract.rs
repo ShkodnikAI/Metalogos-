@@ -24,9 +24,8 @@ fn seal_a_proof() -> String {
         metalogos::interpreter::values::Value::Device(m) => m.get("id").unwrap().clone(),
         _ => panic!("device"),
     };
-    let dev2 =
-        metalogos::embodied::bounds_attach("t", &dev_id, "always(|pose.velocity| <= v_max)")
-            .unwrap();
+    let dev2 = metalogos::embodied::bounds_attach("t", &dev_id, "always(|pose.velocity| <= v_max)")
+        .unwrap();
     let dev2_id = match &dev2 {
         metalogos::interpreter::values::Value::Device(m) => m.get("id").unwrap().clone(),
         _ => panic!("device"),
@@ -42,14 +41,13 @@ fn seal_a_proof() -> String {
         metalogos::interpreter::values::Value::Trajectory(m) => m.get("id").unwrap().clone(),
         _ => panic!("trajectory"),
     };
-    let chunk =
-        metalogos::embodied::chunk_make("t", &dev2_id, &traj_id, None).unwrap();
+    let chunk = metalogos::embodied::chunk_make("t", &dev2_id, &traj_id, None).unwrap();
     let chunk_id = match &chunk {
         metalogos::interpreter::values::Value::ActionChunk(m) => m.get("id").unwrap().clone(),
         _ => panic!("chunk"),
     };
-    let proof = metalogos::embodied::proof_seal("t", &ws_id, &chunk_id, Some("stage-a telemetry"))
-        .unwrap();
+    let proof =
+        metalogos::embodied::proof_seal("t", &ws_id, &chunk_id, Some("stage-a telemetry")).unwrap();
     match proof {
         metalogos::interpreter::values::Value::Proof(m) => m.get("id").unwrap().clone(),
         _ => panic!("proof"),
@@ -151,7 +149,10 @@ fn fresh_seal_verifies_with_zero_reasons() {
     assert!(as_bool(&report_field(&report, "valid")));
     assert_eq!(as_string(&report_field(&report, "verdict")), "pending");
     assert_eq!(as_string(&report_field(&report, "proof_id")), id);
-    assert_eq!(as_string(&report_field(&report, "backend")), "embodied-mock-device");
+    assert_eq!(
+        as_string(&report_field(&report, "backend")),
+        "embodied-mock-device"
+    );
     let reasons = as_strings(&report_field(&report, "reasons"));
     assert!(
         reasons.is_empty(),
@@ -186,7 +187,9 @@ fn tampered_sim_hash_is_reported_invalid() {
     rec.sim_hash = "e".repeat(64);
     let reasons = metalogos::embodied::validate_proof_record(&rec, &locked_state());
     assert!(
-        reasons.iter().any(|r| r.contains("signature does not match")),
+        reasons
+            .iter()
+            .any(|r| r.contains("signature does not match")),
         "{:?}",
         reasons
     );
@@ -202,7 +205,10 @@ fn foreign_bounds_is_reported() {
     // leg passes — the RESOLUTION leg must still catch it.
     rec.bounds_id = "bnd-nonexistent000000".to_string();
     rec.sign();
-    assert!(rec.signature_valid(), "the test isolates the resolution leg");
+    assert!(
+        rec.signature_valid(),
+        "the test isolates the resolution leg"
+    );
     let reasons = metalogos::embodied::validate_proof_record(&rec, &locked_state());
     assert!(
         reasons
@@ -251,11 +257,7 @@ fn malformed_world_hash_is_reported() {
 fn verify_unknown_proof_refuses_typed() {
     let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let err = metalogos::embodied::proof_verify("proof_verify", "prf-never-sealed").unwrap_err();
-    assert!(
-        err.starts_with("[EMBODIED_HANDLE_UNKNOWN]"),
-        "got: {}",
-        err
-    );
+    assert!(err.starts_with("[EMBODIED_HANDLE_UNKNOWN]"), "got: {}", err);
 }
 
 // ── (6) The ledger legs ─────────────────────────────────────────────────

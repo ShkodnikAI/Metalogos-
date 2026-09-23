@@ -42,7 +42,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// The signing context of the stage-A Proof seal (the №343 signed-trace
 /// contract). The in-tree constant binds the signature to the embodied
 /// surface; the monitor-backed sealing (№356) reuses the same context.
-pub const PROOF_SIGNING_CONTEXT: &str = "metalogos-embodied-proof-v1 (naryad 355 / 343; stage-A mock contour)";
+pub const PROOF_SIGNING_CONTEXT: &str =
+    "metalogos-embodied-proof-v1 (naryad 355 / 343; stage-A mock contour)";
 
 /// The trajectory capacity guard — a loud refusal, not a silent truncation.
 pub const MAX_TRAJECTORY_POINTS: usize = 1024;
@@ -273,7 +274,10 @@ fn ledger_embodied_event(kind: &str, id: &str, detail: &str) {
 fn err_handle_unknown(fn_name: &str, kind: &str, id: &str) -> String {
     crate::interpreter::values::coded_error(
         crate::interpreter::values::CODE_EMBODIED_HANDLE_UNKNOWN,
-        format!("{}: unknown {} handle '{}' — open one with the embodied constructors first", fn_name, kind, id),
+        format!(
+            "{}: unknown {} handle '{}' — open one with the embodied constructors first",
+            fn_name, kind, id
+        ),
     )
 }
 
@@ -283,7 +287,11 @@ fn err_handle_unknown(fn_name: &str, kind: &str, id: &str) -> String {
 /// backend MUST resolve in BACKEND_REGISTRY with the `embodied-sim`
 /// class (fail-closed typed refusals otherwise — a device over a TTS
 /// weights backend is a category error, not a degraded mode).
-pub fn device_open(fn_name: &str, backend: &str, bounds_text: Option<&str>) -> Result<Value, String> {
+pub fn device_open(
+    fn_name: &str,
+    backend: &str,
+    bounds_text: Option<&str>,
+) -> Result<Value, String> {
     let entry = crate::backends::find_by_name(backend).ok_or_else(|| {
         crate::interpreter::values::coded_error(
             crate::interpreter::values::CODE_EMBODIED_BACKEND_UNKNOWN,
@@ -388,10 +396,7 @@ pub fn device_state(fn_name: &str, device_id: &str) -> Result<Value, String> {
     let fields: Vec<(&str, Value)> = vec![
         ("id", Value::String(device.id.clone())),
         ("backend", Value::String(device.backend.clone())),
-        (
-            "bounds_present",
-            Value::Bool(device.bounds.is_some()),
-        ),
+        ("bounds_present", Value::Bool(device.bounds.is_some())),
         (
             "bounds_digest",
             match &device.bounds {
@@ -522,7 +527,10 @@ pub fn world_id_arg(fn_name: &str, args: &[Value], idx: usize) -> Result<String,
 /// posture).
 pub fn deny_world_state_materialization(surface: &str, v: &Value) -> String {
     let id = match v {
-        Value::WorldState(map) => map.get("id").cloned().unwrap_or_else(|| "<unbound>".to_string()),
+        Value::WorldState(map) => map
+            .get("id")
+            .cloned()
+            .unwrap_or_else(|| "<unbound>".to_string()),
         _ => "<unbound>".to_string(),
     };
     ledger_embodied_event(
@@ -596,9 +604,10 @@ pub fn trajectory_make(fn_name: &str, poses: &[Value]) -> Result<Value, String> 
         match p {
             Value::Pose(map) => {
                 let pid = map.get("id").cloned().unwrap_or_default();
-                let data = reg.poses.get(&pid).ok_or_else(|| {
-                    err_handle_unknown(fn_name, "pose", &pid)
-                })?;
+                let data = reg
+                    .poses
+                    .get(&pid)
+                    .ok_or_else(|| err_handle_unknown(fn_name, "pose", &pid))?;
                 points.push(*data);
             }
             other => {
@@ -613,7 +622,8 @@ pub fn trajectory_make(fn_name: &str, poses: &[Value]) -> Result<Value, String> 
     }
     let id = fresh_id("trj", &format!("points={}", points.len()));
     let count = points.len();
-    reg.trajectories.insert(id.clone(), TrajectoryData { points });
+    reg.trajectories
+        .insert(id.clone(), TrajectoryData { points });
     Ok(Value::Trajectory(HashMap::from([
         ("id".to_string(), id),
         ("points".to_string(), count.to_string()),
@@ -764,10 +774,7 @@ fn chunk_value(c: &ChunkData) -> Value {
         ("id".to_string(), c.id.clone()),
         ("device".to_string(), c.device.clone()),
         ("trajectory".to_string(), c.trajectory.clone()),
-        (
-            "goal".to_string(),
-            c.goal.clone().unwrap_or_default(),
-        ),
+        ("goal".to_string(), c.goal.clone().unwrap_or_default()),
     ]))
 }
 
@@ -905,7 +912,11 @@ pub fn validate_proof_record(record: &ProofRecord, reg: &EmbodiedState) -> Vec<S
         ));
     }
     if let Some((signal, observed, bound)) = record.verdict.violation_detail() {
-        if record.verdict.as_str() == "violated" && signal.is_empty() && observed.is_empty() && bound.is_empty() {
+        if record.verdict.as_str() == "violated"
+            && signal.is_empty()
+            && observed.is_empty()
+            && bound.is_empty()
+        {
             reasons.push("violated verdict carries no signal/observed/bound detail".to_string());
         }
     }
@@ -975,11 +986,7 @@ pub fn proof_verify(fn_name: &str, proof_id: &str) -> Result<Value, String> {
     ledger_embodied_event(
         "proof_verify",
         &record.id,
-        &format!(
-            "valid={}|reasons={}",
-            valid,
-            reasons.len()
-        ),
+        &format!("valid={}|reasons={}", valid, reasons.len()),
     );
     let fields: Vec<(&str, Value)> = vec![
         ("valid", Value::Bool(valid)),
@@ -994,12 +1001,7 @@ pub fn proof_verify(fn_name: &str, proof_id: &str) -> Result<Value, String> {
         ("backend", Value::String(backend)),
         (
             "reasons",
-            Value::List(
-                reasons
-                    .iter()
-                    .map(|r| Value::String(r.clone()))
-                    .collect(),
-            ),
+            Value::List(reasons.iter().map(|r| Value::String(r.clone())).collect()),
         ),
     ];
     Ok(make_struct("EmbodiedProofReport", fields))

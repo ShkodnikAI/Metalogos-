@@ -1,0 +1,61 @@
+// ── Волна 11, наряд №436 (audit 2026-09-23 P1-1): the embodied monitor
+//    bypass is UNREACHABLE from the language surface ───────────────────
+//
+// Red/green pairs over the №354/№355 anchors (ADR-0159, sim-only):
+//   RED 1  chunk_make on a device WITHOUT a bounds formula refuses
+//          typed EMBODIED_UNBOUNDED (no unmonitored action, fail-closed).
+//   RED 2  the WorldState snapshot refuses materialization on EVERY
+//          surface (print / to_string / json_encode) typed
+//          WORLD_STATE_PRIVATE — private-by-default state; the refusal
+//          is itself an embodied.world_state_denied ledger record.
+//   GREEN  with a bounds formula attached the SAME pipeline goes
+//          through: chunk_make ok -> proof_seal -> proof_verify with
+//          the honest PENDING verdict (the monitor lands with №356,
+//          behind the GPU gate; no program-forged satisfied).
+//
+// Branching reads r.error.code in try (the №413 convention) — never
+// message prose (ADR-0131). The report is type-only (no ids, counts or
+// timestamps) so TW and VM agree byte-for-byte in the crosscheck.
+//
+// The mutation harness scripts/mutation_verify_436.sh proves both
+// refusals are load-bearing: neuter M1 (the chunk_make bounds check)
+// or M2 (the print-surface WorldState guard) and THIS example goes red.
+pattern EmbodiedBounds(_tick: String) -> String {
+  let dev = device_open("embodied-sim-kinematic")
+  let p1 = pose_make(0.0, 0.0, 0.0, 0.0)
+  let p2 = pose_make(1.0, 0.0, 0.0, 0.0)
+  let traj = trajectory_make([p1, p2])
+  let goal = goal_make("eventually(within(5s, at(goal)))")
+
+  // RED 1 — the unbounded device refuses the action chunk.
+  let r1 = try chunk_make(dev, traj, goal)
+  let red_chunk = if r1.ok { "unexpected-ok" } else { r1.error.code }
+
+  // The private snapshot — used for the refusal surfaces and the green leg.
+  let ws = world_state(dev)
+
+  // RED 2 — every materialization surface refuses the private state.
+  let rp = try print(ws)
+  let red_print = if rp.ok { "unexpected-ok" } else { rp.error.code }
+  let rs = try to_string(ws)
+  let red_tostring = if rs.ok { "unexpected-ok" } else { rs.error.code }
+  let rj = try json_encode(ws)
+  let red_json = if rj.ok { "unexpected-ok" } else { rj.error.code }
+
+  // GREEN — attach the bounds formula: the same pipeline goes through.
+  let dev2 = bounds_attach(dev, "always(|pose.velocity| <= v_max) and always(distance_to(obstacle) >= d_safe)")
+  let chunk = chunk_make(dev2, traj, goal)
+  let ws2 = world_state(dev2)
+  let proof = proof_seal(ws2, chunk)
+  let rep = proof_verify(proof)
+
+  return "red_chunk=" + red_chunk
+       + "|print=" + red_print
+       + "|to_string=" + red_tostring
+       + "|json_encode=" + red_json
+       + "|chunk=" + type_of(chunk)
+       + "|proof=" + type_of(proof)
+       + "|valid=" + to_string(rep.valid)
+       + "|verdict=" + rep.verdict
+}
+flow Main { input: String = "tick" -> EmbodiedBounds -> output }

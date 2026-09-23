@@ -19,6 +19,11 @@ pub(crate) fn builtin_to_string(args: &[Value]) -> Result<Value, String> {
     if args.is_empty() {
         return Err("to_string() requires 1 argument".to_string());
     }
+    // №355: WorldState is private-by-default state — its materialization
+    // outside the verified contour is a typed refusal + an audit record
+    // (the Phase-1 lattice / №349 consistency). Every other embodied
+    // handle projects through its opaque Display marker (no content).
+    super::embodied::guard_world_state_to_string(&args[0])?;
     // Use Value's Display impl — Float omits .0 for integers automatically
     Ok(Value::String(format!("{}", args[0])))
 }

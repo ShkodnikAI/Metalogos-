@@ -455,6 +455,18 @@ fn value_to_string(v: &Value) -> String {
         // Наряд №331 (ADR-0162): media handles in template rendering —
         // лекала Vision/Voice. Opaque — only the per-kind index renders.
         Value::Media(h) => format!("{}", h),
+        // Наряд №355 (ADR-0159): the embodied handles render as the bare
+        // opaque tags — no device/world/proof detail enters interpolation
+        // output (the Grant/Likeness posture; WorldState additionally
+        // refuses materialization outright at the to_string/json_encode
+        // surfaces — interpolation is the marker only).
+        Value::Device(_) => "[Device]".to_string(),
+        Value::WorldState(_) => "[WorldState]".to_string(),
+        Value::ActionChunk(_) => "[ActionChunk]".to_string(),
+        Value::Pose(_) => "[Pose]".to_string(),
+        Value::Trajectory(_) => "[Trajectory]".to_string(),
+        Value::GoalPredicate(_) => "[GoalPredicate]".to_string(),
+        Value::Proof(_) => "[Proof]".to_string(),
     }
 }
 

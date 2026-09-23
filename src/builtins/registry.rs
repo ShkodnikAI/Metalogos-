@@ -35,6 +35,10 @@ use super::media::{
 use super::media::{builtin_media_manifest_read, builtin_media_manifest_stub};
 // Наряд №333 (ADR-0163): backend registry listing (stateless).
 use super::backends::{builtin_backend_list, builtin_backend_select};
+use super::forecast::{
+    builtin_forecast_next, builtin_forecast_points, builtin_forecast_state, builtin_series_make,
+    builtin_series_pull,
+};
 // Наряд №334: real STT/omni/vision-understanding backends — the mock-first
 // call surface over the №333 registry (SHA-pin path, ADR-0163 §2.1).
 use crate::vision::ocr::builtin_ocr_extract;
@@ -966,6 +970,17 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // shift existing CallBuiltin indices (.mbc contract).
     // Registry 459→460 (append-only).
     spec!("ledger_verify", 1, "security"; builtin_ledger_verify),
+    // ── Naryad #440 (P1, feature/forecast): the forecasting domain ──
+    // series_make/series_pull/forecast_next/forecast_state/
+    // forecast_points over the `timeseries` registry class; the taint
+    // transfer + the gated export live in src/forecast.rs. APPENDED at
+    // the end — inserting mid-array would shift existing CallBuiltin
+    // indices (.mbc contract). Registry 460→465 (append-only).
+    spec!("series_make", 1, 2, "forecast"; builtin_series_make),
+    spec!("series_pull", 2, "forecast"; builtin_series_pull),
+    spec!("forecast_next", 2, "forecast"; builtin_forecast_next),
+    spec!("forecast_state", 1, "forecast"; builtin_forecast_state),
+    spec!("forecast_points", 1, "forecast"; builtin_forecast_points),
 ];
 
 /// Total number of registered builtins.

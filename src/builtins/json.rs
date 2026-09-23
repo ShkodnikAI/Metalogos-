@@ -115,6 +115,9 @@ pub(crate) fn builtin_json_encode(args: &[Value]) -> Result<Value, String> {
     // one surface where the projection map would become CONTENT, so the
     // typed refusal + the audit record fire before serialization.
     super::embodied::guard_world_state_json(&args[0])?;
+    // №440: the forecast taint gate fires before serialization too — a
+    // tainted forecast's points/quantiles must not become JSON content.
+    super::forecast::guard_forecast_json(&args[0])?;
     let json = mlog_value_to_json(&args[0]);
     let serialized = serde_json::to_string(&json)
         .map_err(|e| format!("json_encode() serialization error: {}", e))?;

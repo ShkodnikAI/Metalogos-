@@ -54,6 +54,16 @@ pub enum BackendClass {
     /// through the weights loader). The contour is sim-only: no real
     /// hardware path (the №294 hardware gate + the GPU-budget gate).
     EmbodiedSim,
+    /// The forecasting domain (Naryad №440): numeric time-series
+    /// forecasting over the degradation ladder timesfm-2.5 ->
+    /// statsforecast -> seasonal_naive. NOT generation of media or
+    /// text: the surface is instrumental (points + quantiles + a prov
+    /// block). The timesfm-2.5 weights pin is ONLY the Apache-2.0
+    /// `google/timesfm-2.5-200m-pytorch` — TimesFM 3.0 ships under
+    /// `timesfm-non-commercial-license-v1.0` and is PINNED NEVER
+    /// (restrictive default-deny). Financial prices/rates/markets are
+    /// OUT of scope (instrumental surface, not advisory).
+    Timeseries,
 }
 
 impl BackendClass {
@@ -67,6 +77,7 @@ impl BackendClass {
             BackendClass::Ocr => "ocr",
             BackendClass::VideoUnderstanding => "video-understanding",
             BackendClass::EmbodiedSim => "embodied-sim",
+            BackendClass::Timeseries => "timeseries",
         }
     }
 
@@ -83,6 +94,7 @@ impl BackendClass {
             "ocr" => Some(BackendClass::Ocr),
             "video-understanding" => Some(BackendClass::VideoUnderstanding),
             "embodied-sim" => Some(BackendClass::EmbodiedSim),
+            "timeseries" => Some(BackendClass::Timeseries),
             _ => None,
         }
     }
@@ -289,6 +301,39 @@ pub const BACKEND_REGISTRY: &[BackendEntry] = &[
         pin: ShaPin::PendingNo334,
         license: LicenseClass::Osi,
         license_note: "in-tree mock device record (trace-recording contour, no kinematics) — no external weights artifact exists (nothing to fetch or pin; the №334 loader never routes sim records); governed by the repository license (MIT OR Apache-2.0 — osi)",
+    },
+    // №440 (the forecasting domain): the `timeseries` class joins the
+    // registry — the degradation-ladder rungs of the forecast contour.
+    // Honest pins: timesfm-2.5 declares PendingNo334 until the №334
+    // fetch+SHA path verifies the Apache-2.0 weights artifact; the
+    // software/built-in rungs have NO weights artifact at all (the
+    // embodied-sim convention — never routed through the weights
+    // loader). TimesFM 3.0 is PINNED NEVER: its license
+    // (timesfm-non-commercial-license-v1.0) forbids commercial/
+    // production use — restrictive by default-deny.
+    BackendEntry {
+        name: "timesfm-2.5",
+        class: BackendClass::Timeseries,
+        weights_id: "google/timesfm-2.5-200m-pytorch",
+        pin: ShaPin::PendingNo334,
+        license: LicenseClass::Osi,
+        license_note: "TimesFM 2.5 200m (google-research/timesfm) — Apache-2.0 (osi; HF weights google/timesfm-2.5-200m-pytorch); the 3.0 weights are non-commercial (timesfm-non-commercial-license-v1.0) and are PINNED NEVER — restrictive default-deny",
+    },
+    BackendEntry {
+        name: "statsforecast",
+        class: BackendClass::Timeseries,
+        weights_id: "n/a-software-rung",
+        pin: ShaPin::PendingNo334,
+        license: LicenseClass::Osi,
+        license_note: "Nixtla/statsforecast — Apache-2.0 (osi); a pure-software rung: no weights artifact exists (nothing to fetch or pin; the №334 loader never routes software records) — the external dependency is NOT vendored in-tree (documented dispatcher gap, Устав §11 Шаг 3)",
+    },
+    BackendEntry {
+        name: "seasonal_naive",
+        class: BackendClass::Timeseries,
+        weights_id: "builtin-seasonal-naive",
+        pin: ShaPin::PendingNo334,
+        license: LicenseClass::Osi,
+        license_note: "built-in deterministic seasonal-naive rung (src/forecast.rs) — no external weights artifact exists (nothing to fetch or pin; the №334 loader never routes built-in records); governed by the repository license (MIT OR Apache-2.0 — osi)",
     },
 ];
 

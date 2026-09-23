@@ -83,7 +83,8 @@ pub(crate) fn builtin_backend_select(args: &[Value]) -> Result<Value, String> {
     let class = crate::backends::BackendClass::parse(&class_word).ok_or_else(|| {
         format!(
             "{}: unknown backend class '{}' (available: stt, tts, omni, \
-             vision-understanding, llm, ocr)",
+             vision-understanding, llm, ocr, video-understanding, \
+             embodied-sim, timeseries)",
             FN, class_word
         )
     })?;

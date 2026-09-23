@@ -463,6 +463,13 @@ OVERRIDES = {
     "speak_stop": ("Sink", "Internal", "Reversible", "ends the active speak stream — outcome Completed; an idle direction refuses loudly (DUPLEX_IDLE, fail-closed); records duplex.stop (№352)"),
     "listen_stop": ("Sink", "Internal", "Reversible", "ends the active listen stream — outcome Completed; an idle direction refuses loudly (DUPLEX_IDLE, fail-closed); records duplex.stop (№352)"),
     "duplex_state": ("Source", "Internal", "Pure", "reads the channel projection — both stream outcomes (metadata only, no content ever; audited introspection) (№352)"),
+    # №440 (the forecasting domain): the timeseries surface over the
+    # `timeseries` registry class (state: src/forecast.rs).
+    "series_make": ("Source", "Internal", "Reversible", "constructs a SeriesHandle over the forecast registry — the numeric payload lives in src/forecast.rs (the ADR-0114 opaque pattern, no values in Value); the source label parses through the №322 lattice (over-tainting allowed, under-tainting impossible); the runtime's own persistent store read (provenance); records forecast.series_make (№440)"),
+    "series_pull": ("Source", "Network", "Reversible", "the GRANT-GATED external series pull (№335/№390 contour): an ungrantable argument refuses BEFORE anything else; with an active grant the refusal is the documented no-source-backend gap (Устав §11 Шаг 3) — never a silent substitution; records forecast.pull_denied (№440)"),
+    "forecast_next": ("Source", "Internal", "Reversible", "walks the `timeseries` degradation ladder (timesfm-2.5 -> statsforecast -> seasonal_naive) and stores the ForecastHandle with the prov block {window hash, rung/pin, degraded, horizon}; the JOINED source label transfers (LabelJoin — a forecast of a tainted series is tainted); skipped rungs are audited, never silent; records forecast.run (№440/ADR-0165)"),
+    "forecast_state": ("Source", "Internal", "Pure", "reads the prov-block projection — {id, series, horizon, rung, pin, degraded, window_hash, label, note, skipped}; metadata and digests only, NO points (the device_state precedent); audited introspection (№440)"),
+    "forecast_points": ("Source", "Internal", "Pure", "THE gated data projection {points, p10, p50, p90} — a tainted forecast refuses fail-closed with the typed FORECAST_TAINTED stamp + the forecast.denied ledger record (the №322/№325 lattice; the №428 posture: no silent egress AND no silent refusal) (№440)"),
     "authenticate": ("Pure", "Secret", "Pure", "credential verification — handles secrets locally, no egress (stub intent)"),
     "vec_store": ("Sink", "Internal", "Reversible", "persists embeddings into the vector store (ADR-0134)"),
     "vec_search": ("Source", "Internal", "Pure", "reads the vector store (KNN state input)"),

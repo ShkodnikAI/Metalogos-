@@ -262,6 +262,10 @@ pub mod vision;
 pub mod media;
 // Наряд №333 (ADR-0163): backend registry builtins — backend_list().
 pub mod backends;
+// Наряд №440 (P1, feature/forecast): the forecasting domain —
+// series_make/series_pull/forecast_next/forecast_state/forecast_points
+// over the `timeseries` registry class (state: src/forecast.rs).
+pub(crate) mod forecast;
 // Наряд №335 (spec §7.2 v2): consent grant/revoke + quarantine sink +
 // ledger export — the consent component's language surface.
 pub mod consent;

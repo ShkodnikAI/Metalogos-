@@ -655,7 +655,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 494 registered builtins (494 of 494): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 499 registered builtins (499 of 499): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -1640,6 +1640,72 @@ pattern KnowAbout() -> String {
 // scope: vec_store(..., {scope: "acme"}) binds the table; vec_search(..., {scope: "other"}) is a LOUD [SCOPE_VIOLATION].
 ```
 
+### 4.24. Forecast — the timeseries domain (naryad #440, pattern IV)
+
+The forecasting domain: **no new syntax** — the domain is five builtins
+over two opaque handle types and the `timeseries` backend-registry class
+(the plan v2 pattern IV: new domains = new types + backends, not new
+grammar). The numeric payload NEVER enters a `Value` (the ADR-0114
+opaque pattern): the series and the forecast points live in the
+registry (`src/forecast.rs`); the handle map is the printable
+projection only.
+
+```mlog
+// A series from in-program literal data (public by construction):
+let s = series_make([12.0, 14.0, 13.0, 15.0, 16.0, 15.0, 17.0], "daily")
+// The degradation ladder walks automatically — in this build the
+// seasonal_naive rung computes (timesfm-2.5 is feature-gated, the
+// statsforecast rung is not vendored — both refusals are AUDITED, never
+// silent; the forecast carries degraded=true when a rung was skipped):
+let f = forecast_next(s, 3.0)
+let prov = forecast_state(f)        // prov block: rung/pin/degraded/horizon/window_hash/label
+let data = forecast_points(f)       // THE gated projection: {points, p10, p50, p90}
+print(to_string(f))                 // clean forecast materializes its content
+```
+
+```mlog
+// The taint discipline (№322/№325 lattice): a series from a tainted
+// source carries the source label; LabelJoin transfers it to the
+// forecast; every DATA export of a tainted forecast refuses fail-closed
+// with the typed FORECAST_TAINTED stamp (branchable in try) and the
+// refusal itself is a forecast.denied ledger record:
+let t = series_make({values: [1.0, 2.0, 3.0], frequency: "daily", label: "private"})
+let tf = forecast_next(t, 2.0)
+let r = try to_string(tf)
+if r.ok == false {
+    if r.error.code == "FORECAST_TAINTED" {
+        return "denied-as-designed"     // the red leg: taint never exports
+    }
+}
+// interpolation is fail-closed too: "${tf}" renders the [Forecast] marker, never content
+```
+
+Constructor forms of `series_make(source, frequency?)`:
+`source` is a `List[Float]` (the literal form — genuinely public by
+construction: the data is right there in the program text) or a
+`Struct {values, frequency?, label?}` (the explicit form — the label
+word parses through the №322 lattice; over-tainting is allowed,
+UNDER-tainting is impossible: an unknown word is a compile error
+`FORECAST_LABEL_INVALID` on the audit path and a loud runtime refusal).
+`series_pull(grant, source)` is the GRANT-GATED external pull (the
+№335/№390 contour): the grant is verified BEFORE anything else; this
+build has no external series source backend in-tree, so a verified
+pull refuses with the documented dispatcher gap (Устав §11 Шаг 3) —
+never a silent substitution.
+
+The `timeseries` registry class carries the degradation ladder
+`timesfm-2.5 -> statsforecast -> seasonal_naive` (ADR-0165 mechanics
+over the №333 SSOT). The timesfm-2.5 pin is ONLY the Apache-2.0
+`google/timesfm-2.5-200m-pytorch` weights; TimesFM 3.0 ships under a
+non-commercial license and is PINNED NEVER (restrictive default-deny).
+The surface is instrumental (points + quantiles + a prov block) —
+financial prices/rates/markets are OUT of scope. A clean forecast is
+read-only and COPYABLE (a forecast is not an asset — no linearity); a
+tainted one keeps the opaque marker on every non-gated surface
+(`[Forecast]` in interpolation and template rendering) and refuses on
+every gated one (`to_string` / `json_encode` / `print` /
+`forecast_points`).
+
 ---
 
 ## 5. Top-level declarations
@@ -2050,7 +2116,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 494 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 499 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2255,6 +2321,16 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 |---|---|---|---|
 | `budget_check(...)` | 2 | `Float, Float -> Dict` | Returns `BudgetStatus { step, total_steps, remaining, fraction, over_budget }`. Errors if `total_steps == 0` |
 | `confidence(...)` | 1 | `Fluid -> Float` | Returns the maximum confidence of the probabilistic type. Returns `1.0` for concrete values |
+
+### `forecast` — 5 builtin(s)
+
+| Builtin | Arity | Signature (curated) | Description |
+|---|---|---|---|
+| `forecast_next(...)` | 2 | — | `forecast_next(handle, horizon) -> Forecast` |
+| `forecast_points(...)` | 1 | — | `forecast_points(handle) -> Struct` |
+| `forecast_state(...)` | 1 | — | `forecast_state(handle) -> Struct` |
+| `series_make(...)` | 1..2 | — | `series_make(source, frequency?) -> Series` |
+| `series_pull(...)` | 2 | — | `series_pull(grant, source) -> Series` |
 
 ### `graph` — 8 builtin(s)
 
@@ -3272,8 +3348,15 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `likeness_verify` | lift | public | pure | consumes the challenge (linear), records the consent-ledger grant and returns the opaque LikenessToken (№387, ADR-0149 D1/D6) — process-local bookkeeping, no egress |
 | `ocr_extract` | source | internal | pure | local OCR backend call (№407, trocr-base-printed canon): ingests the text extracted from an image into the flow; no upload, no egress; real mode requires SHA-pinned weights (PARKED №294) |
 | `ledger_verify` | source | internal | pure | reads an exported JSONL chain from a sandboxed path and returns the structural verification verdict (№415) — ingress of the signed trail for verification; the runtime ledger is never written and nothing egresses |
+| `series_make` | source | internal | reversible | constructs a SeriesHandle over the forecast registry — the numeric payload lives in src/forecast.rs (the ADR-0114 opaque pattern, no values in Value); the source label parses through the №322 lattice (over-tainting allowed, under-tainting impossible); the runtime's own persistent store read (provenance); records forecast.series_make (№440) |
+| `series_pull` | source | network | reversible | the GRANT-GATED external series pull (№335/№390 contour): an ungrantable argument refuses BEFORE anything else; with an active grant the refusal is the documented no-source-backend gap (Устав §11 Шаг 3) — never a silent substitution; records forecast.pull_denied (№440) |
+| `forecast_next` | source | internal | reversible | walks the `timeseries` degradation ladder (timesfm-2.5 -> statsforecast -> seasonal_naive) and stores the ForecastHandle with the prov block {window hash, rung/pin, degraded, horizon}; the JOINED source label transfers (LabelJoin — a forecast of a tainted series is tainted); skipped rungs are audited, never silent; records forecast.run (№440/ADR-0165) |
+| `forecast_state` | source | internal | pure | reads the prov-block projection — {id, series, horizon, rung, pin, degraded, window_hash, label, note, skipped}; metadata and digests only, NO points (the device_state precedent); audited introspection (№440) |
+| `forecast_points` | source | internal | pure | THE gated data projection {points, p10, p50, p90} — a tainted forecast refuses fail-closed with the typed FORECAST_TAINTED stamp + the forecast.denied ledger record (the №322/№325 lattice; the №428 posture: no silent egress AND no silent refusal) (№440) |
 
 <!-- END GENERATED BUILTIN CLASSIFICATION -->
+
+
 
 
 

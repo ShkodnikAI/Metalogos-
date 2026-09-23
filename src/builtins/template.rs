@@ -467,6 +467,13 @@ fn value_to_string(v: &Value) -> String {
         Value::Trajectory(_) => "[Trajectory]".to_string(),
         Value::GoalPredicate(_) => "[GoalPredicate]".to_string(),
         Value::Proof(_) => "[Proof]".to_string(),
+        // №440: the forecast handles in template rendering. Series is
+        // opaque (the payload is the input, potentially private).
+        // Forecast delegates to the taint-aware Display engine: clean
+        // content renders, a tainted forecast is the fail-closed
+        // marker (interpolation never leaks taint).
+        Value::SeriesHandle(_) => "[Series]".to_string(),
+        Value::ForecastHandle(m) => crate::forecast::forecast_display(m),
     }
 }
 

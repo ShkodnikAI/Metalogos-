@@ -172,6 +172,19 @@ pub enum Value {
     /// hash(sim)}). The signed record lives in the registry; runtime
     /// validation checks the CONTRACT FIELDS only — execution is №356.
     Proof(std::collections::HashMap<String, String>),
+    /// Opaque forecast series handle (Naryad #440 — the forecasting
+    /// domain). The numeric series lives in `src/forecast.rs` (the
+    /// ADR-0114 opaque pattern); the map (id/frequency/label/length/
+    /// source) is the printable projection only. Appended LAST —
+    /// bincode variant indices stable (.mbc).
+    SeriesHandle(std::collections::HashMap<String, String>),
+    /// Opaque forecast result handle (Naryad #440) — read-only,
+    /// copyable (a forecast is not an asset). The prov block
+    /// {window hash, rung/pin, degraded, horizon} + the JOINED source
+    /// label; the DATA export is the gated surface (the typed
+    /// FORECAST_TAINTED refusal + the forecast.denied ledger record).
+    /// Appended LAST — bincode variant indices stable (.mbc).
+    ForecastHandle(std::collections::HashMap<String, String>),
 }
 
 impl std::fmt::Display for Value {
@@ -292,6 +305,15 @@ impl std::fmt::Display for Value {
             Value::Trajectory(_) => write!(f, "[Trajectory]"),
             Value::GoalPredicate(_) => write!(f, "[GoalPredicate]"),
             Value::Proof(_) => write!(f, "[Proof]"),
+            // Naryad #440: the forecast handles. Series is opaque (the
+            // payload is the INPUT, potentially private — no content
+            // ever renders). Forecast is TAINT-AWARE: a clean forecast
+            // renders its read-only content through the forecast
+            // engine; a tainted one renders the opaque marker (Display
+            // cannot error — the loud typed refusal lives on the gated
+            // surfaces: print/to_string/json_encode/forecast_points).
+            Value::SeriesHandle(_) => write!(f, "[Series]"),
+            Value::ForecastHandle(m) => write!(f, "{}", crate::forecast::forecast_display(m)),
         }
     }
 }
@@ -343,6 +365,9 @@ impl Value {
             Value::Trajectory(_) => "Trajectory",
             Value::GoalPredicate(_) => "GoalPredicate",
             Value::Proof(_) => "Proof",
+            // Naryad #440 (the forecasting domain): the handle type names.
+            Value::SeriesHandle(_) => "Series",
+            Value::ForecastHandle(_) => "Forecast",
         }
     }
 
@@ -522,6 +547,15 @@ pub const CODE_EMBODIED_PROOF_INVALID: &str = "EMBODIED_PROOF_INVALID";
 /// №355: the WorldState private-by-default materialization refusal
 /// (the Phase-1 lattice / №349 consistency — ошибка + аудит).
 pub const CODE_WORLD_STATE_PRIVATE: &str = "WORLD_STATE_PRIVATE";
+/// №440 (the forecasting domain): the taint export refusal — printing,
+/// stringifying, JSON-encoding, or projecting the POINTS of a forecast
+/// derived from a tainted series is refused fail-closed (the
+/// №322/№325 lattice; the refusal itself is a forecast.denied ledger
+/// record).
+pub const CODE_FORECAST_TAINTED: &str = "FORECAST_TAINTED";
+/// №440: an unknown/dropped forecast-contour handle reached a forecast
+/// surface (the EMBODIED_HANDLE_UNKNOWN convention).
+pub const CODE_FORECAST_HANDLE_UNKNOWN: &str = "FORECAST_HANDLE_UNKNOWN";
 
 /// The whitelist of codes a subsystem may stamp onto the String error
 /// channel. `RUNTIME_ERROR` is deliberately NOT in this list: it is the
@@ -561,6 +595,10 @@ const ORIGIN_STAMPED_CODES: &[&str] = &[
     CODE_EMBODIED_HANDLE_UNKNOWN,
     CODE_EMBODIED_PROOF_INVALID,
     CODE_WORLD_STATE_PRIVATE,
+    // №440: the forecasting domain — the taint export gate and the
+    // unknown-handle refusal (the embodied contour convention).
+    CODE_FORECAST_TAINTED,
+    CODE_FORECAST_HANDLE_UNKNOWN,
     CODE_MCP_PROTOCOL_ERROR,
     CODE_MCP_NOT_ALLOWLISTED,
 ];
@@ -673,6 +711,14 @@ pub fn is_nonprintable(v: &Value) -> bool {
             | Value::Trajectory(_)
             | Value::GoalPredicate(_)
             | Value::Proof(_)
+            // Naryad #440: the series handle is opaque — the numeric
+            // payload (potentially private) NEVER renders. The FORECAST
+            // handle is deliberately NOT here: its materialization is
+            // the TAINT-CONDITIONAL gate (clean content renders; a
+            // tainted forecast refuses with the typed FORECAST_TAINTED
+            // stamp on the gated surfaces and its Display is the
+            // fail-closed opaque marker).
+            | Value::SeriesHandle(_)
     )
 }
 

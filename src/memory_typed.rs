@@ -1291,3 +1291,228 @@ pub fn children_index(handle_id: &str) -> Result<Vec<(String, Vec<String>)>, Str
         })
         .collect())
 }
+
+// ════════════════════════════════════════════════════════════════════
+// ── Naryad #442: recall — the front door of memory ──────────────────
+// ════════════════════════════════════════════════════════════════════
+//
+// `recall` stops being a registry stub: the typed lane becomes a REAL
+// recall source with the №413 fail-closed consent contract. The lane
+// scan NEVER reads the content of a non-consented private container
+// (not even internally) — only the key LIST (metadata) is tested for
+// exact equality with the query, and a match is the refusal evidence.
+// The refusal is a typed origin-stamp (MEMORY_RECALL_CONSENT_REQUIRED)
+// and is itself a `memory.recall.denied` ledger record; every granted
+// recall is a `memory.recall` record {query hash, containers, hits,
+// consent fact} (the №393/ADR-0167 contract).
+
+/// One recall-able typed entry. The text is DECRYPTED — the caller's
+/// active grant covers the disclosure.
+#[derive(Debug, Clone)]
+pub struct RecallEntry {
+    pub container_id: String,
+    pub subject: String,
+    pub label_word: &'static str,
+    pub key: String,
+    pub text: String,
+    pub derived_from: Vec<String>,
+    pub created_unix: u64,
+    /// Deterministic match score: 1.0 exact key, 0.8 key substring,
+    /// 0.6 text substring.
+    pub score: f32,
+}
+
+/// The outcome of one typed-lane scan.
+#[derive(Debug, Default)]
+pub struct RecallLane {
+    /// Matching entries the caller may see (public containers +
+    /// consented private containers), best-first.
+    pub hits: Vec<RecallEntry>,
+    /// Private containers whose KEY exactly matches the query but which
+    /// have NO active consent grant — the fail-closed refusal evidence.
+    /// Pairs of (container id, subject).
+    pub gated_key_matches: Vec<(String, String)>,
+    /// Every container id that was in scope (the ledger's containers
+    /// field — the audit sees what the scan covered, including gated).
+    pub containers_seen: Vec<String>,
+    /// How many private containers were consented (the consent fact).
+    pub consented_private: usize,
+}
+
+/// Scan the typed lane for `query`. Public containers always
+/// participate; a private container participates only under an ACTIVE
+/// consent grant for `memory:<subject>` (fail-closed — no grant, no
+/// container, the `memory_open` parity). Scoring is deterministic:
+/// exact key 1.0, key substring 0.8, text substring 0.6; ties break by
+/// container id, then key.
+pub fn recall_lane(query: &str) -> RecallLane {
+    let mut lane = RecallLane::default();
+    let reg = match registry().lock() {
+        Ok(g) => g,
+        Err(_) => return lane,
+    };
+    let mut ids: Vec<&String> = reg.keys().collect();
+    ids.sort();
+    for id in ids {
+        let c = &reg[id];
+        lane.containers_seen.push(c.id.clone());
+        let consented = match c.label {
+            MemLabel::Public => true,
+            MemLabel::Private => {
+                let scope = format!("memory:{}", c.subject);
+                if crate::consent::active_grant_for(&scope) {
+                    lane.consented_private += 1;
+                    true
+                } else {
+                    // Fail-closed: the CONTENT is never read — the key
+                    // list is metadata and is the only thing tested.
+                    if c.entries.keys().any(|k| k == query) {
+                        lane.gated_key_matches
+                            .push((c.id.clone(), c.subject.clone()));
+                    }
+                    false
+                }
+            }
+        };
+        if !consented {
+            continue;
+        }
+        for (key, entry) in &c.entries {
+            let text = match &entry.stored {
+                Stored::Plain(s) => s.clone(),
+                Stored::Enc(blob) => {
+                    let key_hex = subject_key_hex(&c.subject);
+                    match decrypt_at_rest(blob, &key_hex) {
+                        Ok(t) => t,
+                        // An undecryptable blob is not recall-able —
+                        // skip silently (the read path refuses loudly
+                        // instead; recall never fabricates content).
+                        Err(_) => continue,
+                    }
+                }
+            };
+            let score = if key == query {
+                1.0
+            } else if key.contains(query) {
+                0.8
+            } else if text.contains(query) {
+                0.6
+            } else {
+                continue;
+            };
+            lane.hits.push(RecallEntry {
+                container_id: c.id.clone(),
+                subject: c.subject.clone(),
+                label_word: c.label.as_str(),
+                key: key.clone(),
+                text,
+                derived_from: entry.derived_from.clone(),
+                created_unix: entry.created_unix,
+                score,
+            });
+        }
+    }
+    lane.hits.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.container_id.cmp(&b.container_id))
+            .then_with(|| a.key.cmp(&b.key))
+    });
+    lane
+}
+
+/// The №413 fail-closed refusal — the typed origin-stamp. The message
+/// names the SCOPE and the remediation, never the gated content.
+pub fn recall_consent_refusal(query: &str, container_id: &str, subject: &str) -> String {
+    crate::interpreter::values::coded_error(
+        crate::interpreter::values::CODE_MEMORY_RECALL_CONSENT_REQUIRED,
+        format!(
+            "recall refused: '{}' addresses gated private memory (container '{}', scope 'memory:{}') and no active consent grant exists — grant it via consent_grant(<value>, \"memory:{}\", \"{}\") or recall public lanes (the №413 fail-closed convention; this refusal is a memory.recall.denied ledger record)",
+            query, container_id, subject, subject, subject
+        ),
+    )
+}
+
+/// The `memory.recall` Action-Ledger record (№393/ADR-0167): the query
+/// HASH (never the raw query), the containers the scan covered, the
+/// disclosed hit count and the consent fact.
+pub fn ledger_recall(query: &str, lane: &RecallLane, disclosed: usize) {
+    let hash = crate::ledger::sha256_hex(query.as_bytes());
+    let consent = if lane.consented_private == 0 {
+        "public-only".to_string()
+    } else {
+        format!("granted:{}", lane.consented_private)
+    };
+    let detail = format!(
+        "query_hash={}|containers={}|hits={}|consent={}|taint={}",
+        &hash[..16],
+        lane.containers_seen.join(","),
+        disclosed,
+        consent,
+        result_taint_word(&lane.hits),
+    );
+    eprintln!("[MEMORY_RECALL] recall {}", detail);
+    crate::ledger::record("memory.recall", "recall", "memory", &detail);
+}
+
+/// The `memory.recall.denied` record — the refusal IS the record
+/// (the №442 contract: a denied recall leaves the same audit trail a
+/// granted one does).
+pub fn ledger_recall_denied(query: &str, container_id: &str) {
+    let hash = crate::ledger::sha256_hex(query.as_bytes());
+    let detail = format!(
+        "query_hash={}|container={}|reason=MEMORY_RECALL_CONSENT_REQUIRED",
+        &hash[..16],
+        container_id
+    );
+    eprintln!("[MEMORY_RECALL_DENIED] recall {}", detail);
+    crate::ledger::record("memory.recall.denied", container_id, "memory", &detail);
+}
+
+/// The taint projection of one recall hit onto the №322 lattice: a
+/// private container projects the Secret taint kind (confidentiality —
+/// the content is intact, the EGRESS is the consent-gated concern);
+/// a public container projects the lattice bottom. The Secret mapping
+/// is the same `legacy_taint_label("Secret")` row applies; it is
+/// constructed directly because the projection is a compile-time
+/// constant of the contract.
+fn hit_label(label_word: &str) -> crate::labels::Label {
+    match label_word {
+        "private" => crate::labels::Label {
+            conf: crate::labels::Conf::Private,
+            integrity: crate::labels::Integrity::Trusted,
+            consent: crate::labels::ConsentScope::new(),
+        },
+        _ => crate::labels::Label::bottom(),
+    }
+}
+
+/// The LabelJoin of every disclosed hit's source label — the taint the
+/// WHOLE recall result carries (informational provenance: the grant
+/// already covers the disclosure; downstream code sees what it got).
+pub fn result_taint_word(hits: &[RecallEntry]) -> String {
+    let mut acc = crate::labels::Label::bottom();
+    for h in hits {
+        acc = acc.join(&hit_label(h.label_word));
+    }
+    acc.to_string()
+}
+
+/// The `[MEM]` provenance suffix of a typed-lane recall hit — the
+/// container/source/time provenance the result CARRIES (the same
+/// multi-line enrichment idiom as the `[GRAPH]` suffix).
+pub fn recall_hit_provenance(hit: &RecallEntry) -> String {
+    let mut line = format!(
+        "\n[MEM] container={} subject={} label={} time={} labels={}",
+        hit.container_id,
+        hit.subject,
+        hit.label_word,
+        hit.created_unix,
+        hit_label(hit.label_word),
+    );
+    if !hit.derived_from.is_empty() {
+        line.push_str(&format!(" derived_from={}", hit.derived_from.join(",")));
+    }
+    line
+}

@@ -556,6 +556,11 @@ pub const CODE_FORECAST_TAINTED: &str = "FORECAST_TAINTED";
 /// №440: an unknown/dropped forecast-contour handle reached a forecast
 /// surface (the EMBODIED_HANDLE_UNKNOWN convention).
 pub const CODE_FORECAST_HANDLE_UNKNOWN: &str = "FORECAST_HANDLE_UNKNOWN";
+/// №442 (the recall surface): the consent refusal — recalling an
+/// address that names gated private memory without an active consent
+/// grant refuses fail-closed (the №413 convention; the refusal itself
+/// is a memory.recall.denied ledger record).
+pub const CODE_MEMORY_RECALL_CONSENT_REQUIRED: &str = "MEMORY_RECALL_CONSENT_REQUIRED";
 
 /// The whitelist of codes a subsystem may stamp onto the String error
 /// channel. `RUNTIME_ERROR` is deliberately NOT in this list: it is the
@@ -599,6 +604,10 @@ const ORIGIN_STAMPED_CODES: &[&str] = &[
     // unknown-handle refusal (the embodied contour convention).
     CODE_FORECAST_TAINTED,
     CODE_FORECAST_HANDLE_UNKNOWN,
+    // №442: the recall surface — the fail-closed consent refusal (the
+    // memory_open gate parity: addressing gated private memory without
+    // a grant is a typed, branchable refusal).
+    CODE_MEMORY_RECALL_CONSENT_REQUIRED,
     CODE_MCP_PROTOCOL_ERROR,
     CODE_MCP_NOT_ALLOWLISTED,
 ];

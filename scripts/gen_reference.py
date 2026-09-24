@@ -58,7 +58,7 @@ MANUAL_DESCRIPTIONS = {
     "cancel_remind": "`cancel_remind(id)` — cancel reminder. Returns \"ok\" or \"not_found\".",
     "check_reminders": "`check_reminders()` — get due reminders. One-shot deactivated; recurring advanced.",
     "list_reminders": "`list_reminders()` — list all active reminders.",
-    "recall": "VM-native memory recall (handled inside `src/vm.rs`, no host handler): returns the best memory match for the query, optional minimum-confidence threshold. Registry arity entry kept for VM bytecode validation.",
+    "recall": "Memory recall — the front door of memory (№442): the store lane (hybrid BM25+vector RRF on the TW; the VM-native twin) plus the typed lane; a query that names gated private memory (a private container's key, no active consent grant) refuses fail-closed (MEMORY_RECALL_CONSENT_REQUIRED — the refusal is a memory.recall.denied record); typed-lane hits carry the [MEM] provenance suffix (container/subject/label/time/taint); every call records memory.recall {query hash, containers, hits, consent fact}.",
     "deny_event": "№392 DenyEvent — returns the typed deny event (`reason`, `sink`, `class`, `argument`, `label`, `line`, `human`) for the refusal being handled. Handler-scoped: intercepted by name inside `src/vm.rs` and `src/interpreter/execution.rs` (no host handler); outside an on_deny body it is a compile error and a loud runtime error.",
     "deny_reason": "№392 deny reason word — returns the `reason` string of the live DenyEvent (same vocabulary the audit check_ids use). Handler-scoped like deny_event; a match over it inside on_deny is checked for exhaustiveness.",
     "forget": "VM-native memory forget (handled inside `src/vm.rs`, no host handler): removes matching memory entries by query.",

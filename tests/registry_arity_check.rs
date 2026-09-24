@@ -169,6 +169,9 @@ fn registry_arity_exhaustive() {
         ("mem_get", 1, 1),
         ("mem_delete", 1, 1),
         ("memorize", 2, 3),
+        // №442: recall is a REAL handler now — (query, min_confidence?),
+        // not the historical variadic stub row.
+        ("recall", 1, 2),
         ("find", 4, 4),
         ("inspect", 1, 1),
         ("conv_start", 1, 1),
@@ -355,7 +358,6 @@ fn registry_arity_exhaustive() {
         "trace_end",
         "llm_usage",
         "kv_list",
-        "recall",
         "forget",
         "now",
         "time",

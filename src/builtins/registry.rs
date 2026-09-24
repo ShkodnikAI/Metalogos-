@@ -286,6 +286,14 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("mem_get", 1, "memory"; builtin_mem_get),
     spec!("mem_delete", 1, "memory"; builtin_mem_delete),
     spec!("memorize", 2, 3, "memory"; builtin_kv_set),
+    // Наряд №442: recall — the front door of memory, a REAL handler
+    // (zero stub-spec on the name). The registry-level handler serves
+    // the TYPED lane (the only state a bare fn can reach): consent-
+    // gated private containers (fail-closed MEMORY_RECALL_CONSENT_
+    // REQUIRED), provenance via the [MEM] suffix, the memory.recall
+    // ledger family. The TW/VM state-carrying blocks intercept by name
+    // BEFORE this fallback and add their store lanes (the bug #530
+    // twin pattern) — same gate, same suffix, same ledger.
     // Bug #530 (FO-050 / office #182): recall_top_k is the memory READ the
     // interpreter dispatches through its interception table
     // (interpreter::memory::invoke_recall_top_k_fn — hybrid search over the
@@ -305,8 +313,11 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("vec_store", 4, 5, "memory"; builtin_vec_store), // db_path,table,id,embedding | +text|opts{text,scope} (№281)
     #[cfg(feature = "vec")]
     spec!("vec_search", 4, 5, "memory"; builtin_vec_search), // db_path,table,query,k | +include_forgotten (№280, дефолт false)
-    // recall/forget/find/inspect: planned high-level memory API; no handler (use kv_*/mem_* instead)
-    spec!("recall", 0, "stub"),
+    // Наряд №442: the registry-level recall row (see the №442 comment at
+    // the memory block head) — a REAL handler over the typed lane; the
+    // stub-spec row is gone. forget/find/inspect remain the planned
+    // high-level memory API rows (use kv_*/mem_* instead).
+    spec!("recall", 1, 2, "memory"; builtin_recall),
     // ── Typed Memory<K> (№350): label-typed containers over the
     // process-global registry (src/memory_typed.rs) — private is
     // consent-gated + encrypted at rest, reads/exports are audited

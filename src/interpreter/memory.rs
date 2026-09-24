@@ -195,6 +195,18 @@ impl Interpreter {
     /// Phase 7.2: Uses cosine similarity on embedding vectors (semantic search).
     /// Falls back to substring match if embeddings are unavailable (empty vectors).
     /// Returns the highest-activation entry above the min_confidence threshold.
+    ///
+    /// №442: recall is the front door of memory. The store lane now runs
+    /// through the HYBRID engines (FTS5 BM25 + cosine RRF on the SQLite
+    /// store; the all-entries scan on the in-memory store) with the old
+    /// full-scan `recall()` kept as the safety net, and the TYPED lane
+    /// joins as a recall source with the №413 fail-closed consent
+    /// contract: a query that names gated private memory refuses with
+    /// the typed MEMORY_RECALL_CONSENT_REQUIRED stamp (the refusal is a
+    /// `memory.recall.denied` record), typed hits carry the `[MEM]`
+    /// provenance suffix, and every call leaves a `memory.recall`
+    /// ledger record. The store lane's external contract is unchanged:
+    /// the best entry's value (plus its `[GRAPH]` edges) as a String.
     pub(super) fn invoke_recall(&self, args: Vec<Value>) -> Result<Value, String> {
         if args.is_empty() {
             return Err("recall() requires at least 1 argument (query string)".to_string());
@@ -216,27 +228,94 @@ impl Interpreter {
             0.3
         };
 
+        // ── №442: the typed lane — the fail-closed consent gate comes
+        // FIRST (a refusal discloses nothing, not even partial results).
+        let lane = crate::memory_typed::recall_lane(&query);
+        if let Some((container_id, subject)) = lane.gated_key_matches.first() {
+            crate::memory_typed::ledger_recall_denied(&query, container_id);
+            return Err(crate::memory_typed::recall_consent_refusal(
+                &query,
+                container_id,
+                subject,
+            ));
+        }
+
         // Embed the query for semantic search
         let query_embedding = self.embedding_manager.embed(&query).unwrap_or_default();
 
-        // Use MemoryStore trait for recall (handles both InMemory and SQLite)
-        match lock_or_err(self.memory.lock())?.recall(&query, &query_embedding, min_confidence) {
-            Some((entry, _score)) => {
+        // ── The store lane, through the hybrid engines (№442). RRF
+        // scores are rank-based and not comparable with the 0..1
+        // confidence threshold, so the threshold keeps the store's
+        // activation semantics (sim × priority × decay — the exact
+        // scoring `recall()` has always applied) and is re-checked per
+        // candidate; the old full-scan recall() stays as the safety net
+        // for candidates the BM25 candidate set missed.
+        let store_hit = {
+            let memory = lock_or_err(self.memory.lock())?;
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            let hybrid = memory.recall_top_k(&query, &query_embedding, 0.0, 5, "");
+            let from_hybrid = hybrid
+                .into_iter()
+                .map(|(entry, _rrf)| {
+                    let sim = if !query_embedding.is_empty() && !entry.embedding.is_empty() {
+                        crate::embeddings::cosine_similarity(&query_embedding, &entry.embedding)
+                    } else if entry.value.contains(&query) {
+                        1.0
+                    } else {
+                        0.0
+                    };
+                    let age_days = ((now - entry.timestamp).max(0) as f64) / 86400.0;
+                    let decay = (-entry.decay_rate * age_days).exp() as f32;
+                    let signal = sim * (entry.priority as f32) * decay;
+                    (entry, signal)
+                })
+                .find(|(_, signal)| *signal >= min_confidence);
+            match from_hybrid {
+                Some((entry, _)) => Some(entry),
+                None => memory
+                    .recall(&query, &query_embedding, min_confidence)
+                    .map(|(entry, _)| entry),
+            }
+        };
+
+        // ── Merge: the store lane is recall's primary lane (its
+        // external contract is regression-pinned); the typed lane is the
+        // fallback source whose hits carry the [MEM] provenance suffix.
+        let had_store_hit = store_hit.is_some();
+        let result = match store_hit {
+            Some(entry) => {
                 // Walk the knowledge graph for related memories
                 let edges = lock_or_err(self.kg.lock())?.edges_for(&entry.value);
                 if edges.is_empty() {
-                    Ok(Value::String(entry.value.clone()))
+                    entry.value.clone()
                 } else {
                     let mut result = entry.value.clone();
                     for (relation, other, _weight) in &edges {
                         result.push('\n');
                         result.push_str(&format!("[GRAPH] {} -> {}", relation, other));
                     }
-                    Ok(Value::String(result))
+                    result
                 }
             }
-            None => Ok(Value::String(String::new())),
-        }
+            None => match lane.hits.first() {
+                Some(hit) => {
+                    let mut result = hit.text.clone();
+                    result.push_str(&crate::memory_typed::recall_hit_provenance(hit));
+                    result
+                }
+                None => String::new(),
+            },
+        };
+
+        // ── №442: the ledger record — every recall call is audited
+        // {query hash, containers, hits, consent fact} (№393/ADR-0167).
+        let disclosed = if had_store_hit { 1 } else { lane.hits.len() };
+        crate::memory_typed::ledger_recall(&query, &lane, disclosed);
+
+        Ok(Value::String(result))
     }
 
     /// Entity store query: find("TypeName", "field", "op", threshold)

@@ -99,7 +99,6 @@ jobs:
         continue-on-error: true
         with:
           prefix-key: v2
-        with:
           key: candle-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
       - name: Library tests (feature-gated, includes src/nn/ unit tests)
         run: cargo test --workspace --lib --features candle --no-fail-fast
@@ -149,7 +148,6 @@ jobs:
         continue-on-error: true
         with:
           prefix-key: v2
-        with:
           key: vision-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
       - name: Guard — vision must NOT be in default/full features
         run: |
@@ -195,7 +193,6 @@ jobs:
         continue-on-error: true
         with:
           prefix-key: v2
-        with:
           key: voice-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
       - name: Guard — voice must NOT be in default/full features
         run: |
@@ -228,7 +225,6 @@ jobs:
         continue-on-error: true
         with:
           prefix-key: v2
-        with:
           key: video-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
       - name: Guard — video must NOT be in default/full features
         run: |
@@ -533,7 +529,6 @@ jobs:
         continue-on-error: true
         with:
           prefix-key: v2
-        with:
           workspaces: |
             .
             fuzz

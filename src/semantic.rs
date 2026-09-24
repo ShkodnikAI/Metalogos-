@@ -2037,6 +2037,245 @@ pub struct ForecastViolation {
     pub span: Span,
 }
 
+// ── Naryad #442: the recall surface companion ────────────────────────
+//
+// The same "broken call site must never surface as a runtime surprise"
+// posture the forecast surface established (№440): a literal `recall`
+// first argument that is NOT textual (the memory address space is
+// textual — RECALL_QUERY_INVALID) and a literal min_confidence outside
+// 0.0..=1.0 (the threshold contract every backend enforces at runtime
+// — RECALL_CONFIDENCE_INVALID) are Category-A compile errors.
+
+#[derive(Debug, Clone)]
+pub enum RecallViolationKind {
+    QueryInvalid,
+    ConfidenceInvalid,
+}
+
+#[derive(Debug, Clone)]
+pub struct RecallViolation {
+    pub kind: RecallViolationKind,
+    pub message: String,
+    pub span: Span,
+}
+
+/// Public entry for the audit path (№442): the SAME rules the
+/// companion applies, so a statically-broken recall call site is loud
+/// on EVERY compile path.
+pub fn recall_surface_violations(declarations: &[Declaration]) -> Vec<RecallViolation> {
+    let mut violations: Vec<RecallViolation> = Vec::new();
+    for decl in declarations {
+        match decl {
+            Declaration::Pattern(p) => check_recall_stmts(&p.body, &mut violations),
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    check_recall_stmts(&m.body, &mut violations);
+                }
+            }
+            Declaration::MlogServer(srv) => {
+                for r in &srv.routes {
+                    check_recall_stmts(&r.body, &mut violations);
+                }
+            }
+            Declaration::Flow(f) => check_recall_expr(&f.source, &mut violations),
+            _ => {}
+        }
+    }
+    violations
+}
+
+fn verify_recall_call(name: &str, args: &[Expr], span: &Span, out: &mut Vec<RecallViolation>) {
+    let push = |out: &mut Vec<RecallViolation>, kind, message: String| {
+        out.push(RecallViolation {
+            kind,
+            message,
+            span: span.clone(),
+        });
+    };
+    if name != "recall" {
+        return;
+    }
+    // A literal query must be textual (the memory address space is
+    // textual; a numeric/bool address is a broken call site).
+    match args.first() {
+        Some(Expr::StringLit { .. }) | None => {}
+        Some(Expr::FloatLit { value, .. }) => {
+            push(
+                out,
+                RecallViolationKind::QueryInvalid,
+                format!(
+                    "recall: the query must be a String (the memory address space is textual) — got the numeric literal {}",
+                    value
+                ),
+            );
+        }
+        Some(Expr::BoolLit { value, .. }) => {
+            push(
+                out,
+                RecallViolationKind::QueryInvalid,
+                format!(
+                    "recall: the query must be a String (the memory address space is textual) — got the bool literal {}",
+                    value
+                ),
+            );
+        }
+        _ => {}
+    }
+    // A literal min_confidence must respect the threshold contract
+    // (0.0..=1.0 — the runtime guard mirrored at check time).
+    if let Some(Expr::FloatLit { value, .. }) = args.get(1) {
+        if !value.is_finite() || *value < 0.0 || *value > 1.0 {
+            push(
+                out,
+                RecallViolationKind::ConfidenceInvalid,
+                format!(
+                    "recall: min_confidence {} is outside the threshold contract (0.0..=1.0)",
+                    value
+                ),
+            );
+        }
+    }
+}
+
+fn check_recall_stmts(stmts: &[Statement], out: &mut Vec<RecallViolation>) {
+    for st in stmts {
+        match st {
+            Statement::LetBinding { value, .. } | Statement::Assign { value, .. } => {
+                check_recall_expr(value, out)
+            }
+            Statement::ExprStmt { expr, .. } | Statement::Return { value: expr, .. } => {
+                check_recall_expr(expr, out)
+            }
+            Statement::Each { iterable, body, .. }
+            | Statement::EachWithIndex { iterable, body, .. } => {
+                check_recall_expr(iterable, out);
+                check_recall_stmts(body, out);
+            }
+            Statement::While {
+                condition, body, ..
+            } => {
+                check_recall_expr(condition, out);
+                check_recall_stmts(body, out);
+            }
+            Statement::IfElseBlock {
+                condition,
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                check_recall_expr(condition, out);
+                check_recall_stmts(then_body, out);
+                for (c, b) in else_ifs {
+                    check_recall_expr(c, out);
+                    check_recall_stmts(b, out);
+                }
+                if let Some(eb) = else_body {
+                    check_recall_stmts(eb, out);
+                }
+            }
+            Statement::IfThen {
+                condition, body, ..
+            } => {
+                check_recall_expr(condition, out);
+                check_recall_stmts(body, out);
+            }
+            Statement::Match {
+                scrutinee,
+                arms,
+                else_body,
+                ..
+            } => {
+                check_recall_expr(scrutinee, out);
+                for arm in arms {
+                    check_recall_stmts(arm.body(), out);
+                }
+                if let Some(eb) = else_body {
+                    check_recall_stmts(eb, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn check_recall_expr(expr: &Expr, out: &mut Vec<RecallViolation>) {
+    match expr {
+        Expr::FnCall { name, args, span } => {
+            verify_recall_call(name, args, span, out);
+            for a in args {
+                check_recall_expr(a, out);
+            }
+        }
+        Expr::QualifiedCall { args, .. } => {
+            for a in args {
+                check_recall_expr(a, out);
+            }
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            check_recall_expr(left, out);
+            check_recall_expr(right, out);
+        }
+        Expr::IfElse {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            check_recall_expr(condition, out);
+            check_recall_expr(then_branch, out);
+            check_recall_expr(else_branch, out);
+        }
+        Expr::List { items, .. } => {
+            for i in items {
+                check_recall_expr(i, out);
+            }
+        }
+        Expr::FieldAccess { object, .. } => check_recall_expr(object, out),
+        Expr::IndexAccess { object, index, .. } => {
+            check_recall_expr(object, out);
+            check_recall_expr(index, out);
+        }
+        Expr::StructLit { fields, .. } => {
+            for v in fields.values() {
+                check_recall_expr(v, out);
+            }
+        }
+        Expr::BlockIfElse {
+            condition,
+            then_body,
+            else_ifs,
+            else_body,
+            ..
+        } => {
+            check_recall_expr(condition, out);
+            check_recall_stmts(then_body, out);
+            for (c, body) in else_ifs {
+                check_recall_expr(c, out);
+                check_recall_stmts(body, out);
+            }
+            if let Some(eb) = else_body {
+                check_recall_stmts(eb, out);
+            }
+        }
+        Expr::MatchExpr {
+            scrutinee,
+            arms,
+            else_body,
+            ..
+        } => {
+            check_recall_expr(scrutinee, out);
+            for arm in arms {
+                check_recall_stmts(arm.body(), out);
+            }
+            if let Some(eb) = else_body {
+                check_recall_stmts(eb, out);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Public entry for the audit path (№440): the SAME rules the
 /// companion applies, so a statically-broken forecast call site is
 /// loud on EVERY compile path (`compile_program`/`run_program_with_dir`

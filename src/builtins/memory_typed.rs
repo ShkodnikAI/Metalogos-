@@ -307,3 +307,70 @@ pub(crate) fn builtin_memory_forget_cascade(args: &[Value]) -> Result<Value, Str
     let outcome = memory_typed::forget_cascade(&handle_id, &key, &grant)?;
     Ok(forget_outcome_value(&outcome))
 }
+
+/// `recall(query, min_confidence?) -> String` — the registry-level
+/// recall (№442): the TYPED lane. This is the only state a bare
+/// registry fn can reach; the TW/VM state-carrying blocks intercept by
+/// name first and add their store lanes (the bug #530 twin pattern).
+/// Contract (identical on every path):
+///   - a query that names gated private memory (a private container's
+///     key, no active grant) refuses fail-closed with the typed
+///     MEMORY_RECALL_CONSENT_REQUIRED stamp and records
+///     `memory.recall.denied`;
+///   - otherwise the best typed hit is returned as its text plus the
+///     `[MEM]` provenance suffix (container/subject/label/time/taint);
+///   - every call leaves a `memory.recall` ledger record {query hash,
+///     containers, hits, consent fact}.
+pub(crate) fn builtin_recall(args: &[Value]) -> Result<Value, String> {
+    let fn_name = "recall";
+    if args.is_empty() || args.len() > 2 {
+        return Err(format!(
+            "{}: expects 1..2 arguments (query, min_confidence?), got {}",
+            fn_name,
+            args.len()
+        ));
+    }
+    let query = expect_string_arg(fn_name, args, 0)?;
+    // The typed lane's deterministic scores (1.0/0.8/0.6) are
+    // confidence-ordered; the gate keeps the same 0..=1 semantics as
+    // the store lanes' threshold (mirrored by RECALL_CONFIDENCE_INVALID
+    // at check time).
+    let min_confidence = match args.get(1) {
+        None => 0.0,
+        Some(v) => {
+            let mc = v
+                .as_float()
+                .map_err(|_| "recall: min_confidence must be a number".to_string())?;
+            if !(0.0..=1.0).contains(&mc) {
+                return Err(format!(
+                    "recall: min_confidence {} is outside 0.0..=1.0",
+                    mc
+                ));
+            }
+            mc
+        }
+    };
+    let lane = memory_typed::recall_lane(&query);
+    if let Some((container_id, subject)) = lane.gated_key_matches.first() {
+        memory_typed::ledger_recall_denied(&query, container_id);
+        return Err(memory_typed::recall_consent_refusal(
+            &query,
+            container_id,
+            subject,
+        ));
+    }
+    let disclosed = lane
+        .hits
+        .iter()
+        .filter(|h| h.score >= min_confidence as f32)
+        .count();
+    memory_typed::ledger_recall(&query, &lane, disclosed);
+    match lane.hits.iter().find(|h| h.score >= min_confidence as f32) {
+        Some(hit) => {
+            let mut result = hit.text.clone();
+            result.push_str(&memory_typed::recall_hit_provenance(hit));
+            Ok(Value::String(result))
+        }
+        None => Ok(Value::String(String::new())),
+    }
+}

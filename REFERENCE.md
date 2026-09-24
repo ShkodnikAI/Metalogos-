@@ -2447,7 +2447,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `media_store_video_frame(...)` | 2 | — | `media_store_video_frame(data, sensitivity)` — wraps provided bytes into an opaque VideoFrame handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. |
 | `media_store_video_segment(...)` | 2 | — | `media_store_video_segment(data, sensitivity)` — wraps provided bytes into an opaque VideoSegment handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. |
 
-### `memory` — 35 builtin(s)
+### `memory` — 36 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
@@ -2478,6 +2478,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `memory_retain(...)` | 2 | — | `memory_retain(handle, key) -> Unit` |
 | `memory_retained(...)` | 1 | — | `memory_retained(handle) -> List<String>` |
 | `memory_revise(...)` | variadic | — | `memory_revise(id, new_text, new_score?)` — update a node and resolve Contradicts. If the node contradicts others, the system keeps the higher-scoring belief and demotes the loser (score *= 0.3, adds Supersedes edge). Returns Struct { action, winner_id, superseded_id? }. |
+| `recall(...)` | 1..2 | — | Memory recall — the front door of memory (№442): the store lane (hybrid BM25+vector RRF on the TW; the VM-native twin) plus the typed lane; a query that names gated private memory (a private container's key, no active consent grant) refuses fail-closed (MEMORY_RECALL_CONSENT_REQUIRED — the refusal is a memory.recall.denied record); typed-lane hits carry the [MEM] provenance suffix (container/subject/label/time/taint); every call records memory.recall {query hash, containers, hits, consent fact}. |
 | `recall_top_k(...)` | 1..3 | `String, Float, String -> String` | Returns the top-K entries sorted by RRF score. A JSON array: `[{value, score, type, priority}]` (the interpreter's hybrid FTS5+cosine search; Bug #530: the VM now compiles the name and searches its own backend-local store with token-level scoring). An empty type searches across all types |
 | `ref(...)` | 1 | — | `ref(content)` — compute SHA-256 hash, store in KV, return hash string. Idempotent. |
 | `session_clear(...)` | variadic | `String -> String` | Deletes all of the session's data. Returns `"ok"` |
@@ -2669,7 +2670,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `word_wrap(...)` | 2 | — | `word_wrap(s, width)` — reflows text to `width` columns without breaking words; errors on width 0. |
 | `words(...)` | 1 | — | `words(s)` -- split string into list of words by whitespace. |
 
-### `stub` — 26 builtin(s)
+### `stub` — 25 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
@@ -2695,7 +2696,6 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `newline(...)` | variadic | — | Registry-only stub — no handler on TW or VM; calling the name errors on both backends (entry kept for registry/opcode indexing completeness). |
 | `query_row(...)` | variadic | — | VM-native DB helper (handled inside `src/vm.rs`, no host handler): executes an SQL query and returns the first row as a Dict. |
 | `query_scalar(...)` | variadic | — | VM-native DB helper (handled inside `src/vm.rs`, no host handler): executes an SQL query and returns the first column of the first row as a scalar. |
-| `recall(...)` | variadic | — | VM-native memory recall (handled inside `src/vm.rs`, no host handler): returns the best memory match for the query, optional minimum-confidence threshold. Registry arity entry kept for VM bytecode validation. |
 | `resolve_skill_index(...)` | 1 | — | VM-native skill resolver (handled inside `src/vm.rs`, no host handler): resolves a skill index entry for the VM execution path. |
 | `split_tokens(...)` | variadic | — | Registry-only stub — no handler on TW or VM; calling the name errors on both backends (entry kept for registry/opcode indexing completeness). |
 | `stdin(...)` | variadic | — | Registry-only stub — no handler on TW or VM; calling the name errors on both backends (entry kept for registry/opcode indexing completeness). |
@@ -3023,7 +3023,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `embed` | pure | public | pure | — |
 | `vec_store` | sink | internal | reversible | persists embeddings into the vector store (ADR-0134) |
 | `vec_search` | source | internal | pure | reads the vector store (KNN state input) |
-| `recall` | source | internal | pure | intended memory recall — state read |
+| `recall` | source | internal | pure | real handler (№442) — the front door of memory: the store lane (hybrid BM25+vector on the TW; the VM-native twin) plus the typed lane with consent-gated private containers (fail-closed MEMORY_RECALL_CONSENT_REQUIRED — the refusal is a memory.recall.denied record); typed hits carry the [MEM] provenance suffix; records memory.recall {query hash, containers, hits, consent fact} |
 | `memory_open` | source | internal | reversible | returns the Memory<K> container handle — the ingress of the typed-memory surface; a private open is consent-gated INSIDE (active consent for memory:<subject>, №335 — the db_execute_with_grant capability precedent); records memory.open (№350) |
 | `memory_put` | pure | public | pure | — |
 | `memory_read` | source | internal | reversible | THE AUDITED READ SINK: public returns String, private returns Secret — print refuses it and redact() (№326/ADR-0136) is the only egress; records memory.read (№350) |

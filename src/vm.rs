@@ -2148,6 +2148,13 @@ impl Vm {
             return Ok(if name == "deny_event" { event } else { reason });
         }
         if name == "recall" {
+            // №442: recall is the front door of memory. The VM's store
+            // lane stays the honest simple-memory twin (substring +
+            // activation, the bug #530 posture); the typed lane joins
+            // as a recall source with the №413 fail-closed consent
+            // contract — the SAME gate, suffix and ledger as the TW
+            // (parity by construction: the shared engine lives in
+            // src/memory_typed.rs).
             let query = match args.first() {
                 Some(Value::String(s)) => s.clone(),
                 other => return Err(format!("recall() expected String, got {:?}", other)),
@@ -2157,7 +2164,34 @@ impl Vm {
             } else {
                 0.0
             };
-            return Ok(Value::String(self.recall(&query, min_conf)));
+            // The typed lane's fail-closed gate comes FIRST.
+            let lane = crate::memory_typed::recall_lane(&query);
+            if let Some((container_id, subject)) = lane.gated_key_matches.first() {
+                crate::memory_typed::ledger_recall_denied(&query, container_id);
+                return Err(crate::memory_typed::recall_consent_refusal(
+                    &query,
+                    container_id,
+                    subject,
+                ));
+            }
+            // Store lane (VM-native twin) → typed-lane fallback.
+            let store_result = self.recall(&query, min_conf);
+            let had_store_hit = !store_result.is_empty();
+            let result = if had_store_hit {
+                store_result
+            } else {
+                match lane.hits.first() {
+                    Some(hit) => {
+                        let mut r = hit.text.clone();
+                        r.push_str(&crate::memory_typed::recall_hit_provenance(hit));
+                        r
+                    }
+                    None => String::new(),
+                }
+            };
+            let disclosed = if had_store_hit { 1 } else { lane.hits.len() };
+            crate::memory_typed::ledger_recall(&query, &lane, disclosed);
+            return Ok(Value::String(result));
         }
 
         // find(entity_type, field, op, threshold) — entity store query

@@ -4667,6 +4667,33 @@ fn check_forecast_surface(
     }
 }
 
+/// ── Check: RECALL_QUERY_INVALID + RECALL_CONFIDENCE_INVALID (Наряд
+/// №442) ── The recall surface companion on EVERY compile path (the
+/// FORECAST_* template): a literal `recall` query must be textual
+/// (the memory address space is textual — RECALL_QUERY_INVALID), and a
+/// literal min_confidence must respect the 0.0..=1.0 threshold
+/// contract every backend enforces at runtime (RECALL_CONFIDENCE_
+/// INVALID). Always Error — a broken recall call site must never
+/// surface as a runtime surprise.
+fn check_recall_surface(
+    declarations: &[Declaration],
+    _source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    for v in crate::semantic::recall_surface_violations(declarations) {
+        let check_id = match v.kind {
+            crate::semantic::RecallViolationKind::QueryInvalid => "RECALL_QUERY_INVALID",
+            crate::semantic::RecallViolationKind::ConfidenceInvalid => "RECALL_CONFIDENCE_INVALID",
+        };
+        findings.push(AuditFinding {
+            severity: Severity::Error,
+            check_id,
+            line: v.span.start_line as usize,
+            message: v.message,
+        });
+    }
+}
+
 /// ── Check: BACKEND_LICENSE_DISTRIBUTION (Наряд №333, ADR-0163 §2.2) ──
 /// A program that NAMES non-osi/restrictive weights (string literals at
 /// any position + the `vision { model: … }` field) is a distribution
@@ -5620,6 +5647,11 @@ pub fn audit_category_a(declarations: &[Declaration], source: &str) -> Vec<Audit
     // — a literal bad label word or an out-of-guard literal horizon is
     // a compile error (Category-A), never a runtime surprise.
     check_forecast_surface(declarations, source, &mut findings);
+    // Наряд №442: the recall surface companion on EVERY compile path
+    // — a literal non-String query or an out-of-contract literal
+    // min_confidence is a compile error (Category-A), never a runtime
+    // surprise.
+    check_recall_surface(declarations, source, &mut findings);
     // Naryad #390 (ADR-0155): static Once-grant linearity — the
     // GRANT_REUSED compile error. The runtime half (ledger state/TTL/
     // quota/scope) lives in src/grants.rs; the ungranted destructive-SQL
@@ -5691,6 +5723,9 @@ pub fn audit_program(source: &str) -> Result<AuditResult, String> {
     // Наряд №440: the forecast surface companion (the audit CLI path —
     // the same rules audit_category_a applies).
     check_forecast_surface(&declarations, source, &mut findings);
+    // Наряд №442: the recall surface companion (the audit CLI path —
+    // the same rules audit_category_a applies).
+    check_recall_surface(&declarations, source, &mut findings);
 
     // Sort findings by line number for deterministic output
     findings.sort_by_key(|f| (f.line, f.check_id));

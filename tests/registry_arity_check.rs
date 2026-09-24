@@ -344,6 +344,8 @@ fn registry_arity_exhaustive() {
     }
 
     // Variadic builtins (arity=0, max_arity=None): accept any count
+    // (№445: "forget" left this list — the stub row became a real
+    // 3..4-argument handler).
     let variadic: &[&str] = &[
         "format",
         "newline",
@@ -358,7 +360,6 @@ fn registry_arity_exhaustive() {
         "trace_end",
         "llm_usage",
         "kv_list",
-        "forget",
         "now",
         "time",
         "graph_neighbors",

@@ -45,7 +45,18 @@ jobs:
           fi
 
       - uses: dtolnay/rust-toolchain@stable
+      # №445 wave-infra: the rust-cache restore for the heavy jobs
+      # (clippy + the feature-gated test jobs) died deterministically in
+      # the GitHub cache service 3 runs in a row (the job was killed
+      # mid-restore, before any check ran). A cache failure is a
+      # performance loss, never a correctness signal — make the step
+      # non-fatal and bust the poisoned cache partition (prefix-key v2).
+      # No check is weakened: clippy/tests still run and still fail the
+      # job on their own findings.
       - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          prefix-key: v2
       - name: Library tests
         run: cargo test --workspace --lib --no-fail-fast
 
@@ -55,7 +66,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+      # №445 wave-infra: the rust-cache restore for the heavy jobs
+      # (clippy + the feature-gated test jobs) died deterministically in
+      # the GitHub cache service 3 runs in a row (the job was killed
+      # mid-restore, before any check ran). A cache failure is a
+      # performance loss, never a correctness signal — make the step
+      # non-fatal and bust the poisoned cache partition (prefix-key v2).
+      # No check is weakened: clippy/tests still run and still fail the
+      # job on their own findings.
       - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          prefix-key: v2
       - name: TW vs VM parity
         run: cargo test --workspace --test crosscheck_backends --no-fail-fast
 
@@ -65,8 +87,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+      # №445 wave-infra: the rust-cache restore for the heavy jobs
+      # (clippy + the feature-gated test jobs) died deterministically in
+      # the GitHub cache service 3 runs in a row (the job was killed
+      # mid-restore, before any check ran). A cache failure is a
+      # performance loss, never a correctness signal — make the step
+      # non-fatal and bust the poisoned cache partition (prefix-key v2).
+      # No check is weakened: clippy/tests still run and still fail the
+      # job on their own findings.
       - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
         with:
+          prefix-key: v2
           key: candle-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
       - name: Library tests (feature-gated, includes src/nn/ unit tests)
         run: cargo test --workspace --lib --features candle --no-fail-fast
@@ -104,8 +136,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+      # №445 wave-infra: the rust-cache restore for the heavy jobs
+      # (clippy + the feature-gated test jobs) died deterministically in
+      # the GitHub cache service 3 runs in a row (the job was killed
+      # mid-restore, before any check ran). A cache failure is a
+      # performance loss, never a correctness signal — make the step
+      # non-fatal and bust the poisoned cache partition (prefix-key v2).
+      # No check is weakened: clippy/tests still run and still fail the
+      # job on their own findings.
       - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
         with:
+          prefix-key: v2
           key: vision-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
       - name: Guard — vision must NOT be in default/full features
         run: |
@@ -139,8 +181,18 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      # №445 wave-infra: the rust-cache restore for the heavy jobs
+      # (clippy + the feature-gated test jobs) died deterministically in
+      # the GitHub cache service 3 runs in a row (the job was killed
+      # mid-restore, before any check ran). A cache failure is a
+      # performance loss, never a correctness signal — make the step
+      # non-fatal and bust the poisoned cache partition (prefix-key v2).
+      # No check is weakened: clippy/tests still run and still fail the
+      # job on their own findings.
       - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
         with:
+          prefix-key: v2
           key: voice-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
       - name: Guard — voice must NOT be in default/full features
         run: |
@@ -161,8 +213,18 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      # №445 wave-infra: the rust-cache restore for the heavy jobs
+      # (clippy + the feature-gated test jobs) died deterministically in
+      # the GitHub cache service 3 runs in a row (the job was killed
+      # mid-restore, before any check ran). A cache failure is a
+      # performance loss, never a correctness signal — make the step
+      # non-fatal and bust the poisoned cache partition (prefix-key v2).
+      # No check is weakened: clippy/tests still run and still fail the
+      # job on their own findings.
       - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
         with:
+          prefix-key: v2
           key: video-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
       - name: Guard — video must NOT be in default/full features
         run: |
@@ -181,7 +243,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+      # №445 wave-infra: the rust-cache restore for the heavy jobs
+      # (clippy + the feature-gated test jobs) died deterministically in
+      # the GitHub cache service 3 runs in a row (the job was killed
+      # mid-restore, before any check ran). A cache failure is a
+      # performance loss, never a correctness signal — make the step
+      # non-fatal and bust the poisoned cache partition (prefix-key v2).
+      # No check is weakened: clippy/tests still run and still fail the
+      # job on their own findings.
       - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          prefix-key: v2
       - name: Build mlog
         run: cargo build --bin mlog
       - name: Doc-tests on REFERENCE/README/docs (Naryad #287)
@@ -193,7 +266,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+      # №445 wave-infra: the rust-cache restore for the heavy jobs
+      # (clippy + the feature-gated test jobs) died deterministically in
+      # the GitHub cache service 3 runs in a row (the job was killed
+      # mid-restore, before any check ran). A cache failure is a
+      # performance loss, never a correctness signal — make the step
+      # non-fatal and bust the poisoned cache partition (prefix-key v2).
+      # No check is weakened: clippy/tests still run and still fail the
+      # job on their own findings.
       - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          prefix-key: v2
       - name: Registry/dispatcher arity sync
         run: cargo test --workspace --test registry_arity_check --no-fail-fast
 
@@ -203,7 +287,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+      # №445 wave-infra: the rust-cache restore for the heavy jobs
+      # (clippy + the feature-gated test jobs) died deterministically in
+      # the GitHub cache service 3 runs in a row (the job was killed
+      # mid-restore, before any check ran). A cache failure is a
+      # performance loss, never a correctness signal — make the step
+      # non-fatal and bust the poisoned cache partition (prefix-key v2).
+      # No check is weakened: clippy/tests still run and still fail the
+      # job on their own findings.
       - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          prefix-key: v2
       - name: LLM cache contract tests
         run: cargo test --workspace --test llm_cache_contract --no-fail-fast
 
@@ -213,7 +308,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+      # №445 wave-infra: the rust-cache restore for the heavy jobs
+      # (clippy + the feature-gated test jobs) died deterministically in
+      # the GitHub cache service 3 runs in a row (the job was killed
+      # mid-restore, before any check ran). A cache failure is a
+      # performance loss, never a correctness signal — make the step
+      # non-fatal and bust the poisoned cache partition (prefix-key v2).
+      # No check is weakened: clippy/tests still run and still fail the
+      # job on their own findings.
       - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          prefix-key: v2
       - name: Build with minimal features (no server/llm)
         run: cargo build --release --no-default-features --features "svg,chart,diagram,template"
 
@@ -223,7 +329,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+      # №445 wave-infra: the rust-cache restore for the heavy jobs
+      # (clippy + the feature-gated test jobs) died deterministically in
+      # the GitHub cache service 3 runs in a row (the job was killed
+      # mid-restore, before any check ran). A cache failure is a
+      # performance loss, never a correctness signal — make the step
+      # non-fatal and bust the poisoned cache partition (prefix-key v2).
+      # No check is weakened: clippy/tests still run and still fail the
+      # job on their own findings.
       - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          prefix-key: v2
       - name: Integration tests (excluding blocking tests)
         run: cargo test --workspace --tests --no-fail-fast -- --skip crosscheck --skip registry_arity_check --skip llm_cache_contract
 
@@ -237,7 +354,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+      # №445 wave-infra: the rust-cache restore for the heavy jobs
+      # (clippy + the feature-gated test jobs) died deterministically in
+      # the GitHub cache service 3 runs in a row (the job was killed
+      # mid-restore, before any check ran). A cache failure is a
+      # performance loss, never a correctness signal — make the step
+      # non-fatal and bust the poisoned cache partition (prefix-key v2).
+      # No check is weakened: clippy/tests still run and still fail the
+      # job on their own findings.
       - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          prefix-key: v2
       - name: Action Ledger 10k-record golden (sign + external verify < 10s)
         run: cargo test --release --test naryad_393_ledger -- --ignored --nocapture
 
@@ -249,7 +377,18 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
+      # №445 wave-infra: the rust-cache restore for the heavy jobs
+      # (clippy + the feature-gated test jobs) died deterministically in
+      # the GitHub cache service 3 runs in a row (the job was killed
+      # mid-restore, before any check ran). A cache failure is a
+      # performance loss, never a correctness signal — make the step
+      # non-fatal and bust the poisoned cache partition (prefix-key v2).
+      # No check is weakened: clippy/tests still run and still fail the
+      # job on their own findings.
       - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          prefix-key: v2
       - name: Format check
         run: cargo fmt --all --check
 
@@ -261,7 +400,18 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      # №445 wave-infra: the rust-cache restore for the heavy jobs
+      # (clippy + the feature-gated test jobs) died deterministically in
+      # the GitHub cache service 3 runs in a row (the job was killed
+      # mid-restore, before any check ran). A cache failure is a
+      # performance loss, never a correctness signal — make the step
+      # non-fatal and bust the poisoned cache partition (prefix-key v2).
+      # No check is weakened: clippy/tests still run and still fail the
+      # job on their own findings.
       - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          prefix-key: v2
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
@@ -367,8 +517,18 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-fuzz
+      # №445 wave-infra: the rust-cache restore for the heavy jobs
+      # (clippy + the feature-gated test jobs) died deterministically in
+      # the GitHub cache service 3 runs in a row (the job was killed
+      # mid-restore, before any check ran). A cache failure is a
+      # performance loss, never a correctness signal — make the step
+      # non-fatal and bust the poisoned cache partition (prefix-key v2).
+      # No check is weakened: clippy/tests still run and still fail the
+      # job on their own findings.
       - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
         with:
+          prefix-key: v2
           workspaces: |
             .
             fuzz
@@ -402,7 +562,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+      # №445 wave-infra: the rust-cache restore for the heavy jobs
+      # (clippy + the feature-gated test jobs) died deterministically in
+      # the GitHub cache service 3 runs in a row (the job was killed
+      # mid-restore, before any check ran). A cache failure is a
+      # performance loss, never a correctness signal — make the step
+      # non-fatal and bust the poisoned cache partition (prefix-key v2).
+      # No check is weakened: clippy/tests still run and still fail the
+      # job on their own findings.
       - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          prefix-key: v2
       - name: cargo check (windows)
         run: cargo check --workspace --features portable --all-targets
   macos-check:
@@ -411,7 +582,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+      # №445 wave-infra: the rust-cache restore for the heavy jobs
+      # (clippy + the feature-gated test jobs) died deterministically in
+      # the GitHub cache service 3 runs in a row (the job was killed
+      # mid-restore, before any check ran). A cache failure is a
+      # performance loss, never a correctness signal — make the step
+      # non-fatal and bust the poisoned cache partition (prefix-key v2).
+      # No check is weakened: clippy/tests still run and still fail the
+      # job on their own findings.
       - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          prefix-key: v2
       - name: cargo check (macos)
         run: cargo check --workspace --features portable --all-targets
   coverage:
@@ -425,7 +607,18 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov
+      # №445 wave-infra: the rust-cache restore for the heavy jobs
+      # (clippy + the feature-gated test jobs) died deterministically in
+      # the GitHub cache service 3 runs in a row (the job was killed
+      # mid-restore, before any check ran). A cache failure is a
+      # performance loss, never a correctness signal — make the step
+      # non-fatal and bust the poisoned cache partition (prefix-key v2).
+      # No check is weakened: clippy/tests still run and still fail the
+      # job on their own findings.
       - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          prefix-key: v2
       # Self-host тесты (naryad_197*, self_host_lexer) спавнят бинарь по
       # жёсткому пути target/debug/mlog (§3 наряда №265 запрещает менять
       # tests/**) — llvm-cov строит в СВОЙ target-dir, поэтому бинарь

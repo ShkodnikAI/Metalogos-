@@ -41,12 +41,15 @@ pub(crate) fn builtin_memory_open(args: &[Value]) -> Result<Value, String> {
     memory_typed::open(&subject, label)
 }
 
-/// `memory_put(handle, key, value, parents?) -> Unit`
+/// `memory_put(handle, key, value, parents?, opts?) -> Unit`
+/// №445: the optional opts Struct `{priority?, decay_rate?, ttl_secs?}`
+/// sets the activation attributes (the additive-arity precedent of
+/// №280's include_forgotten — indices stay stable).
 pub(crate) fn builtin_memory_put(args: &[Value]) -> Result<Value, String> {
     let fn_name = "memory_put";
-    if args.len() < 3 || args.len() > 4 {
+    if args.len() < 3 || args.len() > 5 {
         return Err(format!(
-            "{}: expects 3..4 arguments (handle, key, value, parents?), got {}",
+            "{}: expects 3..5 arguments (handle, key, value, parents?, opts?), got {}",
             fn_name,
             args.len()
         ));
@@ -81,7 +84,53 @@ pub(crate) fn builtin_memory_put(args: &[Value]) -> Result<Value, String> {
             ))
         }
     };
-    memory_typed::put(&handle_id, &key, &text, derived_from)?;
+    // №445: the optional activation attributes (a Struct with the
+    // keys priority/decay_rate/ttl_secs; unknown keys are a loud
+    // contract violation — silent typos would fake a TTL/priority).
+    let opts = match args.get(4) {
+        None => memory_typed::PutOpts::default(),
+        Some(Value::Unit) => memory_typed::PutOpts::default(),
+        Some(Value::Struct { fields, .. }) => {
+            let mut o = memory_typed::PutOpts::default();
+            for (k, v) in fields {
+                match k.as_str() {
+                    "priority" => {
+                        let p = v
+                            .as_float()
+                            .map_err(|_| "memory_put: opts.priority must be a number".to_string())?;
+                        o.priority = Some(p as f32);
+                    }
+                    "decay_rate" => {
+                        let d = v
+                            .as_float()
+                            .map_err(|_| "memory_put: opts.decay_rate must be a number".to_string())?;
+                        o.decay_rate = Some(d as f32);
+                    }
+                    "ttl_secs" => {
+                        let t = v
+                            .as_float()
+                            .map_err(|_| "memory_put: opts.ttl_secs must be a number".to_string())?;
+                        o.ttl_secs = Some(t);
+                    }
+                    other => {
+                        return Err(format!(
+                            "memory_put: unknown opts key '{}' (available: priority, decay_rate, ttl_secs)",
+                            other
+                        ))
+                    }
+                }
+            }
+            o
+        }
+        Some(other) => {
+            return Err(format!(
+                "{}: opts must be a Struct {{priority, decay_rate, ttl_secs}}, got {}",
+                fn_name,
+                other.type_name()
+            ))
+        }
+    };
+    memory_typed::put(&handle_id, &key, &text, derived_from, opts)?;
     Ok(Value::Unit)
 }
 
@@ -146,6 +195,18 @@ pub(crate) fn builtin_memory_export(args: &[Value]) -> Result<Value, String> {
     let handle_id = memory_typed::container_id_arg(fn_name, args, 0)?;
     let key = expect_string_arg(fn_name, args, 1)?;
     let path = expect_string_arg(fn_name, args, 2)?;
+    // №445: the poison gate BEFORE the redact gate — a quarantined
+    // entry never reaches the file egress and the refusal names the
+    // quarantine (the stronger fact).
+    if memory_typed::is_poisoned(&handle_id, &key)? {
+        return Err(crate::interpreter::values::coded_error(
+            crate::interpreter::values::CODE_MEMORY_POISONED,
+            format!(
+                "memory_export: entry '{}' is POISONED (a derived-from survivor of the forget cascade) — its content cannot materialize into any sink",
+                key
+            ),
+        ));
+    }
     // The redact gate BEFORE reading the plaintext: a private entry
     // never reaches the file egress in the clear (№326/ADR-0136).
     if memory_typed::label_of(&handle_id)? == MemLabel::Private {
@@ -373,4 +434,95 @@ pub(crate) fn builtin_recall(args: &[Value]) -> Result<Value, String> {
         }
         None => Ok(Value::String(String::new())),
     }
+}
+
+// ── Naryad #445: the forgetting memory — the language surface ────────
+//
+//   forget(handle, key, grant, dry_run?) -> Struct
+//       the canon §10.3 front door: the ADR-0155 linear action with the
+//       cascade refusal ladder (see memory_typed::forget_front — the
+//       enforcement order, the poison semantics and the ledger family).
+//       The TW/VM legacy `forget(query, days?)` intercepts (№72) keep
+//       the 1..2-argument surface; 3..4 arguments fall through to THIS
+//       handler on every backend (the parity by construction).
+//   memory_retain_ttl(handle, key, ttl_secs) -> Unit
+//       the canon retain(memory, ttl): the entry's lifetime; past the
+//       deadline the sweep auto-forgets it (the №280 "v2" lifted).
+
+/// `forget(handle, key, grant, dry_run?) -> Struct{dry_run, container,
+/// root, deleted, poisoned, batch_id}`
+pub(crate) fn builtin_forget(args: &[Value]) -> Result<Value, String> {
+    let fn_name = "forget";
+    if args.len() < 3 || args.len() > 4 {
+        return Err(format!(
+            "{}: expects 3..4 arguments (handle, key, grant, dry_run?), got {} — the legacy 1..2-argument form forget(query, days?) is unchanged",
+            fn_name,
+            args.len()
+        ));
+    }
+    let handle_id = memory_typed::container_id_arg(fn_name, args, 0)?;
+    let key = expect_string_arg(fn_name, args, 1)?;
+    let grant = match &args[2] {
+        Value::Grant(h) => h.clone(),
+        other => {
+            return Err(format!(
+                "GRANT_MISSING: {} requires a Grant as argument 3 (issue it with grant_issue(scope, ttl, class) — scope \"memory:forget:<container>\"), got {}",
+                fn_name,
+                other.type_name()
+            ))
+        }
+    };
+    let dry_run = match args.get(3) {
+        None => false,
+        Some(Value::Bool(b)) => *b,
+        Some(other) => {
+            return Err(format!(
+                "{}: dry_run must be a Bool, got {}",
+                fn_name,
+                other.type_name()
+            ))
+        }
+    };
+    let outcome = memory_typed::forget_front(&handle_id, &key, &grant, dry_run)?;
+    let fields: Vec<(&str, Value)> = vec![
+        ("dry_run", Value::Bool(outcome.dry_run)),
+        ("container", Value::String(outcome.container)),
+        ("root", Value::String(outcome.root)),
+        (
+            "deleted",
+            Value::List(outcome.deleted.into_iter().map(Value::String).collect()),
+        ),
+        (
+            "poisoned",
+            Value::List(outcome.poisoned.into_iter().map(Value::String).collect()),
+        ),
+        ("batch_id", Value::String(outcome.batch_id)),
+    ];
+    Ok(super::core::make_struct("MemoryForgetResult", fields))
+}
+
+/// `memory_retain_ttl(handle, key, ttl_secs) -> Unit`
+pub(crate) fn builtin_memory_retain_ttl(args: &[Value]) -> Result<Value, String> {
+    let fn_name = "memory_retain_ttl";
+    if args.len() != 3 {
+        return Err(format!(
+            "{}: expects 3 arguments (handle, key, ttl_secs), got {}",
+            fn_name,
+            args.len()
+        ));
+    }
+    let handle_id = memory_typed::container_id_arg(fn_name, args, 0)?;
+    let key = expect_string_arg(fn_name, args, 1)?;
+    let ttl_secs = args
+        .get(2)
+        .and_then(|v| v.as_float().ok())
+        .ok_or_else(|| format!("{}: ttl_secs must be a number", fn_name))?;
+    if !ttl_secs.is_finite() || ttl_secs <= 0.0 {
+        return Err(format!(
+            "{}: ttl_secs must be a finite value > 0.0, got {}",
+            fn_name, ttl_secs
+        ));
+    }
+    memory_typed::retain_ttl(&handle_id, &key, ttl_secs as u64)?;
+    Ok(Value::Unit)
 }

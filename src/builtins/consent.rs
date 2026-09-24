@@ -98,6 +98,23 @@ pub(crate) fn builtin_consent_revoke(args: &[Value]) -> Result<Value, String> {
         }
     };
     crate::consent::record_revoke(scope)?;
+    // №445 (canon §7.4): consent withdrawn → the SAME forgetting
+    // cascade. An explicit `memory:<subject>` scope revocation fires
+    // the §10.3 cascade over the subject's private containers: every
+    // entry is POISONED (quarantine — the content is unreachable even
+    // under a later re-grant, the №442 fail-closed gate evidence stays
+    // intact), one memory.forget record per container with
+    // reason=consent-revoked. The typed contour is re-used — no new
+    // lattice (the P2 park stays untouched); non-memory scopes and the
+    // ALL form are outside the typed-lane cascade (documented in
+    // REFERENCE).
+    if let Some(s) = scope {
+        if let Some(subject) = s.strip_prefix("memory:") {
+            if !subject.is_empty() {
+                crate::memory_typed::consent_revoked_cascade(subject);
+            }
+        }
+    }
     Ok(args[0].clone())
 }
 

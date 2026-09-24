@@ -655,7 +655,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 499 registered builtins (499 of 499): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 500 registered builtins (500 of 500): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -2116,7 +2116,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 499 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 500 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2447,12 +2447,13 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `media_store_video_frame(...)` | 2 | — | `media_store_video_frame(data, sensitivity)` — wraps provided bytes into an opaque VideoFrame handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. |
 | `media_store_video_segment(...)` | 2 | — | `media_store_video_segment(data, sensitivity)` — wraps provided bytes into an opaque VideoSegment handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. |
 
-### `memory` — 36 builtin(s)
+### `memory` — 38 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
 | `deref(...)` | 1 | — | `deref(hash)` — retrieve content by SHA-256 hash from ref store. |
 | `embed(...)` | 1 | `(String) -> List` | Embedding of `text` through the process-global manager (see model facts above). No new dependencies — a pure reuse of the ADR-0040 stack. |
+| `forget(...)` | 3..4 | — | The forgetting front door (№445, the canon §10.3): `forget(handle, key, grant, dry_run?)` — the ADR-0155 linear action over the typed Memory<K> lane with the fail-closed refusal ladder: the consent gate (a private container requires the active memory:<subject> consent — MEMORY_FORGET_CONSENT_REQUIRED + a memory.forget.denied record), the grant ladder (GRANT_MISSING / GRANT_INACTIVE / GRANT_SCOPE_MISMATCH — scope memory:forget:<container>; the grant is consumed on SUCCESS only), the retained VETO (MEMORY_RETAIN_PROTECTED). dry_run=true returns the preview {dry_run, container, root, deleted: [], poisoned: [...], batch_id} — no state change, no grant consumption (the №280 preview discipline); apply deletes the ROOT (soft — the ledger carries the content digests) and POISONS every derived entry: a poisoned survivor stays in the container but cannot materialize into any sink — memory_read/memory_export refuse with MEMORY_POISONED and the recall lane skips the quarantine. Ledger: memory.forget {container, targets, hashes, dry_run fact} + irreversible.memory_forget on apply. The legacy 1..2-argument forget(query, days?) surface is unchanged (№72). |
 | `kv_delete(...)` | 1 | `String -> Unit` | Deletes a key |
 | `kv_exists(...)` | 1 | `String -> Bool` | Checks whether a key exists |
 | `kv_get(...)` | 1 | `String -> String` | Reads a value (an empty string if the key is absent) |
@@ -2472,10 +2473,11 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `memory_open(...)` | 2 | — | `memory_open(subject, label) -> Memory` |
 | `memory_provenance(...)` | 2 | — | `memory_provenance(handle, key) -> List<String>` |
 | `memory_prune(...)` | variadic | — | `memory_prune(threshold?, min_age_hours?)` — remove dead memory nodes. `threshold`: minimum score to keep (default 0.05). `min_age_hours`: minimum age in hours before pruning (default 24, protects fresh entries). Returns Struct { pruned: <count>, remaining: <total> }. |
-| `memory_put(...)` | 3..4 | — | `memory_put(handle, key, value, parents?) -> Unit` |
+| `memory_put(...)` | 3..5 | — | `memory_put(handle, key, value, parents?, opts?) -> Unit` №445: the optional opts Struct `{priority?, decay_rate?, ttl_secs?}` sets the activation attributes (the additive-arity precedent of №280's include_forgotten — indices stay stable). |
 | `memory_read(...)` | 2 | — | `memory_read(handle, key) -> String \| Secret` |
 | `memory_release(...)` | 2 | — | `memory_release(handle, key) -> Unit` |
 | `memory_retain(...)` | 2 | — | `memory_retain(handle, key) -> Unit` |
+| `memory_retain_ttl(...)` | 3 | — | The canon retain(memory, ttl) (№445): `memory_retain_ttl(handle, key, ttl_secs)` — gives ONE typed entry a lifetime; past the deadline the sweep auto-forgets it on the next read/keys/recall touch (the №280 v2 deferral lifted into the typed contour; the expiry is recorded as memory.ttl_expired {container, keys, hashes}). A repeat call MOVES the deadline. A POISONED entry refuses a new lifetime (MEMORY_POISONED). Records memory.retain_ttl. The deletion pin (memory_retain) and the TTL are independent. |
 | `memory_retained(...)` | 1 | — | `memory_retained(handle) -> List<String>` |
 | `memory_revise(...)` | variadic | — | `memory_revise(id, new_text, new_score?)` — update a node and resolve Contradicts. If the node contradicts others, the system keeps the higher-scoring belief and demotes the loser (score *= 0.3, adds Supersedes edge). Returns Struct { action, winner_id, superseded_id? }. |
 | `recall(...)` | 1..2 | — | Memory recall — the front door of memory (№442): the store lane (hybrid BM25+vector RRF on the TW; the VM-native twin) plus the typed lane; a query that names gated private memory (a private container's key, no active consent grant) refuses fail-closed (MEMORY_RECALL_CONSENT_REQUIRED — the refusal is a memory.recall.denied record); typed-lane hits carry the [MEM] provenance suffix (container/subject/label/time/taint); every call records memory.recall {query hash, containers, hits, consent fact}. |
@@ -2670,7 +2672,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `word_wrap(...)` | 2 | — | `word_wrap(s, width)` — reflows text to `width` columns without breaking words; errors on width 0. |
 | `words(...)` | 1 | — | `words(s)` -- split string into list of words by whitespace. |
 
-### `stub` — 25 builtin(s)
+### `stub` — 24 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
@@ -2688,7 +2690,6 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `events_since(...)` | 1 | — | VM-native event analytics (handled inside `src/vm.rs`, no host handler): lists events since a sequence/timestamp marker. |
 | `find(...)` | 4 | — | VM-native entity-store query (handled inside `src/vm.rs`, no host handler): scans globals for Struct values matching (type, field, operator, threshold). |
 | `fit_to_budget(...)` | variadic | — | VM-native fluid-budget helper (handled inside `src/vm.rs`, no host handler): trims a List of items to fit a token budget. |
-| `forget(...)` | variadic | — | VM-native memory forget (handled inside `src/vm.rs`, no host handler): removes matching memory entries by query. |
 | `if_eq(...)` | 3 | — | Registry-only stub — no handler on TW or VM; calling the name errors on both backends (the language's `if` comparison is an expression, not a builtin). |
 | `inspect(...)` | 1 | `String -> Struct\ | Struct (or Unit if the pattern is not found) |
 | `is_string_token(...)` | 1 | — | Registry-only stub — no handler on TW or VM; calling the name errors on both backends (entry kept for registry/opcode indexing completeness). |
@@ -3023,7 +3024,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `embed` | pure | public | pure | — |
 | `vec_store` | sink | internal | reversible | persists embeddings into the vector store (ADR-0134) |
 | `vec_search` | source | internal | pure | reads the vector store (KNN state input) |
-| `recall` | source | internal | pure | real handler (№442) — the front door of memory: the store lane (hybrid BM25+vector on the TW; the VM-native twin) plus the typed lane with consent-gated private containers (fail-closed MEMORY_RECALL_CONSENT_REQUIRED — the refusal is a memory.recall.denied record); typed hits carry the [MEM] provenance suffix; records memory.recall {query hash, containers, hits, consent fact} |
+| `recall` | source | internal | pure | intended memory recall — state read |
 | `memory_open` | source | internal | reversible | returns the Memory<K> container handle — the ingress of the typed-memory surface; a private open is consent-gated INSIDE (active consent for memory:<subject>, №335 — the db_execute_with_grant capability precedent); records memory.open (№350) |
 | `memory_put` | pure | public | pure | — |
 | `memory_read` | source | internal | reversible | THE AUDITED READ SINK: public returns String, private returns Secret — print refuses it and redact() (№326/ADR-0136) is the only egress; records memory.read (№350) |
@@ -3051,7 +3052,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `chunk_make` | sink | internal | reversible | binds a trajectory (and optional goal) to a device — WITHOUT a bounds formula the refusal is typed EMBODIED_UNBOUNDED (ADR-0159 §2.4.2: no unmonitored action, fail-closed); records embodied.chunk_make/chunk_denied (№355) |
 | `proof_seal` | sink | internal | reversible | seals the signed Proof trace {hash(world), chunk, bounds, telemetry-digest, verdict, hash(sim)} — the stage-A verdict is PENDING by construction (the monitor lands with №356; no program-forged satisfied); the signature covers the canonical fields (the №343 contract); records embodied.proof_seal (№355) |
 | `proof_verify` | source | internal | reversible | validates the Proof CONTRACT FIELDS only — signature integrity, verdict vocabulary, bounds/backend-pin resolution; execution/re-simulation is №356; audited introspection (records embodied.proof_verify) (№355) |
-| `forget` | sink | internal | irreversible | intended destructive memory removal |
+| `forget` | sink | internal | irreversible | real handler (№445) — the canon §10.3 forgetting front door: the ADR-0155 linear action (scope memory:forget:<container>, grant consumed on success only), dry_run preview → apply, the derived-from cascade → POISONED with closed sinks (MEMORY_POISONED on read/export; the recall lane skips the quarantine), the consent fail-closed gate (MEMORY_FORGET_CONSENT_REQUIRED); records memory.forget {container, targets, hashes, dry_run fact} / memory.forget.denied / irreversible.memory_forget; the legacy 1..2-arg forget(query, days?) surface is unchanged |
 | `find` | source | internal | pure | intended memory search — state read |
 | `inspect` | source | internal | pure | intended runtime introspection — state read |
 | `conv_start` | sink | internal | reversible | intended conversation state creation |
@@ -3353,8 +3354,10 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `forecast_next` | source | internal | reversible | walks the `timeseries` degradation ladder (timesfm-2.5 -> statsforecast -> seasonal_naive) and stores the ForecastHandle with the prov block {window hash, rung/pin, degraded, horizon}; the JOINED source label transfers (LabelJoin — a forecast of a tainted series is tainted); skipped rungs are audited, never silent; records forecast.run (№440/ADR-0165) |
 | `forecast_state` | source | internal | pure | reads the prov-block projection — {id, series, horizon, rung, pin, degraded, window_hash, label, note, skipped}; metadata and digests only, NO points (the device_state precedent); audited introspection (№440) |
 | `forecast_points` | source | internal | pure | THE gated data projection {points, p10, p50, p90} — a tainted forecast refuses fail-closed with the typed FORECAST_TAINTED stamp + the forecast.denied ledger record (the №322/№325 lattice; the №428 posture: no silent egress AND no silent refusal) (№440) |
+| `memory_retain_ttl` | sink | internal | reversible | the canon retain(memory, ttl) (№445): gives ONE typed entry a lifetime — past the deadline the sweep auto-forgets it (the №280 v2 deferral lifted into the typed contour); a poisoned entry refuses a new lifetime (MEMORY_POISONED); records memory.retain_ttl |
 
 <!-- END GENERATED BUILTIN CLASSIFICATION -->
+
 
 
 

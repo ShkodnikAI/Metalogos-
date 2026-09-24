@@ -323,7 +323,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // consent-gated + encrypted at rest, reads/exports are audited
     // sinks, redact is the only private egress. Category "memory".
     spec!("memory_open", 2, "memory"; builtin_memory_open),
-    spec!("memory_put", 3, 4, "memory"; builtin_memory_put),
+    spec!("memory_put", 3, 5, "memory"; builtin_memory_put),
     spec!("memory_read", 2, "memory"; builtin_memory_read),
     spec!("memory_keys", 1, "memory"; builtin_memory_keys),
     spec!("memory_provenance", 2, "memory"; builtin_memory_provenance),
@@ -363,7 +363,18 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("chunk_make", 2, 3, "embodied"; builtin_chunk_make),
     spec!("proof_seal", 2, 3, "embodied"; builtin_proof_seal),
     spec!("proof_verify", 1, "embodied"; builtin_proof_verify),
-    spec!("forget", 0, "stub"),
+    // ── Naryad #445 (P1, feature/memory): the forgetting memory — the
+    // canon §10.3 front door on the name forget (the stub-spec row is
+    // GONE; the row keeps its position — bytecode indices stable).
+    // forget(handle, key, grant, dry_run?) — the ADR-0155 linear action
+    // (scope `memory:forget:<container>`), the dry_run preview → apply,
+    // the derived-from cascade → poisoned with closed sinks, the
+    // consent fail-closed gate (MEMORY_FORGET_CONSENT_REQUIRED) and the
+    // ledger family memory.forget / memory.forget.denied /
+    // irreversible.memory_forget. The legacy 1..2-argument
+    // forget(query, days?) surface (№72) is intact — the TW/VM
+    // intercepts keep it; 3..4 arguments fall through to the handler.
+    spec!("forget", 3, 4, "memory"; builtin_forget),
     spec!("find", 4, "stub"),
     spec!("inspect", 1, "stub"),
     // conv_start/add/history/context/end: conversation lifecycle management; not yet implemented
@@ -992,6 +1003,12 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("forecast_next", 2, "forecast"; builtin_forecast_next),
     spec!("forecast_state", 1, "forecast"; builtin_forecast_state),
     spec!("forecast_points", 1, "forecast"; builtin_forecast_points),
+    // ── Naryad #445 (P1, feature/memory): the canon retain(memory, ttl)
+    // — the typed entry's lifetime; past the deadline the sweep
+    // auto-forgets it (the №280 "v2" deferral lifted). APPENDED at the
+    // end — inserting mid-array would shift existing CallBuiltin
+    // indices (.mbc contract). Registry 499→500 (append-only).
+    spec!("memory_retain_ttl", 3, "memory"; builtin_memory_retain_ttl),
 ];
 
 /// Total number of registered builtins.

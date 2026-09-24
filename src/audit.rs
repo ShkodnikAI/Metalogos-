@@ -4684,6 +4684,41 @@ fn check_recall_surface(
         let check_id = match v.kind {
             crate::semantic::RecallViolationKind::QueryInvalid => "RECALL_QUERY_INVALID",
             crate::semantic::RecallViolationKind::ConfidenceInvalid => "RECALL_CONFIDENCE_INVALID",
+            // The №445 kinds belong to the forgetting-surface check
+            // (check_forget_surface) — skipped here to keep every
+            // check_id owned by exactly one check.
+            crate::semantic::RecallViolationKind::ForgetDryRunInvalid
+            | crate::semantic::RecallViolationKind::RetainTtlInvalid => continue,
+        };
+        findings.push(AuditFinding {
+            severity: Severity::Error,
+            check_id,
+            line: v.span.start_line as usize,
+            message: v.message,
+        });
+    }
+}
+
+/// ── Check: FORGET_DRYRUN_INVALID + RETAIN_TTL_INVALID (Наряд №445) ──
+/// The forgetting-surface companion on EVERY compile path (the
+/// RECALL_*/FORECAST_* template): a literal `forget` dry_run flag must
+/// be a Bool (the №280 preview contract), and a literal
+/// `memory_retain_ttl` ttl_secs must be a positive number (the canon
+/// retain(memory, ttl) lifetime contract every backend enforces at
+/// runtime). Always Error — a broken forgetting call site must never
+/// surface as a runtime surprise.
+fn check_forget_surface(
+    declarations: &[Declaration],
+    _source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    for v in crate::semantic::recall_surface_violations(declarations) {
+        let check_id = match v.kind {
+            crate::semantic::RecallViolationKind::ForgetDryRunInvalid => "FORGET_DRYRUN_INVALID",
+            crate::semantic::RecallViolationKind::RetainTtlInvalid => "RETAIN_TTL_INVALID",
+            // The №442 kinds belong to the recall-surface check.
+            crate::semantic::RecallViolationKind::QueryInvalid
+            | crate::semantic::RecallViolationKind::ConfidenceInvalid => continue,
         };
         findings.push(AuditFinding {
             severity: Severity::Error,
@@ -5652,6 +5687,7 @@ pub fn audit_category_a(declarations: &[Declaration], source: &str) -> Vec<Audit
     // min_confidence is a compile error (Category-A), never a runtime
     // surprise.
     check_recall_surface(declarations, source, &mut findings);
+    check_forget_surface(declarations, source, &mut findings);
     // Naryad #390 (ADR-0155): static Once-grant linearity — the
     // GRANT_REUSED compile error. The runtime half (ledger state/TTL/
     // quota/scope) lives in src/grants.rs; the ungranted destructive-SQL
@@ -5726,6 +5762,9 @@ pub fn audit_program(source: &str) -> Result<AuditResult, String> {
     // Наряд №442: the recall surface companion (the audit CLI path —
     // the same rules audit_category_a applies).
     check_recall_surface(&declarations, source, &mut findings);
+    // Наряд №445: the forgetting-surface companion (FORGET_DRYRUN_
+    // INVALID / RETAIN_TTL_INVALID) — same walker, same policy.
+    check_forget_surface(&declarations, source, &mut findings);
 
     // Sort findings by line number for deterministic output
     findings.sort_by_key(|f| (f.line, f.check_id));

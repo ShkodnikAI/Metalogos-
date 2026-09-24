@@ -3491,6 +3491,31 @@ fn collect_params_into_return(
                     collect_params_into_return(b, params, out);
                 }
             }
+            // №448: `return` inside a match arm marks its params too — the
+            // arms merge into the may-union (the same may-analysis the
+            // if/else arms above already apply). This closes the summary
+            // half of the §2.2 Match gap: a pattern whose return flows
+            // through a match arm now reports `params_tainting_return`.
+            crate::ast::Statement::Match {
+                arms, else_body, ..
+            } => {
+                for arm in arms {
+                    collect_params_into_return(arm.body(), params, out);
+                }
+                if let Some(b) = else_body {
+                    collect_params_into_return(b, params, out);
+                }
+            }
+            // №448: Break/Continue carry no return value — they are flow
+            // boundaries, and their state merges live in the state-aware
+            // walker of `check_taint_interp_pattern` below.
+            crate::ast::Statement::Break | crate::ast::Statement::Continue => {}
+            // №448: the Memory variants contribute persist-facts (collected
+            // by `collect_tainted_memory_writes_stmts` and armed in the
+            // state walker), not return-taint.
+            crate::ast::Statement::Memorize(_)
+            | crate::ast::Statement::Forget(_)
+            | crate::ast::Statement::Relate(_) => {}
             _ => {}
         }
     }
@@ -3762,156 +3787,74 @@ fn check_taint_interp_pattern(
         }
     }
 
-    // For each sink call (respond/respond_html/write_file/print), check
-    // if any arg is a user-pattern call whose summary says some param
-    // taints the return, and that param's corresponding arg-expression
-    // contains an LLM source.
+    // №448: walk every scope with the state-aware walker — full
+    // statement-kind coverage (REALITY §2.2 closes: 15 of 15). The walker
+    // merges binding states across match arms and loop boundaries through
+    // the EXISTING label lattice join (`Label::join`, 2.3 in the tree —
+    // no new lattice, per the naryad boundary), arms memory persist-facts
+    // (keyed and key-less writes), and checks every sink argument both by
+    // the original №292 interprocedural machinery and against the merged
+    // state.
     let sink_names = ["respond", "respond_html", "write_file", "print"];
-
-    fn is_sanitized_expr(expr: &crate::ast::Expr) -> bool {
-        // render / escape_html wrapping anything is sanitized — taint lifted.
-        if let crate::ast::Expr::FnCall { name, .. } = expr {
-            if name == "render" || name == "escape_html" {
-                return true;
-            }
-        }
-        false
-    }
-
-    /// Walk `expr` and find sink calls. For each sink call's args, check
-    /// for user-pattern calls wrapping LLM sources (with sanitization
-    /// override).
-    fn check_sink_calls(
-        expr: &crate::ast::Expr,
-        summaries: &std::collections::HashMap<String, PatternSummary>,
-        sink_names: &[&str; 4],
-        source: &str,
-        findings: &mut Vec<AuditFinding>,
-    ) {
-        match expr {
-            crate::ast::Expr::FnCall { name, args, .. } => {
-                if sink_names.contains(&name.as_str()) {
-                    for arg in args {
-                        // Sanitizer wraps the arg → safe, skip.
-                        if is_sanitized_expr(arg) {
-                            continue;
-                        }
-                        if let Some(finding_line) =
-                            check_user_pattern_call_for_taint(arg, summaries, source)
-                        {
-                            findings.push(AuditFinding {
-                                severity: Severity::Error,
-                                check_id: "TAINT_INTERP",
-                                line: finding_line,
-                                message: format!(
-                                    "LLM output reaches {}() via interprocedural pattern call — use render()/escape_html() for XSS safety",
-                                    name
-                                ),
-                            });
-                        }
-                    }
-                }
-                // Recurse into nested calls — sinks can be nested.
-                for a in args {
-                    check_sink_calls(a, summaries, sink_names, source, findings);
-                }
-            }
-            crate::ast::Expr::BinaryOp { left, right, .. } => {
-                check_sink_calls(left, summaries, sink_names, source, findings);
-                check_sink_calls(right, summaries, sink_names, source, findings);
-            }
-
-            crate::ast::Expr::IfElse {
-                condition,
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                check_sink_calls(condition, summaries, sink_names, source, findings);
-                check_sink_calls(then_branch, summaries, sink_names, source, findings);
-                check_sink_calls(else_branch, summaries, sink_names, source, findings);
-            }
-            _ => {}
-        }
-    }
-
-    /// Check if `expr` is a user-pattern call wrapping an LLM source (directly
-    /// or through 1-2 levels of pattern calls). Returns `Some(line)` if a
-    /// finding should be emitted, `None` otherwise.
-    fn check_user_pattern_call_for_taint(
-        expr: &crate::ast::Expr,
-        summaries: &std::collections::HashMap<String, PatternSummary>,
-        source: &str,
-    ) -> Option<usize> {
-        let crate::ast::Expr::FnCall { name, args, .. } = expr else {
-            return None;
-        };
-        let summary = summaries.get(name)?;
-        // For each param-index that taints the return of this pattern,
-        // check if the corresponding arg-expression contains an LLM source
-        // OR is itself a user-pattern call wrapping LLM source (recursively,
-        // bounded by summary depth).
-        for (i, arg) in args.iter().enumerate() {
-            if !summary.params_tainting_return.contains(&i) {
-                continue;
-            }
-            // Does this arg contain an LLM source?
-            if expr_contains_llm_source_direct(arg) {
-                return Some(find_line(source, name));
-            }
-            // Is this arg itself a user-pattern call wrapping LLM source?
-            if let Some(line) = check_user_pattern_call_for_taint(arg, summaries, source) {
-                return Some(line);
-            }
-        }
-        None
-    }
-
-    /// Walk `expr` and return true if any sub-expression is a direct LLM
-    /// source (call_llm, call_claude, reflex_generate). Sanitizers
-    /// (render/escape_html) wrapping the LLM source lift the taint.
-    fn expr_contains_llm_source_direct(expr: &crate::ast::Expr) -> bool {
-        match expr {
-            crate::ast::Expr::FnCall { name, args, .. } => {
-                if is_llm_source(name) {
-                    return true;
-                }
-                // Sanitizer wraps the call → safe.
-                if name == "render" || name == "escape_html" {
-                    return false;
-                }
-                // Recurse into args.
-                args.iter().any(expr_contains_llm_source_direct)
-            }
-            crate::ast::Expr::BinaryOp { left, right, .. } => {
-                expr_contains_llm_source_direct(left) || expr_contains_llm_source_direct(right)
-            }
-            _ => false,
-        }
-    }
-
-    // Walk all declarations looking for sink calls with interprocedural
-    // LLM-tainted args.
     for decl in declarations {
-        let mut exprs: Vec<&crate::ast::Expr> = Vec::new();
         match decl {
-            Declaration::Pattern(p) => collect_stmt_exprs_interp(&p.body, &mut exprs),
+            Declaration::Pattern(p) => {
+                let mut state = InterpWalkState::default();
+                let mut exits: Vec<InterpWalkState> = Vec::new();
+                interp_walk_stmts(
+                    &p.body,
+                    &mut state,
+                    &summaries,
+                    &sink_names,
+                    source,
+                    findings,
+                    &mut exits,
+                );
+            }
             Declaration::Tool(t) => {
                 for m in &t.methods {
-                    collect_stmt_exprs_interp(&m.body, &mut exprs);
+                    let mut state = InterpWalkState::default();
+                    let mut exits: Vec<InterpWalkState> = Vec::new();
+                    interp_walk_stmts(
+                        &m.body,
+                        &mut state,
+                        &summaries,
+                        &sink_names,
+                        source,
+                        findings,
+                        &mut exits,
+                    );
                 }
             }
             Declaration::MlogServer(srv) => {
                 for route in &srv.routes {
-                    collect_stmt_exprs_interp(&route.body, &mut exprs);
+                    let mut state = InterpWalkState::default();
+                    let mut exits: Vec<InterpWalkState> = Vec::new();
+                    interp_walk_stmts(
+                        &route.body,
+                        &mut state,
+                        &summaries,
+                        &sink_names,
+                        source,
+                        findings,
+                        &mut exits,
+                    );
                 }
             }
-            Declaration::Hook(h) => collect_stmt_exprs_interp(&h.body, &mut exprs),
+            Declaration::Hook(h) => {
+                let mut state = InterpWalkState::default();
+                let mut exits: Vec<InterpWalkState> = Vec::new();
+                interp_walk_stmts(
+                    &h.body,
+                    &mut state,
+                    &summaries,
+                    &sink_names,
+                    source,
+                    findings,
+                    &mut exits,
+                );
+            }
             _ => continue,
-        }
-
-        for expr in &exprs {
-            check_sink_calls(expr, &summaries, &sink_names, source, findings);
         }
     }
 }
@@ -3934,37 +3877,520 @@ fn check_taint_interp_pattern_errors_only(
     }
 }
 
-/// Helper — collect all expressions inside a statement body (mirrors
-/// `check_taint_passthrough_pattern`'s `collect_stmt_exprs` but kept
-/// local to avoid borrow issues).
-fn collect_stmt_exprs_interp<'a>(stmts: &'a [Statement], acc: &mut Vec<&'a Expr>) {
-    for stmt in stmts {
+// ── №448: the state-aware walker of the interp contour ─────────────
+
+/// №448: interp-contour state of one scope walk. Every binding carries
+/// its projected label from the EXISTING lattice bridge (ADR-0154 §5,
+/// `labels::legacy_taint_label` — the TaintKind→Label table pinned by
+/// the №322 projection test); a missing entry is the bottom label.
+#[derive(Debug, Clone, Default)]
+struct InterpWalkState {
+    bindings: std::collections::HashMap<String, crate::labels::Label>,
+    /// Tainted memory key prefixes written in this scope (the keyed call
+    /// form `memorize(<key>, <llm>)`; №386/№405 key vocabulary).
+    memory_keys: std::collections::HashSet<String>,
+    /// A memory write whose key the static layer cannot name (the
+    /// key-less statement form `memorize <llm> with priority`, or a
+    /// dynamic key) — recall() values are may-tainted (conservative;
+    /// the static twin of the №386 `writes_tainted_memory` fact).
+    any_keyless_llm_write: bool,
+}
+
+impl InterpWalkState {
+    /// May-merge: the per-binding merge is the lattice join (2.3 in the
+    /// tree); memory facts union (any path may have armed them).
+    fn join_into(&mut self, other: &InterpWalkState) {
+        for (name, label) in &other.bindings {
+            let entry = self
+                .bindings
+                .entry(name.clone())
+                .or_insert_with(crate::labels::Label::bottom);
+            *entry = entry.join(label);
+        }
+        self.memory_keys.extend(other.memory_keys.iter().cloned());
+        self.any_keyless_llm_write |= other.any_keyless_llm_write;
+    }
+}
+
+/// №292 (hoisted for the state walker): render/escape_html wrapping
+/// anything is sanitized — taint lifted.
+fn is_interp_sanitizer_expr(expr: &crate::ast::Expr) -> bool {
+    if let crate::ast::Expr::FnCall { name, .. } = expr {
+        if name == "render" || name == "escape_html" {
+            return true;
+        }
+    }
+    false
+}
+
+/// №292 (hoisted unchanged): does `expr` contain a direct LLM source
+/// (call_llm, call_claude, reflex_generate)? Sanitizers lift the taint.
+fn expr_contains_llm_source_direct(expr: &crate::ast::Expr) -> bool {
+    match expr {
+        crate::ast::Expr::FnCall { name, args, .. } => {
+            if is_llm_source(name) {
+                return true;
+            }
+            // Sanitizer wraps the call → safe.
+            if name == "render" || name == "escape_html" {
+                return false;
+            }
+            // Recurse into args.
+            args.iter().any(expr_contains_llm_source_direct)
+        }
+        crate::ast::Expr::BinaryOp { left, right, .. } => {
+            expr_contains_llm_source_direct(left) || expr_contains_llm_source_direct(right)
+        }
+        _ => false,
+    }
+}
+
+/// №292/№376 (hoisted unchanged): is `expr` a user-pattern call wrapping
+/// an LLM source (directly or through deeper pattern calls)? Returns the
+/// finding line, or None.
+fn interp_user_pattern_call_taint_line(
+    expr: &crate::ast::Expr,
+    summaries: &std::collections::HashMap<String, PatternSummary>,
+    source: &str,
+) -> Option<usize> {
+    let crate::ast::Expr::FnCall { name, args, .. } = expr else {
+        return None;
+    };
+    let summary = summaries.get(name)?;
+    for (i, arg) in args.iter().enumerate() {
+        if !summary.params_tainting_return.contains(&i) {
+            continue;
+        }
+        if expr_contains_llm_source_direct(arg) {
+            return Some(find_line(source, name));
+        }
+        if let Some(line) = interp_user_pattern_call_taint_line(arg, summaries, source) {
+            return Some(line);
+        }
+    }
+    None
+}
+
+/// №448: the projected lattice label of an expression in the current
+/// state. LLM-focus only (Secret/UserInput/CanaryLeak stay with their
+/// own checks — the engine's identity is the LLM egress surface). The
+/// interp sanitizer vocabulary is render/escape_html (№292); every
+/// other call joins over its args — the same propagation philosophy the
+/// summary machinery applies (upper(x) of a tainted x is tainted).
+fn interp_expr_label(
+    expr: &crate::ast::Expr,
+    state: &InterpWalkState,
+    summaries: &std::collections::HashMap<String, PatternSummary>,
+) -> crate::labels::Label {
+    match expr {
+        crate::ast::Expr::Ident { name, .. } => state
+            .bindings
+            .get(name)
+            .cloned()
+            .unwrap_or_else(crate::labels::Label::bottom),
+        crate::ast::Expr::FnCall { name, args, .. } => {
+            if name == "render" || name == "escape_html" {
+                return crate::labels::legacy_taint_label("Sanitized")
+                    .unwrap_or_else(crate::labels::Label::bottom);
+            }
+            if is_llm_source(name) {
+                return crate::labels::legacy_taint_label("LlmOutput")
+                    .unwrap_or_else(crate::labels::Label::bottom);
+            }
+            if name == "recall" {
+                if state.any_keyless_llm_write {
+                    return crate::labels::legacy_taint_label("LlmOutput")
+                        .unwrap_or_else(crate::labels::Label::bottom);
+                }
+                if let Some(key_arg) = args.first() {
+                    if let Some(k) = memory_key_prefix(key_arg) {
+                        let hit = state.memory_keys.iter().any(|prefix| {
+                            k.starts_with(prefix.as_str()) || prefix.starts_with(k.as_str())
+                        });
+                        if hit {
+                            return crate::labels::legacy_taint_label("LlmOutput")
+                                .unwrap_or_else(crate::labels::Label::bottom);
+                        }
+                    }
+                }
+                return crate::labels::Label::bottom();
+            }
+            if let Some(summary) = summaries.get(name) {
+                // The summary IS the verdict: if no param taints the
+                // return, the call result is clean. Do NOT fall through
+                // to the generic args join — a pattern may discard or
+                // sanitize its arguments internally (e.g. №292's `Const`),
+                // and the join would manufacture a flow the summary
+                // explicitly denies (zero-false-positive contract).
+                for (i, arg) in args.iter().enumerate() {
+                    if !summary.params_tainting_return.contains(&i) {
+                        continue;
+                    }
+                    if interp_expr_label(arg, state, summaries).integrity
+                        == crate::labels::Integrity::Untrusted
+                    {
+                        return crate::labels::legacy_taint_label("LlmOutput")
+                            .unwrap_or_else(crate::labels::Label::bottom);
+                    }
+                }
+                return crate::labels::Label::bottom();
+            }
+            let mut label = crate::labels::Label::bottom();
+            for a in args {
+                label = label.join(&interp_expr_label(a, state, summaries));
+            }
+            label
+        }
+        crate::ast::Expr::BinaryOp { left, right, .. } => {
+            interp_expr_label(left, state, summaries)
+                .join(&interp_expr_label(right, state, summaries))
+        }
+        crate::ast::Expr::IfElse {
+            then_branch,
+            else_branch,
+            ..
+        } => interp_expr_label(then_branch, state, summaries)
+            .join(&interp_expr_label(else_branch, state, summaries)),
+        crate::ast::Expr::FieldAccess { object, .. } => {
+            interp_expr_label(object, state, summaries)
+        }
+        crate::ast::Expr::IndexAccess { object, index, .. } => {
+            interp_expr_label(object, state, summaries)
+                .join(&interp_expr_label(index, state, summaries))
+        }
+        _ => crate::labels::Label::bottom(),
+    }
+}
+
+/// №448: scan an expression for sink calls. Every sink argument is
+/// checked (1) by the №292 interprocedural machinery, then (2) against
+/// the merged binding state — path (2) is skipped for an argument path
+/// (1) already reported (cross-check parity is the naryad's contract;
+/// a duplicate within one check is noise, not a signal).
+fn interp_scan_sinks(
+    expr: &crate::ast::Expr,
+    state: &InterpWalkState,
+    summaries: &std::collections::HashMap<String, PatternSummary>,
+    sink_names: &[&str; 4],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    match expr {
+        crate::ast::Expr::FnCall { name, args, .. } => {
+            if sink_names.contains(&name.as_str()) {
+                for arg in args {
+                    // Sanitizer wraps the arg → safe, skip (№292).
+                    if is_interp_sanitizer_expr(arg) {
+                        continue;
+                    }
+                    if let Some(line) = interp_user_pattern_call_taint_line(arg, summaries, source)
+                    {
+                        findings.push(AuditFinding {
+                            severity: Severity::Error,
+                            check_id: "TAINT_INTERP",
+                            line,
+                            message: format!(
+                                "LLM output reaches {}() via interprocedural pattern call — use render()/escape_html() for XSS safety",
+                                name
+                            ),
+                        });
+                        continue;
+                    }
+                    if interp_expr_label(arg, state, summaries).integrity
+                        == crate::labels::Integrity::Untrusted
+                    {
+                        findings.push(AuditFinding {
+                            severity: Severity::Error,
+                            check_id: "TAINT_INTERP",
+                            line: find_line(source, name),
+                            message: format!(
+                                "LLM output reaches {}() through merged control-flow state (match arms / loop boundary / memory) — use render()/escape_html() for XSS safety",
+                                name
+                            ),
+                        });
+                    }
+                }
+            }
+            // Recurse into nested calls — sinks can be nested.
+            for a in args {
+                interp_scan_sinks(a, state, summaries, sink_names, source, findings);
+            }
+        }
+        crate::ast::Expr::BinaryOp { left, right, .. } => {
+            interp_scan_sinks(left, state, summaries, sink_names, source, findings);
+            interp_scan_sinks(right, state, summaries, sink_names, source, findings);
+        }
+        crate::ast::Expr::IfElse {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            interp_scan_sinks(condition, state, summaries, sink_names, source, findings);
+            interp_scan_sinks(then_branch, state, summaries, sink_names, source, findings);
+            interp_scan_sinks(else_branch, state, summaries, sink_names, source, findings);
+        }
+        _ => {}
+    }
+}
+
+/// №448: arm memory persist-facts found in an expression — the keyed
+/// call form `memorize(<key>, <value>)`, SSOT with the №386 collector
+/// (`collect_tainted_memory_writes_expr`: the same top-sanitizer check
+/// and the same LLM-source probe); a dynamic key arms the conservative
+/// fact (the static twin of №386's `writes_tainted_memory`).
+fn interp_arm_memory_facts(expr: &crate::ast::Expr, state: &mut InterpWalkState) {
+    if let crate::ast::Expr::FnCall { name, args, .. } = expr {
+        if name == "memorize" && args.len() >= 2 {
+            let value = &args[1];
+            let sanitized =
+                matches!(value, crate::ast::Expr::FnCall { name, .. } if is_memory_taint_sanitizer(name));
+            if !sanitized && expr_contains_llm_source(value) {
+                if let Some(k) = memory_key_prefix(&args[0]) {
+                    state.memory_keys.insert(k);
+                } else {
+                    // Dynamic keys: the static layer cannot name the
+                    // prefix — arm the conservative fact (fail-closed).
+                    state.any_keyless_llm_write = true;
+                }
+            }
+        }
+        for a in args {
+            interp_arm_memory_facts(a, state);
+        }
+    }
+}
+
+/// №448: walk statements with the interp-contour state. Returns `true`
+/// when the walk terminated at a break/continue — the rest of the block
+/// is dead (assignments after the boundary cannot clean the state; the
+/// state at the boundary was already merged into `loop_exits`).
+///
+/// Merge discipline (may-analysis, no false negatives by construction):
+///   - a branch that completes joins its end-state into the running
+///     state; a branch terminated by break/continue contributed its
+///     state to the innermost loop's exit merge instead;
+///   - a loop walks its body from a CLONE of the pre-state (it may run
+///     zero times) and joins the body end-state plus every break/continue
+///     exit state back — the conservative loop-exit merge;
+///   - a match joins all arm end-states (the arm-merge; the pre-state
+///     stays as the fall-through/no-else bottom of the join).
+fn interp_walk_stmts(
+    body: &[Statement],
+    state: &mut InterpWalkState,
+    summaries: &std::collections::HashMap<String, PatternSummary>,
+    sink_names: &[&str; 4],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+    loop_exits: &mut Vec<InterpWalkState>,
+) -> bool {
+    for stmt in body {
         match stmt {
-            Statement::LetBinding { value, .. } => acc.push(value),
-            Statement::Assign { value, .. } => acc.push(value),
-            Statement::ExprStmt { expr, .. } => acc.push(expr),
-            Statement::Return { value, .. } => acc.push(value),
-            Statement::Each { body, .. } => collect_stmt_exprs_interp(body, acc),
-            Statement::EachWithIndex { body, .. } => collect_stmt_exprs_interp(body, acc),
-            Statement::While { body, .. } => collect_stmt_exprs_interp(body, acc),
+            Statement::LetBinding { name, value, .. } | Statement::Assign { name, value, .. } => {
+                // №405 convention: the RHS is evaluated in the
+                // PRE-statement state — scan first, bind after.
+                interp_scan_sinks(value, state, summaries, sink_names, source, findings);
+                interp_arm_memory_facts(value, state);
+                let label = interp_expr_label(value, state, summaries);
+                state.bindings.insert(name.clone(), label);
+            }
+            Statement::ExprStmt { expr, .. } | Statement::Return { value: expr, .. } => {
+                interp_scan_sinks(expr, state, summaries, sink_names, source, findings);
+                interp_arm_memory_facts(expr, state);
+            }
+            Statement::Each {
+                iterable,
+                body: loop_body,
+                ..
+            }
+            | Statement::EachWithIndex {
+                iterable,
+                body: loop_body,
+                ..
+            } => {
+                interp_scan_sinks(iterable, state, summaries, sink_names, source, findings);
+                interp_arm_memory_facts(iterable, state);
+                let mut body_state = state.clone();
+                let mut exits: Vec<InterpWalkState> = Vec::new();
+                interp_walk_stmts(
+                    loop_body,
+                    &mut body_state,
+                    summaries,
+                    sink_names,
+                    source,
+                    findings,
+                    &mut exits,
+                );
+                state.join_into(&body_state);
+                for e in &exits {
+                    state.join_into(e);
+                }
+            }
+            Statement::While {
+                condition,
+                body: loop_body,
+                ..
+            } => {
+                interp_scan_sinks(condition, state, summaries, sink_names, source, findings);
+                interp_arm_memory_facts(condition, state);
+                let mut body_state = state.clone();
+                let mut exits: Vec<InterpWalkState> = Vec::new();
+                interp_walk_stmts(
+                    loop_body,
+                    &mut body_state,
+                    summaries,
+                    sink_names,
+                    source,
+                    findings,
+                    &mut exits,
+                );
+                state.join_into(&body_state);
+                for e in &exits {
+                    state.join_into(e);
+                }
+            }
+            Statement::IfThen { body: branch, .. } => {
+                let mut branch_state = state.clone();
+                let terminated = interp_walk_stmts(
+                    branch,
+                    &mut branch_state,
+                    summaries,
+                    sink_names,
+                    source,
+                    findings,
+                    loop_exits,
+                );
+                if !terminated {
+                    state.join_into(&branch_state);
+                }
+            }
             Statement::IfElseBlock {
+                condition,
                 then_body,
                 else_ifs,
                 else_body,
                 ..
             } => {
-                collect_stmt_exprs_interp(then_body, acc);
-                for (_, body) in else_ifs {
-                    collect_stmt_exprs_interp(body, acc);
+                interp_scan_sinks(condition, state, summaries, sink_names, source, findings);
+                interp_arm_memory_facts(condition, state);
+                let mut then_state = state.clone();
+                let terminated = interp_walk_stmts(
+                    then_body,
+                    &mut then_state,
+                    summaries,
+                    sink_names,
+                    source,
+                    findings,
+                    loop_exits,
+                );
+                if !terminated {
+                    state.join_into(&then_state);
                 }
-                if let Some(body) = else_body {
-                    collect_stmt_exprs_interp(body, acc);
+                for (_, branch) in else_ifs {
+                    let mut branch_state = state.clone();
+                    let terminated = interp_walk_stmts(
+                        branch,
+                        &mut branch_state,
+                        summaries,
+                        sink_names,
+                        source,
+                        findings,
+                        loop_exits,
+                    );
+                    if !terminated {
+                        state.join_into(&branch_state);
+                    }
+                }
+                if let Some(branch) = else_body {
+                    let mut branch_state = state.clone();
+                    let terminated = interp_walk_stmts(
+                        branch,
+                        &mut branch_state,
+                        summaries,
+                        sink_names,
+                        source,
+                        findings,
+                        loop_exits,
+                    );
+                    if !terminated {
+                        state.join_into(&branch_state);
+                    }
                 }
             }
-            Statement::IfThen { body, .. } => collect_stmt_exprs_interp(body, acc),
-            _ => {}
+            Statement::Match {
+                scrutinee,
+                arms,
+                else_body,
+                ..
+            } => {
+                interp_scan_sinks(scrutinee, state, summaries, sink_names, source, findings);
+                interp_arm_memory_facts(scrutinee, state);
+                for arm in arms {
+                    // Compare-arm threshold expressions are scanned too.
+                    if let crate::ast::MatchArm::Compare(_, threshold, _) = arm {
+                        interp_scan_sinks(
+                            threshold,
+                            state,
+                            summaries,
+                            sink_names,
+                            source,
+                            findings,
+                        );
+                        interp_arm_memory_facts(threshold, state);
+                    }
+                    let mut arm_state = state.clone();
+                    let terminated = interp_walk_stmts(
+                        arm.body(),
+                        &mut arm_state,
+                        summaries,
+                        sink_names,
+                        source,
+                        findings,
+                        loop_exits,
+                    );
+                    if !terminated {
+                        state.join_into(&arm_state);
+                    }
+                }
+                if let Some(branch) = else_body {
+                    let mut branch_state = state.clone();
+                    let terminated = interp_walk_stmts(
+                        branch,
+                        &mut branch_state,
+                        summaries,
+                        sink_names,
+                        source,
+                        findings,
+                        loop_exits,
+                    );
+                    if !terminated {
+                        state.join_into(&branch_state);
+                    }
+                }
+            }
+            Statement::Break | Statement::Continue => {
+                loop_exits.push(state.clone());
+                return true;
+            }
+            Statement::Memorize(m) => {
+                interp_scan_sinks(&m.value, state, summaries, sink_names, source, findings);
+                // The №266 statement form has no key — it only arms the
+                // conservative persist-fact (SSOT with the №386 collector's
+                // statement arm: same probe, no top-sanitizer exemption).
+                if expr_contains_llm_source(&m.value) {
+                    state.any_keyless_llm_write = true;
+                }
+            }
+            Statement::Forget(f) => {
+                interp_scan_sinks(&f.query, state, summaries, sink_names, source, findings);
+            }
+            Statement::Relate(r) => {
+                interp_scan_sinks(&r.from, state, summaries, sink_names, source, findings);
+                interp_scan_sinks(&r.to, state, summaries, sink_names, source, findings);
+            }
         }
     }
+    false
 }
 
 // ── Наряд №284 (P1, M1): CANARY_LEAK — «компрометированный канал» ──────

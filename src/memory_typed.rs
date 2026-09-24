@@ -1473,11 +1473,17 @@ pub fn ledger_recall_denied(query: &str, container_id: &str) {
 /// The taint projection of one recall hit onto the №322 lattice: a
 /// private container projects the Secret taint kind (confidentiality —
 /// the content is intact, the EGRESS is the consent-gated concern);
-/// a public container projects the lattice bottom.
+/// a public container projects the lattice bottom. The Secret mapping
+/// is the same `legacy_taint_label("Secret")` row applies; it is
+/// constructed directly because the projection is a compile-time
+/// constant of the contract.
 fn hit_label(label_word: &str) -> crate::labels::Label {
     match label_word {
-        "private" => crate::labels::legacy_taint_label("Secret")
-            .expect("Secret is a known legacy taint kind"),
+        "private" => crate::labels::Label {
+            conf: crate::labels::Conf::Private,
+            integrity: crate::labels::Integrity::Trusted,
+            consent: crate::labels::ConsentScope::new(),
+        },
         _ => crate::labels::Label::bottom(),
     }
 }
@@ -1503,7 +1509,7 @@ pub fn recall_hit_provenance(hit: &RecallEntry) -> String {
         hit.subject,
         hit.label_word,
         hit.created_unix,
-        hit_label(hit.label_word).to_string(),
+        hit_label(hit.label_word),
     );
     if !hit.derived_from.is_empty() {
         line.push_str(&format!(" derived_from={}", hit.derived_from.join(",")));

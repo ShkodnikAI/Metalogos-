@@ -599,3 +599,38 @@ operational: the audit 2026-09-23 P1 items are closed by evidence (P1-1 →
 written down where the office will read it — in the example header.
 P0 items unchanged: `recall` stub, plan v2 absent, taint P2 set.
 Recomputation at the next wave boundary, same protocol.
+
+### 6.8. Waves 12–13 recount (naryad №443): **80%** (main @ `8c6256fa`, 2026-09-24)
+
+Same decomposition and weights as §6.4–§6.7 (still UNVERIFIED — plan v2 is
+still absent from the repository); readiness per the code facts only, the
+№414 protocol (the same UNVERIFIED weights, no P0-green claims without a
+contract). The honest headline: **the total moves 76% → 80%** — Wave 12
+landed the first compute-backend ladder class with real in-tree execution
+(№440/№441), and Wave 13's №442 turned `recall` into the real front door of
+memory, closing two of the four named gaps of the Memory row. The builtin
+registry grows 494 → 499; the static contour (unique audit check_ids) is
+unchanged at 33.
+
+| Subsystem | Weight (UNVERIFIED) | Wave 11 `d2295ce` | Waves 12–13 `8c6256fa` | Contribution | Basis for the readiness (recounted by proof commands) |
+|---|---|---|---|---|---|
+| Labels (taint) | 30% | 75% | **75%** (unchanged) | 22.5pp | the new gates are RUNTIME origin-stamps on new surfaces, not lattice/static work: `FORECAST_TAINTED` (№440, the forecast export sink-gate) and `MEMORY_RECALL_CONSENT_REQUIRED` (№442, the recall consent refusal); proof: `grep -n "CODE_FORECAST_TAINTED\|CODE_MEMORY_RECALL_CONSENT_REQUIRED" src/interpreter/values.rs` → `values.rs:555` / `values.rs:563`; the static contour is unchanged — the unique `check_id` count is 33 on both `d2295ce` and `8c6256fa` (sorted-unique diff: empty); the parked P2 set (effects, affinity, full static inference, fixpoint) unchanged |
+| Capability model | 20% | 88% | **88%** (unchanged) | 17.6pp | no NEW grant-gated capability class: the №442 recall gate rides the EXISTING №413 fail-closed convention (the runtime consent check with scope `memory:<container>`); the №440 forecast gate is taint-based, not grant-based; proof: `grep -c 'spec!(' src/builtins/registry.rs` → `499` (registry growth, not capability growth); **still missing**: exec/network irreversible ops remain deny-only, not every builtin carries a capability attribute |
+| Backend registry | 15% | 85% | **88%** | 13.2pp | the FIRST ladder class with real in-tree execution: the `timeseries` class (№440, `grep -n "timeseries" src/backends.rs` → `backends.rs:80/97/305`) with the ladder `timesfm-2.5 → statsforecast → seasonal_naive` (proof: `grep -n "TIMESERIES_LADDER" src/forecast.rs` → `forecast.rs:56`): `seasonal_naive` is the built-in deterministic leg (`forecast.rs:461`), `statsforecast` the pure-software Apache-2.0 rung (backends.rs:323 — no weights artifact exists, nothing to fetch or pin), timesfm-2.5 the Apache-2.0 weights pin (3.0 pinned-never); the ladder EXECUTES in-tree (the w12 example's real quantiles at the seasonal_naive rung, CI-proven); №442 wires hybrid retrieval engines (FTS5 BM25 + cosine RRF on SqliteStore) as real software backends feeding the typed lane; **deduction**: the TOP rungs' real-weights execution remains hardware-gated (P2-2 unchanged) |
+| Ledger | 15% | 95% | **95%** (unchanged) | 14.25pp | two new record FAMILIES — `forecast.*` (№440: series_make/run/denied/pull_denied, hash-bearing details; proof: `grep -n "forecast\.run\|forecast\.denied" src/forecast.rs` → `forecast.rs:36-43,715`) and `memory.recall`/`memory.recall.denied` (№442; proof: `grep -n 'crate::ledger::record("memory.recall"' src/memory_typed.rs` → `memory_typed.rs:1456/1470`) — record-surface growth, not structural (the runtime verify hook №415 closed the last structural gap in §6.5); the verification hook unchanged — the out-of-band anchor discipline stays user-side (ADR-0167 §7) |
+| Memory | 20% | 45% | **60%** | 12pp | two of the four named gaps CLOSED: (1) `recall` is the real front door — proof: `grep -n 'spec!("recall"' src/builtins/registry.rs` → `registry.rs:320: spec!("recall", 1, 2, "memory"; builtin_recall)` (the stub spec is gone; zero stub-spec on the name); the consent gate is fail-closed (№413: gated content never read — key-list metadata only; the refusal IS a `memory.recall.denied` record); typed hits carry the `[MEM]` provenance suffix; every call records `memory.recall {query hash, containers, hits, consent fact}`; (2) the FTS5-recall lane is INTEGRATED with the typed lane — hybrid FTS5 BM25 + cosine RRF on SqliteStore, the all-entries scan on InMemoryStore, the activation semantics preserved (sim × priority × decay), the external store contract regression-pinned (m4 golden, DoD, crosscheck); **still missing**: decay/boost remain legacy-lane only (`grep -n "decay" src/memory_typed.rs` → empty; the Wave-14 candidate per the dispatch), the plan-v2 memory contract is still unknown (plan absent) |
+| **Total** | **100%** | **76.1 ≈ 76%** | — | **79.55 ≈ 80%** |
+
+**Honest reading.** The 76% → 80% move is real and code-proven — the Memory
+subsystem moves for the first time since wave 9 (45% → 60%: the front door
+of memory is a real, consent-gated, ledgered, provenance-bearing handler and
+the store lane's hybrid engines are wired into the typed lane — landings,
+not promises), and the backend registry's ladder class executes in-tree for
+the first time (the deterministic and pure-software rungs run in CI; the
+neural rung stays behind its pin). It is still NOT a P0-green claim: the
+weights remain UNVERIFIED without plan v2; the taint P2 set (effects,
+affinity, full static inference, fixpoint) is unchanged; decay/boost on the
+typed lane remain open (the Wave-14 candidate per the dispatch); the
+plan-v2 memory contract is still unknown; the top ladder rungs' real-weights
+execution stays hardware-gated (P2-2). Recomputation at the next wave
+boundary, same protocol.

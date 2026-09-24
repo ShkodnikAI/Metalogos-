@@ -190,7 +190,7 @@ These checks use **intraprocedural taint tracking** — they follow `let`-assign
 
 `TAINT_INTERP` is a Category-A compile-time error (audit_category_a). `INTERP_DEPTH_LIMIT` is advisory only (audit_program, not promoted to a compile error). Sanitizers (`render()`/`escape_html()`) wrapping the LLM source lift the taint — zero false positives on legitimate code (the №448 corpus additions pin this for every new statement kind: `examples/leak/ok_448_*.mlog`).
 
-These are heuristics, not data-flow guarantees — they may false-positive in safe code and miss complex indirection (№386's cross-module match covers literal/prefix memory keys; dynamic keys remain the documented boundary).
+As of naryad №449, every taint event's audit output carries the **effect trace** of the involved builtins (`(effects: read, network, ...)` — derived from the №316 classification), and a tainted argument reaching a **network-effect** builtin (incl. `call_llm`'s prompt egress) escalates to `TAINT_INTERP` in the existing category. These are heuristics, not data-flow guarantees — they may false-positive in safe code and miss complex indirection (№386's cross-module match covers literal/prefix memory keys; dynamic keys remain the documented boundary).
 
 ### 3. Dual Execution Backend
 

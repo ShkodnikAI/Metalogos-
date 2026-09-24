@@ -17,6 +17,11 @@
 # Reproducibility contract: the harness is versioned IN THE REPO and
 # works in a throwaway worktree sharing the main target dir — no manual
 # edits, the working tree is never touched; the mutants never reach main.
+# HAZARD NOTE (shared target): the last mutant binary is newer by mtime
+# than the main tree's sources under the same fingerprint dir — run
+# `touch src/audit.rs` (or cargo clean) in the MAIN tree before trusting
+# a cargo test result that follows a harness run. CI (isolated) is
+# unaffected.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"

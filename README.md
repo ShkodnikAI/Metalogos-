@@ -185,10 +185,10 @@ These checks use **intraprocedural taint tracking** — they follow `let`-assign
 |---|---|---|---|
 | `TAINT_PERSISTENCE` | Error | Same-scope: `memorize(call_llm(...))` + `recall()` + `respond()`; **cross-module since №386**: module B's `recall(<key>)` → `respond()` matched against module A's tainted memory keys (literal/prefix, fingerprint registry; `METALOGOS_TAINT_STRICT=1` key-less strict mode) | `memorize call_llm("summarize")` then `let ctx = recall("q"); respond("200 OK", ctx)` — or the write in one module and the recall in another |
 | `TAINT_PASSTHROUGH` | Error | Trivial passthrough pattern wrapping LLM output (1-param `return x`) | `pattern Wrap(x: String) { return x }` then `respond("200 OK", Wrap(call_llm("...")))` |
-| `TAINT_INTERP` (Naryad #292; #376) | Error | **Interprocedural** — non-trivial pattern wrapping LLM output, bounded depth `METALOGOS_TAINT_DEPTH` (default 4, configurable 1..=16; summaries cached per module — #376) | `pattern Wrap(x: String) { return upper(x) }` then `respond("200 OK", Wrap(call_llm("...")))` |
+| `TAINT_INTERP` (Naryad #292; #376; **#448**) | Error | **Interprocedural** — non-trivial pattern wrapping LLM output, bounded depth `METALOGOS_TAINT_DEPTH` (default 4, configurable 1..=16; summaries cached per module — #376). **As of №448 the state-aware walker covers ALL 15 statement kinds** (REALITY §2.2 closed): sinks inside `Match` arms, taint carried out of loops through `break`/`continue`, and the Memory variants (`Memorize`/`Forget`/`Relate` persist-facts — a tainted keyed write arms the key prefix, the key-less form arms the conservative any-write fact, `recall()` of an armed key is untrusted); merges across arms/loop boundaries use the ADR-0154 lattice join | `pattern Wrap(x: String) { return upper(x) }` then `respond("200 OK", Wrap(call_llm("...")))` — or the sink inside one match arm, or the taint carried out of a loop via `break`, or `memorize(<llm>)` + `respond(recall(...))` in a branch |
 | `INTERP_DEPTH_LIMIT` (Naryad #292) | Warning | Recursive / cyclic pattern in the call graph — analysis terminated at depth 2 | `pattern Recurse(x) { return Recurse(x) }` |
 
-`TAINT_INTERP` is a Category-A compile-time error (audit_category_a). `INTERP_DEPTH_LIMIT` is advisory only (audit_program, not promoted to a compile error). Sanitizers (`render()`/`escape_html()`) wrapping the LLM source lift the taint — zero false positives on legitimate code.
+`TAINT_INTERP` is a Category-A compile-time error (audit_category_a). `INTERP_DEPTH_LIMIT` is advisory only (audit_program, not promoted to a compile error). Sanitizers (`render()`/`escape_html()`) wrapping the LLM source lift the taint — zero false positives on legitimate code (the №448 corpus additions pin this for every new statement kind: `examples/leak/ok_448_*.mlog`).
 
 These are heuristics, not data-flow guarantees — they may false-positive in safe code and miss complex indirection (№386's cross-module match covers literal/prefix memory keys; dynamic keys remain the documented boundary).
 
@@ -272,7 +272,7 @@ Metalogos-/
 ├── CLAUDE.md                         # Bridge copy of AGENTS.md for Claude-compatible tools (synced manually — see issue #299)
 ├── GEMINI.md                         # Bridge copy of AGENTS.md for Gemini-compatible tools (synced manually — see issue #299)
 ├── REFERENCE.md                      # Full builtin reference (~281 KB) — 100% of the registry (§6 index + №316 classification)
-├── CHANGELOG.md                      # Version history (~435 KB)
+├── CHANGELOG.md                      # Version history (~437 KB)
 ├── AI_USAGE.md                       # Disclosure: how generative AI is used in this project's development
 ├── FEATURE_INTAKE.md                 # Feature request tracking
 ├── MEMORY_ROADMAP.md                 # Memory system roadmap
@@ -357,14 +357,14 @@ Metalogos-/
 │       ├── naryad_198_audit_finds_known_vuln.rs
 │       └── naryad_198_backward_compat.rs
 │
-├── tests/                             # 227 Rust test files
+├── tests/                             # 228 Rust test files
 │   ├── fixtures/                      # PDF test fixtures
 │   ├── golden.rs                      # Golden test runner
 │   ├── vm_golden.rs                   # VM golden tests
 │   ├── crosscheck_backends.rs          # TW vs VM parity (see ADR-0105 for known gaps)
 │   ├── repl_integration.rs            # REPL tests
 │   ├── definition_of_done.rs          # Project completeness validation
-│   └── ...                            # and 222 more contract/feature test files
+│   └── ...                            # and 223 more contract/feature test files
 │
 ├── examples/                          # 258 .mlog programs (golden corpus)
 │   ├── m1_hello.mlog                  # Hello World
@@ -1081,7 +1081,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 124+ development narads (work orders) delivered. 500 builtins, 227 test files, 258 example programs, 167 ADRs (158 accepted/implemented + 2 reserved + 2 proposed + 3 rejected + 1 assessed + 1 partially implemented; ADR-0154/0161 filled by naryads №322/№325; ADR-0162 — №331 media handles; ADR-0163 — №333 backend registry; ADR-0164 — №332 perception origin chain; ADR-0165 — №336 backend ladder + Degraded(t); ADR-0166 — №337 C2PA contour of handles; ADR-0157/0167 — №393 Action Ledger v1; ADR-0169 — №385 stable try error codes; ADR-0170 — №405 persistence taint layer 2; ADR-0171 — №404 serve-default flip; ADR-0172 — №348 session model; ADR-0173 — №351 derived graph + cascade; ADR-0174 — №352 directed audio effects + duplex; ADR-0175 — №426 tick context; ADR-0159 — №354 sim-first STL monitor). See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
+All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 124+ development narads (work orders) delivered. 500 builtins, 228 test files, 258 example programs, 167 ADRs (158 accepted/implemented + 2 reserved + 2 proposed + 3 rejected + 1 assessed + 1 partially implemented; ADR-0154/0161 filled by naryads №322/№325; ADR-0162 — №331 media handles; ADR-0163 — №333 backend registry; ADR-0164 — №332 perception origin chain; ADR-0165 — №336 backend ladder + Degraded(t); ADR-0166 — №337 C2PA contour of handles; ADR-0157/0167 — №393 Action Ledger v1; ADR-0169 — №385 stable try error codes; ADR-0170 — №405 persistence taint layer 2; ADR-0171 — №404 serve-default flip; ADR-0172 — №348 session model; ADR-0173 — №351 derived graph + cascade; ADR-0174 — №352 directed audio effects + duplex; ADR-0175 — №426 tick context; ADR-0159 — №354 sim-first STL monitor). See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
 
 ### Next
 

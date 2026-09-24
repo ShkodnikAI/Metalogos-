@@ -671,3 +671,47 @@ ladder rungs' real-weights execution stays hardware-gated (P2-2); find and
 inspect remain stubs (the registry's remaining 23 stub rows are named,
 out-of-scope surfaces). Recomputation at the next wave boundary, same
 protocol.
+
+### 6.10. Wave 15 recount, part 1 (naryad №450): **85%** (main @ `2b062513`, 2026-09-25)
+
+Same decomposition and weights as §6.4–§6.9 (still UNVERIFIED — plan v2 is
+still absent from the repository); readiness per the code facts only, the
+№414 protocol. The honest headline: **the total moves 82% → 85%** — the two
+Wave-15 code naryads closed TWO of the four named gaps of the Labels row.
+№448 closed "full static-engine inference" (REALITY §2.2: the interp contour
+now covers ALL 15 statement kinds — `Match`/`Break`/`Continue` + the Memory
+variants `Memorize`/`Forget`/`Relate`; the merge points use the lattice
+join). №449 closed "effects" (REALITY §2.4: the effect attributes
+{read, write, network, irreversible} derived from the №316 SSOT, the effect
+traces in the audit output, the network-axis escalation including the №316
+DUAL prompt-egress of `call_llm`).
+
+Arithmetic (the same granularity the Memory row of §6.9 used): the Labels
+row stood at 75% with 25pp missing across FOUR named gaps (the №446 row:
+effects, affinity, full static inference, fixpoint) ≈ 6.25pp each; two gaps
+closed → +12.5pp; the exact 87.5 rounds DOWN → **87%** for the row
+(30% weight): 26.1pp (was 22.5pp) → the total 81.55 + 3.6 = 85.15 ≈ **85%**
+(rounded down; no upward pressure).
+
+| Subsystem | Weight (UNVERIFIED) | Wave 14 `3dae2e51` | Wave 15 `2b062513` | Contribution | Basis for the readiness (recounted by proof commands) |
+|---|---|---|---|---|---|
+| Labels (taint) | 30% | 75% | **87%** | 26.1pp | the two named gaps closed with proof: §2.2 — `sed -n '/── Наряд №292 (P0, security): TAINT_INTERP/,/CANARY_LEAK/p' src/audit.rs | grep -c "Statement::Match\\|Statement::Break\\|Statement::Continue\\|Statement::Memorize\\|Statement::Forget\\|Statement::Relate"` → **10** (the proof was 0 on every prior recount — the flat collector fell into the `_ => {}` arm); the `return`-inside-match-arm summary union and the state-aware walker replace it; the merge points join through the lattice — `grep -c "state.join_into" src/audit.rs` → **10** merge sites (`Label::join`, the static twin of the runtime 2.3 operator — no new lattice); §2.4 — `grep -n "pub fn builtin_effects\|pub struct EffectSet" src/audit.rs` → the effects section (`git show 3dae2e51:src/audit.rs | grep -c effect` → **0** — the gap was real); the SSOT coverage: `tests/naryad_449_effects.rs::a1_every_registered_builtin_has_effect_output` (source-level `spec!` parse, feature-independent — a registry builtin without a №316 row fails CI); the leak corpus grew 40 → 44 negatives / 22 → 26 positives — every new negative compiled clean before its naryad (probes on `5df35ff9`: the break-carry, the write_file-chain-in-arm, the key-less statement-form memorize; on `c7ffa112`: the prompt-egress chain); mutation contracts VERIFIED — 4/4 (№448: the walker arm-merge, the summary union, the break/continue exit collection) + 3/3 (№449: the irreversible SSOT mapping, the network escalation × unit + corpus); **still missing**: affinity (§2.6 — the canon risk registry requires a preliminary ADR decision), exhaustive matching as the central contract (§2.5 — PARTIAL: the deny-path `match kind` exists at `audit.rs:4357`-era shape, no exhaustive sweep), points-to/fixpoint (P2-1 park) |
+| Capability model | 20% | 88% | **88%** (unchanged) | 17.6pp | no grant work in №448/№449 — the static layer only: `grep -c 'spec!("' src/builtins/registry.rs` → `500` (no registry growth, no new capability attribute); **still missing**: exec/network irreversible ops remain deny-only, not every builtin carries a capability attribute |
+| Backend registry | 15% | 88% | **88%** (unchanged) | 13.2pp | no backend-registry work in №448/№449 (the audit effects touch no compute ladders); the `timeseries` class and the hybrid retrieval engines are unchanged from §6.8 |
+| Ledger | 15% | 95% | **95%** (unchanged) | 14.25pp | no ledger work: the №449 effect traces are AUDIT-OUTPUT only — the ledger is not duplicated (the №449 boundary: статика↔рантайм связь documented in limitations.md, the ADR-0167 append-only discipline untouched) |
+| Memory | 20% | 70% | **70%** (unchanged) | 14pp | no memory work in №448/№449: the Memory statement variants participate in the STATIC inference (the interp contour) — zero runtime change; proof: the runtime gates are byte-identical — `grep -n "CODE_MEMORY_RECALL_CONSENT_REQUIRED\\|CODE_MEMORY_FORGET_CONSENT_REQUIRED" src/interpreter/values.rs` → `values.rs:563/568` (the same anchors the §6.9 row cites); the plan-v2 memory contract is still unknown (plan absent) — the decision/SSOT gap stays |
+| **Total** | **100%** | **81.55 ≈ 82%** | — | **85.15 ≈ 85%** |
+
+**Honest reading.** The 82% → 85% move is real and code-proven: the Labels
+row's named-gap set shrinks from four to two (affinity + points-to/fixpoint,
+both parked behind explicit gates — an ADR decision and the P2-1 park; the
+§2.5 exhaustive-sweep residual is named inside the row). The static contour
+now sees every statement kind the language can express (15/15) and attaches
+effect semantics to every classified builtin — the corpus grew with
+negatives that compiled clean for weeks (the break-carry, the arm-hidden
+write_file chain, the key-less memory write, the prompt-egress chain). It is
+still NOT a P0-green claim: the capability exec/network deny-only holes are
+unchanged; the plan-v2 memory contract is still a decision gap; the weights
+stay UNVERIFIED until the plan lands; the top ladder rungs stay
+hardware-gated; the registry's 23 stub rows remain named out-of-scope
+surfaces. Recomputation at the next wave boundary, same protocol.

@@ -840,8 +840,11 @@ impl Interpreter {
             return self.invoke_recall_top_k_fn(args);
         }
 
-        // forget() — callable form (flow step context)
-        if name == "forget" {
+        // forget() — callable form (flow step context). №445: the legacy
+        // (query, days?) surface is 1..2 arguments; 3..4 arguments are
+        // the canon §10.3 typed front door and fall through to the
+        // registry handler (parity by construction).
+        if name == "forget" && args.len() <= 2 {
             return self.invoke_forget_fn(args);
         }
 
@@ -2307,7 +2310,9 @@ impl Interpreter {
 
                 // Check forget() — callable form (Definition of Done)
                 // Usage: forget("query", 30)
-                if name == "forget" {
+                if name == "forget" && eval_args.len() <= 2 {
+                    // №445: the legacy 1..2-arg form; 3..4 args are the
+                    // typed §10.3 front door (the registry handler).
                     return self.invoke_forget_fn(eval_args);
                 }
 

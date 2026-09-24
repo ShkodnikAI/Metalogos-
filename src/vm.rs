@@ -2844,7 +2844,11 @@ impl Vm {
         }
 
         // ── Наряд №72: forget — parity with interpreter::invoke_forget_fn ──
-        if name == "forget" {
+        // №445: the legacy 1..2-argument surface only; 3..4 arguments
+        // are the canon §10.3 typed front door and fall through to the
+        // registry handler (parity by construction — the shared engine
+        // lives in src/memory_typed.rs).
+        if name == "forget" && args.len() <= 2 {
             if args.is_empty() {
                 return Err("forget() requires at least 1 argument (query)".to_string());
             }

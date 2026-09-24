@@ -434,7 +434,7 @@ OVERRIDES = {
     "session_take_interrupt": ("Source", "Internal", "Pure", "takes the highest-priority pending interrupt (FIFO within) — the №352 preemption lever; every take is ledger-recorded so preemption loses no audit (№348)"),
     # Naryad 350: the typed Memory<K> layer (the "memory" category rows).
     "memory_open": ("Source", "Internal", "Reversible", "returns the Memory<K> container handle — the ingress of the typed-memory surface; a private open is consent-gated INSIDE (active consent for memory:<subject>, №335 — the db_execute_with_grant capability precedent); records memory.open (№350)"),
-    "memory_put": ("Pure", "Public", "Pure", "writes a text entry under the container-handle capability (the handle exists only through the consent-gated memory_open — the db_execute_with_grant precedent: the №325 static clearance does not apply, the authority is enforced at runtime); private entries are AES-GCM encrypted at rest; derived-from parents must exist; records memory.put (№350)"),
+    "memory_put": ("Pure", "Public", "Pure", "writes a text entry under the container-handle capability (the handle exists only through the consent-gated memory_open — the db_execute_with_grant precedent: the №325 static clearance does not apply, the authority is enforced at runtime); private entries are AES-GCM encrypted at rest; derived-from parents must exist; the №445 opts Struct {priority?, decay_rate?, ttl_secs?} sets the activation attributes; records memory.put (№350)"),
     "memory_read": ("Source", "Internal", "Reversible", "THE AUDITED READ SINK: public returns String, private returns Secret — print refuses it and redact() (№326/ADR-0136) is the only egress; records memory.read (№350)"),
     "memory_keys": ("Source", "Internal", "Pure", "lists the container's keys (metadata only; audited) (№350)"),
     "memory_provenance": ("Source", "Internal", "Pure", "reads the derived-from parent keys of one entry — the raw material of the №351 derived graph; records memory.provenance (№350)"),
@@ -671,7 +671,10 @@ OVERRIDES = {
     "if_eq": ("Pure", "Public", "Pure", "comparison helper (registry-only stub; `if` is an expression)"),
     "is_string_token": ("Pure", "Public", "Pure", "deterministic token check (registry-only stub)"),
     "recall": ("Source", "Internal", "Pure", "intended memory recall — state read"),
-    "forget": ("Sink", "Internal", "Irreversible", "intended destructive memory removal"),
+    # Naryad 445: the forgetting memory — the §10.3 front door + the ttl
+    # lifetime (the canon retain(memory, ttl)).
+    "memory_retain_ttl": ("Sink", "Internal", "Reversible", "the canon retain(memory, ttl) (№445): gives ONE typed entry a lifetime — past the deadline the sweep auto-forgets it (the №280 v2 deferral lifted into the typed contour); a poisoned entry refuses a new lifetime (MEMORY_POISONED); records memory.retain_ttl"),
+    "forget": ("Sink", "Internal", "Irreversible", "real handler (№445) — the canon §10.3 forgetting front door: the ADR-0155 linear action (scope memory:forget:<container>, grant consumed on success only), dry_run preview → apply, the derived-from cascade → POISONED with closed sinks (MEMORY_POISONED on read/export; the recall lane skips the quarantine), the consent fail-closed gate (MEMORY_FORGET_CONSENT_REQUIRED); records memory.forget {container, targets, hashes, dry_run fact} / memory.forget.denied / irreversible.memory_forget; the legacy 1..2-arg forget(query, days?) surface is unchanged"),
     "find": ("Source", "Internal", "Pure", "intended memory search — state read"),
     "inspect": ("Source", "Internal", "Pure", "intended runtime introspection — state read"),
     # №392: the DenyEvent surface — a read of the live runtime deny event,

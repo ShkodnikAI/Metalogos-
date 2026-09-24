@@ -561,6 +561,16 @@ pub const CODE_FORECAST_HANDLE_UNKNOWN: &str = "FORECAST_HANDLE_UNKNOWN";
 /// grant refuses fail-closed (the №413 convention; the refusal itself
 /// is a memory.recall.denied ledger record).
 pub const CODE_MEMORY_RECALL_CONSENT_REQUIRED: &str = "MEMORY_RECALL_CONSENT_REQUIRED";
+/// №445 (the forget surface): the consent refusal on the forget front
+/// door — forgetting from a private container without an active consent
+/// grant refuses fail-closed (the same №413 convention; the refusal
+/// itself is a memory.forget.denied ledger record).
+pub const CODE_MEMORY_FORGET_CONSENT_REQUIRED: &str = "MEMORY_FORGET_CONSENT_REQUIRED";
+/// №445 (the poison gate): a POISONED entry (a derived-from survivor of
+/// the §10.3 forget cascade) cannot materialize into any legal sink —
+/// read/export refuse with this typed stamp (the quarantine is loud;
+/// the content never leaves the lane).
+pub const CODE_MEMORY_POISONED: &str = "MEMORY_POISONED";
 
 /// The whitelist of codes a subsystem may stamp onto the String error
 /// channel. `RUNTIME_ERROR` is deliberately NOT in this list: it is the
@@ -608,6 +618,11 @@ const ORIGIN_STAMPED_CODES: &[&str] = &[
     // memory_open gate parity: addressing gated private memory without
     // a grant is a typed, branchable refusal).
     CODE_MEMORY_RECALL_CONSENT_REQUIRED,
+    // №445: the forget surface — the consent refusal and the poison
+    // gate of the §10.3 forgetting cascade, both typed for `try` (the
+    // №442 recall-gate parity).
+    CODE_MEMORY_FORGET_CONSENT_REQUIRED,
+    CODE_MEMORY_POISONED,
     CODE_MCP_PROTOCOL_ERROR,
     CODE_MCP_NOT_ALLOWLISTED,
 ];

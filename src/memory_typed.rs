@@ -97,6 +97,58 @@ pub struct TypedEntry {
     pub stored: Stored,
     pub derived_from: Vec<String>,
     pub created_unix: u64,
+    // ── №445 (the forgetting-memory lane): the activation + quarantine
+    // attributes. The defaults (priority 1.0, decay_rate 0.01 — the
+    // ADR-0004 default, no TTL, not poisoned) keep every №350/№442
+    // surface byte-for-byte: a fresh unattributed entry scores exactly
+    // as before.
+    /// The importance weight of the ACT-R activation product
+    /// (sim × priority × decay).
+    pub priority: f32,
+    /// The exponential decay coefficient (per FULL day of no access —
+    /// the ADR-0004 day-granularity model; day-integer age keeps the
+    /// score deterministic inside a test run).
+    pub decay_rate: f32,
+    /// The boost bookkeeping: the last access (recall/read) instant —
+    /// the activation age is measured from THIS, not from creation;
+    /// every granted access refreshes it (boost on contact).
+    pub last_access_unix: u64,
+    /// The retain(memory, ttl) deadline: when `Some(t)` and the clock
+    /// passes `t`, the entry is auto-forgotten (the №280 "v2" deferral
+    /// lifted into the typed contour).
+    pub ttl_unix: Option<u64>,
+    /// The §10.3 quarantine mark: a poisoned derived entry STAYS in the
+    /// container (no physical deletion) but cannot materialize into any
+    /// legal sink — read/export refuse with MEMORY_POISONED and the
+    /// recall lane skips it entirely.
+    pub poisoned: bool,
+}
+
+impl TypedEntry {
+    /// The №350-compatible constructor: the default activation posture.
+    fn new(stored: Stored, derived_from: Vec<String>, created_unix: u64) -> Self {
+        TypedEntry {
+            stored,
+            derived_from,
+            created_unix,
+            priority: 1.0,
+            decay_rate: 0.01,
+            last_access_unix: created_unix,
+            ttl_unix: None,
+            poisoned: false,
+        }
+    }
+}
+
+/// №445: the optional activation attributes of a put — memory_put's
+/// opts Struct `{priority?, decay_rate?, ttl_secs?}` (arity 3..5, the
+/// additive-arity precedent of №280's include_forgotten). Absent fields
+/// keep the defaults (priority 1.0, decay_rate 0.01, no TTL).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PutOpts {
+    pub priority: Option<f32>,
+    pub decay_rate: Option<f32>,
+    pub ttl_secs: Option<f64>,
 }
 
 #[derive(Debug)]
@@ -348,11 +400,15 @@ pub fn value_to_text(fn_name: &str, v: &Value) -> Result<String, String> {
 }
 
 /// Put an entry (validated derived-from parents) + `memory.put`.
+/// №445: `opts` carries the activation attributes (priority/decay_rate/
+/// ttl_secs — the memory_put opts Struct); defaults keep the №350
+/// posture.
 pub fn put(
     handle_id: &str,
     key: &str,
     text: &str,
     derived_from: Vec<String>,
+    opts: PutOpts,
 ) -> Result<(), String> {
     let mut reg = registry()
         .lock()
@@ -375,6 +431,33 @@ pub fn put(
             ));
         }
     }
+    // №445: validate the activation attributes fail-closed — a negative
+    // priority, a non-finite/negative decay rate or a non-positive TTL
+    // is a broken call site, not a silent default.
+    let priority = opts.priority.unwrap_or(1.0);
+    let decay_rate = opts.decay_rate.unwrap_or(0.01);
+    if !priority.is_finite() || priority < 0.0 {
+        return Err(format!(
+            "memory_put: priority must be a finite value >= 0.0, got {}",
+            priority
+        ));
+    }
+    if !decay_rate.is_finite() || decay_rate < 0.0 {
+        return Err(format!(
+            "memory_put: decay_rate must be a finite value >= 0.0, got {}",
+            decay_rate
+        ));
+    }
+    let ttl_unix = match opts.ttl_secs {
+        None => None,
+        Some(t) if t.is_finite() && t > 0.0 => Some(unix_now() + t as u64),
+        Some(t) => {
+            return Err(format!(
+                "memory_put: ttl_secs must be a finite value > 0.0, got {}",
+                t
+            ))
+        }
+    };
     let stored = match c.label {
         MemLabel::Public => Stored::Plain(text.to_string()),
         MemLabel::Private => {
@@ -397,9 +480,10 @@ pub fn put(
         }
     }
     let entry = TypedEntry {
-        stored,
-        derived_from: derived_from.clone(),
-        created_unix: unix_now(),
+        priority,
+        decay_rate,
+        ttl_unix,
+        ..TypedEntry::new(stored, derived_from.clone(), unix_now())
     };
     for parent in &entry.derived_from {
         c.children
@@ -414,11 +498,16 @@ pub fn put(
         "put",
         &c.id,
         &format!(
-            "key={}|label={}|overwrite={}|parents={}",
+            "key={}|label={}|overwrite={}|parents={}|prio={}|decay={}|ttl={}",
             key,
             c.label.as_str(),
             overwrite,
-            parents_n
+            parents_n,
+            priority,
+            decay_rate,
+            ttl_unix
+                .map(|t| t.to_string())
+                .unwrap_or_else(|| "none".to_string()),
         ),
     );
     Ok(())
@@ -426,11 +515,15 @@ pub fn put(
 
 /// The audited read: ledger + loud audit line; private returns the
 /// plaintext as `Value::Secret` (the lattice/redact contract).
+/// №445: the read path runs the ttl sweep, refuses POISONED entries
+/// (the quarantine gate — the content cannot materialize) and BOOSTS
+/// the entry (last_access refresh — the activation age resets).
 pub fn read(handle_id: &str, key: &str) -> Result<Value, String> {
-    let reg = registry()
+    let mut reg = registry()
         .lock()
         .map_err(|e| format!("memory registry lock: {}", e))?;
-    let c = reg.get(handle_id).ok_or_else(|| {
+    sweep_expired_locked(&mut reg, handle_id);
+    let c = reg.get_mut(handle_id).ok_or_else(|| {
         format!(
             "memory_read: unknown container '{}' (MEMORY_UNKNOWN)",
             handle_id
@@ -442,6 +535,18 @@ pub fn read(handle_id: &str, key: &str) -> Result<Value, String> {
             key, c.id
         )
     })?;
+    if entry.poisoned {
+        // №445: the poison gate — a §10.3 cascade survivor never
+        // materializes into a sink. The refusal is typed and branchable;
+        // the content NEVER leaves the lane.
+        return Err(crate::interpreter::values::coded_error(
+            crate::interpreter::values::CODE_MEMORY_POISONED,
+            format!(
+                "memory_read: entry '{}' in container '{}' is POISONED (a derived-from survivor of the forget cascade) — its content cannot materialize into any sink; the quarantine is recorded in the memory.forget ledger",
+                key, c.id
+            ),
+        ));
+    }
     let value = match &entry.stored {
         Stored::Plain(s) => Value::String(s.clone()),
         Stored::Enc(blob) => {
@@ -451,6 +556,11 @@ pub fn read(handle_id: &str, key: &str) -> Result<Value, String> {
             )?))
         }
     };
+    // №445: boost on contact — the read refreshes the activation age.
+    if let Some(entry) = c.entries.get_mut(key) {
+        entry.last_access_unix = unix_now();
+        persist_attrs(&c.id, key, entry);
+    }
     ledger_memory_event(
         "read",
         &c.id,
@@ -459,11 +569,16 @@ pub fn read(handle_id: &str, key: &str) -> Result<Value, String> {
     Ok(value)
 }
 
-/// The keys of a container (metadata; audited).
+/// The keys of a container (metadata; audited). №445: the ttl sweep
+/// runs first — expired entries are gone from the listing. POISONED
+/// keys REMAIN listed (the quarantine is metadata-visible: an agent
+/// can see what is quarantined, the content itself stays gated).
 pub fn keys(handle_id: &str) -> Result<Vec<String>, String> {
-    let reg = registry()
+    let mut reg = registry()
         .lock()
         .map_err(|e| format!("memory registry lock: {}", e))?;
+    sweep_expired_locked(&mut reg, handle_id);
+    let reg = &*reg;
     let c = reg.get(handle_id).ok_or_else(|| {
         format!(
             "memory_keys: unknown container '{}' (MEMORY_UNKNOWN)",
@@ -518,6 +633,18 @@ pub fn export(handle_id: &str, key: &str) -> Result<(), String> {
         return Err(format!(
             "memory_export: no entry '{}' in container '{}' (MEMORY_UNKNOWN_KEY)",
             key, c.id
+        ));
+    }
+    // №445: the poison gate on the file-egress sink — a quarantined
+    // entry cannot reach the filesystem either (the read path refuses
+    // with the same stamp; this is the sink-side backstop).
+    if c.entries.get(key).map(|e| e.poisoned) == Some(true) {
+        return Err(crate::interpreter::values::coded_error(
+            crate::interpreter::values::CODE_MEMORY_POISONED,
+            format!(
+                "memory_export: entry '{}' in container '{}' is POISONED (a derived-from survivor of the forget cascade) — its content cannot materialize into any sink",
+                key, c.id
+            ),
         ));
     }
     if c.label == MemLabel::Private {
@@ -678,6 +805,9 @@ fn db_conn() -> Result<Option<std::sync::MutexGuard<'static, Conn>>, String> {
 
 /// The additive-only DDL (ADR-0060 discipline): CREATE TABLE IF NOT
 /// EXISTS, no drops, no alters. The pins ride the entries table.
+/// №445: the activation/quarantine attributes live in a SIDE table —
+/// a new table is purely additive (no ALTER ever touches the old
+/// schema; a pre-№445 DB gains the table on the next open).
 fn ensure_memtyped_schema(conn: &Conn) -> Result<(), String> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS memtyped_containers (
@@ -697,7 +827,16 @@ fn ensure_memtyped_schema(conn: &Conn) -> Result<(), String> {
             container_id TEXT NOT NULL,
             child        TEXT NOT NULL,
             parent       TEXT NOT NULL,
-            PRIMARY KEY (container_id, child, parent));",
+            PRIMARY KEY (container_id, child, parent));
+         CREATE TABLE IF NOT EXISTS memtyped_entry_attrs (
+            container_id    TEXT NOT NULL,
+            key             TEXT NOT NULL,
+            priority        REAL NOT NULL DEFAULT 1.0,
+            decay_rate      REAL NOT NULL DEFAULT 0.01,
+            last_access_unix INTEGER NOT NULL DEFAULT 0,
+            ttl_unix        INTEGER,
+            poisoned        INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (container_id, key));",
     )
     .map_err(|e| format!("memory db schema: {}", e))
 }
@@ -748,6 +887,7 @@ fn persist_entry_put(container_id: &str, key: &str, entry: &TypedEntry, label: M
                 e
             )
         });
+    persist_attrs_with_conn(&conn, container_id, key, entry);
     let _ = conn
         .execute(
             "DELETE FROM memtyped_edges WHERE container_id = ?1 AND child = ?2",
@@ -779,6 +919,42 @@ fn persist_pin(container_id: &str, key: &str, retained: bool) {
         .map_err(|e| eprintln!("[MEMORY_DB] pin persist failed (loud, best-effort): {}", e));
 }
 
+/// №445: write-through of the activation/quarantine attributes (the
+/// side-table row mirrors the in-memory entry; best-effort, loud).
+/// The `_with_conn` variant exists because the entry-put path already
+/// holds the db mutex — a nested `db_conn()` call would self-deadlock
+/// (std Mutex is not reentrant).
+pub fn persist_attrs(container_id: &str, key: &str, entry: &TypedEntry) {
+    let Ok(Some(conn)) = db_conn() else {
+        return;
+    };
+    persist_attrs_with_conn(&conn, container_id, key, entry);
+}
+
+fn persist_attrs_with_conn(conn: &Conn, container_id: &str, key: &str, entry: &TypedEntry) {
+    let _ = conn
+        .execute(
+            "INSERT OR REPLACE INTO memtyped_entry_attrs \
+             (container_id, key, priority, decay_rate, last_access_unix, ttl_unix, poisoned) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![
+                container_id,
+                key,
+                entry.priority as f64,
+                entry.decay_rate as f64,
+                entry.last_access_unix as i64,
+                entry.ttl_unix.map(|t| t as i64),
+                entry.poisoned as i64,
+            ],
+        )
+        .map_err(|e| {
+            eprintln!(
+                "[MEMORY_DB] entry attrs persist failed (loud, best-effort): {}",
+                e
+            )
+        });
+}
+
 fn persist_delete(container_id: &str, keys: &[String]) {
     let Ok(Some(conn)) = db_conn() else {
         return;
@@ -790,6 +966,12 @@ fn persist_delete(container_id: &str, keys: &[String]) {
                 rusqlite::params![container_id, k],
             )
             .map_err(|e| eprintln!("[MEMORY_DB] entry delete persist failed: {}", e));
+        let _ = conn
+            .execute(
+                "DELETE FROM memtyped_entry_attrs WHERE container_id = ?1 AND key = ?2",
+                rusqlite::params![container_id, k],
+            )
+            .map_err(|e| eprintln!("[MEMORY_DB] attrs delete persist failed: {}", e));
         let _ = conn
             .execute(
                 "DELETE FROM memtyped_edges WHERE container_id = ?1 AND child = ?2",
@@ -865,14 +1047,48 @@ fn db_load_container(subject: &str, label: MemLabel) -> Result<Option<TypedConta
             if pin != 0 {
                 c.retained.insert(key.clone());
             }
+            let created_u = created.max(0) as u64;
             c.entries.insert(
-                key,
+                key.clone(),
                 TypedEntry {
                     stored,
                     derived_from: Vec::new(), // filled from the edge table below
-                    created_unix: created.max(0) as u64,
+                    created_unix: created_u,
+                    ..TypedEntry::new(Stored::Plain(String::new()), Vec::new(), created_u)
                 },
             );
+        }
+    }
+    // №445: merge the activation/quarantine attributes (the side table;
+    // a pre-№445 row without attrs keeps the defaults).
+    {
+        let mut stmt = conn
+            .prepare(
+                "SELECT key, priority, decay_rate, last_access_unix, ttl_unix, poisoned \
+                 FROM memtyped_entry_attrs WHERE container_id = ?1",
+            )
+            .map_err(|e| format!("memory db load attrs: {}", e))?;
+        let rows = stmt
+            .query_map(rusqlite::params![id], |r| {
+                let key: String = r.get(0)?;
+                let priority: f64 = r.get(1)?;
+                let decay: f64 = r.get(2)?;
+                let last_access: i64 = r.get(3)?;
+                let ttl: Option<i64> = r.get(4)?;
+                let poisoned: i64 = r.get(5)?;
+                Ok((key, priority, decay, last_access, ttl, poisoned))
+            })
+            .map_err(|e| format!("memory db load attrs: {}", e))?;
+        for row in rows {
+            let (key, priority, decay, last_access, ttl, poisoned) =
+                row.map_err(|e| format!("memory db load attr row: {}", e))?;
+            if let Some(e) = c.entries.get_mut(&key) {
+                e.priority = priority as f32;
+                e.decay_rate = decay as f32;
+                e.last_access_unix = last_access.max(0) as u64;
+                e.ttl_unix = ttl.map(|t| t.max(0) as u64);
+                e.poisoned = poisoned != 0;
+            }
         }
     }
     {
@@ -1343,18 +1559,29 @@ pub struct RecallLane {
 /// participate; a private container participates only under an ACTIVE
 /// consent grant for `memory:<subject>` (fail-closed — no grant, no
 /// container, the `memory_open` parity). Scoring is deterministic:
-/// exact key 1.0, key substring 0.8, text substring 0.6; ties break by
-/// container id, then key.
+/// exact key 1.0, key substring 0.8, text substring 0.6, multiplied by
+/// the №445 activation `priority × exp(-decay_rate × full days since
+/// the last access)` (the ADR-0004 model — day-integer age keeps every
+/// fresh/boosted entry at EXACTLY the №442 base scores); ties break by
+/// container id, then key. POISONED entries are skipped entirely (the
+/// quarantine never materializes — M2); expired-TTL entries are swept
+/// before the scan (auto-forgetting); every disclosed hit is BOOSTED
+/// (its last-access instant refreshes — recent contact ranks first).
 pub fn recall_lane(query: &str) -> RecallLane {
     let mut lane = RecallLane::default();
-    let reg = match registry().lock() {
+    let mut reg = match registry().lock() {
         Ok(g) => g,
         Err(_) => return lane,
     };
-    let mut ids: Vec<&String> = reg.keys().collect();
+    let now = unix_now();
+    let mut ids: Vec<String> = reg.keys().cloned().collect();
     ids.sort();
-    for id in ids {
-        let c = &reg[id];
+    for cid in ids {
+        sweep_expired_locked(&mut reg, &cid);
+        let c = match reg.get(&cid) {
+            Some(c) => c,
+            None => continue,
+        };
         lane.containers_seen.push(c.id.clone());
         let consented = match c.label {
             MemLabel::Public => true,
@@ -1378,6 +1605,11 @@ pub fn recall_lane(query: &str) -> RecallLane {
             continue;
         }
         for (key, entry) in &c.entries {
+            if entry.poisoned {
+                // №445: the quarantine — a poisoned derived entry is
+                // not a recall source (its content cannot surface).
+                continue;
+            }
             let text = match &entry.stored {
                 Stored::Plain(s) => s.clone(),
                 Stored::Enc(blob) => {
@@ -1391,7 +1623,7 @@ pub fn recall_lane(query: &str) -> RecallLane {
                     }
                 }
             };
-            let score = if key == query {
+            let base = if key == query {
                 1.0
             } else if key.contains(query) {
                 0.8
@@ -1400,6 +1632,13 @@ pub fn recall_lane(query: &str) -> RecallLane {
             } else {
                 continue;
             };
+            // №445: the ACT-R activation product. The age is measured
+            // in FULL days since the last access (the ADR-0004
+            // day-granularity; a fresh or recently boosted entry has
+            // age 0 → the decay factor is exactly 1.0).
+            let age_days = (now.saturating_sub(entry.last_access_unix)) / 86400;
+            let decay = (-(entry.decay_rate as f64) * (age_days as f64)).exp() as f32;
+            let score = base * entry.priority * decay;
             lane.hits.push(RecallEntry {
                 container_id: c.id.clone(),
                 subject: c.subject.clone(),
@@ -1410,6 +1649,21 @@ pub fn recall_lane(query: &str) -> RecallLane {
                 created_unix: entry.created_unix,
                 score,
             });
+        }
+        // №445: boost on contact — every disclosed hit's activation age
+        // resets (best-effort persistence under the same lock).
+        if let Some(c_mut) = reg.get_mut(&cid) {
+            for hit in &lane.hits {
+                if hit.container_id != cid {
+                    continue;
+                }
+                if let Some(e) = c_mut.entries.get_mut(&hit.key) {
+                    if e.last_access_unix != now {
+                        e.last_access_unix = now;
+                        persist_attrs(&cid, &hit.key, e);
+                    }
+                }
+            }
         }
     }
     lane.hits.sort_by(|a, b| {
@@ -1515,4 +1769,510 @@ pub fn recall_hit_provenance(hit: &RecallEntry) -> String {
         line.push_str(&format!(" derived_from={}", hit.derived_from.join(",")));
     }
     line
+}
+
+// ════════════════════════════════════════════════════════════════════
+// ── Naryad #445: the forgetting memory — forget, poison, decay/boost,
+//    retain(memory, ttl) ─────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════════
+//
+// The canon §10.3 contract: memory is FORGETTING — operations of
+// forgetting are first-class. `forget` becomes a REAL handler (the
+// stub-spec row is gone): the language can now say "forget this, with
+// a grant, with the derived-from cascade, with the refusal ladder".
+//
+// The cascade discipline (canon §10.3): the forget TARGET is deleted
+// (the soft-delete posture of №280/ADR-0173 — the ledger carries the
+// content digests, never the content); every DERIVED entry in the
+// descendant closure is POISONED — it STAYS in the container (no
+// physical deletion) but cannot materialize into any legal sink: read
+// and export refuse with the typed MEMORY_POISONED stamp and the
+// recall lane skips the quarantine entirely. Consent revocation fires
+// the SAME cascade over the subject's private containers.
+//
+// The activation semantics (the legacy lane's sim × priority × decay,
+// ADR-0004) moves into the typed lane: priority and decay_rate are
+// per-entry attributes (memory_put opts), every access BOOSTS the
+// entry (the activation age resets), and retain(memory, ttl) gives an
+// entry a lifetime — past the deadline it is auto-forgotten (the
+// №280 "v2" deferral lifted).
+
+/// The digest of an entry's at-rest form for the ledger (the ADR-0167
+/// discipline: values never journal — their fingerprints do).
+fn entry_digest(entry: &TypedEntry) -> String {
+    let bytes = match &entry.stored {
+        Stored::Plain(s) => s.as_bytes().to_vec(),
+        Stored::Enc(b) => b.clone(),
+    };
+    crate::ledger::sha256_hex(&bytes)[..16].to_string()
+}
+
+/// The ttl sweep of ONE container (caller holds the registry lock):
+/// auto-forget every entry past its retain(memory, ttl) deadline. The
+/// swept keys + their digests land in ONE `memory.ttl_expired` ledger
+/// record; the store rows go through the persist_delete discipline.
+/// Returns the swept key count.
+pub fn sweep_expired_locked(reg: &mut HashMap<String, TypedContainer>, handle_id: &str) -> usize {
+    let now = unix_now();
+    let Some(c) = reg.get_mut(handle_id) else {
+        return 0;
+    };
+    let expired: Vec<String> = c
+        .entries
+        .iter()
+        .filter(|(_, e)| matches!(e.ttl_unix, Some(t) if t <= now))
+        .map(|(k, _)| k.clone())
+        .collect();
+    if expired.is_empty() {
+        return 0;
+    }
+    let mut digests: Vec<String> = Vec::with_capacity(expired.len());
+    for k in &expired {
+        if let Some(e) = c.entries.get(k) {
+            digests.push(entry_digest(e));
+        }
+        if let Some(parents) = c.entries.get(k).map(|e| e.derived_from.clone()) {
+            for p in parents {
+                if let Some(list) = c.children.get_mut(&p) {
+                    list.retain(|x| x != k);
+                }
+            }
+        }
+        c.entries.remove(k);
+        c.retained.remove(k);
+        c.children.remove(k);
+    }
+    persist_delete(&c.id, &expired);
+    ledger_memory_event(
+        "ttl_expired",
+        &c.id,
+        &format!(
+            "count={}|keys={}|hashes={}",
+            expired.len(),
+            expired.join(","),
+            digests.join(",")
+        ),
+    );
+    expired.len()
+}
+
+/// The outcome of the №445 forget front door.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ForgetFront {
+    pub container: String,
+    pub root: String,
+    pub deleted: Vec<String>,
+    pub poisoned: Vec<String>,
+    pub batch_id: String,
+    pub dry_run: bool,
+}
+
+fn fresh_front_batch_id() -> String {
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+    let preimage = format!("wforget|{}|{}", millis, seq);
+    format!(
+        "MLOG-WFORGET-{}",
+        &crate::ledger::sha256_hex(preimage.as_bytes())[..16]
+    )
+}
+
+/// The consent refusal of the forget front door (the №413 convention —
+/// the mirror of `recall_consent_refusal`).
+fn forget_consent_refusal(container_id: &str, subject: &str) -> String {
+    crate::interpreter::values::coded_error(
+        crate::interpreter::values::CODE_MEMORY_FORGET_CONSENT_REQUIRED,
+        format!(
+            "forget refused: container '{}' addresses gated private memory of subject '{}' and no active consent grant exists for scope 'memory:{}' — grant it via consent_grant(<value>, \"memory:{}\", \"{}\") (the №413 fail-closed convention; this refusal is a memory.forget.denied ledger record)",
+            container_id, subject, subject, subject, subject
+        ),
+    )
+}
+
+/// The `memory.forget.denied` record — the refusal IS the record (the
+/// №442 denied-recall parity: a refused forget leaves the same audit
+/// trail a granted one does).
+fn ledger_forget_denied(container_id: &str, reason: &str) {
+    let detail = format!("container={}|reason={}", container_id, reason);
+    eprintln!("[MEMORY_FORGET_DENIED] forget {}", detail);
+    crate::ledger::record("memory.forget.denied", container_id, "memory", &detail);
+}
+
+/// The `memory.forget` record (the №393/ADR-0167 contract): container,
+/// targets, content HASHES (never the content), the dry_run fact.
+fn ledger_forget(
+    container_id: &str,
+    deleted: &[String],
+    digests: &[String],
+    poisoned: &[String],
+    dry_run: bool,
+    extra: &str,
+) {
+    let detail = format!(
+        "container={}|deleted={}|hashes={}|poisoned={}|dry_run={}|{}",
+        container_id,
+        deleted.join(","),
+        digests.join(","),
+        poisoned.join(","),
+        dry_run,
+        extra
+    );
+    eprintln!("[MEMORY_FORGET] forget {}", detail);
+    crate::ledger::record("memory.forget", container_id, "memory", &detail);
+}
+
+/// The forget FRONT DOOR (canon §10.3 `forget(subject, scope)` — the
+/// handle+key is the typed-lane addressing of the same act). The
+/// enforcement ladder (fail-closed at every rung; a refusal consumes
+/// NOTHING and touches NOTHING):
+///   1. resolve the container and the key (unknown = a broken call
+///      site, a loud plain error);
+///   2. the consent gate — a PRIVATE container requires the active
+///      `memory:<subject>` consent (refusal = typed
+///      MEMORY_FORGET_CONSENT_REQUIRED + `memory.forget.denied`);
+///   3. the ADR-0155 linear-action ladder — check_active then the
+///      scope `memory:forget:<container_id>` (refusal = the GRANT_*
+///      typed error + `memory.forget.denied`);
+///   4. the plan (the №280 dry-run discipline) — in dry_run mode the
+///      plan IS the answer (no state change, no grant consumption);
+///   5. the retained VETO — a pinned entry inside the closure refuses
+///      the whole act (MEMORY_RETAIN_PROTECTED + `memory.forget.denied`);
+///   6. apply — the ROOT is soft-deleted (persist_delete, the ledger
+///      carries the digests), every DERIVED entry is POISONED (the
+///      quarantine mark + the sink gates), the grant is consumed ONCE
+///      (grant_use), and the ledger receives BOTH the
+///      `irreversible.memory_forget` record (the ADR-0173 §3.4
+///      vocabulary for the granted destructive act) and the
+///      `memory.forget` record {container, targets, hashes, dry_run
+///      fact}.
+pub fn forget_front(
+    handle_id: &str,
+    key: &str,
+    grant: &crate::grants::GrantHandle,
+    dry_run: bool,
+) -> Result<ForgetFront, String> {
+    let batch_id = fresh_front_batch_id();
+    // 1. Resolve the target (a broken call site is not a denial — it
+    //    never became an action on memory).
+    let (label, subject) = {
+        let reg = registry()
+            .lock()
+            .map_err(|e| format!("memory registry lock: {}", e))?;
+        let c = reg
+            .get(handle_id)
+            .ok_or_else(|| format!("forget: unknown container '{}' (MEMORY_UNKNOWN)", handle_id))?;
+        if !c.entries.contains_key(key) {
+            return Err(format!(
+                "forget: no entry '{}' in container '{}' (MEMORY_UNKNOWN_KEY)",
+                key, c.id
+            ));
+        }
+        (c.label, c.subject.clone())
+    };
+    // 2. The consent gate (№413 fail-closed — private memory only).
+    if label == MemLabel::Private
+        && !crate::consent::active_grant_for(&format!("memory:{}", subject))
+    {
+        ledger_forget_denied(handle_id, "MEMORY_FORGET_CONSENT_REQUIRED");
+        return Err(forget_consent_refusal(handle_id, &subject));
+    }
+    // 3. The ADR-0155 ladder: state/TTL first, then the scope coverage.
+    if let Err(e) = crate::grants::check_active(grant) {
+        ledger_forget_denied(handle_id, "GRANT_INACTIVE");
+        return Err(e);
+    }
+    let needed = format!("memory:forget:{}", handle_id);
+    if !crate::grants::scope_attenuates(&grant.scope, &needed) {
+        ledger_forget_denied(handle_id, "GRANT_SCOPE_MISMATCH");
+        return Err(format!(
+            "GRANT_SCOPE_MISMATCH: grant {} (scope '{}') does not cover {}",
+            grant.grant_id, grant.scope, needed
+        ));
+    }
+    // 4/5/6. Plan + apply under ONE lock (the plan is computed from the
+    // same snapshot that is mutated — the forget_cascade template).
+    let mut reg = registry()
+        .lock()
+        .map_err(|e| format!("memory registry lock: {}", e))?;
+    sweep_expired_locked(&mut reg, handle_id);
+    let c = reg
+        .get_mut(handle_id)
+        .ok_or_else(|| format!("forget: unknown container '{}' (MEMORY_UNKNOWN)", handle_id))?;
+    if !c.entries.contains_key(key) {
+        // The sweep may have just auto-forgotten the target — honest
+        // re-check after the sweep (a loud plain error, not a denial).
+        return Err(format!(
+            "forget: no entry '{}' in container '{}' (MEMORY_UNKNOWN_KEY)",
+            key, c.id
+        ));
+    }
+    let plan = plan_cascade(key, &c.children, &c.retained);
+    if !plan.blocked_by.is_empty() {
+        // The retained VETO: loud, named, nothing consumed.
+        ledger_forget_denied(handle_id, "MEMORY_RETAIN_PROTECTED");
+        return Err(format!(
+            "MEMORY_RETAIN_PROTECTED: the cascade of '{}' would reach retained entries {:?} — release them first (memory_release) if forgetting them is intended",
+            key, plan.blocked_by
+        ));
+    }
+    let derived: Vec<String> = plan.closure.iter().filter(|k| *k != key).cloned().collect();
+    if dry_run {
+        // The №280 preview: the plan IS the answer. The digests of the
+        // WOULD-BE targets go to the ledger (fingerprints, not content);
+        // no state change, no grant consumption.
+        let mut digests = Vec::with_capacity(plan.closure.len());
+        for k in &plan.closure {
+            if let Some(e) = c.entries.get(k) {
+                digests.push(entry_digest(e));
+            }
+        }
+        ledger_forget(
+            handle_id,
+            &plan.closure,
+            &digests,
+            &derived,
+            true,
+            &format!("root={}|batch={}", key, batch_id),
+        );
+        return Ok(ForgetFront {
+            container: handle_id.to_string(),
+            root: key.to_string(),
+            deleted: Vec::new(),
+            poisoned: derived,
+            batch_id,
+            dry_run: true,
+        });
+    }
+    // Apply: the root is DELETED (soft — the ledger carries its
+    // digest), the derived closure is POISONED (the entries stay).
+    let root_digest = c.entries.get(key).map(entry_digest).unwrap_or_default();
+    if let Some(root_entry) = c.entries.get(key) {
+        let parents = root_entry.derived_from.clone();
+        for p in parents {
+            if let Some(list) = c.children.get_mut(&p) {
+                list.retain(|x| x != key);
+            }
+        }
+    }
+    c.entries.remove(key);
+    c.retained.remove(key);
+    c.children.remove(key);
+    let mut poisoned_keys = Vec::with_capacity(derived.len());
+    for k in &derived {
+        if let Some(e) = c.entries.get_mut(k) {
+            e.poisoned = true;
+            poisoned_keys.push(k.clone());
+            persist_attrs(handle_id, k, e);
+        }
+    }
+    persist_delete(handle_id, std::slice::from_ref(&key.to_string()));
+    let outcome = ForgetFront {
+        container: handle_id.to_string(),
+        root: key.to_string(),
+        deleted: vec![key.to_string()],
+        poisoned: poisoned_keys.clone(),
+        batch_id: batch_id.clone(),
+        dry_run: false,
+    };
+    // The grant is consumed ONCE, on the success path only.
+    crate::grants::grant_use(
+        grant,
+        &format!(
+            "forget: container={} root={} poisoned={} batch={}",
+            handle_id,
+            key,
+            outcome.poisoned.len(),
+            outcome.batch_id
+        ),
+    )?;
+    // The two ledger records of a granted forget (see the fn doc).
+    crate::ledger::record(
+        "irreversible.memory_forget",
+        &grant.issuer,
+        &grant.scope,
+        &format!(
+            "{}|container={}|root={}|deleted=1|root_digest={}|poisoned={}|batch={}",
+            grant.grant_id,
+            handle_id,
+            key,
+            root_digest,
+            outcome.poisoned.len(),
+            outcome.batch_id
+        ),
+    );
+    ledger_forget(
+        handle_id,
+        &outcome.deleted,
+        &[root_digest],
+        &outcome.poisoned,
+        false,
+        &format!("root={}|batch={}", key, outcome.batch_id),
+    );
+    eprintln!(
+        "[MEMORY_FORGET_FRONT] container={} root={} poisoned={} batch={}",
+        handle_id,
+        key,
+        outcome.poisoned.len(),
+        outcome.batch_id
+    );
+    Ok(outcome)
+}
+
+/// The consent-revocation cascade (canon §7.4: "consent withdrawn →
+/// the same cascade"). The subject's private containers are walked and
+/// EVERY entry is POISONED — the §10.3 quarantine with closed sinks,
+/// fired by the consent contour (no new lattice, the existing
+/// consent_revoke surface re-used).
+///
+/// Why nothing is DELETED here: the accepted №442 contract pins that a
+/// recall naming gated private memory refuses fail-closed with
+/// MEMORY_RECALL_CONSENT_REQUIRED — that gate's evidence IS the key
+/// metadata, which must survive the revocation. The poison makes the
+/// content unreachable even under a LATER re-grant (a revoked consent
+/// must never resurrect the data), while the metadata keeps the gate
+/// honest and the quarantine auditable. The whole act lands in ONE
+/// `memory.forget` record {reason=consent-revoked}.
+pub fn consent_revoked_cascade(subject: &str) {
+    let Ok(mut reg) = registry().lock() else {
+        return;
+    };
+    let now = unix_now();
+    let mut ids: Vec<String> = reg
+        .values()
+        .filter(|c| c.label == MemLabel::Private && c.subject == subject)
+        .map(|c| c.id.clone())
+        .collect();
+    ids.sort();
+    for cid in ids {
+        sweep_expired_locked(&mut reg, &cid);
+        let Some(c) = reg.get_mut(&cid) else {
+            continue;
+        };
+        let mut poisoned: Vec<String> = Vec::new();
+        let keys: Vec<String> = c.entries.keys().cloned().collect();
+        for k in &keys {
+            if let Some(e) = c.entries.get_mut(k) {
+                if !e.poisoned {
+                    e.poisoned = true;
+                    e.last_access_unix = now;
+                    poisoned.push(k.clone());
+                    persist_attrs(&cid, k, e);
+                }
+            }
+        }
+        if poisoned.is_empty() {
+            continue;
+        }
+        ledger_forget(&cid, &[], &[], &poisoned, false, "reason=consent-revoked");
+        eprintln!(
+            "[MEMORY_CONSENT_CASCADE] container={} poisoned={}",
+            cid,
+            poisoned.len()
+        );
+    }
+}
+
+/// The canon retain(memory, ttl) — give ONE entry a lifetime. The
+/// deadline is absolute (now + ttl_secs); calling it again MOVES the
+/// deadline (an extension is legal, shrinking too — the explicit
+/// surface is the only way to set a TTL). The pin (memory_retain) and
+/// the TTL are independent: a pinned entry is deletion-vetoed, a
+/// TTL'd entry still expires into the sweep. Records
+/// `memory.retain_ttl`.
+pub fn retain_ttl(handle_id: &str, key: &str, ttl_secs: u64) -> Result<(), String> {
+    let mut reg = registry()
+        .lock()
+        .map_err(|e| format!("memory registry lock: {}", e))?;
+    sweep_expired_locked(&mut reg, handle_id);
+    let c = reg.get_mut(handle_id).ok_or_else(|| {
+        format!(
+            "memory_retain_ttl: unknown container '{}' (MEMORY_UNKNOWN)",
+            handle_id
+        )
+    })?;
+    let deadline = unix_now() + ttl_secs;
+    let Some(entry) = c.entries.get_mut(key) else {
+        return Err(format!(
+            "memory_retain_ttl: no entry '{}' in container '{}' (MEMORY_UNKNOWN_KEY)",
+            key, c.id
+        ));
+    };
+    if entry.poisoned {
+        return Err(crate::interpreter::values::coded_error(
+            crate::interpreter::values::CODE_MEMORY_POISONED,
+            format!(
+                "memory_retain_ttl: entry '{}' in container '{}' is POISONED — a quarantined entry cannot be given a new lifetime",
+                key, c.id
+            ),
+        ));
+    }
+    entry.ttl_unix = Some(deadline);
+    persist_attrs(&c.id, key, entry);
+    ledger_memory_event(
+        "retain_ttl",
+        &c.id,
+        &format!("key={}|ttl_secs={}|deadline={}", key, ttl_secs, deadline),
+    );
+    Ok(())
+}
+
+/// The №445 activation introspection (tests/the fuzzer/the honest
+/// boundary): (priority, decay_rate, last_access_unix, ttl_unix,
+/// poisoned) of one entry — no content ever leaves.
+pub fn activation_of(
+    handle_id: &str,
+    key: &str,
+) -> Result<(f32, f32, u64, Option<u64>, bool), String> {
+    let reg = registry()
+        .lock()
+        .map_err(|e| format!("memory registry lock: {}", e))?;
+    let c = reg.get(handle_id).ok_or_else(|| {
+        format!(
+            "memory_activation: unknown container '{}' (MEMORY_UNKNOWN)",
+            handle_id
+        )
+    })?;
+    let e = c.entries.get(key).ok_or_else(|| {
+        format!(
+            "memory_activation: no entry '{}' in container '{}' (MEMORY_UNKNOWN_KEY)",
+            key, c.id
+        )
+    })?;
+    Ok((
+        e.priority,
+        e.decay_rate,
+        e.last_access_unix,
+        e.ttl_unix,
+        e.poisoned,
+    ))
+}
+
+/// The pure ACT-R activation factor (ADR-0004 §model, fuzzable):
+/// exp(-decay_rate × full_days_stale). Day-integer staleness keeps
+/// the result deterministic inside a test run and exact for fresh or
+/// recently boosted entries (0 days → exactly 1.0).
+pub fn activation_factor(decay_rate: f32, stale_days: u64) -> f32 {
+    (-(decay_rate as f64) * (stale_days as f64)).exp() as f32
+}
+
+/// №445: the poison lookup for the sink-side pre-checks (the export
+/// builtin checks the quarantine BEFORE the redact gate — the
+/// quarantine is the stronger fact and the louder refusal).
+pub fn is_poisoned(handle_id: &str, key: &str) -> Result<bool, String> {
+    let reg = registry()
+        .lock()
+        .map_err(|e| format!("memory registry lock: {}", e))?;
+    let c = reg
+        .get(handle_id)
+        .ok_or_else(|| format!("memory: unknown container '{}' (MEMORY_UNKNOWN)", handle_id))?;
+    let Some(e) = c.entries.get(key) else {
+        return Err(format!(
+            "memory: no entry '{}' in container '{}' (MEMORY_UNKNOWN_KEY)",
+            key, c.id
+        ));
+    };
+    Ok(e.poisoned)
 }

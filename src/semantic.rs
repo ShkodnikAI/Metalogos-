@@ -2050,6 +2050,12 @@ pub struct ForecastViolation {
 pub enum RecallViolationKind {
     QueryInvalid,
     ConfidenceInvalid,
+    // №445: the forgetting-surface companions — a literal dry_run flag
+    // that is not a Bool (FORGET_DRYRUN_INVALID) and a literal ttl_secs
+    // that is not a positive number (RETAIN_TTL_INVALID) are broken
+    // call sites, loud on every compile path.
+    ForgetDryRunInvalid,
+    RetainTtlInvalid,
 }
 
 #[derive(Debug, Clone)]
@@ -2092,7 +2098,72 @@ fn verify_recall_call(name: &str, args: &[Expr], span: &Span, out: &mut Vec<Reca
             span: span.clone(),
         });
     };
-    if name != "recall" {
+    if name != "recall" && name != "forget" && name != "memory_retain_ttl" {
+        return;
+    }
+    // №445: the forget front door — a literal dry_run flag must be a
+    // Bool (the runtime refuses non-Bool; catching the literal here
+    // makes the broken call site a compile error on EVERY path).
+    if name == "forget" {
+        match args.get(3) {
+            None => {}
+            Some(Expr::BoolLit { .. }) => {}
+            Some(other) => {
+                let got = match other {
+                    Expr::StringLit { value, .. } => format!("the string literal \"{}\"", value),
+                    Expr::FloatLit { value, .. } => format!("the numeric literal {}", value),
+                    _ => "a non-Bool literal".to_string(),
+                };
+                push(
+                    out,
+                    RecallViolationKind::ForgetDryRunInvalid,
+                    format!(
+                        "forget: dry_run must be a Bool literal (true = the №280 preview, no state change) — got {}",
+                        got
+                    ),
+                );
+            }
+        }
+        return;
+    }
+    // №445: the canon retain(memory, ttl) — a literal ttl_secs must be
+    // a positive number (the lifetime contract the runtime enforces).
+    if name == "memory_retain_ttl" {
+        match args.get(2) {
+            Some(Expr::FloatLit { value, .. }) => {
+                if !value.is_finite() || *value <= 0.0 {
+                    push(
+                        out,
+                        RecallViolationKind::RetainTtlInvalid,
+                        format!(
+                            "memory_retain_ttl: ttl_secs {} is outside the lifetime contract (a finite value > 0.0)",
+                            value
+                        ),
+                    );
+                }
+            }
+            Some(Expr::StringLit { value, .. }) => {
+                push(
+                    out,
+                    RecallViolationKind::RetainTtlInvalid,
+                    format!(
+                        "memory_retain_ttl: ttl_secs must be a number (a finite value > 0.0) — got the string literal \"{}\"",
+                        value
+                    ),
+                );
+            }
+            Some(Expr::BoolLit { value, .. }) => {
+                push(
+                    out,
+                    RecallViolationKind::RetainTtlInvalid,
+                    format!(
+                        "memory_retain_ttl: ttl_secs must be a number (a finite value > 0.0) — got the bool literal {}",
+                        value
+                    ),
+                );
+            }
+            _ => {}
+        }
         return;
     }
     // A literal query must be textual (the memory address space is

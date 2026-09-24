@@ -4041,19 +4041,18 @@ fn interp_expr_label(
             }
             label
         }
-        crate::ast::Expr::BinaryOp { left, right, .. } => {
-            interp_expr_label(left, state, summaries)
-                .join(&interp_expr_label(right, state, summaries))
-        }
+        crate::ast::Expr::BinaryOp { left, right, .. } => interp_expr_label(left, state, summaries)
+            .join(&interp_expr_label(right, state, summaries)),
         crate::ast::Expr::IfElse {
             then_branch,
             else_branch,
             ..
-        } => interp_expr_label(then_branch, state, summaries)
-            .join(&interp_expr_label(else_branch, state, summaries)),
-        crate::ast::Expr::FieldAccess { object, .. } => {
-            interp_expr_label(object, state, summaries)
-        }
+        } => interp_expr_label(then_branch, state, summaries).join(&interp_expr_label(
+            else_branch,
+            state,
+            summaries,
+        )),
+        crate::ast::Expr::FieldAccess { object, .. } => interp_expr_label(object, state, summaries),
         crate::ast::Expr::IndexAccess { object, index, .. } => {
             interp_expr_label(object, state, summaries)
                 .join(&interp_expr_label(index, state, summaries))
@@ -4143,8 +4142,7 @@ fn interp_arm_memory_facts(expr: &crate::ast::Expr, state: &mut InterpWalkState)
     if let crate::ast::Expr::FnCall { name, args, .. } = expr {
         if name == "memorize" && args.len() >= 2 {
             let value = &args[1];
-            let sanitized =
-                matches!(value, crate::ast::Expr::FnCall { name, .. } if is_memory_taint_sanitizer(name));
+            let sanitized = matches!(value, crate::ast::Expr::FnCall { name, .. } if is_memory_taint_sanitizer(name));
             if !sanitized && expr_contains_llm_source(value) {
                 if let Some(k) = memory_key_prefix(&args[0]) {
                     state.memory_keys.insert(k);
@@ -4329,12 +4327,7 @@ fn interp_walk_stmts(
                     // Compare-arm threshold expressions are scanned too.
                     if let crate::ast::MatchArm::Compare(_, threshold, _) = arm {
                         interp_scan_sinks(
-                            threshold,
-                            state,
-                            summaries,
-                            sink_names,
-                            source,
-                            findings,
+                            threshold, state, summaries, sink_names, source, findings,
                         );
                         interp_arm_memory_facts(threshold, state);
                     }

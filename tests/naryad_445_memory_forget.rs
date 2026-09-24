@@ -125,7 +125,6 @@ fn n445_forget_without_grant_refuses_and_records_denied() {
     let subject = unique("n445-m1");
     grant_consent(&subject);
     let handle = call_builtin("memory_open", &[s(&subject), s("private")]).expect("consented open");
-    let hid = handle_id(&handle);
     call_builtin(
         "memory_put",
         &[handle.clone(), s("root"), s("the root payload")],
@@ -533,7 +532,7 @@ fn n445_activation_priority_orders_the_recall() {
     .expect("put high-prio");
     let lane = metalogos::memory_typed::recall_lane("needle-in-the-text");
     assert!(
-        lane.hits.len() >= 1,
+        !lane.hits.is_empty(),
         "the high-priority text hit is disclosed"
     );
     assert_eq!(
@@ -700,7 +699,7 @@ flow Main { input: String = "x" -> P -> output }
         result
             .findings
             .iter()
-            .map(|fd| fd.check_id.clone())
+            .map(|fd| fd.check_id)
             .collect::<Vec<_>>()
     );
     let broken_ttl = r#"

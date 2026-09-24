@@ -35,16 +35,16 @@ run_test() { # (test filter) -> prints the cargo test result line
   ( cd "$WT" && cargo test --test naryad_448_interp_statement_coverage "$1" 2>&1 | grep -E "test result" | head -1 ) || true
 }
 
-mutate() { # (file, python snippet) — apply one injection in the worktree
-  python3 - "$WT/$1" << PYEOF
+mutate() { # (file, needle) — apply one injection in the worktree
+  python3 - "$WT/$1" "$2" << 'PYEOF'
 import sys
 path = sys.argv[1]
+needle = sys.argv[2]
 src = open(path).read()
-needle = sys.stdin.read().strip()
-assert needle in src, "mutation anchor not found: " + needle[:70]
+assert needle in src, "mutation anchor not found: " + repr(needle[:70])
 src = src.replace(needle, "", 1)
 open(path, "w").write(src)
-print("mutated:", needle[:60].replace(chr(10), " "))
+print("mutated OK:", repr(needle[:55]))
 PYEOF
 }
 
@@ -58,9 +58,16 @@ M1_WALKER_B=$(run_test a3_)
 echo "  a3 after M1-walker: $M1_WALKER_B"
 
 echo "── M1b: remove the summary-side Match union ──"
-mutate src/audit.rs "                for arm in arms {
+mutate src/audit.rs "            crate::ast::Statement::Match {
+                arms, else_body, ..
+            } => {
+                for arm in arms {
                     collect_params_into_return(arm.body(), params, out);
-                }"
+                }
+                if let Some(b) = else_body {
+                    collect_params_into_return(b, params, out);
+                }
+            }"
 M1_SUMMARY=$(run_test a4_)
 echo "  a4 after M1-summary: $M1_SUMMARY"
 

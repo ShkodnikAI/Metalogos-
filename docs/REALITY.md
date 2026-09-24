@@ -634,3 +634,40 @@ typed lane remain open (the Wave-14 candidate per the dispatch); the
 plan-v2 memory contract is still unknown; the top ladder rungs' real-weights
 execution stays hardware-gated (P2-2). Recomputation at the next wave
 boundary, same protocol.
+
+### 6.9. Wave 14 recount, part 1 (naryad №446): **82%** (main @ `3dae2e51`, 2026-09-24)
+
+Same decomposition and weights as §6.4–§6.8 (still UNVERIFIED — plan v2 is
+still absent from the repository); readiness per the code facts only, the
+№414 protocol (the same UNVERIFIED weights, no P0-green claims without a
+contract). The honest headline: **the total moves 80% → 82%** — №445 closed
+the THIRD of the four named gaps of the Memory row (decay/boost are no
+longer legacy-lane only; the second front door — `forget` — is a real
+handler; the canon `retain(memory, ttl)` exists; the auto-forgetting sweep
+lifted the №280 "v2" deferral). The builtin registry grows 499 → 500; the
+stub-spec rows shrink 24 → 23 (`forget` left the stub set); the static
+check_id vocabulary grows 33 → 35.
+
+| Subsystem | Weight (UNVERIFIED) | Waves 12–13 `8c6256fa` | Wave 14 `3dae2e51` | Contribution | Basis for the readiness (recounted by proof commands) |
+|---|---|---|---|---|---|
+| Labels (taint) | 30% | 75% | **75%** (unchanged) | 22.5pp | the new gates are RUNTIME origin-stamps on the forgetting surface, not lattice/static work: `MEMORY_FORGET_CONSENT_REQUIRED` (№445, the forget consent refusal) and `MEMORY_POISONED` (№445, the quarantine sink-gate); proof: `grep -n "CODE_MEMORY_FORGET_CONSENT_REQUIRED\|CODE_MEMORY_POISONED" src/interpreter/values.rs` → `values.rs:568/573` (both whitelisted for `try`, values.rs:624-625); the static vocabulary grows 33 → 35 with two SURFACE companions (argument-literal validation, the №442 RECALL template) — `FORGET_DRYRUN_INVALID` + `RETAIN_TTL_INVALID` (`grep -n "FORGET_DRYRUN_INVALID\|RETAIN_TTL_INVALID" src/audit.rs` → the `check_forget_surface` mappings) — companion growth, not inference work; the parked P2 set (effects, affinity, full static inference, fixpoint) unchanged |
+| Capability model | 20% | 88% | **88%** (unchanged) | 17.6pp | no NEW grant-gated capability class: the forget front door rides the EXISTING №351 class (the scope `memory:forget:<container>` since ADR-0173 §3.4; the enforcement order adds the consent rung and the dry_run rung to the SAME ladder — check_active → scope → plan → retained-VETO → apply → grant_use, the grant consumed on SUCCESS only); proof: `grep -c 'spec!(' src/builtins/registry.rs` → `500` (registry growth, not capability growth), `grep -n "pub fn forget_front" src/memory_typed.rs` → the shared engine; **still missing**: exec/network irreversible ops remain deny-only, not every builtin carries a capability attribute |
+| Backend registry | 15% | 88% | **88%** (unchanged) | 13.2pp | no backend-registry work in №445 (the forgetting memory touches no compute ladders); the `timeseries` class and the hybrid retrieval engines are unchanged from §6.8 |
+| Ledger | 15% | 95% | **95%** (unchanged) | 14.25pp | record-surface growth, not structural: the `memory.forget` / `memory.forget.denied` family (№445; proof: `grep -n 'crate::ledger::record("memory.forget' src/memory_typed.rs` → `memory_typed.rs:1901/1924`), the ttl/retain family in the `memory.*` convention (`memory.retain_ttl`, `memory.ttl_expired` — the `ledger_memory_event` formatter, memory_typed.rs:283), and the `irreversible.memory_forget` record reused on the front door (memory_typed.rs:2092); the denied-recall symmetry holds — a refused forget leaves the same audit trail a granted one does (`memory.forget.denied` at every refusal rung) |
+| Memory | 20% | 60% | **70%** | 14pp | the THIRD of the four named gaps CLOSED: (3) decay/boost are in the typed lane — proof: `grep -c "decay" src/memory_typed.rs` → `37` (the №443 proof command `grep -n "decay" src/memory_typed.rs` → empty is now STALE — the exact anchor of the gap); the ACT-R activation product (base × priority × exp(−decay_rate × full days stale); day-granularity keeps the №442 scores byte-exact) orders the typed recall; every access boosts (last_access refresh, persisted); the SECOND front door: `forget(handle, key, grant, dry_run?)` is a real handler — proof: `grep -n 'spec!("forget"' src/builtins/registry.rs` → `registry.rs:377: spec!("forget", 3, 4, "memory"; builtin_forget)` (the №443 stub anchor `registry.rs:366: spec!("forget", 0, "stub")` is gone; zero stub-spec on the name); the canon retain(memory, ttl): `grep -n 'spec!("memory_retain_ttl"' src/builtins/registry.rs` → `registry.rs:1011` (appended at the end — the .mbc index contract; registry 499 → 500; the stub-spec set 24 → 23); the auto-forgetting sweep lifted the №280 "v2" deferral (expired entries auto-forgotten on the read/keys/recall paths, `memory.ttl_expired` records); the §10.3 quarantine: the forget cascade poisons the derived closure and CLOSES the sinks (MEMORY_POISONED on read/export, the recall lane skips the quarantine; consent revocation fires the same cascade — the №442 fail-closed gate evidence stays intact, a re-grant never resurrects); the activation/quarantine attributes persist (the additive side table — `grep -n "memtyped_entry_attrs" src/memory_typed.rs`; no ALTER, ADR-0060); **still missing**: the plan-v2 memory contract is still unknown (plan absent) — the ONLY remaining named gap of the row, a decision/SSOT gap, not a code gap |
+| **Total** | **100%** | **79.55 ≈ 80%** | — | **81.55 ≈ 82%** |
+
+**Honest reading.** The 80% → 82% move is real and code-proven — the Memory
+row's CODE-side named gaps are now exhausted (three of four closed; the
+fourth — the plan-v2 memory contract — is a decision gap the code cannot
+close: the plan is absent from the repository and the weights stay
+UNVERIFIED until it lands). The forgetting memory is a landing, not a
+promise: the grant ladder, the poison quarantine, the ttl sweep and the
+activation ranking are CI-pinned by 13 contract tests and mutation-verified
+(≥2/2, protocol №382). It is still NOT a P0-green claim: the taint P2 set
+(effects, affinity, full static inference, fixpoint) is unchanged; the
+capability model's exec/network deny-only holes are unchanged; the top
+ladder rungs' real-weights execution stays hardware-gated (P2-2); find and
+inspect remain stubs (the registry's remaining 23 stub rows are named,
+out-of-scope surfaces). Recomputation at the next wave boundary, same
+protocol.

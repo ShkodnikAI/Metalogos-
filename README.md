@@ -165,7 +165,7 @@ $ mlog check poison.mlog
 
 > **[Known Limitations](docs/limitations.md)** — a unified index of all documented language limitations across static analysis, VM, Vision, adapt, self-hosting, JIT, error protocol, LLM streaming, and MCP server. The truth lives in the primary sources (ADR, source files); this page only references.
 >
-> **[REALITY](docs/REALITY.md)** — the reality-check of plan-v2 asset claims (CONFIRMED / PARTIAL / PHANTOM verdicts with proof commands) and the working P0-readiness estimate (82% as of naryad #446 / wave 14 recount, 2026-09-24 — the forgetting memory: forget/retain-ttl/decay/boost are real in the typed lane).
+> **[REALITY](docs/REALITY.md)** — the reality-check of plan-v2 asset claims (CONFIRMED / PARTIAL / PHANTOM verdicts with proof commands) and the working P0-readiness estimate (85% as of naryad #450 / wave 15 recount, 2026-09-25 — full statement-kind static inference + the effects module).
 >
 > **[Action Ledger runbook](docs/ledger-runbook.md)** — the operator protocol for the signed action trail: the key lifecycle, the export, the out-of-band `expect_head`/`expect_key` anchor, the periodic verification via the native cron (0.21.0) and the reaction on a failed verdict.
 
@@ -272,7 +272,7 @@ Metalogos-/
 ├── CLAUDE.md                         # Bridge copy of AGENTS.md for Claude-compatible tools (synced manually — see issue #299)
 ├── GEMINI.md                         # Bridge copy of AGENTS.md for Gemini-compatible tools (synced manually — see issue #299)
 ├── REFERENCE.md                      # Full builtin reference (~281 KB) — 100% of the registry (§6 index + №316 classification)
-├── CHANGELOG.md                      # Version history (~437 KB)
+├── CHANGELOG.md                      # Version history (~440 KB)
 ├── AI_USAGE.md                       # Disclosure: how generative AI is used in this project's development
 ├── FEATURE_INTAKE.md                 # Feature request tracking
 ├── MEMORY_ROADMAP.md                 # Memory system roadmap

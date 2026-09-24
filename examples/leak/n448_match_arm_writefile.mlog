@@ -1,0 +1,21 @@
+// Наряд №448: taint flow through a MATCH arm — the sink and the whole
+// interprocedural chain live inside one arm body. Before №448 the interp
+// contour skipped Match entirely (REALITY §2.2, 9 of 15 kinds): the flat
+// expression collector fell into the `_ => {}` arm, so this leak compiled
+// clean while the SAME chain outside the match was caught (TAINT_INTERP).
+// Threat: LLM output exfiltrated to a file only in the matched branch.
+pattern Wrap(x: String) -> String {
+  return upper(x)
+}
+pattern Send(data: String) -> String {
+  match data {
+    "a" then {
+      let _ = write_file("/tmp/report448.txt", Wrap(call_llm("summarize the document")))
+    }
+    else {
+      let _ = write_file("/tmp/report448.txt", "nothing to report")
+    }
+  }
+  return "sent"
+}
+flow Main { input: String = data -> Send -> output }

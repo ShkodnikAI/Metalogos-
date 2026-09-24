@@ -1,0 +1,21 @@
+// Наряд №448: the statement form `memorize <llm> with priority` (№266) +
+// recall→respond inside a match arm. Before №448 the key-less write was
+// invisible to every static walker (the intra TAINT_PERSISTENCE heuristic
+// only scans top-level Declaration::Memorize; the interp contour skipped
+// both Memorize statements and Match arms), so the exfiltration branch
+// compiled clean.
+// Threat: LLM output persisted in session memory, then re-entering the
+// response path through recall in a branch.
+pattern Send(data: String) -> String {
+  memorize call_llm("draft a reply") with priority=0.9
+  match data {
+    "send" then {
+      let _ = respond("200", recall("draft-reply"))
+    }
+    else {
+      let _ = respond("200", "nothing stored")
+    }
+  }
+  return "sent"
+}
+flow Main { input: String = data -> Send -> output }

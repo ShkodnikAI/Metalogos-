@@ -1,0 +1,20 @@
+// Наряд №448: taint carried OUT of a loop through break. The binding is
+// tainted inside the body, `break` exits, and the sink sits after the
+// loop. Before №448 no static walker merged the break-point state into
+// the loop-exit state: the leak compiled clean.
+// Threat: untrusted LLM output escapes the loop scope into an output sink.
+entity items: List = [1.0, 2.0]
+pattern Wrap(x: String) -> String {
+  return upper(x)
+}
+pattern Send(data: String) -> String {
+  let mut carried = "clean"
+  each i in items {
+    let w = Wrap(call_llm("summarize the document"))
+    carried = w
+    break
+  }
+  let _ = respond("200", carried)
+  return "sent"
+}
+flow Main { input: String = data -> Send -> output }

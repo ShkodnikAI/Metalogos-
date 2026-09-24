@@ -1,0 +1,16 @@
+// Наряд №448 zero-false-positive contract: match arms with SANITIZED and
+// literal flows must stay clean — the state-aware interp walker joins arm
+// states via the label lattice (ADR-0154), and render() lifts the taint.
+// Runs: every arm responds with a deterministic literal.
+pattern Send(data: String) -> String {
+  match data {
+    "a" then {
+      let _ = respond("200", render(call_llm("summarize the document")))
+    }
+    else {
+      let _ = respond("200", "nothing to send")
+    }
+  }
+  return "arm-clean-ok"
+}
+flow Main { input: String = "b" -> Send -> output }

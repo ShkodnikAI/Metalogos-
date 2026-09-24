@@ -2262,8 +2262,10 @@ fn check_taint_persistence(
                 severity: Severity::Error,
                 check_id: "TAINT_PERSISTENCE",
                 line,
-                message: "potential taint through memorize/recall — LLM output was memorized in this file and recall() result may reach respond(); use render()/escape_html() on recalled data"
-                    .to_string(),
+                message: format!(
+                    "potential taint through memorize/recall — LLM output was memorized in this file and recall() result may reach respond(); use render()/escape_html() on recalled data{}",
+                    effect_trace_suffix_for_names(&["memorize", "recall", "respond"])
+                ),
             });
             // One finding per file is enough
             return;
@@ -3121,13 +3123,14 @@ fn check_taint_persistence_cross_module(
             "cross-module taint through memory: recall() matched tainted key(s) {} — {} — \
              the recalled value may reach respond(); sanitize with render()/escape_html()/redact() \
              (№386: literal/prefix keys; №405: let-bound key prefixes; fully dynamic keys without \
-             a leading literal stay out of scope — ADR-0170)",
+             a leading literal stay out of scope — ADR-0170){}",
             matched
                 .iter()
                 .map(|k| format!("'{}'", k))
                 .collect::<Vec<_>>()
                 .join(", "),
-            reason
+            reason,
+            effect_trace_suffix_for_names(&["memorize", "recall", "respond"])
         ),
     });
 }
@@ -3268,8 +3271,9 @@ fn check_taint_passthrough_pattern(
                                 check_id: "TAINT_PASSTHROUGH",
                                 line,
                                 message: format!(
-                                    "LLM output passed to {}() via trivial passthrough pattern — use render()/escape_html() for XSS safety",
-                                    name
+                                    "LLM output passed to {}() via trivial passthrough pattern — use render()/escape_html() for XSS safety{}",
+                                    name,
+                                    effect_trace_suffix(arg)
                                 ),
                             });
                         }
@@ -4076,7 +4080,10 @@ fn interp_scan_sinks(
 ) {
     match expr {
         crate::ast::Expr::FnCall { name, args, .. } => {
-            if sink_names.contains(&name.as_str()) {
+            // №449: the taint-sink gate — the four legacy sinks OR any
+            // builtin whose №316 effects include the network axis.
+            let legacy = sink_names.contains(&name.as_str());
+            if legacy || is_taint_sink(name) {
                 for arg in args {
                     // Sanitizer wraps the arg → safe, skip (№292).
                     if is_interp_sanitizer_expr(arg) {
@@ -4084,13 +4091,20 @@ fn interp_scan_sinks(
                     }
                     if let Some(line) = interp_user_pattern_call_taint_line(arg, summaries, source)
                     {
+                        let advice = if legacy {
+                            " — use render()/escape_html() for XSS safety".to_string()
+                        } else {
+                            " — the №316 network axis: the argument is transmitted to an external channel".to_string()
+                        };
                         findings.push(AuditFinding {
                             severity: Severity::Error,
                             check_id: "TAINT_INTERP",
                             line,
                             message: format!(
-                                "LLM output reaches {}() via interprocedural pattern call — use render()/escape_html() for XSS safety",
-                                name
+                                "LLM output reaches {}() via interprocedural pattern call{}{}",
+                                name,
+                                advice,
+                                effect_trace_suffix(arg)
                             ),
                         });
                         continue;
@@ -4098,13 +4112,20 @@ fn interp_scan_sinks(
                     if interp_expr_label(arg, state, summaries).integrity
                         == crate::labels::Integrity::Untrusted
                     {
+                        let advice = if legacy {
+                            " — use render()/escape_html() for XSS safety".to_string()
+                        } else {
+                            " — the №316 network axis: the argument is transmitted to an external channel".to_string()
+                        };
                         findings.push(AuditFinding {
                             severity: Severity::Error,
                             check_id: "TAINT_INTERP",
                             line: find_line(source, name),
                             message: format!(
-                                "LLM output reaches {}() through merged control-flow state (match arms / loop boundary / memory) — use render()/escape_html() for XSS safety",
-                                name
+                                "LLM output reaches {}() through merged control-flow state (match arms / loop boundary / memory){}{}",
+                                name,
+                                advice,
+                                effect_trace_suffix(arg)
                             ),
                         });
                     }
@@ -4384,6 +4405,159 @@ fn interp_walk_stmts(
         }
     }
     false
+}
+
+// ── Наряд №449 (P1, security): the static effects module (§2.4) ─────
+//
+// REALITY §2.4 was NO: `grep -n 'effect' src/audit.rs` → empty — the code
+// had no effect concepts. The module adds write/read/network/
+// irreversibility as attributes of builtin CALLS, derived SOLELY from the
+// №316 SSOT classification (Role × default Label × Reversibility) — no
+// second hand-maintained markup exists (the наряд boundary).
+//
+//   - `read`         ← Role::Source   (the call brings external data in)
+//   - `write`        ← Role::Sink     (the call sends data out/persists it)
+//   - `network`      ← default_label == Label::Network (the egress axis;
+//                      incl. the №316 DUAL prompt-egress of call_llm)
+//   - `irreversible` ← Reversibility::Irreversible
+//
+// Consumers: (1) the effect-TRACE — every interp taint event's message
+// carries the effect context of the involved builtins; (2) the severity
+// ESCALATION on the network axis — a tainted argument reaching a
+// network-effect builtin is a TAINT_INTERP error in the EXISTING category
+// (no new check_id, no new lattice). Honest boundaries (limitations.md):
+// the write axis does NOT generalize the sink set (the memory/db lanes
+// keep their specialized TAINT_PERSISTENCE / grant / clearance gates —
+// their №316 labels are Internal); Pure builtins claim no effects.
+
+/// №449: the static effect attributes of one builtin.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct EffectSet {
+    pub read: bool,
+    pub write: bool,
+    pub network: bool,
+    pub irreversible: bool,
+}
+
+impl EffectSet {
+    fn is_empty(&self) -> bool {
+        !self.read && !self.write && !self.network && !self.irreversible
+    }
+
+    /// Union in place (an event may involve several builtins).
+    fn union(&mut self, other: EffectSet) {
+        self.read |= other.read;
+        self.write |= other.write;
+        self.network |= other.network;
+        self.irreversible |= other.irreversible;
+    }
+
+    /// Canonical trace rendering — only the non-empty members, in the
+    /// {read, write, network, irreversible} order of the naryad contract.
+    fn as_trace(&self) -> String {
+        let mut parts: Vec<&str> = Vec::new();
+        if self.read {
+            parts.push("read");
+        }
+        if self.write {
+            parts.push("write");
+        }
+        if self.network {
+            parts.push("network");
+        }
+        if self.irreversible {
+            parts.push("irreversible");
+        }
+        parts.join(", ")
+    }
+}
+
+/// №449: the effect attributes of a builtin — `None` for names outside
+/// the №316 classification (unclassified/non-registry calls claim no
+/// effects; the SSOT coverage test makes a registry row mandatory).
+pub fn builtin_effects(name: &str) -> Option<EffectSet> {
+    let c = crate::builtins_classification::classify(name)?;
+    Some(EffectSet {
+        read: c.role == crate::builtins_classification::Role::Source,
+        write: c.role == crate::builtins_classification::Role::Sink,
+        network: c.default_label == crate::builtins_classification::Label::Network,
+        irreversible: c.reversibility
+            == crate::builtins_classification::Reversibility::Irreversible,
+    })
+}
+
+/// №449: union the effect sets of every classified builtin call found in
+/// `expr` (the effect attributes of an expression, §2.4).
+fn expr_effect_trace(expr: &Expr) -> EffectSet {
+    match expr {
+        Expr::FnCall { name, args, .. } => {
+            let mut acc = builtin_effects(name).unwrap_or_default();
+            for a in args {
+                acc.union(expr_effect_trace(a));
+            }
+            acc
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            let mut acc = expr_effect_trace(left);
+            acc.union(expr_effect_trace(right));
+            acc
+        }
+        Expr::IfElse {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            let mut acc = expr_effect_trace(then_branch);
+            acc.union(expr_effect_trace(else_branch));
+            acc
+        }
+        Expr::FieldAccess { object, .. } => expr_effect_trace(object),
+        Expr::IndexAccess { object, index, .. } => {
+            let mut acc = expr_effect_trace(object);
+            acc.union(expr_effect_trace(index));
+            acc
+        }
+        _ => EffectSet::default(),
+    }
+}
+
+/// №449: the effect-trace suffix for a taint finding's message —
+/// " (effects: read, network, ...)"; empty for effect-free events.
+fn effect_trace_suffix(expr: &Expr) -> String {
+    let e = expr_effect_trace(expr);
+    if e.is_empty() {
+        String::new()
+    } else {
+        format!(" (effects: {})", e.as_trace())
+    }
+}
+
+/// №449: family-level trace — the effects of the builtins whose NAMES
+/// define the event (for findings emitted at scope/file level where no
+/// single tainting expression exists, e.g. TAINT_PERSISTENCE's
+/// memorize→recall→respond shape).
+fn effect_trace_suffix_for_names(names: &[&str]) -> String {
+    let mut acc = EffectSet::default();
+    for n in names {
+        if let Some(e) = builtin_effects(n) {
+            acc.union(e);
+        }
+    }
+    if acc.is_empty() {
+        String::new()
+    } else {
+        format!(" (effects: {})", acc.as_trace())
+    }
+}
+
+/// №449: the taint-sink gate of the interp contour — the four legacy
+/// sinks (№292) OR any builtin whose №316 effects include the NETWORK
+/// axis (the escalation boundary; write-only lanes are NOT sinks here).
+fn is_taint_sink(name: &str) -> bool {
+    if matches!(name, "respond" | "respond_html" | "write_file" | "print") {
+        return true;
+    }
+    builtin_effects(name).map(|e| e.network).unwrap_or(false)
 }
 
 // ── Наряд №284 (P1, M1): CANARY_LEAK — «компрометированный канал» ──────

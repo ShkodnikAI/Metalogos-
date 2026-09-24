@@ -1,0 +1,18 @@
+// Наряд №448 zero-false-positive contract: a keyed memorize of a LITERAL
+// (clean value) followed by recall→respond inside a match arm must stay
+// clean — the persist-fact only arms when the written VALUE carries LLM
+// taint. Runs: recall returns the stored literal deterministically.
+pattern Send(data: String) -> String {
+  let _ = memorize("k448clean", "plain stored note")
+  match data {
+    "send" then {
+      let got = recall("k448clean")
+      let _ = respond("200", got)
+    }
+    else {
+      let _ = respond("200", "nothing stored")
+    }
+  }
+  return "memory-clean-ok"
+}
+flow Main { input: String = "send" -> Send -> output }

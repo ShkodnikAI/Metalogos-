@@ -1,0 +1,1 @@
+EXPECTED: TAINT_INTERP — statement-форма memorize с выводом LLM + recall→respond внутри ветки match (persist-факт не участвовал в выводе состояний)

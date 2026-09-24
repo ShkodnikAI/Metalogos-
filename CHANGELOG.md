@@ -4,7 +4,9 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
-_Nothing yet — the next wave boundary recomputes REALITY under the same protocol._
+### Wave 15 (in progress — the static contour of Phase 1: full statement-kind inference + the effects module)
+
+- **TAINT_INTERP full statement-kind coverage (naryad #448, issue #656)**: REALITY §2.2 was "9 of 15" — the interprocedural taint engine's walkers skipped `Match`/`Break`/`Continue` and the Memory variants (`Memorize`/`Forget`/`Relate`). The flat expression collector is replaced by a **state-aware walker**: bindings carry lattice-projected labels (the ADR-0154 §5 projection — no new lattice), merges across match arms and loop exits use the existing lattice join (`Label::join`, 2.3), `break`/`continue` are flow boundaries (the point state joins the loop-exit merge; dead code after the boundary cannot clean the state), a `return` inside a match arm marks summary params (may-union), and the Memory variants arm persist-facts — a keyed `memorize(<key>, <llm>)` arms the key prefix (the №386/№405 vocabulary), the key-less statement form arms the conservative any-write fact, and `recall()` of an armed key is an untrusted value. Newly caught (all compiled clean before the naryad): sinks inside match arms (incl. `write_file` chains the clearance bridge does not gate), taint carried out of loops through `break`/`continue`, and memorize→recall→respond through branches — same `TAINT_INTERP` class, zero new check_ids. Leak corpus 40 → 43 negatives, 22 → 25 positives (`ok_448_*` pin zero false positives on every new kind); overhead at depth 4 on the leak corpus **+6%** vs the pre-naryad binary (the №376 threshold is +50%); mutation ≥2/2 VERIFIED (M1 the walker arm-merge + the summary union; M2 the break/continue exit collection — `scripts/mutation_verify_448.sh`, 4/4 killed).
 
 ## [0.24.0] - 2026-09-24
 

@@ -456,6 +456,15 @@ jobs:
           fi
           echo "✓ All builtin modules within limits"
 
+  generative-stop-list:
+    name: generative-stop-list (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Gate — the generative contour does not grow (№463 stop-list)
+        run: |
+          python3 scripts/ci/generative_stop_list_gate.py
+
   vscode-extension:
     name: vscode-extension (blocking)
     runs-on: ubuntu-latest

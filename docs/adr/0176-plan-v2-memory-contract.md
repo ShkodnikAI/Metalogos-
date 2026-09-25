@@ -1,8 +1,9 @@
 # ADR-0176: The plan-v2 memory contract — the SSOT of the memory surface
 
-**Status:** Proposed — DRAFT for the owner's decision (the variant choice
-lives in the issue #662 comment thread; the executor does NOT choose and
-does NOT merge — the naryad gate)
+**Status:** Accepted — Variant B (the minimal contract). The owner's
+decision of 2026-09-25 ("Variant B") was received in the office chat
+(trace `1a0d69cf6e3a0925`) and relayed into the issue #662 thread
+(comment 5826252041); it matches the executor's recommendation (§3).
 **Date:** 2026-09-25
 **Naryad:** #453 (issue #662; Wave 15 addendum, the audit 24.09 P1-4)
 **Pillar:** Phase 4 memory (cross-cutting: the typed lane, consent, the
@@ -125,26 +126,32 @@ what EXISTS is the honest artifact, while a defer leaves the row's %
 backed by a negative. The naryad's own risk table hints the same: variant
 B's "risks" are documentation risks, variant A's are accounting risks.
 
-## 4. Open questions to the owner (block the merge, not the draft)
+## 4. Open questions to the owner (resolved with the decision)
 
-1. **A or B** — the decision itself (a comment in issue #662).
-2. (B only) the vector lane: confirm "serves through the typed lane, not
-   beside it" — or should `vec_search` be named a second, parallel SSOT
-   already?
-3. (B only) the compat call forms (`memorize`/`forget` legacy + the KV
-   alias): keep them OUTSIDE the six points (as today) or fold them into
-   point 1 as a numbered sub-surface?
-4. The recount timing: the gap closes at the Wave-16 recount in both
-   variants (the №450 section already noted "the gap closes in the next
-   recount after the decision") — confirm, or re-gate the % movement to
-   the completion-audit.
+The gate asked for the variant choice; the owner's decision ("Variant B",
+the office chat 2026-09-25, relayed as the issue #662 comment 5826252041)
+did not contradict the stated defaults, so each question is resolved
+conservatively to this ADR's own default:
 
-## 5. Decision record (to fill after the owner's comment)
+1. **A or B** — resolved: **B** (the owner's decision).
+2. (B only) the vector lane — resolved to the §3 default: "serves through
+   the typed lane, not beside it" (№442 built `recall` strictly through
+   the lane); naming `vec_search` a second, parallel SSOT stays a
+   future-wave decision (named in §3 risks).
+3. (B only) the compat call forms — resolved to the §3 default: they stay
+   OUTSIDE the six numbered points, described inside point 1 as the
+   compat surface (exactly as shipped today).
+4. The recount timing — resolved to the naryad canon: the §6.9 named gap
+   closes at the NEXT recount (Wave 16, after №450); REALITY is not
+   edited by this decision.
 
-- Chosen variant: **—**
-- The issue comment anchoring the decision: **—**
-- The limitations sync commit: **—**
-- The recount section that credits the movement: **—**
+## 5. Decision record
 
-(This ADR merges only after the owner's comment; the executor's
-self-merge is forbidden by the naryad gate.)
+- Chosen variant: **B — the minimal contract** (the owner's decision,
+  2026-09-25)
+- The issue comment anchoring the decision: issue #662 comment 5826252041
+  (the chat decision, trace `1a0d69cf6e3a0925`, relayed by the executor)
+- The limitations sync commit: this PR's squash (PR #668) — the Memory
+  boundaries row lands in the same merge
+- The recount section that credits the movement: the Wave-16 recount
+  (REALITY §6.9 — the last named gap of the Memory row closes there)

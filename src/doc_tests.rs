@@ -459,6 +459,13 @@ pub fn run_doc_tests(
     backend: DocBackend,
     root: &Path,
 ) -> Result<DocReport, String> {
+    // Наряд №454: the LLM mock is no longer the default backend — the doc
+    // corpus is test-mode content (tutorials whose LLM blocks are written
+    // against the deterministic mock), so the harness opts in explicitly
+    // UNLESS the operator pinned the variable themselves.
+    if std::env::var("METALOGOS_MOCK_LLM").is_err() {
+        std::env::set_var("METALOGOS_MOCK_LLM", "1");
+    }
     let mut report = DocReport {
         files: files.len(),
         ..Default::default()

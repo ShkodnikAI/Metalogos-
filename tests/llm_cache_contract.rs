@@ -47,6 +47,9 @@ fn make_cached_learnable_decl(name: &str, prompt: &str, cache: bool, ttl: u64) -
 #[serial]
 fn test_cache_identical_calls_single_llm_invocation() {
     MockLlm::reset_call_count();
+    // Н454: the mock is no longer the default backend — tests of the mock
+    // cache contract opt in explicitly.
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
 
     let mut interp = Interpreter::new();
     interp.set_base_dir(std::path::PathBuf::from("."));
@@ -107,6 +110,9 @@ fn test_cache_identical_calls_single_llm_invocation() {
 #[serial]
 fn test_cache_different_inputs_separate_calls() {
     MockLlm::reset_call_count();
+    // Н454: the mock is no longer the default backend — tests of the mock
+    // cache contract opt in explicitly.
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
 
     let mut interp = Interpreter::new();
     interp.set_base_dir(std::path::PathBuf::from("."));
@@ -168,6 +174,9 @@ fn test_cache_different_inputs_separate_calls() {
 #[serial]
 fn test_uncached_pattern_always_invokes_llm() {
     MockLlm::reset_call_count();
+    // Н454: the mock is no longer the default backend — tests of the mock
+    // cache contract opt in explicitly.
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
 
     let mut interp = Interpreter::new();
     interp.set_base_dir(std::path::PathBuf::from("."));
@@ -212,6 +221,9 @@ fn test_uncached_pattern_always_invokes_llm() {
 #[serial]
 fn test_cache_stores_correct_response() {
     MockLlm::reset_call_count();
+    // Н454: the mock is no longer the default backend — tests of the mock
+    // cache contract opt in explicitly.
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
 
     let mut interp = Interpreter::new();
     interp.set_base_dir(std::path::PathBuf::from("."));

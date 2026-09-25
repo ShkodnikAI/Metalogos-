@@ -46,7 +46,7 @@
 
 | Limitation | Primary source | Status / condition for removal |
 |---|---|---|
-| ~~`adapt` quality metric is a mock (0.95 fixed) — not a real function~~ **CLOSED for real mode (№375)** | [ADR-0112](adr/0112-mock-accuracy-metric.md) addendum 2026-09-16 | Real mode: golden-task battery (eval datasets + pre-mutation few-shot), held-out split, deterministic seeded order, real LLM answer path; 0.95 stub remains ONLY in mock mode (`METALOGOS_MOCK_LLM`, default-on test mode, loudly documented); battery < 20 tasks → loud BELOW MINIMUM warning; no held-out evidence → accuracy 0.0 |
+| ~~`adapt` quality metric is a mock (0.95 fixed) — not a real function~~ **CLOSED for real mode (№375)** | [ADR-0112](adr/0112-mock-accuracy-metric.md) addendum 2026-09-16 | Real mode: golden-task battery (eval datasets + pre-mutation few-shot), held-out split, deterministic seeded order, real LLM answer path; 0.95 stub remains ONLY in mock mode (`METALOGOS_MOCK_LLM=1|true`, explicit-only since №454 — the default is the real, fail-loud backend; loudly documented); battery < 20 tasks → loud BELOW MINIMUM warning; no held-out evidence → accuracy 0.0 |
 | Text generation — out of scope for initial Reflex stages | [ADR-0117](adr/0117-distillation-semantics.md) §3 | Amended by [ADR-0120](adr/0120-opening-text-generation.md) — opening text generation accepted |
 | VM parity for Reflex — VM-owned state, not shared `RuntimeContext` | [ADR-0121](adr/0121-vm-reflex-parity.md) | Accepted (closed gap) |
 

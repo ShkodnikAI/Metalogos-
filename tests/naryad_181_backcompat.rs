@@ -24,8 +24,17 @@ fn find_repo_root() -> PathBuf {
     PathBuf::from(manifest_dir)
 }
 
+// Н454: the mock is no longer the default backend. The .expected files for
+// the LLM-backed examples are generated under explicit mock mode
+// (examples/X.env sidecars, METALOGOS_MOCK_LLM=1) — the byte-identity
+// checks below must run under the same mode.
+fn enable_explicit_mock() {
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
+}
+
 #[test]
 fn learnable_pattern_without_distill_to_byte_identical() {
+    enable_explicit_mock();
     let repo_root = find_repo_root();
     let mlog_path = repo_root.join("examples/m3_classify.mlog");
     let expected_path = repo_root.join("examples/m3_classify.expected");
@@ -59,6 +68,7 @@ fn learnable_pattern_without_distill_to_byte_identical() {
 
 #[test]
 fn multiple_learnable_patterns_without_distill_to_byte_identical() {
+    enable_explicit_mock();
     // Run several pre-Наряд №181 learnable examples through the
     // post-Наряд №181 interpreter. All must match their .expected files.
     let repo_root = find_repo_root();
@@ -131,6 +141,7 @@ fn multiple_learnable_patterns_without_distill_to_byte_identical() {
 
 #[test]
 fn learnable_pattern_with_distill_to_parses_but_runs_llm_only_in_teaching() {
+    enable_explicit_mock();
     // A learnable pattern WITH distill_to set should still execute the
     // LLM path while in TEACHING mode. The MockLlm returns the prompt
     // verbatim, so the output should be the prompt string.
@@ -175,10 +186,12 @@ flow Main { input: String = "test" -> Wrap -> output }
     let actual_str = actual.unwrap_or_default();
     let after = metalogos::llm::MockLlm::call_count();
 
-    // Output should be "answer" (MockLlm returns the prompt verbatim).
+    // Output should be the deterministic mock marker of the prompt
+    // "answer" (Н454: MockLlm no longer echoes the prompt verbatim).
     assert_eq!(
-        actual_str, "answer",
-        "TEACHING-mode distill_to pattern should produce LLM output"
+        actual_str,
+        metalogos::llm::mock_response("answer"),
+        "TEACHING-mode distill_to pattern should produce the mock marker output"
     );
 
     // LLM was called at least once during this test (TEACHING mode).

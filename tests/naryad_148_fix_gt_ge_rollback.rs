@@ -15,6 +15,9 @@ use metalogos::interpreter::Interpreter;
 
 /// Helper: run a Metalogos program and return the mutate log output.
 fn run_mutate_program(source: &str) -> Vec<String> {
+    // Н454: the mock is no longer the default backend — the 0.95-accuracy
+    // rollback contracts opt in explicitly.
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
     let mut interp = Interpreter::new();
     interp.set_base_dir(std::path::PathBuf::from("."));
     let _ = interp

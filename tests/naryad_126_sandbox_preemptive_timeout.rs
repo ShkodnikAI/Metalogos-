@@ -84,6 +84,9 @@ fn call_learnable(
 fn test_preemptive_timeout_fires_within_budget() {
     MockLlm::reset_call_count();
     MockLlm::reset_delay();
+    // Н454: the mock is no longer the default backend — the delay-contract
+    // tests opt in explicitly.
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
 
     // Simulate a slow/hung LLM: 3 second delay
     MockLlm::set_delay_ms(3000);
@@ -140,6 +143,9 @@ fn test_preemptive_timeout_fires_within_budget() {
 fn test_timeout_not_triggered_when_call_completes_in_time() {
     MockLlm::reset_call_count();
     MockLlm::reset_delay();
+    // Н454: the mock is no longer the default backend — the delay-contract
+    // tests opt in explicitly.
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
 
     // Fast mock: 50ms, well within 2s timeout
     MockLlm::set_delay_ms(50);
@@ -189,6 +195,9 @@ fn test_timeout_not_triggered_when_call_completes_in_time() {
 fn test_no_sandbox_no_timeout_even_with_slow_call() {
     MockLlm::reset_call_count();
     MockLlm::reset_delay();
+    // Н454: the mock is no longer the default backend — the delay-contract
+    // tests opt in explicitly.
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
 
     // Slow mock: 200ms, but no sandbox → should complete normally
     MockLlm::set_delay_ms(200);
@@ -219,6 +228,9 @@ fn test_no_sandbox_no_timeout_even_with_slow_call() {
 fn test_sandbox_timeout_zero_no_timeout_applied() {
     MockLlm::reset_call_count();
     MockLlm::reset_delay();
+    // Н454: the mock is no longer the default backend — the delay-contract
+    // tests opt in explicitly.
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
 
     // Slow mock: 200ms, but sandbox timeout=0 → no timeout
     MockLlm::set_delay_ms(200);

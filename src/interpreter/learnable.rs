@@ -852,9 +852,7 @@ impl Interpreter {
                 backend.call_with_model(prompt, input, model)
             }
         };
-        let mock_mode = std::env::var("METALOGOS_MOCK_LLM")
-            .map(|v| v == "1" || v.to_lowercase() == "true")
-            .unwrap_or(true);
+        let mock_mode = crate::llm::mock_llm_requested();
         crate::llm::trace_llm_call(&crate::llm::LlmTraceEvent {
             provider_name: Some(if mock_mode {
                 "mock"
@@ -1388,8 +1386,8 @@ impl Interpreter {
 //     LLM backend); a backend error counts as incorrect — a mutation that
 //     cannot be evaluated does not count as correct.
 //
-// Mock mode (METALOGOS_MOCK_LLM, default-on — the test-mode convention used
-// across the codebase) keeps the 0.95 stub, loudly documented in ADR-0112.
+// Mock mode (METALOGOS_MOCK_LLM — explicit-only since №454, the default is
+// the real fail-loud backend) keeps the 0.95 stub, loudly documented in ADR-0112.
 
 /// Minimum golden-task battery size for a trustworthy measurement. Below
 /// this the mutate log carries a loud BELOW MINIMUM warning (the measurement

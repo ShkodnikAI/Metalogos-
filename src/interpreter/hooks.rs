@@ -141,8 +141,8 @@ impl Interpreter {
 
         // ── Accuracy: REAL golden-task battery (№375, ADR-0112 addendum) ──
         //
-        // Mock mode (METALOGOS_MOCK_LLM, default-on — the test-mode
-        // convention used across the codebase): the 0.95 stub stays,
+        // Mock mode (METALOGOS_MOCK_LLM — explicit-only since №454; the
+        // default is the real, fail-loud backend): the 0.95 stub stays,
         // loudly documented here and in ADR-0112 — the rollback MECHANISM
         // is exercised, not a real quality signal.
         //
@@ -152,9 +152,7 @@ impl Interpreter {
         // established Q→A behavior) — and accuracy is measured ONLY on
         // held-out tasks (inputs that are NOT the mutation's own new
         // examples). The answer path is the pattern's real LLM call.
-        let mock_mode = std::env::var("METALOGOS_MOCK_LLM")
-            .map(|v| v == "1" || v.to_lowercase() == "true")
-            .unwrap_or(true);
+        let mock_mode = crate::llm::mock_llm_requested();
         let pattern_name = m.pattern_name.clone();
         let (accuracy, battery_note) = if mock_mode {
             // Compute mock accuracy (always 0.95 for MockLlm) — test mode only.

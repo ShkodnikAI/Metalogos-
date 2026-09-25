@@ -1,6 +1,8 @@
 // ── LLM client abstraction for METALOGOS M3 ─────────────────────────
 // Phase 7.1: Real LLM backends — Anthropic, OpenAI, Ollama.
-// Mock mode for testing (METALOGOS_MOCK_LLM=true).
+// Mock mode for testing — ONLY when METALOGOS_MOCK_LLM=1|true is set
+// explicitly (Наряд №454: the default is the real backend, which fails
+// loudly without credentials; a silent mock-by-default leaked prompts).
 // Retry with exponential backoff (3 retries, 1s/2s/4s). Timeout 120s.
 
 use std::env;
@@ -57,12 +59,36 @@ pub trait LlmBackend: Send + Sync {
     }
 }
 
-/// Mock LLM backend for testing. Returns the prompt string as-is (deterministic).
-/// This is what golden tests use — the "prompt" field IS the expected response.
+/// Mock LLM backend for testing. Does NOT echo the prompt (Наряд №454):
+/// the answer is the deterministic marker `"[mock-llm:<8 hex of prompt hash>]"`
+/// — stable for tests, reveals nothing about the prompt (which may carry
+/// instructions, recalled memory and conversation history).
 ///
 /// ADR-0047: includes a static call counter for cache contract tests.
 /// ADR-0048: records last model override for model-routing contract tests.
 pub struct MockLlm;
+
+/// Deterministic non-echo response of the mock backend (Наряд №454):
+/// `[mock-llm:<8 hex from the hash of the prompt>]`.
+/// `DefaultHasher::new()` has fixed keys — the hash is stable across runs.
+pub fn mock_response(prompt: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    prompt.hash(&mut h);
+    format!("[mock-llm:{:08x}]", h.finish() as u32)
+}
+
+/// Single source of truth for mock-LLM mode (Наряд №454): mock is active
+/// ONLY when `METALOGOS_MOCK_LLM` is explicitly `1` or `true` (case
+/// insensitive). Unset or any other value — the real backend, fail-loud.
+/// Every site that used to re-read the variable with the old default-on
+/// semantics must go through this predicate so the backend choice and the
+/// trace/accuracy labeling can never disagree.
+pub fn mock_llm_requested() -> bool {
+    env::var("METALOGOS_MOCK_LLM")
+        .map(|v| v == "1" || v.to_lowercase() == "true")
+        .unwrap_or(false)
+}
 
 /// Global call counter for MockLlm. Used by cache contract tests to verify
 /// that identical LLM calls are served from cache (counter stays at 1 after
@@ -126,7 +152,8 @@ impl LlmBackend for MockLlm {
             std::thread::sleep(Duration::from_millis(delay_ms));
         }
         MOCK_LLM_CALL_COUNT.fetch_add(1, Ordering::SeqCst);
-        Ok(prompt.to_string())
+        // Наряд №454: never echo the prompt back to the caller.
+        Ok(mock_response(prompt))
     }
 
     fn call_with_model(
@@ -147,7 +174,8 @@ impl LlmBackend for MockLlm {
         } else {
             *lock_or_err(MOCK_LLM_LAST_MODEL.lock())? = String::new();
         }
-        Ok(prompt.to_string())
+        // Наряд №454: never echo the prompt back to the caller.
+        Ok(mock_response(prompt))
     }
 
     /// Наряд №248: deadline-aware mock. Sleeps min(delay, deadline) so the
@@ -739,13 +767,15 @@ pub fn resolve_model(alias: &str) -> String {
 /// - If `METALOGOS_MOCK_LLM=1` or `METALOGOS_MOCK_LLM=true`: returns MockLlm (for tests)
 /// - Otherwise: returns RealLlm configured from env vars
 ///
-/// **Defaults to MockLlm for safety** — no accidental API calls in tests or CI.
+/// **Defaults to RealLlm, fail-loud** (Наряд №454, audit 25.09 finding 3.1):
+/// the old mock-by-default silently answered every learnable/conversation
+/// call with the echoed prompt (instructions + memory + history) and made
+/// production deployments confidently wrong. Without credentials the real
+/// backend now fails loudly at the first call. Tests and CI that need the
+/// mock must set `METALOGOS_MOCK_LLM=1|true` explicitly — see
+/// `mock_llm_requested()`.
 pub fn create_llm_backend() -> Box<dyn LlmBackend> {
-    let use_mock = env::var("METALOGOS_MOCK_LLM")
-        .map(|v| v == "1" || v.to_lowercase() == "true")
-        .unwrap_or(true); // Default to mock for safety
-
-    if use_mock {
+    if mock_llm_requested() {
         Box::new(MockLlm)
     } else {
         Box::new(RealLlm::new())
@@ -1965,7 +1995,7 @@ impl SmartRouter {
             // not silent full-answer.
             return Err(
                 "llm_stream_open(): STREAM_UNSUPPORTED — no llm {} providers configured; \
-                 set METALOGOS_MOCK_LLM=false and configure llm { providers: [...] }"
+                 the mock does not stream — configure llm { providers: [...] } for real streaming"
                     .to_string(),
             );
         }
@@ -2168,7 +2198,7 @@ pub fn stream_via_smart_router(
     let Some(ref router) = *g else {
         return Err(
             "llm_stream_open(): STREAM_UNSUPPORTED — no llm {} providers configured \
-             (no global SmartRouter); set METALOGOS_MOCK_LLM=false and configure llm { providers: [...] }"
+             (no global SmartRouter); the mock does not stream — configure llm { providers: [...] } for real streaming"
                 .to_string(),
         );
     };
@@ -2515,16 +2545,28 @@ mod tests {
 
     #[test]
     fn test_mock_llm_returns_prompt() {
+        // Н454: the mock no longer echoes the prompt — it answers with the
+        // deterministic non-echo marker (renamed semantics, same intent:
+        // MockLlm is deterministic for goldens).
         let backend = MockLlm;
         let result = backend.call("classify this", "input text");
-        assert_eq!(result.unwrap(), "classify this");
+        let answer = result.unwrap();
+        assert!(
+            answer.starts_with("[mock-llm:") && answer.ends_with("]"),
+            "expected the №454 marker, got: {}",
+            answer
+        );
+        assert!(!answer.contains("classify this"), "no prompt echo");
     }
 
     #[test]
     fn test_mock_llm_ignores_input() {
+        // Н454: the marker depends only on the prompt — the input is ignored.
         let backend = MockLlm;
-        let result = backend.call("expected", "ignored");
-        assert_eq!(result.unwrap(), "expected");
+        let a = backend.call("expected", "ignored").unwrap();
+        let b = backend.call("expected", "different input").unwrap();
+        assert_eq!(a, b, "input must not affect the mock answer");
+        assert!(!a.contains("ignored"));
     }
 
     // ── Provider ────────────────────────────────────────────────────
@@ -2721,11 +2763,22 @@ mod tests {
     // ── Factory ────────────────────────────────────────────────────
 
     #[test]
-    fn test_create_llm_backend_default_is_mock() {
+    fn test_create_llm_backend_default_is_real_fail_loud() {
+        // Н454: without the variable the factory returns the REAL backend —
+        // which fails loudly at the first call (no credentials). No network
+        // is touched: the key check fires before any request.
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         env::remove_var("METALOGOS_MOCK_LLM");
         let backend = create_llm_backend();
-        assert_eq!(backend.call("prompt", "input").unwrap(), "prompt");
+        let result = backend.call("prompt", "input");
+        assert!(
+            result.is_err(),
+            "default backend must be the real one, fail-loud (№454)"
+        );
+        assert!(
+            result.unwrap_err().contains("METALOGOS_API_KEY"),
+            "loud failure must point at the missing credentials"
+        );
     }
 
     #[test]
@@ -2733,7 +2786,13 @@ mod tests {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         env::set_var("METALOGOS_MOCK_LLM", "true");
         let backend = create_llm_backend();
-        assert_eq!(backend.call("prompt", "input").unwrap(), "prompt");
+        let answer = backend.call("prompt", "input").unwrap();
+        assert!(
+            answer.starts_with("[mock-llm:") && answer.ends_with("]"),
+            "mock answer must be the deterministic non-echo marker (№454), got: {}",
+            answer
+        );
+        assert!(!answer.contains("prompt"), "mock must not echo the prompt");
         env::remove_var("METALOGOS_MOCK_LLM");
     }
 
@@ -2742,7 +2801,45 @@ mod tests {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         env::set_var("METALOGOS_MOCK_LLM", "1");
         let backend = create_llm_backend();
-        assert_eq!(backend.call("prompt", "input").unwrap(), "prompt");
+        let answer = backend.call("prompt", "input").unwrap();
+        assert!(
+            answer.starts_with("[mock-llm:") && answer.ends_with("]"),
+            "mock answer must be the deterministic non-echo marker (№454), got: {}",
+            answer
+        );
+        assert!(!answer.contains("prompt"), "mock must not echo the prompt");
+        env::remove_var("METALOGOS_MOCK_LLM");
+    }
+
+    #[test]
+    fn test_mock_response_deterministic_and_non_echo() {
+        let a = mock_response("classify: SECRET_MARKER_XYZ");
+        let b = mock_response("classify: SECRET_MARKER_XYZ");
+        let c = mock_response("classify: another input");
+        assert_eq!(a, b, "same prompt → same marker (deterministic)");
+        assert_ne!(a, c, "different prompt → different marker");
+        assert!(!a.contains("SECRET_MARKER_XYZ"), "no prompt echo");
+        let hex = a
+            .strip_prefix("[mock-llm:")
+            .and_then(|s| s.strip_suffix("]"))
+            .unwrap();
+        assert_eq!(hex.len(), 8, "8 hex chars, got: {}", hex);
+        assert!(hex.chars().all(|ch| ch.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_mock_llm_requested_explicit_only() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        env::remove_var("METALOGOS_MOCK_LLM");
+        assert!(!mock_llm_requested(), "unset → real backend (№454)");
+        for truthy in ["1", "true", "TRUE", "True"] {
+            env::set_var("METALOGOS_MOCK_LLM", truthy);
+            assert!(mock_llm_requested(), "{} → mock", truthy);
+        }
+        for falsy in ["0", "false", "FALSE", "yes", ""] {
+            env::set_var("METALOGOS_MOCK_LLM", falsy);
+            assert!(!mock_llm_requested(), "{} → real backend", falsy);
+        }
         env::remove_var("METALOGOS_MOCK_LLM");
     }
 

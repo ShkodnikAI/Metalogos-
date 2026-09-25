@@ -65,6 +65,10 @@ pub struct DistillConfig {
     /// Some((op, threshold)) = if !op.compare(predict_confidence, threshold)
     /// → call LLM as fallback.
     pub fallback_if: Option<(CompareOp, f64)>,
+    /// №456: the minimum holdout accuracy required before the switch to
+    /// DISTILLED is allowed. Resolved at declaration build time — the AST
+    /// `distill_min_accuracy` field when present, else the 0.85 default.
+    pub min_accuracy: f64,
     /// Current mode — TEACHING (still accumulating examples) or DISTILLED
     /// (reflex_train already succeeded, use reflex_predict).
     /// Starts as TEACHING; switches to DISTILLED after reflex_train returns

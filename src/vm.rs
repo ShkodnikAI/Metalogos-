@@ -3598,6 +3598,9 @@ impl Vm {
             .ok_or_else(|| "distill: distill_to not configured".to_string())?;
         let distill_after = info.distill_after;
         let fallback_if = info.fallback_if;
+        // №456: the holdout-accuracy gate — explicit `distill_min_accuracy`
+        // or the 0.85 default.
+        let min_accuracy = info.distill_min_accuracy.unwrap_or(0.85);
 
         let state = self
             .distill_states
@@ -3619,7 +3622,12 @@ impl Vm {
                 if should_attempt {
                     let examples = state.examples.clone();
                     let trained_at_count = count;
-                    match self.try_train_distilled_model(distill_to, &examples) {
+                    match self.try_train_distilled_model(
+                        pattern_name,
+                        distill_to,
+                        min_accuracy,
+                        &examples,
+                    ) {
                         Ok(true) => {
                             if let Some(s) = self.distill_states.get_mut(pattern_name) {
                                 s.mode = DistillMode::Distilled;
@@ -3681,11 +3689,18 @@ impl Vm {
                     .cloned()
                     .unwrap_or_else(|| format!("label_{}", best_idx));
 
-                // Check fallback threshold.
-                if let Some((op, threshold)) = fallback_if {
-                    if op.compare(best_prob, threshold) {
-                        return Ok(None);
-                    }
+                // №456: fail-closed on a non-finite confidence — a broken
+                // model must never answer as a confident one. Fall back to
+                // the LLM (same contract as the TW path).
+                if !best_prob.is_finite() {
+                    return Ok(None);
+                }
+
+                // Check fallback threshold. №456: the barrier defaults to
+                // `confidence < 0.7` — no barrier-free distilled mode.
+                let (op, threshold) = fallback_if.unwrap_or((ConditionOp::Lt, 0.7));
+                if op.compare(best_prob, threshold) {
+                    return Ok(None);
                 }
 
                 Ok(Some(Value::String(best_label)))
@@ -3695,7 +3710,9 @@ impl Vm {
 
     fn try_train_distilled_model(
         &mut self,
+        pattern_name: &str,
         reflex_name: &str,
+        min_accuracy: f64,
         examples: &[(String, String)],
     ) -> Result<bool, String> {
         let model_id = self
@@ -3703,7 +3720,6 @@ impl Vm {
             .get(reflex_name)
             .copied()
             .ok_or_else(|| format!("distill: reflex '{}' not declared", reflex_name))?;
-
         let (input_size, labels) = {
             let model_kind = self
                 .reflex_registry
@@ -3738,13 +3754,40 @@ impl Vm {
             return Ok(false);
         }
 
+        // №456: the holdout gate — mirror of the TW path (parity). A
+        // holdout smaller than MIN_HOLDOUT cannot support a meaningful
+        // accuracy read: refuse the switch, stay TEACHING.
+        let valid_n = inputs.len();
+        let holdout_n = valid_n - (valid_n * 4) / 5;
+        if holdout_n < crate::interpreter::learnable::MIN_HOLDOUT {
+            self.push_audit(format!(
+                "[AUDIT] distill.rejected: {} holdout too small ({} < {}) — staying TEACHING",
+                pattern_name,
+                holdout_n,
+                crate::interpreter::learnable::MIN_HOLDOUT
+            ));
+            return Ok(false);
+        }
+
         let model_kind = self
             .reflex_registry
             .get_mut(model_id)
             .ok_or_else(|| format!("distill: model handle {:?} not in registry", model_id))?;
         match model_kind {
             crate::nn::ModelKind::Dense(model) => {
-                model.train(&inputs, &targets, 30, 0.1)?;
+                // №456: the holdout accuracy is the SWITCH GATE — mirror of
+                // the TW path. Loud on rejection.
+                let (loss, holdout_acc) = model.train(&inputs, &targets, 30, 0.1)?;
+                if !loss.is_finite() {
+                    return Ok(false);
+                }
+                if holdout_acc < min_accuracy {
+                    self.push_audit(format!(
+                        "[AUDIT] distill.rejected: {} holdout_accuracy={:.3} < min_accuracy={:.2} — staying TEACHING",
+                        pattern_name, holdout_acc, min_accuracy
+                    ));
+                    return Ok(false);
+                }
                 Ok(true)
             }
             #[cfg(feature = "candle")]
@@ -5308,5 +5351,86 @@ mlogserver {
             )
             .unwrap_or(-1);
         assert_eq!(schema, 1, "the shared DDL snapshot must re-apply");
+    }
+}
+
+// ── №456 (gh#675): VM mirror of the distill holdout gate ───────────────
+// Parity by construction: the same holdout-size and holdout-accuracy
+// gates, the same audit wording, the same MIN_HOLDOUT constant as the
+// TW path (interpreter/learnable.rs).
+
+#[cfg(test)]
+mod n456_vm_distill_holdout_tests {
+    use super::*;
+    use crate::nn::dense::Dense;
+
+    fn make_vm_with_head() -> Vm {
+        let mut vm = Vm::new();
+        let dense = Dense::new(4, 2, crate::nn::ActivationKind::Softmax, 42);
+        let model = crate::nn::ReflexModel {
+            name: "TestHead".to_string(),
+            layers: vec![Box::new(dense)],
+            seed: 42,
+            last_metric: None,
+            input_size: 4,
+            labels: vec!["yes".to_string(), "no".to_string()],
+        };
+        let id = vm.reflex_registry.register(model);
+        vm.reflex_names.insert("TestHead".to_string(), id);
+        vm
+    }
+
+    #[test]
+    fn n456_vm_holdout_too_small_is_rejected() {
+        let mut vm = make_vm_with_head();
+        let examples: Vec<(String, String)> = (0..10)
+            .map(|i| (format!("k{}", i), "yes".to_string()))
+            .collect();
+        let result = vm
+            .try_train_distilled_model("P", "TestHead", 0.85, &examples)
+            .expect("train must not error");
+        assert!(
+            !result,
+            "holdout < MIN_HOLDOUT must NOT switch to DISTILLED"
+        );
+        let audit = vm.take_audit_log().join("\n");
+        assert!(
+            audit.contains("distill.rejected") && audit.contains("holdout too small"),
+            "the holdout rejection must be loud: {}",
+            audit
+        );
+    }
+
+    #[test]
+    fn n456_vm_noisy_labels_stay_teaching() {
+        let mut vm = make_vm_with_head();
+        let examples: Vec<(String, String)> = (0..24)
+            .map(|i| {
+                let label = if (i * 7 + 3) % 2 == 0 { "yes" } else { "no" };
+                (format!("k{}", i), label.to_string())
+            })
+            .collect();
+        let result = vm
+            .try_train_distilled_model("P", "TestHead", 0.85, &examples)
+            .expect("train must not error");
+        assert!(!result, "noisy labels must NOT switch to DISTILLED");
+        let audit = vm.take_audit_log().join("\n");
+        assert!(
+            audit.contains("distill.rejected") && audit.contains("holdout_accuracy"),
+            "the accuracy rejection must be loud: {}",
+            audit
+        );
+    }
+
+    #[test]
+    fn n456_vm_consistent_labels_pass_the_gate() {
+        let mut vm = make_vm_with_head();
+        let examples: Vec<(String, String)> = (0..24)
+            .map(|i| (format!("k{}", i), "yes".to_string()))
+            .collect();
+        let result = vm
+            .try_train_distilled_model("P", "TestHead", 0.85, &examples)
+            .expect("train must not error");
+        assert!(result, "consistent labels must pass the holdout gate");
     }
 }

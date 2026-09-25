@@ -253,9 +253,10 @@ max_context_tokens_line = { "max_context_tokens" ~ COLON ~ INT }
 // Named `distill_field` (NOT `reflex_field` — that name is already taken
 // at line 421 for the `reflex` declaration's field set).
 // Reuses the existing `compare_op` rule defined at line 190 (same operators).
-distill_field      = _{ distill_to_line | distill_after_line | fallback_if_line }
+distill_field      = _{ distill_to_line | distill_after_line | fallback_if_line | distill_min_accuracy_line }
 distill_to_line    = { "distill_to" ~ COLON ~ IDENT }
 distill_after_line = { "distill_after" ~ COLON ~ INT }
+distill_min_accuracy_line = { "distill_min_accuracy" ~ COLON ~ FLOAT_LITERAL }
 fallback_if_line   = { "fallback_if" ~ COLON ~ "confidence" ~ compare_op ~ FLOAT_LITERAL }
 
 // ── Pattern (M1) ──────────────────────────────────────────────────

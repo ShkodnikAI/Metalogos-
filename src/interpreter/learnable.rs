@@ -3,6 +3,12 @@ use crate::ast::{ContextMode, ContextStrategy};
 use crate::embeddings::cosine_similarity;
 use crate::interpreter::types::{DistillMode, DistillRuntimeState};
 use crate::llm;
+
+/// №456: the minimum holdout size for the distill switch. Dense::train
+/// splits 80/20 deterministically (№179); a holdout below this cannot
+/// support a meaningful accuracy read, so the switch is refused (stay
+/// TEACHING). Shared by the TW and VM distill paths (parity).
+pub(crate) const MIN_HOLDOUT: usize = 4;
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -619,15 +625,26 @@ impl Interpreter {
                     .cloned()
                     .unwrap_or_else(|| format!("label_{}", best_idx));
 
-                // Check fallback threshold.
-                if let Some((op, threshold)) = distill.fallback_if {
-                    // fallback_if: confidence OP threshold → call LLM if condition is TRUE
-                    // (e.g., `confidence < 0.85` → if confidence < 0.85, fall back).
-                    if op.compare(best_prob, threshold) {
-                        // Below threshold — fall back to LLM. The new example
-                        // will be recorded by the outer call path.
-                        return Ok(None);
-                    }
+                // №456: fail-closed on a non-finite confidence — a broken
+                // model must never answer as a confident one (the old
+                // `partial_cmp(...).unwrap_or(Equal)` silently picked a
+                // label whenever NaN was involved). Fall back to the LLM.
+                if !best_prob.is_finite() {
+                    return Ok(None);
+                }
+
+                // Check fallback threshold. №456: the barrier defaults to
+                // `confidence < 0.7` — a pattern with `distill_to` but no
+                // explicit `fallback_if` is no longer barrier-free.
+                let (op, threshold) = distill
+                    .fallback_if
+                    .unwrap_or((crate::ast::CompareOp::Lt, 0.7));
+                // fallback_if: confidence OP threshold → call LLM if condition is TRUE
+                // (e.g., `confidence < 0.85` → if confidence < 0.85, fall back).
+                if op.compare(best_prob, threshold) {
+                    // Below threshold — fall back to LLM. The new example
+                    // will be recorded by the outer call path.
+                    return Ok(None);
                 }
 
                 // Confident enough — return the distilled prediction.
@@ -711,6 +728,20 @@ impl Interpreter {
             return Ok(false);
         }
 
+        // №456: the holdout gate. Dense::train splits 80/20 deterministically
+        // (№179) — a holdout smaller than MIN_HOLDOUT cannot support a
+        // meaningful accuracy read, so the switch is refused outright
+        // (stay TEACHING; the retry cadence still applies).
+        let valid_n = inputs.len();
+        let holdout_n = valid_n - (valid_n * 4) / 5;
+        if holdout_n < MIN_HOLDOUT {
+            self.push_audit(format!(
+                "[AUDIT] distill.rejected: {} holdout too small ({} < {}) — staying TEACHING",
+                pattern_name, holdout_n, MIN_HOLDOUT
+            ));
+            return Ok(false);
+        }
+
         // Train. Safe degradation: training error → Ok(false), stay TEACHING.
         let mut reg = self
             .reflex_registry
@@ -732,11 +763,28 @@ impl Interpreter {
                 // pattern call (training happens inline during the LLM-call
                 // replacement). Reflex_train requires ≥10 examples (ADR-0115),
                 // and on 10-50 example datasets 30 epochs typically converges.
-                let _result = model
+                // №456: the returned holdout accuracy is the SWITCH GATE now —
+                // the №166 guarantee ("switch only on validated quality") is
+                // enforced instead of discarded.
+                let (loss, holdout_acc) = model
                     .train(&inputs, &targets, 30, 0.1)
                     .map_err(|e| format!("distill: training failed: {}", e))?;
-                // Training succeeded — accuracy may be low but we still switch to DISTILLED
-                // (the fallback_if threshold handles low-confidence cases at predict time).
+                if !loss.is_finite() {
+                    return Ok(false);
+                }
+                // №456: the switch requires holdout accuracy ≥ min_accuracy
+                // (default 0.85, overridable via `distill_min_accuracy:`).
+                // Loud on rejection (audit 25.09, 3.3).
+                if holdout_acc < distill.min_accuracy {
+                    self.push_audit(format!(
+                        "[AUDIT] distill.rejected: {} holdout_accuracy={:.3} < min_accuracy={:.2} — staying TEACHING",
+                        pattern_name, holdout_acc, distill.min_accuracy
+                    ));
+                    return Ok(false);
+                }
+                // Holdout-validated — switch to DISTILLED. The fallback_if
+                // threshold (default confidence < 0.7, №456) still guards
+                // individual predictions at run time.
                 Ok(true)
             }
             #[cfg(feature = "candle")]
@@ -1461,5 +1509,229 @@ pub(crate) fn measure_battery_accuracy(
         held_out,
         correct,
         below_minimum: battery_size < MIN_BATTERY_TASKS,
+    }
+}
+
+// ── №456 (gh#675): distill holdout-validation unit tests ───────────────
+// The switch contract lives in try_train_distilled_model (holdout size,
+// holdout accuracy ≥ min_accuracy) and try_distilled_call (NaN fail-closed,
+// the 0.7 default fallback barrier). These tests drive the internals
+// directly — under MockLlm the recorded labels are stubs, so the switch
+// path is unreachable through programs; the unit seam is the honest way.
+
+#[cfg(test)]
+mod n456_distill_holdout_tests {
+    use super::*;
+    use crate::nn::dense::Dense;
+
+    fn make_interp_with_head(labels: Vec<String>, seed: u64) -> Interpreter {
+        let mut interp = Interpreter::new();
+        let dense = Dense::new(4, labels.len(), crate::nn::ActivationKind::Softmax, seed);
+        let model = crate::nn::ReflexModel {
+            name: "TestHead".to_string(),
+            layers: vec![Box::new(dense)],
+            seed,
+            last_metric: None,
+            input_size: 4,
+            labels,
+        };
+        let id = {
+            let mut reg = interp
+                .reflex_registry
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            reg.register(model)
+        };
+        interp.reflex_names.insert("TestHead".to_string(), id);
+        interp
+    }
+
+    fn distill_config(min_accuracy: f64) -> DistillConfig {
+        DistillConfig {
+            reflex_name: "TestHead".to_string(),
+            distill_after: 1,
+            fallback_if: None,
+            min_accuracy,
+            mode: DistillMode::Teaching,
+        }
+    }
+
+    fn examples_consistent(n: usize) -> Vec<(String, String)> {
+        (0..n)
+            .map(|i| (format!("k{}", i), "yes".to_string()))
+            .collect()
+    }
+
+    /// Deterministically noisy labels: the model cannot reach 0.85 holdout
+    /// accuracy on a patternless alternating set.
+    fn examples_noisy(n: usize) -> Vec<(String, String)> {
+        (0..n)
+            .map(|i| {
+                let label = if (i * 7 + 3) % 2 == 0 { "yes" } else { "no" };
+                (format!("k{}", i), label.to_string())
+            })
+            .collect()
+    }
+
+    #[test]
+    fn n456_holdout_too_small_is_rejected() {
+        let mut interp = make_interp_with_head(vec!["yes".into(), "no".into()], 42);
+        let cfg = distill_config(0.85);
+        // 10 valid examples → holdout = 2 < MIN_HOLDOUT(4) → refuse.
+        let result = interp
+            .try_train_distilled_model("P", &cfg, &examples_consistent(10))
+            .expect("train must not error");
+        assert!(
+            !result,
+            "holdout < MIN_HOLDOUT must NOT switch to DISTILLED"
+        );
+        let audit = interp.take_audit_log().join("\n");
+        assert!(
+            audit.contains("distill.rejected") && audit.contains("holdout too small"),
+            "the holdout rejection must be loud: {}",
+            audit
+        );
+    }
+
+    #[test]
+    fn n456_noisy_labels_stay_teaching() {
+        let mut interp = make_interp_with_head(vec!["yes".into(), "no".into()], 42);
+        let cfg = distill_config(0.85);
+        // 24 examples, alternating noise → holdout accuracy well below 0.85.
+        let result = interp
+            .try_train_distilled_model("P", &cfg, &examples_noisy(24))
+            .expect("train must not error");
+        assert!(!result, "noisy labels must NOT switch to DISTILLED");
+        let audit = interp.take_audit_log().join("\n");
+        assert!(
+            audit.contains("distill.rejected") && audit.contains("holdout_accuracy"),
+            "the accuracy rejection must be loud: {}",
+            audit
+        );
+    }
+
+    #[test]
+    fn n456_min_accuracy_overridable_never_reaches() {
+        let mut interp = make_interp_with_head(vec!["yes".into(), "no".into()], 42);
+        // An impossible bar: even a perfect holdout (1.0) is below 1.01.
+        let cfg = distill_config(1.01);
+        let result = interp
+            .try_train_distilled_model("P", &cfg, &examples_consistent(24))
+            .expect("train must not error");
+        assert!(!result, "min_accuracy 1.01 must never switch");
+    }
+
+    #[test]
+    fn n456_consistent_labels_pass_the_gate() {
+        let mut interp = make_interp_with_head(vec!["yes".into(), "no".into()], 42);
+        let cfg = distill_config(0.85);
+        // 24 one-class examples → holdout 4, holdout accuracy 1.0 ≥ 0.85.
+        let result = interp
+            .try_train_distilled_model("P", &cfg, &examples_consistent(24))
+            .expect("train must not error");
+        assert!(result, "consistent labels must pass the holdout gate");
+    }
+
+    #[test]
+    fn n456_nan_confidence_falls_back_to_llm() {
+        let interp = make_interp_with_head(vec!["yes".into(), "no".into()], 42);
+        // Poison the trained head with a NaN weight — a corrupted model.
+        {
+            let mut reg = interp
+                .reflex_registry
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if let Some(crate::nn::ModelKind::Dense(m)) = reg.get_mut(crate::nn::ReflexId(0)) {
+                m.layers[0]
+                    .as_any_mut()
+                    .downcast_mut::<Dense>()
+                    .expect("dense layer")
+                    .weights[0][0] = f64::NAN;
+            }
+        }
+        interp
+            .distill_states
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(
+                "P".to_string(),
+                DistillRuntimeState {
+                    mode: DistillMode::Distilled,
+                    examples: Vec::new(),
+                    last_train_attempt: 0,
+                },
+            );
+        // `confidence > 0.7` is FALSE for NaN (old code answered the label
+        // confidently here) — the ONLY path to Ok(None) is the finite guard.
+        let cfg = DistillConfig {
+            reflex_name: "TestHead".to_string(),
+            distill_after: 1,
+            fallback_if: Some((crate::ast::CompareOp::Gt, 0.7)),
+            min_accuracy: 0.85,
+            mode: DistillMode::Distilled,
+        };
+        let result = interp
+            .try_distilled_call("P", &cfg, "anything")
+            .expect("the distilled call must degrade, not error");
+        assert!(
+            result.is_none(),
+            "NaN confidence must fall back to the LLM, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn n456_finite_confident_model_still_answers() {
+        let interp = make_interp_with_head(vec!["yes".into(), "no".into()], 42);
+        // Saturate the first logit → softmax ~1.0 (finite and confident).
+        {
+            let mut reg = interp
+                .reflex_registry
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if let Some(crate::nn::ModelKind::Dense(m)) = reg.get_mut(crate::nn::ReflexId(0)) {
+                let dense = m.layers[0]
+                    .as_any_mut()
+                    .downcast_mut::<Dense>()
+                    .expect("dense layer");
+                for w in &mut dense.weights[0] {
+                    *w = 100.0;
+                }
+                for w in &mut dense.weights[1] {
+                    *w = -100.0;
+                }
+                dense.bias[0] = 50.0;
+                dense.bias[1] = -50.0;
+            }
+        }
+        interp
+            .distill_states
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(
+                "P".to_string(),
+                DistillRuntimeState {
+                    mode: DistillMode::Distilled,
+                    examples: Vec::new(),
+                    last_train_attempt: 0,
+                },
+            );
+        // The default barrier (confidence < 0.7) must NOT fire on ~1.0
+        // confidence: the distilled answer is the label.
+        let cfg = DistillConfig {
+            reflex_name: "TestHead".to_string(),
+            distill_after: 1,
+            fallback_if: None,
+            min_accuracy: 0.85,
+            mode: DistillMode::Distilled,
+        };
+        let result = interp
+            .try_distilled_call("P", &cfg, "anything")
+            .expect("the distilled call must not error");
+        assert!(
+            matches!(result, Some(Value::String(ref s)) if s == "yes"),
+            "a finite, confident distilled model must answer its label, got {:?}",
+            result
+        );
     }
 }

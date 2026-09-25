@@ -210,6 +210,16 @@ impl ReflexModel {
 
             // Compute loss and gradients
             let (loss, loss_grads) = cross_entropy_loss(&predictions, &targets);
+            // №456: fail-closed on a diverging optimizer — a NaN/inf loss
+            // means the model is corrupting itself. Abort BEFORE further
+            // weight updates; the caller keeps the pattern in TEACHING mode
+            // (the half-trained state is never promoted to DISTILLED).
+            if !loss.is_finite() {
+                return Err(format!(
+                    "reflex_train: loss is not finite at epoch {} (loss={}) — training aborted, model not promoted",
+                    _epoch, loss
+                ));
+            }
             last_loss = loss;
 
             // Backward pass for each sample (online SGD)

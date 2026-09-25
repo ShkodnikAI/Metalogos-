@@ -116,6 +116,9 @@ impl Interpreter {
                             reflex_name: reflex_name.clone(),
                             distill_after: lp.distill_after,
                             fallback_if: lp.fallback_if,
+                            // №456: the holdout-accuracy gate — explicit
+                            // `distill_min_accuracy` or the 0.85 default.
+                            min_accuracy: lp.distill_min_accuracy.unwrap_or(0.85),
                             mode: crate::interpreter::types::DistillMode::Teaching,
                         }
                     });

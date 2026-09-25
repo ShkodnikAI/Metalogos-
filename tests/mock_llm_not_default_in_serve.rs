@@ -158,8 +158,7 @@ fn n454_flow_default_fail_loud_vm() {
     std::env::remove_var("METALOGOS_MOCK_LLM");
     let result = run_vm(N454_FLOW);
     std::env::remove_var("METALOGOS_MOCK_LLM");
-    let err = result
-        .expect_err("VM flow without credentials must fail loudly (№454)");
+    let err = result.expect_err("VM flow without credentials must fail loudly (№454)");
     assert_no_marker(&err, "VM flow default");
     assert!(
         err.contains("METALOGOS_API_KEY"),

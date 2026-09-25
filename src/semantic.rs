@@ -197,6 +197,32 @@ fn label_source(fn_name: &str, args: &[Expr], env: &BTreeMap<String, Label>) -> 
         // №325: network ingress and file ingress are untrusted sources —
         // the sink-clearance gate needs their labels to attribute
         // UNTRUSTED_EGRESS_* classes (ADR-0161 §3).
+        // №455 layer 3: a file INGEST whose path is a LITERAL matching
+        // the sensitive-path deny-list (`.env*`, `*.db`, `*.sqlite*`,
+        // `.git/**`, `*.mlog`, `metalogos.toml`, `.mlog/**`) yields the
+        // SECRET label (private conf), not the UserInput kind — the
+        // stok-checks must treat allowlisted sensitive-file content as a
+        // secret (the audit's finding: `Label::Internal` let a read
+        // `.env` flow into outputs unchecked). Conservative superset of
+        // the config-conditional wording: statically the label engine
+        // cannot see `METALOGOS_SENSITIVE_PATH_ALLOWLIST`, so a
+        // sensitive-named literal is marked Private unconditionally — the
+        // runtime gate is the only way to actually read the file, and the
+        // label matches the operator's explicit vouch. Non-literal paths
+        // keep the source kinds below.
+        "read_file" | "read_file_tokens"
+            if args
+                .first()
+                .map(|a| match a {
+                    Expr::StringLit { value, .. } => {
+                        crate::builtins::io::sensitive_path_match(value)
+                    }
+                    _ => false,
+                })
+                .unwrap_or(false) =>
+        {
+            Some(kind_label("Secret"))
+        }
         "http_get" | "read_file" => Some(kind_label("UserInput")),
         // Sanitizers restore trust.
         "render" | "escape_html" => Some(kind_label("Sanitized")),
@@ -3536,6 +3562,30 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                             span: expr.span().clone(),
                             label: l,
                             reason: "duty-materialization",
+                        });
+                    }
+                }
+            }
+            // ── Н455 layer 4: the file-path decision position ──
+            // A file-INGEST path originating from an untrusted source
+            // (query_param / json_body / form_data / http_get / …) is the
+            // same decision-position violation the №325 exec class pins:
+            // the path CHOOSES which bytes enter the program (the audit's
+            // `read_file(query_param(...))` exfiltration vector).
+            // Category A `UNTRUSTED_FILE_PATH`, by analogy with
+            // UNTRUSTED_EXEC_DECISION (advisory profile downgrades it the
+            // same way).
+            if matches!(name.as_str(), "read_file" | "read_file_tokens") {
+                if let Some(a) = args.first() {
+                    let l = sink_arg_label(a, env, &origin_labels);
+                    if l.integrity == crate::labels::Integrity::Untrusted {
+                        violations.push(SinkViolation {
+                            container: container.to_string(),
+                            fn_name: name.clone(),
+                            arg_index: 0,
+                            span: expr.span().clone(),
+                            label: l,
+                            reason: "untrusted-file-path",
                         });
                     }
                 }

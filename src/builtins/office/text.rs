@@ -42,13 +42,42 @@ pub fn builtin_estimate_tokens(args: &[Value]) -> Result<Value, String> {
 
 /// `read_file_tokens(path)` — read file and return {content, tokens} struct.
 /// Convenience for skill_index: read skill file + estimate its token cost in one call.
+///
+/// Н455: this builtin moves file content into the program exactly like
+/// `read_file` — it runs through the SAME sandbox resolution and the SAME
+/// file-ingest gate (the sensitive-path deny-list + the serve-route
+/// data-dir containment). Before the naryad this surface had NO sandbox
+/// at all (any absolute path was readable) — the same file channel the
+/// audit flagged, closed here rather than left as a bypass. The success/
+/// error contract is unchanged (a missing/unreadable file stays a loud
+/// `read_file_tokens(): …` error, exactly as before).
 pub fn builtin_read_file_tokens(args: &[Value]) -> Result<Value, String> {
     let path = match args.first() {
         Some(Value::String(s)) => s.clone(),
         _ => return Err("read_file_tokens() expects a file path (String)".to_string()),
     };
+    use crate::builtins::io::{
+        file_ingest_gate, sandbox_path, sandbox_sensitive_violation, sensitive_allowlisted,
+        sensitive_path_match,
+    };
+    // Н455 layer 1: the RAW-form deny-list — loud even if the file is missing.
+    if sensitive_path_match(&path) && !sensitive_allowlisted(&path) {
+        return Err(sandbox_sensitive_violation(format!(
+            "read_file_tokens('{}'): the path matches the sensitive-path deny-list \
+             (.env*, *.db, *.sqlite*, .git/**, *.mlog, metalogos.toml, .mlog/**) — \
+             set METALOGOS_SENSITIVE_PATH_ALLOWLIST=\"NAME\" to allow a specific \
+             file explicitly (Naryad #455)",
+            path
+        )));
+    }
+    // The sandbox resolution is NEW (the naryad): absolute paths and `..`
+    // were readable here before — the loud `[SANDBOX_VIOLATION]` is the
+    // same contract every other file surface already carries.
+    let safe_path = sandbox_path(&path).map_err(|e| format!("read_file_tokens(): {}", e))?;
+    // Н455: the SSOT file-ingest gate (canonical deny-list + serve root).
+    file_ingest_gate("read_file_tokens", &path, &safe_path)?;
     let content =
-        std::fs::read_to_string(&path).map_err(|e| format!("read_file_tokens(): {}", e))?;
+        std::fs::read_to_string(&safe_path).map_err(|e| format!("read_file_tokens(): {}", e))?;
     let char_count = content.chars().count() as f64;
     let tokens = (char_count / 4.0).ceil();
     Ok(Value::Struct {

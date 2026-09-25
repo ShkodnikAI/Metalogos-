@@ -4,7 +4,9 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
-_Nothing yet — the next wave boundary recomputes REALITY under the same protocol._
+### Wave 15 addendum (the audit 24.09 follow-up, issued after the 0.25.0 cut — the doc-only additions land in [Unreleased] because the release was already tagged when the naryads arrived)
+
+- **The forecast doc surface (naryad #452, issue #661)**: the README gains the forecast note (instrumental only, no-advisory, the default-build ladder contract with anchors to limitations); the REFERENCE forecast block was VERIFIED against the audit P1-2 checklist — the explicit "in this build the seasonal_naive rung computes" phrase, the PINNED NEVER license note and the OUT-of-scope advisory wording were already present (no artifact edit needed — the check is recorded here); the office-path independence note is pinned in limitations (the office Dockerfile runs the prebuilt default-build `bin/mlog`, no `--features timesfm` anywhere).
 
 ## [0.25.0] - 2026-09-25
 

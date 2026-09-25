@@ -3886,9 +3886,7 @@ impl Vm {
         let t0 = std::time::Instant::now();
         let backend = llm::create_llm_backend();
         let llm_result = backend.call(&effective_prompt, &input);
-        let mock_mode = std::env::var("METALOGOS_MOCK_LLM")
-            .map(|v| v == "1" || v.to_lowercase() == "true")
-            .unwrap_or(true);
+        let mock_mode = crate::llm::mock_llm_requested();
         crate::llm::trace_llm_call(&crate::llm::LlmTraceEvent {
             provider_name: Some(if mock_mode {
                 "mock"
@@ -4182,15 +4180,13 @@ impl Vm {
         self.learnables[idx].1 = new_examples;
 
         // ── Accuracy: REAL golden-task battery (№375, ADR-0112 addendum) ──
-        // Mock mode (METALOGOS_MOCK_LLM, default-on): the 0.95 stub stays —
-        // loudly documented in ADR-0112. Real mode: the battery is the
+        // Mock mode (METALOGOS_MOCK_LLM — explicit-only since №454): the 0.95
+        // stub stays — loudly documented in ADR-0112. Real mode: the battery is the
         // pre-mutation few-shot (the VM's Program carries no eval blocks —
         // the TW path additionally merges ADR-0050 eval datasets; the
         // difference is documented in the наряд report). The answer path is
         // the pattern's real LLM call; errors count as incorrect.
-        let mock_mode = std::env::var("METALOGOS_MOCK_LLM")
-            .map(|v| v == "1" || v.to_lowercase() == "true")
-            .unwrap_or(true);
+        let mock_mode = crate::llm::mock_llm_requested();
         let (accuracy, battery_note) = if mock_mode {
             // Mock accuracy (always 0.95 for MockLlm) — test mode only.
             (0.95, String::new())

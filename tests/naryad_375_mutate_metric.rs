@@ -1,11 +1,12 @@
 //! Наряд №375 (ADR-0112 addendum): REAL golden-task battery for the mutate
 //! keep/rollback decision — MOCK-MODE side.
 //!
-//! Mock mode (METALOGOS_MOCK_LLM unset or truthy — the default-on test-mode
-//! convention) keeps the 0.95 stub, loudly documented: these tests pin the
-//! mock behavior (message formats, keep/rollback threshold edges, the p2
-//! golden contract, TW↔VM parity) so the real-mode change cannot silently
-//! alter the test-mode surface.
+//! Mock mode (METALOGOS_MOCK_LLM=1|true, set explicitly by every test in
+//! this file since Н454 — the mock is no longer the default backend) keeps
+//! the 0.95 stub, loudly documented: these tests pin the mock behavior
+//! (message formats, keep/rollback threshold edges, the p2 golden contract,
+//! TW↔VM parity) so the real-mode change cannot silently alter the
+//! test-mode surface.
 //!
 //! Real-mode tests live in `naryad_375_real_mode.rs` (separate process —
 //! the env switch is process-global).
@@ -31,6 +32,7 @@ fn run_vm(source: &str, base_dir: &Path) -> Result<Option<String>, String> {
 /// pre-№375 contract (the battery note is appended ONLY in real mode).
 #[test]
 fn naryad_375_mock_mode_message_format_unchanged() {
+    std::env::set_var("METALOGOS_MOCK_LLM", "1"); // Н454: explicit mock opt-in
     let src = "learnable pattern Sentiment(text: String) -> String {\n  prompt: \"Classify sentiment\"\n}\n\nmutate Sentiment { add_example(\"terrible experience\", \"negative\") rollback_if: accuracy < 0.9 }\n\nflow Main { input: String = \"s\" -> Sentiment -> output }";
     let base = PathBuf::from("examples");
     let tw = run_tw(src, &base).expect("TW runs");
@@ -55,6 +57,7 @@ fn naryad_375_mock_mode_message_format_unchanged() {
 /// false → keep). CompareOp mapping unchanged (№375 constraint).
 #[test]
 fn naryad_375_mock_mode_threshold_edges() {
+    std::env::set_var("METALOGOS_MOCK_LLM", "1"); // Н454: explicit mock opt-in
     let base = PathBuf::from("examples");
     // rollback_if: accuracy < 1.0 → 0.95 < 1.0 true → ROLLBACK.
     let rollback_src = "learnable pattern Sentiment(text: String) -> String {\n  prompt: \"Classify sentiment\"\n}\n\nmutate Sentiment { add_example(\"x\", \"y\") rollback_if: accuracy < 1.0 }\n\nflow Main { input: String = \"s\" -> Sentiment -> output }";
@@ -79,6 +82,7 @@ fn naryad_375_mock_mode_threshold_edges() {
 /// The p2_full_adapt golden contract (mock mode) is untouched.
 #[test]
 fn naryad_375_p2_golden_unchanged() {
+    std::env::set_var("METALOGOS_MOCK_LLM", "1"); // Н454: explicit mock opt-in
     let base = PathBuf::from("examples");
     let path = base.join("p2_full_adapt.mlog");
     let source = std::fs::read_to_string(&path).expect("p2 example exists");
@@ -95,6 +99,7 @@ fn naryad_375_p2_golden_unchanged() {
 /// same decision mapping and message format).
 #[test]
 fn naryad_375_mock_mode_tw_vm_parity() {
+    std::env::set_var("METALOGOS_MOCK_LLM", "1"); // Н454: explicit mock opt-in
     let base = PathBuf::from("examples");
     let cases: [(&str, Option<&str>); 3] = [
         ("keep_edge", Some("0.9")),

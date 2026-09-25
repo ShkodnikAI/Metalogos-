@@ -8,6 +8,13 @@
 
 use std::path::PathBuf;
 
+// Н454: the mock is no longer the default backend — the distill parity
+// tests (which compare TW and VM byte-for-byte on the mock marker) opt in
+// explicitly.
+fn enable_explicit_mock() {
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
+}
+
 fn manifest_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
@@ -27,6 +34,7 @@ fn run_tw(source: &str, base_dir: &std::path::Path) -> Result<Option<String>, St
 
 #[test]
 fn naryad_205_vm_distill_teaching_matches_tw() {
+    enable_explicit_mock();
     let project_dir = manifest_dir();
     let mlog_path = project_dir.join("examples/reflex_distill_teaching.mlog");
     let source = std::fs::read_to_string(&mlog_path)
@@ -51,6 +59,7 @@ fn naryad_205_vm_distill_teaching_matches_tw() {
 
 #[test]
 fn naryad_205_vm_distill_switch_matches_tw() {
+    enable_explicit_mock();
     let project_dir = manifest_dir();
     let mlog_path = project_dir.join("examples/reflex_distill_switch.mlog");
     let source = std::fs::read_to_string(&mlog_path)
@@ -75,6 +84,7 @@ fn naryad_205_vm_distill_switch_matches_tw() {
 
 #[test]
 fn naryad_205_vm_distill_fallback_matches_tw() {
+    enable_explicit_mock();
     let project_dir = manifest_dir();
     let mlog_path = project_dir.join("examples/reflex_distill_fallback.mlog");
     let source = std::fs::read_to_string(&mlog_path)

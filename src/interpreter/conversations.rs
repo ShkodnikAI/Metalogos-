@@ -208,9 +208,7 @@ impl Interpreter {
             let backend = llm::create_llm_backend();
             backend.call(prompt, text)
         };
-        let mock_mode = std::env::var("METALOGOS_MOCK_LLM")
-            .map(|v| v == "1" || v.to_lowercase() == "true")
-            .unwrap_or(true);
+        let mock_mode = crate::llm::mock_llm_requested();
         crate::llm::trace_llm_call(&crate::llm::LlmTraceEvent {
             provider_name: Some(if mock_mode {
                 "mock"

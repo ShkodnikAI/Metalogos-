@@ -197,7 +197,7 @@ real ADRs (№309/№320/№412) before the booking.
 | 0156 | TW/VM/JIT label parity — LabelJoin/SinkCheck in the bytecode | Accepted |
 | 0157 | Ledger profile — PROV/in-toto alignment | Accepted (fills the reserved booking of 2026-09-14) |
 | 0158 | Declassify boundaries | reserved |
-| 0159 | Sim-first verification — STL semantics | Accepted (№354) |
+| 0159 | Sim-first verification — SafetyBounds as an STL-formula monitor | Accepted (filled 2026-09-22 by naryad №354, wave 10 |
 | 0160 | Identifier naming convention | reserved |
 | 0161 | Legacy compatibility profile (`profile legacy`) | Accepted |
 | 0162 | Unified media handles and the media store (lazy materialization, refcount, at-rest sealing) | Accepted |
@@ -210,9 +210,10 @@ real ADRs (№309/№320/№412) before the booking.
 | 0169 | Stable `try` error codes — origin-stamped classification | Accepted |
 | 0170 | Persistence taint layer 2 — locally-bound key prefixes; points-to deferred | Accepted |
 | 0171 | `mlog serve` default backend flip — the VM becomes the default (Stage 5 executed) | Accepted |
-| 0172 | Session model — wake/interrupt/duty over a process-global registry | Accepted |
+| 0172 | Session model — wake/interrupt/duty over a process-global registry | Implemented (Accepted 2026-09-22 by №348; Implemented 2026-09-22 |
 | 0173 | The derived-from graph and cascading forgetting over Memory<K> | Accepted |
 | 0174 | Directed audio effects (`listen`/`speak`) and the duplex channel — barge-in over the session priority ladder | Accepted |
 | 0175 | The tick context — the cron dispatch executes in the program context | Accepted |
-| 0176 | The plan-v2 memory contract — the SSOT of the memory surface (Variant B) | Accepted |
+| 0176 | The plan-v2 memory contract — the SSOT of the memory surface | Accepted |
 | 0177 | The domain freeze until 0.27 — no new subsystems, the core first | Accepted |
+| 0178 | The generative contour boundary — experimental, scoped, exit-ready | Accepted |

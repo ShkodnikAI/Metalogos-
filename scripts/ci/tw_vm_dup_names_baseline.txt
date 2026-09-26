@@ -10,8 +10,10 @@
 # revision is a separate line in the №466 transfer naryad's report.
 # A count ABOVE the threshold fails CI; the error lists the new names.
 #
-# threshold: 60
-#
+# 2026-09-26 №466 (gh#687) group 1 (memory): memorize/recall/forget/recall_top_k
+# transferred to the shared live module src/memory_ops.rs — 60 → 56.
+# threshold: 56
+
 consent_grant
 consent_revoke
 conv_add
@@ -30,7 +32,6 @@ events_since
 exec
 find
 fit_to_budget
-forget
 inspect
 json_body
 media_bind_origin
@@ -44,13 +45,10 @@ media_store_audio
 media_store_image
 media_store_video_frame
 media_store_video_segment
-memorize
 query
 query_param
 query_row
 query_scalar
-recall
-recall_top_k
 recipe_save
 recipe_search
 reflex_generate

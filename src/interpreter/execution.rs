@@ -796,9 +796,23 @@ impl Interpreter {
             );
         }
 
-        // Check recall (memory) first — it's a built-in with memory access
-        if name == "recall" {
-            return self.invoke_recall(args);
+        // №466: the memory group dispatches through the shared live
+        // module (src/memory_ops.rs) — the TW store lane, the typed-lane
+        // consent gate and the legacy 1..2-argument forget surface. The
+        // four per-name intercepts that used to live here are replaced
+        // by this single hook; the interpreter keeps only argument
+        // marshaling. The 3..4-argument forget falls through to the
+        // canon §10.3 typed front door in the registry (№445 parity).
+        if crate::memory_ops::handles(name) {
+            if let Some(result) = crate::memory_ops::dispatch_tw(
+                name,
+                &self.memory,
+                &self.kg,
+                &self.embedding_manager,
+                &args,
+            ) {
+                return result;
+            }
         }
 
         // ADR-0045/Phase 7.1: server-context builtins (flow step dispatch)
@@ -831,24 +845,6 @@ impl Interpreter {
                 return Ok(Value::String(val));
             }
             return Ok(Value::String(String::new()));
-        }
-
-        // memorize() — callable form (flow step context)
-        if name == "memorize" {
-            return self.invoke_memorize_fn(args);
-        }
-
-        // recall_top_k() — hybrid FTS5 BM25 + cosine RRF search (flow step context)
-        if name == "recall_top_k" {
-            return self.invoke_recall_top_k_fn(args);
-        }
-
-        // forget() — callable form (flow step context). №445: the legacy
-        // (query, days?) surface is 1..2 arguments; 3..4 arguments are
-        // the canon §10.3 typed front door and fall through to the
-        // registry handler (parity by construction).
-        if name == "forget" && args.len() <= 2 {
-            return self.invoke_forget_fn(args);
         }
 
         // Наряд №67: recipe_save — intercept to also memorize for recipe_search
@@ -2132,9 +2128,20 @@ impl Interpreter {
                     );
                 }
 
-                // Check recall (memory) first
-                if name == "recall" {
-                    return self.invoke_recall(eval_args);
+                // №466: the memory group through the shared live module
+                // (src/memory_ops.rs) — the same contract as the pattern
+                // route above; the 3..4-argument forget falls through to
+                // the registry's §10.3 typed front door.
+                if crate::memory_ops::handles(name) {
+                    if let Some(result) = crate::memory_ops::dispatch_tw(
+                        name,
+                        &self.memory,
+                        &self.kg,
+                        &self.embedding_manager,
+                        &eval_args,
+                    ) {
+                        return result;
+                    }
                 }
 
                 // Check find (entity store query)
@@ -2297,26 +2304,6 @@ impl Interpreter {
                         "require('{}'): access denied — user has roles {:?}",
                         role, self.server_user_roles
                     ));
-                }
-
-                // Check memorize() — callable form (Definition of Done)
-                // Usage: let _ = memorize("text", 0.5) or memorize("text")
-                // Differs from declaration: memorize "text" with priority=0.5
-                if name == "memorize" {
-                    return self.invoke_memorize_fn(eval_args);
-                }
-
-                // recall_top_k() — hybrid FTS5 BM25 + cosine RRF search (expression context)
-                if name == "recall_top_k" {
-                    return self.invoke_recall_top_k_fn(eval_args);
-                }
-
-                // Check forget() — callable form (Definition of Done)
-                // Usage: forget("query", 30)
-                if name == "forget" && eval_args.len() <= 2 {
-                    // №445: the legacy 1..2-arg form; 3..4 args are the
-                    // typed §10.3 front door (the registry handler).
-                    return self.invoke_forget_fn(eval_args);
                 }
 
                 // Наряд №67: recipe_save — intercept to also memorize for recipe_search

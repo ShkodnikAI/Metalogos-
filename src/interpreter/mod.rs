@@ -40,7 +40,7 @@ use crate::memory_store::{
 
 /// Acquire a mutex lock, converting poison errors to a user-friendly message.
 /// Used in functions that return `Result<_, String>`.
-fn lock_or_err<'a, T>(
+pub(crate) fn lock_or_err<'a, T>(
     guard: Result<
         std::sync::MutexGuard<'a, T>,
         std::sync::PoisonError<std::sync::MutexGuard<'a, T>>,

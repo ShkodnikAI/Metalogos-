@@ -69,7 +69,7 @@ fn inference_golden_builtins_literals_copies() {
     assert_eq!(env.get("copy").expect("copy").ty, Type::String);
     // `find` is NOT typed in the flat stage-0 vocabulary — Unknown stays
     // OUT of the env (the honesty pin at the inference level).
-    assert!(env.get("untyped").is_none(), "Unknown must not be stored");
+    assert!(!env.contains_key("untyped"), "Unknown must not be stored");
 }
 
 #[test]

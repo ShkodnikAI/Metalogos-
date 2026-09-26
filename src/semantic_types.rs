@@ -140,6 +140,10 @@ fn walk_block_inner(
                 let inferred = infer_expr(value, env, callables);
                 if let (Some(prev), Some(next)) = (env.get(name), inferred.as_ref()) {
                     if prev.ty != next.ty {
+                        // Precompute the Debug spellings — no format! inside
+                        // format! args (the clippy -D warnings lint).
+                        let prev_ty_dbg = format!("{:?}", prev.ty);
+                        let next_ty_dbg = format!("{:?}", next.ty);
                         warnings.push(SpannedError::at(
                             format!(
                                 "{} type conflict: variable '{}' was inferred {} ({}), \
@@ -148,9 +152,9 @@ fn walk_block_inner(
                                  (naryad №474, stage 1)",
                                 STAGE1_PREFIX,
                                 name,
-                                format!("{:?}", prev.ty),
+                                prev_ty_dbg,
                                 prev.origin,
-                                format!("{:?}", next.ty),
+                                next_ty_dbg,
                                 next.origin,
                             ),
                             span.clone(),

@@ -9,7 +9,7 @@
 [![Rust](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org/)
 [![Version](https://img.shields.io/badge/v0.26.0-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/releases)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-green.svg)](#license)
-[![CI](https://img.shields.io/badge/CI-19%20blocking%20jobs-brightgreen.svg)](https://github.com/ShkodnikAI/Metalogos-/actions)
+[![CI](https://img.shields.io/badge/CI-27%20blocking%20jobs-brightgreen.svg)](https://github.com/ShkodnikAI/Metalogos-/actions)
 [![Open Collective](https://img.shields.io/opencollective/all/metalogos?label=Backers&logo=open-collective&color=7fadf2)](https://opencollective.com/metalogos)
 
 </div>
@@ -224,10 +224,27 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 | Architecture Decisions | 170 ADRs |
 | Example Programs | 258 .mlog programs |
 | Reference | REFERENCE.md (~283 KB) — 100% registry coverage |
-| Changelog | CHANGELOG.md (~472 KB) — every wave documented |
+| Changelog | CHANGELOG.md (~474 KB) — every wave documented |
 <!-- END GENERATED METRICS -->
 
 Validated on every CI run: `scripts/gen_metrics.py --check` plus the independent recomputation in `tests/readme_consistency.rs`.
+
+## Feature Gates (the media isolation, №472)
+
+| Feature | Default | What it gates | The heavy tier |
+| --- | --- | --- | --- |
+| *(none — core)* | ✓ | the language: parser, compiler, the TW/VM backends, audit, semantic | — |
+| `svg` / `chart` / `diagram` / `template` | on | the document/graphics family (pure Rust) | — |
+| `llm` | on | the LLM client surface (HTTP, no local inference) | — |
+| `server` | off | the HTTP/SSE serve stack (axum/tokio) | — |
+| `candle` | off | the tensor backend for the generative stacks | candle-core/nn |
+| `vision` | off | the image pillar: dit/vae/sampler/encoders (implies `candle`) | tokenizers, image |
+| `voice` | off | the voice pillar: TTS/clone/design (implies `candle`) | — |
+| `video` | off | the video pillar: T2V/I2V/interp/mux (implies `candle`) | — |
+| `vec` | off | the vector contour (sqlite-vec) | — |
+| `timesfm` | off | the off-process timesfm-2.5 rung of the `timeseries` ladder | off-process |
+
+The media-path invariant: **core never imports the media processing** — the interpreter/compiler/VM/audit touch only the handle/registry tier (`MediaStore`, `MediaHandle`, `MediaKind`, `VisionRegistry`, `VisionId`, `VideoId`, `VoiceId`, `AudioId`...), enforced by the `core-media-gate` CI job (`scripts/ci/core_media_gate.py`). The core builds without media: `cargo build --no-default-features` is a blocking CI job.
 
 ## Documentation
 

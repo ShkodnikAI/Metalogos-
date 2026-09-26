@@ -29,6 +29,21 @@ body:
         - docs
     validations:
       required: true
+  - type: dropdown
+    id: naryad_class
+    attributes:
+      label: "Класс наряда (№470: тег квоты доменов; мета-строка: Класс: [X])"
+      description: "domain — доменная подсистема (квота: 0 при freeze ADR-0177, ≤1/3 после снятия); core/std/process/docs/bugfix/security — вне доменной квоты"
+      options:
+        - "[core]"
+        - "[domain]"
+        - "[std]"
+        - "[process]"
+        - "[docs]"
+        - "[bugfix]"
+        - "[security]"
+    validations:
+      required: true
   - type: textarea
     id: facts
     attributes:

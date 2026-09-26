@@ -658,6 +658,11 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
 
     let mut interp = Interpreter::new();
     // Run declarations to populate templates, patterns, etc. (skip flows)
+    // Наряд №457: фаза регистрации — ЯВНАЯ top-level зона: в serve-режиме
+    // (строгий дефолт с инверсией) контекст здесь остаётся Process, как и
+    // до инверсии. Всё, что не помечено явно, в serve теперь ServeRoute:
+    // забытая пометка = лишний отказ, а не лишнее разрешение.
+    let _toplevel_registration = crate::builtins::io::TopLevelRegistrationGuard::new();
     for decl in declarations.clone() {
         match decl {
             Declaration::MlogServer(ref srv) => {
@@ -2179,6 +2184,12 @@ pub(crate) async fn execute_tick_call(
     let interp = fresh_program_context(state).await;
     let target = target.to_string();
     tokio::task::spawn_blocking(move || -> Result<Value, String> {
+        // Наряд №457: cron/webhook-тики исполняются в serve-роут-контексте —
+        // env() ограничен env-гейтом №259, exec() определяется СЕРВЕРНЫМ
+        // флагом METALOGOS_SERVE_ALLOW_EXEC, а не процессным
+        // METALOGOS_ALLOW_EXEC. Раньше тик был единственной незакрытой
+        // точкой запуска (роуты TW/VM и MCP-инструменты уже под guard'ом).
+        let _serve_exec_guard = ServeRouteExecGuard::new();
         if let Some(builtin_fn) = interp.get_builtin(&target) {
             builtin_fn(&args)
         } else {

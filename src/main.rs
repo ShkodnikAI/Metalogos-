@@ -682,6 +682,19 @@ fn cmd_serve(file: PathBuf) {
         }
     };
 
+    // Наряд №457: инверсия умолчания контекста исполнения — в serve всё,
+    // что явно не помечено (роуты, тики cron/webhook, MCP-инструменты,
+    // фоновые задачи), живёт в строгом ServeRoute-контексте: env() требует
+    // METALOGOS_SERVE_ALLOW_ENV/allowlist (№259), exec() —
+    // METALOGOS_SERVE_ALLOW_EXEC (№253). Исключение — явная top-level зона
+    // регистрации (TopLevelRegistrationGuard в run_server). Забытая пометка
+    // у новой точки запуска = громкий отказ, а не молчаливые процессные
+    // права. Режим ставится ДО построения роутов.
+    metalogos::builtins::set_process_mode(metalogos::builtins::ProcessMode::Serve);
+    eprintln!(
+        "[serve] exec context: strict-by-default (Naryad #457) — unmarked threads are serve-route; top-level registration keeps the process context"
+    );
+
     // Use tokio runtime for async server
     // ADR-0096: block_in_place on single-core serializes requests.
     // Default to max(4, available_parallelism) workers.

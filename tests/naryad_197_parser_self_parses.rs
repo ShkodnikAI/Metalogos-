@@ -56,6 +56,11 @@ fn naryad_197_parser_self_parses() {
         .arg("run")
         .arg(&parser_path)
         .env("MLOG_PARSE_TARGET", "self-host/parser.mlog")
+        // The №455 sensitive-path deny-list refuses `*.mlog` reads; the
+        // self-host bootstrap is a legitimate, explicitly named reader —
+        // the documented escape crane (Naryad #455 layer 3) allows
+        // parser.mlog explicitly.
+        .env("METALOGOS_SENSITIVE_PATH_ALLOWLIST", "parser.mlog")
         .output()
         .expect("failed to spawn mlog process");
 

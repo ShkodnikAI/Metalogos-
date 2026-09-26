@@ -257,6 +257,189 @@ pub(crate) fn sandbox_violation(msg: impl std::fmt::Display) -> String {
     crate::interpreter::values::coded_error(crate::interpreter::values::CODE_SANDBOX_VIOLATION, msg)
 }
 
+// ═══ Наряд №455: the file-ingest gate ══════════════════════════════════
+//
+// The №259 env-gate closed the environment channel, but `read_file` could
+// still read `.env` (and the SQLite files, the grammar, the git metadata)
+// straight out of the application directory — in `mlog serve` the working
+// directory IS the application directory, so a route body could pull
+// secrets the env-gate refuses. The gate has three layers (the naryad):
+//
+//   1. DENY-LIST inside the sandbox (context-independent): `.env*`,
+//      `*.db`, `*.sqlite*`, `.git/**`, `*.mlog`, `metalogos.toml`,
+//      `.mlog/**` — loud `SANDBOX_SENSITIVE_PATH` refusal. Matched on the
+//      RAW path form (before resolution — a policy refusal is loud even
+//      when the file does not exist) AND on the RESOLVED canonical path
+//      (symlink-proof — a link named `notes.txt` pointing at `.env`
+//      refuses exactly the same way).
+//   2. SERVE-ROUTE ROOT: in the `ServeRoute` exec context (the same
+//      thread-local the №253 exec-gate and the №259 env-gate reuse — no
+//      second flag-hack) file INGEST is allowed only from the data
+//      directory (`METALOGOS_DATA_DIR`, default `./data`), never from the
+//      working directory at large. Fail-closed: if the data root cannot
+//      be resolved, every ingest refuses loudly.
+//   3. ESCAPE CRANE: `METALOGOS_SENSITIVE_PATH_ALLOWLIST="NAME1,NAME2"` —
+//      comma-separated sensitive names (matched exactly against the raw
+//      path or its file name, the №259 allowlist format) turn the
+//      deny-list refusal into an ALLOWED read whose content the static
+//      label engine marks PRIVATE (semantic.rs `label_source`: a
+//      sensitive-named literal path yields the Secret label). The
+//      serve-root containment (layer 2) is NOT bypassed by the allowlist
+//      — it is a containment invariant, not a name policy.
+
+/// The №455 sensitive-path deny-list matcher (layer 1).
+///
+/// Matches the path's components and file name against the deny
+/// vocabulary: any component named `.git` or `.mlog` (the `dir/**`
+/// forms), a file name starting with `.env`, ending with `.db` or
+/// `.mlog`, containing `.sqlite`, or exactly `metalogos.toml`.
+pub(crate) fn sensitive_path_match(path: &str) -> bool {
+    let p = std::path::Path::new(path);
+    for component in p.components() {
+        let std::path::Component::Normal(c) = component else {
+            continue;
+        };
+        let name = c.to_string_lossy();
+        // Directory forms: `.git/**`, `.mlog/**` — anything under them.
+        if name == ".git" || name == ".mlog" {
+            return true;
+        }
+    }
+    sensitive_name_match(
+        p.file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default()
+            .as_str(),
+    )
+}
+
+/// The file-NAME half of the №455 deny-list (shared with the canonical
+/// re-check, which may resolve a symlink into a differently named file).
+fn sensitive_name_match(file_name: &str) -> bool {
+    file_name.starts_with(".env")
+        || file_name.ends_with(".db")
+        || file_name.ends_with(".mlog")
+        || file_name.contains(".sqlite")
+        || file_name == "metalogos.toml"
+}
+
+/// The №455 escape crane (layer 3): is this path explicitly allowed by
+/// `METALOGOS_SENSITIVE_PATH_ALLOWLIST`? Matched against the raw path
+/// string and its file name (exact, case-sensitive — the №259 format:
+/// comma-separated, trimmed, empty items ignored; unset/empty = deny).
+pub(crate) fn sensitive_allowlisted(raw_path: &str) -> bool {
+    let raw = match std::env::var("METALOGOS_SENSITIVE_PATH_ALLOWLIST") {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    let file_name = std::path::Path::new(raw_path)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    raw.split(',')
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .any(|name| name == raw_path || name == file_name)
+}
+
+/// The №455 loud refusal stamp (the №254/№385 coded-error convention).
+pub(crate) fn sandbox_sensitive_violation(msg: impl std::fmt::Display) -> String {
+    crate::interpreter::values::coded_error(
+        crate::interpreter::values::CODE_SANDBOX_SENSITIVE_PATH,
+        msg,
+    )
+}
+
+/// The №455 serve-route data-root (layer 2): canonicalized
+/// `METALOGOS_DATA_DIR` (default `./data`). Unresolvable root → the error
+/// (fail-closed: the caller refuses the ingest).
+fn serve_data_dir_root() -> Result<std::path::PathBuf, String> {
+    let root = std::env::var("METALOGOS_DATA_DIR").unwrap_or_else(|_| "./data".to_string());
+    let base = std::env::current_dir().map_err(|e| format!("sandbox: {}", e))?;
+    let root = if std::path::Path::new(&root).is_absolute() {
+        std::path::PathBuf::from(root)
+    } else {
+        base.join(root)
+    };
+    root.canonicalize().map_err(|e| {
+        format!(
+            "sandbox: data dir '{}' cannot be resolved: {}",
+            root.display(),
+            e
+        )
+    })
+}
+
+/// The SSOT file-ingest gate (Наряд №455) — call AFTER `sandbox_path`
+/// resolved the path, for every builtin that moves file content into the
+/// program (`read_file`, `read_file_tokens`).
+///
+/// `raw` is the caller's path string (deny-list re-check for the
+/// allowlist match), `resolved` is the canonical sandbox path (the
+/// symlink-proof deny-list + the serve-root containment).
+///
+/// Errors carry the stable code `SANDBOX_SENSITIVE_PATH`.
+pub(crate) fn file_ingest_gate(
+    builtin: &str,
+    raw: &str,
+    resolved: &std::path::Path,
+) -> Result<(), String> {
+    let allowlisted = sensitive_allowlisted(raw);
+    // Layer 1: the deny-list — raw form (checked by the caller before
+    // resolution) and the RESOLVED canonical form (a symlink named
+    // `notes.txt` to `.env` must refuse the same way).
+    if !allowlisted {
+        if sensitive_path_match(raw) {
+            return Err(sandbox_sensitive_violation(format!(
+                "{}('{}'): the path matches the sensitive-path deny-list \
+                 (.env*, *.db, *.sqlite*, .git/**, *.mlog, metalogos.toml, .mlog/**) — \
+                 set METALOGOS_SENSITIVE_PATH_ALLOWLIST=\"NAME\" to allow a specific \
+                 file explicitly (Naryad #455)",
+                builtin, raw
+            )));
+        }
+        if let Some(name) = resolved
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+        {
+            if sensitive_name_match(&name)
+                || resolved.components().any(
+                    |c| matches!(c, std::path::Component::Normal(c) if c == ".git" || c == ".mlog"),
+                )
+            {
+                return Err(sandbox_sensitive_violation(format!(
+                    "{}('{}'): the resolved path '{}' matches the sensitive-path \
+                     deny-list — set METALOGOS_SENSITIVE_PATH_ALLOWLIST=\"NAME\" to \
+                     allow a specific file explicitly (Naryad #455)",
+                    builtin,
+                    raw,
+                    resolved.display()
+                )));
+            }
+        }
+    }
+    // Layer 2: the serve-route containment — ingest only from the data
+    // directory. The allowlist does NOT bypass this (containment is not a
+    // name policy). Process context (run/check/repl/top-level) unchanged.
+    if current_exec_context() == ExecContext::ServeRoute {
+        // Fail-closed: even the data-root resolution failure carries the
+        // stable №455 code (every file-ingest refusal is branchable).
+        let root = serve_data_dir_root().map_err(sandbox_sensitive_violation)?;
+        if !resolved.starts_with(&root) {
+            return Err(sandbox_sensitive_violation(format!(
+                "{}('{}'): file reads in serve route handlers are restricted to the \
+                 data directory — resolved path '{}' is outside '{}' \
+                 (METALOGOS_DATA_DIR, default ./data; Naryad #455)",
+                builtin,
+                raw,
+                resolved.display(),
+                root.display()
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Like `sandbox_path` but allows specifying whether the operation is
 /// a read (file must exist) or a write (file may be new).
 pub(crate) fn sandbox_path_ex(path: &str, mode: SandboxMode) -> Result<std::path::PathBuf, String> {
@@ -426,6 +609,18 @@ pub(crate) fn builtin_read_file(args: &[Value]) -> Result<Value, String> {
     if super::smfs::is_virtual(&path) {
         return super::smfs::read(&path);
     }
+    // Наряд №455, слой 1: deny-list на RAW-форме пути — отказ политики
+    // громкий независимо от существования файла (попытка прочитать .env
+    // — сигнал сам по себе, «файла нет» не делает её безопасной).
+    if sensitive_path_match(&path) && !sensitive_allowlisted(&path) {
+        return Err(sandbox_sensitive_violation(format!(
+            "read_file('{}'): the path matches the sensitive-path deny-list \
+             (.env*, *.db, *.sqlite*, .git/**, *.mlog, metalogos.toml, .mlog/**) — \
+             set METALOGOS_SENSITIVE_PATH_ALLOWLIST=\"NAME\" to allow a specific \
+             file explicitly (Naryad #455)",
+            path
+        )));
+    }
     let safe_path = match sandbox_path(&path) {
         Ok(p) => p,
         Err(e) => {
@@ -440,6 +635,9 @@ pub(crate) fn builtin_read_file(args: &[Value]) -> Result<Value, String> {
             return Err(sandbox_violation(e));
         }
     };
+    // Наряд №455: SSOT-гейт файлового чтения — канонический deny-list
+    // (symlink-proof) + serve-ограничение корнем каталога данных (слой 2).
+    file_ingest_gate("read_file", &path, &safe_path)?;
     match std::fs::read_to_string(&safe_path) {
         Ok(content) => Ok(Value::String(content)),
         Err(_) => Ok(Value::String(String::new())), // soft-failure (нечитаем)
@@ -1759,5 +1957,55 @@ mod tests_n254 {
             let out = builtin_read_file(&[Value::String("f.txt".to_string())]).unwrap();
             assert_eq!(s(out), "");
         });
+    }
+}
+
+// ── Н455: unit tests for the sensitive-path matcher (pure, no IO) ──────
+
+#[cfg(test)]
+mod n455_matcher_tests {
+    use super::{sensitive_allowlisted, sensitive_path_match};
+
+    #[test]
+    fn n455_deny_list_matches_the_audit_vocabulary() {
+        // .env* — the audit's exact exploit
+        assert!(sensitive_path_match(".env"));
+        assert!(sensitive_path_match(".env.local"));
+        assert!(sensitive_path_match("conf/.env.production"));
+        // databases
+        assert!(sensitive_path_match("data.db"));
+        assert!(sensitive_path_match("store.sqlite"));
+        assert!(sensitive_path_match("store.sqlite-wal"));
+        assert!(sensitive_path_match("db/app.db"));
+        // git metadata and the .mlog data zone
+        assert!(sensitive_path_match(".git/config"));
+        assert!(sensitive_path_match(".git/objects/ab/cd"));
+        assert!(sensitive_path_match(".mlog/secrets"));
+        // the grammar and the project manifest
+        assert!(sensitive_path_match("metalogos.toml"));
+        assert!(sensitive_path_match("prog.mlog"));
+        assert!(sensitive_path_match("examples/p102_secret_patterns.mlog"));
+        // innocent names pass
+        assert!(!sensitive_path_match("notes.txt"));
+        assert!(!sensitive_path_match("data/users.csv"));
+        assert!(!sensitive_path_match("report.md"));
+        assert!(!sensitive_path_match("environment.txt"));
+        // a literal `.env` COMPONENT below the top still matches (any depth)
+        assert!(sensitive_path_match("backups/old/.env"));
+    }
+
+    #[test]
+    fn n455_allowlist_matches_raw_path_or_file_name() {
+        // SAFETY: single-threaded per test binary is NOT enough for env —
+        // serial_test is a dev-dependency of tests/, here we only read the
+        // variable; the value is set and removed inside the lock below.
+        std::env::set_var("METALOGOS_SENSITIVE_PATH_ALLOWLIST", ".env, keys/prod.pem");
+        assert!(sensitive_allowlisted(".env"));
+        assert!(sensitive_allowlisted("conf/.env")); // by file name
+        assert!(sensitive_allowlisted("keys/prod.pem"));
+        assert!(!sensitive_allowlisted("data.db"));
+        assert!(!sensitive_allowlisted(".env.local")); // exact names only
+        std::env::remove_var("METALOGOS_SENSITIVE_PATH_ALLOWLIST");
+        assert!(!sensitive_allowlisted(".env")); // unset = deny
     }
 }

@@ -531,147 +531,8 @@ fn looks_like_secret(s: &str) -> bool {
 
 /// Check for hardcoded secrets in string literals across all declarations.
 fn check_secrets(declarations: &[Declaration], source: &str, findings: &mut Vec<AuditFinding>) {
-    fn walk_string_exprs<'a>(expr: &'a Expr, acc: &mut Vec<&'a String>) {
-        match expr {
-            Expr::StringLit { value: s, .. } => acc.push(s),
-            Expr::FnCall { name, args, .. } => {
-                // Skip env() calls — they are the OK way to get secrets
-                if name != "env" {
-                    for arg in args {
-                        walk_string_exprs(arg, acc);
-                    }
-                }
-            }
-            Expr::QualifiedCall { args, .. } => {
-                for arg in args {
-                    walk_string_exprs(arg, acc);
-                }
-            }
-            Expr::BinaryOp {
-                left: l, right: r, ..
-            } => {
-                walk_string_exprs(l, acc);
-                walk_string_exprs(r, acc);
-            }
-            Expr::IfElse {
-                condition: c,
-                then_branch: t,
-                else_branch: e,
-                ..
-            } => {
-                walk_string_exprs(c, acc);
-                walk_string_exprs(t, acc);
-                walk_string_exprs(e, acc);
-            }
-            Expr::List { items, .. } => {
-                for item in items {
-                    walk_string_exprs(item, acc);
-                }
-            }
-            Expr::FieldAccess { object: inner, .. } => walk_string_exprs(inner, acc),
-            Expr::IndexAccess {
-                object: inner,
-                index: idx,
-                ..
-            } => {
-                walk_string_exprs(inner, acc);
-                walk_string_exprs(idx, acc);
-            }
-            _ => {}
-        }
-    }
-    fn walk_string_stmts<'a>(stmts: &'a [Statement], acc: &mut Vec<&'a String>) {
-        for stmt in stmts {
-            match stmt {
-                Statement::LetBinding { value, .. } => walk_string_exprs(value, acc),
-                Statement::Assign { value, .. } => walk_string_exprs(value, acc),
-                Statement::ExprStmt { expr, .. } => walk_string_exprs(expr, acc),
-                Statement::Return { value: expr, .. } => walk_string_exprs(expr, acc),
-                Statement::Each { body, .. } => walk_string_stmts(body, acc),
-                Statement::While { body, .. } => walk_string_stmts(body, acc),
-                Statement::IfElseBlock {
-                    then_body,
-                    else_ifs,
-                    else_body,
-                    ..
-                } => {
-                    walk_string_stmts(then_body, acc);
-                    for (_, body) in else_ifs {
-                        walk_string_stmts(body, acc);
-                    }
-                    if let Some(body) = else_body {
-                        walk_string_stmts(body, acc);
-                    }
-                }
-                Statement::IfThen { body, .. } => walk_string_stmts(body, acc),
-                // Наряд №266: statement-form memory ops inside bodies — string
-                // scanning parity with the top-level Declaration::Memorize/
-                // Forget/Relate handling (same walker).
-                Statement::Memorize(m) => walk_string_exprs(&m.value, acc),
-                Statement::Forget(f) => walk_string_exprs(&f.query, acc),
-                Statement::Relate(r) => {
-                    walk_string_exprs(&r.from, acc);
-                    walk_string_exprs(&r.to, acc);
-                }
-                _ => {}
-            }
-        }
-    }
-
     for decl in declarations {
-        let mut strings: Vec<&String> = Vec::new();
-        match decl {
-            Declaration::Pattern(p) => walk_string_stmts(&p.body, &mut strings),
-            Declaration::Tool(t) => {
-                for m in &t.methods {
-                    walk_string_stmts(&m.body, &mut strings);
-                }
-            }
-            Declaration::MlogServer(srv) => {
-                for route in &srv.routes {
-                    walk_string_stmts(&route.body, &mut strings);
-                }
-            }
-            Declaration::Hook(h) => walk_string_stmts(&h.body, &mut strings),
-            Declaration::Eval(_e) => {
-                // Dataset strings are test data, not secrets
-            }
-            Declaration::Fluid(f) => {
-                for v in &f.variants {
-                    walk_string_exprs(&v.value, &mut strings);
-                }
-            }
-            Declaration::Memorize(m) => walk_string_exprs(&m.value, &mut strings),
-            Declaration::Forget(f) => walk_string_exprs(&f.query, &mut strings),
-            Declaration::Rule(r) => {
-                walk_string_exprs(&r.target, &mut strings);
-                walk_string_exprs(&r.value, &mut strings);
-            }
-            Declaration::Relate(r) => {
-                walk_string_exprs(&r.from, &mut strings);
-                walk_string_exprs(&r.to, &mut strings);
-            }
-            Declaration::Adapt(a) => {
-                walk_string_exprs(&a.input_example, &mut strings);
-                walk_string_exprs(&a.output_example, &mut strings);
-            }
-            Declaration::Mutate(m) => {
-                for (inp, out) in &m.new_examples {
-                    walk_string_exprs(inp, &mut strings);
-                    walk_string_exprs(out, &mut strings);
-                }
-            }
-            Declaration::Flow(f) => walk_string_exprs(&f.source, &mut strings),
-            Declaration::EntitySimple(e) => walk_string_exprs(&e.value, &mut strings),
-            Declaration::EntityRecord(e) => {
-                for fi in &e.fields {
-                    walk_string_exprs(&fi.value, &mut strings);
-                }
-            }
-            Declaration::Test(_) => {}
-            _ => {}
-        }
-
+        let strings = collect_decl_string_literals(decl);
         for s in strings {
             if looks_like_secret(s) {
                 // Find a snippet to locate in source
@@ -683,6 +544,242 @@ fn check_secrets(declarations: &[Declaration], source: &str, findings: &mut Vec<
                     line,
                     message: format!(
                         "possible hardcoded secret: string matches secret pattern (length={})",
+                        s.len()
+                    ),
+                });
+            }
+        }
+    }
+}
+
+// ── Shared string-literal walkers (the SECRETS and HARDCODED_SECRET checks) ──
+
+/// Collect every string literal reachable in a declaration's body/initializers.
+/// The SSOT walker for both secret checks — the coverage table lives here and
+/// cannot drift between the warning-level and the blocking-level checks.
+fn collect_decl_string_literals(decl: &Declaration) -> Vec<&String> {
+    let mut strings: Vec<&String> = Vec::new();
+    match decl {
+        Declaration::Pattern(p) => walk_string_stmts(&p.body, &mut strings),
+        Declaration::Tool(t) => {
+            for m in &t.methods {
+                walk_string_stmts(&m.body, &mut strings);
+            }
+        }
+        Declaration::MlogServer(srv) => {
+            for route in &srv.routes {
+                walk_string_stmts(&route.body, &mut strings);
+            }
+        }
+        Declaration::Hook(h) => walk_string_stmts(&h.body, &mut strings),
+        Declaration::Eval(_e) => {
+            // Dataset strings are test data, not secrets
+        }
+        Declaration::Fluid(f) => {
+            for v in &f.variants {
+                walk_string_exprs(&v.value, &mut strings);
+            }
+        }
+        Declaration::Memorize(m) => walk_string_exprs(&m.value, &mut strings),
+        Declaration::Forget(f) => walk_string_exprs(&f.query, &mut strings),
+        Declaration::Rule(r) => {
+            walk_string_exprs(&r.target, &mut strings);
+            walk_string_exprs(&r.value, &mut strings);
+        }
+        Declaration::Relate(r) => {
+            walk_string_exprs(&r.from, &mut strings);
+            walk_string_exprs(&r.to, &mut strings);
+        }
+        Declaration::Adapt(a) => {
+            walk_string_exprs(&a.input_example, &mut strings);
+            walk_string_exprs(&a.output_example, &mut strings);
+        }
+        Declaration::Mutate(m) => {
+            for (inp, out) in &m.new_examples {
+                walk_string_exprs(inp, &mut strings);
+                walk_string_exprs(out, &mut strings);
+            }
+        }
+        Declaration::Flow(f) => walk_string_exprs(&f.source, &mut strings),
+        Declaration::EntitySimple(e) => walk_string_exprs(&e.value, &mut strings),
+        Declaration::EntityRecord(e) => {
+            for fi in &e.fields {
+                walk_string_exprs(&fi.value, &mut strings);
+            }
+        }
+        Declaration::Test(_) => {}
+        _ => {}
+    }
+    strings
+}
+
+fn walk_string_exprs<'a>(expr: &'a Expr, acc: &mut Vec<&'a String>) {
+    match expr {
+        Expr::StringLit { value: s, .. } => acc.push(s),
+        Expr::FnCall { name, args, .. } => {
+            // Skip env() calls — they are the OK way to get secrets
+            if name != "env" {
+                for arg in args {
+                    walk_string_exprs(arg, acc);
+                }
+            }
+        }
+        Expr::QualifiedCall { args, .. } => {
+            for arg in args {
+                walk_string_exprs(arg, acc);
+            }
+        }
+        Expr::BinaryOp {
+            left: l, right: r, ..
+        } => {
+            walk_string_exprs(l, acc);
+            walk_string_exprs(r, acc);
+        }
+        Expr::IfElse {
+            condition: c,
+            then_branch: t,
+            else_branch: e,
+            ..
+        } => {
+            walk_string_exprs(c, acc);
+            walk_string_exprs(t, acc);
+            walk_string_exprs(e, acc);
+        }
+        Expr::List { items, .. } => {
+            for item in items {
+                walk_string_exprs(item, acc);
+            }
+        }
+        Expr::FieldAccess { object: inner, .. } => walk_string_exprs(inner, acc),
+        Expr::IndexAccess {
+            object: inner,
+            index: idx,
+            ..
+        } => {
+            walk_string_exprs(inner, acc);
+            walk_string_exprs(idx, acc);
+        }
+        _ => {}
+    }
+}
+fn walk_string_stmts<'a>(stmts: &'a [Statement], acc: &mut Vec<&'a String>) {
+    for stmt in stmts {
+        match stmt {
+            Statement::LetBinding { value, .. } => walk_string_exprs(value, acc),
+            Statement::Assign { value, .. } => walk_string_exprs(value, acc),
+            Statement::ExprStmt { expr, .. } => walk_string_exprs(expr, acc),
+            Statement::Return { value: expr, .. } => walk_string_exprs(expr, acc),
+            Statement::Each { body, .. } => walk_string_stmts(body, acc),
+            Statement::While { body, .. } => walk_string_stmts(body, acc),
+            Statement::IfElseBlock {
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                walk_string_stmts(then_body, acc);
+                for (_, body) in else_ifs {
+                    walk_string_stmts(body, acc);
+                }
+                if let Some(body) = else_body {
+                    walk_string_stmts(body, acc);
+                }
+            }
+            Statement::IfThen { body, .. } => walk_string_stmts(body, acc),
+            // Наряд №266: statement-form memory ops inside bodies — string
+            // scanning parity with the top-level Declaration::Memorize/
+            // Forget/Relate handling (same walker).
+            Statement::Memorize(m) => walk_string_exprs(&m.value, acc),
+            Statement::Forget(f) => walk_string_exprs(&f.query, acc),
+            Statement::Relate(r) => {
+                walk_string_exprs(&r.from, acc);
+                walk_string_exprs(&r.to, acc);
+            }
+            _ => {}
+        }
+    }
+}
+
+// ── Check: HARDCODED_SECRET — provider-format literals (Category A, №458) ──
+
+/// High-precision provider token formats (Наряд №458): moved as-is from the
+/// №102 SECRET_PATTERNS vocabulary — no new formats. These refuse at COMPILE
+/// time (audit_category_a) instead of warning in `mlog audit`.
+const HIGH_PRECISION_SECRET_PATTERNS: &[&str] = &[
+    "ghp_",
+    "gho_",
+    "ghs_",
+    "github_pat_", // GitHub (classic + fine-grained)
+    "sk-ant-",     // Anthropic
+    "xoxb-",
+    "xoxp-",
+    "xoxa-",      // Slack
+    "glpat-",     // GitLab
+    "AIza",       // Google API key
+    "-----BEGIN", // PEM private key
+];
+
+/// Inherently distinctive short formats with their own length threshold
+/// (the same thresholds the warning-level check uses — precision parity).
+const SHORT_HIGH_PRECISION_SECRET_PATTERNS: &[(&str, usize)] = &[
+    ("AKIA", 20), // AWS access key ID: AKIA + 16 alphanumeric
+    ("ASIA", 20), // AWS temporary access key ID: ASIA + 16 alphanumeric
+];
+
+/// The EXAMPLE placeholder convention: the AWS docs key
+/// `AKIAIOSFODNN7EXAMPLE` and every synthetic fixture built after it carry
+/// the marker — fixture data is not a secret. This is the anti-false-
+/// positive half of the gate (the escape crane proper is reading secrets
+/// from `env()` / binding them to a `Secret`-typed entity).
+const SECRET_FIXTURE_MARKER: &str = "EXAMPLE";
+
+/// Check if a string literal matches a high-precision provider token format
+/// at the SAME length thresholds the warning-level check uses.
+fn looks_like_provider_secret(s: &str) -> bool {
+    if s.contains(SECRET_FIXTURE_MARKER) {
+        return false;
+    }
+    let lower = s.to_lowercase();
+    for (pattern, min_len) in SHORT_HIGH_PRECISION_SECRET_PATTERNS {
+        if s.len() >= *min_len && lower.contains(&pattern.to_lowercase()) {
+            return true;
+        }
+    }
+    if s.len() < SECRET_MIN_LENGTH {
+        return false;
+    }
+    for pattern in HIGH_PRECISION_SECRET_PATTERNS {
+        if lower.contains(&pattern.to_lowercase()) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Check for provider-format hardcoded secrets — the Category-A half:
+/// a literal token of a real provider format refuses compilation on
+/// run/compile/serve/mcp-serve (the same coverage table as the warning
+/// check — the shared walker cannot drift).
+fn check_hardcoded_secrets(
+    declarations: &[Declaration],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    for decl in declarations {
+        let strings = collect_decl_string_literals(decl);
+        for s in strings {
+            if looks_like_provider_secret(s) {
+                let snippet = crate::util::safe_byte_truncate(s, 20);
+                let line = find_line(source, snippet);
+                findings.push(AuditFinding {
+                    severity: Severity::Error,
+                    check_id: "HARDCODED_SECRET",
+                    line,
+                    message: format!(
+                        "hardcoded secret: string literal matches a provider token format \
+                         (length={}) — read secrets from env() or bind them to a \
+                         Secret-typed entity instead (Naryad #458; EXAMPLE-marked \
+                         fixture placeholders stay clean)",
                         s.len()
                     ),
                 });
@@ -6232,6 +6329,11 @@ pub fn audit_category_a(declarations: &[Declaration], source: &str) -> Vec<Audit
     let mut findings: Vec<AuditFinding> = Vec::new();
     check_sql_dynamic(declarations, source, &mut findings);
     check_secret_leak(declarations, source, &mut findings);
+    // Наряд №458: provider-format secret literals refuse at compile time —
+    // the high-precision half of check_secrets promoted to Category A
+    // (blocking on run/compile/serve/mcp-serve). The name heuristics and
+    // the generic patterns stay warning-level in `mlog audit` (check_secrets).
+    check_hardcoded_secrets(declarations, source, &mut findings);
     check_html_injection(declarations, source, &mut findings);
     check_taint_persistence(declarations, source, &mut findings);
     // Наряд №386: the cross-module half — memory-key summaries + the

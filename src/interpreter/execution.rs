@@ -660,14 +660,16 @@ impl Interpreter {
         // №397 (kitchen-camera e2e): consent as a RUNTIME credential —
         // the scope lands on the media entry (the runtime twin of the
         // static consented-egress rule; statement-position calls).
-        if name == "consent_grant" {
+        // №466: the name literals are spelled in the shared live module
+        // (src/session_ops.rs) and referenced here by constant.
+        if name == crate::session_ops::NAME_CONSENT_GRANT {
             let mut store = self
                 .media_store
                 .lock()
                 .map_err(|e| format!("media store poisoned: {}", e))?;
             return crate::builtins::consent::consent_grant_dispatch(&mut store, &args);
         }
-        if name == "consent_revoke" {
+        if name == crate::session_ops::NAME_CONSENT_REVOKE {
             let mut store = self
                 .media_store
                 .lock()
@@ -1985,7 +1987,9 @@ impl Interpreter {
                 // №397 (kitchen-camera e2e): consent as a RUNTIME
                 // credential — expression path, the same shared dispatches
                 // (the runtime twin of the static consented-egress rule).
-                if name == "consent_grant" {
+                // №466: the name literals are spelled in the shared live
+                // module (src/session_ops.rs), referenced here by constant.
+                if name == crate::session_ops::NAME_CONSENT_GRANT {
                     let mut store = self
                         .media_store
                         .lock()
@@ -1994,7 +1998,7 @@ impl Interpreter {
                         &mut store, &eval_args,
                     );
                 }
-                if name == "consent_revoke" {
+                if name == crate::session_ops::NAME_CONSENT_REVOKE {
                     let mut store = self
                         .media_store
                         .lock()
@@ -2223,19 +2227,22 @@ impl Interpreter {
                 }
 
                 // ADR-0053: conversation builtins
-                if name == "conv_start" {
+                // №466: the bodies live in the shared live module
+                // (src/session_ops.rs); the name literals moved there with
+                // them (threshold 49 → 42).
+                if name == crate::session_ops::NAME_CONV_START {
                     return self.invoke_conv_start(&eval_args);
                 }
-                if name == "conv_add" {
+                if name == crate::session_ops::NAME_CONV_ADD {
                     return self.invoke_conv_add(&eval_args);
                 }
-                if name == "conv_history" {
+                if name == crate::session_ops::NAME_CONV_HISTORY {
                     return self.invoke_conv_history(&eval_args);
                 }
-                if name == "conv_context" {
+                if name == crate::session_ops::NAME_CONV_CONTEXT {
                     return self.invoke_conv_context(&eval_args);
                 }
-                if name == "conv_end" {
+                if name == crate::session_ops::NAME_CONV_END {
                     return self.invoke_conv_end(&eval_args);
                 }
 

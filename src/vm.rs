@@ -20,8 +20,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::ast::CompareOp as AstCompareOp;
 use crate::builtins::Builtins;
 use crate::bytecode::*;
+// №466: ConvMessage left vm.rs with the conv_add body (src/session_ops.rs).
 use crate::interpreter::{
-    ConvMessage, Conversation, ConversationConfig, Event, FluidValueVariant, PatternStats, Value,
+    Conversation, ConversationConfig, Event, FluidValueVariant, PatternStats, Value,
 };
 use crate::llm;
 
@@ -2607,132 +2608,37 @@ impl Vm {
         }
 
         // ── Наряд №72: conv_start — parity with interpreter::invoke_conv_start ──
-        if name == "conv_start" {
-            let id = match args.first() {
-                Some(Value::String(s)) => s.clone(),
-                _ => return Err("conv_start() requires 1 argument (id: String)".to_string()),
-            };
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_secs() as i64)
-                .unwrap_or(0);
-            let mut convs = self
-                .conversations
-                .lock()
-                .map_err(|e| format!("conv_start() lock error: {}", e))?;
-            convs.entry(id.clone()).or_insert_with(|| Conversation {
-                id: id.clone(),
-                messages: Vec::new(),
-                created_at: now,
-                last_active: now,
-                metadata: HashMap::new(),
-            });
-            return Ok(Value::String(id));
+        // №466: the body lives in the shared live module (src/session_ops.rs);
+        // the name literal moved there with it (threshold 49 → 42).
+        if name == crate::session_ops::NAME_CONV_START {
+            return crate::session_ops::conv_start(args, &self.conversations);
         }
 
         // ── Наряд №72: conv_add — parity with interpreter::invoke_conv_add ──
-        if name == "conv_add" {
-            let id = match args.first() {
-                Some(Value::String(s)) => s.clone(),
-                _ => return Err("conv_add() requires 3 arguments (id, role, text)".to_string()),
-            };
-            let role = match args.get(1) {
-                Some(Value::String(s)) => s.clone(),
-                _ => return Err("conv_add() requires 3 arguments (id, role, text)".to_string()),
-            };
-            let text = match args.get(2) {
-                Some(Value::String(s)) => s.clone(),
-                Some(other) => format!("{}", other),
-                None => return Err("conv_add() requires 3 arguments (id, role, text)".to_string()),
-            };
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_secs() as i64)
-                .unwrap_or(0);
-
-            let mut convs = self
-                .conversations
-                .lock()
-                .map_err(|e| format!("conv_add() lock error: {}", e))?;
-            let conv = convs
-                .get_mut(&id)
-                .ok_or_else(|| format!("conv_add() conversation '{}' not found", id))?;
-
-            if conv.messages.len() >= self.conversation_config.max_messages {
-                conv.messages.remove(0);
-            }
-
-            conv.messages.push(ConvMessage {
-                role,
-                text: text.clone(),
-                timestamp: now,
-            });
-            conv.last_active = now;
-
-            return Ok(Value::String(text));
+        // №466: the shared body takes the backend tail as a closure — the
+        // VM lane has no ADR-0053 auto-compression (verbatim posture).
+        if name == crate::session_ops::NAME_CONV_ADD {
+            return crate::session_ops::conv_add(
+                args,
+                &self.conversations,
+                &self.conversation_config,
+                |_| {},
+            );
         }
 
         // ── Наряд №72: conv_history — parity with interpreter::invoke_conv_history ──
-        if name == "conv_history" {
-            let id = match args.first() {
-                Some(Value::String(s)) => s.clone(),
-                _ => return Err("conv_history() requires 1 argument (id: String)".to_string()),
-            };
-            let convs = self
-                .conversations
-                .lock()
-                .map_err(|e| format!("conv_history() lock error: {}", e))?;
-            let conv = convs
-                .get(&id)
-                .ok_or_else(|| format!("conv_history() conversation '{}' not found", id))?;
-
-            let mut list = Vec::new();
-            for msg in &conv.messages {
-                let mut fields = HashMap::new();
-                fields.insert("role".to_string(), Value::String(msg.role.clone()));
-                fields.insert("text".to_string(), Value::String(msg.text.clone()));
-                fields.insert("timestamp".to_string(), Value::Float(msg.timestamp as f64));
-                list.push(Value::Struct {
-                    type_name: "Message".to_string(),
-                    fields,
-                });
-            }
-            return Ok(Value::List(list));
+        if name == crate::session_ops::NAME_CONV_HISTORY {
+            return crate::session_ops::conv_history(args, &self.conversations);
         }
 
         // ── Наряд №72: conv_context — parity with interpreter::invoke_conv_context ──
-        if name == "conv_context" {
-            let id = match args.first() {
-                Some(Value::String(s)) => s.clone(),
-                _ => return Err("conv_context() requires 1 argument (id: String)".to_string()),
-            };
-            let convs = self
-                .conversations
-                .lock()
-                .map_err(|e| format!("conv_context() lock error: {}", e))?;
-            let conv = convs
-                .get(&id)
-                .ok_or_else(|| format!("conv_context() conversation '{}' not found", id))?;
-
-            let mut parts = Vec::new();
-            for msg in &conv.messages {
-                parts.push(format!("{}: {}", msg.role, msg.text));
-            }
-            return Ok(Value::String(parts.join("\n")));
+        if name == crate::session_ops::NAME_CONV_CONTEXT {
+            return crate::session_ops::conv_context(args, &self.conversations);
         }
 
         // ── Наряд №72: conv_end — parity with interpreter::invoke_conv_end ──
-        if name == "conv_end" {
-            let id = match args.first() {
-                Some(Value::String(s)) => s.clone(),
-                _ => return Err("conv_end() requires 1 argument (id: String)".to_string()),
-            };
-            let mut convs = self
-                .conversations
-                .lock()
-                .map_err(|e| format!("conv_end() lock error: {}", e))?;
-            convs.remove(&id);
-            return Ok(Value::String("ok".to_string()));
+        if name == crate::session_ops::NAME_CONV_END {
+            return crate::session_ops::conv_end(args, &self.conversations);
         }
 
         // ── Наряд №72: event_count — parity with interpreter::event_count ──
@@ -3040,14 +2946,14 @@ impl Vm {
             // the same shared dispatches the interpreter uses (the scope
             // lands on the VM's own store entry; the runtime twin of the
             // static consented-egress rule).
-            "consent_grant" => Some(crate::builtins::consent::consent_grant_dispatch(
-                &mut self.media_store,
-                args,
-            )),
-            "consent_revoke" => Some(crate::builtins::consent::consent_revoke_dispatch(
-                &mut self.media_store,
-                args,
-            )),
+            // №466: the name literals are spelled in the shared live module
+            // (src/session_ops.rs), referenced here by constant.
+            crate::session_ops::NAME_CONSENT_GRANT => Some(
+                crate::builtins::consent::consent_grant_dispatch(&mut self.media_store, args),
+            ),
+            crate::session_ops::NAME_CONSENT_REVOKE => Some(
+                crate::builtins::consent::consent_revoke_dispatch(&mut self.media_store, args),
+            ),
             "media_retain" => Some(crate::builtins::media_retain_dispatch(
                 &mut self.media_store,
                 args,

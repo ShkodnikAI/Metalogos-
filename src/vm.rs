@@ -2147,55 +2147,19 @@ impl Vm {
             };
             return Ok(if name == "deny_event" { event } else { reason });
         }
-        if name == "recall" {
-            // №442: recall is the front door of memory. The VM's store
-            // lane stays the honest simple-memory twin (substring +
-            // activation, the bug #530 posture); the typed lane joins
-            // as a recall source with the №413 fail-closed consent
-            // contract — the SAME gate, suffix and ledger as the TW
-            // (parity by construction: the shared engine lives in
-            // src/memory_typed.rs).
-            let query = match args.first() {
-                Some(Value::String(s)) => s.clone(),
-                other => return Err(format!("recall() expected String, got {:?}", other)),
-            };
-            let min_conf = if args.len() > 1 {
-                args[1].as_float().unwrap_or(0.0)
-            } else {
-                0.0
-            };
-            // The typed lane's fail-closed gate comes FIRST.
-            let lane = crate::memory_typed::recall_lane(&query);
-            if let Some((container_id, subject)) = lane.gated_key_matches.first() {
-                crate::memory_typed::ledger_recall_denied(&query, container_id);
-                return Err(crate::memory_typed::recall_consent_refusal(
-                    &query,
-                    container_id,
-                    subject,
-                ));
-            }
-            // Store lane (VM-native twin) → typed-lane fallback.
-            let store_result = self.recall(&query, min_conf);
-            let had_store_hit = !store_result.is_empty();
-            let result = if had_store_hit {
-                store_result
-            } else {
-                match lane.hits.first() {
-                    Some(hit) => {
-                        let mut r = hit.text.clone();
-                        r.push_str(&crate::memory_typed::recall_hit_provenance(hit));
-                        r
-                    }
-                    None => String::new(),
-                }
-            };
-            let disclosed = if had_store_hit { 1 } else { lane.hits.len() };
-            crate::memory_typed::ledger_recall(&query, &lane, disclosed);
-            return Ok(Value::String(result));
-        }
 
         // find(entity_type, field, op, threshold) — entity store query
         // Searches globals for structs matching the type and field condition.
+        // №466: the memory group dispatches through the shared live
+        // module (src/memory_ops.rs) — the simple-memory twin engines
+        // moved there; the VM keeps only argument marshaling through the
+        // VmMemoryAccess contract. The 3..4-argument forget falls
+        // through to the §10.3 registry front door (parity with the TW).
+        if crate::memory_ops::handles(name) {
+            if let Some(result) = crate::memory_ops::dispatch_vm(name, self, args) {
+                return result;
+            }
+        }
         if name == "find" {
             let type_name = match args.first() {
                 Some(Value::String(s)) => s.clone(),
@@ -2803,78 +2767,12 @@ impl Vm {
         }
 
         // ── Наряд №72: memorize — parity with interpreter::invoke_memorize_fn ──
-        if name == "memorize" {
-            if args.is_empty() {
-                return Err("memorize() requires at least 1 argument (text)".to_string());
-            }
-            let value_str = match &args[0] {
-                Value::String(s) => s.clone(),
-                other => {
-                    return Err(format!(
-                        "memorize() expected String as first arg, got {}",
-                        other.type_name()
-                    ))
-                }
-            };
-            let priority = if args.len() > 1 {
-                args[1].as_float().unwrap_or(1.0)
-            } else {
-                1.0
-            };
-            let mem_type = if args.len() > 2 {
-                match &args[2] {
-                    Value::String(s) => s.clone(),
-                    other => format!("{}", other),
-                }
-            } else {
-                String::new()
-            };
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_secs() as i64)
-                .unwrap_or(0);
-            self.memory.push(VmMemoryEntry {
-                value: value_str,
-                priority,
-                timestamp: now,
-                decay_rate: 0.01,
-                mem_type,
-            });
-            return Ok(Value::Unit);
-        }
 
         // ── Наряд №72: forget — parity with interpreter::invoke_forget_fn ──
         // №445: the legacy 1..2-argument surface only; 3..4 arguments
         // are the canon §10.3 typed front door and fall through to the
         // registry handler (parity by construction — the shared engine
         // lives in src/memory_typed.rs).
-        if name == "forget" && args.len() <= 2 {
-            if args.is_empty() {
-                return Err("forget() requires at least 1 argument (query)".to_string());
-            }
-            let query_str = match &args[0] {
-                Value::String(s) => s.to_lowercase(),
-                other => {
-                    return Err(format!(
-                        "forget() expected String as first arg, got {}",
-                        other.type_name()
-                    ))
-                }
-            };
-            let days = if args.len() > 1 {
-                args[1].as_float().unwrap_or(30.0) as i64
-            } else {
-                30
-            };
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_secs() as i64)
-                .unwrap_or(0);
-            let cutoff = now - (days * 86400);
-            self.memory
-                .retain(|m| !(m.value.to_lowercase().contains(&query_str) && m.timestamp < cutoff));
-            return Ok(Value::Unit);
-        }
 
         // ── Bug #530 (FO-050 / office #182): recall_top_k — parity with the
         // interpreter's invoke_recall_top_k_fn ──
@@ -2888,68 +2786,6 @@ impl Vm {
         // TW's FTS5+cosine hybrid (each backend reads its own store, the
         // same posture as memorize/forget). Returns the same JSON shape:
         // [{value, score, type, priority}] as a String.
-        if name == "recall_top_k" {
-            if args.is_empty() {
-                return Err("recall_top_k() requires at least 1 argument (query)".to_string());
-            }
-            let query = match &args[0] {
-                Value::String(s) => s.clone(),
-                other => {
-                    return Err(format!(
-                        "recall_top_k() expected String as first arg, got {}",
-                        other.type_name()
-                    ))
-                }
-            };
-            let k = if args.len() > 1 {
-                args[1].as_float().unwrap_or(5.0) as usize
-            } else {
-                5
-            };
-            let type_filter = if args.len() > 2 {
-                match &args[2] {
-                    Value::String(s) => s.clone(),
-                    Value::Unit => String::new(),
-                    other => format!("{}", other),
-                }
-            } else {
-                String::new()
-            };
-            let query_lower = query.to_lowercase();
-            let query_words: Vec<&str> = query_lower.split_whitespace().collect();
-            let mut scored: Vec<(f64, &VmMemoryEntry)> = Vec::new();
-            for entry in &self.memory {
-                if !type_filter.is_empty() && entry.mem_type != type_filter {
-                    continue;
-                }
-                // Zero-hit entries STAY (score 0.0) — the TW hybrid returns
-                // top-k over the whole store, weak matches included (the
-                // contract is "top-k by score", not "only hits").
-                let val_lower = entry.value.to_lowercase();
-                let hits = query_words
-                    .iter()
-                    .filter(|w| val_lower.contains(*w))
-                    .count() as f64;
-                let score = (hits / query_words.len() as f64) * (1.0 + entry.priority);
-                scored.push((score, entry));
-            }
-            scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-            let json_results: Vec<serde_json::Value> = scored
-                .into_iter()
-                .take(k)
-                .map(|(score, entry)| {
-                    serde_json::json!({
-                        "value": entry.value,
-                        "score": score,
-                        "type": entry.mem_type,
-                        "priority": entry.priority,
-                    })
-                })
-                .collect();
-            return Ok(Value::String(
-                serde_json::to_string(&json_results).unwrap_or_default(),
-            ));
-        }
 
         // ── Наряд №72: query_row — parity with interpreter::invoke_query_row ──
         if name == "query_row" {
@@ -4292,43 +4128,9 @@ impl Vm {
 
     /// Recall from memory: find best matching entry by substring + decay.
     fn recall(&self, query: &str, min_confidence: f64) -> String {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
-
-        let mut best_match: Option<&VmMemoryEntry> = None;
-        let mut best_activation: f64 = 0.0;
-
-        for entry in &self.memory {
-            if !entry.value.contains(query) {
-                continue;
-            }
-            let age_days = ((now - entry.timestamp).max(0) as f64) / 86400.0;
-            let activation = entry.priority * (-entry.decay_rate * age_days).exp();
-            if activation > best_activation && activation >= min_confidence {
-                best_activation = activation;
-                best_match = Some(entry);
-            }
-        }
-
-        match best_match {
-            Some(entry) => {
-                let mut result = entry.value.clone();
-                // Walk knowledge graph for related memories
-                for rel in &self.relations {
-                    if rel.from == entry.value {
-                        result.push('\n');
-                        result.push_str(&format!("[GRAPH] {} -> {}", rel.relation, rel.to));
-                    } else if rel.to == entry.value {
-                        result.push('\n');
-                        result.push_str(&format!("[GRAPH] {} -> {}", rel.relation, rel.from));
-                    }
-                }
-                result
-            }
-            None => String::new(),
-        }
+        // №466: the store-lane body moved to the shared live module
+        // (src/memory_ops.rs) — delegation, same semantics.
+        crate::memory_ops::store_recall_vm(&self.memory, &self.relations, query, min_confidence)
     }
 
     /// Recall up to `limit` memory entries matching query, sorted by activation.
@@ -5432,5 +5234,20 @@ mod n456_vm_distill_holdout_tests {
             .try_train_distilled_model("P", "TestHead", 0.85, &examples)
             .expect("train must not error");
         assert!(result, "consistent labels must pass the holdout gate");
+    }
+}
+
+// №466: the live contract the shared memory module (src/memory_ops.rs)
+// uses to reach the VM's simple-memory store — the replacing live
+// contract for the RuntimeContext stub deleted by №465.
+impl crate::memory_ops::VmMemoryAccess for Vm {
+    fn mem(&self) -> &[VmMemoryEntry] {
+        &self.memory
+    }
+    fn mem_mut(&mut self) -> &mut Vec<VmMemoryEntry> {
+        &mut self.memory
+    }
+    fn relations(&self) -> &[VmRelation] {
+        &self.relations
     }
 }

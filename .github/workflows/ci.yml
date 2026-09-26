@@ -490,6 +490,19 @@ jobs:
           python3 scripts/ci/debt_counters.py --list ignore | head -50
           python3 scripts/ci/debt_counters.py --list dead_code | head -50
 
+  type-signatures:
+    name: type-signatures (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Gate — the typed-signature share vs the checked-in floor (№467; movement only up)
+        run: |
+          python3 scripts/ci/type_signature_share.py --gate scripts/ci/type_signature_baseline.txt
+      - name: Artifact — the share report + the untyped inventory (the stage-1 base)
+        run: |
+          python3 scripts/ci/type_signature_share.py
+          python3 scripts/ci/type_signature_share.py --list | head -50
+
   vscode-extension:
     name: vscode-extension (blocking)
     runs-on: ubuntu-latest

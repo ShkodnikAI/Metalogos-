@@ -3,6 +3,13 @@
 use crate::interpreter::Value;
 pub type BuiltinFn = fn(&[Value]) -> Result<Value, String>;
 
+// №467 (gh#688): the stage-0 signature type vocabulary — the `Type`
+// enum, the const fill-site parser (`from_path`) and the full parser
+// (`parse_type`). The `BuiltinSpec.return_type` field below is filled
+// from the string path at registry construction.
+pub mod sig_types;
+pub use sig_types::Type;
+
 /// Registry of built-in functions.
 pub struct Builtins {
     funcs: std::collections::HashMap<String, BuiltinFn>,
@@ -17,6 +24,9 @@ pub struct Builtins {
 /// - `max_arity`: None = exact match (arity is exact), Some(M) = accepts arity..=M
 /// - `category`: logical group for documentation and error messages
 /// - `layer`: architectural layer — "core", "platform", or "ext"
+/// - `return_type`: the stage-0 typed signature (№467): `Type::from_path`
+///   of the documented string path at the fill site; `Unknown` = the
+///   honest "not typed yet" (the CI share metric counts non-Unknown)
 /// - `handler`: the Rust function that implements this builtin.
 ///   `None` = осознанная заглушка (stub — no runtime handler, e.g.
 ///   historical placeholders kept for bytecode index stability).
@@ -27,6 +37,7 @@ pub struct BuiltinSpec {
     pub max_arity: Option<usize>, // None = exact match (arity is exact), Some(M) = accepts arity..=M
     pub category: &'static str,
     pub layer: &'static str, // "core" | "platform" | "ext"; default "core"
+    pub return_type: Type,   // №467 stage 0: the typed signature (Unknown = not typed yet)
     pub handler: Option<BuiltinFn>, // None = stub (intentionally no handler)
 }
 
@@ -53,6 +64,7 @@ macro_rules! spec {
             max_arity: Some($max),
             category: $cat,
             layer: $layer,
+            return_type: $crate::builtins::sig_types::Type::Unknown,
             handler: Some($handler as $crate::builtins::BuiltinFn),
         }
     };
@@ -63,6 +75,7 @@ macro_rules! spec {
             max_arity: None,
             category: $cat,
             layer: $layer,
+            return_type: $crate::builtins::sig_types::Type::Unknown,
             handler: Some($handler as $crate::builtins::BuiltinFn),
         }
     };
@@ -73,6 +86,7 @@ macro_rules! spec {
             max_arity: Some($max),
             category: $cat,
             layer: "core",
+            return_type: $crate::builtins::sig_types::Type::Unknown,
             handler: Some($handler as $crate::builtins::BuiltinFn),
         }
     };
@@ -83,6 +97,7 @@ macro_rules! spec {
             max_arity: None,
             category: $cat,
             layer: "core",
+            return_type: $crate::builtins::sig_types::Type::Unknown,
             handler: Some($handler as $crate::builtins::BuiltinFn),
         }
     };
@@ -94,6 +109,7 @@ macro_rules! spec {
             max_arity: Some($max),
             category: $cat,
             layer: $layer,
+            return_type: $crate::builtins::sig_types::Type::Unknown,
             handler: None,
         }
     };
@@ -104,6 +120,7 @@ macro_rules! spec {
             max_arity: None,
             category: $cat,
             layer: $layer,
+            return_type: $crate::builtins::sig_types::Type::Unknown,
             handler: None,
         }
     };
@@ -114,6 +131,7 @@ macro_rules! spec {
             max_arity: Some($max),
             category: $cat,
             layer: "core",
+            return_type: $crate::builtins::sig_types::Type::Unknown,
             handler: None,
         }
     };
@@ -124,7 +142,59 @@ macro_rules! spec {
             max_arity: None,
             category: $cat,
             layer: "core",
+            return_type: $crate::builtins::sig_types::Type::Unknown,
             handler: None,
+        }
+    };
+
+    // ── Typed-handler variants (№467 stage 0) ──
+    // The trailing `, $rt` after the handler carries the documented
+    // string path of the return type; `Type::from_path` converts it to
+    // the enum AT THE FILL SITE (an unparseable path is honestly
+    // `Unknown`). The stub rows stay untyped until a documented path
+    // exists — an intentionally-no-handler row has no honest type yet.
+    ($name:expr, $arity:expr, $max:expr, $cat:expr; $handler:expr, $rt:expr) => {
+        $crate::builtins::BuiltinSpec {
+            name: $name,
+            arity: $arity,
+            max_arity: Some($max),
+            category: $cat,
+            layer: "core",
+            return_type: $crate::builtins::sig_types::Type::from_path($rt),
+            handler: Some($handler as $crate::builtins::BuiltinFn),
+        }
+    };
+    ($name:expr, $arity:expr, $cat:expr; $handler:expr, $rt:expr) => {
+        $crate::builtins::BuiltinSpec {
+            name: $name,
+            arity: $arity,
+            max_arity: None,
+            category: $cat,
+            layer: "core",
+            return_type: $crate::builtins::sig_types::Type::from_path($rt),
+            handler: Some($handler as $crate::builtins::BuiltinFn),
+        }
+    };
+    ($name:expr, $arity:expr, $max:expr, $cat:expr => $layer:expr; $handler:expr, $rt:expr) => {
+        $crate::builtins::BuiltinSpec {
+            name: $name,
+            arity: $arity,
+            max_arity: Some($max),
+            category: $cat,
+            layer: $layer,
+            return_type: $crate::builtins::sig_types::Type::from_path($rt),
+            handler: Some($handler as $crate::builtins::BuiltinFn),
+        }
+    };
+    ($name:expr, $arity:expr, $cat:expr => $layer:expr; $handler:expr, $rt:expr) => {
+        $crate::builtins::BuiltinSpec {
+            name: $name,
+            arity: $arity,
+            max_arity: None,
+            category: $cat,
+            layer: $layer,
+            return_type: $crate::builtins::sig_types::Type::from_path($rt),
+            handler: Some($handler as $crate::builtins::BuiltinFn),
         }
     };
 }

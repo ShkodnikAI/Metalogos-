@@ -39,12 +39,17 @@ def count_builtin_modules() -> int:
     content = (REPO / "src" / "builtins" / "registry.rs").read_text(encoding="utf-8")
     string_re = re.compile(r'"([^"]+)"')
     layer_re = re.compile(r'=>\s*"[^"]+"')
+    # №467: the typed rows end with the signature string —
+    # `spec!(..., handler, "Type")` — strip it so the last remaining
+    # string is the category again (the type is not a module).
+    type_re = re.compile(r'(;\s*[A-Za-z_0-9]+),\s*"[A-Za-z][A-Za-z0-9<>]*"\s*\)')
     categories = set()
     for line in content.splitlines():
         if "spec!(" not in line:
             continue
         code = line.split("//")[0]
         clean = layer_re.sub("", code)
+        clean = type_re.sub(r"\1)", clean)
         strings = string_re.findall(clean)
         if strings:
             categories.add(strings[-1])

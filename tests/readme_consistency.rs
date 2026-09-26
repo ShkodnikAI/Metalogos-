@@ -382,6 +382,10 @@ fn real_builtin_category_count() -> usize {
 
     let string_re = Regex::new(r#""([^"]+)""#).unwrap();
     let layer_re = Regex::new(r#"=>\s*"[^"]+""#).unwrap();
+    // №467: the typed rows end with the signature string —
+    // `spec!(..., handler, "Type")` — strip it so the last remaining
+    // string is the category again (the type is not a module).
+    let type_re = Regex::new(r#"(;\s*[A-Za-z_0-9]+),\s*"[A-Za-z][A-Za-z0-9<>]*"\s*\)"#).unwrap();
 
     let mut categories: std::collections::HashSet<String> = std::collections::HashSet::new();
 
@@ -393,6 +397,8 @@ fn real_builtin_category_count() -> usize {
         let code_part = line.split("//").next().unwrap_or(line);
         // Strip => "layer" so it isn't mistaken for a category
         let clean = layer_re.replace_all(code_part, "");
+        // Strip the №467 trailing typed-signature string (`", "Type")`)
+        let clean = type_re.replace_all(&clean, "$1)");
         // Extract all string literals; category is the last one
         let strings: Vec<&str> = string_re
             .captures_iter(&clean)

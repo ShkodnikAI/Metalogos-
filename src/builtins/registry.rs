@@ -78,46 +78,46 @@ use crate::voice::{
 /// add the handler in Builtins::new(), and you're done.
 pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // ── String builtins ──
-    spec!("upper", 1, "string"; builtin_upper),
-    spec!("lower", 1, "string"; builtin_lower),
-    spec!("len", 1, "string"; builtin_len),
-    spec!("str", 1, "string"; builtin_str),
-    spec!("contains", 2, "string"; builtin_contains),
-    spec!("index_of", 2, "string"; builtin_index_of),
-    spec!("substring", 3, "string"; builtin_substring),
-    spec!("char_at", 2, "string"; builtin_char_at),
-    spec!("starts_with", 2, "string"; builtin_starts_with),
-    spec!("ends_with", 2, "string"; builtin_ends_with),
-    spec!("trim", 1, "string"; builtin_trim),
-    spec!("replace", 3, "string"; builtin_replace),
-    spec!("split", 2, "string"; builtin_split),
-    spec!("join", 2, "string"; builtin_join),
-    spec!("length", 1, "string"; builtin_length),
+    spec!("upper", 1, "string"; builtin_upper, "String"),
+    spec!("lower", 1, "string"; builtin_lower, "String"),
+    spec!("len", 1, "string"; builtin_len, "Float"),
+    spec!("str", 1, "string"; builtin_str, "String"),
+    spec!("contains", 2, "string"; builtin_contains, "Bool"),
+    spec!("index_of", 2, "string"; builtin_index_of, "Float"),
+    spec!("substring", 3, "string"; builtin_substring, "String"),
+    spec!("char_at", 2, "string"; builtin_char_at, "String"),
+    spec!("starts_with", 2, "string"; builtin_starts_with, "Bool"),
+    spec!("ends_with", 2, "string"; builtin_ends_with, "Bool"),
+    spec!("trim", 1, "string"; builtin_trim, "String"),
+    spec!("replace", 3, "string"; builtin_replace, "String"),
+    spec!("split", 2, "string"; builtin_split, "List"),
+    spec!("join", 2, "string"; builtin_join, "String"),
+    spec!("length", 1, "string"; builtin_length, "Float"),
     spec!("reverse", 1, "string"; builtin_reverse),
-    spec!("escape_html", 1, "string"; builtin_escape_html),
-    spec!("escape_json", 1, "string"; builtin_escape_json),
+    spec!("escape_html", 1, "string"; builtin_escape_html, "String"),
+    spec!("escape_json", 1, "string"; builtin_escape_json, "String"),
     // Наряд №274 (ADR-0136): redact(text, mode) — PII/секреты как
     // taint-санитайзер («mask before sink»). Единственный легальный путь
     // снять Secret-taint; семантика снятия — в src/audit.rs + ADR-0136.
     spec!("redact", 2, "string"; builtin_redact),
-    spec!("escape_js", 1, "string"; builtin_escape_js),
-    spec!("fuzzy_match", 2, "string"; builtin_fuzzy_match),
-    spec!("strip", 2, "string"; builtin_strip),
-    spec!("chomp", 1, "string"; builtin_chomp),
-    spec!("repeat", 2, "string"; builtin_repeat),
-    spec!("pad_left", 3, "string"; builtin_pad_left),
-    spec!("pad_right", 3, "string"; builtin_pad_right),
-    spec!("lines", 1, "string"; builtin_lines),
-    spec!("words", 1, "string"; builtin_words),
-    spec!("token_count", 1, "string"; builtin_token_count),
-    spec!("type_of", 1, "string"; builtin_type_of),
-    spec!("format", 0, "string"; builtin_format), // variadic: 1 template + N fill args
+    spec!("escape_js", 1, "string"; builtin_escape_js, "String"),
+    spec!("fuzzy_match", 2, "string"; builtin_fuzzy_match, "Float"),
+    spec!("strip", 2, "string"; builtin_strip, "String"),
+    spec!("chomp", 1, "string"; builtin_chomp, "String"),
+    spec!("repeat", 2, "string"; builtin_repeat, "String"),
+    spec!("pad_left", 3, "string"; builtin_pad_left, "String"),
+    spec!("pad_right", 3, "string"; builtin_pad_right, "String"),
+    spec!("lines", 1, "string"; builtin_lines, "List"),
+    spec!("words", 1, "string"; builtin_words, "List"),
+    spec!("token_count", 1, "string"; builtin_token_count, "Float"),
+    spec!("type_of", 1, "string"; builtin_type_of, "String"),
+    spec!("format", 0, "string"; builtin_format, "String"), // variadic: 1 template + N fill args
     // НАРЯД №117: missing string utilities
-    spec!("trim_start", 1, "string"; builtin_trim_start),
-    spec!("trim_end", 1, "string"; builtin_trim_end),
-    spec!("truncate", 2, "string"; builtin_truncate),
-    spec!("slugify", 1, "string"; builtin_slugify),
-    spec!("word_wrap", 2, "string"; builtin_word_wrap),
+    spec!("trim_start", 1, "string"; builtin_trim_start, "String"),
+    spec!("trim_end", 1, "string"; builtin_trim_end, "String"),
+    spec!("truncate", 2, "string"; builtin_truncate, "String"),
+    spec!("slugify", 1, "string"; builtin_slugify, "String"),
+    spec!("word_wrap", 2, "string"; builtin_word_wrap, "String"),
     spec!("capitalize", 1, "string"; builtin_capitalize),
     spec!("title_case", 1, "string"; builtin_title_case),
     // ── Stdlib backing (double-underscore prefix) ──
@@ -133,21 +133,21 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("__first", 1, "std"; builtin_first),
     spec!("__last", 1, "std"; builtin_last),
     // ── Math builtins (public aliases for __abs/__min/__max/__clamp/__round) ──
-    spec!("abs", 1, "math"; builtin_abs),
-    spec!("min", 2, "math"; builtin_min),
-    spec!("max", 2, "math"; builtin_max),
-    spec!("clamp", 3, "math"; builtin_clamp),
-    spec!("round", 1, "math"; builtin_round),
+    spec!("abs", 1, "math"; builtin_abs, "Float"),
+    spec!("min", 2, "math"; builtin_min, "Float"),
+    spec!("max", 2, "math"; builtin_max, "Float"),
+    spec!("clamp", 3, "math"; builtin_clamp, "Float"),
+    spec!("round", 1, "math"; builtin_round, "Float"),
     // Наряд №177: Math foundation for Reflex (stage 1/6)
     spec!("exp", 1, "math"; builtin_exp),
     spec!("ln", 1, "math"; builtin_ln),
-    spec!("sqrt", 1, "math"; builtin_sqrt),
+    spec!("sqrt", 1, "math"; builtin_sqrt, "Float"),
     spec!("pow", 2, "math"; builtin_pow),
     spec!("tanh", 1, "math"; builtin_tanh),
     spec!("sigmoid", 1, "math"; builtin_sigmoid),
     spec!("softmax", 1, "math"; builtin_softmax),
     spec!("random_seed", 1, "math"; builtin_random_seed),
-    spec!("random", 0, "math"; builtin_random), // ── Phase 4.4 self-hosting — historical placeholders, never implemented ──
+    spec!("random", 0, "math"; builtin_random, "Float"), // ── Phase 4.4 self-hosting — historical placeholders, never implemented ──
     // ADR-0023 described a hybrid lexer approach using 5 builtins (stdin,
     // split_tokens, if_eq, newline, is_string_token). Handler functions were
     // never committed to main — only the builtin names were registered as
@@ -169,9 +169,9 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("if_eq", 3, "stub"),
     spec!("is_string_token", 1, "stub"), // db_insert: planned convenience wrapper for INSERT; no handler (use db_execute instead)
     spec!("db_insert", 0, "stub"),       // ── Convert builtins ──
-    spec!("float", 1, "convert"; builtin_float),
+    spec!("float", 1, "convert"; builtin_float, "Float"),
     spec!("to_string", 1, "convert"; builtin_to_string),
-    spec!("to_float", 1, "convert"; builtin_to_float), // ── IO builtins ──
+    spec!("to_float", 1, "convert"; builtin_to_float, "Float"), // ── IO builtins ──
     spec!("print", 1, "io"; builtin_print),
     spec!("read_file", 1, "io"; builtin_read_file),
     spec!("write_file", 2, "io"; builtin_write_file),
@@ -188,7 +188,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("mcp_list_tools", 2, "io"; builtin_mcp_list_tools),
     // ── List builtins ──
     spec!("get", 2, "list"; builtin_get),
-    spec!("push", 2, "list"; builtin_push),
+    spec!("push", 2, "list"; builtin_push, "List"),
     spec!("slice", 3, "list"; builtin_slice),
     spec!("zip", 2, "list"; builtin_zip),
     spec!("sort_by", 2, 3, "list"; builtin_sort_by),
@@ -197,9 +197,9 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("dedup", 1, "list"; builtin_dedup),
     spec!("condense", 1, "list"; builtin_condense),
     // НАРЯД №118: collection utilities (unique, chunk, sort)
-    spec!("unique", 1, "list"; builtin_unique),
+    spec!("unique", 1, "list"; builtin_unique, "List"),
     spec!("chunk", 2, "list"; builtin_chunk),
-    spec!("sort", 1, "list"; builtin_sort),
+    spec!("sort", 1, "list"; builtin_sort, "List"),
     spec!("first", 1, "list"; builtin_first),
     spec!("last", 1, "list"; builtin_last),
     spec!("make_list", 0, "list"; builtin_make_list),
@@ -387,8 +387,8 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("session_get", 1, "memory"; builtin_session_get),
     spec!("ref", 1, "memory"; builtin_content_ref),
     spec!("deref", 1, "memory"; builtin_content_deref), // ── Time builtins ──
-    spec!("now", 0, "time"; builtin_now),
-    spec!("sleep", 1, "time"; builtin_sleep),
+    spec!("now", 0, "time"; builtin_now, "Float"),
+    spec!("sleep", 1, "time"; builtin_sleep, "Unit"),
     spec!("time", 0, "time"; builtin_now),
     spec!("add_days", 2, "time"; builtin_add_days),
     spec!("add_hours", 2, "time"; builtin_add_hours),
@@ -486,7 +486,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("read_file_tokens", 1, "bot" => "ext"; builtin_read_file_tokens),
     // ── sqz-inspired: string/list utilities ──
     spec!("squeeze", 2, "string"; builtin_squeeze),
-    spec!("to_int", 1, "string"; builtin_to_int), // parse string/float to integer
+    spec!("to_int", 1, "string"; builtin_to_int, "Float"), // parse string/float to integer
     // ── PDF processing (Наряд №48) ──
     spec!("pdf_classify", 1, "pdf"; builtin_pdf_classify),
     spec!("pdf_to_markdown", 1, "pdf"; builtin_pdf_to_markdown),

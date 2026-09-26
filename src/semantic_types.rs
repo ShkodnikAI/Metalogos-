@@ -11,10 +11,10 @@
 //! The machinery (deliberately minimal, per the М1 decomposition):
 //! - a per-block, straight-line type environment over `let` bindings;
 //! - a binding gets a KNOWN type when its initializer is
-//!     (a) a direct builtin call whose `BUILTIN_REGISTRY` row carries a
-//!         typed stage-0 `return_type` (not `Unknown`), or
-//!     (b) a literal (string / float / bool / list), or
-//!     (c) a copy from another let-bound variable of known type;
+//!   (a) a direct builtin call whose `BUILTIN_REGISTRY` row carries a
+//!   typed stage-0 `return_type` (not `Unknown`), or
+//!   (b) a literal (string / float / bool / list), or
+//!   (c) a copy from another let-bound variable of known type;
 //!   everything else (binary ops, field/index access, struct literals,
 //!   pattern calls, namespaced calls, if/match/try expressions) is
 //!   conservatively `Unknown` — and `Unknown` NEVER warns (the honesty

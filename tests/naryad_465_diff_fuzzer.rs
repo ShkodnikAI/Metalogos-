@@ -150,8 +150,7 @@ fn gen_stmts(rng: &mut Rng, vars: &mut Vec<String>, _depth: u32, budget: &mut u3
             )),
             2 => {
                 out.push(
-                    "each item in [\"a\", \"b\", \"c\"] {{\n  let acc = len(item)\n}}"
-                        .to_string(),
+                    "each item in [\"a\", \"b\", \"c\"] {{\n  let acc = len(item)\n}}".to_string(),
                 );
             }
             3 => {

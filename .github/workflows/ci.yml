@@ -543,6 +543,18 @@ jobs:
       - name: Scan the working tree (no-git; blocking posture)
         run: gitleaks detect --no-banner --redact --no-git --config .gitleaks.toml
 
+  docs-metrics:
+    name: docs-metrics (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Няряд №460: the README numbers are GENERATED (scripts/gen_metrics.py)
+      # and validated on every run — a stale metric (LOC, builtins, ADRs,
+      # sizes) fails CI instead of drifting silently. The independent
+      # recomputation lives in tests/readme_consistency.rs.
+      - name: Validate the generated metrics block
+        run: python3 scripts/gen_metrics.py --check
+
   # Наряд №256 (part B, PR #284's ready block): дымовой фаззинг новых целей
   # (2 минуты бюджета на цель). НЕ блокирующий: паники, найденные фаззером,
   # чинятся в нарядах, но дымовой прогон не должен держать мержи

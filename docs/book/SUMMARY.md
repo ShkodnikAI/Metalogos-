@@ -23,6 +23,16 @@ If you're new to METALOGOS, start with the [Tutorial](./tutorial.md) — it walk
 - [Syntax Reference](./syntax.md) — complete language syntax reference
 - [Standard Library Reference](./stdlib.md) — built-in modules: string, math, collections, JSON, HTTP, crypto, memory, SVG, and more (359 builtins across 22 modules)
 
+### The Full Picture (from the README, naryad #460)
+
+- [Overview](./src/overview.md) — what Metalogos is and why it exists
+- [Competitive Advantages](./src/advantages.md) — the honest comparison table
+- [Eight Semantic Primitives](./src/primitives.md) — the constructs behind the pillars
+- [Architecture](./src/architecture.md) — crates, modules, the VM, the file tree
+- [Key Features](./src/features.md) — the feature-by-feature tour
+- [Quick Start — the Full CLI Tour](./src/quickstart.md) — every `mlog` subcommand explained
+- [Development Guide](./src/dev-guide.md) — CI/CD, ecosystem, technology stack
+- [Self-Hosting & Packaging](./src/selfhost.md) — the №197 parser and the №198 mlogpkg
 ## Architecture
 
 - [ADR Index](../adr/README.md) — Architecture Decision Records (0001–0111)

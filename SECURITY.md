@@ -2,13 +2,12 @@
 
 ## Supported Versions
 
-The following versions of Metalogos are currently supported with security updates:
+Security fixes land on the **latest minor release only** (the version shown on the project badge and in `Cargo.toml`); older minor releases receive no security backports and should be upgraded promptly. This page states the policy without version numbers on purpose — a hand-written versions table rots on every release (the audit's own finding); the authoritative "which version is latest" signal is the release feed:
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 0.20.x  | :white_check_mark: |
-| 0.19.x  | :white_check_mark: |
-| < 0.19  | :x:                |
+| Release line | Supported          |
+| ------------ | ------------------ |
+| latest minor release (see [Releases](https://github.com/ShkodnikAI/Metalogos-/releases)) | :white_check_mark: |
+| any older minor release | :x: |
 
 ## Reporting a Vulnerability
 

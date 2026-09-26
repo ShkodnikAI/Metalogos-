@@ -192,55 +192,15 @@ impl Interpreter {
     /// Searches all entities of the given type and returns the first one matching the condition.
     /// Soft-failure: returns Unit if no match found.
     pub(super) fn invoke_find(&self, args: Vec<Value>) -> Result<Value, String> {
-        let type_name = match args.first() {
-            Some(Value::String(s)) => s.clone(),
-            _ => return Err("find() requires type name as first argument (String)".to_string()),
-        };
-        let field_name = match args.get(1) {
-            Some(Value::String(s)) => s.clone(),
-            _ => return Err("find() requires field name as second argument (String)".to_string()),
-        };
-        let op_str = match args.get(2) {
-            Some(Value::String(s)) => s.clone(),
-            _ => {
-                return Err(
-                    "find() requires operator as third argument (String: gt/lt/ge/le/eq)"
-                        .to_string(),
-                )
-            }
-        };
-        let threshold = match args.get(3) {
-            Some(Value::Float(f)) => *f,
-            _ => return Err("find() requires threshold as fourth argument (Float)".to_string()),
-        };
-
-        // Search all variables for entities of the matching type
+        // №466 group 7: the validation + the operator predicate live in the
+        // shared live module (src/runtime_ops.rs); the store iteration
+        // stays the TW lane (its own variables map).
+        let q = crate::runtime_ops::find_args(&args)?;
         for value in self.variables.values() {
-            if let Value::Struct {
-                type_name: tn,
-                fields,
-            } = value
-            {
-                if tn == &type_name {
-                    if let Some(field_val) = fields.get(&field_name) {
-                        if let Ok(fv) = field_val.as_float() {
-                            let matches = match op_str.as_str() {
-                                "gt" => fv > threshold,
-                                "lt" => fv < threshold,
-                                "ge" => fv >= threshold,
-                                "le" => fv <= threshold,
-                                "eq" => (fv - threshold).abs() < 1e-9,
-                                _ => return Err(format!("find(): unknown operator '{}'", op_str)),
-                            };
-                            if matches {
-                                return Ok(value.clone());
-                            }
-                        }
-                    }
-                }
+            if crate::runtime_ops::find_matches(value, &q)? {
+                return Ok(value.clone());
             }
         }
-
         // No match found — soft-failure
         Ok(Value::Unit)
     }

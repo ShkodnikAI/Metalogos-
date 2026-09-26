@@ -57,6 +57,7 @@ pub mod memory_graph;
 pub mod memory_ops;
 pub mod memory_store;
 pub mod recipe_ops;
+pub mod runtime_ops;
 // Наряд №350: the typed Memory<K> layer — label-typed containers over
 // the process-global registry; at-rest AES-GCM under per-subject keys,
 // consent-gated private opens, audited sink reads/exports.

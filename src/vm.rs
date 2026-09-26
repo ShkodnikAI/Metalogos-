@@ -632,7 +632,8 @@ impl Vm {
                     // Quarantine clears nothing; everything else must be
                     // public at a sink (the №325 contract, runtime twin).
                     // EXEC additionally refuses untrusted (№325/№327).
-                    let exec_untrusted = fn_name == "exec" || fn_name == "exec_argv";
+                    let exec_untrusted =
+                        fn_name == crate::runtime_ops::NAME_EXEC || fn_name == "exec_argv";
                     if label.conf != crate::labels::Conf::Public
                         || (exec_untrusted
                             && label.integrity == crate::labels::Integrity::Untrusted)
@@ -2159,58 +2160,16 @@ impl Vm {
                 return result;
             }
         }
-        if name == "find" {
-            let type_name = match args.first() {
-                Some(Value::String(s)) => s.clone(),
-                _ => return Err("find() requires type name as first argument (String)".to_string()),
-            };
-            let field_name = match args.get(1) {
-                Some(Value::String(s)) => s.clone(),
-                _ => {
-                    return Err("find() requires field name as second argument (String)".to_string())
-                }
-            };
-            let op_str = match args.get(2) {
-                Some(Value::String(s)) => s.clone(),
-                _ => {
-                    return Err(
-                        "find() requires operator as third argument (String: gt/lt/ge/le/eq)"
-                            .to_string(),
-                    )
-                }
-            };
-            let threshold = match args.get(3) {
-                Some(Value::Float(f)) => *f,
-                _ => return Err("find() requires threshold as fourth argument (Float)".to_string()),
-            };
+        if name == crate::runtime_ops::NAME_FIND {
+            // №466 group 7: the validation + the operator predicate live in
+            // the shared live module (src/runtime_ops.rs); the store
+            // iteration stays the VM lane (its own globals). The
+            // unknown-operator error fires on the first candidate — exactly
+            // as the inline match did.
+            let q = crate::runtime_ops::find_args(args)?;
             for val in &self.globals {
-                if let Value::Struct {
-                    type_name: tn,
-                    fields,
-                } = val
-                {
-                    if tn == &type_name {
-                        if let Some(field_val) = fields.get(&field_name) {
-                            if let Ok(fv) = field_val.as_float() {
-                                let matches = match op_str.as_str() {
-                                    "gt" => fv > threshold,
-                                    "lt" => fv < threshold,
-                                    "ge" => fv >= threshold,
-                                    "le" => fv <= threshold,
-                                    "eq" => (fv - threshold).abs() < 1e-9,
-                                    _ => {
-                                        return Err(format!(
-                                            "find(): unknown operator '{}'",
-                                            op_str
-                                        ))
-                                    }
-                                };
-                                if matches {
-                                    return Ok(val.clone());
-                                }
-                            }
-                        }
-                    }
+                if crate::runtime_ops::find_matches(val, &q)? {
+                    return Ok(val.clone());
                 }
             }
             return Ok(Value::Unit);
@@ -2252,15 +2211,10 @@ impl Vm {
         }
 
         // resolve_skill_index(dept) — returns compiled skill index as Value::Struct
-        if name == "resolve_skill_index" {
-            let dept = match args.first() {
-                Some(Value::String(s)) => s.clone(),
-                _ => {
-                    return Err(
-                        "resolve_skill_index() expects a department name (String)".to_string()
-                    )
-                }
-            };
+        if name == crate::runtime_ops::NAME_RESOLVE_SKILL_INDEX {
+            // №466 group 7: the shared validation (src/runtime_ops.rs); the
+            // Vec-based index lookup stays the VM lane.
+            let dept = crate::runtime_ops::skill_dept(args)?;
             let idx = self
                 .skill_indices
                 .iter()
@@ -2328,30 +2282,20 @@ impl Vm {
         // Наряд №283: server_path_param(name) — path parameter from a
         // templated route (`/demo/{name}` matched against `/demo/test`).
         // Parity with query_param: empty string when no match / no context.
-        if name == "server_path_param" {
-            let param_name = args
-                .first()
-                .and_then(|v| match v {
-                    Value::String(s) => Some(s.clone()),
-                    _ => None,
-                })
-                .unwrap_or_default();
-            if let Some(ref params) = self.server_path_params {
-                if let Some(val) = params.get(&param_name) {
-                    return Ok(Value::String(val.clone()));
-                }
-            }
-            return Ok(Value::String(String::new()));
+        if name == crate::runtime_ops::NAME_SERVER_PATH_PARAM {
+            // №466 group 7: the shared body (src/runtime_ops.rs) over the
+            // identical Option<HashMap> state.
+            return Ok(crate::runtime_ops::server_path_param(
+                self.server_path_params.as_ref(),
+                args,
+            ));
         }
 
-        if name == "json_body" {
-            if let Some(ref body) = self.server_json_body {
-                return Ok(body.clone());
-            }
-            return Ok(Value::Struct {
-                type_name: "JsonBody".to_string(),
-                fields: std::collections::HashMap::new(),
-            });
+        if name == crate::runtime_ops::NAME_JSON_BODY {
+            // №466 group 7: the shared body (src/runtime_ops.rs).
+            return Ok(crate::runtime_ops::json_body(
+                self.server_json_body.as_ref(),
+            ));
         }
 
         if name == "form_data" {
@@ -2361,21 +2305,10 @@ impl Vm {
             });
         }
 
-        if name == "require" {
-            let role = args
-                .first()
-                .and_then(|v| match v {
-                    Value::String(s) => Some(s.clone()),
-                    _ => None,
-                })
-                .unwrap_or_default();
-            if self.server_user_roles.contains(&role) {
-                return Ok(Value::Bool(true));
-            }
-            return Err(format!(
-                "require('{}'): access denied — user has roles {:?}",
-                role, self.server_user_roles
-            ));
+        if name == crate::runtime_ops::NAME_REQUIRE {
+            // №466 group 7: the shared body (src/runtime_ops.rs) over the
+            // identical roles state.
+            return crate::runtime_ops::require(&self.server_user_roles, args);
         }
 
         // ── Наряд №67: recipe_save — intercept to also memorize for recipe_search ──
@@ -2517,17 +2450,10 @@ impl Vm {
         }
 
         // ── Наряд №72: inspect — parity with interpreter::invoke_inspect ──
-        if name == "inspect" {
-            let pattern_name = match args.first() {
-                Some(Value::String(s)) => s.clone(),
-                Some(other) => {
-                    return Err(format!(
-                        "inspect() expected String pattern name, got {}",
-                        other.type_name()
-                    ))
-                }
-                None => return Err("inspect() requires 1 argument (pattern name)".to_string()),
-            };
+        if name == crate::runtime_ops::NAME_INSPECT {
+            // №466 group 7: the shared validation (src/runtime_ops.rs); the
+            // stats lookup stays the VM lane (its own learnables/patterns).
+            let pattern_name = crate::runtime_ops::inspect_pattern_name(args)?;
 
             // Check if pattern exists in either learnables or patterns
             let is_learnable = self
@@ -2647,12 +2573,10 @@ impl Vm {
         }
 
         // ── Наряд №72: fit_to_budget — parity with interpreter (identity stub) ──
-        if name == "fit_to_budget" {
-            let list = match args.first() {
-                Some(Value::List(items)) => items.clone(),
-                _ => return Err("fit_to_budget() expects first argument to be a List".to_string()),
-            };
-            return Ok(Value::List(list));
+        if name == crate::runtime_ops::NAME_FIT_TO_BUDGET {
+            // №466 group 7: the shared body (src/runtime_ops.rs) — the
+            // byte-identical identity stub.
+            return crate::runtime_ops::fit_to_budget(args);
         }
 
         // Наряд №199 (ADR-0121): intercept reflex_train/reflex_predict

@@ -37,7 +37,9 @@ impl Interpreter {
         // Value format: "__KVKEY:<key>\n<description>"
         // recipe_search will parse this to extract the KV key.
         if !description.is_empty() {
-            let mem_value = format!("__KVKEY:{}\n{}", kv_key, description);
+            // №466 group 6: the __KVKEY format + the memorization
+            // constants live in the shared live module (src/recipe_ops.rs).
+            let mem_value = crate::recipe_ops::mem_value(&kv_key, &description);
             // №466: the body moved to the shared live module
             // (src/memory_ops.rs) — direct call, same semantics.
             let _ = crate::memory_ops::memorize_tw(
@@ -45,8 +47,8 @@ impl Interpreter {
                 &self.embedding_manager,
                 &[
                     Value::String(mem_value),
-                    Value::Float(0.8),
-                    Value::String("recipe".to_string()),
+                    Value::Float(crate::recipe_ops::RECIPE_PRIORITY),
+                    Value::String(crate::recipe_ops::RECIPE_MEM_TYPE.to_string()),
                 ],
             );
         }
@@ -99,33 +101,16 @@ impl Interpreter {
         let mut recipes: Vec<Value> = Vec::new();
         for entry in &recall_json {
             let value = entry["value"].as_str().unwrap_or("");
-            // Value format: "__KVKEY:<key>\n<description>"
-            let kv_key = if let Some(rest) = value.strip_prefix("__KVKEY:") {
-                rest.lines().next().unwrap_or("")
-            } else {
-                ""
-            };
-
+            // №466 group 6: the __KVKEY parse + the KV fetch/struct build
+            // live in the shared live module (src/recipe_ops.rs); the TW
+            // lane carries the recall score (the 4-field RecipeResult).
+            let kv_key = crate::recipe_ops::kv_key_from_value(value);
             if kv_key.is_empty() {
                 continue;
             }
-
-            // Fetch full recipe from KV
-            if let Some(recipe_json) = crate::builtins::memory::kv_get_raw(kv_key) {
-                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&recipe_json) {
-                    let name = parsed["name"].as_str().unwrap_or("").to_string();
-                    let desc = parsed["description"].as_str().unwrap_or("").to_string();
-                    let score = entry["score"].as_f64().unwrap_or(0.0);
-                    recipes.push(crate::builtins::core::make_struct(
-                        "RecipeResult",
-                        vec![
-                            ("name", Value::String(name)),
-                            ("description", Value::String(desc)),
-                            ("recipe_json", Value::String(recipe_json)),
-                            ("score", Value::Float(score)),
-                        ],
-                    ));
-                }
+            let score = entry["score"].as_f64().unwrap_or(0.0);
+            if let Some(recipe) = crate::recipe_ops::recipe_from_kv(kv_key, Some(score)) {
+                recipes.push(recipe);
             }
         }
 
@@ -207,55 +192,15 @@ impl Interpreter {
     /// Searches all entities of the given type and returns the first one matching the condition.
     /// Soft-failure: returns Unit if no match found.
     pub(super) fn invoke_find(&self, args: Vec<Value>) -> Result<Value, String> {
-        let type_name = match args.first() {
-            Some(Value::String(s)) => s.clone(),
-            _ => return Err("find() requires type name as first argument (String)".to_string()),
-        };
-        let field_name = match args.get(1) {
-            Some(Value::String(s)) => s.clone(),
-            _ => return Err("find() requires field name as second argument (String)".to_string()),
-        };
-        let op_str = match args.get(2) {
-            Some(Value::String(s)) => s.clone(),
-            _ => {
-                return Err(
-                    "find() requires operator as third argument (String: gt/lt/ge/le/eq)"
-                        .to_string(),
-                )
-            }
-        };
-        let threshold = match args.get(3) {
-            Some(Value::Float(f)) => *f,
-            _ => return Err("find() requires threshold as fourth argument (Float)".to_string()),
-        };
-
-        // Search all variables for entities of the matching type
+        // №466 group 7: the validation + the operator predicate live in the
+        // shared live module (src/runtime_ops.rs); the store iteration
+        // stays the TW lane (its own variables map).
+        let q = crate::runtime_ops::find_args(&args)?;
         for value in self.variables.values() {
-            if let Value::Struct {
-                type_name: tn,
-                fields,
-            } = value
-            {
-                if tn == &type_name {
-                    if let Some(field_val) = fields.get(&field_name) {
-                        if let Ok(fv) = field_val.as_float() {
-                            let matches = match op_str.as_str() {
-                                "gt" => fv > threshold,
-                                "lt" => fv < threshold,
-                                "ge" => fv >= threshold,
-                                "le" => fv <= threshold,
-                                "eq" => (fv - threshold).abs() < 1e-9,
-                                _ => return Err(format!("find(): unknown operator '{}'", op_str)),
-                            };
-                            if matches {
-                                return Ok(value.clone());
-                            }
-                        }
-                    }
-                }
+            if crate::runtime_ops::find_matches(value, &q)? {
+                return Ok(value.clone());
             }
         }
-
         // No match found — soft-failure
         Ok(Value::Unit)
     }

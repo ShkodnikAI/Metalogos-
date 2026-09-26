@@ -5531,6 +5531,14 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
     // bypass runtime escaping. See `svg_security_lint` docstring below.
     svg_security_lint(declarations, &mut result);
 
+    // №474 (gh#742): stage 1 of the type system — the let-type inference,
+    // WARN-ONLY (the №467 canon: "этап 1 (вывод let, warn-only)"). The
+    // pass appends to `warnings` only — `errors` are structurally
+    // untouched, no program is rejected, the runtime paths are unchanged.
+    result
+        .warnings
+        .extend(crate::semantic_types::stage1_warnings(declarations));
+
     result
 }
 

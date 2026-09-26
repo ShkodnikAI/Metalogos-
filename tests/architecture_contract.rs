@@ -476,12 +476,20 @@ const FROZEN_SCCS: &[FrozenScc] = &[
             &["src/llm.rs", "src/interpreter/mod.rs"],
         ],
     },
-    // SCC-2: the audit <-> semantic analysis pair.
+    // SCC-2: the audit <-> semantic analysis pair. №474 (gh#742): the
+    // stage-1 let-type inference (src/semantic_types.rs) joins the
+    // analysis pair deliberately — it consumes the semantic SpannedError
+    // and is wired at the END of check_program; it adds NO edge into
+    // SCC-1 (its ast/builtins reads are outgoing, not intra) and no
+    // forbidden edge (C2/C3/C5/C6 stay clean). The inventory moves with
+    // the module in the same PR — no silent drift.
     FrozenScc {
-        files: &["src/audit.rs", "src/semantic.rs"],
+        files: &["src/audit.rs", "src/semantic.rs", "src/semantic_types.rs"],
         edges: &[
             &["src/audit.rs", "src/semantic.rs"],
             &["src/semantic.rs", "src/audit.rs"],
+            &["src/semantic.rs", "src/semantic_types.rs"],
+            &["src/semantic_types.rs", "src/semantic.rs"],
         ],
     },
 ];

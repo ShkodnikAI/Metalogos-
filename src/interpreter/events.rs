@@ -31,28 +31,17 @@ impl Interpreter {
     }
 
     /// ADR-0052: Get total number of events, optionally filtered by type.
+    /// №466 group 5: the body lives in the shared live module
+    /// (src/audit_ops.rs); this public test/contract wrapper delegates.
     pub fn event_count(&self, event_type: Option<&str>) -> usize {
-        if let Ok(log) = self.event_log.lock() {
-            match event_type {
-                Some(t) => log.iter().filter(|e| e.event_type == t).count(),
-                None => log.len(),
-            }
-        } else {
-            0
-        }
+        crate::audit_ops::event_count_in(&self.event_log, event_type)
     }
 
     /// ADR-0052: Get events since a given Unix timestamp (seconds).
     /// Returns events with timestamp >= since_ms (milliseconds).
+    /// №466 group 5: delegates to the shared live module (src/audit_ops.rs).
     pub fn events_since_ms(&self, since_ms: u64) -> Vec<Event> {
-        if let Ok(log) = self.event_log.lock() {
-            log.iter()
-                .filter(|e| e.timestamp >= since_ms)
-                .cloned()
-                .collect()
-        } else {
-            Vec::new()
-        }
+        crate::audit_ops::events_since_in(&self.event_log, since_ms)
     }
 
     /// ADR-0052: Get a reference to the full event log (for test access).
@@ -65,15 +54,8 @@ impl Interpreter {
 
     /// ADR-0052: Sum a numeric field across events of a given type.
     /// Parses field values as f64 and sums them.
+    /// №466 group 5: delegates to the shared live module (src/audit_ops.rs).
     pub fn event_sum(&self, event_type: &str, field: &str) -> f64 {
-        if let Ok(log) = self.event_log.lock() {
-            log.iter()
-                .filter(|e| e.event_type == event_type)
-                .filter_map(|e| e.data.get(field))
-                .filter_map(|v| v.parse::<f64>().ok())
-                .sum()
-        } else {
-            0.0
-        }
+        crate::audit_ops::event_sum_in(&self.event_log, event_type, field)
     }
 }

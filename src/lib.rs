@@ -18,6 +18,7 @@ pub const GRAMMAR_REV: u32 = 1;
 pub mod ast;
 use crate::audit::{audit_category_a, Severity};
 pub mod audit;
+pub mod audit_ops;
 pub mod builtins;
 // Наряд №335 (spec §7.2 v2): consent ledger — subject/scope/TTL records
 // for every grant and revocation (process-local SQLite; export = egress).

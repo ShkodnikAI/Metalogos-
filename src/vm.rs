@@ -2136,17 +2136,15 @@ impl Vm {
         // outside an on_deny handler at compile time; this runtime gate
         // (event live exactly while the handler body runs) is the second
         // half of the double protection.
-        if name == "deny_event" || name == "deny_reason" {
-            let event = self.current_deny_event.clone().ok_or_else(|| {
-                "deny_event() is only available inside an on_deny handler".to_string()
-            })?;
-            let reason = match &event {
-                Value::Struct { fields, .. } => {
-                    fields.get("reason").cloned().unwrap_or(Value::Unit)
-                }
-                other => other.clone(),
-            };
-            return Ok(if name == "deny_event" { event } else { reason });
+        // №466 group 5: the body lives in the shared live module
+        // (src/audit_ops.rs); this site keeps its exact dispatch position
+        // and its per-backend accessor (current_deny_event).
+        if name == crate::audit_ops::NAME_DENY_EVENT || name == crate::audit_ops::NAME_DENY_REASON {
+            let event = self
+                .current_deny_event
+                .clone()
+                .ok_or_else(|| crate::audit_ops::DENY_HANDLER_ERR.to_string())?;
+            return Ok(crate::audit_ops::deny_event_or_reason(name, event));
         }
 
         // find(entity_type, field, op, threshold) — entity store query
@@ -2642,83 +2640,20 @@ impl Vm {
         }
 
         // ── Наряд №72: event_count — parity with interpreter::event_count ──
-        if name == "event_count" {
-            let etype = args.first().map(|a| format!("{}", a));
-            let count = if let Ok(log) = self.event_log.lock() {
-                match etype.as_deref() {
-                    Some(t) => log.iter().filter(|e| e.event_type == t).count(),
-                    None => log.len(),
-                }
-            } else {
-                0
-            };
-            return Ok(Value::Float(count as f64));
+        // №466 group 5: the body lives in the shared live module
+        // (src/audit_ops.rs); the site keeps its exact dispatch order.
+        if name == crate::audit_ops::NAME_EVENT_COUNT {
+            return Ok(crate::audit_ops::event_count(&self.event_log, args));
         }
 
         // ── Наряд №72: event_sum — parity with interpreter::event_sum ──
-        if name == "event_sum" {
-            if args.len() < 2 {
-                return Err("event_sum() requires 2 arguments (type, field)".to_string());
-            }
-            let etype = format!("{}", args[0]);
-            let field = format!("{}", args[1]);
-            let sum = if let Ok(log) = self.event_log.lock() {
-                log.iter()
-                    .filter(|e| e.event_type == etype)
-                    .filter_map(|e| e.data.get(&field))
-                    .filter_map(|v| v.parse::<f64>().ok())
-                    .sum()
-            } else {
-                0.0
-            };
-            return Ok(Value::Float(sum));
+        if name == crate::audit_ops::NAME_EVENT_SUM {
+            return crate::audit_ops::event_sum(&self.event_log, args);
         }
 
         // ── Наряд №72: events_since — parity with interpreter::events_since (inline) ──
-        if name == "events_since" {
-            let seconds = match args.first() {
-                Some(Value::Float(s)) => *s,
-                Some(other) => {
-                    return Err(format!(
-                        "events_since() expected Float, got {}",
-                        other.type_name()
-                    ))
-                }
-                None => return Err("events_since() requires 1 argument (seconds)".to_string()),
-            };
-            let now_ms = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_millis() as u64)
-                .unwrap_or(0);
-            let since_ms = now_ms.saturating_sub((seconds * 1000.0) as u64);
-            let events = if let Ok(log) = self.event_log.lock() {
-                log.iter()
-                    .filter(|e| e.timestamp >= since_ms)
-                    .cloned()
-                    .collect::<Vec<_>>()
-            } else {
-                Vec::new()
-            };
-            let mut list = Vec::new();
-            for ev in events {
-                let mut fields = HashMap::new();
-                fields.insert("id".to_string(), Value::Float(ev.id as f64));
-                fields.insert("timestamp".to_string(), Value::Float(ev.timestamp as f64));
-                fields.insert("event_type".to_string(), Value::String(ev.event_type));
-                fields.insert("source".to_string(), Value::String(ev.source));
-                fields.insert(
-                    "data_json".to_string(),
-                    Value::String(format!("{:?}", ev.data)),
-                );
-                if let Some(dur) = ev.duration_ms {
-                    fields.insert("duration_ms".to_string(), Value::Float(dur as f64));
-                }
-                list.push(Value::Struct {
-                    type_name: "Event".to_string(),
-                    fields,
-                });
-            }
-            return Ok(Value::List(list));
+        if name == crate::audit_ops::NAME_EVENTS_SINCE {
+            return crate::audit_ops::events_since(&self.event_log, args);
         }
 
         // ── Наряд №72: fit_to_budget — parity with interpreter (identity stub) ──

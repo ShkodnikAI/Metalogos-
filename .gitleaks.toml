@@ -1,0 +1,29 @@
+# Gitleaks configuration (naryad #459, audit 25.09 findings 3.7/3.8).
+#
+# The default rule set stays ON (useDefault) — the scan is a live tripwire
+# for real credential literals in the working tree. The allowlist covers the
+# repo's sanctioned synthetic shapes ONLY:
+#   - EXAMPLE-marked fixtures: the AWS docs key convention
+#     (AKIAIOSFODNN7EXAMPLE) and the synthetic provider tokens built after
+#     it (ghp_EXAMPLE0000… — naryad #459; the №458 escape-crane marker);
+#   - the GitLab fixture body in examples/p102 (the gitleaks gitlab-pat rule
+#     captures only the first 22 chars, so the EXAMPLE suffix sits outside
+#     its captured secret and needs its own entry);
+#   - the №172 test env values (my-api-key-… — obvious fakes);
+#   - the fixed test JWT signature in the №274 redact suite (the RFC 7515
+#     test vector, tweaked — not a secret).
+# Real token formats outside these shapes must stay absent from HEAD:
+# a leak lands here as a red build, not as an allowlist entry.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Metalogos synthetic fixtures and masked placeholders (naryad #459)"
+regexes = [
+  '''EXAMPLE''',
+  '''glpat-abcdefghijklmnopqrst''',
+  '''REDACTED:aws_access_key''',
+  '''SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJVadQssw5c''',
+  '''my-api-key-''',
+]

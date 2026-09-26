@@ -843,12 +843,12 @@ impl Interpreter {
         }
 
         // Наряд №67: recipe_save — intercept to also memorize for recipe_search
-        if name == "recipe_save" {
+        if name == crate::recipe_ops::NAME_RECIPE_SAVE {
             return self.invoke_recipe_save_fn(args);
         }
 
         // Наряд №67: recipe_search — semantic search via recall_top_k + kv_get
-        if name == "recipe_search" {
+        if name == crate::recipe_ops::NAME_RECIPE_SEARCH {
             return self.invoke_recipe_search_fn(args);
         }
 
@@ -2256,12 +2256,12 @@ impl Interpreter {
                 }
 
                 // Наряд №67: recipe_save — intercept to also memorize for recipe_search
-                if name == "recipe_save" {
+                if name == crate::recipe_ops::NAME_RECIPE_SAVE {
                     return self.invoke_recipe_save_fn(eval_args);
                 }
 
                 // Наряд №67: recipe_search — semantic search via recall_top_k + kv_get
-                if name == "recipe_search" {
+                if name == crate::recipe_ops::NAME_RECIPE_SEARCH {
                     return self.invoke_recipe_search_fn(eval_args);
                 }
 

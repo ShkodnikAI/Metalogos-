@@ -96,10 +96,12 @@ impl Interpreter {
     }
 
     /// Write-builtin names that trigger on_write hooks.
+    /// №466: the db name is spelled in the shared live module (src/db_ops.rs)
+    /// and referenced here by constant.
     pub(super) const WRITE_BUILTINS: &'static [&'static str] = &[
         "mem_set",
         "mtree_store",
-        "db_execute",
+        crate::db_ops::NAME_DB_EXECUTE,
         "write_file",
         "append_file",
     ];

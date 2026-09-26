@@ -12,7 +12,10 @@
 #
 # 2026-09-26 №466 (gh#687) group 1 (memory): memorize/recall/forget/recall_top_k
 # transferred to the shared live module src/memory_ops.rs — 60 → 56.
-# threshold: 56
+# 2026-09-26 №466 (gh#687) group 2 (db): db_execute/db_execute_with_grant/db_insert/
+# query/query_param/query_row/query_scalar transferred to the shared live module
+# src/db_ops.rs — 56 → 49.
+# threshold: 49
 
 consent_grant
 consent_revoke

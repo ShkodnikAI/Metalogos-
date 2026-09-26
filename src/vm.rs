@@ -2218,295 +2218,38 @@ impl Vm {
         }
 
         // db_insert(table, struct) — insert a struct into a database table
-        if name == "db_insert" {
-            let table = match args.first() {
-                Some(Value::String(s)) => s.clone(),
-                _ => {
-                    return Err(
-                        "db_insert() expects first argument to be a table name (String)"
-                            .to_string(),
-                    )
-                }
-            };
-            let fields = match args.get(1) {
-                Some(Value::Struct { fields, .. }) => fields.clone(),
-                _ => return Err("db_insert() expects second argument to be a Struct".to_string()),
-            };
-            // №409: LAZY db open — the connection (in-memory sqlite +
-            // schema DDL) materializes here, on first use.
-            self.ensure_db_open();
-            let conn = self.db_conn.as_mut().ok_or_else(|| {
-                "db_insert() error: no database connection. Declare db { url: \"sqlite::memory:\" } first.".to_string()
-            })?;
-            let col_names: Vec<String> = fields.keys().cloned().collect();
-            let placeholders: Vec<String> = col_names.iter().map(|_| "?".to_string()).collect();
-            let sql = format!(
-                "INSERT INTO {} ({}) VALUES ({})",
-                table,
-                col_names.join(", "),
-                placeholders.join(", ")
-            );
-            let params: Vec<Box<dyn rusqlite::types::ToSql>> = fields
-                .values()
-                .map(|v| match v {
-                    Value::String(s) => Box::new(s.clone()) as Box<dyn rusqlite::types::ToSql>,
-                    Value::Float(f) => Box::new(*f) as Box<dyn rusqlite::types::ToSql>,
-                    Value::Bool(b) => Box::new(*b) as Box<dyn rusqlite::types::ToSql>,
-                    Value::Unit => {
-                        Box::new(Option::<String>::None) as Box<dyn rusqlite::types::ToSql>
-                    }
-                    other => Box::new(format!("{}", other)) as Box<dyn rusqlite::types::ToSql>,
-                })
-                .collect();
-            let param_refs: Vec<&dyn rusqlite::types::ToSql> =
-                params.iter().map(|p| p.as_ref()).collect();
-            conn.execute(&sql, param_refs.as_slice())
-                .map_err(|e| crate::interpreter::db::sql_err("db_insert() SQL error", e))?;
-            let rowid: i64 = conn
-                .query_row("SELECT last_insert_rowid()", [], |row| row.get(0))
-                .unwrap_or(0);
-            return Ok(Value::Float(rowid as f64));
+        // №466: the body lives in the shared live module (src/db_ops.rs);
+        // the VM keeps only the marshaling hook through the VmDbAccess
+        // contract (the lazy open fires inside, exactly as before).
+        if name == crate::db_ops::NAME_DB_INSERT {
+            return crate::db_ops::db_insert_vm(self, args);
         }
 
         // query_scalar(sql, params) — execute SELECT returning one scalar value
-        if name == "query_scalar" {
-            let sql = match args.first() {
-                Some(Value::String(s)) => s.clone(),
-                _ => return Err("query_scalar() expected String SQL".to_string()),
-            };
-            // Naryad #381 parity fix: bind parameters TYPED (the shared
-            // convert_params SSOT) instead of stringifying them — the old
-            // Float→"3"/Bool→"true" string binds degraded types behind
-            // sqlite affinity (tree-walking binds them typed).
-            let params: Vec<rusqlite::types::Value> = if args.len() > 1 {
-                match &args[1] {
-                    Value::List(items) => crate::interpreter::convert_params(items)?,
-                    _ => Vec::new(),
-                }
-            } else {
-                Vec::new()
-            };
-            // №409: lazy db open on first use.
-            self.ensure_db_open();
-            let conn = self
-                .db_conn
-                .as_ref()
-                .ok_or_else(|| "query_scalar() error: no database connection.".to_string())?;
-            let mut stmt = conn
-                .prepare(&sql)
-                .map_err(|e| crate::interpreter::db::sql_err("query_scalar() SQL error", e))?;
-            let mut rows = stmt
-                .query_map(rusqlite::params_from_iter(params.iter()), |row| {
-                    row.get_ref(0).map(|v| match v {
-                        rusqlite::types::ValueRef::Null => Value::Unit,
-                        rusqlite::types::ValueRef::Integer(n) => Value::Float(n as f64),
-                        rusqlite::types::ValueRef::Real(f) => Value::Float(f),
-                        rusqlite::types::ValueRef::Text(s) => {
-                            Value::String(String::from_utf8_lossy(s).to_string())
-                        }
-                        rusqlite::types::ValueRef::Blob(b) => {
-                            Value::String(b.iter().map(|byte| format!("{:02x}", byte)).collect())
-                        }
-                    })
-                })
-                .map_err(|e| {
-                    crate::interpreter::db::sql_err("query_scalar() execution error", e)
-                })?;
-            match rows.next() {
-                Some(Ok(val)) => return Ok(val),
-                Some(Err(e)) => {
-                    return Err(crate::interpreter::db::sql_err(
-                        "query_scalar() row error",
-                        e,
-                    ))
-                }
-                None => return Ok(Value::Unit),
-            }
+        // №466: the body lives in the shared live module (src/db_ops.rs).
+        if name == crate::db_ops::NAME_QUERY_SCALAR {
+            return crate::db_ops::query_scalar_vm(self, args);
         }
 
         // query(sql) / query(sql, params) — execute SELECT returning list of structs
-        if name == "query" {
-            let sql = match args.first() {
-                Some(Value::String(s)) => s.clone(),
-                _ => return Err("query() expected String SQL".to_string()),
-            };
-            // Naryad #381 parity fix: the VM dropped the optional params list
-            // entirely (stmt.query([])) — any parameterized query failed with
-            // "Wrong number of parameters passed to query. Got 0, needed N",
-            // while the tree-walking backend binds them. The Stage 4
-            // benchmark corpus (naryad #381, ADR-0141 §D5) caught the
-            // divergence; both backends now share the typed convert_params.
-            let params: Vec<rusqlite::types::Value> = if args.len() > 1 {
-                match &args[1] {
-                    Value::List(items) => crate::interpreter::convert_params(items)?,
-                    _ => Vec::new(),
-                }
-            } else {
-                Vec::new()
-            };
-            // №409: lazy db open on first use.
-            self.ensure_db_open();
-            let conn = self
-                .db_conn
-                .as_ref()
-                .ok_or_else(|| "query() error: no database connection.".to_string())?;
-            let mut stmt = conn
-                .prepare(&sql)
-                .map_err(|e| crate::interpreter::db::sql_err("query() SQL error", e))?;
-            let col_names: Vec<String> =
-                stmt.column_names().iter().map(|s| s.to_string()).collect();
-            let mut rows = stmt
-                .query(rusqlite::params_from_iter(params.iter()))
-                .map_err(|e| crate::interpreter::db::sql_err("query() execution error", e))?;
-            let mut results = Vec::new();
-            while let Some(row) = rows
-                .next()
-                .map_err(|e| crate::interpreter::db::sql_err("query() row error", e))?
-            {
-                let mut fields = std::collections::HashMap::new();
-                for (i, col) in col_names.iter().enumerate() {
-                    let val: rusqlite::types::ValueRef = row
-                        .get_ref(i)
-                        .map_err(|e| format!("query() column {} error: {}", col, e))?;
-                    fields.insert(
-                        col.clone(),
-                        match val {
-                            rusqlite::types::ValueRef::Null => Value::Unit,
-                            rusqlite::types::ValueRef::Integer(n) => Value::Float(n as f64),
-                            rusqlite::types::ValueRef::Real(f) => Value::Float(f),
-                            rusqlite::types::ValueRef::Text(s) => {
-                                Value::String(String::from_utf8_lossy(s).to_string())
-                            }
-                            rusqlite::types::ValueRef::Blob(b) => Value::String(
-                                b.iter().map(|byte| format!("{:02x}", byte)).collect(),
-                            ),
-                        },
-                    );
-                }
-                results.push(Value::Struct {
-                    type_name: "Row".to_string(),
-                    fields,
-                });
-            }
-            return Ok(Value::List(results));
+        // №466: the body lives in the shared live module (src/db_ops.rs).
+        if name == crate::db_ops::NAME_QUERY {
+            return crate::db_ops::query_vm(self, args);
         }
 
         // db_execute(sql, params?) — execute SQL (INSERT/UPDATE/DELETE/DDL)
-        if name == "db_execute" {
-            let sql = match args.first() {
-                Some(Value::String(s)) => s.clone(),
-                _ => return Err("db_execute() expected String SQL".to_string()),
-            };
-            // Naryad #381 parity fix: typed param binding (convert_params
-            // SSOT) instead of stringification — same contract as the
-            // tree-walking backend (Bool→0/1, Float→REAL, no affinity hacks).
-            let params: Vec<rusqlite::types::Value> = if args.len() > 1 {
-                match &args[1] {
-                    Value::List(items) => crate::interpreter::convert_params(items)?,
-                    _ => Vec::new(),
-                }
-            } else {
-                Vec::new()
-            };
-            // №409: lazy db open on first use.
-            self.ensure_db_open();
-            let conn = self
-                .db_conn
-                .as_ref()
-                .ok_or_else(|| "db_execute() error: no database connection.".to_string())?;
-            conn.execute(&sql, rusqlite::params_from_iter(params.iter()))
-                .map_err(|e| crate::interpreter::db::sql_err("db_execute() SQL error", e))?;
-            return Ok(Value::Unit);
+        // №466: the body lives in the shared live module (src/db_ops.rs).
+        if name == crate::db_ops::NAME_DB_EXECUTE {
+            return crate::db_ops::db_execute_vm(self, args);
         }
 
         // db_execute_with_grant(g, sql, params?) — Naryad #390 (ADR-0155):
-        // the granted destructive-SQL action. Same gates as the tree-walking
-        // backend (ledger state/TTL/scope via src/grants.rs, typed binding
-        // via convert_params — the №381 contract); consumption happens only
-        // after the statement succeeded.
-        if name == "db_execute_with_grant" {
-            let handle = match args.first() {
-                Some(Value::Grant(h)) => h.clone(),
-                Some(other) => {
-                    return Err(format!(
-                        "db_execute_with_grant() first argument must be a Grant, got {}",
-                        other.type_name()
-                    ))
-                }
-                None => return Err("db_execute_with_grant() missing grant argument".to_string()),
-            };
-            let sql = match args.get(1) {
-                Some(Value::String(s)) => s.clone(),
-                Some(other) => {
-                    return Err(format!(
-                        "db_execute_with_grant() second argument must be String SQL, got {}",
-                        other.type_name()
-                    ))
-                }
-                None => return Err("db_execute_with_grant() missing sql argument".to_string()),
-            };
-            let params: Vec<rusqlite::types::Value> = if args.len() > 2 {
-                match &args[2] {
-                    Value::List(items) => crate::interpreter::convert_params(items)?,
-                    _ => Vec::new(),
-                }
-            } else {
-                Vec::new()
-            };
-            crate::grants::check_active(&handle)?;
-            let ops = crate::grants::extract_destructive_ops(&sql);
-            let destructive = !ops.is_empty();
-            for (op, table) in &ops {
-                if !crate::grants::scope_covers(&handle.scope, op, table) {
-                    return Err(format!(
-                        "GRANT_SCOPE_MISMATCH: grant {} ({}, scope '{}') does not cover {} {}",
-                        handle.grant_id, handle.class, handle.scope, op, table
-                    ));
-                }
-            }
-            // №409: lazy db open on first use.
-            self.ensure_db_open();
-            let conn = self.db_conn.as_ref().ok_or_else(|| {
-                "db_execute_with_grant() error: no database connection.".to_string()
-            })?;
-            let affected = conn
-                .execute(&sql, rusqlite::params_from_iter(params.iter()))
-                .map_err(|e| {
-                    crate::interpreter::db::sql_err("db_execute_with_grant() SQL error", e)
-                })?;
-            if destructive {
-                crate::grants::grant_use(&handle, &format!("db_execute_with_grant: {}", sql))?;
-                // ── Naryad #393 (ADR-0167 §3.4), runtime-twin parity with
-                // src/interpreter/db.rs (the naryad-397 follow-up caught
-                // the VM side missing this record — the wave-3 e2e could
-                // not see it because the TW+VM records share one process
-                // ledger and the content assertions were not per-run): the
-                // irreversible action SUCCEEDED — the journal entry is a
-                // side effect of the success path itself. The SQL preimage
-                // never enters the journal — only its SHA-256.
-                crate::ledger::record(
-                    "irreversible.db_execute",
-                    &handle.issuer,
-                    &handle.scope,
-                    &format!("{}|{}|{}", handle.grant_id, handle.scope, sql),
-                );
-                eprintln!(
-                    "[GRANT_USE] grant (scope '{}', class {}) executed {} (affected {}) — remaining {}",
-                    handle.scope,
-                    handle.class,
-                    sql.trim(),
-                    affected,
-                    crate::grants::state_of(&handle.grant_id)
-                        .map(|(_, r)| r)
-                        .unwrap_or(-1)
-                );
-            } else {
-                eprintln!(
-                    "[GRANT_USE] grant (scope '{}') ran non-destructive SQL — no consumption",
-                    handle.scope
-                );
-            }
-            return Ok(Value::String(affected.to_string()));
+        // the granted destructive-SQL action. №466: the body lives in the
+        // shared live module (src/db_ops.rs) — the gates (ledger state/
+        // TTL/scope via src/grants.rs) and the post-success consumption
+        // stay byte-for-byte the contract they were.
+        if name == crate::db_ops::NAME_DB_EXECUTE_WITH_GRANT {
+            return crate::db_ops::db_execute_with_grant_vm(self, args);
         }
 
         // resolve_skill_index(dept) — returns compiled skill index as Value::Struct
@@ -2577,20 +2320,10 @@ impl Vm {
         // per-request server context (query_params, json_body, user_roles)
         // that the generic builtin registry does not have.
 
-        if name == "query_param" {
-            let param_name = args
-                .first()
-                .and_then(|v| match v {
-                    Value::String(s) => Some(s.clone()),
-                    _ => None,
-                })
-                .unwrap_or_default();
-            if let Some(ref params) = self.server_query_params {
-                if let Some(val) = params.get(&param_name) {
-                    return Ok(Value::String(val.clone()));
-                }
-            }
-            return Ok(Value::String(String::new()));
+        // №466: the shared parse/return shape lives in src/db_ops.rs; the
+        // VM map accessor is injected.
+        if name == crate::db_ops::NAME_QUERY_PARAM {
+            return crate::db_ops::query_param_vm(self, args);
         }
 
         // Наряд №283: server_path_param(name) — path parameter from a
@@ -2787,76 +2520,11 @@ impl Vm {
         // same posture as memorize/forget). Returns the same JSON shape:
         // [{value, score, type, priority}] as a String.
 
-        // ── Наряд №72: query_row — parity with interpreter::invoke_query_row ──
-        if name == "query_row" {
-            let sql = match args.first() {
-                Some(Value::String(s)) => s.clone(),
-                Some(other) => {
-                    return Err(format!(
-                        "query_row() expected String SQL, got {}",
-                        other.type_name()
-                    ))
-                }
-                None => {
-                    return Err("query_row() requires at least 1 argument (SQL string)".to_string())
-                }
-            };
-            let params: Vec<String> = if args.len() > 1 {
-                match &args[1] {
-                    Value::List(items) => items
-                        .iter()
-                        .filter_map(|v| match v {
-                            Value::String(s) => Some(s.clone()),
-                            Value::Float(n) => Some(format!("{}", n)),
-                            Value::Bool(b) => Some(format!("{}", b)),
-                            _ => None,
-                        })
-                        .collect(),
-                    _ => Vec::new(),
-                }
-            } else {
-                Vec::new()
-            };
-
-            // №409: lazy db open on first use.
-            self.ensure_db_open();
-            let conn = self
-                .db_conn
-                .as_mut()
-                .ok_or_else(|| "query_row() error: no database connection.".to_string())?;
-            let mut stmt = conn
-                .prepare(&sql)
-                .map_err(|e| crate::interpreter::db::sql_err("query_row() SQL error", e))?;
-            let col_count = stmt.column_count();
-            let mut rows = stmt
-                .query_map(rusqlite::params_from_iter(params.iter()), |row| {
-                    let mut vals = Vec::with_capacity(col_count);
-                    for i in 0..col_count {
-                        let val = match row.get_ref(i) {
-                            Ok(rusqlite::types::ValueRef::Null) => Value::Unit,
-                            Ok(rusqlite::types::ValueRef::Integer(n)) => Value::Float(n as f64),
-                            Ok(rusqlite::types::ValueRef::Real(f)) => Value::Float(f),
-                            Ok(rusqlite::types::ValueRef::Text(s)) => {
-                                Value::String(String::from_utf8_lossy(s).to_string())
-                            }
-                            Ok(rusqlite::types::ValueRef::Blob(b)) => Value::String(
-                                b.iter().map(|byte| format!("{:02x}", byte)).collect(),
-                            ),
-                            Err(_) => Value::Unit,
-                        };
-                        vals.push(val);
-                    }
-                    Ok(vals)
-                })
-                .map_err(|e| crate::interpreter::db::sql_err("query_row() execution error", e))?;
-
-            match rows.next() {
-                Some(Ok(vals)) => return Ok(Value::List(vals)),
-                Some(Err(e)) => {
-                    return Err(crate::interpreter::db::sql_err("query_row() row error", e))
-                }
-                None => return Ok(Value::List(vec![])),
-            }
+        // ── Наряд №72: query_row — parity with the TW lane ──
+        // №466: the body lives in the shared live module (src/db_ops.rs);
+        // the stringify-bind lane stays the VM's own (the №465 pin).
+        if name == crate::db_ops::NAME_QUERY_ROW {
+            return crate::db_ops::query_row_vm(self, args);
         }
 
         // ── Наряд №72: inspect — parity with interpreter::invoke_inspect ──
@@ -5249,5 +4917,21 @@ impl crate::memory_ops::VmMemoryAccess for Vm {
     }
     fn relations(&self) -> &[VmRelation] {
         &self.relations
+    }
+}
+
+// №466 group 2 (db): the live contract the shared db module
+// (src/db_ops.rs) uses to reach the VM's lazily-opened connection and
+// the per-request server query params — the same live-contract posture
+// as VmMemoryAccess above (the RuntimeContext stub stays deleted).
+impl crate::db_ops::VmDbAccess for Vm {
+    fn ensure_db_open(&mut self) {
+        Vm::ensure_db_open(self)
+    }
+    fn vm_db_conn(&mut self) -> &mut Option<rusqlite::Connection> {
+        &mut self.db_conn
+    }
+    fn vm_server_query_params(&self) -> Option<&std::collections::HashMap<String, String>> {
+        self.server_query_params.as_ref()
     }
 }

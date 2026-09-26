@@ -1,0 +1,28 @@
+# №471 (gh#692) — the supply-chain perimeter: the second maintainer's veto zone.
+#
+# Decision 6-A (gate gh#680): the second maintainer's written, real
+# authority from day one — the right to BLOCK a merge into the
+# supply-chain perimeter. The perimeter is deliberately NARROW (NOT "the
+# core as a whole"): the CI surface, the secret scanner, the dependency
+# lock, the threshold gates.
+#
+# The owner is listed as the code owner today (the single-maintainer
+# fact); when the second maintainer joins, their handle is added to
+# these lines (the onboarding step in docs/maintainers.md) — the veto
+# becomes theirs, the perimeter does not grow.
+#
+# The authority document: docs/maintainers.md (the perimeter, the veto,
+# the expectations, the escalation path).
+#
+# ── The perimeter ────────────────────────────────────────────────────
+# The CI surface (workflows, templates, the automation config):
+.github/ @ShkodnikAI
+# The secret-scanner config:
+.gitleaks.toml @ShkodnikAI
+# The cargo-audit config (created on the first override):
+.cargo/audit.toml @ShkodnikAI
+# The dependency lock (the supply-chain fact itself):
+Cargo.lock @ShkodnikAI
+# The CI threshold gates and their checked-in baselines
+# (№462 dup-names, №463 stop-list, №467 type-share, №468 debt, №469 risk):
+scripts/ci/ @ShkodnikAI

@@ -11,6 +11,7 @@ Thank you for your interest in contributing to Metalogos! This document provides
 - [Coding Standards](#coding-standards)
 - [Commit Message Guidelines](#commit-message-guidelines)
 - [Pull Request Process](#pull-request-process)
+- [Maintainers and the Supply-Chain Perimeter](#maintainers-and-the-supply-chain-perimeter)
 - [Reporting Bugs](#reporting-bugs)
 - [Requesting Features](#requesting-features)
 - [Security Issues](#security-issues)
@@ -300,6 +301,13 @@ Other approaches you've thought about.
 **Additional Context:**
 Any other relevant information.
 ```
+
+## Maintainers and the Supply-Chain Perimeter
+
+The project keeps a narrow, machine-enforced review perimeter (CI, the
+dependency lock, secret scanning, the threshold gates) — see
+[`docs/maintainers.md`](docs/maintainers.md) for the authority document,
+the veto mechanics and the onboarding steps (naryad №471).
 
 ## Security Issues
 

@@ -11,6 +11,12 @@ All notable changes to the Metalogos project.
 
 
 
+### Wave 17 (gh#695 — the implementation of the 7 strategic decisions of gate gh#680; the freeze lands first)
+
+- **The domain freeze until 0.27 (naryad #461, issue #682, Wave 17)**: ADR-0177 ACCEPTED — the implementation of the owner's decision 1-A (gate gh#680): NO new subsystems and NO extensions of image/video/voice/OCR/forecast/robotics from acceptance until the 0.27.0 release; allowed inside the frozen scope — bug fixes, tests, docs, and security fixes always; the exceptions are EXHAUSTIVE (security; the AI Act Art. 50 C2PA marking slice to its 02.12.2026 regulatory minimum, then re-frozen) and are not extendable by an executor; the unfreeze criteria are explicit in the ADR (enum Type stages 0+1 with a growing CI typing metric; the TW/VM duplicate-name threshold pinned and moving only down; the CI debt gate green; the memory office E2E green), the right to lift belongs to the OWNER only, and 0.27.0 is the release OF the unfreeze — not published while a criterion is red; the tasking-template line ("domain X is frozen (ADR-0177) — the naryad is not opened") is recorded in the ADR index; the public PLAN-SUMMARY carries the freeze row; the ADR index gains the 0176 row it was missing plus 0177.
+
+
+
 ### Wave 15 addendum (the audit 24.09 follow-up, issued after the 0.25.0 cut — the doc-only additions land in [Unreleased] because the release was already tagged when the naryads arrived)
 
 - **The forecast doc surface (naryad #452, issue #661)**: the README gains the forecast note (instrumental only, no-advisory, the default-build ladder contract with anchors to limitations); the REFERENCE forecast block was VERIFIED against the audit P1-2 checklist — the explicit "in this build the seasonal_naive rung computes" phrase, the PINNED NEVER license note and the OUT-of-scope advisory wording were already present (no artifact edit needed — the check is recorded here); the office-path independence note is pinned in limitations (the office Dockerfile runs the prebuilt default-build `bin/mlog`, no `--features timesfm` anywhere).

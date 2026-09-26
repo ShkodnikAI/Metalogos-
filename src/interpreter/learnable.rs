@@ -1575,7 +1575,7 @@ mod n456_distill_holdout_tests {
 
     #[test]
     fn n456_holdout_too_small_is_rejected() {
-        let mut interp = make_interp_with_head(vec!["yes".into(), "no".into()], 42);
+        let interp = make_interp_with_head(vec!["yes".into(), "no".into()], 42);
         let cfg = distill_config(0.85);
         // 10 valid examples → holdout = 2 < MIN_HOLDOUT(4) → refuse.
         let result = interp
@@ -1595,7 +1595,7 @@ mod n456_distill_holdout_tests {
 
     #[test]
     fn n456_noisy_labels_stay_teaching() {
-        let mut interp = make_interp_with_head(vec!["yes".into(), "no".into()], 42);
+        let interp = make_interp_with_head(vec!["yes".into(), "no".into()], 42);
         let cfg = distill_config(0.85);
         // 24 examples, alternating noise → holdout accuracy well below 0.85.
         let result = interp
@@ -1612,7 +1612,7 @@ mod n456_distill_holdout_tests {
 
     #[test]
     fn n456_min_accuracy_overridable_never_reaches() {
-        let mut interp = make_interp_with_head(vec!["yes".into(), "no".into()], 42);
+        let interp = make_interp_with_head(vec!["yes".into(), "no".into()], 42);
         // An impossible bar: even a perfect holdout (1.0) is below 1.01.
         let cfg = distill_config(1.01);
         let result = interp
@@ -1623,7 +1623,7 @@ mod n456_distill_holdout_tests {
 
     #[test]
     fn n456_consistent_labels_pass_the_gate() {
-        let mut interp = make_interp_with_head(vec!["yes".into(), "no".into()], 42);
+        let interp = make_interp_with_head(vec!["yes".into(), "no".into()], 42);
         let cfg = distill_config(0.85);
         // 24 one-class examples → holdout 4, holdout accuracy 1.0 ≥ 0.85.
         let result = interp
@@ -1694,12 +1694,8 @@ mod n456_distill_holdout_tests {
                     .as_any_mut()
                     .downcast_mut::<Dense>()
                     .expect("dense layer");
-                for w in &mut dense.weights[0] {
-                    *w = 100.0;
-                }
-                for w in &mut dense.weights[1] {
-                    *w = -100.0;
-                }
+                dense.weights[0].fill(100.0);
+                dense.weights[1].fill(-100.0);
                 dense.bias[0] = 50.0;
                 dense.bias[1] = -50.0;
             }

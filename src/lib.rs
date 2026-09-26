@@ -65,6 +65,10 @@ pub mod parser;
 // `profile legacy { egress: permissive_with_audit }` switches the
 // №325 SINK_CLEARANCE gate into advisory mode (audit events, not errors).
 pub mod profile;
+// №466 (gh#687) group 4 (reflex): the shared live module — the seven reflex
+// builtins' name literals leave both backends; the bodies were already
+// shared in src/builtins/reflex.rs since №179b/№180/№187/№193.
+pub mod reflex_ops;
 // Наряд №348 (ADR-0172): the real session model — process-global
 // session registry, wake/interrupt queues, duty-profile runtime state;
 // every transition is an Action-Ledger record (surfaces №393/№415).

@@ -503,6 +503,25 @@ jobs:
           python3 scripts/ci/type_signature_share.py
           python3 scripts/ci/type_signature_share.py --list | head -50
 
+  core-media-gate:
+    name: core-media-gate (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Gate — the physical core→media ban (№472; the handle/registry tier only)
+        run: |
+          python3 scripts/ci/core_media_gate.py --list
+          python3 scripts/ci/core_media_gate.py
+
+  no-default-features:
+    name: no-default-features (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build — the core builds without media (№472; cargo build --no-default-features)
+        run: cargo build --no-default-features
+
   risk-review:
     name: risk-review (non-blocking)
     runs-on: ubuntu-latest

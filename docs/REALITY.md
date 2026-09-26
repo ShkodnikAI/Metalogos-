@@ -762,3 +762,63 @@ waves-13–17 gates had not been reflected).
 the version bump only, per the naryad boundary). **0.27.0 is the release
 of freeze-lifting — the tag is NOT published until the ADR-0177 unfreeze
 criteria are green** (the release gate of №461).
+
+### 6.12. Wave 18 recount (naryad №476): **85%** (main @ `cd6a14e`, 2026-09-27)
+
+Protocol: №414/№318 — the same UNVERIFIED plan-v2 weights, no P0-green
+claims without a proof pass. The honest headline: **the total stays 85%**
+— Wave 18 was the unfreeze path (the ADR-0177 §4 criteria finish), it
+moved the gates and the core infrastructure, not the functional weights.
+
+**The Wave 18 deliverables (all merged, all blocking-CI green):**
+
+- **№466 completed** (gh#687; the groups 5–7 of the dispatch #745 map):
+  the audit-ledger five (`deny_event`/`deny_reason`/`event_count`/
+  `event_sum`/`events_since` → `src/audit_ops.rs`, PR #746), the recipe
+  pair (`recipe_save`/`recipe_search` → `src/recipe_ops.rs`, PR #747),
+  and the server/runtime eight (`exec`/`find`/`fit_to_budget`/`inspect`/
+  `json_body`/`require`/`resolve_skill_index`/`server_path_param` →
+  `src/runtime_ops.rs`, PR #748) left both backends into the shared live
+  modules. The per-backend divergences are preserved verbatim (the deny
+  accessor, the recipe search lanes, the find stores, the skill-index
+  shapes); every PR carried the №465 diff-fuzzer before/after proof.
+- **№474 executed** (gh#742; PR #749): the enum Type **stage 1** — the
+  let-type inference, WARN-ONLY (the №467 canon). The one warn rule (the
+  type conflict on a `let mut` reassignment) lands in
+  `AnalysisResult.warnings` with the `[stage1 types]` prefix; the errors
+  are structurally untouched; the C4 acyclicity inventory moved
+  deliberately with the module (SCC-2 documented in the same PR).
+- **№475 executed** (gh#743): the FO-056 memory-office E2E dogfood
+  evidence refreshed on 0.26.1 (16/16 + pytest 3/3 + the 32-record
+  ledger) — recorded in the gate thread gh#680 (`n475: fo056-evidence`).
+
+**The Wave 18 counters (the same commands, the same movement rules):**
+
+| Counter | Value | Movement |
+|---|---|---|
+| TW/VM duplicated builtin names (№462) | **20** (35 after В17; 60 at the start) | only down: 60→56→49→42→35→30→28→20; **the remaining 20 are exactly the media/vision cluster** — it leaves with the 0.27 crate split (№472 roadmap) |
+| Typed-signature share (№467) | **49/500 = 9.80%** (unchanged — stage 1 adds the CHECKS, not the typed rows) | only up; the share moves when later waves type more registry rows |
+| `#[ignore]` debt (№468) | **85** (TODO: 49) | only down (unchanged — the wave added no debt) |
+| `dead_code` (№468) | **37** | only down (unchanged) |
+
+**The ADR-0177 §4 unfreeze criteria — the state after Wave 18 (the gate
+reads evidence, not intentions):**
+
+| Criterion | State on `cd6a14e` | Verdict |
+|---|---|---|
+| §4.1 Types: enum Type stages 0 AND 1 | stage 0 (№467, `df7dde3`), stage 1 (№474, `cd6a14e`); the CI share metric green (980 bp floor) | **GREEN** |
+| §4.2 Dedup: count ≤ threshold, only down | 20/20, the history 60→…→20 is one-way | **GREEN** (the media/vision residue rides the 0.27 split — the recorded boundary) |
+| §4.3 Debt: the CI debt gate | 85/49/37 at the thresholds, exit 0 | **GREEN** |
+| §4.4 Memory: the office E2E dogfood | FO-056 on 0.26.1: 16/16 + 3/3 (gh#680, `n475: fo056-evidence`) | **GREEN** |
+
+**The lift decision is the OWNER'S alone** (ADR-0177 §4: "the right to
+lift the freeze belongs to the OWNER ONLY"). Every criterion now carries
+its evidence; the lift is recorded by the owner in gh#680 and the ADR's
+Status is updated by a naryad, not silently. **0.27.0 remains
+unpublished** until that explicit lift.
+
+**The release state:** 0.26.2 closes Wave 18 (this naryad — docs, the
+version bump and the release only, per the naryad boundary). The
+non-blocking `coverage` job flagged the new `semantic_types.rs` lines on
+PR #749 (the inference paths are covered by the dedicated test file; the
+coverage job is advisory — recorded per the conveyor discipline).

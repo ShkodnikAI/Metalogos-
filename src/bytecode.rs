@@ -515,6 +515,10 @@ pub struct CompiledLearnableInfo {
     /// Form: (operator, threshold_value). E.g. `confidence < 0.85` → (Lt, 0.85).
     #[serde(default)]
     pub fallback_if: Option<(ConditionOp, f64)>,
+    /// №456: minimum holdout accuracy before the distill switch is allowed.
+    /// None = the 0.85 default applies at the runtime site.
+    #[serde(default)]
+    pub distill_min_accuracy: Option<f64>,
 }
 
 /// A compiled skill_index for tiered skill matching.

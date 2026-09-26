@@ -38,6 +38,7 @@ fn make_cached_learnable_decl(name: &str, prompt: &str, cache: bool, ttl: u64) -
         distill_after: 0,
         effects: None,
         fallback_if: None,
+        distill_min_accuracy: None,
     })
 }
 

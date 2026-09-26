@@ -1526,6 +1526,8 @@ learnable pattern Classify(text: String) -> String {
 }
 ```
 
+`distill_min_accuracy: <float>` (№456) — the minimum holdout accuracy required before the TEACHING→DISTILLED switch is allowed (default `0.85`). The switch also requires a holdout of at least 4 examples (the deterministic 80/20 split of ≥20 recorded labeled examples; smaller holdouts are rejected loud — `[AUDIT] distill.rejected`). Individual predictions still fall back to the LLM when `fallback_if` fires — with the default barrier `confidence < 0.7` when no `fallback_if` is declared — and on any non-finite confidence (fail-closed; a NaN confidence can never answer as a confident label). Training itself aborts with an error (model not promoted) if the epoch loss becomes non-finite.
+
 **The labels contract** — the absence of `labels` in `reflex` or `reflex_seq` is a parse-time error (ADR-0117 section 3, symmetric for both kinds). Not a panic, not silent.
 
 ---

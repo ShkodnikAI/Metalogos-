@@ -503,6 +503,37 @@ jobs:
           python3 scripts/ci/type_signature_share.py
           python3 scripts/ci/type_signature_share.py --list | head -50
 
+  risk-review:
+    name: risk-review (non-blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Detect the risk trigger (the perimeter files or added spawns; №469)
+        id: detect
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$BASE" ]; then
+            echo "triggered=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if python3 scripts/ci/risk_review.py --changed "$BASE" HEAD > /tmp/risk_changed.txt; then
+            echo "triggered=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "triggered=false" >> "$GITHUB_OUTPUT"
+          fi
+          cat /tmp/risk_changed.txt
+      - name: Publish the mechanical risk surface (ADVISORY — never gates the merge; №469)
+        if: steps.detect.outputs.triggered == 'true'
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          python3 scripts/ci/risk_review.py --report "$BASE" HEAD | tee "$GITHUB_STEP_SUMMARY"
+      - name: Not triggered — the advisory run stays neutral
+        if: steps.detect.outputs.triggered != 'true'
+        run: |
+          echo "risk-review: not triggered (no perimeter file touched, no spawn added) — the advisory run is neutral."
+
   vscode-extension:
     name: vscode-extension (blocking)
     runs-on: ubuntu-latest

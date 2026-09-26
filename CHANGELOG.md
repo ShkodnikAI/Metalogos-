@@ -6,6 +6,60 @@ All notable changes to the Metalogos project.
 
 - _Nothing yet — the wave entries move to the release section at the release naryad._
 
+## [0.26.2] - 2026-09-27
+
+**The Wave 18 release — the unfreeze path (the ADR-0177 §4 criteria
+finish).** The closing docs release: REALITY recounted (§6.12 — the
+criteria table all-GREEN with the evidence pointers; the dedup 35 → 20),
+PLAN-SUMMARY synced (the Wave 18 row).
+
+> **The 0.27.0 release gate (ADR-0177, №461) stands: 0.27.0 = release of
+> freeze-lifting. All four §4 criteria now carry their evidence, but the
+> LIFT belongs to the owner alone (recorded in gh#680); the 0.27.0 tag is
+> NOT published until that explicit lift.**
+
+- **The №466 dedup transfer completes (naryad #466, issue #687, the
+  groups 5–7 of the dispatch #745)**: the audit-ledger five
+  (`deny_event`/`deny_reason`/`event_count`/`event_sum`/`events_since`)
+  move into the shared live module `src/audit_ops.rs` (PR #746,
+  threshold 35 → 30); the recipe pair (`recipe_save`/`recipe_search`)
+  into `src/recipe_ops.rs` (PR #747, 30 → 28) with the `__KVKEY`
+  save→search format contract and the score-parameterized
+  `RecipeResult` build; the server/runtime eight (`exec`, `find`,
+  `fit_to_budget`, `inspect`, `json_body`, `require`,
+  `resolve_skill_index`, `server_path_param`) into `src/runtime_ops.rs`
+  (PR #748, 28 → 20). The per-backend divergences stay verbatim (the
+  deny accessor, the recipe search lanes, the find stores, the
+  skill-index shapes, `exec_argv` as the VM-only twin); every transfer
+  PR carried the №465 diff-fuzzer before/after proof (the divergence
+  classes unchanged). The remaining 20 duplicated names are exactly the
+  media/vision cluster — it leaves with the 0.27 crate split (the
+  №472 roadmap). GitHub closed #687 through the `Closes:` body of the
+  last group PR.
+
+- **The enum Type stage 1 lands — the let-type inference, WARN-ONLY
+  (naryad #474, issue #742, PR #749 — the decision 3-A, step 2; the canon
+  is the №467 body)**: the new `src/semantic_types.rs` builds a
+  per-block straight-line type environment over `let` bindings (the
+  typed builtin returns from the №467 stage-0 registry, the literals,
+  the transitive copies; everything else is conservatively `Unknown` and
+  `Unknown` NEVER warns). One warn rule: a type conflict on a `let mut`
+  reassignment produces a `[stage1 types]` warning in `mlog check` —
+  naming the variable, both types and both origins. WARN-ONLY
+  structurally: `errors` are untouched, no program is rejected, the
+  runtime paths are unchanged (the №465 fuzzer classes unchanged). The
+  blocking type checks stay out (the №467 boundary — after the
+  migration path); stage 2 (the Labeled migration of
+  SECRET_LEAK/SQL_DYNAMIC/HTML_INJECTION) is the next line. The C4
+  acyclicity inventory moved deliberately with the module (SCC-2
+  documented in the PR).
+
+- **The FO-056 evidence refresh lands (naryad #475, issue #743)**: the
+  memory-office E2E dogfood re-run on 0.26.1 — the scenario 16/16, the
+  pytest 3/3, the 32-record ledger with the №280 preview discipline —
+  recorded in the gate thread gh#680 (`n475: fo056-evidence`). The ADR
+  §4.4 criterion reads GREEN on the current release.
+
 ## [0.26.1] - 2026-09-26
 
 **The Wave 17 release — the strategic decisions of the gate gh#680.** The

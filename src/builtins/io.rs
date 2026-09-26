@@ -597,6 +597,48 @@ pub enum ExecContext {
 
 thread_local! {
     static SERVE_ROUTE_CONTEXT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static TOPLEVEL_REGISTRATION: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// The serve process mode (Наряд №457): what context does an UNMARKED
+/// thread get?
+///
+/// - [`ProcessMode::Process`] — the pre-№457 posture: unmarked threads are
+///   `ExecContext::Process` (the permissive top-level context; the №253/№259
+///   gates apply only where an explicit guard marks the thread).
+/// - [`ProcessMode::Serve`] — the strict-by-default serve posture: every
+///   unmarked thread is `ExecContext::ServeRoute`, EXCEPT threads
+///   explicitly marked as top-level registration
+///   ([`TopLevelRegistrationGuard`]). A forgotten mark now costs a
+///   spurious DENIAL (loud, fails fast), not silent process rights —
+///   the №457 inversion of the failure mode.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ProcessMode {
+    Process,
+    Serve,
+}
+
+static PROCESS_MODE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Set the process-wide serve mode (Наряд №457). Called once in `cmd_serve`
+/// before the routes are built; test surfaces that emulate the serve boot
+/// call it explicitly. Process-global by design: the mode is a property of
+/// the whole server process, not of a thread.
+pub fn set_process_mode(mode: ProcessMode) {
+    PROCESS_MODE.store(
+        match mode {
+            ProcessMode::Process => 0,
+            ProcessMode::Serve => 1,
+        },
+        std::sync::atomic::Ordering::SeqCst,
+    );
+}
+
+fn process_mode() -> ProcessMode {
+    match PROCESS_MODE.load(std::sync::atomic::Ordering::SeqCst) {
+        1 => ProcessMode::Serve,
+        _ => ProcessMode::Process,
+    }
 }
 
 /// RAII-сторож serve-роут-контекста (Наряд №253).
@@ -626,13 +668,50 @@ impl Drop for ServeRouteExecGuard {
     }
 }
 
-/// Контекст exec текущего потока (Наряд №253).
+/// RAII-сторож top-level регистрации (Наряд №457).
+///
+/// Пока жив — текущий поток считается top-level регистрацией: в serve-режиме
+/// ([`set_process_mode(ProcessMode::Serve)`]) контекст остаётся
+/// `ExecContext::Process`, как и до инверсии. Ставится на фазу регистрации
+/// деклараций при старте serve (`run_server`): инициализаторы сущностей и
+/// прочий верхнеуровневый код программы легитимно живут в процесс-контексте.
+/// Drop снимает метку при выходе из фазы.
+pub struct TopLevelRegistrationGuard;
+
+impl TopLevelRegistrationGuard {
+    pub fn new() -> Self {
+        TOPLEVEL_REGISTRATION.with(|c| c.set(true));
+        TopLevelRegistrationGuard
+    }
+}
+
+impl Default for TopLevelRegistrationGuard {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for TopLevelRegistrationGuard {
+    fn drop(&mut self) {
+        TOPLEVEL_REGISTRATION.with(|c| c.set(false));
+    }
+}
+
+/// Контекст exec текущего потока (Наряд №253; инверсия дефолта — Наряд №457).
+///
+/// Порядок разрешения:
+/// 1. явная пометка serve-роут-контекста ([`ServeRouteExecGuard`]) → `ServeRoute`;
+/// 2. serve-режим процесса ([`set_process_mode(ProcessMode::Serve)`]) и поток
+///    НЕ помечен как top-level регистрация → `ServeRoute` (строгий дефолт);
+/// 3. иначе → `Process`.
 pub fn current_exec_context() -> ExecContext {
     if SERVE_ROUTE_CONTEXT.with(std::cell::Cell::get) {
-        ExecContext::ServeRoute
-    } else {
-        ExecContext::Process
+        return ExecContext::ServeRoute;
     }
+    if process_mode() == ProcessMode::Serve && !TOPLEVEL_REGISTRATION.with(std::cell::Cell::get) {
+        return ExecContext::ServeRoute;
+    }
+    ExecContext::Process
 }
 
 /// SSOT-гейт `exec()` / `exec_argv()` (Наряд №253).

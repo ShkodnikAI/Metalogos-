@@ -5,7 +5,8 @@
 pub(crate) mod conversations;
 pub(crate) mod db;
 
-pub(crate) use db::convert_params;
+// №466: the convert_params re-export moved to the shared live module —
+// src/db_ops.rs consumes the function straight from src/interpreter/db.rs.
 pub(crate) mod events;
 pub(crate) mod execution;
 pub(crate) mod flow;

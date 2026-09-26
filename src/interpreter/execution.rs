@@ -816,18 +816,11 @@ impl Interpreter {
         }
 
         // ADR-0045/Phase 7.1: server-context builtins (flow step dispatch)
-        if name == "query_param" {
-            let param_name = args
-                .first()
-                .and_then(|v| match v {
-                    Value::String(s) => Some(s.clone()),
-                    _ => None,
-                })
-                .unwrap_or_default();
-            if let Some(val) = self.get_server_query_param(&param_name) {
-                return Ok(Value::String(val));
-            }
-            return Ok(Value::String(String::new()));
+        // №466: the parse/return shape lives in the shared live module
+        // (src/db_ops.rs); the TW context accessor is injected — the name
+        // literal left this file for the №462 counter.
+        if name == crate::db_ops::NAME_QUERY_PARAM {
+            return crate::db_ops::query_param(&args, |p| self.get_server_query_param(p));
         }
 
         // Наряд №283: server_path_param(name) — path parameter from a
@@ -1670,26 +1663,29 @@ impl Interpreter {
                 // Resolve as if it were a regular FnCall with the function name.
                 // Check builtins first
                 // Наряд №7 — query/db_execute need db_conn (intercept before generic builtin)
-                if function == "query" {
-                    return self.invoke_query(&eval_args);
+                // №466: the bodies live in the shared live module
+                // (src/db_ops.rs); this site keeps its exact dispatch order.
+                if function == crate::db_ops::NAME_QUERY {
+                    return crate::db_ops::query_tw(&self.db_conn, &eval_args);
                 }
-                if function == "db_execute" {
-                    return self.invoke_db_execute(&eval_args);
+                if function == crate::db_ops::NAME_DB_EXECUTE {
+                    return crate::db_ops::db_execute_tw(&self.db_conn, &eval_args);
                 }
                 // Naryad #390 (ADR-0155): the granted destructive-SQL
                 // action — intercepted like db_execute (needs db_conn);
                 // runtime gates live in src/grants.rs.
-                if function == "db_execute_with_grant" {
+                if function == crate::db_ops::NAME_DB_EXECUTE_WITH_GRANT {
                     // Наряд №392: a grant refusal (GRANT_*) is a runtime
                     // deny event — the on_deny handler for the db class
                     // handles it (degraded Unit); without a handler the
                     // loud typed error is unchanged.
-                    return match self.invoke_db_execute_with_grant(&eval_args) {
+                    return match crate::db_ops::db_execute_with_grant_tw(&self.db_conn, &eval_args)
+                    {
                         Err(e) if e.starts_with("GRANT_") => {
                             let handled = self.fire_on_deny(crate::deny::DenyEventArgs {
                                 reason: "IRREVERSIBLE_NO_GRANT".into(),
                                 class: "db".into(),
-                                sink: "db_execute_with_grant".into(),
+                                sink: crate::db_ops::SINK_DB_EXECUTE_WITH_GRANT.into(),
                                 argument: "sql".into(),
                                 label: "bottom".into(),
                                 line: 0.0,
@@ -2257,19 +2253,11 @@ impl Interpreter {
                 }
 
                 // Bug 2.1 fix: query_param() — intercept to access server_query_params
-                if name == "query_param" {
-                    let param_name = eval_args
-                        .first()
-                        .and_then(|v| match v {
-                            Value::String(s) => Some(s.clone()),
-                            _ => None,
-                        })
-                        .unwrap_or_default();
-                    if let Some(val) = self.get_server_query_param(&param_name) {
-                        return Ok(Value::String(val));
-                    }
-                    // Fallback: empty string (non-server context, param not found)
-                    return Ok(Value::String(String::new()));
+                // №466: shared shape in src/db_ops.rs, the TW accessor injected.
+                if name == crate::db_ops::NAME_QUERY_PARAM {
+                    return crate::db_ops::query_param(&eval_args, |p| {
+                        self.get_server_query_param(p)
+                    });
                 }
 
                 // Наряд №283: server_path_param(name) — path parameter from
@@ -2317,23 +2305,26 @@ impl Interpreter {
                 }
 
                 // Наряд №7 — query() / db_execute() need access to db_conn
-                // Intercept before generic builtin dispatch
-                if name == "query" {
-                    return self.invoke_query(&eval_args);
+                // Intercept before generic builtin dispatch. №466: the bodies
+                // live in the shared live module (src/db_ops.rs); this site
+                // keeps its exact dispatch order.
+                if name == crate::db_ops::NAME_QUERY {
+                    return crate::db_ops::query_tw(&self.db_conn, &eval_args);
                 }
-                if name == "db_execute" {
-                    return self.invoke_db_execute(&eval_args);
+                if name == crate::db_ops::NAME_DB_EXECUTE {
+                    return crate::db_ops::db_execute_tw(&self.db_conn, &eval_args);
                 }
                 // Naryad #390 (ADR-0155): granted destructive-SQL action.
-                if name == "db_execute_with_grant" {
+                if name == crate::db_ops::NAME_DB_EXECUTE_WITH_GRANT {
                     // Наряд №392: grant refusal → on_deny (db class),
                     // same contract as the QualifiedCall site above.
-                    return match self.invoke_db_execute_with_grant(&eval_args) {
+                    return match crate::db_ops::db_execute_with_grant_tw(&self.db_conn, &eval_args)
+                    {
                         Err(e) if e.starts_with("GRANT_") => {
                             let handled = self.fire_on_deny(crate::deny::DenyEventArgs {
                                 reason: "IRREVERSIBLE_NO_GRANT".into(),
                                 class: "db".into(),
-                                sink: "db_execute_with_grant".into(),
+                                sink: crate::db_ops::SINK_DB_EXECUTE_WITH_GRANT.into(),
                                 argument: "sql".into(),
                                 label: "bottom".into(),
                                 line: 0.0,
@@ -2349,11 +2340,11 @@ impl Interpreter {
                     };
                 }
                 // Наряда-26 P1-7: query_scalar / query_row
-                if name == "query_scalar" {
-                    return self.invoke_query_scalar(&eval_args);
+                if name == crate::db_ops::NAME_QUERY_SCALAR {
+                    return crate::db_ops::query_scalar_tw(&self.db_conn, &eval_args);
                 }
-                if name == "query_row" {
-                    return self.invoke_query_row(&eval_args);
+                if name == crate::db_ops::NAME_QUERY_ROW {
+                    return crate::db_ops::query_row_tw(&self.db_conn, &eval_args);
                 }
 
                 // Problem B (reverse-iteration): map(list, "pattern_name") — needs pattern access
@@ -2393,59 +2384,10 @@ impl Interpreter {
                 }
 
                 // Problem C (reverse-iteration): db_insert(table, struct) — needs db_conn
-                if name == "db_insert" {
-                    let table =
-                        match eval_args.first() {
-                            Some(Value::String(s)) => s.clone(),
-                            _ => return Err(
-                                "db_insert() expects first argument to be a table name (String)"
-                                    .to_string(),
-                            ),
-                        };
-                    let fields = match eval_args.get(1) {
-                        Some(Value::Struct { fields, .. }) => fields.clone(),
-                        _ => return Err("db_insert() expects second argument to be a Struct { field: value, ... }".to_string()),
-                    };
-                    let guard = self
-                        .db_conn
-                        .lock()
-                        .map_err(|e| format!("db lock error: {}", e))?;
-                    let conn = guard.as_ref().ok_or_else(|| {
-                        "db_insert() error: no database connection. Declare db { url: \"sqlite::memory:\" } first.".to_string()
-                    })?;
-                    let col_names: Vec<String> = fields.keys().cloned().collect();
-                    let placeholders: Vec<String> =
-                        col_names.iter().map(|_| "?".to_string()).collect();
-                    let sql = format!(
-                        "INSERT INTO {} ({}) VALUES ({})",
-                        table,
-                        col_names.join(", "),
-                        placeholders.join(", ")
-                    );
-                    let params: Vec<Box<dyn rusqlite::types::ToSql>> =
-                        fields
-                            .values()
-                            .map(|v| match v {
-                                Value::String(s) => {
-                                    Box::new(s.clone()) as Box<dyn rusqlite::types::ToSql>
-                                }
-                                Value::Float(f) => Box::new(*f) as Box<dyn rusqlite::types::ToSql>,
-                                Value::Bool(b) => Box::new(*b) as Box<dyn rusqlite::types::ToSql>,
-                                Value::Unit => Box::new(Option::<String>::None)
-                                    as Box<dyn rusqlite::types::ToSql>,
-                                other => Box::new(format!("{}", other))
-                                    as Box<dyn rusqlite::types::ToSql>,
-                            })
-                            .collect();
-                    let param_refs: Vec<&dyn rusqlite::types::ToSql> =
-                        params.iter().map(|p| p.as_ref()).collect();
-                    conn.execute(&sql, param_refs.as_slice())
-                        .map_err(|e| crate::interpreter::db::sql_err("db_insert() SQL error", e))?;
-                    // Return last inserted rowid
-                    let rowid: i64 = conn
-                        .query_row("SELECT last_insert_rowid()", [], |row| row.get(0))
-                        .unwrap_or(0);
-                    return Ok(Value::Float(rowid as f64));
+                // №466: the body moved to the shared live module (src/db_ops.rs)
+                // as db_insert_tw — the per-backend texts stay per backend.
+                if name == crate::db_ops::NAME_DB_INSERT {
+                    return crate::db_ops::db_insert_tw(&self.db_conn, &eval_args);
                 }
 
                 // Problem A: resolve_skill_index(dept) — returns registered index as Value::Struct

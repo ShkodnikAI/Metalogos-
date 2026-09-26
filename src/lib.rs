@@ -42,6 +42,7 @@ pub mod backends_weights;
 pub mod builtins_classification;
 pub mod bytecode;
 pub mod compiler;
+pub mod db_ops;
 pub mod doc_tests;
 pub mod embeddings;
 pub mod error;

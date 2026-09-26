@@ -92,7 +92,7 @@ impl Interpreter {
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .clone()
-            .ok_or_else(|| "deny_event() is only available inside an on_deny handler".to_string())
+            .ok_or_else(|| crate::audit_ops::DENY_HANDLER_ERR.to_string())
     }
 
     /// Write-builtin names that trigger on_write hooks.

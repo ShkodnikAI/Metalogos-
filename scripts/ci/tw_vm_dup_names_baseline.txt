@@ -23,13 +23,13 @@
 # name literals left both backends (the bodies were already shared in
 # src/builtins/reflex.rs since №179b/№180/№187/№193); the spelling lives in
 # src/reflex_ops.rs — 42 → 35.
-# threshold: 35
+# 2026-09-27 №466 (gh#687) group 5 (audit-ledger): deny_event/deny_reason/
+# event_count/event_sum/events_since transferred to the shared live module
+# src/audit_ops.rs (the bodies shared verbatim over the identical
+# Mutex<Vec<Event>> state; the deny-pair accessor stays per-backend with
+# the one DENY_HANDLER_ERR spelling) — 35 → 30.
+# threshold: 30
 
-deny_event
-deny_reason
-event_count
-event_sum
-events_since
 exec
 find
 fit_to_budget

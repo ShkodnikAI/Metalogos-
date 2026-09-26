@@ -1702,23 +1702,19 @@ impl Interpreter {
                         other => other,
                     };
                 }
-                if function == "deny_event" || function == "deny_reason" {
+                if function == crate::audit_ops::NAME_DENY_EVENT
+                    || function == crate::audit_ops::NAME_DENY_REASON
+                {
                     // Наряд №392: the DenyEvent surface — handler-scoped,
                     // runtime-constructed. The analyzer blocks usage
                     // outside a handler at compile time; this runtime
                     // gate is the second half of the double protection.
+                    // №466 group 5: the body lives in the shared live
+                    // module (src/audit_ops.rs); this site keeps its
+                    // exact dispatch position and its per-backend
+                    // accessor (take_deny_event).
                     let event = self.take_deny_event()?;
-                    let reason = match &event {
-                        Value::Struct { fields, .. } => {
-                            fields.get("reason").cloned().unwrap_or(Value::Unit)
-                        }
-                        other => other.clone(),
-                    };
-                    return Ok(if function == "deny_event" {
-                        event
-                    } else {
-                        reason
-                    });
+                    return Ok(crate::audit_ops::deny_event_or_reason(function, event));
                 }
                 if function == "inspect" {
                     return self.invoke_inspect(&eval_args);
@@ -2153,80 +2149,35 @@ impl Interpreter {
                 }
 
                 // ADR-0051: inspect() — needs interpreter state (pattern_stats)
-                if name == "deny_event" || name == "deny_reason" {
+                // №466 group 5: the deny pair and the event trio live in the
+                // shared live module (src/audit_ops.rs); these sites keep
+                // their exact dispatch order.
+                if name == crate::audit_ops::NAME_DENY_EVENT
+                    || name == crate::audit_ops::NAME_DENY_REASON
+                {
                     // Наряд №392: same handler-scoped surface as the
                     // QualifiedCall site — the event is live exactly
                     // while an on_deny body runs.
                     let event = self.take_deny_event()?;
-                    let reason = match &event {
-                        Value::Struct { fields, .. } => {
-                            fields.get("reason").cloned().unwrap_or(Value::Unit)
-                        }
-                        other => other.clone(),
-                    };
-                    return Ok(if name == "deny_event" { event } else { reason });
+                    return Ok(crate::audit_ops::deny_event_or_reason(name, event));
                 }
                 if name == "inspect" {
                     return self.invoke_inspect(&eval_args);
                 }
 
                 // ADR-0052: event_count() — read event stream
-                if name == "event_count" {
-                    let etype = eval_args.first().map(|a| format!("{}", a));
-                    let count = self.event_count(etype.as_deref());
-                    return Ok(Value::Float(count as f64));
+                if name == crate::audit_ops::NAME_EVENT_COUNT {
+                    return Ok(crate::audit_ops::event_count(&self.event_log, &eval_args));
                 }
 
                 // ADR-0052: events_since(seconds) — get events since N seconds ago
-                if name == "events_since" {
-                    let seconds = match eval_args.first() {
-                        Some(Value::Float(s)) => *s,
-                        Some(other) => {
-                            return Err(format!(
-                                "events_since() expected Float, got {}",
-                                other.type_name()
-                            ))
-                        }
-                        None => {
-                            return Err("events_since() requires 1 argument (seconds)".to_string())
-                        }
-                    };
-                    let now_ms = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .map(|d| d.as_millis() as u64)
-                        .unwrap_or(0);
-                    let since_ms = now_ms.saturating_sub((seconds * 1000.0) as u64);
-                    let events = self.events_since_ms(since_ms);
-                    let mut list = Vec::new();
-                    for ev in events {
-                        let mut fields = HashMap::new();
-                        fields.insert("id".to_string(), Value::Float(ev.id as f64));
-                        fields.insert("timestamp".to_string(), Value::Float(ev.timestamp as f64));
-                        fields.insert("event_type".to_string(), Value::String(ev.event_type));
-                        fields.insert("source".to_string(), Value::String(ev.source));
-                        fields.insert(
-                            "data_json".to_string(),
-                            Value::String(format!("{:?}", ev.data)),
-                        );
-                        if let Some(dur) = ev.duration_ms {
-                            fields.insert("duration_ms".to_string(), Value::Float(dur as f64));
-                        }
-                        list.push(Value::Struct {
-                            type_name: "Event".to_string(),
-                            fields,
-                        });
-                    }
-                    return Ok(Value::List(list));
+                if name == crate::audit_ops::NAME_EVENTS_SINCE {
+                    return crate::audit_ops::events_since(&self.event_log, &eval_args);
                 }
 
                 // ADR-0052: event_sum(type, field) — sum numeric field across events
-                if name == "event_sum" {
-                    if eval_args.len() < 2 {
-                        return Err("event_sum() requires 2 arguments (type, field)".to_string());
-                    }
-                    let etype = format!("{}", eval_args[0]);
-                    let field = format!("{}", eval_args[1]);
-                    return Ok(Value::Float(self.event_sum(&etype, &field)));
+                if name == crate::audit_ops::NAME_EVENT_SUM {
+                    return crate::audit_ops::event_sum(&self.event_log, &eval_args);
                 }
 
                 // ADR-0053: conversation builtins

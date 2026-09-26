@@ -477,6 +477,19 @@ jobs:
         run: |
           python3 scripts/ci/count_duplicated_names.py --artifact
 
+  debt-gate:
+    name: debt-gate (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Gate — the ignore/dead_code debt counters vs the checked-in fact (№468; movement only down; the №462 dup gate re-used inside)
+        run: |
+          python3 scripts/ci/debt_counters.py --gate scripts/ci/debt_baseline.txt
+      - name: Artifact — the current ignore/dead_code inventories (the report base)
+        run: |
+          python3 scripts/ci/debt_counters.py --list ignore | head -50
+          python3 scripts/ci/debt_counters.py --list dead_code | head -50
+
   vscode-extension:
     name: vscode-extension (blocking)
     runs-on: ubuntu-latest

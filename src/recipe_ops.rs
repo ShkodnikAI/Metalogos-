@@ -88,7 +88,6 @@ pub fn recipe_from_kv(kv_key: &str, score: Option<f64>) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
 
     #[test]
     fn handles_covers_exactly_the_two_names() {
@@ -168,7 +167,7 @@ mod tests {
                     Some(Value::String(s)) if s == "Backup"
                 ));
                 // The VM lane never had a score — the field is ABSENT.
-                assert!(fields.get("score").is_none());
+                assert!(!fields.contains_key("score"));
             }
             other => panic!("expected a struct, got {:?}", other),
         }
@@ -178,8 +177,4 @@ mod tests {
     fn recipe_from_kv_missing_key_is_none() {
         assert!(recipe_from_kv("g6-test-absent-key", Some(1.0)).is_none());
     }
-
-    // Silence the unused-import warning path in the test module.
-    #[allow(dead_code)]
-    fn _shape(_: HashMap<String, String>) {}
 }

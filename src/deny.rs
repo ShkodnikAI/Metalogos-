@@ -24,6 +24,10 @@
 // Extending classes (same gate, same dictionary — audit.rs:3405-3422):
 //   PII_EGRESS_OUTPUT         — personal-data label in a public output;
 //   UNTRUSTED_EGRESS_NETWORK  — untrusted label in a network sink.
+// Н455 (the file-ingest gate):
+//   UNTRUSTED_FILE_PATH       — an untrusted path chooses which bytes
+//                               enter the program (read_file /
+//                               read_file_tokens arg 0).
 // Generic class:
 //   SINK_CLEARANCE            — every other confidentiality excess.
 // Legacy corpus classes emitted by the same gate (the leak-suite
@@ -41,8 +45,9 @@ use std::collections::HashMap;
 
 /// The canonical deny-reason vocabulary — exhaustive over every reason
 /// the gates can emit. The seven core classes first, then the extending
-/// pair, the generic class, then the legacy corpus classes.
-pub const DENY_REASONS: [&str; 13] = [
+/// pair, the №455 file-path class, the generic class, then the legacy
+/// corpus classes.
+pub const DENY_REASONS: [&str; 14] = [
     // ── the seven core classes (№392) ─────────────────────────────
     "VOICE_EGRESS_UNCONSENTED",
     "IRREVERSIBLE_NO_GRANT",
@@ -54,6 +59,8 @@ pub const DENY_REASONS: [&str; 13] = [
     // ── extending classes (same gate dictionary) ──────────────────
     "PII_EGRESS_OUTPUT",
     "UNTRUSTED_EGRESS_NETWORK",
+    // ── №455: the file-ingest gate ────────────────────────────────
+    "UNTRUSTED_FILE_PATH",
     // ── the generic class ──────────────────────────────────────────
     "SINK_CLEARANCE",
     // ── legacy corpus classes (same gate, historical names) ───────

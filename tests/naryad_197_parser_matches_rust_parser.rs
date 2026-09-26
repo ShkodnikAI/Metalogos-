@@ -386,10 +386,27 @@ fn rust_ast_to_sexpr(decls: &[Declaration]) -> String {
 
 fn run_parser_mlog(target_file: &str) -> String {
     let parser_path = std::path::Path::new(manifest_dir()).join("self-host/parser.mlog");
+    // The №455 sensitive-path deny-list refuses `*.mlog` reads (layer 1).
+    // Self-host parsing is a legitimate, explicitly named reader — the
+    // documented escape crane `METALOGOS_SENSITIVE_PATH_ALLOWLIST`
+    // (Naryad #455 layer 3) is set from the same sample list, so the
+    // allowlist grows with the corpus and never drifts from it.
+    let mut allow_names: Vec<String> = sample_files()
+        .iter()
+        .filter_map(|p| {
+            std::path::Path::new(p)
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+        })
+        .collect();
+    allow_names.push("parser.mlog".to_string());
+    allow_names.sort();
+    allow_names.dedup();
     let output = Command::new(mlog_bin())
         .arg("run")
         .arg(&parser_path)
         .env("MLOG_PARSE_TARGET", target_file)
+        .env("METALOGOS_SENSITIVE_PATH_ALLOWLIST", allow_names.join(","))
         .output()
         .expect("failed to spawn mlog process");
 

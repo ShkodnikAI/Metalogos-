@@ -571,6 +571,13 @@ pub const CODE_MEMORY_FORGET_CONSENT_REQUIRED: &str = "MEMORY_FORGET_CONSENT_REQ
 /// read/export refuse with this typed stamp (the quarantine is loud;
 /// the content never leaves the lane).
 pub const CODE_MEMORY_POISONED: &str = "MEMORY_POISONED";
+/// №455 (the file-ingest gate): a file path is refused by the sandbox
+/// policy — it matches the sensitive-path deny-list (`.env*`, `*.db`,
+/// `*.sqlite*`, `.git/**`, `*.mlog`, `metalogos.toml`, `.mlog/**`) or, in
+/// the serve-route context, points outside the data directory root
+/// (`METALOGOS_DATA_DIR`, default `./data`). The refusal is loud and
+/// branchable for `try` (the №254 sandbox-refusal convention).
+pub const CODE_SANDBOX_SENSITIVE_PATH: &str = "SANDBOX_SENSITIVE_PATH";
 
 /// The whitelist of codes a subsystem may stamp onto the String error
 /// channel. `RUNTIME_ERROR` is deliberately NOT in this list: it is the
@@ -623,6 +630,9 @@ const ORIGIN_STAMPED_CODES: &[&str] = &[
     // №442 recall-gate parity).
     CODE_MEMORY_FORGET_CONSENT_REQUIRED,
     CODE_MEMORY_POISONED,
+    // №455: the file-ingest gate — the sensitive-path deny-list and the
+    // serve-route data-dir containment (the №254 sandbox-refusal family).
+    CODE_SANDBOX_SENSITIVE_PATH,
     CODE_MCP_PROTOCOL_ERROR,
     CODE_MCP_NOT_ALLOWLISTED,
 ];

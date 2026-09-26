@@ -1336,6 +1336,11 @@ pub struct LearnablePatternDecl {
     /// E.g. `fallback_if: confidence < 0.85` → (Lt, 0.85).
     /// None = no fallback (always return local prediction once DISTILLED).
     pub fallback_if: Option<(CompareOp, f64)>,
+    /// №456: the minimum holdout accuracy required before the distill
+    /// switch is allowed (`distill_min_accuracy: <float>`). None in the
+    /// AST → the runtime default 0.85 applies (the DistillConfig carries
+    /// the resolved value).
+    pub distill_min_accuracy: Option<f64>,
     /// Наряд №324: optional effect trail — `⟨io, audit⟩` (ADR-0154 §9).
     /// A learnable pattern is an LLM source by construction ({io}); the
     /// trail, when declared, gates what its CALLERS may assume.

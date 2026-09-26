@@ -5076,12 +5076,33 @@ fn check_sink_clearance(
             });
             continue;
         }
-        let check_id = sink_check_id(&v.fn_name, v.arg_index, &v.label);
+        // ── Н455 layer 4: the file-path decision position carries its
+        // own Category-A check_id — an untrusted path choosing which
+        // bytes enter the program (the read_file(query_param(...))
+        // exfiltration vector), the file-channel twin of
+        // UNTRUSTED_EXEC_DECISION. Same advisory-profile posture.
         let severity = if advisory {
             Severity::Info
         } else {
             Severity::Error
         };
+        if v.reason == "untrusted-file-path" {
+            findings.push(AuditFinding {
+                severity,
+                check_id: "UNTRUSTED_FILE_PATH",
+                line: v.span.start_line as usize,
+                message: format!(
+                    "file ingest path is untrusted: argument {} of {} in {} carries label '{}' — \
+                     a path from an untrusted source (query_param / json_body / form_data / http_get) \
+                     chooses which bytes enter the program; read from a constant data-directory \
+                     path instead, or validate the path against an allowlist before the call \
+                     (Naryad #455, the file-channel twin of UNTRUSTED_EXEC_DECISION)",
+                    v.arg_index, v.fn_name, v.container, v.label,
+                ),
+            });
+            continue;
+        }
+        let check_id = sink_check_id(&v.fn_name, v.arg_index, &v.label);
         findings.push(AuditFinding {
             severity,
             check_id,

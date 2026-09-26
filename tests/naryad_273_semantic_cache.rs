@@ -59,6 +59,7 @@ fn make_learnable_decl(
         distill_after: 0,
         effects: None,
         fallback_if: None,
+        distill_min_accuracy: None,
     })
 }
 

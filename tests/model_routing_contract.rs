@@ -37,6 +37,7 @@ fn make_model_learnable_decl(name: &str, prompt: &str, model: Option<&str>) -> D
         distill_after: 0,
         effects: None,
         fallback_if: None,
+        distill_min_accuracy: None,
     })
 }
 

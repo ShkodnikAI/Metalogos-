@@ -465,6 +465,18 @@ jobs:
         run: |
           python3 scripts/ci/generative_stop_list_gate.py
 
+  tw-vm-dup-names:
+    name: tw-vm-dup-names (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Gate — the TW/VM duplicate-name count vs the checked-in baseline
+        run: |
+          python3 scripts/ci/count_duplicated_names.py --gate scripts/ci/tw_vm_dup_names_baseline.txt
+      - name: Artifact — the sorted, grouped duplicate list (the №465/№466 base)
+        run: |
+          python3 scripts/ci/count_duplicated_names.py --artifact
+
   vscode-extension:
     name: vscode-extension (blocking)
     runs-on: ubuntu-latest

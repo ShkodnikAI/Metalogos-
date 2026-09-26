@@ -10,7 +10,11 @@ ls docs/adr/ | sed 's/-.*//' | sort | uniq -d
 
 Must be empty. If not empty, resolve collisions before proceeding.
 
-Numbers are assigned sequentially. The current accepted maximum is `0166-*` (ADR-0151 №309 video I2V pipeline; ADR-0152 №320 C2PA Art 50 slice; ADR-0153 №412 video DiT text path; ADR-0154 №322 label lattice; ADR-0162 №331 media handles; ADR-0163 №333 backend registry; ADR-0164 №332 perception origin chain; ADR-0165 №336 backend ladder; ADR-0166 №337 C2PA contour of handles; ADR-0155 №389 grant algebra); the overall maximum is `0166-*` — numbers 0156–0160 are reserved.
+Numbers are assigned sequentially. The current accepted maximum is `0177-*`
+(ADR-0177 №461 domain freeze; ADR-0176 №453 plan-v2 memory contract). When
+numbering a new ADR, remember the tasking-template line: **"domain X is
+frozen (ADR-0177) — the naryad is not opened"** (the freeze mechanics, §7
+of the ADR).
 
 ## Reserved numbers (do not reassign)
 
@@ -210,3 +214,5 @@ real ADRs (№309/№320/№412) before the booking.
 | 0173 | The derived-from graph and cascading forgetting over Memory<K> | Accepted |
 | 0174 | Directed audio effects (`listen`/`speak`) and the duplex channel — barge-in over the session priority ladder | Accepted |
 | 0175 | The tick context — the cron dispatch executes in the program context | Accepted |
+| 0176 | The plan-v2 memory contract — the SSOT of the memory surface (Variant B) | Accepted |
+| 0177 | The domain freeze until 0.27 — no new subsystems, the core first | Accepted |

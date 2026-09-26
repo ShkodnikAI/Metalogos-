@@ -1,0 +1,12 @@
+entity e0: String = "7"
+
+pattern pa(x: String) -> String {
+  let n = to_string(len(x))
+  let s = 3 + 4 * 2 - 10 / 5
+  let neg = 0 - s
+  return to_string(s) + ":" + to_string(neg) + ":" + n
+}
+
+flow Main {
+  input: String = e0 -> pa -> output
+}

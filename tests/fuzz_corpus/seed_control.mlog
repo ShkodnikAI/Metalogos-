@@ -1,0 +1,22 @@
+entity e0: String = "ctl"
+
+pattern pa(x: String) -> String {
+  let acc = "head"
+  if x == "ctl" {
+    let acc = acc + "-eq"
+  } else {
+    let acc = acc + "-ne"
+  }
+  each item in ["a", "b"] {
+    let acc = acc + item
+  }
+  let guard = 0
+  while guard < 3 {
+    let guard = guard + 1
+  }
+  return acc
+}
+
+flow Main {
+  input: String = e0 -> pa -> output
+}

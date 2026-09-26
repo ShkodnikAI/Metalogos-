@@ -2,7 +2,6 @@
 // M1: entities, patterns, linear flow
 // M2: struct entities, rules, branching flow, comparisons
 
-pub(crate) mod context;
 pub(crate) mod conversations;
 pub(crate) mod db;
 

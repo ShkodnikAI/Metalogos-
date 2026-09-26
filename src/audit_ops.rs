@@ -57,9 +57,7 @@ pub fn handles(name: &str) -> bool {
 /// its per-backend accessor (and errored loudly when outside a handler).
 pub fn deny_event_or_reason(name: &str, event: Value) -> Value {
     let reason = match &event {
-        Value::Struct { fields, .. } => {
-            fields.get("reason").cloned().unwrap_or(Value::Unit)
-        }
+        Value::Struct { fields, .. } => fields.get("reason").cloned().unwrap_or(Value::Unit),
         other => other.clone(),
     };
     if name == NAME_DENY_EVENT {
@@ -93,7 +91,11 @@ pub fn event_count(event_log: &std::sync::Mutex<Vec<Event>>, args: &[Value]) -> 
 
 /// The core of `event_sum`: the numeric sum of `field` across events of
 /// `event_type`; a poisoned log reads as 0.0.
-pub fn event_sum_in(event_log: &std::sync::Mutex<Vec<Event>>, event_type: &str, field: &str) -> f64 {
+pub fn event_sum_in(
+    event_log: &std::sync::Mutex<Vec<Event>>,
+    event_type: &str,
+    field: &str,
+) -> f64 {
     if let Ok(log) = event_log.lock() {
         log.iter()
             .filter(|e| e.event_type == event_type)
@@ -149,9 +151,7 @@ pub fn events_since(
                 other.type_name()
             ))
         }
-        None => {
-            return Err("events_since() requires 1 argument (seconds)".to_string())
-        }
+        None => return Err("events_since() requires 1 argument (seconds)".to_string()),
     };
     let now_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -364,7 +364,10 @@ mod tests {
         poison(&l);
         let out = event_sum(
             &l,
-            &[Value::String("t".to_string()), Value::String("v".to_string())],
+            &[
+                Value::String("t".to_string()),
+                Value::String("v".to_string()),
+            ],
         )
         .unwrap();
         assert!(is_float(&out, 0.0), "got {:?}", out);

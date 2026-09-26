@@ -90,6 +90,7 @@ pub mod schema;
 // typed FORECAST_TAINTED refusal + the forecast.* ledger family).
 pub mod forecast;
 pub mod semantic;
+pub mod semantic_types;
 #[cfg(feature = "server")]
 pub mod server;
 pub mod util;

@@ -513,13 +513,35 @@ jobs:
         run: cargo install cargo-audit --locked
       - name: Run cargo audit
         run: |
-          # RUSTSEC-2026-0187 (lopdf stack overflow, severity 7.5):
-          #   Our direct lopdf updated to 0.44 (safe). Remaining instance is
-          #   transitive via pdf-inspector 0.1.x -> lopdf 0.41.0. Upgrading
-          #   pdf-inspector to 1.x requires major API rewrite (classify_pdf_mem,
-          #   process_pdf_mem, extract_text_with_positions_mem all changed).
-          #   Tracked for resolution in a future naryad.
-          cargo audit --ignore RUSTSEC-2026-0187
+          # RUSTSEC-2026-0187 (lopdf stack overflow) is RESOLVED as of
+          # naryad #459: dependabot raised pdf-inspector to 1.23.0 and the
+          # direct lopdf runs 0.45.0 — the advisory no longer fires and the
+          # --ignore is gone (verified by a clean audit run, 2026-09-26).
+          # Unmaintained-crate WARNINGS stay advisory and allowed.
+          cargo audit
+
+  gitleaks:
+    name: gitleaks (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Наряд №459 (audit 25.09, findings 3.7/3.8): the working-tree scan is
+      # the tripwire for real credential literals. The scan is deliberately
+      # --no-git: the git HISTORY keeps the pre-№459 audit-fixture literal by
+      # the no-rewrite boundary — the mitigation there is TOKEN REVOCATION
+      # (the owner's line in the naryad issue), not history surgery. The
+      # allowlist (.gitleaks.toml) covers ONLY the sanctioned synthetic
+      # shapes (EXAMPLE-marked fixtures, [REDACTED:…]-masked placeholders).
+      - name: Install gitleaks (pinned v8.30.1, checksum-verified)
+        run: |
+          curl --proto '=https' --tlsv1.2 --retry 5 -sSfL \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
+            -o gitleaks.tgz
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks.tgz" | sha256sum -c -
+          tar -xzf gitleaks.tgz gitleaks
+          sudo install gitleaks /usr/local/bin/gitleaks
+      - name: Scan the working tree (no-git; blocking posture)
+        run: gitleaks detect --no-banner --redact --no-git --config .gitleaks.toml
 
   # Наряд №256 (part B, PR #284's ready block): дымовой фаззинг новых целей
   # (2 минуты бюджета на цель). НЕ блокирующий: паники, найденные фаззером,

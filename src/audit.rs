@@ -6965,10 +6965,14 @@ mod tests {
 
     #[test]
     fn test_github_pat_detected() {
-        // Exact reproduction of audit #5 finding format
+        // Synthetic reproduction of the audit #5 finding format
+        // (naryad #459: the original captured literal is gone from HEAD —
+        // the synthetic EXAMPLE token keeps the detection contract while
+        // the scanners stay quiet; revocation of the original is the
+        // owner's line in the naryad issue).
         let source = r#"
             pattern Init() -> String {
-                let token = "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"
+                let token = "ghp_EXAMPLE00000000000000000000000000000"
                 return token
             }
         "#;
@@ -6984,7 +6988,7 @@ mod tests {
         // AWS access key ID is exactly 20 chars (AKIA + 16), below generic threshold of 30
         let source = r#"
             pattern Init() -> String {
-                let key = "AKIA1234567890ABCDEF"
+                let key = "AKIAIOSFODNN7EXAMPLE"
                 return key
             }
         "#;

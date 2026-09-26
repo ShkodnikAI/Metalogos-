@@ -531,7 +531,8 @@ jobs:
           python3 scripts/ci/risk_review.py --report "$BASE" HEAD | tee "$GITHUB_STEP_SUMMARY"
       - name: Not triggered — the advisory run stays neutral
         if: steps.detect.outputs.triggered != 'true'
-        run: echo "risk-review: not triggered (no perimeter file touched, no spawn added) — the advisory run is neutral."
+        run: |
+          echo "risk-review: not triggered (no perimeter file touched, no spawn added) — the advisory run is neutral."
 
   vscode-extension:
     name: vscode-extension (blocking)

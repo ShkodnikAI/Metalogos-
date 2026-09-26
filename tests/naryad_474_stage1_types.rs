@@ -48,7 +48,8 @@ fn pattern_body<'a>(
 
 #[test]
 fn inference_golden_builtins_literals_copies() {
-    let decls = parse_decls(r#"
+    let decls = parse_decls(
+        r#"
         pattern Golden(a: String) -> String {
             let s = upper(a)
             let n = 42.0
@@ -57,7 +58,8 @@ fn inference_golden_builtins_literals_copies() {
             let untyped = find(a, "f", "==", 1.0)
             return s
         }
-    "#);
+    "#,
+    );
     let env = infer_block_types(pattern_body(&decls, "Golden"));
     // The builtin 'upper' is typed String in the registry (№467 stage 0).
     assert_eq!(env.get("s").expect("s must be inferred").ty, Type::String);
@@ -78,12 +80,25 @@ fn conflict_warns_and_names_both_types() {
         .iter()
         .filter(|w| w.message.contains(STAGE1_PREFIX))
         .collect();
-    assert_eq!(stage1.len(), 1, "exactly one stage-1 conflict: {:?}", result.warnings);
+    assert_eq!(
+        stage1.len(),
+        1,
+        "exactly one stage-1 conflict: {:?}",
+        result.warnings
+    );
     let msg = &stage1[0].message;
     assert!(msg.contains("'s'"), "the variable is named: {}", msg);
-    assert!(msg.contains("String"), "the previous type is named: {}", msg);
+    assert!(
+        msg.contains("String"),
+        "the previous type is named: {}",
+        msg
+    );
     assert!(msg.contains("Float"), "the new type is named: {}", msg);
-    assert!(msg.contains("warn-only"), "the honesty note is in the text: {}", msg);
+    assert!(
+        msg.contains("warn-only"),
+        "the honesty note is in the text: {}",
+        msg
+    );
 }
 
 #[test]
@@ -98,7 +113,7 @@ fn warn_only_zero_errors_and_the_program_runs() {
     // the language stays dynamically typed).
     let out = metalogos::run_program(CONFLICT_PROGRAM).expect("the program must run");
     let _ = out; // the demo pattern's return value is not the point here:
-    // the point is rc=0 with no compile-time rejection.
+                 // the point is rc=0 with no compile-time rejection.
 }
 
 #[test]
@@ -123,7 +138,11 @@ fn run_proof_reassignment_wins_at_runtime() {
         .iter()
         .filter(|w| w.message.contains(STAGE1_PREFIX))
         .collect();
-    assert!(stage1.is_empty(), "same-type reassignment never warns: {:?}", stage1);
+    assert!(
+        stage1.is_empty(),
+        "same-type reassignment never warns: {:?}",
+        stage1
+    );
     // The runtime follows the reassignment (the test block asserts it).
     let outcomes = metalogos::test_program(src).expect("the test block must run");
     assert_eq!(outcomes.len(), 1, "one test block ran");
@@ -240,7 +259,11 @@ fn corpus_no_panic_prefix_discipline_and_no_new_errors() {
             }
         }
     }
-    assert!(checked > 200, "the corpus is large (242 .mlog files among 490 total in examples/), checked {}", checked);
+    assert!(
+        checked > 200,
+        "the corpus is large (242 .mlog files among 490 total in examples/), checked {}",
+        checked
+    );
     assert_eq!(
         stage1_in_errors, 0,
         "the stage-1 output must land in WARNINGS only — never in errors"

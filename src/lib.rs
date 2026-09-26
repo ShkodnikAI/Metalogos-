@@ -71,6 +71,9 @@ pub mod profile;
 pub mod duplex;
 pub mod embodied;
 pub mod session;
+// №466 (gh#687) group 3 (sessions): the shared live module — the five conv
+// builtins and the consent name pair leave both backends.
+pub mod session_ops;
 // Наряд №286: shared JSON-Schema validation (ADR-0133) — один валидатор
 // для call_llm_schema и json_validate (дифференциальный контракт «ни одного
 // нового правила»).

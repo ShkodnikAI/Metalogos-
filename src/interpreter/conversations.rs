@@ -5,140 +5,46 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 impl Interpreter {
     // ── ADR-0053: Conversation builtins ──────────────────────────────────
+    // №466 (gh#687) group 3 (sessions): the five conv bodies live in the
+    // shared live module (src/session_ops.rs); these sites marshal the
+    // interpreter's own store/config only. The TW conv_add lane keeps its
+    // ADR-0053 auto-compression tail (the condition `messages.len() >
+    // compress_after` reads this interpreter's config) — the VM lane passes
+    // a no-op tail there.
 
     /// `conv_start(id)` — create or open a conversation. Returns the conversation id.
     pub(super) fn invoke_conv_start(&self, args: &[Value]) -> Result<Value, String> {
-        let id = match args.first() {
-            Some(Value::String(s)) => s.clone(),
-            _ => return Err("conv_start() requires 1 argument (id: String)".to_string()),
-        };
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
-        let mut convs = self
-            .conversations
-            .lock()
-            .map_err(|e| format!("conv_start() lock error: {}", e))?;
-        convs.entry(id.clone()).or_insert_with(|| Conversation {
-            id: id.clone(),
-            messages: Vec::new(),
-            created_at: now,
-            last_active: now,
-            metadata: HashMap::new(),
-        });
-        Ok(Value::String(id))
+        crate::session_ops::conv_start(args, &self.conversations)
     }
 
     /// `conv_add(id, role, text)` — add a message to a conversation.
     pub(super) fn invoke_conv_add(&self, args: &[Value]) -> Result<Value, String> {
-        let id = match args.first() {
-            Some(Value::String(s)) => s.clone(),
-            _ => return Err("conv_add() requires 3 arguments (id, role, text)".to_string()),
-        };
-        let role = match args.get(1) {
-            Some(Value::String(s)) => s.clone(),
-            _ => return Err("conv_add() requires 3 arguments (id, role, text)".to_string()),
-        };
-        let text = match args.get(2) {
-            Some(Value::String(s)) => s.clone(),
-            Some(other) => format!("{}", other),
-            None => return Err("conv_add() requires 3 arguments (id, role, text)".to_string()),
-        };
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
-
-        let mut convs = self
-            .conversations
-            .lock()
-            .map_err(|e| format!("conv_add() lock error: {}", e))?;
-        let conv = convs
-            .get_mut(&id)
-            .ok_or_else(|| format!("conv_add() conversation '{}' not found", id))?;
-
-        // Enforce max_messages: if at limit, remove oldest message
-        if conv.messages.len() >= self.conversation_config.max_messages {
-            conv.messages.remove(0);
-        }
-
-        conv.messages.push(ConvMessage {
-            role,
-            text: text.clone(),
-            timestamp: now,
-        });
-        conv.last_active = now;
-
-        // ADR-0053: auto-compress when message count exceeds compress_after
-        if conv.messages.len() > self.conversation_config.compress_after {
-            self.compress_conversation(conv);
-        }
-
-        Ok(Value::String(text))
+        crate::session_ops::conv_add(
+            args,
+            &self.conversations,
+            &self.conversation_config,
+            |conv| {
+                // ADR-0053: auto-compress when message count exceeds compress_after
+                if conv.messages.len() > self.conversation_config.compress_after {
+                    self.compress_conversation(conv);
+                }
+            },
+        )
     }
 
     /// `conv_history(id)` — return the full message history as a List of Structs.
     pub(super) fn invoke_conv_history(&self, args: &[Value]) -> Result<Value, String> {
-        let id = match args.first() {
-            Some(Value::String(s)) => s.clone(),
-            _ => return Err("conv_history() requires 1 argument (id: String)".to_string()),
-        };
-        let convs = self
-            .conversations
-            .lock()
-            .map_err(|e| format!("conv_history() lock error: {}", e))?;
-        let conv = convs
-            .get(&id)
-            .ok_or_else(|| format!("conv_history() conversation '{}' not found", id))?;
-
-        let mut list = Vec::new();
-        for msg in &conv.messages {
-            let mut fields = HashMap::new();
-            fields.insert("role".to_string(), Value::String(msg.role.clone()));
-            fields.insert("text".to_string(), Value::String(msg.text.clone()));
-            fields.insert("timestamp".to_string(), Value::Float(msg.timestamp as f64));
-            list.push(Value::Struct {
-                type_name: "Message".to_string(),
-                fields,
-            });
-        }
-        Ok(Value::List(list))
+        crate::session_ops::conv_history(args, &self.conversations)
     }
 
     /// `conv_context(id)` — return a formatted string of conversation history for LLM injection.
     pub(super) fn invoke_conv_context(&self, args: &[Value]) -> Result<Value, String> {
-        let id = match args.first() {
-            Some(Value::String(s)) => s.clone(),
-            _ => return Err("conv_context() requires 1 argument (id: String)".to_string()),
-        };
-        let convs = self
-            .conversations
-            .lock()
-            .map_err(|e| format!("conv_context() lock error: {}", e))?;
-        let conv = convs
-            .get(&id)
-            .ok_or_else(|| format!("conv_context() conversation '{}' not found", id))?;
-
-        let mut parts = Vec::new();
-        for msg in &conv.messages {
-            parts.push(format!("{}: {}", msg.role, msg.text));
-        }
-        Ok(Value::String(parts.join("\n")))
+        crate::session_ops::conv_context(args, &self.conversations)
     }
 
     /// `conv_end(id)` — terminate a conversation. Returns "ok".
     pub(super) fn invoke_conv_end(&self, args: &[Value]) -> Result<Value, String> {
-        let id = match args.first() {
-            Some(Value::String(s)) => s.clone(),
-            _ => return Err("conv_end() requires 1 argument (id: String)".to_string()),
-        };
-        let mut convs = self
-            .conversations
-            .lock()
-            .map_err(|e| format!("conv_end() lock error: {}", e))?;
-        convs.remove(&id);
-        Ok(Value::String("ok".to_string()))
+        crate::session_ops::conv_end(args, &self.conversations)
     }
 
     /// Get a reference to the conversations store (for testing).

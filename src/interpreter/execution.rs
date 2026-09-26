@@ -495,14 +495,14 @@ impl Interpreter {
         // called as a flow step name. The common case (let result =
         // reflex_train(...) inside a pattern body) goes through
         // eval_expr_with_env → invoke_reflex_train / invoke_reflex_predict.
-        if name == "reflex_train" {
+        if name == crate::reflex_ops::NAME_REFLEX_TRAIN {
             let reg = self
                 .reflex_registry
                 .get_mut()
                 .map_err(|e| format!("reflex registry poisoned: {}", e))?;
             return crate::builtins::reflex_train_dispatch(reg, &args);
         }
-        if name == "reflex_predict" {
+        if name == crate::reflex_ops::NAME_REFLEX_PREDICT {
             let reg = self
                 .reflex_registry
                 .get_mut()
@@ -517,7 +517,7 @@ impl Interpreter {
         // Order matters for the borrow checker: clone persist_path
         // BEFORE locking the registry (locking takes &mut self, while
         // get_memory_persist_path takes &self — they conflict otherwise).
-        if name == "reflex_save" {
+        if name == crate::reflex_ops::NAME_REFLEX_SAVE {
             let persist = self.get_memory_persist_path();
             let reg = self
                 .reflex_registry
@@ -530,7 +530,7 @@ impl Interpreter {
                 &args,
             );
         }
-        if name == "reflex_load" {
+        if name == crate::reflex_ops::NAME_REFLEX_LOAD {
             let persist = self.get_memory_persist_path();
             let reg = self
                 .reflex_registry
@@ -546,14 +546,14 @@ impl Interpreter {
         }
         // Наряд №187: reflex_metrics / reflex_list — introspection (read-only).
         // Same dispatch pattern as reflex_predict, but read-only.
-        if name == "reflex_metrics" {
+        if name == crate::reflex_ops::NAME_REFLEX_METRICS {
             let reg = self
                 .reflex_registry
                 .get_mut()
                 .map_err(|e| format!("reflex registry poisoned: {}", e))?;
             return crate::builtins::reflex_metrics_dispatch(reg, &args);
         }
-        if name == "reflex_list" {
+        if name == crate::reflex_ops::NAME_REFLEX_LIST {
             let reg = self
                 .reflex_registry
                 .get_mut()
@@ -561,7 +561,7 @@ impl Interpreter {
             return crate::builtins::reflex_list_dispatch(reg, &self.reflex_names, &args);
         }
         // Наряд №193: reflex_generate — text generation (ADR-0120).
-        if name == "reflex_generate" {
+        if name == crate::reflex_ops::NAME_REFLEX_GENERATE {
             let reg = self
                 .reflex_registry
                 .get_mut()
@@ -1801,7 +1801,10 @@ impl Interpreter {
                     // bare Ident is the model name, resolved via reflex_names → Value::Reflex(id).
                     // This mirrors the render() pattern: the Ident is NOT a runtime variable
                     // lookup — it's a compile-time reference to a top-level declaration.
-                    if (name == "reflex_train" || name == "reflex_predict") && i == 0 {
+                    if (name == crate::reflex_ops::NAME_REFLEX_TRAIN
+                        || name == crate::reflex_ops::NAME_REFLEX_PREDICT)
+                        && i == 0
+                    {
                         if let Expr::Ident { name: n, .. } = arg {
                             if let Some(id) = self.reflex_names.get(n) {
                                 eval_args.push(Value::Reflex(*id));
@@ -1817,7 +1820,7 @@ impl Interpreter {
                     // resolution. reflex_load takes a String name, so no
                     // special-case needed for it (regular expr eval handles
                     // string literals and variable lookups).
-                    if name == "reflex_save" && i == 0 {
+                    if name == crate::reflex_ops::NAME_REFLEX_SAVE && i == 0 {
                         if let Expr::Ident { name: n, .. } = arg {
                             if let Some(id) = self.reflex_names.get(n) {
                                 eval_args.push(Value::Reflex(*id));
@@ -1832,7 +1835,7 @@ impl Interpreter {
                     // Наряд №187: reflex_metrics(Model) — same bare-Ident
                     // resolution as reflex_predict. reflex_list takes no
                     // args, so no special-case needed for it.
-                    if name == "reflex_metrics" && i == 0 {
+                    if name == crate::reflex_ops::NAME_REFLEX_METRICS && i == 0 {
                         if let Expr::Ident { name: n, .. } = arg {
                             if let Some(id) = self.reflex_names.get(n) {
                                 eval_args.push(Value::Reflex(*id));
@@ -1845,7 +1848,7 @@ impl Interpreter {
                         }
                     }
                     // Наряд №193: reflex_generate(ModelName, ...) — same bare-Ident resolution.
-                    if name == "reflex_generate" && i == 0 {
+                    if name == crate::reflex_ops::NAME_REFLEX_GENERATE && i == 0 {
                         if let Expr::Ident { name: n, .. } = arg {
                             if let Some(id) = self.reflex_names.get(n) {
                                 eval_args.push(Value::Reflex(*id));
@@ -1864,30 +1867,30 @@ impl Interpreter {
                 // state (reflex_registry), so dispatch via &self invoke methods
                 // that use the Mutex-protected registry (same pattern as
                 // invoke_recall / invoke_memorize_fn).
-                if name == "reflex_train" {
+                if name == crate::reflex_ops::NAME_REFLEX_TRAIN {
                     return self.invoke_reflex_train(eval_args);
                 }
-                if name == "reflex_predict" {
+                if name == crate::reflex_ops::NAME_REFLEX_PREDICT {
                     return self.invoke_reflex_predict(eval_args);
                 }
                 // Наряд №180: reflex_save / reflex_load — persistence (ADR-0116).
                 // Need both the registry (Mutex-protected) and the SQLite
                 // persist path (from `memory { persist: "..." }`).
-                if name == "reflex_save" {
+                if name == crate::reflex_ops::NAME_REFLEX_SAVE {
                     return self.invoke_reflex_save(eval_args);
                 }
-                if name == "reflex_load" {
+                if name == crate::reflex_ops::NAME_REFLEX_LOAD {
                     return self.invoke_reflex_load(eval_args);
                 }
                 // Наряд №187: reflex_metrics / reflex_list — introspection.
-                if name == "reflex_metrics" {
+                if name == crate::reflex_ops::NAME_REFLEX_METRICS {
                     return self.invoke_reflex_metrics(eval_args);
                 }
-                if name == "reflex_list" {
+                if name == crate::reflex_ops::NAME_REFLEX_LIST {
                     return self.invoke_reflex_list(eval_args);
                 }
                 // Наряд №193: reflex_generate — text generation (ADR-0120).
-                if name == "reflex_generate" {
+                if name == crate::reflex_ops::NAME_REFLEX_GENERATE {
                     return self.invoke_reflex_generate(eval_args);
                 }
 

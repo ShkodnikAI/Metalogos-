@@ -2769,19 +2769,19 @@ impl Vm {
     /// the argument marshalling and registry access differ from the
     /// interpreter path.
     fn call_reflex_builtin(&mut self, name: &str, args: &[Value]) -> Option<Result<Value, String>> {
-        if name == "reflex_train" {
+        if name == crate::reflex_ops::NAME_REFLEX_TRAIN {
             return Some(crate::builtins::reflex_train_dispatch(
                 &mut self.reflex_registry,
                 args,
             ));
         }
-        if name == "reflex_predict" {
+        if name == crate::reflex_ops::NAME_REFLEX_PREDICT {
             return Some(crate::builtins::reflex_predict_dispatch(
                 &self.reflex_registry,
                 args,
             ));
         }
-        if name == "reflex_save" {
+        if name == crate::reflex_ops::NAME_REFLEX_SAVE {
             return Some(crate::builtins::reflex_save_dispatch(
                 &self.reflex_registry,
                 &self.reflex_names,
@@ -2789,7 +2789,7 @@ impl Vm {
                 args,
             ));
         }
-        if name == "reflex_load" {
+        if name == crate::reflex_ops::NAME_REFLEX_LOAD {
             return Some(crate::builtins::reflex_load_dispatch(
                 &mut self.reflex_registry,
                 &self.reflex_names,
@@ -2797,20 +2797,20 @@ impl Vm {
                 args,
             ));
         }
-        if name == "reflex_metrics" {
+        if name == crate::reflex_ops::NAME_REFLEX_METRICS {
             return Some(crate::builtins::reflex_metrics_dispatch(
                 &self.reflex_registry,
                 args,
             ));
         }
-        if name == "reflex_list" {
+        if name == crate::reflex_ops::NAME_REFLEX_LIST {
             return Some(crate::builtins::reflex_list_dispatch(
                 &self.reflex_registry,
                 &self.reflex_names,
                 args,
             ));
         }
-        if name == "reflex_generate" {
+        if name == crate::reflex_ops::NAME_REFLEX_GENERATE {
             return Some(crate::builtins::reflex_generate_dispatch(
                 &self.reflex_registry,
                 args,

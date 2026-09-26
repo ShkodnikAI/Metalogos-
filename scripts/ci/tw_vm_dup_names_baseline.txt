@@ -18,18 +18,13 @@
 # 2026-09-26 №466 (gh#687) group 3 (sessions): conv_start/conv_add/conv_history/
 # conv_context/conv_end/consent_grant/consent_revoke transferred to the shared
 # live module src/session_ops.rs — 49 → 42.
-# threshold: 42
+# 2026-09-26 №466 (gh#687) group 4 (reflex): reflex_train/reflex_predict/
+# reflex_save/reflex_load/reflex_metrics/reflex_list/reflex_generate — the
+# name literals left both backends (the bodies were already shared in
+# src/builtins/reflex.rs since №179b/№180/№187/№193); the spelling lives in
+# src/reflex_ops.rs — 42 → 35.
+# threshold: 35
 
-consent_grant
-consent_revoke
-conv_add
-conv_context
-conv_end
-conv_history
-conv_start
-db_execute
-db_execute_with_grant
-db_insert
 deny_event
 deny_reason
 event_count
@@ -51,19 +46,8 @@ media_store_audio
 media_store_image
 media_store_video_frame
 media_store_video_segment
-query
-query_param
-query_row
-query_scalar
 recipe_save
 recipe_search
-reflex_generate
-reflex_list
-reflex_load
-reflex_metrics
-reflex_predict
-reflex_save
-reflex_train
 require
 resolve_skill_index
 server_path_param

@@ -263,6 +263,9 @@ fn make_cached_learnable(name: &str) -> Declaration {
 #[serial]
 fn n276_trace_cache_hit_is_exact_line_without_llm_call() {
     let _env = lock_env();
+    // Н454: the mock is no longer the default backend — the cache-hit
+    // contract (a learnable pattern under the mock) opts in explicitly.
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
     let path = trace_path("t5");
     metalogos::llm::MockLlm::reset_call_count();
 

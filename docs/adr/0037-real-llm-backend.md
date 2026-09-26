@@ -40,6 +40,8 @@ If the LLM response is a JSON object, the interpreter/VM automatically converts 
 
 `MockLlm` remains unchanged. Default behavior is mock (`METALOGOS_MOCK_LLM=true`) — no accidental API calls in tests or CI. Three integration tests with real API keys are marked `#[ignore]`.
 
+> **Status update (2026-09-25, naryad №454, audit 25.09 finding 3.1): SUPERSEDED on the default.** The mock-by-default leaked prompts (the mock echoed the effective prompt — instructions, recalled memory, conversation history) and made production deployments confidently wrong. The default is now the REAL backend, which fails loudly at the first call without credentials; the mock is active ONLY when `METALOGOS_MOCK_LLM=1|true` is set explicitly (tests, CI and golden sidecars opt in), and `MockLlm` answers with the deterministic non-echo marker `[mock-llm:<8 hex of prompt hash>]` instead of the prompt echo.
+
 ## Consequences
 
 - `learnable pattern` works with real AI models when `METALOGOS_MOCK_LLM=false`

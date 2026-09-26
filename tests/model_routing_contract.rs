@@ -47,6 +47,9 @@ fn make_model_learnable_decl(name: &str, prompt: &str, model: Option<&str>) -> D
 fn test_model_routing_resolves_alias_via_env() {
     std::env::set_var("METALOGOS_LLM_MODEL_fast", "claude-haiku-4-5-20251001");
     MockLlm::reset_call_count();
+    // Н454: the mock is no longer the default backend — routing contracts
+    // that assert on MockLlm::last_model() opt in explicitly.
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
     MockLlm::reset_last_model();
 
     let mut interp = Interpreter::new();
@@ -89,6 +92,9 @@ fn test_model_routing_different_aliases_resolve_independently() {
     std::env::set_var("METALOGOS_LLM_MODEL_fast", "model-a");
     std::env::set_var("METALOGOS_LLM_MODEL_strong", "model-b");
     MockLlm::reset_call_count();
+    // Н454: the mock is no longer the default backend — routing contracts
+    // that assert on MockLlm::last_model() opt in explicitly.
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
     MockLlm::reset_last_model();
 
     let mut interp = Interpreter::new();
@@ -149,6 +155,9 @@ fn test_model_routing_passthrough_without_env() {
     // Ensure no env variable for "unknown"
     std::env::remove_var("METALOGOS_LLM_MODEL_unknown");
     MockLlm::reset_call_count();
+    // Н454: the mock is no longer the default backend — routing contracts
+    // that assert on MockLlm::last_model() opt in explicitly.
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
     MockLlm::reset_last_model();
 
     let mut interp = Interpreter::new();
@@ -187,6 +196,9 @@ fn test_model_routing_passthrough_without_env() {
 #[test]
 fn test_model_routing_no_field_no_override() {
     MockLlm::reset_call_count();
+    // Н454: the mock is no longer the default backend — routing contracts
+    // that assert on MockLlm::last_model() opt in explicitly.
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
     MockLlm::reset_last_model();
 
     let mut interp = Interpreter::new();
@@ -226,6 +238,9 @@ fn test_model_routing_no_field_no_override() {
 fn test_model_routing_user_defined_alias() {
     std::env::set_var("METALOGOS_LLM_MODEL_cheap", "gpt-4o-mini");
     MockLlm::reset_call_count();
+    // Н454: the mock is no longer the default backend — routing contracts
+    // that assert on MockLlm::last_model() opt in explicitly.
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
     MockLlm::reset_last_model();
 
     let mut interp = Interpreter::new();
@@ -267,6 +282,9 @@ fn test_model_routing_direct_model_name() {
     // "gpt-4o" is a real model name, not an alias
     std::env::remove_var("METALOGOS_LLM_MODEL_gpt-4o");
     MockLlm::reset_call_count();
+    // Н454: the mock is no longer the default backend — routing contracts
+    // that assert on MockLlm::last_model() opt in explicitly.
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
     MockLlm::reset_last_model();
 
     let mut interp = Interpreter::new();

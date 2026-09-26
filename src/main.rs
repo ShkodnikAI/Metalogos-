@@ -731,6 +731,12 @@ fn cmd_serve(file: PathBuf) {
     {
         danger_flags.push("METALOGOS_ENV_ALLOWLIST (route env allowlist set)");
     }
+    // Наряд №454: an explicitly enabled LLM mock in serve is a danger flag —
+    // every LLM call answers with deterministic mock text instead of a model.
+    let llm_mock_active = metalogos::llm::mock_llm_requested();
+    if llm_mock_active {
+        danger_flags.push("METALOGOS_MOCK_LLM=1 (mock responses)");
+    }
     if !danger_flags.is_empty() {
         eprintln!();
         eprintln!("  WARNING: security protections are DISABLED by:");
@@ -768,6 +774,17 @@ fn cmd_serve(file: PathBuf) {
         format!("allowlist: {}", route_env_allowlist)
     };
     eprintln!("[serve] route env: {}", route_env_state);
+
+    // Наряд №454: LLM-заглушка — громко, при старте serve (лекало route
+    // env/exec-строк выше). По умолчанию (без METALOGOS_MOCK_LLM) работает
+    // реальный бэкенд и эта строка молчит; строка появляется ТОЛЬКО при
+    // явной активации заглушки, чтобы оператор не принял mock-ответы за
+    // ответы модели.
+    if llm_mock_active {
+        eprintln!(
+            "[serve] LLM MOCK MODE ACTIVE (METALOGOS_MOCK_LLM) — every LLM call returns a deterministic mock marker, NOT a model answer"
+        );
+    }
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(workers)

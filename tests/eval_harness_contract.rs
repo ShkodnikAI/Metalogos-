@@ -1,5 +1,10 @@
 // ── Contract tests for Eval Harness (ADR-0050) ─────────────────────────
 //
+// Н454: MockLlm no longer echoes the prompt — it answers with the
+// deterministic marker `mock_response(prompt)`. The tests that used the
+// echo trick ("set the prompt to the expected label") inject that marker
+// into the dataset via the __MOCK__ placeholder + .replace below.
+//
 // Tests:
 // 1. eval block with 3 examples — accuracy computed correctly
 // 2. eval with all correct — PASS
@@ -10,10 +15,14 @@
 // 7. confusion matrix correctness
 
 use metalogos::interpreter::{EvalResult, Interpreter};
+use metalogos::llm::mock_response;
 use metalogos::parser;
 
 /// Helper: parse + run declarations, then run eval blocks.
+// Н454: the mock is no longer the default backend — the eval contracts
+// (which assert on the deterministic mock marker) opt in explicitly.
 fn run_eval(source: &str) -> Result<Vec<EvalResult>, String> {
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
     let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
     let mut interp = Interpreter::new();
     interp.run(declarations)?;
@@ -24,24 +33,25 @@ fn run_eval(source: &str) -> Result<Vec<EvalResult>, String> {
 
 #[test]
 fn test_eval_accuracy_computed() {
-    // MockLlm returns the prompt verbatim. Set prompt to the expected label
-    // so that all examples match.
+    // Н454: the mock answer is mock_response("complaint") — inject it as
+    // the expected label so all examples match.
     let source = r#"
         learnable pattern Classify(text: String) -> String {
             prompt: "complaint"
         }
         eval Classify {
             dataset: [
-                ("ужасный сервис", "complaint"),
-                ("спасибо", "complaint"),
-                ("когда?", "complaint")
+                ("ужасный сервис", "__MOCK__"),
+                ("спасибо", "__MOCK__"),
+                ("когда?", "__MOCK__")
             ],
             metric: accuracy,
             threshold: 0.8
         }
-    "#;
+    "#
+    .replace("__MOCK__", &mock_response("complaint"));
 
-    let results = run_eval(source).unwrap();
+    let results = run_eval(&source).unwrap();
     assert_eq!(results.len(), 1);
     let r = &results[0];
     assert_eq!(r.pattern_name, "Classify");
@@ -55,25 +65,25 @@ fn test_eval_accuracy_computed() {
 
 #[test]
 fn test_eval_all_correct_pass() {
-    // MockLlm returns the prompt as-is. If prompt says "Return: greeting",
-    // the response is "Return: greeting". So to match expected labels,
-    // we set the prompt to the expected label for a subset of examples.
+    // Н454: the mock answer is mock_response("positive") — the dataset's
+    // expected labels must be that marker.
     let source = r#"
         learnable pattern Sentiment(text: String) -> String {
             prompt: "positive"
         }
         eval Sentiment {
             dataset: [
-                ("great product", "positive"),
-                ("love it", "positive"),
-                ("awesome", "positive")
+                ("great product", "__MOCK__"),
+                ("love it", "__MOCK__"),
+                ("awesome", "__MOCK__")
             ],
             metric: accuracy,
             threshold: 0.5
         }
-    "#;
+    "#
+    .replace("__MOCK__", &mock_response("positive"));
 
-    let results = run_eval(source).unwrap();
+    let results = run_eval(&source).unwrap();
     assert_eq!(results[0].correct, 3);
     assert!(results[0].passed);
 }
@@ -104,9 +114,10 @@ fn test_eval_below_threshold_fail() {
     assert!(!r.passed);
     // Should have 3 failures
     assert_eq!(r.failures.len(), 3);
-    // Should have adapt suggestions for each failure
+    // Should have adapt suggestions for each failure (actual = the mock
+    // marker of the prompt "wrong_label" — Н454 non-echo semantics)
     for (input, expected, actual) in &r.failures {
-        assert_eq!(actual, "wrong_label");
+        assert_eq!(actual, &mock_response("wrong_label"));
         assert_ne!(expected, "wrong_label");
         assert!(!input.is_empty());
     }
@@ -203,23 +214,25 @@ fn test_eval_confusion_matrix() {
     let results = run_eval(source).unwrap();
     let r = &results[0];
 
-    // All predictions are "wrong", all expected are different labels
-    // Confusion matrix should have 3 entries: each expected -> wrong -> 1
+    // All predictions are the mock marker of "wrong" (Н454 non-echo), all
+    // expected are different labels. Confusion matrix: each expected ->
+    // marker -> 1.
+    let predicted = mock_response("wrong");
     assert_eq!(r.confusion.len(), 3);
     assert_eq!(
         *r.confusion
             .get("engineering")
             .unwrap()
-            .get("wrong")
+            .get(&predicted)
             .unwrap(),
         1
     );
     assert_eq!(
-        *r.confusion.get("billing").unwrap().get("wrong").unwrap(),
+        *r.confusion.get("billing").unwrap().get(&predicted).unwrap(),
         1
     );
     assert_eq!(
-        *r.confusion.get("product").unwrap().get("wrong").unwrap(),
+        *r.confusion.get("product").unwrap().get(&predicted).unwrap(),
         1
     );
 
@@ -238,15 +251,16 @@ fn test_eval_format_report() {
         }
         eval X {
             dataset: [
-                ("input1", "a"),
+                ("input1", "__MOCK__"),
                 ("input2", "b")
             ],
             metric: accuracy,
             threshold: 0.8
         }
-    "#;
+    "#
+    .replace("__MOCK__", &mock_response("a"));
 
-    let results = run_eval(source).unwrap();
+    let results = run_eval(&source).unwrap();
     let report = results[0].format_report();
 
     assert!(report.contains("Eval: X"));
@@ -271,18 +285,19 @@ fn test_eval_multiple_blocks() {
             prompt: "correct"
         }
         eval A {
-            dataset: [("x", "correct")],
+            dataset: [("x", "__MOCK__")],
             metric: accuracy,
             threshold: 0.5
         }
         eval B {
-            dataset: [("y", "correct")],
+            dataset: [("y", "__MOCK__")],
             metric: accuracy,
             threshold: 0.5
         }
-    "#;
+    "#
+    .replace("__MOCK__", &mock_response("correct"));
 
-    let results = run_eval(source).unwrap();
+    let results = run_eval(&source).unwrap();
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].pattern_name, "A");
     assert_eq!(results[1].pattern_name, "B");

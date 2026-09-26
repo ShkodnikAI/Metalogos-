@@ -168,7 +168,11 @@ fn contract_llm_mock_delay_below_deadline_succeeds() {
 
     MockLlm::reset_delay();
 
-    assert_eq!(result.expect("delay below deadline must succeed"), "p");
+    // Н454: the mock answers with the deterministic non-echo marker.
+    assert_eq!(
+        result.expect("delay below deadline must succeed"),
+        metalogos::llm::mock_response("p")
+    );
     assert!(
         elapsed < Duration::from_secs(2),
         "100ms delay must complete well under the 5s deadline (got {:?})",

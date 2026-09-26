@@ -15,6 +15,9 @@ use metalogos::parser;
 
 /// Helper: parse + run declarations, return interpreter.
 fn run_source(source: &str) -> Result<Interpreter, String> {
+    // Н454: the mock is no longer the default backend — the learnable-flow
+    // tests here opt in explicitly.
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
     let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
     let mut interp = Interpreter::new();
     interp.run(declarations)?;

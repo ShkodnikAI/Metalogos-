@@ -224,7 +224,7 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 | Architecture Decisions | 170 ADRs |
 | Example Programs | 258 .mlog programs |
 | Reference | REFERENCE.md (~283 KB) — 100% registry coverage |
-| Changelog | CHANGELOG.md (~466 KB) — every wave documented |
+| Changelog | CHANGELOG.md (~468 KB) — every wave documented |
 <!-- END GENERATED METRICS -->
 
 Validated on every CI run: `scripts/gen_metrics.py --check` plus the independent recomputation in `tests/readme_consistency.rs`.

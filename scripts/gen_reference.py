@@ -37,7 +37,7 @@ BEGIN = "<!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not
 END = "<!-- END GENERATED BUILTIN INDEX -->"
 
 SPEC_RE = re.compile(r'spec!\(\s*"([^"]+)"\s*,\s*(\d+)\s*(?:,\s*(\d+))?\s*,\s*"([^"]+)"')
-HANDLER_RE = re.compile(r";\s*([A-Za-z0-9_]+)\s*\)?\s*,?\s*$")
+HANDLER_RE = re.compile(r';\s*([A-Za-z0-9_]+)\s*(?:,\s*"[A-Za-z][A-Za-z0-9<>]*")?\s*\)?\s*,?\s*$')  # №467: the typed tail `, "Type"` is optional
 FN_RE = re.compile(r"(?:pub(?:\(crate\))?\s+)?fn\s+([a-z0-9_]+)\s*\(")
 DOC_RE = re.compile(r"^\s*///\s?(.*)$")
 ROW_NAME_RE = re.compile(r"^\|\s*`([a-z_][a-z0-9_]*)\(")

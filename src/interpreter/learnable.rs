@@ -1575,7 +1575,7 @@ mod n456_distill_holdout_tests {
 
     #[test]
     fn n456_holdout_too_small_is_rejected() {
-        let interp = make_interp_with_head(vec!["yes".into(), "no".into()], 42);
+        let mut interp = make_interp_with_head(vec!["yes".into(), "no".into()], 42);
         let cfg = distill_config(0.85);
         // 10 valid examples → holdout = 2 < MIN_HOLDOUT(4) → refuse.
         let result = interp
@@ -1595,7 +1595,7 @@ mod n456_distill_holdout_tests {
 
     #[test]
     fn n456_noisy_labels_stay_teaching() {
-        let interp = make_interp_with_head(vec!["yes".into(), "no".into()], 42);
+        let mut interp = make_interp_with_head(vec!["yes".into(), "no".into()], 42);
         let cfg = distill_config(0.85);
         // 24 examples, alternating noise → holdout accuracy well below 0.85.
         let result = interp

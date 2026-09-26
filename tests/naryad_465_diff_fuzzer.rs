@@ -149,9 +149,10 @@ fn gen_stmts(rng: &mut Rng, vars: &mut Vec<String>, _depth: u32, budget: &mut u3
                 ""
             )),
             2 => {
-                out.push(format!(
+                out.push(
                     "each item in [\"a\", \"b\", \"c\"] {{\n  let acc = len(item)\n}}"
-                ));
+                        .to_string(),
+                );
             }
             3 => {
                 let var = format!("w{}", rng.alnum(2));
@@ -289,7 +290,7 @@ impl Divergence {
                         in_str = !in_str;
                         out.push('S');
                     }
-                    c if in_str => {}
+                    _ if in_str => {}
                     c if c.is_ascii_digit() => {
                         if !prev_digit {
                             out.push('N');
@@ -495,7 +496,7 @@ fn n465_diff_fuzzer_tw_vm() {
         class_counts.len()
     );
     for (class, fp, count) in &class_counts {
-        let status = if known.iter().any(|k| *k == *class) {
+        let status = if known.contains(class) {
             "KNOWN"
         } else {
             "NEW"

@@ -1269,16 +1269,9 @@ impl Interpreter {
     /// Returns a Struct with pattern metadata: calls, avg_confidence, cache_hits,
     /// cache_misses, last_adapt, last_call, examples_count, is_learnable.
     pub(super) fn invoke_inspect(&self, args: &[Value]) -> Result<Value, String> {
-        let pattern_name = match args.first() {
-            Some(Value::String(s)) => s.clone(),
-            Some(other) => {
-                return Err(format!(
-                    "inspect() expected String pattern name, got {}",
-                    other.type_name()
-                ))
-            }
-            None => return Err("inspect() requires 1 argument (pattern name)".to_string()),
-        };
+        // №466 group 7: the shared validation (src/runtime_ops.rs); the
+        // stats lookup stays the TW lane.
+        let pattern_name = crate::runtime_ops::inspect_pattern_name(args)?;
 
         // Soft-failure: nonexistent pattern → Value::Unit
         let is_learnable = self.learnable_patterns.contains_key(&pattern_name);

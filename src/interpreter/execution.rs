@@ -828,18 +828,14 @@ impl Interpreter {
         // Наряд №283: server_path_param(name) — path parameter from a
         // templated route. Parity with query_param: empty string when no
         // templated route matched / no server context.
-        if name == "server_path_param" {
-            let param_name = args
-                .first()
-                .and_then(|v| match v {
-                    Value::String(s) => Some(s.clone()),
-                    _ => None,
-                })
-                .unwrap_or_default();
-            if let Some(val) = self.get_server_path_param(&param_name) {
-                return Ok(Value::String(val));
-            }
-            return Ok(Value::String(String::new()));
+        if name == crate::runtime_ops::NAME_SERVER_PATH_PARAM {
+            // №466 group 7: the shared live module (src/runtime_ops.rs) over
+            // the identical Option<HashMap> state (the get_server_path_param
+            // accessor was the same lookup).
+            return Ok(crate::runtime_ops::server_path_param(
+                self.server_path_params.as_ref(),
+                &args,
+            ));
         }
 
         // Наряд №67: recipe_save — intercept to also memorize for recipe_search
@@ -852,20 +848,15 @@ impl Interpreter {
             return self.invoke_recipe_search_fn(args);
         }
 
-        if name == "find" {
+        if name == crate::runtime_ops::NAME_FIND {
             return self.invoke_find(args);
         }
 
         // Problem A: resolve_skill_index(dept) — main invoke path
-        if name == "resolve_skill_index" {
-            let dept = match args.first() {
-                Some(Value::String(s)) => s.clone(),
-                _ => {
-                    return Err(
-                        "resolve_skill_index() expects a department name (String)".to_string()
-                    )
-                }
-            };
+        if name == crate::runtime_ops::NAME_RESOLVE_SKILL_INDEX {
+            // №466 group 7: the validation lives in the shared live module
+            // (src/runtime_ops.rs); the index lookup stays per-backend.
+            let dept = crate::runtime_ops::skill_dept(&args)?;
             let idx = self.skill_indices.get(&dept).ok_or_else(|| {
                 format!(
                     "resolve_skill_index(): no skill_index declared for '{}'",
@@ -926,12 +917,10 @@ impl Interpreter {
         }
 
         // Problem A: fit_to_budget(list) — MVP: return list as-is
-        if name == "fit_to_budget" {
-            let list = match args.first() {
-                Some(Value::List(items)) => items.clone(),
-                _ => return Err("fit_to_budget() expects first argument to be a List".to_string()),
-            };
-            return Ok(Value::List(list));
+        if name == crate::runtime_ops::NAME_FIT_TO_BUDGET {
+            // №466 group 7: the body lives in the shared live module
+            // (src/runtime_ops.rs) — the byte-identical identity stub.
+            return crate::runtime_ops::fit_to_budget(&args);
         }
 
         // Check learnable patterns
@@ -974,7 +963,7 @@ impl Interpreter {
                         ));
                     }
                     // Наряд №17 Г.2: also enforce exec() in sandbox
-                    if name == "exec" {
+                    if name == crate::runtime_ops::NAME_EXEC {
                         return Err(format!("exec() forbidden in sandbox '{}'", sb.name));
                     }
                 }
@@ -1716,7 +1705,7 @@ impl Interpreter {
                     let event = self.take_deny_event()?;
                     return Ok(crate::audit_ops::deny_event_or_reason(function, event));
                 }
-                if function == "inspect" {
+                if function == crate::runtime_ops::NAME_INSPECT {
                     return self.invoke_inspect(&eval_args);
                 }
                 if let Some(builtin_fn) = self.builtins.get(function) {
@@ -1738,7 +1727,7 @@ impl Interpreter {
                                 ));
                             }
                             // Наряд №17 Г.2: also enforce exec() in sandbox
-                            if function == "exec" {
+                            if function == crate::runtime_ops::NAME_EXEC {
                                 return Err(format!("exec() forbidden in sandbox '{}'", sb.name));
                             }
                         }
@@ -2144,7 +2133,7 @@ impl Interpreter {
                 }
 
                 // Check find (entity store query)
-                if name == "find" {
+                if name == crate::runtime_ops::NAME_FIND {
                     return self.invoke_find(eval_args);
                 }
 
@@ -2161,7 +2150,7 @@ impl Interpreter {
                     let event = self.take_deny_event()?;
                     return Ok(crate::audit_ops::deny_event_or_reason(name, event));
                 }
-                if name == "inspect" {
+                if name == crate::runtime_ops::NAME_INSPECT {
                     return self.invoke_inspect(&eval_args);
                 }
 
@@ -2202,15 +2191,12 @@ impl Interpreter {
 
                 // Check json_body() — server context builtin (Наряд №3)
                 // Returns the parsed JSON request body set by execute_route_body.
-                if name == "json_body" {
-                    if let Some(body) = self.server_json_body.clone() {
-                        return Ok(body);
-                    }
-                    // Fallback: empty struct (non-server context)
-                    return Ok(Value::Struct {
-                        type_name: "JsonBody".to_string(),
-                        fields: std::collections::HashMap::new(),
-                    });
+                if name == crate::runtime_ops::NAME_JSON_BODY {
+                    // №466 group 7: the shared live module (src/runtime_ops.rs)
+                    // over the identical Option<Value> body state.
+                    return Ok(crate::runtime_ops::json_body(
+                        self.server_json_body.as_ref(),
+                    ));
                 }
 
                 // Bug 2.1 fix: query_param() — intercept to access server_query_params
@@ -2223,7 +2209,7 @@ impl Interpreter {
 
                 // Наряд №283: server_path_param(name) — path parameter from
                 // a templated route. Parity with query_param.
-                if name == "server_path_param" {
+                if name == crate::runtime_ops::NAME_SERVER_PATH_PARAM {
                     let param_name = eval_args
                         .first()
                         .and_then(|v| match v {
@@ -2238,21 +2224,10 @@ impl Interpreter {
                 }
 
                 // Наряд №14 P2-6: require() — RBAC check
-                if name == "require" {
-                    let role = eval_args
-                        .first()
-                        .and_then(|v| match v {
-                            Value::String(s) => Some(s.clone()),
-                            _ => None,
-                        })
-                        .unwrap_or_default();
-                    if self.server_user_roles.contains(&role) {
-                        return Ok(Value::Bool(true));
-                    }
-                    return Err(format!(
-                        "require('{}'): access denied — user has roles {:?}",
-                        role, self.server_user_roles
-                    ));
+                if name == crate::runtime_ops::NAME_REQUIRE {
+                    // №466 group 7: the body lives in the shared live module
+                    // (src/runtime_ops.rs) over the identical roles state.
+                    return crate::runtime_ops::require(&self.server_user_roles, &eval_args);
                 }
 
                 // Наряд №67: recipe_save — intercept to also memorize for recipe_search
@@ -2352,14 +2327,9 @@ impl Interpreter {
                 }
 
                 // Problem A: resolve_skill_index(dept) — returns registered index as Value::Struct
-                if name == "resolve_skill_index" {
-                    let dept = match eval_args.first() {
-                        Some(Value::String(s)) => s.clone(),
-                        _ => {
-                            return Err("resolve_skill_index() expects a department name (String)"
-                                .to_string())
-                        }
-                    };
+                if name == crate::runtime_ops::NAME_RESOLVE_SKILL_INDEX {
+                    // №466 group 7: the shared validation (src/runtime_ops.rs).
+                    let dept = crate::runtime_ops::skill_dept(&eval_args)?;
                     let idx = self.skill_indices.get(&dept).ok_or_else(|| {
                         format!(
                             "resolve_skill_index(): no skill_index declared for '{}'",
@@ -2425,16 +2395,9 @@ impl Interpreter {
                 }
 
                 // Problem A: fit_to_budget(list, budget, mode) — MVP: return list as-is
-                if name == "fit_to_budget" {
-                    let list = match eval_args.first() {
-                        Some(Value::List(items)) => items.clone(),
-                        _ => {
-                            return Err(
-                                "fit_to_budget() expects first argument to be a List".to_string()
-                            )
-                        }
-                    };
-                    return Ok(Value::List(list));
+                if name == crate::runtime_ops::NAME_FIT_TO_BUDGET {
+                    // №466 group 7: the shared live module (src/runtime_ops.rs).
+                    return crate::runtime_ops::fit_to_budget(&eval_args);
                 }
 
                 // Check learnable patterns first
@@ -2483,7 +2446,7 @@ impl Interpreter {
                                 ));
                             }
                             // Наряд №17 Г.2: also enforce exec() in sandbox
-                            if name == "exec" {
+                            if name == crate::runtime_ops::NAME_EXEC {
                                 return Err(format!("exec() forbidden in sandbox '{}'", sb.name));
                             }
                         }

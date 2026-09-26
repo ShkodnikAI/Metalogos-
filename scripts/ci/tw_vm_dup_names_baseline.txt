@@ -28,7 +28,14 @@
 # src/audit_ops.rs (the bodies shared verbatim over the identical
 # Mutex<Vec<Event>> state; the deny-pair accessor stays per-backend with
 # the one DENY_HANDLER_ERR spelling) — 35 → 30.
-# threshold: 30
+# 2026-09-27 №466 (gh#687) group 6 (recipe): recipe_save/recipe_search —
+# the single spelling lives in src/recipe_ops.rs (constants + handles());
+# the __KVKEY format contract (mem_value/kv_key_from_value), the
+# memorization constants and the KV fetch/RecipeResult build (score:
+# Option — the TW 4-field struct vs the VM 3-field twin) moved there;
+# the divergent search lanes stay per-backend (TW recall_top_k_tw hybrid
+# vs VM token-AND simple-memory twin, the Bug #530 posture) — 30 → 28.
+# threshold: 28
 
 exec
 find
@@ -46,8 +53,6 @@ media_store_audio
 media_store_image
 media_store_video_frame
 media_store_video_segment
-recipe_save
-recipe_search
 require
 resolve_skill_index
 server_path_param

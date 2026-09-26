@@ -2382,7 +2382,7 @@ impl Vm {
         // recipe_save(name, description, skills, plan) builds a struct via the pure
         // builtin AND memorizes the description with type "recipe" so that
         // recipe_search can find it later.
-        if name == "recipe_save" {
+        if name == crate::recipe_ops::NAME_RECIPE_SAVE {
             let result = crate::builtins::office::recipes::builtin_recipe_save(args)?;
             if let Value::Struct { ref fields, .. } = result {
                 let key = fields
@@ -2400,17 +2400,21 @@ impl Vm {
                     })
                     .unwrap_or("");
                 if !desc.is_empty() && !key.is_empty() {
-                    let mem_value = format!("__KVKEY:{}\n{}", key, desc);
+                    // №466 group 6: the __KVKEY format + the memorization
+                    // constants live in the shared live module
+                    // (src/recipe_ops.rs); the simple-memory push stays
+                    // the VM lane (the documented divergent twin).
+                    let mem_value = crate::recipe_ops::mem_value(key, desc);
                     let now = SystemTime::now()
                         .duration_since(UNIX_EPOCH)
                         .map(|d| d.as_secs() as i64)
                         .unwrap_or(0);
                     self.memory.push(VmMemoryEntry {
                         value: mem_value,
-                        priority: 0.8,
+                        priority: crate::recipe_ops::RECIPE_PRIORITY,
                         timestamp: now,
                         decay_rate: 0.01,
-                        mem_type: "recipe".to_string(),
+                        mem_type: crate::recipe_ops::RECIPE_MEM_TYPE.to_string(),
                     });
                 }
             }
@@ -2421,7 +2425,7 @@ impl Vm {
         // Searches VM memory for entries of type "recipe" whose value contains
         // all query words (token-level AND match, case-insensitive), then
         // fetches full recipe data from the shared KV store.
-        if name == "recipe_search" {
+        if name == crate::recipe_ops::NAME_RECIPE_SEARCH {
             if args.is_empty() {
                 return Err("recipe_search() requires at least 1 argument (query)".to_string());
             }
@@ -2453,11 +2457,8 @@ impl Vm {
                 let val_lower = entry.value.to_lowercase();
                 if query_words.iter().all(|w| val_lower.contains(w)) {
                     // Extract KV key from value format: "__KVKEY:<key>\n<description>"
-                    let kv_key = entry
-                        .value
-                        .strip_prefix("__KVKEY:")
-                        .and_then(|rest| rest.lines().next())
-                        .unwrap_or("");
+                    // №466 group 6: the parse lives in the shared live module.
+                    let kv_key = crate::recipe_ops::kv_key_from_value(&entry.value);
                     if kv_key.is_empty() || seen_keys.contains(kv_key) {
                         continue;
                     }
@@ -2470,28 +2471,17 @@ impl Vm {
             }
 
             // Fetch full recipes from KV store
+            // №466 group 6: the KV fetch + the RecipeResult build live in
+            // the shared live module (src/recipe_ops.rs); the VM lane
+            // passes NO score — the 3-field struct is preserved.
             let mut recipes: Vec<Value> = Vec::new();
             for mem_val in &matches {
-                let kv_key = mem_val
-                    .strip_prefix("__KVKEY:")
-                    .and_then(|rest| rest.lines().next())
-                    .unwrap_or("");
+                let kv_key = crate::recipe_ops::kv_key_from_value(mem_val);
                 if kv_key.is_empty() {
                     continue;
                 }
-                if let Some(recipe_json) = crate::builtins::memory::kv_get_raw(kv_key) {
-                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&recipe_json) {
-                        let name = parsed["name"].as_str().unwrap_or("").to_string();
-                        let desc = parsed["description"].as_str().unwrap_or("").to_string();
-                        recipes.push(crate::builtins::core::make_struct(
-                            "RecipeResult",
-                            vec![
-                                ("name", Value::String(name)),
-                                ("description", Value::String(desc)),
-                                ("recipe_json", Value::String(recipe_json)),
-                            ],
-                        ));
-                    }
+                if let Some(recipe) = crate::recipe_ops::recipe_from_kv(kv_key, None) {
+                    recipes.push(recipe);
                 }
             }
 

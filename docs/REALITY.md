@@ -715,3 +715,50 @@ unchanged; the plan-v2 memory contract is still a decision gap; the weights
 stay UNVERIFIED until the plan lands; the top ladder rungs stay
 hardware-gated; the registry's 23 stub rows remain named out-of-scope
 surfaces. Recomputation at the next wave boundary, same protocol.
+
+### 6.11. Wave 17 recount (naryad №473): **85%** (main @ `7411996`, 2026-09-26)
+
+Protocol: №414/№318 — the same UNVERIFIED plan-v2 weights, no P0-green
+claims without a proof pass. The honest headline: **the total stays 85% —
+and that is the honest result of a strategic wave.** Wave 17 executed the
+owner's seven strategic decisions (gate gh#680): the freeze, the CI gates,
+the type-system stage 0, the media isolation, the process machinery. These
+are infrastructure/process/typing-metadata moves — the four weighted
+functional rows (the compute ladders, the taint coverage, the ledger, the
+memory contract) saw no code changes to credit or debit. Recounting them
+"up" would be inflation; recounting them "down" would be false — the
+`--no-default-features` core build and the core→media isolation are new
+verifiable facts, but they sit OUTSIDE the P0 functional weights (they
+harden the shipability, not the feature readiness).
+
+**The new wave counters (the checked-in facts, each reproducible):**
+
+| Counter | Value | Command / source | Movement rule |
+|---|---|---|---|
+| TW/VM duplicated builtin names (№462) | **35** (baseline was 60) | `python3 scripts/ci/count_duplicated_names.py --gate scripts/ci/tw_vm_dup_names_baseline.txt` | only down; the №466 groups 1–4 moved it 60→56→49→42→35; the media/vision cluster (20 names) leaves with the 0.27 split (№472 roadmap), 15 other-cluster names wait for their groups — the transfer naryad №466 stays open into В18 |
+| Typed-signature share (№467) | **49/500 = 9.80%** (the stage-0 start) | `python3 scripts/ci/type_signature_share.py --gate scripts/ci/type_signature_baseline.txt` | only up |
+| `#[ignore]` debt (№468) | **85** (of which with TODO: 49) | `python3 scripts/ci/debt_counters.py --list ignore` | only down |
+| `dead_code` (№468) | **37** | `python3 scripts/ci/debt_counters.py --list dead_code` | only down |
+
+**The Wave 17 gate inventory (all in main, all blocking unless stated):**
+
+| Gate | Naryad | Status |
+|---|---|---|
+| The domain freeze (ADR-0177) — no new subsystems/domains until 0.27; 0.27.0 is the release of freeze-lifting and is gated on the ADR's criteria | №461 | **in force**; the 0.27.0 tag is NOT published |
+| The generative stop-list + LOC growth gate | №463 | blocking, green |
+| The TW/VM dup-names threshold | №462 | blocking, green (35/35) |
+| The typed-signature share floor | №467 | blocking, green (980 bp) |
+| The debt gate (ignore/dead_code) | №468 | blocking, green (85/49/37) |
+| The physical core→media ban (the handle/registry tier only) | №472 | blocking, green (33/33 references allowed) |
+| The no-default-features core build | №472 | blocking, green |
+| The naryad-class domain-quota counter | №470 | the dispatcher's composition tool; the W17 run: **PASS — 0 domain naryads of 14** |
+| The risk-based review surface | №469 | **advisory** (non-blocking) until a separate owner decision |
+
+The CI blocking-jobs count: **27** (the badge corrected in №472 — the
+waves-13–17 gates had not been reflected).
+
+**The release state:** 0.26.0 was published in Wave 16 (№460, tag
+`v0.26.0` on `01bec90`); 0.26.1 closes Wave 17 (this naryad — docs and
+the version bump only, per the naryad boundary). **0.27.0 is the release
+of freeze-lifting — the tag is NOT published until the ADR-0177 unfreeze
+criteria are green** (the release gate of №461).

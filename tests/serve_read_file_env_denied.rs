@@ -34,7 +34,9 @@ use metalogos::server::{run_test_server_with_backend, ServeBackend};
 /// the router directly), so the startup-refusal pins go through the real
 /// entry point. A refused program returns Err; an accepted one would run
 /// forever, which these tests never reach (both fixtures are refusals).
-async fn startup_verdict(source: &'static str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn startup_verdict(
+    source: &'static str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     metalogos::server::run_server(source).await
 }
 
@@ -163,7 +165,11 @@ async fn n455_serve_read_file_env_denied_at_runtime() {
     let (status, body) = http_get(port, "/peek").await;
     handle.abort();
     std::env::remove_var("METALOGOS_SENSITIVE_PATH_ALLOWLIST");
-    assert_ne!(status, 200, "the sensitive ingest must fail — body: {}", body);
+    assert_ne!(
+        status, 200,
+        "the sensitive ingest must fail — body: {}",
+        body
+    );
     assert_no_marker(&body, "runtime deny (.env)");
     assert!(
         body.contains("SANDBOX_SENSITIVE_PATH"),
@@ -228,5 +234,8 @@ async fn n455_serve_read_file_inside_data_dir_allowed() {
         "a data-directory read (default ./data) must keep working — body: {}",
         body
     );
-    assert_eq!(body, "peeked", "the route answers normally (read discarded)");
+    assert_eq!(
+        body, "peeked",
+        "the route answers normally (read discarded)"
+    );
 }

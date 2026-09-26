@@ -361,8 +361,13 @@ fn serve_data_dir_root() -> Result<std::path::PathBuf, String> {
     } else {
         base.join(root)
     };
-    root.canonicalize()
-        .map_err(|e| format!("sandbox: data dir '{}' cannot be resolved: {}", root.display(), e))
+    root.canonicalize().map_err(|e| {
+        format!(
+            "sandbox: data dir '{}' cannot be resolved: {}",
+            root.display(),
+            e
+        )
+    })
 }
 
 /// The SSOT file-ingest gate (Наряд №455) — call AFTER `sandbox_path`
@@ -374,7 +379,11 @@ fn serve_data_dir_root() -> Result<std::path::PathBuf, String> {
 /// symlink-proof deny-list + the serve-root containment).
 ///
 /// Errors carry the stable code `SANDBOX_SENSITIVE_PATH`.
-pub(crate) fn file_ingest_gate(builtin: &str, raw: &str, resolved: &std::path::Path) -> Result<(), String> {
+pub(crate) fn file_ingest_gate(
+    builtin: &str,
+    raw: &str,
+    resolved: &std::path::Path,
+) -> Result<(), String> {
     let allowlisted = sensitive_allowlisted(raw);
     // Layer 1: the deny-list — raw form (checked by the caller before
     // resolution) and the RESOLVED canonical form (a symlink named
@@ -389,11 +398,14 @@ pub(crate) fn file_ingest_gate(builtin: &str, raw: &str, resolved: &std::path::P
                 builtin, raw
             )));
         }
-        if let Some(name) = resolved.file_name().map(|n| n.to_string_lossy().to_string()) {
+        if let Some(name) = resolved
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+        {
             if sensitive_name_match(&name)
-                || resolved
-                    .components()
-                    .any(|c| matches!(c, std::path::Component::Normal(c) if c == ".git" || c == ".mlog"))
+                || resolved.components().any(
+                    |c| matches!(c, std::path::Component::Normal(c) if c == ".git" || c == ".mlog"),
+                )
             {
                 return Err(sandbox_sensitive_violation(format!(
                     "{}('{}'): the resolved path '{}' matches the sensitive-path \

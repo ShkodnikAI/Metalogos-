@@ -71,8 +71,7 @@ fn n455_deny_list_covers_the_audit_vocabulary() {
             "flow Main {{ input: String = \"{}\" -> read_file -> output }}",
             path
         );
-        let err = metalogos::run_program(&src)
-            .expect_err(&format!("{} must be refused", path));
+        let err = metalogos::run_program(&src).expect_err(&format!("{} must be refused", path));
         assert!(
             err.contains("[SANDBOX_SENSITIVE_PATH]"),
             "{}: wrong refusal — err: {}",

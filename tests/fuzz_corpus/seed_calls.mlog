@@ -1,0 +1,15 @@
+entity e0: String = "calls"
+
+pattern inner(z: String) -> String {
+  return upper(z) + "!"
+}
+
+pattern outer(y: String) -> String {
+  let a = inner(y)
+  let b = inner(a)
+  return b
+}
+
+flow Main {
+  input: String = e0 -> outer -> output
+}

@@ -1,0 +1,31 @@
+# Naryad #465 (gh#686): the KNOWN TW/VM divergence classes (the ratchet).
+#
+# Policy: a divergence CLASS signature (outcome/errorclass + normalized
+# sides) pins a systematic backend gap. Each class is fixed by a SEPARATE
+# naryad with the owner's gate (the #465 boundary: the fuzzer records,
+# the fixes repair). A class disappearing from this file = the gap closed
+# (remove the line in the same PR as the fix). A NEW class failing CI is
+# a regression — investigate before pinning.
+#
+# Classes observed on the 2026-09-26 first run (150 programs + 5 seeds):
+#   C1  entity referenced inside a pattern body: TW = undefined variable,
+#       VM compiles the initializer in — the program-context semantics
+#       diverge (the transfer naryad #466 + the owner decide the truth);
+#   C2  memory_forget is MISSING from the VM dispatch (TW runs it, VM
+#       refuses at compile) — the memory group's real gap, new data for
+#       the #466 prioritization (memory stays first);
+#   C3+ TW runtime type-mismatch errors surface EARLIER as VM compile
+#       errors (and vice versa) — the same class family as C2: both
+#       error, but the CLASS and the PHASE differ.
+#
+outcome|tw=iii(iiiiiiiii iiiiiiii: iN)|vm=ii(iiii-iiiii-iiii-iiiii:N)
+outcome|tw=ii(iii-iiii:N:N)|vm=iii(iiiiiii: iiiiiiiii iiiiiiii: iiiiiiiiiii)
+errorclass|tw=iiii iiiiiiii ii iiiiii iiiiiiiiiiiii: F|vm=iiiiiii: iiiiiiiii iiiiiiii: iiiiiiiiiii
+errorclass|tw=iiiiiiiii iiiiiiii: iiiii|vm=iiiiiii: iiiiiiiii iiiiiiii: iiiiiiiiiii
+errorclass|tw=iiiii() iiiiiiii Siiiii iiiiiiii, iii Fi|vm=iiiiiii: iiiiiiiii iiiiiiii: iiiiiiiiiii
+errorclass|tw=iii() iiiiiiii Siiiii ii Liii iiiiiiii|vm=iiiiiii: iiiiiiiii iiiiiiii: iiiiiiiiiii
+errorclass|tw=iiii iiiiiiii ii iiiiii iiiiiiiii: Fiiii|vm=iiiiiii: iiiiiiiii iiiiiiii: iiiiiiiiiii
+errorclass|tw=iiii iiiiiiii ii iiiiii iiiiiiiiiiiii: S|vm=iiiiiii: iiiiiiiii iiiiiiii: iiiiiiiiiii
+errorclass|tw=iiiiiiiii iiiiiiii: iiii|vm=iiiiiii: iiiiiiiii iiiiiiii: iiiiiiiiiii
+errorclass|tw=iiii iiiiiiii ii iiiiii iiiiiiiii: Siiii|vm=iiiiiii: iiiiiiiii iiiiiiii: iiiiiiiiiii
+errorclass|tw=iiiiii() iiiiiiii Siiiii iiiiiiii, iii F|vm=iiiiiii: iiiiiiiii iiiiiiii: iiiiiiiiiii

@@ -1,0 +1,11 @@
+entity e0: String = "seed-alpha"
+
+pattern pa(x: String) -> String {
+  let a = upper(x) + "-" + e0
+  let b = to_string(len(a))
+  return lower(a) + ":" + b
+}
+
+flow Main {
+  input: String = e0 -> pa -> output
+}

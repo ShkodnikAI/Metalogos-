@@ -1,0 +1,16 @@
+entity e0: String = "mem-seed"
+
+pattern pb(y: String) -> String {
+  let mem = memory_open("seed-memory", "public")
+  memory_put(mem, "k1", y)
+  memory_put(mem, "k2", "fixed")
+  let r1 = memory_read(mem, "k1")
+  let n1 = len(memory_keys(mem))
+  memory_forget(mem, "k2")
+  let n2 = len(memory_keys(mem))
+  return r1 + ":" + to_string(n1) + ":" + to_string(n2)
+}
+
+flow Main {
+  input: String = e0 -> pb -> output
+}

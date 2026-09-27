@@ -58,6 +58,7 @@ pub mod llm;
 pub mod mcp_policy;
 pub mod mcp_server;
 pub mod media;
+pub mod media_ops;
 pub mod memory_graph;
 pub mod memory_ops;
 pub mod memory_store;

@@ -2551,6 +2551,7 @@ pub fn builtin_send_document(args: &[Value]) -> Result<Value, String> {
 // ratchet targets production I/O (see clippy.toml).
 #[allow(clippy::disallowed_methods)]
 mod tests {
+    use serial_test::serial;
 
     // №475: the sandbox refuses ABSOLUTE paths — the pdf fixtures now
     // write under a RELATIVE per-test directory (auto-cleaned on drop,
@@ -2605,6 +2606,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_pdf_classify_not_a_pdf() {
         let dir = TmpDir::new("n475_pdf_tmp_1");
         let fake_path = dir.p("not_a_pdf.txt");
@@ -2614,6 +2616,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_pdf_to_markdown_not_a_pdf() {
         let dir = TmpDir::new("n475_pdf_tmp_2");
         let fake_path = dir.p("not_a_pdf.txt");
@@ -2662,6 +2665,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_pdf_create_add_page_write_save() {
         let dir = TmpDir::new("n475_pdf_tmp_3");
         let output_path = dir.p("test_output.pdf");
@@ -2888,6 +2892,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_pdf_set_header_then_save() {
         let dir = TmpDir::new("n475_pdf_tmp_4");
         let output_path = dir.p("header_test.pdf");
@@ -2960,6 +2965,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_pdf_watermark_basic() {
         let dir = TmpDir::new("n475_pdf_tmp_5");
         let output_path = dir.p("watermark_test.pdf");
@@ -3010,6 +3016,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_pdf_fill_form_no_fields() {
         // Create a simple PDF and try to fill form (no AcroForm → should fail gracefully)
         let dir = TmpDir::new("n475_pdf_tmp_6");
@@ -3038,6 +3045,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_pdf_rotate_page_invalid_degrees() {
         let dir = TmpDir::new("n475_pdf_tmp_7");
         let input_path = dir.p("input.pdf");
@@ -3065,6 +3073,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_pdf_delete_pages_invalid_page() {
         let dir = TmpDir::new("n475_pdf_tmp_8");
         let input_path = dir.p("input.pdf");
@@ -3098,6 +3107,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_read_image_dimensions() {
         // Test with non-existent file
         assert!(read_image_dimensions("/nonexistent/file.png").is_none());
@@ -3110,6 +3120,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_html_to_pdf_rust_simple() {
         let dir = TmpDir::new("n475_pdf_tmp_10");
         let output_path = dir.p("simple.pdf");
@@ -3121,6 +3132,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_html_to_pdf_rust_rejects_complex() {
         let dir = TmpDir::new("n475_pdf_tmp_11");
         let output_path = dir.p("complex.pdf");
@@ -3132,6 +3144,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_full_office_document() {
         // End-to-end: create PDF with table, header, page numbers, watermark, save
         let dir = TmpDir::new("n475_pdf_tmp_12");

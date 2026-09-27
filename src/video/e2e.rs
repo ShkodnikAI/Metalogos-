@@ -17,7 +17,32 @@
 #![allow(dead_code)]
 
 #[cfg(test)]
+// №475: the test mods exercise the REAL filesystem for fixtures — the
+// ratchet targets production I/O (see clippy.toml).
+#[allow(clippy::disallowed_methods)]
 mod tests {
+
+    // №475: the sandbox refuses ABSOLUTE paths — the video fixtures write
+    // under a RELATIVE per-test directory (auto-cleaned on drop). The
+    // tests are #[serial]: the io.rs sandbox tests chdir the process, and
+    // relative-path fixtures must not race with them.
+    struct TmpDir(&'static str);
+    impl TmpDir {
+        fn new(name: &'static str) -> Self {
+            let _ = std::fs::remove_dir_all(name);
+            std::fs::create_dir_all(name).unwrap();
+            TmpDir(name)
+        }
+        fn p(&self, file: &str) -> String {
+            format!("{}/{}", self.0, file)
+        }
+    }
+    impl Drop for TmpDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(self.0);
+        }
+    }
+
     use crate::interpreter::Value;
     use crate::video::i2v::REF_PIXELS_LEN;
     use crate::video::interp::{extend_video_artifact, frame_interp_artifact};
@@ -90,13 +115,15 @@ mod tests {
         };
         let muxed = mux_av(&video_artifact, audio_id, &scene_wav(), 0).unwrap();
         // 5. Export with manifest by construction.
-        let path = std::env::temp_dir().join("mlogos_n309_e2e_voiced_scene.mlgv");
-        let exported = export_video(&muxed, &path.to_str().unwrap()).unwrap();
-        let _ = std::fs::remove_file(&path);
+        let dir = TmpDir::new("n475_video_tmp_e2e_scene");
+        let path = dir.p("e2e_voiced_scene.mlgv");
+        let exported = export_video(&muxed, &path).unwrap();
+        let _ = std::fs::remove_file(&path); // (relative — still cleaned)
         (muxed, exported)
     }
 
     #[test]
+    #[serial_test::serial]
     fn e2e_voiced_scene_library_layer() {
         let mut reg = VideoRegistry::new();
         let (muxed, exported) = voiced_scene(&mut reg, 7);
@@ -144,6 +171,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn e2e_voiced_scene_is_seed_deterministic() {
         // Same seed + same inputs ⇒ byte-identical pipeline output
         // (two independent local registries, fixed timestamps, fixed audio id).
@@ -168,6 +196,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn e2e_voiced_scene_builtin_layer() {
         // The real Value-level path: builtins resolving handles against the
         // global registries — exactly what the interpreter calls.
@@ -200,14 +229,15 @@ mod tests {
             Value::Video(v) => v,
             other => panic!("expected Value::Video, got {}", other.type_name()),
         };
-        let path = std::env::temp_dir().join("mlogos_n309_e2e_builtin.mlgv");
-        let exported = crate::video::builtin_video_export(&[
-            muxed_h,
-            Value::String(path.to_string_lossy().to_string()),
-        ])
-        .unwrap();
+        let dir = TmpDir::new("n475_video_tmp_e2e_builtin");
+        let path = dir.p("e2e_builtin.mlgv");
+        let exported =
+            crate::video::builtin_video_export(&[muxed_h, Value::String(path.clone())]).unwrap();
         assert!(matches!(exported, Value::String(_)));
-        assert!(path.exists(), "export must write the container file");
+        assert!(
+            std::path::Path::new(&path).exists(),
+            "export must write the container file"
+        );
 
         // The global registry holds the muxed artifact with full provenance.
         let reg = VIDEO_REGISTRY.lock().unwrap();
@@ -215,7 +245,7 @@ mod tests {
         let m = artifact.manifest.as_ref().unwrap();
         assert_eq!(m.kind, VideoKind::AvMux);
         assert_eq!(m.audio_ref, Some(audio_id.0));
-        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&path); // (relative — still cleaned)
     }
 
     #[test]

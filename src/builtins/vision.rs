@@ -419,11 +419,14 @@ pub fn vision_export_dispatch(registry: &VisionRegistry, args: &[Value]) -> Resu
             id.0
         )
     })?;
-    std::fs::write(&path, &artifact.png_bytes)
+    // №475 (issue #723): the export + the derived sidecar go through the
+    // facade — the hard write-deny (no vision_export onto app.mlog/.env)
+    // + the deny-list with the allowlist crane + the serve containment.
+    crate::fs_gate::write_bytes(&path, "vision_export", &artifact.png_bytes)
         .map_err(|e| format!("vision_export: write to {}: {}", path, e))?;
     let sidecar = format!("{}.manifest.json", path);
     let sidecar_json = crate::vision::provenance::manifest_sidecar_json(manifest)?;
-    std::fs::write(&sidecar, sidecar_json)
+    crate::fs_gate::write_bytes(&sidecar, "vision_export sidecar", sidecar_json.as_bytes())
         .map_err(|e| format!("vision_export: write sidecar {}: {}", sidecar, e))?;
     Ok(Value::String(path))
 }
@@ -501,7 +504,8 @@ pub fn vision_export_raw_dispatch(
         }
         Some(_) => {}
     }
-    std::fs::write(&path, &artifact.png_bytes)
+    // №475: through the facade (the same write gate as vision_export).
+    crate::fs_gate::write_bytes(&path, "vision_export_raw", &artifact.png_bytes)
         .map_err(|e| format!("vision_export_raw: write to {}: {}", path, e))?;
     Ok(Value::String(path))
 }
@@ -1055,6 +1059,11 @@ pub fn vision_lora_load_dispatch(
     #[cfg(feature = "vision")]
     {
         // (6) Read + parse + validate (loud, full problem list).
+        // №475: the adapter read stays on the raw std::fs — this IS the
+        // weights store (the naryad's named service class): the adapter
+        // dir is the model-weights root (possibly absolute), sha-pinned
+        // by the caller, not a program data path.
+        #[allow(clippy::disallowed_methods)]
         let bytes = std::fs::read(&full_path).map_err(|e| {
             format!(
                 "vision_lora_load: cannot read adapter file {}: {}",
@@ -1567,6 +1576,11 @@ fn fetch_and_pin_weights(
         )
     })?;
     let manifest_path = dest.join("manifest.json");
+    // №475: the weights-store writes stay on the raw std::fs — this IS
+    // the naryad's named service class (the model-weights storage:
+    // sha-pinned manifest+entries fetched from the pinned URLs; the dir
+    // is the weights root, not a program data path).
+    #[allow(clippy::disallowed_methods)]
     std::fs::write(&manifest_path, &manifest_bytes).map_err(|e| {
         format!(
             "vision_fetch_weights: cannot write {}: {}",
@@ -1623,6 +1637,8 @@ fn fetch_and_pin_weights(
             }
         }
         let file_path = dest.join(name);
+        // №475: the weights-store class (see the manifest write above).
+        #[allow(clippy::disallowed_methods)]
         std::fs::write(&file_path, &file_bytes).map_err(|e| {
             format!(
                 "vision_fetch_weights: cannot write {}: {}",

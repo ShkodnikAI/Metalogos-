@@ -731,7 +731,10 @@ pub(crate) fn builtin_http_get(args: &[Value]) -> Result<Value, String> {
 ///
 /// Downloads a binary file from `url` and writes it to `dest_path`.
 /// Returns `true` on success, `false` on any failure (network error,
-/// HTTP 4xx/5xx, sandbox violation, write error).
+/// HTTP 4xx/5xx, write error). №475: the filesystem POLICY refusals
+/// (sandbox violation, the deny-list, the serve containment) are LOUD
+/// interpreter errors — a policy refusal is a signal, not an
+/// environmental miss (the same parity the №261 SSRF gate set).
 ///
 /// Soft-failure semantics mirror `write_file` — the interpreter never
 /// propagates the binary bytes through `Value`. The `.mlog` code only
@@ -762,14 +765,11 @@ pub(crate) fn builtin_http_download(args: &[Value]) -> Result<Value, String> {
     let url = expect_string_arg("http_download", args, 0)?;
     let dest = expect_string_arg("http_download", args, 1)?;
 
-    // Sandbox-check the destination path. Soft-failure on violation —
-    // mirror write_file's behavior so .mlog code can branch on `false`
-    // instead of catching an interpreter error.
-    // Наряд №131: ForWrite — downloaded file may not exist yet.
-    let safe_path = match super::io::sandbox_path_ex(&dest, SandboxMode::ForWrite) {
-        Ok(p) => p,
-        Err(_) => return Ok(Value::Bool(false)),
-    };
+    // №475 (issue #723): the destination is resolved and gated at WRITE
+    // time (fs_gate::open_write below) — the policy refusals (sandbox,
+    // deny-list, serve containment) are LOUD; the network/OS failures
+    // keep the soft Ok(false) contract. The early soft pre-check is gone:
+    // a policy refusal is a signal, not an environmental miss.
 
     // Optional 3rd arg: headers (String auth token or Struct).
     // Same extraction logic as http_get, but inlined (no retry_config
@@ -843,17 +843,21 @@ pub(crate) fn builtin_http_download(args: &[Value]) -> Result<Value, String> {
         Err(_) => return Ok(Value::Bool(false)),
     };
 
-    // Create parent directories if needed (mirror write_file).
-    if let Some(parent) = safe_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-
-    // Наряд №252: symlink-safe open (same mechanism as write_file) —
-    // closes the planted-final-component TOCTOU at the third ForWrite
-    // site. Soft-failure contract unchanged (Ok(false) on failure).
-    let mut file = match super::io::open_sandbox_write(&safe_path, false) {
+    // №475 (issue #723, audit group A): the DESTINATION write now goes
+    // through the facade — the hard write-deny (no app.mlog/.env
+    // overwrites), the deny-list with the allowlist crane, and the serve
+    // data-dir containment on top of the sandbox+TOCTOU mechanics it
+    // already had. Soft-failure contract unchanged (Ok(false) on
+    // failure; the POLICY refusals stay LOUD — an attempted overwrite of
+    // the application image is a signal, not an environmental miss).
+    let mut file = match crate::fs_gate::open_write(&dest, "http_download", false) {
         Ok(f) => f,
-        Err(_) => return Ok(Value::Bool(false)),
+        Err(e) => {
+            if e.contains("[SANDBOX_VIOLATION]") || e.contains("[SANDBOX_SENSITIVE_PATH]") {
+                return Err(e);
+            }
+            return Ok(Value::Bool(false));
+        }
     };
     match file.write_all(&bytes) {
         Ok(_) => Ok(Value::Bool(true)),
@@ -949,17 +953,21 @@ pub(crate) fn builtin_http_post_multipart(args: &[Value]) -> Result<Value, Strin
     // пути внутри песочницы работают как раньше — легитимный кейс
     // «отправить файл, созданный программой» не сломан. Читается
     // канонический путь (№252: путь, безопасный к использованию).
-    let mut file_parts: Vec<(String, std::path::PathBuf, String)> = Vec::new();
+    // №475: the raw path strings are kept; the RESOLUTION and the full
+    // ingest gate happen at read time (fs_gate::read_bytes) — the early
+    // sandbox resolution here remains as the loud pre-check (the same
+    // contract the №260 comment pins below).
+    let mut file_parts: Vec<(String, String, String)> = Vec::new();
     for (key, val) in &files {
         if let Value::String(path) = val {
-            let safe_path = sandbox_path_ex(path, SandboxMode::ForRead)
+            let _safe = sandbox_path_ex(path, SandboxMode::ForRead)
                 .map_err(|e| format!("http_post_multipart(): {}", sandbox_violation(e)))?;
             let file_name = std::path::Path::new(path)
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("file")
                 .to_string();
-            file_parts.push((key.clone(), safe_path, file_name));
+            file_parts.push((key.clone(), path.clone(), file_name));
         }
     }
 
@@ -985,14 +993,17 @@ pub(crate) fn builtin_http_post_multipart(args: &[Value]) -> Result<Value, Strin
     }
 
     // Add file fields (paths pre-validated by the sandbox — see above)
-    for (key, safe_path, file_name) in &file_parts {
-        let file_bytes = std::fs::read(safe_path).map_err(|e| {
-            format!(
-                "http_post_multipart(): cannot read file '{}': {}",
-                safe_path.display(),
-                e
-            )
-        })?;
+    // №475: the READ goes through the full ingest gate (deny-list +
+    // allowlist crane + serve containment) — the remaining exfil
+    // primitive (http_post_multipart("…", {}, {"f": ".env"})) closes.
+    for (key, raw_path, file_name) in &file_parts {
+        let file_bytes = crate::fs_gate::read_bytes(raw_path, "http_post_multipart file field")
+            .map_err(|e| {
+                format!(
+                    "http_post_multipart(): cannot read file '{}': {}",
+                    raw_path, e
+                )
+            })?;
         let part =
             reqwest::blocking::multipart::Part::bytes(file_bytes).file_name(file_name.clone());
         form = form.part(key.clone(), part);

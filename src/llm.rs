@@ -980,6 +980,9 @@ pub fn trace_llm_call(evt: &LlmTraceEvent) {
     }
     let mut out = line.to_string();
     out.push('\n');
+    // №475: the LLM TRACE telemetry append — env-configured observability
+    // path (gen_ai trace), never program-controlled.
+    #[allow(clippy::disallowed_methods)]
     let res = std::fs::OpenOptions::new()
         .create(true)
         .append(true)

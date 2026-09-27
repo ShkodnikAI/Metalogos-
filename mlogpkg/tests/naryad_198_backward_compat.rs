@@ -1,3 +1,7 @@
+// Naryad #475 (issue #723): the fs_gate ratchet targets PRODUCTION I/O.
+// This test file exercises the REAL filesystem for fixtures by design.
+#![allow(clippy::disallowed_methods)]
+
 // ── tests/naryad_198_backward_compat.rs ────────────────────────────
 // Наряд №198, Contract 4 (Block 3 regression): simple projects without
 // transitive dependencies must work exactly as before, PLUS the

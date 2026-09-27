@@ -1,3 +1,8 @@
+// Naryad #475 (issue #723): the fs_gate ratchet (clippy disallowed-methods)
+// targets PRODUCTION I/O paths. This test file exercises the REAL filesystem
+// for fixtures and assertions by design — the allow is scoped to this file.
+#![allow(clippy::disallowed_methods)]
+
 // ── Phase 4.2 Benchmark: tree-walking vs VM performance ─────────────
 // Generates a synthetic program with a long pipeline (100 chained pattern calls)
 // and measures execution time for both tree-walking and VM paths.

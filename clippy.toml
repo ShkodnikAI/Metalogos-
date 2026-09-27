@@ -1,0 +1,18 @@
+# Naryad №475 (issue #723): the filesystem ratchet.
+#
+# Every raw std::fs method call outside `src/fs_gate.rs` (the facade) and
+# the explicitly justified service modules (#[allow] with a reason in the
+# code: the weights store, the journal, the compile-time source loaders,
+# the docs/test harness) is a CI error. All PROGRAM-INFLUENCED file
+# operations must enter through `crate::fs_gate` (the №455 gate + the
+# №475 write deny + the serve data-dir containment).
+disallowed-methods = [
+  "std::fs::read",
+  "std::fs::read_to_string",
+  "std::fs::write",
+  "std::fs::remove_file",
+  "std::fs::read_dir",
+  "std::fs::File::open",
+  "std::fs::File::create",
+  "std::fs::OpenOptions::open",
+]

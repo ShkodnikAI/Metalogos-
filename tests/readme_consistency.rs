@@ -1,3 +1,8 @@
+// Naryad #475 (issue #723): the fs_gate ratchet (clippy disallowed-methods)
+// targets PRODUCTION I/O paths. This test file exercises the REAL filesystem
+// for fixtures and assertions by design — the allow is scoped to this file.
+#![allow(clippy::disallowed_methods)]
+
 // ── README Consistency Test (Наряд №103) ───────────────────────────
 // Catches stale numbers in README.md automatically.
 // Start small (ADR count + version), expand as real divergences are found.

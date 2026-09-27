@@ -1,3 +1,8 @@
+// Naryad #475 (issue #723): the fs_gate ratchet (clippy disallowed-methods)
+// targets PRODUCTION I/O paths. This test file exercises the REAL filesystem
+// for fixtures and assertions by design — the allow is scoped to this file.
+#![allow(clippy::disallowed_methods)]
+
 // ── Наряд MLG-3: Integration tests for PDF office automation ────────────
 // Tests: pdf_draw_table, pdf_add_image, pdf_set_page_header/footer,
 //        pdf_page_numbers, pdf_watermark, pdf_fill_form,

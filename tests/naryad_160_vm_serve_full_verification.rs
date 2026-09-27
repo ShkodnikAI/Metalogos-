@@ -1,10 +1,13 @@
+// Naryad #475 (issue #723): the fs_gate ratchet (clippy disallowed-methods)
+// targets PRODUCTION I/O paths. This test file exercises the REAL filesystem
+// for fixtures and assertions by design — the allow is scoped to this file.
+#![allow(clippy::disallowed_methods)]
 // ── НАРЯД #160: VM-for-serve full verification ────────────────────
 // Closes the remaining unverified items from ADR-0081/ADR-0088:
 //   Block 1: Re-check `match` in FOSVED routes (current .mlog corpus)
 //   Block 2: Real HTTP-stack testing (TcpListener + reqwest, not direct calls)
 //   Block 3: True parallel request isolation (tokio::spawn)
 //   Block 4: TW vs VM side-by-side via real HTTP (status + body + audit log)
-
 #![cfg(feature = "server")]
 
 use metalogos::server::ServeBackend;

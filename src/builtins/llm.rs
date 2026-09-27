@@ -425,12 +425,11 @@ pub(crate) fn builtin_tts_generate(args: &[Value]) -> Result<Value, String> {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     let fname = format!("tts_{}.mp3", ts);
-    let safe_path = super::io::sandbox_path_ex(&fname, super::io::SandboxMode::ForWrite)
-        .map_err(super::io::sandbox_violation)?;
-    if let Some(parent) = safe_path.parent() {
-        let _ = std::fs::create_dir_all(parent); // best-effort, same as write_file
-    }
-    let mut file = super::io::open_sandbox_write(&safe_path, false)?;
+    // №475 (issue #723): the audio write goes through the facade (the
+    // generated name is program-invisible but the egress stays gated —
+    // the hard write-deny, the deny-list, the serve containment).
+    let mut file = crate::fs_gate::open_write(&fname, "tts_generate", false)
+        .map_err(|e| format!("tts_generate(): {}", e))?;
     std::io::Write::write_all(&mut file, &audio_bytes)
         .map_err(|e| format!("tts_generate(): failed to write audio file: {}", e))?;
 

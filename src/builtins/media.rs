@@ -163,6 +163,11 @@ pub fn media_save_dispatch(store: &MediaStore, args: &[Value]) -> Result<Value, 
     let safe_path =
         crate::builtins::io::sandbox_path_ex(&path, crate::builtins::io::SandboxMode::ForWrite)
             .map_err(crate::builtins::io::sandbox_violation)?;
+    // №475 (issue #723): the egress write is GATED — the hard write-deny
+    // (no media_save onto app.mlog/.env) + the deny-list with the
+    // allowlist crane + the serve data-dir containment.
+    crate::fs_gate::precheck_write_raw(&path, fn_name)?;
+    crate::fs_gate::gate_write_resolved(&path, &safe_path, fn_name)?;
     if let Some(parent) = safe_path.parent() {
         let _ = std::fs::create_dir_all(parent); // best-effort, as write_file
     }
@@ -192,6 +197,14 @@ pub fn media_save_dispatch(store: &MediaStore, args: &[Value]) -> Result<Value, 
         timestamp: chrono::Utc::now().to_rfc3339(),
     };
     let json = crate::media::manifest_sidecar_json(&manifest)?;
+    // №475: the derived sidecar goes through the same gate (the resolved
+    // sidecar sits next to the gated main file; the name re-check keeps
+    // the symlink-proof posture).
+    let sidecar_name = sidecar_path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "media.manifest.json".to_string());
+    crate::fs_gate::gate_write_resolved(&sidecar_name, &sidecar_path, fn_name)?;
     let mut sidecar = crate::builtins::io::open_sandbox_write(&sidecar_path, false)
         .map_err(crate::builtins::io::sandbox_violation)?;
     std::io::Write::write_all(&mut sidecar, json.as_bytes())
@@ -280,10 +293,21 @@ pub(crate) fn builtin_media_manifest_read(args: &[Value]) -> Result<Value, Strin
             return Err(crate::builtins::io::sandbox_violation(e));
         }
     };
-    let json = std::fs::read_to_string(&safe_path).map_err(|e| {
+    // №475: the read goes through the facade handle (io::Read, not the
+    // raw std::fs::read_to_string).
+    let mut sidecar_file = crate::fs_gate::open_gated(&safe_path).map_err(|e| {
         format!(
             "{}: cannot read sidecar '{}': {} — provenance you cannot read is \
              refused, never defaulted (№320 posture)",
+            fn_name, path, e
+        )
+    })?;
+    use std::io::Read;
+    let mut json = String::new();
+    sidecar_file.read_to_string(&mut json).map_err(|e| {
+        format!(
+            "{}: cannot read sidecar '{}': {} — provenance you cannot read is \
+                 refused, never defaulted (№320 posture)",
             fn_name, path, e
         )
     })?;
@@ -407,9 +431,9 @@ pub fn media_source_capture_dispatch(
             })?;
             // №131/№252/№254: sandboxed read, loud violations, missing
             // file classified loudly (the capture source MUST exist).
-            let safe_path = crate::builtins::io::sandbox_path(&path)
-                .map_err(crate::builtins::io::sandbox_violation)?;
-            let bytes = std::fs::read(&safe_path).map_err(|e| {
+            // №475: through the facade — the full ingest gate (deny-list,
+            // serve containment) on top of the sandbox.
+            let bytes = crate::fs_gate::read_bytes(&path, fn_name).map_err(|e| {
                 format!(
                     "{}: cannot capture from '{}' ({}): {}",
                     fn_name, name, path, e

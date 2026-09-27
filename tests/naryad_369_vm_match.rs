@@ -1,3 +1,7 @@
+// Naryad #475 (issue #723): the fs_gate ratchet (clippy disallowed-methods)
+// targets PRODUCTION I/O paths. This test file exercises the REAL filesystem
+// for fixtures and assertions by design — the allow is scoped to this file.
+#![allow(clippy::disallowed_methods)]
 // ── Наряд №369 (issue gh#436): VM Stage 1.1 — Match statement + match_expr ──
 //
 // ADR-0141 Stage 1, row 1: `Statement::Match` and the match EXPRESSION form

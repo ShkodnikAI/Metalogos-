@@ -300,6 +300,21 @@ pub(crate) fn list(path: &str) -> Result<Value, String> {
         SmPath::Mount => {
             // Корень монтирования: db-файлы корня песочницы с kv_store.
             let base = std::env::current_dir().map_err(|e| format!("[SMFS_DB] smfs: cwd: {e}"))?;
+            // №475: the SMFS virtual-zone internals — the sm: mount-root
+            // scan is host plumbing behind a VIRTUAL view the program
+            // sees; gating the real base dir would break serve-mode sm:
+            // listing.
+            #[allow(clippy::disallowed_methods)]
+            // №475: the SMFS virtual-zone internals — the sm: mount-root
+            // scan is host plumbing behind a VIRTUAL view the program
+            // sees; gating the real base dir would break serve-mode sm:
+            // listing.
+            #[allow(clippy::disallowed_methods)]
+            // №475: the SMFS virtual-zone internals — the sm: mount-root
+            // scan is host plumbing behind a VIRTUAL view the program
+            // sees; gating the real base dir would break serve-mode sm:
+            // listing.
+            #[allow(clippy::disallowed_methods)]
             let mut names: Vec<String> = std::fs::read_dir(&base)
                 .map_err(|e| format!("[SMFS_DB] smfs: read_dir: {e}"))?
                 .filter_map(|e| e.ok())

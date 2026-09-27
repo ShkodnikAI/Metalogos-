@@ -1,3 +1,8 @@
+// Naryad #475 (issue #723): the fs_gate ratchet (clippy disallowed-methods)
+// targets PRODUCTION I/O paths. This test file exercises the REAL filesystem
+// for fixtures and assertions by design — the allow is scoped to this file.
+#![allow(clippy::disallowed_methods)]
+
 // ── tests/naryad_199_vm_matches_tw_determinism.rs ─────────────────
 // Наряд №199, Contract 3: same seed → identical accuracy when training
 // through the VM vs through the interpreter (TW).

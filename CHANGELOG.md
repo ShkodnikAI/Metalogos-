@@ -4,6 +4,26 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №475 (issue #723; the audit 26.09 §3.1 High): the filesystem
+  FACADE — `src/fs_gate.rs` is the one gated entry point for every
+  program-influenced file operation (`open_read`/`open_write`/removal/
+  directory listing), each applying the sandbox, the №455 deny-list on
+  BOTH reads and writes, and the serve data-dir containment on both
+  directions. The HARD write-deny (task 5): `*.mlog`, `.env*`,
+  `metalogos.toml`, `.git/**` refuse unconditionally — the allowlist
+  crane does not apply to the application image. The deny-list gained
+  the SQLite sidecars (`*.db-wal/-journal/-shm`) and the credential
+  classes (`*.pem`, `*.key`, `id_rsa*`, `id_ed25519*`, `.netrc`,
+  `.npmrc`, `credentials*`). Converted to the facade: the io.rs
+  write/append/delete/list builtins, pdf.rs (all reads/writes; the
+  external wkhtmltopdf output is gated before the spawn), smtp
+  attachments, send_document, http_post_multipart file fields,
+  http_download, config_load, consent/ledger exports, media_save,
+  memory_export, tts_generate, vision exports, video mux. The ratchet
+  (task 2): `clippy.toml` disallows the raw `std::fs` methods — any new
+  bypass is a CI error (the justified service modules carry an explicit
+  `#[allow]` with a reason: the weights store, the journal, the
+  compile-time source loaders, the docs/test harness).
 - Naryad №474 (issue #722; the audit 26.09 §3.2 High): the `db_execute`
   TW/VM parity — ONE contract on both backends, the affected-row count
   as a String (the VM lane raised from `Unit` to the TW form); the

@@ -1,3 +1,8 @@
+// Naryad #475 (issue #723): the fs_gate ratchet (clippy disallowed-methods)
+// targets PRODUCTION I/O paths. This example/bench harness exercises the
+// REAL filesystem for its fixture setup by design — scoped to this file.
+#![allow(clippy::disallowed_methods)]
+
 // ── Stage 4 real-load benchmark — naryad #381 (issue #467) ─────────
 //
 // ADR-0141 §D5: benchmark on a production-class .mlog workload

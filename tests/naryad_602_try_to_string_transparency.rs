@@ -1,3 +1,8 @@
+// Naryad #475 (issue #723): the fs_gate ratchet (clippy disallowed-methods)
+// targets PRODUCTION I/O paths. This test file exercises the REAL filesystem
+// for fixtures and assertions by design — the allow is scoped to this file.
+#![allow(clippy::disallowed_methods)]
+
 //! Issue #602 — string projection of a `try` result (0.19 contract).
 //!
 //! 0.21.0 rendered `to_string(try X)` as the full `TryResult {ok, value,

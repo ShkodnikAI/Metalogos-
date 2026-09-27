@@ -245,7 +245,10 @@ pub fn export_video(artifact: &VideoArtifact, path: &str) -> Result<Vec<u8>, Str
     container.extend_from_slice(&watermark);
     container.extend_from_slice(&artifact.video_bytes);
 
-    std::fs::write(path, &container)
+    // №475 (issue #723): the container write goes through the facade —
+    // the hard write-deny (no video mux onto app.mlog/.env) + the
+    // deny-list with the allowlist crane + the serve containment.
+    crate::fs_gate::write_bytes(path, WHO, &container)
         .map_err(|e| format!("{}(): cannot write {}: {}", WHO, path, e))?;
     Ok(container)
 }

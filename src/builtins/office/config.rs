@@ -78,7 +78,10 @@ pub(crate) fn builtin_ask_approval(args: &[Value]) -> Result<Value, String> {
 pub(crate) fn builtin_config_load(args: &[Value]) -> Result<Value, String> {
     let path = expect_string_arg("config_load", args, 0)?;
 
-    let content = std::fs::read_to_string(&path)
+    // №475 (issue #723): config_load went past EVERYTHING (group B of
+    // the audit: any path, absolute included) — now the full read gate:
+    // sandbox + deny-list + allowlist crane + serve data-dir containment.
+    let content = crate::fs_gate::read_to_string(&path, "config_load")
         .map_err(|e| format!("config_load: cannot read '{}': {}", path, e))?;
 
     let type_name = std::path::Path::new(&path)

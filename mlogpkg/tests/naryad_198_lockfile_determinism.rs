@@ -1,3 +1,7 @@
+// Naryad #475 (issue #723): the fs_gate ratchet targets PRODUCTION I/O.
+// This test file exercises the REAL filesystem for fixtures by design.
+#![allow(clippy::disallowed_methods)]
+
 // ── tests/naryad_198_lockfile_determinism.rs ────────────────────────
 // Наряд №198, Contract 2: identical mlog.toml → identical mlogpkg.lock.
 //

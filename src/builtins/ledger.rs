@@ -46,11 +46,15 @@ pub(crate) fn builtin_ledger_head(args: &[Value]) -> Result<Value, String> {
 /// Shared egress path for the two export profiles: sandboxed write (the
 /// consent_ledger_export posture — FILE EGRESS, classified Sink).
 fn export_to(path: &str, content: String, fn_name: &str) -> Result<Value, String> {
+    // №475 (issue #723): the egress write goes through the facade — the
+    // hard write-deny (no ledger_export onto app.mlog/.env) + the
+    // deny-list with the allowlist crane + the serve containment, on top
+    // of the sandbox it already had.
+    crate::fs_gate::write_bytes(path, fn_name, content.as_bytes())
+        .map_err(|e| format!("{}: {}", fn_name, e))?;
     let safe_path =
         crate::builtins::io::sandbox_path_ex(path, crate::builtins::io::SandboxMode::ForWrite)
             .map_err(crate::builtins::io::sandbox_violation)?;
-    std::fs::write(&safe_path, content.as_bytes())
-        .map_err(|e| format!("{}: cannot write {}: {}", fn_name, safe_path.display(), e))?;
     Ok(Value::String(safe_path.display().to_string()))
 }
 

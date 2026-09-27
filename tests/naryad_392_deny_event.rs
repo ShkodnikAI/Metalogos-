@@ -1,3 +1,8 @@
+// Naryad #475 (issue #723): the fs_gate ratchet (clippy disallowed-methods)
+// targets PRODUCTION I/O paths. This test file exercises the REAL filesystem
+// for fixtures and assertions by design — the allow is scoped to this file.
+#![allow(clippy::disallowed_methods)]
+
 //! Naryad №392 (issue #486) — DenyEvent: the typed deny-event layer.
 //!
 //! Contract under test (the naryad's "Сделано, когда" items):

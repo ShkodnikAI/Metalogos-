@@ -626,6 +626,9 @@ pub static BUILTIN_CLASSES: &[BuiltClassEntry] = &[
 ];
 
 #[cfg(test)]
+// №475: the test mods exercise the REAL filesystem for fixtures — the
+// ratchet targets production I/O (see clippy.toml).
+#[allow(clippy::disallowed_methods)]
 mod tests {
     use super::*;
     use std::collections::HashSet;

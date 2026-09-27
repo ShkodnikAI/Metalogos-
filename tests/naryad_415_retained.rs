@@ -132,6 +132,7 @@ fn n415_legacy_wire_still_loads_and_runs() {
         origin_decls: vec![],
         deny_handlers: vec![],
         db_url: None,
+        db_url_env: None,
         memory_persist_path: None,
         schema_ddl: vec![],
         main_code: vec![
@@ -177,6 +178,7 @@ fn n415_out_of_range_ref_fails_loudly() {
         origin_decls: vec![],
         deny_handlers: vec![],
         db_url: None,
+        db_url_env: None,
         memory_persist_path: None,
         schema_ddl: vec![],
         main_code: vec![Instruction::RegisterPatternRef(7), Instruction::Halt],

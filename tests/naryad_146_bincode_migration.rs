@@ -23,6 +23,7 @@ fn minimal_program() -> Program {
         deny_handlers: vec![],
         memory_persist_path: None,
         db_url: None,
+        db_url_env: None,
         schema_ddl: vec![],
         main_code: vec![
             Instruction::const_(metalogos::interpreter::Value::String("hello".to_string())),

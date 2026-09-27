@@ -84,6 +84,11 @@ pub struct Vm {
     /// connection itself opens on demand; `None` = no db declared (the
     /// access sites produce the same legacy error as before).
     db_url: Option<String>,
+    /// №758: the NAME part of `db { url: env("NAME") }` (recorded at
+    /// `load_program`). The URL resolves at the FIRST db access — the
+    /// interpreter's runtime semantics; the resolved value never enters
+    /// the bytecode.
+    db_url_env: Option<String>,
     /// №409 (C2): shared schema-DDL snapshot (`Program::schema_ddl_shared`)
     /// applied once per connection open — program-immutable data, shared
     /// not copied.
@@ -94,6 +99,12 @@ pub struct Vm {
     /// with the legacy "no database connection" message; the lazy open
     /// reproduces those semantics (fail fast, no silent retry storm).
     db_open_failed: bool,
+    /// №758: the LOUD reason the connection is not open (env denied /
+    /// env unset / unsupported scheme). The db access sites prefer it
+    /// over the legacy "no database connection" text — the mystery the
+    /// issue reports must be nameable. Cleared with `db_open_failed` on
+    /// `reset_for_reuse` (same per-generation semantics).
+    db_open_error: Option<String>,
     /// Mutate log messages.
     mutate_log: Vec<String>,
     /// Audit log entries (Наряд №41 Block 2: parity with interpreter).
@@ -209,6 +220,25 @@ fn shared_builtin_names() -> std::sync::Arc<Vec<String>> {
 /// per request, extracted verbatim so the lazy open reproduces the same
 /// pragmas, the same DDL error tolerance (log + continue) and the same
 /// "Connected" log line.
+/// №758: resolve the NAME of `db { url: env("NAME") }` at the first db
+/// access — the interpreter's runtime semantics on the VM lane. The
+/// SAME `env()` gate a program-level `env()` call goes through applies
+/// (the serve-route policy + `METALOGOS_ENV_ALLOWLIST`; a process
+/// context — `mlog run` — is ungated, the №259 contract). A denied or
+/// unset variable is a LOUD error naming the exact remedy — the old
+/// silent path turned every request into the "no database connection"
+/// riddle the issue reports.
+fn resolve_env_db_url(name: &str) -> Result<String, String> {
+    crate::builtins::io::env_gate(crate::builtins::io::current_exec_context(), name)?;
+    std::env::var(name).map_err(|_| {
+        format!(
+            "db {{ url: env(\"{}\") }} — the variable is not set in the process environment; \
+             set it before the VM's first db access (the connection is lazy, №409)",
+            name
+        )
+    })
+}
+
 fn open_db_connection(
     url: &str,
     schema_ddl: &[String],
@@ -253,8 +283,10 @@ impl Vm {
             skill_indices: std::sync::Arc::new(Vec::new()),
             db_conn: None,
             db_url: None,
+            db_url_env: None,
             db_schema_ddl: std::sync::Arc::new(Vec::new()),
             db_open_failed: false,
+            db_open_error: None,
             mutate_log: Vec::new(),
             audit_log: Mutex::new(Vec::new()),
             propagated_confidence: 1.0,
@@ -414,6 +446,9 @@ impl Vm {
         // UNCHANGED: the connection is still per-VM — never shared across
         // requests; reset_for_reuse still drops it FIRST.
         self.db_url = program.db_url.clone();
+        // №758: the env-name twin rides along (resolved lazily at the
+        // first db access, never embedded in the bytecode).
+        self.db_url_env = program.db_url_env.clone();
         self.db_schema_ddl = program.schema_ddl_shared();
 
         Ok(())
@@ -426,23 +461,60 @@ impl Vm {
     /// Semantics contract (pinned by `mod n409_tests`):
     ///   * no db declared → no-op; access sites produce the same legacy
     ///     "no database connection" error as before;
-    ///   * unsupported scheme → no-op (the eager open was equally silent);
+    ///   * №758: `db { url: env("NAME") }` resolves NAME at THIS moment
+    ///     (the interpreter's runtime semantics — the URL never enters
+    ///     the bytecode). The resolution goes through the same `env()`
+    ///     gate as a program-level `env()` call (the serve-route policy
+    ///     and `METALOGOS_ENV_ALLOWLIST` apply); denial and unset both
+    ///     fail LOUDLY (stored in `db_open_error`, surfaced by the db
+    ///     access sites) instead of the old silent no-op;
+    ///   * №758: unsupported scheme → LOUD error (stored the same way)
+    ///     naming the sqlite-only VM surface — the eager open was silent,
+    ///     which made "no database connection" a riddle on every request;
     ///   * connect failure → ONE "[vm/db] Failed to connect" line, then
-    ///     `db_open_failed` makes every later access fail fast with the
-    ///     same legacy message the eager path produced (no retry storm) —
-    ///     the flag resets on `reset_for_reuse`, matching the per-request
-    ///     retry semantics of the eager path (a fresh VM = a fresh attempt);
+    ///     `db_open_failed` makes every later access fail fast (no retry
+    ///     storm) — the flag resets on `reset_for_reuse`, matching the
+    ///     per-request retry semantics of the eager path (a fresh VM = a
+    ///     fresh attempt);
     ///   * success → same WAL pragma, same DDL application (log +
     ///     continue on error), same "[vm/db] Connected" line.
     fn ensure_db_open(&mut self) {
         if self.db_conn.is_some() || self.db_open_failed {
             return;
         }
-        let url = match self.db_url.as_ref() {
-            Some(u) => u.clone(),
-            None => return,
+        // №758: resolve the URL source — literal now, env("NAME") now too
+        // (deferred resolution: the interpreter's semantics, not a
+        // compile-time constant fold that would bake credentials into
+        // the .mbc).
+        let url = match self.db_url.clone() {
+            Some(u) => u,
+            None => match self.db_url_env.as_ref() {
+                Some(name) => match resolve_env_db_url(name) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        eprintln!("[vm/db] {}", e);
+                        self.db_open_failed = true;
+                        self.db_open_error = Some(e);
+                        return;
+                    }
+                },
+                // No db declared — the legacy no-op (access sites keep
+                // their documented message).
+                None => return,
+            },
         };
         if !(url == "sqlite::memory:" || url.starts_with("sqlite:")) {
+            // №758: loud, not a silent no-op — the request path must say
+            // WHAT is unsupported, not a riddle.
+            let msg = format!(
+                "unsupported DB URL scheme '{}' — the VM opens only sqlite: \
+                 (sqlite::memory: or sqlite:path); use the interpreter backend \
+                 (METALOGOS_SERVE_BACKEND=interpreter) for other providers",
+                url
+            );
+            eprintln!("[vm/db] {}", msg);
+            self.db_open_failed = true;
+            self.db_open_error = Some(msg);
             return;
         }
         match open_db_connection(&url, &self.db_schema_ddl) {
@@ -494,6 +566,9 @@ impl Vm {
         self.db_conn = None;
         // №409: a failed lazy open must not poison the next generation.
         self.db_open_failed = false;
+        // №758: the loud reason rides the same per-generation lifecycle —
+        // a fresh generation starts with a clean slate.
+        self.db_open_error = None;
 
         // ── 1. execution scratch ──
         // Value-expression registers (№370): block-value temporaries.
@@ -3347,6 +3422,7 @@ impl Vm {
                     deny_handlers: Vec::new(),
                     memory_persist_path: None,
                     db_url: None,
+                    db_url_env: None,
                     schema_ddl: Vec::new(),
                     main_code: Vec::new(),
                     collections_loaded: false,
@@ -3947,8 +4023,10 @@ mod n403_reset_tests {
         &std::sync::Arc<Vec<CompiledSkillIndex>>,
         &Option<rusqlite::Connection>,
         &Option<String>,
+        &Option<String>,
         &std::sync::Arc<Vec<String>>,
         &bool,
+        &Option<String>,
         &Vec<String>,
         &Mutex<Vec<String>>,
         &f64,
@@ -3988,8 +4066,10 @@ mod n403_reset_tests {
             skill_indices,
             db_conn,
             db_url,
+            db_url_env,
             db_schema_ddl,
             db_open_failed,
+            db_open_error,
             mutate_log,
             audit_log,
             propagated_confidence,
@@ -4032,8 +4112,10 @@ mod n403_reset_tests {
             skill_indices,
             db_conn,
             db_url,
+            db_url_env,
             db_schema_ddl,
             db_open_failed,
+            db_open_error,
             mutate_log,
             audit_log,
             propagated_confidence,
@@ -4073,8 +4155,10 @@ mod n403_reset_tests {
             skill_indices,
             db_conn,
             db_url,
+            db_url_env,
             db_schema_ddl,
             db_open_failed,
+            db_open_error,
             mutate_log,
             audit_log,
             propagated_confidence,
@@ -4138,7 +4222,11 @@ entity base: String = "7"
                 Some("sqlite::memory:"),
                 "declared URL recorded"
             );
-            assert!(!fields.15, "no failed attempt recorded on a clean load");
+            // №758: the env-name twin is recorded too (None for a literal
+            // URL), and no loud error exists on a clean load.
+            assert!(fields.14.is_none(), "no env name for a literal URL");
+            assert!(!fields.16, "no failed attempt recorded on a clean load");
+            assert!(fields.17.is_none(), "no loud error on a clean load");
             assert!(fields.0.is_empty(), "label env starts empty");
         }
         // The first access opens the connection (the lazy twin of the old
@@ -4690,5 +4778,10 @@ impl crate::db_ops::VmDbAccess for Vm {
     }
     fn vm_server_query_params(&self) -> Option<&std::collections::HashMap<String, String>> {
         self.server_query_params.as_ref()
+    }
+    // №758: the loud not-open reason (env denied / env unset / unsupported
+    // scheme) — the db access sites prefer it over the legacy text.
+    fn vm_db_open_error(&self) -> Option<String> {
+        self.db_open_error.clone()
     }
 }

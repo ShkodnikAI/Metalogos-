@@ -546,6 +546,24 @@ pub trait VmDbAccess {
     fn vm_db_conn(&mut self) -> &mut Option<rusqlite::Connection>;
     /// The per-request server query params (`query_param`).
     fn vm_server_query_params(&self) -> Option<&HashMap<String, String>>;
+    /// №758: the LOUD reason the connection is not open (env denied /
+    /// env unset / unsupported scheme) — preferred by the access sites
+    /// over the legacy text so the failure is nameable, not a riddle.
+    /// `None` = nothing loud recorded (the plain no-db case).
+    fn vm_db_open_error(&self) -> Option<String> {
+        None
+    }
+}
+
+/// №758: the not-open error for one access site — the loud stored
+/// reason (when the lazy open recorded one) over the legacy text.
+/// The reason is TAKEN BEFORE the connection borrow (vm_db_conn holds
+/// &mut vm) — hence the plain Option form.
+fn db_not_open_error(loud: Option<String>, name: &str) -> String {
+    let detail = loud.unwrap_or_else(|| {
+        "no database connection. Declare db { url: \"sqlite::memory:\" } first.".to_string()
+    });
+    format!("{}() error: {}", name, detail)
 }
 
 /// `query_param(name)` — VM. Same parse/return shape as the TW; the
@@ -577,12 +595,12 @@ pub fn db_insert_vm(vm: &mut impl VmDbAccess, args: &[Value]) -> Result<Value, S
     // №409: LAZY db open — the connection (in-memory sqlite +
     // schema DDL) materializes here, on first use.
     vm.ensure_db_open();
+    // №758: the loud reason is read BEFORE the &mut connection borrow.
+    let loud = vm.vm_db_open_error();
     let conn = vm
         .vm_db_conn()
         .as_mut()
-        .ok_or_else(|| {
-            "db_insert() error: no database connection. Declare db { url: \"sqlite::memory:\" } first.".to_string()
-        })?;
+        .ok_or_else(|| db_not_open_error(loud, "db_insert"))?;
     let col_names: Vec<String> = fields.keys().cloned().collect();
     let placeholders: Vec<String> = col_names.iter().map(|_| "?".to_string()).collect();
     let sql = format!(
@@ -631,10 +649,12 @@ pub fn query_scalar_vm(vm: &mut impl VmDbAccess, args: &[Value]) -> Result<Value
     };
     // №409: lazy db open on first use.
     vm.ensure_db_open();
+    // №758: the loud reason is read BEFORE the &mut connection borrow.
+    let loud = vm.vm_db_open_error();
     let conn = vm
         .vm_db_conn()
         .as_ref()
-        .ok_or_else(|| "query_scalar() error: no database connection.".to_string())?;
+        .ok_or_else(|| db_not_open_error(loud, "query_scalar"))?;
     let mut stmt = conn
         .prepare(&sql)
         .map_err(|e| sql_err("query_scalar() SQL error", e))?;
@@ -684,10 +704,12 @@ pub fn query_vm(vm: &mut impl VmDbAccess, args: &[Value]) -> Result<Value, Strin
     };
     // №409: lazy db open on first use.
     vm.ensure_db_open();
+    // №758: the loud reason is read BEFORE the &mut connection borrow.
+    let loud = vm.vm_db_open_error();
     let conn = vm
         .vm_db_conn()
         .as_ref()
-        .ok_or_else(|| "query() error: no database connection.".to_string())?;
+        .ok_or_else(|| db_not_open_error(loud, "query"))?;
     let mut stmt = conn
         .prepare(&sql)
         .map_err(|e| sql_err("query() SQL error", e))?;
@@ -746,10 +768,12 @@ pub fn db_execute_vm(vm: &mut impl VmDbAccess, args: &[Value]) -> Result<Value, 
     };
     // №409: lazy db open on first use.
     vm.ensure_db_open();
+    // №758: the loud reason is read BEFORE the &mut connection borrow.
+    let loud = vm.vm_db_open_error();
     let conn = vm
         .vm_db_conn()
         .as_ref()
-        .ok_or_else(|| "db_execute() error: no database connection.".to_string())?;
+        .ok_or_else(|| db_not_open_error(loud, "db_execute"))?;
     let affected = conn
         .execute(&sql, rusqlite::params_from_iter(params.iter()))
         .map_err(|e| sql_err("db_execute() SQL error", e))?;
@@ -896,10 +920,12 @@ pub fn query_row_vm(vm: &mut impl VmDbAccess, args: &[Value]) -> Result<Value, S
 
     // №409: lazy db open on first use.
     vm.ensure_db_open();
+    // №758: the loud reason is read BEFORE the &mut connection borrow.
+    let loud = vm.vm_db_open_error();
     let conn = vm
         .vm_db_conn()
         .as_mut()
-        .ok_or_else(|| "query_row() error: no database connection.".to_string())?;
+        .ok_or_else(|| db_not_open_error(loud, "query_row"))?;
     let mut stmt = conn
         .prepare(&sql)
         .map_err(|e| sql_err("query_row() SQL error", e))?;
@@ -1256,6 +1282,7 @@ mod tests {
     fn vm_missing_connection_text_is_exact() {
         struct FailedVm {
             none: Option<rusqlite::Connection>,
+            loud: Option<String>,
         }
         impl VmDbAccess for FailedVm {
             fn ensure_db_open(&mut self) {}
@@ -1265,24 +1292,53 @@ mod tests {
             fn vm_server_query_params(&self) -> Option<&HashMap<String, String>> {
                 None
             }
+            // №758: the loud reason override (when the lazy open recorded
+            // one, e.g. env denied / unsupported scheme).
+            fn vm_db_open_error(&self) -> Option<String> {
+                self.loud.clone()
+            }
         }
-        let mut failed = FailedVm { none: None };
+        // ── the plain no-db case: the unified legacy fallback (the full
+        // hint, identical for every access site) ──
+        let mut failed = FailedVm {
+            none: None,
+            loud: None,
+        };
+        let legacy = "no database connection. Declare db { url: \"sqlite::memory:\" } first.";
         assert_eq!(
             query_row_vm(&mut failed, &[s("SELECT 1")]).unwrap_err(),
-            "query_row() error: no database connection."
+            format!("query_row() error: {}", legacy)
         );
         assert_eq!(
             query_scalar_vm(&mut failed, &[s("SELECT 1")]).unwrap_err(),
-            "query_scalar() error: no database connection."
+            format!("query_scalar() error: {}", legacy)
         );
         assert_eq!(
             query_vm(&mut failed, &[s("SELECT 1")]).unwrap_err(),
-            "query() error: no database connection."
+            format!("query() error: {}", legacy)
         );
         assert_eq!(
             db_execute_vm(&mut failed, &[s("SELECT 1")]).unwrap_err(),
-            "db_execute() error: no database connection."
+            format!("db_execute() error: {}", legacy)
         );
+        // ── the №758 loud case: the stored reason REPLACES the legacy
+        // text — the failure is nameable, not a riddle ──
+        let mut loud = FailedVm {
+            none: None,
+            loud: Some(
+                "unsupported DB URL scheme 'postgres://...' — the VM opens only sqlite: \
+                 (sqlite::memory: or sqlite:path); use the interpreter backend \
+                 (METALOGOS_SERVE_BACKEND=interpreter) for other providers"
+                    .to_string(),
+            ),
+        };
+        let err = query_row_vm(&mut loud, &[s("SELECT 1")]).unwrap_err();
+        assert!(
+            err.starts_with("query_row() error: unsupported DB URL scheme"),
+            "the loud reason must surface: {}",
+            err
+        );
+        assert!(err.contains("METALOGOS_SERVE_BACKEND=interpreter"));
     }
 
     #[test]

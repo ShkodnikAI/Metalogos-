@@ -64,7 +64,7 @@ explains them; the minimized catch of the discovering run is written to
 
 The generator emits, per seed: an in-memory-SQLite `db` declaration +
 `query`/`db_execute` calls (the №474 ONE db_execute contract),
-`call_llm` (the deterministic mock — default `METALOGOS_LLM_MOCK=on`,
+`call_llm` (the deterministic mock — the explicit `METALOGOS_MOCK_LLM=1`
 no network), `try smtp_send` (the deterministic config-refusal — the
 honest MockSmtp: no SMTP env in tests, so no connection is ever
 attempted) and the memory group. The duplication zones the audit named

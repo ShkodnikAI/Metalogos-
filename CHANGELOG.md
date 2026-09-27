@@ -4,6 +4,32 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №481 (issue #729; the audit 25.09 §3.9 tail — "open, io.rs:183
+  unchanged"): loud `env`/`read_file` config errors + the `*_or`
+  explicit-silence naming. `env()` of a MISSING variable now refuses
+  LOUDLY (`[ENV_NOT_FOUND]`, naming the variable and pointing at
+  `env_or`) — the old soft empty string masked misconfiguration. The
+  new `env_or(name, default)` builtin carries the silent-default
+  semantics IN THE NAME (the audit naming rule): the fallback firing is
+  announced on the audit stderr (the variable NAME, never the value)
+  and the SAME №259 serve-route gate applies — explicit silence never
+  bypasses the env policy. `read_file` keeps the documented №254
+  missing-file soft contract ("" — now pinned), but a file that EXISTS
+  and cannot be opened/read is a config/environment error: refused
+  LOUDLY (`[IO_ERROR]` with the OS reason) instead of a silent "".
+  Migration honesty: programs that relied on the empty-string default
+  switch to `env_or(name, "")`; the golden examples were verified —
+  every executed `env()` either reads a set variable or sits in a dead
+  branch, and the executable doc block that DID read a missing variable
+  (`syntax.md` Entity (simple)) was migrated to `env_or` — the
+  REFERENCE env/read_file rows (curated + generated index) now carry
+  the split contract. New pins: `tests/naryad_481_loud_env.rs` (loud
+  env both backends + VM parity, env_or silence + VM parity, the
+  fallback announcement through the real binary with the VALUE-never-
+  logged assertion, the serve-gate precedence, loud unreadable
+  read_file, the soft missing-file contract);
+  `tests/naryad_259_env_gate.rs` re-pinned — a missing (even
+  allowlisted) name inside serve is now the loud 500.
 - Naryad №477 (issue #725; the audit v0.26.1 §3.5 finding — `mlog
   mcp-serve` with the http/sse transports is the same network server
   executing user code as serve, but ran on the pre-№457 model): the
@@ -24,6 +50,28 @@ All notable changes to the Metalogos project.
   (the №457 test pattern: an unmarked background thread → ServeRoute
   with the loud env/exec refusals; the registration-zone machinery;
   the tool-call parity; the tools/list surface).
+
+- Naryad №478 (issue #726; the audit v0.26.1 §3.6 finding + the 27.09
+  fact-check enrichment: the retired env name was re-read in 7 places,
+  not 1): the mock-unification onto the №454 SSOT. All 7
+  `METALOGOS_LLM_MOCK` re-reads (call_llm, call_llm_schema, the office
+  human surface, voice/ocr/vision/video understanding) now route through
+  `crate::llm::mock_llm_requested()` — the deterministic mock answers
+  ONLY when `METALOGOS_MOCK_LLM=1|true` is set explicitly. For the media
+  surfaces (stt/omni/ocr/vision/video/office-human) the default changes
+  from "silent stub" to "loud refusal without weights" (the №294
+  real-path stays parked; the refusal names the backend, the weights id
+  and the PARKED boundary — never a silent mock-substitution, the exact
+  behavior class №454 closed). Golden examples opt in per example via
+  their `.env` sidecars (the №454 posture, ADR-0169 §3.4) — five
+  LLM-dependent examples carry the explicit `METALOGOS_MOCK_LLM=1`
+  now; the module docstrings and the REFERENCE/limitations rows are
+  synced. New BLOCKING CI job `mock-env-ssot`: the retired env name
+  must never reappear in `src/` (grep gate). The mock-dependent suites
+  (№334/№336/№407, the №385 fault-seam codes, the №381 Stage-4 serve
+  parity) were re-pinned to the explicit-mock contract — the fault
+  seam is a MOCK fault and the corpus llm_classify route rides the
+  deterministic mock, so both pin the opt-in themselves.
 
 - Naryad №479 (issue #727; the audit v0.26.1 §3.4 finding — the
   TW↔VM diff fuzzer is right in approach but narrow, with an

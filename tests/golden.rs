@@ -115,6 +115,10 @@ fn all_golden_tests_pass() {
     // tests/*.rs ОТДЕЛЬНЫМ процессом, поэтому установка переменной здесь не
     // влияет на другие тест-файлы; внутри этого файла exec-gated пример один.
     std::env::set_var("METALOGOS_ALLOW_EXEC", "1");
+    // №478: the LLM mock is EXPLICIT per example (the №454 posture) — an
+    // example that needs the deterministic mock declares it in its
+    // per-example .env sidecar (ADR-0169 §3.4); unset = the loud real path.
+    std::env::remove_var("METALOGOS_MOCK_LLM");
 
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
     let examples_dir = Path::new(&manifest_dir).join("examples");

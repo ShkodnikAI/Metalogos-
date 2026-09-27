@@ -131,7 +131,7 @@ flow Main { input: String = "x" -> P -> output }
 #[test]
 fn mock_contract_is_deterministic_on_tw_and_vm() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    std::env::remove_var("METALOGOS_LLM_MOCK");
+    std::env::set_var("METALOGOS_MOCK_LLM", "1"); // №478: the mock is explicit (№454 SSOT)
 
     // The mock format is FIXED 4-field (the №407 contract: weights |
     // image | lang) — the omitted lang is an EMPTY field, not a shorter
@@ -162,7 +162,7 @@ fn mock_contract_is_deterministic_on_tw_and_vm() {
         out_vm_lang.as_deref().unwrap_or_default().trim_end(),
         "[MOCK: ocr_extract | trocr-base-printed | page-001.png | eng]"
     );
-    std::env::remove_var("METALOGOS_LLM_MOCK");
+    std::env::remove_var("METALOGOS_MOCK_LLM");
 }
 
 // ── (4) Class mismatch and unknown model are loud ────────────────────
@@ -184,7 +184,7 @@ flow Main { input: String = "x" -> P -> output }
 #[test]
 fn class_mismatch_and_unknown_model_are_loud() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    std::env::remove_var("METALOGOS_LLM_MOCK");
+    std::env::remove_var("METALOGOS_MOCK_LLM");
 
     let err = run_tw(MISMATCH_PROG).expect_err("a vision-understanding model is NOT an ocr model");
     assert!(
@@ -201,7 +201,7 @@ fn class_mismatch_and_unknown_model_are_loud() {
         "got: {}",
         err_unknown
     );
-    std::env::remove_var("METALOGOS_LLM_MOCK");
+    std::env::remove_var("METALOGOS_MOCK_LLM");
 }
 
 // ── (5) Real mode refuses loudly (PARKED №294) ───────────────────────
@@ -216,7 +216,7 @@ flow Main { input: String = "x" -> P -> output }
 #[test]
 fn real_mode_refuses_loudly_without_weights() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    std::env::set_var("METALOGOS_LLM_MOCK", "false");
+    std::env::remove_var("METALOGOS_MOCK_LLM"); // №478: the real path is the default now
     let err = run_tw(REAL_MODE_PROG).expect_err("real mode without weights refuses");
     assert!(
         err.contains("PARKED by hardware") && err.contains("model.safetensors"),
@@ -225,7 +225,7 @@ fn real_mode_refuses_loudly_without_weights() {
     );
     let err_vm = run_vm(REAL_MODE_PROG).expect_err("real mode refuses on VM too");
     assert!(err_vm.contains("PARKED by hardware"), "got: {}", err_vm);
-    std::env::remove_var("METALOGOS_LLM_MOCK");
+    std::env::remove_var("METALOGOS_MOCK_LLM");
 }
 
 // ── (6) The ladder end: the class word on both ends ──────────────────
@@ -252,7 +252,7 @@ flow Main { input: String = "t" -> Pick -> output }
 #[test]
 fn backend_select_accepts_ocr_on_both_ends() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    std::env::remove_var("METALOGOS_LLM_MOCK");
+    std::env::set_var("METALOGOS_MOCK_LLM", "1"); // №478: the mock is explicit (№454 SSOT)
 
     // Runtime end: the canon rung is selected, the mode is visible.
     let expected = "trocr-printed/mock/trocr-base-printed";
@@ -269,7 +269,7 @@ fn backend_select_accepts_ocr_on_both_ends() {
         "the companion refusal must be loud and list ocr: {}",
         err
     );
-    std::env::remove_var("METALOGOS_LLM_MOCK");
+    std::env::remove_var("METALOGOS_MOCK_LLM");
 }
 
 // ── (7) limitations.md carries the OCR PARKED line ───────────────────

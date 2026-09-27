@@ -296,11 +296,12 @@ flow Main { input: String = "x" -> P -> output }
 
 #[test]
 fn mock_contract_is_deterministic_on_tw_and_vm() {
-    // Mock mode is the DEFAULT (unset env) — deterministic outputs. The
+    // №478: the mock is EXPLICIT now (the №454 SSOT predicate) — the
+    // deterministic-mock contract holds under the explicit opt-in. The
     // env lock serializes against the real-mode test (the №376 lesson:
     // env is process-global, parallel tests must not race it).
     let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    std::env::remove_var("METALOGOS_LLM_MOCK");
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
     let stt = run_tw(STT_PROG, Path::new(MANIFEST)).expect("stt mock runs");
     assert_eq!(
         stt.as_deref().unwrap_or_default().trim_end(),
@@ -334,7 +335,7 @@ fn mock_contract_is_deterministic_on_tw_and_vm() {
         let out = run_vm(prog, Path::new(MANIFEST)).expect("VM mock parity");
         assert_eq!(out.as_deref().unwrap_or_default().trim_end(), expected);
     }
-    std::env::remove_var("METALOGOS_LLM_MOCK");
+    std::env::remove_var("METALOGOS_MOCK_LLM");
 }
 
 #[test]
@@ -342,7 +343,7 @@ fn class_mismatch_and_unknown_model_are_loud() {
     // Env-locked: the class check is mode-independent, but the run must
     // not observe the real-mode flag from the parallel test.
     let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    std::env::remove_var("METALOGOS_LLM_MOCK");
+    std::env::remove_var("METALOGOS_MOCK_LLM");
     // Naming nemotron weights trips the №333 license gate FIRST (audit:
     // compile-blocking under the distribution profile) — the loud outer
     // layer. Assert it: the class check must not bypass licensing.
@@ -378,13 +379,13 @@ flow Main { input: String = "x" -> P -> output }
 "#;
     let err2 = run_tw(src2, Path::new(MANIFEST)).expect_err("unknown model refuses");
     assert!(err2.contains("no registry record"), "got: {}", err2);
-    std::env::remove_var("METALOGOS_LLM_MOCK");
+    std::env::remove_var("METALOGOS_MOCK_LLM");
 }
 
 #[test]
 fn real_mode_refuses_loudly_without_weights() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    std::env::set_var("METALOGOS_LLM_MOCK", "false");
+    std::env::remove_var("METALOGOS_MOCK_LLM"); // №478: the real path is the default now
     let src = r#"
 pattern P(_x: String) -> String {
   return stt_transcribe("a.wav")
@@ -401,7 +402,7 @@ flow Main { input: String = "x" -> P -> output }
     );
     let err_vm = run_vm(src, Path::new(MANIFEST)).expect_err("real mode refuses on VM too");
     assert!(err_vm.contains("PARKED by hardware"), "got: {}", err_vm);
-    std::env::remove_var("METALOGOS_LLM_MOCK");
+    std::env::remove_var("METALOGOS_MOCK_LLM");
 }
 
 // ── (5) limitations.md carries the PARKED line (loud, not silent) ────

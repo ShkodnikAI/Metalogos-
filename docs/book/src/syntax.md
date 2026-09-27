@@ -24,7 +24,7 @@ Declares a named value of a given type.
 ```mlog
 entity greeting: String = "Hello"
 entity score: Float = 42.5
-entity api_key: Secret = env("API_KEY")
+entity api_key: Secret = env_or("API_KEY", "not-configured")
 ```
 
 ### Entity Type

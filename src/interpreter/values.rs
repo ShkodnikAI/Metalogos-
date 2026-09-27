@@ -495,6 +495,14 @@ pub const CODE_UNDEFINED_FUNCTION: &str = "UNDEFINED_FUNCTION";
 /// №479 (ADR-0131 diagnostic family): an operand type a construct cannot
 /// use (concatenation mismatch, non-List iteration, arity shape).
 pub const CODE_TYPE_MISMATCH: &str = "TYPE_MISMATCH";
+/// №481 (ADR-0131 diagnostic family): `env()` read of a variable that is
+/// NOT SET — a configuration error, refused loudly (the old soft empty
+/// string masked it). The explicit-silence fallback lives in `env_or`.
+pub const CODE_ENV_NOT_FOUND: &str = "ENV_NOT_FOUND";
+/// №481 (ADR-0131 diagnostic family): a file that EXISTS (or passed the
+/// sandbox) but cannot be opened/read — a configuration/environment
+/// error, refused loudly (the old silent empty string masked it).
+pub const CODE_IO_ERROR: &str = "IO_ERROR";
 /// Deadline / provider timeout in the `call_llm` contour.
 pub const CODE_LLM_TIMEOUT: &str = "LLM_TIMEOUT";
 /// LLM provider unreachable: connect failure or SmartRouter circuit open.

@@ -215,7 +215,7 @@ fn gen_stmts(rng: &mut Rng, vars: &mut Vec<String>, _depth: u32, budget: &mut u3
 /// №479: the program is STATEFUL — an in-memory-SQLite db declaration +
 /// a third pattern (pc) that exercises query/db_execute (the №474 ONE
 /// db_execute contract), call_llm (the deterministic mock — default
-/// METALOGOS_LLM_MOCK=on, no network) and try smtp_send (the
+/// METALOGOS_MOCK_LLM=1 set explicitly, no network) and try smtp_send (the
 /// deterministic SMTP config-refusal — no SMTP env in tests, so the
 /// loud refusal IS the MockSmtp, no connection is ever attempted).
 /// Everything is deterministic per seed; minimization is preserved.
@@ -285,8 +285,9 @@ fn gen_program(seed: u64) -> String {
         "  let sel = query(\"SELECT v FROM {table} WHERE k = $1\", [z])\n"
     ));
     src.push_str("  let n_rows = len(sel)\n");
-    // call_llm: no SmartRouter in the test process + METALOGOS_LLM_MOCK
-    // default-on → the deterministic mock answer, no network.
+    // call_llm: no SmartRouter in the test process + the explicit
+    // METALOGOS_MOCK_LLM=1 (env hygiene above) → the deterministic mock
+    // answer, no network.
     src.push_str("  let answer = call_llm(\"summarize\", z)\n");
     // try smtp_send: without SMTP_HOST/SMTP_USER/SMTP_PASS the builtin
     // refuses LOUDLY and identically on both backends — the deterministic
@@ -1011,11 +1012,14 @@ fn n465_diff_fuzzer_tw_vm() {
     let _env = lock_env();
     // №479 env hygiene: the stateful generation relies on the DETERMINISTIC
     // postures — no SMTP config (the loud refusal IS the MockSmtp; a real
-    // connection must never fire in tests), no LLM fault injection, no
-    // trace file. Set/remove under ENV_LOCK, restore nothing (test process).
+    // connection must never fire in tests), the LLM mock contour EXPLICIT
+    // (№478: METALOGOS_MOCK_LLM=1 — the SSOT predicate; the default is the
+    // loud real path), no fault injection, no trace file. Set/remove under
+    // ENV_LOCK, restore nothing (test process).
     std::env::remove_var("SMTP_HOST");
     std::env::remove_var("SMTP_USER");
     std::env::remove_var("SMTP_PASS");
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
     std::env::remove_var("METALOGOS_MOCK_LLM_FAULT");
     std::env::remove_var("METALOGOS_LLM_TRACE");
 

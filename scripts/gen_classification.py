@@ -389,6 +389,10 @@ OVERRIDES = {
     "event_sum": ("Source", "Internal", "Pure", "VM-native event-log aggregation — state input"),
     # ── system / env ──
     "env": ("Source", "Secret", "Pure", "ingests environment secrets — Secret taint (audit.rs)"),
+    # №481: the explicit-silence twin of env — same Source/Secret posture
+    # (the read is still an environment ingest; the fallback firing is
+    # audit-logged on stderr, the VALUE is never logged).
+    "env_or": ("Source", "Secret", "Pure", "env read with an explicit silent default (the _or name carries the semantics, 481) — environment ingest, Secret taint"),
     "secret": ("Source", "Secret", "Pure", "materializes a Secret value — Secret taint (№172)"),
     "replay_snapshot": ("Source", "Internal", "Pure", "reads runtime snapshot state"),
     "policy_check": ("Source", "Internal", "Pure", "reads runtime policy state"),

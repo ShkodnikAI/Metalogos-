@@ -237,9 +237,8 @@ pub(crate) fn builtin_call_llm_schema(args: &[Value]) -> Result<Value, String> {
             // Наряд №276: non-router paths are traced HERE (one line per actual
             // provider invocation — a retried schema call produces one trace per
             // retry); the SmartRouter path traces inside SmartRouter::call.
-            let mock_mode = std::env::var("METALOGOS_LLM_MOCK")
-                .map(|v| v != "false" && v != "0")
-                .unwrap_or(true);
+            // №478: the SSOT mock predicate (№454) — explicit opt-in only.
+            let mock_mode = crate::llm::mock_llm_requested();
             let t0 = std::time::Instant::now();
             if mock_mode {
                 let res = serde_json::to_string(&mock_instance_from_schema(&schema))

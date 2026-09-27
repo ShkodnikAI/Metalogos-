@@ -75,7 +75,7 @@ The `mlog` binary supports the following commands:
 
 | Variable | Description |
 |------------|----------|
-| `METALOGOS_LLM_MOCK` | `true` (default) — mocked LLM responses; `false` — real calls |
+| `METALOGOS_MOCK_LLM` | `1`/`true` (explicit) — mocked LLM responses (deterministic); unset/`0` — the real path, which fails LOUD without keys (№454/№478) |
 | `METALOGOS_MOCK_LLM_FAULT` | deterministic fault injection for the `call_llm` mock path (Naryad #385, ADR-0169 §3.4): `timeout` → the call fails with the stamped `LLM_TIMEOUT` error; `unavailable` → fails with `LLM_PROVIDER_UNAVAILABLE`; any other value fails CLOSED with a loud error naming the variable (never a silent green mock answer). Unset (default) = no fault. Test seam for try-code contracts and office branching scenarios — golden examples declare it via an `examples/X.env` sidecar |
 | `METALOGOS_LLM_TRACE` | path to a JSONL file — every LLM call (`call_llm`, `call_claude`, `call_llm_schema`, learnables, conversation summaries, `human_respond`) appends one line with OpenTelemetry GenAI semconv fields (`gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`/`output_tokens` when the provider reported them) plus `status`, `cache` (`exact`\|`semantic`\|`miss`), `backend` (`tw`\|`vm`), `provider_alias`, `latency_ms`; unset (default) = tracing off. Trace write errors never fail the call (one warning). No rotation — the operator rotates the file (ADR-0138) |
 | `METALOGOS_TTS_API_KEY` | API key for speech synthesis (`tts_generate`/`tts_send`); falls back to `OPENAI_API_KEY` when unset |
@@ -655,7 +655,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 501 registered builtins (501 of 501): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 502 registered builtins (502 of 502): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -817,10 +817,10 @@ let ranked = sort_by(paired, "b", 1.0)
 
 | Function | Signature | Return | Description |
 |---------|-----------|---------|----------|
-| `call_llm(prompt, input)` | `String, String -> String` | String | Calls the LLM backend. By default returns a mock: `"[MOCK: prompt \| input]"`. A real call happens when `METALOGOS_LLM_MOCK=false` |
+| `call_llm(prompt, input)` | `String, String -> String` | String | Calls the LLM backend. Returns the deterministic mock `"[MOCK: prompt \| input]"` ONLY when `METALOGOS_MOCK_LLM=1|true` is set explicitly; otherwise the real path runs and fails LOUD without keys (never a silent stub) |
 | `call_claude(api_key, model, system_prompt, user_message)` | `String, String, String, String -> String` | String | A direct call to the Anthropic Claude Messages API (v1/messages). Returns `content[0].text` |
 | `llm_usage()` | `-> Struct` | Struct `{LlmUsage}` | LLM usage statistics: `total_calls`, `total_tokens`, `total_errors`, `cache_hits_semantic` (№273/ADR-0135), `canary_leaks` (№284 — confirmed canary leaks), `providers` (a list of `{alias, calls, tokens, errors, avg_latency_ms, health_score}`) |
-| `call_llm_schema(prompt, schema_json)` / `call_llm_schema(prompt, input, schema_json)` | `String, String[, String] -> Struct` | Struct `{Dict}` | Calls the LLM backend and requires the answer to be a single JSON value conforming to the schema. Supported schema subset (ADR-0133): `type`, `properties`, `required`, `items`, `enum`; annotation keywords (`title`, `description`, `$schema`, ...) are ignored; any other keyword is a loud `LLM_SCHEMA_UNSUPPORTED_FEATURE`. Answer fields beyond `properties` are rejected (strict-by-default). The result is a `Dict` Struct usable with `json_get`/`has_field`/`dict_*`. Parse/validation failures (including max_tokens truncation) are loud `LLM_SCHEMA_MISMATCH` and retry up to `METALOGOS_LLM_SCHEMA_RETRIES` (default 2, cap 10) with the validator report fed back into the prompt. Mock tier returns a deterministic minimal instance derived from the schema (default mock settings; `METALOGOS_LLM_MOCK=json` documents the intent explicitly) |
+| `call_llm_schema(prompt, schema_json)` / `call_llm_schema(prompt, input, schema_json)` | `String, String[, String] -> Struct` | Struct `{Dict}` | Calls the LLM backend and requires the answer to be a single JSON value conforming to the schema. Supported schema subset (ADR-0133): `type`, `properties`, `required`, `items`, `enum`; annotation keywords (`title`, `description`, `$schema`, ...) are ignored; any other keyword is a loud `LLM_SCHEMA_UNSUPPORTED_FEATURE`. Answer fields beyond `properties` are rejected (strict-by-default). The result is a `Dict` Struct usable with `json_get`/`has_field`/`dict_*`. Parse/validation failures (including max_tokens truncation) are loud `LLM_SCHEMA_MISMATCH` and retry up to `METALOGOS_LLM_SCHEMA_RETRIES` (default 2, cap 10) with the validator report fed back into the prompt. Mock tier returns a deterministic minimal instance derived from the schema (only when `METALOGOS_MOCK_LLM=1|true` is set explicitly — №454/№478; the default is the real path) |
 | `json_validate(schema_json, value_json)` / `json_validate(schema_json, value_json, strict)` | `String, String[, Bool] -> Struct` | Struct `{Dict}` | Validates a JSON string against the ADR-0133 schema subset WITHOUT calling an LLM («shape-before-use», №286): the SAME validator as `call_llm_schema` (extracted to a shared module, zero new rules — differential corpus green in both paths). Returns `{valid, errors}` where `errors` is a list of violation reports with paths (`value.age: expected type integer, got string "33"`). `strict` (default `true`) = fields beyond `properties` are violations (as in `call_llm_schema`); `strict=false` permits undeclared fields — every other rule (type/required/items/enum, the subset, the root-object contract) is unchanged. Invalid `schema_json`/unsupported keyword — loud `LLM_SCHEMA_UNSUPPORTED_FEATURE` (the SAME code as `call_llm_schema`); invalid `value_json` is a loud parse error, NOT `valid=false` (the validator judges structure, the parser judges bytes) |
 | `confidence(fluid_value)` | `Fluid -> Float` | Float | Returns the maximum confidence of the probabilistic type. Returns `1.0` for concrete values |
 
@@ -930,7 +930,7 @@ let encoded = json_encode({ key: "value", n: 42.0 })
 
 | Function | Signature | Return | Description |
 |---------|-----------|---------|----------|
-| `read_file(path)` | `String -> String` | String | Reads a file. Soft-failure: an empty string when the file is missing or unreadable. Sandbox violations (absolute path, `..`, symlink escape, broken symlink) are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) |
+| `read_file(path)` | `String -> String` | String | Reads a file. **Missing file** — the documented №254 soft contract: an empty string (pinned by the №481 suite). **A file that exists (or passed the sandbox) but cannot be opened/read** — a configuration/environment error, refused LOUDLY with `[IO_ERROR]` and the OS reason (№481): the old silent "" masked real defects. Sandbox violations (absolute path, `..`, symlink escape, broken symlink) are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) |
 | `write_file(path, content)` | `String, String -> String` | String | Writes a file (overwrite). Returns `"ok"` or `""` on an OS-level error; sandbox violations are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) |
 | `append_file(path, content)` | `String, String -> String` | String | Appends to the end of a file. Returns `"ok"` or `""`; sandbox violations are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) |
 | `delete_file(path)` | `String -> String` | String | Deletes a file. Returns `"ok"`, `""` when the file is missing; sandbox violations are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) |
@@ -1034,7 +1034,8 @@ Temporary in-memory storage scoped to a session_id. Not persistent — it resets
 
 | Function | Signature | Return | Description |
 |---------|-----------|---------|----------|
-| `env(key)` | `String -> String` (→ `Secret` in an entity context) | String/Secret | Reads an environment variable. An empty string if not found (the soft-failure contract). **Serve gate (naryad №259)**: inside serve route bodies `env()` is denied by default with a loud `ENV_NOT_PERMITTED` error — route code often receives untrusted input and must not read the process's secrets. Escape hatches (alternatives, not AND): `METALOGOS_SERVE_ALLOW_ENV=1` allows all env reads in route bodies, or `METALOGOS_ENV_ALLOWLIST="NAME1,NAME2"` allows exactly the listed names. Outside serve (`mlog run`, `mlog check`, repl, serve top level) the read is ungated, as before. The denial is identical for existing and non-existing names (the gate runs before the read).  See also the exec gates (`EXEC_NOT_PERMITTED`, naryad №253) in the threat model. **Hardcoded-secret gate (naryad №458)**: a string LITERAL in a high-precision provider token format (`ghp_`/`github_pat_`/`sk-ant-`/`AKIA`/`ASIA`/`xox[bpa]-`/`glpat-`/`AIza`/PEM headers, at the audit's length thresholds) refuses COMPILE-TIME with `HARDCODED_SECRET` (Category A) on run/compile/serve/mcp-serve — the escape crane is reading secrets through `env()` (this builtin) or binding them to a `Secret`-typed entity; EXAMPLE-marked fixture placeholders (the AWS docs key convention) stay clean, and the name heuristics (`api_key`, `token=`) remain a warning-level `mlog audit` finding, not a block |
+| `env(key)` | `String -> String` (→ `Secret` in an entity context) | String/Secret | Reads an environment variable. A MISSING variable is a configuration error: refused LOUDLY with `[ENV_NOT_FOUND]`, naming the variable and pointing at `env_or` (№481) — the old soft empty string masked misconfiguration silently. **Serve gate (naryad №259)**: inside serve route bodies `env()` is denied by default with a loud `ENV_NOT_PERMITTED` error — route code often receives untrusted input and must not read the process's secrets. Escape hatches (alternatives, not AND): `METALOGOS_SERVE_ALLOW_ENV=1` allows all env reads in route bodies, or `METALOGOS_ENV_ALLOWLIST="NAME1,NAME2"` allows exactly the listed names. Outside serve (`mlog run`, `mlog check`, repl, serve top level) the read is ungated, as before. The denial is identical for existing and non-existing names (the gate runs before the read).  See also the exec gates (`EXEC_NOT_PERMITTED`, naryad №253) in the threat model. **Hardcoded-secret gate (naryad №458)**: a string LITERAL in a high-precision provider token format (`ghp_`/`github_pat_`/`sk-ant-`/`AKIA`/`ASIA`/`xox[bpa]-`/`glpat-`/`AIza`/PEM headers, at the audit's length thresholds) refuses COMPILE-TIME with `HARDCODED_SECRET` (Category A) on run/compile/serve/mcp-serve — the escape crane is reading secrets through `env()` (this builtin) or binding them to a `Secret`-typed entity; EXAMPLE-marked fixture placeholders (the AWS docs key convention) stay clean, and the name heuristics (`api_key`, `token=`) remain a warning-level `mlog audit` finding, not a block |
+| `env_or(name, default)` | `String, String -> String` (→ `Secret` in an entity context) | String/Secret | The EXPLICIT-silence twin of `env` (№481): the variable's value when set, the default when missing — the `_or` suffix carries the silent-default semantics IN THE NAME (the audit 25.09 §3.9 naming rule). Every firing of the fallback is announced on the audit stderr (`[ENV_OR] '<name>' is not set — using the explicit default`; the №326 op-log posture — the VALUE is never logged, only the variable name). The SAME №259 serve gate applies — explicit silence never bypasses the env policy. Migration honesty: programs that relied on the old `env()` empty-string default switch to `env_or(name, "")` |
 | `generate_key()` | `-> Secret` | Secret | Generates a 256-bit random key (64 hex characters) |
 | `encrypt(data, key)` | `String, Secret -> Encrypted` | Encrypted | Encrypts with AES-256-GCM using a random 96-bit nonce. The key is 64 hex characters |
 | `decrypt(encrypted, key)` | `Encrypted, Secret -> String` | String | Decrypts AES-256-GCM. Errors on a wrong key |
@@ -1050,7 +1051,7 @@ Temporary in-memory storage scoped to a session_id. Not persistent — it resets
 **Examples:**
 ```mlog
 // doc-test: skip
-entity db_url: Secret = env("DATABASE_URL")
+entity db_url: Secret = env_or("DATABASE_URL", "sqlite::memory:")
 let key = generate_key()
 let encrypted = encrypt("secret data", key)
 let decrypted = decrypt(encrypted, key)  // "secret data"
@@ -1758,7 +1759,7 @@ entity User {
 entity alice: User = { id: "1", name: "Alice", role: "admin" }
 
 // A simple entity (a single value)
-entity db_url: Secret = env("DATABASE_URL")
+entity db_url: Secret = env_or("DATABASE_URL", "sqlite::memory:")
 ```
 
 ### 5.4. Flow (a pipeline)
@@ -2118,7 +2119,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 501 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 502 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2361,7 +2362,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `mcp_call(...)` | 4 | — | №413 (issue #558, ADR-0169 §3.1 extension): the MCP contour's failure taxonomy (`MCP_SPAWN_FAILED`, `MCP_TIMEOUT`, `MCP_IO_ERROR`, `MCP_PROTOCOL_ERROR`, `MCP_TOOL_NOT_FOUND`, `MCP_TOOL_ERROR`, `MCP_NOT_ALLOWLISTED`) already sits at position 0 of the error strings the contour raises — it is now whitelisted for the `try` classifier in `values::ORIGIN_STAMPED_CODES`. The wrapper below no longer buries those stamps mid-message. |
 | `mcp_list_tools(...)` | 2 | — | `mcp_list_tools(command, args_list) -> List[Struct{name, description, input_schema}]`. |
 | `print(...)` | 1 | `String -> String` | Prints a string to stdout, returns it |
-| `read_file(...)` | 1 | `String -> String` | Reads a file. Soft-failure: an empty string when the file is missing or unreadable. Sandbox violations (absolute path, `..`, symlink escape, broken symlink) are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) |
+| `read_file(...)` | 1 | `String -> String` | Reads a file. **Missing file** — the documented №254 soft contract: an empty string (pinned by the №481 suite). **A file that exists (or passed the sandbox) but cannot be opened/read** — a configuration/environment error, refused LOUDLY with `[IO_ERROR]` and the OS reason (№481): the old silent "" masked real defects. Sandbox violations (absolute path, `..`, symlink escape, broken symlink) are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) |
 | `write_file(...)` | 2 | `String, String -> String` | Writes a file (overwrite). Returns `"ok"` or `""` on an OS-level error; sandbox violations are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) |
 
 ### `json` — 9 builtin(s)
@@ -2405,8 +2406,8 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
 | `call_claude(...)` | 4 | `String, String, String, String -> String` | A direct call to the Anthropic Claude Messages API (v1/messages). Returns `content[0].text` |
-| `call_llm(...)` | 1..2 | `String, String -> String` | Calls the LLM backend. By default returns a mock: `"[MOCK: prompt \ |
-| `call_llm_schema(...)` | 2..3 | `String, String[, String] -> Struct` | Calls the LLM backend and requires the answer to be a single JSON value conforming to the schema. Supported schema subset (ADR-0133): `type`, `properties`, `required`, `items`, `enum`; annotation keywords (`title`, `description`, `$schema`, ...) are ignored; any other keyword is a loud `LLM_SCHEMA_UNSUPPORTED_FEATURE`. Answer fields beyond `properties` are rejected (strict-by-default). The result is a `Dict` Struct usable with `json_get`/`has_field`/`dict_*`. Parse/validation failures (including max_tokens truncation) are loud `LLM_SCHEMA_MISMATCH` and retry up to `METALOGOS_LLM_SCHEMA_RETRIES` (default 2, cap 10) with the validator report fed back into the prompt. Mock tier returns a deterministic minimal instance derived from the schema (default mock settings; `METALOGOS_LLM_MOCK=json` documents the intent explicitly) |
+| `call_llm(...)` | 1..2 | `String, String -> String` | Calls the LLM backend. Returns the deterministic mock `"[MOCK: prompt \ |
+| `call_llm_schema(...)` | 2..3 | `String, String[, String] -> Struct` | Calls the LLM backend and requires the answer to be a single JSON value conforming to the schema. Supported schema subset (ADR-0133): `type`, `properties`, `required`, `items`, `enum`; annotation keywords (`title`, `description`, `$schema`, ...) are ignored; any other keyword is a loud `LLM_SCHEMA_UNSUPPORTED_FEATURE`. Answer fields beyond `properties` are rejected (strict-by-default). The result is a `Dict` Struct usable with `json_get`/`has_field`/`dict_*`. Parse/validation failures (including max_tokens truncation) are loud `LLM_SCHEMA_MISMATCH` and retry up to `METALOGOS_LLM_SCHEMA_RETRIES` (default 2, cap 10) with the validator report fed back into the prompt. Mock tier returns a deterministic minimal instance derived from the schema (only when `METALOGOS_MOCK_LLM=1 |
 | `json_validate(...)` | 2..3 | `String, String[, Bool] -> Struct` | Validates a JSON string against the ADR-0133 schema subset WITHOUT calling an LLM («shape-before-use», №286): the SAME validator as `call_llm_schema` (extracted to a shared module, zero new rules — differential corpus green in both paths). Returns `{valid, errors}` where `errors` is a list of violation reports with paths (`value.age: expected type integer, got string "33"`). `strict` (default `true`) = fields beyond `properties` are violations (as in `call_llm_schema`); `strict=false` permits undeclared fields — every other rule (type/required/items/enum, the subset, the root-object contract) is unchanged. Invalid `schema_json`/unsupported keyword — loud `LLM_SCHEMA_UNSUPPORTED_FEATURE` (the SAME code as `call_llm_schema`); invalid `value_json` is a loud parse error, NOT `valid=false` (the validator judges structure, the parser judges bytes) |
 | `llm_last_finish_reason(...)` | variadic | — | №757: `llm_last_finish_reason()` — the mlog-visible truncation probe. Returns the finish_reason/stop_reason/done_reason of the LAST completed LLM call or stream ("stop", "length", "max_tokens", "end_turn", ...). `""` means no completed call ever reported a reason (honest absence — the mock and error paths never invent one). The truncation check from mlog is `llm_last_finish_reason() == "length"` (OpenAI-compatible) or `== "max_tokens"` (Anthropic); both spellings also raise the stderr warning at the moment of the call itself. |
 | `llm_stream_close(...)` | 1 | — | `llm_stream_close(handle) -> Struct { tokens, latency_ms, status, provider, model }` |
@@ -2722,11 +2723,12 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `svg_sketchy_filter(...)` | 1..5 | `String, Float -> String` | A "hand-drawn" style SVG filter (`id` is structural) |
 | `svg_text(...)` | 5..6 | `Float×2, String, Float, String×2 -> String` | Text (auto-escaped) |
 
-### `system` — 3 builtin(s)
+### `system` — 4 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
-| `env(...)` | 1 | `String -> String` (→ `Secret` in an entity context) | Reads an environment variable. An empty string if not found (the soft-failure contract). **Serve gate (naryad №259)**: inside serve route bodies `env()` is denied by default with a loud `ENV_NOT_PERMITTED` error — route code often receives untrusted input and must not read the process's secrets. Escape hatches (alternatives, not AND): `METALOGOS_SERVE_ALLOW_ENV=1` allows all env reads in route bodies, or `METALOGOS_ENV_ALLOWLIST="NAME1,NAME2"` allows exactly the listed names. Outside serve (`mlog run`, `mlog check`, repl, serve top level) the read is ungated, as before. The denial is identical for existing and non-existing names (the gate runs before the read).  See also the exec gates (`EXEC_NOT_PERMITTED`, naryad №253) in the threat model. **Hardcoded-secret gate (naryad №458)**: a string LITERAL in a high-precision provider token format (`ghp_`/`github_pat_`/`sk-ant-`/`AKIA`/`ASIA`/`xox[bpa]-`/`glpat-`/`AIza`/PEM headers, at the audit's length thresholds) refuses COMPILE-TIME with `HARDCODED_SECRET` (Category A) on run/compile/serve/mcp-serve — the escape crane is reading secrets through `env()` (this builtin) or binding them to a `Secret`-typed entity; EXAMPLE-marked fixture placeholders (the AWS docs key convention) stay clean, and the name heuristics (`api_key`, `token=`) remain a warning-level `mlog audit` finding, not a block |
+| `env(...)` | 1 | `String -> String` (→ `Secret` in an entity context) | Reads an environment variable. A MISSING variable is a configuration error: refused LOUDLY with `[ENV_NOT_FOUND]`, naming the variable and pointing at `env_or` (№481) — the old soft empty string masked misconfiguration silently. **Serve gate (naryad №259)**: inside serve route bodies `env()` is denied by default with a loud `ENV_NOT_PERMITTED` error — route code often receives untrusted input and must not read the process's secrets. Escape hatches (alternatives, not AND): `METALOGOS_SERVE_ALLOW_ENV=1` allows all env reads in route bodies, or `METALOGOS_ENV_ALLOWLIST="NAME1,NAME2"` allows exactly the listed names. Outside serve (`mlog run`, `mlog check`, repl, serve top level) the read is ungated, as before. The denial is identical for existing and non-existing names (the gate runs before the read).  See also the exec gates (`EXEC_NOT_PERMITTED`, naryad №253) in the threat model. **Hardcoded-secret gate (naryad №458)**: a string LITERAL in a high-precision provider token format (`ghp_`/`github_pat_`/`sk-ant-`/`AKIA`/`ASIA`/`xox[bpa]-`/`glpat-`/`AIza`/PEM headers, at the audit's length thresholds) refuses COMPILE-TIME with `HARDCODED_SECRET` (Category A) on run/compile/serve/mcp-serve — the escape crane is reading secrets through `env()` (this builtin) or binding them to a `Secret`-typed entity; EXAMPLE-marked fixture placeholders (the AWS docs key convention) stay clean, and the name heuristics (`api_key`, `token=`) remain a warning-level `mlog audit` finding, not a block |
+| `env_or(...)` | 2 | `String, String -> String` (→ `Secret` in an entity context) | The EXPLICIT-silence twin of `env` (№481): the variable's value when set, the default when missing — the `_or` suffix carries the silent-default semantics IN THE NAME (the audit 25.09 §3.9 naming rule). Every firing of the fallback is announced on the audit stderr (`[ENV_OR] '<name>' is not set — using the explicit default`; the №326 op-log posture — the VALUE is never logged, only the variable name). The SAME №259 serve gate applies — explicit silence never bypasses the env policy. Migration honesty: programs that relied on the old `env()` empty-string default switch to `env_or(name, "")` |
 | `policy_check(...)` | 1 | `String -> Dict` | Checks a command against policy: heredoc `<<`, pipe ` |
 | `replay_snapshot(...)` | 1 | `List -> Dict` | Serializes a list of values into a JSON snapshot. Returns `ReplaySnapshot { seq, items, json, created_at }`. seq=0 is a full snapshot, seq=N is a delta |
 
@@ -3008,6 +3010,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `tts_send` | sink | network | irreversible | synthesizes AND delivers audio externally — cannot be unsent (issue minimum list) |
 | `tts_generate` | source | network | pure | ingests an audio artifact from an external TTS provider; DUAL: transmits the text to the provider (№317 corpus) |
 | `env` | source | secret | pure | ingests environment secrets — Secret taint (audit.rs) |
+| `env_or` | source | secret | pure | env read with an explicit silent default (the _or name carries the semantics, 481) — environment ingest, Secret taint |
 | `query` | source | internal | pure | reads the program's persistent DB (state input with provenance) |
 | `db_execute` | sink | internal | irreversible | arbitrary SQL write against the persistent DB — destructive statements are non-undoable (issue minimum list) |
 | `call_llm` | source | network | pure | ingests untrusted model output (LlmOutput taint, ADR-0117); DUAL: the prompt is transmitted to an external provider — №317 corpus must cover prompt-egress |
@@ -3361,6 +3364,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `llm_last_finish_reason` | source | internal | pure | reads the last observed LLM finish_reason (№757 truncation probe) — no provider contact |
 
 <!-- END GENERATED BUILTIN CLASSIFICATION -->
+
 
 
 

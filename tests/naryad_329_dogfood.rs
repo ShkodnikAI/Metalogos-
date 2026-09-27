@@ -55,6 +55,8 @@ fn n329_office_contour_compiles_under_the_gate() {
 
 #[test]
 fn n329_office_contour_runs_end_to_end() {
+    // №478: the contour's call_llm runs in the deterministic mock contour — explicit opt-in.
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
     // run_program enforces audit_category_a (the №325 promotion) — a
     // successful run IS a gated run, not a gate bypass.
     let src = dogfood_source();
@@ -68,6 +70,8 @@ fn n329_office_contour_runs_end_to_end() {
 
 #[test]
 fn n329_golden_pair_pins_the_end_to_end_run() {
+    // №478: the explicit mock contour (the office mock answer is the contract).
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
     let expected = std::fs::read_to_string(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/l1_dogfood.expected"),
     )

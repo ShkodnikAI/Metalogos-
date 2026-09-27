@@ -32,13 +32,13 @@ fn lock_env() -> std::sync::MutexGuard<'static, ()> {
 struct MockEnv;
 impl MockEnv {
     fn set_json() -> Self {
-        std::env::set_var("METALOGOS_LLM_MOCK", "json");
+        std::env::set_var("METALOGOS_MOCK_LLM", "1");
         MockEnv
     }
 }
 impl Drop for MockEnv {
     fn drop(&mut self) {
-        std::env::remove_var("METALOGOS_LLM_MOCK");
+        std::env::remove_var("METALOGOS_MOCK_LLM");
     }
 }
 

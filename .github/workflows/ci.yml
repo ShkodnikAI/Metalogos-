@@ -456,6 +456,19 @@ jobs:
           fi
           echo "✓ All builtin modules within limits"
 
+  mock-env-ssot:
+    name: mock-env-ssot (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Gate — the retired METALOGOS_LLM_MOCK env never reappears in src/ (№478 — the SSOT predicate is the only mock switch)
+        run: |
+          if grep -rn "METALOGOS_LLM_MOCK" src/; then
+            echo "STALE: the retired METALOGOS_LLM_MOCK env re-reads the mock mode directly (№454/№478) — route through crate::llm::mock_llm_requested()"
+            exit 1
+          fi
+          echo "OK: no direct METALOGOS_LLM_MOCK reads in src/"
+
   generative-stop-list:
     name: generative-stop-list (blocking)
     runs-on: ubuntu-latest

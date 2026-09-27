@@ -267,7 +267,10 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("tts_send", 4, 5, "voice"; builtin_tts_send), // text,voice,bot_token,chat_id | +mode — delivery convenience (delegates synthesis to tts_synth, Naryad #279)
     spec!("tts_generate", 2, 4, "voice"; builtin_tts_generate), // Naryad #279: text,voice | +provider | +model — synthesis to sandbox file, no delivery (APPENDED: bytecode indices must not shift)
     // ── System builtins ──
-    spec!("env", 1, "system"; builtin_env), // ── DB builtins ──
+    spec!("env", 1, "system"; builtin_env),
+    // №481: the EXPLICIT-silence twin of env — the `_or` suffix carries the
+    // silent-default semantics in the name (audit 25.09 §3.9 naming rule).
+    spec!("env_or", 2, "system"; builtin_env_or), // ── DB builtins ──
     spec!("query", 1, 2, "db"; builtin_query),
     spec!("db_execute", 1, 2, "db"; builtin_db_execute), // ADR-0068: optional params list
     // ── LLM builtins ──
@@ -919,7 +922,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("video_understand", 1, 3, "video"; builtin_video_understand),
     // ── Наряд №334 (P0, feature/backends): real STT/omni/vision-
     // understanding backends — the SHA-pin path. Mock-first call surface
-    // over the №333 registry: METALOGOS_LLM_MOCK default = deterministic
+    // over the №333 registry: METALOGOS_MOCK_LLM opt-in = deterministic
     // mock (the golden contract); real mode refuses LOUDLY unless the
     // SHA-verified weights are on disk (PARKED №294 — no inference is
     // promised). Handlers: voice::backend (stt/omni), vision::understand.

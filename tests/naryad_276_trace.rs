@@ -50,6 +50,9 @@ fn read_lines(path: &std::path::Path) -> Vec<serde_json::Value> {
 }
 
 fn eval_call_llm(prompt: &str, input: &str) -> Result<Value, String> {
+    // №478: the mock contour is EXPLICIT (the №454 SSOT) — the trace
+    // contract pins the mock path, so the helper opts in loudly.
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
     let mut interp = Interpreter::new();
     interp.set_base_dir(std::path::PathBuf::from("."));
     let _ = interp.run(Vec::new());
@@ -354,6 +357,8 @@ fn run_vm(source: &str) -> Result<Option<String>, String> {
 #[serial]
 fn n276_trace_backend_tag_tw_and_vm() {
     let _env = lock_env();
+    // №478: the flow program calls call_llm — the explicit mock contour.
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
 
     // TW: interpreter thread → backend "tw".
     let tw_path = trace_path("t6tw");

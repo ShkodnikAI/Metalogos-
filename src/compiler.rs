@@ -726,6 +726,7 @@ impl Compiler {
                         // №456: the holdout-accuracy gate passes through to
                         // the VM (None → the 0.85 default at the runtime site).
                         distill_min_accuracy: lp.distill_min_accuracy,
+                        distill_margin: lp.distill_margin,
                     }));
                 }
                 Declaration::Rule(_) => {

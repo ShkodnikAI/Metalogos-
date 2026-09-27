@@ -48,6 +48,7 @@ fn make_learnable_decl(name: &str, prompt: &str) -> Declaration {
         effects: None,
         fallback_if: None,
         distill_min_accuracy: None,
+        distill_margin: None,
     })
 }
 

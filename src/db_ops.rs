@@ -33,13 +33,13 @@
 //! The live-contract requirement of the naryad (the owner's
 //! "revive-or-delete" strengthening for the dead `RuntimeContext`) is
 //! satisfied the same way as group 1: the dead stub is already gone
-//! (№465) and the VM state is reached through the `VmDbAccess` trait
+//! (№465) and the VM state is reached through the `DbAccess` trait
 //! below — a live, mock-testable contract; `Vm` is one implementor.
 
 use crate::interpreter::db::{convert_params, sql_err};
 use crate::interpreter::Value;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 /// The db-group names this module owns. The backends compare their
 /// dispatch names against the constants below — the name strings are
@@ -345,10 +345,45 @@ pub fn db_execute_with_grant_tw(
 /// `query_scalar(sql, params?)` — TW. Наряда-26 P1-7: executes a SELECT
 /// that returns exactly one row with one column; the scalar value
 /// directly (String, Float, or Unit for NULL).
-pub fn query_scalar_tw(
-    db: &Mutex<Option<rusqlite::Connection>>,
-    args: &[Value],
-) -> Result<Value, String> {
+/// The TW-side `DbAccess` adapter (№484): the interpreter's db state is
+/// the `Mutex<Option<Connection>>` — the adapter locks it once and holds
+/// the guard for the statement's duration. `ensure_db_open` is a no-op
+/// (the TW materializes the connection at the db declaration — there is
+/// nothing to open lazily) and `db_open_error` stays the default `None`
+/// (the TW lane records no loud reason; the shared legacy text carries
+/// the named remedy since the unification).
+pub struct TwDbAccess<'a> {
+    guard: MutexGuard<'a, Option<rusqlite::Connection>>,
+}
+
+impl<'a> TwDbAccess<'a> {
+    /// Lock the TW db state (the shared "db lock error" text).
+    pub fn lock(db: &'a Mutex<Option<rusqlite::Connection>>) -> Result<Self, String> {
+        let guard = db.lock().map_err(|e| format!("db lock error: {}", e))?;
+        Ok(TwDbAccess { guard })
+    }
+}
+
+impl DbAccess for TwDbAccess<'_> {
+    fn ensure_db_open(&mut self) {}
+    fn db_conn(&mut self) -> &mut Option<rusqlite::Connection> {
+        &mut self.guard
+    }
+    fn server_query_params(&self) -> Option<&HashMap<String, String>> {
+        None
+    }
+}
+
+/// `query_scalar(sql, params?)` — the ONE implementation for both
+/// backends (№484): the state arrives through the `DbAccess` trait —
+/// the TW wraps its `Mutex<Option<Connection>>` in `TwDbAccess`, the VM
+/// implements the trait on `Vm`. The two former per-backend bodies were
+/// byte-identical from the statement execution onward; the unification
+/// keeps the RICHER error text on each axis: the SQL-argument error
+/// carries the offending type name (the former TW text — the VM gains
+/// the detail) and the not-open error carries the №758 loud reason /
+/// the named remedy (the former VM text — the TW gains the remedy).
+pub fn query_scalar(db: &mut impl DbAccess, args: &[Value]) -> Result<Value, String> {
     let sql = match args.first() {
         Some(Value::String(s)) => s.clone(),
         Some(other) => {
@@ -359,7 +394,8 @@ pub fn query_scalar_tw(
         }
         None => return Err("query_scalar() requires at least 1 argument (SQL string)".to_string()),
     };
-    // Наряд №99: convert_params — type-safe, no silent shift
+    // Наряд №99 / №381 parity: convert_params — typed binds, no silent
+    // shift (the old string binds degraded types behind sqlite affinity).
     let params: Vec<rusqlite::types::Value> = if args.len() > 1 {
         match &args[1] {
             Value::List(items) => convert_params(items)?,
@@ -368,11 +404,15 @@ pub fn query_scalar_tw(
     } else {
         Vec::new()
     };
-
-    let guard = db.lock().map_err(|e| format!("db lock error: {}", e))?;
-    let conn = guard
+    // №409: the lazy open fires on the VM lane; a no-op through the TW
+    // adapter (the TW opens at the db declaration).
+    db.ensure_db_open();
+    // №758: the loud reason is read BEFORE the &mut connection borrow.
+    let loud = db.db_open_error();
+    let conn = db
+        .db_conn()
         .as_ref()
-        .ok_or_else(|| "query_scalar() error: no database connection.".to_string())?;
+        .ok_or_else(|| db_not_open_error(loud, "query_scalar"))?;
 
     let mut stmt = conn
         .prepare(&sql)
@@ -529,7 +569,7 @@ pub fn db_insert_tw(
 //
 // Verbatim transplants of the former inline vm.rs bodies. The VM state
 // (the lazily-opened connection, the server query params) is reached
-// through the `VmDbAccess` trait — the live contract that replaces the
+// through the `DbAccess` trait — the live contract that replaces the
 // deleted dead `RuntimeContext` stub (№465); `Vm` implements it below
 // in src/vm.rs. The №409 lazy open fires exactly where the inline
 // bodies called it (every statement builtin, NOT query_param).
@@ -538,26 +578,26 @@ pub fn db_insert_tw(
 /// The VM-side db contract: the lazy-open hook (№409), the live
 /// connection, and the per-request server query params. Mock-testable
 /// (the unit tests below drive every VM function through a mock).
-pub trait VmDbAccess {
+pub trait DbAccess {
     /// №409: materialize the connection on first use (no-op when the
     /// connection is already open or a previous open attempt failed).
     fn ensure_db_open(&mut self);
     /// The live connection, if materialized.
-    fn vm_db_conn(&mut self) -> &mut Option<rusqlite::Connection>;
+    fn db_conn(&mut self) -> &mut Option<rusqlite::Connection>;
     /// The per-request server query params (`query_param`).
-    fn vm_server_query_params(&self) -> Option<&HashMap<String, String>>;
+    fn server_query_params(&self) -> Option<&HashMap<String, String>>;
     /// №758: the LOUD reason the connection is not open (env denied /
     /// env unset / unsupported scheme) — preferred by the access sites
     /// over the legacy text so the failure is nameable, not a riddle.
     /// `None` = nothing loud recorded (the plain no-db case).
-    fn vm_db_open_error(&self) -> Option<String> {
+    fn db_open_error(&self) -> Option<String> {
         None
     }
 }
 
 /// №758: the not-open error for one access site — the loud stored
 /// reason (when the lazy open recorded one) over the legacy text.
-/// The reason is TAKEN BEFORE the connection borrow (vm_db_conn holds
+/// The reason is TAKEN BEFORE the connection borrow (db_conn holds
 /// &mut vm) — hence the plain Option form.
 fn db_not_open_error(loud: Option<String>, name: &str) -> String {
     let detail = loud.unwrap_or_else(|| {
@@ -568,9 +608,9 @@ fn db_not_open_error(loud: Option<String>, name: &str) -> String {
 
 /// `query_param(name)` — VM. Same parse/return shape as the TW; the
 /// lookup goes through the VM's own `server_query_params` map.
-pub fn query_param_vm(vm: &impl VmDbAccess, args: &[Value]) -> Result<Value, String> {
+pub fn query_param_vm(vm: &impl DbAccess, args: &[Value]) -> Result<Value, String> {
     query_param(args, |name| {
-        vm.vm_server_query_params()
+        vm.server_query_params()
             .and_then(|params| params.get(name))
             .cloned()
     })
@@ -579,7 +619,7 @@ pub fn query_param_vm(vm: &impl VmDbAccess, args: &[Value]) -> Result<Value, Str
 /// `db_insert(table, struct)` — VM. The VM second-argument error text
 /// has NO shape suffix (the TW text differs — each side keeps its own);
 /// the connection is lazily opened (№409).
-pub fn db_insert_vm(vm: &mut impl VmDbAccess, args: &[Value]) -> Result<Value, String> {
+pub fn db_insert_vm(vm: &mut impl DbAccess, args: &[Value]) -> Result<Value, String> {
     let table = match args.first() {
         Some(Value::String(s)) => s.clone(),
         _ => {
@@ -596,9 +636,9 @@ pub fn db_insert_vm(vm: &mut impl VmDbAccess, args: &[Value]) -> Result<Value, S
     // schema DDL) materializes here, on first use.
     vm.ensure_db_open();
     // №758: the loud reason is read BEFORE the &mut connection borrow.
-    let loud = vm.vm_db_open_error();
+    let loud = vm.db_open_error();
     let conn = vm
-        .vm_db_conn()
+        .db_conn()
         .as_mut()
         .ok_or_else(|| db_not_open_error(loud, "db_insert"))?;
     let col_names: Vec<String> = fields.keys().cloned().collect();
@@ -630,60 +670,10 @@ pub fn db_insert_vm(vm: &mut impl VmDbAccess, args: &[Value]) -> Result<Value, S
 
 /// `query_scalar(sql, params?)` — VM. TYPED param binding (the №381
 /// parity fix); the connection is lazily opened (№409).
-pub fn query_scalar_vm(vm: &mut impl VmDbAccess, args: &[Value]) -> Result<Value, String> {
-    let sql = match args.first() {
-        Some(Value::String(s)) => s.clone(),
-        _ => return Err("query_scalar() expected String SQL".to_string()),
-    };
-    // Naryad #381 parity fix: bind parameters TYPED (the shared
-    // convert_params SSOT) instead of stringifying them — the old
-    // Float→"3"/Bool→"true" string binds degraded types behind
-    // sqlite affinity (tree-walking binds them typed).
-    let params: Vec<rusqlite::types::Value> = if args.len() > 1 {
-        match &args[1] {
-            Value::List(items) => convert_params(items)?,
-            _ => Vec::new(),
-        }
-    } else {
-        Vec::new()
-    };
-    // №409: lazy db open on first use.
-    vm.ensure_db_open();
-    // №758: the loud reason is read BEFORE the &mut connection borrow.
-    let loud = vm.vm_db_open_error();
-    let conn = vm
-        .vm_db_conn()
-        .as_ref()
-        .ok_or_else(|| db_not_open_error(loud, "query_scalar"))?;
-    let mut stmt = conn
-        .prepare(&sql)
-        .map_err(|e| sql_err("query_scalar() SQL error", e))?;
-    let mut rows = stmt
-        .query_map(rusqlite::params_from_iter(params.iter()), |row| {
-            row.get_ref(0).map(|v| match v {
-                rusqlite::types::ValueRef::Null => Value::Unit,
-                rusqlite::types::ValueRef::Integer(n) => Value::Float(n as f64),
-                rusqlite::types::ValueRef::Real(f) => Value::Float(f),
-                rusqlite::types::ValueRef::Text(s) => {
-                    Value::String(String::from_utf8_lossy(s).to_string())
-                }
-                rusqlite::types::ValueRef::Blob(b) => {
-                    Value::String(b.iter().map(|byte| format!("{:02x}", byte)).collect())
-                }
-            })
-        })
-        .map_err(|e| sql_err("query_scalar() execution error", e))?;
-    match rows.next() {
-        Some(Ok(val)) => Ok(val),
-        Some(Err(e)) => Err(sql_err("query_scalar() row error", e)),
-        None => Ok(Value::Unit),
-    }
-}
-
 /// `query(sql, params?)` — VM. SELECT → List of Struct ("Row"); the
 /// optional params list binds TYPED (the №381 parity fix — the VM
 /// dropped it entirely before that naryad).
-pub fn query_vm(vm: &mut impl VmDbAccess, args: &[Value]) -> Result<Value, String> {
+pub fn query_vm(vm: &mut impl DbAccess, args: &[Value]) -> Result<Value, String> {
     let sql = match args.first() {
         Some(Value::String(s)) => s.clone(),
         _ => return Err("query() expected String SQL".to_string()),
@@ -705,9 +695,9 @@ pub fn query_vm(vm: &mut impl VmDbAccess, args: &[Value]) -> Result<Value, Strin
     // №409: lazy db open on first use.
     vm.ensure_db_open();
     // №758: the loud reason is read BEFORE the &mut connection borrow.
-    let loud = vm.vm_db_open_error();
+    let loud = vm.db_open_error();
     let conn = vm
-        .vm_db_conn()
+        .db_conn()
         .as_ref()
         .ok_or_else(|| db_not_open_error(loud, "query"))?;
     let mut stmt = conn
@@ -750,7 +740,7 @@ pub fn query_vm(vm: &mut impl VmDbAccess, args: &[Value]) -> Result<Value, Strin
 /// `db_execute(sql, params?)` — VM. TYPED binding (№381); returns
 /// `Unit` (the TW returns the affected count as a String — the known
 /// divergence class stays as-is); lazy open (№409).
-pub fn db_execute_vm(vm: &mut impl VmDbAccess, args: &[Value]) -> Result<Value, String> {
+pub fn db_execute_vm(vm: &mut impl DbAccess, args: &[Value]) -> Result<Value, String> {
     let sql = match args.first() {
         Some(Value::String(s)) => s.clone(),
         _ => return Err("db_execute() expected String SQL".to_string()),
@@ -769,9 +759,9 @@ pub fn db_execute_vm(vm: &mut impl VmDbAccess, args: &[Value]) -> Result<Value, 
     // №409: lazy db open on first use.
     vm.ensure_db_open();
     // №758: the loud reason is read BEFORE the &mut connection borrow.
-    let loud = vm.vm_db_open_error();
+    let loud = vm.db_open_error();
     let conn = vm
-        .vm_db_conn()
+        .db_conn()
         .as_ref()
         .ok_or_else(|| db_not_open_error(loud, "db_execute"))?;
     let affected = conn
@@ -790,7 +780,7 @@ pub fn db_execute_vm(vm: &mut impl VmDbAccess, args: &[Value]) -> Result<Value, 
 /// tree-walking backend (ledger state/TTL/scope via src/grants.rs,
 /// typed binding via convert_params — the №381 contract); consumption
 /// happens only after the statement succeeded. Lazy open (№409).
-pub fn db_execute_with_grant_vm(vm: &mut impl VmDbAccess, args: &[Value]) -> Result<Value, String> {
+pub fn db_execute_with_grant_vm(vm: &mut impl DbAccess, args: &[Value]) -> Result<Value, String> {
     let handle = match args.first() {
         Some(Value::Grant(h)) => h.clone(),
         Some(other) => {
@@ -844,7 +834,7 @@ pub fn db_execute_with_grant_vm(vm: &mut impl VmDbAccess, args: &[Value]) -> Res
     }
     // №409: lazy db open on first use.
     vm.ensure_db_open();
-    let conn = vm.vm_db_conn().as_ref().ok_or_else(|| {
+    let conn = vm.db_conn().as_ref().ok_or_else(|| {
         format!(
             "{}() error: no database connection.",
             NAME_DB_EXECUTE_WITH_GRANT
@@ -894,7 +884,7 @@ pub fn db_execute_with_grant_vm(vm: &mut impl VmDbAccess, args: &[Value]) -> Res
 /// silently via `filter_map` with `_ => None`, shifting the positional
 /// `$N` placeholders; an unsupported value is now a loud error naming
 /// the 1-based parameter position). Lazy open (№409).
-pub fn query_row_vm(vm: &mut impl VmDbAccess, args: &[Value]) -> Result<Value, String> {
+pub fn query_row_vm(vm: &mut impl DbAccess, args: &[Value]) -> Result<Value, String> {
     let sql = match args.first() {
         Some(Value::String(s)) => s.clone(),
         Some(other) => {
@@ -921,9 +911,9 @@ pub fn query_row_vm(vm: &mut impl VmDbAccess, args: &[Value]) -> Result<Value, S
     // №409: lazy db open on first use.
     vm.ensure_db_open();
     // №758: the loud reason is read BEFORE the &mut connection borrow.
-    let loud = vm.vm_db_open_error();
+    let loud = vm.db_open_error();
     let conn = vm
-        .vm_db_conn()
+        .db_conn()
         .as_mut()
         .ok_or_else(|| db_not_open_error(loud, "query_row"))?;
     let mut stmt = conn
@@ -992,7 +982,7 @@ mod tests {
         }
     }
 
-    impl VmDbAccess for MockVm {
+    impl DbAccess for MockVm {
         fn ensure_db_open(&mut self) {
             // The №409 lazy-open contract: materialize once, on first use —
             // repeated calls on an open connection are no-ops (the mock
@@ -1002,10 +992,10 @@ mod tests {
                 self.conn = Some(rusqlite::Connection::open_in_memory().unwrap());
             }
         }
-        fn vm_db_conn(&mut self) -> &mut Option<rusqlite::Connection> {
+        fn db_conn(&mut self) -> &mut Option<rusqlite::Connection> {
             &mut self.conn
         }
-        fn vm_server_query_params(&self) -> Option<&HashMap<String, String>> {
+        fn server_query_params(&self) -> Option<&HashMap<String, String>> {
             self.params.as_ref()
         }
     }
@@ -1149,11 +1139,19 @@ mod tests {
         table(&db);
         db_execute_tw(&db, &[s("INSERT INTO t VALUES ('a', 7.0)")]).unwrap();
         val_eq!(
-            query_scalar_tw(&db, &[s("SELECT b FROM t LIMIT 1")]).unwrap(),
+            query_scalar(
+                &mut TwDbAccess::lock(&db).unwrap(),
+                &[s("SELECT b FROM t LIMIT 1")]
+            )
+            .unwrap(),
             Value::Float(7.0)
         );
         val_eq!(
-            query_scalar_tw(&db, &[s("SELECT b FROM t WHERE a='zz'")]).unwrap(),
+            query_scalar(
+                &mut TwDbAccess::lock(&db).unwrap(),
+                &[s("SELECT b FROM t WHERE a='zz'")]
+            )
+            .unwrap(),
             Value::Unit
         );
         let row = query_row_tw(&db, &[s("SELECT a, b FROM t LIMIT 1")]).unwrap();
@@ -1166,8 +1164,8 @@ mod tests {
             Value::List(vec![])
         );
         // Typed bind (the №381 contract): Float → REAL, not text.
-        let bind = query_scalar_tw(
-            &db,
+        let bind = query_scalar(
+            &mut TwDbAccess::lock(&db).unwrap(),
             &[s("SELECT typeof(?)"), Value::List(vec![Value::Float(3.0)])],
         )
         .unwrap();
@@ -1284,17 +1282,17 @@ mod tests {
             none: Option<rusqlite::Connection>,
             loud: Option<String>,
         }
-        impl VmDbAccess for FailedVm {
+        impl DbAccess for FailedVm {
             fn ensure_db_open(&mut self) {}
-            fn vm_db_conn(&mut self) -> &mut Option<rusqlite::Connection> {
+            fn db_conn(&mut self) -> &mut Option<rusqlite::Connection> {
                 &mut self.none
             }
-            fn vm_server_query_params(&self) -> Option<&HashMap<String, String>> {
+            fn server_query_params(&self) -> Option<&HashMap<String, String>> {
                 None
             }
             // №758: the loud reason override (when the lazy open recorded
             // one, e.g. env denied / unsupported scheme).
-            fn vm_db_open_error(&self) -> Option<String> {
+            fn db_open_error(&self) -> Option<String> {
                 self.loud.clone()
             }
         }
@@ -1310,7 +1308,7 @@ mod tests {
             format!("query_row() error: {}", legacy)
         );
         assert_eq!(
-            query_scalar_vm(&mut failed, &[s("SELECT 1")]).unwrap_err(),
+            query_scalar(&mut failed, &[s("SELECT 1")]).unwrap_err(),
             format!("query_scalar() error: {}", legacy)
         );
         assert_eq!(
@@ -1348,7 +1346,7 @@ mod tests {
         // The typed lane on BOTH backends now (№474, issue #722 — the
         // №381 convert_params contract): Float → REAL, not the Display
         // string "3".
-        let bind = query_scalar_vm(
+        let bind = query_scalar(
             &mut vm,
             &[s("SELECT typeof(?)"), Value::List(vec![Value::Float(3.0)])],
         )
@@ -1411,11 +1409,11 @@ mod tests {
             other => panic!("expected List, got {}", other.type_name()),
         }
         val_eq!(
-            query_scalar_vm(&mut vm, &[s("SELECT b FROM t LIMIT 1")]).unwrap(),
+            query_scalar(&mut vm, &[s("SELECT b FROM t LIMIT 1")]).unwrap(),
             Value::Float(1.5)
         );
         assert_eq!(
-            query_scalar_vm(&mut vm, &[Value::Float(9.0)]).unwrap_err(),
+            query_scalar(&mut vm, &[Value::Float(9.0)]).unwrap_err(),
             "query_scalar() expected String SQL"
         );
     }

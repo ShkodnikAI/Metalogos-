@@ -2252,7 +2252,7 @@ impl Vm {
 
         // db_insert(table, struct) — insert a struct into a database table
         // №466: the body lives in the shared live module (src/db_ops.rs);
-        // the VM keeps only the marshaling hook through the VmDbAccess
+        // the VM keeps only the marshaling hook through the DbAccess
         // contract (the lazy open fires inside, exactly as before).
         if name == crate::db_ops::NAME_DB_INSERT {
             return crate::db_ops::db_insert_vm(self, args);
@@ -2261,7 +2261,7 @@ impl Vm {
         // query_scalar(sql, params) — execute SELECT returning one scalar value
         // №466: the body lives in the shared live module (src/db_ops.rs).
         if name == crate::db_ops::NAME_QUERY_SCALAR {
-            return crate::db_ops::query_scalar_vm(self, args);
+            return crate::db_ops::query_scalar(self, args);
         }
 
         // query(sql) / query(sql, params) — execute SELECT returning list of structs
@@ -4789,19 +4789,19 @@ impl crate::memory_ops::VmMemoryAccess for Vm {
 // (src/db_ops.rs) uses to reach the VM's lazily-opened connection and
 // the per-request server query params — the same live-contract posture
 // as VmMemoryAccess above (the RuntimeContext stub stays deleted).
-impl crate::db_ops::VmDbAccess for Vm {
+impl crate::db_ops::DbAccess for Vm {
     fn ensure_db_open(&mut self) {
         Vm::ensure_db_open(self)
     }
-    fn vm_db_conn(&mut self) -> &mut Option<rusqlite::Connection> {
+    fn db_conn(&mut self) -> &mut Option<rusqlite::Connection> {
         &mut self.db_conn
     }
-    fn vm_server_query_params(&self) -> Option<&std::collections::HashMap<String, String>> {
+    fn server_query_params(&self) -> Option<&std::collections::HashMap<String, String>> {
         self.server_query_params.as_ref()
     }
     // №758: the loud not-open reason (env denied / env unset / unsupported
     // scheme) — the db access sites prefer it over the legacy text.
-    fn vm_db_open_error(&self) -> Option<String> {
+    fn db_open_error(&self) -> Option<String> {
         self.db_open_error.clone()
     }
 }

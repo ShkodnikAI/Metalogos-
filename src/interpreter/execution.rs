@@ -2296,7 +2296,10 @@ impl Interpreter {
                 }
                 // Наряда-26 P1-7: query_scalar / query_row
                 if name == crate::db_ops::NAME_QUERY_SCALAR {
-                    return crate::db_ops::query_scalar_tw(&self.db_conn, &eval_args);
+                    return crate::db_ops::query_scalar(
+                        &mut crate::db_ops::TwDbAccess::lock(&self.db_conn)?,
+                        &eval_args,
+                    );
                 }
                 if name == crate::db_ops::NAME_QUERY_ROW {
                     return crate::db_ops::query_row_tw(&self.db_conn, &eval_args);

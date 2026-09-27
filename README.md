@@ -223,7 +223,7 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 | Grammar | 331 rules |
 | Architecture Decisions | 170 ADRs |
 | Example Programs | 258 .mlog programs |
-| Reference | REFERENCE.md (~284 KB) — 100% registry coverage |
+| Reference | REFERENCE.md (~286 KB) — 100% registry coverage |
 | Changelog | CHANGELOG.md (~489 KB) — every wave documented |
 <!-- END GENERATED METRICS -->
 

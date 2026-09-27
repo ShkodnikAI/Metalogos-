@@ -34,10 +34,13 @@ pub(crate) fn expect_string_arg(
     }
     match &args[index] {
         Value::String(s) => Ok(s.clone()),
-        other => Err(format!(
-            "{}() expected String argument, got {}",
-            fn_name,
-            other.type_name()
+        other => Err(crate::interpreter::values::coded_error(
+            crate::interpreter::values::CODE_TYPE_MISMATCH,
+            format!(
+                "{}() expected String argument, got {}",
+                fn_name,
+                other.type_name()
+            ),
         )),
     }
 }

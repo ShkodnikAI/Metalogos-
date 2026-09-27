@@ -483,6 +483,18 @@ pub fn try_result_struct(ok: bool, value: Value, error: Option<(String, String)>
 
 /// Honest fallback: the error's origin carries no source stamp.
 pub const CODE_RUNTIME_ERROR: &str = "RUNTIME_ERROR";
+/// №479 (ADR-0131 diagnostic family): a name read that no binding covers.
+/// Stamped at the origin by BOTH backends (TW `undefined variable`, VM
+/// `VM rule: undefined variable`) so the diff-fuzzer's class signature
+/// compares stable codes, not prose wording.
+pub const CODE_UNDEFINED_VARIABLE: &str = "UNDEFINED_VARIABLE";
+/// №479 (ADR-0131 diagnostic family): a call to a name with no definition
+/// (VM compile-time refusal; the TW semantic posture resolves lazily —
+/// when it refuses, the same code is stamped).
+pub const CODE_UNDEFINED_FUNCTION: &str = "UNDEFINED_FUNCTION";
+/// №479 (ADR-0131 diagnostic family): an operand type a construct cannot
+/// use (concatenation mismatch, non-List iteration, arity shape).
+pub const CODE_TYPE_MISMATCH: &str = "TYPE_MISMATCH";
 /// Deadline / provider timeout in the `call_llm` contour.
 pub const CODE_LLM_TIMEOUT: &str = "LLM_TIMEOUT";
 /// LLM provider unreachable: connect failure or SmartRouter circuit open.

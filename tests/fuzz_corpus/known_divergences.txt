@@ -1,49 +1,80 @@
-# Naryad #465 (gh#686): the KNOWN TW/VM divergence classes (the ratchet).
+# The KNOWN TW/VM divergence classes — the ratchet (№465 fuzzer, №476 rule, №479 readability).
 #
-# Policy: a divergence CLASS signature (outcome/errorclass + normalized
-# sides) pins a systematic backend gap. Each class is fixed by a SEPARATE
-# naryad with the owner's gate (the #465 boundary: the fuzzer records,
-# the fixes repair). A class disappearing from this file = the gap closed
-# (remove the line in the same PR as the fix). A NEW class failing CI is
-# a regression — investigate before pinning.
+# Policy (the spirit unchanged since №465, the form readable since №479):
+#   * a class signature = the STABLE error codes (ADR-0131) of the two
+#     sides + the AST node kind each error was born at (`@fn_call`,
+#     `@ident`, `@binary_op`, `@each`, `@other`); `err:uncoded(...)` on a
+#     side means the origin site lacks its stable code — assign the code
+#     first, then pin;
+#   * every signature line is preceded by a comment block carrying
+#     `# class:` (the human description), `# example:` (a checked-in
+#     minimal program that REPRODUCES the class every run) and
+#     `# status:` (open / closed by <naryad>). The corpus parse FAILS CI
+#     when a line loses its block — the audit 26.09 §3.4 defect (an
+#     unreadable corpus absorbs new divergences of the same shape)
+#     cannot regress;
+#   * the example is LOAD-BEARING: when it stops reproducing the class,
+#     the gap is CLOSED — the run fails demanding the line and the
+#     example be removed in the fix PR (the corpus never outlives the
+#     divergence it pins);
+#   * NEW classes enter ONLY with the naryad report that explains them
+#     (the known verdict per rule №476); the minimized catch of the run
+#     that found them is in `target/fuzz_min/`.
 #
 # ── №476 (gh#724): the BLOCKED-DOMAIN rule ──────────────────────────────
 # Classes touching SQL, filesystem, network, exec, labels, or secrets are
 # BLOCKING correctness errors — pinning them as known is FORBIDDEN:
-#   * every line here carries the `known-` prefix (a bare line is read
-#     as known- for back-compat);
 #   * a `blocked-`-prefixed line in THIS file fails CI with the line
 #     named (there is nothing to pin in a blocked domain — fix it);
 #   * at run time, a divergence whose raw text carries a blocked-domain
 #     marker (database/sql/sqlite, read/write_file/fs_gate, http/socket,
 #     exec/shell, label/taint, secret/credential) NEVER matches as known
 #     — the run fails naming the class, even if someone pinned it here;
-#   * the corpus holds LANGUAGE-CORE classes only — never state
-#     (DB/FS/net/exec/labels/secrets).
+#   * the №479 stateful generation (db / llm mock / mail refusal) makes
+#     those domains FUZZED: a backend divergence there is caught by the
+#     fuzzer itself and repaired by a naryad, never pinned.
 #
-# Classes observed on the 2026-09-26 first run (150 programs + 5 seeds):
-#   C1  entity referenced inside a pattern body: TW = undefined variable,
-#       VM compiles the initializer in — the program-context semantics
-#       diverge (the transfer naryad #466 + the owner decide the truth);
-#   C2  memory_forget is MISSING from the VM dispatch (TW runs it, VM
-#       refuses at compile) — the memory group's real gap, new data for
-#       the #466 prioritization (memory stays first);
-#   C3+ TW runtime type-mismatch errors surface EARLIER as VM compile
-#       errors (and vice versa) — the same class family as C2: both
-#       error, but the CLASS and the PHASE differ.
-#
-# №474 cleanup (gh#722, 2026-09-27): three classes stopped reproducing
-# on the full deterministic run (150 + seeds) after the db-parity repair
-# (query_row typed binding + the ONE db_execute contract) and are
-# REMOVED per the ratchet: `...iiiiiiiii: Fiiii`, `...iiiiiiiiiiiii: S`,
-# `iiiiii() ... iii F` (the SQL-adjacent shapes the audit 26.09 §3.2/§3.4
-# named). The corpus keeps language-core classes only.
-#
-known-outcome|tw=iii(iiiiiiiii iiiiiiii: iN)|vm=ii(iiii-iiiii-iiii-iiiii:N)
-known-outcome|tw=ii(iii-iiii:N:N)|vm=iii(iiiiiii: iiiiiiiii iiiiiiii: iiiiiiiiiii)
-known-errorclass|tw=iiii iiiiiiii ii iiiiii iiiiiiiiiiiii: F|vm=iiiiiii: iiiiiiiii iiiiiiii: iiiiiiiiiii
-known-errorclass|tw=iiiiiiiii iiiiiiii: iiiii|vm=iiiiiii: iiiiiiiii iiiiiiii: iiiiiiiiiii
-known-errorclass|tw=iiiii() iiiiiiii Siiiii iiiiiiii, iii Fi|vm=iiiiiii: iiiiiiiii iiiiiiii: iiiiiiiiiii
-known-errorclass|tw=iii() iiiiiiii Siiiii ii Liii iiiiiiii|vm=iiiiiii: iiiiiiiii iiiiiiii: iiiiiiiiiii
-known-errorclass|tw=iiiiiiiii iiiiiiii: iiii|vm=iiiiiii: iiiiiiiii iiiiiiii: iiiiiiiiiii
-known-errorclass|tw=iiii iiiiiiii ii iiiiii iiiiiiiii: Siiii|vm=iiiiiii: iiiiiiiii iiiiiiii: iiiiiiiiiii
+# History: the pre-№479 corpus carried 8 normalized-prose lines (the
+# №474 cleanup had removed the 3 SQL-adjacent shapes). The №479
+# migration re-derived every class from RAW behavior — the 8 unreadable
+# `iiii: iiiiiiiii iiiiiiii` lines collapse into the 5 coded classes
+# below (the same root causes, readable signatures, checked-in
+# examples). Stable codes assigned at the origin sites by №479:
+# UNDEFINED_VARIABLE / UNDEFINED_FUNCTION / TYPE_MISMATCH (ADR-0131
+# convention, both backends, parity-pinned).
+
+# class: memory_forget is refused by the VM COMPILER ([UNDEFINED_FUNCTION])
+#   while TW runs it — the memory group's VM-lane gap (the №462 priority
+#   puts memory first; the class is the fuzzer's oldest catch).
+# example: class_example_memory_forget_compile.mlog
+# status: open — repair lane: the transfer line (VM compile/dispatch of the memory group)
+known-outcome|tw=ok(iii-iiii:N:N)|vm=err:[UNDEFINED_FUNCTION]@fn_call
+
+# class: an entity referenced inside a pattern body — TW refuses at runtime
+#   ([UNDEFINED_VARIABLE]) while the VM compiles the entity initializer in
+#   and the program SUCCEEDS: the program-context semantics diverge.
+# example: class_example_entity_in_pattern.mlog
+# status: open — program-context semantics: the transfer naryad line + the owner decide the truth
+known-outcome|tw=err:[UNDEFINED_VARIABLE]@ident|vm=ok(iiii-iiiii-iiii-iiiii:N)
+
+# class: phase family — TW reports a runtime type mismatch in concatenation
+#   ([TYPE_MISMATCH]@binary_op) while the VM refuses EARLIER at compile
+#   (memory_forget, [UNDEFINED_FUNCTION]): both error, the construct and
+#   the phase differ.
+# example: class_example_phase_concat_vs_compile.mlog
+# status: open — phase-parity family; repaired by the transfer/parity line, never pinned silently
+known-errorclass|tw=err:[TYPE_MISMATCH]@binary_op|vm=err:[UNDEFINED_FUNCTION]@fn_call
+
+# class: phase family — TW reports a builtin argument type mismatch
+#   (len() over a non-String/List, [TYPE_MISMATCH]@fn_call) while the VM
+#   refuses EARLIER at compile (memory_forget, [UNDEFINED_FUNCTION]).
+# example: class_example_phase_lenarg_vs_compile.mlog
+# status: open — phase-parity family; repaired by the transfer/parity line, never pinned silently
+known-errorclass|tw=err:[TYPE_MISMATCH]@fn_call|vm=err:[UNDEFINED_FUNCTION]@fn_call
+
+# class: phase family — TW reports an undefined variable at runtime
+#   ([UNDEFINED_VARIABLE]@ident) while the VM refuses EARLIER at compile
+#   (memory_forget first, [UNDEFINED_FUNCTION]).
+# example: class_example_phase_ident_vs_compile.mlog
+# status: open — phase-parity family; repaired by the transfer/parity line, never pinned silently
+known-errorclass|tw=err:[UNDEFINED_VARIABLE]@ident|vm=err:[UNDEFINED_FUNCTION]@fn_call

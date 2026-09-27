@@ -1181,7 +1181,12 @@ impl Interpreter {
                     let items = match iter_val {
                         Value::List(items) => items,
                         other => {
-                            return Err(format!("each: expected List, got {}", other.type_name()))
+                            // №479 (ADR-0131): the stable code keeps the
+                            // diff-fuzzer's class signature wording-proof.
+                            return Err(crate::interpreter::values::coded_error(
+                                crate::interpreter::values::CODE_TYPE_MISMATCH,
+                                format!("each: expected List, got {}", other.type_name()),
+                            ));
                         }
                     };
                     if self.active_sandbox.is_some() && (items.len() as u64) > iter_limit {
@@ -1223,7 +1228,12 @@ impl Interpreter {
                     let items = match iter_val {
                         Value::List(items) => items,
                         other => {
-                            return Err(format!("each: expected List, got {}", other.type_name()))
+                            // №479 (ADR-0131): the stable code keeps the
+                            // diff-fuzzer's class signature wording-proof.
+                            return Err(crate::interpreter::values::coded_error(
+                                crate::interpreter::values::CODE_TYPE_MISMATCH,
+                                format!("each: expected List, got {}", other.type_name()),
+                            ));
                         }
                     };
                     if self.active_sandbox.is_some() && (items.len() as u64) > iter_limit {
@@ -1577,10 +1587,14 @@ impl Interpreter {
                     self.eval_expr_with_env(else_br, env)
                 }
             }
-            Expr::Ident { name, .. } => env
-                .get(name)
-                .cloned()
-                .ok_or_else(|| format!("undefined variable: {}", name)),
+            Expr::Ident { name, .. } => env.get(name).cloned().ok_or_else(|| {
+                // №479 (ADR-0131): stable diagnostic code at the origin —
+                // the diff-fuzzer's class signature compares codes, not prose.
+                crate::interpreter::values::coded_error(
+                    crate::interpreter::values::CODE_UNDEFINED_VARIABLE,
+                    format!("undefined variable: {}", name),
+                )
+            }),
             Expr::FieldAccess {
                 object: base,
                 field,
@@ -2778,17 +2792,23 @@ impl Interpreter {
                     l.type_name(),
                     r.type_name()
                 );
-                Err(format!(
-                    "type mismatch in string concatenation: {} + {} (use to_string() explicitly)",
-                    l.type_name(),
-                    r.type_name()
+                Err(crate::interpreter::values::coded_error(
+                    crate::interpreter::values::CODE_TYPE_MISMATCH,
+                    format!(
+                        "type mismatch in string concatenation: {} + {} (use to_string() explicitly)",
+                        l.type_name(),
+                        r.type_name()
+                    ),
                 ))
             }
-            (_, l, r) => Err(format!(
-                "type mismatch in binary operation: {} {:?} {}",
-                l.type_name(),
-                op,
-                r.type_name()
+            (_, l, r) => Err(crate::interpreter::values::coded_error(
+                crate::interpreter::values::CODE_TYPE_MISMATCH,
+                format!(
+                    "type mismatch in binary operation: {} {:?} {}",
+                    l.type_name(),
+                    op,
+                    r.type_name()
+                ),
             )),
         }
     }

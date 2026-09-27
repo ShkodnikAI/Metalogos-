@@ -3519,7 +3519,12 @@ impl Vm {
                 let slot = self.global_names.iter().position(|n| n == name);
                 match slot {
                     Some(s) => Ok(self.globals.get(s).cloned().unwrap_or(Value::Unit)),
-                    None => Err(format!("VM rule: undefined variable '{}'", name)),
+                    // №479 (ADR-0131): stable diagnostic code at the origin —
+                    // parity with the TW lane's stamp for the same failure.
+                    None => Err(crate::interpreter::values::coded_error(
+                        crate::interpreter::values::CODE_UNDEFINED_VARIABLE,
+                        format!("VM rule: undefined variable '{}'", name),
+                    )),
                 }
             }
             RuleValueExpr::FieldAccess(entity_name, field) => {
@@ -3850,18 +3855,25 @@ impl Vm {
                     Ok(Value::Float(a / b))
                 }
             }
-            // Heterogeneous Add — the same loud error as TW.
-            (crate::ast::BinOp::Add, l, r) => Err(format!(
-                "type mismatch in string concatenation: {} + {} (use to_string() explicitly)",
-                l.type_name(),
-                r.type_name()
+            // Heterogeneous Add — the same loud error as TW (№479: the
+            // stable code keeps the class signature wording-proof).
+            (crate::ast::BinOp::Add, l, r) => Err(crate::interpreter::values::coded_error(
+                crate::interpreter::values::CODE_TYPE_MISMATCH,
+                format!(
+                    "type mismatch in string concatenation: {} + {} (use to_string() explicitly)",
+                    l.type_name(),
+                    r.type_name()
+                ),
             )),
             // Everything else — the same message as TW.
-            (_, l, r) => Err(format!(
-                "type mismatch in binary operation: {} {:?} {}",
-                l.type_name(),
-                op,
-                r.type_name()
+            (_, l, r) => Err(crate::interpreter::values::coded_error(
+                crate::interpreter::values::CODE_TYPE_MISMATCH,
+                format!(
+                    "type mismatch in binary operation: {} {:?} {}",
+                    l.type_name(),
+                    op,
+                    r.type_name()
+                ),
             )),
         }
     }

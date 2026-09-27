@@ -1,0 +1,20 @@
+entity e0: String = "duzgb"
+entity e1: String = "zzpxck"
+
+pattern pa(x: String) -> String {
+  let v5v8 = x
+  let saq = len(len([v5v8, 17, 6, "945v8sw"]))
+}
+
+pattern pb(y: String) -> String {
+  memory_forget(mem, "k2")
+  while guard < 3 {
+  }
+}
+
+pattern pc(z: String) -> String {
+}
+
+flow Main {
+  input: String = e0 -> pa -> pb -> pc -> output
+}

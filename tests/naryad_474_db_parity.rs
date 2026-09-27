@@ -22,14 +22,12 @@
 //      parameter position on BOTH backends.
 
 fn tw_out(source: &str) -> Result<String, String> {
-    metalogos::run_program(source)
-        .map(|o| o.unwrap_or_default().trim_end().to_string())
+    metalogos::run_program(source).map(|o| o.unwrap_or_default().trim_end().to_string())
 }
 
 fn vm_out(source: &str) -> Result<String, String> {
     let program = metalogos::compile_program(source)?;
-    metalogos::run_bytecode(program)
-        .map(|o| o.unwrap_or_default().trim_end().to_string())
+    metalogos::run_bytecode(program).map(|o| o.unwrap_or_default().trim_end().to_string())
 }
 
 fn assert_parity(source: &str, expected: &str, what: &str) {
@@ -151,5 +149,9 @@ pattern TypedBind(_x: String) -> String {
 }
 flow Main { input: String = "x" -> TypedBind -> output }
 "#;
-    assert_parity(src, "3/x/3", "typed binding backward-compat on both backends");
+    assert_parity(
+        src,
+        "3/x/3",
+        "typed binding backward-compat on both backends",
+    );
 }

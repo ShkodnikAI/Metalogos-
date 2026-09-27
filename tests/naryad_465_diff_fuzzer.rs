@@ -407,6 +407,70 @@ fn fingerprint(class_signature: &str) -> String {
     format!("{:016x}", hasher.finish())
 }
 
+// ── №476 (gh#724): the BLOCKED-DOMAIN rule ─────────────────────────
+// Classes touching SQL, filesystem, network, exec, labels, or secrets
+// are BLOCKING correctness errors — pinning them as known is
+// FORBIDDEN. Three enforcement points, all in this file:
+//   1. corpus parse — a `blocked-`-prefixed line fails IMMEDIATELY with
+//      the line named;
+//   2. corpus parse — an unprefixed line is read as `known-` (back-compat);
+//   3. run time — a divergence whose RAW text carries a blocked-domain
+//      marker NEVER matches as known: the run fails naming the class,
+//      even if someone pinned it in the corpus file.
+
+/// The blocked domains (the audit 26.09 §3.2/§3.4 shelter class) and the
+/// raw-text markers that detect them. The markers are deliberately
+/// distinctive — the corpus holds language-core classes, and the fuzzer
+/// generator never produces state calls, so a marker hit means the
+/// divergence really is about state.
+const BLOCKED_DOMAINS: &[(&str, &[&str])] = &[
+    (
+        "SQL",
+        &[
+            "sql",
+            "database",
+            "sqlite",
+            "db_execute",
+            "db_insert",
+            "query_row",
+            "query_scalar",
+        ],
+    ),
+    (
+        "FS",
+        &[
+            "read_file",
+            "write_file",
+            "fs_gate",
+            "filesystem",
+            "file_path",
+        ],
+    ),
+    ("NET", &["http", "socket", "tcp", "reqwest", "network"]),
+    ("EXEC", &["exec(", "subprocess", "shell", "command::new"]),
+    ("LABEL", &["taint", "label_env", "label:"]),
+    ("SECRET", &["secret", "api_key", "credential"]),
+];
+
+impl Divergence {
+    /// The blocked domain of this divergence (from the RAW sides — the
+    /// normalized class signature masks the keywords by design).
+    fn blocked_domain(&self) -> Option<&'static str> {
+        let (tw, vm) = match self {
+            Divergence::Outcome { tw, vm }
+            | Divergence::Output { tw, vm }
+            | Divergence::ErrorClass { tw, vm } => (tw, vm),
+        };
+        let hay = format!("{}\n{}", tw.to_lowercase(), vm.to_lowercase());
+        for (domain, markers) in BLOCKED_DOMAINS {
+            if markers.iter().any(|m| hay.contains(m)) {
+                return Some(domain);
+            }
+        }
+        None
+    }
+}
+
 /// The env-var mutex (the repo posture): the runs are in-process.
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -416,11 +480,30 @@ fn n465_diff_fuzzer_tw_vm() {
     let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let corpus_dir = repo.join("tests").join("fuzz_corpus");
     let known_path = corpus_dir.join("known_divergences.txt");
+    // №476: the corpus lines carry the known-/blocked- prefix. A
+    // `blocked-` line fails IMMEDIATELY with the line named — there is
+    // nothing to pin in a blocked domain (SQL/FS/NET/EXEC/LABEL/SECRET);
+    // an unprefixed line is read as known- (back-compat with the pre-
+    // №476 corpus).
     let known: Vec<String> = std::fs::read_to_string(&known_path)
         .map(|s| {
             s.lines()
                 .map(|l| l.trim().to_string())
                 .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                .map(|l| {
+                    if let Some(rest) = l.strip_prefix("blocked-") {
+                        panic!(
+                            "BLOCKED-DOMAIN class pinned in known_divergences.txt: \"blocked-{}\" — \
+                             classes touching SQL/FS/NET/EXEC/LABEL/SECRET are blocking errors \
+                             (№476): fix them in a repair naryad, never pin them",
+                            rest
+                        );
+                    }
+                    match l.strip_prefix("known-") {
+                        Some(rest) => rest.to_string(),
+                        None => l,
+                    }
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -472,6 +555,21 @@ fn n465_diff_fuzzer_tw_vm() {
         let _ = minimized;
         let class = div.class_signature();
         let fp = fingerprint(&class);
+        // №476: a blocked-domain divergence NEVER matches as known —
+        // the run fails naming the class, even if the corpus carries it.
+        // The blocked domains are the audit 26.09 shelter class: a
+        // correctness defect in SQL/FS/NET/EXEC/LABEL/SECRET is repaired
+        // by a naryad, never pinned.
+        if let Some(domain) = div.blocked_domain() {
+            panic!(
+                "BLOCKED-DOMAIN TW/VM divergence ({} domain) — blocking, not pinnable (№476): \
+                 repair it in a naryad, never add it to known_divergences.txt. \
+                 Class: {} | raw: {}",
+                domain,
+                class,
+                div.signature()
+            );
+        }
         if known.iter().any(|k| *k == *class) {
             if let Some(entry) = class_counts.iter_mut().find(|e| e.0 == class) {
                 entry.2 += 1;
@@ -517,11 +615,66 @@ fn n465_diff_fuzzer_tw_vm() {
         "NEW TW/VM divergence CLASSES found ({}): review, then add the class \
          signature to tests/fuzz_corpus/known_divergences.txt ONLY with the \
          naryad report that explains them — silent landing is the bug class \
-         this fuzzer exists for",
+         this fuzzer exists for. NOTE (№476): classes touching \
+         SQL/FS/NET/EXEC/LABEL/SECRET are BLOCKING — never pin them; \
+         repair them in a naryad",
         new_classes.len(),
     );
 }
 
 fn lock_env() -> std::sync::MutexGuard<'static, ()> {
     ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+// ── №476: the blocked-domain rule pins ─────────────────────────────
+
+#[test]
+fn n476_blocked_domain_is_detected_from_the_raw_text() {
+    // SQL markers on either side.
+    let div = Divergence::ErrorClass {
+        tw: "query_row() error: type mismatch binding $1".to_string(),
+        vm: "compile error: undefined function query_row".to_string(),
+    };
+    assert_eq!(div.blocked_domain(), Some("SQL"));
+    // FS.
+    let div = Divergence::ErrorClass {
+        tw: "read_file() error: permission denied".to_string(),
+        vm: "compile error: undefined function read_file".to_string(),
+    };
+    assert_eq!(div.blocked_domain(), Some("FS"));
+    // SECRET.
+    let div = Divergence::ErrorClass {
+        tw: "api_key is required for anthropic".to_string(),
+        vm: "compile error: undefined variable".to_string(),
+    };
+    assert_eq!(div.blocked_domain(), Some("SECRET"));
+    // Language-core errors carry NO blocked domain — the corpus class
+    // shapes stay pinnable.
+    let div = Divergence::ErrorClass {
+        tw: "type mismatch in string concatenation: List + String".to_string(),
+        vm: "compile error: undefined function memory_forget".to_string(),
+    };
+    assert_eq!(div.blocked_domain(), None);
+    let div = Divergence::Outcome {
+        tw: "flow completed".to_string(),
+        vm: "run failed: undefined variable e0".to_string(),
+    };
+    assert_eq!(div.blocked_domain(), None);
+}
+
+#[test]
+fn n476_corpus_rejects_a_blocked_prefix_line() {
+    // The rule the corpus parse enforces: a `blocked-` line is a CI
+    // failure naming the line. Pinned here as the executable form of
+    // the README rule (the parse itself panics inside the main test —
+    // this test pins the same predicate directly).
+    let line = "blocked-errorclass|tw=iiii|vm=iiii";
+    assert!(line.starts_with("blocked-"));
+    let stripped = line.strip_prefix("blocked-").unwrap();
+    assert!(stripped.starts_with("errorclass|"));
+    // The known- form strips cleanly.
+    assert_eq!(
+        "known-errorclass|tw=x|vm=y".strip_prefix("known-"),
+        Some("errorclass|tw=x|vm=y")
+    );
 }

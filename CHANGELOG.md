@@ -6,6 +6,29 @@ All notable changes to the Metalogos project.
 
 - _Nothing yet — the wave entries move to the release section at the release naryad._
 
+## [0.27.0] - 2026-09-27
+
+**The unfreeze release — the ADR-0177 domain freeze is lifted by the
+owner's explicit decision.**
+
+The freeze window (ADR-0177 §6) closes with this release. The lift is
+recorded by the owner in the gate thread gh#680 (the lift record
+comment 5851623870, 2026-09-27; the office-channel trace_id
+`1a0e06d976daf0c9`); the ADR Status is updated by a naryad, not
+silently (№493, PR #752). All four §4 criteria carried their evidence
+at the lift (REALITY §6.12): the enum Type stages 0 and 1 (№467, №474),
+the TW/VM dedup 20/20 — one-way down from 60 (№462, №466), the debt
+gate 85/49/37, exit 0 (№468), and the FO-056 memory office E2E on
+0.26.1 — 16/16 + 3/3 (№475).
+
+What opens with the unfreeze:
+
+- the media/vision dedup residue (the 20 names) and the physical crate
+  split move forward per the №472 roadmap
+  (docs/refactoring-split-plan.md);
+- the domain work resumes under the standing strategic discipline —
+  the gates and the ratchets stay, the freeze does not.
+
 ## [0.26.2] - 2026-09-27
 
 **The Wave 18 release — the unfreeze path (the ADR-0177 §4 criteria

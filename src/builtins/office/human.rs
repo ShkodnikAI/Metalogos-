@@ -116,9 +116,9 @@ pub(crate) fn builtin_human_respond(args: &[Value]) -> Result<Value, String> {
         // No SmartRouter — check mock mode, then legacy backend.
         // Наряд №276: both non-router arms are traced HERE (the SmartRouter
         // path traces inside SmartRouter::call — one line per actual call).
-        let mock_mode = std::env::var("METALOGOS_LLM_MOCK")
-            .map(|v| v == "true" || v == "1")
-            .unwrap_or(true);
+        // №478: the SSOT mock predicate (№454) — explicit opt-in only;
+        // the real-path refusal without weights stays loud (№294).
+        let mock_mode = crate::llm::mock_llm_requested();
         let t0 = std::time::Instant::now();
 
         if mock_mode {

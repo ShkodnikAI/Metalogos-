@@ -75,13 +75,13 @@ fn ladder_selects_first_available_rung_both_backends() {
     // priority wins: the FIRST rung is selected, the second is never
     // tried (a selection, not a broadcast).
     let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    std::env::remove_var("METALOGOS_LLM_MOCK");
+    std::env::set_var("METALOGOS_MOCK_LLM", "1"); // №478: the mock is explicit (№454 SSOT)
     let expected = "nemotron-omni/mock/nemotron-3-nano-omni-30b-a3b";
     let out = run_tw(SELECT_PROG).expect("tw runs");
     assert_eq!(out.as_deref().unwrap_or_default().trim_end(), expected);
     let out_vm = run_vm(SELECT_PROG).expect("vm runs");
     assert_eq!(out_vm.as_deref().unwrap_or_default().trim_end(), expected);
-    std::env::remove_var("METALOGOS_LLM_MOCK");
+    std::env::remove_var("METALOGOS_MOCK_LLM");
 }
 
 // ── (2) Exhaustion → Degraded(t): typed, loud, non-fatal ────────────
@@ -124,13 +124,13 @@ flow Main { input: String = "t" -> Degrade -> output }
 #[test]
 fn exhaustion_returns_degraded_not_a_panic_not_a_mock() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    std::env::remove_var("METALOGOS_LLM_MOCK");
+    std::env::remove_var("METALOGOS_MOCK_LLM");
     let expected = "degraded/omni/2/no-such-backend/chatterbox";
     let out = run_tw(DEGRADE_PROG).expect("degraded program KEEPS RUNNING (no panic)");
     assert_eq!(out.as_deref().unwrap_or_default().trim_end(), expected);
     let out_vm = run_vm(DEGRADE_PROG).expect("vm parity for Degraded");
     assert_eq!(out_vm.as_deref().unwrap_or_default().trim_end(), expected);
-    std::env::remove_var("METALOGOS_LLM_MOCK");
+    std::env::remove_var("METALOGOS_MOCK_LLM");
 }
 
 // ── (3) Real mode never substitutes a mock (the loud boundary) ──────
@@ -138,10 +138,10 @@ fn exhaustion_returns_degraded_not_a_panic_not_a_mock() {
 #[test]
 fn real_mode_exhausts_honestly_never_a_mock() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    std::env::set_var("METALOGOS_LLM_MOCK", "false");
-    // The ladder's real-mode rungs are unavailable without SHA-verified
-    // weights on disk (PARKED №294): the result must be Degraded —
-    // ok=false — and MUST NOT carry mode "mock".
+    std::env::remove_var("METALOGOS_MOCK_LLM"); // №478: the real path is the default now
+                                                // The ladder's real-mode rungs are unavailable without SHA-verified
+                                                // weights on disk (PARKED №294): the result must be Degraded —
+                                                // ok=false — and MUST NOT carry mode "mock".
     let src = r#"
 pattern R(_t: String) -> String {
   let sel = backend_select("omni", ["nemotron-omni", "wall-oss"])
@@ -167,7 +167,7 @@ flow Main { input: String = "t" -> R -> output }
         out_vm.as_deref().unwrap_or_default().trim_end(),
         "degraded/omni/2"
     );
-    std::env::remove_var("METALOGOS_LLM_MOCK");
+    std::env::remove_var("METALOGOS_MOCK_LLM");
 }
 
 // ── (4) Shape errors are loud Errs — catchable by try (ADR-0142) ────
@@ -175,7 +175,7 @@ flow Main { input: String = "t" -> R -> output }
 #[test]
 fn shape_errors_are_loud_and_try_catchable() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    std::env::remove_var("METALOGOS_LLM_MOCK");
+    std::env::remove_var("METALOGOS_MOCK_LLM");
     // Unknown class word: a runtime Err (catchable), NOT a Degraded —
     // the ladder contract only covers registry-verified rungs. A
     // dynamic (non-literal) class word keeps the static check out of
@@ -243,7 +243,7 @@ flow Main { input: String = "t" -> W -> output }
 "#;
     let e = run_tw(dupe).expect_err("duplicate rung is a runtime refusal");
     assert!(e.contains("duplicate ladder rung"), "got: {}", e);
-    std::env::remove_var("METALOGOS_LLM_MOCK");
+    std::env::remove_var("METALOGOS_MOCK_LLM");
 }
 
 // ── (5) The static companion check — build-time ladder verification ─
@@ -397,7 +397,7 @@ fn w1_degrade_example_matches_expected_on_both_backends() {
     )
     .expect("expected file exists");
     let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    std::env::remove_var("METALOGOS_LLM_MOCK");
+    std::env::set_var("METALOGOS_MOCK_LLM", "1"); // №478: the mock is explicit (№454 SSOT)
     let out = run_tw(&src).expect("example runs on tw");
     assert_eq!(
         out.as_deref().unwrap_or_default().trim_end(),
@@ -408,7 +408,7 @@ fn w1_degrade_example_matches_expected_on_both_backends() {
         out_vm.as_deref().unwrap_or_default().trim_end(),
         expected.trim_end()
     );
-    std::env::remove_var("METALOGOS_LLM_MOCK");
+    std::env::remove_var("METALOGOS_MOCK_LLM");
 }
 
 // ── (7) No-stubs discipline (№16.0-D) ────────────────────────────────

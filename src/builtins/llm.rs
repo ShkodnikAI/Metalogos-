@@ -114,7 +114,9 @@ fn call_claude_impl(
 
 /// `call_llm(prompt, input)` — call the LLM backend with a prompt and input.
 /// Наряд №4: tries GLOBAL_SMART_ROUTER first; falls back to legacy create_llm_backend().
-/// When no SmartRouter is installed and METALOGOS_LLM_MOCK=true (default), returns mock.
+/// When no SmartRouter is installed: the mock answers ONLY when
+/// METALOGOS_MOCK_LLM=1|true is set explicitly (№454/№478); the default is
+/// the real path, which fails LOUD without keys.
 pub(crate) fn builtin_call_llm(args: &[Value]) -> Result<Value, String> {
     let prompt = match args.first() {
         Some(Value::String(s)) => s.clone(),
@@ -143,10 +145,10 @@ pub(crate) fn builtin_call_llm(args: &[Value]) -> Result<Value, String> {
     // Fallback: legacy path (no SmartRouter). Traced here (Наряд №276);
     // the SmartRouter path traces inside SmartRouter::call — one line per
     // actual LLM call, never both.
-    // Check mock mode
-    let mock_mode = std::env::var("METALOGOS_LLM_MOCK")
-        .map(|v| v == "true" || v == "1")
-        .unwrap_or(true); // Default: mock mode ON
+    // №478 (gh#726): the SSOT mock predicate (№454) — ONLY the explicit
+    // METALOGOS_MOCK_LLM=1|true produces the mock; the default is the
+    // real path, which fails LOUD without keys (never a silent stub).
+    let mock_mode = crate::llm::mock_llm_requested();
 
     let t0 = std::time::Instant::now();
     if mock_mode {

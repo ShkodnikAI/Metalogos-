@@ -1,9 +1,11 @@
 //! STT / omni backend wiring (Наряд №334, ADR-0163 §2.1 + §2.4).
 //!
 //! The call contract is mock-first and NEVER silent:
-//!   - `METALOGOS_LLM_MOCK` unset/true (the default, №4 posture):
+//!   - `METALOGOS_MOCK_LLM=1|true` set explicitly (the №4 mock contour,
+//!     unified onto the SSOT predicate by №478):
 //!     a DETERMINISTIC mock result — the golden-test path;
-//!   - `METALOGOS_LLM_MOCK=false/0` (the REAL path): refuses LOUDLY
+//!   - `METALOGOS_MOCK_LLM` unset/0 (the REAL path, the №454 default):
+//!     refuses LOUDLY
 //!     unless the backend's weights are on disk and hash-verified
 //!     against the №334 manifest (`backends_weights::weights_loaded`).
 //!     Real INFERENCE is PARKED by hardware (№294) in this environment:
@@ -13,11 +15,12 @@
 
 use crate::interpreter::values::Value;
 
-/// The mock-mode flag (the №4 contour: default ON).
+/// The mock-mode flag — the SSOT predicate (№454, unified by №478):
+/// ONLY the explicit `METALOGOS_MOCK_LLM=1|true` produces the mock;
+/// the default is the real path, which refuses LOUD without weights
+/// (№294 parked) — never a silent stub.
 pub fn mock_mode() -> bool {
-    std::env::var("METALOGOS_LLM_MOCK")
-        .map(|v| v == "true" || v == "1")
-        .unwrap_or(true)
+    crate::llm::mock_llm_requested()
 }
 
 fn model_weights_id(model: Option<&str>, default: &str) -> String {
@@ -35,7 +38,7 @@ fn real_mode_refusal(fn_name: &str, weights_id: &str) -> String {
         "{}: real backend '{}' requires its weights ({}) fetched and SHA-verified \
          first (MLOG_BACKEND_WEIGHTS_ALLOWLIST + backends::fetch_weights); real \
          inference is PARKED by hardware (№294) in this environment — no weights \
-         on disk, refusing honestly (mock mode is explicit: METALOGOS_LLM_MOCK)",
+         on disk, refusing honestly (mock mode is explicit: METALOGOS_MOCK_LLM)",
         fn_name, weights_id, artifact
     )
 }

@@ -82,9 +82,9 @@ pub(crate) fn builtin_video_understand(args: &[Value]) -> Result<Value, String> 
             entry.class.as_str()
         ));
     }
-    let mock_mode = std::env::var("METALOGOS_LLM_MOCK")
-        .map(|v| v == "true" || v == "1")
-        .unwrap_or(true);
+    // №478: the SSOT mock predicate (№454) — explicit opt-in only;
+    // the real-path refusal without weights stays loud (№294).
+    let mock_mode = crate::llm::mock_llm_requested();
     if !mock_mode {
         let artifact = crate::backends_weights::first_manifest_file(&weights_id)
             .map(|f| f.path.to_string())
@@ -93,7 +93,7 @@ pub(crate) fn builtin_video_understand(args: &[Value]) -> Result<Value, String> 
             "{}: real backend '{}' requires its weights ({}) fetched and SHA-verified \
              first (MLOG_BACKEND_WEIGHTS_ALLOWLIST + backends::fetch_weights); real \
              inference is PARKED by hardware (№294) in this environment — no weights \
-             on disk, refusing honestly (mock mode is explicit: METALOGOS_LLM_MOCK)",
+             on disk, refusing honestly (mock mode is explicit: METALOGOS_MOCK_LLM)",
             fn_name, weights_id, artifact
         ));
     }
@@ -112,11 +112,16 @@ mod tests {
     static MOCK_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     fn pin_mock(on: bool) {
-        std::env::set_var("METALOGOS_LLM_MOCK", if on { "1" } else { "0" });
+        // №478: the SSOT predicate reads METALOGOS_MOCK_LLM now.
+        if on {
+            std::env::set_var("METALOGOS_MOCK_LLM", "1");
+        } else {
+            std::env::remove_var("METALOGOS_MOCK_LLM");
+        }
     }
 
     fn clear_mock() {
-        std::env::remove_var("METALOGOS_LLM_MOCK");
+        std::env::remove_var("METALOGOS_MOCK_LLM");
     }
 
     const SEGMENT: &str = "video:segment#1";

@@ -73,9 +73,9 @@ pub(crate) fn builtin_ocr_extract(args: &[Value]) -> Result<Value, String> {
             entry.class.as_str()
         ));
     }
-    let mock_mode = std::env::var("METALOGOS_LLM_MOCK")
-        .map(|v| v == "true" || v == "1")
-        .unwrap_or(true);
+    // №478: the SSOT mock predicate (№454) — explicit opt-in only;
+    // the real-path refusal without weights stays loud (№294).
+    let mock_mode = crate::llm::mock_llm_requested();
     if !mock_mode {
         let artifact = crate::backends_weights::first_manifest_file(&weights_id)
             .map(|f| f.path.to_string())
@@ -84,7 +84,7 @@ pub(crate) fn builtin_ocr_extract(args: &[Value]) -> Result<Value, String> {
             "{}: real backend '{}' requires its weights ({}) fetched and SHA-verified \
              first (MLOG_BACKEND_WEIGHTS_ALLOWLIST + backends::fetch_weights); real \
              inference is PARKED by hardware (№294) in this environment — no weights \
-             on disk, refusing honestly (mock mode is explicit: METALOGOS_LLM_MOCK)",
+             on disk, refusing honestly (mock mode is explicit: METALOGOS_MOCK_LLM)",
             fn_name, weights_id, artifact
         ));
     }

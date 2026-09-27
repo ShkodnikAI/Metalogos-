@@ -14,7 +14,7 @@
 //!      SHA-256 verification → atomic write. Mismatch = loud Err, the
 //!      file is NEVER written.
 //!   3. Real backend CALLS (`stt_transcribe` / `omni_ask` /
-//!      `vision_understand` with `METALOGOS_LLM_MOCK=false`) require the
+//!      `vision_understand` with the mock opt-in unset) require the
 //!      weights on disk — verified against the SAME manifest — and are
 //!      PARKED by hardware (№294) in this environment: the refusal is
 //!      loud and names the boundary.

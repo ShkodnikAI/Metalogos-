@@ -919,7 +919,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("video_understand", 1, 3, "video"; builtin_video_understand),
     // ── Наряд №334 (P0, feature/backends): real STT/omni/vision-
     // understanding backends — the SHA-pin path. Mock-first call surface
-    // over the №333 registry: METALOGOS_LLM_MOCK default = deterministic
+    // over the №333 registry: METALOGOS_MOCK_LLM opt-in = deterministic
     // mock (the golden contract); real mode refuses LOUDLY unless the
     // SHA-verified weights are on disk (PARKED №294 — no inference is
     // promised). Handlers: voice::backend (stt/omni), vision::understand.

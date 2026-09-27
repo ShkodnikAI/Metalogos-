@@ -25,6 +25,25 @@ All notable changes to the Metalogos project.
   with the loud env/exec refusals; the registration-zone machinery;
   the tool-call parity; the tools/list surface).
 
+- Naryad №478 (issue #726; the audit v0.26.1 §3.6 finding + the 27.09
+  fact-check enrichment: the retired env name was re-read in 7 places,
+  not 1): the mock-unification onto the №454 SSOT. All 7
+  `METALOGOS_LLM_MOCK` re-reads (call_llm, call_llm_schema, the office
+  human surface, voice/ocr/vision/video understanding) now route through
+  `crate::llm::mock_llm_requested()` — the deterministic mock answers
+  ONLY when `METALOGOS_MOCK_LLM=1|true` is set explicitly. For the media
+  surfaces (stt/omni/ocr/vision/video/office-human) the default changes
+  from "silent stub" to "loud refusal without weights" (the №294
+  real-path stays parked; the refusal names the backend, the weights id
+  and the PARKED boundary — never a silent mock-substitution, the exact
+  behavior class №454 closed). Golden examples opt in per example via
+  their `.env` sidecars (the №454 posture, ADR-0169 §3.4) — five
+  LLM-dependent examples carry the explicit `METALOGOS_MOCK_LLM=1`
+  now; the module docstrings and the REFERENCE/limitations rows are
+  synced. New BLOCKING CI job `mock-env-ssot`: the retired env name
+  must never reappear in `src/` (grep gate). The media contract tests
+  (№334/№336/№407) were re-pinned to the explicit-mock contract.
+
 - Naryad №479 (issue #727; the audit v0.26.1 §3.4 finding — the
   TW↔VM diff fuzzer is right in approach but narrow, with an
   unreviewable corpus): the fuzzer v2. The class signature is now the

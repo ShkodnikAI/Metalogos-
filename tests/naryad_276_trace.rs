@@ -268,6 +268,7 @@ fn make_cached_learnable(name: &str) -> Declaration {
         effects: None,
         fallback_if: None,
         distill_min_accuracy: None,
+        distill_margin: None,
     })
 }
 

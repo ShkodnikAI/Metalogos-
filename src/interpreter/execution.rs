@@ -119,6 +119,8 @@ impl Interpreter {
                             // №456: the holdout-accuracy gate — explicit
                             // `distill_min_accuracy` or the 0.85 default.
                             min_accuracy: lp.distill_min_accuracy.unwrap_or(0.85),
+                            // №485: the majority-baseline margin (0.05 default).
+                            margin: lp.distill_margin.unwrap_or(0.05),
                             mode: crate::interpreter::types::DistillMode::Teaching,
                         }
                     });

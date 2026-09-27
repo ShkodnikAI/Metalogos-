@@ -4,6 +4,29 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №485 (issue #733; the audit v0.26.1 §3.8 — the distill gate
+  passes a degenerate model on skewed data): the majority-baseline
+  gate + the stratified split + the NaN-safe refusal form. The switch
+  now requires `holdout_accuracy ≥ max(min_accuracy, majority_baseline
+  + margin)` (`distill_margin: <float>`, default `0.05`) — the
+  audit's 90/10 skew case (a model that always answers the
+  most-frequent class scores 0.90 and cleared `min_accuracy=0.85`
+  while learning nothing) is refused by construction: its accuracy
+  equals the baseline, and baseline < baseline + margin. THE CHOICE
+  (fixed per the issue's either/or): baseline + margin over balanced
+  accuracy — one deterministic number, no confusion matrix. A
+  single-class dataset carries no confusion risk — the raw gate
+  applies unchanged (the №456 posture preserved). The holdout split
+  is STRATIFIED by class (per-class seeded 80/20, every present class
+  keeps train coverage) — the holdout mirrors the skew and the
+  baseline reads true. The refusal form is the negated positive
+  `!(holdout_acc >= t)`: a NaN accuracy is rejected automatically.
+  The `distill.rejected` audit event carries the baseline and the
+  margin. Pins: the degenerate 90/10 reproduction (TW + VM mirror —
+  the raw gate would PASS it), the separable two-class positive
+  control, and the grammar suite (`distill_margin:` optional, rides
+  the AST through bytecode; `#[serde(default)]` keeps the old .mbc
+  deserializable).
 - Naryad №484 (issue #732; the audit v0.26.1 §3.3, Medium — the
   literal metric is a Goodhart surface): the SECOND dedup metric + the
   first unified pair. The new blocking CI job `ops-pairs` counts the

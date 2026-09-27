@@ -519,6 +519,10 @@ pub struct CompiledLearnableInfo {
     /// None = the 0.85 default applies at the runtime site.
     #[serde(default)]
     pub distill_min_accuracy: Option<f64>,
+    /// №485: the required accuracy MARGIN over the majority baseline
+    /// (None = the 0.05 default applies at the runtime site).
+    #[serde(default)]
+    pub distill_margin: Option<f64>,
 }
 
 /// A compiled skill_index for tiered skill matching.

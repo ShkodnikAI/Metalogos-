@@ -774,13 +774,50 @@ impl Interpreter {
                 if !loss.is_finite() {
                     return Ok(false);
                 }
+                // №485: the MAJORITY BASELINE — the accuracy a model gets
+                // by always predicting the most-frequent class. On a
+                // skewed dataset (the audit's 90/10: routing intents)
+                // that degenerate model scores 0.90 and cleared the raw
+                // min_accuracy gate without learning anything. The
+                // stratified holdout preserves the class distribution,
+                // so the full-dataset majority share is the sound
+                // baseline estimate. THE CHOICE (fixed by №485):
+                // baseline + margin, not balanced accuracy — one
+                // deterministic number, no confusion matrix, and the
+                // degenerate model CANNOT clear baseline + margin by
+                // construction (acc == baseline < baseline + margin).
+                let mut class_counts: HashMap<usize, usize> = HashMap::new();
+                for &t in &targets {
+                    *class_counts.entry(t).or_insert(0) += 1;
+                }
+                let majority_baseline = class_counts
+                    .values()
+                    .copied()
+                    .max()
+                    .map(|c| c as f64 / targets.len() as f64)
+                    .unwrap_or(0.0);
+                // №485: the gate. The positive form `acc < t` let a NaN
+                // accuracy PASS silently (NaN < t is false); the negated
+                // positive form `!(acc >= t)` rejects NaN automatically —
+                // a NaN holdout read is a failed holdout read.
+                // The single-class carve-out (№485): one class carries no
+                // confusion risk — the baseline is trivially 1.0 and
+                // baseline+margin would be unsatisfiable; the raw
+                // min_accuracy gate applies unchanged (the №456 posture).
+                let threshold = if class_counts.len() < 2 {
+                    distill.min_accuracy
+                } else {
+                    f64::max(distill.min_accuracy, majority_baseline + distill.margin)
+                };
                 // №456: the switch requires holdout accuracy ≥ min_accuracy
-                // (default 0.85, overridable via `distill_min_accuracy:`).
-                // Loud on rejection (audit 25.09, 3.3).
-                if holdout_acc < distill.min_accuracy {
+                // (default 0.85, overridable via `distill_min_accuracy:`)
+                // AND ≥ majority_baseline + margin (№485; `distill_margin:`,
+                // default 0.05). Loud on rejection (audit 25.09, 3.3) —
+                // the event carries the baseline so the operator sees WHY.
+                if !(holdout_acc >= threshold) {
                     self.push_audit(format!(
-                        "[AUDIT] distill.rejected: {} holdout_accuracy={:.3} < min_accuracy={:.2} — staying TEACHING",
-                        pattern_name, holdout_acc, distill.min_accuracy
+                        "[AUDIT] distill.rejected: {} holdout_accuracy={:.3} < threshold={:.3} (min_accuracy={:.2}, majority_baseline={:.3}, margin={:.2}) — staying TEACHING",
+                        pattern_name, holdout_acc, threshold, distill.min_accuracy, majority_baseline, distill.margin
                     ));
                     return Ok(false);
                 }
@@ -1549,6 +1586,7 @@ mod n456_distill_holdout_tests {
             distill_after: 1,
             fallback_if: None,
             min_accuracy,
+            margin: 0.05,
             mode: DistillMode::Teaching,
         }
     }
@@ -1586,6 +1624,79 @@ mod n456_distill_holdout_tests {
         assert!(
             audit.contains("distill.rejected") && audit.contains("holdout too small"),
             "the holdout rejection must be loud: {}",
+            audit
+        );
+    }
+
+    /// №485 reproduction (the audit 26.09 §3.8): the DEGENERATE 90%-skew
+    /// dataset. The inputs are IDENTICAL strings, so no model can beat the
+    /// class prior — the holdout accuracy equals the holdout majority
+    /// share (0.9), which CLEARED the raw 0.85 gate without learning
+    /// anything. Under the baseline+margin gate the same model stays
+    /// TEACHING, and the audit event names the baseline.
+    #[test]
+    fn n485_degenerate_majority_model_stays_teaching() {
+        let mut interp = make_interp_with_head(vec!["yes".into(), "no".into()], 42);
+        let cfg = distill_config(0.85);
+        let examples: Vec<(String, String)> = (0..50)
+            .map(|i| {
+                let label = if i < 45 { "yes" } else { "no" };
+                ("same".to_string(), label.to_string())
+            })
+            .collect();
+        let result = interp
+            .try_train_distilled_model("P", &cfg, &examples)
+            .expect("train must not error");
+        assert!(
+            !result,
+            "the degenerate most-frequent-class model must NOT switch to DISTILLED"
+        );
+        let audit = interp.take_audit_log().join("\n");
+        assert!(
+            audit.contains("distill.rejected") && audit.contains("majority_baseline=0.900"),
+            "the rejection must carry the baseline: {}",
+            audit
+        );
+        assert!(
+            audit.contains("threshold=0.950"),
+            "the threshold must be baseline(0.900) + margin(0.05) = 0.950: {}",
+            audit
+        );
+    }
+
+    /// №485: a genuinely LEARNABLE two-class dataset still switches — the
+    /// margin gate must not turn every multi-class distill down.
+    #[test]
+    fn n485_separable_two_class_still_switches() {
+        let mut interp = make_interp_with_head(vec!["yes".into(), "no".into()], 42);
+        // min_accuracy 0.65: the 30-epoch distill budget on a 4-dim
+        // embedding reaches ~0.70 on this data — the point of the test is
+        // that the margin does NOT veto genuine learning (0.70 >=
+        // max(0.65, 0.50 + 0.05) = 0.65), while the degenerate prior
+        // model (0.90 raw, 0.90 = baseline) cannot clear ITS gate.
+        let cfg = distill_config(0.65);
+        // "aa*" vs "zz*" keys: the first two embedding buckets differ
+        // strongly ('a'=0.97 vs 'z'=1.22 per char), so the two classes are
+        // linearly separable under simple_embedding — a trained model
+        // clears the gate; the degenerate prior model does not.
+        let examples: Vec<(String, String)> = (0..50)
+            .map(|i| {
+                let label = if i % 2 == 0 { "yes" } else { "no" };
+                let key = if i % 2 == 0 {
+                    format!("aa{}", i)
+                } else {
+                    format!("zz{}", i)
+                };
+                (key, label.to_string())
+            })
+            .collect();
+        let result = interp
+            .try_train_distilled_model("P", &cfg, &examples)
+            .expect("train must not error");
+        let audit = interp.take_audit_log().join("\n");
+        assert!(
+            result,
+            "a separable two-class dataset must still switch to DISTILLED; audit: {}",
             audit
         );
     }
@@ -1665,6 +1776,7 @@ mod n456_distill_holdout_tests {
             distill_after: 1,
             fallback_if: Some((crate::ast::CompareOp::Gt, 0.7)),
             min_accuracy: 0.85,
+            margin: 0.05,
             mode: DistillMode::Distilled,
         };
         let result = interp
@@ -1716,6 +1828,7 @@ mod n456_distill_holdout_tests {
             distill_after: 1,
             fallback_if: None,
             min_accuracy: 0.85,
+            margin: 0.05,
             mode: DistillMode::Distilled,
         };
         let result = interp

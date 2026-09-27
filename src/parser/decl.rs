@@ -1778,6 +1778,7 @@ pub(super) fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Result<Declarati
         let mut distill_after: usize = 0;
         let mut fallback_if: Option<(crate::ast::CompareOp, f64)> = None;
         let mut distill_min_accuracy: Option<f64> = None;
+        let mut distill_margin: Option<f64> = None;
 
         if let Some(dt_pair) = body_children
             .iter()
@@ -1809,6 +1810,20 @@ pub(super) fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Result<Declarati
                 .and_then(|c| c.as_str().parse::<f64>().ok())
             {
                 distill_min_accuracy = Some(val);
+            }
+        }
+
+        if let Some(dmg_pair) = body_children
+            .iter()
+            .find(|c| c.as_rule() == Rule::distill_margin_line)
+        {
+            // distill_margin_line = { "distill_margin" ~ COLON ~ FLOAT_LITERAL }
+            if let Some(val) = children_of(dmg_pair)
+                .iter()
+                .find(|c| c.as_rule() == Rule::FLOAT_LITERAL)
+                .and_then(|c| c.as_str().parse::<f64>().ok())
+            {
+                distill_margin = Some(val);
             }
         }
 
@@ -1856,6 +1871,8 @@ pub(super) fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Result<Declarati
                 // №456: the holdout-accuracy gate — explicit
                 // `distill_min_accuracy` or the 0.85 default.
                 min_accuracy: distill_min_accuracy.unwrap_or(0.85),
+                // №485: the majority-baseline margin (the 0.05 default).
+                margin: distill_margin.unwrap_or(0.05),
                 mode: crate::interpreter::types::DistillMode::Teaching,
             });
         let _ = distill_config; // built but stored via the `distill` field at runtime
@@ -1880,6 +1897,7 @@ pub(super) fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Result<Declarati
             distill_after,
             fallback_if,
             distill_min_accuracy,
+            distill_margin,
             effects: effects_ann,
         }))
     } else {
@@ -1903,6 +1921,7 @@ pub(super) fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Result<Declarati
             distill_after: 0,
             fallback_if: None,
             distill_min_accuracy: None,
+            distill_margin: None,
             effects: effects_ann,
         }))
     }

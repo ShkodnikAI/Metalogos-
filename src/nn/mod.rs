@@ -153,8 +153,10 @@ impl ReflexModel {
             ));
         }
 
-        // Deterministic 80/20 split using seed
-        let indices = deterministic_split(inputs.len(), self.seed);
+        // Deterministic STRATIFIED 80/20 split using seed (№485): each
+        // class keeps its proportion on both sides, so a skewed dataset
+        // yields a skew-shaped holdout and the majority baseline reads true.
+        let indices = deterministic_split_stratified(inputs.len(), target_classes, self.seed);
         let train_idx: Vec<usize> = indices
             .iter()
             .filter(|(_, is_train)| *is_train)
@@ -423,27 +425,44 @@ impl std::fmt::Debug for ReflexModel {
 /// Deterministic 80/20 train/holdout split.
 /// Uses xorshift64 (same algorithm as Наряд №177) seeded by model.seed.
 /// Returns Vec<(index, is_train)> where is_train=true for 80%, false for 20%.
-fn deterministic_split(n: usize, seed: u64) -> Vec<(usize, bool)> {
-    // Create shuffled indices using xorshift64
-    let mut indices: Vec<usize> = (0..n).collect();
-    let mut state = seed ^ 0x9E3779B97F4A7C15;
-    if state == 0 {
-        state = 0x9E3779B97F4A7C15;
+/// №485: the STRATIFIED deterministic 80/20 split. The former plain
+/// Fisher-Yates split could place a skewed dataset's holdout entirely in
+/// one class (or none of the minority class), making both the accuracy
+/// and the majority baseline unreliable. Per class: a seeded xorshift64
+/// Fisher-Yates shuffle of the class's member indices, then
+/// `train_c = max(1, 4*m/5)` (every present class keeps train coverage;
+/// a single-sample class never lands in the holdout), the rest holdout.
+/// Deterministic: the per-class seed mixes the CLASS VALUE (via
+/// BTreeMap-ordered iteration), so same inputs → same split, always.
+fn deterministic_split_stratified(
+    n: usize,
+    target_classes: &[usize],
+    seed: u64,
+) -> Vec<(usize, bool)> {
+    use std::collections::BTreeMap;
+    let mut split = vec![false; n];
+    let mut class_groups: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for (i, &c) in target_classes.iter().enumerate() {
+        class_groups.entry(c).or_default().push(i);
     }
-
-    // Fisher-Yates shuffle with xorshift64
-    for i in (1..n).rev() {
-        state ^= state << 13;
-        state ^= state >> 7;
-        state ^= state << 17;
-        let j = (state as usize) % (i + 1);
-        indices.swap(i, j);
+    for (&class, members) in class_groups.iter_mut() {
+        let m = members.len();
+        // Fisher-Yates with xorshift64, seeded by the class value.
+        let mut state = seed ^ 0x9E3779B97F4A7C15 ^ (class as u64).wrapping_mul(0xA5A5A5A5A5A5A5A5);
+        if state == 0 {
+            state = 0x9E3779B97F4A7C15;
+        }
+        for i in (1..m).rev() {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            let j = (state as usize) % (i + 1);
+            members.swap(i, j);
+        }
+        let train_c = std::cmp::max(1, (m * 4) / 5).min(m);
+        for (pos, &idx) in members.iter().enumerate() {
+            split[idx] = pos < train_c;
+        }
     }
-
-    let train_count = (n * 4) / 5; // 80%
-    indices
-        .into_iter()
-        .enumerate()
-        .map(|(pos, idx)| (idx, pos < train_count))
-        .collect()
+    split.into_iter().enumerate().collect()
 }

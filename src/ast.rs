@@ -1361,6 +1361,11 @@ pub struct LearnablePatternDecl {
     /// AST → the runtime default 0.85 applies (the DistillConfig carries
     /// the resolved value).
     pub distill_min_accuracy: Option<f64>,
+    /// №485: the required accuracy MARGIN over the majority baseline —
+    /// a model that only predicts the most-frequent class must NOT pass
+    /// the holdout gate even when its raw accuracy clears min_accuracy.
+    /// None in the AST = the 0.05 default applies at the runtime site.
+    pub distill_margin: Option<f64>,
     /// Наряд №324: optional effect trail — `⟨io, audit⟩` (ADR-0154 §9).
     /// A learnable pattern is an LLM source by construction ({io}); the
     /// trail, when declared, gates what its CALLERS may assume.

@@ -69,6 +69,10 @@ pub struct DistillConfig {
     /// DISTILLED is allowed. Resolved at declaration build time — the AST
     /// `distill_min_accuracy` field when present, else the 0.85 default.
     pub min_accuracy: f64,
+    /// №485: the required accuracy margin OVER the majority baseline —
+    /// the gate passes only when the holdout accuracy clears
+    /// max(min_accuracy, baseline + margin). Default 0.05.
+    pub margin: f64,
     /// Current mode — TEACHING (still accumulating examples) or DISTILLED
     /// (reflex_train already succeeded, use reflex_predict).
     /// Starts as TEACHING; switches to DISTILLED after reflex_train returns

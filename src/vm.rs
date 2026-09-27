@@ -2944,6 +2944,8 @@ impl Vm {
         // №456: the holdout-accuracy gate — explicit `distill_min_accuracy`
         // or the 0.85 default.
         let min_accuracy = info.distill_min_accuracy.unwrap_or(0.85);
+        // №485: the majority-baseline margin (`distill_margin:`, 0.05 default).
+        let margin = info.distill_margin.unwrap_or(0.05);
 
         let state = self
             .distill_states
@@ -2969,6 +2971,7 @@ impl Vm {
                         pattern_name,
                         distill_to,
                         min_accuracy,
+                        margin,
                         &examples,
                     ) {
                         Ok(true) => {
@@ -3056,6 +3059,7 @@ impl Vm {
         pattern_name: &str,
         reflex_name: &str,
         min_accuracy: f64,
+        margin: f64,
         examples: &[(String, String)],
     ) -> Result<bool, String> {
         let model_id = self
@@ -3124,10 +3128,34 @@ impl Vm {
                 if !loss.is_finite() {
                     return Ok(false);
                 }
-                if holdout_acc < min_accuracy {
+                // №485: the majority baseline (the stratified holdout
+                // preserves the class distribution) — the degenerate
+                // most-frequent-class model cannot clear baseline + margin.
+                let mut class_counts: HashMap<usize, usize> = HashMap::new();
+                for &t in &targets {
+                    *class_counts.entry(t).or_insert(0) += 1;
+                }
+                let majority_baseline = class_counts
+                    .values()
+                    .copied()
+                    .max()
+                    .map(|c| c as f64 / targets.len() as f64)
+                    .unwrap_or(0.0);
+                // №485: the negated-positive form rejects a NaN accuracy
+                // automatically (NaN >= t is false → !(false) = true).
+                // The single-class carve-out (№485): one class carries no
+                // confusion risk — the baseline is trivially 1.0 and
+                // baseline+margin would be unsatisfiable; the raw
+                // min_accuracy gate applies unchanged (the №456 posture).
+                let threshold = if class_counts.len() < 2 {
+                    min_accuracy
+                } else {
+                    f64::max(min_accuracy, majority_baseline + margin)
+                };
+                if !(holdout_acc >= threshold) {
                     self.push_audit(format!(
-                        "[AUDIT] distill.rejected: {} holdout_accuracy={:.3} < min_accuracy={:.2} — staying TEACHING",
-                        pattern_name, holdout_acc, min_accuracy
+                        "[AUDIT] distill.rejected: {} holdout_accuracy={:.3} < threshold={:.3} (min_accuracy={:.2}, majority_baseline={:.3}, margin={:.2}) — staying TEACHING",
+                        pattern_name, holdout_acc, threshold, min_accuracy, majority_baseline, margin
                     ));
                     return Ok(false);
                 }
@@ -4715,6 +4743,33 @@ mod n456_vm_distill_holdout_tests {
         vm
     }
 
+    /// №485 VM mirror: the degenerate 90%-skew dataset — the identical
+    /// inputs pin the model to the class prior; holdout accuracy 0.9
+    /// clears the raw 0.85 gate but NOT baseline+margin (0.950).
+    #[test]
+    fn n485_vm_degenerate_majority_model_stays_teaching() {
+        let mut vm = make_vm_with_head();
+        let examples: Vec<(String, String)> = (0..50)
+            .map(|i| {
+                let label = if i < 45 { "yes" } else { "no" };
+                ("same".to_string(), label.to_string())
+            })
+            .collect();
+        let result = vm
+            .try_train_distilled_model("P", "TestHead", 0.85, 0.05, &examples)
+            .expect("train must not error");
+        assert!(
+            !result,
+            "the degenerate model must NOT switch to DISTILLED (the VM parity)"
+        );
+        let audit = vm.take_audit_log().join("\n");
+        assert!(
+            audit.contains("distill.rejected") && audit.contains("majority_baseline=0.900"),
+            "the VM rejection must carry the baseline: {}",
+            audit
+        );
+    }
+
     #[test]
     fn n456_vm_holdout_too_small_is_rejected() {
         let mut vm = make_vm_with_head();
@@ -4722,7 +4777,7 @@ mod n456_vm_distill_holdout_tests {
             .map(|i| (format!("k{}", i), "yes".to_string()))
             .collect();
         let result = vm
-            .try_train_distilled_model("P", "TestHead", 0.85, &examples)
+            .try_train_distilled_model("P", "TestHead", 0.85, 0.05, &examples)
             .expect("train must not error");
         assert!(
             !result,
@@ -4746,7 +4801,7 @@ mod n456_vm_distill_holdout_tests {
             })
             .collect();
         let result = vm
-            .try_train_distilled_model("P", "TestHead", 0.85, &examples)
+            .try_train_distilled_model("P", "TestHead", 0.85, 0.05, &examples)
             .expect("train must not error");
         assert!(!result, "noisy labels must NOT switch to DISTILLED");
         let audit = vm.take_audit_log().join("\n");
@@ -4764,7 +4819,7 @@ mod n456_vm_distill_holdout_tests {
             .map(|i| (format!("k{}", i), "yes".to_string()))
             .collect();
         let result = vm
-            .try_train_distilled_model("P", "TestHead", 0.85, &examples)
+            .try_train_distilled_model("P", "TestHead", 0.85, 0.05, &examples)
             .expect("train must not error");
         assert!(result, "consistent labels must pass the holdout gate");
     }

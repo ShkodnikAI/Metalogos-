@@ -549,6 +549,7 @@ impl Interpreter {
                 distill_after: 0,
                 fallback_if: None,
                 distill_min_accuracy: None,
+                distill_margin: None,
                 effects: None,
             }));
         }

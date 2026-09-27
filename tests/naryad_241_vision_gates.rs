@@ -52,10 +52,6 @@ fn signed_manifest() -> VisionManifest {
 
 // ── Gate 1: VISION_UNSIGNED_EXPORT (audit Error + runtime backstop) ──
 
-/// `vision_export` call site in a file with NO `vision { }` declaration
-/// → Category-A compile error (ADR-0125: by construction, not by
-/// procedure). `run_program` must refuse BEFORE runtime.
-
 // №475: the gate refuses ABSOLUTE paths — the fixtures use RELATIVE
 // per-test directories (auto-cleaned on drop; each name unique per call).
 struct TmpDirRel(&'static str);
@@ -470,3 +466,8 @@ fn sha_pin_mismatch_is_loud_and_match_passes() {
     );
     assert!(err.contains(&real), "computed SHA must be in the message");
 }
+
+/// `vision_export` call site in a file with NO `vision { }` declaration
+/// → Category-A compile error (ADR-0125: by construction, not by
+/// procedure). `run_program` must refuse BEFORE runtime.
+

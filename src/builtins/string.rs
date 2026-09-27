@@ -23,7 +23,12 @@ pub(crate) fn builtin_len(args: &[Value]) -> Result<Value, String> {
         // "\u{041f}\u{0440}\u{0438}\u{0432}\u{0435}\u{0442}" (6 chars, 12 bytes) -> 6.0, not 12.0.
         Some(Value::String(s)) => Ok(Value::Float(s.chars().count() as f64)),
         Some(Value::List(items)) => Ok(Value::Float(items.len() as f64)),
-        _ => Err("len() requires String or List argument".to_string()),
+        // №479 (ADR-0131): the stable code keeps the diff-fuzzer's class
+        // signature wording-proof.
+        _ => Err(crate::interpreter::values::coded_error(
+            crate::interpreter::values::CODE_TYPE_MISMATCH,
+            "len() requires String or List argument",
+        )),
     }
 }
 

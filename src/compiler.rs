@@ -974,7 +974,12 @@ impl Compiler {
                 } else if let Some(&idx) = self.learnable_indices.get(name) {
                     code.push(Instruction::LlmCall(idx, arity));
                 } else {
-                    return Err(format!("compile: undefined function: {}", name));
+                    // №479 (ADR-0131): stable diagnostic code at the origin —
+                    // the diff-fuzzer's class signature compares codes, not prose.
+                    return Err(crate::interpreter::values::coded_error(
+                        crate::interpreter::values::CODE_UNDEFINED_FUNCTION,
+                        format!("compile: undefined function: {}", name),
+                    ));
                 }
             }
             Expr::BinaryOp {

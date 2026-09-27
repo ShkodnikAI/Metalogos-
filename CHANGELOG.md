@@ -4,6 +4,34 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №479 (issue #727; the audit v0.26.1 §3.4 finding — the
+  TW↔VM diff fuzzer is right in approach but narrow, with an
+  unreviewable corpus): the fuzzer v2. The class signature is now the
+  STABLE ERROR CODES of both sides plus the AST node kind each error
+  was born at (`errorclass|tw=err:[TYPE_MISMATCH]@fn_call|vm=...`) —
+  stable codes were assigned FIRST at the origin sites of BOTH backends
+  (`UNDEFINED_VARIABLE` on the TW ident read and the VM rule path,
+  `UNDEFINED_FUNCTION` on the VM compile refusal, `TYPE_MISMATCH` on
+  the heterogeneous concat/binary-op refusals, the TW `each`-over-
+  non-List refusal, the `len()`-argument and `*_arg` builtin refusals;
+  ADR-0131 convention, parity-pinned). The corpus is human-readable and
+  machine-checked: every signature line carries a `# class: /
+  # example: / # status:` comment block, and each example is a
+  LOAD-BEARING checked-in minimal program that reproduces its class
+  every run — when it stops, the run fails demanding the line and the
+  example be removed in the fix PR (the "class disappeared = the gap
+  closed" ratchet self-enforces). The 8 pre-№479 normalized-prose lines
+  collapse into 5 coded classes (the same root causes, readable
+  signatures). The generator is STATEFUL: in-memory SQLite
+  (`db { url: "sqlite::memory:" }` + query/db_execute), the
+  deterministic LLM mock (`call_llm`), and `try smtp_send` (the
+  deterministic config-refusal — the honest MockSmtp; no connection is
+  ever attempted), on top of the memory group — the duplication zones
+  the audit named are exercised by the fuzzer itself, and the №476
+  blocked-domain rule applies at full strength to everything it finds.
+  The report carries the RAW side texts and the program's AST
+  node-kind view; `err:uncoded(...)` sides fail loudly until the origin
+  site gets its stable code.
 - Naryad №758 (issue #758; the owner's VM-office bug report,
   FOSVED-office-v2 differential probe, re-confirmed on 0.27.0): the VM
   lane resolves `db { url: env("NAME") }` now — the compiler classifies

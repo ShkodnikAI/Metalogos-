@@ -65,3 +65,26 @@ existing span-tracking infrastructure.
 - Scope for naряд #255 is `semantic.rs` only — `compiler.rs`/`vm.rs`
   runtime errors are a separate, later naряд if genuinely needed, not
   bundled in here.
+
+## Addendum (№479, 2026-09-27): the compiler/vm runtime codes
+
+The "separate, later naряд" this ADR anticipated is №479 (gh#727): the
+TW↔VM diff fuzzer's class signatures read stable codes, so the core
+error sites the fuzzer exercises now carry them — extending the same
+UPPER_SNAKE_CASE convention to the compiler/vm runtime paths, not a
+second scheme. The assigned diagnostic codes (constants in
+`src/interpreter/values.rs`):
+
+| Code | Origin sites (both backends unless noted) |
+|---|---|
+| `UNDEFINED_VARIABLE` | TW `Expr::Ident` read; VM `RuleValueExpr::Ident` rule path |
+| `UNDEFINED_FUNCTION` | VM compile-time unknown-call refusal (the TW posture resolves lazily and reports `unknown function` in-band — pinned, not stamped) |
+| `TYPE_MISMATCH` | heterogeneous `+`/binary-op refusals (TW+VM), TW `each` over a non-List, `len()` non-String/List argument, `*_arg` builtin String-argument refusals |
+
+Scope discipline: these are DIAGNOSTIC stamps on the top-level error
+channel (visible `[CODE] ` prefixes). The ADR-0169 `try`-classification
+whitelist is deliberately NOT extended — a caught core error still
+classifies as the honest `RUNTIME_ERROR` fallback; extending that set
+requires its own test + ADR per ADR-0169 §2.4. The diff fuzzer
+(`tests/naryad_465_diff_fuzzer.rs`) pins code parity at the stamped
+sites (`n479_stable_codes_carry_across_backends`).

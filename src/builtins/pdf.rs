@@ -1964,9 +1964,10 @@ pub fn builtin_pdf_merge(args: &[Value]) -> Result<Value, String> {
         .save(&out_resolved)
         .map_err(|e| format!("pdf_merge: failed to save '{}': {:?}", output, e))?;
 
-    let output_bytes =
-        crate::fs_gate::read_bytes(&out_resolved.to_string_lossy(), "pdf_merge output")
-            .map_err(|e| format!("pdf_merge: failed to read output '{}': {}", output, e))?;
+    // №475: the read-back goes through the gate on the RAW (relative)
+    // path — the same file the resolved save wrote.
+    let output_bytes = crate::fs_gate::read_bytes(&output, "pdf_merge output")
+        .map_err(|e| format!("pdf_merge: failed to read output '{}': {}", output, e))?;
 
     Ok(make_struct(
         "PdfMerge",
@@ -2443,9 +2444,9 @@ fn html_to_pdf_wkhtmltopdf(html: &str, path: &str) -> Result<usize, String> {
         return Err(format!("wkhtmltopdf failed: {}", stderr));
     }
 
-    let output_bytes =
-        crate::fs_gate::read_bytes(&out_resolved.to_string_lossy(), "html_to_pdf output")
-            .map_err(|e| format!("output read failed: {}", e))?;
+    // №475: the read-back uses the RAW (relative) path through the gate.
+    let output_bytes = crate::fs_gate::read_bytes(path, "html_to_pdf output")
+        .map_err(|e| format!("output read failed: {}", e))?;
 
     Ok(output_bytes.len())
 }

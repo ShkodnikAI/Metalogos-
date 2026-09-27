@@ -73,6 +73,10 @@ impl Drop for TmpDirRel {
         let _ = std::fs::remove_dir_all(self.0);
     }
 }
+/// `vision_export` call site in a file with NO `vision { }` declaration
+/// → Category-A compile error (ADR-0125: by construction, not by
+/// procedure). `run_program` must refuse BEFORE runtime.
+
 
 #[test]
 fn vision_unsigned_export_is_category_a_compile_error() {
@@ -466,8 +470,3 @@ fn sha_pin_mismatch_is_loud_and_match_passes() {
     );
     assert!(err.contains(&real), "computed SHA must be in the message");
 }
-
-/// `vision_export` call site in a file with NO `vision { }` declaration
-/// → Category-A compile error (ADR-0125: by construction, not by
-/// procedure). `run_program` must refuse BEFORE runtime.
-

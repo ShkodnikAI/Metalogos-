@@ -4,6 +4,26 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №758 (issue #758; the owner's VM-office bug report,
+  FOSVED-office-v2 differential probe, re-confirmed on 0.27.0): the VM
+  lane resolves `db { url: env("NAME") }` now — the compiler classifies
+  the URL source and carries the NAME (`Program.db_url_env`,
+  `#[serde(default)]` so old .mbc artifacts load), the URL itself
+  resolves at the FIRST db access (the interpreter's runtime semantics;
+  a compile-time constant fold was rejected — it would bake
+  credentialed URLs into the bytecode). The resolution goes through the
+  same `env()` gate as a program-level call (№259 SSOT: the serve-route
+  policy + `METALOGOS_ENV_ALLOWLIST`). The two SILENT no-ops become
+  LOUD: an env denial/unset and an unsupported (non-sqlite) scheme both
+  store the reason (`Vm.db_open_error`) that every VM db access site
+  surfaces instead of the "no database connection" riddle — the
+  postgres class now gets an honest error naming
+  `METALOGOS_SERVE_BACKEND=interpreter` as the escape hatch. Exotic URL
+  expressions (neither a literal nor `env("NAME")`) are a loud compile
+  error instead of the old silent broken state. The plain no-db case
+  keeps the legacy text. (The office differential probe — interpreter
+  200 / vm 500 on the same file — is closed: the vm lane connects at
+  the first db access like the interpreter does at boot.)
 - Naryad №757 (issue #757; the FOSVED-office-v2 report autopsy,
   2026-09-27): `call_llm` no longer hard-codes the generation ceiling —
   the six `"max_tokens": 1024` literals across the legacy RealLlm

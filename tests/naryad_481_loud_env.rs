@@ -128,6 +128,70 @@ fn n481_env_or_carries_the_explicit_silence() {
     let _probe = EnvVar::set(PROBE, "n481-real");
     let out = metalogos::run_program(&src).expect("env_or reads a set variable");
     assert_eq!(out.unwrap_or_default().trim_end(), "n481-real");
+
+    // VM parity: the SAME builtin → the SAME silent fallback and the SAME
+    // read (the №476 lesson — env is a blocked domain, parity is pinned).
+    std::env::remove_var(PROBE);
+    let decls = metalogos::parser::parse(&src).expect("parses");
+    let mut comp = metalogos::compiler::Compiler::with_std_root(std::path::PathBuf::from("."));
+    let compiled = comp.compile(decls).expect("compiles");
+    let mut vm = metalogos::vm::Vm::new();
+    let vm_out = vm.run(compiled).expect("the VM falls back identically");
+    assert_eq!(
+        vm_out.unwrap_or_default().trim_end(),
+        "n481-default",
+        "VM parity of the env_or silent fallback"
+    );
+}
+
+/// The №326 op-log posture: the fallback firing is ANNOUNCED on the audit
+/// stderr (the variable NAME only) — and the VALUE never reaches the log.
+/// Pinned through the REAL binary (the same-process stderr is not
+/// capturable in-process).
+#[test]
+fn n481_env_or_fallback_is_announced_without_the_value() {
+    let probe = "METALOGOS_N481_OR_PROBE";
+    std::env::remove_var(probe);
+
+    let src = program(&format!(
+        "  return env_or(\"{}\", \"n481-secret-default\")",
+        probe
+    ));
+    let file =
+        std::path::Path::new("target").join(format!("n481_or_pin_{}.mlog", std::process::id()));
+    std::fs::write(&file, &src).expect("write the probe program");
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_mlog"))
+        .arg("run")
+        .arg(&file)
+        .output()
+        .expect("the mlog binary runs");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+
+    let _ = std::fs::remove_file(&file);
+
+    assert!(
+        out.status.success(),
+        "env_or must NOT refuse: {} | {}",
+        stdout.trim(),
+        stderr.trim()
+    );
+    assert!(
+        stderr.contains("[ENV_OR]") && stderr.contains(probe),
+        "the fallback firing must be announced with the variable name: {}",
+        stderr.trim()
+    );
+    assert!(
+        !stderr.contains("n481-secret-default"),
+        "the VALUE must never reach the log (the №326 posture): {}",
+        stderr.trim()
+    );
+    assert!(
+        stdout.contains("n481-secret-default"),
+        "the value still flows to the PROGRAM result (silence is about the log, not the data): {}",
+        stdout.trim()
+    );
 }
 
 #[test]

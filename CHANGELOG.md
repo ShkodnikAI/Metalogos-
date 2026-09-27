@@ -20,9 +20,14 @@ All notable changes to the Metalogos project.
   Migration honesty: programs that relied on the empty-string default
   switch to `env_or(name, "")`; the golden examples were verified —
   every executed `env()` either reads a set variable or sits in a dead
-  branch. New pins: `tests/naryad_481_loud_env.rs` (loud env both
-  backends + VM parity, env_or silence, the serve-gate precedence,
-  loud unreadable read_file, the soft missing-file contract);
+  branch, and the executable doc block that DID read a missing variable
+  (`syntax.md` Entity (simple)) was migrated to `env_or` — the
+  REFERENCE env/read_file rows (curated + generated index) now carry
+  the split contract. New pins: `tests/naryad_481_loud_env.rs` (loud
+  env both backends + VM parity, env_or silence + VM parity, the
+  fallback announcement through the real binary with the VALUE-never-
+  logged assertion, the serve-gate precedence, loud unreadable
+  read_file, the soft missing-file contract);
   `tests/naryad_259_env_gate.rs` re-pinned — a missing (even
   allowlisted) name inside serve is now the loud 500.
 - Naryad №477 (issue #725; the audit v0.26.1 §3.5 finding — `mlog

@@ -558,11 +558,15 @@ pub(crate) fn sandbox_path_ex(path: &str, mode: SandboxMode) -> Result<std::path
 pub(crate) use crate::fs_gate::open_sandbox_write;
 
 /// `read_file(path)` — read file contents as String.
-/// Soft-failure: returns empty string when the file is missing or unreadable
-/// (Наряд №254: the contract is preserved). Sandbox violations — absolute
-/// paths, `..`, symlink escapes, broken symlinks — are a LOUD error with the
-/// stable code `[SANDBOX_VIOLATION]` (ADR-0131): they are programmer errors,
-/// not environmental failures, and swallowing them hid real defects.
+/// MISSING file — the documented №254 soft contract: empty string (pinned
+/// by the №481 suite). A file that EXISTS (or passed the sandbox) but
+/// cannot be opened/read — a configuration/environment error, refused
+/// LOUDLY with the stable code `[IO_ERROR]` and the OS reason (№481, audit
+/// 25.09 §3.9): the old silent "" swallowed real defects. Sandbox
+/// violations — absolute paths, `..`, symlink escapes, broken symlinks —
+/// are a LOUD error with the stable code `[SANDBOX_VIOLATION]` (ADR-0131):
+/// they are programmer errors, not environmental failures, and swallowing
+/// them hid real defects.
 pub(crate) fn builtin_read_file(args: &[Value]) -> Result<Value, String> {
     let path = expect_string_arg("read_file", args, 0)?;
     // Наряд №282 (спайк): виртуальная SMFS-зона sm: (read-only экспорт памяти).

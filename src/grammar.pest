@@ -15,7 +15,13 @@ type_alias_decl = { "type" ~ IDENT ~ "=" ~ type_name }
 // llm { providers: [...], default_model: "...", failover: auto, circuit_breaker: 3, timeout: 30 }
 // If absent → backward compatible (env vars, single provider).
 llm_decl      = { LLM_KW ~ LBRACE ~ llm_body ~ RBRACE }
-llm_body      = { llm_providers? ~ (COMMA ~ llm_default_model?)? ~ (COMMA ~ llm_failover?)? ~ (COMMA ~ llm_circuit_breaker?)? ~ (COMMA ~ llm_timeout?)? }
+// №757: the tail gained max_tokens and temperature. The pre-existing
+// tail is an ORDERED optional chain (a field can only follow the
+// fields before it — free field order is №490's scope), so the two
+// limits sit right after providers and may come in either order
+// (llm_limits). Both are validated loudly in the parser.
+llm_body      = { llm_providers? ~ llm_limits? ~ (COMMA ~ llm_default_model?)? ~ (COMMA ~ llm_failover?)? ~ (COMMA ~ llm_circuit_breaker?)? ~ (COMMA ~ llm_timeout?)? }
+llm_limits    = _{ (COMMA ~ llm_max_tokens ~ (COMMA ~ llm_temperature)?) | (COMMA ~ llm_temperature ~ (COMMA ~ llm_max_tokens)?) }
 llm_providers = { "providers" ~ COLON ~ LBRACKET ~ llm_provider_list? ~ RBRACKET }
 llm_provider_list = { llm_provider_entry ~ (COMMA ~ llm_provider_entry)* }
 llm_provider_entry = { LBRACE ~ llm_provider_alias ~ COMMA ~ llm_provider_name ~ (COMMA ~ llm_provider_key)? ~ (COMMA ~ llm_provider_url)? ~ RBRACE }
@@ -27,6 +33,12 @@ llm_default_model = { "default_model" ~ COLON ~ expression }
 llm_failover      = { "failover" ~ COLON ~ IDENT }
 llm_circuit_breaker = { "circuit_breaker" ~ COLON ~ INT }
 llm_timeout      = { "timeout" ~ COLON ~ INT }
+// №757: the configurable per-call generation ceiling — an INT token
+// count ≥ 1 (semantics validated loudly in the parser, not here).
+llm_max_tokens   = { "max_tokens" ~ COLON ~ INT }
+// №757: the sampling temperature — FLOAT_LITERAL or an INT shorthand
+// (`temperature: 1` means 1.0); range-validated in the parser.
+llm_temperature  = { "temperature" ~ COLON ~ (FLOAT_LITERAL | INT) }
 LLM_KW          = @{ "llm" }
 
 // ── Tool Abstraction (ADR-0054) ──────────────────────────────────────

@@ -186,6 +186,9 @@ fn n276_trace_smart_router_fields_with_usage() {
         failover: Some("manual".to_string()),
         circuit_breaker: 3,
         timeout: 5,
+        // №757: the limits are not this test's subject — honest defaults.
+        max_tokens: None,
+        temperature: None,
     };
     metalogos::llm::set_global_smart_router(metalogos::llm::SmartRouter::from_config(&config));
 

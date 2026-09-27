@@ -128,6 +128,7 @@ impl Interpreter {
             status: if result.is_ok() { "ok" } else { "error" },
             cache: "miss",
             provider_alias: None,
+            finish_reason: None,
         });
         result
     }

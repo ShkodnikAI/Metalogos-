@@ -18,12 +18,13 @@ pub(crate) fn builtin_call_claude(args: &[Value]) -> Result<Value, String> {
 
     let t0 = std::time::Instant::now();
     let result = call_claude_impl(&api_key, &model, &system_prompt, &user_message);
-    let (input_tokens, output_tokens) = match &result {
-        Ok((_, usage)) => (
+    let (input_tokens, output_tokens, finish_reason) = match &result {
+        Ok((_, usage, fr)) => (
             usage.map(|u| u.input_tokens),
             usage.map(|u| u.output_tokens),
+            fr.as_deref(),
         ),
-        Err(_) => (None, None),
+        Err(_) => (None, None, None),
     };
     crate::llm::trace_llm_call(&crate::llm::LlmTraceEvent {
         provider_name: Some("anthropic"),
@@ -34,21 +35,32 @@ pub(crate) fn builtin_call_claude(args: &[Value]) -> Result<Value, String> {
         status: if result.is_ok() { "ok" } else { "error" },
         cache: "miss",
         provider_alias: None,
+        finish_reason,
     });
-    result.map(|(text, _)| Value::String(text))
+    result.map(|(text, _, _)| Value::String(text))
 }
 
-/// HTTP exchange for call_claude: returns `(text, usage)` — usage is Some
-/// only when the response carried Anthropic's usage block.
+/// HTTP exchange for call_claude: returns `(text, usage, stop_reason)` —
+/// usage is Some only when the response carried Anthropic's usage block;
+/// stop_reason is Some only when the response named one (№757).
 fn call_claude_impl(
     api_key: &str,
     model: &str,
     system_prompt: &str,
     user_message: &str,
-) -> Result<(String, Option<crate::llm::ProviderTokenUsage>), String> {
+) -> Result<
+    (
+        String,
+        Option<crate::llm::ProviderTokenUsage>,
+        Option<String>,
+    ),
+    String,
+> {
     let body = serde_json::json!({
         "model": model,
-        "max_tokens": 4096,
+        // №757: the ceiling reads the shared configuration (block → env →
+        // default 4096) instead of the hard-coded literal.
+        "max_tokens": crate::llm::effective_call_max_tokens(),
         "system": system_prompt,
         "messages": [{"role": "user", "content": user_message}]
     });
@@ -89,7 +101,15 @@ fn call_claude_impl(
     // Наряд №276: usage from the SAME parsed body (honest — absent stays None).
     let usage = crate::llm::extract_usage_from_anthropic_body(&parsed);
 
-    Ok((content, usage))
+    // №757: the Anthropic stop_reason is read like every other provider
+    // branch — "max_tokens" means the answer was cut by the ceiling and
+    // must not be a silent success. Recorded into the global probe and
+    // returned so the caller's trace line carries it (honest per-call
+    // data, №276).
+    let stop_reason = parsed.get("stop_reason").and_then(|r| r.as_str());
+    crate::llm::record_finish_reason("anthropic", stop_reason);
+
+    Ok((content, usage, stop_reason.map(|s| s.to_string())))
 }
 
 /// `call_llm(prompt, input)` — call the LLM backend with a prompt and input.
@@ -169,6 +189,7 @@ pub(crate) fn builtin_call_llm(args: &[Value]) -> Result<Value, String> {
                 status: "error",
                 cache: "miss",
                 provider_alias: None,
+                finish_reason: None,
             });
             return fault_result;
         }
@@ -182,6 +203,7 @@ pub(crate) fn builtin_call_llm(args: &[Value]) -> Result<Value, String> {
             status: "ok",
             cache: "miss",
             provider_alias: None,
+            finish_reason: None,
         });
         result
     } else {
@@ -205,6 +227,7 @@ pub(crate) fn builtin_call_llm(args: &[Value]) -> Result<Value, String> {
             status: if result.is_ok() { "ok" } else { "error" },
             cache: "miss",
             provider_alias: None,
+            finish_reason: None,
         });
         result
     }
@@ -257,6 +280,18 @@ pub(crate) fn builtin_llm_usage(_args: &[Value]) -> Result<Value, String> {
         type_name: "LlmUsage".to_string(),
         fields,
     })
+}
+
+/// №757: `llm_last_finish_reason()` — the mlog-visible truncation probe.
+/// Returns the finish_reason/stop_reason/done_reason of the LAST
+/// completed LLM call or stream ("stop", "length", "max_tokens",
+/// "end_turn", ...). `""` means no completed call ever reported a
+/// reason (honest absence — the mock and error paths never invent one).
+/// The truncation check from mlog is `llm_last_finish_reason() == "length"`
+/// (OpenAI-compatible) or `== "max_tokens"` (Anthropic); both spellings
+/// also raise the stderr warning at the moment of the call itself.
+pub(crate) fn builtin_llm_last_finish_reason(_args: &[Value]) -> Result<Value, String> {
+    Ok(Value::String(crate::llm::llm_last_finish_reason()))
 }
 
 /// `whisper_transcribe(file_id, bot_token, whisper_key, provider?)` —

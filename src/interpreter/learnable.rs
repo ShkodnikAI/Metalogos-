@@ -331,6 +331,7 @@ impl Interpreter {
                     status: "ok",
                     cache: "exact",
                     provider_alias: None,
+                    finish_reason: None,
                 });
                 return cached;
             }
@@ -363,6 +364,7 @@ impl Interpreter {
                         status: "ok",
                         cache: "semantic",
                         provider_alias: None,
+                        finish_reason: None,
                     });
                     return hit;
                 }
@@ -914,6 +916,7 @@ impl Interpreter {
             status: if result.is_ok() { "ok" } else { "error" },
             cache: "miss",
             provider_alias: None,
+            finish_reason: None,
         });
         result
     }
@@ -1402,6 +1405,7 @@ impl Interpreter {
             status: if result.is_ok() { "ok" } else { "error" },
             cache: "miss",
             provider_alias: None,
+            finish_reason: None,
         });
         result
     }

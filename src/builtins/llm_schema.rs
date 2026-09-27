@@ -253,6 +253,7 @@ pub(crate) fn builtin_call_llm_schema(args: &[Value]) -> Result<Value, String> {
                     status: if res.is_ok() { "ok" } else { "error" },
                     cache: "miss",
                     provider_alias: None,
+                    finish_reason: None,
                 });
                 return res;
             }
@@ -269,6 +270,7 @@ pub(crate) fn builtin_call_llm_schema(args: &[Value]) -> Result<Value, String> {
                 status: if res.is_ok() { "ok" } else { "error" },
                 cache: "miss",
                 provider_alias: None,
+                finish_reason: None,
             });
             res
         },

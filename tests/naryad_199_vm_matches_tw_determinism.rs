@@ -15,7 +15,7 @@
 //
 // The test uses `examples/reflex_train_predict.mlog` (seed: 42, 200 epochs,
 // 12 samples). The output contains:
-//   accuracy=1 loss=0.07944506667943449 threshold_met=true predict([0.1,0.1])=near
+//   accuracy=1 loss=0.07883091127978994 threshold_met=true predict([0.1,0.1])=near
 //
 // Both backends must produce this exact string. Any difference in the
 // `loss` or `accuracy` fields indicates a determinism violation — either

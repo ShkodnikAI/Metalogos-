@@ -85,6 +85,15 @@ impl McpServer {
     /// Build the server: fail-closed on an empty allowlist (№297
     /// posture, unchanged — on every transport).
     pub fn new(declarations: &[Declaration], allowlist: &[String]) -> Result<McpServer, String> {
+        // №477 (gh#725): the tool-registration phase is the explicit top-level
+        // zone (the №457 serve precedent): under the inverted process default
+        // (set_process_mode(Serve) at the mcp-serve entrypoint) the
+        // registration thread keeps the Process context, so a future
+        // registration step that touches env/exec fails LOUD only when it is
+        // genuinely unmarked outside this zone — a forgotten mark costs a
+        // spurious denial, never silent process rights.
+        let _toplevel_registration = crate::builtins::io::TopLevelRegistrationGuard::new();
+
         if allowlist.is_empty() {
             return Err("mcp-serve: --allowlist is required (fail-closed). \
                  Specify tool names to expose, e.g., --allowlist math_api.send"

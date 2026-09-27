@@ -20,6 +20,11 @@ use crate::audit::{audit_category_a, Severity};
 pub mod audit;
 pub mod audit_ops;
 pub mod builtins;
+// Naryad #475 (issue #723): the filesystem FACADE — every program-
+// influenced file operation enters here (the №455 gate + the hard
+// write-deny + the serve data-dir containment); the clippy.toml
+// disallowed-methods ratchet keeps the raw std::fs methods out.
+pub mod fs_gate;
 // Наряд №335 (spec §7.2 v2): consent ledger — subject/scope/TTL records
 // for every grant and revocation (process-local SQLite; export = egress).
 pub mod consent;
@@ -210,6 +215,26 @@ pub fn check_program_with_root(
     // If no root file, just check the file in isolation
     let root_decls = match root {
         Some(root_path) => {
+            // №475: the check/root-source loader — the CLI boundary (argv
+            // paths, author-controlled), outside the program-runtime
+            // sandbox domain.
+            #[allow(clippy::disallowed_methods)]
+            // №475: the check/root-source loader — the CLI boundary (argv
+            // paths, author-controlled), outside the program-runtime
+            // sandbox domain.
+            #[allow(clippy::disallowed_methods)]
+            // №475: the check/root-source loader — the CLI boundary (argv
+            // paths, author-controlled), outside the program-runtime
+            // sandbox domain.
+            #[allow(clippy::disallowed_methods)]
+            // №475: the check/root-source loader — the CLI boundary (argv
+            // paths, author-controlled), outside the program-runtime
+            // sandbox domain.
+            #[allow(clippy::disallowed_methods)]
+            // №475: the check/root-source loader — the CLI boundary (argv
+            // paths, author-controlled), outside the program-runtime
+            // sandbox domain.
+            #[allow(clippy::disallowed_methods)]
             let root_source = std::fs::read_to_string(root_path)
                 .map_err(|e| format!("cannot read root file {:?}: {}", root_path, e))?;
             let root_dir = root_path

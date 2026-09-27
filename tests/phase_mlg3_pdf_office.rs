@@ -1,3 +1,8 @@
+// Naryad #475 (issue #723): the fs_gate ratchet (clippy disallowed-methods)
+// targets PRODUCTION I/O paths. This test file exercises the REAL filesystem
+// for fixtures and assertions by design — the allow is scoped to this file.
+#![allow(clippy::disallowed_methods)]
+
 // ── Наряд MLG-3: Integration tests for PDF office automation ────────────
 // Tests: pdf_draw_table, pdf_add_image, pdf_set_page_header/footer,
 //        pdf_page_numbers, pdf_watermark, pdf_fill_form,
@@ -30,10 +35,29 @@ fn extract_doc_id(val: &Value) -> String {
     }
 }
 
+// №475: the gate refuses ABSOLUTE paths — the fixtures use RELATIVE
+// per-test directories (auto-cleaned on drop; each name unique per call).
+struct TmpDirRel(&'static str);
+impl TmpDirRel {
+    fn new(name: &'static str) -> Self {
+        let _ = std::fs::remove_dir_all(name);
+        std::fs::create_dir_all(name).unwrap();
+        TmpDirRel(name)
+    }
+    fn p(&self, file: &str) -> String {
+        format!("{}/{}", self.0, file)
+    }
+}
+impl Drop for TmpDirRel {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(self.0);
+    }
+}
+
 #[test]
 fn test_pdf_draw_table_basic() {
-    let dir = tempfile::tempdir().unwrap();
-    let output_path = dir.path().join("table_test.pdf");
+    let dir = TmpDirRel::new("n475t_po_1");
+    let output_path = dir.p("table_test.pdf");
 
     let create_result = call_builtin("pdf_create", &[]).unwrap();
     let doc_id = extract_doc_id(&create_result);
@@ -58,10 +82,7 @@ fn test_pdf_draw_table_basic() {
 
     let save_result = call_builtin(
         "pdf_save",
-        &[
-            Value::String(doc_id),
-            Value::String(output_path.to_string_lossy().to_string()),
-        ],
+        &[Value::String(doc_id), Value::String(output_path.clone())],
     );
     assert!(save_result.is_ok());
 
@@ -75,8 +96,8 @@ fn test_pdf_draw_table_basic() {
 
 #[test]
 fn test_pdf_draw_table_with_style() {
-    let dir = tempfile::tempdir().unwrap();
-    let output_path = dir.path().join("styled_table.pdf");
+    let dir = TmpDirRel::new("n475t_po_2");
+    let output_path = dir.p("styled_table.pdf");
 
     let create_result = call_builtin("pdf_create", &[]).unwrap();
     let doc_id = extract_doc_id(&create_result);
@@ -102,18 +123,15 @@ fn test_pdf_draw_table_with_style() {
 
     let save_result = call_builtin(
         "pdf_save",
-        &[
-            Value::String(doc_id),
-            Value::String(output_path.to_string_lossy().to_string()),
-        ],
+        &[Value::String(doc_id), Value::String(output_path.clone())],
     );
     assert!(save_result.is_ok());
 }
 
 #[test]
 fn test_pdf_set_page_header_footer() {
-    let dir = tempfile::tempdir().unwrap();
-    let output_path = dir.path().join("header_footer.pdf");
+    let dir = TmpDirRel::new("n475t_po_3");
+    let output_path = dir.p("header_footer.pdf");
 
     let create_result = call_builtin("pdf_create", &[]).unwrap();
     let doc_id = extract_doc_id(&create_result);
@@ -159,10 +177,7 @@ fn test_pdf_set_page_header_footer() {
 
     let save_result = call_builtin(
         "pdf_save",
-        &[
-            Value::String(doc_id),
-            Value::String(output_path.to_string_lossy().to_string()),
-        ],
+        &[Value::String(doc_id), Value::String(output_path.clone())],
     );
     assert!(save_result.is_ok());
     assert!(std::fs::metadata(&output_path).unwrap().len() > 100);
@@ -170,8 +185,8 @@ fn test_pdf_set_page_header_footer() {
 
 #[test]
 fn test_pdf_page_numbers() {
-    let dir = tempfile::tempdir().unwrap();
-    let output_path = dir.path().join("page_numbers.pdf");
+    let dir = TmpDirRel::new("n475t_po_4");
+    let output_path = dir.p("page_numbers.pdf");
 
     let create_result = call_builtin("pdf_create", &[]).unwrap();
     let doc_id = extract_doc_id(&create_result);
@@ -200,18 +215,15 @@ fn test_pdf_page_numbers() {
 
     let save_result = call_builtin(
         "pdf_save",
-        &[
-            Value::String(doc_id),
-            Value::String(output_path.to_string_lossy().to_string()),
-        ],
+        &[Value::String(doc_id), Value::String(output_path.clone())],
     );
     assert!(save_result.is_ok());
 }
 
 #[test]
 fn test_pdf_watermark() {
-    let dir = tempfile::tempdir().unwrap();
-    let output_path = dir.path().join("watermark.pdf");
+    let dir = TmpDirRel::new("n475t_po_5");
+    let output_path = dir.p("watermark.pdf");
 
     let create_result = call_builtin("pdf_create", &[]).unwrap();
     let doc_id = extract_doc_id(&create_result);
@@ -240,10 +252,7 @@ fn test_pdf_watermark() {
 
     let save_result = call_builtin(
         "pdf_save",
-        &[
-            Value::String(doc_id),
-            Value::String(output_path.to_string_lossy().to_string()),
-        ],
+        &[Value::String(doc_id), Value::String(output_path.clone())],
     );
     assert!(save_result.is_ok());
 
@@ -255,9 +264,9 @@ fn test_pdf_watermark() {
 #[test]
 fn test_pdf_rotate_page() {
     // Create a basic PDF first, then rotate
-    let dir = tempfile::tempdir().unwrap();
-    let input_path = dir.path().join("input.pdf");
-    let output_path = dir.path().join("rotated.pdf");
+    let dir = TmpDirRel::new("n475t_po_6");
+    let input_path = dir.p("input.pdf");
+    let output_path = dir.p("rotated.pdf");
 
     let create_result = call_builtin("pdf_create", &[]).unwrap();
     let doc_id = extract_doc_id(&create_result);
@@ -285,10 +294,7 @@ fn test_pdf_rotate_page() {
 
     call_builtin(
         "pdf_save",
-        &[
-            Value::String(doc_id),
-            Value::String(input_path.to_string_lossy().to_string()),
-        ],
+        &[Value::String(doc_id), Value::String(input_path.clone())],
     )
     .unwrap();
 
@@ -296,10 +302,10 @@ fn test_pdf_rotate_page() {
     let result = call_builtin(
         "pdf_rotate_page",
         &[
-            Value::String(input_path.to_string_lossy().to_string()),
+            Value::String(input_path.clone()),
             Value::Float(1.0),
             Value::Float(90.0),
-            Value::String(output_path.to_string_lossy().to_string()),
+            Value::String(output_path.clone()),
         ],
     );
     assert!(result.is_ok());
@@ -308,9 +314,9 @@ fn test_pdf_rotate_page() {
 
 #[test]
 fn test_pdf_delete_pages() {
-    let dir = tempfile::tempdir().unwrap();
-    let input_path = dir.path().join("multi_page.pdf");
-    let output_path = dir.path().join("after_delete.pdf");
+    let dir = TmpDirRel::new("n475t_po_7");
+    let input_path = dir.p("multi_page.pdf");
+    let output_path = dir.p("after_delete.pdf");
 
     let create_result = call_builtin("pdf_create", &[]).unwrap();
     let doc_id = extract_doc_id(&create_result);
@@ -340,10 +346,7 @@ fn test_pdf_delete_pages() {
 
     call_builtin(
         "pdf_save",
-        &[
-            Value::String(doc_id),
-            Value::String(input_path.to_string_lossy().to_string()),
-        ],
+        &[Value::String(doc_id), Value::String(input_path.clone())],
     )
     .unwrap();
 
@@ -351,9 +354,9 @@ fn test_pdf_delete_pages() {
     let result = call_builtin(
         "pdf_delete_pages",
         &[
-            Value::String(input_path.to_string_lossy().to_string()),
+            Value::String(input_path.clone()),
             Value::String("[2]".to_string()),
-            Value::String(output_path.to_string_lossy().to_string()),
+            Value::String(output_path.clone()),
         ],
     );
     assert!(result.is_ok());
@@ -386,10 +389,10 @@ fn test_pdf_fill_form() {
 #[test]
 fn test_pdf_merge_multi() {
     // Create two PDFs and merge them
-    let dir = tempfile::tempdir().unwrap();
-    let path1 = dir.path().join("doc1.pdf");
-    let path2 = dir.path().join("doc2.pdf");
-    let merged_path = dir.path().join("merged.pdf");
+    let dir = TmpDirRel::new("n475t_po_8");
+    let path1 = dir.p("doc1.pdf");
+    let path2 = dir.p("doc2.pdf");
+    let merged_path = dir.p("merged.pdf");
 
     // Create doc1
     let create1 = call_builtin("pdf_create", &[]).unwrap();
@@ -405,10 +408,7 @@ fn test_pdf_merge_multi() {
     .unwrap();
     call_builtin(
         "pdf_save",
-        &[
-            Value::String(id1),
-            Value::String(path1.to_string_lossy().to_string()),
-        ],
+        &[Value::String(id1), Value::String(path1.clone())],
     )
     .unwrap();
 
@@ -426,24 +426,17 @@ fn test_pdf_merge_multi() {
     .unwrap();
     call_builtin(
         "pdf_save",
-        &[
-            Value::String(id2),
-            Value::String(path2.to_string_lossy().to_string()),
-        ],
+        &[Value::String(id2), Value::String(path2.clone())],
     )
     .unwrap();
 
     // Merge
-    let paths_json = format!(
-        "[\"{}\",\"{}\"]",
-        path1.to_string_lossy(),
-        path2.to_string_lossy()
-    );
+    let paths_json = format!("[\"{}\",\"{}\"]", path1.as_str(), path2.as_str());
     let result = call_builtin(
         "pdf_merge",
         &[
             Value::String(paths_json),
-            Value::String(merged_path.to_string_lossy().to_string()),
+            Value::String(merged_path.clone()),
         ],
     );
     assert!(result.is_ok());
@@ -452,9 +445,9 @@ fn test_pdf_merge_multi() {
 #[test]
 fn test_pdf_split_ranges() {
     // Create a 3-page PDF and split it
-    let dir = tempfile::tempdir().unwrap();
-    let input_path = dir.path().join("multi.pdf");
-    let output_dir = dir.path().join("split_output");
+    let dir = TmpDirRel::new("n475t_po_9");
+    let input_path = dir.p("multi.pdf");
+    let output_dir = dir.p("split_output");
     std::fs::create_dir_all(&output_dir).unwrap();
 
     let create_result = call_builtin("pdf_create", &[]).unwrap();
@@ -474,19 +467,16 @@ fn test_pdf_split_ranges() {
 
     call_builtin(
         "pdf_save",
-        &[
-            Value::String(doc_id),
-            Value::String(input_path.to_string_lossy().to_string()),
-        ],
+        &[Value::String(doc_id), Value::String(input_path.clone())],
     )
     .unwrap();
 
     let result = call_builtin(
         "pdf_split",
         &[
-            Value::String(input_path.to_string_lossy().to_string()),
+            Value::String(input_path.clone()),
             Value::String("[[1,2],[3,3]]".to_string()),
-            Value::String(output_dir.to_string_lossy().to_string()),
+            Value::String(output_dir.clone()),
         ],
     );
     assert!(result.is_ok());
@@ -495,16 +485,13 @@ fn test_pdf_split_ranges() {
 #[test]
 fn test_html_to_pdf_simple() {
     // Simple HTML that the Rust renderer should handle
-    let dir = tempfile::tempdir().unwrap();
-    let output_path = dir.path().join("simple.pdf");
+    let dir = TmpDirRel::new("n475t_po_10");
+    let output_path = dir.p("simple.pdf");
 
     let html = "<html><body><h1>Title</h1><p>Paragraph text</p></body></html>".to_string();
     let result = call_builtin(
         "html_to_pdf",
-        &[
-            Value::String(html),
-            Value::String(output_path.to_string_lossy().to_string()),
-        ],
+        &[Value::String(html), Value::String(output_path.clone())],
     );
     // Should succeed with Rust renderer for simple HTML
     assert!(result.is_ok());

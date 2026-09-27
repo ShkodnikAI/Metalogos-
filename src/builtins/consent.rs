@@ -238,10 +238,13 @@ pub(crate) fn builtin_consent_ledger_export(args: &[Value]) -> Result<Value, Str
         }
     };
     let json = crate::consent::export_json()?;
+    // №475 (issue #723): the export write goes through the facade — the
+    // hard write-deny + the deny-list with the allowlist crane + the
+    // serve containment on top of the sandbox it already had.
+    crate::fs_gate::write_bytes(&path, fn_name, json.as_bytes())
+        .map_err(|e| format!("{}: {}", fn_name, e))?;
     let safe_path =
         crate::builtins::io::sandbox_path_ex(&path, crate::builtins::io::SandboxMode::ForWrite)
             .map_err(crate::builtins::io::sandbox_violation)?;
-    std::fs::write(&safe_path, json.as_bytes())
-        .map_err(|e| format!("{}: cannot write {}: {}", fn_name, safe_path.display(), e))?;
     Ok(Value::String(safe_path.display().to_string()))
 }

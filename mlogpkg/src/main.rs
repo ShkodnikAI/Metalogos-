@@ -1,3 +1,10 @@
+// Naryad #475 (issue #723): the package-manager CLI is its OWN
+// source/manifest loader domain (mlog.toml, the local registry under
+// ~/.mlog, lockfiles) — argv/config-driven, the same trust class as the
+// compiler's import loader; the fs_gate ratchet targets the mlog
+// RUNTIME's program-influenced I/O.
+#![allow(clippy::disallowed_methods)]
+
 // ── mlogpkg: METALOGOS Package Manager ──────────────────────────────────
 //
 // `mlogpkg init`              — creates mlog.toml (name, version, dependencies)

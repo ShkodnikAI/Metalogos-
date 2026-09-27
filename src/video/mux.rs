@@ -245,7 +245,10 @@ pub fn export_video(artifact: &VideoArtifact, path: &str) -> Result<Vec<u8>, Str
     container.extend_from_slice(&watermark);
     container.extend_from_slice(&artifact.video_bytes);
 
-    std::fs::write(path, &container)
+    // №475 (issue #723): the container write goes through the facade —
+    // the hard write-deny (no video mux onto app.mlog/.env) + the
+    // deny-list with the allowlist crane + the serve containment.
+    crate::fs_gate::write_bytes(path, WHO, &container)
         .map_err(|e| format!("{}(): cannot write {}: {}", WHO, path, e))?;
     Ok(container)
 }
@@ -273,7 +276,32 @@ impl Sha256Watermark {
 }
 
 #[cfg(test)]
+// №475: the test mods exercise the REAL filesystem for fixtures — the
+// ratchet targets production I/O (see clippy.toml).
+#[allow(clippy::disallowed_methods)]
 mod tests {
+
+    // №475: the sandbox refuses ABSOLUTE paths — the video fixtures write
+    // under a RELATIVE per-test directory (auto-cleaned on drop). The
+    // tests are #[serial]: the io.rs sandbox tests chdir the process, and
+    // relative-path fixtures must not race with them.
+    struct TmpDir(&'static str);
+    impl TmpDir {
+        fn new(name: &'static str) -> Self {
+            let _ = std::fs::remove_dir_all(name);
+            std::fs::create_dir_all(name).unwrap();
+            TmpDir(name)
+        }
+        fn p(&self, file: &str) -> String {
+            format!("{}/{}", self.0, file)
+        }
+    }
+    impl Drop for TmpDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(self.0);
+        }
+    }
+
     use super::*;
     use crate::video::i2v::{render, TINY_FPS};
     use crate::video::interp::{extend_video_artifact, frame_interp_artifact};
@@ -397,6 +425,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn export_container_structure_and_watermark() {
         let src = i2v_source();
         let interp = frame_interp_artifact(&src, 2, 0).unwrap();
@@ -404,8 +433,9 @@ mod tests {
         let wav = make_wav();
         let muxed = mux_av(&ext, 42, &wav, 0).unwrap();
 
-        let path = std::env::temp_dir().join("mlogos_n309_export_test.mlgv");
-        let bytes = export_video(&muxed, &path.to_str().unwrap()).unwrap();
+        let dir = TmpDir::new("n475_video_tmp_export");
+        let path = dir.p("export_test.mlgv");
+        let bytes = export_video(&muxed, &path).unwrap();
 
         assert_eq!(&bytes[0..5], MLGV_MAGIC);
         let json_len = u32::from_le_bytes([bytes[5], bytes[6], bytes[7], bytes[8]]) as usize;
@@ -426,7 +456,7 @@ mod tests {
         // Written file matches returned bytes.
         let on_disk = std::fs::read(&path).unwrap();
         assert_eq!(on_disk, bytes);
-        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&path); // (relative — still cleaned)
     }
 
     #[test]
@@ -447,15 +477,17 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn export_is_deterministic() {
         let src = i2v_source();
         let wav = make_wav();
         let m1 = mux_av(&src, 3, &wav, 0).unwrap();
         let m2 = mux_av(&src, 3, &wav, 0).unwrap();
-        let p1 = std::env::temp_dir().join("mlogos_n309_det1.mlgv");
-        let p2 = std::env::temp_dir().join("mlogos_n309_det2.mlgv");
-        let b1 = export_video(&m1, &p1.to_str().unwrap()).unwrap();
-        let b2 = export_video(&m2, &p2.to_str().unwrap()).unwrap();
+        let dir = TmpDir::new("n475_video_tmp_det");
+        let p1 = dir.p("det1.mlgv");
+        let p2 = dir.p("det2.mlgv");
+        let b1 = export_video(&m1, &p1).unwrap();
+        let b2 = export_video(&m2, &p2).unwrap();
         assert_eq!(
             b1, b2,
             "same inputs + same timestamp ⇒ byte-identical export"

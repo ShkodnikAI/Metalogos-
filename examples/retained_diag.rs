@@ -1,3 +1,8 @@
+// Naryad #475 (issue #723): the fs_gate ratchet (clippy disallowed-methods)
+// targets PRODUCTION I/O paths. This example/bench harness exercises the
+// REAL filesystem for its fixture setup by design — scoped to this file.
+#![allow(clippy::disallowed_methods)]
+
 //! Retained-representation diagnostic (naryad №415, path A per gh#527).
 //!
 //! Measures the RETAINED bytecode-side memory of a compiled program —

@@ -1,3 +1,7 @@
+// Naryad #475 (issue #723): the fs_gate ratchet targets PRODUCTION I/O.
+// This test file exercises the REAL filesystem for fixtures by design.
+#![allow(clippy::disallowed_methods)]
+
 // ── tests/naryad_198_dependency_conflict.rs ─────────────────────────
 // Наряд №198, Contract 1: version conflict must produce an explicit,
 // understandable error — NOT a silent choice.

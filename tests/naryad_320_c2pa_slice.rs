@@ -1,3 +1,8 @@
+// Naryad #475 (issue #723): the fs_gate ratchet (clippy disallowed-methods)
+// targets PRODUCTION I/O paths. This test file exercises the REAL filesystem
+// for fixtures and assertions by design — the allow is scoped to this file.
+#![allow(clippy::disallowed_methods)]
+
 //! Наряд №320 (issue #407) — C2PA mini-slice: EU AI Act Art. 50 synthetic
 //! marking on egress (ADR-0152).
 //!
@@ -38,13 +43,35 @@ fn signed_synthetic(png: Vec<u8>) -> VisionArtifact {
 
 // ── (а) raw egress of synthetic content is refused ─────────────────────
 
+// №475: the gate refuses ABSOLUTE paths — the fixtures use RELATIVE
+// per-test directories (auto-cleaned on drop; each name unique per call).
+struct TmpDirRel(&'static str);
+impl TmpDirRel {
+    fn new(name: &'static str) -> Self {
+        let _ = std::fs::remove_dir_all(name);
+        std::fs::create_dir_all(name).unwrap();
+        TmpDirRel(name)
+    }
+    fn p(&self, file: &str) -> String {
+        format!("{}/{}", self.0, file)
+    }
+}
+impl Drop for TmpDirRel {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(self.0);
+    }
+}
+
 #[test]
 fn n320_raw_export_refuses_synthetic_artifact() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let path = dir.path().join("synthetic.png");
+    let dir = TmpDirRel::new("n475t_c2pa_1");
+    let path = dir.p("synthetic.png");
     let mut reg = VisionRegistry::new();
     let id = reg.insert(signed_synthetic(vec![1, 2, 3]));
-    let args = vec![Value::Vision(id), Value::String(path.display().to_string())];
+    let args = vec![
+        Value::Vision(id),
+        Value::String(std::path::Path::new(&path).display().to_string()),
+    ];
     let err = vision_export_raw_dispatch(&reg, &args)
         .expect_err("raw egress of synthetic content must be refused (ADR-0152 D3)");
     assert!(
@@ -58,21 +85,24 @@ fn n320_raw_export_refuses_synthetic_artifact() {
         err
     );
     assert!(
-        !path.exists(),
+        !std::path::Path::new(&path).exists(),
         "the refused raw export must not write any bytes"
     );
 }
 
 #[test]
 fn n320_raw_export_refuses_manifestless_artifact() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let path = dir.path().join("unmarked.png");
+    let dir = TmpDirRel::new("n475t_c2pa_2");
+    let path = dir.p("unmarked.png");
     let mut reg = VisionRegistry::new();
     let id = reg.insert(VisionArtifact {
         png_bytes: vec![4, 5, 6],
         manifest: None,
     });
-    let args = vec![Value::Vision(id), Value::String(path.display().to_string())];
+    let args = vec![
+        Value::Vision(id),
+        Value::String(std::path::Path::new(&path).display().to_string()),
+    ];
     let err = vision_export_raw_dispatch(&reg, &args)
         .expect_err("unmarked (manifest-less) egress must be refused");
     assert!(err.contains("MEDIA_SYNTHETIC_UNMARKED"), "{}", err);
@@ -84,15 +114,18 @@ fn n320_non_synthetic_artifact_raw_exports() {
     // (foreign non-synthetic media); raw egress stays legal for it
     // (ADR-0152 D3) — the gate is about SYNTHETIC marking, not about raw
     // per se.
-    let dir = tempfile::tempdir().expect("tempdir");
-    let path = dir.path().join("foreign.png");
+    let dir = TmpDirRel::new("n475t_c2pa_3");
+    let path = dir.p("foreign.png");
     let mut artifact = signed_synthetic(vec![7, 8]);
     if let Some(m) = artifact.manifest.as_mut() {
         m.synthetic = false;
     }
     let mut reg = VisionRegistry::new();
     let id = reg.insert(artifact);
-    let args = vec![Value::Vision(id), Value::String(path.display().to_string())];
+    let args = vec![
+        Value::Vision(id),
+        Value::String(std::path::Path::new(&path).display().to_string()),
+    ];
     vision_export_raw_dispatch(&reg, &args).expect("non-synthetic raw egress is legal");
     assert_eq!(std::fs::read(&path).expect("bytes"), vec![7, 8]);
 }
@@ -101,13 +134,16 @@ fn n320_non_synthetic_artifact_raw_exports() {
 
 #[test]
 fn n320_marked_export_ships_synthetic_sidecar() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let path = dir.path().join("marked.png");
+    let dir = TmpDirRel::new("n475t_c2pa_4");
+    let path = dir.p("marked.png");
     let mut reg = VisionRegistry::new();
     let id = reg.insert(signed_synthetic(vec![1, 1, 1]));
-    let args = vec![Value::Vision(id), Value::String(path.display().to_string())];
+    let args = vec![
+        Value::Vision(id),
+        Value::String(std::path::Path::new(&path).display().to_string()),
+    ];
     vision_export_dispatch(&reg, &args).expect("marked egress must succeed");
-    let sidecar_path = dir.path().join("marked.png.manifest.json");
+    let sidecar_path = dir.p("marked.png.manifest.json");
     let json = std::fs::read_to_string(&sidecar_path).expect("sidecar written");
     // (г) external-validator: the sidecar is structurally valid JSON with
     // the required C2PA-shaped fields (COSE/JUMBF validation is №337 —

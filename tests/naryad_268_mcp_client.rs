@@ -1,3 +1,8 @@
+// Naryad #475 (issue #723): the fs_gate ratchet (clippy disallowed-methods)
+// targets PRODUCTION I/O paths. This test file exercises the REAL filesystem
+// for fixtures and assertions by design — the allow is scoped to this file.
+#![allow(clippy::disallowed_methods)]
+
 // ── Наряд №268: MCP stdio-клиент — mcp_call / mcp_list_tools (ADR-0132) ──
 //
 // Контракт-тесты против локального fixture-сервера

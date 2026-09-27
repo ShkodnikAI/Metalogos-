@@ -1777,7 +1777,7 @@ pub fn decode_png(png_bytes: &[u8]) -> Result<Tensor, String> {
 /// `VisionRegistry`), only the file write differs.
 pub fn save_png(img: &Tensor, path: &Path) -> Result<(), String> {
     let bytes = encode_png(img)?;
-    std::fs::write(path, &bytes)
+    crate::fs_gate::write_bytes(&path.to_string_lossy(), "vision save_png", &bytes) // №475 facade
         .map_err(|e| format!("save_png: write to {}: {}", path.display(), e))
 }
 

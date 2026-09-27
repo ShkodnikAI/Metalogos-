@@ -221,7 +221,7 @@ pub fn builtin_pdf_classify(args: &[Value]) -> Result<Value, String> {
     let path = expect_string_arg("pdf_classify", args, 0)?;
 
     let result = pdf_inspector::classify_pdf_mem(
-        &std::fs::read(&path)
+        &crate::fs_gate::read_bytes(&path, "pdf_classify")
             .map_err(|e| format!("pdf_classify: failed to read '{}': {}", path, e))?,
     )
     .map_err(|e| format!("pdf_classify: {}", e))?;
@@ -247,7 +247,7 @@ pub fn builtin_pdf_classify(args: &[Value]) -> Result<Value, String> {
 pub fn builtin_pdf_to_markdown(args: &[Value]) -> Result<Value, String> {
     let path = expect_string_arg("pdf_to_markdown", args, 0)?;
 
-    let bytes = std::fs::read(&path)
+    let bytes = crate::fs_gate::read_bytes(&path, "pdf_to_markdown")
         .map_err(|e| format!("pdf_to_markdown: failed to read '{}': {}", path, e))?;
 
     let result =
@@ -286,7 +286,7 @@ pub fn builtin_pdf_to_markdown(args: &[Value]) -> Result<Value, String> {
 pub fn builtin_pdf_extract_regions(args: &[Value]) -> Result<Value, String> {
     let path = expect_string_arg("pdf_extract_regions", args, 0)?;
 
-    let bytes = std::fs::read(&path)
+    let bytes = crate::fs_gate::read_bytes(&path, "pdf_extract_regions")
         .map_err(|e| format!("pdf_extract_regions: failed to read '{}': {}", path, e))?;
 
     let classification = pdf_inspector::classify_pdf_mem(&bytes)
@@ -329,8 +329,8 @@ pub fn builtin_pdf_extract_regions(args: &[Value]) -> Result<Value, String> {
 pub fn builtin_pdf_ocr(args: &[Value]) -> Result<Value, String> {
     let path = expect_string_arg("pdf_ocr", args, 0)?;
 
-    let bytes =
-        std::fs::read(&path).map_err(|e| format!("pdf_ocr: failed to read '{}': {}", path, e))?;
+    let bytes = crate::fs_gate::read_bytes(&path, "pdf_ocr")
+        .map_err(|e| format!("pdf_ocr: failed to read '{}': {}", path, e))?;
 
     let classification = pdf_inspector::classify_pdf_mem(&bytes)
         .map_err(|e| format!("pdf_ocr: classify failed: {}", e))?;
@@ -649,7 +649,7 @@ pub fn builtin_pdf_save(args: &[Value]) -> Result<Value, String> {
     // Generate PDF 1.4 content
     let pdf_bytes = render_pdf(&doc)?;
 
-    std::fs::write(&path, &pdf_bytes)
+    crate::fs_gate::write_bytes(&path, "pdf_save", &pdf_bytes)
         .map_err(|e| format!("pdf_save: failed to write '{}': {}", path, e))?;
 
     Ok(make_struct(
@@ -1283,7 +1283,9 @@ pub fn builtin_pdf_add_image(args: &[Value]) -> Result<Value, String> {
 
 /// Read image dimensions from PNG or JPEG file headers.
 fn read_image_dimensions(path: &str) -> Option<(f64, f64)> {
-    let bytes = std::fs::read(path).ok()?;
+    // №475: the dims probe is a program-path read — gated; any refusal
+    // reads as "dimensions unknown" (the Option contract).
+    let bytes = crate::fs_gate::read_bytes(path, "pdf image dimensions").ok()?;
     if bytes.len() < 8 {
         return None;
     }
@@ -1570,7 +1572,7 @@ pub fn builtin_pdf_fill_form(args: &[Value]) -> Result<Value, String> {
         "PdfFillForm",
         &["path", "fields_filled"],
         &[
-            Value::String(output_path),
+            Value::String(output_path.clone()),
             Value::Float(fields_filled as f64),
         ],
     ))
@@ -1749,9 +1751,9 @@ pub fn builtin_pdf_extract_images(args: &[Value]) -> Result<Value, String> {
 
                 // Write the raw stream content
                 let content = &stream.content;
-                std::fs::write(&out_path, content).map_err(|e| {
-                    format!("pdf_extract_images: write '{}' failed: {}", out_path, e)
-                })?;
+                crate::fs_gate::write_bytes(&out_path, "pdf_extract_images", content).map_err(
+                    |e| format!("pdf_extract_images: write '{}' failed: {}", out_path, e),
+                )?;
 
                 extracted_paths.push(Value::String(out_path));
 
@@ -1794,9 +1796,9 @@ pub fn builtin_pdf_merge(args: &[Value]) -> Result<Value, String> {
 
     // For a single file, just copy it
     if paths.len() == 1 {
-        let bytes = std::fs::read(&paths[0])
+        let bytes = crate::fs_gate::read_bytes(&paths[0], "pdf_merge input")
             .map_err(|e| format!("pdf_merge: failed to read '{}': {}", paths[0], e))?;
-        std::fs::write(&output, &bytes)
+        crate::fs_gate::write_bytes(&output, "pdf_merge output", &bytes)
             .map_err(|e| format!("pdf_merge: failed to write '{}': {}", output, e))?;
         let class = pdf_inspector::classify_pdf_mem(&bytes)
             .map_err(|e| format!("pdf_merge: classify failed: {}", e))?;
@@ -1828,7 +1830,7 @@ pub fn builtin_pdf_merge(args: &[Value]) -> Result<Value, String> {
 
     // Collect page content from all documents
     for path in &paths {
-        let bytes = std::fs::read(path)
+        let bytes = crate::fs_gate::read_bytes(path, "pdf_merge input")
             .map_err(|e| format!("pdf_merge: failed to read '{}': {}", path, e))?;
 
         let class = pdf_inspector::classify_pdf_mem(&bytes)
@@ -1950,11 +1952,21 @@ pub fn builtin_pdf_merge(args: &[Value]) -> Result<Value, String> {
     }
 
     // Save the merged document
+    // №475: the lopdf save opens its own file internally (invisible to
+    // the lint) — the OUTPUT PATH is gated here explicitly before the
+    // save (the facade's policy, the library's I/O).
+    crate::fs_gate::precheck_write_raw(&output, "pdf_merge output")?;
+    let out_resolved =
+        crate::builtins::io::sandbox_path_ex(&output, crate::builtins::io::SandboxMode::ForWrite)
+            .map_err(crate::builtins::io::sandbox_violation)?;
+    crate::fs_gate::gate_write_resolved(&output, &out_resolved, "pdf_merge output")?;
     base_doc
-        .save(&output)
+        .save(&out_resolved)
         .map_err(|e| format!("pdf_merge: failed to save '{}': {:?}", output, e))?;
 
-    let output_bytes = std::fs::read(&output)
+    // №475: the read-back goes through the gate on the RAW (relative)
+    // path — the same file the resolved save wrote.
+    let output_bytes = crate::fs_gate::read_bytes(&output, "pdf_merge output")
         .map_err(|e| format!("pdf_merge: failed to read output '{}': {}", output, e))?;
 
     Ok(make_struct(
@@ -2067,7 +2079,7 @@ pub fn builtin_pdf_split(args: &[Value]) -> Result<Value, String> {
 pub fn builtin_pdf_metadata(args: &[Value]) -> Result<Value, String> {
     let path = expect_string_arg("pdf_metadata", args, 0)?;
 
-    let bytes = std::fs::read(&path)
+    let bytes = crate::fs_gate::read_bytes(&path, "pdf_metadata")
         .map_err(|e| format!("pdf_metadata: failed to read '{}': {}", path, e))?;
 
     // Get page count and type from pdf_inspector
@@ -2382,7 +2394,7 @@ fn html_to_pdf_rust(html: &str, path: &str) -> Result<usize, String> {
 
     // Render and save
     let pdf_bytes = render_pdf(&doc)?;
-    std::fs::write(path, &pdf_bytes)
+    crate::fs_gate::write_bytes(path, "html_to_pdf_rust", &pdf_bytes)
         .map_err(|e| format!("html_to_pdf_rust: write failed: {}", e))?;
 
     Ok(pdf_bytes.len())
@@ -2390,9 +2402,28 @@ fn html_to_pdf_rust(html: &str, path: &str) -> Result<usize, String> {
 
 /// wkhtmltopdf fallback for complex HTML→PDF conversion.
 fn html_to_pdf_wkhtmltopdf(html: &str, path: &str) -> Result<usize, String> {
+    // №475 (issue #723): the OUTPUT path is program-facing and the
+    // wkhtmltopdf process writes it OUTSIDE any Rust-visible I/O — the
+    // write gate applies HERE, before the spawn, and the process gets
+    // the RESOLVED canonical path (no symlink swap past the gate).
+    crate::fs_gate::precheck_write_raw(path, "html_to_pdf output")?;
+    let out_resolved =
+        crate::builtins::io::sandbox_path_ex(path, crate::builtins::io::SandboxMode::ForWrite)
+            .map_err(crate::builtins::io::sandbox_violation)?;
+    crate::fs_gate::gate_write_resolved(path, &out_resolved, "html_to_pdf output")?;
     // Write HTML to temp file
     let tmp_dir = std::env::var("TMPDIR").unwrap_or_else(|_| "/tmp".to_string());
     let tmp_html = format!("{}/mlog_html2pdf_{}.html", tmp_dir, uuid::Uuid::new_v4());
+    // №475: host TEMP mechanics for the EXTERNAL wkhtmltopdf process —
+    // an absolute TMPDIR path with a uuid name, never program-controlled;
+    // the sandbox/data-dir rules cannot apply to an absolute host temp
+    // path (the same class as the html_render temp plumbing in io.rs).
+    #[allow(clippy::disallowed_methods)]
+    // №475: host TEMP mechanics for the EXTERNAL wkhtmltopdf process —
+    // an absolute TMPDIR path with a uuid name, never program-controlled;
+    // the sandbox/data-dir rules cannot apply to an absolute host temp
+    // path (the same class as the html_render temp plumbing in io.rs).
+    #[allow(clippy::disallowed_methods)]
     std::fs::write(&tmp_html, html).map_err(|e| format!("temp write failed: {}", e))?;
 
     // Use wkhtmltopdf (C/C++ system tool, NOT Python)
@@ -2400,11 +2431,12 @@ fn html_to_pdf_wkhtmltopdf(html: &str, path: &str) -> Result<usize, String> {
         .arg("--quiet")
         .arg("--enable-local-file-access")
         .arg(&tmp_html)
-        .arg(path)
+        .arg(&out_resolved)
         .output()
         .map_err(|e| format!("wkhtmltopdf not found: {}", e))?;
 
-    // Clean up temp file
+    // Clean up temp file (№475: host temp mechanics — see above)
+    #[allow(clippy::disallowed_methods)]
     let _ = std::fs::remove_file(&tmp_html);
 
     if !result.status.success() {
@@ -2412,7 +2444,9 @@ fn html_to_pdf_wkhtmltopdf(html: &str, path: &str) -> Result<usize, String> {
         return Err(format!("wkhtmltopdf failed: {}", stderr));
     }
 
-    let output_bytes = std::fs::read(path).map_err(|e| format!("output read failed: {}", e))?;
+    // №475: the read-back uses the RAW (relative) path through the gate.
+    let output_bytes = crate::fs_gate::read_bytes(path, "html_to_pdf output")
+        .map_err(|e| format!("output read failed: {}", e))?;
 
     Ok(output_bytes.len())
 }
@@ -2467,7 +2501,10 @@ pub fn builtin_send_document(args: &[Value]) -> Result<Value, String> {
         .build()
         .map_err(|e| format!("send_document(): client error: {}", e))?;
 
-    let file_bytes = std::fs::read(&file_path)
+    // №475 (issue #723, audit group B): send_document reads ANY path
+    // and exfiltrates by design (Telegram) — the same class as the smtp
+    // attachments. Now the full read gate (deny-list + serve containment).
+    let file_bytes = crate::fs_gate::read_bytes(&file_path, "send_document")
         .map_err(|e| format!("send_document: failed to read '{}': {}", file_path, e))?;
 
     let file_name = std::path::Path::new(&file_path)
@@ -2511,7 +2548,31 @@ pub fn builtin_send_document(args: &[Value]) -> Result<Value, String> {
 // ════════════════════════════════════════════════════════════════════════
 
 #[cfg(test)]
+// №475: the test mods exercise the REAL filesystem for fixtures — the
+// ratchet targets production I/O (see clippy.toml).
+#[allow(clippy::disallowed_methods)]
 mod tests {
+    use serial_test::serial;
+
+    // №475: the sandbox refuses ABSOLUTE paths — the pdf fixtures now
+    // write under a RELATIVE per-test directory (auto-cleaned on drop,
+    // panic-safe), mirroring the tempfile::tempdir contract.
+    struct TmpDir(&'static str);
+    impl TmpDir {
+        fn new(name: &'static str) -> Self {
+            let _ = std::fs::remove_dir_all(name);
+            std::fs::create_dir_all(name).unwrap();
+            TmpDir(name)
+        }
+        fn p(&self, file: &str) -> String {
+            format!("{}/{}", self.0, file)
+        }
+    }
+    impl Drop for TmpDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(self.0);
+        }
+    }
     use super::*;
 
     #[test]
@@ -2546,22 +2607,22 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_pdf_classify_not_a_pdf() {
-        let dir = tempfile::tempdir().unwrap();
-        let fake_path = dir.path().join("not_a_pdf.txt");
+        let dir = TmpDir::new("n475_pdf_tmp_1");
+        let fake_path = dir.p("not_a_pdf.txt");
         std::fs::write(&fake_path, "this is not a PDF").unwrap();
-        let result =
-            builtin_pdf_classify(&[Value::String(fake_path.to_string_lossy().to_string())]);
+        let result = builtin_pdf_classify(&[Value::String(fake_path)]);
         assert!(result.is_err());
     }
 
     #[test]
+    #[serial]
     fn test_pdf_to_markdown_not_a_pdf() {
-        let dir = tempfile::tempdir().unwrap();
-        let fake_path = dir.path().join("not_a_pdf.txt");
+        let dir = TmpDir::new("n475_pdf_tmp_2");
+        let fake_path = dir.p("not_a_pdf.txt");
         std::fs::write(&fake_path, "this is not a PDF").unwrap();
-        let result =
-            builtin_pdf_to_markdown(&[Value::String(fake_path.to_string_lossy().to_string())]);
+        let result = builtin_pdf_to_markdown(&[Value::String(fake_path)]);
         assert!(result.is_err());
     }
 
@@ -2605,9 +2666,10 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_pdf_create_add_page_write_save() {
-        let dir = tempfile::tempdir().unwrap();
-        let output_path = dir.path().join("test_output.pdf");
+        let dir = TmpDir::new("n475_pdf_tmp_3");
+        let output_path = dir.p("test_output.pdf");
 
         // Create document
         let create_result = builtin_pdf_create(&[]).unwrap();
@@ -2633,10 +2695,8 @@ mod tests {
         assert!(write_result.is_ok());
 
         // Save
-        let save_result = builtin_pdf_save(&[
-            Value::String(doc_id),
-            Value::String(output_path.to_string_lossy().to_string()),
-        ]);
+        let save_result =
+            builtin_pdf_save(&[Value::String(doc_id), Value::String(output_path.clone())]);
         assert!(save_result.is_ok());
 
         // Verify file was created and is non-empty
@@ -2833,9 +2893,10 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_pdf_set_header_then_save() {
-        let dir = tempfile::tempdir().unwrap();
-        let output_path = dir.path().join("header_test.pdf");
+        let dir = TmpDir::new("n475_pdf_tmp_4");
+        let output_path = dir.p("header_test.pdf");
 
         let create_result = builtin_pdf_create(&[]).unwrap();
         let doc_id = extract_doc_id(&create_result);
@@ -2853,10 +2914,8 @@ mod tests {
         ]);
         assert!(header_result.is_ok());
 
-        let save_result = builtin_pdf_save(&[
-            Value::String(doc_id),
-            Value::String(output_path.to_string_lossy().to_string()),
-        ]);
+        let save_result =
+            builtin_pdf_save(&[Value::String(doc_id), Value::String(output_path.clone())]);
         assert!(save_result.is_ok());
         assert!(std::fs::metadata(&output_path).unwrap().len() > 100);
     }
@@ -2907,9 +2966,10 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_pdf_watermark_basic() {
-        let dir = tempfile::tempdir().unwrap();
-        let output_path = dir.path().join("watermark_test.pdf");
+        let dir = TmpDir::new("n475_pdf_tmp_5");
+        let output_path = dir.p("watermark_test.pdf");
 
         let create_result = builtin_pdf_create(&[]).unwrap();
         let doc_id = extract_doc_id(&create_result);
@@ -2928,10 +2988,8 @@ mod tests {
         assert!(wm_result.is_ok());
 
         // Save with watermark
-        let save_result = builtin_pdf_save(&[
-            Value::String(doc_id),
-            Value::String(output_path.to_string_lossy().to_string()),
-        ]);
+        let save_result =
+            builtin_pdf_save(&[Value::String(doc_id), Value::String(output_path.clone())]);
         assert!(save_result.is_ok());
         assert!(std::fs::metadata(&output_path).unwrap().len() > 100);
     }
@@ -2959,11 +3017,12 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_pdf_fill_form_no_fields() {
         // Create a simple PDF and try to fill form (no AcroForm → should fail gracefully)
-        let dir = tempfile::tempdir().unwrap();
-        let input_path = dir.path().join("no_form.pdf");
-        let output_path = dir.path().join("filled.pdf");
+        let dir = TmpDir::new("n475_pdf_tmp_6");
+        let input_path = dir.p("no_form.pdf");
+        let output_path = dir.p("filled.pdf");
 
         // Create a basic PDF first
         let create_result = builtin_pdf_create(&[]).unwrap();
@@ -2974,16 +3033,12 @@ mod tests {
             Value::Float(841.89),
         ])
         .unwrap();
-        builtin_pdf_save(&[
-            Value::String(doc_id),
-            Value::String(input_path.to_string_lossy().to_string()),
-        ])
-        .unwrap();
+        builtin_pdf_save(&[Value::String(doc_id), Value::String(input_path.clone())]).unwrap();
 
         let result = builtin_pdf_fill_form(&[
-            Value::String(input_path.to_string_lossy().to_string()),
+            Value::String(input_path.clone()),
             Value::String("{\"name\":\"Alice\"}".to_string()),
-            Value::String(output_path.to_string_lossy().to_string()),
+            Value::String(output_path.clone()),
         ]);
         // Should fail because the PDF has no AcroForm
         assert!(result.is_err());
@@ -2991,10 +3046,11 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_pdf_rotate_page_invalid_degrees() {
-        let dir = tempfile::tempdir().unwrap();
-        let input_path = dir.path().join("input.pdf");
-        let output_path = dir.path().join("rotated.pdf");
+        let dir = TmpDir::new("n475_pdf_tmp_7");
+        let input_path = dir.p("input.pdf");
+        let output_path = dir.p("rotated.pdf");
 
         // Create a basic PDF
         let create_result = builtin_pdf_create(&[]).unwrap();
@@ -3005,27 +3061,24 @@ mod tests {
             Value::Float(841.89),
         ])
         .unwrap();
-        builtin_pdf_save(&[
-            Value::String(doc_id),
-            Value::String(input_path.to_string_lossy().to_string()),
-        ])
-        .unwrap();
+        builtin_pdf_save(&[Value::String(doc_id), Value::String(input_path.clone())]).unwrap();
 
         let result = builtin_pdf_rotate_page(&[
-            Value::String(input_path.to_string_lossy().to_string()),
+            Value::String(input_path.clone()),
             Value::Float(1.0),
             Value::Float(45.0), // invalid
-            Value::String(output_path.to_string_lossy().to_string()),
+            Value::String(output_path.clone()),
         ]);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("must be 90, 180, or 270"));
     }
 
     #[test]
+    #[serial]
     fn test_pdf_delete_pages_invalid_page() {
-        let dir = tempfile::tempdir().unwrap();
-        let input_path = dir.path().join("input.pdf");
-        let output_path = dir.path().join("deleted.pdf");
+        let dir = TmpDir::new("n475_pdf_tmp_8");
+        let input_path = dir.p("input.pdf");
+        let output_path = dir.p("deleted.pdf");
 
         // Create a basic PDF
         let create_result = builtin_pdf_create(&[]).unwrap();
@@ -3036,16 +3089,12 @@ mod tests {
             Value::Float(841.89),
         ])
         .unwrap();
-        builtin_pdf_save(&[
-            Value::String(doc_id),
-            Value::String(input_path.to_string_lossy().to_string()),
-        ])
-        .unwrap();
+        builtin_pdf_save(&[Value::String(doc_id), Value::String(input_path.clone())]).unwrap();
 
         let result = builtin_pdf_delete_pages(&[
-            Value::String(input_path.to_string_lossy().to_string()),
+            Value::String(input_path.clone()),
             Value::String("[99]".to_string()), // page 99 doesn't exist
-            Value::String(output_path.to_string_lossy().to_string()),
+            Value::String(output_path.clone()),
         ]);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("exceeds"));
@@ -3059,44 +3108,48 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_read_image_dimensions() {
         // Test with non-existent file
         assert!(read_image_dimensions("/nonexistent/file.png").is_none());
 
         // Test with a small file that's not an image
-        let dir = tempfile::tempdir().unwrap();
-        let fake_path = dir.path().join("fake.png");
+        let dir = TmpDir::new("n475_pdf_tmp_9");
+        let fake_path = dir.p("fake.png");
         std::fs::write(&fake_path, b"not an image").unwrap();
-        assert!(read_image_dimensions(fake_path.to_str().unwrap()).is_none());
+        assert!(read_image_dimensions(fake_path.as_str()).is_none());
     }
 
     #[test]
+    #[serial]
     fn test_html_to_pdf_rust_simple() {
-        let dir = tempfile::tempdir().unwrap();
-        let output_path = dir.path().join("simple.pdf");
+        let dir = TmpDir::new("n475_pdf_tmp_10");
+        let output_path = dir.p("simple.pdf");
 
         let html = "<html><body><h1>Hello</h1><p>World</p></body></html>";
-        let result = html_to_pdf_rust(html, output_path.to_str().unwrap());
+        let result = html_to_pdf_rust(html, output_path.as_str());
         assert!(result.is_ok());
         assert!(std::fs::metadata(&output_path).unwrap().len() > 100);
     }
 
     #[test]
+    #[serial]
     fn test_html_to_pdf_rust_rejects_complex() {
-        let dir = tempfile::tempdir().unwrap();
-        let output_path = dir.path().join("complex.pdf");
+        let dir = TmpDir::new("n475_pdf_tmp_11");
+        let output_path = dir.p("complex.pdf");
 
         let html = "<html><head><style>body{color:red}</style></head><body>Hello</body></html>";
-        let result = html_to_pdf_rust(html, output_path.to_str().unwrap());
+        let result = html_to_pdf_rust(html, output_path.as_str());
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("CSS"));
     }
 
     #[test]
+    #[serial]
     fn test_full_office_document() {
         // End-to-end: create PDF with table, header, page numbers, watermark, save
-        let dir = tempfile::tempdir().unwrap();
-        let output_path = dir.path().join("office_doc.pdf");
+        let dir = TmpDir::new("n475_pdf_tmp_12");
+        let output_path = dir.p("office_doc.pdf");
 
         let create_result = builtin_pdf_create(&[]).unwrap();
         let doc_id = extract_doc_id(&create_result);
@@ -3150,10 +3203,8 @@ mod tests {
         .unwrap();
 
         // Save
-        let save_result = builtin_pdf_save(&[
-            Value::String(doc_id),
-            Value::String(output_path.to_string_lossy().to_string()),
-        ]);
+        let save_result =
+            builtin_pdf_save(&[Value::String(doc_id), Value::String(output_path.clone())]);
         assert!(save_result.is_ok());
 
         let file_size = std::fs::metadata(&output_path).unwrap().len();

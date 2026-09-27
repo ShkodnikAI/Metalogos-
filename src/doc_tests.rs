@@ -227,6 +227,9 @@ pub fn default_doc_files(root: &Path) -> Vec<PathBuf> {
 }
 
 fn collect_markdown(dir: &Path, out: &mut Vec<PathBuf>) {
+    // №475: the DOCS harness — example-directory enumeration for
+    // documentation generation (host tooling, not program I/O).
+    #[allow(clippy::disallowed_methods)]
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(_) => return,
@@ -484,6 +487,8 @@ pub fn run_doc_tests(
             .strip_prefix(std::env::current_dir().unwrap_or_default())
             .map(|p| p.display().to_string())
             .unwrap_or_else(|_| file.display().to_string());
+        // №475: the DOCS harness — example source reads (see above).
+        #[allow(clippy::disallowed_methods)]
         let markdown = match std::fs::read_to_string(file) {
             Ok(m) => m,
             Err(e) => {

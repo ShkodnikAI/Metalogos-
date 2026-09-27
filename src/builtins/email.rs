@@ -223,7 +223,13 @@ fn smtp_send_impl(
         let mut mixed = MultiPart::mixed().singlepart(body_part);
 
         for path in &paths {
-            let data = std::fs::read(path)
+            // №475 (issue #723, audit group B): attachments went past
+            // EVERYTHING — a raw read of ANY path (absolute included)
+            // with immediate exfiltration by design. Now the full read
+            // gate: sandbox (absolute/.. → SANDBOX_VIOLATION), the
+            // deny-list (.env, *.pem, id_rsa*, … → SANDBOX_SENSITIVE_PATH),
+            // the serve data-dir containment.
+            let data = crate::fs_gate::read_bytes(path, "smtp_send attachment")
                 .map_err(|e| format!("smtp_send: cannot read attachment '{}': {}", path, e))?;
             let filename = std::path::Path::new(path)
                 .file_name()

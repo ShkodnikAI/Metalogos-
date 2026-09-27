@@ -4,6 +4,13 @@
 // `mlog check <file.mlog>`  — semantic analysis without execution
 // `mlog serve <file.mlog>`  — start HTTP server from mlogserver block
 
+// №475 (issue #723): the CLI binary is the SOURCE/BYTECODE LOADER
+// boundary — `mlog run/check/serve <file>` read the argv paths the USER
+// named (absolute included) and `mlog build` writes the compiled artifact.
+// That is the same trust domain as the compiler's import loader; the
+// sandbox targets PROGRAM-RUNTIME I/O, which stays behind fs_gate.
+#![allow(clippy::disallowed_methods)]
+
 use clap::{CommandFactory, FromArgMatches, Parser};
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;

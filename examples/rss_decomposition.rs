@@ -1,3 +1,8 @@
+// Naryad #475 (issue #723): the fs_gate ratchet (clippy disallowed-methods)
+// targets PRODUCTION I/O paths. This example/bench harness exercises the
+// REAL filesystem for its fixture setup by design — scoped to this file.
+#![allow(clippy::disallowed_methods)]
+
 // ── Naryad №409 (issue #554), Step A — VM-serve peak-RSS decomposition ──
 //
 // ADR-0141 Addendum 4 requires the resident/peak footprint of the VM-serve

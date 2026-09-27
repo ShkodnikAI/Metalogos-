@@ -1,3 +1,8 @@
+// Naryad #475 (issue #723): the fs_gate ratchet (clippy disallowed-methods)
+// targets PRODUCTION I/O paths. This test file exercises the REAL filesystem
+// for fixtures and assertions by design — the allow is scoped to this file.
+#![allow(clippy::disallowed_methods)]
+
 //! Наряд №329 (issue #423) — dogfooding: the Fosved Office message contour
 //! under the Wave-1 gate + the ergonomics measurement (plan v2 §13.3).
 //!

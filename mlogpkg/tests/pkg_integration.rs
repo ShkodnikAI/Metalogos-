@@ -1,3 +1,7 @@
+// Naryad #475 (issue #723): the fs_gate ratchet targets PRODUCTION I/O.
+// This test file exercises the REAL filesystem for fixtures by design.
+#![allow(clippy::disallowed_methods)]
+
 // ── mlogpkg integration tests (Phase 3.4) ────────────────────────────
 //
 // Contract (Наряд Phase 3.4):

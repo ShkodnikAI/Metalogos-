@@ -76,8 +76,15 @@ pub fn builtin_read_file_tokens(args: &[Value]) -> Result<Value, String> {
     let safe_path = sandbox_path(&path).map_err(|e| format!("read_file_tokens(): {}", e))?;
     // Н455: the SSOT file-ingest gate (canonical deny-list + serve root).
     file_ingest_gate("read_file_tokens", &path, &safe_path)?;
-    let content =
-        std::fs::read_to_string(&safe_path).map_err(|e| format!("read_file_tokens(): {}", e))?;
+    // №475: the read goes through the facade — the raw File::open lives
+    // in fs_gate.rs; here io::Read over the gated handle (the loud
+    // missing/unreadable contract is unchanged).
+    let mut file =
+        crate::fs_gate::open_gated(&safe_path).map_err(|e| format!("read_file_tokens(): {}", e))?;
+    use std::io::Read;
+    let mut content = String::new();
+    file.read_to_string(&mut content)
+        .map_err(|e| format!("read_file_tokens(): {}", e))?;
     let char_count = content.chars().count() as f64;
     let tokens = (char_count / 4.0).ceil();
     Ok(Value::Struct {

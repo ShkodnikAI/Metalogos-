@@ -54,6 +54,9 @@ impl WeightsManifest {
         if !manifest_path.exists() {
             return Ok(None);
         }
+        // №475: the WEIGHTS STORE (the naryad-named service) — sha-pinned
+        // manifest/index reads at the weights root, not program data.
+        #[allow(clippy::disallowed_methods)]
         let contents = fs::read_to_string(&manifest_path).map_err(|e| {
             format!(
                 "WeightsManifest::load_from_dir: cannot read {}: {}",
@@ -117,6 +120,8 @@ impl WeightsManifest {
 
 /// Compute the SHA-256 of a file's bytes.
 fn file_sha256(path: &Path) -> Result<String, String> {
+    // №475: the weights-store class (see the manifest note above).
+    #[allow(clippy::disallowed_methods)]
     let bytes = fs::read(path)
         .map_err(|e| format!("file_sha256: cannot read {}: {}", path.display(), e))?;
     let mut hasher = Sha256::new();
@@ -148,6 +153,8 @@ pub fn load_safetensors_sharded(
             index_path.display()
         ));
     }
+    // №475: the weights-store class (see the manifest note above).
+    #[allow(clippy::disallowed_methods)]
     let index_str = fs::read_to_string(&index_path).map_err(|e| {
         format!(
             "load_safetensors_sharded: cannot read {}: {}",
@@ -350,6 +357,9 @@ pub fn check_tensor_coverage(expected: &[String], loaded: &[String]) -> Result<(
 }
 
 #[cfg(test)]
+// №475: the test mod exercises the REAL filesystem for fixtures — the
+// ratchet targets production I/O (see clippy.toml).
+#[allow(clippy::disallowed_methods)]
 mod tests {
     use super::*;
     use std::io::Write;

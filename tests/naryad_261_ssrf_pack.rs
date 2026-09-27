@@ -1,3 +1,8 @@
+// Naryad #475 (issue #723): the fs_gate ratchet (clippy disallowed-methods)
+// targets PRODUCTION I/O paths. This test file exercises the REAL filesystem
+// for fixtures and assertions by design — the allow is scoped to this file.
+#![allow(clippy::disallowed_methods)]
+
 // ── НАРЯД №261: SSRF-пакет исходящего HTTP ──────────────────────────────
 //
 // Контракт (issue #277, docs/naryads-258-265-audit-tails.md §261):

@@ -1,3 +1,8 @@
+// Naryad #475 (issue #723): the fs_gate ratchet (clippy disallowed-methods)
+// targets PRODUCTION I/O paths. This test file exercises the REAL filesystem
+// for fixtures and assertions by design — the allow is scoped to this file.
+#![allow(clippy::disallowed_methods)]
+
 // ── Naryad №474 (gh#742): stage 1 of the type system — the let-type
 // inference, WARN-ONLY (gate gh#680, decision 3-A, step 2; the canon is
 // the №467 body: "этап 1 (вывод let, warn-only)"). ────────────────────

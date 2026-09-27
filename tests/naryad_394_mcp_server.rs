@@ -19,7 +19,10 @@ use metalogos::mcp_server::{McpAuth, McpServer};
 const TOOL_SOURCE: &str = r#"
 tool notify {
   send(message: String, channel: String) -> String {
-    write_file("target/n394_mcp_test_out.txt", "to " + channel + ": " + message)
+    // №475: MCP tool calls run in the ServeRoute context — the write
+    // containment restricts routes to the data directory (the sanctioned
+    // shape; "target/…" now refuses by design).
+    write_file("data/n394_mcp_test_out.txt", "to " + channel + ": " + message)
     return "sent:" + message
   }
   stats(rows: Float) -> String {
@@ -124,6 +127,10 @@ tool admin {
 #[test]
 fn stdio_core_handles_initialize_list_call_and_refusals() {
     let decls = parse(TOOL_SOURCE);
+    // №475: the tool writes into the data directory — it must exist
+    // (the ServeRoute write containment resolves METALOGOS_DATA_DIR
+    // fail-closed).
+    std::fs::create_dir_all("data").expect("create the data dir");
     let server = McpServer::new(&decls, &["notify.send".to_string(), "stats".to_string()])
         .expect("server builds");
 
@@ -242,6 +249,8 @@ mod network {
 
     #[tokio::test]
     async fn external_client_walks_tools_over_http() {
+        // №475: the notify.send tool writes into the data directory.
+        std::fs::create_dir_all("data").expect("create the data dir");
         let decls = parse(TOOL_SOURCE);
         let (port, handle) = run_test_mcp_server(
             &decls,

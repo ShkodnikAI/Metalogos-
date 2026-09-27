@@ -1,3 +1,8 @@
+// Naryad #475 (issue #723): the fs_gate ratchet (clippy disallowed-methods)
+// targets PRODUCTION I/O paths. This test file exercises the REAL filesystem
+// for fixtures and assertions by design — the allow is scoped to this file.
+#![allow(clippy::disallowed_methods)]
+
 //! Наряд №242 (Vision R6.1): SQLite-персистенция артефактов —
 //! roundtrip-контракт + негативы (плановая приёмка R6 «roundtrip-тест»).
 //!
@@ -73,9 +78,29 @@ fn vision_handle(v: &Value) -> metalogos::vision::VisionId {
 
 // ── Block 3.1: главный roundtrip-контракт ────────────────────────────
 
+// №475: the gate refuses ABSOLUTE paths — the fixtures use RELATIVE
+// per-test directories (auto-cleaned on drop; each name unique per call).
+struct TmpDirRel(&'static str);
+impl TmpDirRel {
+    fn new(name: &'static str) -> Self {
+        let _ = std::fs::remove_dir_all(name);
+        std::fs::create_dir_all(name).unwrap();
+        TmpDirRel(name)
+    }
+    fn p(&self, file: &str) -> String {
+        format!("{}/{}", self.0, file)
+    }
+}
+impl Drop for TmpDirRel {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(self.0);
+    }
+}
+
 /// Рег A (подписанный артефакт) → save → НОВЫЙ пустой рег B → load →
 /// signed export в tempdir: PNG байт-в-байт, sidecar байт-в-байт,
 /// манифест (включая timestamp) не перегенерируется.
+
 #[test]
 fn roundtrip_signed_artifact_survives_byte_for_byte() {
     let conn = mem_conn();
@@ -125,22 +150,16 @@ fn roundtrip_signed_artifact_survives_byte_for_byte() {
     );
 
     // Signed export из загруженного артефакта — и сверка байт-в-байт.
-    let dir = tempfile::tempdir().expect("tempdir");
-    let out = dir.path().join("out.png");
-    vision_export_dispatch(
-        &reg_b,
-        &[
-            Value::Vision(id_b),
-            Value::String(out.to_string_lossy().into_owned()),
-        ],
-    )
-    .expect("signed export of the loaded artifact must work");
+    let dir = TmpDirRel::new("n475t_vsl_1");
+    let out = dir.p("out.png");
+    vision_export_dispatch(&reg_b, &[Value::Vision(id_b), Value::String(out.clone())])
+        .expect("signed export of the loaded artifact must work");
     let written = std::fs::read(&out).expect("exported PNG");
     assert_eq!(
         written, png,
         "PNG must survive save→load→export byte-for-byte"
     );
-    let sidecar_path = dir.path().join("out.png.manifest.json");
+    let sidecar_path = dir.p("out.png.manifest.json");
     let sidecar = std::fs::read(&sidecar_path).expect("sidecar written by export");
     let expected_sidecar =
         manifest_sidecar_json(roundtripped.manifest.as_ref().unwrap()).expect("sidecar json");
@@ -354,35 +373,26 @@ fn manifest_none_roundtrip_backstop_stays_alive() {
         "NULL must load back as None — persistence must not invent provenance"
     );
 
-    let dir = tempfile::tempdir().expect("tempdir");
-    let out = dir.path().join("out.png");
-    let err = vision_export_dispatch(
-        &reg_b,
-        &[
-            Value::Vision(id_b),
-            Value::String(out.to_string_lossy().into_owned()),
-        ],
-    )
-    .expect_err("signed export must refuse an unsigned artifact after load");
+    let dir = TmpDirRel::new("n475t_vsl_2");
+    let out = dir.p("out.png");
+    let err = vision_export_dispatch(&reg_b, &[Value::Vision(id_b), Value::String(out.clone())])
+        .expect_err("signed export must refuse an unsigned artifact after load");
     assert!(
         err.contains("VISION_UNSIGNED_EXPORT"),
         "backstop check-id must survive persistence: {}",
         err
     );
     assert!(
-        !out.exists(),
+        !std::path::Path::new(&out).exists(),
         "the refused signed export must not have written the PNG"
     );
 
     // №320 (ADR-0152 D3): raw egress of the loaded UNSIGNED (unmarked)
     // artifact is refused — unmarked media is treated as synthetic.
-    let out_raw = dir.path().join("raw.png");
+    let out_raw = dir.p("raw.png");
     let err = vision_export_raw_dispatch(
         &reg_b,
-        &[
-            Value::Vision(id_b),
-            Value::String(out_raw.to_string_lossy().into_owned()),
-        ],
+        &[Value::Vision(id_b), Value::String(out_raw.clone())],
     )
     .expect_err("raw export must refuse the unmarked artifact (ADR-0152 D3)");
     assert!(
@@ -432,13 +442,10 @@ fn manifest_none_roundtrip_backstop_stays_alive() {
         !loaded_manifest.synthetic,
         "synthetic: false must survive the persistence roundtrip"
     );
-    let out_raw2 = dir.path().join("raw2.png");
+    let out_raw2 = dir.p("raw2.png");
     vision_export_raw_dispatch(
         &reg_d,
-        &[
-            Value::Vision(id_d),
-            Value::String(out_raw2.to_string_lossy().into_owned()),
-        ],
+        &[Value::Vision(id_d), Value::String(out_raw2.clone())],
     )
     .expect("raw export works on a non-synthetic artifact (ADR-0152 D3)");
     assert_eq!(
@@ -447,7 +454,7 @@ fn manifest_none_roundtrip_backstop_stays_alive() {
         "raw export ships exactly the persisted bytes"
     );
     assert!(
-        !dir.path().join("raw2.png.manifest.json").exists(),
+        !std::path::Path::new(&dir.p("raw2.png.manifest.json")).exists(),
         "raw export must NOT write a sidecar"
     );
 }

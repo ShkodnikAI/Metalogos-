@@ -1,3 +1,7 @@
+// Naryad #475 (issue #723): the fs_gate ratchet targets PRODUCTION I/O.
+// This test file exercises the REAL filesystem for fixtures by design.
+#![allow(clippy::disallowed_methods)]
+
 // ── tests/naryad_198_audit_finds_known_vuln.rs ─────────────────────
 // Наряд №198, Contract 3: `mlogpkg audit` finds and reports a known
 // vulnerability from the local advisory DB.

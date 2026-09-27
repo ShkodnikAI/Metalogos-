@@ -1,3 +1,8 @@
+// Naryad #475 (issue #723): the fs_gate ratchet (clippy disallowed-methods)
+// targets PRODUCTION I/O paths. This test file exercises the REAL filesystem
+// for fixtures and assertions by design — the allow is scoped to this file.
+#![allow(clippy::disallowed_methods)]
+
 // ── Naryad #402 (step A): the Arc-shared program state pin ────────────
 //
 // The step-A change (Vm installs the program's immutable collections as
@@ -47,7 +52,7 @@ mlogserver {
     let n1 = db_execute_with_grant(g, "DELETE FROM frames WHERE path = $1", [name])
     let refused = db_execute_with_grant(g, "DELETE FROM frames")
     let snap = ledger_snapshot()
-    let trail = ledger_export("target/n402_ledger.jsonl")
+    let trail = ledger_export("data/n402_ledger.jsonl")
     respond("200", "deleted:" + n1 + "|refused:" + type_of(refused) + "|trail:" + type_of(trail) + "|name:" + name)
   }
 }
@@ -72,6 +77,9 @@ async fn get(port: u16, path: &str) -> (u16, String) {
 
 #[tokio::test]
 async fn n402_route_identity_and_per_request_isolation() {
+    // №475: the routes write into the data directory — it must exist
+    // (the containment resolves METALOGOS_DATA_DIR fail-closed).
+    std::fs::create_dir_all("data").expect("create the data dir");
     let tw_port = start(SOURCE_N402, ServeBackend::Interpreter).await;
     let vm_port = start(SOURCE_N402, ServeBackend::Vm).await;
 
@@ -106,14 +114,11 @@ async fn n402_route_identity_and_per_request_isolation() {
     //    (this test process's records, TW + VM runs included) verifies
     //    externally — the genesis-seq contract holds on the shared-program
     //    runtime too.
-    let report = metalogos::ledger::verify_file(
-        std::path::Path::new("target/n402_ledger.jsonl"),
-        None,
-        None,
-    )
-    .expect("the exported chain verifies externally");
+    let report =
+        metalogos::ledger::verify_file(std::path::Path::new("data/n402_ledger.jsonl"), None, None)
+            .expect("the exported chain verifies externally");
     assert!(report.records >= 2, "the chain carries the story's events");
-    let content = std::fs::read_to_string("target/n402_ledger.jsonl").expect("export readable");
+    let content = std::fs::read_to_string("data/n402_ledger.jsonl").expect("export readable");
     assert!(
         content.contains("grant.issued"),
         "grant lifecycle journaled"

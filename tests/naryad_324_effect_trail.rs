@@ -1,3 +1,8 @@
+// Naryad #475 (issue #723): the fs_gate ratchet (clippy disallowed-methods)
+// targets PRODUCTION I/O paths. This test file exercises the REAL filesystem
+// for fixtures and assertions by design — the allow is scoped to this file.
+#![allow(clippy::disallowed_methods)]
+
 //! Наряд №324 (issue #418) — effect trail in pattern signatures
 //! (ADR-0154 §9): syntax `⟨io, audit⟩`, the boundary gate (factual
 //! effects of the body ⊑ declared trail), the №316 SSOT mapping for

@@ -20,7 +20,6 @@
 //     MEMORY_REDACT_REQUIRED — export the redact() output instead
 
 use super::core::expect_string_arg;
-use super::io::{open_sandbox_write, sandbox_path_ex, sandbox_violation, SandboxMode};
 use crate::interpreter::values::Value;
 use crate::memory_typed::{self, MemLabel};
 use std::io::Write;
@@ -231,11 +230,10 @@ pub(crate) fn builtin_memory_export(args: &[Value]) -> Result<Value, String> {
     if super::smfs::is_virtual(&path) {
         return Err(super::smfs::read_only_reject("memory_export", &path));
     }
-    let safe_path = sandbox_path_ex(&path, SandboxMode::ForWrite).map_err(sandbox_violation)?;
-    if let Some(parent) = safe_path.parent() {
-        let _ = std::fs::create_dir_all(parent); // best-effort
-    }
-    let mut file = open_sandbox_write(&safe_path, false)?;
+    // №475 (issue #723): the export write goes through the facade — the
+    // hard write-deny + the deny-list with the allowlist crane + the
+    // serve containment on top of the sandbox/TOCTOU mechanics.
+    let mut file = crate::fs_gate::open_write(&path, "memory_export", false)?;
     file.write_all(text.as_bytes())
         .map_err(|e| format!("memory_export: write failed: {}", e))?;
     Ok(Value::String(path))

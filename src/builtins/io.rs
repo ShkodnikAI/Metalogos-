@@ -65,6 +65,9 @@ pub(crate) fn append_subprocess_audit(operation: &str, detail: &str, exit_status
         timestamp, operation, detail, exit_status
     );
 
+    // №475: the subprocess AUDIT LOG append — host telemetry on an
+    // env-configured path, never program-controlled (№88 audit channel).
+    #[allow(clippy::disallowed_methods)]
     let _ = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -315,11 +318,21 @@ pub(crate) fn sensitive_path_match(path: &str) -> bool {
 
 /// The file-NAME half of the №455 deny-list (shared with the canonical
 /// re-check, which may resolve a symlink into a differently named file).
-fn sensitive_name_match(file_name: &str) -> bool {
+pub(crate) fn sensitive_name_match(file_name: &str) -> bool {
     file_name.starts_with(".env")
         || file_name.ends_with(".db")
+        || file_name.ends_with(".db-wal")
+        || file_name.ends_with(".db-journal")
+        || file_name.ends_with(".db-shm")
         || file_name.ends_with(".mlog")
         || file_name.contains(".sqlite")
+        || file_name.ends_with(".pem")
+        || file_name.ends_with(".key")
+        || file_name.starts_with("id_rsa")
+        || file_name.starts_with("id_ed25519")
+        || file_name.starts_with(".netrc")
+        || file_name.starts_with(".npmrc")
+        || file_name.starts_with("credentials")
         || file_name == "metalogos.toml"
 }
 
@@ -352,8 +365,9 @@ pub(crate) fn sandbox_sensitive_violation(msg: impl std::fmt::Display) -> String
 
 /// The №455 serve-route data-root (layer 2): canonicalized
 /// `METALOGOS_DATA_DIR` (default `./data`). Unresolvable root → the error
-/// (fail-closed: the caller refuses the ingest).
-fn serve_data_dir_root() -> Result<std::path::PathBuf, String> {
+/// (fail-closed: the caller refuses the ingest). №475: shared with the
+/// write-side gate (fs_gate.rs) — the containment covers BOTH directions.
+pub(crate) fn serve_data_dir_root() -> Result<std::path::PathBuf, String> {
     let root = std::env::var("METALOGOS_DATA_DIR").unwrap_or_else(|_| "./data".to_string());
     let base = std::env::current_dir().map_err(|e| format!("sandbox: {}", e))?;
     let root = if std::path::Path::new(&root).is_absolute() {
@@ -507,95 +521,10 @@ pub(crate) fn sandbox_path_ex(path: &str, mode: SandboxMode) -> Result<std::path
     }
 }
 
-/// Наряд №252: symlink-safe open for sandbox write targets.
-///
-/// `target` must come from `sandbox_path_ex(_, SandboxMode::ForWrite)`
-/// (canonical parent + final component).
-///
-/// Two-phase open closes the final-component TOCTOU:
-///   1. `create_new(true)` — if the file is created fresh, no symlink
-///      can sit at the final component (creation is atomic).
-///   2. On `AlreadyExists`: canonicalize the full path (resolves any
-///      symlink), re-verify the prefix against the sandbox base, then
-///      reopen the CANONICAL path with `O_NOFOLLOW` (unix) — so a
-///      symlink swapped in after the check cannot be followed.
-///
-/// Honest boundary: intermediate directory components swapped between
-/// canonicalize and open are still out of scope (would need per-component
-/// O_NOFOLLOW or Linux openat2 RESOLVE_BENEATH — revisit if a real
-/// use case appears; planted-final-component file escape is the
-/// reproduced class from №252).
-///
-/// Non-unix: step 2 opens the canonical path without O_NOFOLLOW
-/// (symlink creation there requires elevated privileges; documented
-/// boundary).
-pub(crate) fn open_sandbox_write(
-    target: &std::path::Path,
-    append: bool,
-) -> Result<std::fs::File, String> {
-    let attempt = if append {
-        std::fs::OpenOptions::new()
-            .append(true)
-            .create_new(true)
-            .open(target)
-    } else {
-        std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(target)
-    };
-
-    match attempt {
-        Ok(file) => Ok(file),
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            let base = std::env::current_dir()
-                .map_err(|e| format!("file I/O sandbox: {}", e))?
-                .canonicalize()
-                .map_err(|e| format!("file I/O sandbox: {}", e))?;
-            let canonical = target.canonicalize().map_err(|_| {
-                sandbox_violation(format!(
-                    "file I/O sandbox: cannot resolve path: '{}'",
-                    target.display()
-                ))
-            })?;
-            if !canonical.starts_with(&base) {
-                return Err(sandbox_violation(format!(
-                    "file I/O sandbox: resolved path escapes sandbox: '{}'",
-                    target.display()
-                )));
-            }
-            let mut opts = std::fs::OpenOptions::new();
-            if append {
-                opts.append(true);
-            } else {
-                // №254 regression (wave-3 acceptance CI, 2026-09-19): the
-                // reopen of an EXISTING file used write() without
-                // truncate — overwriting longer content with shorter
-                // left the old bytes as a tail (a cached sidecar read
-                // back as "corrupt sidecar JSON: trailing characters").
-                // Overwrite mode truncates; append mode must not.
-                opts.write(true).truncate(true);
-            }
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                opts.custom_flags(libc::O_NOFOLLOW);
-            }
-            opts.open(&canonical).map_err(|e| {
-                format!(
-                    "file I/O sandbox: cannot open '{}': {}",
-                    target.display(),
-                    e
-                )
-            })
-        }
-        Err(e) => Err(format!(
-            "file I/O sandbox: cannot create '{}': {}",
-            target.display(),
-            e
-        )),
-    }
-}
+// №475 (issue #723): the TOCTOU-safe write-open primitive MOVED to the
+// facade (src/fs_gate.rs, verbatim) — re-exported here for the pending
+// call sites (media/memory_typed/llm/http convert to the facade below).
+pub(crate) use crate::fs_gate::open_sandbox_write;
 
 /// `read_file(path)` — read file contents as String.
 /// Soft-failure: returns empty string when the file is missing or unreadable
@@ -638,8 +567,16 @@ pub(crate) fn builtin_read_file(args: &[Value]) -> Result<Value, String> {
     // Наряд №455: SSOT-гейт файлового чтения — канонический deny-list
     // (symlink-proof) + serve-ограничение корнем каталога данных (слой 2).
     file_ingest_gate("read_file", &path, &safe_path)?;
-    match std::fs::read_to_string(&safe_path) {
-        Ok(content) => Ok(Value::String(content)),
+    // №475: the READ goes through the facade — the only raw File::open
+    // lives in fs_gate.rs; here just io::Read over the gated handle.
+    let mut file = match crate::fs_gate::open_gated(&safe_path) {
+        Ok(f) => f,
+        Err(_) => return Ok(Value::String(String::new())), // soft-failure (нечитаем)
+    };
+    use std::io::Read;
+    let mut content = String::new();
+    match file.read_to_string(&mut content) {
+        Ok(_) => Ok(Value::String(content)),
         Err(_) => Ok(Value::String(String::new())), // soft-failure (нечитаем)
     }
 }
@@ -662,13 +599,11 @@ pub(crate) fn builtin_write_file(args: &[Value]) -> Result<Value, String> {
     // errors, not environmental failures).
     // Наряд №254: громкие отказы несут стабильный код SANDBOX_VIOLATION.
     // Ordinary OS-level write errors keep the soft-failure contract.
-    let safe_path = sandbox_path_ex(&path, SandboxMode::ForWrite).map_err(sandbox_violation)?;
-    // Create parent directories if needed
-    if let Some(parent) = safe_path.parent() {
-        let _ = std::fs::create_dir_all(parent); // best-effort
-    }
-    // sandbox escape / unresolvable target — loud
-    let mut file = open_sandbox_write(&safe_path, false)?;
+    // №475 (issue #723): the WRITE goes through the facade — sandbox +
+    // the hard write-deny (task 5) + the deny-list with the allowlist
+    // crane + the serve data-dir containment + the TOCTOU-safe open.
+    // Group A of the audit: writing app.mlog/.env was UNGATED.
+    let mut file = crate::fs_gate::open_write(&path, "write_file", false)?;
     match file.write_all(content.as_bytes()) {
         Ok(_) => Ok(Value::String("ok".to_string())),
         Err(_) => Ok(Value::String(String::new())), // soft-failure (OS-level)
@@ -691,13 +626,10 @@ pub(crate) fn builtin_append_file(args: &[Value]) -> Result<Value, String> {
     // Наряд №131: ForWrite — file may not exist yet.
     // Наряд №252: sandbox violations are LOUD (see builtin_write_file).
     // Наряд №254: громкие отказы несут стабильный код SANDBOX_VIOLATION.
-    let safe_path = sandbox_path_ex(&path, SandboxMode::ForWrite).map_err(sandbox_violation)?;
-    // Create parent directories if needed
-    if let Some(parent) = safe_path.parent() {
-        let _ = std::fs::create_dir_all(parent); // best-effort
-    }
-    // sandbox escape / unresolvable target — loud
-    let mut file = open_sandbox_write(&safe_path, true)?;
+    // №475 (issue #723): the WRITE goes through the facade — sandbox +
+    // the hard write-deny + the deny-list with the allowlist crane + the
+    // serve data-dir containment + the TOCTOU-safe open.
+    let mut file = crate::fs_gate::open_write(&path, "append_file", true)?;
     match file.write_all(content.as_bytes()) {
         Ok(_) => Ok(Value::String("ok".to_string())),
         Err(_) => Ok(Value::String(String::new())), // soft-failure (OS-level)
@@ -713,17 +645,30 @@ pub(crate) fn builtin_delete_file(args: &[Value]) -> Result<Value, String> {
     if super::smfs::is_virtual(&path) {
         return Err(super::smfs::read_only_reject("delete_file", &path));
     }
-    let safe_path = match sandbox_path(&path) {
-        Ok(p) => p,
-        Err(e) => {
-            // Наряд №254: тот же разбор, что и в read_file — файла нет:
-            // мягкий отказ; нарушение песочницы: громко с кодом.
-            if sandbox_path_missing(&path) {
-                return Ok(Value::String(String::new())); // soft-failure: файла нет
+    // №475 (issue #723): the REMOVAL is a write-class operation — the raw
+    // write precheck runs FIRST (a delete attempt on the application
+    // image is a signal by itself, the №455 raw-deny posture), then the
+    // resolved gate (deny-list + serve containment) on the canonical form.
+    crate::fs_gate::precheck_write_raw(&path, "delete_file")?;
+    let safe_path = {
+        let resolved = match sandbox_path(&path) {
+            Ok(p) => p,
+            Err(e) => {
+                // Наряд №254: тот же разбор, что и в read_file — файла
+                // нет: мягкий отказ; нарушение песочницы: громко с кодом.
+                if sandbox_path_missing(&path) {
+                    return Ok(Value::String(String::new())); // soft-failure: файла нет
+                }
+                return Err(sandbox_violation(e));
             }
-            return Err(sandbox_violation(e));
-        }
+        };
+        crate::fs_gate::gate_write_resolved(&path, &resolved, "delete_file")?;
+        resolved
     };
+    // №475: the OS removal stays here — the outcome contract (soft
+    // failure on missing/unreadable, №254) is the caller's; the POLICY
+    // was applied by the facade above.
+    #[allow(clippy::disallowed_methods)] // №475: post-gate OS removal, soft contract
     match std::fs::remove_file(&safe_path) {
         Ok(_) => Ok(Value::String("ok".to_string())),
         Err(_) => Ok(Value::String(String::new())), // soft-failure
@@ -755,9 +700,11 @@ pub(crate) fn builtin_list_dir(args: &[Value]) -> Result<Value, String> {
     if super::smfs::is_virtual(&path) {
         return super::smfs::list(&path);
     }
-    let safe_path = sandbox_path(&path)?;
-    let entries: Vec<Value> = std::fs::read_dir(&safe_path)
-        .map_err(|e| format!("list_dir('{}'): {}", path, e))?
+    // №475 (issue #723): the LISTING goes through the facade — sandbox +
+    // the №455 ingest gate (a `.git`/`.mlog` directory refuses) + the
+    // serve data-dir containment (the audit: a route could list the
+    // application root).
+    let entries: Vec<Value> = crate::fs_gate::read_dir(&path, "list_dir")?
         .filter_map(|entry| {
             entry
                 .ok()
@@ -1347,6 +1294,9 @@ pub(crate) fn builtin_html_render(args: &[Value]) -> Result<Value, String> {
     let html_file = format!("_html_render_{}.html", unique_id);
     let out_file = format!("_html_render_{}.png", unique_id);
 
+    // №475: html_render temp-file plumbing for the EXTERNAL browser
+    // process (uuid-named, absolute argv contract) — host mechanics.
+    #[allow(clippy::disallowed_methods)]
     std::fs::write(&html_file, html.as_bytes()).map_err(|e| {
         format!(
             "html_render: failed to write temporary HTML file '{}': {}",
@@ -1389,6 +1339,8 @@ pub(crate) fn builtin_html_render(args: &[Value]) -> Result<Value, String> {
     let result = exec_restricted(&browser_bin, browser_args, timeout);
 
     // Clean up temp HTML file (best-effort)
+    // №475: html_render temp cleanup (host mechanics — see above).
+    #[allow(clippy::disallowed_methods)]
     let _ = std::fs::remove_file(&html_file);
 
     match result {
@@ -1405,6 +1357,8 @@ pub(crate) fn builtin_html_render(args: &[Value]) -> Result<Value, String> {
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr).to_string();
                 // Clean up output file if created despite failure
+                // №475: html_render temp cleanup (host mechanics — see above).
+                #[allow(clippy::disallowed_methods)]
                 let _ = std::fs::remove_file(&out_file);
                 return Err(format!(
                     "html_render: browser exited with {}: {}",
@@ -1425,6 +1379,8 @@ pub(crate) fn builtin_html_render(args: &[Value]) -> Result<Value, String> {
         }
         Err(e) => {
             // Clean up output file if created despite error
+            // №475: html_render temp cleanup (host mechanics — see above).
+            #[allow(clippy::disallowed_methods)]
             let _ = std::fs::remove_file(&out_file);
 
             // Audit: error event
@@ -1440,6 +1396,9 @@ pub(crate) fn builtin_html_render(args: &[Value]) -> Result<Value, String> {
 }
 
 #[cfg(test)]
+// №475: the test mods exercise the REAL filesystem for fixtures — the
+// ratchet targets production I/O (see clippy.toml).
+#[allow(clippy::disallowed_methods)]
 mod tests {
     use super::*;
     use crate::interpreter::{SecretString, Value};
@@ -1467,6 +1426,9 @@ mod tests {
 
 // ── Наряд №131: sandbox_path — канонизация против обхода через симлинки ──
 #[cfg(test)]
+// №475: the test mods exercise the REAL filesystem for fixtures — the
+// ratchet targets production I/O (see clippy.toml).
+#[allow(clippy::disallowed_methods)]
 mod tests_n131 {
     use super::*;
     use serial_test::serial;
@@ -1687,6 +1649,9 @@ mod tests_n131 {
 
 // ── Наряд №252: write-path TOCTOU / planted final-component symlink ──
 #[cfg(test)]
+// №475: the test mods exercise the REAL filesystem for fixtures — the
+// ratchet targets production I/O (see clippy.toml).
+#[allow(clippy::disallowed_methods)]
 mod tests_n252 {
     use super::tests_n131::{make_temp_dir, with_temp_sandbox};
     use super::*;
@@ -1878,6 +1843,9 @@ mod tests_n252 {
 }
 
 #[cfg(test)]
+// №475: the test mods exercise the REAL filesystem for fixtures — the
+// ratchet targets production I/O (see clippy.toml).
+#[allow(clippy::disallowed_methods)]
 mod tests_n254 {
     use super::*;
     use serial_test::serial;
@@ -2042,6 +2010,9 @@ mod tests_n254 {
 // ── Н455: unit tests for the sensitive-path matcher (pure, no IO) ──────
 
 #[cfg(test)]
+// №475: the test mods exercise the REAL filesystem for fixtures — the
+// ratchet targets production I/O (see clippy.toml).
+#[allow(clippy::disallowed_methods)]
 mod n455_matcher_tests {
     use super::{sensitive_allowlisted, sensitive_path_match};
 
@@ -2056,6 +2027,19 @@ mod n455_matcher_tests {
         assert!(sensitive_path_match("store.sqlite"));
         assert!(sensitive_path_match("store.sqlite-wal"));
         assert!(sensitive_path_match("db/app.db"));
+        // №475 (task 4): the SQLite sidecars of a bare .db name — the
+        // `ends_with(".db")` gap the audit named
+        assert!(sensitive_path_match("app.db-wal"));
+        assert!(sensitive_path_match("app.db-journal"));
+        assert!(sensitive_path_match("app.db-shm"));
+        // №475 (task 4): the credential-name classes
+        assert!(sensitive_path_match("certs/server.pem"));
+        assert!(sensitive_path_match("host.key"));
+        assert!(sensitive_path_match(".ssh/id_rsa"));
+        assert!(sensitive_path_match("keys/id_ed25519"));
+        assert!(sensitive_path_match(".netrc"));
+        assert!(sensitive_path_match(".npmrc"));
+        assert!(sensitive_path_match("credentials.json"));
         // git metadata and the .mlog data zone
         assert!(sensitive_path_match(".git/config"));
         assert!(sensitive_path_match(".git/objects/ab/cd"));

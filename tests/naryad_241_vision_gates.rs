@@ -1,3 +1,8 @@
+// Naryad #475 (issue #723): the fs_gate ratchet (clippy disallowed-methods)
+// targets PRODUCTION I/O paths. This test file exercises the REAL filesystem
+// for fixtures and assertions by design — the allow is scoped to this file.
+#![allow(clippy::disallowed_methods)]
+
 //! Наряд №241 (Vision R5, ADR-0125): Category-A gate contract tests.
 //!
 //! The gate NAMES are the SSOT from ADR-0125 (Accepted 2026-09-07, before
@@ -47,9 +52,31 @@ fn signed_manifest() -> VisionManifest {
 
 // ── Gate 1: VISION_UNSIGNED_EXPORT (audit Error + runtime backstop) ──
 
+// №475: the gate refuses ABSOLUTE paths — the fixtures use RELATIVE
+// per-test directories (auto-cleaned on drop; each name unique per call).
+struct TmpDirRel(&'static str);
+impl TmpDirRel {
+    fn new(name: &'static str) -> Self {
+        let _ = std::fs::remove_dir_all(name);
+        std::fs::create_dir_all(name).unwrap();
+        TmpDirRel(name)
+    }
+    fn p(&self, file: &str) -> String {
+        format!("{}/{}", self.0, file)
+    }
+    fn path(&self) -> std::path::PathBuf {
+        std::path::PathBuf::from(self.0)
+    }
+}
+impl Drop for TmpDirRel {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(self.0);
+    }
+}
 /// `vision_export` call site in a file with NO `vision { }` declaration
 /// → Category-A compile error (ADR-0125: by construction, not by
 /// procedure). `run_program` must refuse BEFORE runtime.
+
 #[test]
 fn vision_unsigned_export_is_category_a_compile_error() {
     let source = r#"
@@ -132,17 +159,20 @@ fn runtime_backstop_refuses_manifestless_export() {
 /// (Block 1.4 happy path; Block 4.2 manifest-fields presence).
 #[test]
 fn signed_export_writes_png_and_sidecar() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let path = dir.path().join("img.png");
+    let dir = TmpDirRel::new("n475t_vg_1");
+    let path = dir.p("img.png");
     let mut reg = VisionRegistry::new();
     let id = reg.insert(VisionArtifact {
         png_bytes: vec![1, 2, 3],
         manifest: Some(signed_manifest()),
     });
-    let args = vec![Value::Vision(id), Value::String(path.display().to_string())];
+    let args = vec![
+        Value::Vision(id),
+        Value::String(std::path::Path::new(&path).display().to_string()),
+    ];
     vision_export_dispatch(&reg, &args).expect("signed export must succeed");
     assert_eq!(std::fs::read(&path).expect("png bytes"), vec![1, 2, 3]);
-    let sidecar = dir.path().join("img.png.manifest.json");
+    let sidecar = dir.p("img.png.manifest.json");
     let json = std::fs::read_to_string(&sidecar).expect("sidecar manifest");
     for field in [
         "\"model_id\"",
@@ -168,14 +198,17 @@ fn signed_export_writes_png_and_sidecar() {
 /// amended; the remedy is the signed path (vision_export).
 #[test]
 fn raw_export_refuses_manifestless_artifact_n320() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let path = dir.path().join("raw.png");
+    let dir = TmpDirRel::new("n475t_vg_2");
+    let path = dir.p("raw.png");
     let mut reg = VisionRegistry::new();
     let id = reg.insert(VisionArtifact {
         png_bytes: vec![7, 8, 9],
         manifest: None,
     });
-    let args = vec![Value::Vision(id), Value::String(path.display().to_string())];
+    let args = vec![
+        Value::Vision(id),
+        Value::String(std::path::Path::new(&path).display().to_string()),
+    ];
     let err = vision_export_raw_dispatch(&reg, &args)
         .expect_err("unmarked (manifest-less) raw egress must be refused (ADR-0152 D3)");
     assert!(
@@ -184,7 +217,7 @@ fn raw_export_refuses_manifestless_artifact_n320() {
         err
     );
     assert!(
-        !path.exists(),
+        !std::path::Path::new(&path).exists(),
         "the refused raw export must not write the PNG"
     );
 }
@@ -336,7 +369,7 @@ fn vision_with_policy_has_no_missing_warning() {
 #[serial]
 fn fetch_weights_default_deny_without_allowlist() {
     std::env::remove_var("MLOG_VISION_WEIGHTS_ALLOWLIST");
-    let dir = tempfile::tempdir().expect("tempdir");
+    let dir = TmpDirRel::new("n475t_vg_3");
     let source = r#"
 vision "poster" { model: "z-image-turbo" steps: 8 width: 1024 height: 1024 seed: 42 policy: safe profile: fp16 }
 pattern Fetch(dest: String) -> String {
@@ -363,7 +396,7 @@ flow Main { input: String = "DEST" -> Fetch -> output }
 #[serial]
 fn fetch_weights_refuses_host_outside_allowlist() {
     std::env::set_var("MLOG_VISION_WEIGHTS_ALLOWLIST", "huggingface.co");
-    let dir = tempfile::tempdir().expect("tempdir");
+    let dir = TmpDirRel::new("n475t_vg_4");
     let source = r#"
 vision "poster" { model: "z-image-turbo" steps: 8 width: 1024 height: 1024 seed: 42 policy: safe profile: fp16 }
 pattern Fetch(dest: String) -> String {
@@ -390,7 +423,7 @@ flow Main { input: String = "DEST" -> Fetch -> output }
 #[serial]
 fn fetch_weights_empty_allowlist_is_deny() {
     std::env::set_var("MLOG_VISION_WEIGHTS_ALLOWLIST", "  , ,");
-    let dir = tempfile::tempdir().expect("tempdir");
+    let dir = TmpDirRel::new("n475t_vg_5");
     let source = r#"
 vision "poster" { model: "z-image-turbo" steps: 8 width: 1024 height: 1024 seed: 42 policy: safe profile: fp16 }
 pattern Fetch(dest: String) -> String {

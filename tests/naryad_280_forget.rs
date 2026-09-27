@@ -1,3 +1,7 @@
+// Naryad #475 (issue #723): the fs_gate ratchet (clippy disallowed-methods)
+// targets PRODUCTION I/O paths. This test file exercises the REAL filesystem
+// for fixtures and assertions by design — the allow is scoped to this file.
+#![allow(clippy::disallowed_methods)]
 // ── tests/naryad_280_forget.rs — Наряд №280 (P2, M2) ────────────────────
 //
 // Контрактные тесты memory_forget (issue #329, диспатч #332):
@@ -19,7 +23,6 @@
 // глобального SSOT-менеджера embed не трогают — паттерн n272).
 // Единственный тест с embed() — TW/VM parity — единственный
 // пользователь менеджера в этом процессе.
-
 #![cfg(feature = "vec")]
 
 use metalogos::builtins::BUILTIN_REGISTRY;

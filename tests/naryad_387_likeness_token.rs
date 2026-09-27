@@ -1,3 +1,8 @@
+// Naryad #475 (issue #723): the fs_gate ratchet (clippy disallowed-methods)
+// targets PRODUCTION I/O paths. This test file exercises the REAL filesystem
+// for fixtures and assertions by design — the allow is scoped to this file.
+#![allow(clippy::disallowed_methods)]
+
 // ── Naryad #387 (P2, security/media): LikenessToken — ADR-0149 D1/D6 ──
 //
 // The opaque likeness-consent token: the third legal credential for

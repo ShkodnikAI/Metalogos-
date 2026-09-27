@@ -1,3 +1,7 @@
+// Naryad #475 (issue #723): the fs_gate ratchet (clippy disallowed-methods)
+// targets PRODUCTION I/O paths. This test file exercises the REAL filesystem
+// for fixtures and assertions by design — the allow is scoped to this file.
+#![allow(clippy::disallowed_methods)]
 // ── Naryad #381 (issue #467): Stage 4 corpus contract + serve parity ──
 //
 // ADR-0141 §D5: the Stage 4 benchmark corpus (benches/fixtures/
@@ -23,7 +27,6 @@
 //      "no database connection").
 //
 // Verify: cargo test --test naryad_381_stage4_corpus
-
 #![cfg(feature = "server")]
 
 use metalogos::server::{run_test_server_with_backend, ServeBackend};

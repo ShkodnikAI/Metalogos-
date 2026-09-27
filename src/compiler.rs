@@ -2687,6 +2687,31 @@ impl Compiler {
         }
 
         let file_path = self.std_root.join(module_path).with_extension("mlog");
+        // №475: the IMPORT source loader — compile-time, AUTHOR-controlled
+        // source text (the same trust domain as the file being compiled);
+        // the sandbox targets PROGRAM-RUNTIME I/O, and `mlog run <abs
+        // path>` must keep working.
+        #[allow(clippy::disallowed_methods)]
+        // №475: the IMPORT source loader — compile-time, AUTHOR-controlled
+        // source text (the same trust domain as the file being compiled);
+        // the sandbox targets PROGRAM-RUNTIME I/O, and `mlog run <abs
+        // path>` must keep working.
+        #[allow(clippy::disallowed_methods)]
+        // №475: the IMPORT source loader — compile-time, AUTHOR-controlled
+        // source text (the same trust domain as the file being compiled);
+        // the sandbox targets PROGRAM-RUNTIME I/O, and `mlog run <abs
+        // path>` must keep working.
+        #[allow(clippy::disallowed_methods)]
+        // №475: the IMPORT source loader — compile-time, AUTHOR-controlled
+        // source text (the same trust domain as the file being compiled);
+        // the sandbox targets PROGRAM-RUNTIME I/O, and `mlog run <abs
+        // path>` must keep working.
+        #[allow(clippy::disallowed_methods)]
+        // №475: the IMPORT source loader — compile-time, AUTHOR-controlled
+        // source text (the same trust domain as the file being compiled);
+        // the sandbox targets PROGRAM-RUNTIME I/O, and `mlog run <abs
+        // path>` must keep working.
+        #[allow(clippy::disallowed_methods)]
         let source = std::fs::read_to_string(&file_path).map_err(|e| {
             format!(
                 "import '{}': cannot read {:?}: {}",

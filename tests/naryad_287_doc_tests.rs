@@ -1,3 +1,8 @@
+// Naryad #475 (issue #723): the fs_gate ratchet (clippy disallowed-methods)
+// targets PRODUCTION I/O paths. This test file exercises the REAL filesystem
+// for fixtures and assertions by design — the allow is scoped to this file.
+#![allow(clippy::disallowed_methods)]
+
 // ── tests/naryad_287_doc_tests.rs — Наряд №287 (P2, testing/docs) ───────
 //
 // Контракт (issue #342): mlog test --docs — rustdoc doc-tests-паттерн.

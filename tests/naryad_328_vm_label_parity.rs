@@ -1,3 +1,8 @@
+// Naryad #475 (issue #723): the fs_gate ratchet (clippy disallowed-methods)
+// targets PRODUCTION I/O paths. This test file exercises the REAL filesystem
+// for fixtures and assertions by design — the allow is scoped to this file.
+#![allow(clippy::disallowed_methods)]
+
 //! Наряд №328 (issue #422) — runtime label parity: LabelJoin/SinkCheck
 //! in the bytecode, the VM runtime twin of the №325 gate, the JIT
 //! dispatch-gap rule (ADR-0156).

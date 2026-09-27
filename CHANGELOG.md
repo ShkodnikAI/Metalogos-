@@ -4,6 +4,26 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №484 (issue #732; the audit v0.26.1 §3.3, Medium — the
+  literal metric is a Goodhart surface): the SECOND dedup metric + the
+  first unified pair. The new blocking CI job `ops-pairs` counts the
+  `*_tw`/`*_vm` LOGIC pairs in the shared `*_ops.rs` modules
+  (`scripts/ci/ops_pair_counter.py`, the checked-in baseline
+  `ops_pair_baseline.txt`, the threshold moves ONLY down) — a new pair
+  fails CI, a removed one moves the threshold to the new fact. The
+  rename `VmDbAccess` → `DbAccess` (the `vm_` method prefixes drop):
+  the state trait is now backend-neutral, and the interpreter lane
+  rides it too — the `TwDbAccess` adapter locks the TW's
+  `Mutex<Option<Connection>>` for the statement's duration. The FIRST
+  pair unified: `query_scalar` — the ONE suffix-free function over
+  `impl DbAccess` on both backends (the former bodies were
+  byte-identical from the statement execution onward; the unified fn
+  keeps the richer error texts on each axis — the SQL-arg type detail
+  from the TW side, the №758 loud not-open reason from the VM side).
+  Pins: `tests/naryad_484_db_unification.rs` — the static
+  `Vm: DbAccess` witness, the TW adapter shapes (Float / Unit / the
+  typed №381 bind), the unified error texts, and the end-to-end
+  TW↔VM parity of the same query_scalar program.
 - Naryad №483 (issue #731; the audit-recommendations 26.09 P1 "the
   dedup to the fact" + the open №466 tail): the media/vision group of
   the TW/VM duplicate-name transfer — the FINAL group of the №466

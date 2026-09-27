@@ -202,7 +202,7 @@ impl Interpreter {
 
     // №466 (gh#687) group 2 (db): the five db invoke methods moved to the
     // shared live module src/db_ops.rs (query_tw, db_execute_tw,
-    // db_execute_with_grant_tw, query_scalar_tw, query_row_tw) and the
+    // db_execute_with_grant_tw, query_row_tw) and the unified query_scalar (№484)
     // inline db_insert body of execution.rs joined them as db_insert_tw.
     // The name literals now live only in that module — the №462 counter
     // drops 56 → 49.

@@ -1,0 +1,37 @@
+# №484 (gh#732; the audit v0.26.1 §3.3, Medium): the checked-in baseline
+# of the SECOND dedup metric — the *_tw/*_vm function PAIRS in the
+# shared *_ops.rs modules.
+#
+# WHY: the №462 metric counts NAME LITERALS (a Goodhart surface — the
+# 60→0 drop mostly moved spellings); this metric counts the LOGIC
+# twins: one base name, two per-backend bodies side by side. The goal:
+# a suffix-free function taking the state through a trait (DbAccess,
+# №484), one implementation for both backends. Where the backends'
+# behavior is fundamentally different the pair STAYS, each side with a
+# docstring justification of the divergence (the №480 rule; per №476,
+# never in the blocked domains).
+#
+# The threshold moves ONLY DOWN. A new pair fails CI; a removed pair
+# moves the threshold to the new fact in the same naryad.
+#
+# History:
+# 2026-09-28 №484 (gh#732) landing: the query_scalar pair unified —
+# the shared `query_scalar(db: &mut impl DbAccess, ...)` (the TW lane
+# rides the TwDbAccess adapter, the VM lane the Vm's own trait impl);
+# the former per-backend bodies were byte-identical from the statement
+# execution onward — the unified fn keeps the richer error texts on
+# each axis (the SQL-arg type detail from the TW side, the №758 loud
+# not-open reason from the VM side). Fact at landing: 10 pairs.
+# threshold: 10
+#
+# The paired bases at landing (the fact; the artifact):
+db_execute (db_ops.rs)
+db_execute_with_grant (db_ops.rs)
+db_insert (db_ops.rs)
+dispatch (memory_ops.rs)
+forget (memory_ops.rs)
+memorize (memory_ops.rs)
+query (db_ops.rs)
+query_row (db_ops.rs)
+recall (memory_ops.rs)
+recall_top_k (memory_ops.rs)

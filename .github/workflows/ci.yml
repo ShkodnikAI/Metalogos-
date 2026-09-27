@@ -490,6 +490,18 @@ jobs:
         run: |
           python3 scripts/ci/count_duplicated_names.py --artifact
 
+  ops-pairs:
+    name: ops-pairs (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: "Gate — the second dedup metric: the *_tw/*_vm logic pairs in the shared ops modules (№484; movement only down)"
+        run: |
+          python3 scripts/ci/ops_pair_counter.py --gate scripts/ci/ops_pair_baseline.txt
+      - name: Artifact — the pair list (the unification base)
+        run: |
+          python3 scripts/ci/ops_pair_counter.py --list
+
   debt-gate:
     name: debt-gate (blocking)
     runs-on: ubuntu-latest

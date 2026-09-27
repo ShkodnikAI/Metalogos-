@@ -515,9 +515,11 @@ impl RealLlm {
                 .to_string()
         })?;
 
+        // №757: the ceiling is configurable (block → env → default), not
+        // the former hard-coded 1024.
         let body = serde_json::json!({
             "model": self.model,
-            "max_tokens": 1024,
+            "max_tokens": effective_max_tokens_legacy(),
             "messages": [{
                 "role": "user",
                 "content": format!("{}\n\nInput: {}", prompt, input)
@@ -546,7 +548,11 @@ impl RealLlm {
             ));
         }
 
-        parse_anthropic_response(&body_text)
+        // №757: the finish_reason is read and recorded (visible truncation).
+        parse_anthropic_response(&body_text).map(|(text, reason)| {
+            record_finish_reason("anthropic", reason.as_deref());
+            text
+        })
     }
 
     // ── OpenAI GPT ──────────────────────────────────────────────────
@@ -566,14 +572,16 @@ impl RealLlm {
                 .to_string()
         })?;
 
+        // №757: the ceiling is configurable, the temperature reads the
+        // block-level value (default stays 0.0 — no behavior change).
         let body = serde_json::json!({
             "model": self.model,
             "messages": [{
                 "role": "user",
                 "content": format!("{}\n\nInput: {}", prompt, input)
             }],
-            "max_tokens": 1024,
-            "temperature": 0.0
+            "max_tokens": effective_max_tokens_legacy(),
+            "temperature": effective_temperature_legacy()
         });
 
         let response = client
@@ -597,7 +605,11 @@ impl RealLlm {
             ));
         }
 
-        parse_openai_response(&body_text)
+        // №757: the finish_reason is read and recorded (visible truncation).
+        parse_openai_response(&body_text).map(|(text, reason)| {
+            record_finish_reason("openai", reason.as_deref());
+            text
+        })
     }
 
     // ── Ollama (local) ─────────────────────────────────────────────
@@ -642,18 +654,25 @@ impl RealLlm {
             ));
         }
 
-        parse_ollama_response(&body_text)
+        // №757: the finish_reason is read and recorded (visible truncation).
+        parse_ollama_response(&body_text).map(|(text, reason)| {
+            record_finish_reason("ollama", reason.as_deref());
+            text
+        })
     }
 }
 
 // ── Response Parsing ───────────────────────────────────────────────
 
 /// Parse Anthropic response: `{ "content": [{ "type": "text", "text": "..." }] }`
-fn parse_anthropic_response(raw: &str) -> Result<String, String> {
+/// №757: also extracts `stop_reason` ("max_tokens" = truncated) —
+/// `(text, finish_reason)`.
+fn parse_anthropic_response(raw: &str) -> Result<(String, Option<String>), String> {
     let json: serde_json::Value =
         serde_json::from_str(raw).map_err(|e| format!("Failed to parse Anthropic JSON: {}", e))?;
 
-    json.get("content")
+    let text = json
+        .get("content")
         .and_then(|c| c.as_array())
         .and_then(|arr| {
             arr.iter()
@@ -667,33 +686,57 @@ fn parse_anthropic_response(raw: &str) -> Result<String, String> {
                 "Unexpected Anthropic response format: {}",
                 truncate(raw, 300)
             )
-        })
+        })?;
+    let finish_reason = json
+        .get("stop_reason")
+        .and_then(|r| r.as_str())
+        .map(|s| s.to_string());
+    Ok((text, finish_reason))
 }
 
 /// Parse OpenAI response: `{ "choices": [{ "message": { "content": "..." } }] }`
-fn parse_openai_response(raw: &str) -> Result<String, String> {
+/// №757: also extracts `choices[0].finish_reason` ("length" = truncated)
+/// — `(text, finish_reason)`.
+fn parse_openai_response(raw: &str) -> Result<(String, Option<String>), String> {
     let json: serde_json::Value =
         serde_json::from_str(raw).map_err(|e| format!("Failed to parse OpenAI JSON: {}", e))?;
 
-    json.get("choices")
+    let text = json
+        .get("choices")
         .and_then(|c| c.as_array())
         .and_then(|arr| arr.first())
         .and_then(|choice| choice.get("message"))
         .and_then(|msg| msg.get("content"))
         .and_then(|c| c.as_str())
         .map(|t| t.trim().to_string())
-        .ok_or_else(|| format!("Unexpected OpenAI response format: {}", truncate(raw, 300)))
+        .ok_or_else(|| format!("Unexpected OpenAI response format: {}", truncate(raw, 300)))?;
+    let finish_reason = json
+        .get("choices")
+        .and_then(|c| c.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|choice| choice.get("finish_reason"))
+        .and_then(|r| r.as_str())
+        .map(|s| s.to_string());
+    Ok((text, finish_reason))
 }
 
 /// Parse Ollama response: `{ "response": "..." }`
-fn parse_ollama_response(raw: &str) -> Result<String, String> {
+/// №757: also extracts `done_reason` ("length" = truncated) —
+/// `(text, finish_reason)`.
+fn parse_ollama_response(raw: &str) -> Result<(String, Option<String>), String> {
     let json: serde_json::Value =
         serde_json::from_str(raw).map_err(|e| format!("Failed to parse Ollama JSON: {}", e))?;
 
-    json.get("response")
+    let text = json
+        .get("response")
         .and_then(|r| r.as_str())
         .map(|t| t.trim().to_string())
-        .ok_or_else(|| format!("Unexpected Ollama response format: {}", truncate(raw, 300)))
+        .ok_or_else(|| format!("Unexpected Ollama response format: {}", truncate(raw, 300)))?;
+    let finish_reason = json
+        .get("done_reason")
+        .and_then(|r| r.as_str())
+        .map(|s| s.to_string());
+    Ok((text, finish_reason))
 }
 
 // ── Retry Helpers ──────────────────────────────────────────────────
@@ -922,6 +965,11 @@ pub struct LlmTraceEvent<'a> {
     pub cache: &'static str,
     /// SmartRouter provider alias, when the call went through a router.
     pub provider_alias: Option<&'a str>,
+    /// №757: the provider's finish_reason/stop_reason/done_reason when
+    /// the call path observed one ("stop"/"length"/"max_tokens"/...).
+    /// Honest absence — a path that did not read the provider body
+    /// (mock, type-erased legacy, errors) carries None, never a guess.
+    pub finish_reason: Option<&'a str>,
 }
 
 static TRACE_WARNED: AtomicBool = AtomicBool::new(false);
@@ -977,6 +1025,12 @@ pub fn trace_llm_call(evt: &LlmTraceEvent) {
     }
     if let Some(a) = evt.provider_alias {
         line["provider_alias"] = serde_json::json!(a);
+    }
+    // №757: the truncation signal on the operational line — an exporter
+    // (or a plain grep) sees the length-truncated calls without
+    // re-reading the provider response.
+    if let Some(fr) = evt.finish_reason {
+        line["finish_reason"] = serde_json::json!(fr);
     }
     let mut out = line.to_string();
     out.push('\n');
@@ -1364,6 +1418,14 @@ pub struct SmartRouter {
     failover: bool,
     /// Timeout in seconds per provider call.
     timeout: u32,
+    /// №757: the generation ceiling sent in every non-stream/stream
+    /// request body built by this router (block value → env → default,
+    /// resolved once at from_config — the per-call override is №757's
+    /// documented non-goal).
+    max_tokens: u32,
+    /// №757: the sampling temperature sent on the OpenAI-compatible
+    /// branches (default 0.0 — the former hard-coded value).
+    temperature: f64,
     /// Health and usage tracker.
     tracker: LlmUsageTracker,
 }
@@ -1401,6 +1463,13 @@ impl SmartRouter {
             default_model: config.default_model.clone(),
             failover: config.failover.as_deref() == Some("auto"),
             timeout: config.timeout,
+            // №757: block value → env → crate default (4096).
+            max_tokens: config
+                .max_tokens
+                .or_else(env_max_tokens)
+                .unwrap_or(DEFAULT_LLM_MAX_TOKENS),
+            // №757: block value → 0.0 (the former hard-coded value).
+            temperature: config.temperature.unwrap_or(0.0),
             tracker: LlmUsageTracker::new(provider_names, circuit_threshold),
         }
     }
@@ -1440,6 +1509,10 @@ impl SmartRouter {
                 status: if res.is_ok() { "ok" } else { "error" },
                 cache: "miss",
                 provider_alias: None,
+                // The legacy backend records its own finish_reason into
+                // the global probe; this type-erased line cannot name it
+                // per-call (honest absence, №276).
+                finish_reason: None,
             });
             return res;
         }
@@ -1492,7 +1565,12 @@ impl SmartRouter {
             }
 
             match result {
-                Ok((response, usage)) => {
+                Ok((response, usage, finish_reason)) => {
+                    // №757: the reason is recorded BEFORE the trace so the
+                    // warning lands before the operational line, and the
+                    // trace carries the same reason — one honest line per
+                    // call (№276 contract).
+                    record_finish_reason(provider_type, finish_reason.as_deref());
                     trace_llm_call(&LlmTraceEvent {
                         provider_name: Some(provider_type.as_str()),
                         model: Some(resolved_model),
@@ -1502,6 +1580,7 @@ impl SmartRouter {
                         status: "ok",
                         cache: "miss",
                         provider_alias: Some(_alias.as_str()),
+                        finish_reason: finish_reason.as_deref(),
                     });
                     return Ok(response);
                 }
@@ -1527,6 +1606,7 @@ impl SmartRouter {
             status: "error",
             cache: "miss",
             provider_alias: None,
+            finish_reason: None,
         });
         // №385 (ADR-0169): classify the exhaustion by what ACTUALLY happened.
         // No rung attempted (every circuit open) → the provider surface is
@@ -1563,8 +1643,12 @@ impl SmartRouter {
     /// Наряд #156: effective timeout = min(timeout_override, self.timeout).
     /// `reqwest::blocking::Client::timeout()` performs real HTTP-level
     /// cancellation (drops TCP connection) when it fires.
-    /// Наряд №276: returns `(text, usage)` — usage extracted from the raw
-    /// response when the provider reported it (honest: None otherwise).
+    /// Наряд №276: usage extracted from the raw response when the
+    /// provider reported it (honest: None otherwise).
+    /// №757: returns `(text, usage, finish_reason)` — the provider's
+    /// finish_reason/stop_reason/done_reason is extracted alongside the
+    /// text (None = the provider did not report one) and the body carries
+    /// the router's configurable max_tokens/temperature, not 1024/0.0.
     #[allow(clippy::too_many_arguments)]
     fn call_provider(
         &self,
@@ -1575,7 +1659,7 @@ impl SmartRouter {
         input: &str,
         resolved_model: &str,
         timeout_override: Option<Duration>,
-    ) -> Result<(String, Option<ProviderTokenUsage>), String> {
+    ) -> Result<(String, Option<ProviderTokenUsage>, Option<String>), String> {
         let effective_timeout = match timeout_override {
             Some(override_dur) => {
                 let config_dur = Duration::from_secs(self.timeout.max(5) as u64);
@@ -1590,11 +1674,12 @@ impl SmartRouter {
             .map_err(|e| format!("HTTP client build error: {}", e))?;
 
         let body_text = format!("{}\n\nInput: {}", prompt, input);
+        // №757: the configurable ceiling + temperature (was 1024 / 0.0).
         let body = serde_json::json!({
             "model": resolved_model,
             "messages": [{ "role": "user", "content": body_text }],
-            "max_tokens": 1024,
-            "temperature": 0.0
+            "max_tokens": self.max_tokens,
+            "temperature": self.temperature
         });
 
         let endpoint = self.resolve_endpoint(provider_type, url);
@@ -1603,9 +1688,10 @@ impl SmartRouter {
             "anthropic" => {
                 let key = api_key.ok_or_else(|| "anthropic requires an API key".to_string())?;
                 // Anthropic uses a different format
+                // №757: the configurable ceiling (was 1024).
                 let anth_body = serde_json::json!({
                     "model": resolved_model,
-                    "max_tokens": 1024,
+                    "max_tokens": self.max_tokens,
                     "messages": [{ "role": "user", "content": body_text }]
                 });
                 let resp = client
@@ -1628,7 +1714,7 @@ impl SmartRouter {
                     ));
                 }
                 let usage = extract_provider_usage(provider_type, &text);
-                parse_anthropic_response(&text).map(|s| (s, usage))
+                parse_anthropic_response(&text).map(|(s, fr)| (s, usage, fr))
             }
             "ollama" => {
                 let ollama_body = serde_json::json!({
@@ -1654,7 +1740,7 @@ impl SmartRouter {
                     ));
                 }
                 let usage = extract_provider_usage(provider_type, &text);
-                parse_ollama_response(&text).map(|s| (s, usage))
+                parse_ollama_response(&text).map(|(s, fr)| (s, usage, fr))
             }
             _ => {
                 // OpenAI-compatible: openai, groq, cerebras, nvidia, openrouter, custom
@@ -1682,7 +1768,7 @@ impl SmartRouter {
                     ));
                 }
                 let usage = extract_provider_usage(provider_type, &text);
-                parse_openai_response(&text).map(|s| (s, usage))
+                parse_openai_response(&text).map(|(s, fr)| (s, usage, fr))
             }
         }
     }
@@ -1816,6 +1902,139 @@ fn llm_stream_max() -> u32 {
         .unwrap_or(LLM_STREAM_DEFAULT_MAX)
 }
 
+// ── №757: the configurable generation ceiling + the visible truncation ──
+//
+// The former behavior: every `call_llm`-family request body carried a
+// hard-coded `"max_tokens": 1024` (six sites) and `finish_reason` was
+// never read — a length-truncated answer came back as a normal success
+// (the office report was cut mid-sentence with no signal). №757 makes
+// the ceiling configurable (llm { max_tokens: N } → env fallback →
+// default 4096) and the truncation visible (stderr warning + the
+// JSONL trace `finish_reason` field + the `llm_last_finish_reason()`
+// builtin checkable from mlog).
+
+/// The crate default for the provider generation ceiling. Raised from
+/// the former hard-coded 1024 by №757 — 1024 tokens ≈ 600–800 words of
+/// Russian text, which truncated every structured office report. The
+/// new default is a BEHAVIOR CHANGE recorded in the CHANGELOG.
+pub const DEFAULT_LLM_MAX_TOKENS: u32 = 4096;
+
+/// The block-level (`llm {}`) limits mirrored next to the global router
+/// install (interpreter/execution.rs). They cover the paths an llm {}
+/// block cannot reach directly: the legacy backend when the router has
+/// no providers, and the env-only path when no block exists at all.
+/// Module-scoped routers carry their own copies (from_config) — module
+/// isolation is preserved.
+static BLOCK_MAX_TOKENS: Mutex<Option<u32>> = Mutex::new(None);
+static BLOCK_TEMPERATURE: Mutex<Option<f64>> = Mutex::new(None);
+
+/// Install the block-level limits — called from the LlmConfig
+/// declaration pass right next to `set_global_smart_router` (same
+/// last-wins scope; a program without an llm {} block never calls this).
+pub fn set_block_llm_limits(max_tokens: Option<u32>, temperature: Option<f64>) {
+    if let Ok(mut g) = BLOCK_MAX_TOKENS.lock() {
+        *g = max_tokens;
+    }
+    if let Ok(mut g) = BLOCK_TEMPERATURE.lock() {
+        *g = temperature;
+    }
+}
+
+/// METALOGOS_LLM_MAX_TOKENS — the env fallback for the ceiling. Invalid
+/// values warn once and fall back to the default (the №481 class-wide
+/// loud-env naryad will tighten the whole family; a NEW silent env
+/// default is deliberately not introduced here).
+fn env_max_tokens() -> Option<u32> {
+    let raw = env::var("METALOGOS_LLM_MAX_TOKENS").ok()?;
+    match raw.trim().parse::<u32>() {
+        Ok(n) if n >= 1 => Some(n),
+        _ => {
+            warn_llm_config_once(
+                "METALOGOS_LLM_MAX_TOKENS is not a positive integer — falling back to the default",
+            );
+            None
+        }
+    }
+}
+
+fn warn_llm_config_once(msg: &str) {
+    static CONFIG_WARNED: AtomicBool = AtomicBool::new(false);
+    if !CONFIG_WARNED.swap(true, Ordering::SeqCst) {
+        eprintln!("[llm] warning: {}", msg);
+    }
+}
+
+/// The effective generation ceiling for the LEGACY (no-router) body
+/// sites: block value → env → default.
+fn effective_max_tokens_legacy() -> u32 {
+    if let Ok(g) = BLOCK_MAX_TOKENS.lock() {
+        if let Some(n) = *g {
+            return n;
+        }
+    }
+    env_max_tokens().unwrap_or(DEFAULT_LLM_MAX_TOKENS)
+}
+
+/// №757: the effective generation ceiling for callers outside llm.rs
+/// (call_claude's direct Anthropic exchange) — the same block → env →
+/// default precedence as the legacy body sites.
+pub fn effective_call_max_tokens() -> u32 {
+    effective_max_tokens_legacy()
+}
+
+/// The effective temperature for the LEGACY body sites: block value →
+/// 0.0 (the former hard-coded value).
+fn effective_temperature_legacy() -> f64 {
+    if let Ok(g) = BLOCK_TEMPERATURE.lock() {
+        if let Some(t) = *g {
+            return t;
+        }
+    }
+    0.0
+}
+
+/// The last finish_reason/stop_reason observed on ANY completed call or
+/// stream (OpenAI "stop"/"length", Anthropic "end_turn"/"max_tokens",
+/// Ollama "stop"/"length", ...). Empty string = no call observed a
+/// reason yet (honest absence — never invented). Read from mlog via
+/// `llm_last_finish_reason()`.
+static LLM_LAST_FINISH_REASON: Mutex<String> = Mutex::new(String::new());
+
+/// True for the two provider spellings of "the answer hit the ceiling"
+/// (OpenAI-compatible `"length"`, Anthropic `"max_tokens"`).
+pub fn is_truncation_reason(reason: &str) -> bool {
+    reason == "length" || reason == "max_tokens"
+}
+
+/// Record the finish_reason observed on a completed call/stream and
+/// warn when it reports a length truncation — the non-silent-success
+/// half of №757. `None` (the provider did not report a reason) is
+/// honest absence: it does not overwrite the previous value.
+pub fn record_finish_reason(provider: &str, reason: Option<&str>) {
+    let Some(reason) = reason else {
+        return;
+    };
+    if let Ok(mut g) = LLM_LAST_FINISH_REASON.lock() {
+        *g = reason.to_string();
+    }
+    if is_truncation_reason(reason) {
+        eprintln!(
+            "[llm] warning: LLM response truncated ({} finish_reason=\"{}\") — \
+             raise llm {{ max_tokens: N }} or METALOGOS_LLM_MAX_TOKENS",
+            provider, reason
+        );
+    }
+}
+
+/// The last observed finish_reason ("" when no reason was ever
+/// reported — the mlog-visible truncation probe of №757).
+pub fn llm_last_finish_reason() -> String {
+    match LLM_LAST_FINISH_REASON.lock() {
+        Ok(g) => g.clone(),
+        Err(e) => e.into_inner().clone(),
+    }
+}
+
 /// One open LLM stream. Held in `LLM_STREAM_REGISTRY` behind a `Mutex`.
 ///
 /// `LlmStreamState` owns:
@@ -1857,6 +2076,12 @@ pub struct LlmStreamState {
     /// cleanly, "error" if the network broke or a non-2xx was returned.
     /// Initial value "ok" — flipped to "error" on read failure.
     status: &'static str,
+    /// №757: the finish_reason observed on the stream's final events
+    /// (OpenAI `choices[0].finish_reason`, Anthropic
+    /// `message_delta.delta.stop_reason`, Ollama `done_reason`). `None`
+    /// until a chunk carries one — honest absence. Read at `stream_close`
+    /// to feed the global probe + the trace line.
+    finish_reason: Option<String>,
 }
 
 impl std::fmt::Debug for LlmStreamState {
@@ -2049,6 +2274,7 @@ impl SmartRouter {
                         started_at: Instant::now(),
                         ended: false,
                         status: "ok",
+                        finish_reason: None,
                     });
                 }
                 Err(e) => {
@@ -2099,9 +2325,10 @@ impl SmartRouter {
         match provider_type {
             "anthropic" => {
                 let key = api_key.ok_or_else(|| "anthropic requires an API key".to_string())?;
+                // №757: the configurable ceiling (was 1024).
                 let body = serde_json::json!({
                     "model": resolved_model,
-                    "max_tokens": 1024,
+                    "max_tokens": self.max_tokens,
                     "stream": true,
                     "messages": [{ "role": "user", "content": body_text }]
                 });
@@ -2151,11 +2378,12 @@ impl SmartRouter {
             _ => {
                 // OpenAI-compatible: openai, groq, cerebras, nvidia,
                 // openrouter, google, custom.
+                // №757: the configurable ceiling + temperature (was 1024 / 0.0).
                 let body = serde_json::json!({
                     "model": resolved_model,
                     "messages": [{ "role": "user", "content": body_text }],
-                    "max_tokens": 1024,
-                    "temperature": 0.0,
+                    "max_tokens": self.max_tokens,
+                    "temperature": self.temperature,
                     "stream": true
                 });
                 let mut req = client
@@ -2326,6 +2554,14 @@ fn try_parse_sse_event(state: &mut LlmStreamState) -> Result<Option<String>, Str
                     state.input_tokens = Some(in_t);
                     state.output_tokens = Some(out_t);
                 }
+                // №757: extract the finish_reason from the chunk that
+                // carries it (OpenAI `choices[0].finish_reason` — usually
+                // the last content chunk; Anthropic
+                // `message_delta.delta.stop_reason`). Later chunks
+                // override earlier ones — the last one is the final word.
+                if let Some(fr) = extract_finish_reason(&state.provider_type, &parsed) {
+                    state.finish_reason = Some(fr);
+                }
                 // Detect Anthropic end-of-stream.
                 if parsed.get("type").and_then(|v| v.as_str()) == Some("message_stop") {
                     state.ended = true;
@@ -2358,6 +2594,10 @@ fn try_parse_ollama_line(state: &mut LlmStreamState) -> Result<Option<String>, S
     let mut delta_out = String::new();
     if let Some(resp) = parsed.get("response").and_then(|v| v.as_str()) {
         delta_out.push_str(resp);
+    }
+    // №757: `done_reason` on the final chunk ("length" = truncated).
+    if let Some(fr) = parsed.get("done_reason").and_then(|v| v.as_str()) {
+        state.finish_reason = Some(fr.to_string());
     }
     // Ollama reports usage in the final chunk (`done: true`).
     if parsed
@@ -2402,6 +2642,33 @@ fn find_sse_terminator(buf: &[u8]) -> Option<usize> {
         }
     }
     None
+}
+
+/// №757: provider-specific finish_reason extraction from a parsed SSE
+/// JSON chunk — the last chunk carrying a reason decides.
+///   OpenAI-compatible: `choices[0].finish_reason` ("stop" | "length").
+///   Anthropic: `message_delta.delta.stop_reason` ("end_turn" | "max_tokens").
+///   Ollama is handled in `try_parse_ollama_line` (`done_reason`).
+fn extract_finish_reason(provider: &str, parsed: &serde_json::Value) -> Option<String> {
+    match provider {
+        "anthropic" => {
+            if parsed.get("type").and_then(|v| v.as_str()) == Some("message_delta") {
+                parsed
+                    .get("delta")
+                    .and_then(|d| d.get("stop_reason"))
+                    .and_then(|r| r.as_str())
+                    .map(|s| s.to_string())
+            } else {
+                None
+            }
+        }
+        _ => parsed
+            .get("choices")
+            .and_then(|c| c.get(0))
+            .and_then(|c0| c0.get("finish_reason"))
+            .and_then(|r| r.as_str())
+            .map(|s| s.to_string()),
+    }
 }
 
 /// Provider-specific delta-text extraction from a parsed SSE JSON chunk.
@@ -2491,6 +2758,12 @@ pub fn stream_close(handle: LlmStreamId) -> Result<LlmStreamFinal, String> {
     let input_tokens = state.input_tokens;
     let output_tokens = state.output_tokens;
     let aggregated_text = std::mem::take(&mut state.aggregated_text);
+    // №757: the stream's final finish_reason feeds the same visibility
+    // surface as the non-stream calls — global probe (the mlog
+    // `llm_last_finish_reason()` check) + the stderr warning when the
+    // stream hit the ceiling — and the close trace line carries it.
+    let finish_reason = state.finish_reason.take();
+    record_finish_reason(&provider, finish_reason.as_deref());
     // Dropping `state` here drops the `reqwest::blocking::Response`,
     // which closes the underlying TCP connection (visible to the server
     // as a client-side close — tested in naryad_275_stream_close_before_end).
@@ -2506,6 +2779,7 @@ pub fn stream_close(handle: LlmStreamId) -> Result<LlmStreamFinal, String> {
         status,
         cache: "miss",
         provider_alias: Some(&provider_alias),
+        finish_reason: finish_reason.as_deref(),
     });
 
     Ok(LlmStreamFinal {
@@ -2643,13 +2917,19 @@ mod tests {
     #[test]
     fn test_parse_openai_response_simple() {
         let raw = r#"{"choices":[{"message":{"content":"complaint"}}]}"#;
-        assert_eq!(parse_openai_response(raw).unwrap(), "complaint");
+        {
+            let (t, _) = parse_openai_response(raw).unwrap();
+            assert_eq!(t, "complaint");
+        }
     }
 
     #[test]
     fn test_parse_openai_response_with_usage() {
         let raw = r#"{"choices":[{"message":{"content":"question","role":"assistant"}}],"usage":{"prompt_tokens":10}}"#;
-        assert_eq!(parse_openai_response(raw).unwrap(), "question");
+        {
+            let (t, _) = parse_openai_response(raw).unwrap();
+            assert_eq!(t, "question");
+        }
     }
 
     #[test]
@@ -2661,25 +2941,37 @@ mod tests {
     #[test]
     fn test_parse_anthropic_response_simple() {
         let raw = r#"{"content":[{"type":"text","text":"greeting"}]}"#;
-        assert_eq!(parse_anthropic_response(raw).unwrap(), "greeting");
+        {
+            let (t, _) = parse_anthropic_response(raw).unwrap();
+            assert_eq!(t, "greeting");
+        }
     }
 
     #[test]
     fn test_parse_anthropic_response_multiple_blocks() {
         let raw = r#"{"content":[{"type":"text","text":"hello"},{"type":"text","text":" world"}]}"#;
-        assert_eq!(parse_anthropic_response(raw).unwrap(), "hello");
+        {
+            let (t, _) = parse_anthropic_response(raw).unwrap();
+            assert_eq!(t, "hello");
+        }
     }
 
     #[test]
     fn test_parse_ollama_response_simple() {
         let raw = r#"{"response":"urgent"}"#;
-        assert_eq!(parse_ollama_response(raw).unwrap(), "urgent");
+        {
+            let (t, _) = parse_ollama_response(raw).unwrap();
+            assert_eq!(t, "urgent");
+        }
     }
 
     #[test]
     fn test_parse_ollama_response_with_done() {
         let raw = r#"{"response":"complaint","done":true,"total_duration":12345678}"#;
-        assert_eq!(parse_ollama_response(raw).unwrap(), "complaint");
+        {
+            let (t, _) = parse_ollama_response(raw).unwrap();
+            assert_eq!(t, "complaint");
+        }
     }
 
     #[test]
@@ -2994,6 +3286,9 @@ mod tests {
             default_model: None,
             failover: true,
             timeout: 30,
+            // №757: test routers use the honest defaults.
+            max_tokens: DEFAULT_LLM_MAX_TOKENS,
+            temperature: 0.0,
             tracker: LlmUsageTracker::new(vec![], 3),
         }
     }
@@ -3154,6 +3449,9 @@ mod tests {
             default_model: Some("test-model".to_string()),
             failover: true,
             timeout: 5,
+            // №757: the echo server answers regardless of the ceiling.
+            max_tokens: DEFAULT_LLM_MAX_TOKENS,
+            temperature: 0.0,
             tracker: LlmUsageTracker::new(vec!["dead".to_string(), "echo".to_string()], 3),
         };
 
@@ -3207,6 +3505,9 @@ mod tests {
             default_model: Some("test-model".to_string()),
             failover: true,
             timeout: 2,
+            // №757: irrelevant here — the dead provider never answers.
+            max_tokens: DEFAULT_LLM_MAX_TOKENS,
+            temperature: 0.0,
             tracker: LlmUsageTracker::new(vec!["dead".to_string()], 3),
         };
 
@@ -3262,5 +3563,117 @@ mod tests {
             "Only 3 actual provider calls (call 4 skipped by CB)"
         );
         assert_eq!(report.total_errors, 3.0, "All 3 provider calls failed");
+    }
+
+    // ── №757: finish_reason extraction + the visible truncation ─────
+
+    #[test]
+    fn n757_parse_openai_response_extracts_finish_reason() {
+        let raw = r#"{"choices":[{"message":{"role":"assistant","content":"partial answer"},"finish_reason":"length"}]}"#;
+        let (text, reason) = parse_openai_response(raw).unwrap();
+        assert_eq!(text, "partial answer");
+        assert_eq!(reason.as_deref(), Some("length"));
+    }
+
+    #[test]
+    fn parse_openai_response_without_finish_reason_is_honest_none() {
+        let raw = r#"{"choices":[{"message":{"role":"assistant","content":"hi"}}]}"#;
+        let (text, reason) = parse_openai_response(raw).unwrap();
+        assert_eq!(text, "hi");
+        assert_eq!(reason, None);
+    }
+
+    #[test]
+    fn n757_parse_anthropic_response_extracts_stop_reason() {
+        let raw =
+            r#"{"content":[{"type":"text","text":"cut off mid"}],"stop_reason":"max_tokens"}"#;
+        let (text, reason) = parse_anthropic_response(raw).unwrap();
+        assert_eq!(text, "cut off mid");
+        assert_eq!(reason.as_deref(), Some("max_tokens"));
+    }
+
+    #[test]
+    fn n757_parse_ollama_response_extracts_done_reason() {
+        let raw = r#"{"response":"done-ish","done_reason":"length"}"#;
+        let (text, reason) = parse_ollama_response(raw).unwrap();
+        assert_eq!(text, "done-ish");
+        assert_eq!(reason.as_deref(), Some("length"));
+    }
+
+    #[test]
+    fn n757_is_truncation_reason_covers_both_provider_spellings() {
+        assert!(is_truncation_reason("length"));
+        assert!(is_truncation_reason("max_tokens"));
+        assert!(!is_truncation_reason("stop"));
+        assert!(!is_truncation_reason("end_turn"));
+        assert!(!is_truncation_reason(""));
+    }
+
+    #[test]
+    fn n757_record_finish_reason_roundtrip_and_absence() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // A None report never overwrites the previous value (honest absence).
+        record_finish_reason("openai", Some("length"));
+        assert_eq!(llm_last_finish_reason(), "length");
+        record_finish_reason("openai", None);
+        assert_eq!(llm_last_finish_reason(), "length");
+        record_finish_reason("anthropic", Some("end_turn"));
+        assert_eq!(llm_last_finish_reason(), "end_turn");
+    }
+
+    #[test]
+    fn n757_extract_finish_reason_sse_shapes() {
+        // OpenAI-compatible final content chunk.
+        let openai = serde_json::json!({
+            "choices": [{"delta": {}, "finish_reason": "length"}]
+        });
+        assert_eq!(
+            extract_finish_reason("openai", &openai).as_deref(),
+            Some("length")
+        );
+        // Anthropic message_delta carries delta.stop_reason.
+        let anthropic = serde_json::json!({
+            "type": "message_delta",
+            "delta": {"stop_reason": "max_tokens"},
+            "usage": {"output_tokens": 42}
+        });
+        assert_eq!(
+            extract_finish_reason("anthropic", &anthropic).as_deref(),
+            Some("max_tokens")
+        );
+        // Non-final Anthropic events carry no reason.
+        let block = serde_json::json!({"type": "content_block_delta", "delta": {"text": "x"}});
+        assert_eq!(extract_finish_reason("anthropic", &block), None);
+    }
+
+    #[test]
+    fn n757_default_ceiling_is_4096_not_1024() {
+        assert_eq!(DEFAULT_LLM_MAX_TOKENS, 4096);
+    }
+
+    #[test]
+    fn n757_effective_max_tokens_block_beats_env_beats_default() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // Block value wins over everything (set through the public
+        // installer — the same hook execution.rs calls).
+        set_block_llm_limits(Some(123), Some(0.5));
+        assert_eq!(effective_max_tokens_legacy(), 123);
+        assert!((effective_temperature_legacy() - 0.5).abs() < 1e-9);
+        // Block reset → env absent → the crate default.
+        set_block_llm_limits(None, None);
+        assert_eq!(effective_max_tokens_legacy(), DEFAULT_LLM_MAX_TOKENS);
+        assert_eq!(effective_temperature_legacy(), 0.0);
+    }
+
+    #[test]
+    fn n757_stream_close_records_the_stream_finish_reason() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // The state field is module-private; the honest probe is the
+        // public API surface: a stream that carried "length" and a clean
+        // close must leave "length" as the last observed reason. The
+        // full HTTP round-trip lives in
+        // tests/naryad_757_llm_limits.rs (real socket, SSE wire shape).
+        record_finish_reason("openai", Some("stop"));
+        assert_eq!(llm_last_finish_reason(), "stop");
     }
 }

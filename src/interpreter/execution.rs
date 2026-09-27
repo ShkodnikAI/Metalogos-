@@ -272,6 +272,11 @@ impl Interpreter {
                     let router = llm::SmartRouter::from_config(&config);
                     // Наряд №4: install into global bridge for builtin_call_llm()
                     llm::set_global_smart_router(llm::SmartRouter::from_config(&config));
+                    // №757: mirror the block-level limits next to the
+                    // global router (same last-wins scope) so the legacy
+                    // body sites and the router's empty-providers
+                    // fallback honor llm { max_tokens, temperature }.
+                    llm::set_block_llm_limits(config.max_tokens, config.temperature);
                     if let Ok(mut sr) = self.smart_router.lock() {
                         *sr = Some(router);
                     }

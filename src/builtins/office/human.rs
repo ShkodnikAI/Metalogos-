@@ -132,6 +132,7 @@ pub(crate) fn builtin_human_respond(args: &[Value]) -> Result<Value, String> {
                 status: "ok",
                 cache: "miss",
                 provider_alias: None,
+                finish_reason: None,
             });
             resp
         } else {
@@ -153,6 +154,7 @@ pub(crate) fn builtin_human_respond(args: &[Value]) -> Result<Value, String> {
                 status: if result.is_ok() { "ok" } else { "error" },
                 cache: "miss",
                 provider_alias: None,
+                finish_reason: None,
             });
             result.map_err(|e| {
                 // №385: preserve the inner origin stamp at the FRONT.

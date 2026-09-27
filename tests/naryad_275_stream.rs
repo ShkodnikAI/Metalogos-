@@ -61,6 +61,9 @@ fn build_mock_router() -> SmartRouter {
         failover: Some("auto".to_string()),
         circuit_breaker: 3,
         timeout: 30,
+        // №757: the limits are not this test's subject — honest defaults.
+        max_tokens: None,
+        temperature: None,
     });
     // Direct construction would be cleaner but SmartRouter::from_config
     // takes &LlmConfigDecl; easier to build the AST node and delegate.
@@ -80,6 +83,9 @@ fn build_mock_router() -> SmartRouter {
         failover: Some("auto".to_string()),
         circuit_breaker: 3,
         timeout: 30,
+        // №757: the limits are not this test's subject — honest defaults.
+        max_tokens: None,
+        temperature: None,
     };
     SmartRouter::from_config(&decl)
 }
@@ -212,6 +218,9 @@ fn n275_stream_limit_reached() {
         failover: Some("auto".to_string()),
         circuit_breaker: 3,
         timeout: 30,
+        // №757: the limits are not this test's subject — honest defaults.
+        max_tokens: None,
+        temperature: None,
     };
     set_global_smart_router(metalogos::llm::SmartRouter::from_config(&decl));
 
@@ -263,6 +272,9 @@ fn n275_stream_close_before_end_drops_cleanly() {
         failover: Some("auto".to_string()),
         circuit_breaker: 3,
         timeout: 30,
+        // №757: the limits are not this test's subject — honest defaults.
+        max_tokens: None,
+        temperature: None,
     };
     set_global_smart_router(metalogos::llm::SmartRouter::from_config(&decl));
 
@@ -324,6 +336,9 @@ fn n275_stream_end_marker_after_done() {
         failover: Some("auto".to_string()),
         circuit_breaker: 3,
         timeout: 30,
+        // №757: the limits are not this test's subject — honest defaults.
+        max_tokens: None,
+        temperature: None,
     };
     set_global_smart_router(metalogos::llm::SmartRouter::from_config(&decl));
 

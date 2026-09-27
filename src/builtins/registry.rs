@@ -24,6 +24,9 @@ use crate::video::{
 use super::llm_stream::{
     builtin_llm_stream_close, builtin_llm_stream_next, builtin_llm_stream_open,
 };
+// №757: the mlog-visible truncation probe (llm_last_finish_reason).
+#[cfg(feature = "llm")]
+use super::llm::builtin_llm_last_finish_reason;
 // Наряд №331 (ADR-0162): unified media layer — last-resort stubs for the
 // state-carrying media builtins (pub(crate); real paths are interception).
 use super::media::{
@@ -1009,6 +1012,16 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // end — inserting mid-array would shift existing CallBuiltin
     // indices (.mbc contract). Registry 499→500 (append-only).
     spec!("memory_retain_ttl", 3, "memory"; builtin_memory_retain_ttl),
+    // ── №757 (P1, llm/hardening): the mlog-visible truncation probe —
+    // the finish_reason/stop_reason of the last completed call/stream
+    // ("" = none reported yet). The non-silent half of №757: the caller
+    // checks `llm_last_finish_reason() == "length"` after call_llm.
+    // Typed "String" (№467 vocabulary) — the typed-share floor rises
+    // with this row. APPENDED at the end — inserting mid-array would
+    // shift existing CallBuiltin indices (.mbc contract).
+    // Registry 500→501 (append-only).
+    #[cfg(feature = "llm")]
+    spec!("llm_last_finish_reason", 0, "llm"; builtin_llm_last_finish_reason, "String"),
 ];
 
 /// Total number of registered builtins.

@@ -745,6 +745,85 @@ fn test_parse_llm_config_empty() {
     }
 }
 
+// ── №757: the block-level limits (max_tokens, temperature) ─────────
+
+#[test]
+fn test_parse_llm_config_max_tokens_after_providers() {
+    let src = "llm { providers: [{alias: p, provider: openai}], max_tokens: 8000 }";
+    let decls = parse(src).unwrap();
+    if let Declaration::LlmConfig(c) = &decls[0] {
+        assert_eq!(c.max_tokens, Some(8000));
+        assert_eq!(c.temperature, None);
+    } else {
+        panic!("expected LlmConfig");
+    }
+}
+
+#[test]
+fn test_parse_llm_config_limits_both_orders() {
+    // The №757 tail accepts the pair in either order.
+    let src_a =
+        "llm { providers: [{alias: p, provider: openai}], max_tokens: 10, temperature: 0.5 }";
+    let src_b =
+        "llm { providers: [{alias: p, provider: openai}], temperature: 0.5, max_tokens: 10 }";
+    for src in [src_a, src_b] {
+        let decls = parse(src).unwrap();
+        if let Declaration::LlmConfig(c) = &decls[0] {
+            assert_eq!(c.max_tokens, Some(10), "src: {}", src);
+            assert!((c.temperature.unwrap() - 0.5).abs() < 1e-9, "src: {}", src);
+        } else {
+            panic!("expected LlmConfig");
+        }
+    }
+}
+
+#[test]
+fn test_parse_llm_config_temperature_int_shorthand() {
+    let src = "llm { providers: [{alias: p, provider: openai}], temperature: 1 }";
+    let decls = parse(src).unwrap();
+    if let Declaration::LlmConfig(c) = &decls[0] {
+        assert!((c.temperature.unwrap() - 1.0).abs() < 1e-9);
+    } else {
+        panic!("expected LlmConfig");
+    }
+}
+
+#[test]
+fn test_parse_llm_config_max_tokens_zero_is_loud() {
+    // A zero ceiling is a loud parse error, not a silent default.
+    let src = "llm { providers: [{alias: p, provider: openai}], max_tokens: 0 }";
+    let err = parse(src).unwrap_err().to_string();
+    assert!(err.contains("max_tokens must be >= 1"), "got: {}", err);
+}
+
+#[test]
+fn test_parse_llm_config_temperature_out_of_range_is_loud() {
+    let src = "llm { providers: [{alias: p, provider: openai}], temperature: 3.0 }";
+    let err = parse(src).unwrap_err().to_string();
+    assert!(
+        err.contains("temperature must be within 0.0..=2.0"),
+        "got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_parse_llm_config_limits_and_tail_coexist() {
+    // The old ordered tail keeps working after the limits group.
+    let src = "llm { providers: [{alias: p, provider: openai}], max_tokens: 8000, temperature: 0.2, default_model: \"m\", failover: auto, circuit_breaker: 5, timeout: 60 }";
+    let decls = parse(src).unwrap();
+    if let Declaration::LlmConfig(c) = &decls[0] {
+        assert_eq!(c.max_tokens, Some(8000));
+        assert!((c.temperature.unwrap() - 0.2).abs() < 1e-9);
+        assert_eq!(c.default_model.as_deref(), Some("m"));
+        assert_eq!(c.failover.as_deref(), Some("auto"));
+        assert_eq!(c.circuit_breaker, 5);
+        assert_eq!(c.timeout, 60);
+    } else {
+        panic!("expected LlmConfig");
+    }
+}
+
 // ── Eval ─────────────────────────────────────────────────────────────
 
 #[test]

@@ -1245,6 +1245,57 @@ pub(super) fn parse_llm_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError
         .and_then(|s| s.parse().ok())
         .unwrap_or(30);
 
+    // №757: parse max_tokens — present ⇒ must parse as u32 ≥ 1. Unlike
+    // the circuit_breaker/timeout defaults above (silent fallback for a
+    // malformed value is pre-existing behavior there), a malformed
+    // max_tokens is a LOUD parse error: a silently ignored token ceiling
+    // is exactly the failure class the naryad removes (the truncated
+    // office report). INT grammar guarantees digits; only range/overflow
+    // can fail here.
+    let max_tokens = match children
+        .iter()
+        .find(|c| c.as_rule() == Rule::llm_max_tokens)
+    {
+        Some(pair) => {
+            let raw = find_child_str(&children_of(pair), Rule::INT)
+                .ok_or_else(|| pair_error(pair, "llm max_tokens must be an integer"))?;
+            match raw.parse::<u32>() {
+                Ok(n) if n >= 1 => Some(n),
+                Ok(_) => {
+                    return Err(pair_error(pair, "llm max_tokens must be >= 1"));
+                }
+                Err(_) => {
+                    return Err(pair_error(pair, "llm max_tokens does not fit u32"));
+                }
+            }
+        }
+        None => None,
+    };
+
+    // №757: parse temperature — FLOAT_LITERAL or INT shorthand
+    // (`temperature: 1` = 1.0). Present ⇒ must land in 0.0..=2.0 (the
+    // OpenAI-compatible sampling range); out of range is a LOUD parse
+    // error, not a silent clamp.
+    let temperature = match children
+        .iter()
+        .find(|c| c.as_rule() == Rule::llm_temperature)
+    {
+        Some(pair) => {
+            let inner = children_of(pair);
+            let raw = find_child_str(&inner, Rule::FLOAT_LITERAL)
+                .or_else(|| find_child_str(&inner, Rule::INT))
+                .ok_or_else(|| pair_error(pair, "llm temperature must be a number"))?;
+            let t: f64 = raw
+                .parse()
+                .map_err(|_| pair_error(pair, "llm temperature must be a number"))?;
+            if !(0.0..=2.0).contains(&t) {
+                return Err(pair_error(pair, "llm temperature must be within 0.0..=2.0"));
+            }
+            Some(t)
+        }
+        None => None,
+    };
+
     Ok(Declaration::LlmConfig(LlmConfigDecl {
         span,
         providers,
@@ -1252,6 +1303,8 @@ pub(super) fn parse_llm_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError
         failover,
         circuit_breaker,
         timeout,
+        max_tokens,
+        temperature,
     }))
 }
 

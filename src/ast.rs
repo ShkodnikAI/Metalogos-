@@ -364,11 +364,20 @@ impl Declaration {
             }
             Declaration::Tool(d) => format!("tool {} {{ {} methods }}", d.name, d.methods.len()),
             Declaration::LlmConfig(d) => {
+                // №757: the display names the new limits when present —
+                // the honest summary of what the block actually carries.
+                let limits = match (d.max_tokens, d.temperature) {
+                    (Some(mt), Some(t)) => format!(", max_tokens: {}, temperature: {}", mt, t),
+                    (Some(mt), None) => format!(", max_tokens: {}", mt),
+                    (None, Some(t)) => format!(", temperature: {}", t),
+                    (None, None) => String::new(),
+                };
                 format!(
-                    "llm {{ {} providers, default: {:?}, failover: {:?} }}",
+                    "llm {{ {} providers, default: {:?}, failover: {:?}{} }}",
                     d.providers.len(),
                     d.default_model,
-                    d.failover
+                    d.failover,
+                    limits
                 )
             }
             Declaration::ContextBudget(d) => {
@@ -525,6 +534,17 @@ pub struct LlmConfigDecl {
     pub circuit_breaker: u32,
     /// Timeout in seconds per provider call.
     pub timeout: u32,
+    /// №757: block-level generation ceiling (`max_tokens: N`) sent to
+    /// providers on every call/stream through this config. `None` → the
+    /// env fallback (METALOGOS_LLM_MAX_TOKENS), then the crate default
+    /// (DEFAULT_LLM_MAX_TOKENS = 4096 — raised from the former hard-coded
+    /// 1024 by №757). Validated ≥ 1 loudly at parse time.
+    pub max_tokens: Option<u32>,
+    /// №757: block-level sampling temperature (`temperature: X`) sent on
+    /// the OpenAI-compatible branches (Anthropic/others untouched).
+    /// `None` → 0.0 (the former hard-coded value — no default change).
+    /// Validated 0.0..=2.0 loudly at parse time.
+    pub temperature: Option<f64>,
 }
 
 // ── MlogServer (Phase 6.1) ──────────────────────────────────────

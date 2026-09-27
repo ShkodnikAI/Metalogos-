@@ -14,11 +14,12 @@
 
 use metalogos::builtins::{sig_types::Type, BUILTIN_REGISTRY};
 
-/// The checked-in floor: the stage-0 start value (2026-09-26, 49 typed
-/// rows of 500 — the verified flat vocabulary). MUST move only up, in
-/// the same PR that types more rows; mirrors
-/// `scripts/ci/type_signature_baseline.txt` (`# threshold_bp: 980`).
-const TYPED_FLOOR: usize = 49;
+/// The checked-in floor: raised by №757 (2026-09-27 — the new
+/// llm_last_finish_reason row ships typed "String"; 50 typed rows of
+/// 501). MUST move only up, in the same PR that types more rows;
+/// mirrors `scripts/ci/type_signature_baseline.txt`
+/// (`# threshold_bp: 998`).
+const TYPED_FLOOR: usize = 50;
 
 #[test]
 fn typed_signature_share_never_falls_below_the_floor() {

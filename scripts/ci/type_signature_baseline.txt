@@ -18,3 +18,10 @@
 # typed: 49
 # total: 500
 # threshold_bp: 980
+#
+# 2026-09-27 №757: the new llm_last_finish_reason row ships typed
+# ("String" — returns the last observed finish_reason) — 49→50 typed
+# of 501 total; floor raised with the row that earned it.
+# typed: 50
+# total: 501
+# threshold_bp: 998

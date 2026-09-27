@@ -1068,7 +1068,10 @@ fn n465_diff_fuzzer_tw_vm() {
 
     let base_dir = repo.clone();
     let iters = iterations();
-    let mut found: Vec<(u64, String, Divergence)> = Vec::new();
+    // (seed, source, divergence, from_file) — from_file names the checked-in
+    // seed/example that produced the divergence (None for generated programs);
+    // the №479 example-reproduces-class ratchet reads it.
+    let mut found: Vec<(u64, String, Divergence, Option<String>)> = Vec::new();
     let mut generated = 0u32;
     let mut seeds_run = 0u32;
 
@@ -1079,8 +1082,9 @@ fn n465_diff_fuzzer_tw_vm() {
             if path.extension().map(|e| e == "mlog").unwrap_or(false) {
                 seeds_run += 1;
                 let src = std::fs::read_to_string(&path).expect("read seed");
+                let name = path.file_name().map(|n| n.to_string_lossy().to_string());
                 if let Some(div) = diff_one(&src, &base_dir) {
-                    found.push((0, src, div));
+                    found.push((0, src, div, name));
                 }
             }
         }
@@ -1097,7 +1101,7 @@ fn n465_diff_fuzzer_tw_vm() {
         let src = gen_program(seed);
         generated += 1;
         if let Some(div) = diff_one(&src, &base_dir) {
-            found.push((seed, src, div));
+            found.push((seed, src, div, None));
         }
     }
 
@@ -1110,7 +1114,10 @@ fn n465_diff_fuzzer_tw_vm() {
     let _ = std::fs::create_dir_all(&min_dir);
     let mut new_classes: Vec<(String, usize)> = Vec::new();
     let mut class_counts: Vec<(String, String, usize, String, String, String)> = Vec::new();
-    for (_seed, src, div) in &found {
+    // №479: class → its checked-in example reproduced it in THIS run.
+    let mut example_reproduced: std::collections::BTreeMap<String, bool> =
+        std::collections::BTreeMap::new();
+    for (_seed, src, div, from_file) in &found {
         let sig = div.signature();
         let minimized = minimize(src, &|s| match diff_one(s, &base_dir) {
             Some(d) if d.signature() == sig => d.signature(),
@@ -1136,6 +1143,12 @@ fn n465_diff_fuzzer_tw_vm() {
             );
         }
         let is_known = known.iter().any(|k| *k == *class);
+        if let Some(fname) = from_file {
+            // The class's OWN example fired — the load-bearing guarantee.
+            if example_of.iter().any(|(c, e)| c == class && e == fname) {
+                example_reproduced.insert(class.clone(), true);
+            }
+        }
         if is_known {
             if let Some(entry) = class_counts.iter_mut().find(|e| e.0 == class) {
                 entry.2 += 1;
@@ -1188,18 +1201,20 @@ fn n465_diff_fuzzer_tw_vm() {
     }
     std::fs::write(corpus_dir.join("last_report.txt"), &report).expect("write report");
 
-    // №479: the EXAMPLE-REPRODUCES-CLASS ratchet — every known class's
-    // checked-in example must have reproduced the class in THIS run (the
-    // seed loop runs every corpus .mlog, examples included). A class that
-    // no longer reproduces is a CLOSED gap: the run fails demanding the
-    // line and the example be removed in the fix PR — the corpus never
-    // outlives the divergence it pins.
+    // №479: the EXAMPLE-REPRODUCES-CLASS ratchet — each known class's
+    // checked-in example must have reproduced ITS class in THIS run (the
+    // seed loop runs every corpus .mlog, examples included; the class
+    // firing from generated programs or other seeds does NOT count — the
+    // example is the deterministic, load-bearing reproducer). A class the
+    // example no longer reproduces is a CLOSED gap: the run fails
+    // demanding the line and the example be removed in the fix PR — the
+    // corpus never outlives the divergence it pins.
     for (class, example) in &example_of {
-        if !class_counts.iter().any(|e| &e.0 == class) {
+        if !example_reproduced.get(class).copied().unwrap_or(false) {
             panic!(
-                "KNOWN class no longer reproduces — the gap is CLOSED (№479 ratchet): \
-                 remove the known- line AND its example {} from the corpus in the fix PR. \
-                 Class: {}",
+                "KNOWN class no longer reproduces via its example — the gap is CLOSED \
+                 (№479 ratchet): remove the known- line AND its example {} from the \
+                 corpus in the fix PR. Class: {}",
                 example, class
             );
         }

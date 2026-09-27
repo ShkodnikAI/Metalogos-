@@ -579,6 +579,21 @@ fn cmd_mcp_serve(
     bind: Option<String>,
     auth_token: Option<String>,
 ) {
+    // №477 (gh#725): the inversion of the execution-context default — the
+    // №457 serve posture extended to the MCP server entrypoint. `mlog
+    // mcp-serve` (http/sse) is the same network server executing user code
+    // as `mlog serve`: from this point every UNMARKED thread is
+    // ServeRoute (env() №259-gated, exec() №253-gated), so background
+    // tasks, resource handlers and future MCP entry points fail LOUD
+    // instead of silently keeping process rights. The tool-call path keeps
+    // its explicit `ServeRouteExecGuard` (№401, `execute_tool_method`) —
+    // stdio does not degrade; the tool-registration zone keeps the process
+    // context via `TopLevelRegistrationGuard` (inside `McpServer::new`).
+    metalogos::builtins::set_process_mode(metalogos::builtins::ProcessMode::Serve);
+    eprintln!(
+        "[mcp-serve] exec context: strict-by-default (Naryad #457 + #477) — unmarked threads are serve-route; tool calls keep their explicit guard, top-level registration keeps the process context"
+    );
+
     let source = match fs::read_to_string(&file) {
         Ok(s) => s,
         Err(e) => {

@@ -4,6 +4,27 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №477 (issue #725; the audit v0.26.1 §3.5 finding — `mlog
+  mcp-serve` with the http/sse transports is the same network server
+  executing user code as serve, but ran on the pre-№457 model): the
+  mcp-serve inversion. `cmd_mcp_serve` sets the process mode to Serve
+  at the entrypoint (the №457 `cmd_serve` precedent) with the loud
+  strict-by-default banner — every UNMARKED thread is `ServeRoute`
+  (env() №259-gated, exec() №253-gated), so background tasks,
+  resource-handler calls and future MCP entry points fail LOUD instead
+  of silently keeping process rights. The tool-call surface does NOT
+  degrade: `tools/call` keeps its explicit `ServeRouteExecGuard`
+  (№401, `execute_tool_method`) — identical behavior on every transport
+  (stdio included), pinned by the tool-call parity test under the
+  inverted default (the №259 refusal without the serve flag, the same
+  read with it). The tool-registration phase keeps the process context
+  (`TopLevelRegistrationGuard` inside `McpServer::new`, the №457
+  precedent) — `tools/list` with the compiled №316 policy meta is
+  unregressed. Pinned in `tests/naryad_477_mcp_serve_inversion.rs`
+  (the №457 test pattern: an unmarked background thread → ServeRoute
+  with the loud env/exec refusals; the registration-zone machinery;
+  the tool-call parity; the tools/list surface).
+
 - Naryad №479 (issue #727; the audit v0.26.1 §3.4 finding — the
   TW↔VM diff fuzzer is right in approach but narrow, with an
   unreviewable corpus): the fuzzer v2. The class signature is now the
@@ -32,6 +53,7 @@ All notable changes to the Metalogos project.
   The report carries the RAW side texts and the program's AST
   node-kind view; `err:uncoded(...)` sides fail loudly until the origin
   site gets its stable code.
+
 - Naryad №758 (issue #758; the owner's VM-office bug report,
   FOSVED-office-v2 differential probe, re-confirmed on 0.27.0): the VM
   lane resolves `db { url: env("NAME") }` now — the compiler classifies

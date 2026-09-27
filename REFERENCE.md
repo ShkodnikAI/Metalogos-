@@ -1050,7 +1050,7 @@ Temporary in-memory storage scoped to a session_id. Not persistent — it resets
 **Examples:**
 ```mlog
 // doc-test: skip
-entity db_url: Secret = env("DATABASE_URL")
+entity db_url: Secret = env_or("DATABASE_URL", "sqlite::memory:")
 let key = generate_key()
 let encrypted = encrypt("secret data", key)
 let decrypted = decrypt(encrypted, key)  // "secret data"
@@ -1758,7 +1758,7 @@ entity User {
 entity alice: User = { id: "1", name: "Alice", role: "admin" }
 
 // A simple entity (a single value)
-entity db_url: Secret = env("DATABASE_URL")
+entity db_url: Secret = env_or("DATABASE_URL", "sqlite::memory:")
 ```
 
 ### 5.4. Flow (a pipeline)

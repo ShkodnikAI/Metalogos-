@@ -577,21 +577,21 @@ impl Interpreter {
         // Наряд №240 (Vision R4.2): vision_generate / vision_list /
         // vision_export as flow steps — same shared dispatch functions as
         // the expression path above (лекало reflex_generate).
-        if name == "vision_generate" {
+        if name == crate::media_ops::VISION_GENERATE {
             let mut reg = self
                 .vision_registry
                 .lock()
                 .map_err(|e| format!("vision registry poisoned: {}", e))?;
             return crate::builtins::vision_generate_dispatch(&self.vision_decls, &mut reg, &args);
         }
-        if name == "vision_list" {
+        if name == crate::media_ops::VISION_LIST {
             let reg = self
                 .vision_registry
                 .lock()
                 .map_err(|e| format!("vision registry poisoned: {}", e))?;
             return crate::builtins::vision_list_dispatch(&reg, &args);
         }
-        if name == "vision_export" {
+        if name == crate::media_ops::VISION_EXPORT {
             let reg = self
                 .vision_registry
                 .lock()
@@ -600,7 +600,7 @@ impl Interpreter {
         }
         // Наряд №241 (R5, Block 2.1): raw opt-out — same state-carrying
         // interception pattern (ADR-0125 explicit form).
-        if name == "vision_export_raw" {
+        if name == crate::media_ops::VISION_EXPORT_RAW {
             let reg = self
                 .vision_registry
                 .lock()
@@ -611,7 +611,7 @@ impl Interpreter {
         // interception (лекало vision_export). All media byte state lives
         // in the per-interpreter MediaStore; the shared dispatches in
         // src/builtins/media.rs keep the two backends identical.
-        if name == "media_store_image" {
+        if name == crate::media_ops::MEDIA_STORE_IMAGE {
             let mut store = self
                 .media_store
                 .lock()
@@ -622,7 +622,7 @@ impl Interpreter {
                 &args,
             );
         }
-        if name == "media_store_audio" {
+        if name == crate::media_ops::MEDIA_STORE_AUDIO {
             let mut store = self
                 .media_store
                 .lock()
@@ -633,7 +633,7 @@ impl Interpreter {
                 &args,
             );
         }
-        if name == "media_store_video_frame" {
+        if name == crate::media_ops::MEDIA_STORE_VIDEO_FRAME {
             let mut store = self
                 .media_store
                 .lock()
@@ -644,7 +644,7 @@ impl Interpreter {
                 &args,
             );
         }
-        if name == "media_store_video_segment" {
+        if name == crate::media_ops::MEDIA_STORE_VIDEO_SEGMENT {
             let mut store = self
                 .media_store
                 .lock()
@@ -655,7 +655,7 @@ impl Interpreter {
                 &args,
             );
         }
-        if name == "media_save" {
+        if name == crate::media_ops::MEDIA_SAVE {
             let store = self
                 .media_store
                 .lock()
@@ -681,21 +681,21 @@ impl Interpreter {
                 .map_err(|e| format!("media store poisoned: {}", e))?;
             return crate::builtins::consent::consent_revoke_dispatch(&mut store, &args);
         }
-        if name == "media_retain" {
+        if name == crate::media_ops::MEDIA_RETAIN {
             let mut store = self
                 .media_store
                 .lock()
                 .map_err(|e| format!("media store poisoned: {}", e))?;
             return crate::builtins::media_retain_dispatch(&mut store, &args);
         }
-        if name == "media_release" {
+        if name == crate::media_ops::MEDIA_RELEASE {
             let mut store = self
                 .media_store
                 .lock()
                 .map_err(|e| format!("media store poisoned: {}", e))?;
             return crate::builtins::media_release_dispatch(&mut store, &args);
         }
-        if name == "media_meta" {
+        if name == crate::media_ops::MEDIA_META {
             let store = self
                 .media_store
                 .lock()
@@ -704,7 +704,7 @@ impl Interpreter {
         }
         // №337 (ADR-0166 §2.4): the in-program provenance read — the
         // entry-level manifest facts WITHOUT materializing bytes.
-        if name == "media_manifest" {
+        if name == crate::media_ops::MEDIA_MANIFEST {
             let store = self
                 .media_store
                 .lock()
@@ -713,7 +713,7 @@ impl Interpreter {
         }
         // Наряд №332 (ADR-0164): HandleSource/ProvBind runtime — the
         // origin declarations live in the interpreter's declaration pass.
-        if name == "media_source_capture" {
+        if name == crate::media_ops::MEDIA_SOURCE_CAPTURE {
             let mut store = self
                 .media_store
                 .lock()
@@ -724,7 +724,7 @@ impl Interpreter {
                 &args,
             );
         }
-        if name == "media_bind_origin" {
+        if name == crate::media_ops::MEDIA_BIND_ORIGIN {
             let mut store = self
                 .media_store
                 .lock()
@@ -741,7 +741,7 @@ impl Interpreter {
         // lock discipline as in query()). No-db → loud Err naming the
         // declaration; load returns a fresh monotonic session handle —
         // the persisted key is the name.
-        if name == "vision_save" {
+        if name == crate::media_ops::VISION_SAVE {
             let reg = self
                 .vision_registry
                 .lock()
@@ -752,7 +752,7 @@ impl Interpreter {
                 .map_err(|e| format!("db lock error: {}", e))?;
             return crate::builtins::vision_save_dispatch(&reg, db.as_ref(), &args);
         }
-        if name == "vision_load" {
+        if name == crate::media_ops::VISION_LOAD {
             let mut reg = self
                 .vision_registry
                 .lock()
@@ -768,7 +768,7 @@ impl Interpreter {
         // persistence does not participate in the edit contract). The
         // source must be signed (Block 2.2); the edit loop signs ALWAYS
         // (Block 2.3).
-        if name == "vision_edit" {
+        if name == crate::media_ops::VISION_EDIT {
             let mut reg = self
                 .vision_registry
                 .lock()
@@ -779,14 +779,14 @@ impl Interpreter {
         // the load dispatch needs the program's db connection (the
         // adapter's only home is SQLite — ADR-0124 §6); the generate
         // dispatch additionally owns the vision declarations + registry.
-        if name == "vision_lora_load" {
+        if name == crate::media_ops::VISION_LORA_LOAD {
             let db = self
                 .db_conn
                 .lock()
                 .map_err(|e| format!("db lock error: {}", e))?;
             return crate::builtins::vision_lora_load_dispatch(db.as_ref(), &args);
         }
-        if name == "vision_lora_generate" {
+        if name == crate::media_ops::VISION_LORA_GENERATE {
             let mut reg = self
                 .vision_registry
                 .lock()
@@ -1903,7 +1903,7 @@ impl Interpreter {
                 // vision_registry Mutex). Dispatch functions in
                 // src/builtins/vision.rs are shared with the VM (лекало
                 // reflex_train/reflex_predict).
-                if name == "vision_generate" {
+                if name == crate::media_ops::VISION_GENERATE {
                     let mut reg = self
                         .vision_registry
                         .lock()
@@ -1914,14 +1914,14 @@ impl Interpreter {
                         &eval_args,
                     );
                 }
-                if name == "vision_list" {
+                if name == crate::media_ops::VISION_LIST {
                     let reg = self
                         .vision_registry
                         .lock()
                         .map_err(|e| format!("vision registry poisoned: {}", e))?;
                     return crate::builtins::vision_list_dispatch(&reg, &eval_args);
                 }
-                if name == "vision_export" {
+                if name == crate::media_ops::VISION_EXPORT {
                     let reg = self
                         .vision_registry
                         .lock()
@@ -1929,7 +1929,7 @@ impl Interpreter {
                     return crate::builtins::vision_export_dispatch(&reg, &eval_args);
                 }
                 // Наряд №241 (R5, Block 2.1): raw opt-out interception.
-                if name == "vision_export_raw" {
+                if name == crate::media_ops::VISION_EXPORT_RAW {
                     let reg = self
                         .vision_registry
                         .lock()
@@ -1940,7 +1940,7 @@ impl Interpreter {
                 // path interception (лекало vision_export_raw above). The
                 // same shared dispatches as the statement path keep the
                 // two evaluation routes identical.
-                if name == "media_store_image" {
+                if name == crate::media_ops::MEDIA_STORE_IMAGE {
                     let mut store = self
                         .media_store
                         .lock()
@@ -1951,7 +1951,7 @@ impl Interpreter {
                         &eval_args,
                     );
                 }
-                if name == "media_store_audio" {
+                if name == crate::media_ops::MEDIA_STORE_AUDIO {
                     let mut store = self
                         .media_store
                         .lock()
@@ -1962,7 +1962,7 @@ impl Interpreter {
                         &eval_args,
                     );
                 }
-                if name == "media_store_video_frame" {
+                if name == crate::media_ops::MEDIA_STORE_VIDEO_FRAME {
                     let mut store = self
                         .media_store
                         .lock()
@@ -1973,7 +1973,7 @@ impl Interpreter {
                         &eval_args,
                     );
                 }
-                if name == "media_store_video_segment" {
+                if name == crate::media_ops::MEDIA_STORE_VIDEO_SEGMENT {
                     let mut store = self
                         .media_store
                         .lock()
@@ -1984,7 +1984,7 @@ impl Interpreter {
                         &eval_args,
                     );
                 }
-                if name == "media_save" {
+                if name == crate::media_ops::MEDIA_SAVE {
                     let store = self
                         .media_store
                         .lock()
@@ -2014,21 +2014,21 @@ impl Interpreter {
                         &mut store, &eval_args,
                     );
                 }
-                if name == "media_retain" {
+                if name == crate::media_ops::MEDIA_RETAIN {
                     let mut store = self
                         .media_store
                         .lock()
                         .map_err(|e| format!("media store poisoned: {}", e))?;
                     return crate::builtins::media_retain_dispatch(&mut store, &eval_args);
                 }
-                if name == "media_release" {
+                if name == crate::media_ops::MEDIA_RELEASE {
                     let mut store = self
                         .media_store
                         .lock()
                         .map_err(|e| format!("media store poisoned: {}", e))?;
                     return crate::builtins::media_release_dispatch(&mut store, &eval_args);
                 }
-                if name == "media_meta" {
+                if name == crate::media_ops::MEDIA_META {
                     let store = self
                         .media_store
                         .lock()
@@ -2036,7 +2036,7 @@ impl Interpreter {
                     return crate::builtins::media_meta_dispatch(&store, &eval_args);
                 }
                 // №337 (ADR-0166 §2.4): the in-program provenance read.
-                if name == "media_manifest" {
+                if name == crate::media_ops::MEDIA_MANIFEST {
                     let store = self
                         .media_store
                         .lock()
@@ -2045,7 +2045,7 @@ impl Interpreter {
                 }
                 // Наряд №332 (ADR-0164): HandleSource/ProvBind runtime,
                 // expression path.
-                if name == "media_source_capture" {
+                if name == crate::media_ops::MEDIA_SOURCE_CAPTURE {
                     let mut store = self
                         .media_store
                         .lock()
@@ -2056,7 +2056,7 @@ impl Interpreter {
                         &eval_args,
                     );
                 }
-                if name == "media_bind_origin" {
+                if name == crate::media_ops::MEDIA_BIND_ORIGIN {
                     let mut store = self
                         .media_store
                         .lock()
@@ -2071,7 +2071,7 @@ impl Interpreter {
                 // carrying interception, expression path; the dispatch
                 // also receives the interpreter's db connection (opened
                 // by the `db { url: ... }` declaration).
-                if name == "vision_save" {
+                if name == crate::media_ops::VISION_SAVE {
                     let reg = self
                         .vision_registry
                         .lock()
@@ -2082,7 +2082,7 @@ impl Interpreter {
                         .map_err(|e| format!("db lock error: {}", e))?;
                     return crate::builtins::vision_save_dispatch(&reg, db.as_ref(), &eval_args);
                 }
-                if name == "vision_load" {
+                if name == crate::media_ops::VISION_LOAD {
                     let mut reg = self
                         .vision_registry
                         .lock()
@@ -2100,7 +2100,7 @@ impl Interpreter {
                 // Наряд №243 (R6.2): in-context editing — same state-
                 // carrying interception, expression path; source must be
                 // signed (Block 2.2), output signed ALWAYS (Block 2.3).
-                if name == "vision_edit" {
+                if name == crate::media_ops::VISION_EDIT {
                     let mut reg = self
                         .vision_registry
                         .lock()
@@ -2111,14 +2111,14 @@ impl Interpreter {
                 // interception, expression path; the adapter's only home is
                 // SQLite (ADR-0124 §6), the dispatch owns decls + registry
                 // + the program's db connection.
-                if name == "vision_lora_load" {
+                if name == crate::media_ops::VISION_LORA_LOAD {
                     let db = self
                         .db_conn
                         .lock()
                         .map_err(|e| format!("db lock error: {}", e))?;
                     return crate::builtins::vision_lora_load_dispatch(db.as_ref(), &eval_args);
                 }
-                if name == "vision_lora_generate" {
+                if name == crate::media_ops::VISION_LORA_GENERATE {
                     let mut reg = self
                         .vision_registry
                         .lock()

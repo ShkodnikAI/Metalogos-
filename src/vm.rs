@@ -2758,20 +2758,20 @@ impl Vm {
     /// the source must be signed (Block 2.2), the output signs ALWAYS
     /// (Block 2.3).
     fn call_vision_builtin(&mut self, name: &str, args: &[Value]) -> Option<Result<Value, String>> {
-        if name == "vision_generate" {
+        if name == crate::media_ops::VISION_GENERATE {
             return Some(crate::builtins::vision_generate_dispatch(
                 &self.vision_decls,
                 &mut self.vision_registry,
                 args,
             ));
         }
-        if name == "vision_list" {
+        if name == crate::media_ops::VISION_LIST {
             return Some(crate::builtins::vision_list_dispatch(
                 &self.vision_registry,
                 args,
             ));
         }
-        if name == "vision_export" {
+        if name == crate::media_ops::VISION_EXPORT {
             return Some(crate::builtins::vision_export_dispatch(
                 &self.vision_registry,
                 args,
@@ -2779,7 +2779,7 @@ impl Vm {
         }
         // Наряд №241 (R5, Block 2.1): raw opt-out — same interception
         // pattern, VM-side (ADR-0125 explicit form).
-        if name == "vision_export_raw" {
+        if name == crate::media_ops::VISION_EXPORT_RAW {
             return Some(crate::builtins::vision_export_raw_dispatch(
                 &self.vision_registry,
                 args,
@@ -2791,7 +2791,7 @@ impl Vm {
         // monotonic session handle, the persisted key is the name).
         // №409: lazy db open on first use (the connection materializes
         // here for save/load/LoRA; vision_edit keeps its no-db contract).
-        if name == "vision_save" {
+        if name == crate::media_ops::VISION_SAVE {
             self.ensure_db_open();
             return Some(crate::builtins::vision_save_dispatch(
                 &self.vision_registry,
@@ -2799,7 +2799,7 @@ impl Vm {
                 args,
             ));
         }
-        if name == "vision_load" {
+        if name == crate::media_ops::VISION_LOAD {
             return Some(crate::builtins::vision_load_dispatch(
                 &mut self.vision_registry,
                 self.db_conn.as_ref(),
@@ -2808,7 +2808,7 @@ impl Vm {
         }
         // Наряд №243 (R6.2): in-context editing — state-carrying like
         // save/load (the VM's own registry; no db in the edit contract).
-        if name == "vision_edit" {
+        if name == crate::media_ops::VISION_EDIT {
             return Some(crate::builtins::vision_edit_dispatch(
                 &mut self.vision_registry,
                 args,
@@ -2818,13 +2818,13 @@ impl Vm {
         // the load dispatch receives the VM's db connection (the adapter's
         // only home is SQLite — ADR-0124 §6); the generate dispatch
         // additionally owns the VM's vision declarations + registry.
-        if name == "vision_lora_load" {
+        if name == crate::media_ops::VISION_LORA_LOAD {
             return Some(crate::builtins::vision_lora_load_dispatch(
                 self.db_conn.as_ref(),
                 args,
             ));
         }
-        if name == "vision_lora_generate" {
+        if name == crate::media_ops::VISION_LORA_GENERATE {
             return Some(crate::builtins::vision_lora_generate_dispatch(
                 &self.vision_decls,
                 &mut self.vision_registry,
@@ -2843,27 +2843,31 @@ impl Vm {
     fn call_media_builtin(&mut self, name: &str, args: &[Value]) -> Option<Result<Value, String>> {
         use crate::media::MediaKind;
         match name {
-            "media_store_image" => Some(crate::builtins::media_store_dispatch(
+            crate::media_ops::MEDIA_STORE_IMAGE => Some(crate::builtins::media_store_dispatch(
                 &mut self.media_store,
                 MediaKind::Image,
                 args,
             )),
-            "media_store_audio" => Some(crate::builtins::media_store_dispatch(
+            crate::media_ops::MEDIA_STORE_AUDIO => Some(crate::builtins::media_store_dispatch(
                 &mut self.media_store,
                 MediaKind::Audio,
                 args,
             )),
-            "media_store_video_frame" => Some(crate::builtins::media_store_dispatch(
-                &mut self.media_store,
-                MediaKind::VideoFrame,
-                args,
-            )),
-            "media_store_video_segment" => Some(crate::builtins::media_store_dispatch(
-                &mut self.media_store,
-                MediaKind::VideoSegment,
-                args,
-            )),
-            "media_save" => Some(crate::builtins::media_save_dispatch(
+            crate::media_ops::MEDIA_STORE_VIDEO_FRAME => {
+                Some(crate::builtins::media_store_dispatch(
+                    &mut self.media_store,
+                    MediaKind::VideoFrame,
+                    args,
+                ))
+            }
+            crate::media_ops::MEDIA_STORE_VIDEO_SEGMENT => {
+                Some(crate::builtins::media_store_dispatch(
+                    &mut self.media_store,
+                    MediaKind::VideoSegment,
+                    args,
+                ))
+            }
+            crate::media_ops::MEDIA_SAVE => Some(crate::builtins::media_save_dispatch(
                 &self.media_store,
                 args,
             )),
@@ -2879,34 +2883,38 @@ impl Vm {
             crate::session_ops::NAME_CONSENT_REVOKE => Some(
                 crate::builtins::consent::consent_revoke_dispatch(&mut self.media_store, args),
             ),
-            "media_retain" => Some(crate::builtins::media_retain_dispatch(
+            crate::media_ops::MEDIA_RETAIN => Some(crate::builtins::media_retain_dispatch(
                 &mut self.media_store,
                 args,
             )),
-            "media_release" => Some(crate::builtins::media_release_dispatch(
+            crate::media_ops::MEDIA_RELEASE => Some(crate::builtins::media_release_dispatch(
                 &mut self.media_store,
                 args,
             )),
-            "media_meta" => Some(crate::builtins::media_meta_dispatch(
+            crate::media_ops::MEDIA_META => Some(crate::builtins::media_meta_dispatch(
                 &self.media_store,
                 args,
             )),
             // №337 (ADR-0166 §2.4): the in-program provenance read —
             // entry-level manifest facts, no byte movement.
-            "media_manifest" => Some(crate::builtins::media_manifest_dispatch(
+            crate::media_ops::MEDIA_MANIFEST => Some(crate::builtins::media_manifest_dispatch(
                 &self.media_store,
                 args,
             )),
-            "media_source_capture" => Some(crate::builtins::media_source_capture_dispatch(
-                &mut self.media_store,
-                &self.origin_decls,
-                args,
-            )),
-            "media_bind_origin" => Some(crate::builtins::media_bind_origin_dispatch(
-                &mut self.media_store,
-                &self.origin_decls,
-                args,
-            )),
+            crate::media_ops::MEDIA_SOURCE_CAPTURE => {
+                Some(crate::builtins::media_source_capture_dispatch(
+                    &mut self.media_store,
+                    &self.origin_decls,
+                    args,
+                ))
+            }
+            crate::media_ops::MEDIA_BIND_ORIGIN => {
+                Some(crate::builtins::media_bind_origin_dispatch(
+                    &mut self.media_store,
+                    &self.origin_decls,
+                    args,
+                ))
+            }
             _ => None,
         }
     }

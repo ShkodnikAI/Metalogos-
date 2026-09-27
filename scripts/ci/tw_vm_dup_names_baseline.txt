@@ -45,7 +45,16 @@
 # per-backend store/state divergences preserved (TW variables vs VM
 # globals, HashMap vs Vec skill indices); exec_argv stays a VM-only
 # literal (never a №462 duplicate) — 28 → 20.
-# threshold: 20
+#
+# 2026-09-28 №483 (gh#731) the media/vision group (the FINAL group):
+# the twenty names' spelling moved to src/media_ops.rs (the name
+# constants + the live handles() hook); both backends compare against
+# the constants — the per-backend dispatch bodies stay (№480: a NAME
+# transfer, not a logic unification; the pair metric is №484).
+# The full ratchet: 60 → 56 → 49 → 42 → 35 → 20 → 0 — the counter's
+# fact is now ZERO duplicated names; the threshold below = the fact
+# (the ratchet holds only-down; a new duplicate name fails CI at once).
+# threshold: 0
 
 media_bind_origin
 media_manifest

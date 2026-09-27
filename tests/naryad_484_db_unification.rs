@@ -35,7 +35,7 @@ fn val_shape(v: &Value) -> String {
 #[test]
 fn n484_vm_implements_db_access() {
     fn assert_db_access<T: DbAccess>(_: &T) {}
-    let mut vm = metalogos::vm::Vm::new();
+    let vm = metalogos::vm::Vm::new();
     assert_db_access(&vm);
 }
 

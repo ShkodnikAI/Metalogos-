@@ -1,6 +1,19 @@
 # ADR-0177: The domain freeze until 0.27 — no new subsystems, the core first
 
-**Status:** Accepted — the owner's decision 1-A of the strategic gate
+**Status:** **Lifted — the owner's explicit unfreeze decision**
+(gh#680, the lift record comment 5851623870, 2026-09-27; the owner
+directive received via the office channel, trace_id
+`1a0e06d976daf0c9`: the lift is recorded by the owner's publication in
+gh#680, followed by this ADR status naryad and the 0.27.0 release —
+the release OF the unfreeze, naryad №494). All four §4 criteria carried
+their evidence at the lift (REALITY §6.12: the enum Type stages 0 and
+1; the dedup 20/20, one-way down; the debt gate 85/49/37, exit 0;
+FO-056 on 0.26.1 — 16/16 + 3/3). The §7 enforcement line no longer
+applies to new dispatches; the decision text below is kept verbatim as
+the historical record.
+
+**Original status (2026-09-25, superseded by the lift 2026-09-27):**
+Accepted — the owner's decision 1-A of the strategic gate
 (gh#680, the owner comment 5828075063, 2026-09-25: "1-A" with the
 exceptions and the unfreeze discipline fixed in the gate thread). This
 ADR is the implementation vehicle of that decision (naryad №461, the

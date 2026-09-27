@@ -10,6 +10,11 @@ review; the result attaches to the PR MECHANICALLY (this script's report
 The job is ADVISORY (non-blocking) until a separate owner decision; the
 checklist itself lives in `docs/risk-review-checklist.md` (checked in).
 
+№480 (gh#728): the report also computes the SAME-EFFECT PATHS section —
+the three mechanical lists (raw `std::fs::` calls, stateful-name backend
+parity, ALL-CAPS env literals without the METALOGOS_ prefix) the
+checklist item 8 requires every completion report to close or justify.
+
 This script does the MECHANICAL half only: it maps the changed lines to
 the checklist items (item → file:line → observation). The JUDGMENT half
 belongs to the reviewer working through the checklist against this
@@ -38,8 +43,10 @@ PERIMETER_PREFIXES = (
 )
 
 # The checklist items (the mechanical observation patterns per item).
-# 7 items — the naryad names 6 areas; the error surface is the 7th
-# (the fail-loud discipline of №454-№460 line).
+# 8 items — the naryad names 6 areas; the error surface is the 7th
+# (the fail-loud discipline of №454-№460 line); item 8 is the
+# same-effect method rule of №480 (the section below computes its
+# three lists).
 ITEMS = [
     (
         "1. Execution context (ServeRoute / cron / exec gates)",
@@ -128,6 +135,110 @@ def in_perimeter(path):
     return path in PERIMETER or path.startswith(PERIMETER_PREFIXES)
 
 
+# ── №480: the SAME-EFFECT PATHS lists (the checklist item 8) ────────────
+
+VM_PATH = "src/vm.rs"
+TW_PATHS = ("src/interpreter/",)
+
+
+def same_effect_lists(files):
+    """The three mechanical lists of the №480 rule, computed over the
+    ADDED lines of the diff (.rs files):
+
+    1. raw filesystem calls — every `std::fs::` in the added lines;
+    2. stateful-name parity — builtin-name-like string literals, each
+       mechanically grepped against BOTH backends (src/vm.rs vs
+       src/interpreter/): which side knows the name;
+    3. ALL-CAPS env literals — every env-name-like literal in the added
+       lines, flagged when it lacks the METALOGOS_ prefix (the №758
+       class: `env("DATABASE_URL")` is invisible to a prefixed grep).
+    """
+    fs_hits = []
+    name_hits = {}
+    env_hits = []
+    for path, lines in sorted(files.items()):
+        if not path.endswith(".rs"):
+            continue
+        for n, text in lines:
+            if "std::fs::" in text:
+                fs_hits.append(f"{path}:{n}")
+            for m in re.finditer(r'"([a-z][a-z0-9_]{3,})"', text):
+                name_hits.setdefault(m.group(1), []).append(f"{path}:{n}")
+            for m in re.finditer(r'"([A-Z][A-Z0-9_]{2,})"', text):
+                env_hits.append((m.group(1), f"{path}:{n}"))
+    parity = {}
+    for name, locs in name_hits.items():
+        def count(args):
+            out = run(["git", "grep", "-c", name, "--"] + list(args)).strip()
+            if not out:
+                return 0
+            total = 0
+            for line in out.splitlines():
+                try:
+                    total += int(line.rsplit(":", 1)[-1])
+                except ValueError:
+                    pass
+            return total
+        parity[name] = (count([VM_PATH]) > 0, count([TW_PATHS[0]]) > 0, locs)
+    return fs_hits, parity, env_hits
+
+
+def same_effect_section(files):
+    fs_hits, parity, env_hits = same_effect_lists(files)
+    out = []
+    out.append("## Same-effect paths (№480 — checklist item 8)")
+    out.append("")
+    out.append(
+        "Close each entry at a COMMON POINT or justify it in the completion "
+        "report (the three-grep protocol of the checklist)."
+    )
+    out.append("")
+    # 1. filesystem
+    if fs_hits:
+        out.append("**Raw `std::fs::` in the added lines** (the №475 facade is the common point):")
+        out.append("")
+        for h in fs_hits:
+            out.append(f"- `{h}`")
+    else:
+        out.append("**Raw `std::fs::` in the added lines:** none.")
+    out.append("")
+    # 2. backend parity
+    single_sided = {n: v for n, v in parity.items() if v[0] != v[1]}
+    if parity:
+        if single_sided:
+            out.append(
+                "**Stateful-name literals known to exactly ONE backend** "
+                "(close or justify — the №462 counter holds the fact):"
+            )
+            out.append("")
+            for name, (vm, tw, locs) in sorted(single_sided.items()):
+                side = "vm only" if vm else "tw only"
+                out.append(f"- `{name}` ({side}) at {', '.join(locs[:3])}")
+        else:
+            out.append(
+                "**Stateful-name literals:** every name in the diff is known "
+                "to both backends mechanically."
+            )
+    else:
+        out.append("**Stateful-name literals:** none in the added lines.")
+    out.append("")
+    # 3. env literals
+    if env_hits:
+        out.append(
+            "**Env-like ALL-CAPS literals in the added lines** — grep the "
+            "TAIL without the `METALOGOS_` prefix across the zone (the №758 "
+            "class); unprefixed names are flagged:"
+        )
+        out.append("")
+        for n, loc in env_hits:
+            flag = " ← no METALOGOS_ prefix" if not n.startswith("METALOGOS_") else ""
+            out.append(f"- `{n}` at `{loc}`{flag}")
+    else:
+        out.append("**Env-like ALL-CAPS literals:** none in the added lines.")
+    out.append("")
+    return "\n".join(out)
+
+
 def main():
     args = sys.argv[1:]
     base = args[args.index("--base")] if "--base" in args else None
@@ -194,6 +305,9 @@ def main():
             print(f"| {title} | {loc} | {obs} |")
     else:
         print("No checklist-relevant pattern found in the added lines mechanically; the reviewer still walks the checklist for the touched files.")
+    print()
+    # №480: the same-effect lists close the report — item 8's protocol.
+    print(same_effect_section(files))
 
 
 if __name__ == "__main__":

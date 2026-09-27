@@ -94,9 +94,6 @@ impl TmpDirRel {
     fn p(&self, file: &str) -> String {
         format!("{}/{}", self.0, file)
     }
-    fn path(&self) -> std::path::PathBuf {
-        std::path::PathBuf::from(self.0)
-    }
 }
 impl Drop for TmpDirRel {
     fn drop(&mut self) {

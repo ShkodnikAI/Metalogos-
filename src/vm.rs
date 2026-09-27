@@ -3141,8 +3141,8 @@ impl Vm {
                     .max()
                     .map(|c| c as f64 / targets.len() as f64)
                     .unwrap_or(0.0);
-                // №485: the negated-positive form rejects a NaN accuracy
-                // automatically (NaN >= t is false → !(false) = true).
+                // №485: the explicit NaN guard rejects a NaN accuracy
+                // (the VM mirror of the TW gate's form).
                 // The single-class carve-out (№485): one class carries no
                 // confusion risk — the baseline is trivially 1.0 and
                 // baseline+margin would be unsatisfiable; the raw
@@ -3152,7 +3152,7 @@ impl Vm {
                 } else {
                     f64::max(min_accuracy, majority_baseline + margin)
                 };
-                if !(holdout_acc >= threshold) {
+                if holdout_acc < threshold || holdout_acc.is_nan() {
                     self.push_audit(format!(
                         "[AUDIT] distill.rejected: {} holdout_accuracy={:.3} < threshold={:.3} (min_accuracy={:.2}, majority_baseline={:.3}, margin={:.2}) — staying TEACHING",
                         pattern_name, holdout_acc, threshold, min_accuracy, majority_baseline, margin

@@ -796,10 +796,11 @@ impl Interpreter {
                     .max()
                     .map(|c| c as f64 / targets.len() as f64)
                     .unwrap_or(0.0);
-                // №485: the gate. The positive form `acc < t` let a NaN
-                // accuracy PASS silently (NaN < t is false); the negated
-                // positive form `!(acc >= t)` rejects NaN automatically —
-                // a NaN holdout read is a failed holdout read.
+                // №485: the gate. The old positive form `acc < t` let a
+                // NaN accuracy PASS silently (NaN < t is false). The
+                // explicit NaN guard keeps the NaN-rejecting truth table
+                // of `!(acc >= t)` in a lint-clean form: a NaN holdout
+                // read is a FAILED holdout read.
                 // The single-class carve-out (№485): one class carries no
                 // confusion risk — the baseline is trivially 1.0 and
                 // baseline+margin would be unsatisfiable; the raw
@@ -814,7 +815,7 @@ impl Interpreter {
                 // AND ≥ majority_baseline + margin (№485; `distill_margin:`,
                 // default 0.05). Loud on rejection (audit 25.09, 3.3) —
                 // the event carries the baseline so the operator sees WHY.
-                if !(holdout_acc >= threshold) {
+                if holdout_acc < threshold || holdout_acc.is_nan() {
                     self.push_audit(format!(
                         "[AUDIT] distill.rejected: {} holdout_accuracy={:.3} < threshold={:.3} (min_accuracy={:.2}, majority_baseline={:.3}, margin={:.2}) — staying TEACHING",
                         pattern_name, holdout_acc, threshold, distill.min_accuracy, majority_baseline, distill.margin

@@ -1,0 +1,37 @@
+# №482 (gh#730): the checked-in evidence record for the ADR-0177 §4.4
+# criterion — the memory office E2E dogfood (office#373, FO-056).
+#
+# WHY A RECORD: the office repository (ShkodnikAI/FOSVED-office-v2) is
+# PRIVATE — the Metalogos CI has no cross-repo token, so the office CI
+# status cannot be queried from a Metalogos workflow. The record below
+# is the checked-in fact of the last VERIFIED office-side run; it is
+# refreshed by the office-side naryads (the №475 precedent) and by the
+# office CI itself landing on main. The summary job reports this record
+# verbatim and labels it "evidence-record" — it never guesses.
+#
+# The criterion is GREEN when:
+#   (a) the in-repo twin (tests/naryad_429_memory_office_path.rs) is
+#       green on the current commit — run live by the unfreeze-gate job;
+#   (b) this record is present and well-formed (fail-closed otherwise).
+#
+# ── Record (refreshed: 2026-09-27, by naryad №482) ──────────────────
+office_repo: ShkodnikAI/FOSVED-office-v2 (private)
+naryad_issue: office#373 (FO-056, closed 2026-09-25)
+landing_pr: office PR #375, squash ec1c048 (2026-09-25)
+scenario: test_memory_fo056.mlog — 16 labels (put → recall w/ consent →
+  negative recall w/o consent → derive → forget dry_run → forget apply
+  w/ grant → MEMORY_POISONED on derived → ttl-expiry → retain-ttl
+  live/poisoned → ledger_export + ledger_verify)
+pytest_suite: tests/test_fo056_memory_e2e.py — 3 tests
+verified_runs:
+  - 0.25.0 (bin/mlog, 2026-09-25): scenario 16/16 PASS, rc=0; pytest 3/3
+  - 0.24.0 guard (bin/mlog-024, 2026-09-25): scenario 16/16, labels
+    pairwise identical to 0.25
+  - 0.26.1 pinned (the Wave 18 recount, gh#680 `n475: fo056-evidence`):
+    scenario 16/16 + pytest 3/3 — the evidence the ADR lift carried
+office_ci_last_success: a5ff332 (2026-09-21, FOSVED CI run 35655159452)
+office_ci_note: the 2026-09-27 runs were queued/cancelled (the runner
+  offline episodes, the office#373 status comment); the FO-056 suite is
+  part of the office pytest lane and rides every green office CI run.
+verdict: GREEN (the criterion evidence is complete; see verified_runs)
+# ────────────────────────────────────────────────────────────────────

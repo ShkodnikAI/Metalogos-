@@ -516,6 +516,30 @@ jobs:
           python3 scripts/ci/type_signature_share.py
           python3 scripts/ci/type_signature_share.py --list | head -50
 
+  unfreeze-gate:
+    name: unfreeze-gate (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: "Criterion 4 (memory) — the in-repo twin of the office E2E (office#373, FO-056): the office-path contract suite"
+        id: office_tests
+        # The office repo is private — no cross-repo token; the LIVE
+        # machine check available here is the Metalogos-side twin. The
+        # office-side facts ride the checked-in evidence record.
+        run: cargo test --test naryad_429_memory_office_path
+        continue-on-error: true
+      - name: The summary — the four ADR-0177 §4 verdicts in one machine-readable page (№482)
+        if: always()
+        run: |
+          if [ "${{ steps.office_tests.outcome }}" = "success" ]; then OT=pass; else OT=fail; fi
+          python3 scripts/ci/unfreeze_gate.py --office-tests "$OT"
+      - name: Upload the unfreeze summary artifact (the 0.27.0 release-gate read)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: unfreeze-summary
+          path: unfreeze_summary.md
+
   core-media-gate:
     name: core-media-gate (blocking)
     runs-on: ubuntu-latest

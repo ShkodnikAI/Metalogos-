@@ -4,6 +4,28 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
++- Naryad №482 (issue #730; the audit-recommendations 26.09 P1 —
++  "unfreeze criteria machine-checkable"): the unfreeze-gate CI job.
++  The four ADR-0177 §4 criteria now land in ONE machine-readable
++  summary (`unfreeze_summary.md`, the build artifact `unfreeze-summary`
++  + the GitHub step summary) with an explicit verdict per criterion:
++  (4.1) Types — the typed-signature share vs the checked-in floor
++  (№467 gate); (4.2) Dedup — the TW/VM duplicate-name count vs the
++  №462 threshold; (4.3) Debt — the №468 ignore/dead_code counters;
++  (4.4) Memory — the office E2E dogfood (office#373, FO-056): the
++  in-repo twin (`tests/naryad_429_memory_office_path`) runs LIVE in
++  the job, and the office-side facts ride the checked-in evidence
++  record `scripts/ci/office_e2e_baseline.txt` (the office repo is
++  private — no cross-repo token; the record is fail-closed and
++  refreshed by the office-side naryads). The job is BLOCKING: a RED
++  anywhere fails it, so the release gate (ADR-0177 §6: 0.27.0 is not
++  published while any §4 criterion is red) reads evidence, not
++  intentions. The summary carries the release-blocking label and
++  SURFACES findings without changing any threshold — including the
++  observed dual-floor record in the type baseline (the raised 998 bp
++  recorded while the gate enforces the landing 980 bp; the convergence
++  belongs to the №467 raise procedure). The summary decides nothing —
++  the lift belongs to the OWNER ONLY (ADR-0177 §4).
 - Naryad №481 (issue #729; the audit 25.09 §3.9 tail — "open, io.rs:183
   unchanged"): loud `env`/`read_file` config errors + the `*_or`
   explicit-silence naming. `env()` of a MISSING variable now refuses

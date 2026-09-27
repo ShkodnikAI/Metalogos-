@@ -77,7 +77,6 @@ impl Drop for TmpDirRel {
 /// → Category-A compile error (ADR-0125: by construction, not by
 /// procedure). `run_program` must refuse BEFORE runtime.
 
-
 #[test]
 fn vision_unsigned_export_is_category_a_compile_error() {
     let source = r#"

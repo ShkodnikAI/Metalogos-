@@ -16,7 +16,7 @@ checklist; the reviewer (a second agent run, the owner, or the future
 second maintainer — №471) works through the items against the mechanical
 report.
 
-## The seven items
+## The eight items
 
 1. **Execution context.** Does the change touch a serve-route, cron or
    exec path? Every new/changed route and tick runs under its gate
@@ -48,6 +48,32 @@ report.
 7. **The error surface.** Are the refusals LOUD (typed error, stderr
    warning, audit record) rather than a silent empty success? The
    fail-loud discipline of №454–№460 is the standard.
+8. **Same-effect paths (№480 — the audit 26.09 §4 method rule).** Before
+   a naryad closes: find EVERY path that reaches the same effect the
+   naryad fixes, and either close them at a COMMON POINT (the facade /
+   the SSOT function) or LIST them in the report with the justification
+   why they are not affected. A fix bound to a named call site closes
+   an EXAMPLE, not the CLASS — the 26.09 High findings were both of
+   that shape (`read_file` closed → `smtp_send`/pdf still open; the
+   interpreter fixed → the VM kept the bug, №474). The working checks
+   are seconds, not days — every completion report carries the THREE
+   GREP PROTOCOL over the naryad's zone:
+   - **files:** `grep -rn "std::fs::" <zone>` — every raw filesystem
+     call either goes through the fs_gate facade (№475) or is listed
+     with the justification;
+   - **backend parity:** `grep -rn "<name>" src/vm.rs src/interpreter/`
+     for every stateful name the naryad touches — the name lives on
+     BOTH backends or the divergence is loud (the №462 counter);
+   - **env without the prefix:** `grep -rn "ALLOWLIST\|<TAIL>" <zone>`
+     — search env references by the substring WITHOUT the
+     `METALOGOS_` prefix (e.g. grep `SERVE_ALLOW_ENV`, not
+     `METALOGOS_SERVE_ALLOW_ENV`) — a partial/aliased reference
+     (`env("DATABASE_URL")`) is invisible to the prefixed grep; the
+     №758 class.
+
+The mechanical report below also computes the three lists for the
+diffed lines — the reviewer closes each entry or the report justifies
+it.
 
 ## The mechanical report
 

@@ -144,22 +144,29 @@ flow Main { input: String = "x" -> Probe -> output }
 #[test]
 fn n385_llm_timeout_code_via_mock_fault() {
     let _guard = FAULT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    // №478: the fault seam rides ON the deterministic mock — the mock is
+    // explicit opt-in now, so the seam tests pin it themselves.
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
     std::env::set_var("METALOGOS_MOCK_LLM_FAULT", "timeout");
     let result = std::panic::catch_unwind(|| {
         assert_both_backends(fault_program(), "LLM_TIMEOUT");
     });
     std::env::remove_var("METALOGOS_MOCK_LLM_FAULT");
+    std::env::remove_var("METALOGOS_MOCK_LLM");
     result.expect("LLM_TIMEOUT parity must hold");
 }
 
 #[test]
 fn n385_llm_provider_unavailable_code_via_mock_fault() {
     let _guard = FAULT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    // №478: the explicit mock opt-in (the seam is a MOCK fault).
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
     std::env::set_var("METALOGOS_MOCK_LLM_FAULT", "unavailable");
     let result = std::panic::catch_unwind(|| {
         assert_both_backends(fault_program(), "LLM_PROVIDER_UNAVAILABLE");
     });
     std::env::remove_var("METALOGOS_MOCK_LLM_FAULT");
+    std::env::remove_var("METALOGOS_MOCK_LLM");
     result.expect("LLM_PROVIDER_UNAVAILABLE parity must hold");
 }
 
@@ -169,6 +176,9 @@ fn n385_fault_seam_fails_closed_on_invalid_value() {
     // mock answer: the call fails (fail-closed) with a loud unstamped
     // message → the honest RUNTIME_ERROR fallback.
     let _guard = FAULT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    // №478: the explicit mock opt-in (the fail-closed refusal is the MOCK
+    // path refusing an invalid fault value).
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
     std::env::set_var("METALOGOS_MOCK_LLM_FAULT", "bogus");
     let result = std::panic::catch_unwind(|| {
         assert_both_backends(fault_program(), "RUNTIME_ERROR");
@@ -182,6 +192,7 @@ fn n385_fault_seam_fails_closed_on_invalid_value() {
         );
     });
     std::env::remove_var("METALOGOS_MOCK_LLM_FAULT");
+    std::env::remove_var("METALOGOS_MOCK_LLM");
     result.expect("fail-closed contract must hold");
 }
 
@@ -191,6 +202,8 @@ fn n385_message_keeps_full_text_with_stamp() {
     // consumers reading messages today see exactly what they saw before
     // naryad №385 (plus the code now travels in `code`).
     let _guard = FAULT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    // №478: the explicit mock opt-in (the stamp text is the MOCK fault's).
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
     std::env::set_var("METALOGOS_MOCK_LLM_FAULT", "timeout");
     let result = std::panic::catch_unwind(|| {
         let base = Path::new(MANIFEST);
@@ -207,6 +220,7 @@ fn n385_message_keeps_full_text_with_stamp() {
         );
     });
     std::env::remove_var("METALOGOS_MOCK_LLM_FAULT");
+    std::env::remove_var("METALOGOS_MOCK_LLM");
     result.expect("message contract must hold");
 }
 

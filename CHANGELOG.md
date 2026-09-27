@@ -67,8 +67,11 @@ All notable changes to the Metalogos project.
   LLM-dependent examples carry the explicit `METALOGOS_MOCK_LLM=1`
   now; the module docstrings and the REFERENCE/limitations rows are
   synced. New BLOCKING CI job `mock-env-ssot`: the retired env name
-  must never reappear in `src/` (grep gate). The media contract tests
-  (№334/№336/№407) were re-pinned to the explicit-mock contract.
+  must never reappear in `src/` (grep gate). The mock-dependent suites
+  (№334/№336/№407, the №385 fault-seam codes, the №381 Stage-4 serve
+  parity) were re-pinned to the explicit-mock contract — the fault
+  seam is a MOCK fault and the corpus llm_classify route rides the
+  deterministic mock, so both pin the opt-in themselves.
 
 - Naryad №479 (issue #727; the audit v0.26.1 §3.4 finding — the
   TW↔VM diff fuzzer is right in approach but narrow, with an

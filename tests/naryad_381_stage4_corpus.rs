@@ -207,8 +207,16 @@ async fn run_all_routes(backend: ServeBackend) -> Vec<(String, u16, String)> {
 async fn n381_route_parity_interpreter_vs_vm() {
     let _guard = SERVER_LOCK.lock().await;
 
+    // №478: the mock is EXPLICIT now (the №454 SSOT predicate) — the
+    // corpus llm_classify route must run against the deterministic mock,
+    // not the loud real-path refusal. The server lock serializes the env
+    // window against nothing else in this binary (the only env toucher).
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
+
     let interp = run_all_routes(ServeBackend::Interpreter).await;
     let vm = run_all_routes(ServeBackend::Vm).await;
+
+    std::env::remove_var("METALOGOS_MOCK_LLM");
 
     assert_eq!(
         interp.len(),

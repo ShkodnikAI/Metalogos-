@@ -4,6 +4,27 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №757 (issue #757; the FOSVED-office-v2 report autopsy,
+  2026-09-27): `call_llm` no longer hard-codes the generation ceiling —
+  the six `"max_tokens": 1024` literals across the legacy RealLlm
+  (anthropic/openai) and the SmartRouter (call + both stream opens)
+  read the shared configuration: `llm { max_tokens: N, temperature: X }`
+  (validated loudly at parse — N ≥ 1, 0.0 ≤ X ≤ 2.0; either field
+  order accepted; `call_claude` reads the same surface) → the
+  `METALOGOS_LLM_MAX_TOKENS` env fallback → the new default 4096.
+  BEHAVIOR CHANGE: the default ceiling rises 1024 → 4096 (1024 tokens
+  ≈ 600–800 words of Russian text — every structured office report was
+  being cut mid-sentence). The truncation is now VISIBLE, not a silent
+  success: `finish_reason`/`stop_reason`/`done_reason` is read on every
+  provider branch INCLUDING the SSE streams (OpenAI
+  `choices[0].finish_reason`, Anthropic `message_delta.delta.stop_reason`,
+  Ollama `done_reason`); a length truncation prints a stderr warning
+  naming the fix, lands in the JSONL trace as the `finish_reason` field
+  (№276 honesty: absent stays absent), and is checkable from mlog via
+  the new `llm_last_finish_reason()` builtin (registry 500→501,
+  append-only, typed `String` — the №467 share floor rises 980→998 bp).
+  The per-call override is a documented non-goal (follow-up); the mock
+  and error paths never invent a reason ("" = none observed yet).
 - Naryad №475 (issue #723; the audit 26.09 §3.1 High): the filesystem
   FACADE — `src/fs_gate.rs` is the one gated entry point for every
   program-influenced file operation (`open_read`/`open_write`/removal/

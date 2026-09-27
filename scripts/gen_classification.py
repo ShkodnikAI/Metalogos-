@@ -158,6 +158,9 @@ pub static BUILTIN_CLASSES: &[BuiltClassEntry] = &[
 ];
 
 #[cfg(test)]
+// №475: the test mods exercise the REAL filesystem for fixtures — the
+// ratchet targets production I/O (see clippy.toml).
+#[allow(clippy::disallowed_methods)]
 mod tests {
     use super::*;
     use std::collections::HashSet;
@@ -406,6 +409,7 @@ OVERRIDES = {
     "call_claude": ("Source", "Network", "Pure", "ingests untrusted model output (LlmOutput taint); DUAL: prompt egress to provider"),
     "call_llm_schema": ("Source", "Network", "Pure", "ingests schema-validated (still untrusted) model output; DUAL: prompt egress"),
     "llm_usage": ("Source", "Internal", "Pure", "reads LLM usage accounting state"),
+    "llm_last_finish_reason": ("Source", "Internal", "Pure", "reads the last observed LLM finish_reason (№757 truncation probe) — no provider contact"),
     "llm_stream_open": ("Source", "Network", "Pure", "opens an external SSE stream — ingests untrusted model output; DUAL: prompt egress"),
     "llm_stream_next": ("Source", "Network", "Pure", "ingests the next untrusted model chunk from the external stream"),
     "llm_stream_close": ("Sink", "Network", "Reversible", "closes the external stream (cleanup effect, no data egress)"),

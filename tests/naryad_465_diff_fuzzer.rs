@@ -1145,10 +1145,7 @@ fn n465_diff_fuzzer_tw_vm() {
         let is_known = known.iter().any(|k| *k == *class);
         if let Some(fname) = from_file {
             // The class's OWN example fired — the load-bearing guarantee.
-            if example_of
-                .iter()
-                .any(|(c, e)| *c == *class && *e == *fname)
-            {
+            if example_of.iter().any(|(c, e)| *c == *class && *e == *fname) {
                 example_reproduced.insert(class.clone(), true);
             }
         }

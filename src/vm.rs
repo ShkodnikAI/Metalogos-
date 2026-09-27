@@ -2444,7 +2444,8 @@ impl Vm {
 
         // ── Наряд №72: query_row — parity with the TW lane ──
         // №466: the body lives in the shared live module (src/db_ops.rs);
-        // the stringify-bind lane stays the VM's own (the №465 pin).
+        // №474: the params bind TYPED on both backends (the convert_params
+        // SSOT — the stringify-bind divergence is closed, issue #722).
         if name == crate::db_ops::NAME_QUERY_ROW {
             return crate::db_ops::query_row_vm(self, args);
         }

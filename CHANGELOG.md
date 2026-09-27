@@ -4,7 +4,17 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
-- _Nothing yet — the wave entries move to the release section at the release naryad._
+- Naryad №474 (issue #722; the audit 26.09 §3.2 High): the `db_execute`
+  TW/VM parity — ONE contract on both backends, the affected-row count
+  as a String (the VM lane raised from `Unit` to the TW form); the
+  `query_row` VM params now bind TYPED through the №381 `convert_params`
+  SSOT — the old stringify lane silently dropped unsupported values
+  (a `filter_map` with `_ => None`), shifting the positional `$N`
+  placeholders (the audit's worst case: a query with a different
+  semantics EXECUTED). An unsupported param value is now a loud error
+  naming the 1-based parameter position on both backends; the
+  divergence-pinning unit test is rewritten as a correctness regression
+  test (typed binding, no positional shift, loud positioned refusal).
 
 ## [0.27.0] - 2026-09-27
 

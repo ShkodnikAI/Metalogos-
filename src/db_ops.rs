@@ -10,13 +10,19 @@
 //! the name literals appear only in this module, so the №462 counter
 //! drops 56 → 49.
 //!
-//! The module is the shared HOME, not a unification: the TW and the VM
-//! db lanes stay deliberately separate where their behavior differs —
-//! the TW returns the affected-row STRING from `db_execute` while the VM
-//! returns `Unit`; the VM stringifies `query_row` params while the TW
-//! binds them typed (the №381 contract); the second-argument error text
-//! of `db_insert` differs by one suffix; the VM lazily opens the
-//! connection on first use (№409) while the TW opens at declaration
+//! The module is the shared HOME, not a full unification. №474 (the
+//! audit 26.09 §3.2 High finding, issue #722) closed the two
+//! correctness-affecting divergences: `db_execute` returns the
+//! affected-row STRING on BOTH backends (the VM lane raised to the TW
+//! contract), and `query_row` binds params TYPED on both backends
+//! through the №381 `convert_params` SSOT — the old VM stringify lane
+//! (Float/Bool via Display, unsupported values silently DROPPED by a
+//! `filter_map` with `_ => None`, shifting the positional `$N`
+//! placeholders) is gone; an unsupported param value is now a LOUD
+//! error naming the 1-based parameter position. The deliberately kept
+//! per-backend differences are behavioral-neutral: the second-argument
+//! error text of `db_insert` differs by one suffix; the VM lazily opens
+//! the connection on first use (№409) while the TW opens at declaration
 //! time. Every per-backend form below is a verbatim transplant; the
 //! genuinely shared pieces factored here once are the `query_param`
 //! parse/return shape (injected context lookup) and the grant-use note
@@ -744,9 +750,15 @@ pub fn db_execute_vm(vm: &mut impl VmDbAccess, args: &[Value]) -> Result<Value, 
         .vm_db_conn()
         .as_ref()
         .ok_or_else(|| "db_execute() error: no database connection.".to_string())?;
-    conn.execute(&sql, rusqlite::params_from_iter(params.iter()))
+    let affected = conn
+        .execute(&sql, rusqlite::params_from_iter(params.iter()))
         .map_err(|e| sql_err("db_execute() SQL error", e))?;
-    Ok(Value::Unit)
+    // №474 (issue #722): ONE contract on both backends — the affected-row
+    // count as a String (the TW form, db_ops.rs `db_execute_tw`). The old
+    // VM-only `Value::Unit` made a program that checks the result behave
+    // differently under `mlog run` and `mlog serve` (the VM is the default
+    // production backend since ADR-0171).
+    Ok(Value::String(affected.to_string()))
 }
 
 /// `db_execute_with_grant(g, sql, params?)` — VM. Naryad #390
@@ -852,10 +864,12 @@ pub fn db_execute_with_grant_vm(vm: &mut impl VmDbAccess, args: &[Value]) -> Res
     Ok(Value::String(affected.to_string()))
 }
 
-/// `query_row(sql, params?)` — VM. The VM binds params STRINGIFIED
-/// (Vec<String> — String verbatim, Float/Bool via Display) — the
-/// KNOWN TW/VM divergence class pinned by the №465 fuzzer; the typed
-/// TW lane stays the №381 contract. Lazy open (№409).
+/// `query_row(sql, params?)` — VM. Params bind TYPED through the №381
+/// `convert_params` SSOT — the same contract as the TW lane (№474,
+/// issue #722: the old stringify-bind lane dropped unsupported values
+/// silently via `filter_map` with `_ => None`, shifting the positional
+/// `$N` placeholders; an unsupported value is now a loud error naming
+/// the 1-based parameter position). Lazy open (№409).
 pub fn query_row_vm(vm: &mut impl VmDbAccess, args: &[Value]) -> Result<Value, String> {
     let sql = match args.first() {
         Some(Value::String(s)) => s.clone(),
@@ -867,17 +881,13 @@ pub fn query_row_vm(vm: &mut impl VmDbAccess, args: &[Value]) -> Result<Value, S
         }
         None => return Err("query_row() requires at least 1 argument (SQL string)".to_string()),
     };
-    let params: Vec<String> = if args.len() > 1 {
+    // №474 (issue #722): the typed binding via the convert_params SSOT —
+    // the same contract as the TW lane. Unit → Null keeps the placeholder
+    // count (no positional shift); an unsupported value is a loud error
+    // naming the 1-based parameter position — never a silent drop.
+    let params: Vec<rusqlite::types::Value> = if args.len() > 1 {
         match &args[1] {
-            Value::List(items) => items
-                .iter()
-                .filter_map(|v| match v {
-                    Value::String(s) => Some(s.clone()),
-                    Value::Float(n) => Some(format!("{}", n)),
-                    Value::Bool(b) => Some(format!("{}", b)),
-                    _ => None,
-                })
-                .collect(),
+            Value::List(items) => convert_params(items)?,
             _ => Vec::new(),
         }
     } else {
@@ -1224,16 +1234,17 @@ mod tests {
     // ── the VM lane: the trait contract and the divergent forms ──
 
     #[test]
-    fn vm_db_execute_returns_unit_and_lazily_opens_once() {
+    fn vm_db_execute_returns_affected_count_and_lazily_opens_once() {
         let mut vm = MockVm::new();
         let out = db_execute_vm(&mut vm, &[s("CREATE TABLE t (a TEXT)")]).unwrap();
         val_eq!(
             out,
-            Value::Unit,
-            "the VM db_execute returns Unit (the TW returns a String count)"
+            s("0"),
+            "the affected-row count as a String — ONE contract on both backends (№474, issue #722)"
         );
         assert_eq!(vm.opens.get(), 1, "the lazy open fires exactly once");
-        db_execute_vm(&mut vm, &[s("INSERT INTO t VALUES ('x')")]).unwrap();
+        let ins = db_execute_vm(&mut vm, &[s("INSERT INTO t VALUES ('x')")]).unwrap();
+        val_eq!(ins, s("1"), "one row inserted → \"1\"");
         assert_eq!(vm.opens.get(), 1, "an open connection is not re-opened");
         assert_eq!(
             db_execute_vm(&mut vm, &[Value::Unit]).unwrap_err(),
@@ -1275,28 +1286,48 @@ mod tests {
     }
 
     #[test]
-    fn vm_binds_params_typed_but_query_row_stringifies_the_known_divergence() {
+    fn vm_query_row_binds_params_typed_and_rejects_unsupported_loudly() {
         let mut vm = MockVm::new();
-        db_execute_vm(&mut vm, &[s("CREATE TABLE t (a TEXT)")]).unwrap();
-        // The typed lanes (the №381 contract): Float → REAL.
+        db_execute_vm(&mut vm, &[s("CREATE TABLE t (a REAL)")]).unwrap();
+        // The typed lane on BOTH backends now (№474, issue #722 — the
+        // №381 convert_params contract): Float → REAL, not the Display
+        // string "3".
         let bind = query_scalar_vm(
             &mut vm,
             &[s("SELECT typeof(?)"), Value::List(vec![Value::Float(3.0)])],
         )
         .unwrap();
         val_eq!(bind, s("real"));
-        // The query_row stringify lane (the №465-pinned divergence):
-        // Float 3.0 → "3" (Display), so the TEXT comparison hits.
-        db_execute_vm(&mut vm, &[s("INSERT INTO t VALUES ('3')")]).unwrap();
+        db_execute_vm(&mut vm, &[s("INSERT INTO t VALUES (3.0)")]).unwrap();
+        // Positions do NOT shift: Unit → Null keeps the placeholder count,
+        // so BOTH `?` are bound (a = 3.0 AND ? IS NULL). Under the removed
+        // stringify lane the Unit was silently dropped → 2 placeholders, 1
+        // parameter → InvalidParameterCount (or, with the Unit first, a
+        // silently WRONG-SHAPE match — the audit's worst case).
         let row = query_row_vm(
             &mut vm,
             &[
-                s("SELECT a FROM t WHERE a = ?"),
-                Value::List(vec![Value::Float(3.0)]),
+                s("SELECT a FROM t WHERE a = ? AND ? IS NULL"),
+                Value::List(vec![Value::Float(3.0), Value::Unit]),
             ],
         )
         .unwrap();
-        val_eq!(row, Value::List(vec![s("3")]));
+        val_eq!(row, Value::List(vec![Value::Float(3.0)]));
+        // An unsupported param value is a LOUD error naming the 1-based
+        // position — never a silent filter_map drop.
+        let err = query_row_vm(
+            &mut vm,
+            &[
+                s("SELECT a FROM t WHERE a = ?"),
+                Value::List(vec![Value::List(vec![s("x")])]),
+            ],
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("SQL parameter $1"),
+            "loud, positioned error expected, got: {}",
+            err
+        );
     }
 
     #[test]

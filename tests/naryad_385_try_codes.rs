@@ -412,6 +412,7 @@ fn n385_vm_runtime_sink_refusal_carries_classifier_stamp() {
         origin_decls: vec![],
         deny_handlers: vec![],
         db_url: None,
+        db_url_env: None,
         memory_persist_path: None,
         schema_ddl: vec![],
         main_code: vec![

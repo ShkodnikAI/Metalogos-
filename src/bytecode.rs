@@ -631,6 +631,13 @@ pub struct Program {
     pub deny_handlers: Vec<CompiledDenyHandler>,
     /// Database URL (if declared). Enables db_insert, query_scalar, etc.
     pub db_url: Option<String>,
+    /// №758: the NAME part of `db { url: env("NAME") }` — the URL is
+    /// resolved by the VM at the first db access (the interpreter's
+    /// runtime semantics), never embedded into the bytecode: a
+    /// constant-folded env() would bake credentials into the .mbc.
+    /// `#[serde(default)]` — old .mbc files deserialize cleanly.
+    #[serde(default)]
+    pub db_url_env: Option<String>,
     /// Наряд №204 (ADR-0121 stage 2): memory persist path from
     /// `memory { persist: "path.db" }` declaration. Enables reflex_save/
     /// reflex_load on the VM (same field the interpreter has at

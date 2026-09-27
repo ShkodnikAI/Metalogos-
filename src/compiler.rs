@@ -58,6 +58,10 @@ pub struct Compiler {
     memory_persist_path: Option<String>,
     /// Database URL extracted from db declaration (for VM).
     db_url: Option<String>,
+    /// №758: the NAME part of `db { url: env("NAME") }` — resolved by
+    /// the VM at the first db access (runtime semantics, no credential
+    /// in the bytecode).
+    db_url_env: Option<String>,
     /// Schema DDL statements from schema declarations.
     schema_ddl: Vec<String>,
     /// Root directory for import resolution.
@@ -249,6 +253,7 @@ impl Compiler {
             deny_handler_indices: HashMap::new(),
             memory_persist_path: None,
             db_url: None,
+            db_url_env: None,
             schema_ddl: Vec::new(),
             std_root,
             imported_modules: HashSet::new(),
@@ -313,6 +318,7 @@ impl Compiler {
             origin_decls: std::mem::take(&mut self.origin_decls),
             deny_handlers: std::mem::take(&mut self.deny_handlers),
             db_url: self.db_url.take(),
+            db_url_env: self.db_url_env.take(),
             memory_persist_path: self.memory_persist_path.take(),
             schema_ddl: std::mem::take(&mut self.schema_ddl),
             main_code,
@@ -382,9 +388,44 @@ impl Compiler {
                     // Handled in pass2
                 }
                 Declaration::Db(db) => {
-                    // Extract URL if it's a string literal (for VM db support)
-                    if let Some(crate::ast::Expr::StringLit { value: url, .. }) = &db.url {
-                        self.db_url = Some(url.clone());
+                    // №758: classify the URL source for the VM lane.
+                    // - string literal → recorded as-is (unchanged);
+                    // - env("NAME") → the NAME is recorded, the URL is
+                    //   resolved by the VM at the first db access (the
+                    //   interpreter's runtime semantics, and the resolved
+                    //   value — possibly a credentialed Postgres URL —
+                    //   never lands in the bytecode);
+                    // - anything else → a LOUD compile error: the old
+                    //   silent None produced the mystery "no database
+                    //   connection" on every request (the issue's exact
+                    //   complaint); failing at compile time names the fix.
+                    match &db.url {
+                        Some(crate::ast::Expr::StringLit { value: url, .. }) => {
+                            self.db_url = Some(url.clone());
+                        }
+                        Some(crate::ast::Expr::FnCall { name, args, .. }) if name == "env" => {
+                            match args.first() {
+                                Some(crate::ast::Expr::StringLit { value: var, .. }) => {
+                                    self.db_url_env = Some(var.clone());
+                                }
+                                _ => {
+                                    return Err(
+                                        "db { url: env(...) } requires a string literal name \
+                                         (db { url: env(\"VAR\") }) — the VM cannot compile a \
+                                         non-literal env argument"
+                                            .to_string(),
+                                    );
+                                }
+                            }
+                        }
+                        Some(_) => {
+                            return Err("the VM compiles only db { url: \"literal\" } or \
+                                 db { url: env(\"NAME\") } — other expressions are an \
+                                 interpreter-backend construct (the old silent path left the VM \
+                                 without a connection)"
+                                .to_string());
+                        }
+                        None => {}
                     }
                 }
                 Declaration::Schema(schema) => {

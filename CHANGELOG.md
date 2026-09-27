@@ -26,7 +26,10 @@ All notable changes to the Metalogos project.
   the raw gate would PASS it), the separable two-class positive
   control, and the grammar suite (`distill_margin:` optional, rides
   the AST through bytecode; `#[serde(default)]` keeps the old .mbc
-  deserializable).
+  deserializable). Honest side effect: the reflex_train_predict
+  golden loss changed (0.079445... to 0.078831... — the stratified
+  partition trains on a different 80%); accuracy, prediction and
+  the gate outcome are unchanged.
 - Naryad №484 (issue #732; the audit v0.26.1 §3.3, Medium — the
   literal metric is a Goodhart surface): the SECOND dedup metric + the
   first unified pair. The new blocking CI job `ops-pairs` counts the

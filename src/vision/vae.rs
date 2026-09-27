@@ -1777,10 +1777,7 @@ pub fn decode_png(png_bytes: &[u8]) -> Result<Tensor, String> {
 /// `VisionRegistry`), only the file write differs.
 pub fn save_png(img: &Tensor, path: &Path) -> Result<(), String> {
     let bytes = encode_png(img)?;
-    // №475 (issue #723): the file write goes through the facade (the
-    // hard write-deny + the deny-list + the serve containment on top of
-    // the sandbox).
-    crate::fs_gate::write_bytes(&path.to_string_lossy(), "vision save_png", &bytes)
+    crate::fs_gate::write_bytes(&path.to_string_lossy(), "vision save_png", &bytes) // №475 facade
         .map_err(|e| format!("save_png: write to {}: {}", path.display(), e))
 }
 

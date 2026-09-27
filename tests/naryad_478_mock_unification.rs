@@ -97,7 +97,7 @@ flow Main {
 "#;
     let err = metalogos::run_program(src)
         .expect_err("human_respond without the mock opt-in must hit the loud real path");
-    let joined = format!("{}", err);
+    let joined = err.clone();
     assert!(
         joined.contains("METALOGOS_API_KEY") || joined.contains("requires its weights"),
         "the office-human real-path refusal must be loud (the provider key or the weights boundary), got: {}",

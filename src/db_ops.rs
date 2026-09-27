@@ -1414,7 +1414,7 @@ mod tests {
         );
         assert_eq!(
             query_scalar(&mut vm, &[Value::Float(9.0)]).unwrap_err(),
-            "query_scalar() expected String SQL"
+            "query_scalar() expected String SQL, got Float"
         );
     }
 

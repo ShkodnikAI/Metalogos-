@@ -78,10 +78,6 @@ fn vision_handle(v: &Value) -> metalogos::vision::VisionId {
 
 // ── Block 3.1: главный roundtrip-контракт ────────────────────────────
 
-/// Рег A (подписанный артефакт) → save → НОВЫЙ пустой рег B → load →
-/// signed export в tempdir: PNG байт-в-байт, sidecar байт-в-байт,
-/// манифест (включая timestamp) не перегенерируется.
-
 // №475: the gate refuses ABSOLUTE paths — the fixtures use RELATIVE
 // per-test directories (auto-cleaned on drop; each name unique per call).
 struct TmpDirRel(&'static str);
@@ -100,6 +96,10 @@ impl Drop for TmpDirRel {
         let _ = std::fs::remove_dir_all(self.0);
     }
 }
+
+/// Рег A (подписанный артефакт) → save → НОВЫЙ пустой рег B → load →
+/// signed export в tempdir: PNG байт-в-байт, sidecar байт-в-байт,
+/// манифест (включая timestamp) не перегенерируется.
 
 #[test]
 fn roundtrip_signed_artifact_survives_byte_for_byte() {

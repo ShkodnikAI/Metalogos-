@@ -14,7 +14,10 @@ Numbers are assigned sequentially. The current accepted maximum is `0177-*`
 (ADR-0177 №461 domain freeze; ADR-0176 №453 plan-v2 memory contract). When
 numbering a new ADR, remember the tasking-template line: **"domain X is
 frozen (ADR-0177) — the naryad is not opened"** (the freeze mechanics, §7
-of the ADR).
+of the ADR). The freeze was lifted by the owner on 2026-09-27 (gh#680,
+the lift record 5851623870) — the template line is historical now; the
+domain-boundary rules continue in the crate-split roadmap
+(docs/refactoring-split-plan.md).
 
 ## Reserved numbers (do not reassign)
 
@@ -215,5 +218,5 @@ real ADRs (№309/№320/№412) before the booking.
 | 0174 | Directed audio effects (`listen`/`speak`) and the duplex channel — barge-in over the session priority ladder | Accepted |
 | 0175 | The tick context — the cron dispatch executes in the program context | Accepted |
 | 0176 | The plan-v2 memory contract — the SSOT of the memory surface | Accepted |
-| 0177 | The domain freeze until 0.27 — no new subsystems, the core first | Accepted |
+| 0177 | The domain freeze until 0.27 — no new subsystems, the core first | Lifted 2026-09-27 — the owner's decision (gh#680, 5851623870) |
 | 0178 | The generative contour boundary — experimental, scoped, exit-ready | Accepted |

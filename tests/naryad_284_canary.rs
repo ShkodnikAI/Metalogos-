@@ -19,6 +19,14 @@
 
 use metalogos::builtins::{canary_check_core, canary_insert_core, is_canary_id};
 
+// №478: the mock env is load-bearing — serialize the file's mock tests
+// (the №376 lesson: env is process-global, parallel tests race it).
+static N284_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn n284_lock_env() -> std::sync::MutexGuard<'static, ()> {
+    N284_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 const FIXED_ID: &str = "MLOG-CANARY-ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
 // ── Helpers ─────────────────────────────────────────────────────────────
@@ -337,6 +345,7 @@ flow Main { input: String = "x" -> Check -> output }
 #[test]
 #[serial_test::serial]
 fn n284_leak_scenario_green_in_tw_and_vm() {
+    let _env = n284_lock_env();
     std::env::set_var("METALOGOS_MOCK_LLM", "1");
     let tw = run_tw(LEAK_SCENARIO).expect("TW run").unwrap_or_default();
     assert_eq!(tw, "true", "TW: leak detected");
@@ -357,6 +366,10 @@ fn n284_leak_scenario_green_in_tw_and_vm() {
 #[test]
 #[serial_test::serial]
 fn n284_counter_observable_via_llm_usage() {
+    // №478 + the №376 lesson: the mock env is load-bearing now — tests in
+    // this file set/remove it; a parallel test's remove must not flip this
+    // test's contour. The whole file's mock tests are serialized below.
+    let _env = n284_lock_env();
     std::env::set_var("METALOGOS_MOCK_LLM", "1");
     let source = r#"
 pattern Obs(_input: String) -> String {
@@ -379,6 +392,7 @@ flow Main { input: String = "x" -> Obs -> output }
 #[test]
 #[serial_test::serial]
 fn n284_clean_response_no_leak_in_tw() {
+    let _env = n284_lock_env();
     std::env::set_var("METALOGOS_MOCK_LLM", "1");
     // Ответ mock-провайдера не содержит маркера (marked_text не летит в LLM)
     let source = r#"
@@ -566,6 +580,7 @@ fn n284_arity_pins() {
 
 #[test]
 fn n284_language_level_opts_and_struct_shape() {
+    let _env = n284_lock_env();
     std::env::set_var("METALOGOS_MOCK_LLM", "1");
     let source = r#"
 pattern M(_input: String) -> String {
@@ -584,6 +599,7 @@ flow F { input: String = "x" -> M -> output }
 
 #[test]
 fn n284_check_result_struct_fields() {
+    let _env = n284_lock_env();
     std::env::set_var("METALOGOS_MOCK_LLM", "1");
     let source = r#"
 pattern M(_input: String) -> String {

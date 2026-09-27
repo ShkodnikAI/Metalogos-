@@ -4,6 +4,27 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №481 (issue #729; the audit 25.09 §3.9 tail — "open, io.rs:183
+  unchanged"): loud `env`/`read_file` config errors + the `*_or`
+  explicit-silence naming. `env()` of a MISSING variable now refuses
+  LOUDLY (`[ENV_NOT_FOUND]`, naming the variable and pointing at
+  `env_or`) — the old soft empty string masked misconfiguration. The
+  new `env_or(name, default)` builtin carries the silent-default
+  semantics IN THE NAME (the audit naming rule): the fallback firing is
+  announced on the audit stderr (the variable NAME, never the value)
+  and the SAME №259 serve-route gate applies — explicit silence never
+  bypasses the env policy. `read_file` keeps the documented №254
+  missing-file soft contract ("" — now pinned), but a file that EXISTS
+  and cannot be opened/read is a config/environment error: refused
+  LOUDLY (`[IO_ERROR]` with the OS reason) instead of a silent "".
+  Migration honesty: programs that relied on the empty-string default
+  switch to `env_or(name, "")`; the golden examples were verified —
+  every executed `env()` either reads a set variable or sits in a dead
+  branch. New pins: `tests/naryad_481_loud_env.rs` (loud env both
+  backends + VM parity, env_or silence, the serve-gate precedence,
+  loud unreadable read_file, the soft missing-file contract);
+  `tests/naryad_259_env_gate.rs` re-pinned — a missing (even
+  allowlisted) name inside serve is now the loud 500.
 - Naryad №477 (issue #725; the audit v0.26.1 §3.5 finding — `mlog
   mcp-serve` with the http/sse transports is the same network server
   executing user code as serve, but ran on the pre-№457 model): the

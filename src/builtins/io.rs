@@ -183,7 +183,38 @@ pub(crate) fn builtin_env(args: &[Value]) -> Result<Value, String> {
     env_gate(current_exec_context(), &key)?;
     match std::env::var(&key) {
         Ok(val) => Ok(Value::String(val)),
-        Err(_) => Ok(Value::String(String::new())), // soft-failure: empty string if not found
+        // №481 (audit 25.09 §3.9): a MISSING variable is a configuration
+        // error — the old soft empty string masked it silently. Refuse
+        // LOUDLY naming the variable; the explicit-silence fallback lives
+        // in `env_or(name, default)` (the name carries the semantics).
+        Err(_) => Err(crate::interpreter::values::coded_error(
+            crate::interpreter::values::CODE_ENV_NOT_FOUND,
+            format!(
+                "env('{}'): variable is not set — use env_or('{}', \"<default>\") for an explicit fallback",
+                key, key
+            ),
+        )),
+    }
+}
+
+/// `env_or(name, default)` — the EXPLICIT-silence twin of `env` (№481):
+/// the variable's value when set, the default when missing. The `_or`
+/// suffix carries the silent-default semantics in the name (the audit
+/// 25.09 §3.9 naming rule); every firing of the fallback is announced on
+/// the audit stderr (the №326 op-log posture — the VALUE is never logged,
+/// only the variable name).
+pub(crate) fn builtin_env_or(args: &[Value]) -> Result<Value, String> {
+    let key = expect_string_arg("env_or", args, 0)?;
+    let default = expect_string_arg("env_or", args, 1)?;
+    // The SAME №259 gate as `env` — the explicit silence does not bypass
+    // the serve-route env policy.
+    env_gate(current_exec_context(), &key)?;
+    match std::env::var(&key) {
+        Ok(val) => Ok(Value::String(val)),
+        Err(_) => {
+            eprintln!("[ENV_OR] '{}' is not set — using the explicit default", key);
+            Ok(Value::String(default))
+        }
     }
 }
 
@@ -571,13 +602,25 @@ pub(crate) fn builtin_read_file(args: &[Value]) -> Result<Value, String> {
     // lives in fs_gate.rs; here just io::Read over the gated handle.
     let mut file = match crate::fs_gate::open_gated(&safe_path) {
         Ok(f) => f,
-        Err(_) => return Ok(Value::String(String::new())), // soft-failure (нечитаем)
+        // №481 (audit 25.09 §3.9): the file PASSED the sandbox and the
+        // missing-file soft branch below — an open failure here is an
+        // environment/config error (permissions, symlink target state):
+        // refused LOUDLY with the OS reason instead of a silent "".
+        Err(e) => Err(crate::interpreter::values::coded_error(
+            crate::interpreter::values::CODE_IO_ERROR,
+            format!("read_file('{}'): cannot open: {}", path, e),
+        ))?,
     };
     use std::io::Read;
     let mut content = String::new();
     match file.read_to_string(&mut content) {
         Ok(_) => Ok(Value::String(content)),
-        Err(_) => Ok(Value::String(String::new())), // soft-failure (нечитаем)
+        // №481: a read failure on an OPENED file (encoding/IO) is loud —
+        // the old silent "" swallowed the config error.
+        Err(e) => Err(crate::interpreter::values::coded_error(
+            crate::interpreter::values::CODE_IO_ERROR,
+            format!("read_file('{}'): cannot read: {}", path, e),
+        )),
     }
 }
 

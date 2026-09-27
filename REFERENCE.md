@@ -2118,7 +2118,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 501 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 502 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2722,11 +2722,12 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `svg_sketchy_filter(...)` | 1..5 | `String, Float -> String` | A "hand-drawn" style SVG filter (`id` is structural) |
 | `svg_text(...)` | 5..6 | `Float×2, String, Float, String×2 -> String` | Text (auto-escaped) |
 
-### `system` — 3 builtin(s)
+### `system` — 4 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
 | `env(...)` | 1 | `String -> String` (→ `Secret` in an entity context) | Reads an environment variable. An empty string if not found (the soft-failure contract). **Serve gate (naryad №259)**: inside serve route bodies `env()` is denied by default with a loud `ENV_NOT_PERMITTED` error — route code often receives untrusted input and must not read the process's secrets. Escape hatches (alternatives, not AND): `METALOGOS_SERVE_ALLOW_ENV=1` allows all env reads in route bodies, or `METALOGOS_ENV_ALLOWLIST="NAME1,NAME2"` allows exactly the listed names. Outside serve (`mlog run`, `mlog check`, repl, serve top level) the read is ungated, as before. The denial is identical for existing and non-existing names (the gate runs before the read).  See also the exec gates (`EXEC_NOT_PERMITTED`, naryad №253) in the threat model. **Hardcoded-secret gate (naryad №458)**: a string LITERAL in a high-precision provider token format (`ghp_`/`github_pat_`/`sk-ant-`/`AKIA`/`ASIA`/`xox[bpa]-`/`glpat-`/`AIza`/PEM headers, at the audit's length thresholds) refuses COMPILE-TIME with `HARDCODED_SECRET` (Category A) on run/compile/serve/mcp-serve — the escape crane is reading secrets through `env()` (this builtin) or binding them to a `Secret`-typed entity; EXAMPLE-marked fixture placeholders (the AWS docs key convention) stay clean, and the name heuristics (`api_key`, `token=`) remain a warning-level `mlog audit` finding, not a block |
+| `env_or(...)` | 2 | — | `env_or(name, default)` — the EXPLICIT-silence twin of `env` (№481): the variable's value when set, the default when missing. The `_or` suffix carries the silent-default semantics in the name (the audit 25.09 §3.9 naming rule); every firing of the fallback is announced on the audit stderr (the №326 op-log posture — the VALUE is never logged, only the variable name). |
 | `policy_check(...)` | 1 | `String -> Dict` | Checks a command against policy: heredoc `<<`, pipe ` |
 | `replay_snapshot(...)` | 1 | `List -> Dict` | Serializes a list of values into a JSON snapshot. Returns `ReplaySnapshot { seq, items, json, created_at }`. seq=0 is a full snapshot, seq=N is a delta |
 
@@ -3008,6 +3009,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `tts_send` | sink | network | irreversible | synthesizes AND delivers audio externally — cannot be unsent (issue minimum list) |
 | `tts_generate` | source | network | pure | ingests an audio artifact from an external TTS provider; DUAL: transmits the text to the provider (№317 corpus) |
 | `env` | source | secret | pure | ingests environment secrets — Secret taint (audit.rs) |
+| `env_or` | source | secret | pure | env read with an explicit silent default (the _or name carries the semantics, 481) — environment ingest, Secret taint |
 | `query` | source | internal | pure | reads the program's persistent DB (state input with provenance) |
 | `db_execute` | sink | internal | irreversible | arbitrary SQL write against the persistent DB — destructive statements are non-undoable (issue minimum list) |
 | `call_llm` | source | network | pure | ingests untrusted model output (LlmOutput taint, ADR-0117); DUAL: the prompt is transmitted to an external provider — №317 corpus must cover prompt-egress |
@@ -3361,6 +3363,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `llm_last_finish_reason` | source | internal | pure | reads the last observed LLM finish_reason (№757 truncation probe) — no provider contact |
 
 <!-- END GENERATED BUILTIN CLASSIFICATION -->
+
 
 
 

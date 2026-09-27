@@ -174,14 +174,16 @@ async fn tw_serve_route_env_allowlist_reads() {
         body
     );
 
-    // Мягкость чтения сохранена: allowlist-имя, НЕ заданное в процессе,
-    // читается как пустая строка (soft-контракт env()), а не как отказ.
+    // №481 (аудит 25.09 §3.9): мягкость чтения БОЛЬШЕ НЕ маскирует
+    // конфигурационные ошибки — незаданное (даже allowlist-имя) refusal
+    // громкий: [ENV_NOT_FOUND] с именем переменной. Явная тишина — только
+    // через env_or(name, default), чьё имя несёт семантику.
     std::env::remove_var(SECRET_NAME);
     let (status_miss, body_miss) = http_get(port, "/envread").await;
-    assert_eq!(status_miss, 200, "got: {}", body_miss);
+    assert_eq!(status_miss, 500, "got: {}", body_miss);
     assert!(
-        body_miss.contains("ENV_READ_MISS"),
-        "незаданное allowlist-имя — soft empty string, got: {}",
+        body_miss.contains("ENV_NOT_FOUND"),
+        "незаданное имя — громкий [ENV_NOT_FOUND], got: {}",
         body_miss
     );
 }

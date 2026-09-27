@@ -59,11 +59,11 @@ PYEOF
 check_red() { # (label, result line)
   case "$2" in
     *"0 failed"*)
-      echo "✗ $label: test stayed GREEN under mutation — the pin is broken"; exit 1 ;;
+      echo "✗ $1: test stayed GREEN under mutation — the pin is broken"; exit 1 ;;
     *failed*)
-      echo "✓ $label: RED as required — $2" ;;
+      echo "✓ $1: RED as required — $2" ;;
     *)
-      echo "✗ $label: no result line (compile error counts as caught, verify manually): $2"; exit 1 ;;
+      echo "✗ $1: no result line (compile error counts as caught, verify manually): $2"; exit 1 ;;
   esac
 }
 
@@ -79,7 +79,9 @@ mutate src/llm.rs "            max_tokens: config
                 .max_tokens
                 .or_else(env_max_tokens)
                 .unwrap_or(DEFAULT_LLM_MAX_TOKENS)," \
-                  "            max_tokens: env_max_tokens.unwrap_or(DEFAULT_LLM_MAX_TOKENS),"
+                  "            max_tokens: std::option::Option::<u32>::None
+                .or_else(env_max_tokens)
+                .unwrap_or(DEFAULT_LLM_MAX_TOKENS),"
 M2=$(run_test naryad_757_llm_limits n757_block_max_tokens_reaches_body_and_truncation_is_visible)
 check_red "M2" "$M2"
 git -C "$WT" checkout -- src/llm.rs

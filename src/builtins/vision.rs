@@ -1568,6 +1568,11 @@ fn fetch_and_pin_weights(
 
     let manifest_bytes = fetch(manifest_url)?;
     let dest = std::path::PathBuf::from(dest_dir);
+    // №475: the weights-store writes stay on the raw std::fs — this IS
+    // the naryad's named service class (the model-weights storage: the
+    // dir is the weights root, not a program data path; the №500 ratchet
+    // names this exact site as the allowed exception).
+    #[allow(clippy::disallowed_methods)]
     std::fs::create_dir_all(&dest).map_err(|e| {
         format!(
             "vision_fetch_weights: cannot create {}: {}",

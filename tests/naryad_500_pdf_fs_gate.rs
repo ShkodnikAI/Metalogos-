@@ -199,8 +199,10 @@ fn n500_dotdot_traversal_refused() {
 
 /// The symlink swap refuses on the RESOLVED form: an innocent-looking
 /// output name pointing at `app.mlog` hits the HARD write deny through
-/// canonicalization (the raw name alone would pass).
+/// canonicalization (the raw name alone would pass). Unix-only: the
+/// reproduction pins the symlink vector itself.
 #[test]
+#[cfg(unix)]
 #[serial]
 fn n500_symlink_swap_refused() {
     let d = FixtureDir::new("n500-symlink");

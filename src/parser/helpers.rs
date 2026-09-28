@@ -182,9 +182,26 @@ pub(super) fn extract_balanced_braces(s: &str) -> String {
 
 // ── DB (Phase 6.3) ─────────────────────────────────────
 
-/// Process escape sequences in a string literal (without outer quotes).
+/// Process escape sequences in a string literal.
+///
+/// Contract (Narjad №493, anchor 7): the input is the raw STRING_LITERAL
+/// lexeme — i.e. it includes the outer double quotes. The function strips
+/// them. The docstring previously said "without outer quotes", which
+/// contradicted the body and the way every caller in the parser feeds the
+/// raw lexeme; the contradiction panicked on one-char literals such as
+/// `"p"` whenever a caller pre-stripped the quotes (see parse_test_decl).
+/// The body now guards short inputs so a misuse cannot slice out of bounds.
 pub(super) fn unescape_string(s: &str) -> String {
-    let trimmed = &s[1..s.len() - 1]; // strip outer quotes
+    // Strip the outer double quotes when present; tolerate inputs that
+    // arrive already-stripped (defensive — the function is a single
+    // source of truth for the parser's escape handling).
+    let trimmed = if s.len() >= 2 && s.starts_with('"') && s.ends_with('"') {
+        &s[1..s.len() - 1]
+    } else if s.len() == 2 && s == "\"\"" {
+        ""
+    } else {
+        s
+    };
     let mut result = String::with_capacity(trimmed.len());
     let mut chars = trimmed.chars().peekable();
     while let Some(c) = chars.next() {

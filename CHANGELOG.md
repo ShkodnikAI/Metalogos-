@@ -4,6 +4,60 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №493 (issue #772; the №488 test-hygiene residue — 8 findings
+  the ignore removal surfaced): every finding the №488 ignore-drop
+  exposed is fixed and the nine previously-ignored tests are un-ignored.
+  - Anchor 1 (extract_entities silent stub): `regex_lite_find` took
+    the PATTERN string (not the text) and returned an empty Vec
+    unconditionally — email/url/phone were never extracted. Replaced
+    with three std-only scanners (`find_emails`, `find_urls`,
+    `find_phones`) that walk the text manually; 5 unit tests pin the
+    behavior.
+  - Anchors 2-3 (serve-path respond() lost the leading concat operand
+    and direct json_body field access served an empty body):
+    `parse_status_line` unconditionally split on the first space and
+    treated the first token as a candidate status — single-token
+    bodies (`respond("Fosved")`) returned the empty string and
+    multi-token non-numeric-prefix bodies (`respond("Got: " + text +
+    ...)`) lost the first token. The fix splits only when the first
+    token parses as a u16 in 100..=599; otherwise the whole string
+    is the body. The legacy `respond("200 OK")` form is unchanged.
+  - Anchor 4 (recall returns the first hit ≥ threshold, not the best):
+    the `.find()` in `recall_tw` is replaced by `filter + max_by` so
+    the best qualifying signal wins regardless of iteration order;
+    AND the sim computation now checks substring match FIRST
+    (`value.contains(query) → sim = 1.0`) before falling back to
+    cosine — the TF-IDF default embedding's process-local vocab makes
+    cosine-only matches spurious across interpreter sessions, and the
+    substring lane was never reached because cosine was computed
+    first. Same sim-order fix in `SqliteStore::recall`,
+    `SqliteStore::recall_top_k`, and the `MemoryStore::recall_top_k`
+    default.
+  - Anchor 5 (forget/recall consistency): the `< cutoff` comparison
+    let `forget "X" after 0.days` keep entries stamped at the same
+    second — `cutoff == now` and `created_at < now` was false. The
+    `<=` semantics match the user-facing "after N days" intent.
+    Both `InMemoryStore::forget` and `SqliteStore::forget` fixed.
+  - Anchor 6 (KG recall across restarts returns `''`): a program that
+    runs only `relate "a" to "b" as "r"` (no `memorize`) persists
+    edges to `SqliteKg` in Session 1; Session 2 opened the KG but
+    `recall_tw` never asked it for the query string when both the
+    store lane and the typed lane came up empty. The fix adds a third
+    fallback: `kg.edges_for(query)` synthesizes the `[GRAPH]` body
+    when the store and the typed lane both miss.
+  - Anchor 7 (parser thread panic on `test "p" { ... }`):
+    `unescape_string` did `&s[1..s.len()-1]` to strip outer quotes,
+    contradicting its own docstring; `parse_test_decl` pre-stripped
+    with `s.trim_matches('"')` and panicked for one-char literals.
+    The function is now the single source of truth (strips when
+    present, guards short inputs, tolerates already-stripped strings)
+    and `parse_test_decl` passes the raw lexeme.
+  - Anchor 8 (id collisions when two records land in the same second):
+    the `mt_<sec>`, `mt_l1_<sec>`, `mt_l2_<sec>`, `cron_<sec>` and
+    `appr_<sec>` ids collided on the second-precision timestamp. The
+    new `chrono_now_id_suffix()` (20-digit zero-padded nanos + 6-digit
+    per-process atomic counter) is the tiebreaker — lexicographic
+    chronological order within the same id prefix is preserved.
 - Naryad №489 (issue #737; the audit 25.09 §3.11 — training happens
   inline): the distill training moved OFF the request path. The
   attempt call now spawns a BACKGROUND trainer and returns

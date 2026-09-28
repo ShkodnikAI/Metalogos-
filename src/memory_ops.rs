@@ -103,13 +103,27 @@ pub(crate) fn recall_tw(
         let mem = crate::interpreter::lock_or_err(memory.lock())?;
         let now = now_secs();
         let hybrid = mem.recall_top_k(&query, &query_embedding, 0.0, 5, "");
+        // Narjad №493, anchor 4: the previous `.find()` returned the FIRST
+        // hybrid entry with signal ≥ min_confidence — not the best. Combined
+        // with the TF-IDF default embedding (whose vocab order is process-
+        // local, so cosine_similarity against entries stored under a prior
+        // interpreter's vocab is meaningless and frequently spurious), the
+        // first-by-RRF-rank candidate could win over a true substring match.
+        //
+        // The fix has two halves:
+        //   1. Substring match is the strongest signal (sim = 1.0) and is
+        //      checked FIRST — before cosine — so an exact textual match
+        //      cannot be buried by a higher-RRF but semantically empty
+        //      candidate.
+        //   2. The .find() is replaced by filter + max_by so the best
+        //      qualifying signal wins regardless of iteration order.
         let from_hybrid = hybrid
             .into_iter()
             .map(|(entry, _rrf)| {
-                let sim = if !query_embedding.is_empty() && !entry.embedding.is_empty() {
-                    crate::embeddings::cosine_similarity(&query_embedding, &entry.embedding)
-                } else if entry.value.contains(&query) {
+                let sim = if entry.value.contains(&query) {
                     1.0
+                } else if !query_embedding.is_empty() && !entry.embedding.is_empty() {
+                    crate::embeddings::cosine_similarity(&query_embedding, &entry.embedding)
                 } else {
                     0.0
                 };
@@ -118,7 +132,8 @@ pub(crate) fn recall_tw(
                 let signal = sim * (entry.priority as f32) * decay;
                 (entry, signal)
             })
-            .find(|(_, signal)| *signal >= min_confidence);
+            .filter(|(_, signal)| *signal >= min_confidence)
+            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
         match from_hybrid {
             Some((entry, _)) => Some(entry),
             None => mem
@@ -130,6 +145,14 @@ pub(crate) fn recall_tw(
     // ── Merge: the store lane is recall's primary lane (its
     // external contract is regression-pinned); the typed lane is the
     // fallback source whose hits carry the [MEM] provenance suffix.
+    // Narjad №493, anchor 6: when both the store lane and the typed
+    // lane come up empty, recall used to return the empty string —
+    // dropping the KG-only contour on the floor. A `relate`-only
+    // program (no `memorize`) persists edges to SqliteKg; the next
+    // interpreter session opened the KG but recall never asked it for
+    // the query string. The fix is a third fallback: ask the KG for
+    // edges_for(query) directly and synthesize the [GRAPH] body when
+    // the store and the typed lane both miss.
     let had_store_hit = store_hit.is_some();
     let result = match store_hit {
         Some(entry) => {
@@ -152,7 +175,22 @@ pub(crate) fn recall_tw(
                 result.push_str(&crate::memory_typed::recall_hit_provenance(hit));
                 result
             }
-            None => String::new(),
+            None => {
+                // Narjad №493, anchor 6: KG-only contour — the query
+                // string itself is a node name; ask the KG for its
+                // edges and synthesize the [GRAPH] body.
+                let edges = crate::interpreter::lock_or_err(kg.lock())?.edges_for(&query);
+                if edges.is_empty() {
+                    String::new()
+                } else {
+                    let mut result = query.clone();
+                    for (relation, other, _weight) in &edges {
+                        result.push('\n');
+                        result.push_str(&format!("[GRAPH] {} -> {}", relation, other));
+                    }
+                    result
+                }
+            }
         },
     };
 
@@ -240,7 +278,19 @@ pub(crate) fn forget_tw(
         30
     };
     let now = now_secs();
-    let cutoff = now - (days * 86400);
+    // Narjad №493, anchor 5: `forget "X" after 0.days` must forget the
+    // matching entries regardless of age — but the MemoryStore::forget
+    // contract is `timestamp < cutoff` (strict; phase76_contract C5
+    // pins that an entry stamped at `cutoff` survives). The two
+    // requirements are reconciled here at the builtin layer: days=0
+    // passes `i64::MAX` as the cutoff so every matching entry
+    // (regardless of timestamp) is forgotten; days>0 keeps the
+    // historical `now - days*86400` shape.
+    let cutoff = if days <= 0 {
+        i64::MAX
+    } else {
+        now - (days * 86400)
+    };
     crate::interpreter::lock_or_err(memory.lock())?.forget(&query_str, cutoff);
     Ok(Value::Unit)
 }

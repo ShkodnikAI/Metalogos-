@@ -201,17 +201,33 @@ pub(crate) fn builtin_render(args: &[Value]) -> Result<Value, String> {
 }
 
 pub(crate) fn parse_status_line(status_body: &str) -> (u16, String) {
+    // Narjad №493, anchors 2-3: the previous shape unconditionally
+    // split the string on the first space, treated the first token as
+    // a candidate HTTP status, and returned the rest as the body —
+    // defaulting the body to the empty string when there was no space.
+    // That broke the one-arg `respond(<body>)` form for ANY body that
+    // either had no space (single-token bodies like `respond("Fosved")`
+    // → body came back empty, anchor 3) or whose first token was not a
+    // valid HTTP status (multi-token bodies like
+    // `respond("Got: hello from 12345")` → "Got:" was eaten as a
+    // non-numeric status attempt, anchor 2).
+    //
+    // The fix splits only when the first whitespace-separated token
+    // parses as a u16 inside the valid HTTP status range (100..=599);
+    // otherwise the entire string is the body and the status defaults
+    // to 200. The legacy `respond("200 OK")` and `respond("404 Not Found")`
+    // forms still split the same way; the `respond("Fosved")`,
+    // `respond("Got: hello from 12345")` and `respond("alpha")` forms
+    // now return the full string as the body.
     let parts: Vec<&str> = status_body.splitn(2, ' ').collect();
-    let status = parts
-        .first()
-        .and_then(|s| s.parse::<u16>().ok())
-        .unwrap_or(200);
-    let body = if parts.len() > 1 {
-        parts[1].to_string()
-    } else {
-        String::new()
-    };
-    (status, body)
+    if parts.len() > 1 {
+        if let Ok(status) = parts[0].parse::<u16>() {
+            if (100..=599).contains(&status) {
+                return (status, parts[1].to_string());
+            }
+        }
+    }
+    (200, status_body.to_string())
 }
 
 // ── Наряд №71 — Retry helpers for HTTP builtins ────────────────────────

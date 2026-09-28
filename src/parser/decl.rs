@@ -2131,8 +2131,13 @@ pub(super) fn parse_type_alias_decl(pair: Pair<Rule>) -> Declaration {
 pub(super) fn parse_test_decl(pair: Pair<Rule>) -> Declaration {
     let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);
+    // Narjad №493, anchor 7: pass the raw STRING_LITERAL lexeme (with the
+    // outer double quotes intact) — unescape_string is the single source
+    // of truth for the quote-strip + escape handling, and the previous
+    // `.trim_matches('"')` panicked on one-char literals (`"p"` → `p`
+    // → slice out of bounds inside unescape_string).
     let name = find_child_str(&children, Rule::STRING_LITERAL)
-        .map(|s| unescape_string(s.trim_matches('"')))
+        .map(|s| unescape_string(&s))
         .unwrap_or_default();
     let body: Vec<Statement> = children
         .iter()

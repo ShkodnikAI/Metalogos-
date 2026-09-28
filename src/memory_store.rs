@@ -103,10 +103,14 @@ pub trait MemoryStore: Send + Sync {
             .into_iter()
             .filter(|e| type_filter.is_empty() || e.mem_type == type_filter)
             .filter_map(|e| {
-                let sim = if !query_embedding.is_empty() && !e.embedding.is_empty() {
-                    cosine_similarity(query_embedding, &e.embedding)
-                } else if e.value.contains(query) {
+                // Narjad №493, anchor 4: substring match is the strongest
+                // signal (sim = 1.0) and is checked FIRST. Same rationale
+                // as the SqliteStore paths — see the comment in
+                // SqliteStore::recall for the full background.
+                let sim = if e.value.contains(query) {
                     1.0
+                } else if !query_embedding.is_empty() && !e.embedding.is_empty() {
+                    cosine_similarity(query_embedding, &e.embedding)
                 } else {
                     return None;
                 };
@@ -606,14 +610,18 @@ impl MemoryStore for SqliteStore {
 
             let entry_embedding = Self::blob_to_embedding(&blob);
 
-            let semantic_sim = if !query_embedding.is_empty() && !entry_embedding.is_empty() {
+            // Narjad №493, anchor 4: substring match is the strongest
+            // signal (sim = 1.0) and is checked FIRST. The previous order
+            // (cosine first, substring as fallback) let TF-IDF default
+            // embeddings — whose vocab is process-local — produce
+            // spurious cosine matches against entries stored under a
+            // prior interpreter's vocab, burying the true textual match.
+            let semantic_sim = if value.contains(query) {
+                1.0
+            } else if !query_embedding.is_empty() && !entry_embedding.is_empty() {
                 cosine_similarity(query_embedding, &entry_embedding)
             } else {
-                if value.contains(query) {
-                    1.0
-                } else {
-                    continue;
-                }
+                continue;
             };
 
             let age_days = ((now - timestamp).max(0) as f64) / 86400.0;
@@ -832,11 +840,16 @@ impl MemoryStore for SqliteStore {
                 Err(_) => continue,
             };
 
-            // Compute cosine similarity score
-            let cosine_sim = if !query_embedding.is_empty() && !entry.embedding.is_empty() {
-                cosine_similarity(query_embedding, &entry.embedding)
-            } else if entry.value.contains(query) {
+            // Narjad №493, anchor 4: substring match is the strongest
+            // signal (sim = 1.0) and is checked FIRST. Same rationale as
+            // SqliteStore::recall above — the TF-IDF default embedding's
+            // process-local vocab makes cosine-only matches unreliable
+            // across interpreter sessions; an exact textual match must
+            // never be buried by a spurious cosine score.
+            let cosine_sim = if entry.value.contains(query) {
                 1.0
+            } else if !query_embedding.is_empty() && !entry.embedding.is_empty() {
+                cosine_similarity(query_embedding, &entry.embedding)
             } else {
                 continue; // no match from either signal
             };

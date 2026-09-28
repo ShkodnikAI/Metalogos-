@@ -1892,7 +1892,12 @@ pub fn builtin_pdf_merge(args: &[Value]) -> Result<Value, String> {
 
     // For each additional document, import its pages
     for (idx, path) in paths.iter().enumerate().skip(1) {
-        let doc = LopdfDocument::load_mem(path.as_bytes())
+        // №500 follow-up: load_mem takes the BYTES of the file — the
+        // gated read must feed it (the raw path string as bytes is the
+        // InvalidFileHeader trap this loop once hit).
+        let doc_bytes = crate::fs_gate::read_bytes(path, "pdf_merge input")
+            .map_err(|e| format!("pdf_merge: failed to read '{}': {}", path, e))?;
+        let doc = LopdfDocument::load_mem(&doc_bytes)
             .map_err(|e| format!("pdf_merge: failed to parse '{}': {:?}", path, e))?;
 
         let src_pages = doc.get_pages();

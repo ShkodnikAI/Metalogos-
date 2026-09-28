@@ -1105,7 +1105,19 @@ impl Interpreter {
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
-        let cutoff = now - (days * 86400);
+        // Narjad №493, anchor 5: `forget "X" after 0.days` must forget
+        // the matching entries regardless of age. The MemoryStore::forget
+        // contract is `timestamp < cutoff` (strict; phase76_contract C5
+        // pins that an entry stamped at `cutoff` survives). days=0
+        // passes `i64::MAX` so every matching entry is forgotten;
+        // days>0 keeps the historical `now - days*86400` shape. The
+        // matching fix is in memory_ops::forget_tw for the builtin call
+        // form `forget("X", days)` — the same reconciliation.
+        let cutoff = if days <= 0 {
+            i64::MAX
+        } else {
+            now - (days * 86400)
+        };
         lock_or_err(self.memory.lock())?.forget(&query_str, cutoff);
         Ok(())
     }

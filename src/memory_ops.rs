@@ -278,7 +278,19 @@ pub(crate) fn forget_tw(
         30
     };
     let now = now_secs();
-    let cutoff = now - (days * 86400);
+    // Narjad №493, anchor 5: `forget "X" after 0.days` must forget the
+    // matching entries regardless of age — but the MemoryStore::forget
+    // contract is `timestamp < cutoff` (strict; phase76_contract C5
+    // pins that an entry stamped at `cutoff` survives). The two
+    // requirements are reconciled here at the builtin layer: days=0
+    // passes `i64::MAX` as the cutoff so every matching entry
+    // (regardless of timestamp) is forgotten; days>0 keeps the
+    // historical `now - days*86400` shape.
+    let cutoff = if days <= 0 {
+        i64::MAX
+    } else {
+        now - (days * 86400)
+    };
     crate::interpreter::lock_or_err(memory.lock())?.forget(&query_str, cutoff);
     Ok(Value::Unit)
 }

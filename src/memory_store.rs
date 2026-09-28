@@ -235,14 +235,8 @@ impl MemoryStore for InMemoryStore {
     }
 
     fn forget(&mut self, query: &str, cutoff: i64) {
-        // Narjad №493, anchor 5: the previous `< cutoff` let `forget "X"
-        // after 0.days` keep entries created at the very same second —
-        // `cutoff == now` and `created_at < now` is false for entries
-        // stamped with this same `now`. The `<=` semantics match the
-        // user-facing "after N days" intent: anything at most N days
-        // old (inclusive) is forgotten.
         self.entries
-            .retain(|e| !(e.value.contains(query) && e.timestamp <= cutoff));
+            .retain(|e| !(e.value.contains(query) && e.timestamp < cutoff));
     }
 
     fn decay(&mut self) -> usize {
@@ -657,12 +651,8 @@ impl MemoryStore for SqliteStore {
             Ok(c) => c,
             Err(_) => return,
         };
-        // Narjad №493, anchor 5: `<= cutoff` instead of `< cutoff` so that
-        // `forget "X" after 0.days` actually deletes entries stamped at
-        // the same second (cutoff == now, created_at <= now matches).
-        // See InMemoryStore::forget for the matching fix and the rationale.
         let _ = conn.execute(
-            "DELETE FROM memories WHERE value LIKE '%' || ?1 || '%' AND created_at <= ?2",
+            "DELETE FROM memories WHERE value LIKE '%' || ?1 || '%' AND created_at < ?2",
             rusqlite::params![query, cutoff],
         );
     }

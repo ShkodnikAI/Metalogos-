@@ -253,7 +253,7 @@ fn registry_arity_exhaustive() {
         ("estimate_tokens", 1, 1),
         ("extract_entities", 1, 1),
         ("extract_param", 2, 2),
-        ("learn_preference", 2, 2),
+        ("learn_preference", 3, 3),
         ("read_file_tokens", 1, 1),
         // ── sqz-inspired ──
         ("squeeze", 2, 2),

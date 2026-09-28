@@ -488,7 +488,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("estimate_tokens", 1, "bot" => "ext"; builtin_estimate_tokens),
     spec!("extract_entities", 1, "bot" => "ext"; builtin_extract_entities),
     spec!("extract_param", 2, "bot" => "ext"; builtin_extract_param), // text,index
-    spec!("learn_preference", 2, "bot" => "ext"; builtin_learn_preference),
+    spec!("learn_preference", 3, "bot" => "ext"; builtin_learn_preference),
     spec!("read_file_tokens", 1, "bot" => "ext"; builtin_read_file_tokens),
     // ── sqz-inspired: string/list utilities ──
     spec!("squeeze", 2, "string"; builtin_squeeze),

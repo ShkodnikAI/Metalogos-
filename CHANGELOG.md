@@ -4,6 +4,36 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №488 (issue #736; the audit 25.09 §6.2 tail — the test debt
+  grows no more): the test-hygiene wave — 36 `#[ignore]` attributes
+  lifted, honestly. The phase23 (v0.8.4–v0.8.7) suite is ACTUALIZED to
+  the current surface: every runtime program moved into `test` blocks
+  (top-level statements are a dead syntax), the 6 semantic-arity tests
+  lifted as-is (their patterns only needed the now-mandatory
+  `-> Unit`), `learn_preference` calls fixed to the real 3-arg shape —
+  which exposed a REGISTRY/IMPL mismatch (the spec said 2, the impl
+  requires 3 — the registry is corrected to 3 and REFERENCE.md
+  regenerated). The persist suite's stale "flaky, need temp dir
+  isolation" reason lifted (the tempdir isolation was there all along;
+  5 tests pass deterministically); the webhook harness reason lifted
+  (run_test_server has existed since №455; 1 test passes). The debt
+  counters moved ONLY DOWN: ignore 85 → 58, ignore_todo 49 → 22 (the
+  baseline re-thresholded in the same PR). The remaining 9 ignores
+  carry precise findings with `TODO(№493, revise 2026-10-15)` dates —
+  they are NOT harness debt but real behavioral findings (the
+  extract_entities extraction core is a silent no-op stub; the serve
+  path loses the leading concat operand and mis-serves direct
+  json_body field access; the recall lane returns the first hit, not
+  the best match; the forget/recall consistency and the KG recall
+  across restarts) — all tracked in the new naryad №493 (gh#772). One
+  test was DELETED per the honesty rule: `test_extract_entities`
+  pinned a silent stub as its contract (see №493). Three latent
+  runtime defects surfaced and are documented in №493: the parser
+  panics on one-character string literals (`unescape_string`'s
+  byte-slice), and the cron/mtree ids collide within the same second
+  (`cron_<sec>` / `mt_<sec>`) — the tests neutralize it with a 1.1 s
+  spacing until the runtime fix lands. 20 + 5 + 8 tests green
+  across the three suites (×3 local runs for the flake-prone ones).
 - Naryad №487 (issue #735; the audit 26.09 action item 11 — the
   reconstruction, the §3.7 text never delivered): the mock-response
   marker hash is an EXPLICITLY stable algorithm — FNV-1a 64

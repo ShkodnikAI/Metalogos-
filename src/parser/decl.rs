@@ -547,7 +547,7 @@ pub(super) fn parse_schema_column(pair: Pair<Rule>) -> SchemaColumn {
 
 // ── Memory Config (Phase 7.6) ──────────────────────────────────────
 
-pub(super) fn parse_memory_decl(pair: Pair<Rule>) -> Declaration {
+pub(super) fn parse_memory_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
     let span = Span::from_pest(pair.as_span());
     let children: Vec<Pair<Rule>> = pair
         .into_inner()
@@ -555,13 +555,22 @@ pub(super) fn parse_memory_decl(pair: Pair<Rule>) -> Declaration {
         .flat_map(|c| c.into_inner())
         .collect();
 
+    // №508: the field order is free — duplicates are loud (the №490 shape).
+    guard_unique_field_groups(
+        &children,
+        &[
+            ("kv", &[Rule::memory_kv_config]),
+            ("persist", &[Rule::memory_persist]),
+        ],
+    )?;
+
     let persist = children
         .iter()
         .find(|c| c.as_rule() == Rule::memory_persist)
         .and_then(|c| find_child_str(&children_of(c), Rule::STRING_LITERAL))
         .map(|s| s[1..s.len() - 1].to_string());
 
-    Declaration::Memory(MemoryDecl { span, persist })
+    Ok(Declaration::Memory(MemoryDecl { span, persist }))
 }
 
 // ── Import (Phase 5.4) ─────────────────────────────────────
@@ -983,11 +992,23 @@ pub(super) fn parse_on_deny_decl(pair: Pair<Rule>) -> Result<Declaration, ParseE
 
 // ── Sandbox (P2) ────────────────────────────────────────────────
 
-pub(super) fn parse_sandbox_decl(pair: Pair<Rule>) -> Declaration {
+pub(super) fn parse_sandbox_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
     let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);
     // sandbox_decl = { SANDBOX_KW ~ IDENT ~ "{" ~ sandbox_body "}" }
     let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+
+    // №508: the field order is free — duplicates are loud (the №490 shape).
+    if let Some(body_pair) = find_child(&children, Rule::sandbox_body) {
+        guard_unique_field_groups(
+            &children_of(&body_pair),
+            &[
+                ("allowed", &[Rule::sandbox_allowed]),
+                ("forbidden", &[Rule::sandbox_forbidden]),
+                ("timeout", &[Rule::sandbox_timeout]),
+            ],
+        )?;
+    }
 
     let mut allowed = Vec::new();
     let mut forbidden = Vec::new();
@@ -1036,13 +1057,13 @@ pub(super) fn parse_sandbox_decl(pair: Pair<Rule>) -> Declaration {
         }
     }
 
-    Declaration::Sandbox(SandboxDecl {
+    Ok(Declaration::Sandbox(SandboxDecl {
         span,
         name,
         allowed,
         forbidden,
         timeout,
-    })
+    }))
 }
 
 // ── Mutate (P2) ─────────────────────────────────────────────────
@@ -1108,13 +1129,23 @@ pub(super) fn parse_mutate_decl(pair: Pair<Rule>) -> Result<Declaration, ParseEr
 
 // ── Conversation Config (ADR-0053) ──────────────────────────────────
 
-pub(super) fn parse_conversation_decl(pair: Pair<Rule>) -> Declaration {
+pub(super) fn parse_conversation_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
     let span = Span::from_pest(pair.as_span());
     let children: Vec<Pair<Rule>> = pair
         .into_inner()
         .filter(|c| c.as_rule() == Rule::conversation_body)
         .flat_map(|c| c.into_inner())
         .collect();
+
+    // №508: the field order is free — duplicates are loud (the №490 shape).
+    guard_unique_field_groups(
+        &children,
+        &[
+            ("ttl", &[Rule::conversation_ttl]),
+            ("max_messages", &[Rule::conversation_max_messages]),
+            ("compress_after", &[Rule::conversation_compress_after]),
+        ],
+    )?;
 
     let ttl = children
         .iter()
@@ -1137,15 +1168,13 @@ pub(super) fn parse_conversation_decl(pair: Pair<Rule>) -> Declaration {
         .and_then(|s| s.parse().ok())
         .unwrap_or(20);
 
-    Declaration::Conversation(ConversationDecl {
+    Ok(Declaration::Conversation(ConversationDecl {
         span,
         ttl,
         max_messages,
         compress_after,
-    })
+    }))
 }
-
-// ── Context Budget (sqz-inspired P3) ──────────────────────────────
 
 // ── Context Budget (sqz-inspired P3) ──────────────────────────────
 
@@ -1430,11 +1459,23 @@ pub(super) fn parse_tool_method(pair: Pair<Rule>) -> Result<ToolMethod, ParseErr
 
 // ── Eval Harness (ADR-0050) ──────────────────────────────────────────
 
-pub(super) fn parse_eval_decl(pair: Pair<Rule>) -> Declaration {
+pub(super) fn parse_eval_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
     let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);
     // eval_decl = { EVAL_KW ~ IDENT ~ "{" ~ eval_body ~ "}" }
     let pattern_name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+
+    // №508: the field order is free — duplicates are loud (the №490 shape).
+    if let Some(body_pair) = find_child(&children, Rule::eval_body) {
+        guard_unique_field_groups(
+            &children_of(&body_pair),
+            &[
+                ("dataset", &[Rule::eval_dataset]),
+                ("metric", &[Rule::eval_metric]),
+                ("threshold", &[Rule::eval_threshold]),
+            ],
+        )?;
+    }
 
     let mut dataset: Vec<(String, String)> = Vec::new();
     let mut metric = "accuracy".to_string();
@@ -1508,13 +1549,30 @@ pub(super) fn parse_eval_decl(pair: Pair<Rule>) -> Declaration {
         }
     }
 
-    Declaration::Eval(EvalDecl {
+    // №508: the dataset field is REQUIRED (the old grammar demanded it
+    // positionally; in the free-order body the parser enforces it
+    // loudly). The presence of the FIELD is what matters — an explicitly
+    // EMPTY `dataset: []` stays the legal PASS-by-convention case (the
+    // eval-harness contract pins total=0 → passed=true).
+    let body_children: Vec<Pair<Rule>> = children
+        .iter()
+        .filter(|c| c.as_rule() == Rule::eval_body)
+        .flat_map(|c| children_of(c))
+        .collect();
+    if !body_children.iter().any(|c| c.as_rule() == Rule::eval_dataset) {
+        return Err(pair_error(
+            &pair,
+            "eval requires a 'dataset' field — a free-order eval body must still carry the dataset",
+        ));
+    }
+
+    Ok(Declaration::Eval(EvalDecl {
         span,
         pattern_name,
         dataset,
         metric,
         threshold,
-    })
+    }))
 }
 
 // ── Memorize (M4) ──────────────────────────────────────────────────

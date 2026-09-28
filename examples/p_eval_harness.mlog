@@ -21,11 +21,11 @@ adapt Classify add_example("ужасный сервис", "complaint")
 adapt Classify add_example("спасибо", "greeting")
 
 eval Classify {
+    threshold: 0.8
+    metric: accuracy
     dataset: [
         ("ужасный сервис", "complaint"),
         ("спасибо", "greeting"),
         ("когда?", "question")
     ]
-    metric: accuracy
-    threshold: 0.8
 }

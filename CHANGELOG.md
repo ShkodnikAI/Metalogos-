@@ -4,6 +4,31 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №508 (issue #791; the audit 28.09 §3.7): the free field order
+  reaches the four remaining CONFIGURATION bodies — `memory_body`
+  (kv, persist), `sandbox_body` (allowed, forbidden, timeout),
+  `eval_body` (dataset, metric, threshold) and `conversation_body`
+  (ttl, max_messages, compress_after) — completing the №490 rule for
+  the same language constructs. Each body is an unordered repetition
+  of its fixed field set (silent field wrappers keep the inner rules
+  directly in the child list, so the `.find()`-based extraction is
+  unchanged); a duplicate field is a LOUD parse error naming the field
+  and its position (guard_unique_field_groups). The eval `dataset`
+  requirement moved from the grammar (a positional rule) to a loud
+  parser error naming the requirement — an explicitly EMPTY
+  `dataset: []` stays the legal PASS-by-convention case (the eval
+  harness contract, total=0 → passed, pinned). The inner `kv {...}`
+  sub-block keeps its fixed order (the №490 posture with the llm
+  provider sub-block). Verified: 10 blocking tests
+  (`tests/naryad_508_grammar_free_order_4_bodies.rs` — every
+  permutation class parses identically, duplicates loud, the eval
+  dataset requirement loud, the №490 llm bodies regression-pinned);
+  the eval/conversation/memory/sandbox contract suites green; lib
+  872/0. The syntax doc names the free order for all four bodies; the
+  live examples (`p2_full_adapt.mlog`, `p_eval_harness.mlog`) show
+  permuted layouts.
+
+<<<<<<< HEAD
 - Naryad №495 (issue #780; the audit 28.09 §3.1 High, the P0 core of
   Wave 19): distillation in `mlog serve` now WORKS on both backends —
   the new server-level `DistillHub` (`src/distill_hub.rs`). Before
@@ -70,6 +95,31 @@ All notable changes to the Metalogos project.
   unchanged). Verified: grep of direct lopdf path-APIs in pdf.rs = 0;
   mutation checks (raw-write injection → the vectors turn red);
   lib 872/0; clippy `-D warnings` with the extended list clean.
+=======
+- Naryad №508 (issue #791; the audit 28.09 §3.7): the free field order
+  reaches the four remaining CONFIGURATION bodies — `memory_body`
+  (kv, persist), `sandbox_body` (allowed, forbidden, timeout),
+  `eval_body` (dataset, metric, threshold) and `conversation_body`
+  (ttl, max_messages, compress_after) — completing the №490 rule for
+  the same language constructs. Each body is an unordered repetition
+  of its fixed field set (silent field wrappers keep the inner rules
+  directly in the child list, so the `.find()`-based extraction is
+  unchanged); a duplicate field is a LOUD parse error naming the field
+  and its position (guard_unique_field_groups). The eval `dataset`
+  requirement moved from the grammar (a positional rule) to a loud
+  parser error naming the requirement — an explicitly EMPTY
+  `dataset: []` stays the legal PASS-by-convention case (the eval
+  harness contract, total=0 → passed, pinned). The inner `kv {...}`
+  sub-block keeps its fixed order (the №490 posture with the llm
+  provider sub-block). Verified: 10 blocking tests
+  (`tests/naryad_508_grammar_free_order_4_bodies.rs` — every
+  permutation class parses identically, duplicates loud, the eval
+  dataset requirement loud, the №490 llm bodies regression-pinned);
+  the eval/conversation/memory/sandbox contract suites green; lib
+  872/0. The syntax doc names the free order for all four bodies; the
+  live examples (`p2_full_adapt.mlog`, `p_eval_harness.mlog`) show
+  permuted layouts.
+>>>>>>> 9e3480f (naryad 508 (issue #791): the free field order in the four configuration bodies (memory/sandbox/eval/conversation) — the №490 rule completed; duplicates loud via guard_unique_field_groups; the eval dataset requirement enforced loudly in the parser (the empty dataset: [] stays legal); syntax doc + live examples show permuted layouts)
 
 - Naryad №506 (issue #789; the audit 28.09 immediate item):
   `docs/limitations.md` gains the three honest rows the audit asked

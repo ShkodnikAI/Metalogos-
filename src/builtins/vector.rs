@@ -194,6 +194,9 @@ pub(crate) fn open_vec_db(
 ) -> Result<rusqlite::Connection, String> {
     let safe_path = sandbox_path_ex(db_path, mode).map_err(|e| format!("{builtin}(): {e}"))?;
     register_vec_extension();
+    // №500: the Connection::open runs AFTER sandbox_path_ex verified the
+    // resolved path (the naryad's own named service site).
+    #[allow(clippy::disallowed_methods)]
     let conn = rusqlite::Connection::open(&safe_path)
         .map_err(|e| format!("{builtin}(): cannot open vector db '{}': {}", db_path, e))?;
     conn.execute_batch(META_DDL)

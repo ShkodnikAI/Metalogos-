@@ -130,6 +130,8 @@ fn stdio_core_handles_initialize_list_call_and_refusals() {
     // №475: the tool writes into the data directory — it must exist
     // (the ServeRoute write containment resolves METALOGOS_DATA_DIR
     // fail-closed).
+    // №500: the test harness prepares its fixture dir.
+    #[allow(clippy::disallowed_methods)]
     std::fs::create_dir_all("data").expect("create the data dir");
     let server = McpServer::new(&decls, &["notify.send".to_string(), "stats".to_string()])
         .expect("server builds");
@@ -250,6 +252,8 @@ mod network {
     #[tokio::test]
     async fn external_client_walks_tools_over_http() {
         // №475: the notify.send tool writes into the data directory.
+        // №500: the test harness prepares its fixture dir.
+        #[allow(clippy::disallowed_methods)]
         std::fs::create_dir_all("data").expect("create the data dir");
         let decls = parse(TOOL_SOURCE);
         let (port, handle) = run_test_mcp_server(

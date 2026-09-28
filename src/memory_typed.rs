@@ -767,6 +767,8 @@ fn db_conn() -> Result<Option<std::sync::MutexGuard<'static, Conn>>, String> {
         if path.trim().is_empty() {
             return None;
         }
+        // №500: the typed-memory store (engine storage).
+        #[allow(clippy::disallowed_methods)]
         match Conn::open(path.trim()) {
             Ok(conn) => {
                 if let Err(e) = ensure_memtyped_schema(&conn) {

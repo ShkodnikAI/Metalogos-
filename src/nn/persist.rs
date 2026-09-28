@@ -159,6 +159,8 @@ pub fn deserialize_into_model(model: &mut ReflexModel, data: &[u8]) -> Result<()
 /// Returns `Ok(())` on success. The model is keyed by `name` — saving twice
 /// under the same name overwrites (matching `memorize`/`recall` semantics).
 pub fn save_model_to_db(model: &ReflexModel, name: &str, db_path: &Path) -> Result<(), String> {
+    // №500: the weights store (reflex_save — engine storage).
+    #[allow(clippy::disallowed_methods)]
     let conn = rusqlite::Connection::open(db_path).map_err(|e| {
         format!(
             "reflex_save: failed to open db '{}': {}",
@@ -209,6 +211,8 @@ pub fn load_model_from_db(
     name: &str,
     db_path: &Path,
 ) -> Result<(), String> {
+    // №500: the weights store (reflex_load — engine storage).
+    #[allow(clippy::disallowed_methods)]
     let conn = rusqlite::Connection::open(db_path).map_err(|e| {
         format!(
             "reflex_load: failed to open db '{}': {}",

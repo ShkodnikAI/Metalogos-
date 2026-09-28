@@ -169,6 +169,9 @@ pub fn media_save_dispatch(store: &MediaStore, args: &[Value]) -> Result<Value, 
     crate::fs_gate::precheck_write_raw(&path, fn_name)?;
     crate::fs_gate::gate_write_resolved(&path, &safe_path, fn_name)?;
     if let Some(parent) = safe_path.parent() {
+        // №500: parent prep on an already-gated safe_path (the media
+        // store's own dir plumbing).
+        #[allow(clippy::disallowed_methods)]
         let _ = std::fs::create_dir_all(parent); // best-effort, as write_file
     }
     let mut file = crate::builtins::io::open_sandbox_write(&safe_path, false)

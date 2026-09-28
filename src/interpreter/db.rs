@@ -171,6 +171,9 @@ impl Interpreter {
             rusqlite::Connection::open_in_memory()
         } else if url.starts_with("sqlite:") {
             let path = url.trim_start_matches("sqlite:");
+            // №500: the db{}-declaration sqlite surface — pre-existing
+            // №7/№8 design (the DECLARED data store, not a bypass).
+            #[allow(clippy::disallowed_methods)]
             rusqlite::Connection::open(path)
         } else {
             eprintln!(
@@ -219,6 +222,8 @@ impl Interpreter {
             } else if url.starts_with("sqlite:") {
                 // File DB: open a new connection for this request (WAL handles concurrency)
                 let path = url.trim_start_matches("sqlite:");
+                // №500: the db{}-declaration sqlite surface (№7/№8).
+                #[allow(clippy::disallowed_methods)]
                 match rusqlite::Connection::open(path) {
                     Ok(c) => {
                         let _ = c.execute_batch("PRAGMA journal_mode=WAL;");

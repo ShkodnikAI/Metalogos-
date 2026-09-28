@@ -247,6 +247,8 @@ fn open_db_connection(
         rusqlite::Connection::open_in_memory()?
     } else {
         let path = url.trim_start_matches("sqlite:");
+        // №500: the db{}-declaration sqlite surface (№7/№8).
+        #[allow(clippy::disallowed_methods)]
         rusqlite::Connection::open(path)?
     };
     let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");

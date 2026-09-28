@@ -1165,6 +1165,9 @@ impl Interpreter {
         }
         if let Some(ref path) = self.memory_persist_path {
             let db_path = std::path::PathBuf::from(path);
+            // №500: the SERVICE persistence layer (the checkpoint
+            // journal) — engine storage, not a program-named path.
+            #[allow(clippy::disallowed_methods)]
             if let Ok(conn) = rusqlite::Connection::open(&db_path) {
                 let _ = conn.execute_batch(
                     "CREATE TABLE IF NOT EXISTS llm_cache (hash INTEGER PRIMARY KEY, response TEXT NOT NULL, created_at INTEGER NOT NULL, ttl INTEGER NOT NULL);"

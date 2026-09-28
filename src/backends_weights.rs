@@ -219,6 +219,9 @@ pub fn fetch_weights(weights_id: &str, dest_dir: &str) -> Result<Vec<String>, St
         verify_pinned_bytes(&f.sha256, f.bytes, &body)?;
         let out_path = dest_root.join(&f.path);
         if let Some(parent) = out_path.parent() {
+            // №500: the weights store (the engine's own storage — the
+            // SHA-verified weights dir, not a program-named path).
+            #[allow(clippy::disallowed_methods)]
             std::fs::create_dir_all(parent).map_err(|e| {
                 format!("backend weights: cannot create {}: {}", parent.display(), e)
             })?;

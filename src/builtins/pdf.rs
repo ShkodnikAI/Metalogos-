@@ -1504,8 +1504,13 @@ pub fn builtin_pdf_fill_form(args: &[Value]) -> Result<Value, String> {
     let fields: std::collections::HashMap<String, String> = serde_json::from_str(&fields_json)
         .map_err(|e| format!("pdf_fill_form: invalid fields JSON: {}", e))?;
 
-    let mut doc = LopdfDocument::load(&path)
-        .map_err(|e| format!("pdf_fill_form: failed to load '{}': {:?}", path, e))?;
+    // №500: the input rides the fs_gate (sandbox + deny-list + serve
+    // containment) and parses from memory — the library's own file open
+    // is invisible to every gate.
+    let input_bytes = crate::fs_gate::read_bytes(&path, "pdf_fill_form input")
+        .map_err(|e| format!("pdf_fill_form: failed to load '{}': {}", path, e))?;
+    let mut doc = LopdfDocument::load_mem(&input_bytes)
+        .map_err(|e| format!("pdf_fill_form: failed to parse '{}': {:?}", path, e))?;
 
     // Find AcroForm in catalog
     let catalog = doc
@@ -1565,8 +1570,12 @@ pub fn builtin_pdf_fill_form(args: &[Value]) -> Result<Value, String> {
         dict.set(b"NeedAppearances".to_vec(), Object::Boolean(true));
     }
 
-    doc.save(&output_path)
+    // №500: the output serializes in memory and writes through the gate.
+    let mut out_buf = Vec::new();
+    doc.save_to(&mut out_buf)
         .map_err(|e| format!("pdf_fill_form: save failed: {:?}", e))?;
+    crate::fs_gate::write_bytes(&output_path, "pdf_fill_form output", &out_buf)
+        .map_err(|e| format!("pdf_fill_form: save failed: {}", e))?;
 
     Ok(make_struct(
         "PdfFillForm",
@@ -1597,8 +1606,11 @@ pub fn builtin_pdf_rotate_page(args: &[Value]) -> Result<Value, String> {
         return Err("pdf_rotate_page: degrees must be 90, 180, or 270".to_string());
     }
 
-    let mut doc = LopdfDocument::load(&path)
-        .map_err(|e| format!("pdf_rotate_page: failed to load '{}': {:?}", path, e))?;
+    // №500: fs_gate in, memory parse.
+    let input_bytes = crate::fs_gate::read_bytes(&path, "pdf_rotate_page input")
+        .map_err(|e| format!("pdf_rotate_page: failed to load '{}': {}", path, e))?;
+    let mut doc = LopdfDocument::load_mem(&input_bytes)
+        .map_err(|e| format!("pdf_rotate_page: failed to parse '{}': {:?}", path, e))?;
 
     let pages = doc.get_pages();
     let page_id = pages.get(&page_number).ok_or_else(|| {
@@ -1620,8 +1632,12 @@ pub fn builtin_pdf_rotate_page(args: &[Value]) -> Result<Value, String> {
         dict.set(b"Rotate".to_vec(), Object::Integer(new_rotation));
     }
 
-    doc.save(&output_path)
+    // №500: memory serialize, gated write.
+    let mut out_buf = Vec::new();
+    doc.save_to(&mut out_buf)
         .map_err(|e| format!("pdf_rotate_page: save failed: {:?}", e))?;
+    crate::fs_gate::write_bytes(&output_path, "pdf_rotate_page output", &out_buf)
+        .map_err(|e| format!("pdf_rotate_page: save failed: {}", e))?;
 
     Ok(make_struct("PdfResult", &["ok"], &[Value::Bool(true)]))
 }
@@ -1642,8 +1658,11 @@ pub fn builtin_pdf_delete_pages(args: &[Value]) -> Result<Value, String> {
     let pages_to_delete: Vec<u32> = serde_json::from_str(&pages_json)
         .map_err(|e| format!("pdf_delete_pages: invalid pages JSON: {}", e))?;
 
-    let mut doc = LopdfDocument::load(&path)
-        .map_err(|e| format!("pdf_delete_pages: failed to load '{}': {:?}", path, e))?;
+    // №500: fs_gate in, memory parse.
+    let input_bytes = crate::fs_gate::read_bytes(&path, "pdf_delete_pages input")
+        .map_err(|e| format!("pdf_delete_pages: failed to load '{}': {}", path, e))?;
+    let mut doc = LopdfDocument::load_mem(&input_bytes)
+        .map_err(|e| format!("pdf_delete_pages: failed to parse '{}': {:?}", path, e))?;
 
     let original_count = doc.get_pages().len() as u32;
 
@@ -1666,8 +1685,12 @@ pub fn builtin_pdf_delete_pages(args: &[Value]) -> Result<Value, String> {
 
     let remaining = doc.get_pages().len() as u32;
 
-    doc.save(&output_path)
+    // №500: memory serialize, gated write.
+    let mut out_buf = Vec::new();
+    doc.save_to(&mut out_buf)
         .map_err(|e| format!("pdf_delete_pages: save failed: {:?}", e))?;
+    crate::fs_gate::write_bytes(&output_path, "pdf_delete_pages output", &out_buf)
+        .map_err(|e| format!("pdf_delete_pages: save failed: {}", e))?;
 
     Ok(make_struct(
         "PdfDeletePages",
@@ -1698,15 +1721,19 @@ pub fn builtin_pdf_extract_images(args: &[Value]) -> Result<Value, String> {
             .to_string()
     };
 
-    std::fs::create_dir_all(&output_dir).map_err(|e| {
+    // №500: the output directory is a program-facing write — the same
+    // gate vocabulary as any file write, through the facade.
+    crate::fs_gate::create_dir_all(&output_dir, "pdf_extract_images output").map_err(|e| {
         format!(
             "pdf_extract_images: cannot create dir '{}': {}",
             output_dir, e
         )
     })?;
 
-    let doc = LopdfDocument::load(&path)
-        .map_err(|e| format!("pdf_extract_images: failed to load '{}': {:?}", path, e))?;
+    let input_bytes = crate::fs_gate::read_bytes(&path, "pdf_extract_images input")
+        .map_err(|e| format!("pdf_extract_images: failed to load '{}': {}", path, e))?;
+    let doc = LopdfDocument::load_mem(&input_bytes)
+        .map_err(|e| format!("pdf_extract_images: failed to parse '{}': {:?}", path, e))?;
 
     let base_name = std::path::Path::new(&path)
         .file_stem()
@@ -1843,8 +1870,12 @@ pub fn builtin_pdf_merge(args: &[Value]) -> Result<Value, String> {
 
     // Implement merge using lopdf's low-level API:
     // Load all documents, combine their page trees
-    let mut base_doc = LopdfDocument::load(&paths[0])
-        .map_err(|e| format!("pdf_merge: failed to load '{}': {:?}", paths[0], e))?;
+    // №500: fs_gate in, memory parse (the classification above already
+    // reads through the gate — now the lopdf load does too).
+    let base_bytes = crate::fs_gate::read_bytes(&paths[0], "pdf_merge input")
+        .map_err(|e| format!("pdf_merge: failed to load '{}': {}", paths[0], e))?;
+    let mut base_doc = LopdfDocument::load_mem(&base_bytes)
+        .map_err(|e| format!("pdf_merge: failed to parse '{}': {:?}", paths[0], e))?;
 
     // Get the base document's Pages object ID
     let base_catalog = base_doc
@@ -1861,8 +1892,13 @@ pub fn builtin_pdf_merge(args: &[Value]) -> Result<Value, String> {
 
     // For each additional document, import its pages
     for (idx, path) in paths.iter().enumerate().skip(1) {
-        let doc = LopdfDocument::load(path)
-            .map_err(|e| format!("pdf_merge: failed to load '{}': {:?}", path, e))?;
+        // №500 follow-up: load_mem takes the BYTES of the file — the
+        // gated read must feed it (the raw path string as bytes is the
+        // InvalidFileHeader trap this loop once hit).
+        let doc_bytes = crate::fs_gate::read_bytes(path, "pdf_merge input")
+            .map_err(|e| format!("pdf_merge: failed to read '{}': {}", path, e))?;
+        let doc = LopdfDocument::load_mem(&doc_bytes)
+            .map_err(|e| format!("pdf_merge: failed to parse '{}': {:?}", path, e))?;
 
         let src_pages = doc.get_pages();
 
@@ -1952,17 +1988,16 @@ pub fn builtin_pdf_merge(args: &[Value]) -> Result<Value, String> {
     }
 
     // Save the merged document
-    // №475: the lopdf save opens its own file internally (invisible to
-    // the lint) — the OUTPUT PATH is gated here explicitly before the
-    // save (the facade's policy, the library's I/O).
-    crate::fs_gate::precheck_write_raw(&output, "pdf_merge output")?;
-    let out_resolved =
-        crate::builtins::io::sandbox_path_ex(&output, crate::builtins::io::SandboxMode::ForWrite)
-            .map_err(crate::builtins::io::sandbox_violation)?;
-    crate::fs_gate::gate_write_resolved(&output, &out_resolved, "pdf_merge output")?;
+    // №500: memory serialize + gated write (the №475 explicit
+    // precheck-and-resolved dance was the pre-facade workaround for the
+    // library's own file open — save_to removes the library I/O and the
+    // facade applies the full write gate).
+    let mut out_buf = Vec::new();
     base_doc
-        .save(&out_resolved)
+        .save_to(&mut out_buf)
         .map_err(|e| format!("pdf_merge: failed to save '{}': {:?}", output, e))?;
+    crate::fs_gate::write_bytes(&output, "pdf_merge output", &out_buf)
+        .map_err(|e| format!("pdf_merge: failed to save '{}': {}", output, e))?;
 
     // №475: the read-back goes through the gate on the RAW (relative)
     // path — the same file the resolved save wrote.
@@ -2005,7 +2040,9 @@ pub fn builtin_pdf_split(args: &[Value]) -> Result<Value, String> {
         .map_err(|e| format!("pdf_split: invalid ranges JSON: {}", e))?;
 
     // Ensure output directory exists
-    std::fs::create_dir_all(&output_dir)
+    // №500: gated directory create (the same vocabulary as the file
+    // writes below).
+    crate::fs_gate::create_dir_all(&output_dir, "pdf_split output")
         .map_err(|e| format!("pdf_split: cannot create dir '{}': {}", output_dir, e))?;
 
     let base_name = std::path::Path::new(&path)
@@ -2014,8 +2051,10 @@ pub fn builtin_pdf_split(args: &[Value]) -> Result<Value, String> {
         .unwrap_or("split");
 
     // Load the source PDF
-    let source_doc = LopdfDocument::load(&path)
-        .map_err(|e| format!("pdf_split: failed to load '{}': {:?}", path, e))?;
+    let input_bytes = crate::fs_gate::read_bytes(&path, "pdf_split input")
+        .map_err(|e| format!("pdf_split: failed to load '{}': {}", path, e))?;
+    let source_doc = LopdfDocument::load_mem(&input_bytes)
+        .map_err(|e| format!("pdf_split: failed to parse '{}': {:?}", path, e))?;
 
     let total_page_count = source_doc.get_pages().len() as u32;
 
@@ -2049,10 +2088,13 @@ pub fn builtin_pdf_split(args: &[Value]) -> Result<Value, String> {
         // Delete the unwanted pages
         part_doc.delete_pages(&pages_to_delete);
 
-        // Save the part
+        // Save the part — №500: memory serialize, gated write.
+        let mut part_buf = Vec::new();
         part_doc
-            .save(&out_path)
+            .save_to(&mut part_buf)
             .map_err(|e| format!("pdf_split: save '{}' failed: {:?}", out_path, e))?;
+        crate::fs_gate::write_bytes(&out_path, "pdf_split output", &part_buf)
+            .map_err(|e| format!("pdf_split: save '{}' failed: {}", out_path, e))?;
 
         let pages_in_range = end - start + 1;
         total_pages += pages_in_range;
@@ -2087,8 +2129,10 @@ pub fn builtin_pdf_metadata(args: &[Value]) -> Result<Value, String> {
         .map_err(|e| format!("pdf_metadata: classify failed: {}", e))?;
 
     // Read /Info dictionary from lopdf
-    let doc = LopdfDocument::load(&path)
-        .map_err(|e| format!("pdf_metadata: failed to load '{}': {:?}", path, e))?;
+    let input_bytes = crate::fs_gate::read_bytes(&path, "pdf_metadata input")
+        .map_err(|e| format!("pdf_metadata: failed to load '{}': {}", path, e))?;
+    let doc = LopdfDocument::load_mem(&input_bytes)
+        .map_err(|e| format!("pdf_metadata: failed to parse '{}': {:?}", path, e))?;
 
     let (title, author, subject, creator, producer, created, modified) = {
         // Try trailer /Info reference first
@@ -2186,8 +2230,10 @@ pub fn builtin_pdf_set_metadata(args: &[Value]) -> Result<Value, String> {
     }
 
     // Load the PDF document
-    let mut doc = LopdfDocument::load(&path)
-        .map_err(|e| format!("pdf_set_metadata: failed to load '{}': {:?}", path, e))?;
+    let input_bytes = crate::fs_gate::read_bytes(&path, "pdf_set_metadata input")
+        .map_err(|e| format!("pdf_set_metadata: failed to load '{}': {}", path, e))?;
+    let mut doc = LopdfDocument::load_mem(&input_bytes)
+        .map_err(|e| format!("pdf_set_metadata: failed to parse '{}': {:?}", path, e))?;
 
     // Map lowercase key to PDF /Info dictionary key
     let pdf_key: &[u8] = match key.as_str() {
@@ -2218,9 +2264,12 @@ pub fn builtin_pdf_set_metadata(args: &[Value]) -> Result<Value, String> {
         );
     }
 
-    // Save back to the same file
-    doc.save(&path)
+    // Save back to the same file — №500: memory serialize, gated write.
+    let mut out_buf = Vec::new();
+    doc.save_to(&mut out_buf)
         .map_err(|e| format!("pdf_set_metadata: save failed: {:?}", e))?;
+    crate::fs_gate::write_bytes(&path, "pdf_set_metadata output", &out_buf)
+        .map_err(|e| format!("pdf_set_metadata: save failed: {}", e))?;
 
     Ok(make_struct("PdfResult", &["ok"], &[Value::Bool(true)]))
 }

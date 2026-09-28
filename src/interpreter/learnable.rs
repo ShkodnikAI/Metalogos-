@@ -490,6 +490,17 @@ impl Interpreter {
         distill: &crate::interpreter::types::DistillConfig,
         input: &str,
     ) -> Result<Option<Value>, String> {
+        // №495: when a hub is attached (serve), the WHOLE distill machine —
+        // examples, modes, training — lives at the server level; the local
+        // path below stays byte-identical for the hub-less (`mlog run`)
+        // case the existing unit tests pin.
+        if let Some(hub) = self.distill_hub.as_ref() {
+            return hub.try_distilled_call(
+                pattern_name,
+                &crate::distill_hub::DistillSpec::from(distill),
+                input,
+            );
+        }
         // №489: collect finished background trainings first — a verdict
         // that arrived since the last call lands HERE (mode flip + loud
         // audit), never inside a request that is already answering.
@@ -793,6 +804,13 @@ impl Interpreter {
     /// Record a (input, output) example for future training.    /// Record a (input, output) example for future training.
     /// Called after every LLM call on a distilling pattern.
     fn record_distill_example(&self, pattern_name: &str, input: &str, output: &str) {
+        // №495: hub-attached (serve) — the example lands in the
+        // process-level ledger (and in distill_samples), not in a
+        // per-request state that dies with the context.
+        if let Some(hub) = self.distill_hub.as_ref() {
+            hub.record_example(pattern_name, input, output);
+            return;
+        }
         if let Ok(mut states) = self.distill_states.lock() {
             let state =
                 states
@@ -816,26 +834,10 @@ impl Interpreter {
     /// for a real embedding model (sentence-transformers etc.) — the
     /// distillation logic doesn't depend on the embedding strategy.
     fn simple_embedding(input: &str, dim: usize) -> Vec<f64> {
-        let mut embedding = vec![0.0; dim];
-        // XOR-based hash distribution — same input always produces same embedding.
-        let bytes = input.as_bytes();
-        for (i, &b) in bytes.iter().enumerate() {
-            let bucket = i % dim;
-            // Mix the byte into the bucket — using multiplication + addition
-            // so different inputs produce distinguishable vectors.
-            embedding[bucket] += (b as f64) * 0.01;
-            // Also XOR-style mixing for spread
-            if b != 0 {
-                embedding[(bucket + 1) % dim] =
-                    (embedding[(bucket + 1) % dim] * 0.99) + (b as f64) * 0.001;
-            }
-        }
-        // Normalize to roughly [-1, 1] range (helps gradient descent).
-        let max_val = embedding.iter().cloned().fold(0.0f64, f64::max).max(1.0);
-        for v in &mut embedding {
-            *v /= max_val;
-        }
-        embedding
+        // №495: the ONE canonical copy lives in the distill hub —
+        // byte-identical by construction (ADR-0121), and the mirror
+        // count (the №502 metric) moves DOWN.
+        crate::distill_hub::simple_embedding(input, dim)
     }
 
     /// Наряд #156: Unified LLM call with optional per-call timeout.
@@ -1529,7 +1531,7 @@ fn fail(
     }
 }
 
-fn run_distill_training(
+pub(crate) fn run_distill_training(
     registry: &std::sync::Arc<std::sync::Mutex<crate::nn::ReflexRegistry>>,
     model_id: crate::nn::ReflexId,
     pattern_name: &str,

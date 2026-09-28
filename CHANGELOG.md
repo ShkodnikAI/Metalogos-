@@ -4,6 +4,41 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №495 (issue #780; the audit 28.09 §3.1 High, the P0 core of
+  Wave 19): distillation in `mlog serve` now WORKS on both backends —
+  the new server-level `DistillHub` (`src/distill_hub.rs`). Before
+  this, the per-request fresh program context destroyed every
+  recorded example with its request on the TW lane and the VM pool
+  reset `distill_states` on every check-in, so the training threshold
+  `max(distill_after, 10)` was unreachable in serve by construction,
+  silently, with no error and no audit event. The hub holds the
+  examples, the TEACHING/DISTILLED modes, the trained-model registry,
+  the in-flight flags and ONE background training thread per process
+  (the №489 posture brought to serve — the VM lane stops training
+  synchronously in-request); both backends call it through the
+  `DistillAccess` trait (the `DbAccess` sample, №474/№484), which also
+  collapses the TW/VM distill mirrors — `simple_embedding` now has
+  ONE canonical copy (byte-identical by construction, the №502 mirror
+  count moves down). Examples persist in the SQLite table
+  `distill_samples` (the №166 plan shape, with the `source`
+  provenance column) in the server's memory-persist file; weights keep
+  persisting through `reflex_save`. Migration: existing saved weights
+  read as before; the example ledger starts accumulating from zero
+  (stated honestly here — no backfill exists). Fix-in-shared-point
+  corollaries the work surfaced: the TW route body executor now builds
+  its context through the SAME `fresh_program_context` the ticks use
+  (the hand-rolled copy had already drifted), and `load_program`
+  registers the learnable table from the program's declarations —
+  before it, a VM route body calling a learnable pattern failed loud
+  with "learnable index N not found" (main_code never runs on serve);
+  the №496 e2e (the audit's headline recommendation) drove both
+  findings out. Verified: the e2e green on BOTH serve backends
+  (TEACHING accumulation → the audit events `distill.training-*` →
+  DISTILLED answers with the LLM counter frozen → the accumulated
+  examples survive a server RESTART); both rollback mutations (hub
+  attach off, VM injection off) turn the e2e red; lib 872/0; clippy
+  `-D warnings` clean.
+
 - Naryad №500 (issue #783; the audit 28.09 §3.2, the hardening core
   of Wave 19): the third-party path-APIs no longer bypass the №475
   filesystem facade. Every pdf load/save site (13 across

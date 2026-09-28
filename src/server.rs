@@ -450,6 +450,11 @@ pub struct ServerState {
     /// requests behind a fail-closed reset (`Vm::reset_for_reuse`):
     /// errors, panics and failed resets all discard instead of reusing.
     pub vm_pool: Option<Arc<crate::vm_pool::VmPool>>,
+    /// №495: the process-level distillation hub. `Some` on every serve
+    /// boot built from source (run_server / the test helpers) — both
+    /// backends see the same examples, modes and trained weights; the
+    /// hub-less surfaces keep the pre-№495 behavior (honest boundary).
+    pub distill: Option<std::sync::Arc<dyn crate::distill_hub::DistillAccess>>,
     /// Наряд №296: redact middleware mode ("pii"|"secrets"|"all"), only
     /// used when "redact" is in middleware list. None → "all" (default).
     pub redact_mode: Option<String>,
@@ -705,6 +710,16 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
         );
     }
     let mut state = build_state(config.clone(), interp).await?;
+    // №495: the distillation hub — declared reflex models register
+    // through the SAME declaration pass (a dedicated throwaway
+    // interpreter; the startup merge never carried the registry), the
+    // verdicts land in the shared audit log, examples persist into the
+    // memory-persist SQLite file (distill_samples) when configured.
+    state.distill = Some(crate::distill_hub::DistillHub::open(
+        std::sync::Arc::clone(&state.audit_log),
+        state.memory_persist.as_deref(),
+        &declarations,
+    )?);
 
     // ── Наряд №263: loud startup surface for the new security knobs ──
     eprintln!(
@@ -980,11 +995,11 @@ pub async fn run_test_server(
         .ok_or("no mlogserver block")?;
 
     let mut interp = Interpreter::new();
-    for decl in declarations {
+    for decl in &declarations {
         if !matches!(decl, Declaration::Flow(_)) {
             let mut tmp = Interpreter::new();
             tmp.set_base_dir(std::path::PathBuf::from("."));
-            let _ = tmp.run(vec![decl]);
+            let _ = tmp.run(vec![decl.clone()]);
             interp = merge_interpreter(tmp, interp);
         }
     }
@@ -993,7 +1008,12 @@ pub async fn run_test_server(
     let mut config = server_config.clone();
     config.port = 0;
 
-    let state = build_state(config.clone(), interp).await?;
+    let mut state = build_state(config.clone(), interp).await?;
+    state.distill = Some(crate::distill_hub::DistillHub::open(
+        std::sync::Arc::clone(&state.audit_log),
+        state.memory_persist.as_deref(),
+        &declarations,
+    )?);
     let app = build_router(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
@@ -1027,7 +1047,7 @@ pub async fn run_test_server_with_backend_in_dir(
     ),
     Box<dyn std::error::Error + Send + Sync>,
 > {
-    let (port, handle, _pool) =
+    let (port, handle, _pool, _state) =
         run_test_server_in_dir_impl(source, backend, base_dir, None).await?;
     Ok((port, handle))
 }
@@ -1068,7 +1088,7 @@ pub async fn run_test_server_with_backend_pool_in_dir(
     ),
     Box<dyn std::error::Error + Send + Sync>,
 > {
-    let (port, handle, pool) =
+    let (port, handle, pool, _state) =
         run_test_server_in_dir_impl(source, backend, base_dir, Some(pool_max)).await?;
     let pool = pool.ok_or("pool requested but not attached (VM backend only)")?;
     Ok((port, handle, pool))
@@ -1087,6 +1107,7 @@ async fn run_test_server_in_dir_impl(
         u16,
         tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
         Option<std::sync::Arc<crate::vm_pool::VmPool>>,
+        std::sync::Arc<ServerState>,
     ),
     Box<dyn std::error::Error + Send + Sync>,
 > {
@@ -1117,6 +1138,12 @@ async fn run_test_server_in_dir_impl(
 
     let mut state = build_state(config.clone(), interp).await?;
     state.backend = backend;
+    // №495: the distillation hub — same construction as run_server.
+    state.distill = Some(crate::distill_hub::DistillHub::open(
+        std::sync::Arc::clone(&state.audit_log),
+        state.memory_persist.as_deref(),
+        &declarations,
+    )?);
 
     // НАРЯД #160: Compile routes for VM backend (same as run_server does)
     if state.backend == ServeBackend::Vm {
@@ -1137,7 +1164,10 @@ async fn run_test_server_in_dir_impl(
     }
 
     let pool_handle = state.vm_pool.clone();
-    let app = build_router(state);
+    // №496: the state rides out (Arc) so integration tests can observe
+    // the hub's audit trail without inventing new HTTP surface.
+    let state = std::sync::Arc::new(state);
+    let app = build_router((*state).clone());
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let port = listener.local_addr()?.port();
@@ -1152,7 +1182,7 @@ async fn run_test_server_in_dir_impl(
         Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
     });
 
-    Ok((port, handle, pool_handle))
+    Ok((port, handle, pool_handle, state))
 }
 
 /// НАРЯД #207: Backward-compatible wrapper — прежнее поведение (CWD как base_dir).
@@ -1170,6 +1200,27 @@ pub async fn run_test_server_with_backend(
 > {
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     run_test_server_with_backend_in_dir(source, backend, cwd).await
+}
+
+/// №496 (Wave 19): test helper that ALSO returns the state Arc — the
+/// distillation e2e observes the hub's audit trail
+/// (`distill.training-started`/`distill.training-finished`) and the
+/// in-process example ledger without inventing new HTTP surface.
+pub async fn run_test_server_with_backend_state_in_dir(
+    source: &str,
+    backend: ServeBackend,
+    base_dir: std::path::PathBuf,
+) -> Result<
+    (
+        u16,
+        tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
+        std::sync::Arc<ServerState>,
+    ),
+    Box<dyn std::error::Error + Send + Sync>,
+> {
+    let (port, handle, _pool, state) =
+        run_test_server_in_dir_impl(source, backend, base_dir, None).await?;
+    Ok((port, handle, state))
 }
 
 // ── Internal: Build State ──────────────────────────────────────────
@@ -1237,6 +1288,9 @@ pub(crate) async fn build_state(
         // Наряд №403: the pool needs the compiled program — attached
         // after compilation (run_server / test helpers), never here.
         vm_pool: None,
+        // №495: the hub attaches after build_state (run_server / the test
+        // helpers) — it needs the declaration list + the audit log Arc.
+        distill: None,
         redact_mode: config.redact_mode.clone(),
     })
 }
@@ -2158,6 +2212,13 @@ async fn fresh_program_context(state: &ServerState) -> Interpreter {
         shared.clone_definitions_into(&mut interp);
     }
     interp.set_base_dir(std::path::PathBuf::from("."));
+    // №495: the distill hub rides EVERY fresh program context (routes
+    // and cron ticks) — examples/modes/trained weights persist across
+    // requests; without it the per-request interpreter would start from
+    // zero every time (the audit 28.09 §3.1 defect, both backends).
+    if let Some(hub) = state.distill.as_ref() {
+        interp.attach_distill_hub(std::sync::Arc::clone(hub));
+    }
     if let Some(ref persist_path) = state.memory_persist {
         interp.configure_memory(&MemoryDecl {
             span: Span::unknown(),
@@ -2336,27 +2397,12 @@ pub(crate) async fn execute_route_body(
     query_params: &std::collections::HashMap<String, String>,
     path_params: &std::collections::HashMap<String, String>,
 ) -> Result<Response, String> {
-    // Set up interpreter with request context (Наряд №8: route pattern invocation fix)
-    let mut interp = Interpreter::new();
-    // Copy ALL program definitions (patterns, learnables, templates, struct types,
-    // rules, sandboxes, namespaces, variables, db_config, db_url) from shared interpreter.
-    {
-        let shared = state.interpreter.read().await;
-        shared.clone_definitions_into(&mut interp);
-    }
-    interp.set_base_dir(std::path::PathBuf::from("."));
-
-    // Initialize memory persistence (per-request SQLite connection to shared DB)
-    if let Some(ref persist_path) = state.memory_persist {
-        interp.configure_memory(&MemoryDecl {
-            span: Span::unknown(),
-            persist: Some(persist_path.clone()),
-        });
-    }
-
-    // Initialize DB connection for per-request interpreter (query() / db_execute())
-    // Opens a NEW connection to the same database, so concurrent requests are safe.
-    interp.reconnect_db();
+    // №495: the per-request context construction is the SHARED
+    // `fresh_program_context` (the №480 rule — one constructor, no
+    // drifted copies): definitions clone, base_dir, memory persistence,
+    // db reconnect AND the distill hub attach. Before this the TW route
+    // context was a hand-rolled copy that the №495 hub attach missed.
+    let mut interp = fresh_program_context(state).await;
 
     // Parse JSON body recursively and inject as json_body() server builtin (Наряд №3)
     if let Ok(body_str) = std::str::from_utf8(raw_body) {
@@ -2683,6 +2729,10 @@ async fn execute_route_body_vm(
     // Наряд №403: warm VM pool handle for the closure (None = disabled,
     // the exact pre-№403 per-request path).
     let pool = state.vm_pool.clone();
+    // №495: the distill hub rides the per-request VM (checked out or
+    // cold) — examples/modes/trained weights persist across requests;
+    // reset_for_reuse cleared the reference on check-in.
+    let distill_hub = state.distill.clone();
 
     let (audit_entries, result) = tokio::task::spawn_blocking(move || {
         // Наряд №253 (Вариант А): VM-путь тела роута — тот же serve-роут-контекст,
@@ -2702,6 +2752,8 @@ async fn execute_route_body_vm(
             }
         };
         vm.clear_server_context();
+        // №495: the hub reference re-injected every checkout.
+        vm.distill_hub = distill_hub.clone();
 
         // Inject per-request server context
         if let Ok(body_str) = std::str::from_utf8(&raw_body) {
@@ -3764,6 +3816,7 @@ mlogserver {
             sessions: Arc::new(DashMap::new()),
             csrf_tokens: Arc::new(DashMap::new()),
             hmac_key: Arc::new(generate_hmac_key()),
+            distill: None,
             audit_log: Arc::new(RwLock::new(Vec::new())),
             templates: Arc::new(RwLock::new(HashMap::new())),
             db_store: Arc::new(RwLock::new(Vec::new())),

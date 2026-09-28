@@ -754,6 +754,24 @@ impl Program {
             .clone()
     }
 
+    /// №495: the learnable table scanned from main_code's
+    /// `RegisterLearnable` instructions — the scan preserves the
+    /// compiler's index order 1:1 (pass1 assigns idx by declaration
+    /// order, pass2 emits RegisterLearnable in the same order), so the
+    /// positional CallLearnable indices resolve identically. The serve
+    /// path loads the table through this (main_code never runs there —
+    /// the №496 e2e caught VM route bodies failing loud on learnable
+    /// calls); `mlog run` re-registers via the handler unchanged.
+    pub fn pre_registered_learnables(&self) -> Vec<CompiledLearnableInfo> {
+        self.main_code
+            .iter()
+            .filter_map(|instr| match instr {
+                Instruction::RegisterLearnable(info) => Some((**info).clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// The deny handler table (№392) — read-only after load
     /// (`select_handler` + handler lookup).
     pub fn deny_handlers_shared(&self) -> std::sync::Arc<Vec<CompiledDenyHandler>> {

@@ -32,11 +32,7 @@ fn program(body: &str) -> String {
 struct SandboxDir(&'static str);
 impl SandboxDir {
     fn enter(name: &'static str) -> Self {
-        let dir = std::env::temp_dir().join(format!(
-            "mlog_n507_{}_{}",
-            name,
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("mlog_n507_{}_{}", name, std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let prev = std::env::current_dir().unwrap();
@@ -52,11 +48,7 @@ impl Drop for SandboxDir {
                 std::env::set_current_dir(prev).unwrap();
             }
         });
-        let dir = std::env::temp_dir().join(format!(
-            "mlog_n507_{}_{}",
-            self.0,
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("mlog_n507_{}_{}", self.0, std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

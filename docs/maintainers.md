@@ -84,10 +84,21 @@ maintainer may propose, not decide.
 
 ## The NLnet application wording (the owner's draft)
 
-> Metalogos ships with a second maintainer holding a real, machine-
-> enforced veto over the supply-chain perimeter (CI, dependency lock,
-> secret scanning, the threshold gates) — written authority from day
-> one, documented in `docs/maintainers.md` and `.github/CODEOWNERS`.
-> The search for a second CORE reviewer continues in parallel through
-> the NLnet/Restack community; the supply-chain role is the first,
-> deliberately narrow step of the bus-factor plan.
+> Narjad №491 (the audit 26.09 §3.10 correction): grant texts must say
+> "procedure prepared", not "second maintainer exists" — the person
+> cannot be created by a document, and a grant application claiming an
+> existing second maintainer would be false until the day one joins.
+> The honest form, current as of the Restack draft:
+>
+> Metalogos has the second-maintainer PROCEDURE fully prepared: a real,
+> machine-enforceable veto over a deliberately narrow supply-chain
+> perimeter (CI workflows, the dependency lock, secret scanning, the
+> threshold gates) is written down in `docs/maintainers.md` and
+> mapped to `.github/CODEOWNERS`; the onboarding plan, the first-PR
+> pool (five `good-first-issue` upkeep tasks) and the escalation path
+> are documented. The veto becomes active with one owner toggle
+> (`Require review from Code Owners`) the day a second maintainer
+> joins. The search runs through the NLnet/Restack community and the
+> external-contributor pipeline; the supply-chain role is the first,
+> deliberately narrow step of the bus-factor plan (bus factor today
+> is 1, stated openly).

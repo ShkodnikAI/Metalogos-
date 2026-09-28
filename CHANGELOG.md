@@ -4,6 +4,26 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №502 (issue #785; the audit 28.09 §3.3): the THIRD dedup
+  metric — the explicit TW-mirror MENTIONS in `src/vm.rs`
+  (`scripts/ci/mirror_counter.py` + the checked-in baseline
+  `scripts/ci/vm_mirror_baseline.txt` + the `vm-mirrors (blocking)` CI
+  job next to the ops-pairs gate; also folded into the unfreeze-gate
+  summary's Dedup criterion 4.2). Neither №462 (name literals) nor
+  №484 (ops pairs) saw vm.rs's whole-block mirrors — the distillation
+  drift (the №489 background training in the interpreter only,
+  vm.rs training synchronously) lived exactly in that blind spot. The
+  fixed narrow regex (case-insensitive, over comments and
+  doc-comments): `mirror of the TW | ported verbatim | TW-identical |
+  same as the TW`. Deliberately coarse (the audit's posture): counts
+  MENTIONS, a false positive is fixed by rewording the comment, never
+  by weakening the metric. Movement ONLY DOWN: growth fails the gate.
+  The baseline = the fact at adoption, after №495 collapsed the
+  distillation mirror cluster: 4 marks (the №199/ADR-0121 registry
+  declaration pass; the №456 holdout gate ×2; the simple_embedding
+  mark predating the №495 unification — moves down with №504). The
+  per-mark plan (unify / justify) is in the naryad report.
+
 - Naryad №495 (issue #780; the audit 28.09 §3.1 High, the P0 core of
   Wave 19): distillation in `mlog serve` now WORKS on both backends —
   the new server-level `DistillHub` (`src/distill_hub.rs`). Before

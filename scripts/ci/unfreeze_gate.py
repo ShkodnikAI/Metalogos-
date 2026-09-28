@@ -46,6 +46,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 TYPES_SCRIPT = os.path.join(HERE, 'type_signature_share.py')
 DUP_SCRIPT = os.path.join(HERE, 'count_duplicated_names.py')
+# №502 (gh#785): the THIRD dedup metric — the vm.rs mirror mentions
+# (the fixed narrow regex; movement only down). Folded into the Dedup
+# criterion 4.2: a blind spot to vm.rs's whole-block mirrors is exactly
+# how the distillation drift (audit 28.09 §3.3) went unnoticed.
+MIRROR_SCRIPT = os.path.join(HERE, 'mirror_counter.py')
 DEBT_SCRIPT = os.path.join(HERE, 'debt_counters.py')
 ADR = 'docs/adr/0177-domain-freeze-until-027.md'
 
@@ -91,6 +96,15 @@ def criterion_dedup(baseline_dir):
     rc, out = run([DUP_SCRIPT, '--gate', os.path.join(baseline_dir, 'tw_vm_dup_names_baseline.txt')])
     m = re.search(r'duplicated builtin names:\s*(\d+)\s*\(threshold (\d+)\)', out)
     detail = ('count %s (threshold %s)' % (m.group(1), m.group(2))) if m else 'unparsed: %s' % out.strip()
+    # №502: the third metric joins the criterion — the vm.rs mirror
+    # mentions (the audit 28.09 §3.3: neither №462 nor №484 saw the
+    # vm.rs mirrors, and the distillation drift lived exactly there).
+    rc_m, out_m = run([MIRROR_SCRIPT, '--gate', os.path.join(baseline_dir, 'vm_mirror_baseline.txt')])
+    mm = re.search(r'mirror mentions:\s*(\d+)\s*\(threshold (\d+)\)', out_m)
+    detail_m = ('mirrors %s (threshold %s)' % (mm.group(1), mm.group(2))) if mm else 'unparsed: %s' % out_m.strip()
+    rc = rc or rc_m
+    detail += '; ' + detail_m
+    out = out + '\n' + out_m
     return rc, detail, out, ''
 
 

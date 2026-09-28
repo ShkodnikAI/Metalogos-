@@ -15,4 +15,16 @@ disallowed-methods = [
   "std::fs::File::open",
   "std::fs::File::create",
   "std::fs::OpenOptions::open",
+  # №500 (issue #783): THIRD-PARTY path-APIs bypass the facade invisibly —
+  # clippy sees std::fs but not the file I/O inside the crate. Route every
+  # library load/save through `crate::fs_gate` (read_bytes → load_mem;
+  # save_to → write_bytes). All eight routes through fs_gate (Naryad №500).
+  "lopdf::Document::load",
+  "lopdf::Document::save",
+  "rusqlite::Connection::open",
+  "image::open",
+  "std::fs::copy",
+  "std::fs::rename",
+  "std::fs::remove_dir_all",
+  "std::fs::create_dir_all",
 ]

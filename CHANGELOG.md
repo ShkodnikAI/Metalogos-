@@ -4,6 +4,38 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №500 (issue #783; the audit 28.09 §3.2, the hardening core
+  of Wave 19): the third-party path-APIs no longer bypass the №475
+  filesystem facade. Every pdf load/save site (13 across
+  `pdf_fill_form`, `pdf_rotate_page`, `pdf_delete_pages`,
+  `pdf_extract_images`, `pdf_merge`, `pdf_split`, `pdf_metadata`,
+  `pdf_set_metadata`) routes through `crate::fs_gate`: reads go
+  `read_bytes(path, purpose)` → `LopdfDocument::load_mem`, writes go
+  `save_to(&mut Vec)` → `write_bytes(output_path, purpose)` — the
+  library's own file open (invisible to any lint) is gone, and the
+  audit's three vectors are dead: overwriting `app.mlog` (the hard
+  write deny), writing `/home/app/.ssh/authorized_keys` (the sandbox
+  absolute-path refusal), reading `/srv/other-tenant/contract.pdf`
+  (the read gate). The №500 ratchet extends `clippy.toml`
+  disallowed-methods to the library path-APIs themselves
+  (`lopdf::Document::load/save`, `rusqlite::Connection::open`,
+  `image::open`, `std::fs::copy/rename/remove_dir_all/
+  create_dir_all`) — the explicitly-justified service sites (the
+  weights store, the memory/KG/checkpoint journals, the reminder db,
+  the doctest harness, vector.rs's post-sandbox open) carry named
+  `#[allow]`s; the pdf output dirs create through the new
+  `fs_gate::create_dir_all` (the full write-gate vocabulary on a
+  DIRECTORY path). The write-side canonical re-check mirrors the read
+  side's documented one: a symlink named innocently but pointing at
+  the application image is refused BY THE POLICY (naming the swap)
+  before the OS's O_NOFOLLOW does — pinned by the blocking
+  reproductions (7 tests: the three vectors, the `..` traversal, the
+  symlink swap, the deny-list read, and the legit
+  `pdf_set_metadata` round-trip proving honest pdf scenarios
+  unchanged). Verified: grep of direct lopdf path-APIs in pdf.rs = 0;
+  mutation checks (raw-write injection → the vectors turn red);
+  lib 872/0; clippy `-D warnings` with the extended list clean.
+
 - Naryad №506 (issue #789; the audit 28.09 immediate item):
   `docs/limitations.md` gains the three honest rows the audit asked
   for, before the 0.27.1 tag. (1) Distillation in `mlog serve` does

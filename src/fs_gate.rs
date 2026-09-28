@@ -126,6 +126,38 @@ pub(crate) fn gate_write_resolved(
         }
     }
 
+    // №500: the write-side canonical re-check — the mirror of the
+    // read side's documented canonical re-check (io.rs `file_ingest_gate`):
+    // `resolved` carries the canonical PARENT plus the final component
+    // (the №252 contract), so a symlink NAMED innocently but pointing at
+    // the application image passes the name checks above. Canonicalize
+    // the full path and re-run the hard deny and the deny-list name
+    // check on the TARGET — the policy names the swap before the OS's
+    // O_NOFOLLOW does (the pin: tests/naryad_500_pdf_fs_gate.rs).
+    if let Ok(canonical) = resolved.canonicalize() {
+        if canonical != resolved {
+            if hard_write_path_hit(&canonical) {
+                return Err(hard_write_error(purpose, raw));
+            }
+            if !allowlisted {
+                if let Some(name) = canonical
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                {
+                    if sensitive_name_match(&name) {
+                        return Err(sandbox_sensitive_violation(format!(
+                            "{}('{}'): the symlink resolves to '{}' which matches the \
+                             sensitive-path deny-list (Naryad #500)",
+                            purpose,
+                            raw,
+                            canonical.display()
+                        )));
+                    }
+                }
+            }
+        }
+    }
+
     // Layer 2: the serve-route containment — writes land in the data
     // directory only. The allowlist does NOT bypass this (containment is
     // not a name policy). Process context unchanged.
@@ -183,9 +215,10 @@ pub(crate) fn open_write(raw: &str, purpose: &str, append: bool) -> Result<std::
     let resolved = sandbox_path_ex(raw, SandboxMode::ForWrite).map_err(sandbox_violation)?;
     gate_write_resolved(raw, &resolved, purpose)?;
     if let Some(parent) = resolved.parent() {
-        // Not in the disallowed set: parent preparation on an already
-        // resolved+gated path (best-effort, the same posture write_file
-        // had before the facade).
+        // Parent preparation on an already resolved+gated path
+        // (best-effort, the same posture write_file had before the
+        // facade). The raw call lives in THE facade (№500 ratchet).
+        #[allow(clippy::disallowed_methods)]
         let _ = std::fs::create_dir_all(parent);
     }
     open_sandbox_write(&resolved, append)
@@ -230,6 +263,19 @@ pub(crate) fn read_bytes(raw: &str, purpose: &str) -> Result<Vec<u8>, String> {
     file.read_to_end(&mut buf)
         .map_err(|e| format!("{}('{}'): read failed: {}", purpose, raw, e))?;
     Ok(buf)
+}
+
+/// №500: create a directory through the write gate — the program-facing
+/// output dirs (pdf_extract_images/pdf_split) get the SAME vocabulary as
+/// file writes: the hard write-deny, the deny-list with the crane, the
+/// sandbox and the serve containment. The raw `create_dir_all` lives in
+/// THE facade (the №500 ratchet extends the disallow list to it).
+pub(crate) fn create_dir_all(raw: &str, purpose: &str) -> Result<(), String> {
+    precheck_write_raw(raw, purpose)?;
+    let resolved = sandbox_path_ex(raw, SandboxMode::ForWrite).map_err(sandbox_violation)?;
+    gate_write_resolved(raw, &resolved, purpose)?;
+    #[allow(clippy::disallowed_methods)] // №500: THE gated primitive itself
+    std::fs::create_dir_all(&resolved).map_err(|e| format!("{}('{}'): {}", purpose, raw, e))
 }
 
 /// Write the whole byte slice through the full write gate (overwrite).

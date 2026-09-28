@@ -931,6 +931,7 @@ let encoded = json_encode({ key: "value", n: 42.0 })
 | Function | Signature | Return | Description |
 |---------|-----------|---------|----------|
 | `read_file(path)` | `String -> String` | String | Reads a file. **Missing file** — the documented №254 soft contract: an empty string (pinned by the №481 suite). **A file that exists (or passed the sandbox) but cannot be opened/read** — a configuration/environment error, refused LOUDLY with `[IO_ERROR]` and the OS reason (№481): the old silent "" masked real defects. Sandbox violations (absolute path, `..`, symlink escape, broken symlink) are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) |
+| `read_file_or(path, default)` | `String, String -> String` | String | The explicit-silence twin of `read_file` (№507 — the `_or` symmetry with `env_or`, №481). **Missing file** — the caller's default (announced on the audit stderr: the path, never the value). Every other branch is byte-identical to `read_file`: sandbox violations and the №455 deny-list stay loud `[SANDBOX_VIOLATION]`, open/read failures stay loud `[IO_ERROR]` — the explicit silence never bypasses them |
 | `write_file(path, content)` | `String, String -> String` | String | Writes a file (overwrite). Returns `"ok"` or `""` on an OS-level error; sandbox violations are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) |
 | `append_file(path, content)` | `String, String -> String` | String | Appends to the end of a file. Returns `"ok"` or `""`; sandbox violations are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) |
 | `delete_file(path)` | `String -> String` | String | Deletes a file. Returns `"ok"`, `""` when the file is missing; sandbox violations are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) |
@@ -941,6 +942,7 @@ let encoded = json_encode({ key: "value", n: 42.0 })
 ```mlog
 write_file("data.txt", "hello world")  // "ok"
 let content = read_file("data.txt")   // "hello world"
+let cfg = read_file_or("config.txt", "default-value")  // explicit fallback (№507)
 append_file("data.txt", "\nmore")     // "ok"
 file_exists("data.txt")               // true
 let files = list_dir(".")             // ["data.txt", ...]
@@ -2119,7 +2121,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 502 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 503 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2348,7 +2350,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `trace_end(...)` | variadic | `String -> Dict` | Ends a trace segment. Returns `TraceResult { id, label, duration_ms }` |
 | `trace_start(...)` | variadic | `String -> String` | Starts a trace segment with a label. Returns a trace_id |
 
-### `io` — 12 builtin(s)
+### `io` — 13 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
@@ -2363,6 +2365,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `mcp_list_tools(...)` | 2 | — | `mcp_list_tools(command, args_list) -> List[Struct{name, description, input_schema}]`. |
 | `print(...)` | 1 | `String -> String` | Prints a string to stdout, returns it |
 | `read_file(...)` | 1 | `String -> String` | Reads a file. **Missing file** — the documented №254 soft contract: an empty string (pinned by the №481 suite). **A file that exists (or passed the sandbox) but cannot be opened/read** — a configuration/environment error, refused LOUDLY with `[IO_ERROR]` and the OS reason (№481): the old silent "" masked real defects. Sandbox violations (absolute path, `..`, symlink escape, broken symlink) are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) |
+| `read_file_or(...)` | 2 | — | `read_file_or(path, default)` — the EXPLICIT-silence twin of `read_file` (№507, the symmetry the audit 28.09 §3.7 asked for: `env` got its `env_or` in №481, `read_file` gets its `_or` here). The MISSING file yields the caller's default (announced on the audit stderr, the №326 posture — the PATH is named, the content never); the `_or` suffix carries the silent-default semantics in the name (the №481 naming rule). Every OTHER branch is byte-identical to `read_file`: sandbox violations and the №455 deny-list stay LOUD (they are programmer errors — the explicit silence never bypasses them), open/read failures stay LOUD `[IO_ERROR]` (№481). The `read_file` contract is unchanged (№254, the empty-string soft default stays). |
 | `write_file(...)` | 2 | `String, String -> String` | Writes a file (overwrite). Returns `"ok"` or `""` on an OS-level error; sandbox violations are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) |
 
 ### `json` — 9 builtin(s)
@@ -3362,8 +3365,10 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `forecast_points` | source | internal | pure | THE gated data projection {points, p10, p50, p90} — a tainted forecast refuses fail-closed with the typed FORECAST_TAINTED stamp + the forecast.denied ledger record (the №322/№325 lattice; the №428 posture: no silent egress AND no silent refusal) (№440) |
 | `memory_retain_ttl` | sink | internal | reversible | the canon retain(memory, ttl) (№445): gives ONE typed entry a lifetime — past the deadline the sweep auto-forgets it (the №280 v2 deferral lifted into the typed contour); a poisoned entry refuses a new lifetime (MEMORY_POISONED); records memory.retain_ttl |
 | `llm_last_finish_reason` | source | internal | pure | reads the last observed LLM finish_reason (№757 truncation probe) — no provider contact |
+| `read_file_or` | source | internal | pure | the №507 explicit-silence twin of read_file — ingests file content with the caller's default on a missing file (input by provenance; the loud branches shared with read_file) |
 
 <!-- END GENERATED BUILTIN CLASSIFICATION -->
+
 
 
 

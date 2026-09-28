@@ -4,6 +4,62 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №507 (issue #790; the audit 28.09 §3.7): `read_file_or(path,
+  default)` — the EXPLICIT-silence twin of `read_file`, the `_or`
+  symmetry with `env_or` (№481) the external audit asked to make
+  explicit. A MISSING file yields the caller's default (announced on
+  the audit stderr — the path is named, the value never, the №326
+  posture); every other branch is shared with `read_file` by
+  construction (one `read_file_impl` body, two missing-file policies):
+  sandbox violations and the №455 sensitive-name deny-list stay LOUD
+  `[SANDBOX_VIOLATION]`, open/read failures stay LOUD `[IO_ERROR]` —
+  the explicit silence never bypasses them. The `read_file` contract
+  is UNCHANGED (№254, the empty-string soft default stays). Registered
+  in `BUILTIN_REGISTRY` append-only (501→502, the .mbc indices do not
+  shift), the SSOT classification/reference regenerated, the
+  curated REFERENCE.md rows + example added. Verified: 5 blocking
+  tests (`tests/naryad_507_read_file_or.rs`) — the explicit default
+  on a missing file, the unchanged №254 base contract, an existing
+  file yields the content, the `..` traversal stays loud, the
+  deny-list stays loud; lib suite green; clippy `-D warnings` clean.
+
+- Naryad №507 (issue #790; the audit 28.09 §3.7): `read_file_or(path,
+  default)` — the EXPLICIT-silence twin of `read_file`, the `_or`
+  symmetry with `env_or` (№481) the external audit asked to make
+  explicit. A MISSING file yields the caller's default (announced on
+  the audit stderr — the path is named, the value never, the №326
+  posture); every other branch is shared with `read_file` by
+  construction (one `read_file_impl` body, two missing-file policies):
+  sandbox violations and the №455 sensitive-name deny-list stay LOUD
+  `[SANDBOX_VIOLATION]`, open/read failures stay LOUD `[IO_ERROR]` —
+  the explicit silence never bypasses them. The `read_file` contract
+  is UNCHANGED (№254, the empty-string soft default stays). Registered
+  in `BUILTIN_REGISTRY` append-only (501→502, the .mbc indices do not
+  shift), the SSOT classification/reference regenerated, the
+  curated REFERENCE.md rows + example added. Verified: 5 blocking
+  tests (`tests/naryad_507_read_file_or.rs`) — the explicit default
+  on a missing file, the unchanged №254 base contract, an existing
+  file yields the content, the `..` traversal stays loud, the
+  deny-list stays loud; lib suite green; clippy `-D warnings` clean.
+
+- Naryad №505 (issue #788; the audit 28.09 §3.5): the naryad number
+  uniqueness gate — `scripts/ci/naryad_number_check.py` + the
+  `Naryad numbering (blocking)` CI job next to the adr-check. Under
+  one number different works have already lived (№474, №475, №476,
+  №493 — the external audit stumbled on it twice): the gate parses
+  the PR title's naryad claim and refuses a number that already
+  landed as a DIFFERENT work, listing the occupied works. The
+  exception grammar is explicit and pinned by the script's self-test:
+  the work-group suffix (`№466 group M`), the dotted re-issue
+  (`№475.1`), the re-land suffixes (reland/retry/revert/rerun/redo/
+  take-N) and the same-issue follow-up (the occupied record pointing
+  at the same `issue #M`). The occupied set comes from the merged
+  git history (the EN `naryad N` and RU `Наряд №N` subject forms) and
+  the closed issue titles via GH_TOKEN (best effort — the history
+  alone suffices). The four known collisions are documented in the
+  naryad's report so external links stop confusing them. The script
+  does not rewrite history and does not rename old naryads.
+
 - Naryad №495 (issue #780; the audit 28.09 §3.1 High, the P0 core of
   Wave 19): distillation in `mlog serve` now WORKS on both backends —
   the new server-level `DistillHub` (`src/distill_hub.rs`). Before
@@ -38,38 +94,6 @@ All notable changes to the Metalogos project.
   examples survive a server RESTART); both rollback mutations (hub
   attach off, VM injection off) turn the e2e red; lib 872/0; clippy
   `-D warnings` clean.
-
-- Naryad №500 (issue #783; the audit 28.09 §3.2, the hardening core
-  of Wave 19): the third-party path-APIs no longer bypass the №475
-  filesystem facade. Every pdf load/save site (13 across
-  `pdf_fill_form`, `pdf_rotate_page`, `pdf_delete_pages`,
-  `pdf_extract_images`, `pdf_merge`, `pdf_split`, `pdf_metadata`,
-  `pdf_set_metadata`) routes through `crate::fs_gate`: reads go
-  `read_bytes(path, purpose)` → `LopdfDocument::load_mem`, writes go
-  `save_to(&mut Vec)` → `write_bytes(output_path, purpose)` — the
-  library's own file open (invisible to any lint) is gone, and the
-  audit's three vectors are dead: overwriting `app.mlog` (the hard
-  write deny), writing `/home/app/.ssh/authorized_keys` (the sandbox
-  absolute-path refusal), reading `/srv/other-tenant/contract.pdf`
-  (the read gate). The №500 ratchet extends `clippy.toml`
-  disallowed-methods to the library path-APIs themselves
-  (`lopdf::Document::load/save`, `rusqlite::Connection::open`,
-  `image::open`, `std::fs::copy/rename/remove_dir_all/
-  create_dir_all`) — the explicitly-justified service sites (the
-  weights store, the memory/KG/checkpoint journals, the reminder db,
-  the doctest harness, vector.rs's post-sandbox open) carry named
-  `#[allow]`s; the pdf output dirs create through the new
-  `fs_gate::create_dir_all` (the full write-gate vocabulary on a
-  DIRECTORY path). The write-side canonical re-check mirrors the read
-  side's documented one: a symlink named innocently but pointing at
-  the application image is refused BY THE POLICY (naming the swap)
-  before the OS's O_NOFOLLOW does — pinned by the blocking
-  reproductions (7 tests: the three vectors, the `..` traversal, the
-  symlink swap, the deny-list read, and the legit
-  `pdf_set_metadata` round-trip proving honest pdf scenarios
-  unchanged). Verified: grep of direct lopdf path-APIs in pdf.rs = 0;
-  mutation checks (raw-write injection → the vectors turn red);
-  lib 872/0; clippy `-D warnings` with the extended list clean.
 
 - Naryad №506 (issue #789; the audit 28.09 immediate item):
   `docs/limitations.md` gains the three honest rows the audit asked

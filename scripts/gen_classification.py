@@ -343,6 +343,7 @@ OVERRIDES = {
     # ── io ──
     "print": ("Sink", "Public", "Irreversible", "prints to the public stdout channel — SECRET_LEAK semantics (№157), cannot be unsaid"),
     "read_file": ("Source", "Internal", "Pure", "ingests external file content into the program (input by provenance)"),
+    "read_file_or": ("Source", "Internal", "Pure", "the №507 explicit-silence twin of read_file — ingests file content with the caller's default on a missing file (input by provenance; the loud branches shared with read_file)"),
     "write_file": ("Sink", "Internal", "Reversible", "writes persistent local state (undoable by file deletion)"),
     "append_file": ("Sink", "Internal", "Reversible", "appends to persistent local state (undoable by truncation)"),
     "delete_file": ("Sink", "Internal", "Irreversible", "destroys a local file with no undo path (issue minimum list)"),

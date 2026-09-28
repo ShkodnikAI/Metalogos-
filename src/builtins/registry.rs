@@ -1025,6 +1025,14 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // Registry 500→501 (append-only).
     #[cfg(feature = "llm")]
     spec!("llm_last_finish_reason", 0, "llm"; builtin_llm_last_finish_reason, "String"),
+    // ── №507 (P2, hardening): the EXPLICIT-silence twin of read_file —
+    // the `_or` suffix symmetry with env_or (№481): the MISSING file
+    // yields the caller's default (announced on the audit stderr),
+    // every loud branch (sandbox, deny-list, open/read) stays shared
+    // with read_file. The read_file №254 contract is unchanged.
+    // APPENDED at the end — inserting mid-array would shift existing
+    // CallBuiltin indices (.mbc contract). Registry 501→502 (append-only).
+    spec!("read_file_or", 2, "io"; builtin_read_file_or),
 ];
 
 /// Total number of registered builtins.

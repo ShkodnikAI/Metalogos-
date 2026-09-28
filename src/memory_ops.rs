@@ -103,13 +103,27 @@ pub(crate) fn recall_tw(
         let mem = crate::interpreter::lock_or_err(memory.lock())?;
         let now = now_secs();
         let hybrid = mem.recall_top_k(&query, &query_embedding, 0.0, 5, "");
+        // Narjad №493, anchor 4: the previous `.find()` returned the FIRST
+        // hybrid entry with signal ≥ min_confidence — not the best. Combined
+        // with the TF-IDF default embedding (whose vocab order is process-
+        // local, so cosine_similarity against entries stored under a prior
+        // interpreter's vocab is meaningless and frequently spurious), the
+        // first-by-RRF-rank candidate could win over a true substring match.
+        //
+        // The fix has two halves:
+        //   1. Substring match is the strongest signal (sim = 1.0) and is
+        //      checked FIRST — before cosine — so an exact textual match
+        //      cannot be buried by a higher-RRF but semantically empty
+        //      candidate.
+        //   2. The .find() is replaced by filter + max_by so the best
+        //      qualifying signal wins regardless of iteration order.
         let from_hybrid = hybrid
             .into_iter()
             .map(|(entry, _rrf)| {
-                let sim = if !query_embedding.is_empty() && !entry.embedding.is_empty() {
-                    crate::embeddings::cosine_similarity(&query_embedding, &entry.embedding)
-                } else if entry.value.contains(&query) {
+                let sim = if entry.value.contains(&query) {
                     1.0
+                } else if !query_embedding.is_empty() && !entry.embedding.is_empty() {
+                    crate::embeddings::cosine_similarity(&query_embedding, &entry.embedding)
                 } else {
                     0.0
                 };
@@ -118,7 +132,10 @@ pub(crate) fn recall_tw(
                 let signal = sim * (entry.priority as f32) * decay;
                 (entry, signal)
             })
-            .find(|(_, signal)| *signal >= min_confidence);
+            .filter(|(_, signal)| *signal >= min_confidence)
+            .max_by(|a, b| {
+                a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
+            });
         match from_hybrid {
             Some((entry, _)) => Some(entry),
             None => mem

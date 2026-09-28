@@ -5,6 +5,9 @@ use crate::memory_graph::{graph_search, MemoryGraph, MemoryNode, Relation};
 use std::sync::Mutex as StdMutex;
 
 use super::chrono_now_timestamp;
+// Narjad №493, anchor 8: high-resolution id suffix (nanos + counter)
+// replaces the second-precision stamp for the memory-entry id sites.
+use super::chrono_now_id_suffix;
 use super::core::expect_string_arg;
 use super::http::make_date_struct;
 
@@ -482,7 +485,9 @@ pub(crate) fn builtin_mtree_store(args: &[Value]) -> Result<Value, String> {
         ));
     }
 
-    let id = format!("mt_{}", chrono_now_timestamp());
+    // Narjad №493, anchor 8: chrono_now_id_suffix (nanos + counter) —
+    // two memory entries in the same second no longer collide.
+    let id = format!("mt_{}", chrono_now_id_suffix());
     let node = MemoryNode {
         id: id.clone(),
         text: text.clone(),
@@ -592,7 +597,8 @@ pub(crate) fn builtin_mtree_summarize(args: &[Value]) -> Result<Value, String> {
             combined
         };
 
-        let l1_id = format!("mt_l1_{}", chrono_now_timestamp());
+        // Narjad №493, anchor 8: same nanos+counter suffix for the L1 id.
+        let l1_id = format!("mt_l1_{}", chrono_now_id_suffix());
         let l1_node = MemoryNode {
             id: l1_id.clone(),
             text: summary,
@@ -646,7 +652,8 @@ pub(crate) fn builtin_mtree_summarize(args: &[Value]) -> Result<Value, String> {
             combined
         };
 
-        let l2_id = format!("mt_l2_{}", chrono_now_timestamp());
+        // Narjad №493, anchor 8: same nanos+counter suffix for the L2 id.
+        let l2_id = format!("mt_l2_{}", chrono_now_id_suffix());
         let l2_node = MemoryNode {
             id: l2_id.clone(),
             text: global_summary,

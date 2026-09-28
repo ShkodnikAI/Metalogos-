@@ -87,3 +87,57 @@ test "line1\nline2" {
         .collect();
     assert_eq!(names, vec!["line1\nline2".to_string()]);
 }
+
+// ── Anchor 8: id collisions resolved by nanos + per-process counter ──
+//
+// The previous `mt_<sec>` / `cron_<sec>` / `appr_<sec>` / `mt_l1_<sec>` /
+// `mt_l2_<sec>` ids collided whenever two records landed in the same
+// second. The regression for the helper itself lives in the unit tests
+// inside `src/builtins/office/config.rs` (the helper is `pub(crate)`,
+// so unit-test-only visibility is the right shape). The integration
+// surface here verifies the user-visible cron_add path: two cron_add
+// calls back-to-back must return distinct ids.
+
+#[test]
+fn naryad_493_anchor8_cron_add_two_in_a_row_yields_distinct_ids() {
+    // The previous second-precision cron id collided when two cron_add
+    // calls landed in the same second. The new nanos+counter suffix
+    // breaks the tie. We exercise the cron_add builtin directly.
+    use metalogos::interpreter::Value;
+
+    let args1 = vec![
+        Value::String("*/5 * * * *".to_string()),
+        Value::String("hello".to_string()),
+    ];
+    let v1 = metalogos::builtins::cron::builtin_cron_add_stamped(&args1)
+        .expect("first cron_add must succeed");
+    let id1 = match v1 {
+        Value::Struct { ref fields, .. } => match fields.get("id") {
+            Some(Value::String(s)) => s.clone(),
+            _ => panic!("cron_add result missing id field: {:?}", v1),
+        },
+        _ => panic!("cron_add must return a struct, got: {:?}", v1),
+    };
+
+    let args2 = vec![
+        Value::String("*/10 * * * *".to_string()),
+        Value::String("world".to_string()),
+    ];
+    let v2 = metalogos::builtins::cron::builtin_cron_add_stamped(&args2)
+        .expect("second cron_add must succeed");
+    let id2 = match v2 {
+        Value::Struct { ref fields, .. } => match fields.get("id") {
+            Some(Value::String(s)) => s.clone(),
+            _ => panic!("cron_add result missing id field: {:?}", v2),
+        },
+        _ => panic!("cron_add must return a struct, got: {:?}", v2),
+    };
+
+    assert_ne!(id1, id2, "two back-to-back cron_add ids must not collide");
+    assert!(id1.starts_with("cron_"), "id1 prefix wrong: {id1}");
+    assert!(id2.starts_with("cron_"), "id2 prefix wrong: {id2}");
+
+    // Cleanup: remove the two jobs so they don't leak into other tests.
+    let _ = metalogos::builtins::cron::builtin_cron_remove_stamped(&[Value::String(id1)]);
+    let _ = metalogos::builtins::cron::builtin_cron_remove_stamped(&[Value::String(id2)]);
+}

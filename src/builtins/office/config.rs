@@ -16,6 +16,31 @@ pub(crate) fn chrono_now_timestamp() -> i64 {
         .unwrap_or(0)
 }
 
+/// Narjad №493, anchor 8: a high-resolution stamp suitable for unique
+/// ids. The previous ids (`mt_<sec>`, `cron_<sec>`, `appr_<sec>`,
+/// `mt_l1_<sec>`, `mt_l2_<sec>`) collided whenever two records landed in
+/// the same second — the parallel test harness hit this and worked it
+/// around with `sleep(1.1)`; the office contour carries the same class
+/// of risk in production.
+///
+/// The fix: nanosecond resolution plus a per-process monotonic counter
+/// as the tiebreaker (two calls in the same nanosecond return distinct
+/// values). The string form preserves chronological sortability — later
+/// ids sort after earlier ones lexicographically within the same prefix.
+pub(crate) fn chrono_now_id_suffix() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static ID_COUNTER: AtomicU64 = AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let counter = ID_COUNTER.fetch_add(1, Ordering::Relaxed);
+    // Zero-pad the counter to 6 digits so lexicographic order matches
+    // chronological order up to 999_999 ids per nanosecond (well beyond
+    // any plausible single-process rate).
+    format!("{:020}_{:06}", nanos, counter)
+}
+
 /// `ask_approval(title, description)` — create an approval request.
 /// Returns Struct { id, title, description, approved, status }.
 /// The `approved` field is 0.0 (pending). Use kv_get("approval:<id>") to poll.
@@ -30,7 +55,7 @@ pub(crate) fn builtin_ask_approval(args: &[Value]) -> Result<Value, String> {
             )
         }
     };
-    let id = format!("appr_{}", chrono_now_timestamp());
+    let id = format!("appr_{}", chrono_now_id_suffix());
     let approval = serde_json::json!({
         "id": id,
         "title": title,

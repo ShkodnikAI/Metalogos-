@@ -6,6 +6,8 @@ use crate::interpreter::values::{coded_error, split_origin_stamp, CODE_CRON_JOB_
 use crate::interpreter::Value;
 
 use super::chrono_now_timestamp;
+// Narjad №493, anchor 8: nanos + per-process counter for the cron id.
+use super::chrono_now_id_suffix;
 use super::core::*;
 use super::http::make_date_struct;
 use super::memory::*;
@@ -40,9 +42,9 @@ cron_wrapped!(pub(crate) fn builtin_remind_recurring_stamped = builtin_remind_re
 cron_wrapped!(pub(crate) fn builtin_cancel_remind_stamped = builtin_cancel_remind;);
 cron_wrapped!(pub(crate) fn builtin_list_reminders_stamped = builtin_list_reminders;);
 cron_wrapped!(pub(crate) fn builtin_check_reminders_stamped = builtin_check_reminders;);
-cron_wrapped!(pub(crate) fn builtin_cron_add_stamped = builtin_cron_add;);
+cron_wrapped!(pub fn builtin_cron_add_stamped = builtin_cron_add;);
 cron_wrapped!(pub(crate) fn builtin_cron_list_stamped = builtin_cron_list;);
-cron_wrapped!(pub(crate) fn builtin_cron_remove_stamped = builtin_cron_remove;);
+cron_wrapped!(pub fn builtin_cron_remove_stamped = builtin_cron_remove;);
 cron_wrapped!(pub(crate) fn builtin_cron_run_stamped = builtin_cron_run;);
 cron_wrapped!(pub(crate) fn builtin_cron_mark_fired_stamped = builtin_cron_mark_fired;);
 
@@ -437,7 +439,9 @@ pub(crate) fn builtin_cron_add(args: &[Value]) -> Result<Value, String> {
             ))
         }
     };
-    let id = format!("cron_{}", chrono_now_timestamp());
+    // Narjad №493, anchor 8: chrono_now_id_suffix — two cron entries
+    // added in the same second no longer collide on the id.
+    let id = format!("cron_{}", chrono_now_id_suffix());
     let mut jobs = get_cron_jobs();
     let job = serde_json::json!({
         "id": id,

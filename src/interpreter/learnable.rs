@@ -663,7 +663,7 @@ impl Interpreter {
     /// holdout-validated switch; Ok(false) = attempted, refused; Err =
     /// reflex/model error. The audit lines land through `push_audit`
     /// exactly as they did before the asynchronification.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     fn try_train_distilled_model(
         &self,
         pattern_name: &str,

@@ -400,9 +400,9 @@ impl Interpreter {
                             seed: r.seed,
                         };
                         let model = crate::builtins::build_reflex_seq_model(&compiled)?;
-                        let reg = self
+                        let mut reg = self
                             .reflex_registry
-                            .get_mut()
+                            .lock()
                             .map_err(|e| format!("reflex registry poisoned: {}", e))?;
                         let id = reg.register_seq(model);
                         self.reflex_names.insert(r.name.clone(), id);
@@ -449,9 +449,9 @@ impl Interpreter {
                             seed: r.seed,
                         };
                         let model = crate::builtins::build_reflex_gen_model(&compiled)?;
-                        let reg = self
+                        let mut reg = self
                             .reflex_registry
-                            .get_mut()
+                            .lock()
                             .map_err(|e| format!("reflex registry poisoned: {}", e))?;
                         let id = reg.register_gen(model);
                         self.reflex_names.insert(r.name.clone(), id);

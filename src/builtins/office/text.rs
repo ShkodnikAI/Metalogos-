@@ -109,43 +109,46 @@ pub(crate) fn builtin_extract_entities(args: &[Value]) -> Result<Value, String> 
     let text = expect_string_arg("extract_entities", args, 0)?;
     let mut entities = Vec::new();
 
+    // Narjad №493, anchor 1: extract_entities used to be a silent stub.
+    // The previous `regex_lite_find(pattern)` took ONLY the regex pattern
+    // string (not the text) and returned an empty Vec unconditionally —
+    // email/url/phone were never extracted, even though the docstring
+    // promised the three kinds. The fix replaces the broken helper with
+    // three direct scanners that take the actual text and walk it
+    // manually (std-only — no external regex crate, same posture as
+    // the rest of this module).
+
     // Email detection
-    let email_re = regex_lite_find(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}");
-    for m in &email_re {
+    for m in find_emails(&text) {
         entities.push(make_date_struct(
             "Entity",
             vec![
                 ("kind", Value::String("email".to_string())),
-                ("name", Value::String(m.as_str().to_string())),
+                ("name", Value::String(m)),
             ],
         ));
     }
 
     // URL detection
-    let url_re = regex_lite_find(r#"https?://[^\s<>"]'+)"#);
-    for m in &url_re {
+    for m in find_urls(&text) {
         entities.push(make_date_struct(
             "Entity",
             vec![
                 ("kind", Value::String("url".to_string())),
-                ("name", Value::String(m.as_str().to_string())),
+                ("name", Value::String(m)),
             ],
         ));
     }
 
     // Phone detection (rough: 7-15 digits with optional +/spaces/dashes)
-    let phone_re = regex_lite_find(r"\+?[\d\s\-()]{7,15}");
-    for m in &phone_re {
-        let s = m.as_str().replace(|c: char| !c.is_ascii_digit(), "");
-        if s.len() >= 7 && s.len() <= 15 {
-            entities.push(make_date_struct(
-                "Entity",
-                vec![
-                    ("kind", Value::String("phone".to_string())),
-                    ("name", Value::String(m.as_str().to_string())),
-                ],
-            ));
-        }
+    for m in find_phones(&text) {
+        entities.push(make_date_struct(
+            "Entity",
+            vec![
+                ("kind", Value::String("phone".to_string())),
+                ("name", Value::String(m)),
+            ],
+        ));
     }
 
     // Named entity: sequences of 2+ capitalized words (person/org heuristic)
@@ -203,32 +206,167 @@ pub(crate) fn builtin_extract_entities(args: &[Value]) -> Result<Value, String> 
     Ok(Value::List(entities))
 }
 
-/// Minimal regex find without external crate (uses std only).
-fn regex_lite_find(pattern: &str) -> Vec<std::string::String> {
-    // Very limited: only supports basic character classes.
-    // For production, use the `regex` crate. This is a fallback.
-    // We only call it with simple, well-known patterns above.
-    let results = Vec::new();
-    if pattern.contains('@') && pattern.contains('.') {
-        // Email pattern — manual scan
-        let bytes = pattern.as_bytes();
-        let mut i = 0;
-        while i < bytes.len() {
-            if bytes[i] == b'[' || bytes[i] == b'(' {
-                // Skip character class
-                let close = if bytes[i] == b'[' { b']' } else { b')' };
-                while i < bytes.len() && bytes[i] != close {
-                    i += 1;
-                }
-                i += 1;
-                continue;
-            }
-            i += 1;
+/// Narjad №493, anchor 1: std-only email scanner. Walks the text
+/// character-by-character, finds `@`, then walks back for the local
+/// part (allowed chars: `a-zA-Z0-9._%+-`) and forward for the domain
+/// (allowed chars: `a-zA-Z0-9.-`). Validates that the domain has at
+/// least one dot and the TLD is 2+ ASCII letters. Returns the matched
+/// substrings (without surrounding punctuation).
+fn find_emails(text: &str) -> Vec<String> {
+    let mut results = Vec::new();
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        // Find the next '@' from position i.
+        let at_off = match text[i..].find('@') {
+            Some(p) => p,
+            None => break,
+        };
+        let at_pos = i + at_off;
+        // Walk back from at_pos to find the local-part start.
+        let mut start = at_pos;
+        while start > 0 && is_email_local_char(bytes[start - 1]) {
+            start -= 1;
         }
-        // For email/url/phone we need actual regex; use a simpler approach
-        // The real implementation should depend on `regex` crate
+        // Walk forward from at_pos+1 to find the domain end.
+        let mut end = at_pos + 1;
+        while end < bytes.len() && is_email_domain_char(bytes[end]) {
+            end += 1;
+        }
+        // Trim a trailing dot from the domain end (a domain cannot end
+        // on a dot — the regex would not have matched a trailing dot
+        // either; the manual scan over-captures one otherwise).
+        while end > at_pos + 1 && bytes[end - 1] == b'.' {
+            end -= 1;
+        }
+        // Validate: non-empty local part, domain has at least one dot,
+        // the final segment after the last dot is 2+ ASCII letters.
+        if start < at_pos && end > at_pos + 1 {
+            let domain = &text[at_pos + 1..end];
+            if let Some(dot_idx) = domain.rfind('.') {
+                let tld = &domain[dot_idx + 1..];
+                if tld.len() >= 2 && tld.bytes().all(|b| b.is_ascii_alphabetic()) {
+                    results.push(text[start..end].to_string());
+                    i = end;
+                    continue;
+                }
+            }
+        }
+        i = at_pos + 1;
     }
     results
+}
+
+fn is_email_local_char(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'%' | b'+' | b'-')
+}
+
+fn is_email_domain_char(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-')
+}
+
+/// Narjad №493, anchor 1: std-only URL scanner. Looks for `http://`
+/// or `https://` and walks forward over non-whitespace, non-`<>"`
+/// characters. Trims trailing sentence punctuation (`.`, `,`, `;`,
+/// `)`, etc.) that the regex `[\^s<>"]+` would not have captured
+/// cleanly either, to match the user-facing intent.
+fn find_urls(text: &str) -> Vec<String> {
+    let mut results = Vec::new();
+    let mut search_from = 0;
+    while search_from <= text.len() {
+        let rest = &text[search_from..];
+        let off = match rest.find("http://").or_else(|| rest.find("https://")) {
+            Some(p) => p,
+            None => break,
+        };
+        let start = search_from + off;
+        let scheme_end = if text[start..].starts_with("https://") {
+            start + 8
+        } else {
+            start + 7
+        };
+        // Walk forward: capture everything that's not whitespace or a
+        // closing angle-bracket / quote (the regex `[\^s<>"]+` shape).
+        let mut end = scheme_end;
+        for (idx, c) in text[scheme_end..].char_indices() {
+            if c.is_whitespace() || c == '<' || c == '>' || c == '"' {
+                break;
+            }
+            end = scheme_end + idx + c.len_utf8();
+        }
+        // Trim trailing sentence-punctuation the regex would have
+        // captured (a `)` balance check is overkill for this heuristic;
+        // the goal is no trailing `.`, `,`, `;`, `:`, `!`, `?`).
+        while end > scheme_end {
+            let last = &text[scheme_end..end];
+            if let Some(c) = last.chars().next_back() {
+                if matches!(c, '.' | ',' | ';' | ':' | '!' | '?' | ')') {
+                    end -= c.len_utf8();
+                    continue;
+                }
+            }
+            break;
+        }
+        if end > scheme_end {
+            results.push(text[start..end].to_string());
+            search_from = end;
+        } else {
+            search_from = scheme_end;
+        }
+    }
+    results
+}
+
+/// Narjad №493, anchor 1: std-only phone scanner. Collects runs of
+/// digits/separators that contain 7-15 digits with an optional leading
+/// `+` and surrounding `(`, `)`, `-`, space. The regex shape was
+/// `\+?[\d\s\-()]{7,15}` — the manual scan enforces the DIGIT count
+/// (7..=15) rather than the run length, which is what the previous
+/// post-filter already asked for.
+fn find_phones(text: &str) -> Vec<String> {
+    let mut results = Vec::new();
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i];
+        // Start of a phone run: optional '+' or a digit, or '('.
+        if c == b'+' || c.is_ascii_digit() || c == b'(' {
+            let mut end = i;
+            if end < bytes.len() && bytes[end] == b'+' {
+                end += 1;
+            }
+            while end < bytes.len() && is_phone_char(bytes[end]) {
+                end += 1;
+            }
+            // Trim trailing separators (space, '-', ')') — they would
+            // have been part of the run but are not significant.
+            while end > i + 1 && matches!(bytes[end - 1], b' ' | b'-' | b')') {
+                end -= 1;
+            }
+            let candidate = &text[i..end];
+            let digit_count = candidate.chars().filter(|c| c.is_ascii_digit()).count();
+            // Same bounds as the previous post-filter (7..=15 digits).
+            if digit_count >= 7 && digit_count <= 15 {
+                // Avoid matching pure-number tokens like years ("2026")
+                // — the digit count gate already excludes those, but
+                // also require either a '+' or a separator to surface
+                // something that looks phone-shaped.
+                let has_separator = candidate.contains(|c: char|
+                    matches!(c, '+' | '-' | '(' | ')' | ' '));
+                if has_separator || candidate.starts_with('+') {
+                    results.push(candidate.to_string());
+                }
+            }
+            i = end;
+        } else {
+            i += 1;
+        }
+    }
+    results
+}
+
+fn is_phone_char(b: u8) -> bool {
+    b.is_ascii_digit() || matches!(b, b' ' | b'-' | b'(' | b')')
 }
 
 // ── Memory Scoring (inspired by OpenHuman chunk scoring pipeline) ──
@@ -598,4 +736,115 @@ pub(crate) fn builtin_semantic_search(args: &[Value]) -> Result<Value, String> {
         .collect();
 
     Ok(Value::List(results))
+}
+
+#[cfg(test)]
+mod naryad_493_anchor1_tests {
+    // Narjad №493, anchor 1: extract_entities regression tests. The
+    // function is pub(crate), so the tests live next to the source.
+    use super::builtin_extract_entities;
+    use crate::interpreter::Value;
+
+    fn names_of_kind(entities: &[Value], kind: &str) -> Vec<String> {
+        entities
+            .iter()
+            .filter_map(|e| match e {
+                Value::Struct { fields, .. } => {
+                    let k = match fields.get("kind") {
+                        Some(Value::String(s)) => s.as_str(),
+                        _ => return None,
+                    };
+                    if k != kind {
+                        return None;
+                    }
+                    match fields.get("name") {
+                        Some(Value::String(s)) => Some(s.clone()),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn extracts_simple_email() {
+        let v = builtin_extract_entities(&[Value::String(
+            "contact alice@example.com for details".to_string(),
+        )])
+        .expect("extract_entities must succeed");
+        let emails = match &v {
+            Value::List(items) => names_of_kind(items, "email"),
+            _ => panic!("expected List, got {:?}", v),
+        };
+        assert_eq!(emails, vec!["alice@example.com".to_string()]);
+    }
+
+    #[test]
+    fn extracts_multiple_emails_and_skips_invalid() {
+        let v = builtin_extract_entities(&[Value::String(
+            "from a@b.com and x.y@sub.example.org plus not-an-email@"
+                .to_string(),
+        )])
+        .expect("extract_entities must succeed");
+        let emails = match &v {
+            Value::List(items) => names_of_kind(items, "email"),
+            _ => panic!("expected List, got {:?}", v),
+        };
+        assert_eq!(
+            emails,
+            vec!["a@b.com".to_string(), "x.y@sub.example.org".to_string()]
+        );
+    }
+
+    #[test]
+    fn extracts_http_and_https_urls() {
+        let v = builtin_extract_entities(&[Value::String(
+            "see http://example.com/page and https://secure.example.org/path?q=1 for more."
+                .to_string(),
+        )])
+        .expect("extract_entities must succeed");
+        let urls = match &v {
+            Value::List(items) => names_of_kind(items, "url"),
+            _ => panic!("expected List, got {:?}", v),
+        };
+        assert_eq!(
+            urls,
+            vec![
+                "http://example.com/page".to_string(),
+                "https://secure.example.org/path?q=1".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn extracts_international_format_phone() {
+        let v = builtin_extract_entities(&[Value::String(
+            "call +1 (555) 123-4567 anytime".to_string(),
+        )])
+        .expect("extract_entities must succeed");
+        let phones = match &v {
+            Value::List(items) => names_of_kind(items, "phone"),
+            _ => panic!("expected List, got {:?}", v),
+        };
+        assert_eq!(phones, vec!["+1 (555) 123-4567".to_string()]);
+    }
+
+    #[test]
+    fn returns_empty_list_for_text_with_no_entities() {
+        let v = builtin_extract_entities(&[Value::String(
+            "just a plain sentence with no entities here".to_string(),
+        )])
+        .expect("extract_entities must succeed");
+        match &v {
+            Value::List(items) => {
+                // The capitalized-words heuristic may produce 0 or more
+                // entries; the email/url/phone lanes MUST be empty.
+                assert!(names_of_kind(items, "email").is_empty());
+                assert!(names_of_kind(items, "url").is_empty());
+                assert!(names_of_kind(items, "phone").is_empty());
+            }
+            _ => panic!("expected List, got {:?}", v),
+        }
+    }
 }

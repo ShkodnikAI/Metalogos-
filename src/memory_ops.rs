@@ -133,9 +133,7 @@ pub(crate) fn recall_tw(
                 (entry, signal)
             })
             .filter(|(_, signal)| *signal >= min_confidence)
-            .max_by(|a, b| {
-                a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
-            });
+            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
         match from_hybrid {
             Some((entry, _)) => Some(entry),
             None => mem

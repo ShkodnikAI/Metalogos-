@@ -346,13 +346,12 @@ fn find_phones(text: &str) -> Vec<String> {
             let candidate = &text[i..end];
             let digit_count = candidate.chars().filter(|c| c.is_ascii_digit()).count();
             // Same bounds as the previous post-filter (7..=15 digits).
-            if digit_count >= 7 && digit_count <= 15 {
+            if (7..=15).contains(&digit_count) {
                 // Avoid matching pure-number tokens like years ("2026")
                 // — the digit count gate already excludes those, but
                 // also require either a '+' or a separator to surface
                 // something that looks phone-shaped.
-                let has_separator = candidate.contains(|c: char|
-                    matches!(c, '+' | '-' | '(' | ')' | ' '));
+                let has_separator = candidate.contains(['+', '-', '(', ')', ' ']);
                 if has_separator || candidate.starts_with('+') {
                     results.push(candidate.to_string());
                 }
@@ -783,8 +782,7 @@ mod naryad_493_anchor1_tests {
     #[test]
     fn extracts_multiple_emails_and_skips_invalid() {
         let v = builtin_extract_entities(&[Value::String(
-            "from a@b.com and x.y@sub.example.org plus not-an-email@"
-                .to_string(),
+            "from a@b.com and x.y@sub.example.org plus not-an-email@".to_string(),
         )])
         .expect("extract_entities must succeed");
         let emails = match &v {

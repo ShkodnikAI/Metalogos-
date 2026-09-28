@@ -32,8 +32,7 @@ test "p" {
   assert true
 }
 "#;
-    let decls = metalogos::parser::parse(src)
-        .expect("one-char test name must parse, not panic");
+    let decls = metalogos::parser::parse(src).expect("one-char test name must parse, not panic");
     let names: Vec<String> = decls
         .into_iter()
         .filter_map(|d| match d {
@@ -54,8 +53,7 @@ test "" {
   assert true
 }
 "#;
-    let decls = metalogos::parser::parse(src)
-        .expect("empty test name must parse, not panic");
+    let decls = metalogos::parser::parse(src).expect("empty test name must parse, not panic");
     let names: Vec<String> = decls
         .into_iter()
         .filter_map(|d| match d {
@@ -76,8 +74,7 @@ test "line1\nline2" {
   assert true
 }
 "#;
-    let decls = metalogos::parser::parse(src)
-        .expect("escaped test name must parse");
+    let decls = metalogos::parser::parse(src).expect("escaped test name must parse");
     let names: Vec<String> = decls
         .into_iter()
         .filter_map(|d| match d {

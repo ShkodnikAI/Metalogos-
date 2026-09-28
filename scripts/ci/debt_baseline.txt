@@ -21,6 +21,13 @@
 # earned it; the test-hygiene line rides in the Wave 18 queue):
 # (none yet)
 #
+# №488 (gh#736, 2026-09-28): the test-hygiene un-ignore wave — the phase23
+# suite actualized to the current surface (20 active, 1 honestly deleted:
+# extract_entities pins a silent stub — see the follow-up), the persist
+# suite's stale flaky-reason lifted (5 active), the webhook harness reason
+# lifted (1 active); the remaining 9 ignores carry precise findings with
+# revision dates (the follow-up №493). ignore: 85 -> 58; ignore_todo: 49 -> 22.
+#
 # The setting rule (audit 25.09 §8.2.1, the owner's strengthening):
 # while ANY counter is above its threshold, no new FEATURE naryads open;
 # bugfix / security / docs naryads are exempt from the gate. A mechanism
@@ -28,6 +35,6 @@
 # revision (the owner's hygiene note, gh#689).
 #
 dup_baseline: scripts/ci/tw_vm_dup_names_baseline.txt
-ignore: 85
-ignore_todo: 49
+ignore: 58
+ignore_todo: 22
 dead_code: 37

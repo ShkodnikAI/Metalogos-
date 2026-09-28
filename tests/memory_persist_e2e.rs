@@ -43,7 +43,8 @@ flow Main { input: String = r -> output }
 // ── E2E-1: memorize → recall across two run_program calls ────────
 
 #[test]
-#[ignore = "TODO: E2E persistence tests flaky in sandboxed environment; need temp dir isolation"]
+// №488: the ignore lifted — the temp-dir isolation has been in place here all along
+// (tempfile::tempdir in every test); the stale flaky-reason no longer describes anything.
 fn test_e2e_persist_memorize_then_recall() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("test_memory.db");
@@ -79,7 +80,7 @@ fn test_e2e_persist_memorize_then_recall() {
 // ── E2E-2: recall a second fact from same DB ────────────────────
 
 #[test]
-#[ignore = "TODO: E2E persistence tests flaky in sandboxed environment; need temp dir isolation"]
+#[ignore = "TODO(№493, revise 2026-10-15): recall(capital-of-France) returns the FIRST lane hit (the spicy entry), not the best match — the lane relevance ranking is the finding, not the harness; un-ignore when the ranking is fixed"]
 fn test_e2e_persist_recall_second_fact() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("test_memory2.db");
@@ -108,7 +109,8 @@ flow Main {{ input: String = r -> output }}
 // ── E2E-3: count increases across sessions ────────────────────────
 
 #[test]
-#[ignore = "TODO: E2E persistence tests flaky in sandboxed environment; need temp dir isolation"]
+// №488: the ignore lifted — the temp-dir isolation has been in place here all along
+// (tempfile::tempdir in every test); the stale flaky-reason no longer describes anything.
 fn test_e2e_persist_count_across_sessions() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("test_count.db");
@@ -143,7 +145,7 @@ flow Main {{ input: String = r1 -> output }}
 // ── E2E-4: third run still has all data ─────────────────────────
 
 #[test]
-#[ignore = "TODO: E2E persistence tests flaky in sandboxed environment; need temp dir isolation"]
+#[ignore = "TODO(№493, revise 2026-10-15): same lane-ranking finding as E2E-2 — recall across restarts returns the first hit, not the query-matched one"]
 fn test_e2e_persist_third_run() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("test_third.db");
@@ -175,7 +177,8 @@ flow Main {{ input: String = r -> output }}
 // ── E2E-5: no persist → data lost between runs ──────────────────
 
 #[test]
-#[ignore = "TODO: E2E persistence tests flaky in sandboxed environment; need temp dir isolation"]
+// №488: the ignore lifted — the temp-dir isolation has been in place here all along
+// (tempfile::tempdir in every test); the stale flaky-reason no longer describes anything.
 fn test_e2e_no_persist_data_lost() {
     // Without memory { persist }, uses InMemoryStore — data lost on each run.
     let source = make_source_inmemory();
@@ -208,7 +211,7 @@ flow Main { input: String = r -> output }
 // ── E2E-6: forget works on persistent store ─────────────────────
 
 #[test]
-#[ignore = "TODO: E2E persistence tests flaky in sandboxed environment; need temp dir isolation"]
+#[ignore = "TODO(№493, revise 2026-10-15): forget removes the node from the persisted graph but the recall lane still serves the entry — the forget/recall consistency is the finding"]
 fn test_e2e_persist_forget() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("test_forget.db");
@@ -256,7 +259,8 @@ flow Main {{ input: String = r -> output }}
 // ── E2E-7: parsing memory { persist: "path" } ───────────────────
 
 #[test]
-#[ignore = "TODO: E2E persistence tests flaky in sandboxed environment; need temp dir isolation"]
+// №488: the ignore lifted — the temp-dir isolation has been in place here all along
+// (tempfile::tempdir in every test); the stale flaky-reason no longer describes anything.
 fn test_parse_memory_persist() {
     let source = r#"
 memory { persist: "./data/my_memory.db" }
@@ -271,7 +275,8 @@ memory { persist: "./data/my_memory.db" }
 }
 
 #[test]
-#[ignore = "TODO: E2E persistence tests flaky in sandboxed environment; need temp dir isolation"]
+// №488: the ignore lifted — the temp-dir isolation has been in place here all along
+// (tempfile::tempdir in every test); the stale flaky-reason no longer describes anything.
 fn test_parse_memory_no_persist() {
     let source = r#"
 memory { }
@@ -287,7 +292,7 @@ memory { }
 // ── E2E-8: KG persistence across runs ───────────────────────────
 
 #[test]
-#[ignore = "TODO: E2E persistence tests flaky in sandboxed environment; need temp dir isolation"]
+#[ignore = "TODO(№493, revise 2026-10-15): KG persist+recall returns an empty string across runs — the KG recall lane is the finding"]
 fn test_e2e_kg_persist_across_runs() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("test_kg.db");

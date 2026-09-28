@@ -490,6 +490,10 @@ impl Interpreter {
         distill: &crate::interpreter::types::DistillConfig,
         input: &str,
     ) -> Result<Option<Value>, String> {
+        // №489: collect finished background trainings first — a verdict
+        // that arrived since the last call lands HERE (mode flip + loud
+        // audit), never inside a request that is already answering.
+        self.drain_distill_results();
         let mut states = self
             .distill_states
             .lock()
@@ -524,43 +528,41 @@ impl Interpreter {
                 let should_attempt =
                     count >= training_threshold && (last_attempt == 0 || count - last_attempt >= 5);
                 if should_attempt {
+                    // №489: a trainer is already running for this pattern?
+                    // Never spawn a second one. The examples ledger keeps
+                    // accepting records (THE QUEUE CHOICE — the next
+                    // cadence cycle retrains on the fuller set); this call
+                    // stays on the LLM path.
+                    let in_flight = self
+                        .distill_in_flight
+                        .lock()
+                        .map_err(|e| format!("distill in-flight lock poisoned: {}", e))?
+                        .contains(pattern_name);
+                    if in_flight {
+                        return Ok(None);
+                    }
                     let examples = state.examples.clone();
                     // Stash the count we attempted training at, so we know
                     // not to retry until count grows by 5 more.
                     let trained_at_count = count;
-                    drop(states); // release lock before calling reflex_train
-                    match self.try_train_distilled_model(pattern_name, distill, &examples) {
-                        Ok(true) => {
-                            // Training succeeded → switch to DISTILLED.
-                            // Update mode in the distill_states map.
-                            {
-                                let mut states = self
-                                    .distill_states
-                                    .lock()
-                                    .map_err(|e| format!("distill_states lock poisoned: {}", e))?;
-                                if let Some(s) = states.get_mut(pattern_name) {
-                                    s.mode = DistillMode::Distilled;
-                                }
-                            } // lock released here
-                              // Recursive call to enter DISTILLED path on this same invocation.
-                            return self.try_distilled_call(pattern_name, distill, input);
+                    drop(states); // release the states lock before spawning
+                    self.spawn_distill_training(pattern_name, distill, &examples)?;
+                    {
+                        let mut states = self
+                            .distill_states
+                            .lock()
+                            .map_err(|e| format!("distill_states lock poisoned: {}", e))?;
+                        if let Some(s) = states.get_mut(pattern_name) {
+                            s.last_train_attempt = trained_at_count;
                         }
-                        Ok(false) => {
-                            // Training didn't reach accuracy threshold — stay TEACHING.
-                            // Record last attempt count to avoid immediate retry.
-                            {
-                                let mut states = self
-                                    .distill_states
-                                    .lock()
-                                    .map_err(|e| format!("distill_states lock poisoned: {}", e))?;
-                                if let Some(s) = states.get_mut(pattern_name) {
-                                    s.last_train_attempt = trained_at_count;
-                                }
-                            } // lock released here
-                            return Ok(None);
-                        }
-                        Err(e) => return Err(e),
                     }
+                    // The switch no longer lands on THIS call (the old
+                    // inline path re-entered DISTILLED recursively here):
+                    // the background trainer ships its verdict through the
+                    // mailbox, and a LATER call drains it and flips the
+                    // mode. Until then — TEACHING, exactly the issue's
+                    // "до готовности — TEACHING-поведение".
+                    return Ok(None);
                 }
                 Ok(None)
             }
@@ -590,7 +592,7 @@ impl Interpreter {
                 // models return a clean error, not silent failure.
                 let (input_size, probs, labels): (usize, Vec<f64>, &[String]) = match model_kind {
                     crate::nn::ModelKind::Dense(model) => {
-                        let embedding = self.simple_embedding(input, model.input_size);
+                        let embedding = Self::simple_embedding(input, model.input_size);
                         let probs = model.forward(&embedding);
                         (model.input_size, probs, &model.labels)
                     }
@@ -655,11 +657,13 @@ impl Interpreter {
         }
     }
 
-    /// Train the distillation model on accumulated examples.
-    /// Returns Ok(true) if training succeeded and accuracy ≥ 0.0
-    /// (any successful training switches mode to DISTILLED).
-    /// Returns Ok(false) if training was attempted but accuracy was 0.0
-    /// (or no examples matched valid labels).
+    /// Train the distillation model SYNCHRONOUSLY (№489: the seam the
+    /// unit tests drive — the production path goes through
+    /// `spawn_distill_training`). Same contract as before: Ok(true) =
+    /// holdout-validated switch; Ok(false) = attempted, refused; Err =
+    /// reflex/model error. The audit lines land through `push_audit`
+    /// exactly as they did before the asynchronification.
+    #[cfg(test)]
     fn try_train_distilled_model(
         &self,
         pattern_name: &str,
@@ -676,173 +680,117 @@ impl Interpreter {
                     distill.reflex_name, pattern_name
                 )
             })?;
-
-        // Build training data: each (input, output) pair → Vec<f64> features + class_idx.
-        // We need the model's labels to convert output string → class index.
-        let input_size;
-        let labels: Vec<String>;
-        {
-            let reg = self
-                .reflex_registry
-                .lock()
-                .map_err(|e| format!("reflex registry poisoned: {}", e))?;
-            let model_kind = reg
-                .get(model_id)
-                .ok_or_else(|| format!("distill: model handle {:?} not in registry", model_id))?;
-            // Наряд №185: dispatch on ModelKind. Distill training is Dense-only.
-            match model_kind {
-                crate::nn::ModelKind::Dense(m) => {
-                    input_size = m.input_size;
-                    labels = m.labels.clone();
-                }
-                #[cfg(feature = "candle")]
-                crate::nn::ModelKind::Sequence(_) => {
-                    return Err("distill: sequence models (reflex_seq) do not yet support distill training. \
-                         Distill currently works only with Dense models (reflex).".to_string());
-                }
-                #[cfg(feature = "candle")]
-                crate::nn::ModelKind::Gen(_) => {
-                    return Err(
-                        "distill: gen models (reflex_gen) do not support distill training. \
-                         Distill works only with Dense models (reflex)."
-                            .to_string(),
-                    );
-                }
-            }
+        let outcome = run_distill_training(
+            &self.reflex_registry,
+            model_id,
+            pattern_name,
+            distill,
+            examples,
+        );
+        for line in &outcome.audit_lines {
+            self.push_audit(line.clone());
         }
-
-        let mut inputs: Vec<Vec<f64>> = Vec::with_capacity(examples.len());
-        let mut targets: Vec<usize> = Vec::with_capacity(examples.len());
-        for (input_str, output_str) in examples {
-            // Find label index. If output doesn't match any label, skip this example
-            // (the LLM returned something outside the closed label set — safe to ignore).
-            let target_idx = match labels.iter().position(|l| l == output_str) {
-                Some(idx) => idx,
-                None => continue, // skip — ADR-0117 closed-label enforcement
-            };
-            let embedding = self.simple_embedding(input_str, input_size);
-            inputs.push(embedding);
-            targets.push(target_idx);
-        }
-
-        if inputs.is_empty() {
-            // No valid examples yet — can't train.
-            return Ok(false);
-        }
-
-        // №456: the holdout gate. Dense::train splits 80/20 deterministically
-        // (№179) — a holdout smaller than MIN_HOLDOUT cannot support a
-        // meaningful accuracy read, so the switch is refused outright
-        // (stay TEACHING; the retry cadence still applies).
-        let valid_n = inputs.len();
-        let holdout_n = valid_n - (valid_n * 4) / 5;
-        if holdout_n < MIN_HOLDOUT {
-            self.push_audit(format!(
-                "[AUDIT] distill.rejected: {} holdout too small ({} < {}) — staying TEACHING",
-                pattern_name, holdout_n, MIN_HOLDOUT
-            ));
-            return Ok(false);
-        }
-
-        // Train. Safe degradation: training error → Ok(false), stay TEACHING.
-        let mut reg = self
-            .reflex_registry
-            .lock()
-            .map_err(|e| format!("reflex registry poisoned: {}", e))?;
-        let model_kind = reg
-            .get_mut(model_id)
-            .ok_or_else(|| format!("distill: model handle {:?} not in registry", model_id))?;
-        // Наряд №185: dispatch on ModelKind. Distill training is Dense-only.
-        // (We already validated this above when reading input_size + labels,
-        // so reaching here with a Sequence model would be a bug — but we
-        // still match to satisfy the type system.)
-        match model_kind {
-            crate::nn::ModelKind::Dense(model) => {
-                // Use a small epoch count for distillation training (default 30).
-                // This is a heuristic — ADR-0117 doesn't specify epochs. We pick
-                // 30 as a balance: enough to learn simple label distinctions on
-                // a one-class or two-class dataset, fast enough not to block the
-                // pattern call (training happens inline during the LLM-call
-                // replacement). Reflex_train requires ≥10 examples (ADR-0115),
-                // and on 10-50 example datasets 30 epochs typically converges.
-                // №456: the returned holdout accuracy is the SWITCH GATE now —
-                // the №166 guarantee ("switch only on validated quality") is
-                // enforced instead of discarded.
-                let (loss, holdout_acc) = model
-                    .train(&inputs, &targets, 30, 0.1)
-                    .map_err(|e| format!("distill: training failed: {}", e))?;
-                if !loss.is_finite() {
-                    return Ok(false);
-                }
-                // №485: the MAJORITY BASELINE — the accuracy a model gets
-                // by always predicting the most-frequent class. On a
-                // skewed dataset (the audit's 90/10: routing intents)
-                // that degenerate model scores 0.90 and cleared the raw
-                // min_accuracy gate without learning anything. The
-                // stratified holdout preserves the class distribution,
-                // so the full-dataset majority share is the sound
-                // baseline estimate. THE CHOICE (fixed by №485):
-                // baseline + margin, not balanced accuracy — one
-                // deterministic number, no confusion matrix, and the
-                // degenerate model CANNOT clear baseline + margin by
-                // construction (acc == baseline < baseline + margin).
-                let mut class_counts: HashMap<usize, usize> = HashMap::new();
-                for &t in &targets {
-                    *class_counts.entry(t).or_insert(0) += 1;
-                }
-                let majority_baseline = class_counts
-                    .values()
-                    .copied()
-                    .max()
-                    .map(|c| c as f64 / targets.len() as f64)
-                    .unwrap_or(0.0);
-                // №485: the gate. The old positive form `acc < t` let a
-                // NaN accuracy PASS silently (NaN < t is false). The
-                // explicit NaN guard keeps the NaN-rejecting truth table
-                // of `!(acc >= t)` in a lint-clean form: a NaN holdout
-                // read is a FAILED holdout read.
-                // The single-class carve-out (№485): one class carries no
-                // confusion risk — the baseline is trivially 1.0 and
-                // baseline+margin would be unsatisfiable; the raw
-                // min_accuracy gate applies unchanged (the №456 posture).
-                let threshold = if class_counts.len() < 2 {
-                    distill.min_accuracy
-                } else {
-                    f64::max(distill.min_accuracy, majority_baseline + distill.margin)
-                };
-                // №456: the switch requires holdout accuracy ≥ min_accuracy
-                // (default 0.85, overridable via `distill_min_accuracy:`)
-                // AND ≥ majority_baseline + margin (№485; `distill_margin:`,
-                // default 0.05). Loud on rejection (audit 25.09, 3.3) —
-                // the event carries the baseline so the operator sees WHY.
-                if holdout_acc < threshold || holdout_acc.is_nan() {
-                    self.push_audit(format!(
-                        "[AUDIT] distill.rejected: {} holdout_accuracy={:.3} < threshold={:.3} (min_accuracy={:.2}, majority_baseline={:.3}, margin={:.2}) — staying TEACHING",
-                        pattern_name, holdout_acc, threshold, distill.min_accuracy, majority_baseline, distill.margin
-                    ));
-                    return Ok(false);
-                }
-                // Holdout-validated — switch to DISTILLED. The fallback_if
-                // threshold (default confidence < 0.7, №456) still guards
-                // individual predictions at run time.
-                Ok(true)
-            }
-            #[cfg(feature = "candle")]
-            crate::nn::ModelKind::Sequence(_) => Err(
-                "distill: sequence models (reflex_seq) do not yet support distill training. \
-                 Distill currently works only with Dense models (reflex)."
-                    .to_string(),
-            ),
-            #[cfg(feature = "candle")]
-            crate::nn::ModelKind::Gen(_) => Err(
-                "distill: gen models (reflex_gen) do not support distill training. \
-                 Distill works only with Dense models (reflex)."
-                    .to_string(),
-            ),
+        match outcome.error {
+            Some(e) => Err(e),
+            None => Ok(outcome.switched),
         }
     }
 
-    /// Record a (input, output) example for future training.
+    /// №489: launch the distill training on a BACKGROUND thread. The
+    /// call path stops blocking on the 30-epoch run: this fn does the
+    /// cheap bookkeeping (audit `training-started`, the in-flight mark)
+    /// and hands the registry handle + a training snapshot to the
+    /// thread. The verdict travels back through the interpreter mailbox
+    /// (`distill_tx` → `distill_results`) and lands on a LATER call via
+    /// `drain_distill_results` — until then the pattern stays TEACHING.
+    fn spawn_distill_training(
+        &self,
+        pattern_name: &str,
+        distill: &crate::interpreter::types::DistillConfig,
+        examples: &[(String, String)],
+    ) -> Result<(), String> {
+        let model_id = self
+            .reflex_names
+            .get(&distill.reflex_name)
+            .copied()
+            .ok_or_else(|| {
+                format!(
+                    "distill: reflex '{}' not declared for pattern '{}'",
+                    distill.reflex_name, pattern_name
+                )
+            })?;
+        self.push_audit(format!(
+            "[AUDIT] distill.training-started: {} examples={} — the training runs in the background, the call is not blocked (naryad №489)",
+            pattern_name,
+            examples.len()
+        ));
+        {
+            let mut in_flight = self
+                .distill_in_flight
+                .lock()
+                .map_err(|e| format!("distill in-flight lock poisoned: {}", e))?;
+            in_flight.insert(pattern_name.to_string());
+        }
+        let registry = std::sync::Arc::clone(&self.reflex_registry);
+        let tx = self.distill_tx.clone();
+        let pattern = pattern_name.to_string();
+        let distill = distill.clone();
+        let snapshot = examples.to_vec();
+        std::thread::spawn(move || {
+            let outcome = run_distill_training(&registry, model_id, &pattern, &distill, &snapshot);
+            // If the interpreter is gone, the mailbox is closed — drop the
+            // verdict on the floor quietly (there is nobody to report to).
+            let _ = tx.send(outcome);
+        });
+        Ok(())
+    }
+
+    /// №489: drain finished background trainings. Each outcome lands as
+    /// a loud audit pair (the trainer's own lines + the finished marker);
+    /// a switched verdict flips the pattern's mode to DISTILLED so the
+    /// next call takes the distilled path. The in-flight mark clears.
+    fn drain_distill_results(&self) {
+        loop {
+            // The mailbox is a Mutex<Receiver>: the serve handlers need
+            // Sync on the interpreter; draining is single-threaded by the
+            // lock. A poisoned mailbox just ends the drain — the next
+            // call retries.
+            let guard = match self.distill_results.lock() {
+                Ok(g) => g,
+                Err(_) => break,
+            };
+            let outcome = match guard.try_recv() {
+                Ok(o) => o,
+                Err(_) => break,
+            };
+            drop(guard);
+            for line in &outcome.audit_lines {
+                self.push_audit(line.clone());
+            }
+            match &outcome.error {
+                Some(e) => self.push_audit(format!(
+                    "[AUDIT] distill.training-finished: {} ERROR {} — staying TEACHING (naryad №489)",
+                    outcome.pattern_name, e
+                )),
+                None => self.push_audit(format!(
+                    "[AUDIT] distill.training-finished: {} switched={}",
+                    outcome.pattern_name, outcome.switched
+                )),
+            }
+            if outcome.switched {
+                if let Ok(mut states) = self.distill_states.lock() {
+                    if let Some(s) = states.get_mut(&outcome.pattern_name) {
+                        s.mode = DistillMode::Distilled;
+                    }
+                }
+            }
+            if let Ok(mut in_flight) = self.distill_in_flight.lock() {
+                in_flight.remove(&outcome.pattern_name);
+            }
+        }
+    }
+
+    /// Record a (input, output) example for future training.    /// Record a (input, output) example for future training.
     /// Called after every LLM call on a distilling pattern.
     fn record_distill_example(&self, pattern_name: &str, input: &str, output: &str) {
         if let Ok(mut states) = self.distill_states.lock() {
@@ -867,7 +815,7 @@ impl Interpreter {
     /// the input string into `dim` buckets. Future naryads may swap this
     /// for a real embedding model (sentence-transformers etc.) — the
     /// distillation logic doesn't depend on the embedding strategy.
-    fn simple_embedding(&self, input: &str, dim: usize) -> Vec<f64> {
+    fn simple_embedding(input: &str, dim: usize) -> Vec<f64> {
         let mut embedding = vec![0.0; dim];
         // XOR-based hash distribution — same input always produces same embedding.
         let bytes = input.as_bytes();
@@ -1547,6 +1495,237 @@ pub(crate) fn measure_battery_accuracy(
     }
 }
 
+// ── №489: the distill training core, shared by the synchronous seam
+// (try_train_distilled_model, the unit-test surface) and the background
+// thread (spawn_distill_training). Pure with respect to the interpreter:
+// takes the registry handle, the resolved model id, and a training
+// snapshot; returns the verdict + the audit lines. NO interpreter state
+// is touched here — the thread cannot reach it.
+
+/// The background trainer's verdict.
+pub struct DistillTrainOutcome {
+    pub pattern_name: String,
+    pub switched: bool,
+    pub error: Option<String>,
+    pub audit_lines: Vec<String>,
+}
+
+/// The early-return constructor of the outcome (the terminal paths of
+/// `run_distill_training`).
+fn fail(
+    pattern_name: &str,
+    switched: bool,
+    error: Option<String>,
+    audit_lines: Vec<String>,
+) -> DistillTrainOutcome {
+    DistillTrainOutcome {
+        pattern_name: pattern_name.to_string(),
+        switched,
+        error,
+        audit_lines,
+    }
+}
+
+fn run_distill_training(
+    registry: &std::sync::Arc<std::sync::Mutex<crate::nn::ReflexRegistry>>,
+    model_id: crate::nn::ReflexId,
+    pattern_name: &str,
+    distill: &crate::interpreter::types::DistillConfig,
+    examples: &[(String, String)],
+) -> DistillTrainOutcome {
+    let mut audit_lines: Vec<String> = Vec::new();
+
+    // Build training data: each (input, output) pair → Vec<f64> features + class_idx.
+    // We need the model's labels to convert output string → class index.
+    let input_size;
+    let labels: Vec<String>;
+    {
+        let reg = registry
+            .lock()
+            .map_err(|e| format!("reflex registry poisoned: {}", e));
+        let reg = match reg {
+            Ok(r) => r,
+            Err(e) => return fail(pattern_name, false, Some(e), audit_lines),
+        };
+        let model_kind = match reg.get(model_id) {
+            Some(m) => m,
+            None => {
+                return fail(
+                    pattern_name,
+                    false,
+                    Some(format!(
+                        "distill: model handle {:?} not in registry",
+                        model_id
+                    )),
+                    audit_lines,
+                )
+            }
+        };
+        // Наряд №185: dispatch on ModelKind. Distill training is Dense-only.
+        match model_kind {
+            crate::nn::ModelKind::Dense(m) => {
+                input_size = m.input_size;
+                labels = m.labels.clone();
+            }
+            #[cfg(feature = "candle")]
+            crate::nn::ModelKind::Sequence(_) => return fail(
+                pattern_name,
+                false,
+                Some(
+                    "distill: sequence models (reflex_seq) do not yet support distill training. \
+                         Distill currently works only with Dense models (reflex)."
+                        .to_string(),
+                ),
+                audit_lines,
+            ),
+            #[cfg(feature = "candle")]
+            crate::nn::ModelKind::Gen(_) => {
+                return fail(
+                    pattern_name,
+                    false,
+                    Some(
+                        "distill: gen models (reflex_gen) do not support distill training. \
+                         Distill works only with Dense models (reflex)."
+                            .to_string(),
+                    ),
+                    audit_lines,
+                )
+            }
+        }
+    }
+
+    let mut inputs: Vec<Vec<f64>> = Vec::with_capacity(examples.len());
+    let mut targets: Vec<usize> = Vec::with_capacity(examples.len());
+    for (input_str, output_str) in examples {
+        // Find label index. If output doesn't match any label, skip this example
+        // (the LLM returned something outside the closed label set — safe to ignore).
+        let target_idx = match labels.iter().position(|l| l == output_str) {
+            Some(idx) => idx,
+            None => continue, // skip — ADR-0117 closed-label enforcement
+        };
+        let embedding = Interpreter::simple_embedding(input_str, input_size);
+        inputs.push(embedding);
+        targets.push(target_idx);
+    }
+
+    if inputs.is_empty() {
+        // No valid examples yet — can't train.
+        return fail(pattern_name, false, None, audit_lines);
+    }
+
+    // №456: the holdout gate. Dense::train splits 80/20 deterministically
+    // (№179) — a holdout smaller than MIN_HOLDOUT cannot support a
+    // meaningful accuracy read, so the switch is refused outright
+    // (stay TEACHING; the retry cadence still applies).
+    let valid_n = inputs.len();
+    let holdout_n = valid_n - (valid_n * 4) / 5;
+    if holdout_n < MIN_HOLDOUT {
+        audit_lines.push(format!(
+            "[AUDIT] distill.rejected: {} holdout too small ({} < {}) — staying TEACHING",
+            pattern_name, holdout_n, MIN_HOLDOUT
+        ));
+        return fail(pattern_name, false, None, audit_lines);
+    }
+
+    // Train. Safe degradation: training error → refused, stay TEACHING.
+    let trained = {
+        let mut reg = match registry.lock() {
+            Ok(r) => r,
+            Err(e) => {
+                return fail(
+                    pattern_name,
+                    false,
+                    Some(format!("reflex registry poisoned: {}", e)),
+                    audit_lines,
+                )
+            }
+        };
+        let model_kind = match reg.get_mut(model_id) {
+            Some(m) => m,
+            None => {
+                return fail(
+                    pattern_name,
+                    false,
+                    Some(format!(
+                        "distill: model handle {:?} not in registry",
+                        model_id
+                    )),
+                    audit_lines,
+                )
+            }
+        };
+        // №185: dispatch on ModelKind. Distill training is Dense-only.
+        // (Validated above when reading input_size + labels.)
+        match model_kind {
+            crate::nn::ModelKind::Dense(model) => {
+                // 30 epochs on 10–50 example datasets: enough to learn
+                // simple label distinctions, fast enough that even the
+                // background run finishes promptly. №456: the returned
+                // holdout accuracy is the SWITCH GATE. №489: this lock is
+                // held by the BACKGROUND thread — the request path is
+                // already done here.
+                model
+                    .train(&inputs, &targets, 30, 0.1)
+                    .map_err(|e| format!("distill: training failed: {}", e))
+            }
+            // №185: Dense is the only distill-trainable kind (the candle-only
+            // Sequence/Gen arms were already excluded above).
+            #[cfg(feature = "candle")]
+            _ => Err("distill: non-Dense models do not support distill training.".to_string()),
+        }
+    };
+    let (loss, holdout_acc) = match trained {
+        Ok(v) => v,
+        Err(e) => return fail(pattern_name, false, Some(e), audit_lines),
+    };
+    if !loss.is_finite() {
+        return fail(pattern_name, false, None, audit_lines);
+    }
+    // №485: the MAJORITY BASELINE — the accuracy a model gets by always
+    // predicting the most-frequent class. On a skewed dataset the
+    // degenerate model clears the raw min_accuracy gate without learning
+    // anything; the stratified holdout preserves the class distribution,
+    // so the full-dataset majority share is the sound baseline estimate.
+    // THE CHOICE (fixed by №485): baseline + margin, not balanced
+    // accuracy — the degenerate model CANNOT clear baseline + margin.
+    let mut class_counts: std::collections::HashMap<usize, usize> =
+        std::collections::HashMap::new();
+    for &t in &targets {
+        *class_counts.entry(t).or_insert(0) += 1;
+    }
+    let majority_baseline = class_counts
+        .values()
+        .copied()
+        .max()
+        .map(|c| c as f64 / targets.len() as f64)
+        .unwrap_or(0.0);
+    // №485: the gate. The explicit NaN guard keeps the NaN-rejecting
+    // truth table of `!(acc >= t)` in a lint-clean form. The single-class
+    // carve-out (№485): one class carries no confusion risk — the raw
+    // min_accuracy gate applies unchanged (the №456 posture).
+    let threshold = if class_counts.len() < 2 {
+        distill.min_accuracy
+    } else {
+        f64::max(distill.min_accuracy, majority_baseline + distill.margin)
+    };
+    if holdout_acc < threshold || holdout_acc.is_nan() {
+        audit_lines.push(format!(
+            "[AUDIT] distill.rejected: {} holdout_accuracy={:.3} < threshold={:.3} (min_accuracy={:.2}, majority_baseline={:.3}, margin={:.2}) — staying TEACHING",
+            pattern_name, holdout_acc, threshold, distill.min_accuracy, majority_baseline, distill.margin
+        ));
+        return fail(pattern_name, false, None, audit_lines);
+    }
+    // Holdout-validated — the verdict SWITCHES the pattern to DISTILLED
+    // (the drain applies the flip; the fallback_if threshold still guards
+    // individual predictions at run time).
+    DistillTrainOutcome {
+        pattern_name: pattern_name.to_string(),
+        switched: true,
+        error: None,
+        audit_lines,
+    }
+}
+
 // ── №456 (gh#675): distill holdout-validation unit tests ───────────────
 // The switch contract lives in try_train_distilled_model (holdout size,
 // holdout accuracy ≥ min_accuracy) and try_distilled_call (NaN fail-closed,
@@ -1840,5 +2019,210 @@ mod n456_distill_holdout_tests {
             "a finite, confident distilled model must answer its label, got {:?}",
             result
         );
+    }
+}
+
+// ── №489 (gh#737): the background distill training — the tests ─────
+// The audit 25.09 §3.11 finding: training happened INLINE under the
+// registry mutex, so the triggering call ate the whole 30-epoch run.
+// These tests pin the new contract: the attempt call returns BEFORE the
+// training finishes; a second attempt never spawns a second trainer;
+// the verdict lands through the mailbox on a later call (loud audit).
+
+#[cfg(test)]
+mod n489_background_training_tests {
+    use super::*;
+    use crate::nn::dense::Dense;
+
+    fn make_interp_with_head(labels: Vec<String>, seed: u64) -> Interpreter {
+        let mut interp = Interpreter::new();
+        let dense = Dense::new(4, labels.len(), crate::nn::ActivationKind::Softmax, seed);
+        let model = crate::nn::ReflexModel {
+            name: "TestHead".to_string(),
+            layers: vec![Box::new(dense)],
+            seed,
+            last_metric: None,
+            input_size: 4,
+            labels,
+        };
+        let id = {
+            let mut reg = interp
+                .reflex_registry
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            reg.register(model)
+        };
+        interp.reflex_names.insert("TestHead".to_string(), id);
+        interp
+    }
+
+    fn distill_config(min_accuracy: f64) -> DistillConfig {
+        DistillConfig {
+            reflex_name: "TestHead".to_string(),
+            distill_after: 1,
+            fallback_if: None,
+            min_accuracy,
+            margin: 0.05,
+            mode: DistillMode::Teaching,
+        }
+    }
+
+    #[test]
+    fn n489_attempt_returns_before_training_finishes() {
+        let mut interp = make_interp_with_head(vec!["yes".into(), "no".into()], 42);
+        let cfg = distill_config(0.60);
+        // 50 000 examples: the 30-epoch run is FAR from instantaneous —
+        // the old inline path would have blocked this call for the whole
+        // run. The new path must return while the trainer still runs.
+        let big: Vec<(String, String)> = (0..50_000)
+            .map(|i| (format!("k{}", i), "yes".to_string()))
+            .collect();
+        {
+            let mut states = interp
+                .distill_states
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            states.insert(
+                "P".to_string(),
+                DistillRuntimeState {
+                    mode: DistillMode::Teaching,
+                    examples: big,
+                    last_train_attempt: 0,
+                },
+            );
+        }
+        let started = std::time::Instant::now();
+        let result = interp
+            .try_distilled_call("P", &cfg, "k1")
+            .expect("the attempt must not error");
+        let elapsed = started.elapsed();
+        assert!(
+            result.is_none(),
+            "TEACHING on the attempt call — the verdict has not landed yet: {:?}",
+            result
+        );
+        assert!(
+            elapsed < std::time::Duration::from_millis(250),
+            "the call must NOT wait for the training run (took {:?})",
+            elapsed
+        );
+        {
+            let states = interp
+                .distill_states
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            assert_eq!(
+                states.get("P").map(|s| s.mode),
+                Some(DistillMode::Teaching),
+                "the mode flips only when the verdict lands"
+            );
+        }
+        // One attempt → exactly one trainer started (the in-flight mark +
+        // the cadence keep the second call from spawning another).
+        let _ = interp
+            .try_distilled_call("P", &cfg, "k2")
+            .expect("the second attempt must not error");
+        // The verdict lands on a later call: bounded drain (no unbounded
+        // waits in tests).
+        let mut switched = false;
+        for _ in 0..2000 {
+            interp.drain_distill_results();
+            {
+                let states = interp
+                    .distill_states
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                if states
+                    .get("P")
+                    .map(|s| s.mode == DistillMode::Distilled)
+                    .unwrap_or(false)
+                {
+                    switched = true;
+                    break;
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(
+            switched,
+            "the background verdict must land within the bounded wait"
+        );
+        let audit = interp.take_audit_log().join("\n");
+        assert_eq!(
+            audit.matches("distill.training-started").count(),
+            1,
+            "exactly one trainer for the pattern: {}",
+            audit
+        );
+        assert!(
+            audit.contains("distill.training-finished") && audit.contains("switched=true"),
+            "the finished marker is loud: {}",
+            audit
+        );
+    }
+
+    #[test]
+    fn n489_refused_training_stays_teaching_via_mailbox() {
+        // The №456 holdout refusal, now riding the background path: the
+        // outcome lands through the mailbox, the rejection is loud, the
+        // pattern never switches.
+        let mut interp = make_interp_with_head(vec!["yes".into(), "no".into()], 42);
+        let cfg = distill_config(0.85);
+        // 10 valid examples → holdout = 2 < MIN_HOLDOUT → refused.
+        let small: Vec<(String, String)> = (0..10)
+            .map(|i| (format!("k{}", i), "yes".to_string()))
+            .collect();
+        {
+            let mut states = interp
+                .distill_states
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            states.insert(
+                "P".to_string(),
+                DistillRuntimeState {
+                    mode: DistillMode::Teaching,
+                    examples: small,
+                    last_train_attempt: 0,
+                },
+            );
+        }
+        let _ = interp
+            .try_distilled_call("P", &cfg, "k1")
+            .expect("the attempt must not error");
+        let mut drained = false;
+        for _ in 0..1000 {
+            interp.drain_distill_results();
+            {
+                let in_flight = interp
+                    .distill_in_flight
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                if in_flight.is_empty() {
+                    drained = true;
+                    break;
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(drained, "the in-flight mark must clear");
+        let mode = {
+            let states = interp
+                .distill_states
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            states.get("P").map(|s| s.mode)
+        };
+        assert_eq!(
+            mode,
+            Some(DistillMode::Teaching),
+            "a refused training never flips the mode"
+        );
+        let audit = interp.take_audit_log().join("\n");
+        assert!(
+            audit.contains("distill.rejected") && audit.contains("holdout too small"),
+            "the rejection must be loud: {}",
+            audit
+        );
+        assert!(audit.contains("distill.training-finished"));
     }
 }

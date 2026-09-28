@@ -246,9 +246,22 @@ pub struct Interpreter {
     /// weights from `&self` contexts (pattern body expression evaluation
     /// goes through eval_expr_with_env which is `&self`, not `&mut self`).
     /// Matches the existing pattern used by `memory`, `audit_log`, etc.
-    pub reflex_registry: std::sync::Mutex<crate::nn::ReflexRegistry>,
+    /// №489: wrapped in Arc — the background distill training thread takes
+    /// its own handle so the request path never blocks on training.
+    pub reflex_registry: std::sync::Arc<std::sync::Mutex<crate::nn::ReflexRegistry>>,
     /// Наряд №178: name → ReflexId map for lookup.
     pub reflex_names: HashMap<String, crate::nn::ReflexId>,
+    /// №489: the background distill-training mailbox. The training thread
+    /// ships its outcome (switch verdict + audit lines) here; the distill
+    /// path drains it on the next call — the head lands when it lands,
+    /// the request never waits.
+    pub distill_tx: std::sync::mpsc::Sender<crate::interpreter::learnable::DistillTrainOutcome>,
+    pub distill_results: std::sync::Mutex<
+        std::sync::mpsc::Receiver<crate::interpreter::learnable::DistillTrainOutcome>,
+    >,
+    /// №489: patterns with a training run in flight — the attempt path
+    /// never spawns a second trainer for the same pattern.
+    pub distill_in_flight: std::sync::Mutex<std::collections::HashSet<String>>,
     /// Наряд №240 (Vision R4.2): vision artifact registry — stores generated
     /// PNG buffers. `Value::Vision(VisionId)` indexes into this. Wrapped in
     /// Mutex for the same `&self` evaluation contexts as `reflex_registry`.
@@ -287,6 +300,10 @@ impl Default for Interpreter {
 
 impl Interpreter {
     pub fn new() -> Self {
+        // №489: the background distill-training mailbox (sender stays with
+        // the interpreter, cloned per spawn; the receiver is drained lazily
+        // on the distill path).
+        let (distill_tx, distill_rx) = std::sync::mpsc::channel();
         Interpreter {
             variables: HashMap::new(),
             struct_types: HashMap::new(),
@@ -338,8 +355,13 @@ impl Interpreter {
             checkpoint_mem: std::sync::Mutex::new(HashMap::new()),
             resume_target: None,
             skill_indices: HashMap::new(),
-            reflex_registry: std::sync::Mutex::new(crate::nn::ReflexRegistry::new()),
+            reflex_registry: std::sync::Arc::new(std::sync::Mutex::new(
+                crate::nn::ReflexRegistry::new(),
+            )),
             reflex_names: HashMap::new(),
+            distill_tx,
+            distill_results: std::sync::Mutex::new(distill_rx),
+            distill_in_flight: std::sync::Mutex::new(std::collections::HashSet::new()),
             vision_registry: std::sync::Mutex::new(crate::vision::VisionRegistry::new()),
             media_store: std::sync::Mutex::new(crate::media::MediaStore::new()),
             vision_decls: HashMap::new(),

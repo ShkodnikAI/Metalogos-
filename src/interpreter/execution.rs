@@ -350,9 +350,9 @@ impl Interpreter {
                     // interpreter, but we propagate as an error anyway
                     // (clippy::expect_used forbids expect/unwrap in
                     // non-test code, ADR from Наряд №29 §6.4).
-                    let reg = self
+                    let mut reg = self
                         .reflex_registry
-                        .get_mut()
+                        .lock()
                         .map_err(|e| format!("reflex registry poisoned: {}", e))?;
                     let id = reg.register(model);
                     // Store the ReflexId for later lookup by name
@@ -400,9 +400,9 @@ impl Interpreter {
                             seed: r.seed,
                         };
                         let model = crate::builtins::build_reflex_seq_model(&compiled)?;
-                        let reg = self
+                        let mut reg = self
                             .reflex_registry
-                            .get_mut()
+                            .lock()
                             .map_err(|e| format!("reflex registry poisoned: {}", e))?;
                         let id = reg.register_seq(model);
                         self.reflex_names.insert(r.name.clone(), id);
@@ -449,9 +449,9 @@ impl Interpreter {
                             seed: r.seed,
                         };
                         let model = crate::builtins::build_reflex_gen_model(&compiled)?;
-                        let reg = self
+                        let mut reg = self
                             .reflex_registry
-                            .get_mut()
+                            .lock()
                             .map_err(|e| format!("reflex registry poisoned: {}", e))?;
                         let id = reg.register_gen(model);
                         self.reflex_names.insert(r.name.clone(), id);
@@ -503,18 +503,18 @@ impl Interpreter {
         // reflex_train(...) inside a pattern body) goes through
         // eval_expr_with_env → invoke_reflex_train / invoke_reflex_predict.
         if name == crate::reflex_ops::NAME_REFLEX_TRAIN {
-            let reg = self
+            let mut reg = self
                 .reflex_registry
-                .get_mut()
+                .lock()
                 .map_err(|e| format!("reflex registry poisoned: {}", e))?;
-            return crate::builtins::reflex_train_dispatch(reg, &args);
+            return crate::builtins::reflex_train_dispatch(&mut reg, &args);
         }
         if name == crate::reflex_ops::NAME_REFLEX_PREDICT {
             let reg = self
                 .reflex_registry
-                .get_mut()
+                .lock()
                 .map_err(|e| format!("reflex registry poisoned: {}", e))?;
-            return crate::builtins::reflex_predict_dispatch(reg, &args);
+            return crate::builtins::reflex_predict_dispatch(&reg, &args);
         }
         // Наряд №180: reflex_save / reflex_load — persistence (ADR-0116).
         // Need access to both the ReflexRegistry and the SQLite persist
@@ -528,10 +528,10 @@ impl Interpreter {
             let persist = self.get_memory_persist_path();
             let reg = self
                 .reflex_registry
-                .get_mut()
+                .lock()
                 .map_err(|e| format!("reflex registry poisoned: {}", e))?;
             return crate::builtins::reflex_save_dispatch(
-                reg,
+                &reg,
                 &self.reflex_names,
                 persist.as_deref(),
                 &args,
@@ -539,12 +539,12 @@ impl Interpreter {
         }
         if name == crate::reflex_ops::NAME_REFLEX_LOAD {
             let persist = self.get_memory_persist_path();
-            let reg = self
+            let mut reg = self
                 .reflex_registry
-                .get_mut()
+                .lock()
                 .map_err(|e| format!("reflex registry poisoned: {}", e))?;
             let result = crate::builtins::reflex_load_dispatch(
-                reg,
+                &mut reg,
                 &self.reflex_names,
                 persist.as_deref(),
                 &args,
@@ -556,24 +556,24 @@ impl Interpreter {
         if name == crate::reflex_ops::NAME_REFLEX_METRICS {
             let reg = self
                 .reflex_registry
-                .get_mut()
+                .lock()
                 .map_err(|e| format!("reflex registry poisoned: {}", e))?;
-            return crate::builtins::reflex_metrics_dispatch(reg, &args);
+            return crate::builtins::reflex_metrics_dispatch(&reg, &args);
         }
         if name == crate::reflex_ops::NAME_REFLEX_LIST {
             let reg = self
                 .reflex_registry
-                .get_mut()
+                .lock()
                 .map_err(|e| format!("reflex registry poisoned: {}", e))?;
-            return crate::builtins::reflex_list_dispatch(reg, &self.reflex_names, &args);
+            return crate::builtins::reflex_list_dispatch(&reg, &self.reflex_names, &args);
         }
         // Наряд №193: reflex_generate — text generation (ADR-0120).
         if name == crate::reflex_ops::NAME_REFLEX_GENERATE {
             let reg = self
                 .reflex_registry
-                .get_mut()
+                .lock()
                 .map_err(|e| format!("reflex registry poisoned: {}", e))?;
-            return crate::builtins::reflex_generate_dispatch(reg, &args);
+            return crate::builtins::reflex_generate_dispatch(&reg, &args);
         }
 
         // Наряд №240 (Vision R4.2): vision_generate / vision_list /

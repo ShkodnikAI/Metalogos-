@@ -1559,7 +1559,10 @@ pub(super) fn parse_eval_decl(pair: Pair<Rule>) -> Result<Declaration, ParseErro
         .filter(|c| c.as_rule() == Rule::eval_body)
         .flat_map(|c| children_of(c))
         .collect();
-    if !body_children.iter().any(|c| c.as_rule() == Rule::eval_dataset) {
+    if !body_children
+        .iter()
+        .any(|c| c.as_rule() == Rule::eval_dataset)
+    {
         return Err(pair_error(
             &pair,
             "eval requires a 'dataset' field — a free-order eval body must still carry the dataset",

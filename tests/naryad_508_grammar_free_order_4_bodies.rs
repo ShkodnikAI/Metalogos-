@@ -53,8 +53,10 @@ fn n508_memory_fields_in_any_order() {
     // NOTE: the INNER kv sub-block is NOT part of №508 (the same
     // posture №490 took with the llm provider sub-block) — only the
     // memory_body's own fields (kv, persist) go free-order.
-    let canonical = r#"memory { kv: { type: key_value persist: true }, persist: "./data/memory.db" }"#;
-    let permuted = r#"memory { persist: "./data/memory.db", kv: { type: key_value persist: true } }"#;
+    let canonical =
+        r#"memory { kv: { type: key_value persist: true }, persist: "./data/memory.db" }"#;
+    let permuted =
+        r#"memory { persist: "./data/memory.db", kv: { type: key_value persist: true } }"#;
     assert_same_ast(canonical, permuted, "memory free order");
 }
 

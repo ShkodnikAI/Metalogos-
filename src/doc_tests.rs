@@ -56,6 +56,9 @@ impl EphemeralDir {
             std::process::id(),
             n
         ));
+        // №500: the doctest harness (compile-time docs service — the
+        // ratchet targets production I/O).
+        #[allow(clippy::disallowed_methods)]
         std::fs::create_dir_all(&path)
             .map_err(|e| format!("doc-tests: cannot create {}: {e}", path.display()))?;
         Ok(EphemeralDir { path })
@@ -64,6 +67,8 @@ impl EphemeralDir {
 
 impl Drop for EphemeralDir {
     fn drop(&mut self) {
+        // №500: the doctest harness temp-dir cleanup (service).
+        #[allow(clippy::disallowed_methods)]
         let _ = std::fs::remove_dir_all(&self.path);
     }
 }

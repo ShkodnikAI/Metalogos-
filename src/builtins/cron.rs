@@ -78,6 +78,8 @@ fn reminders_sqlite() -> &'static StdMutex<Option<rusqlite::Connection>> {
 
 /// Initialize SQLite persistence for reminders. Called from server.rs on startup.
 pub fn init_reminder_persist(db_path: &str) -> Result<(), String> {
+    // №500: the reminder journal (engine storage, the cron persist file).
+    #[allow(clippy::disallowed_methods)]
     let conn = rusqlite::Connection::open(db_path)
         .map_err(|e| format!("[reminders] Failed to open database '{}': {}", db_path, e))?;
     conn.execute_batch(

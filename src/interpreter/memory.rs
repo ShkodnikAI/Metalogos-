@@ -163,6 +163,8 @@ impl Interpreter {
 
                     // ADR-0056: initialize checkpoint SQLite (same DB directory)
                     let cp_path = std::path::PathBuf::from(path).with_file_name("checkpoints.db");
+                    // №500: the checkpoint journal (engine storage).
+                    #[allow(clippy::disallowed_methods)]
                     if let Ok(conn) = rusqlite::Connection::open(&cp_path) {
                         let _ = conn.execute_batch(
                             "CREATE TABLE IF NOT EXISTS checkpoints (

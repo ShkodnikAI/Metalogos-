@@ -49,6 +49,9 @@ fn version_mismatch_is_explicit_error() {
     // Manually corrupt the REFLEX_VERSION field in the stored blob.
     // Read the blob back from SQLite, modify bytes [4..8] (the version
     // u32 LE), write it back.
+    // №500: the test harness manipulates the fixture db directly
+    // (the ratchet targets production I/O).
+    #[allow(clippy::disallowed_methods)]
     let conn = rusqlite::Connection::open(&db_path).expect("open db");
     let blob: Vec<u8> = conn
         .query_row(
@@ -112,6 +115,8 @@ fn corrupted_magic_bytes_is_explicit_error() {
     }
 
     // Corrupt the magic bytes.
+    // №500: the test harness manipulates the fixture db directly.
+    #[allow(clippy::disallowed_methods)]
     let conn = rusqlite::Connection::open(&db_path).expect("open db");
     let blob: Vec<u8> = conn
         .query_row(

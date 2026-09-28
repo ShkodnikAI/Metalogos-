@@ -399,10 +399,15 @@ impl SqliteStore {
     pub fn open(path: &Path) -> Result<Self, String> {
         // Create parent directories if needed
         if let Some(parent) = path.parent() {
+            // №500: the memory-persist store dir prep (engine storage).
+            #[allow(clippy::disallowed_methods)]
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("Failed to create memory db directory: {}", e))?;
         }
 
+        // №500: the memory-persist store (engine storage; the persist
+        // path is the `memory { persist }` declaration's own file).
+        #[allow(clippy::disallowed_methods)]
         let conn = rusqlite::Connection::open(path)
             .map_err(|e| format!("Failed to open memory database '{}': {}", path.display(), e))?;
 
@@ -948,6 +953,8 @@ pub struct SqliteKg {
 impl SqliteKg {
     /// Open KG tables in a SQLite database file. Creates tables if needed.
     pub fn open(path: &Path) -> Result<Self, String> {
+        // №500: the KG store (engine storage, the same persist file).
+        #[allow(clippy::disallowed_methods)]
         let conn = rusqlite::Connection::open(path)
             .map_err(|e| format!("Failed to open KG database '{}': {}", path.display(), e))?;
 

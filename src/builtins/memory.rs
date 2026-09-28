@@ -55,6 +55,9 @@ pub(crate) fn kv_sqlite() -> &'static StdMutex<Option<rusqlite::Connection>> {
 /// Creates kv_store table (key TEXT PRIMARY KEY, value TEXT) in the given database.
 /// Loads existing rows into the in-memory HashMap.
 pub fn init_kv_persist(db_path: &str) -> Result<(), String> {
+    // №500: the memory-persist service open (engine storage, the
+    // declared persist file — the same path class №475 kept).
+    #[allow(clippy::disallowed_methods)]
     let conn = rusqlite::Connection::open(db_path)
         .map_err(|e| format!("[kv_store] Failed to open database '{}': {}", db_path, e))?;
     conn.execute_batch(

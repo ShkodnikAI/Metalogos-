@@ -4,6 +4,25 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №487 (issue #735; the audit 26.09 action item 11 — the
+  reconstruction, the §3.7 text never delivered): the mock-response
+  marker hash is an EXPLICITLY stable algorithm — FNV-1a 64
+  (offset basis `0xcbf29ce484222325`, prime `0x100000001b3`), the
+  marker hex being the LOW 32 bits of the digest of the prompt's
+  UTF-8 bytes, `{:08x}`. `DefaultHasher` never promised cross-release
+  stability (std pins its keys within a version, not the algorithm
+  across toolchain upgrades) — a Rust upgrade could silently move
+  every `[mock-llm:<8 hex>]` marker in the goldens and logs. The
+  formula, the constants and the truncation are documented in the
+  source; the new `test_mock_response_golden_hex` pins the hex for
+  three prompts (including the empty prompt = the offset basis) and
+  breaks on purpose if the algorithm ever moves. The marker VALUES
+  changed exactly once with this merge — the mock-mode goldens were
+  updated deliberately, all 21 markers across 9
+  `examples/*.expected` files (`m3_classify`, `p2_full_adapt`,
+  `p11_context_loading_fixed`, `p12_context_{auto,literal,none}`,
+  `reflex_distill_{teaching,switch,fallback}`); the full old→new
+  mapping is in the naryad report. The marker FORMAT is unchanged.
 - Naryad №486 (issue #734; the audit v0.26.1 §3.9 — the typed stage-0
   signatures were documentation, not a checked contract): the
   declared-type conflict surface, WARN-ONLY, on top of the №474

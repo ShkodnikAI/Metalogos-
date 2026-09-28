@@ -343,6 +343,8 @@ jobs:
           prefix-key: v2
       - name: Integration tests (excluding blocking tests)
         run: cargo test --workspace --tests --no-fail-fast -- --skip crosscheck --skip registry_arity_check --skip llm_cache_contract
+      - name: "Artifact — the №486 declared-type warn count on examples/ (informational, NOT a ratchet — the corpus test prints the line)"
+        run: cargo test --test naryad_486_declared_types -- --nocapture corpus_declared
 
   # Naryad #393 (ADR-0167 §3.6): the 10k-record Action Ledger golden —
   # the chain must sign and externally verify in < 10 s. Release-only

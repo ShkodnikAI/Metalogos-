@@ -29,6 +29,12 @@ pub(super) fn parse_pattern_body(pair: Pair<Rule>) -> Result<Vec<Statement>, Par
 /// Parse a single statement from its rule pair.
 pub(super) fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
     let children = children_of(&pair);
+    // №486: the statement's real source span. Statement-level diagnostics
+    // (the stage-1 assign conflict, the №486 declared-return conflict)
+    // are only "warn с позицией" if the AST carries a position — Assign
+    // and Return get the real span below; the other statement kinds keep
+    // their historical `Span::unknown()` (no behavior change).
+    let stmt_span = Span::from_pest(pair.as_span());
     // statement = { match_stmt | if_block_stmt | each_stmt | ... }
     // Наряд №14: match_stmt is now a proper AST statement
     if let Some(m_pair) = children.iter().find(|c| c.as_rule() == Rule::match_stmt) {
@@ -171,7 +177,7 @@ pub(super) fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, Pars
             Ok(Statement::Assign {
                 name,
                 value: parse_expression(expr)?,
-                span: Span::unknown(),
+                span: stmt_span.clone(),
             })
         } else {
             // Expression statement (function call, etc.)
@@ -200,7 +206,7 @@ pub(super) fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, Pars
         })?;
         Ok(Statement::Return {
             value: parse_expression(expr)?,
-            span: Span::unknown(),
+            span: stmt_span.clone(),
         })
     } else if let Some(_br_pair) = children.iter().find(|c| c.as_rule() == Rule::break_stmt) {
         Ok(Statement::Break)
@@ -352,7 +358,7 @@ pub(super) fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, Pars
         Ok(Statement::Assign {
             name,
             value: parse_expression(expr)?,
-            span: Span::unknown(),
+            span: stmt_span.clone(),
         })
     } else {
         // Fallback: unrecognized statement — return proper parse error with position

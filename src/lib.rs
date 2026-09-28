@@ -36,6 +36,7 @@ pub mod likeness;
 // Naryad #392: DenyEvent — the typed deny-reason vocabulary + event
 // contract shared by the static gate, the TW interpreter and the VM.
 pub mod deny;
+pub mod distill_hub;
 // Naryad #393 (ADR-0167): Action Ledger v1 — signed append-only journal
 // of actions (prev-hash chain + Ed25519 per-record signatures; the
 // in-toto/PROV export profile is ADR-0157). The external verifier

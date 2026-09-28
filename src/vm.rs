@@ -183,6 +183,11 @@ pub struct Vm {
     /// Mirrors `Interpreter::distill_states` but without Mutex (VM is
     /// single-threaded per request — `call_llm` is `&mut self`).
     distill_states: HashMap<String, crate::interpreter::types::DistillRuntimeState>,
+    /// №495: the server-level distillation hub (serve path). Injected at
+    /// route checkout, cleared by `reset_for_reuse` — a checked-in VM
+    /// rests hub-free (the same discipline as the per-request context).
+    /// `None` = the pre-№495 local behavior (plain `mlog run`).
+    pub(crate) distill_hub: Option<std::sync::Arc<dyn crate::distill_hub::DistillAccess>>,
 }
 
 /// Collapse threshold for Fluid values (matches interpreter).
@@ -312,6 +317,7 @@ impl Vm {
             origin_decls: HashMap::new(),
             memory_persist_path: None,
             distill_states: HashMap::new(),
+            distill_hub: None,
         }
     }
 
@@ -392,6 +398,31 @@ impl Vm {
             let model = crate::builtins::build_reflex_model(decl)?;
             let id = self.reflex_registry.register(model);
             self.reflex_names.insert(decl.name.clone(), id);
+        }
+
+        // №495 (Wave 19): the learnable table populates HERE, from the
+        // program's compiled declarations — fresh copies with empty
+        // runtime few-shot, exactly the shape the RegisterLearnable
+        // handler pushes during main_code. Before this, the table was
+        // populated ONLY by main_code execution — which never runs on
+        // the serve path — so a VM route body calling a learnable
+        // pattern failed loud with "VM: learnable index N not found":
+        // the №496 e2e was the first test to drive a learnable through
+        // the VM serve lane, and it caught the class (the audit 28.09
+        // §3.1 headline: test through the mode you use). The table
+        // stays per-request-isolated: reset_for_reuse clears it (step 4)
+        // and every load re-registers — request A's runtime mutations
+        // (the distill few-shot vec) never reach request B; the
+        // PERSISTENT distill state lives in the hub, not here.
+        let scanned = program.pre_registered_learnables();
+        if !scanned.is_empty() {
+            self.learnables = scanned.into_iter().map(|info| (info, Vec::new())).collect();
+        } else {
+            self.learnables = program
+                .learnables
+                .iter()
+                .map(|info| (info.clone(), Vec::new()))
+                .collect();
         }
 
         // Наряд №204 (ADR-0121 stages 3-4): register reflex_seq and
@@ -613,9 +644,10 @@ impl Vm {
         self.reflex_names = HashMap::new();
         self.vision_decls = HashMap::new();
         self.origin_decls = HashMap::new();
-        // Learnables are populated by RegisterLearnable during main_code
-        // execution (and mutated by distillation) — load_program never
-        // assigns this field; on the serve path it must rest empty.
+        // Learnables: cleared then RE-REGISTERED by load_program (№495 —
+        // the table now populates from the program's declarations, which
+        // is what makes VM route bodies able to call learnables at all);
+        // request A's runtime few-shot mutations never reach request B.
         self.learnables = Vec::new();
 
         // ── 5. logs/stats/event streams exposed through &self ──
@@ -650,6 +682,9 @@ impl Vm {
         // cleared again here so a checked-in VM rests context-free even
         // before the next checkout injects fresh context.
         self.clear_server_context();
+        // №495: the hub reference rides the per-request injection — a
+        // checked-in VM rests hub-free; the next checkout re-injects.
+        self.distill_hub = None;
 
         // ── 7. program-scoped reload ──
         // Wholesale reassignment of globals/global_names/patterns/rules/
@@ -2937,6 +2972,16 @@ impl Vm {
     ) -> Result<Option<Value>, String> {
         use crate::interpreter::types::{DistillMode, DistillRuntimeState};
 
+        // №495: hub-attached (serve) — the whole machine lives
+        // server-level, and the VM lane stops training synchronously
+        // in-request (the audit 28.09 §3.1 parity goal: №489's background
+        // posture at the hub). The local path below stays byte-identical
+        // for the hub-less (`mlog run`) case.
+        if let Some(hub) = self.distill_hub.as_ref() {
+            let spec = crate::distill_hub::DistillSpec::from(info);
+            return hub.try_distilled_call(pattern_name, &spec, input);
+        }
+
         let distill_to = info
             .distill_to
             .as_ref()
@@ -3175,6 +3220,12 @@ impl Vm {
     }
 
     fn record_distill_example(&mut self, pattern_name: &str, input: &str, output: &str) {
+        // №495: hub-attached (serve) — the example lands in the
+        // process-level ledger (and in distill_samples).
+        if let Some(hub) = self.distill_hub.as_ref() {
+            hub.record_example(pattern_name, input, output);
+            return;
+        }
         use crate::interpreter::types::{DistillMode, DistillRuntimeState};
         let state = self
             .distill_states
@@ -3191,21 +3242,10 @@ impl Vm {
     /// Ported verbatim from `src/interpreter/learnable.rs::simple_embedding`
     /// for byte-for-byte determinism (ADR-0121).
     fn simple_embedding(&self, input: &str, dim: usize) -> Vec<f64> {
-        let mut embedding = vec![0.0; dim];
-        let bytes = input.as_bytes();
-        for (i, &b) in bytes.iter().enumerate() {
-            let bucket = i % dim;
-            embedding[bucket] += (b as f64) * 0.01;
-            if b != 0 {
-                embedding[(bucket + 1) % dim] =
-                    (embedding[(bucket + 1) % dim] * 0.99) + (b as f64) * 0.001;
-            }
-        }
-        let max_val = embedding.iter().cloned().fold(0.0f64, f64::max).max(1.0);
-        for v in &mut embedding {
-            *v /= max_val;
-        }
-        embedding
+        // №495: the ONE canonical copy lives in the distill hub —
+        // byte-identical by construction (ADR-0121), and the mirror
+        // count (the №502 metric) moves DOWN.
+        crate::distill_hub::simple_embedding(input, dim)
     }
 
     /// Call an LLM-backed learnable pattern.
@@ -4100,6 +4140,7 @@ mod n403_reset_tests {
         &HashMap<String, crate::bytecode::CompiledOriginDecl>,
         &Option<String>,
         &HashMap<String, crate::interpreter::types::DistillRuntimeState>,
+        &Option<std::sync::Arc<dyn crate::distill_hub::DistillAccess>>,
     ) {
         let Vm {
             label_env,
@@ -4143,6 +4184,7 @@ mod n403_reset_tests {
             origin_decls,
             memory_persist_path,
             distill_states,
+            distill_hub,
         } = vm;
         // Note: `label_env` sits in a private type alias position; the
         // tuple returns references so nothing here runs — this function
@@ -4189,6 +4231,7 @@ mod n403_reset_tests {
             origin_decls,
             memory_persist_path,
             distill_states,
+            distill_hub,
         );
         (
             label_env,
@@ -4232,6 +4275,7 @@ mod n403_reset_tests {
             origin_decls,
             memory_persist_path,
             distill_states,
+            distill_hub,
         )
     }
 

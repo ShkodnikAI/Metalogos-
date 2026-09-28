@@ -262,6 +262,12 @@ pub struct Interpreter {
     /// №489: patterns with a training run in flight — the attempt path
     /// never spawns a second trainer for the same pattern.
     pub distill_in_flight: std::sync::Mutex<std::collections::HashSet<String>>,
+    /// №495: the server-level distillation hub. `None` = the pre-№495
+    /// local behavior (plain `mlog run` — per-interpreter distill state;
+    /// the existing unit tests pin it). In serve, `fresh_program_context`
+    /// attaches `ServerState.distill` so examples, TEACHING/DISTILLED
+    /// modes and trained weights persist ACROSS requests.
+    pub(crate) distill_hub: Option<std::sync::Arc<dyn crate::distill_hub::DistillAccess>>,
     /// Наряд №240 (Vision R4.2): vision artifact registry — stores generated
     /// PNG buffers. `Value::Vision(VisionId)` indexes into this. Wrapped in
     /// Mutex for the same `&self` evaluation contexts as `reflex_registry`.
@@ -346,6 +352,7 @@ impl Interpreter {
             test_blocks: Vec::new(),
             pattern_stats: std::sync::Mutex::new(std::collections::HashMap::new()),
             distill_states: std::sync::Mutex::new(std::collections::HashMap::new()),
+            distill_hub: None,
             event_log: std::sync::Mutex::new(Vec::new()),
             event_next_id: std::sync::atomic::AtomicU64::new(1),
             conversations: std::sync::Mutex::new(HashMap::new()),
@@ -597,6 +604,16 @@ impl Interpreter {
             decls.push(Declaration::Hook(h.clone()));
         }
         decls
+    }
+
+    /// №495: attach the server-level distillation hub (the serve path).
+    /// Both backends then route their distill touchpoints through the
+    /// hub instead of the per-context state.
+    pub(crate) fn attach_distill_hub(
+        &mut self,
+        hub: std::sync::Arc<dyn crate::distill_hub::DistillAccess>,
+    ) {
+        self.distill_hub = Some(hub);
     }
 
     /// Clone pattern definitions, struct types, learnable patterns, rules,

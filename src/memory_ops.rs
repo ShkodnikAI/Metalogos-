@@ -147,6 +147,14 @@ pub(crate) fn recall_tw(
     // ── Merge: the store lane is recall's primary lane (its
     // external contract is regression-pinned); the typed lane is the
     // fallback source whose hits carry the [MEM] provenance suffix.
+    // Narjad №493, anchor 6: when both the store lane and the typed
+    // lane come up empty, recall used to return the empty string —
+    // dropping the KG-only contour on the floor. A `relate`-only
+    // program (no `memorize`) persists edges to SqliteKg; the next
+    // interpreter session opened the KG but recall never asked it for
+    // the query string. The fix is a third fallback: ask the KG for
+    // edges_for(query) directly and synthesize the [GRAPH] body when
+    // the store and the typed lane both miss.
     let had_store_hit = store_hit.is_some();
     let result = match store_hit {
         Some(entry) => {
@@ -169,7 +177,22 @@ pub(crate) fn recall_tw(
                 result.push_str(&crate::memory_typed::recall_hit_provenance(hit));
                 result
             }
-            None => String::new(),
+            None => {
+                // Narjad №493, anchor 6: KG-only contour — the query
+                // string itself is a node name; ask the KG for its
+                // edges and synthesize the [GRAPH] body.
+                let edges = crate::interpreter::lock_or_err(kg.lock())?.edges_for(&query);
+                if edges.is_empty() {
+                    String::new()
+                } else {
+                    let mut result = query.clone();
+                    for (relation, other, _weight) in &edges {
+                        result.push('\n');
+                        result.push_str(&format!("[GRAPH] {} -> {}", relation, other));
+                    }
+                    result
+                }
+            }
         },
     };
 

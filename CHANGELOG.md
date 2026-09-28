@@ -4,6 +4,32 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №486 (issue #734; the audit v0.26.1 §3.9 — the typed stage-0
+  signatures were documentation, not a checked contract): the
+  declared-type conflict surface, WARN-ONLY, on top of the №474
+  stage-1 machinery. Three checks in the same semantic pass, own
+  grep-able prefix `[n486 types]`: R1 — a pattern/tool method declaring
+  `-> T` that `return`s a KNOWN different type (a direct typed builtin
+  call, a literal, a typed variable, or a pattern call under its
+  declared return) warns WITH POSITION (the parser now carries real
+  spans for `Assign`/`Return` statements); R2 — declared parameter
+  types (`x: String`) seed the inference environment, so the existing
+  №474 assign rule flags `x = <differently-typed builtin>` with the
+  origin naming the DECLARATION; R3 — pattern and learnable-pattern
+  calls type their `let` from the DECLARED return type, so a later
+  builtin reassignment of a different known type conflicts. Honesty
+  pinned by tests: an unparseable declared spelling (`-> Message`)
+  never warns; a declared `Fluid` never warns (it accepts anything by
+  design); labels are ERASED before comparing (`String<private>`
+  compares as `String`); `Unknown` never warns (the №474 pin). The
+  language stays dynamically typed — every conflicting program still
+  compiles and runs (the warn-only proof). The firing count across
+  examples/ ships as an INFORMATIONAL CI artifact (the
+  test-integration job prints it; NOT a ratchet — the issue says so):
+  the corpus of 242 checkable programs carries 0 today. 10 tests in
+  `tests/naryad_486_declared_types.rs` (3 catches + warn-only +
+  honesty + the corpus discipline); the №474 pins stay green
+  unchanged.
 - Naryad №485 (issue #733; the audit v0.26.1 §3.8 — the distill gate
   passes a degenerate model on skewed data): the majority-baseline
   gate + the stratified split + the NaN-safe refusal form. The switch

@@ -198,6 +198,12 @@ impl DistillHub {
         let mut bootstrap_lines: Vec<String> = Vec::new();
         let persist = match persist_path {
             Some(path) => {
+                // №500 named-allow equivalent: the hub opens ITS OWN
+                // server-configured persistence file (the memory-persist
+                // SQLite path handed in by `run_server`, not a program
+                // data path) — the same service class as the vector.rs
+                // post-sandbox open and the memory/KG journals.
+                #[allow(clippy::disallowed_methods)]
                 let conn = rusqlite::Connection::open(path)
                     .map_err(|e| format!("distill hub: open {}: {}", path, e))?;
                 conn.execute_batch(

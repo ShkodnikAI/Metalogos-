@@ -4,6 +4,24 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №505 (issue #788; the audit 28.09 §3.5): the naryad number
+  uniqueness gate — `scripts/ci/naryad_number_check.py` + the
+  `Naryad numbering (blocking)` CI job next to the adr-check. Under
+  one number different works have already lived (№474, №475, №476,
+  №493 — the external audit stumbled on it twice): the gate parses
+  the PR title's naryad claim and refuses a number that already
+  landed as a DIFFERENT work, listing the occupied works. The
+  exception grammar is explicit and pinned by the script's self-test:
+  the work-group suffix (`№466 group M`), the dotted re-issue
+  (`№475.1`), the re-land suffixes (reland/retry/revert/rerun/redo/
+  take-N) and the same-issue follow-up (the occupied record pointing
+  at the same `issue #M`). The occupied set comes from the merged
+  git history (the EN `naryad N` and RU `Наряд №N` subject forms) and
+  the closed issue titles via GH_TOKEN (best effort — the history
+  alone suffices). The four known collisions are documented in the
+  naryad's report so external links stop confusing them. The script
+  does not rewrite history and does not rename old naryads.
+
 - Naryad №495 (issue #780; the audit 28.09 §3.1 High, the P0 core of
   Wave 19): distillation in `mlog serve` now WORKS on both backends —
   the new server-level `DistillHub` (`src/distill_hub.rs`). Before

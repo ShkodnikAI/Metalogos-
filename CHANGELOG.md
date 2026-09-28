@@ -4,6 +4,30 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №490 (issue #738; the audit 25.09 §4.5 tail): the
+  llm/mlogserver/learnable body fields are now ORDER-FREE — the field
+  set is fixed, the order is not. The three body rules in
+  grammar.pest went from rigid sequences to unordered repetitions of
+  their field rules (silent `llm_field`/`mlogserver_field`/
+  `learnable_field` choice wrappers keep the inner rules directly in
+  the body's child list, so the `.find()`-based extraction is
+  unchanged). A duplicate field is a LOUD parse error naming the
+  field and pointing at the duplicate's position — previously the
+  parsers' first-wins `.find()` silently dropped the rest (the
+  grammar could not express per-alternative uniqueness; the contract
+  moved to `guard_unique_field_groups` in the AST-building layer).
+  The four `context_*` variants share one logical "context" slot;
+  `prompt` stays multi-cardinality (first-wins is the pinned
+  posture); the №757 `max_tokens`/`temperature` and the №485
+  `distill_min_accuracy`/`distill_margin` fields join the same
+  free-order set. No required fields exist in the three bodies, so
+  the "missing required field" half of the issue's error contract is
+  vacuous by construction. Field semantics unchanged — the same
+  values land in the same AST fields in any order (pinned by
+  permutation-class tests on all three bodies in
+  `tests/naryad_490_grammar_field_order.rs`, 13 tests; the №465/№479
+  diff-fuzzer reports no new divergence classes; docs/book/syntax.md
+  grammar sections updated).
 - Naryad №493 (issue #772; the №488 test-hygiene residue — 8 findings
   the ignore removal surfaced): every finding the №488 ignore-drop
   exposed is fixed and the nine previously-ignored tests are un-ignored.

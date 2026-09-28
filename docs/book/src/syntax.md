@@ -83,7 +83,13 @@ learnable pattern Name(param: Type, ...) -> ReturnType {
 }
 ```
 
-A pattern backed by a language model.
+A pattern backed by a language model. The body fields (`prompt`,
+`context`, `context_strategy`, `conversation`, `model`, `max_tokens`,
+`cache`, `cache_ttl`, `cache_semantic`, `cache_threshold`,
+`max_context_tokens`, `distill_to`, `distill_after`, `fallback_if`,
+`distill_min_accuracy`, `distill_margin`) may appear in ANY order
+(Naryad #490); each may appear at most once — a duplicate is a loud
+parse error naming the field and its position.
 
 ```mlog
 learnable pattern Classify(text: String) -> String {
@@ -192,6 +198,11 @@ relate "from" to "to" as "relation"
 
 ### Server (HTTP)
 
+The body fields (`port`, `host`, `middleware`, `rate_limit`,
+`redact_mode`) and `route` blocks may appear in ANY order (Naryad
+#490); each scalar field may appear at most once — a duplicate is a
+loud parse error naming the field and its position.
+
 ```mlog
 // doc-test: skip
 server {
@@ -252,13 +263,19 @@ conversation {
 
 ### LLM Config
 
+The body fields (`providers`, `default_model`, `failover`,
+`circuit_breaker`, `timeout`, `max_tokens`, `temperature`) may appear
+in ANY order, comma-separated (Naryad #490); each may appear at most
+once — a duplicate is a loud parse error naming the field and its
+position. An empty body is valid (the env-var fallback applies).
+
 ```mlog
 // doc-test: skip
 llm {
   providers: [
-    { name: "openai", model: "gpt-4", api_key: env("OPENAI_KEY") }
+    { alias: main, provider: openai, key: env("OPENAI_KEY") }
   ]
-  default: "openai"
+  default_model: "main"
   timeout: 30
 }
 ```

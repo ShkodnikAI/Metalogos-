@@ -3,6 +3,47 @@ use std::collections::HashMap;
 
 use super::*;
 
+// ── Narjad №490: the unordered-body duplicate guard ─────────────────
+//
+// The №490 grammar gives the llm/mlogserver/learnable bodies a FIXED
+// field set with a FREE order (each body is now an unordered repetition
+// of the field rules instead of a rigid sequence). The grammar cannot
+// express "each alternative at most once" for a choice rule, so the
+// uniqueness contract is enforced HERE, at the AST-building layer: a
+// second occurrence of any field in a single-cardinality group is a
+// loud parse error naming the field and pointing at the duplicate's
+// position (previously a duplicate was silently dropped — the parsers
+// used `.find()`, first-wins).
+//
+// A group is (display_name, rules): a duplicate is a second occurrence
+// of ANY rule in the group (this lets the four `context_*` variants
+// share one logical "context" slot). Multi-cardinality fields
+// (prompt_line, route_decl, distill_to/after/fallback_if groups are
+// single too) are simply not listed.
+fn guard_unique_field_groups(
+    body: &[Pair<Rule>],
+    groups: &[(&str, &[Rule])],
+) -> Result<(), ParseError> {
+    for (name, rules) in groups {
+        let mut seen = false;
+        for child in body {
+            if rules.contains(&child.as_rule()) {
+                if seen {
+                    return Err(pair_error(
+                        child,
+                        &format!(
+                            "duplicate field '{}' — each field may appear at most once in the body",
+                            name
+                        ),
+                    ));
+                }
+                seen = true;
+            }
+        }
+    }
+    Ok(())
+}
+
 // ── MlogServer (Phase 6.1) ─────────────────────────────────────
 
 pub(super) fn parse_mlogserver_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
@@ -67,6 +108,18 @@ pub(super) fn parse_mlogserver_decl(pair: Pair<Rule>) -> Result<Declaration, Par
         .filter(|c| c.as_rule() == Rule::route_decl)
         .map(|c| parse_route_decl(c.clone()))
         .collect::<Result<_, _>>()?;
+
+    // Narjad №490: the field order is free — duplicates are loud.
+    guard_unique_field_groups(
+        &body_children,
+        &[
+            ("port", &[Rule::mlogserver_port]),
+            ("host", &[Rule::mlogserver_host]),
+            ("middleware", &[Rule::mlogserver_middleware]),
+            ("rate_limit", &[Rule::mlogserver_rate_limit]),
+            ("redact_mode", &[Rule::mlogserver_redact_mode]),
+        ],
+    )?;
 
     Ok(Declaration::MlogServer(MlogServerDecl {
         span,
@@ -1296,6 +1349,20 @@ pub(super) fn parse_llm_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError
         None => None,
     };
 
+    // Narjad №490: the field order is free — duplicates are loud.
+    guard_unique_field_groups(
+        &children,
+        &[
+            ("providers", &[Rule::llm_providers]),
+            ("default_model", &[Rule::llm_default_model]),
+            ("failover", &[Rule::llm_failover]),
+            ("circuit_breaker", &[Rule::llm_circuit_breaker]),
+            ("timeout", &[Rule::llm_timeout]),
+            ("max_tokens", &[Rule::llm_max_tokens]),
+            ("temperature", &[Rule::llm_temperature]),
+        ],
+    )?;
+
     Ok(Declaration::LlmConfig(LlmConfigDecl {
         span,
         providers,
@@ -1529,6 +1596,39 @@ pub(super) fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Result<Declarati
 
     if let Some(body_pair) = find_child(&children, Rule::learnable_body) {
         let body_children = children_of(&body_pair);
+
+        // Narjad №490: the field order is free — duplicates are loud.
+        // The four context_* variants share one logical "context" slot;
+        // prompt_line stays multi-cardinality (the grammar keeps
+        // prompt_line* — first-wins is the pinned posture there).
+        guard_unique_field_groups(
+            &body_children,
+            &[
+                (
+                    "context",
+                    &[
+                        Rule::context_recall_line,
+                        Rule::context_auto_line,
+                        Rule::context_none_line,
+                        Rule::context_literal_line,
+                    ],
+                ),
+                ("context_strategy", &[Rule::context_strategy_line]),
+                ("conversation", &[Rule::conversation_line]),
+                ("model", &[Rule::model_line]),
+                ("max_tokens", &[Rule::max_tokens_line]),
+                ("cache", &[Rule::cache_line]),
+                ("cache_ttl", &[Rule::cache_ttl_line]),
+                ("cache_semantic", &[Rule::cache_semantic_line]),
+                ("cache_threshold", &[Rule::cache_threshold_line]),
+                ("max_context_tokens", &[Rule::max_context_tokens_line]),
+                ("distill_to", &[Rule::distill_to_line]),
+                ("distill_after", &[Rule::distill_after_line]),
+                ("fallback_if", &[Rule::fallback_if_line]),
+                ("distill_min_accuracy", &[Rule::distill_min_accuracy_line]),
+                ("distill_margin", &[Rule::distill_margin_line]),
+            ],
+        )?;
 
         // Extract prompt from prompt_line -> expression
         if let Some(pl_pair) = body_children

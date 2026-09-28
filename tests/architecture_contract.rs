@@ -460,11 +460,17 @@ const FROZEN_SCCS: &[FrozenScc] = &[
     // SCC-1: the language-core tangle — builtins need interpreter Value
     // plumbing, the interpreter needs builtins' registry, bytecode links
     // both, ast is the shared vocabulary, llm rounds the ring.
+    // №495 (gh#780): src/distill_hub.rs joins the tangle deliberately —
+    // the DistillHub consumes ast declarations and the interpreter/nn
+    // types, and the interpreter holds the hub handle; it adds NO edge
+    // to a forbidden layer (C1/C2/C3/C5/C6 stay clean). The inventory
+    // moves with ownership (AGENTS.md §7), one PR.
     FrozenScc {
         files: &[
             "src/ast.rs",
             "src/builtins/mod.rs",
             "src/bytecode.rs",
+            "src/distill_hub.rs",
             "src/interpreter/mod.rs",
             "src/llm.rs",
         ],
@@ -473,9 +479,13 @@ const FROZEN_SCCS: &[FrozenScc] = &[
             &["src/builtins/mod.rs", "src/interpreter/mod.rs"],
             &["src/bytecode.rs", "src/ast.rs"],
             &["src/bytecode.rs", "src/interpreter/mod.rs"],
+            &["src/distill_hub.rs", "src/ast.rs"],
+            &["src/distill_hub.rs", "src/bytecode.rs"],
+            &["src/distill_hub.rs", "src/interpreter/mod.rs"],
             &["src/interpreter/mod.rs", "src/ast.rs"],
             &["src/interpreter/mod.rs", "src/builtins/mod.rs"],
             &["src/interpreter/mod.rs", "src/bytecode.rs"],
+            &["src/interpreter/mod.rs", "src/distill_hub.rs"],
             &["src/interpreter/mod.rs", "src/llm.rs"],
             &["src/llm.rs", "src/ast.rs"],
             &["src/llm.rs", "src/interpreter/mod.rs"],

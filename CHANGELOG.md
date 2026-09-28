@@ -4,6 +4,24 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №506 (issue #789; the audit 28.09 immediate item):
+  `docs/limitations.md` gains the three honest rows the audit asked
+  for, before the 0.27.1 tag. (1) Distillation in `mlog serve` does
+  NOT accumulate examples between requests — the per-request fresh
+  program context resets the TEACHING state, `distill_after` is never
+  reached across requests (minimal ClassifyIntent example; repair:
+  №495). (2) The two pinned ok↔err outcome divergences are
+  user-visible as different `mlog run` vs `mlog serve` behavior —
+  `memory_forget` compile-refusal in the VM (known_divergences.txt:51)
+  and the entity-in-pattern initializer the VM compiles in and TW
+  refuses (known_divergences.txt:58); repair: №503. (3) The №455
+  sensitive-name deny-list is case-sensitive — register variants
+  (`SECRET.PEM`, `.ENV`) dodge the name comparison on
+  case-insensitive filesystems (macOS/Windows); repair: №501. Each
+  row carries its repair naryad link and the loud "marked fixed after
+  the merge, never removed silently" contract; a new index section
+  "Runtime File-Write Deny-List (№455)" hosts the deny-list row.
+
 - Naryad №490 (issue #738; the audit 25.09 §4.5 tail): the
   llm/mlogserver/learnable body fields are now ORDER-FREE — the field
   set is fixed, the order is not. The three body rules in

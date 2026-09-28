@@ -14,14 +14,14 @@ type_alias_decl = { "type" ~ IDENT ~ "=" ~ type_name }
 // ── LLM Config (Наряд №4: Smart LLM Routing) ──────────────────────────
 // llm { providers: [...], default_model: "...", failover: auto, circuit_breaker: 3, timeout: 30 }
 // If absent → backward compatible (env vars, single provider).
+// Narjad №490: the field set is fixed, the ORDER is free. Each field may
+// appear at most once — a duplicate is a loud parse error naming the field
+// and its position (enforced in parse_llm_decl, which sees the flat child
+// list through the silent llm_field wrapper). The №757 max_tokens and
+// temperature fields are part of the same free-order set.
 llm_decl      = { LLM_KW ~ LBRACE ~ llm_body ~ RBRACE }
-// №757: the tail gained max_tokens and temperature. The pre-existing
-// tail is an ORDERED optional chain (a field can only follow the
-// fields before it — free field order is №490's scope), so the two
-// limits sit right after providers and may come in either order
-// (llm_limits). Both are validated loudly in the parser.
-llm_body      = { llm_providers? ~ llm_limits? ~ (COMMA ~ llm_default_model?)? ~ (COMMA ~ llm_failover?)? ~ (COMMA ~ llm_circuit_breaker?)? ~ (COMMA ~ llm_timeout?)? }
-llm_limits    = _{ (COMMA ~ llm_max_tokens ~ (COMMA ~ llm_temperature)?) | (COMMA ~ llm_temperature ~ (COMMA ~ llm_max_tokens)?) }
+llm_body      = { (llm_field ~ (COMMA ~ llm_field)*)? }
+llm_field     = _{ llm_providers | llm_default_model | llm_failover | llm_circuit_breaker | llm_timeout | llm_max_tokens | llm_temperature }
 llm_providers = { "providers" ~ COLON ~ LBRACKET ~ llm_provider_list? ~ RBRACKET }
 llm_provider_list = { llm_provider_entry ~ (COMMA ~ llm_provider_entry)* }
 llm_provider_entry = { LBRACE ~ llm_provider_alias ~ COMMA ~ llm_provider_name ~ (COMMA ~ llm_provider_key)? ~ (COMMA ~ llm_provider_url)? ~ RBRACE }
@@ -79,8 +79,14 @@ ON_DENY_KW    = @{ "on_deny" }
 // ── MlogServer (Phase 6.1) ──────────────────────────────────────
 // server { port: 8080  middleware: [session, csrf, security_headers]  route "/path" method=GET requires=[role] { body } }
 // "server" is an alias for "mlogserver" (Наряд №7 final integration)
+// Narjad №490: the field set is fixed, the ORDER is free (fields and
+// routes interleave freely). Each scalar field may appear at most once —
+// a duplicate is a loud parse error naming the field and its position
+// (enforced in parse_mlogserver_decl; the silent mlogserver_field
+// wrapper keeps the inner field rules directly in body_children).
 mlogserver_decl    = { "mlogserver" ~ LBRACE ~ mlogserver_body ~ RBRACE | "server" ~ LBRACE ~ mlogserver_body ~ RBRACE }
-mlogserver_body    = { mlogserver_port? ~ mlogserver_host? ~ mlogserver_middleware? ~ mlogserver_rate_limit? ~ mlogserver_redact_mode? ~ route_decl* ~ WHITESPACE* }
+mlogserver_body    = { (mlogserver_field | route_decl)* ~ WHITESPACE* }
+mlogserver_field   = _{ mlogserver_port | mlogserver_host | mlogserver_middleware | mlogserver_rate_limit | mlogserver_redact_mode }
 mlogserver_port    = { "port" ~ COLON ~ INT }
 mlogserver_host    = { "host" ~ COLON ~ STRING_LITERAL }
 mlogserver_middleware = { "middleware" ~ COLON ~ LBRACKET ~ ident_list? ~ RBRACKET }
@@ -240,7 +246,14 @@ learnable_pattern_decl = { LEARNABLE_KW ~ "pattern" ~ IDENT ~ "(" ~ params? ~ ")
 // in ANY order relative to each other (not in the rigid pre-existing sequence).
 // The pre-existing 8 fields are NOT reordered in this naryad — only the 3 new
 // ones avoid compounding the known ordering rigidity flagged by ADR-0114.
-learnable_body = { prompt_line* ~ context_line? ~ context_strategy_line? ~ conversation_line? ~ model_line? ~ max_tokens_line? ~ cache_line? ~ cache_ttl_line? ~ cache_semantic_line? ~ cache_threshold_line? ~ max_context_tokens_line? ~ distill_field* }
+// Narjad №490: the SAME order-freedom now covers ALL learnable_body fields —
+// the body is an unordered repetition of the fixed field set. Each field
+// may appear at most once (a duplicate is a loud parse error naming the
+// field and its position — enforced in parse_learnable_pattern_decl);
+// the silent learnable_field wrapper keeps the inner rules directly in
+// body_children, so the existing .find()-based extraction is unchanged.
+learnable_body = { learnable_field* }
+learnable_field = _{ prompt_line | context_line | context_strategy_line | conversation_line | model_line | max_tokens_line | cache_line | cache_ttl_line | cache_semantic_line | cache_threshold_line | max_context_tokens_line | distill_field }
 prompt_line    = { "prompt" ~ COLON ~ expression }
 context_line   = _{ context_recall_line | context_auto_line | context_none_line | context_literal_line }
 context_strategy_line = { "context_strategy" ~ COLON ~ context_strategy_value }
@@ -268,9 +281,10 @@ max_context_tokens_line = { "max_context_tokens" ~ COLON ~ INT }
 distill_field      = _{ distill_to_line | distill_after_line | fallback_if_line | distill_min_accuracy_line | distill_margin_line }
 distill_to_line    = { "distill_to" ~ COLON ~ IDENT }
 distill_after_line = { "distill_after" ~ COLON ~ INT }
+fallback_if_line   = { "fallback_if" ~ COLON ~ "confidence" ~ compare_op ~ FLOAT_LITERAL }
+// №485: the distill gate — the majority baseline + margin.
 distill_min_accuracy_line = { "distill_min_accuracy" ~ COLON ~ FLOAT_LITERAL }
 distill_margin_line = { "distill_margin" ~ COLON ~ FLOAT_LITERAL }
-fallback_if_line   = { "fallback_if" ~ COLON ~ "confidence" ~ compare_op ~ FLOAT_LITERAL }
 
 // ── Pattern (M1) ──────────────────────────────────────────────────
 pattern_decl = { "pattern" ~ IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ effect_trail? ~ LBRACE ~ pattern_body ~ RBRACE }

@@ -134,14 +134,16 @@ struct HubShared {
     inner: Mutex<HubInner>,
     registry: Arc<Mutex<crate::nn::ReflexRegistry>>,
     names: HashMap<String, crate::nn::ReflexId>,
-    /// The SHARED server audit log (`ServerState::audit_log`, the tokio
-    /// RwLock the server already uses) — the background thread's verdict
-    /// lands where the audit trail lives, never inside a one-shot
-    /// per-request object (the audit 28.09 §3.1 finding: the №489
-    /// mailbox died with the request). Every hub caller runs on a
-    /// blocking thread (route executors, the worker) — `blocking_write`
-    /// is the legal lock form here.
-    audit: Arc<tokio::sync::RwLock<Vec<String>>>,
+    /// The SHARED server audit log (`ServerState::audit_log`) — the
+    /// background thread's verdict lands where the audit trail lives,
+    /// never inside a one-shot per-request object (the audit 28.09 §3.1
+    /// finding: the №489 mailbox died with the request). The hub is
+    /// tokio-free (it compiles under --no-default-features where the
+    /// server deps are absent), so the log is handed over as an erased
+    /// push sink; the server side builds it with `blocking_write` — the
+    /// legal lock form, every hub caller runs on a blocking thread (the
+    /// route executors, the worker).
+    audit: Arc<dyn Fn(String) + Send + Sync>,
     /// `distill_samples` persistence — `Some` only when the server has a
     /// memory-persist SQLite file (the same file, one additive table).
     persist: Option<Mutex<rusqlite::Connection>>,
@@ -178,7 +180,7 @@ impl DistillHub {
     /// interpreter's Arc. `persist_path` = the memory-persist SQLite file
     /// (a hub without it works in-process and says so).
     pub fn open(
-        audit: Arc<tokio::sync::RwLock<Vec<String>>>,
+        audit: Arc<dyn Fn(String) + Send + Sync>,
         persist_path: Option<&str>,
         declarations: &[crate::ast::Declaration],
     ) -> Result<Arc<dyn DistillAccess>, String> {
@@ -325,7 +327,7 @@ impl DistillHub {
     }
 
     fn audit_line(shared: &HubShared, line: String) {
-        shared.audit.blocking_write().push(line);
+        (shared.audit)(line);
     }
 
     /// The background trainer's body: the shared core

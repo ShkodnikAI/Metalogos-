@@ -716,7 +716,7 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
     // verdicts land in the shared audit log, examples persist into the
     // memory-persist SQLite file (distill_samples) when configured.
     state.distill = Some(crate::distill_hub::DistillHub::open(
-        std::sync::Arc::clone(&state.audit_log),
+        distill_audit_sink(&state.audit_log),
         state.memory_persist.as_deref(),
         &declarations,
     )?);
@@ -1010,7 +1010,7 @@ pub async fn run_test_server(
 
     let mut state = build_state(config.clone(), interp).await?;
     state.distill = Some(crate::distill_hub::DistillHub::open(
-        std::sync::Arc::clone(&state.audit_log),
+        distill_audit_sink(&state.audit_log),
         state.memory_persist.as_deref(),
         &declarations,
     )?);
@@ -1140,7 +1140,7 @@ async fn run_test_server_in_dir_impl(
     state.backend = backend;
     // №495: the distillation hub — same construction as run_server.
     state.distill = Some(crate::distill_hub::DistillHub::open(
-        std::sync::Arc::clone(&state.audit_log),
+        distill_audit_sink(&state.audit_log),
         state.memory_persist.as_deref(),
         &declarations,
     )?);
@@ -1224,6 +1224,21 @@ pub async fn run_test_server_with_backend_state_in_dir(
 }
 
 // ── Internal: Build State ──────────────────────────────────────────
+
+/// №495: the audit sink the distill hub writes through. The hub is
+/// tokio-free (it compiles under --no-default-features where the server
+/// deps are absent), so the shared `ServerState::audit_log` is handed
+/// over as an erased push closure; every hub caller runs on a blocking
+/// thread (route executors, the worker) — `blocking_write` is the legal
+/// lock form, the same call the hub would have made with the raw lock.
+fn distill_audit_sink(
+    audit_log: &std::sync::Arc<tokio::sync::RwLock<Vec<String>>>,
+) -> std::sync::Arc<dyn Fn(String) + Send + Sync> {
+    let log = std::sync::Arc::clone(audit_log);
+    std::sync::Arc::new(move |line: String| {
+        log.blocking_write().push(line);
+    })
+}
 
 pub(crate) async fn build_state(
     config: MlogServerDecl,

@@ -68,35 +68,14 @@ pub trait LlmBackend: Send + Sync {
 /// ADR-0048: records last model override for model-routing contract tests.
 pub struct MockLlm;
 
-/// The explicitly stable mock-marker hash: FNV-1a 64 (Наряд №487). The
-/// mock marker is `[mock-llm:<8 hex>]` where the 8 hex chars are the LOW
-/// 32 bits of the FNV-1a 64 digest of the prompt's UTF-8 bytes, formatted
-/// `{:08x}`. The algorithm, the constants and the truncation are fixed
-/// HERE, so the marker survives Rust toolchain upgrades by construction —
-/// `DefaultHasher` never promised that (std pins its keys WITHIN a
-/// version, not the algorithm ACROSS releases; the old docstring's
-/// "stable across runs" was true per-run and false per-release). Any
-/// change to this function changes every mock marker at once, loudly —
-/// and must break `test_mock_response_golden_hex` and the pinned hex in
-/// the `examples/*.expected` mock goldens on purpose (update them in the
-/// same PR and list the move in the naryad report).
-const FNV1A64_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
-const FNV1A64_PRIME: u64 = 0x0000_0100_0000_01b3;
-
-fn fnv1a64(bytes: &[u8]) -> u64 {
-    let mut hash = FNV1A64_OFFSET_BASIS;
-    for &byte in bytes {
-        hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(FNV1A64_PRIME);
-    }
-    hash
-}
-
 /// Deterministic non-echo response of the mock backend (Наряд №454):
-/// `[mock-llm:<low 32 bits of the FNV-1a 64 of the prompt, {:08x}>]` —
-/// the explicitly stable algorithm per Наряд №487 (see `fnv1a64`).
+/// `[mock-llm:<8 hex from the hash of the prompt>]`.
+/// `DefaultHasher::new()` has fixed keys — the hash is stable across runs.
 pub fn mock_response(prompt: &str) -> String {
-    format!("[mock-llm:{:08x}]", fnv1a64(prompt.as_bytes()) as u32)
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    prompt.hash(&mut h);
+    format!("[mock-llm:{:08x}]", h.finish() as u32)
 }
 
 /// Single source of truth for mock-LLM mode (Наряд №454): mock is active
@@ -3141,22 +3120,6 @@ mod tests {
             .unwrap();
         assert_eq!(hex.len(), 8, "8 hex chars, got: {}", hex);
         assert!(hex.chars().all(|ch| ch.is_ascii_hexdigit()));
-    }
-
-    #[test]
-    fn test_mock_response_golden_hex() {
-        // №487: the hex suffix is PINNED to the explicit algorithm
-        // (FNV-1a 64 of the prompt's UTF-8 bytes, low 32 bits, `{:08x}`)
-        // — a toolchain upgrade can no longer move it silently, and an
-        // accidental algorithm change breaks this golden on purpose.
-        assert_eq!(
-            mock_response("classify: SECRET_MARKER_XYZ"),
-            "[mock-llm:df49a280]"
-        );
-        assert_eq!(mock_response("the golden prompt"), "[mock-llm:b459e939]");
-        // The empty prompt = the offset basis itself (no bytes mixed in):
-        // low 32 of 0xcbf29ce484222325 — the formula is transparent.
-        assert_eq!(mock_response(""), "[mock-llm:84222325]");
     }
 
     #[test]

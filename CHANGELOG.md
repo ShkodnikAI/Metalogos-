@@ -4,6 +4,37 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №489 (issue #737; the audit 25.09 §3.11 — training happens
+  inline): the distill training moved OFF the request path. The
+  attempt call now spawns a BACKGROUND trainer and returns
+  immediately — the 30-epoch run no longer lives in the serve request
+  latency. The registry handle is `Arc<Mutex<ReflexRegistry>>` (the
+  `.lock()` sites unchanged); the trainer thread ships its verdict
+  (switch decision + audit lines) through an interpreter mailbox; the
+  distill path DRAINS the mailbox on every call — the verdict lands
+  when it lands, and until then the pattern stays TEACHING (the
+  issue's "до готовности — TEACHING-поведение"). Status is LOUD:
+  `distill.training-started` (at spawn) and
+  `distill.training-finished` (on drain, with the switch verdict or
+  the error) bracket every run. Consistency — THE QUEUE CHOICE
+  (documented per the issue's either/or): the examples ledger keeps
+  accepting records while a trainer runs (a snapshot is what trains);
+  the next cadence cycle retrains on the fuller set. One trainer per
+  pattern (the in-flight mark; never a second concurrent trainer).
+  The switch no longer re-enters DISTILLED on the triggering call —
+  it lands on a later call via the drain. THE VM PATH STAYS INLINE,
+  loudly: the VM is per-request (№388), so a detached trainer would
+  outlive its registry and the verdict could never land — for the VM
+  the inline form is the lifecycle guarantee, the issue's task-3
+  honest-refusal option. The synchronous seam
+  (`try_train_distilled_model`) is kept for the unit tests and now
+  delegates to the same shared training core the thread uses. Tests:
+  the attempt call with a 50 000-example set returns in < 250 ms (the
+  sync path would have blocked for the whole run); exactly one
+  trainer per pattern; the bounded-wait drain lands the verdict and
+  flips the mode; the №456 holdout refusal rides the background path
+  (loud rejection, no flip). lib 867/0 (the №456/№485 pins 12/12
+  unchanged); clippy -D warnings + fmt clean.
 - Naryad №488 (issue #736; the audit 25.09 §6.2 tail — the test debt
   grows no more): the test-hygiene wave — 36 `#[ignore]` attributes
   lifted, honestly. The phase23 (v0.8.4–v0.8.7) suite is ACTUALIZED to

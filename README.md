@@ -220,11 +220,11 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 | Version | 0.27.1 |
 | Built-in Functions | 503 functions across 45 modules |
 | SVG/Graphics | 44 builtins, hand-rolled in pure Rust |
-| Grammar | 335 rules |
+| Grammar | 339 rules |
 | Architecture Decisions | 170 ADRs |
 | Example Programs | 258 .mlog programs |
 | Reference | REFERENCE.md (~288 KB) — 100% registry coverage |
-| Changelog | CHANGELOG.md (~520 KB) — every wave documented |
+| Changelog | CHANGELOG.md (~521 KB) — every wave documented |
 <!-- END GENERATED METRICS -->
 
 Validated on every CI run: `scripts/gen_metrics.py --check` plus the independent recomputation in `tests/readme_consistency.rs`.

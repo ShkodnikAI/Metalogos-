@@ -4,7 +4,7 @@ learnable pattern Sentiment(text: String) -> String {
 
 adapt Sentiment add_example("great service", "positive")
 
-sandbox test_sandbox { allowed: [compute], forbidden: [network, write_permanent], timeout: 10 }
+sandbox test_sandbox { timeout: 10, forbidden: [network, write_permanent], allowed: [compute] }
 
 mutate Sentiment { add_example("terrible experience", "negative") rollback_if: accuracy < 0.9 }
 

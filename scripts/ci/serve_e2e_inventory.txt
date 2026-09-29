@@ -1,0 +1,10 @@
+# The state-accumulating declarations and their BOTH-BACKEND serve-e2e
+# status (the №509 functional criterion — the audit 28.09's main lesson:
+# every function accumulating state over time must have an end-to-end
+# test through the mode it is used in — run_test_server, both backends).
+# The gate (unfreeze_gate.py --gate-target 0.28) fails while any row is
+# `pending`. Each row flips to `done` IN THE SAME PR as its e2e test.
+distill_to: done — naryad 496, tests/naryad_496_distill_serve_e2e.rs (TW+VM, restart persistence)
+memory: pending — the follow-up naryad from the gh#792 report (the accumulation arc through run_test_server, TW+VM)
+conversation: pending — the follow-up naryad from the gh#792 report (the accumulation arc through run_test_server, TW+VM)
+cron: pending — the follow-up naryad from the gh#792 report (the accumulation arc through run_test_server, TW+VM)

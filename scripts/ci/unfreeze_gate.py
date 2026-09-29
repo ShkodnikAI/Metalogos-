@@ -52,7 +52,15 @@ DUP_SCRIPT = os.path.join(HERE, 'count_duplicated_names.py')
 # how the distillation drift (audit 28.09 §3.3) went unnoticed.
 MIRROR_SCRIPT = os.path.join(HERE, 'mirror_counter.py')
 DEBT_SCRIPT = os.path.join(HERE, 'debt_counters.py')
+# №509 (gh#792): the 0.28 ABSOLUTE goals (ADR-0179) — the owner-fixed
+# parameters and the live facts the v2 gate reads. The audit 28.09 §4
+# lesson: the 0.27.0 gate measured the ABSENCE of regress, not the
+# REACHING of goals — the release passed with open High findings and a
+# dead distillation. The v2 gate flips the direction: goals, not ratchets.
+GOALS_028 = os.path.join(HERE, 'gate_028_goals.txt')
+SERVE_E2E = os.path.join(HERE, 'serve_e2e_inventory.txt')
 ADR = 'docs/adr/0177-domain-freeze-until-027.md'
+ADR_V2 = 'docs/adr/0179-release-gate-028-criteria-v2.md'
 
 
 def run(cmd):
@@ -144,6 +152,94 @@ def criterion_memory(baseline_dir, office_tests):
     return rc, ' | '.join(notes[:2]), rec, '\n'.join('- ' + n for n in notes[2:])
 
 
+def criterion_goals_028(baseline_dir):
+    """№509 (gh#792, ADR-0179): the 0.28 ABSOLUTE goals — the v2 gate.
+
+    Reads the owner-fixed parameters and the live facts from
+    gate_028_goals.txt + the serve-e2e inventory. Fail-closed: a missing
+    record, a missing key, or an unparsable value is a RED. The share
+    fact comes live from the №467 gate script (the same evidence the
+    §4.1 criterion reads — the v2 gate compares it against the GOAL,
+    not against the no-regress threshold)."""
+    notes = []
+    rc = 0
+    details = []
+
+    def goal_fact(key, path=GOALS_028):
+        if not os.path.isfile(path):
+            return None
+        for line in open(path, encoding='utf-8'):
+            m = re.match(r'^%s:\s*(.+?)\s*$' % re.escape(key), line)
+            if m:
+                return m.group(1)
+        return None
+
+    # (1) the typed-signature share reaches the GOAL (bp).
+    share_rc, share_out = run([TYPES_SCRIPT, '--gate',
+                               os.path.join(baseline_dir, 'type_signature_baseline.txt')])
+    m = re.search(r'typed signatures:\s*\d+/\d+\s*\(([\d.]+)%\)', share_out)
+    goal_bp = goal_fact('goal_typed_share_bp')
+    if m and goal_bp is not None:
+        bp = int(round(float(m.group(1)) * 100))
+        ok = bp >= int(goal_bp)
+        details.append('typed share %s bp vs goal %s bp: %s'
+                       % (bp, goal_bp, 'MET' if ok else 'NOT MET'))
+        if not ok:
+            rc = 1
+    else:
+        details.append('the typed-share fact or the goal is unparsable/missing (fail-closed)')
+        rc = 1
+
+    # (2) zero open High findings in the server path (the label-synced fact).
+    oh_goal = goal_fact('goal_open_high_server')
+    oh_fact = goal_fact('fact_open_high_server')
+    if oh_goal is not None and oh_fact is not None:
+        ok = int(oh_fact) <= int(oh_goal)
+        details.append('open High (server path) %s vs goal %s: %s'
+                       % (oh_fact, oh_goal, 'MET' if ok else 'NOT MET'))
+        if not ok:
+            rc = 1
+    else:
+        details.append('the open-High fact or the goal is missing (fail-closed)')
+        rc = 1
+
+    # (3) the transfer domain quorum fact <= num/den.
+    qn_goal, qd_goal = goal_fact('goal_quorum_num'), goal_fact('goal_quorum_den')
+    qn_fact, qd_fact = goal_fact('fact_quorum_num'), goal_fact('fact_quorum_den')
+    try:
+        ok = (int(qn_fact) * int(qd_goal)) <= (int(qd_fact) * int(qn_goal))
+        details.append('domain quorum %s/%s vs goal %s/%s: %s'
+                       % (qn_fact, qd_fact, qn_goal, qd_goal,
+                          'MET' if ok else 'NOT MET'))
+        if not ok:
+            rc = 1
+    except (TypeError, ValueError):
+        details.append('the quorum facts or the goal are missing/unparsable (fail-closed)')
+        rc = 1
+
+    # (4) the serve-e2e inventory: every state-accumulating declaration
+    # has its BOTH-BACKEND run_test_server test (the audit 28.09's main
+    # lesson, generalized).
+    if not os.path.isfile(SERVE_E2E):
+        details.append('the serve-e2e inventory is MISSING (fail-closed)')
+        rc = 1
+    else:
+        pending = []
+        for line in open(SERVE_E2E, encoding='utf-8'):
+            m2 = re.match(r'^([a-z_]+):\s*(\w+)', line)
+            if m2 and m2.group(2) != 'done':
+                pending.append(m2.group(1))
+        if pending:
+            details.append('the serve-e2e inventory: PENDING for %s (fail-closed)'
+                           % ', '.join(pending))
+            rc = 1
+        else:
+            details.append('the serve-e2e inventory: all state-accumulating declarations done')
+
+    out = '\n'.join(details)
+    return rc, '; '.join(details), out, '\n'.join('- ' + n for n in notes)
+
+
 def main():
     args = sys.argv[1:]
     baseline_dir = args[args.index('--baseline-dir') + 1] if '--baseline-dir' in args else os.path.join(ROOT, 'scripts', 'ci')
@@ -157,6 +253,11 @@ def main():
     c2 = criterion_dedup(baseline_dir)
     c3 = criterion_debt(baseline_dir)
     c4 = criterion_memory(baseline_dir, office_tests)
+    # №509: the v2 gate (the 0.28 ABSOLUTE goals) is OFF by default —
+    # the 0.27.x releases read the legacy §4 verdict; the 0.28 release
+    # runs the gate with --gate-target 0.28 (ADR-0179 §5).
+    gate_target = args[args.index('--gate-target') + 1] if '--gate-target' in args else None
+    c5 = criterion_goals_028(baseline_dir) if gate_target == '0.28' else None
 
     rows = []
     lines = []
@@ -185,7 +286,26 @@ def main():
     overall = 'GREEN' if all(v == 'GREEN' for _, v in rows) else 'RED'
     lines.append('')
     lines.append('**Overall: %s.**' % overall)
-    if overall == 'GREEN':
+    if gate_target == '0.28':
+        v_rc, v_detail, v_raw, v_note = c5
+        v_verdict = 'GREEN' if v_rc == 0 else 'RED'
+        lines.append('')
+        lines.append('## The v2 gate — the 0.28 ABSOLUTE goals (№509, ADR-0179)')
+        lines.append('')
+        lines.append('| § | Goal | Verdict | Evidence |')
+        lines.append('|---|------|---------|----------|')
+        lines.append('| v2 | The absolute goals: typed share ≥ goal, 0 open High (server path), the domain quorum, the serve-e2e inventory | **%s** | %s |'
+                     % (v_verdict, v_detail))
+        overall = 'GREEN' if (overall == 'GREEN' and v_rc == 0) else 'RED'
+        lines.append('')
+        lines.append('**Overall (§4 + v2): %s.**' % overall)
+        if overall == 'GREEN':
+            lines.append('The 0.28 release gate: **SATISFIED** (ADR-0179 §5; the release-block label discipline holds — the fact record is label-synced).')
+        else:
+            lines.append('The 0.28 release gate: **BLOCKED** — the goals are not reached (ADR-0179 §5); the release does not pass the read.')
+    if gate_target == '0.28':
+        pass  # the v2 verdict above is the release read for 0.28
+    elif overall == 'GREEN':
         lines.append('The 0.27.0 release gate: **SATISFIED** (release-blocking '
                      'label — a RED anywhere in this summary blocks the release '
                      'read; the summary is the artifact `unfreeze-summary`).')

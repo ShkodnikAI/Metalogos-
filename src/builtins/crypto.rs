@@ -268,9 +268,10 @@ pub(crate) fn builtin_hex_decode(args: &[Value]) -> Result<Value, String> {
 // goes through when bound to a `Secret`-typed entity.
 //
 // Difference from `env()` (intentional, NOT the same function):
-//   - `env("KEY")` — soft-failure: returns `Value::String("")` if the
-//     var is missing. The caller must check for emptiness. Protection
-//     is static-only (Category A taint via binding_taint).
+//   - `env("KEY")` — LOUD on a missing variable (№481): refuses with the
+//     stable code ENV_NOT_FOUND naming the variable; the explicit
+//     silence fallback lives in `env_or(name, default)`. Protection is
+//     static-only (Category A taint via binding_taint).
 //   - `secret("KEY")` — hard-failure: returns `Err` if the var is
 //     missing. When you explicitly ask for a secret, a missing env
 //     var is a configuration error, not a default-value situation.

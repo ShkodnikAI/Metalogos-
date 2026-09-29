@@ -1033,6 +1033,17 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // APPENDED at the end — inserting mid-array would shift existing
     // CallBuiltin indices (.mbc contract). Registry 501→502 (append-only).
     spec!("read_file_or", 2, "io"; builtin_read_file_or),
+    // ── №514 (P1, hardening; the audit 28.09 C-10): the EXPLICIT-silence
+    // twins of to_float/to_int — the `_or` suffix carries the silent-default
+    // semantics IN THE NAME (the №481 env/env_or naming rule, ONE soft-
+    // failure rule for the language). The fallback firing is announced on
+    // the audit stderr ([TO_FLOAT_OR]/[TO_INT_OR]); the loud branches of
+    // to_float/to_int stay shared. Bool→1.0/0.0 is a conversion, not a
+    // soft failure — kept in both twins. APPENDED at the end — inserting
+    // mid-array would shift existing CallBuiltin indices (.mbc contract).
+    // Registry 503→505 (append-only).
+    spec!("to_float_or", 2, "convert"; builtin_to_float_or, "Float"),
+    spec!("to_int_or", 2, "string"; builtin_to_int_or, "Float"),
 ];
 
 /// Total number of registered builtins.

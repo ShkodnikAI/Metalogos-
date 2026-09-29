@@ -333,7 +333,11 @@ pub(crate) fn sensitive_path_match(path: &str) -> bool {
         let std::path::Component::Normal(c) = component else {
             continue;
         };
-        let name = c.to_string_lossy();
+        // №501: the deny vocabulary is case-insensitive — on a
+        // case-insensitive filesystem (macOS by default, Windows) a
+        // `.GIT` component IS `.git`, so the match must not depend on
+        // the letter case the program happened to spell.
+        let name = c.to_string_lossy().to_lowercase();
         // Directory forms: `.git/**`, `.mlog/**` — anything under them.
         if name == ".git" || name == ".mlog" {
             return true;
@@ -350,6 +354,10 @@ pub(crate) fn sensitive_path_match(path: &str) -> bool {
 /// The file-NAME half of the №455 deny-list (shared with the canonical
 /// re-check, which may resolve a symlink into a differently named file).
 pub(crate) fn sensitive_name_match(file_name: &str) -> bool {
+    // №501: the comparison runs on the LOWERCASED name — `.ENV`,
+    // `App.DB-WAL`, `ID_RSA` must refuse exactly like their lowercase
+    // spellings (the №455 deny-list is a policy class, not a literal).
+    let file_name = &file_name.to_lowercase();
     file_name.starts_with(".env")
         || file_name.ends_with(".db")
         || file_name.ends_with(".db-wal")
@@ -448,9 +456,11 @@ pub(crate) fn file_ingest_gate(
             .map(|n| n.to_string_lossy().to_string())
         {
             if sensitive_name_match(&name)
-                || resolved.components().any(
-                    |c| matches!(c, std::path::Component::Normal(c) if c == ".git" || c == ".mlog"),
-                )
+                || resolved.components().any(|c| {
+                    matches!(c, std::path::Component::Normal(c)
+                        if c.to_string_lossy().to_lowercase() == ".git"
+                            || c.to_string_lossy().to_lowercase() == ".mlog")
+                })
             {
                 return Err(sandbox_sensitive_violation(format!(
                     "{}('{}'): the resolved path '{}' matches the sensitive-path \

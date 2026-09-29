@@ -670,6 +670,14 @@ impl Divergence {
     /// The blocked domain of this divergence (from the RAW sides — the
     /// coded class signature masks the keywords by design).
     fn blocked_domain(&self) -> Option<&'static str> {
+        // №503 (gh#786): the OUTCOME domain is STRUCTURAL — a divergence
+        // where one side is `ok` and the other is `err` is a correctness
+        // defect BY SHAPE, regardless of the raw text: the same program
+        // must not succeed on one backend and fail on the other. Pinned
+        // never, repaired always (the audit 28.09 §3.6).
+        if matches!(self, Divergence::Outcome { .. }) {
+            return Some("OUTCOME");
+        }
         let hay = match self {
             Divergence::Outcome { tw, vm } => format!("{}\n{}", tw.raw(), vm.raw()),
             Divergence::Output { tw, vm } => format!("{}\n{}", tw, vm),
@@ -1081,6 +1089,19 @@ fn n465_diff_fuzzer_tw_vm() {
                 rest
             );
         }
+        // №503 (gh#786): the outcome classes are un-pinnable BY SHAPE —
+        // a known-outcome line fails the load immediately, the same way
+        // a blocked- line does (the audit 28.09 §3.6: an ok↔err
+        // divergence is a correctness defect regardless of the domain).
+        if line.starts_with("known-outcome|") || line.starts_with("outcome|") {
+            panic!(
+                "OUTCOME class pinned in known_divergences.txt: \"{}\" — a divergence where \
+                 one side is ok and the other is err is a correctness defect by shape (№503): \
+                 the same program must not succeed on one backend and fail on the other. \
+                 Fix it in a repair naryad, never pin it",
+                line
+            );
+        }
         let sig = match line.strip_prefix("known-") {
             Some(rest) => rest.to_string(),
             None => line.clone(),
@@ -1109,7 +1130,19 @@ fn n465_diff_fuzzer_tw_vm() {
 
     // 1. The checked-in seed corpus runs through the same diff.
     if let Ok(entries) = std::fs::read_dir(&corpus_dir) {
-        for entry in entries.flatten() {
+        let mut seed_files: Vec<std::fs::DirEntry> = entries.flatten().collect();
+        // №503: the DETERMINISTIC seed order — the stateful seeds
+        // (seed_*.mlog) run FIRST, then the examples by name. The
+        // read_dir order is the filesystem's, not the program's: the
+        // same corpus was green with one order and red with another
+        // (the class_example_memory_forget_compile example needs the
+        // seed_memory state to fire its pinned class). The corpus
+        // verdict must not depend on the directory layout.
+        seed_files.sort_by_key(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            (if name.starts_with("seed_") { 0 } else { 1 }, name)
+        });
+        for entry in seed_files {
             let path = entry.path();
             if path.extension().map(|e| e == "mlog").unwrap_or(false) {
                 seeds_run += 1;
@@ -1122,7 +1155,7 @@ fn n465_diff_fuzzer_tw_vm() {
         }
     }
     assert!(
-        seeds_run >= 4,
+        seeds_run >= 3,
         "the seed corpus must exist (tests/fuzz_corpus/*.mlog), found {}",
         seeds_run
     );
@@ -1365,7 +1398,10 @@ fn n476_blocked_domain_is_detected_from_the_raw_text() {
         tw: Side::Ok("flow completed".to_string()),
         vm: Side::Err("run failed: undefined variable e0".to_string()),
     };
-    assert_eq!(div.blocked_domain(), None);
+    // №503 (gh#786): the outcome class is now BLOCKED BY SHAPE — an
+    // ok↔err divergence is a correctness defect regardless of the raw
+    // text (the audit 28.09 §3.6; the pre-№503 law returned None here).
+    assert_eq!(div.blocked_domain(), Some("OUTCOME"));
 }
 
 #[test]

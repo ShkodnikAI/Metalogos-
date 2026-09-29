@@ -302,7 +302,6 @@ fn test_z21_startswith_negative() {
 }
 
 #[test]
-#[ignore = "TODO: VM compiler does not yet support match with starts_with arms"]
 fn test_z21_match_starts_with_compiles() {
     let source = r#"
 pattern route_handler(path: String) -> String {
@@ -317,7 +316,8 @@ pattern route_handler(path: String) -> String {
 }
 
 #[test]
-#[ignore = "TODO: VM compiler does not yet support Ne compare in rule conditions"]
+// №510 (Wave 21 P0) made this obsolete: the != operator is honest end-to-end
+// (the explicit compiler arms + the lint) — un-ignored and green in №516.
 fn test_z21_ne_compare_op_exists() {
     // Verify ConditionOp::Ne exists and compiles
     let source = r#"
@@ -564,7 +564,6 @@ fn test_z22_struct_in_pattern_body() {
 // ── Full compile+run integration tests ──────────────────────────
 
 #[test]
-#[ignore = "TODO: VM compiler does not yet support match with starts_with arms"]
 fn test_z21_match_starts_with_full_run() {
     // Compile a pattern with starts_with match arm and verify it compiles
     let source = r#"

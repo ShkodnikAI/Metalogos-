@@ -4,6 +4,37 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №514 (issue #798; the consolidated audit 28.09 C-10, Medium —
+  the wave-21 P1 hardening): the ONE soft-failure rule lands for the
+  conversions — "silence is visible in the name" (ADR-0180, the №481
+  env/env_or naming rule). THE HOLE: `to_float("abc")` returned `0.0`
+  silently — the audit's vector (`to_float(json_body().amount)` with
+  `"12,50"` → 0.0 → a zero-value charge with no error). Now
+  `to_float`/`to_int` REFUSE a non-numeric string LOUDLY with the
+  stable `[TYPE_MISMATCH]` code, naming the input and pointing at the
+  `_or` twin; the explicit fallback lives in the NEW builtins
+  `to_float_or(value, default)` / `to_int_or(value, default)`
+  (registry 503→505, append-only) — the parsed value when the string
+  parses, the default when it does not, every fallback firing announced
+  on the audit stderr (`[TO_FLOAT_OR]`/`[TO_INT_OR]` — the №326 posture:
+  the FACT, never the value). A non-scalar input and a non-Float default
+  stay LOUD in the `_or` twin too — explicit silence covers DATA, not
+  type errors; `Bool → 1.0/0.0` and float truncation are conversions,
+  not silence — unchanged. ADR-0180 §3 publishes the silent/loud
+  INVENTORY by group (math, io, memory, http/llm) with every preserved
+  soft site carrying its owning naryad (`read_file` №254, `mem_get`/
+  `session_get` KV-shape contract); new soft sites are FORBIDDEN — the
+  `_or` form is the only way in. The stale crypto.rs comment claiming
+  `env()` is soft (pre-№481) is corrected and pinned by the
+  source-honesty grep. BREAKING (the intended 0.28 change): programs
+  converting non-numeric strings with `to_float`/`to_int` now fail at
+  the exact line — the migration is mechanical
+  (`to_float(x)` → `to_float_or(x, 0.0)`). Blocking tests
+  (tests/naryad_514_loud_conversions.rs): the audit vector, the loud
+  refusals, the explicit-silence twins, the unchanged conversions, the
+  roundtrip through `to_string`, the classification drift guard
+  (№449), mutation-verified.
+=======
 - Naryad №513 (issue #797; the consolidated audit 28.09 C-09, Medium):
   the 35 unverifiable examples are checked or honestly COMPAT-tagged,
   and the hole is fenced. The audit found 45 `examples/*.mlog` without

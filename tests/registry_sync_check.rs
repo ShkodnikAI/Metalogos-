@@ -169,4 +169,22 @@ fn naryad_55_fixes_present() {
         check_builtin_arity("to_int", 2).is_err(),
         "to_int(2) should be invalid"
     );
+
+    // №514: the explicit-silence twins — arity 2 (value, default)
+    assert!(
+        check_builtin_arity("to_float_or", 2).is_ok(),
+        "to_float_or(2) should be valid"
+    );
+    assert!(
+        check_builtin_arity("to_float_or", 1).is_err(),
+        "to_float_or(1) should be invalid"
+    );
+    assert!(
+        check_builtin_arity("to_int_or", 2).is_ok(),
+        "to_int_or(2) should be valid"
+    );
+    assert!(
+        check_builtin_arity("to_int_or", 1).is_err(),
+        "to_int_or(1) should be invalid"
+    );
 }

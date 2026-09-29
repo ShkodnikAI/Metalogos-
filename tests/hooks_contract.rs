@@ -132,7 +132,7 @@ fn test_hook_error_does_not_block() {
 fn test_hooks_do_not_fire_on_builtins() {
     let source = r#"
         hook before_pattern {
-            mem_set("hook_count", to_string(1 + to_float(mem_get("hook_count"))))
+            mem_set("hook_count", to_string(1 + to_float_or(mem_get("hook_count"), 0.0)))
         }
         pattern Process(name: String) -> String {
             let _ = upper("test")

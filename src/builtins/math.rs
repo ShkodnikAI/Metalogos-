@@ -32,15 +32,80 @@ pub(crate) fn builtin_to_string(args: &[Value]) -> Result<Value, String> {
     Ok(Value::String(format!("{}", args[0])))
 }
 
+// №514 (audit 28.09 C-10): the soft-failure rule is ONE — "silence is
+// visible in the name" (`*_or`, the №481 env/env_or naming rule). A
+// NON-NUMERIC string was silently converted to 0.0 — the audit's vector
+// (`to_float("12,50")` → 0.0 → a zero-value charge with no error) — so the
+// conversion error is now LOUD with the stable TYPE_MISMATCH code, and the
+// explicit fallback lives in `to_float_or(value, default)`. The Bool →
+// 1.0/0.0 mapping is a conversion, not a soft failure — unchanged.
 pub(crate) fn builtin_to_float(args: &[Value]) -> Result<Value, String> {
     match args.first() {
         Some(Value::Float(f)) => Ok(Value::Float(*f)),
-        Some(Value::String(s)) => Ok(s
-            .parse::<f64>()
-            .map(Value::Float)
-            .unwrap_or(Value::Float(0.0))), // soft-failure: return 0.0 on parse error
+        Some(Value::String(s)) => s.parse::<f64>().map(Value::Float).map_err(|_| {
+            crate::interpreter::values::coded_error(
+                crate::interpreter::values::CODE_TYPE_MISMATCH,
+                format!(
+                    "to_float({s:?}): not a number — use to_float_or(value, <default>) for an explicit fallback (№514)"
+                ),
+            )
+        }),
         Some(Value::Bool(b)) => Ok(Value::Float(if *b { 1.0 } else { 0.0 })),
-        _ => Ok(Value::Float(0.0)), // soft-failure
+        Some(other) => {
+            // №514: converting a non-scalar (list, secret, ...) to a float is
+            // a programming error, not a default-value situation — LOUD.
+            Err(crate::interpreter::values::coded_error(
+                crate::interpreter::values::CODE_TYPE_MISMATCH,
+                format!(
+                    "to_float(): unsupported type {} — use to_string first, or to_float_or(value, <default>) for an explicit fallback (№514)",
+                    other.type_name()
+                ),
+            ))
+        }
+        None => Err("to_float() requires 1 argument".to_string()),
+    }
+}
+
+/// `to_float_or(value, default)` — the EXPLICIT-silence twin of `to_float`
+/// (№514, the `_or` naming rule of №481): the parsed value when the string
+/// parses, the default when it does not. Every firing of the fallback is
+/// announced on the audit stderr (`[TO_FLOAT_OR]` — the №326 op-log
+/// posture: the VALUE is never logged, only the fact). A non-scalar input
+/// type stays LOUD — explicit silence covers DATA, not type errors.
+pub(crate) fn builtin_to_float_or(args: &[Value]) -> Result<Value, String> {
+    let default = match args.get(1) {
+        Some(Value::Float(f)) => *f,
+        Some(other) => {
+            return Err(crate::interpreter::values::coded_error(
+                crate::interpreter::values::CODE_TYPE_MISMATCH,
+                format!(
+                    "to_float_or(): the default must be a Float, got {} (№514)",
+                    other.type_name()
+                ),
+            ))
+        }
+        None => return Err("to_float_or() requires 2 arguments".to_string()),
+    };
+    match args.first() {
+        Some(Value::Float(f)) => Ok(Value::Float(*f)),
+        Some(Value::String(s)) => match s.parse::<f64>() {
+            Ok(v) => Ok(Value::Float(v)),
+            Err(_) => {
+                eprintln!(
+                    "[TO_FLOAT_OR] value did not parse as a number — using the explicit default"
+                );
+                Ok(Value::Float(default))
+            }
+        },
+        Some(Value::Bool(b)) => Ok(Value::Float(if *b { 1.0 } else { 0.0 })),
+        Some(other) => Err(crate::interpreter::values::coded_error(
+            crate::interpreter::values::CODE_TYPE_MISMATCH,
+            format!(
+                "to_float_or(): unsupported type {} — use to_string first (№514)",
+                other.type_name()
+            ),
+        )),
+        None => Err("to_float_or() requires 2 arguments".to_string()),
     }
 }
 
@@ -131,6 +196,10 @@ pub(crate) fn builtin_length(args: &[Value]) -> Result<Value, String> {
 }
 
 /// `to_int(s)` — parse a string to an integer Float (truncates towards zero).
+/// №514 (audit 28.09 C-10): a NON-NUMERIC string was silently 0.0 — the
+/// conversion error is now LOUD (TYPE_MISMATCH, the №514 naming rule);
+/// the explicit fallback lives in `to_int_or(value, default)`. The Bool →
+/// 1.0/0.0 mapping is a conversion, not a soft failure — unchanged.
 pub(crate) fn builtin_to_int(args: &[Value]) -> Result<Value, String> {
     match args.first() {
         Some(Value::Float(f)) => Ok(Value::Float(f.trunc())),
@@ -141,11 +210,68 @@ pub(crate) fn builtin_to_int(args: &[Value]) -> Result<Value, String> {
             } else if let Ok(f) = s.parse::<f64>() {
                 Ok(Value::Float(f.trunc()))
             } else {
-                Ok(Value::Float(0.0)) // soft-failure
+                Err(crate::interpreter::values::coded_error(
+                    crate::interpreter::values::CODE_TYPE_MISMATCH,
+                    format!(
+                        "to_int({s:?}): not a number — use to_int_or(value, <default>) for an explicit fallback (№514)"
+                    ),
+                ))
             }
         }
         Some(Value::Bool(b)) => Ok(Value::Float(if *b { 1.0 } else { 0.0 })),
-        _ => Ok(Value::Float(0.0)), // soft-failure
+        Some(other) => Err(crate::interpreter::values::coded_error(
+            crate::interpreter::values::CODE_TYPE_MISMATCH,
+            format!(
+                "to_int(): unsupported type {} — use to_string first, or to_int_or(value, <default>) for an explicit fallback (№514)",
+                other.type_name()
+            ),
+        )),
+        None => Err("to_int() requires 1 argument".to_string()),
+    }
+}
+
+/// `to_int_or(value, default)` — the EXPLICIT-silence twin of `to_int`
+/// (№514, the `_or` naming rule of №481): the parsed/truncated value when
+/// the string parses, the default when it does not. Every firing of the
+/// fallback is announced on the audit stderr (`[TO_INT_OR]`). A non-scalar
+/// input type stays LOUD — explicit silence covers DATA, not type errors.
+pub(crate) fn builtin_to_int_or(args: &[Value]) -> Result<Value, String> {
+    let default = match args.get(1) {
+        Some(Value::Float(f)) => *f,
+        Some(other) => {
+            return Err(crate::interpreter::values::coded_error(
+                crate::interpreter::values::CODE_TYPE_MISMATCH,
+                format!(
+                    "to_int_or(): the default must be a Float, got {} (№514)",
+                    other.type_name()
+                ),
+            ))
+        }
+        None => return Err("to_int_or() requires 2 arguments".to_string()),
+    };
+    match args.first() {
+        Some(Value::Float(f)) => Ok(Value::Float(f.trunc())),
+        Some(Value::String(s)) => {
+            if let Ok(i) = s.parse::<i64>() {
+                Ok(Value::Float(i as f64))
+            } else if let Ok(f) = s.parse::<f64>() {
+                Ok(Value::Float(f.trunc()))
+            } else {
+                eprintln!(
+                    "[TO_INT_OR] value did not parse as a number — using the explicit default"
+                );
+                Ok(Value::Float(default))
+            }
+        }
+        Some(Value::Bool(b)) => Ok(Value::Float(if *b { 1.0 } else { 0.0 })),
+        Some(other) => Err(crate::interpreter::values::coded_error(
+            crate::interpreter::values::CODE_TYPE_MISMATCH,
+            format!(
+                "to_int_or(): unsupported type {} — use to_string first (№514)",
+                other.type_name()
+            ),
+        )),
+        None => Err("to_int_or() requires 2 arguments".to_string()),
     }
 }
 

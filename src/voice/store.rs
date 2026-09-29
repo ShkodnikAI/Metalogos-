@@ -2,14 +2,24 @@
 // Наряд №303 (issue #371, P2/feature/voice) — VOICE_A3_SPEAKER_ENCODER.
 //
 // Mirrors src/vision/store.rs (Наряд №242) — SQLite BLOB persistence.
-// Voiceprints are encrypted at rest (AES-256-GCM via secret() stack, Наряд №172).
+// №512 (audit 28.09 C-06): HONESTY FIX. The earlier header claimed
+// at-rest encryption — that was FALSE. What actually happens: the bytes
+// go through an INSECURE XOR placeholder keyed by the PUBLIC name
+// (reversible by anyone who reads the table) — NOT encryption. In the
+// real runtime the store refuses to persist voiceprints at all
+// ([VOICE_INSECURE_STORE]); the placeholder path survives in the mock
+// runtime only, for the skeleton tests. Voiceprints are biometric data
+// (GDPR Art. 9 special category). The honest crypto that lifts the
+// refusal is naryad №517; the privacy policy lands in docs/privacy.md
+// (№519).
 // Ledger records consent (hash(voiceprint, nonce, date, model)).
 
 use rusqlite::Connection;
 use std::sync::Mutex;
 
 /// Voice store — SQLite-backed persistence for voiceprints and audio artifacts.
-/// Voiceprints stored as encrypted BLOBs; audio as raw BLOBs.
+/// Voiceprints stored as BLOBs through an INSECURE XOR placeholder (NOT
+/// encryption — see the module header); audio as raw BLOBs.
 pub struct VoiceStore {
     conn: Mutex<Connection>,
 }
@@ -24,7 +34,11 @@ pub struct VoiceStore {
 /// );
 /// CREATE TABLE voiceprints (
 ///     name TEXT PRIMARY KEY,
-///     embedding_encrypted BLOB NOT NULL,  -- AES-256-GCM encrypted
+///     embedding_encrypted BLOB NOT NULL,  -- insecure XOR placeholder,
+///                                         -- NOT encryption (№512); the
+///                                         -- column name predates the
+///                                         -- honesty fix and is kept for
+///                                         -- schema stability
 ///     model_id TEXT NOT NULL,
 ///     saved_at TEXT NOT NULL
 /// );
@@ -70,32 +84,54 @@ impl VoiceStore {
         Ok(())
     }
 
-    /// Save a voiceprint (encrypted at rest).
-    /// The embedding is encrypted using AES-256-GCM via the secret() stack.
-    /// For the skeleton, we use a simple XOR-based encryption placeholder —
-    /// the real AES-256-GCM implementation will use crate::builtins::crypto
-    /// (Наряд №172) in phase A4.
+    /// Save a voiceprint.
+    ///
+    /// №512 (audit 28.09 C-06): in the REAL runtime (no `METALOGOS_MOCK_LLM`)
+    /// this REFUSES LOUDLY with `[VOICE_INSECURE_STORE]`: the storage under
+    /// this row is an INSECURE XOR placeholder — NOT encryption (the XOR key
+    /// derives from the public name, so anyone who reads the table can
+    /// reverse it) — and a voiceprint is biometric data (GDPR Art. 9).
+    /// Persisting biometric data behind a fake crypto label is exactly the
+    /// dishonesty this naryad removes; the honest crypto that lifts the
+    /// refusal is naryad №517.
+    ///
+    /// In the MOCK runtime (the SSOT predicate `llm::mock_llm_requested()`)
+    /// the placeholder path stays available for the skeleton tests — the
+    /// bytes are still NOT protected (the test fixtures carry the insecure
+    /// mark). The physical column name `embedding_encrypted` predates the
+    /// honesty fix and is kept for schema stability (see the schema comment).
     pub fn save_voiceprint(
         &self,
         name: &str,
         embedding: &[f32],
         model_id: &str,
     ) -> Result<(), String> {
+        if !crate::llm::mock_llm_requested() {
+            return Err(crate::interpreter::values::coded_error(
+                crate::interpreter::values::CODE_VOICE_INSECURE_STORE,
+                format!(
+                    "voiceprint '{}' not saved: the store is an INSECURE XOR placeholder, NOT encryption (the key derives from the public name and is reversible by anyone who reads the table); voiceprints are biometric data (GDPR Art. 9) — real-runtime persistence is refused until honest crypto lands (naryad №517)",
+                    name
+                ),
+            ));
+        }
         let conn = self.conn.lock().map_err(|e| format!("lock: {}", e))?;
         // Serialize embedding to bytes
         let bytes: Vec<u8> = embedding.iter().flat_map(|f| f.to_le_bytes()).collect();
-        // Encrypt (placeholder: XOR with key derived from name hash)
-        // Real implementation: AES-256-GCM via crate::builtins::crypto (Наряд №172)
-        let encrypted = self.encrypt_placeholder(&bytes, name);
+        // INSECURE placeholder: XOR with a key derived from the PUBLIC name —
+        // NOT encryption (№512 honesty fix; the fake crypto claim is gone).
+        let stored = self.insecure_placeholder(&bytes, name);
         let now = chrono::Utc::now().to_rfc3339();
         conn.execute(
             "INSERT OR REPLACE INTO voiceprints (name, embedding_encrypted, model_id, saved_at) VALUES (?1, ?2, ?3, ?4)",
-            rusqlite::params![name, encrypted, model_id, now],
+            rusqlite::params![name, stored, model_id, now],
         ).map_err(|e| format!("voice store save: {}", e))?;
         Ok(())
     }
 
-    /// Load a voiceprint by name. Returns the decrypted embedding.
+    /// Load a voiceprint by name. Returns the embedding de-XORed from the
+    /// insecure placeholder store (NOT a decrypted value — there is no
+    /// crypto here; №512).
     pub fn load_voiceprint(&self, name: &str) -> Result<(Vec<f32>, String), String> {
         let conn = self.conn.lock().map_err(|e| format!("lock: {}", e))?;
         let row = conn
@@ -110,8 +146,8 @@ impl VoiceStore {
             )
             .map_err(|e| format!("voice store load '{}': {}", name, e))?;
 
-        let (encrypted, model_id) = row;
-        let bytes = self.decrypt_placeholder(&encrypted, name);
+        let (stored, model_id) = row;
+        let bytes = self.insecure_restore(&stored, name);
         // Deserialize embedding from bytes
         let embedding: Vec<f32> = bytes
             .chunks(4)
@@ -162,9 +198,10 @@ impl VoiceStore {
         .unwrap_or(0) as usize
     }
 
-    // Placeholder encryption — XOR with name-derived key.
-    // Real: AES-256-GCM via crate::builtins::crypto (Наряд №172, phase A4).
-    fn encrypt_placeholder(&self, data: &[u8], key: &str) -> Vec<u8> {
+    // INSECURE placeholder — XOR with the name-derived key; NOT encryption
+    // (reversible by anyone who sees the table; №512 honesty fix).
+    // The honest crypto that replaces it: naryad №517.
+    fn insecure_placeholder(&self, data: &[u8], key: &str) -> Vec<u8> {
         let key_bytes = key.as_bytes();
         data.iter()
             .enumerate()
@@ -172,9 +209,10 @@ impl VoiceStore {
             .collect()
     }
 
-    fn decrypt_placeholder(&self, data: &[u8], key: &str) -> Vec<u8> {
-        // XOR is symmetric — same function for encrypt and decrypt
-        self.encrypt_placeholder(data, key)
+    fn insecure_restore(&self, data: &[u8], key: &str) -> Vec<u8> {
+        // XOR is symmetric — the same transform inverts the placeholder
+        // (NOT a decrypted value; there is no crypto here)
+        self.insecure_placeholder(data, key)
     }
 }
 
@@ -202,8 +240,22 @@ mod tests {
         store
     }
 
+    /// The process-global mock flag (№251 family discipline): serialize the
+    /// tests that pin it, restore the unset state after each use.
+    static MOCK_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn pin_mock(on: bool) {
+        if on {
+            std::env::set_var("METALOGOS_MOCK_LLM", "1");
+        } else {
+            std::env::remove_var("METALOGOS_MOCK_LLM");
+        }
+    }
+
     #[test]
     fn voiceprint_roundtrip() {
+        let _guard = MOCK_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        pin_mock(true);
         let store = test_store();
         let embedding = vec![0.1, 0.2, 0.3, 0.4, 0.5];
         store
@@ -212,6 +264,7 @@ mod tests {
         let (loaded, model) = store.load_voiceprint("alice").unwrap();
         assert_eq!(embedding, loaded);
         assert_eq!(model, "chatterbox-v3");
+        pin_mock(false);
     }
 
     #[test]
@@ -235,13 +288,17 @@ mod tests {
     }
 
     #[test]
-    fn voiceprint_is_encrypted_at_rest() {
+    fn voiceprint_bytes_are_not_stored_raw() {
+        let _guard = MOCK_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        pin_mock(true);
         let store = test_store();
         let embedding = vec![1.0, 2.0, 3.0];
         store
             .save_voiceprint("bob", &embedding, "koko-ro-82m")
             .unwrap();
-        // Verify the stored bytes are NOT the raw embedding
+        // Verify the stored bytes are NOT the raw embedding — the insecure
+        // XOR placeholder at least does not leave plaintext f32 values on
+        // disk (that is ALL it does; it is NOT encryption — №512).
         let conn = store.conn.lock().unwrap();
         let stored: Vec<u8> = conn
             .query_row(
@@ -251,7 +308,11 @@ mod tests {
             )
             .unwrap();
         let raw_bytes: Vec<u8> = embedding.iter().flat_map(|f| f.to_le_bytes()).collect();
-        assert_ne!(stored, raw_bytes, "voiceprint must be encrypted at rest");
+        assert_ne!(
+            stored, raw_bytes,
+            "voiceprint must not land as raw bytes (insecure XOR placeholder, not encryption — №512)"
+        );
+        pin_mock(false);
     }
 
     #[test]

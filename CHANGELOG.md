@@ -4,7 +4,22 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
-(nothing yet)
+- Naryad №496 (issue #781; the audit 28.09 §3.1 п.3 — the audit's
+  headline recommendation): the blocking END-TO-END distillation test
+  through the serving path — `tests/naryad_496_distill_serve_e2e.rs`.
+  The audit's finding was that NO test exercising `distill_to` went
+  through `run_test_server`/`serve`, which is exactly why the №495
+  defect was invisible to CI; this test closes the class. It boots the
+  REAL server (`run_test_server`) on BOTH backends (TW and VM), with
+  the `learnable pattern` declaration carrying `distill_after` and
+  `distill_to`, drives N+10 POST requests through the route, waits for
+  the `distill.training-*` audit events, verifies the DISTILLED
+  answers stop calling the LLM (the MockLlm call counter freezes) and
+  that the accumulated examples SURVIVE a server restart (the
+  `distill_samples` table from №495). Red-before pinned at
+  merge-base `0b55b6e` (the test could not even complete the
+  accumulate-then-serve arc there); green-after on №495. Verified:
+  green on both serve backends; lib 872/0.
 
 ## [0.27.1] - 2026-09-29
 

@@ -23,24 +23,22 @@ All notable changes to the Metalogos project.
   file yields the content, the `..` traversal stays loud, the
   deny-list stays loud; lib suite green; clippy `-D warnings` clean.
 
-- Naryad №507 (issue #790; the audit 28.09 §3.7): `read_file_or(path,
-  default)` — the EXPLICIT-silence twin of `read_file`, the `_or`
-  symmetry with `env_or` (№481) the external audit asked to make
-  explicit. A MISSING file yields the caller's default (announced on
-  the audit stderr — the path is named, the value never, the №326
-  posture); every other branch is shared with `read_file` by
-  construction (one `read_file_impl` body, two missing-file policies):
-  sandbox violations and the №455 sensitive-name deny-list stay LOUD
-  `[SANDBOX_VIOLATION]`, open/read failures stay LOUD `[IO_ERROR]` —
-  the explicit silence never bypasses them. The `read_file` contract
-  is UNCHANGED (№254, the empty-string soft default stays). Registered
-  in `BUILTIN_REGISTRY` append-only (501→502, the .mbc indices do not
-  shift), the SSOT classification/reference regenerated, the
-  curated REFERENCE.md rows + example added. Verified: 5 blocking
-  tests (`tests/naryad_507_read_file_or.rs`) — the explicit default
-  on a missing file, the unchanged №254 base contract, an existing
-  file yields the content, the `..` traversal stays loud, the
-  deny-list stays loud; lib suite green; clippy `-D warnings` clean.
+- Naryad №496 (issue #781; the audit 28.09 §3.1 п.3 — the audit's
+  headline recommendation): the blocking END-TO-END distillation test
+  through the serving path — `tests/naryad_496_distill_serve_e2e.rs`.
+  The audit's finding was that NO test exercising `distill_to` went
+  through `run_test_server`/`serve`, which is exactly why the №495
+  defect was invisible to CI; this test closes the class. It boots the
+  REAL server (`run_test_server`) on BOTH backends (TW and VM), with
+  the `learnable pattern` declaration carrying `distill_after` and
+  `distill_to`, drives N+10 POST requests through the route, waits for
+  the `distill.training-*` audit events, verifies the DISTILLED
+  answers stop calling the LLM (the MockLlm call counter freezes) and
+  that the accumulated examples SURVIVE a server restart (the
+  `distill_samples` table from №495). Red-before pinned at
+  merge-base `0b55b6e` (the test could not even complete the
+  accumulate-then-serve arc there); green-after on №495. Verified:
+  green on both serve backends; lib 872/0.
 
 ## [0.27.1] - 2026-09-29
 
@@ -165,6 +163,38 @@ below. 0.27.0 is affected — update is mandatory.**
   examples survive a server RESTART); both rollback mutations (hub
   attach off, VM injection off) turn the e2e red; lib 872/0; clippy
   `-D warnings` clean.
+
+- Naryad №500 (issue #783; the audit 28.09 §3.2, the hardening core
+  of Wave 19): the third-party path-APIs no longer bypass the №475
+  filesystem facade. Every pdf load/save site (13 across
+  `pdf_fill_form`, `pdf_rotate_page`, `pdf_delete_pages`,
+  `pdf_extract_images`, `pdf_merge`, `pdf_split`, `pdf_metadata`,
+  `pdf_set_metadata`) routes through `crate::fs_gate`: reads go
+  `read_bytes(path, purpose)` → `LopdfDocument::load_mem`, writes go
+  `save_to(&mut Vec)` → `write_bytes(output_path, purpose)` — the
+  library's own file open (invisible to any lint) is gone, and the
+  audit's three vectors are dead: overwriting `app.mlog` (the hard
+  write deny), writing `/home/app/.ssh/authorized_keys` (the sandbox
+  absolute-path refusal), reading `/srv/other-tenant/contract.pdf`
+  (the read gate). The №500 ratchet extends `clippy.toml`
+  disallowed-methods to the library path-APIs themselves
+  (`lopdf::Document::load/save`, `rusqlite::Connection::open`,
+  `image::open`, `std::fs::copy/rename/remove_dir_all/
+  create_dir_all`) — the explicitly-justified service sites (the
+  weights store, the memory/KG/checkpoint journals, the reminder db,
+  the doctest harness, vector.rs's post-sandbox open) carry named
+  `#[allow]`s; the pdf output dirs create through the new
+  `fs_gate::create_dir_all` (the full write-gate vocabulary on a
+  DIRECTORY path). The write-side canonical re-check mirrors the read
+  side's documented one: a symlink named innocently but pointing at
+  the application image is refused BY THE POLICY (naming the swap)
+  before the OS's O_NOFOLLOW does — pinned by the blocking
+  reproductions (7 tests: the three vectors, the `..` traversal, the
+  symlink swap, the deny-list read, and the legit
+  `pdf_set_metadata` round-trip proving honest pdf scenarios
+  unchanged). Verified: grep of direct lopdf path-APIs in pdf.rs = 0;
+  mutation checks (raw-write injection → the vectors turn red);
+  lib 872/0; clippy `-D warnings` with the extended list clean.
 
 - Naryad №506 (issue #789; the audit 28.09 immediate item):
   `docs/limitations.md` gains the three honest rows the audit asked

@@ -1601,14 +1601,18 @@ impl Interpreter {
                     self.eval_expr_with_env(else_br, env)
                 }
             }
-            Expr::Ident { name, .. } => env.get(name).cloned().ok_or_else(|| {
-                // №479 (ADR-0131): stable diagnostic code at the origin —
-                // the diff-fuzzer's class signature compares codes, not prose.
-                crate::interpreter::values::coded_error(
-                    crate::interpreter::values::CODE_UNDEFINED_VARIABLE,
-                    format!("undefined variable: {}", name),
-                )
-            }),
+            Expr::Ident { name, .. } => env
+                .get(name)
+                .cloned()
+                .or_else(|| self.variables.get(name).cloned())
+                .ok_or_else(|| {
+                    // №479 (ADR-0131): stable diagnostic code at the origin —
+                    // the diff-fuzzer's class signature compares codes, not prose.
+                    crate::interpreter::values::coded_error(
+                        crate::interpreter::values::CODE_UNDEFINED_VARIABLE,
+                        format!("undefined variable: {}", name),
+                    )
+                }),
             Expr::FieldAccess {
                 object: base,
                 field,

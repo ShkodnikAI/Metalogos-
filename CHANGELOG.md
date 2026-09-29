@@ -23,6 +23,24 @@ All notable changes to the Metalogos project.
   file yields the content, the `..` traversal stays loud, the
   deny-list stays loud; lib suite green; clippy `-D warnings` clean.
 
+- Naryad №503 (issue #786; the audit 28.09 §3.6 Low/Medium): the
+  OUTCOME rule — a TW/VM divergence where one side is ok and the other
+  is err is a correctness defect BY SHAPE, un-pinnable in the №465
+  corpus (a known-outcome line fails the parse like a blocked- line;
+  an Outcome divergence never matches as known at run time). The two
+  former outcome classes left the corpus in this PR: (b) the
+  entity-in-pattern gap is FIXED — the TW ident read falls back to the
+  declaration globals (self.variables, the exact set the VM models
+  with StoreGlobal/LoadGlobalByName), local bindings shadow, writes
+  stay local; pinned by tests/naryad_503_outcome_parity.rs (both
+  backends agree, mutation-verified). (a) the memory_forget compile
+  gap is root-caused with the repair plan in the naryad report (the
+  №272 vec-gate vs the TW soft unknown-function fallback vs the VM
+  loud compile — a semantics decision for the owner). ALSO: the corpus
+  seed order is DETERMINISTIC now (stateful seed_*.mlog first — the
+  same corpus was green with one read_dir order and red with another);
+  the example-reproduces-class ratchet (№479) stays live.
+
 - Naryad №502 (issue #785; the audit 28.09 §3.3): the THIRD dedup
   metric — the explicit TW-mirror MENTIONS in `src/vm.rs`
   (`scripts/ci/mirror_counter.py` + the checked-in baseline

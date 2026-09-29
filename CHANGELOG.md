@@ -19,6 +19,32 @@ All notable changes to the Metalogos project.
   remaining ignores in the two suites carry real semantic-checker
   TODOs — not touched. Blocking CI now runs 6 previously hidden tests.
 
+- Naryad №512 (issue #796; the consolidated audit 28.09 C-06, Medium —
+  step 1 of 2): the voiceprint store honesty fix. The comments and the
+  schema claimed "encrypted at rest (AES-256-GCM via the secret() stack)"
+  while the code XORs the bytes with a key derived from the PUBLIC
+  voiceprint name — reversible by anyone who reads the table; a
+  voiceprint is biometric data (GDPR Art. 9 special category) and a fake
+  crypto label misleads auditors, users and grant reviewers. Now: every
+  false crypto mention is gone from src/voice/ (the six store.rs sites +
+  the encoder.rs contract line — the №480 class rule: fix at the common
+  point, close the class); `encrypt_placeholder` is renamed
+  `insecure_placeholder` (and `decrypt_placeholder` → `insecure_restore`)
+  tree-wide; in the REAL runtime (no `METALOGOS_MOCK_LLM`, the SSOT
+  predicate №454) `save_voiceprint` REFUSES LOUDLY with the new
+  `[VOICE_INSECURE_STORE]` coded error (the №413/ADR-0169 stamp
+  convention, deliberately NOT in `ORIGIN_STAMPED_CODES` — the store has
+  no program-facing surface yet) and persists NOTHING; the mock runtime
+  keeps the placeholder path for the skeleton tests (the allowed
+  insecure-mark boundary). Blocking tests
+  (tests/naryad_512_voice_insecure_store.rs): the loud refusal (stamp at
+  position 0, nothing persisted), the mock roundtrip unchanged, the
+  source-honesty pins (no "AES-256-GCM" / old names in src/voice/,
+  tree-wide rename check), the stable class constant.
+  threat-model.md "Phase boundaries" + limitations.md "Voice Pillar" rows
+  added, cross-referencing the future docs/privacy.md (№519). Step 2 (the
+  real AES-256-GCM crypto) is naryad №517.
+
 - Naryad №509 (issue #792; the audit 28.09 §4 + §3.4п3): the 0.28
   release gate criteria v2 (ADR-0179) — the gate flips from
   no-regress ratchets to ABSOLUTE goals: the typed-signature share

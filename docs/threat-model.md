@@ -128,6 +128,7 @@ The static gates are the SSOT of every verdict; №328 lowers that knowledge int
 ### Phase boundaries (honest)
 
 - **Consent sources are Phase 2 (№335)**: until then every voice egress is unconsented by default — loud by design, not a silent pass.
+- **The voiceprint store is an INSECURE placeholder, not encryption (№512)**: comments once claimed AES-256-GCM; in fact the bytes go through XOR with a key derived from the public name. The real runtime now refuses to persist voiceprints at all (`[VOICE_INSECURE_STORE]`, fail-closed) until the honest crypto lands (№517); the at-rest claim becomes true only with №517. Voiceprints are biometric data — GDPR Art. 9 special category; the privacy policy will live in `docs/privacy.md` (№519).
 - **Grant algebra is Phase 3 (№339, ADR-0155)**: until then destructive SQL literals are gated loudly without grants (`IRREVERSIBLE_NO_GRANT`).
 - **Static inference limits**: statement-level flow + per-pattern effect contracts (№322/№323); annotations are label literals — no parametric label polymorphism yet (ADR-0154 §3); pattern effect trails `⟨io, audit⟩` (№324, ADR-0154 §9) gate declared vs factual audit effects — the annotated contract is REFERENCE.md §2.
 - **PARKED objects unchanged**: the Vision real-weights run remains parked (№294 No-Go, hardware-bound) — the lattice adds no new promises and does not change that status.

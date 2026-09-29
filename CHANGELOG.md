@@ -62,7 +62,6 @@ All notable changes to the Metalogos project.
   №468 rule); the golden.rs error suite learned the per-example .env
   sidecar (the same ADR-0169 §3.4 posture the .expected suite uses).
 
->>>>>>> origin/main
 - Naryad №511 (issue #795; the consolidated audit 28.09 C-05, Medium —
   the wave-21 P1 deploy fix): the documented deployment path actually
   works and is VERIFIED. The old image died at clap on startup

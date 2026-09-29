@@ -4,6 +4,46 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №510 (issue #794; the consolidated audit 28.09 C-01, Wave 21
+  P0): the `!=` operator is honest end-to-end. THREE defects, one
+  class — comparison operators silently degrading, each invisible to
+  the gates for its own reason. (1) The compiler wildcard: `AstCompareOp`
+  match arms in `mutate rollback_if`, the `flow` branch conditions and
+  `compile_rule` ended with `_ => ConditionOp::Eq // Ne and others fall
+  back to Eq` — `CompareOp` has exactly six variants, so the wildcard
+  hid exactly `Ne`: `rollback_if: accuracy != 0.9` and flow branches
+  `cold(x.status != "b")` compiled as `Eq` on the VM backend. All three
+  arms are explicit now, and `#![deny(clippy::wildcard_enum_match_arm)]`
+  stands at the top of `src/compiler.rs` — the lint surfaced 16
+  wildcard sites in the file (rules, branches, rollback, BinOp
+  fall-through, Statement loops, Expr simplifications, the JIT purity
+  disallow-mirror); every one is an explicit variant list, so a new
+  enum variant is a compile error until it is consciously classified.
+  (2) The grammar deadlock the compiler fix exposed: the
+  `compare_condition` rule (`expression ~ compare_op ~ expression`)
+  could NEVER match — the greedy left `expression` layers comparisons
+  as infix (`compare_expr`), consumed the whole `a != b` and left no
+  compare_op for the condition. `rule If(...)` with ANY comparison
+  operator (not just `!=`: `>`, `>=`, `<`, `<=`, `==` too) failed to
+  PARSE — only `contains` worked; the consolidated audit's premise
+  ("rules accept `!=`") was lexically true and structurally dead, so
+  the compiler wildcard was unreachable dead code on the rule path.
+  The parser now accepts an expression-shaped condition and decomposes
+  its top-level comparison into `Condition::Compare`; anything else at
+  the top level is a loud parse error. The documented syntax
+  (`rule If(target.field op value)`) now matches reality. (3) The VM's
+  mutate kept-table disagreed with the TW interpreter for every
+  operator except Lt/Le: Gt/Ge ALWAYS rolled back, Eq was inverted,
+  Ne was missing (the always-keep default). The table now mirrors
+  interpreter/hooks.rs exactly (kept = NOT(accuracy OP threshold)).
+  The diff-fuzzer №465 generated zero rules — the seeded rule block
+  (all six operators, deterministic per seed) now rides the program
+  output through the flow head, so the class stays visible to CI
+  forever. Verified: the №510 contracts C1–C10 green on BOTH backends
+  (rule fire/silence, branch taken/not-taken loud consistency,
+  rollback kept/rolled-back across `!=`/`>`/`==`); the fuzzer suite
+  green with the rule generation; clippy `-D warnings` clean.
+
 - Naryad №505 (issue #788; the audit 28.09 §3.5): the naryad number
   uniqueness gate — `scripts/ci/naryad_number_check.py` + the
   `Naryad numbering (blocking)` CI job next to the adr-check. Under

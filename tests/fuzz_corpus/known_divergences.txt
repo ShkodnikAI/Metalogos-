@@ -42,20 +42,17 @@
 # examples). Stable codes assigned at the origin sites by №479:
 # UNDEFINED_VARIABLE / UNDEFINED_FUNCTION / TYPE_MISMATCH (ADR-0131
 # convention, both backends, parity-pinned).
-
-# class: memory_forget is refused by the VM COMPILER ([UNDEFINED_FUNCTION])
-#   while TW runs it — the memory group's VM-lane gap (the №462 priority
-#   puts memory first; the class is the fuzzer's oldest catch).
-# example: class_example_memory_forget_compile.mlog
-# status: open — repair lane: the transfer line (VM compile/dispatch of the memory group)
-known-outcome|tw=ok(iii-iiii:N:N)|vm=err:[UNDEFINED_FUNCTION]@fn_call
-
-# class: an entity referenced inside a pattern body — TW refuses at runtime
-#   ([UNDEFINED_VARIABLE]) while the VM compiles the entity initializer in
-#   and the program SUCCEEDS: the program-context semantics diverge.
-# example: class_example_entity_in_pattern.mlog
-# status: open — program-context semantics: the transfer naryad line + the owner decide the truth
-known-outcome|tw=err:[UNDEFINED_VARIABLE]@ident|vm=ok(iiii-iiiii-iiii-iiiii:N)
+#
+# ── №503 (gh#786): the OUTCOME rule ─────────────────────────────────────
+# A divergence where one side is ok and the other is err is a correctness
+# defect BY SHAPE — the same program must not succeed on one backend and
+# fail on the other. Outcome classes are un-pinnable (a known-outcome line
+# fails the parse like a blocked- line) and never match as known at run
+# time. Wave 19: both former outcome classes left the corpus — the
+# entity-in-pattern gap is FIXED (the TW ident read falls back to the
+# declaration globals, parity with the VM); the memory_forget compile gap
+# is root-caused in gh#786 with the repair plan (the vec-gate/soft-fn
+# semantics decision belongs to the owner).
 
 # class: phase family — TW reports a runtime type mismatch in concatenation
 #   ([TYPE_MISMATCH]@binary_op) while the VM refuses EARLIER at compile

@@ -1,3 +1,4 @@
+// COMPAT-513: stale prototype: `db { pool_size: ... }` no longer parses (db takes url only); the server section is modern. Do NOT invent a check — the rewrite is a separate naryad.
 // ── METALOGOS Full Application Example (Phase 6.7) ──────────────────
 // Demonstrates ALL 6 security levels working together:
 // Level 1: Type-safe HTML (XSS prevention)

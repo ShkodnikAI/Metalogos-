@@ -1,3 +1,4 @@
+// COMPAT-513: stale prototype: top-level let/execution statements no longer parse. Do NOT invent a check — the rewrite is a separate naryad.
 // ── Демонстрация полного PDF-стека Metalogos (Наряд MLG-3) ──────────────
 // Создание офисного документа: заголовок, таблица, колонтитулы,
 // нумерация страниц, водяной знак.

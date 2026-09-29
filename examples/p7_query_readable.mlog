@@ -1,3 +1,4 @@
+// COMPAT-513: stale prototype: field access on a call result (`get(rows, 0).name`) no longer parses. Do NOT invent a check — the rewrite is a separate naryad.
 // Наряд №7 — Contract: query() returns readable data from SQLite
 
 db { url: "sqlite::memory:" }

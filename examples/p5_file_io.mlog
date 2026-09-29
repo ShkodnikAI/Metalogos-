@@ -1,3 +1,4 @@
+// COMPAT-513: stale prototype: `pattern` inside `entity {}` without a colon (pre-fluid entity-method syntax) no longer parses. Do NOT invent a check — the rewrite is a separate naryad.
 // ── Наряд №5: File I/O builtins — contract test ──────────────────
 // Tests: read_file, write_file, append_file
 // Invariants: soft-failure (empty string), sandbox forbidden:[filesystem] block

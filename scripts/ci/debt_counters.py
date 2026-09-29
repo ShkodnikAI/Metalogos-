@@ -76,37 +76,77 @@ def collect():
     return ignores, ignores_todo, dead_codes
 
 
+# №513 (gh#797): an example WITHOUT a check is the audit 28.09 C-09 debt:
+# no golden sidecar, no named check in the repo's check-bearing trees,
+# no COMPAT-N header tag (the honest removal the issue sanctions).
+# The counter moves ONLY DOWN (the №468 hygiene rule).
+TEXT_SUFFIXES = ('.rs', '.yml', '.yaml', '.py', '.txt', '.toml', '.md')
+COMPAT_RE = re.compile(r'COMPAT-\d+')
+
+
+def example_uncovered_inventory():
+    """Return examples/*.mlog files with NO sidecar, NO mention, NO COMPAT tag."""
+    haystack_parts = []
+    for tree in ('tests', 'benches', 'scripts', '.github'):
+        for path in sorted(glob.glob(os.path.join(ROOT, tree, '**', '*'), recursive=True)):
+            if os.path.isfile(path) and path.endswith(TEXT_SUFFIXES):
+                try:
+                    haystack_parts.append(open(path, encoding='utf-8', errors='replace').read())
+                except OSError:
+                    pass
+    haystack = '\n'.join(haystack_parts)
+    uncovered = []
+    for path in sorted(glob.glob(os.path.join(ROOT, 'examples', '*.mlog'))):
+        base = os.path.splitext(path)[0]
+        if os.path.exists(base + '.expected') or os.path.exists(base + '.error'):
+            continue
+        stem = os.path.splitext(os.path.basename(path))[0]
+        if stem in haystack:
+            continue
+        head = '\n'.join(open(path, encoding='utf-8', errors='replace').read().splitlines()[:5])
+        if COMPAT_RE.search(head):
+            continue
+        uncovered.append(os.path.relpath(path, ROOT))
+    return uncovered
+
+
 def parse_baseline(path):
     counters, dup_baseline = {}, None
     for line in open(path, encoding='utf-8'):
         line = line.strip()
-        m = re.match(r'^(ignore|ignore_todo|dead_code):\s*(\d+)$', line)
+        m = re.match(r'^(ignore|ignore_todo|dead_code|example_uncovered):\s*(\d+)$', line)
         if m:
             counters[m.group(1)] = int(m.group(2))
             continue
         m = re.match(r'^dup_baseline:\s*(.+)$', line)
         if m:
             dup_baseline = m.group(1).strip()
-    if set(counters) != {'ignore', 'ignore_todo', 'dead_code'} or not dup_baseline:
-        sys.exit(f'debt baseline {path}: expected ignore/ignore_todo/dead_code keys and a dup_baseline path')
+    if not {'ignore', 'ignore_todo', 'dead_code'} <= set(counters) or not dup_baseline:
+        sys.exit(f'debt baseline {path}: expected ignore/ignore_todo/dead_code keys (and optional example_uncovered) plus a dup_baseline path')
     return counters, dup_baseline
 
 
 def main():
     ignores, ignores_todo, dead_codes = collect()
-    counts = {'ignore': len(ignores), 'ignore_todo': len(ignores_todo), 'dead_code': len(dead_codes)}
+    uncovered_examples = example_uncovered_inventory()
+    counts = {
+        'ignore': len(ignores),
+        'ignore_todo': len(ignores_todo),
+        'dead_code': len(dead_codes),
+        'example_uncovered': len(uncovered_examples),
+    }
     argv = sys.argv[1:]
 
     if not argv:
-        for key in ('ignore', 'ignore_todo', 'dead_code'):
+        for key in ('ignore', 'ignore_todo', 'dead_code', 'example_uncovered'):
             print(f'{key}: {counts[key]}')
         return 0
 
     if argv[0] == '--list':
         which = argv[1] if len(argv) > 1 else 'ignore'
-        inventory = {'ignore': ignores, 'ignore_todo': ignores_todo, 'dead_code': dead_codes}.get(which)
+        inventory = {'ignore': ignores, 'ignore_todo': ignores_todo, 'dead_code': dead_codes, 'example_uncovered': uncovered_examples}.get(which)
         if inventory is None:
-            sys.exit(f'--list: unknown counter {which!r} (ignore|ignore_todo|dead_code)')
+            sys.exit(f'--list: unknown counter {which!r} (ignore|ignore_todo|dead_code|example_uncovered)')
         print('\n'.join(inventory))
         return 0
 
@@ -116,7 +156,11 @@ def main():
         thresholds, dup_baseline = parse_baseline(argv[1])
 
         failures = []
-        for key in ('ignore', 'ignore_todo', 'dead_code'):
+        for key in ('ignore', 'ignore_todo', 'dead_code', 'example_uncovered'):
+            # example_uncovered is a №513 counter: a baseline without the key
+            # (pre-№513 baselines) cannot gate it — treat as absent.
+            if key not in thresholds:
+                continue
             threshold = thresholds[key]
             if counts[key] > threshold:
                 failures.append((key, counts[key], threshold))
@@ -141,7 +185,7 @@ def main():
             print('(bugfix / security / docs naryads are exempt).')
             for key, value, threshold in failures:
                 print(f'  {key}: fact {value} > threshold {threshold}')
-                for site in {'ignore': ignores, 'ignore_todo': ignores_todo, 'dead_code': dead_codes}.get(key, []):
+                for site in {'ignore': ignores, 'ignore_todo': ignores_todo, 'dead_code': dead_codes, 'example_uncovered': uncovered_examples}.get(key, []):
                     print(f'    {site}')
             return 1
         print('DEBT GATE OK — every counter at or below its threshold.')

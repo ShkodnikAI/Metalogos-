@@ -1,3 +1,4 @@
+// COMPAT-513: stale prototype: top-level statements (mem_set after a decl) no longer parse. Do NOT invent a check — the rewrite is a separate naryad.
 // ADR-0045: Contract test for hooks (before_pattern / after_pattern)
 // Hook records every pattern invocation into mem_set counter.
 // mem_get after call shows correct count.

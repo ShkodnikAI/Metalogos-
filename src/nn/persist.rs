@@ -49,7 +49,9 @@ use crate::nn::{serde_weights, ReflexId, ReflexModel, ReflexRegistry};
 
 /// Schema version for the `reflex_models` table.
 /// Bumped if the column set ever changes. ADR-0116 leaves this as
-/// "CREATE TABLE IF NOT EXISTS" — no migration logic in v1.
+/// "CREATE TABLE IF NOT EXISTS"; №504 added `feature_signature` through
+/// the additive ALTER migration (`ensure_feature_signature_column`) —
+/// old databases are extended, never rejected.
 pub const REFLEX_MODELS_SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS reflex_models (
   name        TEXT PRIMARY KEY,
@@ -61,6 +63,30 @@ CREATE TABLE IF NOT EXISTS reflex_models (
   updated_at  INTEGER NOT NULL
 );
 ";
+
+/// №504: the ADDITIVE migration for the feature-signature column.
+///
+/// `CREATE TABLE IF NOT EXISTS` cannot extend an EXISTING table, so a
+/// database written by a pre-№504 binary carries `reflex_models` without
+/// `feature_signature`; the ALTER runs once per open and the duplicate-
+/// column error on subsequent opens is the expected no-op (filtered by
+/// message, anything else stays loud). Old rows read back as NULL and are
+/// interpreted as `LEGACY_FEATURE_SIGNATURE` — the weights stay readable,
+/// the mismatch is announced (never silent).
+pub fn ensure_feature_signature_column(conn: &rusqlite::Connection) -> Result<(), String> {
+    if let Err(e) =
+        conn.execute_batch("ALTER TABLE reflex_models ADD COLUMN feature_signature TEXT;")
+    {
+        let msg = format!("{}", e);
+        if !msg.contains("duplicate column name") {
+            return Err(format!(
+                "reflex persist: feature_signature migration: {}",
+                msg
+            ));
+        }
+    }
+    Ok(())
+}
 
 /// Compute the expected byte length of a layer's serialized weights,
 /// based on the **current** declaration's layer structure.
@@ -172,6 +198,8 @@ pub fn save_model_to_db(model: &ReflexModel, name: &str, db_path: &Path) -> Resu
     // Ensure table exists (idempotent — safe to call on every save).
     conn.execute_batch(REFLEX_MODELS_SCHEMA)
         .map_err(|e| format!("reflex_save: failed to ensure reflex_models table: {}", e))?;
+    // №504: the additive signature column (old databases get extended).
+    ensure_feature_signature_column(&conn).map_err(|e| format!("reflex_save: {}", e))?;
 
     let weights_blob = serialize_for_storage(model);
     let labels_json = serde_json::to_string(&model.labels)
@@ -183,8 +211,8 @@ pub fn save_model_to_db(model: &ReflexModel, name: &str, db_path: &Path) -> Resu
 
     conn.execute(
         "INSERT OR REPLACE INTO reflex_models \
-         (name, weights, input_size, labels, seed, last_metric, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+         (name, weights, input_size, labels, seed, last_metric, updated_at, feature_signature) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         rusqlite::params![
             name,
             weights_blob,
@@ -193,6 +221,7 @@ pub fn save_model_to_db(model: &ReflexModel, name: &str, db_path: &Path) -> Resu
             model.seed as i64,
             model.last_metric,
             now,
+            model.feature_signature,
         ],
     )
     .map_err(|e| format!("reflex_save: failed to insert row: {}", e))?;
@@ -220,16 +249,19 @@ pub fn load_model_from_db(
             e
         )
     })?;
+    // №504: make sure the signature column exists BEFORE selecting it
+    // (a pre-№504 database is extended additively, never rejected).
+    ensure_feature_signature_column(&conn).map_err(|e| format!("reflex_load: {}", e))?;
 
     let mut stmt = conn
         .prepare(
-            "SELECT weights, input_size, labels, seed, last_metric \
+            "SELECT weights, input_size, labels, seed, last_metric, feature_signature \
              FROM reflex_models WHERE name = ?1",
         )
         .map_err(|e| format!("reflex_load: failed to prepare query: {}", e))?;
 
     // Type alias to keep clippy::type_complexity happy.
-    type SavedRow = (Vec<u8>, i64, String, i64, Option<f64>);
+    type SavedRow = (Vec<u8>, i64, String, i64, Option<f64>, Option<String>);
 
     let row_result: Result<SavedRow, rusqlite::Error> =
         stmt.query_row(rusqlite::params![name], |row| {
@@ -239,6 +271,7 @@ pub fn load_model_from_db(
                 row.get::<_, String>(2)?,
                 row.get::<_, i64>(3)?,
                 row.get::<_, Option<f64>>(4)?,
+                row.get::<_, Option<String>>(5)?,
             ))
         });
 
@@ -258,7 +291,14 @@ pub fn load_model_from_db(
         }
     };
 
-    let (weights_blob, saved_input_size, saved_labels_json, saved_seed, saved_metric) = row;
+    let (
+        weights_blob,
+        saved_input_size,
+        saved_labels_json,
+        saved_seed,
+        saved_metric,
+        saved_signature,
+    ) = row;
 
     // Sanity: input_size must match the runtime declaration.
     // (This is a metadata-level check; the deeper layer-shape check
@@ -338,6 +378,29 @@ pub fn load_model_from_db(
     // Restore last_metric ( informational — train() will overwrite it
     // on next training call anyway).
     model.last_metric = saved_metric;
+
+    // №504: the FEATURE SIGNATURE migration. A row saved by a pre-№504
+    // binary carries NULL → the legacy byte-position extractor. The
+    // weights stay READABLE (this load succeeds either way), but a
+    // mismatch is announced LOUDLY and stamped on the model: the distill
+    // paths refuse the confident answer for a model whose features
+    // changed — the retrain is the only way back to distilled answers.
+    let effective_signature = saved_signature
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| crate::embeddings::LEGACY_FEATURE_SIGNATURE.to_string());
+    if effective_signature != crate::embeddings::DISTILL_FEATURE_SIGNATURE {
+        eprintln!(
+            "[reflex] warning: saved model '{}' was trained on feature signature '{}', \
+             but this build extracts '{}' (naryad №504: the distillation features changed \
+             from byte-position to hashed TF-IDF) — FEATURES CHANGED, RETRAIN THE MODEL. \
+             The weights are loaded as-is, but distilled answers are refused until \
+             the next successful reflex_train.",
+            name,
+            effective_signature,
+            crate::embeddings::DISTILL_FEATURE_SIGNATURE,
+        );
+    }
+    model.feature_signature = effective_signature;
 
     Ok(())
 }

@@ -293,6 +293,7 @@ pub fn build_reflex_model(decl: &CompiledReflexDecl) -> Result<crate::nn::Reflex
         last_metric: None,
         input_size: decl.input_dim,
         labels: decl.labels.clone(),
+        feature_signature: crate::embeddings::DISTILL_FEATURE_SIGNATURE.to_string(),
     })
 }
 

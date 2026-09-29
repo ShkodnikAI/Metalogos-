@@ -29,6 +29,7 @@ fn make_model(seed: u64, hidden_units: usize) -> ReflexModel {
         last_metric: None,
         input_size: 2,
         labels: vec!["a".to_string(), "b".to_string()],
+        feature_signature: metalogos::embeddings::DISTILL_FEATURE_SIGNATURE.to_string(),
     }
 }
 
@@ -161,6 +162,7 @@ fn input_size_mismatch_is_explicit_error() {
         last_metric: None,
         input_size: 3,
         labels: vec!["a".to_string(), "b".to_string()],
+        feature_signature: metalogos::embeddings::DISTILL_FEATURE_SIGNATURE.to_string(),
     };
     let mut registry_b = ReflexRegistry::new();
     let id_b = registry_b.register(model_3input);
@@ -200,6 +202,7 @@ fn labels_mismatch_is_explicit_error() {
         last_metric: None,
         input_size: 2,
         labels: vec!["x".to_string(), "y".to_string()], // DIFFERENT labels
+        feature_signature: metalogos::embeddings::DISTILL_FEATURE_SIGNATURE.to_string(),
     };
     let mut registry_b = ReflexRegistry::new();
     let id_b = registry_b.register(model_diff_labels);

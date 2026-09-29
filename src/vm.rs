@@ -3053,7 +3053,20 @@ impl Vm {
 
                 let (input_size, probs, labels): (usize, Vec<f64>, Vec<String>) = match model_kind {
                     crate::nn::ModelKind::Dense(model) => {
-                        let embedding = self.simple_embedding(input, model.input_size);
+                        // №504: a stale-signature model (a pre-№504
+                        // reflex_load) never answers as a confident one —
+                        // loud, and the caller falls through to the LLM
+                        // (the TW-mirror guard form).
+                        if model.feature_signature != crate::embeddings::DISTILL_FEATURE_SIGNATURE {
+                            eprintln!(
+                                "[AUDIT] distill.feature-stale: {} — weights trained on '{}' but this build extracts '{}' (naryad №504): FEATURES CHANGED, RETRAIN THE MODEL — staying on the LLM path",
+                                pattern_name, model.feature_signature,
+                                crate::embeddings::DISTILL_FEATURE_SIGNATURE
+                            );
+                            return Ok(None);
+                        }
+                        let embedding =
+                            crate::distill_hub::distill_features(input, model.input_size);
                         let probs = model.forward(&embedding);
                         (model.input_size, probs, model.labels.clone())
                     }
@@ -3139,7 +3152,9 @@ impl Vm {
                 Some(idx) => idx,
                 None => continue,
             };
-            let embedding = self.simple_embedding(input_str, input_size);
+            // №504: the hashed TF-IDF feature extractor — the ONE canonical
+            // copy in distill_hub → embeddings::hashed_tfidf_vector.
+            let embedding = crate::distill_hub::distill_features(input_str, input_size);
             inputs.push(embedding);
             targets.push(target_idx);
         }
@@ -3236,16 +3251,6 @@ impl Vm {
                 last_train_attempt: 0,
             });
         state.examples.push((input.to_string(), output.to_string()));
-    }
-
-    /// Simple deterministic embedding for distillation input strings.
-    /// Ported verbatim from `src/interpreter/learnable.rs::simple_embedding`
-    /// for byte-for-byte determinism (ADR-0121).
-    fn simple_embedding(&self, input: &str, dim: usize) -> Vec<f64> {
-        // №495: the ONE canonical copy lives in the distill hub —
-        // byte-identical by construction (ADR-0121), and the mirror
-        // count (the №502 metric) moves DOWN.
-        crate::distill_hub::simple_embedding(input, dim)
     }
 
     /// Call an LLM-backed learnable pattern.
@@ -4791,6 +4796,7 @@ mod n456_vm_distill_holdout_tests {
             last_metric: None,
             input_size: 4,
             labels: vec!["yes".to_string(), "no".to_string()],
+            feature_signature: crate::embeddings::DISTILL_FEATURE_SIGNATURE.to_string(),
         };
         let id = vm.reflex_registry.register(model);
         vm.reflex_names.insert("TestHead".to_string(), id);

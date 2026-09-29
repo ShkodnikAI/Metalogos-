@@ -106,6 +106,14 @@ pub struct ReflexModel {
     pub last_metric: Option<f64>,
     pub input_size: usize,   // embedding dim (from reflex_decl)
     pub labels: Vec<String>, // label names (from reflex_decl)
+    /// №504: the feature-extractor signature the CURRENT weights were
+    /// trained against (`embeddings::DISTILL_FEATURE_SIGNATURE` for
+    /// fresh/retrained models; a `reflex_load` of a pre-№504 save stamps
+    /// `LEGACY_FEATURE_SIGNATURE` here, loudly). A mismatch against the
+    /// current extractor makes the distill paths refuse the confident
+    /// answer — the features and the weights must never disagree
+    /// silently.
+    pub feature_signature: String,
 }
 
 impl ReflexModel {
@@ -270,6 +278,11 @@ impl ReflexModel {
         let holdout_accuracy = compute_accuracy(&holdout_preds, &holdout_targets);
 
         self.last_metric = Some(holdout_accuracy);
+
+        // №504: a successful (re)train re-binds the weights to the CURRENT
+        // feature extractor — the single point where a stale signature
+        // (a pre-№504 `reflex_load`) is lifted.
+        self.feature_signature = crate::embeddings::DISTILL_FEATURE_SIGNATURE.to_string();
 
         Ok((last_loss, holdout_accuracy))
     }

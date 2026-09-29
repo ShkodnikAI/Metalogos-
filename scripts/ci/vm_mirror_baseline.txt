@@ -19,4 +19,11 @@
 #           learnable.rs, the VM calls it — the MARK predates the
 #           unification and moves down with №504)
 #
-# threshold: 4
+# №504 (gh#787, 2026-09-29): the simple_embedding mark is GONE as the
+# baseline planned — the byte-position extractor was replaced by the
+# hashed TF-IDF features (the ONE canonical copy in embeddings.rs),
+# the vm.rs wrapper and its "Ported verbatim" comment are deleted,
+# the VM distill sites call distill_hub::distill_features directly.
+# 4 -> 3.
+#
+# threshold: 3

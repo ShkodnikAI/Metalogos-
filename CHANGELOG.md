@@ -4,6 +4,44 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №504 (issue #787; the audit 28.09 §3.1 companion, P1 — the
+  wave-19 tail): the distillation features leave the byte-position
+  `simple_embedding` (the sum of bytes over `i % dim` — NOT a semantic
+  representation) and land on the hashed TF-IDF form of the
+  `EmbeddingBackend` TF-IDF fallback (src/embeddings.rs): offline,
+  deterministic, network-free, bounded memory by construction (no
+  tables — the token hashes into its fixed bucket, FNV-1a 64 per the
+  №487 stable-hash posture; the SAME tokenizer as `TfidfEmbedding`).
+  ALL distill paths call the ONE canonical copy
+  (`distill_hub::distill_features` → `embeddings::hashed_tfidf_vector`):
+  the hub inference, the TW training/inference, the VM
+  training/inference — the vm.rs "Ported verbatim" mirror wrapper is
+  DELETED and the №502 mirror metric moves 4 → 3 as the baseline
+  planned. The honest measurements (tests/naryad_504_distill_features.rs,
+  printed): the legacy cosine is ~0.79-0.90 for ANY pair of strings —
+  paraphrases, rewordings, UNRELATED topics (no discriminative power);
+  the hashed features separate the worlds (unrelated 0.00, reordered
+  paraphrase 0.89). On the 40-utterance 4-intent corpus at the
+  PRODUCTION training budget (30 epochs, lr 0.1) both extractors tie
+  (holdout 0.375, both stay TEACHING — the Dense head barely converges
+  at this budget); at a converging budget (lr 0.5, test-side only) the
+  hashed features reach 0.750 vs the legacy 0.250 — the features are no
+  longer the ceiling, the training budget is the next lever (the
+  owner's semantics decision, NOT silently moved). Feature-signature
+  migration: `reflex_save` persists the extractor signature
+  (feature_signature TEXT, the additive ALTER migration — old databases
+  extended, never rejected); `reflex_load` of a pre-№504 row (NULL →
+  `bytes-pos-v1`) SUCCEEDS (weights readable) with a loud
+  "FEATURES CHANGED, RETRAIN THE MODEL" message, and the distill paths
+  (hub + TW + VM) refuse the confident answer for a signature-mismatched
+  model (the [AUDIT] distill.feature-stale line, stay on the LLM path) —
+  a successful `reflex_train` re-binds the weights to the current
+  features (the single-point rule in `ReflexModel::train`). The №485
+  separable fixture re-derived for token-level features (the old "aa*"
+  corpus keyed on the byte extractor's first-character bucket; the gate
+  contract unchanged); the №496 serve e2e unaffected (single-class
+  corpus, feature-independent).
+
 - Naryad №509 (issue #792; the audit 28.09 §4 + §3.4п3): the 0.28
   release gate criteria v2 (ADR-0179) — the gate flips from
   no-regress ratchets to ABSOLUTE goals: the typed-signature share

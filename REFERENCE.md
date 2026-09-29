@@ -763,8 +763,8 @@ max(3.0, 7.0)      // 7.0
 clamp(15.0, 0.0, 10.0)  // 10.0
 round(3.7)         // 4.0
 to_float("3.14")   // 3.14
-to_float("abc")    // LOUD [TYPE_MISMATCH] — use to_float_or("abc", 0.0) for the explicit default
-to_int("42abc")    // LOUD [TYPE_MISMATCH] — use to_int_or("42abc", 0.0)
+to_float_or("abc", 0.0)  // 0 — the explicit fallback; to_float("abc") itself is a LOUD [TYPE_MISMATCH] (№514)
+to_int_or("42abc", 0.0)  // 0 — the explicit fallback; to_int("42abc") itself is a LOUD [TYPE_MISMATCH] (№514)
 to_int(3.9)        // 3.0
 ```
 

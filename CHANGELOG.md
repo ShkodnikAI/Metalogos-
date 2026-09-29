@@ -4,6 +4,34 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №517 (issue #801; the consolidated audit 28.09 C-06 step 2, P2 —
+  the wave-21 security/voice): the honest at-rest crypto for voiceprints
+  LANDS — the №512 fail-closed refusal lifts where it can be lifted
+  honestly. The real runtime persists voiceprints under AES-256-GCM (the
+  SAME primitive as the encrypt()/decrypt() builtins, the existing
+  `aes-gcm` crate — no new dependencies); the key arrives ONLY through
+  the secret()-gate semantics (env-sourced hex-256, NEVER derived from
+  the name); every write carries a fresh random 96-bit nonce; the blob
+  is self-contained `nonce ‖ ciphertext+tag`; the schema carries the
+  `algo` label ('AES-256-GCM-v1'). A keyless save stays fail-closed
+  ([VOICE_INSECURE_STORE] — biometric data is never persisted
+  unencrypted); a legacy pre-№517 XOR row is NEVER silently read as
+  decrypted — the load refuses loudly ([VOICEPRINT_STALE],
+  "re-enroll" — the №504 migration posture); a wrong key refuses at the
+  GCM auth tag ([VOICEPRINT_DECRYPT]). The mock runtime keeps the
+  insecure placeholder path for the skeleton tests with the insecure
+  mark VISIBLE IN THE SCHEMA ('INSECURE-XOR-MOCK' — a mock row can never
+  masquerade as encrypted). threat-model.md now states the true at-rest
+  contract with the residual exposure named (key management belongs to
+  the deployment); the №512 honesty pins evolved with the truth (the
+  crypto name is REQUIRED in store.rs, FORBIDDEN elsewhere in
+  src/voice/). Blocking tests (tests/naryad_517_voice_aes_gcm.rs): the
+  keyed roundtrip, the blob-is-ciphertext (not plaintext, not
+  name-XOR), the wrong-key refusal, the keyless refusal, the loud
+  legacy migration, the per-write nonce uniqueness, the mock schema
+  mark. Mutation-verified: a silent legacy read turns T4 red; a fixed
+  nonce turns the uniqueness test red. The privacy policy cross-ref
+  follows in №519 (docs/privacy.md).
 - Naryad №514 (issue #798; the consolidated audit 28.09 C-10, Medium —
   the wave-21 P1 hardening): the ONE soft-failure rule lands for the
   conversions — "silence is visible in the name" (ADR-0180, the №481

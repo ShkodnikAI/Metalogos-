@@ -734,6 +734,50 @@ pub(super) fn parse_condition(pair: Pair<Rule>) -> Result<Condition, ParseError>
                 right: parse_expression(children[2].clone())?,
             })
         }
+        // №510 (audit 28.09 C-01): the expression-shaped fallback. The
+        // `compare_condition` grammar rule can never match a comparison —
+        // the greedy left `expression` swallows the compare operator (the
+        // expression grammar layers comparisons as infix: compare_expr) —
+        // so rule declarations with any comparison operator failed to
+        // parse. The condition arrives here as ONE expression; decompose
+        // its top-level comparison into Condition::Compare. Anything else
+        // at the top level is a loud error, not a silent fallback.
+        Rule::condition_expression => {
+            let children = children_of(&pair);
+            let expr = parse_expression(children[0].clone())?;
+            match expr {
+                Expr::BinaryOp {
+                    left,
+                    op: bin_op,
+                    right,
+                    ..
+                } if matches!(
+                    bin_op,
+                    BinOp::Gt | BinOp::Lt | BinOp::Ge | BinOp::Le | BinOp::Eq | BinOp::Ne
+                ) =>
+                {
+                    Ok(Condition::Compare {
+                        left: *left,
+                        op: match bin_op {
+                            BinOp::Gt => CompareOp::Gt,
+                            BinOp::Lt => CompareOp::Lt,
+                            BinOp::Ge => CompareOp::Ge,
+                            BinOp::Le => CompareOp::Le,
+                            BinOp::Eq => CompareOp::Eq,
+                            _ => CompareOp::Ne,
+                        },
+                        right: *right,
+                    })
+                }
+                other => Err(pair_error(
+                    &pair,
+                    &format!(
+                        "rule condition must be a comparison or a `contains` check, got {:?}",
+                        other
+                    ),
+                ))?,
+            }
+        }
         _ => Err(pair_error(
             &pair,
             "GRAMMAR INVARIANT: unknown condition type",

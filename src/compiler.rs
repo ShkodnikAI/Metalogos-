@@ -2,6 +2,12 @@
 // Translates AST (Vec<Declaration>) into a bytecode Program.
 // Contract: the emitted Program, when executed by the VM, produces
 // the same output as the tree-walking interpreter.
+//
+// Наряд №510 (audit 28.09 C-01): `!=` compiled as `==` through the
+// `_ =>` wildcard arms below. The deny lint makes the whole class
+// impossible: every enum match in this file must be explicit, so a
+// new enum variant is a compile error until handled.
+#![deny(clippy::wildcard_enum_match_arm)]
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -126,7 +132,25 @@ fn emit_sink_checks(
             crate::ast::Expr::FnCall { name, .. } if is_source_call(name) => {
                 Some(format!("@{name}"))
             }
-            _ => None,
+            // №510: explicit fall-through — a new Expr variant must be
+            // consciously reviewed for sink-tracking (the deny lint makes
+            // adding a variant here a compile error until it is handled).
+            crate::ast::Expr::StringLit { .. }
+            | crate::ast::Expr::FloatLit { .. }
+            | crate::ast::Expr::BoolLit { .. }
+            | crate::ast::Expr::FieldAccess { .. }
+            | crate::ast::Expr::FnCall { .. }
+            | crate::ast::Expr::QualifiedCall { .. }
+            | crate::ast::Expr::BinaryOp { .. }
+            | crate::ast::Expr::IfElse { .. }
+            | crate::ast::Expr::List { .. }
+            | crate::ast::Expr::IndexAccess { .. }
+            | crate::ast::Expr::StructLit { .. }
+            | crate::ast::Expr::BlockIfElse { .. }
+            | crate::ast::Expr::MatchExpr { .. }
+            | crate::ast::Expr::Try { .. }
+            | crate::ast::Expr::HandleSource { .. }
+            | crate::ast::Expr::ProvBind { .. } => None,
         };
         if let Some(arg) = trackable {
             emitted.push(code.len());
@@ -580,7 +604,15 @@ impl Compiler {
                         .map_err(|e| format!("compile: {}", e))?;
                     self.origin_decls.push(compiled);
                 }
-                _ => {}
+                // №510: explicit no-op set — declarations compiled elsewhere
+                // or needing no pass-1 emission; a new Declaration variant
+                // must be consciously routed.
+                Declaration::Import(_)
+                | Declaration::Hook(_)
+                | Declaration::OnDeny(_)
+                | Declaration::Eval(_)
+                | Declaration::Test(_)
+                | Declaration::Flow(_) => {}
             }
         }
         Ok(())
@@ -692,7 +724,24 @@ impl Compiler {
                                     // e.g., text.some_field — just use field name
                                     field.clone()
                                 }
-                                _ => "input".to_string(),
+                                // №510: explicit fall-through — only the
+                                // recall parameter naming cases above are
+                                // special; everything else uses "input".
+                                crate::ast::Expr::StringLit { .. }
+                                | crate::ast::Expr::FloatLit { .. }
+                                | crate::ast::Expr::BoolLit { .. }
+                                | crate::ast::Expr::FnCall { .. }
+                                | crate::ast::Expr::QualifiedCall { .. }
+                                | crate::ast::Expr::BinaryOp { .. }
+                                | crate::ast::Expr::IfElse { .. }
+                                | crate::ast::Expr::List { .. }
+                                | crate::ast::Expr::IndexAccess { .. }
+                                | crate::ast::Expr::StructLit { .. }
+                                | crate::ast::Expr::BlockIfElse { .. }
+                                | crate::ast::Expr::MatchExpr { .. }
+                                | crate::ast::Expr::Try { .. }
+                                | crate::ast::Expr::HandleSource { .. }
+                                | crate::ast::Expr::ProvBind { .. } => "input".to_string(),
                             };
                             crate::bytecode::CompiledContextMode::Recall(
                                 param_name,
@@ -779,12 +828,15 @@ impl Compiler {
                         examples.push((String::new(), String::new())); // placeholder
                     }
                     let rollback_op = m.rollback_op.map(|op| match op {
+                        // №510: `Ne` was swallowed by a wildcard arm and
+                        // compiled as `Eq` — rollback fired on the wrong
+                        // side of the comparison. Now explicit.
                         AstCompareOp::Gt => ConditionOp::Gt,
                         AstCompareOp::Lt => ConditionOp::Lt,
                         AstCompareOp::Ge => ConditionOp::Ge,
                         AstCompareOp::Le => ConditionOp::Le,
                         AstCompareOp::Eq => ConditionOp::Eq,
-                        _ => ConditionOp::Eq, // Ne and others fall back to Eq
+                        AstCompareOp::Ne => ConditionOp::Ne,
                     });
                     code.push(Instruction::Mutate(Box::new(MutateData {
                         pattern_name: m.pattern_name.clone(),
@@ -807,12 +859,14 @@ impl Compiler {
                             .iter()
                             .map(|b| {
                                 let op = match b.condition.op {
+                                    // №510: explicit `Ne` — same wildcard
+                                    // defect as rollback_if (C-01).
                                     AstCompareOp::Gt => ConditionOp::Gt,
                                     AstCompareOp::Lt => ConditionOp::Lt,
                                     AstCompareOp::Ge => ConditionOp::Ge,
                                     AstCompareOp::Le => ConditionOp::Le,
                                     AstCompareOp::Eq => ConditionOp::Eq,
-                                    _ => ConditionOp::Eq, // Ne and others fall back to Eq
+                                    AstCompareOp::Ne => ConditionOp::Ne,
                                 };
                                 // Compile the threshold expression to a constant if possible
                                 let threshold_val = self.eval_const_expr(&b.condition.threshold);
@@ -1066,7 +1120,19 @@ impl Compiler {
                         }
                     }
                 }
-                _ => {
+                // №510: explicit arithmetic/comparison fall-through — the
+                // short-circuit And/Or arms are handled above; anything else
+                // must be consciously classified.
+                BinOp::Add
+                | BinOp::Sub
+                | BinOp::Mul
+                | BinOp::Div
+                | BinOp::Gt
+                | BinOp::Lt
+                | BinOp::Ge
+                | BinOp::Le
+                | BinOp::Eq
+                | BinOp::Ne => {
                     self.compile_expr_with_locals(
                         left, code, locals, next_slot, loop_stack, mutable,
                     )?;
@@ -1499,7 +1565,19 @@ impl Compiler {
                                     entry.2.push(fixup);
                                 }
                             }
-                            _ => {
+                            Statement::LetBinding { .. }
+                            | Statement::Assign { .. }
+                            | Statement::Each { .. }
+                            | Statement::EachWithIndex { .. }
+                            | Statement::While { .. }
+                            | Statement::IfElseBlock { .. }
+                            | Statement::IfThen { .. }
+                            | Statement::Return { .. }
+                            | Statement::ExprStmt { .. }
+                            | Statement::Match { .. }
+                            | Statement::Memorize(_)
+                            | Statement::Forget(_)
+                            | Statement::Relate(_) => {
                                 // Recursively compile nested statements
                                 // We need to compile them inline, so we use a helper
                                 self.compile_stmt_with_locals(
@@ -1601,7 +1679,22 @@ impl Compiler {
                                     entry.2.push(code.len() - 1);
                                 }
                             }
-                            _ => {
+                            // №510: explicit fall-through — the loop compiler
+                            // special-cases break/continue only; every other
+                            // statement goes to the generic compiler.
+                            Statement::LetBinding { .. }
+                            | Statement::Assign { .. }
+                            | Statement::Each { .. }
+                            | Statement::EachWithIndex { .. }
+                            | Statement::While { .. }
+                            | Statement::IfElseBlock { .. }
+                            | Statement::IfThen { .. }
+                            | Statement::Return { .. }
+                            | Statement::ExprStmt { .. }
+                            | Statement::Match { .. }
+                            | Statement::Memorize(_)
+                            | Statement::Forget(_)
+                            | Statement::Relate(_) => {
                                 self.compile_stmt_with_locals(
                                     s,
                                     &mut code,
@@ -1705,7 +1798,22 @@ impl Compiler {
                                     entry.2.push(code.len() - 1);
                                 }
                             }
-                            _ => {
+                            // №510: explicit fall-through — the loop compiler
+                            // special-cases break/continue only; every other
+                            // statement goes to the generic compiler.
+                            Statement::LetBinding { .. }
+                            | Statement::Assign { .. }
+                            | Statement::Each { .. }
+                            | Statement::EachWithIndex { .. }
+                            | Statement::While { .. }
+                            | Statement::IfElseBlock { .. }
+                            | Statement::IfThen { .. }
+                            | Statement::Return { .. }
+                            | Statement::ExprStmt { .. }
+                            | Statement::Match { .. }
+                            | Statement::Memorize(_)
+                            | Statement::Forget(_)
+                            | Statement::Relate(_) => {
                                 self.compile_stmt_with_locals(
                                     s,
                                     &mut code,
@@ -1955,7 +2063,9 @@ impl Compiler {
                     code.push(Instruction::const_(Value::String(r.relation.clone())));
                     code.push(Instruction::Relate);
                 }
-                _ => {}
+                // №510: explicit no-op set — loop-control statements are
+                // handled by the enclosing loop compiler.
+                Statement::Break | Statement::Continue => {}
             }
         }
         // Наряд №250 (ADR-0122 #208): TW-parity for the BODY VALUE. The
@@ -2136,7 +2246,19 @@ impl Compiler {
                 // Drop the scrutinee — the value travels in the register.
                 code.push(Instruction::Pop);
             }
-            other => {
+            // №510: explicit fall-through — pattern-body scope handles the
+            // value-carrying statements above; the rest compile generically.
+            other @ Statement::LetBinding { .. }
+            | other @ Statement::Assign { .. }
+            | other @ Statement::Each { .. }
+            | other @ Statement::EachWithIndex { .. }
+            | other @ Statement::While { .. }
+            | other @ Statement::Return { .. }
+            | other @ Statement::Break
+            | other @ Statement::Continue
+            | other @ Statement::Memorize(_)
+            | other @ Statement::Forget(_)
+            | other @ Statement::Relate(_) => {
                 self.compile_stmt_with_locals(other, code, locals, next_slot, loop_stack, mutable)?;
             }
         }
@@ -2453,7 +2575,22 @@ impl Compiler {
                         Statement::Continue => {
                             code.push(Instruction::Jump(loop_start));
                         }
-                        _ => {
+                        // №510: explicit fall-through — the loop compiler
+                        // special-cases break/continue only; every other
+                        // statement goes to the generic compiler.
+                        Statement::LetBinding { .. }
+                        | Statement::Assign { .. }
+                        | Statement::Each { .. }
+                        | Statement::EachWithIndex { .. }
+                        | Statement::While { .. }
+                        | Statement::IfElseBlock { .. }
+                        | Statement::IfThen { .. }
+                        | Statement::Return { .. }
+                        | Statement::ExprStmt { .. }
+                        | Statement::Match { .. }
+                        | Statement::Memorize(_)
+                        | Statement::Forget(_)
+                        | Statement::Relate(_) => {
                             self.compile_stmt_with_locals(
                                 s, code, locals, next_slot, loop_stack, mutable,
                             )?;
@@ -2589,7 +2726,13 @@ impl Compiler {
                     scrutinee, arms, else_body, code, locals, next_slot, loop_stack, mutable, false,
                 )?;
             }
-            _ => {}
+            // №510: explicit no-op set — the shared statement compiler only
+            // handles value-carrying statements; loop-control and iteration
+            // belong to their own compilers.
+            Statement::Each { .. }
+            | Statement::EachWithIndex { .. }
+            | Statement::Break
+            | Statement::Continue => {}
         }
         Ok(())
     }
@@ -2607,7 +2750,23 @@ impl Compiler {
             }
             Expr::StringLit { value: s, .. } => FlowExpr::Const(Value::String(s.clone())),
             Expr::FloatLit { value: f, .. } => FlowExpr::Const(Value::Float(*f)),
-            _ => FlowExpr::Ident(format!("{:?}", expr)),
+            // №510: explicit fall-through — non-constant flow expressions
+            // keep their debug-render identity; a new Expr variant must be
+            // consciously reviewed.
+            Expr::BoolLit { .. }
+            | Expr::FieldAccess { .. }
+            | Expr::FnCall { .. }
+            | Expr::QualifiedCall { .. }
+            | Expr::BinaryOp { .. }
+            | Expr::IfElse { .. }
+            | Expr::List { .. }
+            | Expr::IndexAccess { .. }
+            | Expr::StructLit { .. }
+            | Expr::BlockIfElse { .. }
+            | Expr::MatchExpr { .. }
+            | Expr::Try { .. }
+            | Expr::HandleSource { .. }
+            | Expr::ProvBind { .. } => FlowExpr::Ident(format!("{:?}", expr)),
         }
     }
 
@@ -2616,7 +2775,23 @@ impl Compiler {
         match expr {
             Expr::StringLit { value: s, .. } => Value::String(s.clone()),
             Expr::FloatLit { value: f, .. } => Value::Float(*f),
-            _ => Value::Unit,
+            // №510: explicit fall-through — only literals are constant;
+            // a new Expr variant must be consciously classified.
+            Expr::BoolLit { .. }
+            | Expr::Ident { .. }
+            | Expr::FieldAccess { .. }
+            | Expr::FnCall { .. }
+            | Expr::QualifiedCall { .. }
+            | Expr::BinaryOp { .. }
+            | Expr::IfElse { .. }
+            | Expr::List { .. }
+            | Expr::IndexAccess { .. }
+            | Expr::StructLit { .. }
+            | Expr::BlockIfElse { .. }
+            | Expr::MatchExpr { .. }
+            | Expr::Try { .. }
+            | Expr::HandleSource { .. }
+            | Expr::ProvBind { .. } => Value::Unit,
         }
     }
 
@@ -2631,12 +2806,14 @@ impl Compiler {
                 RuleCondition::Compare {
                     left: self.rule_value_expr(left),
                     op: match op {
+                        // №510: explicit `Ne` — the rule-condition site of
+                        // the same wildcard defect (C-01).
                         AstCompareOp::Gt => ConditionOp::Gt,
                         AstCompareOp::Lt => ConditionOp::Lt,
                         AstCompareOp::Ge => ConditionOp::Ge,
                         AstCompareOp::Le => ConditionOp::Le,
                         AstCompareOp::Eq => ConditionOp::Eq,
-                        _ => ConditionOp::Eq, // Ne and others fall back to Eq
+                        AstCompareOp::Ne => ConditionOp::Ne,
                     },
                     right: self.rule_value_expr(right),
                 }
@@ -2645,7 +2822,24 @@ impl Compiler {
 
         let target_name = match &rule.target {
             Expr::Ident { name, .. } => name.clone(),
-            _ => return Err("rule target must be an identifier".to_string()),
+            // №510: explicit rejection set — a rule target must be an
+            // identifier; every other shape is a loud compile error.
+            Expr::StringLit { .. }
+            | Expr::FloatLit { .. }
+            | Expr::BoolLit { .. }
+            | Expr::FieldAccess { .. }
+            | Expr::FnCall { .. }
+            | Expr::QualifiedCall { .. }
+            | Expr::BinaryOp { .. }
+            | Expr::IfElse { .. }
+            | Expr::List { .. }
+            | Expr::IndexAccess { .. }
+            | Expr::StructLit { .. }
+            | Expr::BlockIfElse { .. }
+            | Expr::MatchExpr { .. }
+            | Expr::Try { .. }
+            | Expr::HandleSource { .. }
+            | Expr::ProvBind { .. } => return Err("rule target must be an identifier".to_string()),
         };
 
         Ok(CompiledRule {
@@ -2674,7 +2868,22 @@ impl Compiler {
                     RuleValueExpr::Ident(format!("{:?}", expr))
                 }
             }
-            _ => RuleValueExpr::Ident(format!("{:?}", expr)),
+            // №510: explicit fall-through — simplified rule values keep
+            // their debug-render identity; a new Expr variant must be
+            // consciously reviewed.
+            Expr::BoolLit { .. }
+            | Expr::FnCall { .. }
+            | Expr::QualifiedCall { .. }
+            | Expr::BinaryOp { .. }
+            | Expr::IfElse { .. }
+            | Expr::List { .. }
+            | Expr::IndexAccess { .. }
+            | Expr::StructLit { .. }
+            | Expr::BlockIfElse { .. }
+            | Expr::MatchExpr { .. }
+            | Expr::Try { .. }
+            | Expr::HandleSource { .. }
+            | Expr::ProvBind { .. } => RuleValueExpr::Ident(format!("{:?}", expr)),
         }
     }
 
@@ -2707,7 +2916,52 @@ impl Compiler {
                 | Instruction::CmpEq
                 | Instruction::CmpNe
                 | Instruction::Return => {}
-                _ => return false,
+                // №510: explicit disallow mirror — every non-pure
+                // instruction is named, so adding a new Instruction variant
+                // is a compile error here and forces a purity review
+                // (deny wildcard_enum_match_arm).
+                Instruction::LabelJoin(_)
+                | Instruction::SinkCheck(_)
+                | Instruction::LoadGlobal(_)
+                | Instruction::LoadGlobalByName(_)
+                | Instruction::StoreGlobal(_)
+                | Instruction::StoreLocal(_)
+                | Instruction::RegisterPattern(_)
+                | Instruction::RegisterLearnable(_)
+                | Instruction::CallBuiltin(..)
+                | Instruction::CallPattern(..)
+                | Instruction::Contains
+                | Instruction::MakeStruct(_)
+                | Instruction::GetField(_)
+                | Instruction::IndexAccess
+                | Instruction::MakeList(_)
+                | Instruction::ListLen
+                | Instruction::Pop
+                | Instruction::StartsWith
+                | Instruction::MakeFluid(_)
+                | Instruction::Jump(_)
+                | Instruction::JumpIfNot(_)
+                | Instruction::JumpIfLow(..)
+                | Instruction::Collapse(_)
+                | Instruction::Memorize(_)
+                | Instruction::Recall
+                | Instruction::Forget(_)
+                | Instruction::LlmCall(..)
+                | Instruction::Adapt(_)
+                | Instruction::Relate
+                | Instruction::Mutate(_)
+                | Instruction::FlowPipeline(_)
+                | Instruction::FlowExec(_)
+                | Instruction::TryEval(_)
+                | Instruction::ExecuteRules
+                | Instruction::Halt
+                | Instruction::StoreAssignLocal(_)
+                | Instruction::MatchTest(_)
+                | Instruction::Dup
+                | Instruction::BeginValueExpr
+                | Instruction::KeepLastValue
+                | Instruction::EndValueExpr
+                | Instruction::RegisterPatternRef(_) => return false,
             }
         }
         true

@@ -27,7 +27,6 @@ All notable changes to the Metalogos project.
   bounded ≠ request-scoped — full request-bound isolation is a separate
   infra naryad if a workload ever demonstrates the cap breaking a legit
   program.
-=======
 - Naryad №513 (issue #797; the consolidated audit 28.09 C-09, Medium):
   the 35 unverifiable examples are checked or honestly COMPAT-tagged,
   and the hole is fenced. The audit found 45 `examples/*.mlog` without

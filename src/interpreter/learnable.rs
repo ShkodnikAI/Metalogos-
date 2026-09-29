@@ -603,7 +603,19 @@ impl Interpreter {
                 // models return a clean error, not silent failure.
                 let (input_size, probs, labels): (usize, Vec<f64>, &[String]) = match model_kind {
                     crate::nn::ModelKind::Dense(model) => {
-                        let embedding = Self::simple_embedding(input, model.input_size);
+                        // №504: a stale-signature model (a pre-№504
+                        // reflex_load) never answers as a confident one —
+                        // loud, and the caller falls through to the LLM.
+                        if model.feature_signature != crate::embeddings::DISTILL_FEATURE_SIGNATURE {
+                            eprintln!(
+                                "[AUDIT] distill.feature-stale: {} — weights trained on '{}' but this build extracts '{}' (naryad №504): FEATURES CHANGED, RETRAIN THE MODEL — staying on the LLM path",
+                                pattern_name, model.feature_signature,
+                                crate::embeddings::DISTILL_FEATURE_SIGNATURE
+                            );
+                            return Ok(None);
+                        }
+                        let embedding =
+                            crate::distill_hub::distill_features(input, model.input_size);
                         let probs = model.forward(&embedding);
                         (model.input_size, probs, &model.labels)
                     }
@@ -801,7 +813,7 @@ impl Interpreter {
         }
     }
 
-    /// Record a (input, output) example for future training.    /// Record a (input, output) example for future training.
+    /// Record a (input, output) example for future training.
     /// Called after every LLM call on a distilling pattern.
     fn record_distill_example(&self, pattern_name: &str, input: &str, output: &str) {
         // №495: hub-attached (serve) — the example lands in the
@@ -825,19 +837,6 @@ impl Interpreter {
             // example for future retraining).
             state.examples.push((input.to_string(), output.to_string()));
         }
-    }
-
-    /// Simple deterministic embedding for distillation input strings.
-    /// ADR-0117 §3: "embedding strategy can be any deterministic function
-    /// of input → Vec<f64>". This produces a fixed-size vector by hashing
-    /// the input string into `dim` buckets. Future naryads may swap this
-    /// for a real embedding model (sentence-transformers etc.) — the
-    /// distillation logic doesn't depend on the embedding strategy.
-    fn simple_embedding(input: &str, dim: usize) -> Vec<f64> {
-        // №495: the ONE canonical copy lives in the distill hub —
-        // byte-identical by construction (ADR-0121), and the mirror
-        // count (the №502 metric) moves DOWN.
-        crate::distill_hub::simple_embedding(input, dim)
     }
 
     /// Наряд #156: Unified LLM call with optional per-call timeout.
@@ -1608,7 +1607,11 @@ pub(crate) fn run_distill_training(
             Some(idx) => idx,
             None => continue, // skip — ADR-0117 closed-label enforcement
         };
-        let embedding = Interpreter::simple_embedding(input_str, input_size);
+        // №504: the hashed TF-IDF feature extractor (the ONE canonical
+        // copy in distill_hub → embeddings::hashed_tfidf_vector; the
+        // former byte-position simple_embedding is GONE — features and
+        // weights are signature-bound, see persist.rs).
+        let embedding = crate::distill_hub::distill_features(input_str, input_size);
         inputs.push(embedding);
         targets.push(target_idx);
     }
@@ -1744,15 +1747,24 @@ mod n456_distill_holdout_tests {
     use crate::nn::dense::Dense;
 
     fn make_interp_with_head(labels: Vec<String>, seed: u64) -> Interpreter {
+        make_interp_with_head_dim(labels, seed, 4)
+    }
+
+    /// №504: the dim-parameterized fixture — the hashed TF-IDF extractor
+    /// needs enough buckets for token-level vocabularies (dim 4 smashes
+    /// every distinct token into the same four cells; real models declare
+    /// realistic dims). The gate under test is unchanged.
+    fn make_interp_with_head_dim(labels: Vec<String>, seed: u64, dim: usize) -> Interpreter {
         let mut interp = Interpreter::new();
-        let dense = Dense::new(4, labels.len(), crate::nn::ActivationKind::Softmax, seed);
+        let dense = Dense::new(dim, labels.len(), crate::nn::ActivationKind::Softmax, seed);
         let model = crate::nn::ReflexModel {
             name: "TestHead".to_string(),
             layers: vec![Box::new(dense)],
             seed,
             last_metric: None,
-            input_size: 4,
+            input_size: dim,
             labels,
+            feature_signature: crate::embeddings::DISTILL_FEATURE_SIGNATURE.to_string(),
         };
         let id = {
             let mut reg = interp
@@ -1853,26 +1865,31 @@ mod n456_distill_holdout_tests {
     /// margin gate must not turn every multi-class distill down.
     #[test]
     fn n485_separable_two_class_still_switches() {
-        let mut interp = make_interp_with_head(vec!["yes".into(), "no".into()], 42);
-        // min_accuracy 0.65: the 30-epoch distill budget on a 4-dim
-        // embedding reaches ~0.70 on this data — the point of the test is
-        // that the margin does NOT veto genuine learning (0.70 >=
-        // max(0.65, 0.50 + 0.05) = 0.65), while the degenerate prior
-        // model (0.90 raw, 0.90 = baseline) cannot clear ITS gate.
+        let mut interp = make_interp_with_head_dim(vec!["yes".into(), "no".into()], 42, 64);
+        // min_accuracy 0.65: the point of the test is that the margin does
+        // NOT veto genuine learning (holdout >= max(0.65, 0.50 + 0.05)),
+        // while the degenerate prior model (0.90 raw, 0.90 = baseline)
+        // cannot clear ITS gate.
         let cfg = distill_config(0.65);
-        // "aa*" vs "zz*" keys: the first two embedding buckets differ
-        // strongly ('a'=0.97 vs 'z'=1.22 per char), so the two classes are
-        // linearly separable under simple_embedding — a trained model
-        // clears the gate; the degenerate prior model does not.
+        // №504: the fixture re-derived for the hashed TF-IDF extractor.
+        // The old corpus ("aa{i}" vs "zz{i}") keyed on the byte-position
+        // extractor's first-character bucket — under the token-level
+        // extractor every "aa{i}" is a DISTINCT token with a random
+        // bucket, which is not a semantic structure at all. The new
+        // corpus is separable the way REAL text is: each class carries
+        // its own vocabulary (confirm/approve/... vs deny/cancel/...)
+        // plus one shared neutral token; distinct tokens hash to distinct
+        // buckets (dim 64), so the classes are linearly separable and a
+        // trained model clears the gate. THE GATE CONTRACT IS UNCHANGED.
         let examples: Vec<(String, String)> = (0..50)
             .map(|i| {
                 let label = if i % 2 == 0 { "yes" } else { "no" };
-                let key = if i % 2 == 0 {
-                    format!("aa{}", i)
+                let text = if i % 2 == 0 {
+                    format!("confirm approve proceed valid request {}", i)
                 } else {
-                    format!("zz{}", i)
+                    format!("deny cancel reject refuse block request {}", i)
                 };
-                (key, label.to_string())
+                (text, label.to_string())
             })
             .collect();
         let result = interp
@@ -2040,15 +2057,24 @@ mod n489_background_training_tests {
     use crate::nn::dense::Dense;
 
     fn make_interp_with_head(labels: Vec<String>, seed: u64) -> Interpreter {
+        make_interp_with_head_dim(labels, seed, 4)
+    }
+
+    /// №504: the dim-parameterized fixture — the hashed TF-IDF extractor
+    /// needs enough buckets for token-level vocabularies (dim 4 smashes
+    /// every distinct token into the same four cells; real models declare
+    /// realistic dims). The gate under test is unchanged.
+    fn make_interp_with_head_dim(labels: Vec<String>, seed: u64, dim: usize) -> Interpreter {
         let mut interp = Interpreter::new();
-        let dense = Dense::new(4, labels.len(), crate::nn::ActivationKind::Softmax, seed);
+        let dense = Dense::new(dim, labels.len(), crate::nn::ActivationKind::Softmax, seed);
         let model = crate::nn::ReflexModel {
             name: "TestHead".to_string(),
             layers: vec![Box::new(dense)],
             seed,
             last_metric: None,
-            input_size: 4,
+            input_size: dim,
             labels,
+            feature_signature: crate::embeddings::DISTILL_FEATURE_SIGNATURE.to_string(),
         };
         let id = {
             let mut reg = interp

@@ -138,6 +138,12 @@
 | ~~The sensitive-name deny-list comparison is **case-sensitive**~~ **Fixed in №501 (Wave 19)** | №455; №501; [src/builtins/io.rs](../src/builtins/io.rs) (`sensitive_name_match`); [src/fs_gate.rs](../src/fs_gate.rs) (`hard_write_name`) | **Fixed — post-0.27.1 (№501).** Every name/component comparison in BOTH matchers (io.rs `sensitive_path_match`/`sensitive_name_match`, fs_gate.rs `hard_write_name`/`hard_write_path_hit`/`gate_write_resolved`, the №500 canonical re-check through them) runs on the lowercased form; pinned by `tests/naryad_501_write_deny_case.rs` (8 blocking tests, mutation-verified) |
 | The case-insensitivity is verified at the COMPARISON level, not by a dedicated macOS/Windows CI job: the fix makes the deny compare equal to the case-insensitive filesystem's identity map for these names (lowercase is the FS-side canonical spelling), and the register-variant tests pin the policy — but no GitHub-hosted macOS runner is part of the blocking matrix | №501; [tests/naryad_501_write_deny_case.rs](../tests/naryad_501_write_deny_case.rs) | **Open (infra, non-blocking)** — a macOS case-insensitive-FS job may land as its own infra naryad; until then the comparison-level equivalence + the pinning tests are the verification |
 
+## Voice Pillar (ADR-0143–0146)
+
+| Limitation | Primary source | Status / condition for removal |
+|---|---|---|
+| The voiceprint store is an **INSECURE XOR placeholder, NOT encryption**: the earlier comments claimed "encrypted at rest (AES-256-GCM)" — that claim was FALSE (the XOR key derives from the public name; reversible by anyone who reads the table). Since №512 the real runtime refuses to persist voiceprints at all (`[VOICE_INSECURE_STORE]`, fail-closed); the placeholder path survives in the mock runtime only, for the skeleton tests. A voiceprint is biometric data (GDPR Art. 9 special category) | №512 ([gh#796](https://github.com/ShkodnikAI/Metalogos-/issues/796), the consolidated audit 28.09 C-06); [src/voice/store.rs](../src/voice/store.rs) (`save_voiceprint`, `insecure_placeholder`); [tests/naryad_512_voice_insecure_store.rs](../tests/naryad_512_voice_insecure_store.rs) | Removal condition: the honest crypto (AES-256-GCM via the №172 secret() stack) lands in **№517** — then the refusal lifts and the at-rest claim becomes true; the written privacy policy follows in `docs/privacy.md` (№519) |
+
 ## TW/VM Divergences (№465 fuzzer, №476 rule)
 
 | Limitation | Primary source | Status / condition for removal |

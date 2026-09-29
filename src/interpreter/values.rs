@@ -598,6 +598,18 @@ pub const CODE_MEMORY_POISONED: &str = "MEMORY_POISONED";
 /// (`METALOGOS_DATA_DIR`, default `./data`). The refusal is loud and
 /// branchable for `try` (the №254 sandbox-refusal convention).
 pub const CODE_SANDBOX_SENSITIVE_PATH: &str = "SANDBOX_SENSITIVE_PATH";
+/// №512 (the voice honesty wave, audit 28.09 C-06): the voiceprint store
+/// refusal — persisting a voiceprint in the REAL runtime is refused
+/// fail-closed because the store is an INSECURE XOR placeholder (the key
+/// derives from the public name — reversible by anyone who reads the
+/// table), NOT encryption. Voiceprints are biometric data (GDPR Art. 9
+/// special category); the mock runtime keeps the placeholder path for the
+/// existing skeleton tests. The honest crypto that lifts this refusal is
+/// naryad №517. Deliberately NOT in `ORIGIN_STAMPED_CODES` yet: the store
+/// has no program-facing surface (no builtin routes here), so there is no
+/// `try` sewing point that could observe the stamp — the whitelist is for
+/// program-visible origins only.
+pub const CODE_VOICE_INSECURE_STORE: &str = "VOICE_INSECURE_STORE";
 
 /// The whitelist of codes a subsystem may stamp onto the String error
 /// channel. `RUNTIME_ERROR` is deliberately NOT in this list: it is the

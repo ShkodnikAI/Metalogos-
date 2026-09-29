@@ -31,6 +31,7 @@ fn make_untrained_model() -> ReflexRegistry {
         last_metric: None, // ← untrained
         input_size: 2,
         labels: vec!["positive".to_string(), "negative".to_string()],
+        feature_signature: metalogos::embeddings::DISTILL_FEATURE_SIGNATURE.to_string(),
     };
     registry.register(model);
     registry

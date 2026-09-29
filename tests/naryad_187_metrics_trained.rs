@@ -138,6 +138,7 @@ fn make_trained_registry() -> (ReflexRegistry, metalogos::nn::ReflexId, f64) {
         last_metric: None,
         input_size: 2,
         labels: vec!["near".to_string(), "far".to_string()],
+        feature_signature: metalogos::embeddings::DISTILL_FEATURE_SIGNATURE.to_string(),
     };
     let id = registry.register(model);
 

@@ -196,7 +196,10 @@ impl TfidfEmbedding {
     }
 
     /// Tokenize text into lowercase words, filtering out short tokens and non-alphanumeric.
-    fn tokenize(text: &str) -> Vec<String> {
+    /// pub(crate) since №504: the hashed distillation extractor reuses the
+    /// SAME tokenization (the tokenization SSOT) — the two feature forms
+    /// must never disagree on what a word is.
+    pub(crate) fn tokenize(text: &str) -> Vec<String> {
         text.to_lowercase()
             .chars()
             .map(|c| if c.is_alphanumeric() { c } else { ' ' })
@@ -287,6 +290,129 @@ impl EmbeddingBackend for TfidfEmbedding {
     fn dimension(&self) -> usize {
         let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         inner.vocab.len().max(TFIDF_EMBEDDING_DIM)
+    }
+}
+
+// ── №504: the distillation feature backend (hashed TF-IDF) ─────────
+
+/// The feature signature of the CURRENT distillation extractor (№504).
+/// Persisted with `reflex_save`; a saved model whose signature differs
+/// from this constant was trained on different features, and its weights
+/// are NOT meaningful for the current ones — the load path announces the
+/// mismatch loudly and the distill paths refuse the confident answer
+/// until the model is retrained.
+pub const DISTILL_FEATURE_SIGNATURE: &str = "tfidf-hash-v1";
+
+/// The pre-№504 signature: the byte-position `simple_embedding`
+/// (sum of bytes over `i % dim` buckets). Older saved models carry no
+/// signature column at all — they are treated as THIS (the honest
+/// migration: the weights stay readable, the mismatch is loud).
+pub const LEGACY_FEATURE_SIGNATURE: &str = "bytes-pos-v1";
+
+const HASHED_TFIDF_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+const HASHED_TFIDF_PRIME: u64 = 0x0000_0100_0000_01b3;
+
+/// FNV-1a 64 — the explicitly stable hash algorithm (№487 posture: a
+/// deterministic feature extractor must never bind to `DefaultHasher`,
+/// whose iteration/seed is unspecified across releases).
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    let mut hash = HASHED_TFIDF_OFFSET_BASIS;
+    for &byte in bytes {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(HASHED_TFIDF_PRIME);
+    }
+    hash
+}
+
+/// The canonical DETERMINISTIC distillation feature extractor (№504,
+/// gh#787): fixed-dimension hashed TF with sublinear term weighting and
+/// L2 normalization — the TF-IDF fallback form that is safe for TRAINED
+/// weights.
+///
+/// WHY NOT `TfidfEmbedding` verbatim: its vocabulary table grows on
+/// every `embed` call and a token's index depends on the order texts
+/// were embedded — within one process (recall similarity) that is fine,
+/// but a trained Dense model binds its weights to POSITIONS, so a
+/// restart (or `reflex_save`/`reflex_load` across processes) would
+/// silently misalign features and weights. Hashing the token to its
+/// bucket makes the position a pure function of the token — the same
+/// text produces the same vector in every process, forever, with NO
+/// table at all (the наряд's memory criterion is met by construction:
+/// the extractor allocates only the `dim` output buckets).
+///
+/// The TF-IDF relationship: the same tokenizer as `TfidfEmbedding`
+/// (the tokenization SSOT), the same smooth-IDF family weighting and
+/// the same L2 normalization. With no corpus statistics (each text is
+/// its own document, df = 1) the smooth IDF factor is a constant that
+/// L2 normalization absorbs — so the vector IS the document's TF-IDF
+/// vector up to scale, computed without a table.
+///
+/// ADR-0117 §3 contract: a deterministic function of input → Vec<f64>.
+pub fn hashed_tfidf_vector(input: &str, dim: usize) -> Vec<f64> {
+    let mut vector = vec![0.0f64; dim.max(1)];
+    let tokens = TfidfEmbedding::tokenize(input);
+    if tokens.is_empty() || dim == 0 {
+        return vector;
+    }
+    // Term frequencies over hashed buckets.
+    let mut tf_counts: HashMap<usize, f64> = HashMap::new();
+    for token in &tokens {
+        let bucket = (fnv1a64(token.as_bytes()) as usize) % dim;
+        *tf_counts.entry(bucket).or_insert(0.0) += 1.0;
+    }
+    // Sublinear TF (1 + ln tf) — the standard TF-IDF term weighting for
+    // repeated terms; with df = 1 the smooth IDF is the constant
+    // ln(2) + 1, absorbed by normalization (see the doc comment).
+    for (bucket, tf) in tf_counts {
+        vector[bucket] += 1.0 + tf.ln();
+    }
+    // L2 normalize (the same posture as TfidfEmbedding::compute_tfidf).
+    let norm: f64 = vector.iter().map(|v| v * v).sum::<f64>().sqrt();
+    if norm > 0.0 {
+        for v in vector.iter_mut() {
+            *v /= norm;
+        }
+    }
+    vector
+}
+
+/// The `EmbeddingBackend` face of the same extractor — the offline,
+/// deterministic, network-free DEFAULT the distillation hub hands out
+/// (№504). Real embedding backends stay optional (the OpenAI provider
+/// above is never required); this backend is what the features actually
+/// run on by default.
+pub struct TfidfHashEmbedding {
+    dim: usize,
+}
+
+impl TfidfHashEmbedding {
+    /// A backend whose vectors are exactly `dim` wide (the trained
+    /// model's `input_size`).
+    pub fn with_dim(dim: usize) -> Self {
+        Self { dim: dim.max(1) }
+    }
+}
+
+impl Default for TfidfHashEmbedding {
+    fn default() -> Self {
+        Self::with_dim(TFIDF_EMBEDDING_DIM)
+    }
+}
+
+impl EmbeddingBackend for TfidfHashEmbedding {
+    fn embed(&self, text: &str) -> Result<Vec<f32>, String> {
+        Ok(hashed_tfidf_vector(text, self.dim)
+            .into_iter()
+            .map(|v| v as f32)
+            .collect())
+    }
+
+    fn similarity(&self, a: &[f32], b: &[f32]) -> f32 {
+        cosine_similarity(a, b)
+    }
+
+    fn dimension(&self) -> usize {
+        self.dim
     }
 }
 

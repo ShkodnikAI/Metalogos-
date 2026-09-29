@@ -44,6 +44,7 @@ fn make_model_2class(seed: u64) -> ReflexModel {
         last_metric: None,
         input_size: 2,
         labels: vec!["class_0".to_string(), "class_1".to_string()],
+        feature_signature: metalogos::embeddings::DISTILL_FEATURE_SIGNATURE.to_string(),
     }
 }
 

@@ -505,28 +505,46 @@ impl DistillAccess for DistillHub {
                 let model_kind = reg.get(model_id).ok_or_else(|| {
                     format!("distill: model handle {:?} not in registry", model_id)
                 })?;
-                let (probs, labels): (Vec<f64>, Vec<String>) =
-                    match model_kind {
-                        crate::nn::ModelKind::Dense(model) => {
-                            let embedding = simple_embedding(input, model.input_size);
-                            (model.forward(&embedding), model.labels.clone())
+                let (probs, labels): (Vec<f64>, Vec<String>) = match model_kind {
+                    crate::nn::ModelKind::Dense(model) => {
+                        // №504: a model whose weights were trained on
+                        // DIFFERENT features (a pre-№504 reflex_load) must
+                        // never answer as a confident one — refuse loudly
+                        // and stay on the LLM path until the retrain.
+                        if model.feature_signature != crate::embeddings::DISTILL_FEATURE_SIGNATURE {
+                            Self::audit_line(
+                                    &self.shared,
+                                    format!(
+                                        "[AUDIT] distill.feature-stale: {} — weights trained on '{}' but this build extracts '{}' (naryad №504): FEATURES CHANGED, RETRAIN THE MODEL — staying on the LLM path",
+                                        pattern_name,
+                                        model.feature_signature,
+                                        crate::embeddings::DISTILL_FEATURE_SIGNATURE
+                                    ),
+                                );
+                            return Ok(None);
                         }
-                        #[cfg(feature = "candle")]
-                        crate::nn::ModelKind::Sequence(_) => return Err(
+                        let embedding =
+                            crate::embeddings::hashed_tfidf_vector(input, model.input_size);
+                        (model.forward(&embedding), model.labels.clone())
+                    }
+                    #[cfg(feature = "candle")]
+                    crate::nn::ModelKind::Sequence(_) => {
+                        return Err(
                             "distill: sequence models (reflex_seq) do not yet support distill_to. \
                              distill_to currently works only with Dense models (reflex). \
                              Sequence distillation is a future-naryad concern."
                                 .to_string(),
-                        ),
-                        #[cfg(feature = "candle")]
-                        crate::nn::ModelKind::Gen(_) => {
-                            return Err(
-                                "distill: gen models (reflex_gen) do not support distill_to. \
+                        )
+                    }
+                    #[cfg(feature = "candle")]
+                    crate::nn::ModelKind::Gen(_) => {
+                        return Err(
+                            "distill: gen models (reflex_gen) do not support distill_to. \
                              distill_to works only with Dense models (reflex)."
-                                    .to_string(),
-                            )
-                        }
-                    };
+                                .to_string(),
+                        )
+                    }
+                };
 
                 // The highest-confidence label (the mirror's exact form).
                 let (best_idx, best_prob) = probs
@@ -610,34 +628,19 @@ impl DistillAccess for DistillHub {
     }
 }
 
-/// The canonical deterministic embedding for distillation input strings
-/// (ADR-0117 §3: "any deterministic function of input → Vec<f64>"). The
-/// ONE copy — the TW mirror (`learnable.rs::simple_embedding`) and the
-/// VM mirror (`vm.rs::simple_embedding`, "ported verbatim" per
-/// ADR-0121) now delegate here: byte-identical by construction, and the
-/// vm.rs mirror count (the №502 metric) moves DOWN. VERBATIM from the
-/// mirrors (ADR-0121 byte-parity): same hash distribution, same
-/// normalization — a single-class 0.002 branch in my first draft was
-/// WRONG and is not in the mirrors; this body is the mirror body.
-pub(crate) fn simple_embedding(input: &str, dim: usize) -> Vec<f64> {
-    let mut embedding = vec![0.0; dim];
-    // XOR-based hash distribution — same input always produces same embedding.
-    let bytes = input.as_bytes();
-    for (i, &b) in bytes.iter().enumerate() {
-        let bucket = i % dim;
-        // Mix the byte into the bucket — using multiplication + addition
-        // so different inputs produce distinguishable vectors.
-        embedding[bucket] += (b as f64) * 0.01;
-        // Also XOR-style mixing for spread
-        if b != 0 {
-            embedding[(bucket + 1) % dim] =
-                (embedding[(bucket + 1) % dim] * 0.99) + (b as f64) * 0.001;
-        }
-    }
-    // Normalize to roughly [-1, 1] range (helps gradient descent).
-    let max_val = embedding.iter().cloned().fold(0.0f64, f64::max).max(1.0);
-    for v in &mut embedding {
-        *v /= max_val;
-    }
-    embedding
+/// №504 (gh#787): the canonical distillation feature extractor — the
+/// hashed TF-IDF form of the TF-IDF fallback (`EmbeddingBackend`),
+/// OFFLINE, deterministic, network-free. The former byte-position
+/// `simple_embedding` ("sum of bytes over i % dim") was NOT a semantic
+/// representation — "Where is my package?" and "Where's my parcel?"
+/// produced near-unrelated vectors, so the №485 gate would honestly
+/// reject most real-text models (the audit 28.09 §3.1 companion
+/// finding). The ONE canonical copy lives in
+/// `crate::embeddings::hashed_tfidf_vector` (next to the
+/// `EmbeddingBackend` trait it implements); BOTH backends' distill
+/// paths (TW learnable.rs, VM vm.rs, this hub) call it directly —
+/// byte-identical by construction, and the vm.rs mirror count (the
+/// №502 metric) moves DOWN as planned by the №502 baseline.
+pub(crate) fn distill_features(input: &str, dim: usize) -> Vec<f64> {
+    crate::embeddings::hashed_tfidf_vector(input, dim)
 }

@@ -80,7 +80,11 @@ impl VoiceStore {
     /// row). #[doc(hidden)]: not part of the public API surface.
     #[doc(hidden)]
     pub fn raw_connection_for_tests(&self) -> std::sync::MutexGuard<'_, Connection> {
-        self.conn.lock().expect("store lock")
+        // The poison-recovery pattern (the house lock posture): a panic in
+        // a prior holder leaves the guard poisoned but the data usable for
+        // the test fixtures — no expect/unwrap in the lib build (the
+        // lib.rs deny).
+        self.conn.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     pub fn init_tables(&self) -> Result<(), String> {

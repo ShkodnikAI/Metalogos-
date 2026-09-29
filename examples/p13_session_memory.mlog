@@ -1,3 +1,4 @@
+// COMPAT-513: stale prototype: top-level let/execution statements no longer parse. Do NOT invent a check — the rewrite is a separate naryad.
 // ── ADR-0049: Session Memory — Contract Program ────────────────────────
 // Tests session_set, session_get, session_clear builtins.
 // Run: mlog run examples/p13_session_memory.mlog

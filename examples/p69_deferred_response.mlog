@@ -1,3 +1,4 @@
+// COMPAT-513: the file is a CONTRACT for a future implementation (deferred respond) — it declares itself 'intentionally NOT in the test suite'; checking it now would invent behavior. Do NOT invent a check — the rewrite is a separate naryad.
 // ── Наряд #69 Block 2: Deferred route response contract ──────────────────
 //
 // This contract is for FUTURE IMPLEMENTATION (separate narad).

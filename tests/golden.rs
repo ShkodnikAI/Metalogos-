@@ -334,7 +334,15 @@ fn all_error_tests_pass() {
             .trim_end()
             .to_string();
 
+        // №513: the same per-example env sidecar the golden .expected suite
+        // uses — an error contract that needs the deterministic mock declares
+        // `METALOGOS_MOCK_LLM=1` in its .env sidecar (ADR-0169 §3.4 posture:
+        // explicit per example, removed before the next pair runs).
+        let env_vars = sidecar_env(mlog_path);
+        apply_env(&env_vars);
         let result = metalogos::run_program(&source);
+        remove_env(&env_vars);
+
         match result {
             Ok(_) => panic!(
                 "error test {:?} was expected to fail but succeeded",

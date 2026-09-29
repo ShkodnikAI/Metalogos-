@@ -71,7 +71,7 @@ fn parse_inner(source: &str) -> Result<Vec<Declaration>, ParseError> {
                 Rule::db_decl => declarations.push(parse_db_decl(inner_pair)?),
                 Rule::schema_decl => declarations.push(parse_schema_decl(inner_pair)),
                 Rule::skill_index_decl => declarations.push(parse_skill_index_decl(inner_pair)),
-                Rule::memory_decl => declarations.push(parse_memory_decl(inner_pair)),
+                Rule::memory_decl => declarations.push(parse_memory_decl(inner_pair)?),
                 Rule::import_decl => declarations.push(parse_import_decl(inner_pair)),
                 Rule::entity_type_decl => declarations.push(parse_entity_type_decl(inner_pair)),
                 Rule::entity_record_decl => {
@@ -94,14 +94,14 @@ fn parse_inner(source: &str) -> Result<Vec<Declaration>, ParseError> {
                 Rule::fluid_decl => declarations.push(parse_fluid_decl(inner_pair)?),
                 Rule::adapt_decl => declarations.push(parse_adapt_decl(inner_pair)?),
                 Rule::relate_decl => declarations.push(parse_relate_decl(inner_pair)?),
-                Rule::sandbox_decl => declarations.push(parse_sandbox_decl(inner_pair)),
+                Rule::sandbox_decl => declarations.push(parse_sandbox_decl(inner_pair)?),
                 Rule::hook_decl => declarations.push(parse_hook_decl(inner_pair)?),
                 // Наряд №392: the deny-event handler declaration.
                 Rule::on_deny_decl => declarations.push(parse_on_deny_decl(inner_pair)?),
                 Rule::mutate_decl => declarations.push(parse_mutate_decl(inner_pair)?),
-                Rule::eval_decl => declarations.push(parse_eval_decl(inner_pair)),
+                Rule::eval_decl => declarations.push(parse_eval_decl(inner_pair)?),
                 Rule::test_decl => declarations.push(parse_test_decl(inner_pair)),
-                Rule::conversation_decl => declarations.push(parse_conversation_decl(inner_pair)),
+                Rule::conversation_decl => declarations.push(parse_conversation_decl(inner_pair)?),
                 Rule::context_budget_decl => {
                     declarations.push(parse_context_budget_decl(inner_pair))
                 }

@@ -113,7 +113,13 @@ db_decl      = { "db" ~ LBRACE ~ db_body ~ RBRACE }
 // memory { kv: { type: key_value, persist: true } }
 // Without persist → in-memory (backward compatible)
 memory_decl   = { MEMORY_KW ~ LBRACE ~ memory_body ~ RBRACE }
-memory_body   = { memory_kv_config? ~ COMMA? ~ memory_persist? }
+// №508: the field set is fixed, the ORDER is free (the №490 shape).
+// A duplicate field is a loud parse error naming the field and its
+// position (guard_unique_field_groups in parse_memory_decl); the silent
+// memory_field wrapper keeps the inner rules directly in the body's
+// child list, so the .find()-based extraction is unchanged.
+memory_body   = { (memory_field ~ (COMMA ~ memory_field)*)? }
+memory_field  = _{ memory_kv_config | memory_persist }
 memory_kv_config = { "kv" ~ ":" ~ LBRACE ~ kv_type_field? ~ kv_persist_field? ~ RBRACE }
 kv_type_field    = { "type" ~ ":" ~ IDENT }
 kv_persist_field  = { "persist" ~ ":" ~ BOOL_LITERAL }
@@ -162,7 +168,10 @@ relate_decl = { RELATE_KW ~ expression ~ "to" ~ expression ~ "as" ~ expression }
 
 // ── Sandbox (P2) ────────────────────────────────────────────────────
 sandbox_decl    = { SANDBOX_KW ~ IDENT ~ LBRACE ~ sandbox_body ~ RBRACE }
-sandbox_body    = { sandbox_allowed? ~ (COMMA ~ sandbox_forbidden?)? ~ (COMMA ~ sandbox_timeout?)? }
+// №508: the field order is free (the №490 shape); duplicates loud in
+// parse_sandbox_decl via guard_unique_field_groups.
+sandbox_body    = { (sandbox_field ~ (COMMA ~ sandbox_field)*)? }
+sandbox_field   = _{ sandbox_allowed | sandbox_forbidden | sandbox_timeout }
 sandbox_allowed  = { "allowed" ~ ":" ~ LBRACKET ~ ident_list? ~ RBRACKET }
 sandbox_forbidden = { "forbidden" ~ ":" ~ LBRACKET ~ ident_list? ~ RBRACKET }
 sandbox_timeout  = { "timeout" ~ ":" ~ INT }
@@ -175,7 +184,12 @@ TEST_KW    = @{ "test" }
 // ── Eval Harness (ADR-0050) ──────────────────────────────────────────────
 // eval PatternName { dataset: [("input", "expected"), ...] metric: accuracy threshold: 0.8 }
 eval_decl        = { EVAL_KW ~ IDENT ~ LBRACE ~ eval_body ~ RBRACE }
-eval_body        = { eval_dataset ~ (COMMA ~ eval_metric?)? ~ (COMMA ~ eval_threshold?)? }
+// №508: the field order is free (the №490 shape). The dataset field is
+// REQUIRED semantically — the grammar accepts the empty body, and
+// parse_eval_decl refuses loudly without it (the grammar cannot express
+// per-alternative multiplicity in a free-order body).
+eval_body        = { (eval_field ~ (COMMA ~ eval_field)*)? }
+eval_field       = _{ eval_dataset | eval_metric | eval_threshold }
 eval_dataset      = { "dataset" ~ COLON ~ LBRACKET ~ eval_example_list? ~ RBRACKET }
 eval_example_list = { eval_example ~ (COMMA ~ eval_example)* }
 eval_example     = { "(" ~ STRING_LITERAL ~ COMMA ~ STRING_LITERAL ~ ")" }
@@ -235,7 +249,10 @@ assignment   = { IDENT ~ "." ~ IDENT ~ "=" ~ expression }
 // ── Conversation (ADR-0053) ──────────────────────────────────────────
 // conversation { ttl: 1800  max_messages: 50  compress_after: 20 }
 conversation_decl = { CONVERSATION_KW ~ LBRACE ~ conversation_body ~ RBRACE }
-conversation_body = { conversation_ttl? ~ (COMMA ~ conversation_max_messages?)? ~ (COMMA ~ conversation_compress_after?)? }
+// №508: the field order is free (the №490 shape); duplicates loud in
+// parse_conversation_decl via guard_unique_field_groups.
+conversation_body = { (conversation_field ~ (COMMA ~ conversation_field)*)? }
+conversation_field = _{ conversation_ttl | conversation_max_messages | conversation_compress_after }
 conversation_ttl = { "ttl" ~ COLON ~ INT }
 conversation_max_messages = { "max_messages" ~ COLON ~ INT }
 conversation_compress_after = { "compress_after" ~ COLON ~ INT }

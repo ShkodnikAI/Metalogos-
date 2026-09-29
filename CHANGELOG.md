@@ -32,6 +32,29 @@ All notable changes to the Metalogos project.
   mark. Mutation-verified: a silent legacy read turns T4 red; a fixed
   nonce turns the uniqueness test red. The privacy policy cross-ref
   follows in №519 (docs/privacy.md).
+- Naryad №515 (issue #799; the consolidated audit 28.09 C-12, Low/Medium —
+  the wave-21 P2 reliability): the process-global registries are BOUNDED —
+  growth under errors no longer linear. THE HOLE: `PDF_DOCS` (the
+  in-progress PDF store) removed an entry ONLY in `pdf_save` — a route
+  that called `pdf_create` and then errored or was abandoned before the
+  save accumulated orphans without limit. Now the store is capped
+  (`PDF_DOCS_MAX` = 64) with OLDEST-sequence eviction on insert (an
+  in-flight doc is never the victim unless it outlives MAX newer
+  creates); the same patch family lands for the same confirmed class:
+  `VIDEO_REGISTRY` (`VIDEO_ARTIFACTS_MAX` = 64 — `remove_artifact` had
+  zero production callers) and `VOICE_REGISTRY` (`VOICE_ARTIFACTS_MAX`
+  = 64, both the audio artifacts and the mock-path voiceprints).
+  `LLM_STREAM_REGISTRY` was already bounded since №263 (the loud
+  `STREAM_LIMIT_REACHED`); `GLOBAL_TEMPLATES` is keyed by declaration
+  NAME (overwrite semantics — bounded by the program surface, not by
+  requests). Blocking tests (in the lib suite, serial): 1000 abandoned
+  creates leave the store AT the cap; the oldest orphan is gone; the
+  newest in-flight doc survives; 1000 video/voice inserts bound both
+  registries. Mutation-verified: removing any eviction turns its bound
+  test red. The honest boundary is on record in docs/limitations.md:
+  bounded ≠ request-scoped — full request-bound isolation is a separate
+  infra naryad if a workload ever demonstrates the cap breaking a legit
+  program.
 - Naryad №514 (issue #798; the consolidated audit 28.09 C-10, Medium —
   the wave-21 P1 hardening): the ONE soft-failure rule lands for the
   conversions — "silence is visible in the name" (ADR-0180, the №481
@@ -62,7 +85,6 @@ All notable changes to the Metalogos project.
   refusals, the explicit-silence twins, the unchanged conversions, the
   roundtrip through `to_string`, the classification drift guard
   (№449), mutation-verified.
-=======
 - Naryad №513 (issue #797; the consolidated audit 28.09 C-09, Medium):
   the 35 unverifiable examples are checked or honestly COMPAT-tagged,
   and the hole is fenced. The audit found 45 `examples/*.mlog` without

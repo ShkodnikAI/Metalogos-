@@ -109,8 +109,57 @@ struct PdfDocument {
 }
 
 /// Global store for in-progress PDF documents.
-static PDF_DOCS: Lazy<Mutex<HashMap<String, PdfDocument>>> =
+///
+/// №515 (issue #799; the consolidated audit 28.09 C-12): the store is
+/// BOUNDED. Before the bound, an entry was removed ONLY by `pdf_save` — a
+/// route that called `pdf_create` and then errored (or was abandoned)
+/// before the save accumulated orphans without limit. Now the store holds
+/// at most [`PDF_DOCS_MAX`] entries; the insert at full capacity evicts the
+/// OLDEST entry (lowest insertion sequence — an orphaned handle from a dead
+/// request), so growth under errors is bounded by the constant. A doc
+/// created moments ago (the newest) always survives — in-flight requests
+/// are never the eviction victims unless they outlive MAX newer creates.
+/// The choice between request-bound cleanup and a TTL+size limit follows
+/// the naryad's "choose by code": the builtin layer is process-global and
+/// has no request context, so the self-contained size bound is the honest
+/// fix (the inventory row lives in the №515 report).
+static PDF_DOCS: Lazy<Mutex<HashMap<String, (u64, PdfDocument)>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
+
+/// №515 (C-12): the hard cap on the in-progress PDF store. Deliberately
+/// generous for legit multi-doc programs (64 concurrent in-progress
+/// documents) and a hard ceiling for the leak — the blocking test
+/// (`n515_1000_abandoned_creates_are_bounded`) pins it.
+const PDF_DOCS_MAX: usize = 64;
+
+/// Monotonic insertion sequence for the oldest-first eviction order.
+static PDF_DOCS_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Insert a document into the bounded store (№515). At capacity the OLDEST
+/// entry (lowest seq) is evicted first — the same patch family as the
+/// №263 LLM stream bound (`STREAM_LIMIT_REACHED` is not an option here:
+/// pdf_create returning an error would break every legit long program that
+/// legitimately creates many docs sequentially, each SAVED and thus
+/// removed — eviction of dead orphans is the behavior-preserving bound).
+fn pdf_store_insert(id: String, doc: PdfDocument) -> Result<(), String> {
+    let mut store = PDF_DOCS
+        .lock()
+        .map_err(|e| format!("pdf_create: lock error: {}", e))?;
+    if store.len() >= PDF_DOCS_MAX {
+        // Evict the oldest (the smallest insertion sequence). O(n) over at
+        // most PDF_DOCS_MAX entries — bounded work per insert.
+        if let Some(oldest) = store
+            .iter()
+            .min_by_key(|(_, (seq, _))| *seq)
+            .map(|(k, _)| k.clone())
+        {
+            store.remove(&oldest);
+        }
+    }
+    let seq = PDF_DOCS_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    store.insert(id, (seq, doc));
+    Ok(())
+}
 
 /// Font name whitelist — maps Metalogos font names to PDF base font names.
 fn resolve_font(name: &str) -> &'static str {
@@ -415,12 +464,9 @@ pub fn builtin_pdf_create(args: &[Value]) -> Result<Value, String> {
     let id = format!("pdf_{}", &uuid_str[..12]);
 
     let doc = PdfDocument::default();
-    {
-        let mut store = PDF_DOCS
-            .lock()
-            .map_err(|e| format!("pdf_create: lock error: {}", e))?;
-        store.insert(id.clone(), doc);
-    }
+    // №515: the bounded insert — at PDF_DOCS_MAX the OLDEST orphan is
+    // evicted (see pdf_store_insert).
+    pdf_store_insert(id.clone(), doc)?;
 
     Ok(make_struct("PdfDocId", &["id"], &[Value::String(id)]))
 }
@@ -452,6 +498,7 @@ pub fn builtin_pdf_add_page(args: &[Value]) -> Result<Value, String> {
             .map_err(|e| format!("pdf_add_page: lock error: {}", e))?;
         let doc = store
             .get_mut(&id)
+            .map(|(_, doc)| doc)
             .ok_or_else(|| format!("pdf_add_page: document '{}' not found", id))?;
         doc.pages.push(PdfPage {
             width,
@@ -506,6 +553,7 @@ pub fn builtin_pdf_write_text(args: &[Value]) -> Result<Value, String> {
             .map_err(|e| format!("pdf_write_text: lock error: {}", e))?;
         let doc = store
             .get_mut(&id)
+            .map(|(_, doc)| doc)
             .ok_or_else(|| format!("pdf_write_text: document '{}' not found", id))?;
 
         let page = doc.pages.last_mut().ok_or_else(|| {
@@ -549,6 +597,7 @@ pub fn builtin_pdf_draw_line(args: &[Value]) -> Result<Value, String> {
             .map_err(|e| format!("pdf_draw_line: lock error: {}", e))?;
         let doc = store
             .get_mut(&id)
+            .map(|(_, doc)| doc)
             .ok_or_else(|| format!("pdf_draw_line: document '{}' not found", id))?;
 
         let page = doc
@@ -599,6 +648,7 @@ pub fn builtin_pdf_draw_rect(args: &[Value]) -> Result<Value, String> {
             .map_err(|e| format!("pdf_draw_rect: lock error: {}", e))?;
         let doc = store
             .get_mut(&id)
+            .map(|(_, doc)| doc)
             .ok_or_else(|| format!("pdf_draw_rect: document '{}' not found", id))?;
 
         let page = doc
@@ -639,6 +689,7 @@ pub fn builtin_pdf_save(args: &[Value]) -> Result<Value, String> {
             .map_err(|e| format!("pdf_save: lock error: {}", e))?;
         store
             .remove(&id)
+            .map(|(_, doc)| doc)
             .ok_or_else(|| format!("pdf_save: document '{}' not found", id))?
     };
 
@@ -1202,6 +1253,7 @@ pub fn builtin_pdf_draw_table(args: &[Value]) -> Result<Value, String> {
             .map_err(|e| format!("pdf_draw_table: lock error: {}", e))?;
         let doc = store
             .get_mut(&id)
+            .map(|(_, doc)| doc)
             .ok_or_else(|| format!("pdf_draw_table: document '{}' not found", id))?;
 
         let page = doc
@@ -1263,6 +1315,7 @@ pub fn builtin_pdf_add_image(args: &[Value]) -> Result<Value, String> {
             .map_err(|e| format!("pdf_add_image: lock error: {}", e))?;
         let doc = store
             .get_mut(&id)
+            .map(|(_, doc)| doc)
             .ok_or_else(|| format!("pdf_add_image: document '{}' not found", id))?;
 
         let page = doc
@@ -1336,6 +1389,7 @@ pub fn builtin_pdf_set_page_header(args: &[Value]) -> Result<Value, String> {
             .map_err(|e| format!("pdf_set_page_header: lock error: {}", e))?;
         let doc = store
             .get_mut(&id)
+            .map(|(_, doc)| doc)
             .ok_or_else(|| format!("pdf_set_page_header: document '{}' not found", id))?;
 
         // Position header at top-center of first page (or default A4)
@@ -1381,6 +1435,7 @@ pub fn builtin_pdf_set_page_footer(args: &[Value]) -> Result<Value, String> {
             .map_err(|e| format!("pdf_set_page_footer: lock error: {}", e))?;
         let doc = store
             .get_mut(&id)
+            .map(|(_, doc)| doc)
             .ok_or_else(|| format!("pdf_set_page_footer: document '{}' not found", id))?;
 
         let page_width = doc.pages.first().map(|p| p.width).unwrap_or(595.28);
@@ -1428,6 +1483,7 @@ pub fn builtin_pdf_page_numbers(args: &[Value]) -> Result<Value, String> {
             .map_err(|e| format!("pdf_page_numbers: lock error: {}", e))?;
         let doc = store
             .get_mut(&id)
+            .map(|(_, doc)| doc)
             .ok_or_else(|| format!("pdf_page_numbers: document '{}' not found", id))?;
 
         doc.page_number_format = Some(format);
@@ -1475,6 +1531,7 @@ pub fn builtin_pdf_watermark(args: &[Value]) -> Result<Value, String> {
             .map_err(|e| format!("pdf_watermark: lock error: {}", e))?;
         let doc = store
             .get_mut(&id)
+            .map(|(_, doc)| doc)
             .ok_or_else(|| format!("pdf_watermark: document '{}' not found", id))?;
 
         doc.watermark = Some(PdfElement::Watermark {
@@ -3266,5 +3323,77 @@ mod tests {
         // Verify it's a valid PDF
         let first_bytes = std::fs::read(&output_path).unwrap();
         assert_eq!(&first_bytes[0..4], b"%PDF", "should be a valid PDF");
+    }
+
+    // ── №515 (issue #799; the consolidated audit 28.09 C-12): the
+    //    process-global PDF_DOCS store is BOUNDED ──
+
+    #[test]
+    #[serial]
+    fn n515_1000_abandoned_creates_are_bounded() {
+        // The C-12 leak vector: a route calls pdf_create and then errors
+        // (or is abandoned) before pdf_save — before №515 each such route
+        // left an orphan in the store and the store grew LINEARLY with the
+        // number of failures. The blocking reproduction: 1000 abandoned
+        // creates → the store must hold at most PDF_DOCS_MAX entries (the
+        // oldest orphans are evicted, the newest survive — an in-flight
+        // request is never the victim unless it outlives MAX newer
+        // creates). The store is process-global: the serial attribute
+        // keeps other pdf tests' docs out of the window while this count
+        // runs; the assertion is the BOUND, not an exact size, for the
+        // same reason.
+        for _ in 0..1000 {
+            builtin_pdf_create(&[]).expect("pdf_create succeeds");
+        }
+        let store = PDF_DOCS.lock().expect("store lock");
+        assert!(
+            store.len() <= PDF_DOCS_MAX,
+            "the store must be bounded by PDF_DOCS_MAX={} after 1000 abandoned creates, got {}",
+            PDF_DOCS_MAX,
+            store.len()
+        );
+        assert!(
+            store.len() == PDF_DOCS_MAX,
+            "at the cap the store is exactly PDF_DOCS_MAX (1000 > {}), got {}",
+            PDF_DOCS_MAX,
+            store.len()
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn n515_eviction_spares_the_newest_in_flight_document() {
+        // The honest observable of the eviction: the doc created FIRST is
+        // the oldest orphan — after PDF_DOCS_MAX+1 newer creates it MUST be
+        // gone (its id no longer resolves), while the store stays at the
+        // cap and the newest create still resolves. Leftovers from earlier
+        // serial tests only make the eviction START earlier (they hold the
+        // smallest seqs), never later — the bound is process-global.
+        let first = builtin_pdf_create(&[]).expect("pdf_create succeeds");
+        let first_id = extract_doc_id(&first);
+        for _ in 0..PDF_DOCS_MAX {
+            builtin_pdf_create(&[]).expect("pdf_create succeeds");
+        }
+        {
+            let store = PDF_DOCS.lock().expect("store lock");
+            assert_eq!(
+                store.len(),
+                PDF_DOCS_MAX,
+                "the store sits at the cap after PDF_DOCS_MAX+1 creates"
+            );
+            assert!(
+                !store.contains_key(&first_id),
+                "the first (oldest) doc was evicted by the newer creates"
+            );
+        }
+        // The newest in-flight doc survives.
+        let last = builtin_pdf_create(&[]).expect("pdf_create at the cap succeeds");
+        let last_id = extract_doc_id(&last);
+        let store = PDF_DOCS.lock().expect("store lock");
+        assert!(
+            store.contains_key(&last_id),
+            "the newest doc survives the eviction"
+        );
+        assert_eq!(store.len(), PDF_DOCS_MAX, "the size stays at the cap");
     }
 }

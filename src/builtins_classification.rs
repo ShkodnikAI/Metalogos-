@@ -115,10 +115,7 @@ pub struct BuiltClassEntry {
 /// Classification lookup — linear scan over a small static array; the map
 /// is compile-time data, uniqueness is test-enforced.
 pub fn classify(name: &str) -> Option<&'static BuiltClass> {
-    BUILTIN_CLASSES
-        .iter()
-        .find(|e| e.name == name)
-        .map(|e| &e.class)
+    BUILTIN_CLASSES.iter().find(|e| e.name == name).map(|e| &e.class)
 }
 
 /// SSOT map: имя → BuiltClass for EVERY registered builtin (№316).
@@ -626,6 +623,8 @@ pub static BUILTIN_CLASSES: &[BuiltClassEntry] = &[
     BuiltClassEntry { name: "memory_retain_ttl", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "the canon retain(memory, ttl) (№445): gives ONE typed entry a lifetime — past the deadline the sweep auto-forgets it (the №280 v2 deferral lifted into the typed contour); a poisoned entry refuses a new lifetime (MEMORY_POISONED); records memory.retain_ttl" } },
     BuiltClassEntry { name: "llm_last_finish_reason", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "reads the last observed LLM finish_reason (№757 truncation probe) — no provider contact" } },
     BuiltClassEntry { name: "read_file_or", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "the №507 explicit-silence twin of read_file — ingests file content with the caller's default on a missing file (input by provenance; the loud branches shared with read_file)" } },
+    BuiltClassEntry { name: "to_float_or", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
+    BuiltClassEntry { name: "to_int_or", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
 ];
 
 #[cfg(test)]
@@ -690,11 +689,7 @@ mod tests {
             .map(|e| e.name)
             .filter(|n| !registry.contains(*n))
             .collect();
-        assert!(
-            extras.is_empty(),
-            "classified names not in registry: {:?}",
-            extras
-        );
+        assert!(extras.is_empty(), "classified names not in registry: {:?}", extras);
     }
 
     /// №316 «Сделано, когда» (а): rationale on every non-Pure entry.
@@ -724,12 +719,7 @@ mod tests {
     #[test]
     fn issue_minimum_classes() {
         let expect_sink = [
-            "http_post",
-            "write_file",
-            "send_message",
-            "print",
-            "db_execute",
-            "tts_send",
+            "http_post", "write_file", "send_message", "print", "db_execute", "tts_send",
         ];
         for n in expect_sink {
             let c = classify(n).unwrap_or_else(|| panic!("{}", n));
@@ -745,11 +735,7 @@ mod tests {
             assert_eq!(c.reversibility, Reversibility::Irreversible, "{}", n);
         }
         let redact = classify("redact").unwrap();
-        assert_eq!(
-            redact.role,
-            Role::Lift,
-            "redact — taint-sanitizer lift (ADR-0136)"
-        );
+        assert_eq!(redact.role, Role::Lift, "redact — taint-sanitizer lift (ADR-0136)");
     }
 
     /// №316: Sink/Source/Lift/Pure distribution is sane (sanity counts,
@@ -776,13 +762,11 @@ mod tests {
             (Some(b), Some(e)) if b < e => (&reference[b..e], true),
             _ => ("", false),
         };
-        assert!(
-            found,
-            "REFERENCE.md must contain the classification block markers"
-        );
+        assert!(found, "REFERENCE.md must contain the classification block markers");
 
-        let mut expected =
-            String::from("| Builtin | Role | Default label | Reversibility |\n|---|---|---|---|\n");
+        let mut expected = String::from(
+            "| Builtin | Role | Default label | Reversibility |\n|---|---|---|---|\n",
+        );
         for e in BUILTIN_CLASSES {
             let role = e.class.role.as_str();
             let label = e.class.default_label.as_str();

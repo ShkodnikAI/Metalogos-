@@ -35,12 +35,27 @@ pub struct VideoRegistry {
     next_id: u32,
 }
 
+/// №515 (issue #799; the consolidated audit 28.09 C-12): the hard cap on
+/// the process-global artifact store. Handles minted by one request are
+/// resolved by that same request; nothing in production ever removes an
+/// artifact (remove_artifact had no callers), so the store grew without
+/// limit under repeated renders. At the cap the OLDEST handle (the lowest
+/// id — ids are monotonic) is evicted on insert: an in-flight handle is
+/// never the victim unless it outlives MAX newer inserts.
+pub const VIDEO_ARTIFACTS_MAX: usize = 64;
+
 impl VideoRegistry {
     pub fn new() -> Self {
         Self::default()
     }
 
     pub fn insert_artifact(&mut self, artifact: VideoArtifact) -> VideoId {
+        // №515: the bounded insert — evict the oldest orphan at the cap.
+        if self.artifacts.len() >= VIDEO_ARTIFACTS_MAX {
+            if let Some(&oldest) = self.artifacts.keys().min() {
+                self.artifacts.remove(&oldest);
+            }
+        }
         let id = VideoId(self.next_id);
         self.next_id += 1;
         self.artifacts.insert(id.0, artifact);
@@ -616,6 +631,29 @@ mod tests {
             latent: None,
         });
         assert_ne!(a1, a2);
+    }
+
+    // ── №515 (issue #799; C-12): the registry is BOUNDED ──
+
+    #[test]
+    fn n515_video_registry_bounded_1000_inserts() {
+        let mut reg = VideoRegistry::new();
+        let mut first_id = None;
+        for i in 0..1000 {
+            let id = reg.insert_artifact(VideoArtifact {
+                video_bytes: vec![i as u8; 16],
+                manifest: None,
+                latent: None,
+            });
+            if first_id.is_none() {
+                first_id = Some(id);
+            }
+        }
+        assert_eq!(reg.len(), VIDEO_ARTIFACTS_MAX, "bounded by the constant");
+        assert!(
+            reg.get_artifact(first_id.unwrap()).is_none(),
+            "the oldest orphan was evicted"
+        );
     }
 
     #[test]

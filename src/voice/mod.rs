@@ -43,12 +43,25 @@ pub struct VoiceRegistry {
     next_id: u32,
 }
 
+/// №515 (issue #799; the consolidated audit 28.09 C-12): the hard cap on
+/// the process-global audio artifact store — the same bound as
+/// VIDEO_ARTIFACTS_MAX (nothing in production removes an artifact, so
+/// repeated synth/mux without an explicit removal grew the store without
+/// limit; the oldest handle — the lowest id — is evicted at the cap).
+pub const VOICE_ARTIFACTS_MAX: usize = 64;
+
 impl VoiceRegistry {
     pub fn new() -> Self {
         Self::default()
     }
 
     pub fn insert_artifact(&mut self, artifact: AudioArtifact) -> AudioId {
+        // №515: the bounded insert — evict the oldest orphan at the cap.
+        if self.artifacts.len() >= VOICE_ARTIFACTS_MAX {
+            if let Some(&oldest) = self.artifacts.keys().min() {
+                self.artifacts.remove(&oldest);
+            }
+        }
         let id = AudioId(self.next_id);
         self.next_id += 1;
         self.artifacts.insert(id.0, artifact);
@@ -56,6 +69,13 @@ impl VoiceRegistry {
     }
 
     pub fn insert_voiceprint(&mut self, vp: Voiceprint) -> VoiceId {
+        // №515: the same bound on the voiceprint map (the mock runtime's
+        // skeleton path is the only writer since №512's fail-closed store).
+        if self.voiceprints.len() >= VOICE_ARTIFACTS_MAX {
+            if let Some(&oldest) = self.voiceprints.keys().min() {
+                self.voiceprints.remove(&oldest);
+            }
+        }
         let id = VoiceId(self.next_id);
         self.next_id += 1;
         self.voiceprints.insert(id.0, vp);
@@ -189,6 +209,32 @@ mod tests {
     #[test]
     fn audio_id_display() {
         assert_eq!(format!("{}", AudioId(1)), "[Audio#1]");
+    }
+
+    // ── №515 (issue #799; C-12): the registry is BOUNDED ──
+
+    #[test]
+    fn n515_voice_registry_bounded_1000_inserts() {
+        let mut reg = VoiceRegistry::new();
+        let mut first_id = None;
+        for i in 0..1000 {
+            let id = reg.insert_artifact(AudioArtifact {
+                audio_bytes: vec![i as u8; 16],
+                manifest: None,
+            });
+            if first_id.is_none() {
+                first_id = Some(id);
+            }
+        }
+        assert_eq!(
+            reg.len(),
+            VOICE_ARTIFACTS_MAX,
+            "bounded by the constant (voiceprints empty in this test)"
+        );
+        assert!(
+            reg.get_artifact(first_id.unwrap()).is_none(),
+            "the oldest orphan was evicted"
+        );
     }
 
     #[test]

@@ -18,17 +18,20 @@ pub const EMBEDDING_DIM: usize = 192;
 /// - Input: raw audio waveform (16kHz, mono, float32)
 /// - Output: 192-dim embedding, L2-normalized
 /// - Serialization: little-endian f32 × 192 = 768 bytes
-/// - At rest: INSECURE XOR placeholder, NOT encryption — the real-runtime
-///   store refuses to persist at all ([VOICE_INSECURE_STORE]; №512; honest
-///   crypto = №517)
+/// - At rest: encrypted by the voice store's №517 crypto with the
+///   secret()-gate key (the primitive is named ONLY in store.rs — the
+///   implementation module; a legacy pre-№517 row loads as a loud
+///   [VOICEPRINT_STALE]; the mock runtime keeps the INSECURE XOR
+///   placeholder, marked in the schema — №512 honesty)
 /// - In Value: never (opaque VoiceId handle, ADR-0144)
 pub struct SpeakerEncoder;
 
 impl SpeakerEncoder {
     /// Stub encoder — produces a deterministic embedding from audio.
     /// Real implementation: ECAPA-TDNN on candle-core (phase A4).
-    /// This stub is for testing store/ledger/placeholder mechanics (the
-    /// storage is an insecure XOR placeholder, not encryption — №512).
+    /// This stub is for testing store/ledger mechanics (the mock runtime's
+    /// insecure XOR placeholder path — №512; the real runtime encrypts
+    /// through the store's №517 crypto).
     pub fn encode_stub(audio: &[f32]) -> Vec<f32> {
         // Deterministic hash-based embedding (not real ECAPA)
         let mut embedding = vec![0.0f32; EMBEDDING_DIM];

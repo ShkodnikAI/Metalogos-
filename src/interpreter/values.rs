@@ -611,6 +611,20 @@ pub const CODE_SANDBOX_SENSITIVE_PATH: &str = "SANDBOX_SENSITIVE_PATH";
 /// program-visible origins only.
 pub const CODE_VOICE_INSECURE_STORE: &str = "VOICE_INSECURE_STORE";
 
+/// №517 (issue #801; audit 28.09 C-06 step 2): a legacy pre-№517 voiceprint
+/// row (the insecure XOR era, algo NULL) is NEVER silently read as
+/// decrypted — the load refuses with this class and asks for a re-enroll
+/// (the №504 loud-migration posture). Deliberately NOT in
+/// `ORIGIN_STAMPED_CODES` yet: the store has no program-facing surface
+/// (the same rationale as CODE_VOICE_INSECURE_STORE above).
+pub const CODE_VOICEPRINT_STALE: &str = "VOICEPRINT_STALE";
+
+/// №517: an AES-256-GCM voiceprint row failed to decrypt — a wrong key or
+/// corrupted data; the GCM auth tag refuses, nothing is returned.
+/// Deliberately NOT in `ORIGIN_STAMPED_CODES` (no program-facing surface
+/// yet — the same rationale as CODE_VOICE_INSECURE_STORE).
+pub const CODE_VOICEPRINT_DECRYPT: &str = "VOICEPRINT_DECRYPT";
+
 /// The whitelist of codes a subsystem may stamp onto the String error
 /// channel. `RUNTIME_ERROR` is deliberately NOT in this list: it is the
 /// fallback for unstamped errors, never an explicit stamp.

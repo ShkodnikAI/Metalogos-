@@ -1,9 +1,14 @@
+KNOWN x7 fp=76be8bbad0ce751e
+    class: errorclass|tw=err:[TYPE_MISMATCH]@fn_call|vm=err:[UNDEFINED_FUNCTION]@fn_call
+    ast: binary_op+entity_simple+expr_stmt+float_lit+flow+fn_call+ident+let_binding+list+pattern+string_lit+while
+    raw tw: err: [TYPE_MISMATCH] len() requires String or List argument
+    raw vm: err: [UNDEFINED_FUNCTION] compile: undefined function: memory_forget
 KNOWN x2 fp=e6c67ffb222c8f68
     class: outcome|tw=ok(iii-iiii:N:N)|vm=err:[UNDEFINED_FUNCTION]@fn_call
     ast: binary_op+entity_simple+expr_stmt+flow+fn_call+ident+let_binding+pattern+return+string_lit
     raw tw: ok: mem-seed:2:2
     raw vm: err: [UNDEFINED_FUNCTION] compile: undefined function: memory_forget
-KNOWN x33 fp=dac1a5ae7d3e6af8
+KNOWN x29 fp=dac1a5ae7d3e6af8
     class: errorclass|tw=err:[UNDEFINED_VARIABLE]@ident|vm=err:[UNDEFINED_FUNCTION]@fn_call
     ast: binary_op+entity_simple+expr_stmt+float_lit+flow+fn_call+ident+if_else+if_else_block+let_binding+list+pattern+string_lit+while
     raw tw: err: [UNDEFINED_VARIABLE] undefined variable: alpha
@@ -13,13 +18,8 @@ KNOWN x2 fp=e73453da76bf371b
     ast: binary_op+entity_simple+flow+fn_call+ident+let_binding+pattern+return+string_lit
     raw tw: err: [UNDEFINED_VARIABLE] undefined variable: e0
     raw vm: ok: seed-alpha-seed-alpha:21
-KNOWN x7 fp=4320b7408135bd43
+KNOWN x19 fp=4320b7408135bd43
     class: errorclass|tw=err:[TYPE_MISMATCH]@binary_op|vm=err:[UNDEFINED_FUNCTION]@fn_call
     ast: binary_op+entity_simple+expr_stmt+float_lit+flow+fn_call+ident+if_else+if_else_block+let_binding+pattern+string_lit+while
     raw tw: err: [TYPE_MISMATCH] type mismatch in string concatenation: Float + String (use to_string() explicitly)
-    raw vm: err: [UNDEFINED_FUNCTION] compile: undefined function: memory_forget
-KNOWN x17 fp=76be8bbad0ce751e
-    class: errorclass|tw=err:[TYPE_MISMATCH]@fn_call|vm=err:[UNDEFINED_FUNCTION]@fn_call
-    ast: binary_op+entity_simple+expr_stmt+float_lit+flow+fn_call+ident+let_binding+list+pattern+string_lit+while
-    raw tw: err: [TYPE_MISMATCH] len() requires String or List argument
     raw vm: err: [UNDEFINED_FUNCTION] compile: undefined function: memory_forget

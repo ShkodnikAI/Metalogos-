@@ -1,0 +1,6 @@
+mlogserver {
+  port: 8080
+  route "/hello" method=GET {
+    return respond("200 hello from metalogos")
+  }
+}

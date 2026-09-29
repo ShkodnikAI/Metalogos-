@@ -1,19 +1,13 @@
+# Build context hygiene: the stub-build layer needs only the manifests;
+# the real build needs src/ + examples/. Everything else is noise (and
+# the old context shipped .git, target/ and the whole corpus — slow
+# builds and pointless layer weight).
 target/
 .git/
-docs/
-tests/
-examples/
 .github/
-*.md
-.env
-*.json
-*.zip
+data/
 *.db
+*.sqlite
+mutation_logs/
+docs/book/
 skills/
-aeris_repo.json
-metalogos/
-metalogos_search*.json
-scanbycad_repo.json
-shkodnikai_profile.json
-shkodnikai_search.json
-test.pest

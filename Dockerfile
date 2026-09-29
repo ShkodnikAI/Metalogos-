@@ -1,4 +1,17 @@
-FROM rust:1.85-slim AS builder
+# ── Metalogos container image (№511, the audit 28.09 C-05 fix) ──────
+#
+# The container that ACTUALLY runs: ENTRYPOINT carries the mandatory
+# `serve <file>` argument shape, the example program ships INSIDE the
+# image, the liveness probe needs no curl (the `mlog health` subcommand
+# talks to the built-in /health route), and the bind host comes from
+# METALOGOS_HOST at deploy time (the program's own `host:` declaration,
+# when present, always wins — №164 loopback default unchanged).
+#
+# Base images are pinned to versioned tags; the digest pin lands in the
+# CI docker job's first successful run (docker.yml) and is recorded here.
+
+# ── Builder ──────────────────────────────────────────
+FROM rust:1.85-slim-bookworm AS builder
 
 WORKDIR /app
 
@@ -14,20 +27,18 @@ COPY mlog-lsp/Cargo.toml mlog-lsp/
 # Create stub sources so dependency layer compiles.
 # src/lib.rs stub: mlogpkg and mlog-lsp depend on the metalogos lib target.
 # benches/ stub: [[bench]] in Cargo.toml requires the file for manifest parsing.
-# Without these, the stub build fails — the old || true hid BOTH failures,
-# meaning dependency caching was never actually effective (Наряд №127).
 RUN mkdir -p src mlogpkg/src mlog-lsp/src benches && \
     echo "fn main() {}" > src/main.rs && \
     echo "" > src/lib.rs && \
     echo "fn main() {}" > mlogpkg/src/main.rs && \
-    echo "fn main() {}" > mlog-lsp/src/main.rs && \
+    echo "" > mlog-lsp/src/main.rs && \
     echo "" > benches/core_benchmarks.rs && \
-    cargo build --release 2>/dev/null
+    cargo build --release --bin mlog
 
 # Copy real source and rebuild (only application code changes)
 COPY . .
 RUN touch src/lib.rs src/main.rs mlogpkg/src/main.rs mlog-lsp/src/main.rs && \
-    cargo build --release
+    cargo build --release --bin mlog
 
 # ── Runtime image ────────────────────────────────────
 FROM debian:bookworm-slim
@@ -39,8 +50,28 @@ RUN groupadd -r mlog && useradd -r -g mlog -d /app mlog
 WORKDIR /app
 
 COPY --from=builder /app/target/release/mlog /usr/local/bin/
+# №511: the example program ships in the image — `serve` needs a real
+# .mlog file (the former `CMD ["mlog", "serve"]` died at clap: `file` is
+# NOT optional). Mounting a volume over /app/main.mlog is the documented
+# way to run YOUR program without rebuilding.
+COPY examples/docker_hello.mlog /app/main.mlog
 USER mlog
 
 EXPOSE 8080
-ENV METALOGOS_PORT=8080
-CMD ["mlog", "serve"]
+# №511: METALOGOS_PORT was DEAD (nothing in src/ reads it — the port
+# comes from the program's `mlogserver { port: ... }` declaration); the
+# dead env is removed. The deploy-time bind host is METALOGOS_HOST —
+# read ONLY when the program declares no `host:` (the declaration wins).
+ENV METALOGOS_HOST=0.0.0.0
+
+# №511: the liveness probe without curl (bookworm-slim has no curl —
+# the audit's HEALTHCHECK suggestion would have left the container
+# permanently unhealthy). `mlog health` GETs the built-in /health route
+# and exits 0/1.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD ["mlog", "health"]
+
+# `serve` takes the program path — the file ships in the image (or a
+# volume mounts over it).
+ENTRYPOINT ["mlog", "serve"]
+CMD ["/app/main.mlog"]

@@ -4,6 +4,39 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №511 (issue #795; the consolidated audit 28.09 C-05, Medium —
+  the wave-21 P1 deploy fix): the documented deployment path actually
+  works and is VERIFIED. The old image died at clap on startup
+  (`CMD ["mlog", "serve"]` — the `file` argument is NOT optional,
+  src/main.rs `Serve { file: PathBuf }`), shipped no .mlog program,
+  carried a DEAD `ENV METALOGOS_PORT` (nothing in src/ ever read it —
+  the port comes from the program's `mlogserver { port: ... }`
+  declaration), and was checked by nothing (0 docker mentions in CI,
+  unchanged since 2026-08-27). Now: `ENTRYPOINT ["mlog", "serve"]` +
+  `CMD ["/app/main.mlog"]` with the shipped example program
+  (examples/docker_hello.mlog — volume-mount over /app/main.mlog runs
+  YOUR program without a rebuild); the dead env is REMOVED; the
+  deploy-time bind host is `METALOGOS_HOST` — read ONLY when the
+  program declares no `host:` (the declaration always wins, the №164
+  loopback default unchanged; the image sets
+  `ENV METALOGOS_HOST=0.0.0.0`); the built-in `GET /health` route
+  answers 200 "ok" with NO side effects (skipped when the program
+  declares its own /health — the declaration wins, no duplicate-route
+  panic); the `mlog health [url]` subcommand (default
+  http://127.0.0.1:8080/health, METALOGOS_HEALTH_URL override, 5s
+  timeout, exit 0/1) is the HEALTHCHECK command WITHOUT curl
+  (bookworm-slim has no curl — the audit's curl-based HEALTHCHECK
+  would have left the container permanently unhealthy); the base
+  images pinned to versioned tags (rust:1.85-slim-bookworm /
+  debian:bookworm-slim); .dockerignore keeps the context lean. The CI
+  job (.github/workflows/docker.yml — weekly + on Dockerfile/server
+  changes + dispatch) builds, runs the container, probes /health,
+  exercises `mlog health` and waits for the Docker HEALTHCHECK
+  "healthy" state — this IS the №509 0.28-gate criterion №24.
+  Blocking tests (tests/naryad_511_docker_health.rs): the built-in
+  /health, the program-declared /health precedence, the bind-host
+  ladder (declaration > env > loopback).
+
 - Naryad №512 (issue #796; the consolidated audit 28.09 C-06, Medium —
   step 1 of 2): the voiceprint store honesty fix. The comments and the
   schema claimed "encrypted at rest (AES-256-GCM via the secret() stack)"

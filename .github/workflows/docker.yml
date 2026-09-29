@@ -1,0 +1,93 @@
+name: Docker (deploy path)
+
+# №511 (gh#795; the audit 28.09 C-05, Medium): the deploy path is VERIFIED.
+# The old Dockerfile died at clap (`serve` needs a file), shipped no
+# program, carried a dead METALOGOS_PORT, and was checked by NOTHING —
+# the single documented deployment route, untested for ~1000 commits.
+# This job builds the image, runs the container with the shipped example
+# program, and queries the built-in /health route — minimum weekly (the
+# soak.yml cadence sample), on every Dockerfile/CI change, and manually
+# dispatchable. This job IS the №509 0.28-gate criterion №24 ("Dockerfile
+# собирается + отвечает в CI").
+
+on:
+  schedule:
+    - cron: "0 4 * * 1" # weekly, Monday 04:00 UTC
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "examples/docker_hello.mlog"
+      - "src/main.rs"
+      - "src/server.rs"
+      - ".github/workflows/docker.yml"
+
+jobs:
+  docker-build-run-health:
+    name: docker build + run + /health
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build the image
+        run: docker build -t metalogos:ci .
+
+      - name: Run the container (the shipped example program)
+        run: |
+          docker run -d --name mlog-ci -p 8080:8080 metalogos:ci
+          # The image sets METALOGOS_HOST=0.0.0.0 (the deploy fallback);
+          # the program declares no host:, so the env resolves the bind.
+
+      - name: Wait for the server, then probe /health
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/health > /dev/null 2>&1; then
+              echo "container is up after ${i}s"
+              break
+            fi
+            if [ "$i" = "30" ]; then
+              echo "::error::container did not become healthy in 30s"
+              docker logs mlog-ci
+              exit 1
+            fi
+            sleep 1
+          done
+
+      - name: The built-in /health answers 200 "ok"
+        run: |
+          body=$(curl -fsS http://127.0.0.1:8080/health)
+          code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/health)
+          echo "GET /health -> $code '$body'"
+          test "$code" = "200"
+          test "$body" = "ok"
+
+      - name: `mlog health` (the HEALTHCHECK command, no curl) exits 0
+        run: docker exec mlog-ci mlog health
+        # The in-image HEALTHCHECK runs the same command against
+        # 127.0.0.1:8080/health — this step proves it green explicitly.
+
+      - name: The container HEALTHCHECK reports healthy
+        run: |
+          for i in $(seq 1 30); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' mlog-ci)
+            echo "health.status = $status"
+            if [ "$status" = "healthy" ]; then exit 0; fi
+            sleep 2
+          done
+          echo "::error::container did not reach the healthy state"
+          docker inspect --format '{{json .State.Health}}' mlog-ci
+          docker logs mlog-ci
+          exit 1
+
+      - name: A program route answers too (not just /health)
+        run: |
+          body=$(curl -fsS http://127.0.0.1:8080/hello)
+          echo "GET /hello -> '$body'"
+          test "$body" = "200 hello from metalogos"
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f mlog-ci || true

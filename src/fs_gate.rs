@@ -49,6 +49,11 @@ use crate::builtins::io::{
 // (a symlink named `notes.txt` pointing at `app.mlog` refuses the same
 // way), on every path component for the `.git/**` case.
 fn hard_write_name(name: &str) -> bool {
+    // №501: the comparison runs on the LOWERCASED name — `APP.MLOG`,
+    // `Metalogos.TOML` are the same application-image files on a
+    // case-insensitive filesystem; the letter case the program spelled
+    // must not choose the policy.
+    let name = &name.to_lowercase();
     name.starts_with(".env") || name.ends_with(".mlog") || name == "metalogos.toml"
 }
 
@@ -58,8 +63,12 @@ fn hard_write_path_hit(path: &std::path::Path) -> bool {
             return true;
         }
     }
-    path.components()
-        .any(|c| matches!(c, std::path::Component::Normal(c) if c == ".git"))
+    // №501: `.GIT` and friends lowercase to `.git` before the compare —
+    // the component policy is a class, not a spelling.
+    path.components().any(|c| {
+        matches!(c, std::path::Component::Normal(c)
+            if c.to_string_lossy().to_lowercase() == ".git")
+    })
 }
 
 // ═══ The write-side gate (deny-list + serve containment) ════════════
@@ -110,9 +119,11 @@ pub(crate) fn gate_write_resolved(
             .map(|n| n.to_string_lossy().to_string())
         {
             if sensitive_name_match(&name)
-                || resolved.components().any(
-                    |c| matches!(c, std::path::Component::Normal(c) if c == ".git" || c == ".mlog"),
-                )
+                || resolved.components().any(|c| {
+                    matches!(c, std::path::Component::Normal(c)
+                        if c.to_string_lossy().to_lowercase() == ".git"
+                            || c.to_string_lossy().to_lowercase() == ".mlog")
+                })
             {
                 return Err(sandbox_sensitive_violation(format!(
                     "{}('{}'): the resolved path '{}' matches the sensitive-path \

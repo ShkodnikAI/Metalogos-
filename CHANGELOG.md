@@ -4,6 +4,28 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №501 (issue #784; the audit 28.09 section 3.2 minor + 3.7):
+  the sensitive-path deny vocabulary is CASE-INSENSITIVE — every name
+  and component comparison (io.rs `sensitive_path_match` and
+  `sensitive_name_match`, fs_gate.rs `hard_write_name`,
+  `hard_write_path_hit`, `gate_write_resolved`, and the №500 canonical
+  re-check through them) runs on the LOWERCASED form, so `.ENV`,
+  `App.DB-WAL`, `APP.MLOG`, `Metalogos.TOML` and a `.GIT` component
+  refuse exactly like their lowercase spellings (on macOS/Windows the
+  same on-disk file must not become reachable by spelling alone). The
+  hard write-deny classes stay unconditional under any spelling: the
+  allowlist crane cannot unlock `APP.MLOG`, `Metalogos.TOML` or `.GIT`
+  writes (the №475 image-integrity posture, now case-independent).
+  Blocking tests (tests/naryad_501_write_deny_case.rs, 8): the four
+  audit spellings on both gate sides, the allowlist-still-locked
+  `APP.MLOG` write, the exact-name crane for `App.DB`, and the
+  legitimate-path boundary. Mutation checks: removing the lowercasing
+  at either point turns the pinned spellings red (2 + 5 tests). The
+  limitations.md №455 case-sensitivity row is marked fixed; an honest
+  row documents the absence of a dedicated macOS CI job
+  (comparison-level equivalence + the pinning tests as the current
+  verification).
+
 - Naryad №507 (issue #790; the audit 28.09 §3.7): `read_file_or(path,
   default)` — the EXPLICIT-silence twin of `read_file`, the `_or`
   symmetry with `env_or` (№481) the external audit asked to make

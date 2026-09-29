@@ -218,12 +218,12 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 | Metric | Value (generated — do not hand-edit) |
 | ------ | ------------------------------------- |
 | Version | 0.27.1 |
-| Built-in Functions | 502 functions across 45 modules |
+| Built-in Functions | 503 functions across 45 modules |
 | SVG/Graphics | 44 builtins, hand-rolled in pure Rust |
 | Grammar | 339 rules |
 | Architecture Decisions | 171 ADRs |
 | Example Programs | 258 .mlog programs |
-| Reference | REFERENCE.md (~287 KB) — 100% registry coverage |
+| Reference | REFERENCE.md (~288 KB) — 100% registry coverage |
 | Changelog | CHANGELOG.md (~525 KB) — every wave documented |
 <!-- END GENERATED METRICS -->
 

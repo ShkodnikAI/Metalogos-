@@ -569,23 +569,55 @@ pub(crate) use crate::fs_gate::open_sandbox_write;
 /// them hid real defects.
 pub(crate) fn builtin_read_file(args: &[Value]) -> Result<Value, String> {
     let path = expect_string_arg("read_file", args, 0)?;
+    read_file_impl("read_file", &path, ReadMissing::SoftEmpty)
+}
+
+/// `read_file_or(path, default)` — the EXPLICIT-silence twin of
+/// `read_file` (№507, the symmetry the audit 28.09 §3.7 asked for: `env`
+/// got its `env_or` in №481, `read_file` gets its `_or` here). The
+/// MISSING file yields the caller's default (announced on the audit
+/// stderr, the №326 posture — the PATH is named, the content never);
+/// the `_or` suffix carries the silent-default semantics in the name
+/// (the №481 naming rule). Every OTHER branch is byte-identical to
+/// `read_file`: sandbox violations and the №455 deny-list stay LOUD
+/// (they are programmer errors — the explicit silence never bypasses
+/// them), open/read failures stay LOUD `[IO_ERROR]` (№481). The
+/// `read_file` contract is unchanged (№254, the empty-string soft
+/// default stays).
+pub(crate) fn builtin_read_file_or(args: &[Value]) -> Result<Value, String> {
+    let path = expect_string_arg("read_file_or", args, 0)?;
+    let default = expect_string_arg("read_file_or", args, 1)?;
+    read_file_impl("read_file_or", &path, ReadMissing::ExplicitDefault(default))
+}
+
+/// The missing-file behavior of the read family: `read_file` keeps the
+/// №254 empty string; `read_file_or` yields the explicit default.
+enum ReadMissing {
+    SoftEmpty,
+    ExplicitDefault(String),
+}
+
+/// The shared read path of `read_file` / `read_file_or` (№507) — one
+/// body, two missing-file policies; every loud branch is shared so the
+/// `_or` twin can never drift from the base contract.
+fn read_file_impl(name: &str, path: &str, on_missing: ReadMissing) -> Result<Value, String> {
     // Наряд №282 (спайк): виртуальная SMFS-зона sm: (read-only экспорт памяти).
-    if super::smfs::is_virtual(&path) {
-        return super::smfs::read(&path);
+    if super::smfs::is_virtual(path) {
+        return super::smfs::read(path);
     }
     // Наряд №455, слой 1: deny-list на RAW-форме пути — отказ политики
     // громкий независимо от существования файла (попытка прочитать .env
     // — сигнал сам по себе, «файла нет» не делает её безопасной).
-    if sensitive_path_match(&path) && !sensitive_allowlisted(&path) {
+    if sensitive_path_match(path) && !sensitive_allowlisted(path) {
         return Err(sandbox_sensitive_violation(format!(
-            "read_file('{}'): the path matches the sensitive-path deny-list \
+            "{}('{}'): the path matches the sensitive-path deny-list \
              (.env*, *.db, *.sqlite*, .git/**, *.mlog, metalogos.toml, .mlog/**) — \
              set METALOGOS_SENSITIVE_PATH_ALLOWLIST=\"NAME\" to allow a specific \
              file explicitly (Naryad #455)",
-            path
+            name, path
         )));
     }
-    let safe_path = match sandbox_path(&path) {
+    let safe_path = match sandbox_path(path) {
         Ok(p) => p,
         Err(e) => {
             // Наряд №254: разделение исходов. Файла нет / нечитаем —
@@ -593,15 +625,28 @@ pub(crate) fn builtin_read_file(args: &[Value]) -> Result<Value, String> {
             // песочницы (абсолютный путь, `..`, symlink-побег, битый
             // symlink) — громкая ошибка с кодом SANDBOX_VIOLATION:
             // это дефект программы, молча проглатывать его значит прятать баг.
-            if sandbox_path_missing(&path) {
-                return Ok(Value::String(String::new())); // soft-failure: файла нет
+            if sandbox_path_missing(path) {
+                return match on_missing {
+                    // №254: read_file keeps the empty-string soft default.
+                    ReadMissing::SoftEmpty => Ok(Value::String(String::new())),
+                    // №507: read_file_or yields the EXPLICIT default —
+                    // announced on the audit stderr (the №326 posture:
+                    // the PATH is named, the default VALUE never).
+                    ReadMissing::ExplicitDefault(default) => {
+                        eprintln!(
+                            "[READ_FILE_OR] '{}' is missing — using the explicit default",
+                            path
+                        );
+                        Ok(Value::String(default))
+                    }
+                };
             }
             return Err(sandbox_violation(e));
         }
     };
     // Наряд №455: SSOT-гейт файлового чтения — канонический deny-list
     // (symlink-proof) + serve-ограничение корнем каталога данных (слой 2).
-    file_ingest_gate("read_file", &path, &safe_path)?;
+    file_ingest_gate(name, path, &safe_path)?;
     // №475: the READ goes through the facade — the only raw File::open
     // lives in fs_gate.rs; here just io::Read over the gated handle.
     let mut file = match crate::fs_gate::open_gated(&safe_path) {
@@ -612,7 +657,7 @@ pub(crate) fn builtin_read_file(args: &[Value]) -> Result<Value, String> {
         // refused LOUDLY with the OS reason instead of a silent "".
         Err(e) => Err(crate::interpreter::values::coded_error(
             crate::interpreter::values::CODE_IO_ERROR,
-            format!("read_file('{}'): cannot open: {}", path, e),
+            format!("{}('{}'): cannot open: {}", name, path, e),
         ))?,
     };
     use std::io::Read;
@@ -623,7 +668,7 @@ pub(crate) fn builtin_read_file(args: &[Value]) -> Result<Value, String> {
         // the old silent "" swallowed the config error.
         Err(e) => Err(crate::interpreter::values::coded_error(
             crate::interpreter::values::CODE_IO_ERROR,
-            format!("read_file('{}'): cannot read: {}", path, e),
+            format!("{}('{}'): cannot read: {}", name, path, e),
         )),
     }
 }

@@ -22,6 +22,25 @@ All notable changes to the Metalogos project.
   0179 (0178 was taken by the generative-contour boundary in the
   meantime — noted in the naryad report).
 
+- Naryad №507 (issue #790; the audit 28.09 §3.7): `read_file_or(path,
+  default)` — the EXPLICIT-silence twin of `read_file`, the `_or`
+  symmetry with `env_or` (№481) the external audit asked to make
+  explicit. A MISSING file yields the caller's default (announced on
+  the audit stderr — the path is named, the value never, the №326
+  posture); every other branch is shared with `read_file` by
+  construction (one `read_file_impl` body, two missing-file policies):
+  sandbox violations and the №455 sensitive-name deny-list stay LOUD
+  `[SANDBOX_VIOLATION]`, open/read failures stay LOUD `[IO_ERROR]` —
+  the explicit silence never bypasses them. The `read_file` contract
+  is UNCHANGED (№254, the empty-string soft default stays). Registered
+  in `BUILTIN_REGISTRY` append-only (501→502, the .mbc indices do not
+  shift), the SSOT classification/reference regenerated, the
+  curated REFERENCE.md rows + example added. Verified: 5 blocking
+  tests (`tests/naryad_507_read_file_or.rs`) — the explicit default
+  on a missing file, the unchanged №254 base contract, an existing
+  file yields the content, the `..` traversal stays loud, the
+  deny-list stays loud; lib suite green; clippy `-D warnings` clean.
+
 - Naryad №503 (issue #786; the audit 28.09 §3.6 Low/Medium): the
   OUTCOME rule — a TW/VM divergence where one side is ok and the other
   is err is a correctness defect BY SHAPE, un-pinnable in the №465

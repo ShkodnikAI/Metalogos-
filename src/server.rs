@@ -698,10 +698,13 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
     // Наряд №164: default bind to 127.0.0.1 (loopback only) — never expose the
     // server to all network interfaces unless the user explicitly opts in.
     // Mirrors the SSRF/exec opt-in discipline established in наряд №143.
-    let host = config
-        .host
-        .clone()
-        .unwrap_or_else(|| "127.0.0.1".to_string());
+    // №511: the deploy-time fallback — `METALOGOS_HOST` is read ONLY when
+    // the program declares no `host:`; the declaration ALWAYS wins, so a
+    // legitimate loopback program keeps its loopback outside containers
+    // (the naryad's boundary) while a container gets
+    // `METALOGOS_HOST=0.0.0.0` from the image env without editing the
+    // program. The resolution is a named helper so the tests pin it.
+    let host = resolve_bind_host(config.host.clone());
     if host == "0.0.0.0" || host == "::" {
         eprintln!(
             "[WARN] Server binds to {} — reachable from all network interfaces. \
@@ -1322,6 +1325,18 @@ pub(crate) async fn build_state(
 /// поведение N±1 (413 на превышение).
 pub(crate) const REQUEST_BODY_LIMIT_BYTES: usize = 2 * 1024 * 1024; // 2 MiB
 
+/// №511: the bind-host resolution ladder — the DECLARATION wins, then
+/// the deploy-time `METALOGOS_HOST` env (the container story: the image
+/// sets `ENV METALOGOS_HOST=0.0.0.0`, the program needs no edit), then
+/// the №164 loopback default. Legitimate programs without `host:`
+/// keep working outside containers exactly as before when the env is
+/// unset.
+pub fn resolve_bind_host(declared: Option<String>) -> String {
+    declared.unwrap_or_else(|| {
+        std::env::var("METALOGOS_HOST").unwrap_or_else(|_| "127.0.0.1".to_string())
+    })
+}
+
 fn build_router(state: ServerState) -> Router {
     let mut app = Router::new();
 
@@ -1369,6 +1384,22 @@ fn build_router(state: ServerState) -> Router {
             "DELETE" => app = app.route(&path, delete(handler)),
             _ => app = app.route(&path, any(handler)),
         }
+    }
+
+    // №511 (the audit 28.09 C-05): the built-in LIVENESS route —
+    // `GET /health` answers 200 "ok" with NO side effects (no program
+    // code runs, no state touched): the container HEALTHCHECK and the
+    // orchestrator probes need an answer that exists even when every
+    // program route is broken. Skipped when the program declares its own
+    // `/health` path (ANY method) — the program's declaration wins, and
+    // axum panics on duplicate route registration, so the check is not
+    // optional.
+    let program_declares_health = state
+        .routes
+        .iter()
+        .any(|r| r.path == "/health" || r.path == "/health/");
+    if !program_declares_health {
+        app = app.route("/health", get(|| async { (StatusCode::OK, "ok") }));
     }
 
     // Наряд №250 (ADR-0122 #208 family — n206 VM-serve verification debt):

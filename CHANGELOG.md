@@ -34,6 +34,74 @@ All notable changes to the Metalogos project.
   refusals, the explicit-silence twins, the unchanged conversions, the
   roundtrip through `to_string`, the classification drift guard
   (№449), mutation-verified.
+=======
+- Naryad №513 (issue #797; the consolidated audit 28.09 C-09, Medium):
+  the 35 unverifiable examples are checked or honestly COMPAT-tagged,
+  and the hole is fenced. The audit found 45 `examples/*.mlog` without
+  a `.expected`/`.error` sidecar and only 10 of them mentioned anywhere
+  in tests/CI (the fact-check t85 confirmed both numbers exactly) —
+  serve, file I/O and memory, the most dangerous paths, were verified
+  by nothing. Now every example has ONE of: a golden sidecar
+  (10 .expected: p11_utf8_full, p4_benchmark, p6_kv_memory,
+  p8_session_memory, p_p01_respond_html_query_param, p7_cyrillic,
+  p161_helper, p161_deep_helper, p9_cyrillic_unicode,
+  p6_template_composition, p71_retry_demo — the stdout captured from
+  the REAL run, not invented; 1 .error: v05_final_integration whose
+  failure IS the contract — the UNTRUSTED_DECISION anti-injection
+  invariant fires on its unsafe pattern), a named blocking test
+  (tests/naryad_513_example_coverage.rs: the p120_* family through the
+  REAL `mlog test` binary — passing exits 0, failing non-zero, multiple
+  reports BOTH failures, filter runs the selected test only; the
+  p31/p51 /fast serve goldens — the /slow routes are external-network
+  demos and are deliberately not exercised; the vm_serve_realistic_dept
+  a/b/c ONE-LINE fragments composed into a server and run on the VM
+  backend — their named purpose, "dept-a: ping" per fragment; the
+  p7_cyrillic golden — the p7_* exclusion in golden.rs predates the
+  example and left it unchecked), or a COMPAT-513 header tag (14 stale
+  prototypes whose grammar predates the current parser —
+  `server {` → mlogserver, top-level statements, `#` comments,
+  entity-method patterns: NOT checked with invented behavior, the
+  rewrite is a separate naryad; the reason per file). The inventory
+  invariant all_examples_have_a_check_or_an_honest_compat_tag is the
+  permanent fence: a NEW example without a check fails CI. The debt
+  gate grows the example_uncovered counter (debt_counters №513: the
+  sidecar-less, mention-less, COMPAT-less .mlog files) with the
+  checked-in baseline `example_uncovered: 0` — moves ONLY DOWN (the
+  №468 rule); the golden.rs error suite learned the per-example .env
+  sidecar (the same ADR-0169 §3.4 posture the .expected suite uses).
+
+- Naryad №511 (issue #795; the consolidated audit 28.09 C-05, Medium —
+  the wave-21 P1 deploy fix): the documented deployment path actually
+  works and is VERIFIED. The old image died at clap on startup
+  (`CMD ["mlog", "serve"]` — the `file` argument is NOT optional,
+  src/main.rs `Serve { file: PathBuf }`), shipped no .mlog program,
+  carried a DEAD `ENV METALOGOS_PORT` (nothing in src/ ever read it —
+  the port comes from the program's `mlogserver { port: ... }`
+  declaration), and was checked by nothing (0 docker mentions in CI,
+  unchanged since 2026-08-27). Now: `ENTRYPOINT ["mlog", "serve"]` +
+  `CMD ["/app/main.mlog"]` with the shipped example program
+  (examples/docker_hello.mlog — volume-mount over /app/main.mlog runs
+  YOUR program without a rebuild); the dead env is REMOVED; the
+  deploy-time bind host is `METALOGOS_HOST` — read ONLY when the
+  program declares no `host:` (the declaration always wins, the №164
+  loopback default unchanged; the image sets
+  `ENV METALOGOS_HOST=0.0.0.0`); the built-in `GET /health` route
+  answers 200 "ok" with NO side effects (skipped when the program
+  declares its own /health — the declaration wins, no duplicate-route
+  panic); the `mlog health [url]` subcommand (default
+  http://127.0.0.1:8080/health, METALOGOS_HEALTH_URL override, 5s
+  timeout, exit 0/1) is the HEALTHCHECK command WITHOUT curl
+  (bookworm-slim has no curl — the audit's curl-based HEALTHCHECK
+  would have left the container permanently unhealthy); the base
+  images pinned to versioned tags (rust:1.85-slim-bookworm /
+  debian:bookworm-slim); .dockerignore keeps the context lean. The CI
+  job (.github/workflows/docker.yml — weekly + on Dockerfile/server
+  changes + dispatch) builds, runs the container, probes /health,
+  exercises `mlog health` and waits for the Docker HEALTHCHECK
+  "healthy" state — this IS the №509 0.28-gate criterion №24.
+  Blocking tests (tests/naryad_511_docker_health.rs): the built-in
+  /health, the program-declared /health precedence, the bind-host
+  ladder (declaration > env > loopback).
 - Naryad №504 (issue #787; the audit 28.09 §3.1 companion, P1 — the
   wave-19 tail): the distillation features leave the byte-position
   `simple_embedding` (the sum of bytes over `i % dim` — NOT a semantic

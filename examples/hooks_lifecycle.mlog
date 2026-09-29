@@ -1,3 +1,4 @@
+// COMPAT-513: stale prototype: top-level statements (mem_set after a decl) no longer parse. Do NOT invent a check — the rewrite is a separate naryad.
 // ── O-2 Demo: 5 lifecycle hooks ──────────────────────────────
 // Inspired by obsidian-mind's 5-point hook pipeline.
 // This file demonstrates all 5 hook lifecycle points.

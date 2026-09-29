@@ -55,6 +55,16 @@ enum Commands {
         /// Path to .mlog source file
         file: PathBuf,
     },
+    /// №511: liveness probe — GET the built-in /health route and exit
+    /// 0 (200) or 1 (anything else). NO curl needed (bookworm-slim has
+    /// none): this is the container HEALTHCHECK command. The target URL
+    /// defaults to the container's localhost:8080 (the example program's
+    /// port) and can be overridden by the argument or METALOGOS_HEALTH_URL.
+    #[cfg(feature = "server")]
+    Health {
+        /// Full URL of the health endpoint (default: http://127.0.0.1:8080/health)
+        url: Option<String>,
+    },
     /// Compile a .mlog source file to .mbc bytecode
     Compile {
         /// Path to .mlog source file
@@ -216,7 +226,54 @@ fn main() {
             bind,
             auth_token,
         } => cmd_mcp_serve(file, &allowlist, &transport, bind, auth_token),
+        #[cfg(feature = "server")]
+        Commands::Health { url } => cmd_health(url.as_deref()),
         Commands::Ledger { cmd } => cmd_ledger(cmd),
+    }
+}
+
+/// `mlog health [url]` (№511) — the liveness probe WITHOUT curl: the
+/// container HEALTHCHECK command. GETs the built-in `/health` route
+/// (200 "ok", no side effects) and exits 0 on 200, 1 on anything else
+/// (loud one-line reason on stderr). The URL ladder: the argument →
+/// `METALOGOS_HEALTH_URL` → `http://127.0.0.1:8080/health` (the shipped
+/// example program's port). A 5s timeout — a probe must fail fast, not
+/// hang the orchestrator.
+#[cfg(feature = "server")]
+fn cmd_health(url: Option<&str>) {
+    let target = url
+        .map(|s| s.to_string())
+        .or_else(|| std::env::var("METALOGOS_HEALTH_URL").ok())
+        .unwrap_or_else(|| "http://127.0.0.1:8080/health".to_string());
+
+    let client = match reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .connect_timeout(std::time::Duration::from_secs(3))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("[health] client build failed: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    match client.get(&target).send() {
+        Ok(resp) if resp.status().as_u16() == 200 => {
+            println!("ok");
+        }
+        Ok(resp) => {
+            eprintln!(
+                "[health] {}: status {} (expected 200)",
+                target,
+                resp.status()
+            );
+            std::process::exit(1);
+        }
+        Err(e) => {
+            eprintln!("[health] {}: unreachable: {}", target, e);
+            std::process::exit(1);
+        }
     }
 }
 

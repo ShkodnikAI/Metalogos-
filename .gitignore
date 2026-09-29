@@ -31,3 +31,4 @@ docs/book/book/
 # Naryad #387: golden-example runtime artifacts (the token-egress e2e)
 /w387_portrait_saved.jpg
 /w387_portrait_saved.jpg.manifest.json
+__pycache__/

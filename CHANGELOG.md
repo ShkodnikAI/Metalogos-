@@ -4,6 +4,39 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+(nothing yet)
+
+## [0.27.1] - 2026-09-29
+
+### Security
+
+**The audit-driven security release: the v0.27.0 tag predates every fix
+below. 0.27.0 is affected — update is mandatory.**
+
+- **№510 (gh#794; the consolidated audit 28.09 C-01, High):** `!=` in
+  rule conditions, `flow` branch conditions and `mutate … rollback_if`
+  worked as `==` on the VM (the compiler wildcard arms) — and the rule
+  path could not even parse (the grammar deadlock: every comparison
+  operator, not just `!=`, failed to parse in rule conditions); the VM
+  rollback kept-table disagreed with the TW for Gt/Ge/Eq/Ne. **0.27.0
+  is affected — update is mandatory.**
+- **№474 (gh#722; the audit 26.09 §3.2, High):** the db parity —
+  `query_row_vm` parameters route through the same parameterization as
+  the TW lane (`convert_params`), closing the silent parameter shift.
+- **№475 (gh#723; the audit 26.09 §3.1, High):** the fs_gate facade —
+  one gated FS entry point + the `clippy.toml` disallowed-methods
+  ratchet; the pdf/smtp/config bypass paths are gone.
+- **№477 (gh#725; the audit v0.26.1 §3.5):** the `mcp-serve` context
+  inversion — the strict-by-default exec context at the entrypoint.
+- **№478 (gh#726; the audit v0.26.1 §3.6 + the 27.09 action):** the mock
+  unification onto the 454 SSOT + the loud `env`/`read_file` with the
+  explicit-silence `*_or` naming.
+- Also landed since v0.27.0: №481 (the loud env refusal), №482 (the
+  unfreeze-gate CI job), №483 (the media/vision dedup ratchet at zero).
+
+### Changed and fixed
+
+
 - Naryad №510 (issue #794; the consolidated audit 28.09 C-01, Wave 21
   P0): the `!=` operator is honest end-to-end. THREE defects, one
   class — comparison operators silently degrading, each invisible to

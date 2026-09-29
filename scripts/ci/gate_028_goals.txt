@@ -1,0 +1,31 @@
+# The 0.28 release-gate ABSOLUTE goals (№509, ADR-0179) — the record
+# the v2 gate reads. The PARAMETERS below are the OWNER's to fix
+# (ADR-0179 §3 — the owner gate, not the executor's); the executor
+# checked in the draft values from the audit 28.09 §4. The FACTS below
+# are the live records the release process updates before running the
+# gate (fail-closed on a missing record or key).
+
+# ── The parameters (owner-fixed; draft = the audit 28.09 §4) ──────────
+# The typed-signature share floor, basis points (3000 = 30.00%).
+# The audit's recommendation: the share must REACH the goal, not merely
+# not-regress (the 0.27.0 lesson: 9.96% passed a no-regression gate).
+goal_typed_share_bp: 3000
+# Zero open High findings in the server path (the audit-lane record).
+goal_open_high_server: 0
+# The TW/VM transfer domain quorum: at most 1/3 of the №466 groups
+# still carrying duplicate names at the gate.
+goal_quorum_num: 1
+goal_quorum_den: 3
+
+# ── The live facts (the release process syncs these before the gate) ──
+# The open High findings in the server path. MUST match the count of
+# the open GitHub issues labeled `release-block` (the №509 discipline:
+# every known High gets the label; the label blocks the release; the
+# record and the label set are synced at the gate run — the checklist
+# names the sync step).
+fact_open_high_server: 0
+# The transfer domain quorum fact: (groups still carrying duplicates)
+# / (the №466 group total at the transfer start). Synced from the
+# count_duplicated_names.py report at the gate run.
+fact_quorum_num: 9
+fact_quorum_den: 9

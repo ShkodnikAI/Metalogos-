@@ -4,6 +4,24 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №509 (issue #792; the audit 28.09 §4 + §3.4п3): the 0.28
+  release gate criteria v2 (ADR-0179) — the gate flips from
+  no-regress ratchets to ABSOLUTE goals: the typed-signature share
+  REACHES the owner-fixed floor (draft 30 bp%, now 9.96%), zero open
+  High findings in the server path (the release-block label
+  discipline, the fact record synced at the gate run), the transfer
+  domain quorum ≤ 1/3 (draft), the №502 mirror metric carried
+  only-down, and the FUNCTIONAL criterion — every state-accumulating
+  declaration (distill_to, memory, conversation, cron) has a
+  both-backend run_test_server e2e (the inventory:
+  distill done via №496; memory/conversation/cron pending — follow-up
+  naryads). unfreeze_gate.py gains --gate-target 0.28 (fail-closed on
+  any missing record; the legacy 0.27.x read unchanged); the release
+  checklist (docs/release-checklist.md) names the human steps between
+  the evidence and the owner-only decision. The ADR number moved to
+  0179 (0178 was taken by the generative-contour boundary in the
+  meantime — noted in the naryad report).
+
 - Naryad №503 (issue #786; the audit 28.09 §3.6 Low/Medium): the
   OUTCOME rule — a TW/VM divergence where one side is ok and the other
   is err is a correctness defect BY SHAPE, un-pinnable in the №465

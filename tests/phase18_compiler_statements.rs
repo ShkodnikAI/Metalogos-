@@ -230,7 +230,6 @@ pattern assign_test(x: Float) -> Float {
 // ── З-18.5: Match compilation ──────────────────────────────────────
 
 #[test]
-#[ignore = "TODO: VM compiler does not yet support match with string literal arms"]
 fn test_compile_match_exact() {
     let source = r#"
 pattern greet(name: String) -> String {
@@ -245,7 +244,6 @@ pattern greet(name: String) -> String {
 }
 
 #[test]
-#[ignore = "TODO: VM compiler does not yet support match contains"]
 fn test_compile_match_contains() {
     let source = r#"
 pattern classify_msg(msg: String) -> String {
@@ -260,7 +258,6 @@ pattern classify_msg(msg: String) -> String {
 }
 
 #[test]
-#[ignore = "TODO: VM compiler does not yet support match with compare operators"]
 fn test_compile_match_compare() {
     let source = r#"
 pattern rating_level(score: Float) -> String {

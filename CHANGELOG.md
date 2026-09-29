@@ -41,6 +41,20 @@ All notable changes to the Metalogos project.
   corpus keyed on the byte extractor's first-character bucket; the gate
   contract unchanged); the №496 serve e2e unaffected (single-class
   corpus, feature-independent).
+- Naryad №516 (issue #800; the consolidated audit 28.09 C-14, Low): the
+  stale match-support ignores lifted. The audit's grep-protocol found
+  the whole "TODO: VM compiler does not yet support match with X"
+  family obsolete — the support landed long ago (compiler.rs
+  `MatchArm::StartsWith` → `MatchTest::StartsWith`; the VM executes it
+  at both sites; semantic checks the arms) and №510 made the Ne claim
+  false too. Six ignores lifted, each proven GREEN before the lift:
+  starts_with compiles + full run (phase19_22 ×2, the C-14 target),
+  Ne-in-rule-conditions (obsolete by №510), match with string-literal
+  arms / contains / compare operators (phase18 ×3). The debt gate
+  thresholds moved ONLY DOWN with the revision record:
+  ignore 58 → 52, ignore_todo 22 → 16 (dead_code 37 unchanged); the
+  remaining ignores in the two suites carry real semantic-checker
+  TODOs — not touched. Blocking CI now runs 6 previously hidden tests.
 
 - Naryad №512 (issue #796; the consolidated audit 28.09 C-06, Medium —
   step 1 of 2): the voiceprint store honesty fix. The comments and the

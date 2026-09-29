@@ -3682,11 +3682,19 @@ impl Vm {
             (report.accuracy, note)
         };
 
+        // №510: the kept-table now MIRRORS the TW interpreter's rollback
+        // semantics exactly (interpreter/hooks.rs handle_mutate) — "kept"
+        // means the mutation is kept, i.e. kept = NOT(accuracy OP threshold).
+        // Previously Gt/Ge always rolled back, Eq was inverted, and Ne was
+        // missing entirely (fell into the always-keep default) — the VM
+        // disagreed with the TW for every operator except Lt/Le.
         let kept = match (&rollback_op, &rollback_threshold) {
             (Some(ConditionOp::Lt), Some(threshold)) => accuracy >= *threshold,
             (Some(ConditionOp::Le), Some(threshold)) => accuracy > *threshold,
-            (Some(ConditionOp::Gt), Some(_)) | (Some(ConditionOp::Ge), Some(_)) => false,
-            (Some(ConditionOp::Eq), Some(threshold)) => (accuracy - threshold).abs() < 1e-9,
+            (Some(ConditionOp::Gt), Some(threshold)) => accuracy <= *threshold,
+            (Some(ConditionOp::Ge), Some(threshold)) => accuracy < *threshold,
+            (Some(ConditionOp::Eq), Some(threshold)) => (accuracy - threshold).abs() >= 1e-9,
+            (Some(ConditionOp::Ne), Some(threshold)) => (accuracy - threshold).abs() < 1e-9,
             _ => true,
         };
 

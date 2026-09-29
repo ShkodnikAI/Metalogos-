@@ -24,6 +24,95 @@ All notable changes to the Metalogos project.
   mark predating the №495 unification — moves down with №504). The
   per-mark plan (unify / justify) is in the naryad report.
 
+## [0.27.1] - 2026-09-29
+
+### Security
+
+**The audit-driven security release: the v0.27.0 tag predates every fix
+below. 0.27.0 is affected — update is mandatory.**
+
+- **№510 (gh#794; the consolidated audit 28.09 C-01, High):** `!=` in
+  rule conditions, `flow` branch conditions and `mutate … rollback_if`
+  worked as `==` on the VM (the compiler wildcard arms) — and the rule
+  path could not even parse (the grammar deadlock: every comparison
+  operator, not just `!=`, failed to parse in rule conditions); the VM
+  rollback kept-table disagreed with the TW for Gt/Ge/Eq/Ne. **0.27.0
+  is affected — update is mandatory.**
+- **№474 (gh#722; the audit 26.09 §3.2, High):** the db parity —
+  `query_row_vm` parameters route through the same parameterization as
+  the TW lane (`convert_params`), closing the silent parameter shift.
+- **№475 (gh#723; the audit 26.09 §3.1, High):** the fs_gate facade —
+  one gated FS entry point + the `clippy.toml` disallowed-methods
+  ratchet; the pdf/smtp/config bypass paths are gone.
+- **№477 (gh#725; the audit v0.26.1 §3.5):** the `mcp-serve` context
+  inversion — the strict-by-default exec context at the entrypoint.
+- **№478 (gh#726; the audit v0.26.1 §3.6 + the 27.09 action):** the mock
+  unification onto the 454 SSOT + the loud `env`/`read_file` with the
+  explicit-silence `*_or` naming.
+- Also landed since v0.27.0: №481 (the loud env refusal), №482 (the
+  unfreeze-gate CI job), №483 (the media/vision dedup ratchet at zero).
+
+### Changed and fixed
+
+
+- Naryad №510 (issue #794; the consolidated audit 28.09 C-01, Wave 21
+  P0): the `!=` operator is honest end-to-end. THREE defects, one
+  class — comparison operators silently degrading, each invisible to
+  the gates for its own reason. (1) The compiler wildcard: `AstCompareOp`
+  match arms in `mutate rollback_if`, the `flow` branch conditions and
+  `compile_rule` ended with `_ => ConditionOp::Eq // Ne and others fall
+  back to Eq` — `CompareOp` has exactly six variants, so the wildcard
+  hid exactly `Ne`: `rollback_if: accuracy != 0.9` and flow branches
+  `cold(x.status != "b")` compiled as `Eq` on the VM backend. All three
+  arms are explicit now, and `#![deny(clippy::wildcard_enum_match_arm)]`
+  stands at the top of `src/compiler.rs` — the lint surfaced 16
+  wildcard sites in the file (rules, branches, rollback, BinOp
+  fall-through, Statement loops, Expr simplifications, the JIT purity
+  disallow-mirror); every one is an explicit variant list, so a new
+  enum variant is a compile error until it is consciously classified.
+  (2) The grammar deadlock the compiler fix exposed: the
+  `compare_condition` rule (`expression ~ compare_op ~ expression`)
+  could NEVER match — the greedy left `expression` layers comparisons
+  as infix (`compare_expr`), consumed the whole `a != b` and left no
+  compare_op for the condition. `rule If(...)` with ANY comparison
+  operator (not just `!=`: `>`, `>=`, `<`, `<=`, `==` too) failed to
+  PARSE — only `contains` worked; the consolidated audit's premise
+  ("rules accept `!=`") was lexically true and structurally dead, so
+  the compiler wildcard was unreachable dead code on the rule path.
+  The parser now accepts an expression-shaped condition and decomposes
+  its top-level comparison into `Condition::Compare`; anything else at
+  the top level is a loud parse error. The documented syntax
+  (`rule If(target.field op value)`) now matches reality. (3) The VM's
+  mutate kept-table disagreed with the TW interpreter for every
+  operator except Lt/Le: Gt/Ge ALWAYS rolled back, Eq was inverted,
+  Ne was missing (the always-keep default). The table now mirrors
+  interpreter/hooks.rs exactly (kept = NOT(accuracy OP threshold)).
+  The diff-fuzzer №465 generated zero rules — the seeded rule block
+  (all six operators, deterministic per seed) now rides the program
+  output through the flow head, so the class stays visible to CI
+  forever. Verified: the №510 contracts C1–C10 green on BOTH backends
+  (rule fire/silence, branch taken/not-taken loud consistency,
+  rollback kept/rolled-back across `!=`/`>`/`==`); the fuzzer suite
+  green with the rule generation; clippy `-D warnings` clean.
+
+- Naryad №505 (issue #788; the audit 28.09 §3.5): the naryad number
+  uniqueness gate — `scripts/ci/naryad_number_check.py` + the
+  `Naryad numbering (blocking)` CI job next to the adr-check. Under
+  one number different works have already lived (№474, №475, №476,
+  №493 — the external audit stumbled on it twice): the gate parses
+  the PR title's naryad claim and refuses a number that already
+  landed as a DIFFERENT work, listing the occupied works. The
+  exception grammar is explicit and pinned by the script's self-test:
+  the work-group suffix (`№466 group M`), the dotted re-issue
+  (`№475.1`), the re-land suffixes (reland/retry/revert/rerun/redo/
+  take-N) and the same-issue follow-up (the occupied record pointing
+  at the same `issue #M`). The occupied set comes from the merged
+  git history (the EN `naryad N` and RU `Наряд №N` subject forms) and
+  the closed issue titles via GH_TOKEN (best effort — the history
+  alone suffices). The four known collisions are documented in the
+  naryad's report so external links stop confusing them. The script
+  does not rewrite history and does not rename old naryads.
+
 - Naryad №495 (issue #780; the audit 28.09 §3.1 High, the P0 core of
   Wave 19): distillation in `mlog serve` now WORKS on both backends —
   the new server-level `DistillHub` (`src/distill_hub.rs`). Before

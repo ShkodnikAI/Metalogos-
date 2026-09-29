@@ -216,9 +216,18 @@ forget_decl   = { FORGET_KW ~ expression ~ "after" ~ INT ~ DOT_CHAR ~ "days" }
 
 // ── Rule ──────────────────────────────────────────────────────────────
 rule_decl    = { "rule" ~ "If" ~ "(" ~ condition ~ ")" ~ "then" ~ assignment ~ ("with" ~ "priority" ~ "=" ~ INT)? }
-condition    = _{ contains_condition | compare_condition }
+condition    = _{ contains_condition | compare_condition | condition_expression }
 contains_condition = { expression ~ CONTAINS_KW ~ expression }
 compare_condition  = { expression ~ compare_op ~ expression }
+// №510 (audit 28.09 C-01): `compare_condition` above can NEVER match a
+// comparison: the left `expression` is greedy and `compare_expr` is part
+// of the expression infix chain, so `a != b` is consumed whole by the
+// first expression and no compare_op remains for the condition rule —
+// rule declarations with ANY comparison operator failed to parse (only
+// `contains` worked). The expression-shaped fallback parses the condition
+// as ONE expression; the parser decomposes the top-level comparison into
+// Condition::Compare (see parse_condition).
+condition_expression = { expression }
 compare_op   = @{ ">=" | "<=" | NEQ | GT | LT | EQ }
 CONTAINS_KW  = @{ "contains" }
 assignment   = { IDENT ~ "." ~ IDENT ~ "=" ~ expression }

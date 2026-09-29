@@ -430,6 +430,32 @@ jobs:
             exit 1
           fi
 
+  badge-sync:
+    name: Badge sync (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: The README Version badge must equal the Cargo.toml version
+        run: python3 scripts/ci/badge_sync.py --check
+
+  naryad-number-check:
+    name: Naryad numbering (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Naryad number collision check
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -z "$PR_TITLE" ]; then
+            echo "Not a pull_request event — the naryad gate runs on PRs only."
+            exit 0
+          fi
+          python3 scripts/ci/naryad_number_check.py "$PR_TITLE"
+
   module-size-guard:
     name: module-size-guard (blocking)
     runs-on: ubuntu-latest

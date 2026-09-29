@@ -236,7 +236,30 @@ fn gen_program(seed: u64) -> String {
         ));
     }
 
+    // №510: the seeded rule — a float entity vs a float threshold joined by
+    // one of the six comparison operators (incl. `!=`, the C-01 operator
+    // the compiler wildcard used to mis-compile to Eq). Previously the
+    // generator produced ZERO rules, so the whole rule path was invisible
+    // to the diff harness. The rule outcome (fzr.flag) rides the program
+    // output through pfzf at the flow head, so any TW/VM disagreement on
+    // the condition evaluation is a divergence. Deterministic per seed.
+    const RULE_OPS: &[&str] = &["!=", "==", ">", "<", ">=", "<="];
+    let rule_op = rng.pick(RULE_OPS);
+    let rule_value = 1.0 + (seed % 7) as f64;
+    let rule_threshold = (seed % 10) as f64;
+    src.push_str("entity FzFlag { flag: Float }\n");
+    src.push_str("entity fzr: FzFlag = { flag: 0.0 }\n");
+    src.push_str(&format!("entity fzn: Float = {}\n", rule_value));
+    src.push_str(&format!(
+        "rule If(fzn {} {}) then fzr.flag = 1.0\n",
+        rule_op, rule_threshold
+    ));
+
     // Pattern A: pure transformation (calls the string/math ops).
+    // №510: pfzf heads the pipeline — it renders the rule-written flag
+    // (flow-input binding reads fzr.flag AFTER the rules execute) so the
+    // rule outcome is part of the diffed output on both backends.
+    src.push_str("\npattern pfzf(x: Float) -> String { return \"flag:\" + to_string(x) }\n");
     src.push_str("\npattern pa(x: String) -> String {\n");
     let mut vars = vec!["x".to_string()];
     for st in gen_stmts(&mut rng, &mut vars, 2, &mut budget) {
@@ -299,8 +322,13 @@ fn gen_program(seed: u64) -> String {
         "  return to_string(n_rows) + \":\" + answer + \":\" + mail_state + \":\" + to_string(len(mail.error.code))\n}\n",
     );
 
-    // The flow: e0 → pa → pb → pc → output (both backends run the same wiring).
-    src.push_str("\nflow Main {\n  input: String = e0 -> pa -> pb -> pc -> output\n}\n");
+    // The flow: fzr.flag → pfzf → pa → pb → pc → output. The input binds
+    // the RULE-WRITTEN flag (№510): rules execute before the input binding
+    // (the p42 contracts), so pfzf's rendering reflects the rule outcome.
+    // Both backends run the same wiring.
+    src.push_str(
+        "\nflow Main {\n  input: Float = fzr.flag -> pfzf -> pa -> pb -> pc -> output\n}\n",
+    );
     src
 }
 
@@ -1437,7 +1465,54 @@ fn n479_stateful_generation_is_alive() {
             "seed {}: no memory group",
             seed
         );
+        // №510: the seeded rule with one of the six comparison operators
+        // (incl. the C-01 `!=`) must be present, and the rule-written flag
+        // must ride the flow output through pfzf.
+        assert!(
+            src.contains("rule If(fzn "),
+            "seed {}: no seeded comparison rule",
+            seed
+        );
+        assert!(
+            src.contains("then fzr.flag = 1.0"),
+            "seed {}: the rule must write fzr.flag",
+            seed
+        );
+        assert!(
+            src.contains("input: Float = fzr.flag -> pfzf"),
+            "seed {}: the rule outcome must surface at the flow head",
+            seed
+        );
     }
+}
+
+#[test]
+fn n510_rule_generation_sweeps_all_six_operators() {
+    // №510: across a seed sweep the generator must produce EVERY comparison
+    // operator (the C-01 class stays visible to the diff harness forever).
+    let mut seen = std::collections::BTreeSet::new();
+    for seed in 0..200u64 {
+        let src = gen_program(0x4e34_6546_0000_0000u64 + seed);
+        let line = src
+            .lines()
+            .find(|l| l.starts_with("rule If(fzn "))
+            .unwrap_or_else(|| panic!("seed {}: no rule line", seed));
+        for op in ["!=", "==", ">=", "<=", ">", "<"] {
+            if line.contains(&format!("fzn {} ", op)) {
+                seen.insert(op);
+            }
+        }
+    }
+    let missing: Vec<&str> = ["!=", "==", ">=", "<=", ">", "<"]
+        .iter()
+        .filter(|op| !seen.contains(**op))
+        .copied()
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "operators never generated across the sweep: {:?}",
+        missing
+    );
 }
 
 #[test]

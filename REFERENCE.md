@@ -655,7 +655,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 502 registered builtins (502 of 502): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 503 registered builtins (503 of 503): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -2365,7 +2365,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `mcp_list_tools(...)` | 2 | — | `mcp_list_tools(command, args_list) -> List[Struct{name, description, input_schema}]`. |
 | `print(...)` | 1 | `String -> String` | Prints a string to stdout, returns it |
 | `read_file(...)` | 1 | `String -> String` | Reads a file. **Missing file** — the documented №254 soft contract: an empty string (pinned by the №481 suite). **A file that exists (or passed the sandbox) but cannot be opened/read** — a configuration/environment error, refused LOUDLY with `[IO_ERROR]` and the OS reason (№481): the old silent "" masked real defects. Sandbox violations (absolute path, `..`, symlink escape, broken symlink) are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) |
-| `read_file_or(...)` | 2 | — | `read_file_or(path, default)` — the EXPLICIT-silence twin of `read_file` (№507, the symmetry the audit 28.09 §3.7 asked for: `env` got its `env_or` in №481, `read_file` gets its `_or` here). The MISSING file yields the caller's default (announced on the audit stderr, the №326 posture — the PATH is named, the content never); the `_or` suffix carries the silent-default semantics in the name (the №481 naming rule). Every OTHER branch is byte-identical to `read_file`: sandbox violations and the №455 deny-list stay LOUD (they are programmer errors — the explicit silence never bypasses them), open/read failures stay LOUD `[IO_ERROR]` (№481). The `read_file` contract is unchanged (№254, the empty-string soft default stays). |
+| `read_file_or(...)` | 2 | `String, String -> String` | The explicit-silence twin of `read_file` (№507 — the `_or` symmetry with `env_or`, №481). **Missing file** — the caller's default (announced on the audit stderr: the path, never the value). Every other branch is byte-identical to `read_file`: sandbox violations and the №455 deny-list stay loud `[SANDBOX_VIOLATION]`, open/read failures stay loud `[IO_ERROR]` — the explicit silence never bypasses them |
 | `write_file(...)` | 2 | `String, String -> String` | Writes a file (overwrite). Returns `"ok"` or `""` on an OS-level error; sandbox violations are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) |
 
 ### `json` — 9 builtin(s)

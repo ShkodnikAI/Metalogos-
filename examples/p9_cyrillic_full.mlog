@@ -1,3 +1,4 @@
+// COMPAT-513: stale prototype: `entity Msg: { ... } = { ... }` inline record typing no longer parses. Do NOT invent a check — the rewrite is a separate naryad.
 // Cyrillic Full Support Test
 // Tests: Cyrillic in comments, string literals, identifiers, patterns
 // All must parse and execute without panic.

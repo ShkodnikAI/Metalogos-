@@ -1,3 +1,4 @@
+// COMPAT-513: stale prototype: top-level let/execution statements no longer parse. Do NOT invent a check — the rewrite is a separate naryad.
 // Наряд №4 / ADR-0048: Cost-Aware Model Routing
 // Contract: two learnable patterns with different model overrides.
 // In MockLlm mode, the model names are recorded and can be verified.

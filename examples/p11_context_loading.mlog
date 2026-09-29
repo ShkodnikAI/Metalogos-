@@ -1,3 +1,4 @@
+// COMPAT-513: stale prototype: top-level let/execution statements no longer parse. Do NOT invent a check — the rewrite is a separate naryad.
 // Наряд №2 / ADR-0046: Context auto-loading in learnable pattern
 // Contract: memorize 3 facts → learnable pattern with context:recall →
 //          MockLlm returns the effective prompt (with context prepended)

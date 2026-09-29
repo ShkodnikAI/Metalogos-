@@ -1,3 +1,4 @@
+// COMPAT-513: stale prototype: `#` line comments are not part of the grammar. Do NOT invent a check — the rewrite is a separate naryad.
 # OpenPlanter-inspired builtins demo (v0.9.5)
 
 # ── fuzzy_match: Jaro-Winkler similarity ──

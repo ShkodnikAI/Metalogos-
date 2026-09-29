@@ -72,7 +72,17 @@ fn all_examples_have_a_check_or_an_honest_compat_tag() {
                     }
                     continue;
                 }
-                if p.extension().map(|e| e == "rs" || e == "yml" || e == "yaml" || e == "py" || e == "txt" || e == "toml").unwrap_or(false) {
+                if p.extension()
+                    .map(|e| {
+                        e == "rs"
+                            || e == "yml"
+                            || e == "yaml"
+                            || e == "py"
+                            || e == "txt"
+                            || e == "toml"
+                    })
+                    .unwrap_or(false)
+                {
                     if let Ok(s) = fs::read_to_string(&p) {
                         haystack.push_str(&s);
                         haystack.push('\n');
@@ -100,8 +110,8 @@ fn all_examples_have_a_check_or_an_honest_compat_tag() {
     for path in &mlogs {
         let stem = path.file_stem().unwrap().to_string_lossy().to_string();
         let source = fs::read_to_string(path).unwrap_or_default();
-        let has_sidecar = path.with_extension("expected").exists()
-            || path.with_extension("error").exists();
+        let has_sidecar =
+            path.with_extension("expected").exists() || path.with_extension("error").exists();
         let mentioned = haystack.contains(&stem);
         if !has_sidecar && !mentioned && !is_compat_tagged(&source) {
             uncovered.push(stem);
@@ -193,8 +203,7 @@ fn p120_test_multiple_reports_every_failure() {
     // Contract 3 (№120): none stops on first failure — both wrong tests
     // are reported in one run.
     assert!(
-        stdout.contains("addition is not multiplication")
-            && stdout.contains("zero identity"),
+        stdout.contains("addition is not multiplication") && stdout.contains("zero identity"),
         "the runner must report BOTH failures; stdout: {}",
         stdout
     );
@@ -305,10 +314,12 @@ async fn vm_serve_realistic_dept_fragments_compose_and_answer() {
             dept.to_uppercase(),
             fragment
         );
-        let (port, handle) =
-            metalogos::server::run_test_server_with_backend(&composed, metalogos::server::ServeBackend::Vm)
-                .await
-                .unwrap_or_else(|e| panic!("{} must boot on the VM backend: {}", file, e));
+        let (port, handle) = metalogos::server::run_test_server_with_backend(
+            &composed,
+            metalogos::server::ServeBackend::Vm,
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{} must boot on the VM backend: {}", file, e));
         let (status, body) = http_post_json(port, "/ask", r#"{"text":"ping"}"#).await;
         handle.abort();
         assert_eq!(status, 200, "{}", file);

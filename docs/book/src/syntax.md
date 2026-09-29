@@ -146,6 +146,12 @@ rule If(target.field op value) then target.field = new_value
 rule If(condition) then target.field = value with priority=N
 ```
 
+The comparison operators are `>`, `<`, `>=`, `<=`, `==`, `!=` (№510:
+the comparison path is grammar-reachable and compiles honestly on both
+backends — previously every comparison operator, not just `!=`, failed
+to parse in rule conditions, and only `contains` worked). Conditions
+may also use `contains` for substring checks on strings.
+
 ### Memory
 
 ```mlog

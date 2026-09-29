@@ -19,6 +19,13 @@
 // 5. The stale crypto.rs comment claiming `env()` is soft (pre-№481) is
 //    fixed — pinned by the source-honesty grep below.
 
+// Naryad #475's fs_gate ratchet targets PRODUCTION I/O paths; this test
+// exercises the REAL filesystem for its fixtures (the probe .mlog written
+// to target/ for the real-binary stderr pins, and the crypto.rs source
+// read for the honesty pin) by design — the scoped allow mirrors the
+// naryad_481/naryad_465 posture.
+#![allow(clippy::disallowed_methods)]
+
 fn program(body: &str, ret: &str) -> String {
     format!(
         "pattern Read(_x: String) -> {} {{\n  {}\n}}\nflow Main {{\n  input: String = \"a\" -> Read -> output\n}}\n",

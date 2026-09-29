@@ -160,6 +160,10 @@ memorize "fact" with priority=0.9
 forget "query" after N.days
 ```
 
+The `memory { ... }` declaration's body fields (`kv`, `persist`) may
+appear in ANY order (Naryad #508); each may appear at most once — a
+duplicate is a loud parse error naming the field and its position.
+
 ### Adaptation
 
 ```mlog
@@ -187,6 +191,10 @@ sandbox name {
   timeout: N
 }
 ```
+
+The body fields (`allowed`, `forbidden`, `timeout`) may appear in ANY
+order (Naryad #508); each may appear at most once — a duplicate is a
+loud parse error naming the field and its position.
 
 ### Import
 
@@ -256,6 +264,12 @@ eval Classify {
 }
 ```
 
+The body fields (`dataset`, `metric`, `threshold`) may appear in ANY
+order (Naryad #508); each may appear at most once — a duplicate is a
+loud parse error naming the field and its position. The `dataset`
+field itself is REQUIRED (an explicitly empty `dataset: []` stays the
+legal PASS-by-convention case).
+
 ### Conversation
 
 ```mlog
@@ -266,6 +280,10 @@ conversation {
   compress_after: 20
 }
 ```
+
+The body fields (`ttl`, `max_messages`, `compress_after`) may appear
+in ANY order (Naryad #508); each may appear at most once — a duplicate
+is a loud parse error naming the field and its position.
 
 ### LLM Config
 

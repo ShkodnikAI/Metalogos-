@@ -430,6 +430,14 @@ jobs:
             exit 1
           fi
 
+  badge-sync:
+    name: Badge sync (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: The README Version badge must equal the Cargo.toml version
+        run: python3 scripts/ci/badge_sync.py --check
+
   naryad-number-check:
     name: Naryad numbering (blocking)
     runs-on: ubuntu-latest

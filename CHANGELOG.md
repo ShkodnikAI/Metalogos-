@@ -4,6 +4,21 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №516 (issue #800; the consolidated audit 28.09 C-14, Low): the
+  stale match-support ignores lifted. The audit's grep-protocol found
+  the whole "TODO: VM compiler does not yet support match with X"
+  family obsolete — the support landed long ago (compiler.rs
+  `MatchArm::StartsWith` → `MatchTest::StartsWith`; the VM executes it
+  at both sites; semantic checks the arms) and №510 made the Ne claim
+  false too. Six ignores lifted, each proven GREEN before the lift:
+  starts_with compiles + full run (phase19_22 ×2, the C-14 target),
+  Ne-in-rule-conditions (obsolete by №510), match with string-literal
+  arms / contains / compare operators (phase18 ×3). The debt gate
+  thresholds moved ONLY DOWN with the revision record:
+  ignore 58 → 52, ignore_todo 22 → 16 (dead_code 37 unchanged); the
+  remaining ignores in the two suites carry real semantic-checker
+  TODOs — not touched. Blocking CI now runs 6 previously hidden tests.
+
 - Naryad №509 (issue #792; the audit 28.09 §4 + §3.4п3): the 0.28
   release gate criteria v2 (ADR-0179) — the gate flips from
   no-regress ratchets to ABSOLUTE goals: the typed-signature share

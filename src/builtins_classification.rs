@@ -626,6 +626,8 @@ pub static BUILTIN_CLASSES: &[BuiltClassEntry] = &[
     BuiltClassEntry { name: "memory_retain_ttl", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "the canon retain(memory, ttl) (№445): gives ONE typed entry a lifetime — past the deadline the sweep auto-forgets it (the №280 v2 deferral lifted into the typed contour); a poisoned entry refuses a new lifetime (MEMORY_POISONED); records memory.retain_ttl" } },
     BuiltClassEntry { name: "llm_last_finish_reason", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "reads the last observed LLM finish_reason (№757 truncation probe) — no provider contact" } },
     BuiltClassEntry { name: "read_file_or", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "the №507 explicit-silence twin of read_file — ingests file content with the caller's default on a missing file (input by provenance; the loud branches shared with read_file)" } },
+    BuiltClassEntry { name: "to_float_or", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
+    BuiltClassEntry { name: "to_int_or", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
 ];
 
 #[cfg(test)]

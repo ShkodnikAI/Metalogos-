@@ -655,7 +655,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 503 registered builtins (503 of 503): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 505 registered builtins (505 of 505): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -749,8 +749,10 @@ vec_store("kb.db", "sections", c.header_path + "#" + str(c.index), embed(c.text)
 | `softmax(list)` | `List -> List` | List | Numerically stable softmax (subtracts max before exp). Output sums to 1.0 |
 | `random_seed(n)` | `Float -> Unit` | Unit | Sets the seed for a deterministic PRNG (xorshift64). Subsequent `random()` calls are reproducible |
 | `random()` | `-> Float` | Float | `[0.0, 1.0)`. If `random_seed()` was called — deterministic. Otherwise — non-deterministic (system time) |
-| `to_float(s)` | `String\|Float\|Bool -> Float` | Float | Converts to Float. Soft-failure: `0.0` |
-| `to_int(s)` | `String\|Float\|Bool -> Float` | Float | Converts to an integer (truncates the fractional part). Soft-failure: `0.0` |
+| `to_float(s)` | `String\|Float\|Bool -> Float` | Float | Converts to Float. A NON-NUMERIC string is a LOUD failure: `[TYPE_MISMATCH]` naming the input and pointing at `to_float_or` (№514 — the ONE soft-failure rule: silence is visible in the name). `Bool → 1.0/0.0` is a conversion, not a soft failure |
+| `to_int(s)` | `String\|Float\|Bool -> Float` | Float | Converts to an integer (truncates the fractional part). A NON-NUMERIC string is a LOUD failure: `[TYPE_MISMATCH]` pointing at `to_int_or` (№514). `Bool → 1.0/0.0` is a conversion |
+| `to_float_or(value, default)` | `String\|Float\|Bool, Float -> Float` | Float | The EXPLICIT-silence twin of `to_float` (№514 — the `_or` naming rule of №481): the parsed value when the string parses, the default when it does not; the fallback firing is announced on the audit stderr (`[TO_FLOAT_OR]`, the value never logged). A non-scalar input type stays LOUD — explicit silence covers DATA, not type errors |
+| `to_int_or(value, default)` | `String\|Float\|Bool, Float -> Float` | Float | The EXPLICIT-silence twin of `to_int` (№514): the parsed/truncated value when the string parses, the default when it does not; announced on the audit stderr (`[TO_INT_OR]`). Non-scalar input stays LOUD |
 | `float(s)` | `String\|Float -> Float` | Float | Equivalent to `to_float()`, but errors on an invalid string |
 
 **Examples:**
@@ -761,7 +763,8 @@ max(3.0, 7.0)      // 7.0
 clamp(15.0, 0.0, 10.0)  // 10.0
 round(3.7)         // 4.0
 to_float("3.14")   // 3.14
-to_int("42abc")    // 0.0 (soft-failure)
+to_float_or("abc", 0.0)  // 0 — the explicit fallback; to_float("abc") itself is a LOUD [TYPE_MISMATCH] (№514)
+to_int_or("42abc", 0.0)  // 0 — the explicit fallback; to_int("42abc") itself is a LOUD [TYPE_MISMATCH] (№514)
 to_int(3.9)        // 3.0
 ```
 
@@ -810,8 +813,10 @@ let ranked = sort_by(paired, "b", 1.0)
 | `str(value)` | `Any -> String` | String | Converts any value to a string |
 | `to_string(value)` | `Any -> String` | String | Equivalent to `str()`. Float without `.0` for integers |
 | `float(value)` | `String\|Float -> Float` | Float | Converts to a number (errors) |
-| `to_float(value)` | `String\|Float\|Bool -> Float` | Float | Converts to a number (soft-failure: 0.0) |
-| `to_int(value)` | `String\|Float\|Bool -> Float` | Float | Converts to an integer (soft-failure: 0.0) |
+| `to_float(value)` | `String\|Float\|Bool -> Float` | Float | Converts to a number. A NON-NUMERIC string is a LOUD `[TYPE_MISMATCH]` (№514 — ADR-0180); `to_float_or` is the explicit-silence twin |
+| `to_int(value)` | `String\|Float\|Bool -> Float` | Float | Converts to an integer (truncates). A NON-NUMERIC string is a LOUD `[TYPE_MISMATCH]` (№514); `to_int_or` is the explicit-silence twin |
+| `to_float_or(value, default)` | `String\|Float\|Bool, Float -> Float` | Float | The explicit-silence twin of `to_float` (№514): the parsed value, or `default` when the string does not parse (announced `[TO_FLOAT_OR]` on the audit stderr) |
+| `to_int_or(value, default)` | `String\|Float\|Bool, Float -> Float` | Float | The explicit-silence twin of `to_int` (№514): the parsed/truncated value, or `default` (announced `[TO_INT_OR]`) |
 
 ### 4.5. LLM and AI
 
@@ -2121,7 +2126,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 503 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 505 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2218,12 +2223,13 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `vcard_generate(...)` | 1 | `String -> String` | Builds a vCard v4.0 from JSON |
 | `vcard_parse(...)` | 1 | `String -> String` | Parses vCard text (RFC 6350) |
 
-### `convert` — 3 builtin(s)
+### `convert` — 4 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
 | `float(...)` | 1 | `String\ | Float |
 | `to_float(...)` | 1 | `String\ | Bool -> Float` |
+| `to_float_or(...)` | 2 | `String\ | Bool, Float -> Float` |
 | `to_string(...)` | 1 | `Any -> String` | Equivalent to `str()`. Float without `.0` for integers |
 
 ### `cron` — 5 builtin(s)
@@ -2627,7 +2633,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `__split(...)` | 2 | — | `__split(s, sep)` — std-library primitive behind the std/string `split` wrapper: splits on the separator into a List of strings. |
 | `__trim(...)` | 1 | — | `__trim(s)` — std-library primitive behind the std/string `trim` wrapper: strips leading and trailing whitespace. The `__` prefix marks a primitive used by `std/*.mlog` pattern wrappers (prefer the wrapper in user code). |
 
-### `string` — 47 builtin(s)
+### `string` — 48 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
@@ -2669,6 +2675,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `text_chunk(...)` | 2..3 | `String, String[, Struct] -> List` | Structure-aware chunking for the RAG pipeline (№285, RecursiveCharacterTextSplitter-аналог без зависимостей). strategies: `"markdown"` (h1–h3 → sections with `header_path` = "H1 > H2 > H3" metadata ready for vec_store; long sections split by paragraphs; header lines are never torn — a header longer than the budget is a loud error), `"paragraph"` (blocks by double newline, small blocks merged within budget), `"fixed"` (windows with overlap). opts: `max_chars` (default 1200), `overlap` (default 100, CHARACTERS, applied at hard windowing; seam is word-aligned), `max_tokens?` — when set the budget is `token_count` (same SSOT estimate). Cascade "header → paragraph → newline → space" + greedy merge of small pieces. Every chunk: `{index, text, chars, tokens}` (+`header_path` for markdown). Loud errors: unknown strategy, `overlap >= max_chars` (or `>= max_tokens` in token mode), `max_tokens <= 0`, `max_chars <= 0`, unknown opts fields, opts not a Struct. Empty/short text → 1 chunk, not an error |
 | `title_case(...)` | 1 | — | `title_case(s)` — uppercases the first character of every word (previous character non-letter acts as the word boundary). |
 | `to_int(...)` | 1 | `String\ | Bool -> Float` |
+| `to_int_or(...)` | 2 | `String\ | Bool, Float -> Float` |
 | `token_count(...)` | 1 | — | `token_count(text)` — estimate token count. Cyrillic: chars/2, Latin: chars/4. |
 | `trim(...)` | 1 | `String -> String` | Trims whitespace from the edges |
 | `trim_end(...)` | 1 | — | `trim_end(s)` — strips trailing whitespace (Unicode-aware). |
@@ -3366,8 +3373,13 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `memory_retain_ttl` | sink | internal | reversible | the canon retain(memory, ttl) (№445): gives ONE typed entry a lifetime — past the deadline the sweep auto-forgets it (the №280 v2 deferral lifted into the typed contour); a poisoned entry refuses a new lifetime (MEMORY_POISONED); records memory.retain_ttl |
 | `llm_last_finish_reason` | source | internal | pure | reads the last observed LLM finish_reason (№757 truncation probe) — no provider contact |
 | `read_file_or` | source | internal | pure | the №507 explicit-silence twin of read_file — ingests file content with the caller's default on a missing file (input by provenance; the loud branches shared with read_file) |
+| `to_float_or` | pure | public | pure | — |
+| `to_int_or` | pure | public | pure | — |
 
 <!-- END GENERATED BUILTIN CLASSIFICATION -->
+
+
+
 
 
 

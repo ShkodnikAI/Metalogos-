@@ -22,6 +22,12 @@
 // The process-global mock flag is pinned under a static lock and always
 // restored (the №251 global-state discipline).
 
+// №475 fs_gate ratchet: the disallowed-methods lint targets PRODUCTION
+// I/O paths. These tests exercise the REAL filesystem for their fixtures
+// (the on-disk SQLite stores whose raw rows the honesty assertions read)
+// by design — the scoped allow mirrors the naryad_481/№465 posture.
+#![allow(clippy::disallowed_methods)]
+
 use std::sync::Mutex;
 
 static MOCK_LOCK: Mutex<()> = Mutex::new(());

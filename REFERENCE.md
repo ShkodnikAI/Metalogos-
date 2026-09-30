@@ -655,7 +655,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 505 registered builtins (505 of 505): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 507 registered builtins (507 of 507): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -2133,7 +2133,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 505 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 507 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2821,7 +2821,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `vision_save(...)` | 2 | `(Vision, String) -> String` | **SQLite persistence of an artifact** (#242, R6.1). Writes the artifact (a PNG as a BLOB plus a JSON provenance manifest) to the program's database (the `db { url: "sqlite:..." }` declaration) — the `vision_artifacts` table, whose persistent key is `name` (the registry id is a session-scoped handle and is not persisted). Loud refusals: no database (with a hint at the declaration), an empty name, a name collision (a silent overwrite would be a silent loss of the provenance chain; upsert/delete are out of scope for #242), an unknown handle. A verbatim round trip: the `timestamp` and the manifest's fields are not regenerated. |
 | `vision_understand(...)` | 1..3 | — | `vision_understand(image, prompt?, model?)` — the vision-understanding backend call (№334). `image` is the image payload reference (String); `prompt` is the question about the image; `model` defaults to the registry canon `molmoact2` (weights: molmoact2, allenai/MolmoAct2). |
 
-### `voice` — 17 builtin(s)
+### `voice` — 19 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
@@ -2838,8 +2838,10 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `tts_send(...)` | 4..5 | `String, String, String, String[, String] -> String` | Delivery convenience: synthesizes speech (delegates to the same exchange as `tts_generate` — `tts-1`, base-URL/key overrides behave identically) and sends the audio to a Telegram chat (`sendVoice`; optional 5th arg `"audio"` switches to `sendAudio`). Key: `METALOGOS_TTS_API_KEY` (falls back to `OPENAI_API_KEY`). For synthesis without delivery use `tts_generate` |
 | `tts_speak(...)` | 2 | — | `tts_speak(decl, text)` stub — ADR-0143. |
 | `voice_design(...)` | 2 | — | `voice_design(text, voice)` stub — ADR-0143. |
+| `voice_delete(...)` | 1 | `Voice \| Audio -> String` | №526 (GDPR Art. 17 erasure path): deletes the voiceprint (a Voice handle) or the audio artifact (an Audio handle) from the runtime registry. IDEMPOTENT — returns `"deleted"` when the handle was present, `"absent"` when it was already gone (a repeated erase succeeds); wrong types refuse loudly. The embedding bytes never appear in any result; the consent ledger survives by design (the Art. 9 consent proof — privacy.md §2.1). Not feature-gated: the erasure right cannot depend on a build flag. The persisted-store twin is `VoiceStore::delete_voiceprint` (the secure zero-then-delete path, №526) |
 | `voice_enroll(...)` | 2..3 | — | `voice_enroll(decl, audio, kind)` stub — ADR-0145. |
 | `voice_load(...)` | 1 | — | `voice_load(name)` stub — ADR-0143 (persistence). |
+| `voice_list(...)` | 0 | `-> String` | №526: the informed-deletion basis — lists the held voiceprints (`voice\t[Voice#N]\t<model>`) and the held audio artifacts (`audio\t[Audio#N]\t<len> bytes`), ascending ids, empty string on an empty registry. The listing NEVER decrypts and never materializes bytes (the embedding/binary content never enters the result). The persisted-store twin is `VoiceStore::list_voiceprints` (name/model/saved_at/algo/ciphertext length, never decrypted — №526) |
 | `voice_save(...)` | 2 | — | `voice_save(handle, name)` stub — ADR-0143 (persistence). |
 | `whisper_transcribe(...)` | 3..4 | `String, String, String[, String] -> String` | Downloads a voice message from Telegram by `file_id`, sends it for transcription to the Whisper API. `provider`: `"openai"` (default) or `"groq"`. `METALOGOS_STT_BASE_URL` overrides the transcription API base (mock servers / self-host proxies) — `/audio/transcriptions` is appended. Returns the recognized text. Arity 3..4 — the registry used to declare min 1 while the runtime always required 3 (Naryad #279 fact-check fix; a 1-arg call now fails `mlog check` on statics instead of exploding at runtime) |
 
@@ -3341,6 +3343,8 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `voice_design` | sink | internal | reversible | persists a designed voice artifact |
 | `voice_save` | sink | internal | reversible | persists a Voice artifact |
 | `voice_load` | source | internal | pure | ingests a persisted Voice artifact |
+| `voice_delete` | sink | internal | irreversible | destructively erases a voiceprint or an audio artifact from the registry (GDPR Art. 17, №526) — no undo; the consent ledger rows survive by design (the Art. 9 consent proof, privacy.md §2.1) |
+| `voice_list` | source | internal | pure | lists the held voiceprints and audio artifacts (ids + models/sizes only — the biometric bytes never enter the result, №526) |
 | `video_render` | sink | internal | reversible | persists a generated video artifact in VIDEO_REGISTRY — local tiny pipeline; egress only at video_export |
 | `video_export` | sink | internal | reversible | writes the signed .mlgv container to disk — egress point (gate VIDEO_UNSIGNED_EXPORT, ADR-0151 D5) |
 | `av_mux` | sink | internal | reversible | persists the A/V sidecar container in VIDEO_REGISTRY (ADR-0151 D4) |

@@ -74,6 +74,10 @@ use crate::voice::{
     builtin_audio_export_stub, builtin_tts_speak_stub, builtin_voice_design_stub,
     builtin_voice_enroll_stub, builtin_voice_load_stub, builtin_voice_save_stub,
 };
+// №526 (issue #835): the erasure path is NOT feature-gated — the GDPR
+// Art. 17 right cannot depend on a build flag; VOICE_REGISTRY itself was
+// never feature-gated.
+use crate::voice::{builtin_voice_delete, builtin_voice_list};
 
 /// Master registry of ALL builtin functions.
 /// Order determines bytecode indices — DO NOT reorder existing entries.
@@ -1061,6 +1065,20 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // Registry 503→505 (append-only).
     spec!("to_float_or", 2, "convert"; builtin_to_float_or, "Float"),
     spec!("to_int_or", 2, "string"; builtin_to_int_or, "Float"),
+    // ── Наряд №526 (issue #835; audit 30.09 N-2): the GDPR Art. 17
+    // erasure path for voiceprints — voice_delete(handle) is IDEMPOTENT
+    // ("deleted"/"absent", a repeated erase succeeds), voice_list() is
+    // the informed-deletion basis (id + model; the embedding never enters
+    // the result). Not feature-gated (the erasure right cannot depend on
+    // a build flag); the RAM registry is the live surface (a shipped
+    // runtime persists zero voiceprints — privacy.md §2.1), the persisted
+    // path is VoiceStore::{delete_voiceprint, list_voiceprints} (the same
+    // secure zero-then-delete path, tested at the store level). The
+    // consent ledger survives by design (the Art. 9 proof). APPENDED at
+    // the end — inserting mid-array would shift existing CallBuiltin
+    // indices (.mbc contract). Registry 505→507 (append-only).
+    spec!("voice_delete", 1, "voice"; builtin_voice_delete), // voice|audio handle
+    spec!("voice_list", 0, "voice"; builtin_voice_list),
 ];
 
 /// Total number of registered builtins.

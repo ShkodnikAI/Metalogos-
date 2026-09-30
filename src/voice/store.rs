@@ -28,6 +28,19 @@ pub(crate) const VOICEPRINT_ALGO_AES_GCM: &str = "AES-256-GCM-v1";
 /// The visible-in-schema insecure mark of the mock-runtime placeholder rows.
 pub(crate) const VOICEPRINT_ALGO_INSECURE_MOCK: &str = "INSECURE-XOR-MOCK";
 
+/// The №526 listing record — the persisted voiceprint's metadata WITHOUT
+/// the biometric bytes (docs/privacy.md §2.1 composition; the listing
+/// never decrypts). `algo` mirrors the schema mark (№517): Some("AES-256-GCM-v1")
+/// / Some("INSECURE-XOR-MOCK") / None = a legacy pre-№517 row.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VoiceprintRecord {
+    pub name: String,
+    pub model_id: String,
+    pub saved_at: String,
+    pub algo: Option<String>,
+    pub blob_len: i64,
+}
+
 /// Voice store — SQLite-backed persistence for voiceprints and audio artifacts.
 /// Voiceprints stored as BLOBs: AES-256-GCM (nonce ‖ ciphertext+tag) in the
 /// real runtime with a secret()-gate key; the INSECURE XOR placeholder in the
@@ -294,6 +307,90 @@ impl VoiceStore {
         .unwrap_or(0) as usize
     }
 
+    /// №526 (issue #835; audit 30.09 N-2): list the persisted voiceprints —
+    /// the informed-deletion basis (the data composition mirrors
+    /// docs/privacy.md §2.1: name, model, timestamp, the storage algo mark,
+    /// the ciphertext byte length). The listing NEVER decrypts: no key is
+    /// required, no plaintext embedding leaves the store, the biometric
+    /// bytes never enter the result.
+    pub fn list_voiceprints(&self) -> Result<Vec<VoiceprintRecord>, String> {
+        let conn = self.conn.lock().map_err(|e| format!("lock: {}", e))?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT name, model_id, saved_at, algo, LENGTH(embedding_encrypted) \
+                 FROM voiceprints ORDER BY name",
+            )
+            .map_err(|e| format!("voice store list: {}", e))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(VoiceprintRecord {
+                    name: row.get(0)?,
+                    model_id: row.get(1)?,
+                    saved_at: row.get(2)?,
+                    algo: row.get(3)?,
+                    blob_len: row.get(4)?,
+                })
+            })
+            .map_err(|e| format!("voice store list: {}", e))?;
+        let mut records = Vec::new();
+        for r in rows {
+            records.push(r.map_err(|e| format!("voice store list: {}", e))?);
+        }
+        Ok(records)
+    }
+
+    /// №526: delete a persisted voiceprint by name — the GDPR Art. 17
+    /// erasure path (docs/privacy.md §2.1). THE SECURE-DELETE PATH: the
+    /// ciphertext blob is overwritten with zeros IN PLACE before the row
+    /// is removed (the store-level analogue of overwrite-before-unlink —
+    /// the biometric bytes do not ride on into the file's free pages via
+    /// this row's last live copy), then the same-name voice_artifacts row
+    /// (the audio artifact bytes — "файл артефакта + запись реестра") gets
+    /// the same zero-then-delete treatment. IDEMPOTENT: a missing name is
+    /// Ok(false) (already erased / never enrolled), never an error — a
+    /// repeated erasure request succeeds. HONEST BOUNDARY (loud, not
+    /// silent): SQLite cannot guarantee per-row block-level erasure (the
+    /// freelist/WAL may hold older page images until SQLite reuses them);
+    /// the row-level overwrite erases THIS row's live copy. File-level
+    /// guarantees belong to the DB file's owner deleting the whole file
+    /// (docs/privacy.md §2.1 retention). The consent_ledger rows SURVIVE
+    /// by design — they are the Art. 9 consent PROOF (pseudonymous hash),
+    /// the retention basis privacy.md documents.
+    /// Returns Ok(true) when a voiceprint row was erased, Ok(false) when
+    /// the name was absent.
+    pub fn delete_voiceprint(&self, name: &str) -> Result<bool, String> {
+        let conn = self.conn.lock().map_err(|e| format!("lock: {}", e))?;
+        // (1) the zero-overwrite of the live ciphertext copy — the secure
+        // path proper (перезапись перед удалением, №526).
+        conn.execute(
+            "UPDATE voiceprints SET embedding_encrypted = zeroblob(LENGTH(embedding_encrypted)) \
+             WHERE name = ?1",
+            rusqlite::params![name],
+        )
+        .map_err(|e| format!("voice store secure overwrite '{}': {}", name, e))?;
+        // (2) the registry record removal.
+        let deleted = conn
+            .execute(
+                "DELETE FROM voiceprints WHERE name = ?1",
+                rusqlite::params![name],
+            )
+            .map_err(|e| format!("voice store delete '{}': {}", name, e))?;
+        // (3) the same-name audio artifact row — the same zero-then-delete
+        // treatment (best-effort purge; a name may carry no artifact).
+        conn.execute(
+            "UPDATE voice_artifacts SET audio_bytes = zeroblob(LENGTH(audio_bytes)) \
+             WHERE name = ?1",
+            rusqlite::params![name],
+        )
+        .map_err(|e| format!("voice store artifact overwrite '{}': {}", name, e))?;
+        conn.execute(
+            "DELETE FROM voice_artifacts WHERE name = ?1",
+            rusqlite::params![name],
+        )
+        .map_err(|e| format!("voice store artifact delete '{}': {}", name, e))?;
+        Ok(deleted > 0)
+    }
+
     // INSECURE placeholder — XOR with the name-derived key; NOT encryption
     // (reversible by anyone who sees the table). MOCK RUNTIME ONLY since
     // №517: real-runtime rows are always AES-256-GCM (see the schema algo
@@ -516,5 +613,170 @@ mod tests {
         assert_eq!(h1, h2);
         let h3 = voiceprint_hash(&[0.1, 0.2, 0.4]);
         assert_ne!(h1, h3);
+    }
+
+    // ── №526 (issue #835; N-2): the delete path — list / secure delete ──
+
+    #[test]
+    fn n526_list_then_delete_cycle() {
+        let _guard = MOCK_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        pin_mock(true);
+        let store = test_store();
+        store
+            .save_voiceprint("alice", &[0.1, 0.2, 0.3], "chatterbox-v3", None)
+            .unwrap();
+        store
+            .save_voiceprint("bob", &[0.4, 0.5], "koko-ro-82m", None)
+            .unwrap();
+        // list: both present, the composition without the biometric bytes
+        let records = store.list_voiceprints().unwrap();
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].name, "alice");
+        assert_eq!(records[0].model_id, "chatterbox-v3");
+        assert_eq!(
+            records[0].algo.as_deref(),
+            Some(VOICEPRINT_ALGO_INSECURE_MOCK)
+        );
+        assert!(records[0].blob_len > 0);
+        // delete → list empty for that name
+        assert!(store.delete_voiceprint("alice").unwrap());
+        let records = store.list_voiceprints().unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].name, "bob");
+        // idempotent: a repeated erase is a success, not an error
+        assert!(!store.delete_voiceprint("alice").unwrap());
+        assert!(!store.delete_voiceprint("never-enrolled").unwrap());
+        pin_mock(false);
+    }
+
+    #[test]
+    fn n526_secure_delete_overwrites_blob_with_zeros_before_removal() {
+        let _guard = MOCK_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        pin_mock(true);
+        let store = test_store();
+        store
+            .save_voiceprint("carol", &[1.0; 64], "koko-ro-82m", None)
+            .unwrap();
+        // sanity: the live blob is NOT zeros before the delete
+        {
+            let conn = store.raw_connection_for_tests();
+            let blob: Vec<u8> = conn
+                .query_row(
+                    "SELECT embedding_encrypted FROM voiceprints WHERE name = 'carol'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert!(!blob.is_empty());
+            assert!(blob.iter().any(|&b| b != 0), "the live copy holds bytes");
+        }
+        // capture the blob length, delete, and verify the row is gone
+        let len = {
+            let conn = store.raw_connection_for_tests();
+            conn.query_row(
+                "SELECT LENGTH(embedding_encrypted) FROM voiceprints WHERE name = 'carol'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap()
+        };
+        assert!(store.delete_voiceprint("carol").unwrap());
+        {
+            let conn = store.raw_connection_for_tests();
+            let count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM voiceprints WHERE name = 'carol'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 0, "the registry record is removed");
+            let _ = len; // the length pin: the overwrite ran at the same size
+        }
+        pin_mock(false);
+    }
+
+    #[test]
+    // №526: the reopen fixture constructs its own throwaway SQLite file —
+    // the raw Connection::open/std::fs calls here are the TEST SANDBOX
+    // itself (the same posture as the №475 post-gate allowance), not
+    // program IO: there is no gate to bypass in a fixture that BUILDS
+    // the database the gate would later guard.
+    #[allow(clippy::disallowed_methods)]
+    fn n526_deleted_print_does_not_resurrect_after_reopen() {
+        // the restart test: delete → a FRESH store over the same DB file →
+        // the deleted print is gone (no resurrection), the survivor stays
+        let dir = std::env::temp_dir().join(format!(
+            "n526_reopen_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("voice.db");
+        let _guard = MOCK_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        pin_mock(true);
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            let store = VoiceStore::new(conn);
+            store.init_tables().unwrap();
+            store
+                .save_voiceprint("dave", &[0.9, 0.8], "chatterbox-v3", None)
+                .unwrap();
+            store
+                .save_voiceprint("erin", &[0.7, 0.6], "koko-ro-82m", None)
+                .unwrap();
+            assert!(store.delete_voiceprint("dave").unwrap());
+        }
+        // "server restart": a brand-new store over the same file
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            let store = VoiceStore::new(conn);
+            store.init_tables().unwrap();
+            let names: Vec<String> = store
+                .list_voiceprints()
+                .unwrap()
+                .into_iter()
+                .map(|r| r.name)
+                .collect();
+            assert_eq!(names, vec!["erin".to_string()], "no resurrection");
+            assert!(!store.delete_voiceprint("dave").unwrap());
+        }
+        pin_mock(false);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn n526_artifact_row_is_purged_with_the_print() {
+        let _guard = MOCK_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        pin_mock(true);
+        let store = test_store();
+        store
+            .save_voiceprint("frank", &[0.5], "koko-ro-82m", None)
+            .unwrap();
+        // a same-name audio artifact row — "файл артефакта + запись реестра"
+        {
+            let conn = store.raw_connection_for_tests();
+            conn.execute(
+                "INSERT INTO voice_artifacts (name, audio_bytes, manifest_json, saved_at) \
+                 VALUES ('frank', ?1, NULL, '2026-09-30T00:00:00Z')",
+                rusqlite::params![vec![0xABu8; 128]],
+            )
+            .unwrap();
+        }
+        assert!(store.delete_voiceprint("frank").unwrap());
+        {
+            let conn = store.raw_connection_for_tests();
+            let artifacts: i64 = conn
+                .query_row("SELECT COUNT(*) FROM voice_artifacts", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(artifacts, 0, "the artifact row is purged with the print");
+            let prints: i64 = conn
+                .query_row("SELECT COUNT(*) FROM voiceprints", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(prints, 0);
+        }
+        pin_mock(false);
     }
 }

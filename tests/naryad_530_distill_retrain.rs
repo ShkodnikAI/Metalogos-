@@ -15,8 +15,6 @@ use metalogos::interpreter::types::DistillMode;
 mod n530_tests {
     use super::*;
 
-    use super::*;
-
     fn source() -> String {
         let mock_label = metalogos::llm::mock_response("answer");
         format!(

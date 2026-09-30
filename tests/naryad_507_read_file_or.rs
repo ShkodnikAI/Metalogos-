@@ -80,7 +80,7 @@ fn n507_read_file_missing_contract_is_unchanged() {
     assert_eq!(
         out.as_deref(),
         Some(""),
-        "read_file of a missing file stays the №254 empty string"
+        "read_file of a missing file stays the №254 empty string (the №531 transition — READ_FILE_MISSING; flips to the loud refusal with the deadline)"
     );
 }
 

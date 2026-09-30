@@ -76,6 +76,26 @@ def collect():
     return ignores, ignores_todo, dead_codes
 
 
+# №531 (issue #840; audit 30.09 N-9): the read_file soft-missing TRANSITION
+# counter — the occurrences of the stable `READ_FILE_MISSING` marker (the
+# stderr warning in io.rs + the tests that pin the transition contract).
+# The marker exists ONLY during the transition release: the flip to the
+# loud [IO_ERROR] refusal deletes the warning site and the pins, the
+# counter reaches 0, the threshold follows it down and the class closes.
+READ_FILE_MISSING_RE = re.compile(r'READ_FILE_MISSING')
+
+
+def read_file_missing_inventory():
+    sites = []
+    for path in rs_files():
+        rel = os.path.relpath(path, ROOT)
+        lines = open(path, encoding='utf-8', errors='replace').read().splitlines()
+        for i, line in enumerate(lines):
+            if READ_FILE_MISSING_RE.search(line):
+                sites.append(f'{rel}:{i + 1}')
+    return sites
+
+
 # №513 (gh#797): an example WITHOUT a check is the audit 28.09 C-09 debt:
 # no golden sidecar, no named check in the repo's check-bearing trees,
 # no COMPAT-N header tag (the honest removal the issue sanctions).
@@ -129,24 +149,26 @@ def parse_baseline(path):
 def main():
     ignores, ignores_todo, dead_codes = collect()
     uncovered_examples = example_uncovered_inventory()
+    read_file_missing = read_file_missing_inventory()
     counts = {
         'ignore': len(ignores),
         'ignore_todo': len(ignores_todo),
         'dead_code': len(dead_codes),
         'example_uncovered': len(uncovered_examples),
+        'read_file_soft_missing': len(read_file_missing),
     }
     argv = sys.argv[1:]
 
     if not argv:
-        for key in ('ignore', 'ignore_todo', 'dead_code', 'example_uncovered'):
+        for key in ('ignore', 'ignore_todo', 'dead_code', 'example_uncovered', 'read_file_soft_missing'):
             print(f'{key}: {counts[key]}')
         return 0
 
     if argv[0] == '--list':
         which = argv[1] if len(argv) > 1 else 'ignore'
-        inventory = {'ignore': ignores, 'ignore_todo': ignores_todo, 'dead_code': dead_codes, 'example_uncovered': uncovered_examples}.get(which)
+        inventory = {'ignore': ignores, 'ignore_todo': ignores_todo, 'dead_code': dead_codes, 'example_uncovered': uncovered_examples, 'read_file_soft_missing': read_file_missing}.get(which)
         if inventory is None:
-            sys.exit(f'--list: unknown counter {which!r} (ignore|ignore_todo|dead_code|example_uncovered)')
+            sys.exit(f'--list: unknown counter {which!r} (ignore|ignore_todo|dead_code|example_uncovered|read_file_soft_missing)')
         print('\n'.join(inventory))
         return 0
 
@@ -156,9 +178,10 @@ def main():
         thresholds, dup_baseline = parse_baseline(argv[1])
 
         failures = []
-        for key in ('ignore', 'ignore_todo', 'dead_code', 'example_uncovered'):
+        for key in ('ignore', 'ignore_todo', 'dead_code', 'example_uncovered', 'read_file_soft_missing'):
             # example_uncovered is a №513 counter: a baseline without the key
             # (pre-№513 baselines) cannot gate it — treat as absent.
+            # read_file_soft_missing is a №531 counter: same optional posture.
             if key not in thresholds:
                 continue
             threshold = thresholds[key]
@@ -185,7 +208,7 @@ def main():
             print('(bugfix / security / docs naryads are exempt).')
             for key, value, threshold in failures:
                 print(f'  {key}: fact {value} > threshold {threshold}')
-                for site in {'ignore': ignores, 'ignore_todo': ignores_todo, 'dead_code': dead_codes, 'example_uncovered': uncovered_examples}.get(key, []):
+                for site in {'ignore': ignores, 'ignore_todo': ignores_todo, 'dead_code': dead_codes, 'example_uncovered': uncovered_examples, 'read_file_soft_missing': read_file_missing}.get(key, []):
                     print(f'    {site}')
             return 1
         print('DEBT GATE OK — every counter at or below its threshold.')

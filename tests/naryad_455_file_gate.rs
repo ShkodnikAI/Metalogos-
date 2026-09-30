@@ -91,6 +91,8 @@ fn n455_deny_list_covers_the_audit_vocabulary() {
 fn n455_ordinary_reads_keep_working_in_process_context() {
     // A non-sensitive relative read stays exactly as before (the №254
     // contract: missing file → soft empty string, existing file → content).
+    // №531 TRANSITION: the soft "" flips to a loud refusal after the
+    // deadline (READ_FILE_MISSING); this assertion flips with it.
     let out = metalogos::run_program(
         r#"
 flow Main { input: String = "n455_definitely_missing_normal.txt" -> read_file -> output }

@@ -26,9 +26,15 @@ fn eval_expr(src: &str) -> Result<String, String> {
 // ── Точный контракт наряда ──────────────────────────────────────────
 
 #[test]
+// №531 TRANSITION pin: the soft "" stays during the transition release
+// (the READ_FILE_MISSING warning is on stderr); this test FLIPS to
+// expecting the loud [IO_ERROR] when the deadline lands.
 fn n254_read_missing_file_returns_empty_string() {
     let out = eval_expr("read_file(\"нет_такого_254.txt\")").expect("soft-failure должен быть Ok");
-    assert_eq!(out, "", "файла нет → пустая строка (контракт сохранён)");
+    assert_eq!(
+        out, "",
+        "файла нет → пустая строка (контракт сохранён: переход №531)"
+    );
 }
 
 #[test]

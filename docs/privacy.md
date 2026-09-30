@@ -64,17 +64,27 @@ explicit path was given, nothing was written** (the in-process registries in
 A voiceprint is a 192-dim f32 embedding (ECAPA contract,
 `src/voice/encoder.rs:15`) — biometric data, a GDPR Art. 9 special category
 when it identifies a person. The storage layer (`VoiceStore`, SQLite; tables
-`voiceprints`, `voice_artifacts`, `consent_ledger` — `src/voice/store.rs:90–125`)
+`voiceprints`, `voice_artifacts`, `consent_ledger` — `src/voice/store.rs:96–128`)
 is **CONFIRMED** to do the following in the REAL runtime: AES-256-GCM at rest
 (the same `aes-gcm` primitive as the `encrypt()`/`decrypt()` builtins, no new
 dependencies), the key arriving ONLY through the secret()-gate semantics
 (env-sourced 64-hex `METALOGOS_VOICEPRINT_KEY`, never derived from the name),
 a fresh random 96-bit nonce per write, the self-contained
 `nonce ‖ ciphertext+tag` blob, and the `algo = 'AES-256-GCM-v1'` schema label
-(`src/voice/store.rs:27, 331–365`). A keyless or short-key save is
-fail-closed (`[VOICE_INSECURE_STORE]`, store.rs:161–169, 338–345); a legacy
-pre-№517 row is never silently decrypted (`[VOICEPRINT_STALE]`, store.rs:211–219);
-a wrong key refuses at the GCM auth tag (`[VOICEPRINT_DECRYPT]`, store.rs:225–245).
+(`src/voice/store.rs:39, 536–588`). A keyless or short-key save is
+fail-closed (`[VOICE_INSECURE_STORE]`, store.rs:217–229); a legacy
+pre-№517 row is never silently decrypted (`[VOICEPRINT_STALE]`, store.rs:289–298);
+a wrong key refuses at the GCM auth tag (`[VOICEPRINT_DECRYPT]`, store.rs:598–670).
+Since №527 the ciphertext is BOUND TO ITS SUBJECT: every write carries the GCM
+AAD = (subject_id, registry, schema version) (`src/voice/store.rs:50–73`) — a
+blob transplanted onto another subject's row fails authentication (the swap
+attack the bare tag accepted is closed), and the decoded key buffer lives under
+`Zeroizing` (wiped at the operation's scope exit). The №517-era rows (empty
+AAD) stay readable in the announced transition window: every such read emits
+`[VOICEPRINT_NO_AAD_LEGACY]` on stderr and surfaces the honest
+`VoiceprintCryptoStatus::LegacyNoAad` flag through `load_voiceprint_with_status`
+(`store.rs:269–340`); every write is AAD-bound, so the legacy population only
+shrinks (the deadline row lives in limitations.md — the №524 rule).
 
 **The PARTIAL caveat, stated twice on purpose:**
 
@@ -310,8 +320,8 @@ read as promising any of them.
 
 | Data | At-rest status | Anchor |
 |---|---|---|
-| Voiceprints, REAL runtime | **AES-256-GCM** (env-key via secret() semantics, per-write nonce) — but the store is unwired (§2.1) | `src/voice/store.rs:425–461` |
-| Voiceprints, mock runtime | **INSECURE name-keyed XOR**, visibly marked `INSECURE-XOR-MOCK` | `src/voice/store.rs:29, 391–407` |
+| Voiceprints, REAL runtime | **AES-256-GCM** (env-key via secret() semantics, per-write nonce, the №527 AAD subject binding) — but the store is unwired (§2.1) | `src/voice/store.rs:536–588` |
+| Voiceprints, mock runtime | **INSECURE name-keyed XOR**, visibly marked `INSECURE-XOR-MOCK` | `src/voice/store.rs:41, 467–479` |
 | Media entries, non-public sensitivity | **AES-256-GCM**, per-store random `Zeroizing` key | `src/media/mod.rs:227–349` |
 | Typed-memory private containers | **AES-256-GCM** (`is_enc` rows) | `src/memory_typed.rs:234–250, 815–838` |
 | Legacy `memories` / `kv_store` / vector payloads / LLM caches / distill samples | **NOT encrypted** — plaintext SQLite, protected only by the file system and the fs sandbox on the way in | §2.2, §2.7 |

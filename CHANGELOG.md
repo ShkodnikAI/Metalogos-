@@ -4,6 +4,35 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №527 (issue #836; the consolidated audit 30.09, N-3,
+  P1 security/voice): the AES-256-GCM ciphertext is now BOUND TO ITS
+  SUBJECT — the GCM AAD carries the (subject_id, registry, schema
+  version) triplet (the registry `voiceprints`, the subject name, the
+  `voiceprints-aad-v1` schema label — joined with the 0x1F unit
+  separator so the ordered fields stay unambiguous), so a blob
+  transplanted onto another subject's row FAILS authentication (the
+  swap attack the bare tag accepted since №517 is closed — the tag
+  proved integrity of the bytes, never the binding). THE HONEST
+  BOUNDARY kept: the storage schema and the `algo` mark are untouched
+  (№517's T2 pins `AES-256-GCM-v1`), the secret()-gate semantics are
+  untouched; the discriminator between a bound row and a legacy row is
+  the GCM authentication itself (try-bound first, then the loud
+  transitional fallback). THE TRANSITION: №517-era rows (empty AAD)
+  stay readable in the announced window — every such read emits
+  `[VOICEPRINT_NO_AAD_LEGACY]` on stderr AND surfaces the honest
+  `VoiceprintCryptoStatus` (`LegacyNoAad`) through the new
+  `load_voiceprint_with_status`; every WRITE is AAD-bound, so the
+  legacy population only shrinks; the deadline row (the fallback
+  removal at v0.28.0) lives in limitations.md (the №524 rule), and
+  privacy.md §2.1/§4 carry the new contour with re-verified anchors.
+  THE KEY LIFETIME: the decoded 32-byte key buffer lives under
+  `Zeroizing` in BOTH directions (wiped at the operation's scope exit
+  — the crate was already in the tree, zero new dependencies). Tests:
+  the swap refusal (RED-baseline verified — the binding mutation
+  reddens exactly the three binding tests), the loud legacy read with
+  the flag, the re-save rebinds story, the wrong-key refusal surviving
+  the two-step decrypt, the fresh-writes-are-bound pin; №517 (7/7),
+  №512 (4/4) and the store unit tests stay green unchanged.
 - Naryad №531 (issue #840; the consolidated audit A+D 30.09, N-9,
   P1 core/hardening): the LAST silently-soft refusal outside the №514
   naming rule enters its TRANSITION period. `read_file` of a missing

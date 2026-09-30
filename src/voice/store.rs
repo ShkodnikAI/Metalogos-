@@ -19,6 +19,18 @@
 // 'INSECURE-XOR-MOCK'). Voiceprints are biometric data (GDPR Art. 9
 // special category); the privacy policy lands in docs/privacy.md (№519).
 // Ledger records consent (hash(voiceprint, nonce, date, model)).
+// №527 (issue #836; audit 30.09 N-3): the ciphertext becomes BOUND TO
+// ITS SUBJECT — the GCM AAD carries the (subject_id, registry, schema
+// version) triplet, so a blob transplanted onto another subject's row
+// fails authentication (the swap attack the bare tag accepted). The
+// key material is wiped under Zeroizing (the decoded 32-byte buffer's
+// lifetime is the single operation). The storage schema and the algo
+// mark are UNTOUCHED (the №527 boundary): legacy №517 rows (empty AAD)
+// stay readable in the announced transition window — every such read
+// announces [VOICEPRINT_NO_AAD_LEGACY] on stderr and the honest crypto
+// status (LegacyNoAad) is surfaced through load_voiceprint_with_status;
+// every WRITE is AAD-bound, so the legacy population only shrinks.
+// The deadline row lives in docs/limitations.md (the №524 rule).
 
 use rusqlite::Connection;
 use std::sync::Mutex;
@@ -27,6 +39,38 @@ use std::sync::Mutex;
 pub(crate) const VOICEPRINT_ALGO_AES_GCM: &str = "AES-256-GCM-v1";
 /// The visible-in-schema insecure mark of the mock-runtime placeholder rows.
 pub(crate) const VOICEPRINT_ALGO_INSECURE_MOCK: &str = "INSECURE-XOR-MOCK";
+
+/// №527: the schema-version component of the AAD triplet. NOT the schema
+/// `algo` mark (the №527 boundaries keep the storage schema untouched):
+/// rows carrying the same algo mark can be AAD-bound (№527-era writes) or
+/// legacy no-AAD (№517-era writes) — the discriminator is the GCM
+/// authentication itself (try-bound first, then the loud transitional
+/// fallback), because a blob that authenticates only under the empty AAD
+/// IS a legacy row by construction.
+pub(crate) const VOICEPRINT_AAD_SCHEMA: &str = "voiceprints-aad-v1";
+
+/// №527: the transitional crypto status of a loaded voiceprint — the
+/// "переходный флаг" of the AAD migration, observable by the caller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VoiceprintCryptoStatus {
+    /// The row is AAD-bound to its subject (№527): a swapped or misplaced
+    /// ciphertext fails GCM authentication.
+    AadBound,
+    /// A legacy №517 row (encrypted with an empty AAD) — readable only in
+    /// the announced transition window, with a loud warning on every read.
+    LegacyNoAad,
+}
+
+/// №527: the AAD = (subject_id, registry, schema version) — the ordered
+/// triplet joined with the unit separator (0x1F, absent from ordinary
+/// subject names), the registry being the store's own `voiceprints` table.
+/// The composition is deterministic: the same subject always yields the
+/// same AAD, so a ciphertext moved to another name (or another registry)
+/// no longer authenticates — the swap attack the bare GCM tag accepted
+/// (№517) is closed.
+fn voiceprint_aad(name: &str) -> Vec<u8> {
+    format!("voiceprints\u{1f}{name}\u{1f}{VOICEPRINT_AAD_SCHEMA}").into_bytes()
+}
 
 /// The №526 listing record — the persisted voiceprint's metadata WITHOUT
 /// the biometric bytes (docs/privacy.md §2.1 composition; the listing
@@ -201,11 +245,32 @@ impl VoiceStore {
     /// the load refuses loudly with [VOICEPRINT_STALE] ("re-enroll", the
     /// №504 posture). An AES-256-GCM row needs the key; a wrong key or a
     /// corrupted blob refuses loudly ([VOICEPRINT_DECRYPT] — GCM auth).
+    ///
+    /// №527: the load is the status-dropping wrapper over
+    /// [`Self::load_voiceprint_with_status`] — the transitional legacy
+    /// warning is announced inside regardless of the entry point.
     pub fn load_voiceprint(
         &self,
         name: &str,
         key_hex: Option<&str>,
     ) -> Result<(Vec<f32>, String), String> {
+        self.load_voiceprint_with_status(name, key_hex)
+            .map(|(embedding, model, _status)| (embedding, model))
+    }
+
+    /// №527: the status-returning load — the third element is the honest
+    /// crypto status of the row ([`VoiceprintCryptoStatus`]): `AadBound`
+    /// for №527-era rows (the subject-bound ciphertext), `LegacyNoAad`
+    /// for №517-era rows read in the transition window (every such read
+    /// also announces [VOICEPRINT_NO_AAD_LEGACY] on stderr — the flag and
+    /// the warning are the observable pair, the caller decides on the
+    /// re-enroll). The write path is always AAD-bound, so `LegacyNoAad`
+    /// can only shrink to zero — the deadline lives in limitations.md.
+    pub fn load_voiceprint_with_status(
+        &self,
+        name: &str,
+        key_hex: Option<&str>,
+    ) -> Result<(Vec<f32>, String, VoiceprintCryptoStatus), String> {
         let conn = self.conn.lock().map_err(|e| format!("lock: {}", e))?;
         let row = conn
             .query_row(
@@ -221,7 +286,7 @@ impl VoiceStore {
             .map_err(|e| format!("voice store load '{}': {}", name, e))?;
 
         let (stored, model_id, algo) = row;
-        let bytes = match algo.as_deref() {
+        let (bytes, crypto_status) = match algo.as_deref() {
             None => {
                 return Err(crate::interpreter::values::coded_error(
                     crate::interpreter::values::CODE_VOICEPRINT_STALE,
@@ -233,7 +298,11 @@ impl VoiceStore {
             }
             Some(VOICEPRINT_ALGO_INSECURE_MOCK) => {
                 // The mock skeleton path — XOR restore (NOT decryption).
-                self.insecure_restore(&stored, name)
+                // The mock row is out of the AAD migration entirely (it
+                // never held real biometric persistence — №512), so the
+                // crypto status is meaningless there; the load keeps the
+                // pre-№527 shape and never reports LegacyNoAad for it.
+                (self.insecure_restore(&stored, name), VoiceprintCryptoStatus::AadBound)
             }
             Some(VOICEPRINT_ALGO_AES_GCM) => {
                 let key_hex = key_hex.ok_or_else(|| {
@@ -245,7 +314,7 @@ impl VoiceStore {
                         ),
                     )
                 })?;
-                decrypt_voiceprint(&stored, key_hex, name)?
+                decrypt_voiceprint_with_status(&stored, key_hex, name)?
             }
             Some(other) => {
                 return Err(crate::interpreter::values::coded_error(
@@ -265,7 +334,7 @@ impl VoiceStore {
                 f32::from_le_bytes(arr)
             })
             .collect();
-        Ok((embedding, model_id))
+        Ok((embedding, model_id, crypto_status))
     }
 
     /// Record a consent ledger entry.
@@ -415,6 +484,9 @@ impl VoiceStore {
 /// 32 bytes (64 hex chars — the secret()-gate value, NEVER derived from
 /// the name), the nonce is a fresh random 96 bits per write, the stored
 /// blob is self-contained `nonce ‖ ciphertext+tag`.
+/// №527: the ciphertext is bound to its subject — the GCM AAD carries the
+/// (subject_id, registry, schema version) triplet; the decoded key buffer
+/// lives under Zeroizing and is wiped at the scope exit.
 #[doc(hidden)]
 pub fn encrypt_voiceprint_for_tests(data: &[u8], key_hex: &str) -> Result<Vec<u8>, String> {
     encrypt_voiceprint(data, key_hex, "test")
@@ -422,15 +494,65 @@ pub fn encrypt_voiceprint_for_tests(data: &[u8], key_hex: &str) -> Result<Vec<u8
 
 #[doc(hidden)]
 pub fn decrypt_voiceprint_for_tests(blob: &[u8], key_hex: &str) -> Result<Vec<u8>, String> {
-    decrypt_voiceprint(blob, key_hex, "test")
+    Ok(decrypt_voiceprint_with_status(blob, key_hex, "test")?.0)
+}
+
+/// №527: the №517-era blob factory for the migration fixtures — the SAME
+/// AES-256-GCM primitive with an EMPTY AAD (exactly what the pre-№527
+/// contour produced). NOT a production path: the migration fixtures pin
+/// the transitional read behaviour against the true legacy shape.
+#[doc(hidden)]
+pub fn encrypt_voiceprint_legacy_no_aad_for_tests(
+    data: &[u8],
+    key_hex: &str,
+) -> Result<Vec<u8>, String> {
+    use aes_gcm::aead::{Aead, KeyInit, Payload};
+    use aes_gcm::{Aes256Gcm, Key, Nonce};
+    use zeroize::Zeroizing;
+
+    let key_bytes = Zeroizing::new(
+        hex::decode(key_hex)
+            .map_err(|e| format!("voiceprint 'legacy': the key must be hex: {}", e))?,
+    );
+    if key_bytes.len() != 32 {
+        return Err("voiceprint 'legacy': the key must be 256-bit (64 hex chars)".into());
+    }
+    let key = Key::<Aes256Gcm>::try_from(key_bytes.as_slice())
+        .map_err(|_| "voiceprint 'legacy': key conversion failed".to_string())?;
+    let cipher = Aes256Gcm::new(&key);
+    let mut nonce_bytes = [0u8; 12];
+    use rand::Rng;
+    rand::rng().fill_bytes(&mut nonce_bytes);
+    let nonce = Nonce::try_from(nonce_bytes.as_slice())
+        .map_err(|_| "voiceprint 'legacy': nonce conversion failed".to_string())?;
+    // The EMPTY AAD — the exact №517-era contour (the pre-№527 writes).
+    let ciphertext = cipher
+        .encrypt(
+            &nonce,
+            Payload {
+                msg: data,
+                aad: b"",
+            },
+        )
+        .map_err(|e| format!("voiceprint 'legacy': AES-256-GCM encryption failed: {}", e))?;
+    let mut blob = nonce.to_vec();
+    blob.extend_from_slice(&ciphertext);
+    Ok(blob)
 }
 
 fn encrypt_voiceprint(data: &[u8], key_hex: &str, name: &str) -> Result<Vec<u8>, String> {
-    use aes_gcm::aead::{Aead, KeyInit};
+    use aes_gcm::aead::{Aead, KeyInit, Payload};
     use aes_gcm::{Aes256Gcm, Key, Nonce};
+    use zeroize::Zeroizing;
 
-    let key_bytes = hex::decode(key_hex)
-        .map_err(|e| format!("voiceprint '{}': the key must be hex: {}", name, e))?;
+    // №527: the decoded key material lives under Zeroizing — the buffer is
+    // wiped when the scope exits, the key's plaintext lifetime is the
+    // single operation (the hex string itself comes from the secret() gate,
+    // whose lifetime is the caller's — unchanged by №527).
+    let key_bytes = Zeroizing::new(
+        hex::decode(key_hex)
+            .map_err(|e| format!("voiceprint '{}': the key must be hex: {}", name, e))?,
+    );
     if key_bytes.len() != 32 {
         return Err(crate::interpreter::values::coded_error(
             crate::interpreter::values::CODE_VOICE_INSECURE_STORE,
@@ -450,23 +572,44 @@ fn encrypt_voiceprint(data: &[u8], key_hex: &str, name: &str) -> Result<Vec<u8>,
     rand::rng().fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::try_from(nonce_bytes.as_slice())
         .map_err(|_| format!("voiceprint '{}': nonce conversion failed", name))?;
-    let ciphertext = cipher.encrypt(&nonce, data).map_err(|e| {
-        format!(
-            "voiceprint '{}': AES-256-GCM encryption failed: {}",
-            name, e
+    // №527: the AAD binds the ciphertext to (subject_id, registry, schema
+    // version) — a blob transplanted onto another subject's row fails the
+    // authentication (the swap attack the bare tag accepted is closed).
+    let ciphertext = cipher
+        .encrypt(
+            &nonce,
+            Payload {
+                msg: data,
+                aad: &voiceprint_aad(name),
+            },
         )
-    })?;
+        .map_err(|e| {
+            format!(
+                "voiceprint '{}': AES-256-GCM encryption failed: {}",
+                name, e
+            )
+        })?;
     let mut blob = nonce.to_vec();
     blob.extend_from_slice(&ciphertext);
     Ok(blob)
 }
 
-/// AES-256-GCM decrypt a stored voiceprint blob (№517). A wrong key or a
-/// corrupted blob refuses LOUDLY ([VOICEPRINT_DECRYPT] — the GCM auth tag
-/// does not lie).
-fn decrypt_voiceprint(blob: &[u8], key_hex: &str, name: &str) -> Result<Vec<u8>, String> {
-    use aes_gcm::aead::{Aead, KeyInit};
+/// AES-256-GCM decrypt a stored voiceprint blob (№517 → №527). A wrong key
+/// or a corrupted blob refuses LOUDLY ([VOICEPRINT_DECRYPT] — the GCM auth
+/// tag does not lie). №527: the status-returning core of the transitional
+/// decrypt — the bound attempt (the №527 AAD) first; if it fails, the
+/// transitional empty-AAD attempt (the №517-era rows) succeeds ONLY for a
+/// genuinely legacy blob, announcing [VOICEPRINT_NO_AAD_LEGACY] on stderr
+/// and reporting [`VoiceprintCryptoStatus::LegacyNoAad`]. A wrong key fails
+/// BOTH attempts — the single coded refusal, nothing leaks.
+fn decrypt_voiceprint_with_status(
+    blob: &[u8],
+    key_hex: &str,
+    name: &str,
+) -> Result<(Vec<u8>, VoiceprintCryptoStatus), String> {
+    use aes_gcm::aead::{Aead, KeyInit, Payload};
     use aes_gcm::{Aes256Gcm, Key, Nonce};
+    use zeroize::Zeroizing;
 
     if blob.len() < 13 {
         return Err(crate::interpreter::values::coded_error(
@@ -477,8 +620,12 @@ fn decrypt_voiceprint(blob: &[u8], key_hex: &str, name: &str) -> Result<Vec<u8>,
             ),
         ));
     }
-    let key_bytes = hex::decode(key_hex)
-        .map_err(|e| format!("voiceprint '{}': the key must be hex: {}", name, e))?;
+    // №527: the decoded key material lives under Zeroizing (the wipe at the
+    // scope exit — the same minimal-lifetime posture as the encrypt side).
+    let key_bytes = Zeroizing::new(
+        hex::decode(key_hex)
+            .map_err(|e| format!("voiceprint '{}': the key must be hex: {}", name, e))?,
+    );
     if key_bytes.len() != 32 {
         return Err(crate::interpreter::values::coded_error(
             crate::interpreter::values::CODE_VOICEPRINT_DECRYPT,
@@ -495,15 +642,38 @@ fn decrypt_voiceprint(blob: &[u8], key_hex: &str, name: &str) -> Result<Vec<u8>,
     let (nonce_bytes, ciphertext) = blob.split_at(12);
     let nonce = Nonce::try_from(nonce_bytes)
         .map_err(|_| format!("voiceprint '{}': nonce conversion failed", name))?;
-    cipher.decrypt(&nonce, ciphertext).map_err(|_| {
-        crate::interpreter::values::coded_error(
+    // Attempt 1: the №527 subject-bound composition.
+    if let Ok(plaintext) = cipher.decrypt(
+        &nonce,
+        Payload {
+            msg: ciphertext,
+            aad: &voiceprint_aad(name),
+        },
+    ) {
+        return Ok((plaintext, VoiceprintCryptoStatus::AadBound));
+    }
+    // Attempt 2: the transitional legacy read (the №517-era empty AAD).
+    // Success here means the row IS a legacy row by construction (a bound
+    // blob never authenticates without its AAD); the swap of a legacy blob
+    // onto another name still authenticates — that residue is exactly what
+    // the transition window is for, and it announces itself loudly on
+    // EVERY read until the deadline removes the fallback.
+    match cipher.decrypt(&nonce, ciphertext) {
+        Ok(plaintext) => {
+            eprintln!(
+                "[VOICEPRINT_NO_AAD_LEGACY] voiceprint '{}': the row is a legacy №517 blob (no AAD subject binding) — readable in the transition window only; re-enroll or re-save to bind it (№527; the deadline: docs/limitations.md)",
+                name
+            );
+            Ok((plaintext, VoiceprintCryptoStatus::LegacyNoAad))
+        }
+        Err(_) => Err(crate::interpreter::values::coded_error(
             crate::interpreter::values::CODE_VOICEPRINT_DECRYPT,
             format!(
                 "voiceprint '{}': AES-256-GCM authentication FAILED — wrong key or corrupted data; nothing is returned (№517)",
                 name
             ),
-        )
-    })
+        )),
+    }
 }
 
 /// Compute a hash of a voiceprint embedding for the ledger.

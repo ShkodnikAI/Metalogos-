@@ -11,7 +11,11 @@
 # CI docker job's first successful run (docker.yml) and is recorded here.
 
 # ── Builder ──────────────────────────────────────────
-FROM rust:1.85-slim-bookworm AS builder
+# №528: the builder image tracks the build contract's MSRV (rust-version =
+# 1.93.1 in Cargo.toml) — a rust:1.85 builder now refuses to parse the
+# manifest ("rustc 1.85.1 is not supported by the following packages"),
+# which is the gate working as designed; the image follows the floor.
+FROM rust:1.93-slim-bookworm AS builder
 
 WORKDIR /app
 

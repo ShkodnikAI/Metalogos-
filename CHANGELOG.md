@@ -4,6 +4,19 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №538 (issue #848; the wave-23 typing line 3-A, P1): the db
+  package — the honest exhaustion case. The package holds exactly TWO
+  rows: `db_execute` → Unit (the interpreter path verified; the
+  executed surface is the Query pipeline — the №484 DbAccess trait is
+  not diverged from), and `query` stays Unknown HONESTLY (it returns
+  the opaque `Value::Query` wrapper; the flat vocabulary has no Query
+  entry, and the execution result type depends on the backend). Floor:
+  71/507 (1400 bp) → 72/507 = 1420 bp. THE WAVE ARITHMETIC, named: the
+  +3–5 pp per-package target is unsatisfiable on a 2-row package —
+  +0.4 pp is the package's entire mass; the honest wave-level
+  conclusion (the flat-vocabulary wall + the small packages) is
+  recorded in the M2 report; the remaining typing mass toward the 30%
+  gate lives in the packages outside the wave-23 line.
 - Naryad №537 (issue #847; the wave-23 typing line 3-A, P1): the list
   package leaves stage 0 — 9 rows typed against the verified handlers
   (slice/zip/sort_by/filter/dedup/condense/chunk/make_list → List;

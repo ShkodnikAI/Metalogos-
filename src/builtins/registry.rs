@@ -194,23 +194,23 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("mcp_call", 4, "io"; builtin_mcp_call),
     spec!("mcp_list_tools", 2, "io"; builtin_mcp_list_tools),
     // ── List builtins ──
-    spec!("get", 2, "list"; builtin_get),
+    spec!("get", 2, "list"; builtin_get), // №537: Unknown honest — returns the ELEMENT; a heterogeneous list has no fixed element type
     spec!("push", 2, "list"; builtin_push, "List"),
-    spec!("slice", 3, "list"; builtin_slice),
-    spec!("zip", 2, "list"; builtin_zip),
-    spec!("sort_by", 2, 3, "list"; builtin_sort_by),
-    spec!("filter", 3, "list"; builtin_filter),
-    spec!("reduce", 3, "list"; builtin_reduce),
-    spec!("dedup", 1, "list"; builtin_dedup),
-    spec!("condense", 1, "list"; builtin_condense),
+    spec!("slice", 3, "list"; builtin_slice, "List"),
+    spec!("zip", 2, "list"; builtin_zip, "List"),
+    spec!("sort_by", 2, 3, "list"; builtin_sort_by, "List"),
+    spec!("filter", 3, "list"; builtin_filter, "List"),
+    spec!("reduce", 3, "list"; builtin_reduce), // №537: Unknown honest — returns the ACCUMULATOR; its type is the caller's choice
+    spec!("dedup", 1, "list"; builtin_dedup, "List"),
+    spec!("condense", 1, "list"; builtin_condense, "List"),
     // НАРЯД №118: collection utilities (unique, chunk, sort)
     spec!("unique", 1, "list"; builtin_unique, "List"),
-    spec!("chunk", 2, "list"; builtin_chunk),
+    spec!("chunk", 2, "list"; builtin_chunk, "List"),
     spec!("sort", 1, "list"; builtin_sort, "List"),
-    spec!("first", 1, "list"; builtin_first),
-    spec!("last", 1, "list"; builtin_last),
-    spec!("make_list", 0, "list"; builtin_make_list),
-    spec!("matches_any", 2, "list"; builtin_matches_any), // ── JSON builtins ──
+    spec!("first", 1, "list"; builtin_first), // №537: Unknown honest — the element + the soft-failure "" path (ADR-0180 posture)
+    spec!("last", 1, "list"; builtin_last), // №537: Unknown honest — the element + the soft-failure "" path (ADR-0180 posture)
+    spec!("make_list", 0, "list"; builtin_make_list, "List"),
+    spec!("matches_any", 2, "list"; builtin_matches_any, "Float"), // 1.0/0.0 — the numeric verdict form // ── JSON builtins ──
     spec!("parse_json", 1, 2, "json"; builtin_parse_json),
     spec!("json_encode", 1, "json"; builtin_json_encode),
     spec!("json_get", 2, 3, "json"; builtin_json_get),
@@ -473,7 +473,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("fuzzy_find_best", 2, "string"; builtin_fuzzy_find_best), // №536: Unknown honest — Unit (no candidates) | struct{index, candidate, score}
     spec!("hashline_read", 1, "string"; builtin_hashline_read, "String"),
     spec!("hashline_edit", 2, "string"; builtin_hashline_edit, "String"),
-    spec!("compact_list", 3, "list"; builtin_compact_list),
+    spec!("compact_list", 3, "list"; builtin_compact_list), // №537: Unknown honest — List | the struct report{compacted, removed_count}
     spec!("budget_check", 2, "fluid"; builtin_budget_check),
     spec!("replay_snapshot", 1, "system"; builtin_replay_snapshot),
     spec!("policy_check", 1, "system"; builtin_policy_check), // ── obsidian-mind: Vault / semantic search ──

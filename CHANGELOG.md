@@ -4,6 +4,33 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №534 (issue #843; the consolidated audit 30.09, Д-3 — the base
+  №504, the threshold 3, the three sites): the last three TW-mirror
+  marks leave src/vm.rs — the distill TRAINING gate sequence collapses
+  into the ONE canonical copy, `train_distill_snapshot` in
+  src/interpreter/learnable.rs (the closed label-set mapping, the №456
+  holdout gate, the 30-epoch run, the №485 majority-baseline gate and
+  its single-class carve-out, the NaN guard — the sequence the VM
+  carried as the inline pre-№489 copy). `run_distill_training` keeps
+  its exact contract and becomes the thin TW orchestrator (the short
+  metadata lock → snapshot_clone → core → the short locked swap with
+  the №530 slot-changed guard); the VM's `try_train_distilled_model`
+  becomes the thin VM orchestrator (snapshot_clone → core → the direct
+  post-gate swap). THE BEHAVIOR FIX, named honestly: the VM lane
+  trained the LIVE model in place and only then decided the gate — the
+  pre-№530 posture the TW path had already dropped; a refused gate on
+  the VM path now leaves the weights untouched (pinned by the new
+  `n534_vm_failed_gate_leaves_weights_untouched` test, mutation-checked
+  red against the swap-ignores-gate form), and the VM train-error text
+  carries the shared `distill: training failed:` prefix. The
+  Distilled-mode PREDICT path remains a deliberate parallel form (the
+  state orchestration is the two runtimes: &mut self vs Mutex + the
+  №489 spawn) — its outcomes stay pinned by №503/№465; its dedup is
+  future-counter work, not this naryad. The mirror baseline moves
+  3 → 0 (ONLY DOWN; the marks left with the duplication, the gate runs
+  green at 0). Local battery: check clean, clippy -D warnings clean,
+  fmt clean, lib 887/887, №503 2/2, №465 fuzzer 9/9, №530 3/3,
+  bug_530 VM recall parity 3/3.
 - Naryad №533 (issue #842; the consolidated audit 30.09, N-8,
   P2 docs/examples): the 14 COMPAT-tagged examples (№513) leave the
   live catalog — `examples/compat/` is the honest archive. THE MOVE:

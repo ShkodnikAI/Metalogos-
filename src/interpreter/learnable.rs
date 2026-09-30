@@ -1536,87 +1536,33 @@ fn fail(
     }
 }
 
-pub(crate) fn run_distill_training(
-    registry: &std::sync::Arc<std::sync::Mutex<crate::nn::ReflexRegistry>>,
-    model_id: crate::nn::ReflexId,
+/// №534 (issue #843; the audit 30.09, Д-3): the PURE training core — the
+/// ONE canonical copy of the distill train-and-gate sequence (the closed
+/// label-set mapping, the №456 holdout gate, the 30-epoch run, the №485
+/// majority-baseline gate, the NaN guard). The caller owns the model
+/// snapshot: the core trains it IN PLACE and hands back the verdict; the
+/// caller alone decides whether the trained snapshot reaches a registry
+/// (`run_distill_training`: the short locked write with the slot-changed
+/// guard; the VM lane: the direct post-gate swap). NO registry access
+/// here — a refused or failed gate can never clobber live weights (the
+/// №530 discipline, now SHARED by both backends instead of living only
+/// on the TW path; the pre-№534 VM inline copy trained the live model in
+/// place and only then decided — see the VM wrapper).
+pub(crate) fn train_distill_snapshot(
+    model_snapshot: &mut crate::nn::ReflexModel,
     pattern_name: &str,
-    distill: &crate::interpreter::types::DistillConfig,
+    min_accuracy: f64,
+    margin: f64,
     examples: &[(String, String)],
 ) -> DistillTrainOutcome {
     let mut audit_lines: Vec<String> = Vec::new();
-
-    let input_size;
-    let labels: Vec<String>;
-    // №530 (issue #839): the WEIGHTS SNAPSHOT — taken under the SAME
-    // short metadata lock as (input_size, labels), BEFORE any training
-    // work. The 30-epoch run below trains THIS COPY with no registry
-    // lock held: a serve request answering during training never waits
-    // for an epoch loop. The trained copy is swapped back atomically
-    // AFTER the holdout gate passes (one short locked write).
-    let model_snapshot: Option<crate::nn::ReflexModel>;
-    {
-        let reg = registry
-            .lock()
-            .map_err(|e| format!("reflex registry poisoned: {}", e));
-        let reg = match reg {
-            Ok(r) => r,
-            Err(e) => return fail(pattern_name, false, Some(e), audit_lines),
-        };
-        let model_kind = match reg.get(model_id) {
-            Some(m) => m,
-            None => {
-                return fail(
-                    pattern_name,
-                    false,
-                    Some(format!(
-                        "distill: model handle {:?} not in registry",
-                        model_id
-                    )),
-                    audit_lines,
-                )
-            }
-        };
-        match model_kind {
-            crate::nn::ModelKind::Dense(m) => {
-                input_size = m.input_size;
-                labels = m.labels.clone();
-                match m.snapshot_clone() {
-                    Ok(s) => model_snapshot = Some(s),
-                    Err(e) => return fail(pattern_name, false, Some(e), audit_lines),
-                }
-            }
-            #[cfg(feature = "candle")]
-            crate::nn::ModelKind::Sequence(_) => return fail(
-                pattern_name,
-                false,
-                Some(
-                    "distill: sequence models (reflex_seq) do not yet support distill training. \
-                         Distill currently works only with Dense models (reflex)."
-                        .to_string(),
-                ),
-                audit_lines,
-            ),
-            #[cfg(feature = "candle")]
-            crate::nn::ModelKind::Gen(_) => {
-                return fail(
-                    pattern_name,
-                    false,
-                    Some(
-                        "distill: gen models (reflex_gen) do not support distill training. \
-                             Distill works only with Dense models (reflex)."
-                            .to_string(),
-                    ),
-                    audit_lines,
-                )
-            }
-        }
-    }
+    let input_size = model_snapshot.input_size;
     let mut inputs: Vec<Vec<f64>> = Vec::with_capacity(examples.len());
     let mut targets: Vec<usize> = Vec::with_capacity(examples.len());
     for (input_str, output_str) in examples {
         // Find label index. If output doesn't match any label, skip this example
         // (the LLM returned something outside the closed label set — safe to ignore).
-        let target_idx = match labels.iter().position(|l| l == output_str) {
+        let target_idx = match model_snapshot.labels.iter().position(|l| l == output_str) {
             Some(idx) => idx,
             None => continue, // skip — ADR-0117 closed-label enforcement
         };
@@ -1649,15 +1595,10 @@ pub(crate) fn run_distill_training(
     }
 
     // Train. Safe degradation: training error → refused, stay TEACHING.
-    // №530: the 30-epoch run happens on the SNAPSHOT — the registry lock
-    // is NOT held here (a serve request answering mid-training acquires
-    // the lock in microseconds; the №489 comment above is superseded:
-    // the lock was held by the background thread for the WHOLE run).
-    let mut trained_snapshot = match model_snapshot {
-        Some(s) => s,
-        None => return fail(pattern_name, false, None, audit_lines),
-    };
-    let trained = trained_snapshot
+    // №530: the 30-epoch run happens on the SNAPSHOT the caller passed —
+    // never on live weights (the registry lock discipline lives with the
+    // caller, which holds no lock across this call either).
+    let trained = model_snapshot
         .train(&inputs, &targets, 30, 0.1)
         .map_err(|e| format!("distill: training failed: {}", e));
     let (loss, holdout_acc) = match trained {
@@ -1690,14 +1631,14 @@ pub(crate) fn run_distill_training(
     // carve-out (№485): one class carries no confusion risk — the raw
     // min_accuracy gate applies unchanged (the №456 posture).
     let threshold = if class_counts.len() < 2 {
-        distill.min_accuracy
+        min_accuracy
     } else {
-        f64::max(distill.min_accuracy, majority_baseline + distill.margin)
+        f64::max(min_accuracy, majority_baseline + margin)
     };
     if holdout_acc < threshold || holdout_acc.is_nan() {
         audit_lines.push(format!(
             "[AUDIT] distill.rejected: {} holdout_accuracy={:.3} < threshold={:.3} (min_accuracy={:.2}, majority_baseline={:.3}, margin={:.2}) — staying TEACHING",
-            pattern_name, holdout_acc, threshold, distill.min_accuracy, majority_baseline, distill.margin
+            pattern_name, holdout_acc, threshold, min_accuracy, majority_baseline, margin
         ));
         // №530: gate_rejected = the degradation signal. On a DISTILLED
         // pattern (the retrain case) the hub reverts it to TEACHING
@@ -1709,6 +1650,112 @@ pub(crate) fn run_distill_training(
         outcome.gate_rejected = true;
         return outcome;
     }
+    DistillTrainOutcome {
+        pattern_name: pattern_name.to_string(),
+        switched: true,
+        gate_rejected: false,
+        error: None,
+        audit_lines,
+    }
+}
+
+pub(crate) fn run_distill_training(
+    registry: &std::sync::Arc<std::sync::Mutex<crate::nn::ReflexRegistry>>,
+    model_id: crate::nn::ReflexId,
+    pattern_name: &str,
+    distill: &crate::interpreter::types::DistillConfig,
+    examples: &[(String, String)],
+) -> DistillTrainOutcome {
+    // №534: never mutated here anymore — the gate sequence moved into
+    // `train_distill_snapshot`; this vec only rides the early fail paths.
+    let audit_lines: Vec<String> = Vec::new();
+
+    // №530 (issue #839): the WEIGHTS SNAPSHOT — taken under the SAME
+    // short metadata lock as (input_size, labels), BEFORE any training
+    // work. The 30-epoch run below trains THIS COPY with no registry
+    // lock held: a serve request answering during training never waits
+    // for an epoch loop. The trained copy is swapped back atomically
+    // AFTER the holdout gate passes (one short locked write).
+    let model_snapshot: Option<crate::nn::ReflexModel>;
+    {
+        let reg = registry
+            .lock()
+            .map_err(|e| format!("reflex registry poisoned: {}", e));
+        let reg = match reg {
+            Ok(r) => r,
+            Err(e) => return fail(pattern_name, false, Some(e), audit_lines),
+        };
+        let model_kind = match reg.get(model_id) {
+            Some(m) => m,
+            None => {
+                return fail(
+                    pattern_name,
+                    false,
+                    Some(format!(
+                        "distill: model handle {:?} not in registry",
+                        model_id
+                    )),
+                    audit_lines,
+                )
+            }
+        };
+        match model_kind {
+            crate::nn::ModelKind::Dense(m) => {
+                // №534: the input_size/labels reads moved INTO the core
+                // (it reads them off the snapshot) — the metadata lock
+                // now guards only the snapshot_clone.
+                match m.snapshot_clone() {
+                    Ok(s) => model_snapshot = Some(s),
+                    Err(e) => return fail(pattern_name, false, Some(e), audit_lines),
+                }
+            }
+            #[cfg(feature = "candle")]
+            crate::nn::ModelKind::Sequence(_) => return fail(
+                pattern_name,
+                false,
+                Some(
+                    "distill: sequence models (reflex_seq) do not yet support distill training. \
+                         Distill currently works only with Dense models (reflex)."
+                        .to_string(),
+                ),
+                audit_lines,
+            ),
+            #[cfg(feature = "candle")]
+            crate::nn::ModelKind::Gen(_) => {
+                return fail(
+                    pattern_name,
+                    false,
+                    Some(
+                        "distill: gen models (reflex_gen) do not support distill training. \
+                             Distill works only with Dense models (reflex)."
+                            .to_string(),
+                    ),
+                    audit_lines,
+                )
+            }
+        }
+    }
+    let mut trained_snapshot = match model_snapshot {
+        Some(s) => s,
+        None => return fail(pattern_name, false, None, audit_lines),
+    };
+    // №534: the whole train-and-gate sequence used to live here twice —
+    // this TW copy and the VM's inline copy (the three mirror marks of
+    // the №502 baseline). The ONE canonical copy is now
+    // `train_distill_snapshot` above; this function keeps only the
+    // registry choreography: snapshot out (short lock) → core → swap in
+    // (short lock, the slot-changed guard).
+    let outcome = train_distill_snapshot(
+        &mut trained_snapshot,
+        pattern_name,
+        distill.min_accuracy,
+        distill.margin,
+        examples,
+    );
+    if !outcome.switched {
+        return outcome;
+    }
+    let audit_lines = outcome.audit_lines;
     // Holdout-validated — the verdict SWITCHES the pattern to DISTILLED
     // (the drain applies the flip; the fallback_if threshold still guards
     // individual predictions at run time). №530: the trained SNAPSHOT is

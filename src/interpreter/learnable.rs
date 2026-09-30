@@ -1510,6 +1510,11 @@ pub(crate) fn measure_battery_accuracy(
 pub struct DistillTrainOutcome {
     pub pattern_name: String,
     pub switched: bool,
+    /// №530: the holdout GATE rejected the trained snapshot (data drift /
+    /// degradation signal). On a DISTILLED pattern this is the loud
+    /// TEACHING revert trigger; infra errors keep this false (the old
+    /// weights still serve).
+    pub gate_rejected: bool,
     pub error: Option<String>,
     pub audit_lines: Vec<String>,
 }
@@ -1525,6 +1530,7 @@ fn fail(
     DistillTrainOutcome {
         pattern_name: pattern_name.to_string(),
         switched,
+        gate_rejected: false,
         error,
         audit_lines,
     }
@@ -1539,10 +1545,15 @@ pub(crate) fn run_distill_training(
 ) -> DistillTrainOutcome {
     let mut audit_lines: Vec<String> = Vec::new();
 
-    // Build training data: each (input, output) pair → Vec<f64> features + class_idx.
-    // We need the model's labels to convert output string → class index.
     let input_size;
     let labels: Vec<String>;
+    // №530 (issue #839): the WEIGHTS SNAPSHOT — taken under the SAME
+    // short metadata lock as (input_size, labels), BEFORE any training
+    // work. The 30-epoch run below trains THIS COPY with no registry
+    // lock held: a serve request answering during training never waits
+    // for an epoch loop. The trained copy is swapped back atomically
+    // AFTER the holdout gate passes (one short locked write).
+    let model_snapshot: Option<crate::nn::ReflexModel>;
     {
         let reg = registry
             .lock()
@@ -1565,11 +1576,14 @@ pub(crate) fn run_distill_training(
                 )
             }
         };
-        // Наряд №185: dispatch on ModelKind. Distill training is Dense-only.
         match model_kind {
             crate::nn::ModelKind::Dense(m) => {
                 input_size = m.input_size;
                 labels = m.labels.clone();
+                match m.snapshot_clone() {
+                    Ok(s) => model_snapshot = Some(s),
+                    Err(e) => return fail(pattern_name, false, Some(e), audit_lines),
+                }
             }
             #[cfg(feature = "candle")]
             crate::nn::ModelKind::Sequence(_) => return fail(
@@ -1589,7 +1603,7 @@ pub(crate) fn run_distill_training(
                     false,
                     Some(
                         "distill: gen models (reflex_gen) do not support distill training. \
-                         Distill works only with Dense models (reflex)."
+                             Distill works only with Dense models (reflex)."
                             .to_string(),
                     ),
                     audit_lines,
@@ -1597,7 +1611,6 @@ pub(crate) fn run_distill_training(
             }
         }
     }
-
     let mut inputs: Vec<Vec<f64>> = Vec::with_capacity(examples.len());
     let mut targets: Vec<usize> = Vec::with_capacity(examples.len());
     for (input_str, output_str) in examples {
@@ -1636,52 +1649,17 @@ pub(crate) fn run_distill_training(
     }
 
     // Train. Safe degradation: training error → refused, stay TEACHING.
-    let trained = {
-        let mut reg = match registry.lock() {
-            Ok(r) => r,
-            Err(e) => {
-                return fail(
-                    pattern_name,
-                    false,
-                    Some(format!("reflex registry poisoned: {}", e)),
-                    audit_lines,
-                )
-            }
-        };
-        let model_kind = match reg.get_mut(model_id) {
-            Some(m) => m,
-            None => {
-                return fail(
-                    pattern_name,
-                    false,
-                    Some(format!(
-                        "distill: model handle {:?} not in registry",
-                        model_id
-                    )),
-                    audit_lines,
-                )
-            }
-        };
-        // №185: dispatch on ModelKind. Distill training is Dense-only.
-        // (Validated above when reading input_size + labels.)
-        match model_kind {
-            crate::nn::ModelKind::Dense(model) => {
-                // 30 epochs on 10–50 example datasets: enough to learn
-                // simple label distinctions, fast enough that even the
-                // background run finishes promptly. №456: the returned
-                // holdout accuracy is the SWITCH GATE. №489: this lock is
-                // held by the BACKGROUND thread — the request path is
-                // already done here.
-                model
-                    .train(&inputs, &targets, 30, 0.1)
-                    .map_err(|e| format!("distill: training failed: {}", e))
-            }
-            // №185: Dense is the only distill-trainable kind (the candle-only
-            // Sequence/Gen arms were already excluded above).
-            #[cfg(feature = "candle")]
-            _ => Err("distill: non-Dense models do not support distill training.".to_string()),
-        }
+    // №530: the 30-epoch run happens on the SNAPSHOT — the registry lock
+    // is NOT held here (a serve request answering mid-training acquires
+    // the lock in microseconds; the №489 comment above is superseded:
+    // the lock was held by the background thread for the WHOLE run).
+    let mut trained_snapshot = match model_snapshot {
+        Some(s) => s,
+        None => return fail(pattern_name, false, None, audit_lines),
     };
+    let trained = trained_snapshot
+        .train(&inputs, &targets, 30, 0.1)
+        .map_err(|e| format!("distill: training failed: {}", e));
     let (loss, holdout_acc) = match trained {
         Ok(v) => v,
         Err(e) => return fail(pattern_name, false, Some(e), audit_lines),
@@ -1721,14 +1699,58 @@ pub(crate) fn run_distill_training(
             "[AUDIT] distill.rejected: {} holdout_accuracy={:.3} < threshold={:.3} (min_accuracy={:.2}, majority_baseline={:.3}, margin={:.2}) — staying TEACHING",
             pattern_name, holdout_acc, threshold, distill.min_accuracy, majority_baseline, distill.margin
         ));
-        return fail(pattern_name, false, None, audit_lines);
+        // №530: gate_rejected = the degradation signal. On a DISTILLED
+        // pattern (the retrain case) the hub reverts it to TEACHING
+        // loudly; on TEACHING this is the usual stay-put. In BOTH cases
+        // the snapshot is DISCARDED — the live weights are untouched by
+        // a failed-gate run (the pre-№530 behavior mutated them in place
+        // even when the gate then refused the switch).
+        let mut outcome = fail(pattern_name, false, None, audit_lines);
+        outcome.gate_rejected = true;
+        return outcome;
     }
     // Holdout-validated — the verdict SWITCHES the pattern to DISTILLED
     // (the drain applies the flip; the fallback_if threshold still guards
-    // individual predictions at run time).
+    // individual predictions at run time). №530: the trained SNAPSHOT is
+    // swapped in ATOMICALLY — one short locked write; a concurrent
+    // redeclaration of the reflex (the model slot replaced under us) is
+    // refused loudly instead of clobbering it.
+    {
+        let mut reg = match registry.lock() {
+            Ok(r) => r,
+            Err(e) => {
+                return fail(
+                    pattern_name,
+                    false,
+                    Some(format!("reflex registry poisoned: {}", e)),
+                    audit_lines,
+                )
+            }
+        };
+        let slot_changed = match reg.get(model_id) {
+            Some(crate::nn::ModelKind::Dense(m)) => {
+                m.input_size != trained_snapshot.input_size || m.labels != trained_snapshot.labels
+            }
+            _ => true,
+        };
+        if slot_changed {
+            return fail(
+                pattern_name,
+                false,
+                Some(
+                    "distill: the model slot changed during training (redeclared reflex?) — the trained snapshot is discarded, nothing is clobbered".to_string(),
+                ),
+                audit_lines,
+            );
+        }
+        if let Some(crate::nn::ModelKind::Dense(slot)) = reg.get_mut(model_id) {
+            *slot = trained_snapshot;
+        }
+    }
     DistillTrainOutcome {
         pattern_name: pattern_name.to_string(),
         switched: true,
+        gate_rejected: false,
         error: None,
         audit_lines,
     }

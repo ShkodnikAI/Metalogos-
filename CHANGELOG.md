@@ -4,6 +4,29 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №530 (issue #839; the consolidated audit A+D 30.09, N-4,
+  P1 reliability/llm): distill training no longer blocks the registry —
+  the 30-epoch run happens on a WEIGHTS SNAPSHOT taken under the short
+  metadata lock (`ReflexModel::snapshot_clone`, the Dense-only clone via
+  `Layer::as_any` — the trait is untouched), with NO lock held during
+  the epochs; a serve request answering mid-training acquires the
+  registry in microseconds (the timed test: every in-training
+  acquisition < 100ms, ≥3 acquisitions before the finished line). The
+  trained snapshot is swapped back ATOMICALLY after the holdout gate
+  passes — one short locked write with a slot-changed guard (a
+  redeclared reflex is refused loudly, never clobbered). The honesty
+  bonus: a FAILED gate now leaves the live weights untouched (the
+  pre-№530 code mutated them in place even when the gate then refused
+  the switch) — pinned by the weights-fingerprint test.
+  DISTILLED RETRAINING lands: the low-confidence calls keep recording
+  fresh (input, llm_output) ground truth in DISTILLED mode, and when
+  the new examples cross the SAME threshold that built the model (the
+  honest default: the pattern's own distill_after, the ADR-0115 floor),
+  a retrain job runs on the single trainer thread; gate passed → the
+  weights swap in, the mode stays DISTILLED; gate rejected → the LOUD
+  degradation revert to TEACHING (`distill.degraded` audit) — silent
+  degradation is impossible. The №496 e2e stays green (the TEACHING
+  semantics byte-preserved).
 - Naryad №528 (issue #837; the consolidated audit A+D 30.09, Д-4+N-5,
   P1 deploy/ci): the MSRV lives in the build contract. `rust-version =
   "1.93.1"` in [workspace.package] (mlogpkg/mlog-lsp inherit) — cargo on

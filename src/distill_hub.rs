@@ -183,7 +183,7 @@ impl DistillHub {
         audit: Arc<dyn Fn(String) + Send + Sync>,
         persist_path: Option<&str>,
         declarations: &[crate::ast::Declaration],
-    ) -> Result<Arc<dyn DistillAccess>, String> {
+    ) -> Result<std::sync::Arc<DistillHub>, String> {
         // The declared reflex models: the same Declaration::Reflex arm the
         // top-level pass runs — no parallel model-building code.
         let mut refl = crate::interpreter::Interpreter::new();
@@ -323,6 +323,26 @@ impl DistillHub {
                         if let Some(s) = inner.states.get_mut(&job.pattern_name) {
                             s.mode = DistillMode::Distilled;
                         }
+                    } else if outcome.gate_rejected {
+                        // №530 (issue #839): the retrain's holdout gate
+                        // rejected the fresh snapshot — the data drifted
+                        // under the live model. The LOUD return to
+                        // TEACHING: the pattern re-accumulates LLM-backed
+                        // examples and retrains later; silent degradation
+                        // is impossible. A TEACHING-pattern rejection is
+                        // the usual stay-put (no flip).
+                        if let Some(s) = inner.states.get_mut(&job.pattern_name) {
+                            if s.mode == DistillMode::Distilled {
+                                s.mode = DistillMode::Teaching;
+                                DistillHub::audit_line(
+                                    &worker_shared,
+                                    format!(
+                                        "[AUDIT] distill.degraded: {} reverted to TEACHING — the retrain failed the holdout gate, the old weights no longer reflect the data (naryad №530)",
+                                        job.pattern_name
+                                    ),
+                                );
+                            }
+                        }
                     }
                     inner.in_flight.remove(&job.pattern_name);
                 }
@@ -330,6 +350,8 @@ impl DistillHub {
             .map_err(|e| format!("distill hub: spawn trainer: {}", e))?;
 
         Ok(Arc::new(DistillHub { shared, tx }))
+        // №530: the concrete Arc keeps the raw-registry test hook reachable;
+        // the server call sites coerce to Arc<dyn DistillAccess> implicitly.
     }
 
     fn audit_line(shared: &HubShared, line: String) {
@@ -350,6 +372,7 @@ impl DistillHub {
                 return crate::interpreter::learnable::DistillTrainOutcome {
                     pattern_name: job.pattern_name.clone(),
                     switched: false,
+                    gate_rejected: false,
                     error: Some(format!(
                         "distill: reflex '{}' not declared (no `reflex {} {{ ... }}` block)",
                         job.spec.reflex_name, job.spec.reflex_name
@@ -375,6 +398,25 @@ impl DistillHub {
             &config,
             &job.examples,
         )
+    }
+}
+
+impl DistillHub {
+    /// №530: test-support accessor — the raw reflex registry Arc for the
+    /// out-of-lock/retrain tests (the weight-fingerprint assertions read
+    /// the live model). #[doc(hidden)]: not part of the public API surface.
+    #[doc(hidden)]
+    pub fn raw_registry_for_tests(
+        &self,
+    ) -> std::sync::Arc<std::sync::Mutex<crate::nn::ReflexRegistry>> {
+        std::sync::Arc::clone(&self.shared.registry)
+    }
+
+    /// №530: test-support accessor — the reflex handle resolution (the
+    /// same name-to-id map the training core uses).
+    #[doc(hidden)]
+    pub fn reflex_id_for_tests(&self, name: &str) -> Option<crate::nn::ReflexId> {
+        self.shared.names.get(name).copied()
     }
 }
 
@@ -483,6 +525,77 @@ impl DistillAccess for DistillHub {
                 Ok(None)
             }
             DistillMode::Distilled => {
+                // №530 (issue #839): the RETRAIN trigger. The buffer keeps
+                // growing in DISTILLED mode too — every LOW-CONFIDENCE
+                // call falls through to the LLM and records the fresh
+                // (input, llm_output) ground truth. When the new examples
+                // since the last training cross the SAME threshold that
+                // built the model (the honest default: the pattern's own
+                // `distill_after`, the ADR-0115 floor of 10 applies), a
+                // retrain job is scheduled on the single trainer thread.
+                // The mode stays DISTILLED while it runs (the old weights
+                // keep answering); the outcome lands in the trainer thread:
+                // gate passed → the weights swap in; gate rejected → the
+                // loud TEACHING revert (the degradation branch).
+                let retrain_threshold = std::cmp::max(spec.distill_after, 10);
+                let new_since_train = count.saturating_sub(last_attempt);
+                if new_since_train >= retrain_threshold {
+                    let in_flight = {
+                        let mut inner =
+                            self.shared.inner.lock().map_err(|e| {
+                                format!("distill hub: in-flight lock poisoned: {}", e)
+                            })?;
+                        if inner.in_flight.contains(pattern_name) {
+                            true
+                        } else {
+                            inner.in_flight.insert(pattern_name.to_string());
+                            false
+                        }
+                    };
+                    if !in_flight {
+                        let examples = {
+                            let inner = self.shared.inner.lock().unwrap_or_else(|e| e.into_inner());
+                            inner
+                                .states
+                                .get(pattern_name)
+                                .map(|s| s.examples.clone())
+                                .unwrap_or_default()
+                        };
+                        Self::audit_line(
+                            &self.shared,
+                            format!(
+                                "[AUDIT] distill.retraining-started: {} new_examples={} buffer={} — the retrain runs in the hub's background thread (naryad №530)",
+                                pattern_name,
+                                new_since_train,
+                                examples.len()
+                            ),
+                        );
+                        {
+                            let mut inner =
+                                self.shared.inner.lock().unwrap_or_else(|e| e.into_inner());
+                            if let Some(s) = inner.states.get_mut(pattern_name) {
+                                s.last_train_attempt = count;
+                            }
+                        }
+                        let job = TrainJob {
+                            pattern_name: pattern_name.to_string(),
+                            spec: spec.clone(),
+                            examples,
+                        };
+                        if self.tx.send(job).is_err() {
+                            Self::audit_line(
+                                &self.shared,
+                                format!(
+                                    "[AUDIT] distill.training-dropped: {} — the hub trainer thread is not accepting jobs",
+                                    pattern_name
+                                ),
+                            );
+                            let mut inner =
+                                self.shared.inner.lock().unwrap_or_else(|e| e.into_inner());
+                            inner.in_flight.remove(pattern_name);
+                        }
+                    }
+                }
                 // Predict through the hub's registry (the trained weights
                 // live HERE, not in a per-request copy). Safe degradation:
                 // any error → None → the outer path falls through to LLM.

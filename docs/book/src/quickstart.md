@@ -19,10 +19,10 @@ mlog run examples/m1_hello.mbc
 mlog repl
 
 # Semantic check (no execution)
-mlog check examples/p6_full_app.mlog
+mlog check examples/p3_stdlib.mlog
 
 # Static security audit
-mlog audit examples/p6_full_app.mlog
+mlog audit examples/p3_stdlib.mlog
 
 # Serve as web application
 mlog serve app.mlog

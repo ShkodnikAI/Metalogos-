@@ -139,9 +139,9 @@ Metalogos-/
 │   ├── definition_of_done.rs          # Project completeness validation
 │   └── ...                            # and 223 more contract/feature test files
 │
-├── examples/                          # 258 .mlog programs (golden corpus)
+├── examples/                          # 245 live .mlog programs + examples/compat/ (the №533 archive)
 │   ├── m1_hello.mlog                  # Hello World
-│   ├── p6_full_app.mlog               # Full web app with routes
+│   ├── p3_stdlib.mlog                 # String library walk-through
 │   ├── p23_ml_learn.mlog              # ML learning
 │   ├── dag_demo.mlog                  # DAG orchestration
 │   ├── contracts/                     # Golden-file test contracts

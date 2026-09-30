@@ -4,6 +4,27 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №533 (issue #842; the consolidated audit 30.09, N-8,
+  P2 docs/examples): the 14 COMPAT-tagged examples (№513) leave the
+  live catalog — `examples/compat/` is the honest archive. THE MOVE:
+  exactly the 14 `.mlog` files whose FIRST-5-LINES header carries the
+  №513 tag (the 15th file, p54_regex_crosscheck.txt, mentions COMPAT in
+  its body and stays — the corpus scan verified the count). THE HEADER:
+  every archived file now opens with the canonical honesty line —
+  "archived to examples/compat/ by №533: historical syntax — not parsed
+  since v0.27.x. See rule №513 (gh#797)" — above the original reason.
+  THE PATH RULE: the grammar tests and the example-coverage test
+  exclude by PATH (the archive is never entered), the №513 tag-scan is
+  retired — a COMPAT-tagged file in the LIVE catalog is now debt, not a
+  pass (the n513 assert + the simplified `debt_counters.py` scan, whose
+  baseline stays 0). THE README: `examples/README.md` documents the
+  live-catalog contract (sidecar / named check / the suites) and the
+  archive rules (never delete; resurrect = rewrite + verify + move
+  back, in its own naryad). THE CROSS-REFS: the book's quickstart and
+  the architecture tree point at live examples; the two ADRs referencing
+  the moved paths (№0045, №0063) carry the archive note. Boundaries
+  held: nothing rewritten to the new grammar, nothing deleted.
+
 - Naryad №532 (issue #841; the consolidated audit 30.09, N-7,
   P2 compiler/hygiene): the `wildcard_enum_match_arm` lint leaves
   compiler.rs and covers the WHOLE N-1 surface — `deny` in

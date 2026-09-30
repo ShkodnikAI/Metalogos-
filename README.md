@@ -6,7 +6,7 @@
 
 **AI-native programming language with security by design. Written in Rust.**
 
-[![Rust](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/rust-1.93.1-orange.svg)](https://www.rust-lang.org/)
 [![Version](https://img.shields.io/badge/v0.27.1-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/releases)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-green.svg)](#license)
 [![CI](https://img.shields.io/badge/CI-28%20blocking%20jobs-brightgreen.svg)](https://github.com/ShkodnikAI/Metalogos-/actions)
@@ -60,7 +60,7 @@ The full tour with the VM/TW parity explanation lives in the [tutorial](docs/boo
 
 ## Installation
 
-**Build from source** (Rust 1.85+, the only requirement):
+**Build from source** (Rust **1.93.1+** — the `rust-version` in `Cargo.toml` [workspace.package] is the single source of truth, №528; cargo on an older toolchain refuses with a clear resolver error), the only requirement:
 
 ```bash
 git clone https://github.com/ShkodnikAI/Metalogos-.git && cd Metalogos-
@@ -224,7 +224,7 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 | Architecture Decisions | 172 ADRs |
 | Example Programs | 259 .mlog programs |
 | Reference | REFERENCE.md (~292 KB) — 100% registry coverage |
-| Changelog | CHANGELOG.md (~553 KB) — every wave documented |
+| Changelog | CHANGELOG.md (~555 KB) — every wave documented |
 <!-- END GENERATED METRICS -->
 
 Validated on every CI run: `scripts/gen_metrics.py --check` plus the independent recomputation in `tests/readme_consistency.rs`.

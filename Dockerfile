@@ -11,13 +11,17 @@
 # CI docker job's first successful run (docker.yml) and is recorded here.
 
 # ── Builder ──────────────────────────────────────────
-FROM rust:1.85-slim-bookworm AS builder
+# №528: the builder image tracks the build contract's MSRV (rust-version =
+# 1.93.1 in Cargo.toml) — a rust:1.85 builder now refuses to parse the
+# manifest ("rustc 1.85.1 is not supported by the following packages"),
+# which is the gate working as designed; the image follows the floor.
+FROM rust:1.93-slim-bookworm AS builder
 
 WORKDIR /app
 
 # Install system deps (SQLite, SSL)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libsqlite3-dev pkg-config && rm -rf /var/lib/apt/lists/*
+    libsqlite3-dev pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 
 # Copy manifests for dependency layer caching
 COPY Cargo.toml Cargo.lock ./
@@ -33,6 +37,7 @@ RUN mkdir -p src mlogpkg/src mlog-lsp/src benches && \
     echo "fn main() {}" > mlogpkg/src/main.rs && \
     echo "" > mlog-lsp/src/main.rs && \
     echo "" > benches/core_benchmarks.rs && \
+    echo "" > benches/stage4_benchmark.rs && \
     cargo build --release --bin mlog
 
 # Copy real source and rebuild (only application code changes)

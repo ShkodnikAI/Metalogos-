@@ -1,6 +1,7 @@
 [package]
 name = "mlog-lsp"
 version.workspace = true
+rust-version.workspace = true
 edition.workspace = true
 description = "LSP server for METALOGOS (.mlog) files"
 

@@ -4,6 +4,42 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №528 (issue #837; the consolidated audit A+D 30.09, Д-4+N-5,
+  P1 deploy/ci): the MSRV lives in the build contract. `rust-version =
+  "1.93.1"` in [workspace.package] (mlogpkg/mlog-lsp inherit) — cargo on
+  an older toolchain now refuses with a clear resolver error (verified:
+  1.85 and 1.89 both name the packages that refuse). `rust-toolchain.toml`
+  pins the COMPONENT contract (clippy + rustfmt — the CI blocking jobs'
+  surface); the channel tracks stable BECAUSE the clippy ratchet is
+  written for new clippy (the №500 precedent: `chunks_exact_to_as_chunks`
+  does not exist in clippy 1.93.1 — freezing the toolchain at the floor
+  would break the -D warnings gate). THE HONEST DEVIATION from the
+  naryad's draft (1.85), evidence-backed by the toolchain walk: 1.85 →
+  weezl needs 1.88; 1.88 → rustyline needs 1.89 (`file_lock`); 1.89 →
+  serial_test needs 1.93.1; 1.93.1 → the FULL `check --workspace
+  --all-targets` is green. The README badge and the build-from-source
+  wording now name 1.93.1 and point at rust-version as the SSOT. THE
+  DEPLOY-PATH BLINDNESS was REAL and DOUBLE:
+  the workflow file failed Actions YAML parsing since №511's landing (an
+  unquoted backtick in a step name — the file could not parse at all, so
+  NO run ever fired: not the weekly schedule, not the push trigger whose
+  branches line ([main]) was verifiably intact) and the
+  pull_request trigger did not exist. Fixed byte-level and
+  YAML-validated; the pull_request trigger
+  lands (Dockerfile/.dockerignore/example/src mains/Cargo.toml/Cargo.lock/
+  rust-toolchain.toml/the workflow) so a dependency refresh rebuilds the
+  image BEFORE the merge, not after. THE PR-TRIGGERED RUNS EXPOSED A
+  THIRD LAYER: the dependency-priming step built the dummy source for
+  `core_benchmarks` only while Cargo.toml declares TWO benches
+  (`stage4_benchmark` landed with №482) — the manifest parse failed and
+  the image could not build at all; the stub is added. AND the builder
+  image tracks the contract (rust:1.85 → rust:1.93 — the 1.85 builder
+  refuses the manifest exactly as the new rust-version gate intends)
+  and carries libssl-dev (the locked tree's native-tls lane needs the
+  system OpenSSL; the slim image predates that dependency lane). The deploy path
+  was dead-on-parse AND dead-on-build since №511's landing, unverified
+  for the whole window — exactly the blindness the №511 job was built
+  to kill.
 - Naryad №526 (issue #835; the consolidated audit A+D 30.09, N-2,
   P1 security/voice): the GDPR Art. 17 erasure path for voiceprints
   LANDS — the right-to-erasure is no longer a document-only promise

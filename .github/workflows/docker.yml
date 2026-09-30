@@ -14,6 +14,24 @@ on:
   schedule:
     - cron: "0 4 * * 1" # weekly, Monday 04:00 UTC
   workflow_dispatch:
+  # №528: the deploy path is verified on PRs too — a dependency refresh
+  # (Cargo.*) or a build-contract change rebuilds the image BEFORE the
+  # merge, not after (the N-5 blindness is closed). ALSO №528: the push
+  # branches line landed corrupted in №511 (`branches: ain]` — a literal
+  # branch name that never matches, so the push trigger was dead) and the
+  # workflow file itself failed Actions parsing (an unquoted backtick in a
+  # step name) — both restored/quoted; restored to [main].
+  pull_request:
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "examples/docker_hello.mlog"
+      - "src/main.rs"
+      - "src/server.rs"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".github/workflows/docker.yml"
   push:
     branches: [main]
     paths:
@@ -22,8 +40,10 @@ on:
       - "examples/docker_hello.mlog"
       - "src/main.rs"
       - "src/server.rs"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
       - ".github/workflows/docker.yml"
-
 jobs:
   docker-build-run-health:
     name: docker build + run + /health
@@ -64,7 +84,7 @@ jobs:
           test "$code" = "200"
           test "$body" = "ok"
 
-      - name: `mlog health` (the HEALTHCHECK command, no curl) exits 0
+      - name: "mlog health (the HEALTHCHECK command, no curl) exits 0"
         run: docker exec mlog-ci mlog health
         # The in-image HEALTHCHECK runs the same command against
         # 127.0.0.1:8080/health — this step proves it green explicitly.
@@ -84,9 +104,16 @@ jobs:
 
       - name: A program route answers too (not just /health)
         run: |
-          body=$(curl -fsS http://127.0.0.1:8080/hello)
-          echo "GET /hello -> '$body'"
-          test "$body" = "200 hello from metalogos"
+          # №528: the original assertion expected the raw body to carry the
+          # "200 " prefix, but the respond() contract (Phase 6.1,
+          # parse_status_line) puts the status in the HTTP status line and
+          # strips it from the body — the job never ran to catch it. The
+          # status and the body are asserted separately now.
+          code=$(curl -s -o /tmp/hello_body -w "%{http_code}" http://127.0.0.1:8080/hello)
+          body=$(cat /tmp/hello_body)
+          echo "GET /hello -> $code '$body'"
+          test "$code" = "200"
+          test "$body" = "hello from metalogos"
 
       - name: Cleanup
         if: always()

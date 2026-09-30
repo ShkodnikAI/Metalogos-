@@ -685,6 +685,25 @@ jobs:
           # Unmaintained-crate WARNINGS stay advisory and allowed.
           cargo audit
 
+  cargo-deny:
+    name: cargo-deny (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
+      - name: Run cargo deny (licenses, advisories, bans)
+        run: |
+          # Naryad №518 (issue #802): the licenses/advisories/bans gate over
+          # the whole dependency graph, all targets. deny.toml carries the
+          # reason next to every allow entry (the imap/ADR-0109 comment
+          # discipline). Vulnerabilities fail the job; unmaintained crates
+          # stay advisory warnings — the RUSTSEC visibility for those lives
+          # in the cargo-audit job above; duplicate versions surface as
+          # warnings (the explicit naryad choice, not a silent one).
+          cargo deny check licenses advisories bans
+
   gitleaks:
     name: gitleaks (blocking)
     runs-on: ubuntu-latest

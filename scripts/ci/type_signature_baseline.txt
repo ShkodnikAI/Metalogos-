@@ -35,6 +35,16 @@
 # inside the package bounds (only 12 untyped rows existed) — the honest
 # gain vs the pre-PR actual (52/507 = 1025 bp) is +197 bp ≈ +2.0 pp,
 # the gap is documented in the M2 report.
-# typed: 62
+# (superseded by №537) typed: 62 | total: 507 | floor was 1222 bp
+
+# 2026-10-01 №537 (gh#847): the list package leaves stage 0 — 9 rows
+# typed against the verified handlers (slice/zip/sort_by/filter/dedup/
+# condense/chunk/make_list → List; matches_any → Float, the 1.0/0.0
+# numeric verdict form); 5 rows stay Unknown HONESTLY (get/first/last —
+# the ELEMENT of a heterogeneous list (+ the ADR-0180 soft "" path on
+# first/last), reduce — the ACCUMULATOR, compact_list — List | the
+# struct report) — not bent for the metric. 62/507 → 71/507;
+# (71*10000)//507 = 1400 bp.
+# typed: 71
 # total: 507
-# threshold_bp: 1222
+# threshold_bp: 1400

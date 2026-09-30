@@ -21,7 +21,7 @@ WORKDIR /app
 
 # Install system deps (SQLite, SSL)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libsqlite3-dev pkg-config && rm -rf /var/lib/apt/lists/*
+    libsqlite3-dev pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 
 # Copy manifests for dependency layer caching
 COPY Cargo.toml Cargo.lock ./

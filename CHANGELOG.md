@@ -32,7 +32,11 @@ All notable changes to the Metalogos project.
   THIRD LAYER: the dependency-priming step built the dummy source for
   `core_benchmarks` only while Cargo.toml declares TWO benches
   (`stage4_benchmark` landed with №482) — the manifest parse failed and
-  the image could not build at all; the stub is added. The deploy path
+  the image could not build at all; the stub is added. AND the builder
+  image tracks the contract (rust:1.85 → rust:1.93 — the 1.85 builder
+  refuses the manifest exactly as the new rust-version gate intends)
+  and carries libssl-dev (the locked tree's native-tls lane needs the
+  system OpenSSL; the slim image predates that dependency lane). The deploy path
   was dead-on-parse AND dead-on-build since №511's landing, unverified
   for the whole window — exactly the blindness the №511 job was built
   to kill.

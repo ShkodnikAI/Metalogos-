@@ -49,9 +49,13 @@ the behavior, not a change.
 
 - **Fuzzing** (naryad #256): 3 cargo-fuzz targets (parser, bytecode, url_decode),
   a smoke run in CI (2 min/target), non-blocking.
-- **Blocking set**: 15 check-runs per PR (lib/integration/crosscheck/
-  candle/vision/registry-arity/llm-cache/minimal-build/fmt/clippy/ADR-numbering/
-  module-size/vscode/cargo-audit/branch-freshness) — merge only when the set is
-  fully green on the merge commit.
+- **Blocking set**: 21 check-runs per PR (test-lib/test-integration/crosscheck/
+  candle/vision/voice/video/doc-tests/ledger-golden/registry-arity/llm-cache/
+  minimal-build/no-default-features/fmt/clippy/ADR-numbering/module-size/
+  vscode/cargo-audit/cargo-deny/branch-freshness) — merge only when the set is
+  fully green on the merge commit. The enforced truth is the branch-protection
+  required-contexts list on `main`; this bullet mirrors it (the historical
+  15-job snapshot pre-№518 lagged the list). cargo-deny (naryad №518) owns
+  the licenses/advisories/bans gate over the dependency graph (`deny.toml`).
 - **Crosscheck**: TW vs VM parity — a separate blocking test +
   the property extension from #277 (see above).

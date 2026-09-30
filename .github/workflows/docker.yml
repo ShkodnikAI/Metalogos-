@@ -104,9 +104,16 @@ jobs:
 
       - name: A program route answers too (not just /health)
         run: |
-          body=$(curl -fsS http://127.0.0.1:8080/hello)
-          echo "GET /hello -> '$body'"
-          test "$body" = "200 hello from metalogos"
+          # №528: the original assertion expected the raw body to carry the
+          # "200 " prefix, but the respond() contract (Phase 6.1,
+          # parse_status_line) puts the status in the HTTP status line and
+          # strips it from the body — the job never ran to catch it. The
+          # status and the body are asserted separately now.
+          code=$(curl -s -o /tmp/hello_body -w "%{http_code}" http://127.0.0.1:8080/hello)
+          body=$(cat /tmp/hello_body)
+          echo "GET /hello -> $code '$body'"
+          test "$code" = "200"
+          test "$body" = "hello from metalogos"
 
       - name: Cleanup
         if: always()

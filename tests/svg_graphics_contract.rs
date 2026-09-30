@@ -113,8 +113,13 @@ fn svg_path_basic() {
 #[test]
 fn svg_path_security_rejects_angle_brackets() {
     let err = eval_err("pattern __t(input: String) -> String { return svg_path(\"M 10 10 <script>\", \"none\", \"black\") }\nflow Main { input: String = \"x\" -> __t -> output }");
+    // №523: the run gate's svg-security lint refuses FIRST — the same
+    // injection vector, one layer earlier than the runtime guard (which
+    // stays the backstop for gate-bypassing callers).
     assert!(
-        err.contains("must not contain") || err.contains("'<"),
+        err.contains("must not contain")
+            || err.contains("'<")
+            || (err.contains("svg_path") && err.contains("<script>")),
         "expected security error, got: {}",
         err
     );

@@ -132,6 +132,80 @@ static PDF_DOCS: Lazy<Mutex<HashMap<String, (u64, PdfDocument)>>> =
 /// (`n515_1000_abandoned_creates_are_bounded`) pins it.
 const PDF_DOCS_MAX: usize = 64;
 
+/// №529 (issue #838; the consolidated audit 30.09 Д-5+N-6): the SECOND
+/// circuit — the estimated CONTENT-byte ceiling on the in-progress PDF
+/// store. The count cap (№515) bounds the NUMBER of entries; a single
+/// giant document (hundreds of pages, big tables/images) could still
+/// grow the process footprint unboundedly within the count bound. The
+/// estimate is the honest text/structure payload (title, author, every
+/// element's text/rows/path + a fixed per-element structural overhead —
+/// NOT the rendered PDF size; the name is honest about what it bounds:
+/// the store's estimated content, not the serialized output).
+const PDF_DOCS_MAX_BYTES: usize = 16 * 1024 * 1024; // 16 MiB estimated content
+
+/// №529: the eviction metrics — the serve-visible observability of the
+/// two-circuit bound. The serve process prints one loud
+/// `[REGISTRY_EVICTION]` line per victim (the serve-report primitive);
+/// these counters make the totals programmatically observable (the
+/// structured HTTP metrics endpoint does not exist in this codebase —
+/// inventing one is outside №529's boundary).
+static PDF_DOCS_EVICTED_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static PDF_DOCS_EVICTED_BYTES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// №529: the public eviction metrics for the PDF store —
+/// `(victims_total, victim_bytes_estimated_total)` since process start.
+#[doc(hidden)]
+pub fn pdf_store_eviction_metrics() -> (u64, u64) {
+    use std::sync::atomic::Ordering::Relaxed;
+    (
+        PDF_DOCS_EVICTED_COUNT.load(Relaxed),
+        PDF_DOCS_EVICTED_BYTES.load(Relaxed),
+    )
+}
+
+/// №529: the estimated content bytes of an in-progress document — the
+/// deterministic byte-accounting primitive of the second circuit. Text
+/// payloads count their UTF-8 bytes; structural elements count a fixed
+/// per-element overhead; the estimate never depends on HashMap order or
+/// wall-clock (deterministic by construction).
+fn pdf_element_bytes(el: &PdfElement) -> usize {
+    const STRUCT: usize = 64; // per-element structural overhead (coords, font, flags)
+    match el {
+        PdfElement::Text { text, font, .. } => text.len() + font.len() + STRUCT,
+        PdfElement::Line { .. } | PdfElement::Rect { .. } => STRUCT,
+        PdfElement::Table {
+            col_widths, rows, ..
+        } => {
+            col_widths.len() * 8
+                + rows
+                    .iter()
+                    .map(|r| r.iter().map(|c| c.len()).sum::<usize>())
+                    .sum::<usize>()
+                + STRUCT
+        }
+        PdfElement::Image { image_path, .. } => image_path.len() + STRUCT,
+        PdfElement::Watermark { text, font, .. } => text.len() + font.len() + STRUCT,
+    }
+}
+
+fn pdf_page_bytes(page: &PdfPage) -> usize {
+    48 + page.elements.iter().map(pdf_element_bytes).sum::<usize>()
+}
+
+fn pdf_doc_bytes(doc: &PdfDocument) -> usize {
+    doc.title.len()
+        + doc.author.len()
+        + doc
+            .page_number_format
+            .as_deref()
+            .map(|s| s.len())
+            .unwrap_or(0)
+        + doc.pages.iter().map(pdf_page_bytes).sum::<usize>()
+        + doc.header.as_ref().map(pdf_element_bytes).unwrap_or(0)
+        + doc.footer.as_ref().map(pdf_element_bytes).unwrap_or(0)
+        + doc.watermark.as_ref().map(pdf_element_bytes).unwrap_or(0)
+}
+
 /// Monotonic insertion sequence for the oldest-first eviction order.
 static PDF_DOCS_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
@@ -145,20 +219,68 @@ fn pdf_store_insert(id: String, doc: PdfDocument) -> Result<(), String> {
     let mut store = PDF_DOCS
         .lock()
         .map_err(|e| format!("pdf_create: lock error: {}", e))?;
-    if store.len() >= PDF_DOCS_MAX {
-        // Evict the oldest (the smallest insertion sequence). O(n) over at
-        // most PDF_DOCS_MAX entries — bounded work per insert.
-        if let Some(oldest) = store
-            .iter()
-            .min_by_key(|(_, (seq, _))| *seq)
-            .map(|(k, _)| k.clone())
-        {
-            store.remove(&oldest);
-        }
-    }
-    let seq = PDF_DOCS_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    use std::sync::atomic::Ordering::Relaxed;
+    // №529: the two-circuit eviction — the COUNT circuit (№515) and the
+    // BYTE circuit (№529) share one deterministic victim order (see
+    // `pdf_evict_for_insert`).
+    pdf_evict_for_insert(&mut store, pdf_doc_bytes(&doc));
+    let seq = PDF_DOCS_SEQ.fetch_add(1, Relaxed);
     store.insert(id, (seq, doc));
     Ok(())
+}
+
+/// №529: the two-circuit eviction decision over ONE store map — the COUNT
+/// circuit (№515: `store.len() >= PDF_DOCS_MAX`) and the BYTE circuit
+/// (№529: the estimated content total + the incoming doc over
+/// `PDF_DOCS_MAX_BYTES`) share one deterministic victim order: the lowest
+/// seq = least recently created-or-touched (every mutation-path access
+/// restamps via `pdf_store_touch` — LRU). A single legit document larger
+/// than the byte cap is admitted into an EMPTY store: the cap bounds
+/// accumulation, not one doc (pinned by the tests). The eviction is
+/// observable: one loud `[REGISTRY_EVICTION]` stderr line per victim (the
+/// serve-report primitive) + the process-global counters.
+fn pdf_evict_for_insert(store: &mut HashMap<String, (u64, PdfDocument)>, incoming: usize) {
+    use std::sync::atomic::Ordering::Relaxed;
+    let mut total: usize = store.values().map(|(_, d)| pdf_doc_bytes(d)).sum();
+    while !store.is_empty()
+        && (store.len() >= PDF_DOCS_MAX || total + incoming > PDF_DOCS_MAX_BYTES)
+    {
+        let reason = if store.len() >= PDF_DOCS_MAX {
+            "count"
+        } else {
+            "bytes"
+        };
+        let oldest = store
+            .iter()
+            .min_by_key(|(_, (seq, _))| *seq)
+            .map(|(k, _)| k.clone());
+        let Some(oldest) = oldest else { break };
+        if let Some((seq, victim)) = store.remove(&oldest) {
+            let vb = pdf_doc_bytes(&victim);
+            total -= vb;
+            PDF_DOCS_EVICTED_COUNT.fetch_add(1, Relaxed);
+            PDF_DOCS_EVICTED_BYTES.fetch_add(vb as u64, Relaxed);
+            eprintln!(
+                "[REGISTRY_EVICTION] pdf_docs handle='{}' seq={} victim_bytes={} reason={} store_len={} store_bytes={} caps=({},{})",
+                oldest, seq, vb, reason, store.len(), total, PDF_DOCS_MAX, PDF_DOCS_MAX_BYTES
+            );
+        }
+    }
+}
+
+/// №529: the LRU touch — every mutation-path access restamps the entry's
+/// sequence, so the eviction order is least-recently-USED (not just
+/// least-recently-created). The stamp source is shared with the insert
+/// (one monotonic counter — the order stays deterministic).
+fn pdf_store_touch<'a>(
+    store: &'a mut HashMap<String, (u64, PdfDocument)>,
+    id: &str,
+) -> Option<&'a mut PdfDocument> {
+    let seq = PDF_DOCS_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    store.get_mut(id).map(move |(s, doc)| {
+        *s = seq;
+        doc
+    })
 }
 
 /// Font name whitelist — maps Metalogos font names to PDF base font names.
@@ -496,10 +618,8 @@ pub fn builtin_pdf_add_page(args: &[Value]) -> Result<Value, String> {
         let mut store = PDF_DOCS
             .lock()
             .map_err(|e| format!("pdf_add_page: lock error: {}", e))?;
-        let doc = store
-            .get_mut(&id)
-            .map(|(_, doc)| doc)
-            .ok_or_else(|| format!("pdf_add_page: document '{}' not found", id))?;
+        let doc = pdf_store_touch(&mut store, &id)
+            .ok_or_else(|| format!("(pdf_add_page: document '{}' not found", id))?;
         doc.pages.push(PdfPage {
             width,
             height,
@@ -551,10 +671,8 @@ pub fn builtin_pdf_write_text(args: &[Value]) -> Result<Value, String> {
         let mut store = PDF_DOCS
             .lock()
             .map_err(|e| format!("pdf_write_text: lock error: {}", e))?;
-        let doc = store
-            .get_mut(&id)
-            .map(|(_, doc)| doc)
-            .ok_or_else(|| format!("pdf_write_text: document '{}' not found", id))?;
+        let doc = pdf_store_touch(&mut store, &id)
+            .ok_or_else(|| format!("(pdf_write_text: document '{}' not found", id))?;
 
         let page = doc.pages.last_mut().ok_or_else(|| {
             "pdf_write_text: no pages in document (call pdf_add_page first)".to_string()
@@ -595,10 +713,8 @@ pub fn builtin_pdf_draw_line(args: &[Value]) -> Result<Value, String> {
         let mut store = PDF_DOCS
             .lock()
             .map_err(|e| format!("pdf_draw_line: lock error: {}", e))?;
-        let doc = store
-            .get_mut(&id)
-            .map(|(_, doc)| doc)
-            .ok_or_else(|| format!("pdf_draw_line: document '{}' not found", id))?;
+        let doc = pdf_store_touch(&mut store, &id)
+            .ok_or_else(|| format!("(pdf_draw_line: document '{}' not found", id))?;
 
         let page = doc
             .pages
@@ -646,10 +762,8 @@ pub fn builtin_pdf_draw_rect(args: &[Value]) -> Result<Value, String> {
         let mut store = PDF_DOCS
             .lock()
             .map_err(|e| format!("pdf_draw_rect: lock error: {}", e))?;
-        let doc = store
-            .get_mut(&id)
-            .map(|(_, doc)| doc)
-            .ok_or_else(|| format!("pdf_draw_rect: document '{}' not found", id))?;
+        let doc = pdf_store_touch(&mut store, &id)
+            .ok_or_else(|| format!("(pdf_draw_rect: document '{}' not found", id))?;
 
         let page = doc
             .pages
@@ -1251,10 +1365,8 @@ pub fn builtin_pdf_draw_table(args: &[Value]) -> Result<Value, String> {
         let mut store = PDF_DOCS
             .lock()
             .map_err(|e| format!("pdf_draw_table: lock error: {}", e))?;
-        let doc = store
-            .get_mut(&id)
-            .map(|(_, doc)| doc)
-            .ok_or_else(|| format!("pdf_draw_table: document '{}' not found", id))?;
+        let doc = pdf_store_touch(&mut store, &id)
+            .ok_or_else(|| format!("(pdf_draw_table: document '{}' not found", id))?;
 
         let page = doc
             .pages
@@ -1313,10 +1425,8 @@ pub fn builtin_pdf_add_image(args: &[Value]) -> Result<Value, String> {
         let mut store = PDF_DOCS
             .lock()
             .map_err(|e| format!("pdf_add_image: lock error: {}", e))?;
-        let doc = store
-            .get_mut(&id)
-            .map(|(_, doc)| doc)
-            .ok_or_else(|| format!("pdf_add_image: document '{}' not found", id))?;
+        let doc = pdf_store_touch(&mut store, &id)
+            .ok_or_else(|| format!("(pdf_add_image: document '{}' not found", id))?;
 
         let page = doc
             .pages
@@ -1387,10 +1497,8 @@ pub fn builtin_pdf_set_page_header(args: &[Value]) -> Result<Value, String> {
         let mut store = PDF_DOCS
             .lock()
             .map_err(|e| format!("pdf_set_page_header: lock error: {}", e))?;
-        let doc = store
-            .get_mut(&id)
-            .map(|(_, doc)| doc)
-            .ok_or_else(|| format!("pdf_set_page_header: document '{}' not found", id))?;
+        let doc = pdf_store_touch(&mut store, &id)
+            .ok_or_else(|| format!("(pdf_set_page_header: document '{}' not found", id))?;
 
         // Position header at top-center of first page (or default A4)
         let page_width = doc.pages.first().map(|p| p.width).unwrap_or(595.28);
@@ -1433,10 +1541,8 @@ pub fn builtin_pdf_set_page_footer(args: &[Value]) -> Result<Value, String> {
         let mut store = PDF_DOCS
             .lock()
             .map_err(|e| format!("pdf_set_page_footer: lock error: {}", e))?;
-        let doc = store
-            .get_mut(&id)
-            .map(|(_, doc)| doc)
-            .ok_or_else(|| format!("pdf_set_page_footer: document '{}' not found", id))?;
+        let doc = pdf_store_touch(&mut store, &id)
+            .ok_or_else(|| format!("(pdf_set_page_footer: document '{}' not found", id))?;
 
         let page_width = doc.pages.first().map(|p| p.width).unwrap_or(595.28);
         let x = (page_width - text.len() as f64 * size * 0.5) / 2.0;
@@ -1481,10 +1587,8 @@ pub fn builtin_pdf_page_numbers(args: &[Value]) -> Result<Value, String> {
         let mut store = PDF_DOCS
             .lock()
             .map_err(|e| format!("pdf_page_numbers: lock error: {}", e))?;
-        let doc = store
-            .get_mut(&id)
-            .map(|(_, doc)| doc)
-            .ok_or_else(|| format!("pdf_page_numbers: document '{}' not found", id))?;
+        let doc = pdf_store_touch(&mut store, &id)
+            .ok_or_else(|| format!("(pdf_page_numbers: document '{}' not found", id))?;
 
         doc.page_number_format = Some(format);
         doc.page_number_pos = pos;
@@ -1529,10 +1633,8 @@ pub fn builtin_pdf_watermark(args: &[Value]) -> Result<Value, String> {
         let mut store = PDF_DOCS
             .lock()
             .map_err(|e| format!("pdf_watermark: lock error: {}", e))?;
-        let doc = store
-            .get_mut(&id)
-            .map(|(_, doc)| doc)
-            .ok_or_else(|| format!("pdf_watermark: document '{}' not found", id))?;
+        let doc = pdf_store_touch(&mut store, &id)
+            .ok_or_else(|| format!("(pdf_watermark: document '{}' not found", id))?;
 
         doc.watermark = Some(PdfElement::Watermark {
             text,
@@ -3395,5 +3497,122 @@ mod tests {
             "the newest doc survives the eviction"
         );
         assert_eq!(store.len(), PDF_DOCS_MAX, "the size stays at the cap");
+    }
+
+    // ── №529 (issue #838): the two-circuit bound — the byte circuit and
+    // the LRU restamp determinism (the unit tests need the private
+    // PDF_DOCS surface; the builtins-only path cannot build a 16 MiB
+    // document cheaply).
+
+    fn n529_small_doc(title: &str) -> PdfDocument {
+        PdfDocument {
+            title: title.into(),
+            author: "n529".into(),
+            pages: vec![PdfPage {
+                width: 595.0,
+                height: 842.0,
+                elements: vec![PdfElement::Text {
+                    x: 10.0,
+                    y: 10.0,
+                    text: "tiny".into(),
+                    font: "Helvetica".into(),
+                    size: 12.0,
+                }],
+            }],
+            header: None,
+            footer: None,
+            watermark: None,
+            page_number_format: None,
+            page_number_pos: None,
+        }
+    }
+
+    fn n529_giant_doc(text_bytes: usize) -> PdfDocument {
+        PdfDocument {
+            title: "giant".into(),
+            author: "n529".into(),
+            pages: vec![PdfPage {
+                width: 595.0,
+                height: 842.0,
+                elements: vec![PdfElement::Text {
+                    x: 10.0,
+                    y: 10.0,
+                    text: "x".repeat(text_bytes),
+                    font: "Helvetica".into(),
+                    size: 12.0,
+                }],
+            }],
+            header: None,
+            footer: None,
+            watermark: None,
+            page_number_format: None,
+            page_number_pos: None,
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn n529_pdf_byte_circuit_drains_for_the_giant() {
+        // The pure two-circuit decision over a LOCAL map — the exact
+        // deterministic state without touching the process-global store.
+        let mut local: HashMap<String, (u64, PdfDocument)> = HashMap::new();
+        for k in ["a", "b", "c"] {
+            let seq = PDF_DOCS_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            local.insert(k.to_string(), (seq, n529_small_doc(k)));
+        }
+        let (c0, b0) = pdf_store_eviction_metrics();
+        pdf_evict_for_insert(&mut local, PDF_DOCS_MAX_BYTES + 1024);
+        assert!(!local.contains_key("c"), "the store drained fully");
+        assert_eq!(local.len(), 0, "the store drained to empty for the giant");
+        let (c1, b1) = pdf_store_eviction_metrics();
+        assert_eq!(c1 - c0, 3, "exactly three victims (a, b, c)");
+        assert!(b1 - b0 >= 1, "the evicted-bytes metric moved");
+        // The giant is then admitted into the emptied map (the allowance):
+        // the insert path evicts BEFORE the insert, so an EMPTY map never
+        // evicts — the giant lands alone and stays.
+        let seq = PDF_DOCS_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        local.insert(
+            "giant".to_string(),
+            (seq, n529_giant_doc(PDF_DOCS_MAX_BYTES + 1024)),
+        );
+        assert_eq!(local.len(), 1, "the single giant is admitted and stays");
+    }
+
+    #[test]
+    #[serial]
+    fn n529_pdf_lru_restamp_determinism() {
+        // A(0), B(1), C(2) — then A is TOUCHED (restamped to 3). One
+        // eviction's worth of bytes forces exactly one victim: B (the
+        // lowest seq), NOT A. Without the restamp the victim would be A —
+        // the test is the mutation-loaded LRU pin.
+        let mut local: HashMap<String, (u64, PdfDocument)> = HashMap::new();
+        for k in ["A", "B", "C"] {
+            let seq = PDF_DOCS_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            local.insert(k.to_string(), (seq, n529_small_doc(k)));
+        }
+        {
+            let touched = pdf_store_touch(&mut local, "A");
+            assert!(touched.is_some(), "the touch resolves the live entry");
+        }
+        let total_small: usize = local.values().map(|(_, d)| pdf_doc_bytes(d)).sum();
+        let d_bytes = PDF_DOCS_MAX_BYTES - total_small + 1;
+        // The insert path: evict-for-insert FIRST (D's bytes), then insert.
+        pdf_evict_for_insert(&mut local, d_bytes);
+        let seq = PDF_DOCS_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        local.insert("D".to_string(), (seq, n529_giant_doc(d_bytes)));
+        assert!(
+            local.contains_key("A"),
+            "the TOUCHED A survives (LRU, not FIFO)"
+        );
+        assert!(
+            !local.contains_key("B"),
+            "the untouched B is the deterministic victim"
+        );
+        assert!(
+            local.contains_key("C"),
+            "the untouched-but-newer C survives"
+        );
+        assert!(local.contains_key("D"), "the incoming doc lives");
+        assert_eq!(local.len(), 3, "exactly one eviction happened (4 - 1)");
     }
 }

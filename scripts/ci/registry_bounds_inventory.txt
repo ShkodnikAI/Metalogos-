@@ -1,0 +1,16 @@
+# №529 registry-bounds inventory — the SSOT of the process-global registries
+# and their two-circuit bounds (count + bytes). The blocking CI job
+# `registry-bounds` (ci.yml) validates this file against the sources:
+#   - every registry listed here MUST have its constants present in the
+#     named source file (drift = failure);
+#   - every `static ...: Lazy<Mutex<HashMap<...>>>`-shaped global in src/
+#     MUST be listed here (a new registry without an inventory row = a
+#     new unbounded map = failure — the №529 ratchet; the exception
+#     reason is part of the row).
+# Format (| separated): name | source | count_bound | byte_bound | notes
+PDF_DOCS|src/builtins/pdf.rs|PDF_DOCS_MAX=64|PDF_DOCS_MAX_BYTES=16777216|evict LRU (seq restamp on touch); metrics: pdf_store_eviction_metrics(); stderr [REGISTRY_EVICTION]
+VIDEO_REGISTRY|src/video/mod.rs|VIDEO_ARTIFACTS_MAX=64|VIDEO_ARTIFACTS_MAX_BYTES=67108864|evict lowest-id (insertion age; &self getters — no restamp); metrics: video_registry_eviction_metrics()
+VOICE_REGISTRY#artifacts|src/voice/mod.rs|VOICE_ARTIFACTS_MAX=64|VOICE_ARTIFACTS_MAX_BYTES=33554432|evict lowest-id; metrics: voice_registry_eviction_metrics()
+VOICE_REGISTRY#voiceprints|src/voice/mod.rs|VOICE_ARTIFACTS_MAX=64|VOICE_ARTIFACTS_MAX_BYTES=33554432|evict lowest-id; byte = embedding*4+model; metrics shared
+LLM_STREAM_REGISTRY|src/llm.rs|LLM_STREAM_DEFAULT_MAX=64|none|LOUD refusal STREAM_LIMIT_REACHED at open (No263 contract — eviction would kill in-flight streams silently); per-stream byte growth bounded upstream by the No757 max_tokens ceiling
+GLOBAL_TEMPLATES|src/builtins/http.rs|name-overwrite|none|keyed by declaration NAME — overwrite semantics; bounded by the program surface, not by requests; a byte cap would break legit redeclaration

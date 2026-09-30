@@ -44,16 +44,107 @@ pub struct VideoRegistry {
 /// never the victim unless it outlives MAX newer inserts.
 pub const VIDEO_ARTIFACTS_MAX: usize = 64;
 
+/// №529 (issue #838; the consolidated audit 30.09 Д-5+N-6): the SECOND
+/// circuit — the byte ceiling on the artifact store. The count cap (№515)
+/// bounds the NUMBER of artifacts; a handful of large renders (or big
+/// latent snapshots) could grow the process footprint unboundedly within
+/// it. The accounting is honest and deterministic: the raw render bytes
+/// plus the latent payload (f32 × 4 bytes × len); the manifest is text
+/// and counts its own bytes.
+pub const VIDEO_ARTIFACTS_MAX_BYTES: usize = 64 * 1024 * 1024; // 64 MiB
+
+/// №529: the eviction metrics — the serve-visible observability of the
+/// two-circuit bound (one loud `[REGISTRY_EVICTION]` line per victim is
+/// the serve-report primitive; the counters make the totals observable).
+static VIDEO_EVICTED_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static VIDEO_EVICTED_BYTES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// №529: the public eviction metrics for the video registry —
+/// `(victims_total, victim_bytes_total)` since process start.
+#[doc(hidden)]
+pub fn video_registry_eviction_metrics() -> (u64, u64) {
+    use std::sync::atomic::Ordering::Relaxed;
+    (
+        VIDEO_EVICTED_COUNT.load(Relaxed),
+        VIDEO_EVICTED_BYTES.load(Relaxed),
+    )
+}
+
+/// №529: the deterministic byte accounting of one artifact — render bytes
+/// plus the latent payload (f32 × 4 × len + dims overhead) + the manifest's
+/// text fields (the Strings and hash fields are the mass; small numerics
+/// count under the fixed 64-byte structural overhead).
+///
+/// No serde needed — the manifest does not implement Serialize.
+pub fn video_artifact_bytes(a: &VideoArtifact) -> usize {
+    const MANIFEST_STRUCT: usize = 64;
+    let manifest = a
+        .manifest
+        .as_ref()
+        .map(|m| {
+            m.model_id.len()
+                + m.weights_sha.len()
+                + m.prompt_hash.len()
+                + m.policy.len()
+                + m.video_sha.len()
+                + m.ref_hash.as_deref().map(|s| s.len()).unwrap_or(0)
+                + m.ref_last_hash.as_deref().map(|s| s.len()).unwrap_or(0)
+                + m.consent_hash.as_deref().map(|s| s.len()).unwrap_or(0)
+                + m.source_sha.as_deref().map(|s| s.len()).unwrap_or(0)
+                + MANIFEST_STRUCT
+        })
+        .unwrap_or(0);
+    a.video_bytes.len()
+        + manifest
+        + a.latent
+            .as_ref()
+            .map(|l| l.vals.len() * 4 + 40)
+            .unwrap_or(0)
+}
+
 impl VideoRegistry {
     pub fn new() -> Self {
         Self::default()
     }
 
     pub fn insert_artifact(&mut self, artifact: VideoArtifact) -> VideoId {
-        // №515: the bounded insert — evict the oldest orphan at the cap.
-        if self.artifacts.len() >= VIDEO_ARTIFACTS_MAX {
-            if let Some(&oldest) = self.artifacts.keys().min() {
-                self.artifacts.remove(&oldest);
+        use std::sync::atomic::Ordering::Relaxed;
+        // №529: the two-circuit eviction — the COUNT circuit (№515) and the
+        // BYTE circuit (№529) share one deterministic victim order: the
+        // lowest id = least recently created (ids are monotonic; the
+        // in-memory getters are &self, so a last-access restamp would need
+        // interior mutability — the honest boundary documented in the
+        // inventory). A single artifact larger than the byte cap is
+        // admitted into an EMPTY store (the cap bounds accumulation).
+        let incoming = video_artifact_bytes(&artifact);
+        let mut total: usize = self.artifacts.values().map(video_artifact_bytes).sum();
+        while !self.artifacts.is_empty()
+            && (self.artifacts.len() >= VIDEO_ARTIFACTS_MAX
+                || total + incoming > VIDEO_ARTIFACTS_MAX_BYTES)
+        {
+            let reason = if self.artifacts.len() >= VIDEO_ARTIFACTS_MAX {
+                "count"
+            } else {
+                "bytes"
+            };
+            let Some(&oldest) = self.artifacts.keys().min() else {
+                break;
+            };
+            if let Some(victim) = self.artifacts.remove(&oldest) {
+                let vb = video_artifact_bytes(&victim);
+                total -= vb;
+                VIDEO_EVICTED_COUNT.fetch_add(1, Relaxed);
+                VIDEO_EVICTED_BYTES.fetch_add(vb as u64, Relaxed);
+                eprintln!(
+                    "[REGISTRY_EVICTION] video_registry artifact={} victim_bytes={} reason={} store_len={} store_bytes={} caps=({},{})",
+                    oldest,
+                    vb,
+                    reason,
+                    self.artifacts.len(),
+                    total,
+                    VIDEO_ARTIFACTS_MAX,
+                    VIDEO_ARTIFACTS_MAX_BYTES
+                );
             }
         }
         let id = VideoId(self.next_id);

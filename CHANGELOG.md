@@ -24,6 +24,74 @@ All notable changes to the Metalogos project.
   pre-PR (1025 bp) → 62/507 = 1222 bp. The package's +3–5 pp target was
   unreachable inside the package bounds (only 12 untyped rows existed);
   the honest gain is ≈ +2.0 pp, the gap documented in the M2 report.
+- Naryad №534 (issue #843; the consolidated audit 30.09, Д-3 — the base
+  №504, the threshold 3, the three sites): the last three TW-mirror
+  marks leave src/vm.rs — the distill TRAINING gate sequence collapses
+  into the ONE canonical copy, `train_distill_snapshot` in
+  src/interpreter/learnable.rs (the closed label-set mapping, the №456
+  holdout gate, the 30-epoch run, the №485 majority-baseline gate and
+  its single-class carve-out, the NaN guard — the sequence the VM
+  carried as the inline pre-№489 copy). `run_distill_training` keeps
+  its exact contract and becomes the thin TW orchestrator (the short
+  metadata lock → snapshot_clone → core → the short locked swap with
+  the №530 slot-changed guard); the VM's `try_train_distilled_model`
+  becomes the thin VM orchestrator (snapshot_clone → core → the direct
+  post-gate swap). THE BEHAVIOR FIX, named honestly: the VM lane
+  trained the LIVE model in place and only then decided the gate — the
+  pre-№530 posture the TW path had already dropped; a refused gate on
+  the VM path now leaves the weights untouched (pinned by the new
+  `n534_vm_failed_gate_leaves_weights_untouched` test, mutation-checked
+  red against the swap-ignores-gate form), and the VM train-error text
+  carries the shared `distill: training failed:` prefix. The
+  Distilled-mode PREDICT path remains a deliberate parallel form (the
+  state orchestration is the two runtimes: &mut self vs Mutex + the
+  №489 spawn) — its outcomes stay pinned by №503/№465; its dedup is
+  future-counter work, not this naryad. The mirror baseline moves
+  3 → 0 (ONLY DOWN; the marks left with the duplication, the gate runs
+  green at 0). Local battery: check clean, clippy -D warnings clean,
+  fmt clean, lib 887/887, №503 2/2, №465 fuzzer 9/9, №530 3/3,
+  bug_530 VM recall parity 3/3.
+- Naryad №533 (issue #842; the consolidated audit 30.09, N-8,
+  P2 docs/examples): the 14 COMPAT-tagged examples (№513) leave the
+  live catalog — `examples/compat/` is the honest archive. THE MOVE:
+  exactly the 14 `.mlog` files whose FIRST-5-LINES header carries the
+  №513 tag (the 15th file, p54_regex_crosscheck.txt, mentions COMPAT in
+  its body and stays — the corpus scan verified the count). THE HEADER:
+  every archived file now opens with the canonical honesty line —
+  "archived to examples/compat/ by №533: historical syntax — not parsed
+  since v0.27.x. See rule №513 (gh#797)" — above the original reason.
+  THE PATH RULE: the grammar tests and the example-coverage test
+  exclude by PATH (the archive is never entered), the №513 tag-scan is
+  retired — a COMPAT-tagged file in the LIVE catalog is now debt, not a
+  pass (the n513 assert + the simplified `debt_counters.py` scan, whose
+  baseline stays 0). THE README: `examples/README.md` documents the
+  live-catalog contract (sidecar / named check / the suites) and the
+  archive rules (never delete; resurrect = rewrite + verify + move
+  back, in its own naryad). THE CROSS-REFS: the book's quickstart and
+  the architecture tree point at live examples; the two ADRs referencing
+  the moved paths (№0045, №0063) carry the archive note. Boundaries
+  held: nothing rewritten to the new grammar, nothing deleted.
+
+- Naryad №532 (issue #841; the consolidated audit 30.09, N-7,
+  P2 compiler/hygiene): the `wildcard_enum_match_arm` lint leaves
+  compiler.rs and covers the WHOLE N-1 surface — `deny` in
+  `src/interpreter/execution.rs`, `src/vm.rs` and `src/semantic.rs`.
+  THE CORE: `is_truthy` is now EXPLICIT in BOTH backends — every one of
+  the 36 Value variants gets its own arm (the truthy set is
+  {non-empty String, non-zero Float, true Bool, non-empty List}; every
+  opaque handle, struct, secret, Unit is falsy), the semantics are
+  byte-preserved and pinned by the №503 outcome-parity suite — the liar
+  string can never again slip through a wildcard. THE TAIL: the 98
+  remaining wildcard arms (report/parse/classification/dispatch
+  catch-alls where NO security decision reads the arm) survive under
+  FUNCTION-LEVEL `#[allow]` with the shared reason, recorded in the
+  grep-protocol ledger `docs/wildcard-tail-ledger.md` (the per-function
+  list); the found clippy quirk is honored — arm-level `#[allow]` does
+  not gate this lint, the function level does. THE GATE: a NEW wildcard
+  in these files fails the blocking clippy job until it is enumerated
+  or allowed with a reason (the negative test: a probe wildcard was
+  verified to trip the build, then removed).
+
 - HOTFIX (the first real CI run, 30.09→01.10): the two shipped-unseen CI
   defects the dead event delivery hid, both caught by the first
   `blocking-checks-sync`-carrying run after the Actions

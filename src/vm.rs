@@ -13,6 +13,7 @@
 // Design: a single main loop that dispatches on the current instruction.
 // Function calls push a new frame; Return pops back.
 
+#![deny(clippy::wildcard_enum_match_arm)] // №532: the N-1 class lives in wildcard Value arms — new wildcards need an explicit allow + reason
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -693,7 +694,8 @@ impl Vm {
         // of reflex/vision/origin declarations on the (now empty) tables.
         self.load_program(program)
     }
-
+    #[allow(clippy::wildcard_enum_match_arm)]
+    // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
     /// Execute main_code (the top-level instruction sequence).
     /// Called by `run()` after `load_program()`.
     fn execute_main_code(&mut self, program: &Program) -> Result<Option<String>, String> {
@@ -1595,7 +1597,7 @@ impl Vm {
         self.value_registers = saved_registers;
         out
     }
-
+    #[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
     fn execute_code_inner(
         &mut self,
         code: &[Instruction],
@@ -2242,7 +2244,7 @@ impl Vm {
         call_stack.pop();
         result.map(|_| ())
     }
-
+    #[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
     fn call_builtin(&mut self, name: &str, args: &[Value]) -> Result<Value, String> {
         // ── Наряд №392: the DenyEvent surface ──────────────────────
         // Handler-scoped, runtime-constructed. The analyzer blocks usage
@@ -2958,11 +2960,20 @@ impl Vm {
 
     // ── Наряд №205 (ADR-0121 stage 6): distillation state machine ──────
     //
-    // Ported from `src/interpreter/learnable.rs` lines 406-730.
-    // The VM is single-threaded per request (&mut self), so no Mutex locks
-    // are needed — direct field access. The `simple_embedding` function
-    // is ported verbatim for byte-for-byte determinism (ADR-0121 requires
-    // same seed → same output across both backends).
+    // №534: the TRAINING core is the ONE canonical copy —
+    // `interpreter::learnable::train_distill_snapshot` (the TW and the
+    // VM both call it); the former inline copy here repeated the №456
+    // holdout gate and the №485 baseline gate verbatim and had drifted
+    // out of the №489/№530 lineage (it trained the live weights). The
+    // machine's STATE orchestration stays per-backend by design: the VM
+    // is single-threaded per request (&mut self, direct field access,
+    // no Mutex locks), the interpreter locks and spawns (№489) — that
+    // orchestration is not duplication, it is the two runtimes. The
+    // Distilled-mode PREDICT path below remains a parallel form — its
+    // outcomes are pinned by the №503 parity suite and the №465
+    // diff-fuzzer; ADR-0121's byte-for-byte determinism (same seed →
+    // same output across both backends) rides on the shared
+    // `distill_features` (the №504 canonical copy).
 
     fn try_distilled_call(
         &mut self,
@@ -3127,13 +3138,21 @@ impl Vm {
             .get(reflex_name)
             .copied()
             .ok_or_else(|| format!("distill: reflex '{}' not declared", reflex_name))?;
-        let (input_size, labels) = {
+        // №534: the gate sequence is the ONE canonical copy
+        // (interpreter::learnable::train_distill_snapshot) — the VM's
+        // inline pre-№489 copy is gone (the three mirror marks of the
+        // №502 baseline left with it). №530 discipline extended to the
+        // VM lane: the training runs on a SNAPSHOT and only a PASSED
+        // gate swaps it into the live registry — the old copy trained
+        // the live model in place and only then decided (the failed
+        // gate left the weights mutated; pinned by the n534 VM test).
+        let mut snapshot = {
             let model_kind = self
                 .reflex_registry
                 .get(model_id)
                 .ok_or_else(|| format!("distill: model handle {:?} not in registry", model_id))?;
             match model_kind {
-                crate::nn::ModelKind::Dense(m) => (m.input_size, m.labels.clone()),
+                crate::nn::ModelKind::Dense(m) => m.snapshot_clone()?,
                 #[cfg(feature = "candle")]
                 crate::nn::ModelKind::Sequence(_) => {
                     return Err("distill: sequence models do not support distill training".into())
@@ -3144,94 +3163,26 @@ impl Vm {
                 }
             }
         };
-
-        let mut inputs: Vec<Vec<f64>> = Vec::with_capacity(examples.len());
-        let mut targets: Vec<usize> = Vec::with_capacity(examples.len());
-        for (input_str, output_str) in examples {
-            let target_idx = match labels.iter().position(|l| l == output_str) {
-                Some(idx) => idx,
-                None => continue,
-            };
-            // №504: the hashed TF-IDF feature extractor — the ONE canonical
-            // copy in distill_hub → embeddings::hashed_tfidf_vector.
-            let embedding = crate::distill_hub::distill_features(input_str, input_size);
-            inputs.push(embedding);
-            targets.push(target_idx);
+        let outcome = crate::interpreter::learnable::train_distill_snapshot(
+            &mut snapshot,
+            pattern_name,
+            min_accuracy,
+            margin,
+            examples,
+        );
+        for line in &outcome.audit_lines {
+            self.push_audit(line.clone());
         }
-
-        if inputs.is_empty() {
-            return Ok(false);
+        if let Some(e) = outcome.error {
+            return Err(e);
         }
-
-        // №456: the holdout gate — mirror of the TW path (parity). A
-        // holdout smaller than MIN_HOLDOUT cannot support a meaningful
-        // accuracy read: refuse the switch, stay TEACHING.
-        let valid_n = inputs.len();
-        let holdout_n = valid_n - (valid_n * 4) / 5;
-        if holdout_n < crate::interpreter::learnable::MIN_HOLDOUT {
-            self.push_audit(format!(
-                "[AUDIT] distill.rejected: {} holdout too small ({} < {}) — staying TEACHING",
-                pattern_name,
-                holdout_n,
-                crate::interpreter::learnable::MIN_HOLDOUT
-            ));
-            return Ok(false);
-        }
-
-        let model_kind = self
-            .reflex_registry
-            .get_mut(model_id)
-            .ok_or_else(|| format!("distill: model handle {:?} not in registry", model_id))?;
-        match model_kind {
-            crate::nn::ModelKind::Dense(model) => {
-                // №456: the holdout accuracy is the SWITCH GATE — mirror of
-                // the TW path. Loud on rejection.
-                let (loss, holdout_acc) = model.train(&inputs, &targets, 30, 0.1)?;
-                if !loss.is_finite() {
-                    return Ok(false);
-                }
-                // №485: the majority baseline (the stratified holdout
-                // preserves the class distribution) — the degenerate
-                // most-frequent-class model cannot clear baseline + margin.
-                let mut class_counts: HashMap<usize, usize> = HashMap::new();
-                for &t in &targets {
-                    *class_counts.entry(t).or_insert(0) += 1;
-                }
-                let majority_baseline = class_counts
-                    .values()
-                    .copied()
-                    .max()
-                    .map(|c| c as f64 / targets.len() as f64)
-                    .unwrap_or(0.0);
-                // №485: the explicit NaN guard rejects a NaN accuracy
-                // (the VM mirror of the TW gate's form).
-                // The single-class carve-out (№485): one class carries no
-                // confusion risk — the baseline is trivially 1.0 and
-                // baseline+margin would be unsatisfiable; the raw
-                // min_accuracy gate applies unchanged (the №456 posture).
-                let threshold = if class_counts.len() < 2 {
-                    min_accuracy
-                } else {
-                    f64::max(min_accuracy, majority_baseline + margin)
-                };
-                if holdout_acc < threshold || holdout_acc.is_nan() {
-                    self.push_audit(format!(
-                        "[AUDIT] distill.rejected: {} holdout_accuracy={:.3} < threshold={:.3} (min_accuracy={:.2}, majority_baseline={:.3}, margin={:.2}) — staying TEACHING",
-                        pattern_name, holdout_acc, threshold, min_accuracy, majority_baseline, margin
-                    ));
-                    return Ok(false);
-                }
-                Ok(true)
-            }
-            #[cfg(feature = "candle")]
-            crate::nn::ModelKind::Sequence(_) => {
-                Err("distill: sequence models do not support distill training".into())
-            }
-            #[cfg(feature = "candle")]
-            crate::nn::ModelKind::Gen(_) => {
-                Err("distill: gen models do not support distill training".into())
+        if outcome.switched {
+            if let Some(crate::nn::ModelKind::Dense(slot)) = self.reflex_registry.get_mut(model_id)
+            {
+                *slot = snapshot;
             }
         }
+        Ok(outcome.switched)
     }
 
     fn record_distill_example(&mut self, pattern_name: &str, input: &str, output: &str) {
@@ -3830,7 +3781,8 @@ impl Vm {
         crate::llm::set_llm_backend_tag(prev_tag);
         out
     }
-
+    #[allow(clippy::wildcard_enum_match_arm)]
+    // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
     /// ADR-0089: If confidence < 1.0, wrap a concrete result as Fluid
     /// with the propagated confidence (VM version).
     fn vm_wrap_with_confidence(
@@ -3851,7 +3803,8 @@ impl Vm {
             result
         }
     }
-
+    #[allow(clippy::wildcard_enum_match_arm)]
+    // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
     /// Collapse a Fluid value to a concrete type.
     fn maybe_collapse(&mut self, value: &Value, required_type: &str) -> Value {
         match value {
@@ -3982,7 +3935,8 @@ impl Vm {
                 | Value::Subgraph(_)
         )
     }
-
+    #[allow(clippy::wildcard_enum_match_arm)]
+    // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
     /// Evaluate contains(left, right).
     /// №372: returns `Value::Bool` — TW parity (the shared `builtin_contains`
     /// returns Bool; the old Float 1.0/0.0 encoding printed "1"/"0" instead of
@@ -4047,12 +4001,48 @@ impl Vm {
 
 /// Truthiness check (matches interpreter).
 fn is_truthy(value: &Value) -> bool {
+    // №532: EXPLICIT arms over every Value variant — byte-preserved
+    // semantics with the TW twin (the №503 outcome-parity suite pins it).
+    // The truthy set is {non-empty String, non-zero Float, true Bool,
+    // non-empty List}; every other variant is falsy.
     match value {
         Value::String(s) => !s.is_empty(),
         Value::Float(f) => *f != 0.0,
         Value::Bool(b) => *b,
         Value::List(items) => !items.is_empty(),
-        _ => false,
+        Value::Struct { .. } => false,
+        Value::Fluid(_) => false,
+        Value::Unit => false,
+        Value::Html(_) => false,
+        Value::Query(_) => false,
+        Value::Secret(_) => false,
+        Value::Encrypted(_) => false,
+        Value::Hash(_) => false,
+        Value::Session(_) => false,
+        Value::HttpResponse { .. } => false,
+        Value::Subgraph(_) => false,
+        Value::Reflex(_) => false,
+        Value::BpeVocab(_) => false,
+        Value::Vision(_) => false,
+        Value::Voice(_) => false,
+        Value::Audio(_) => false,
+        Value::Video(_) => false,
+        Value::LlmStream(_) => false,
+        Value::Media(_) => false,
+        Value::Grant(_) => false,
+        Value::LikenessChallenge(_) => false,
+        Value::Likeness(_) => false,
+        Value::Memory(_) => false,
+        Value::Duplex(_) => false,
+        Value::Device(_) => false,
+        Value::WorldState(_) => false,
+        Value::ActionChunk(_) => false,
+        Value::Pose(_) => false,
+        Value::Trajectory(_) => false,
+        Value::GoalPredicate(_) => false,
+        Value::Proof(_) => false,
+        Value::SeriesHandle(_) => false,
+        Value::ForecastHandle(_) => false,
     }
 }
 
@@ -4566,7 +4556,7 @@ entity base: String = "7"
 #[cfg(test)]
 mod n409_tests {
     use super::*;
-
+    #[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
     fn compiled_with_routes(source: &str) -> (Program, Vec<crate::bytecode::CompiledRoute>) {
         let decls = crate::parser::parse(source).expect("parse");
         let server_cfg = decls
@@ -4882,6 +4872,44 @@ mod n456_vm_distill_holdout_tests {
             .try_train_distilled_model("P", "TestHead", 0.85, 0.05, &examples)
             .expect("train must not error");
         assert!(result, "consistent labels must pass the holdout gate");
+    }
+
+    /// №534: the №530 snapshot discipline extended to the VM lane — a
+    /// refused gate must leave the LIVE weights untouched. The pre-№534
+    /// inline copy trained the live model in place and only then
+    /// decided, so even a rejected run moved the weights (the №530
+    /// posture the TW path already had; this pin makes the VM lane
+    /// unable to regress).
+    #[test]
+    fn n534_vm_failed_gate_leaves_weights_untouched() {
+        let mut vm = make_vm_with_head();
+        let id = *vm
+            .reflex_names
+            .get("TestHead")
+            .expect("the head is registered");
+        let probe = vec![0.5f64, 0.25, -0.5, 0.75];
+        let forward = |vm: &Vm| match vm.reflex_registry.get(id) {
+            Some(crate::nn::ModelKind::Dense(m)) => m.forward(&probe),
+            _ => panic!("the Dense head must be registered"),
+        };
+        let before = forward(&vm);
+        // The degenerate skew dataset — the gate refuses (the n485 pin:
+        // holdout accuracy 0.9 clears the raw 0.85 gate, not 0.950).
+        let examples: Vec<(String, String)> = (0..50)
+            .map(|i| {
+                let label = if i < 45 { "yes" } else { "no" };
+                ("same".to_string(), label.to_string())
+            })
+            .collect();
+        let result = vm
+            .try_train_distilled_model("P", "TestHead", 0.85, 0.05, &examples)
+            .expect("train must not error");
+        assert!(!result, "the gate must refuse the degenerate set");
+        let after = forward(&vm);
+        assert_eq!(
+            before, after,
+            "a refused gate must not move the live weights"
+        );
     }
 }
 

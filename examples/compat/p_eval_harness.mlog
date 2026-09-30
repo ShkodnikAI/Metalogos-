@@ -1,3 +1,4 @@
+// COMPAT-513 (archived to examples/compat/ by №533): historical syntax — not parsed since v0.27.x. See rule №513 (gh#797).
 // COMPAT-513: stale prototype: the eval-block `metric: accuracy` key no longer parses. Do NOT invent a check — the rewrite is a separate naryad.
 // ── Eval Harness contract program (ADR-0050) ──────────────────────────
 // Contract: eval block with 3 examples → mlog eval → report with accuracy.

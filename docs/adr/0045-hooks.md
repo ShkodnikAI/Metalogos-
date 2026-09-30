@@ -45,7 +45,7 @@ hook after_pattern  { <statements> }
 ### Contract test
 
 ```
-examples/p10_hook_before_after.mlog
+examples/compat/p10_hook_before_after.mlog (archived by №533 — historical syntax)
 ```
 
 The test defines a `before_pattern` hook that increments a `mem_set("call_count", ...)` counter on every pattern invocation, and an `after_pattern` hook that appends the pattern name to a log string. After calling `greet("Alice")`, `greet("Bob")`, and `add(1.0, 2.0)`, `mem_get("call_count")` should return `"3"` and `mem_get("log")` should contain `" | greet | greet | add"`.

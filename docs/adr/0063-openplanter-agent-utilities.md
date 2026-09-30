@@ -82,4 +82,4 @@ Ported from OpenPlanter's `tools.py::_line_hash()` and `hashline_edit()`. The CR
 
 ## Examples
 
-`examples/openplanter_demo.mlog` — demonstrates all 8 builtins.
+`examples/compat/openplanter_demo.mlog` (archived by №533 — historical syntax) — demonstrated all 8 builtins.

@@ -1,3 +1,4 @@
+// COMPAT-513 (archived to examples/compat/ by №533): historical syntax — not parsed since v0.27.x. See rule №513 (gh#797).
 // COMPAT-513: the file is a CONTRACT for a future implementation (deferred respond) — it declares itself 'intentionally NOT in the test suite'; checking it now would invent behavior. Do NOT invent a check — the rewrite is a separate naryad.
 // ── Наряд #69 Block 2: Deferred route response contract ──────────────────
 //

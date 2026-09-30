@@ -4,6 +4,26 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №532 (issue #841; the consolidated audit 30.09, N-7,
+  P2 compiler/hygiene): the `wildcard_enum_match_arm` lint leaves
+  compiler.rs and covers the WHOLE N-1 surface — `deny` in
+  `src/interpreter/execution.rs`, `src/vm.rs` and `src/semantic.rs`.
+  THE CORE: `is_truthy` is now EXPLICIT in BOTH backends — every one of
+  the 36 Value variants gets its own arm (the truthy set is
+  {non-empty String, non-zero Float, true Bool, non-empty List}; every
+  opaque handle, struct, secret, Unit is falsy), the semantics are
+  byte-preserved and pinned by the №503 outcome-parity suite — the liar
+  string can never again slip through a wildcard. THE TAIL: the 98
+  remaining wildcard arms (report/parse/classification/dispatch
+  catch-alls where NO security decision reads the arm) survive under
+  FUNCTION-LEVEL `#[allow]` with the shared reason, recorded in the
+  grep-protocol ledger `docs/wildcard-tail-ledger.md` (the per-function
+  list); the found clippy quirk is honored — arm-level `#[allow]` does
+  not gate this lint, the function level does. THE GATE: a NEW wildcard
+  in these files fails the blocking clippy job until it is enumerated
+  or allowed with a reason (the negative test: a probe wildcard was
+  verified to trip the build, then removed).
+
 - HOTFIX (the first real CI run, 30.09→01.10): the two shipped-unseen CI
   defects the dead event delivery hid, both caught by the first
   `blocking-checks-sync`-carrying run after the Actions

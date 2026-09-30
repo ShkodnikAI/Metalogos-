@@ -4,6 +4,34 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №535 (issue #844; the consolidated audit 30.09, the gate-0.28
+  checklist item 3 — ADR-0179, P1 process/testing): the machine-readable
+  record of WHO BLOCKS EXECUTION lands —
+  `scripts/ci/blocking_checks.tsv`: 27 cells over the four commands
+  (run/check/compile/serve) × phase (read/parse/audit/semantic/codegen/
+  execute) × check × {blocks, warns, absent}, the state after №523.
+  THE CELLS: 21 blocks (every read/parse/Cat-A/semantic/codegen/runtime
+  refusal per command — the №523 startup gates for serve, the VM-compile
+  gate for compile, the static import resolution everywhere), 2 warns
+  (check's warning-only exit-0 surface; compile's unconditional
+  import-warning noise over a PROCEEDING compile), 4 absent (the honest
+  fixes: semantic warnings are silently dropped on the run path — `mlog
+  check` is the reporting surface; the exemption list is empty today;
+  JIT and mcp-serve are recorded as absent (зафиксировано) — outside the
+  CLI pipeline by ADR-0022/0073 and ADR-0168). THE BINDING: every
+  blocks/warns cell names its proving test — 17 new behavioral pins in
+  `tests/naryad_535_blocking_checks.rs` drive the REAL `mlog` binary
+  through CARGO_BIN_EXE (exit codes + stderr as the verdicts), the
+  remaining cells reference the existing n98_/n523_ pins; the blocking
+  `blocking-checks-sync` CI job validates the format, the test bindings
+  (a word-boundary grep — a renamed/deleted test = drift = failure), the
+  coverage and the absent rows, and the --tamper-test negative mode
+  proves the traps spring (an unresolvable id, a bogus verdict, a
+  duplicate key). THE GATE WIRING: the table feeds the №525 gate-facts —
+  `fact_blocking_check_cells: 27` machine-verified by
+  `blocking_checks_sync.py --count` in the gate-facts-sync job (the
+  unknown-fact fail-closed trap verified).
+
 - Naryad №529 (issue #838; the consolidated audit 30.09, Д-5+N-6,
   P1 reliability/hardening): the bounded registries grow the SECOND
   circuit — the total BYTE ceiling next to the №515 count ceiling.

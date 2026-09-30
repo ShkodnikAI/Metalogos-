@@ -547,6 +547,21 @@ jobs:
         run: |
           python3 scripts/ci/registry_bounds_check.py
 
+  blocking-checks-sync:
+    name: blocking-checks-sync (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # №535 (issue #844): the machine-readable "who blocks" table — the
+      # sync validates the format, the test bindings and the coverage; the
+      # tamper-test proves the traps spring. Pure Python.
+      - name: "Gate — blocking_checks.tsv is in sync with the tests (№535)"
+        run: |
+          python3 scripts/ci/blocking_checks_sync.py
+      - name: "Negative test — the tampered cells trip the check (№535)"
+        run: |
+          python3 scripts/ci/blocking_checks_sync.py --tamper-test
+
   ops-pairs:
     name: ops-pairs (blocking)
     runs-on: ubuntu-latest

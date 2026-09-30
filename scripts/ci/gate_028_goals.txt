@@ -46,3 +46,12 @@ fact_open_high_server: 0
 # Machine-verified by scripts/ci/sync_gate_facts.py in CI.
 fact_quorum_num: 0
 fact_quorum_den: 8
+
+# №535: the live cell count of the blocking-checks table
+# (scripts/ci/blocking_checks.tsv) — the machine-readable "who blocks"
+# record (command × phase × check × {blocks,warns,absent}) for the
+# run/check/compile/serve pipeline. The table is the ADR-0179 §6
+# checklist item 3; a behavior change without a table + test update is
+# the blocking blocking-checks-sync CI job's failure.
+# Machine-verified by scripts/ci/blocking_checks_sync.py --count.
+fact_blocking_check_cells: 27

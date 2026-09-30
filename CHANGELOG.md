@@ -4,6 +4,17 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №524 (issue #833; the consolidated audit A+D 30.09, Д-1,
+  P1 docs): the limitations.md row for the serve-distillation defect
+  reads **Fixed in №495, v0.27.1** — its own condition had come true
+  (№495 merged, v0.27.1 released, the both-backend e2e
+  `tests/naryad_496_distill_serve_e2e.rs` stands), so the row obeyed the
+  rule it prescribed: closed IN THE SAME PR, by the naryad number named
+  in its own text, the defect text kept as the historical record — never
+  removed silently. The closing rule itself (a limitations.md row closes
+  in the same PR as its fix, by the number from its text — the gate-0.28
+  checklist item, ADR-0179) is formalized as a wave-reporting protocol
+  point and a candidate row for the №535 blocking-checks table.
 - Naryad №523 (issue #832; the consolidated audit A+D 30.09, N-1 High,
   P0 release-block): semantic findings now BLOCK `mlog run` and
   `mlog serve` — the liar string is gone. THE HOLE: `run_program_with_dir`

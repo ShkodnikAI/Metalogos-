@@ -11,6 +11,9 @@ use crate::nn::activation::ActivationKind;
 use crate::nn::layer::Layer;
 
 /// Dense layer: y = activation(x · W + b)
+/// №530: Clone — the distill training snapshots the weights OUT of the
+/// registry lock and trains the copy (the clone is the training substrate).
+#[derive(Clone)]
 pub struct Dense {
     pub weights: Vec<Vec<f64>>, // [output_size][input_size]
     pub bias: Vec<f64>,         // [output_size]

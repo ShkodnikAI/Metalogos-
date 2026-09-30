@@ -117,6 +117,69 @@ pub struct ReflexModel {
 }
 
 impl ReflexModel {
+    /// №530 (issue #839): the WEIGHTS SNAPSHOT for the out-of-lock
+    /// distill training — a full copy of the model, taken under the
+    /// short metadata lock; the 30-epoch training run then happens on
+    /// the copy with NO registry lock held, and the trained copy is
+    /// swapped back atomically only if the holdout gate passes.
+    /// The clone path downcasts through `as_any` — the ONLY registered
+    /// layer kind today is `dense` (LAYER_REGISTRY), and the distill
+    /// training is Dense-only by contract (№185, validated by the
+    /// caller); any other layer kind is a loud error, never a silent
+    /// partial copy.
+    pub fn snapshot_clone(&self) -> Result<ReflexModel, String> {
+        let layers: Vec<Box<dyn Layer>> = self
+            .layers
+            .iter()
+            .map(|l| {
+                l.as_any()
+                    .downcast_ref::<crate::nn::dense::Dense>()
+                    .map(|d| Box::new(d.clone()) as Box<dyn Layer>)
+                    .ok_or_else(|| {
+                        format!(
+                            "distill snapshot: layer '{}' is not Dense — the distill training is Dense-only (№185)",
+                            l.name()
+                        )
+                    })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        Ok(ReflexModel {
+            name: self.name.clone(),
+            layers,
+            seed: self.seed,
+            last_metric: self.last_metric,
+            input_size: self.input_size,
+            labels: self.labels.clone(),
+            feature_signature: self.feature_signature.clone(),
+        })
+    }
+
+    /// №530 test hook: a deterministic fingerprint of ALL layer weights
+    /// (weights + bias folded through FxHash-style mixing). Pinning the
+    /// fingerprint before/after a FAILED-gate training proves the
+    /// registry weights were NOT mutated by the discarded snapshot.
+    #[doc(hidden)]
+    pub fn weights_fingerprint(&self) -> u64 {
+        let mut h: u64 = 0xcbf29ce484222325;
+        let mix = |h: &mut u64, v: f64| {
+            *h ^= v.to_bits();
+            *h = h.wrapping_mul(0x100000001b3);
+        };
+        for l in &self.layers {
+            if let Some(d) = l.as_any().downcast_ref::<crate::nn::dense::Dense>() {
+                for row in &d.weights {
+                    for &w in row {
+                        mix(&mut h, w);
+                    }
+                }
+                for &b in &d.bias {
+                    mix(&mut h, b);
+                }
+            }
+        }
+        h
+    }
+
     /// Forward pass through all layers.
     /// Input is raw f64 slice, output is raw f64 vec.
     pub fn forward(&self, input: &[f64]) -> Vec<f64> {

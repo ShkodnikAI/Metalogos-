@@ -183,7 +183,7 @@ impl DistillHub {
         audit: Arc<dyn Fn(String) + Send + Sync>,
         persist_path: Option<&str>,
         declarations: &[crate::ast::Declaration],
-    ) -> Result<Arc<dyn DistillAccess>, String> {
+    ) -> Result<std::sync::Arc<DistillHub>, String> {
         // The declared reflex models: the same Declaration::Reflex arm the
         // top-level pass runs — no parallel model-building code.
         let mut refl = crate::interpreter::Interpreter::new();
@@ -323,6 +323,26 @@ impl DistillHub {
                         if let Some(s) = inner.states.get_mut(&job.pattern_name) {
                             s.mode = DistillMode::Distilled;
                         }
+                    } else if outcome.gate_rejected {
+                        // №530 (issue #839): the retrain's holdout gate
+                        // rejected the fresh snapshot — the data drifted
+                        // under the live model. The LOUD return to
+                        // TEACHING: the pattern re-accumulates LLM-backed
+                        // examples and retrains later; silent degradation
+                        // is impossible. A TEACHING-pattern rejection is
+                        // the usual stay-put (no flip).
+                        if let Some(s) = inner.states.get_mut(&job.pattern_name) {
+                            if s.mode == DistillMode::Distilled {
+                                s.mode = DistillMode::Teaching;
+                                DistillHub::audit_line(
+                                    &worker_shared,
+                                    format!(
+                                        "[AUDIT] distill.degraded: {} reverted to TEACHING — the retrain failed the holdout gate, the old weights no longer reflect the data (naryad №530)",
+                                        job.pattern_name
+                                    ),
+                                );
+                            }
+                        }
                     }
                     inner.in_flight.remove(&job.pattern_name);
                 }
@@ -330,6 +350,8 @@ impl DistillHub {
             .map_err(|e| format!("distill hub: spawn trainer: {}", e))?;
 
         Ok(Arc::new(DistillHub { shared, tx }))
+        // №530: the concrete Arc keeps the raw-registry test hook reachable;
+        // the server call sites coerce to Arc<dyn DistillAccess> implicitly.
     }
 
     fn audit_line(shared: &HubShared, line: String) {
@@ -350,6 +372,7 @@ impl DistillHub {
                 return crate::interpreter::learnable::DistillTrainOutcome {
                     pattern_name: job.pattern_name.clone(),
                     switched: false,
+                    gate_rejected: false,
                     error: Some(format!(
                         "distill: reflex '{}' not declared (no `reflex {} {{ ... }}` block)",
                         job.spec.reflex_name, job.spec.reflex_name
@@ -375,6 +398,18 @@ impl DistillHub {
             &config,
             &job.examples,
         )
+    }
+}
+
+impl DistillHub {
+    /// №530: test-support accessor — the raw reflex registry Arc for the
+    /// out-of-lock/retrain tests (the weight-fingerprint assertions read
+    /// the live model). #[doc(hidden)]: not part of the public API surface.
+    #[doc(hidden)]
+    pub fn raw_registry_for_tests(
+        &self,
+    ) -> std::sync::Arc<std::sync::Mutex<crate::nn::ReflexRegistry>> {
+        std::sync::Arc::clone(&self.shared.registry)
     }
 }
 
@@ -483,6 +518,77 @@ impl DistillAccess for DistillHub {
                 Ok(None)
             }
             DistillMode::Distilled => {
+                // №530 (issue #839): the RETRAIN trigger. The buffer keeps
+                // growing in DISTILLED mode too — every LOW-CONFIDENCE
+                // call falls through to the LLM and records the fresh
+                // (input, llm_output) ground truth. When the new examples
+                // since the last training cross the SAME threshold that
+                // built the model (the honest default: the pattern's own
+                // `distill_after`, the ADR-0115 floor of 10 applies), a
+                // retrain job is scheduled on the single trainer thread.
+                // The mode stays DISTILLED while it runs (the old weights
+                // keep answering); the outcome lands in the trainer thread:
+                // gate passed → the weights swap in; gate rejected → the
+                // loud TEACHING revert (the degradation branch).
+                let retrain_threshold = std::cmp::max(spec.distill_after, 10);
+                let new_since_train = count.saturating_sub(last_attempt);
+                if new_since_train >= retrain_threshold {
+                    let in_flight = {
+                        let mut inner =
+                            self.shared.inner.lock().map_err(|e| {
+                                format!("distill hub: in-flight lock poisoned: {}", e)
+                            })?;
+                        if inner.in_flight.contains(pattern_name) {
+                            true
+                        } else {
+                            inner.in_flight.insert(pattern_name.to_string());
+                            false
+                        }
+                    };
+                    if !in_flight {
+                        let examples = {
+                            let inner = self.shared.inner.lock().unwrap_or_else(|e| e.into_inner());
+                            inner
+                                .states
+                                .get(pattern_name)
+                                .map(|s| s.examples.clone())
+                                .unwrap_or_default()
+                        };
+                        Self::audit_line(
+                            &self.shared,
+                            format!(
+                                "[AUDIT] distill.retraining-started: {} new_examples={} buffer={} — the retrain runs in the hub's background thread (naryad №530)",
+                                pattern_name,
+                                new_since_train,
+                                examples.len()
+                            ),
+                        );
+                        {
+                            let mut inner =
+                                self.shared.inner.lock().unwrap_or_else(|e| e.into_inner());
+                            if let Some(s) = inner.states.get_mut(pattern_name) {
+                                s.last_train_attempt = count;
+                            }
+                        }
+                        let job = TrainJob {
+                            pattern_name: pattern_name.to_string(),
+                            spec: spec.clone(),
+                            examples,
+                        };
+                        if self.tx.send(job).is_err() {
+                            Self::audit_line(
+                                &self.shared,
+                                format!(
+                                    "[AUDIT] distill.training-dropped: {} — the hub trainer thread is not accepting jobs",
+                                    pattern_name
+                                ),
+                            );
+                            let mut inner =
+                                self.shared.inner.lock().unwrap_or_else(|e| e.into_inner());
+                            inner.in_flight.remove(pattern_name);
+                        }
+                    }
+                }
                 // Predict through the hub's registry (the trained weights
                 // live HERE, not in a per-request copy). Safe degradation:
                 // any error → None → the outer path falls through to LLM.
@@ -643,4 +749,237 @@ impl DistillAccess for DistillHub {
 /// №502 metric) moves DOWN as planned by the №502 baseline.
 pub(crate) fn distill_features(input: &str, dim: usize) -> Vec<f64> {
     crate::embeddings::hashed_tfidf_vector(input, dim)
+}
+
+// ── №530 (issue #839; audit 30.09 N-4): the out-of-lock training, the
+// DISTILLED retraining, and the loud degradation → TEACHING revert ──
+#[cfg(test)]
+mod n530_tests {
+    use super::*;
+
+    fn source() -> String {
+        let mock_label = crate::llm::mock_response("answer");
+        format!(
+            r#"
+reflex Head {{
+  input: embedding(4)
+  layers: [dense(4, "relu"), dense(2, "softmax")]
+  labels: ["{mock_label}", "other"]
+  seed: 42
+}}
+"#
+        )
+    }
+
+    struct Fixture {
+        hub: std::sync::Arc<DistillHub>,
+        audit_lines: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+        pattern: &'static str,
+        label: String,
+    }
+
+    fn make_hub() -> Fixture {
+        let decls = crate::parser::parse(&source()).expect("reflex source parses");
+        let audit_lines: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
+            std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = std::sync::Arc::clone(&audit_lines);
+        let audit: std::sync::Arc<dyn Fn(String) + Send + Sync> =
+            std::sync::Arc::new(move |line| {
+                sink.lock().unwrap_or_else(|e| e.into_inner()).push(line)
+            });
+        let hub = DistillHub::open(audit, None, &decls).expect("hub opens");
+        let label = crate::llm::mock_response("answer");
+        Fixture {
+            hub,
+            audit_lines,
+            pattern: "Ask",
+            label,
+        }
+    }
+
+    fn spec(distill_after: usize) -> DistillSpec {
+        DistillSpec {
+            reflex_name: "Head".to_string(),
+            distill_after,
+            fallback_if: Some((crate::ast::CompareOp::Lt, 0.7)),
+            min_accuracy: 0.8,
+            margin: 0.05,
+        }
+    }
+
+    fn wait_for(fixture: &Fixture, marker: &str, timeout_ms: u64) -> bool {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
+        while std::time::Instant::now() < deadline {
+            if fixture
+                .audit_lines
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .iter()
+                .any(|l| l.contains(marker))
+            {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        false
+    }
+
+    fn fingerprint(fixture: &Fixture) -> u64 {
+        let id = *fixture
+            .hub
+            .shared
+            .names
+            .get("Head")
+            .expect("the reflex handle");
+        let reg_arc = fixture.hub.raw_registry_for_tests();
+        let reg = reg_arc.lock().unwrap_or_else(|e| e.into_inner());
+        match reg.get(id) {
+            Some(crate::nn::ModelKind::Dense(m)) => m.weights_fingerprint(),
+            _ => panic!("a Dense model exists"),
+        }
+    }
+
+    fn mode(fixture: &Fixture) -> DistillMode {
+        let inner = fixture
+            .hub
+            .shared
+            .inner
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        inner
+            .states
+            .get(fixture.pattern)
+            .map(|s| s.mode)
+            .unwrap_or(DistillMode::Teaching)
+    }
+
+    #[test]
+    fn n530_failed_gate_leaves_weights_untouched() {
+        // The initial training passes (single-label data: the №496 honest
+        // trick — the all-one-label holdout accuracy is 1.0 and the
+        // single-class carve-out applies min_accuracy raw).
+        let f = make_hub();
+        for i in 0..25 {
+            f.hub
+                .record_example(f.pattern, &format!("alpha {i}"), &f.label);
+        }
+        let s = spec(20);
+        f.hub.try_distilled_call(f.pattern, &s, "alpha 1").unwrap();
+        assert!(
+            wait_for(&f, "distill.training-finished", 15000),
+            "the initial training finishes"
+        );
+        assert_eq!(mode(&f), DistillMode::Distilled);
+
+        // The retrain: 30 NEW examples on the SAME input with the
+        // OPPOSITE label — the feature vectors collapse to one point
+        // (dim 4 hashed TF-IDF), the majority-baseline gate (№485)
+        // refuses the degenerate majority model: the gate REJECTS.
+        let other = "other";
+        for i in 0..30 {
+            let _ = i;
+            f.hub.record_example(f.pattern, "alpha conflict", other);
+        }
+        let before = fingerprint(&f);
+        f.hub.try_distilled_call(f.pattern, &s, "alpha 1").unwrap();
+        assert!(
+            wait_for(&f, "distill.degraded", 15000),
+            "the loud degradation audit lands"
+        );
+        assert_eq!(mode(&f), DistillMode::Teaching, "the loud TEACHING revert");
+        let after = fingerprint(&f);
+        assert_eq!(
+            before, after,
+            "the live weights are untouched by the failed-gate retrain"
+        );
+    }
+
+    #[test]
+    fn n530_retrain_succeeds_and_stays_distilled() {
+        let f = make_hub();
+        for i in 0..25 {
+            f.hub
+                .record_example(f.pattern, &format!("alpha {i}"), &f.label);
+        }
+        let s = spec(20);
+        f.hub.try_distilled_call(f.pattern, &s, "alpha 1").unwrap();
+        assert!(wait_for(&f, "distill.training-finished", 15000));
+        assert_eq!(mode(&f), DistillMode::Distilled);
+
+        // Fresh CONSISTENT examples — the retrain passes the gate and the
+        // pattern stays DISTILLED (the weights swap in atomically).
+        for i in 0..25 {
+            f.hub
+                .record_example(f.pattern, &format!("gamma {i}"), &f.label);
+        }
+        f.hub.try_distilled_call(f.pattern, &s, "gamma 1").unwrap();
+        assert!(
+            wait_for(&f, "distill.retraining-started", 15000),
+            "the retrain trigger fires on the accumulated buffer"
+        );
+        assert!(
+            wait_for(&f, "distill.training-finished", 15000),
+            "the retrain finishes"
+        );
+        assert!(
+            !f.audit_lines
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .iter()
+                .any(|l| l.contains("distill.degraded")),
+            "no degradation on consistent data"
+        );
+        assert_eq!(mode(&f), DistillMode::Distilled);
+    }
+
+    #[test]
+    fn n530_training_does_not_hold_the_registry_lock() {
+        // The large buffer makes the 30-epoch run long enough (hundreds of
+        // ms) that the pre-№530 behavior — holding the registry lock for
+        // the WHOLE run — is distinguishable deterministically: the test
+        // acquires the lock repeatedly and every acquisition BEFORE the
+        // finished line must be sub-100ms (the old code blocked for the
+        // whole training).
+        let f = make_hub();
+        for i in 0..4000 {
+            f.hub
+                .record_example(f.pattern, &format!("alpha token{i} word{i} {i}"), &f.label);
+        }
+        let s = spec(20);
+        f.hub.try_distilled_call(f.pattern, &s, "alpha 1").unwrap();
+        // Wait for the STARTED line — the trainer is now inside the run.
+        assert!(wait_for(&f, "distill.training-started", 15000));
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let mut acquired_before_finish = 0usize;
+        let mut worst = std::time::Duration::ZERO;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        let finished = |f: &Fixture| {
+            f.audit_lines
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .iter()
+                .any(|l| l.contains("distill.training-finished"))
+        };
+        while std::time::Instant::now() < deadline && !finished(&f) {
+            let t0 = std::time::Instant::now();
+            let reg_arc = f.hub.raw_registry_for_tests();
+            {
+                let _reg = reg_arc.lock().unwrap_or_else(|e| e.into_inner());
+            }
+            drop(reg_arc);
+            let elapsed = t0.elapsed();
+            worst = worst.max(elapsed);
+            acquired_before_finish += 1;
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(finished(&f), "the training finishes within the deadline");
+        assert!(
+            acquired_before_finish >= 3,
+            "the lock was acquirable DURING training (acquired {acquired_before_finish})"
+        );
+        assert!(
+            worst < std::time::Duration::from_millis(100),
+            "every in-training acquisition is fast (worst {worst:?}) — the lock is never held by an epoch loop"
+        );
+    }
 }

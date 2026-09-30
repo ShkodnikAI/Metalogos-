@@ -5,6 +5,14 @@ resolver = "2"
 [workspace.package]
 version = "0.27.1"
 edition = "2021"
+# №528 (issue #837; audit 30.09 Д-4+N-5): the MSRV lives in the build
+# contract — the resolver refuses older toolchains with a clear error.
+# THE HONEST FLOOR IS 1.93.1, not the draft's 1.85: the locked tree's
+# facts (verified by toolchain walk: 1.85 → weezl needs 1.88; 1.88 →
+# rustyline needs 1.89 file_lock; 1.89 → serial_test needs 1.93.1;
+# 1.93.1 → FULL check --workspace --all-targets green). The floor moves
+# ONLY UP by an evidence-backed dependency fact, never silently.
+rust-version = "1.93.1"
 
 [package]
 name = "metalogos"

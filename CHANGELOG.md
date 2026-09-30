@@ -4,6 +4,30 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №528 (issue #837; the consolidated audit A+D 30.09, Д-4+N-5,
+  P1 deploy/ci): the MSRV lives in the build contract. `rust-version =
+  "1.93.1"` in [workspace.package] (mlogpkg/mlog-lsp inherit) — cargo on
+  an older toolchain now refuses with a clear resolver error (verified:
+  1.85 and 1.89 both name the packages that refuse). `rust-toolchain.toml`
+  pins the COMPONENT contract (clippy + rustfmt — the CI blocking jobs'
+  surface); the channel tracks stable BECAUSE the clippy ratchet is
+  written for new clippy (the №500 precedent: `chunks_exact_to_as_chunks`
+  does not exist in clippy 1.93.1 — freezing the toolchain at the floor
+  would break the -D warnings gate). THE HONEST DEVIATION from the
+  naryad's draft (1.85), evidence-backed by the toolchain walk: 1.85 →
+  weezl needs 1.88; 1.88 → rustyline needs 1.89 (`file_lock`); 1.89 →
+  serial_test needs 1.93.1; 1.93.1 → the FULL `check --workspace
+  --all-targets` is green. The README badge and the build-from-source
+  wording now name 1.93.1 and point at rust-version as the SSOT. THE
+  DEPLOY-PATH BLINDNESS (N-5) was DOUBLE, and one layer was hidden:
+  docker.yml's push trigger landed CORRUPTED in №511 (`branches: ain]` —
+  a literal branch name that never matches, the trigger was dead) AND the
+  workflow file itself failed Actions YAML parsing since №511 (an
+  unquoted backtick in a step name — the file could not parse at all).
+  Both fixed byte-level and YAML-validated; the pull_request trigger
+  lands (Dockerfile/.dockerignore/example/src mains/Cargo.toml/Cargo.lock/
+  rust-toolchain.toml/the workflow) so a dependency refresh rebuilds the
+  image BEFORE the merge, not after.
 - Naryad №526 (issue #835; the consolidated audit A+D 30.09, N-2,
   P1 security/voice): the GDPR Art. 17 erasure path for voiceprints
   LANDS — the right-to-erasure is no longer a document-only promise

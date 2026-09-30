@@ -6,7 +6,7 @@
 
 **AI-native programming language with security by design. Written in Rust.**
 
-[![Rust](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/rust-1.93.1-orange.svg)](https://www.rust-lang.org/)
 [![Version](https://img.shields.io/badge/v0.27.1-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/releases)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-green.svg)](#license)
 [![CI](https://img.shields.io/badge/CI-28%20blocking%20jobs-brightgreen.svg)](https://github.com/ShkodnikAI/Metalogos-/actions)
@@ -60,7 +60,7 @@ The full tour with the VM/TW parity explanation lives in the [tutorial](docs/boo
 
 ## Installation
 
-**Build from source** (Rust 1.85+, the only requirement):
+**Build from source** (Rust **1.93.1+** — the `rust-version` in `Cargo.toml` [workspace.package] is the single source of truth, №528; cargo on an older toolchain refuses with a clear resolver error), the only requirement:
 
 ```bash
 git clone https://github.com/ShkodnikAI/Metalogos-.git && cd Metalogos-

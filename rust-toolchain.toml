@@ -1,0 +1,14 @@
+# №528 (issue #837; audit 30.09 Д-4+N-5): the build contract's toolchain
+# file. THE COMPONENTS are the CI reality (clippy + rustfmt — the fmt and
+# clippy blocking jobs' surface); the CHANNEL tracks stable because the
+# repo's clippy ratchet is written FOR new clippy: the lint set is
+# versioned up (the №500 precedent — `chunks_exact_to_as_chunks` did not
+# exist in clippy 1.93.1, so freezing the toolchain at the MSRV floor
+# would break the -D warnings ratchet with `unknown lint`).
+# THE VERSION FLOOR is enforced by `rust-version` in Cargo.toml
+# [workspace.package] (1.93.1 — see the evidence note there): cargo on an
+# older toolchain refuses with a clear resolver error. THAT is the MSRV
+# contract; this file is the component contract, not a version pin.
+[toolchain]
+channel = "stable"
+components = ["clippy", "rustfmt"]

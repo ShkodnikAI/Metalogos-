@@ -26,6 +26,7 @@
 - [CHANGELOG.md](CHANGELOG.md): полная история изменений (наряды №1-№289+), SSOT для "что нового".
 - [docs/adr/](docs/adr/): 132 ADR (Architecture Decision Records) — все архитектурные решения с контекстом, альтернативами, и последствиями. Индекс в `docs/adr/README.md`.
 - [docs/threat-model.md](docs/threat-model.md): единая поддерживаемая точка про ограничения безопасности.
+- [docs/privacy.md](docs/privacy.md): инженерная политика приватности — какие данные хранятся, где, как удаляются (пометки CONFIRMED/PARTIAL/ABSENT; №519).
 
 ## Наряды (work orders)
 

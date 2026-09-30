@@ -224,7 +224,7 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 | Architecture Decisions | 172 ADRs |
 | Example Programs | 259 .mlog programs |
 | Reference | REFERENCE.md (~290 KB) — 100% registry coverage |
-| Changelog | CHANGELOG.md (~543 KB) — every wave documented |
+| Changelog | CHANGELOG.md (~545 KB) — every wave documented |
 <!-- END GENERATED METRICS -->
 
 Validated on every CI run: `scripts/gen_metrics.py --check` plus the independent recomputation in `tests/readme_consistency.rs`.
@@ -253,6 +253,7 @@ The media-path invariant: **core never imports the media processing** — the in
 | [docs/book](docs/book/src/tutorial.md) | Tutorial, syntax reference, stdlib, overview, architecture, features, dev guide |
 | [REFERENCE.md](REFERENCE.md) | Full builtin reference — 100% of the registry |
 | [docs/limitations.md](docs/limitations.md) | The honest boundaries — enforced, not aspirational |
+| [docs/privacy.md](docs/privacy.md) | The engineering privacy policy — what is stored, where, how it is deleted (verdict-marked) |
 | [docs/threat-model.md](docs/threat-model.md) | The security model: checks, gates, audit classes |
 | [CHANGELOG.md](CHANGELOG.md) | Every wave, every naryad |
 | [SECURITY.md](SECURITY.md) | How to report vulnerabilities |
@@ -264,7 +265,7 @@ Key files at the repo root:
 ├── REFERENCE.md                      # Full builtin reference — 100% of the registry
 ├── CHANGELOG.md                      # Version history (see metrics above)
 ├── SECURITY.md                       # Vulnerability disclosure policy
-└── docs/                             # book/, adr/, limitations, threat-model
+└── docs/                             # book/, adr/, limitations, threat-model, privacy
 ```
 
 ## Quick Start

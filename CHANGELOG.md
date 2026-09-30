@@ -4,6 +4,35 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №519 (issue #803; the consolidated audit 28.09 C-20, P2 — the
+  contribution Г tied to the C-06 voice work): the engineering privacy policy
+  LANDS — `docs/privacy.md`, an honest inventory of what the runtime stores,
+  where, how it is deleted, and what it refuses to promise. In the
+  REALITY.md discipline every claim carries a verdict — CONFIRMED (code
+  anchor given), PARTIAL (implemented with the named caveat), ABSENT (not
+  implemented, the load-bearing list) — and the page opens with the
+  boundary statement: an engineering policy, NOT a GDPR declaration, NOT a
+  legal document; the deployer owns the compliance case. The inventory
+  covers the storage model (no hidden data directory — every persistent
+  path is program-declared, operator-env-set, or an explicit sandboxed
+  save/export), the per-category data map (voiceprints — honest AES-256-GCM
+  library code that is UNWIRED, the voice builtins being loud stubs, so a
+  shipped runtime stores zero voiceprints; memory lanes with the three
+  delete flavors — hard DELETE, the №280/№445 soft forget-ledger with an
+  owner-side vacuum, restart eviction; contacts/calendar as CalDAV/CardDAV
+  clients with data on the remote server and plaintext session creds in RAM
+  as a named gap; the process-local consent ledger and RAM-only likeness
+  tokens; sealed media with mandatory sidecar manifests; opt-in
+  metadata-only LLM traces; the semantic-cache input-embedding caveat;
+  profile as a read-only KV projection; the №515-bounded registries), the
+  consolidated SQLite table map, the encryption-status table with the
+  plaintext frontier named openly, and the retention defaults. Cross-links:
+  threat-model.md (the voice at-rest row now points at the file),
+  limitations.md (the voice-pillar removal condition now points at the
+  file), README Documentation table + repo tree, llms.txt. The claims never
+  exceed what the code does: every ABSENT (voice_delete,
+  memory_forget_all, a consent purge, session eviction) is stated as ABSENT.
+
 - Naryad №518 (issue #802; the consolidated audit 28.09 C-19, P2 — the only
   survived contribution Г not covered by В19): the dependency-tree gate LANDS —
   `deny.toml` (cargo-deny) plus the blocking `cargo-deny` CI job. Before this

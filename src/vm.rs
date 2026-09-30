@@ -13,6 +13,7 @@
 // Design: a single main loop that dispatches on the current instruction.
 // Function calls push a new frame; Return pops back.
 
+#![deny(clippy::wildcard_enum_match_arm)] // №532: the N-1 class lives in wildcard Value arms — new wildcards need an explicit allow + reason
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -693,7 +694,8 @@ impl Vm {
         // of reflex/vision/origin declarations on the (now empty) tables.
         self.load_program(program)
     }
-
+    #[allow(clippy::wildcard_enum_match_arm)]
+    // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
     /// Execute main_code (the top-level instruction sequence).
     /// Called by `run()` after `load_program()`.
     fn execute_main_code(&mut self, program: &Program) -> Result<Option<String>, String> {
@@ -1595,7 +1597,7 @@ impl Vm {
         self.value_registers = saved_registers;
         out
     }
-
+    #[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
     fn execute_code_inner(
         &mut self,
         code: &[Instruction],
@@ -2242,7 +2244,7 @@ impl Vm {
         call_stack.pop();
         result.map(|_| ())
     }
-
+    #[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
     fn call_builtin(&mut self, name: &str, args: &[Value]) -> Result<Value, String> {
         // ── Наряд №392: the DenyEvent surface ──────────────────────
         // Handler-scoped, runtime-constructed. The analyzer blocks usage
@@ -3779,7 +3781,8 @@ impl Vm {
         crate::llm::set_llm_backend_tag(prev_tag);
         out
     }
-
+    #[allow(clippy::wildcard_enum_match_arm)]
+    // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
     /// ADR-0089: If confidence < 1.0, wrap a concrete result as Fluid
     /// with the propagated confidence (VM version).
     fn vm_wrap_with_confidence(
@@ -3800,7 +3803,8 @@ impl Vm {
             result
         }
     }
-
+    #[allow(clippy::wildcard_enum_match_arm)]
+    // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
     /// Collapse a Fluid value to a concrete type.
     fn maybe_collapse(&mut self, value: &Value, required_type: &str) -> Value {
         match value {
@@ -3931,7 +3935,8 @@ impl Vm {
                 | Value::Subgraph(_)
         )
     }
-
+    #[allow(clippy::wildcard_enum_match_arm)]
+    // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
     /// Evaluate contains(left, right).
     /// №372: returns `Value::Bool` — TW parity (the shared `builtin_contains`
     /// returns Bool; the old Float 1.0/0.0 encoding printed "1"/"0" instead of
@@ -3996,12 +4001,48 @@ impl Vm {
 
 /// Truthiness check (matches interpreter).
 fn is_truthy(value: &Value) -> bool {
+    // №532: EXPLICIT arms over every Value variant — byte-preserved
+    // semantics with the TW twin (the №503 outcome-parity suite pins it).
+    // The truthy set is {non-empty String, non-zero Float, true Bool,
+    // non-empty List}; every other variant is falsy.
     match value {
         Value::String(s) => !s.is_empty(),
         Value::Float(f) => *f != 0.0,
         Value::Bool(b) => *b,
         Value::List(items) => !items.is_empty(),
-        _ => false,
+        Value::Struct { .. } => false,
+        Value::Fluid(_) => false,
+        Value::Unit => false,
+        Value::Html(_) => false,
+        Value::Query(_) => false,
+        Value::Secret(_) => false,
+        Value::Encrypted(_) => false,
+        Value::Hash(_) => false,
+        Value::Session(_) => false,
+        Value::HttpResponse { .. } => false,
+        Value::Subgraph(_) => false,
+        Value::Reflex(_) => false,
+        Value::BpeVocab(_) => false,
+        Value::Vision(_) => false,
+        Value::Voice(_) => false,
+        Value::Audio(_) => false,
+        Value::Video(_) => false,
+        Value::LlmStream(_) => false,
+        Value::Media(_) => false,
+        Value::Grant(_) => false,
+        Value::LikenessChallenge(_) => false,
+        Value::Likeness(_) => false,
+        Value::Memory(_) => false,
+        Value::Duplex(_) => false,
+        Value::Device(_) => false,
+        Value::WorldState(_) => false,
+        Value::ActionChunk(_) => false,
+        Value::Pose(_) => false,
+        Value::Trajectory(_) => false,
+        Value::GoalPredicate(_) => false,
+        Value::Proof(_) => false,
+        Value::SeriesHandle(_) => false,
+        Value::ForecastHandle(_) => false,
     }
 }
 
@@ -4515,7 +4556,7 @@ entity base: String = "7"
 #[cfg(test)]
 mod n409_tests {
     use super::*;
-
+    #[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
     fn compiled_with_routes(source: &str) -> (Program, Vec<crate::bytecode::CompiledRoute>) {
         let decls = crate::parser::parse(source).expect("parse");
         let server_cfg = decls

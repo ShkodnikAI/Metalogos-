@@ -101,7 +101,6 @@ def read_file_missing_inventory():
 # no COMPAT-N header tag (the honest removal the issue sanctions).
 # The counter moves ONLY DOWN (the №468 hygiene rule).
 TEXT_SUFFIXES = ('.rs', '.yml', '.yaml', '.py', '.txt', '.toml', '.md')
-COMPAT_RE = re.compile(r'COMPAT-\d+')
 
 
 def example_uncovered_inventory():
@@ -123,9 +122,9 @@ def example_uncovered_inventory():
         stem = os.path.splitext(os.path.basename(path))[0]
         if stem in haystack:
             continue
-        head = '\n'.join(open(path, encoding='utf-8', errors='replace').read().splitlines()[:5])
-        if COMPAT_RE.search(head):
-            continue
+        # №533: the COMPAT-tag skip is GONE — the stale-syntax examples
+        # live in examples/compat/ (excluded by PATH: this glob is
+        # top-level only); a tagged file in the LIVE catalog is debt.
         uncovered.append(os.path.relpath(path, ROOT))
     return uncovered
 

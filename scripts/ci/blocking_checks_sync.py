@@ -143,7 +143,14 @@ def tamper_tests(rows: list[dict]) -> None:
         print('PASS: the unresolvable test_id trap sprang')
     else:
         failed.append('the unresolvable test_id did NOT trip the check')
-    # 2. a bogus verdict
+    # 2. a bogus verdict — HOTFIX (the first real CI run, 30.09): the
+    # trap asserted the wrong failure mode. `validate()` RETURNS the
+    # error list, it never raises ValueError for a domain violation
+    # (only `load_rows` raises, on the column-count drift), so the
+    # `except ValueError` branch was unreachable and the trap could
+    # never spring — `blocking-checks-sync (blocking)` failed on every
+    # run with "the bogus verdict did NOT trip the check". The trap
+    # now inspects the returned errors exactly like traps #1/#3 do.
     lines = open(TABLE, encoding='utf-8').readlines()
     for i, line in enumerate(lines):
         if line.startswith('check|semantic|warnings|'):
@@ -152,11 +159,11 @@ def tamper_tests(rows: list[dict]) -> None:
     with tempfile.NamedTemporaryFile('w', suffix='.tsv', delete=False) as tmp:
         tmp.writelines(lines)
         path2 = tmp.name
-    try:
-        validate(load_rows(path2), collect_sources())
-        failed.append('the bogus verdict did NOT trip the check')
-    except ValueError:
+    errors2 = validate(load_rows(path2), collect_sources())
+    if any('bogus verdict' in e for e in errors2):
         print('PASS: the bogus-verdict trap sprang (the verdict domain)')
+    else:
+        failed.append('the bogus verdict did NOT trip the check')
     # 3. a duplicate cell key
     lines = open(TABLE, encoding='utf-8').readlines()
     row_line = next(l for l in lines if l.startswith('run|parse|'))

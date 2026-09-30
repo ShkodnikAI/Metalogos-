@@ -24,6 +24,25 @@ All notable changes to the Metalogos project.
   or allowed with a reason (the negative test: a probe wildcard was
   verified to trip the build, then removed).
 
+- HOTFIX (the first real CI run, 30.09→01.10): the two shipped-unseen CI
+  defects the dead event delivery hid, both caught by the first
+  `blocking-checks-sync`-carrying run after the Actions
+  push/pull_request event outage (the last pull_request CI run was
+  14:30 UTC 30.09; everything merged after that ran unchecked). (1)
+  №535's tamper-test trap #2 asserted the wrong failure mode:
+  `validate()` RETURNS the error list and never raises ValueError on a
+  verdict-domain violation (only `load_rows` raises, on the column
+  count), so the `except ValueError` branch was unreachable, the
+  bogus-verdict trap could never spring, and the blocking job failed on
+  every run with "the bogus verdict did NOT trip the check" — the
+  gate's own first run caught its own bug; the trap now inspects the
+  returned errors exactly like traps #1/#3 do. (2) №528's
+  rust-toolchain.toml (channel = "stable") silently overrode the
+  fuzz-smoke job's nightly install — cargo-fuzz's `-Zsanitizer` build
+  probes died on the stable rustc ("the option `Z` is only accepted on
+  the nightly compiler"); the job now pins `RUSTUP_TOOLCHAIN: nightly`
+  at the job level (the rustup override precedence: env > the
+  toolchain file), the rest of the repo keeps the №528 stable contract.
 - Naryad №535 (issue #844; the consolidated audit 30.09, the gate-0.28
   checklist item 3 — ADR-0179, P1 process/testing): the machine-readable
   record of WHO BLOCKS EXECUTION lands —

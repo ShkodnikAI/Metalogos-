@@ -4,6 +4,26 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №536 (issue #846; the wave-23 typing line 3-A, P1): the string
+  package leaves stage 0 — 10 rows of BUILTIN_REGISTRY carry the
+  verified return type (capitalize/title_case/redact/squeeze/
+  hashline_read/hashline_edit → String; regex_match → Bool;
+  regex_captures → List; regex_replace → String; text_chunk → List),
+  each verified against the handler's actual returns, NOT the name. Two
+  rows stay Unknown HONESTLY with the inline reasons: reverse is
+  polymorphic (String → String, List → List) and fuzzy_find_best is
+  Unit | struct{index, candidate, score} — the flat vocabulary has no
+  union, and the №486 base-type comparison would warn falsely on a bent
+  claim; the metric is not to be gamed. THE BASELINE FIX, named: the
+  №757 floor (998 bp) never took effect — the gate parser reads the
+  FIRST threshold_bp line and the history kept it at 980; the
+  superseded history lines now sit outside the match and ONE live
+  triple is enforced. The total drifted 501 → 507 since №757 (the №526
+  voice rows, the №507/№514 *_or twins — to_float_or/to_int_or shipped
+  typed; the arity rewrites) and is resynced here. Floor: 52/507 actual
+  pre-PR (1025 bp) → 62/507 = 1222 bp. The package's +3–5 pp target was
+  unreachable inside the package bounds (only 12 untyped rows existed);
+  the honest gain is ≈ +2.0 pp, the gap documented in the M2 report.
 - HOTFIX (the first real CI run, 30.09→01.10): the two shipped-unseen CI
   defects the dead event delivery hid, both caught by the first
   `blocking-checks-sync`-carrying run after the Actions

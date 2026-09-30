@@ -15,13 +15,26 @@
 # 2026-09-26 №467 (gh#688) stage 0: 49 rows typed (the verified flat
 # vocabulary: string/bool/float/list/unit core — the per-handler
 # verification is recorded in the PR); floor = the start value.
-# typed: 49
-# total: 500
-# threshold_bp: 980
+# (superseded) typed: 49 | total: 500 | floor was 980 bp
 #
 # 2026-09-27 №757: the new llm_last_finish_reason row ships typed
 # ("String" — returns the last observed finish_reason) — 49→50 typed
 # of 501 total; floor raised with the row that earned it.
-# typed: 50
-# total: 501
-# threshold_bp: 998
+# (superseded) typed: 50 | total: 501 | floor was 998 bp — NOTE (№536): this floor never took effect: the --gate parser reads the FIRST threshold_bp line, which stayed at 980; the history lines now sit outside the match so the live triple below is the one enforced
+
+# 2026-10-01 №536 (gh#846): the string package leaves stage 0 — 10 rows
+# typed against the verified handlers (capitalize/title_case/redact/
+# squeeze/hashline_read/hashline_edit → String; regex_match → Bool;
+# regex_captures → List; regex_replace → String; text_chunk → List);
+# 2 rows stay Unknown HONESTLY (reverse — polymorphic String|List;
+# fuzzy_find_best — Unit|struct) — not bent for the metric. The total
+# drifted 501 → 507 since the №757 floor (the №526 voice rows, the
+# №507/№514 *_or twins — to_float_or/to_int_or shipped typed; the arity
+# rewrites), this line resyncs it. 50/501 (stale) → 62/507 actual;
+# (62*10000)//507 = 1222 bp. The package target +3–5 pp was unreachable
+# inside the package bounds (only 12 untyped rows existed) — the honest
+# gain vs the pre-PR actual (52/507 = 1025 bp) is +197 bp ≈ +2.0 pp,
+# the gap is documented in the M2 report.
+# typed: 62
+# total: 507
+# threshold_bp: 1222

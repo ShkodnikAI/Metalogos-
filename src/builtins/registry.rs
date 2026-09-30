@@ -100,13 +100,13 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("split", 2, "string"; builtin_split, "List"),
     spec!("join", 2, "string"; builtin_join, "String"),
     spec!("length", 1, "string"; builtin_length, "Float"),
-    spec!("reverse", 1, "string"; builtin_reverse),
+    spec!("reverse", 1, "string"; builtin_reverse), // №536: Unknown honest — polymorphic (String → String, List → List); the flat vocabulary has no union
     spec!("escape_html", 1, "string"; builtin_escape_html, "String"),
     spec!("escape_json", 1, "string"; builtin_escape_json, "String"),
     // Наряд №274 (ADR-0136): redact(text, mode) — PII/секреты как
     // taint-санитайзер («mask before sink»). Единственный легальный путь
     // снять Secret-taint; семантика снятия — в src/audit.rs + ADR-0136.
-    spec!("redact", 2, "string"; builtin_redact),
+    spec!("redact", 2, "string"; builtin_redact, "String"),
     spec!("escape_js", 1, "string"; builtin_escape_js, "String"),
     spec!("fuzzy_match", 2, "string"; builtin_fuzzy_match, "Float"),
     spec!("strip", 2, "string"; builtin_strip, "String"),
@@ -125,8 +125,8 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("truncate", 2, "string"; builtin_truncate, "String"),
     spec!("slugify", 1, "string"; builtin_slugify, "String"),
     spec!("word_wrap", 2, "string"; builtin_word_wrap, "String"),
-    spec!("capitalize", 1, "string"; builtin_capitalize),
-    spec!("title_case", 1, "string"; builtin_title_case),
+    spec!("capitalize", 1, "string"; builtin_capitalize, "String"),
+    spec!("title_case", 1, "string"; builtin_title_case, "String"),
     // ── Stdlib backing (double-underscore prefix) ──
     spec!("__trim", 1, "std"; builtin_trim),
     spec!("__replace", 3, "std"; builtin_replace),
@@ -470,9 +470,9 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("fit_to_budget", 0, "stub"),       // planned budget planner; no handler
     spec!("map", 0, "stub"), // planned list mapper; no handler (use filter+reduce instead)
     // ── OpenPlanter-inspired: fuzzy / safe editing / agent utilities ──
-    spec!("fuzzy_find_best", 2, "string"; builtin_fuzzy_find_best),
-    spec!("hashline_read", 1, "string"; builtin_hashline_read),
-    spec!("hashline_edit", 2, "string"; builtin_hashline_edit),
+    spec!("fuzzy_find_best", 2, "string"; builtin_fuzzy_find_best), // №536: Unknown honest — Unit (no candidates) | struct{index, candidate, score}
+    spec!("hashline_read", 1, "string"; builtin_hashline_read, "String"),
+    spec!("hashline_edit", 2, "string"; builtin_hashline_edit, "String"),
     spec!("compact_list", 3, "list"; builtin_compact_list),
     spec!("budget_check", 2, "fluid"; builtin_budget_check),
     spec!("replay_snapshot", 1, "system"; builtin_replay_snapshot),
@@ -512,7 +512,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("learn_preference", 3, "bot" => "ext"; builtin_learn_preference),
     spec!("read_file_tokens", 1, "bot" => "ext"; builtin_read_file_tokens),
     // ── sqz-inspired: string/list utilities ──
-    spec!("squeeze", 2, "string"; builtin_squeeze),
+    spec!("squeeze", 2, "string"; builtin_squeeze, "String"),
     spec!("to_int", 1, "string"; builtin_to_int, "Float"), // parse string/float to integer
     // ── PDF processing (Наряд №48) ──
     spec!("pdf_classify", 1, "pdf"; builtin_pdf_classify),
@@ -539,9 +539,9 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // Наряд №172: secret() — reads env var as Value::Secret directly
     // (hard-failure if missing, unlike env() which returns empty string).
     spec!("secret", 1, "crypto"; builtin_secret), // ── Regex (Наряд №54; builtin_hex_decode) ──
-    spec!("regex_match", 2, "string"; builtin_regex_match),
-    spec!("regex_captures", 2, "string"; builtin_regex_captures),
-    spec!("regex_replace", 3, "string"; builtin_regex_replace), // ── PDF office automation (Наряд MLG-3; builtin_regex_replace) ──
+    spec!("regex_match", 2, "string"; builtin_regex_match, "Bool"),
+    spec!("regex_captures", 2, "string"; builtin_regex_captures, "List"),
+    spec!("regex_replace", 3, "string"; builtin_regex_replace, "String"), // ── PDF office automation (Наряд MLG-3; builtin_regex_replace) ──
     spec!("pdf_draw_table", 5, 6, "pdf"; builtin_pdf_draw_table), // id, x, y, col_widths_json, rows_json [,style_json]
     spec!("pdf_add_image", 4, 6, "pdf"; builtin_pdf_add_image), // id, x, y, image_path [,width, height]
     spec!("pdf_set_page_header", 2, 4, "pdf"; builtin_pdf_set_page_header), // id, text [,font, size]
@@ -882,7 +882,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // (RecursiveCharacterTextSplitter-дух, без зависимостей). Token-бюджет —
     // реюз token_count (memory.rs token_count_estimate). Registry 404→405
     // (append-only).
-    spec!("text_chunk", 2, 3, "string"; builtin_text_chunk), // text, strategy | +opts{max_chars, overlap, max_tokens}
+    spec!("text_chunk", 2, 3, "string"; builtin_text_chunk, "List"), // text, strategy | +opts{max_chars, overlap, max_tokens}
     // ── Наряд №275 (P1, feature/llm): LLM streaming — итераторный
     // стиль над SmartRouter (ADR-0137). Opaque handle Value::LlmStream,
     // registry crate::llm::LLM_STREAM_REGISTRY (bounded №263). Trace —

@@ -1,0 +1,44 @@
+# ── №535: the blocking-checks table — WHO BLOCKS EXECUTION, machine-read ──
+# The issue's why: the N-1 class returned twice (№510 → №523) because
+# "what blocks" was never recorded machine-readably. This table is the
+# record: command × phase × check × {blocks, warns, absent} — the state
+# AFTER №523. Change a blocking behavior WITHOUT updating this table and
+# its pinning test = a blocking CI failure (the blocking-checks-sync job
+# + tests/naryad_535_blocking_checks.rs).
+#
+# Verdicts: blocks = the violation refuses the command (non-zero exit);
+# warns = the signal is printed but the command proceeds; absent = the
+# check does not exist on this command (fixed honestly, not hidden).
+# test_id names the EXISTING test proving the cell (the sync script
+# greps it; an unresolvable id = failure). A note documents the boundary.
+#
+# The table feeds the №525 gate-facts (fact_blocking_check_cells) and the
+# ADR-0179 §6 inventory. JIT and mcp-serve are absent (зафиксировано) rows.
+command|phase|check|verdict|test_id|note
+run|read|file-readable|blocks|n535_run_missing_file_blocks|the CLI boundary: an unreadable file exits 1
+run|parse|parse-error|blocks|n535_run_parse_error_blocks|a parse error refuses before any execution
+run|audit|category-a|blocks|n98_run_blocks_on_sql_dynamic|SQL_DYNAMIC/SECRET_LEAK/HTML_INJECTION (+TAINT) at Error and Warning severities block (№98; the Info severity is filtered — no separate row)
+run|semantic|import-resolution|blocks|n535_run_missing_import_blocks|№523: imports resolve STATICALLY first (the same file-lookup as the runtime loader); a resolution failure is the coded [Naryad #523] refusal
+run|semantic|check-program-errors|blocks|n523_run_blocks_unknown_function_in_condition|№523: EVERY semantic::check_program error blocks; exemptions classify ONLY by the structured kind (the list is empty today)
+run|semantic|warnings|absent||semantic warnings are silently dropped on the run path — mlog check is the reporting surface (the honest fix is reporting, not blocking; a separate naryad may add the warn line)
+run|semantic|exempt-kinds|absent||is_exempt_from_blocking returns false today — the ONE explicit exemption place; a nonempty list would need its own cells
+run|execute|runtime-error|blocks|n535_run_runtime_error_blocks|a runtime error ([UNDEFINED_VARIABLE] et al.) refuses the command — the interpreter's Err, never a liar string (№510/№523)
+compile|read|file-readable|blocks|n535_compile_missing_file_blocks|the CLI boundary
+compile|parse|parse-error|blocks|n535_compile_parse_error_blocks|
+compile|audit|category-a|blocks|n535_compile_cat_a_blocks|the same audit_category_a gate as run (№98), at Error and Warning severities
+compile|semantic|check-program-errors|blocks|n523_vm_compile_blocks_unknown_function|№523: the VM backend refuses at compile time
+compile|semantic|import-present|warns|n535_compile_import_warns|EVERY import prints the "cannot be resolved in compile mode" warning (noise by design — use mlog serve); a resolvable import still compiles
+compile|semantic|import-missing|blocks|n535_compile_missing_import_blocks|a missing import file fails the compiler's loader — the warning precedes the loud error
+compile|codegen|compiler-errors|blocks|n523_vm_compile_blocks_unknown_function|the compiler's own errors refuse; the №523 semantic gate is the pinned instance
+check|read|file-readable|blocks|n535_check_missing_file_blocks|the CLI boundary
+check|parse|parse-error|blocks|n535_check_parse_error_blocks|
+check|audit|category-a|blocks|n98_sql_dynamic_rejected_by_check|the semantic pass surfaces the Cat A findings internally (№98) — query(variable) fails check
+check|semantic|errors|blocks|n535_check_semantic_error_blocks|errors → !is_ok() → exit 1
+check|semantic|warnings|warns|n535_check_warning_warns|warnings print ("1 warning: …") and the exit stays 0 — warn, never block
+serve|read|file-readable|blocks|n535_serve_missing_file_blocks|the CLI boundary
+serve|parse|parse-error|blocks|n535_serve_parse_error_blocks|run_server refuses the startup
+serve|audit|category-a|blocks|n535_serve_cat_a_blocks|the startup audit gate (the same audit_category_a as run)
+serve|semantic|check-program-errors|blocks|n523_serve_startup_refuses_unknown_function|№523: the semantic gate blocks the STARTUP — a lying route never serves
+serve|semantic|import-resolution|blocks|n523_serve_startup_refuses_undefined_in_pattern_body|№523: the static import resolution feeds the startup gate
+jit|all|jit-compilation|absent||absent (зафиксировано): the JIT is experimental (ADR-0022, ADR-0073) and outside the CLI pipeline — no JIT-specific blocking checks exist to record
+mcp-serve|all|tool-gate-coverage|absent||absent (зафиксировано): the MCP transport is a separate surface (ADR-0168); its per-tool gates are the №536-family naryads, not the CLI pipeline table

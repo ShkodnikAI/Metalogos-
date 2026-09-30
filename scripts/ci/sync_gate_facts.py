@@ -46,7 +46,8 @@ GOALS = os.path.join(HERE, 'gate_028_goals.txt')
 COUNTER = os.path.join(HERE, 'count_duplicated_names.py')
 REPO = 'ShkodnikAI/Metalogos-'
 
-EXPECTED_FACTS = ('fact_open_high_server', 'fact_quorum_num', 'fact_quorum_den')
+EXPECTED_FACTS = ('fact_open_high_server', 'fact_quorum_num', 'fact_quorum_den',
+                  'fact_blocking_check_cells')
 
 
 def read_facts(goals_path: str) -> dict:
@@ -73,6 +74,22 @@ def quorum_observed() -> dict:
             sys.exit(2)
         observed['fact_' + key] = m.group(1)
     return observed
+
+
+def cells_observed() -> dict:
+    """№535: the live cell count of the blocking-checks table."""
+    script = os.path.join(HERE, 'blocking_checks_sync.py')
+    out = subprocess.run([sys.executable, script, '--count'],
+                         capture_output=True, text=True)
+    if out.returncode != 0:
+        print(out.stdout + out.stderr)
+        print('::error::the blocking-checks source script failed (exit %d)' % out.returncode)
+        sys.exit(2)
+    m = re.search(r'^blocking_check_cells:\s*(\d+)$', out.stdout, re.M)
+    if not m:
+        print('::error::the blocking-checks source printed no count record')
+        sys.exit(2)
+    return {'fact_blocking_check_cells': m.group(1)}
 
 
 def open_high_observed(token: str) -> str:
@@ -146,6 +163,7 @@ def main() -> None:
         return
     token = os.environ.get('GH_TOKEN') or os.environ.get('GITHUB_TOKEN')
     observed = quorum_observed()
+    observed.update(cells_observed())
     skips = []
     if token:
         observed['fact_open_high_server'] = open_high_observed(token)
@@ -162,6 +180,7 @@ def tamper_test() -> None:
     """The negative test (№525 task 3): a tampered fact value must fail."""
     token = os.environ.get('GH_TOKEN') or os.environ.get('GITHUB_TOKEN')
     observed = quorum_observed()
+    observed.update(cells_observed())
     if token:
         observed['fact_open_high_server'] = open_high_observed(token)
     else:

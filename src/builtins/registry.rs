@@ -283,8 +283,8 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // №481: the EXPLICIT-silence twin of env — the `_or` suffix carries the
     // silent-default semantics in the name (audit 25.09 §3.9 naming rule).
     spec!("env_or", 2, "system"; builtin_env_or), // ── DB builtins ──
-    spec!("query", 1, 2, "db"; builtin_query),
-    spec!("db_execute", 1, 2, "db"; builtin_db_execute), // ADR-0068: optional params list
+    spec!("query", 1, 2, "db"; builtin_query), // №538: Unknown honest — returns the opaque Query wrapper (Value::Query); the flat vocabulary has no Query entry, and the EXECUTION result type depends on the backend
+    spec!("db_execute", 1, 2, "db"; builtin_db_execute, "Unit"), // ADR-0068: optional params list — the interpreter path returns Unit; the executed surface is the Query pipeline (№484 DbAccess)
     // ── LLM builtins ──
     #[cfg(feature = "llm")]
     spec!("call_llm", 1, 2, "llm"; builtin_call_llm), // prompt | prompt,input

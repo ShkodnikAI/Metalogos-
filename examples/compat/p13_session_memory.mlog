@@ -1,3 +1,4 @@
+// COMPAT-513 (archived to examples/compat/ by №533): historical syntax — not parsed since v0.27.x. See rule №513 (gh#797).
 // COMPAT-513: stale prototype: top-level let/execution statements no longer parse. Do NOT invent a check — the rewrite is a separate naryad.
 // ── ADR-0049: Session Memory — Contract Program ────────────────────────
 // Tests session_set, session_get, session_clear builtins.

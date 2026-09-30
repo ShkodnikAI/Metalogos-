@@ -42,12 +42,6 @@ fn read(name: &str) -> String {
 //   • a COMPAT-N tag (an honest removal, the reason recorded in the file).
 // Otherwise the example is unverifiable — this test fails (audit C-09).
 
-fn is_compat_tagged(source: &str) -> bool {
-    // The tag must be in the file header (first 5 lines) — a stray mention
-    // deeper in the file is not a removal decision.
-    source.lines().take(5).any(|l| l.contains("COMPAT-513"))
-}
-
 #[test]
 fn all_examples_have_a_check_or_an_honest_compat_tag() {
     let examples_dir = manifest_dir().join("examples");
@@ -101,19 +95,38 @@ fn all_examples_have_a_check_or_an_honest_compat_tag() {
     mlogs.sort();
 
     assert!(
-        mlogs.len() >= 258,
-        "the example corpus must not silently shrink (258 at the №513 landing, got {})",
+        mlogs.len() >= 244,
+        "the live example corpus must not silently shrink (244 after the №533 compat move: 259 − 14 stale-syntax examples archived to examples/compat/, got {})",
         mlogs.len()
+    );
+    // The archive exists and holds the moved corpus.
+    let compat_dir = examples_dir.join("compat");
+    let compat_count = fs::read_dir(&compat_dir)
+        .expect("examples/compat/ must exist (№533)")
+        .flatten()
+        .filter(|e| e.path().extension().map(|e| e == "mlog").unwrap_or(false))
+        .count();
+    assert_eq!(
+        compat_count, 14,
+        "examples/compat/ holds exactly the 14 №513-tagged stale-syntax examples"
     );
 
     let mut uncovered: Vec<String> = Vec::new();
     for path in &mlogs {
         let stem = path.file_stem().unwrap().to_string_lossy().to_string();
         let source = fs::read_to_string(path).unwrap_or_default();
+        // №533: the path rule — a live (top-level) example must NOT carry a
+        // COMPAT tag at all; the stale-syntax examples live in
+        // examples/compat/ (the archive), which the walker never enters.
+        assert!(
+            !source.lines().take(5).any(|l| l.contains("COMPAT-513")),
+            "the top-level example '{}' is COMPAT-tagged — move it to examples/compat/ (№533)",
+            stem
+        );
         let has_sidecar =
             path.with_extension("expected").exists() || path.with_extension("error").exists();
         let mentioned = haystack.contains(&stem);
-        if !has_sidecar && !mentioned && !is_compat_tagged(&source) {
+        if !has_sidecar && !mentioned {
             uncovered.push(stem);
         }
     }

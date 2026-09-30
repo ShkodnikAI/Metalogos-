@@ -4,6 +4,24 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №531 (issue #840; the consolidated audit A+D 30.09, N-9,
+  P1 core/hardening): the LAST silently-soft refusal outside the №514
+  naming rule enters its TRANSITION period. `read_file` of a missing
+  file still returns the №254 soft `""`, but EVERY hit now announces
+  `[READ_FILE_MISSING]` on stderr (the path named, the migration target
+  named: `read_file_or(path, default)`), and the debt gate carries the
+  marker counter (`read_file_soft_missing` in
+  `scripts/ci/debt_counters.py` + the baseline — movement only down; the
+  flip release deletes the sites and the counter reaches 0). The
+  deadline lives in limitations.md's Error Protocol row (the №524 rule:
+  the row closes in the same PR as the flip). The release following the
+  №531 merge flips the branch to a loud `[IO_ERROR]`. The pinning tests
+  (№254/№455/№507 suites) carry the transition markers; the functional
+  examples needed NO migration (none relies on the empty string of
+  absence — verified by the examples scan; the leak corpus is a
+  compile-time suite and stays untouched). REFERENCE.md carries the
+  contract in both read_file rows: `*_or` is soft, everything else is
+  loud.
 - Naryad №530 (issue #839; the consolidated audit A+D 30.09, N-4,
   P1 reliability/llm): distill training no longer blocks the registry —
   the 30-epoch run happens on a WEIGHTS SNAPSHOT taken under the short

@@ -638,7 +638,22 @@ fn read_file_impl(name: &str, path: &str, on_missing: ReadMissing) -> Result<Val
             if sandbox_path_missing(path) {
                 return match on_missing {
                     // №254: read_file keeps the empty-string soft default.
-                    ReadMissing::SoftEmpty => Ok(Value::String(String::new())),
+                    // №531 (issue #840; audit 30.09 N-9): the TRANSITION
+                    // period — every hit is announced loudly on stderr
+                    // with the stable `READ_FILE_MISSING` marker; the
+                    // next release flips this branch to a loud
+                    // [IO_ERROR] refusal (the №514 rule: softness is
+                    // visible in the name — `read_file_or`). The debt
+                    // gate carries the marker counter (movement only
+                    // down); the deadline lives in docs/limitations.md
+                    // (the №524 row rule).
+                    ReadMissing::SoftEmpty => {
+                        eprintln!(
+                            "[READ_FILE_MISSING] '{}' is missing — read_file returns the soft \"\" (№254→№531 TRANSITION: the next release refuses LOUDLY; migrate to read_file_or(path, default))",
+                            path
+                        );
+                        Ok(Value::String(String::new()))
+                    }
                     // №507: read_file_or yields the EXPLICIT default —
                     // announced on the audit stderr (the №326 posture:
                     // the PATH is named, the default VALUE never).

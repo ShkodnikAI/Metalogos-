@@ -44,3 +44,9 @@ ignore: 52
 ignore_todo: 16
 dead_code: 37
 example_uncovered: 0
+# №531 (issue #840): the read_file soft-missing TRANSITION marker count —
+# the stderr warning site(s) in src/ + the tests pinning the transition
+# contract. Exists ONLY during the transition release; the flip to the
+# loud [IO_ERROR] refusal deletes the sites, the counter reaches 0, the
+# threshold follows it down and the №514 softness class closes.
+read_file_soft_missing: 5

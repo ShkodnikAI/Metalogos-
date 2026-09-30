@@ -19,12 +19,13 @@ All notable changes to the Metalogos project.
   serial_test needs 1.93.1; 1.93.1 → the FULL `check --workspace
   --all-targets` is green. The README badge and the build-from-source
   wording now name 1.93.1 and point at rust-version as the SSOT. THE
-  DEPLOY-PATH BLINDNESS (N-5) was DOUBLE, and one layer was hidden:
-  docker.yml's push trigger landed CORRUPTED in №511 (`branches: ain]` —
-  a literal branch name that never matches, the trigger was dead) AND the
-  workflow file itself failed Actions YAML parsing since №511 (an
-  unquoted backtick in a step name — the file could not parse at all).
-  Both fixed byte-level and YAML-validated; the pull_request trigger
+  DEPLOY-PATH BLINDNESS was REAL and DOUBLE:
+  the workflow file failed Actions YAML parsing since №511's landing (an
+  unquoted backtick in a step name — the file could not parse at all, so
+  NO run ever fired: not the weekly schedule, not the push trigger whose
+  branches line ([main]) was verifiably intact) and the
+  pull_request trigger did not exist. Fixed byte-level and
+  YAML-validated; the pull_request trigger
   lands (Dockerfile/.dockerignore/example/src mains/Cargo.toml/Cargo.lock/
   rust-toolchain.toml/the workflow) so a dependency refresh rebuilds the
   image BEFORE the merge, not after. THE PR-TRIGGERED RUNS EXPOSED A

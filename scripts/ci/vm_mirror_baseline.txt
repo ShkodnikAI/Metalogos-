@@ -26,4 +26,17 @@
 # the VM distill sites call distill_hub::distill_features directly.
 # 4 -> 3.
 #
-# threshold: 3
+#
+# №534 (gh#843, 2026-10-01): the THREE remaining marks left with their
+# duplication — the distill TRAINING gate sequence collapsed into the
+# ONE canonical copy (`train_distill_snapshot` in
+# src/interpreter/learnable.rs; the TW's run_distill_training and the
+# VM's try_train_distilled_model both became thin orchestrators around
+# it). The block "ported" comment died with its referent: the training
+# core is shared, the Distilled-mode PREDICT path remains a deliberate
+# parallel form pinned by №503/№465 (its dedup is future-counter work,
+# not this naryad's). The №530 snapshot discipline now covers the VM
+# lane too (the old inline copy trained the live weights). 3 -> 0.
+#
+
+# threshold: 0

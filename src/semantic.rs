@@ -138,7 +138,13 @@ pub fn resolve_imports_statically(
         declarations.iter().filter_map(decl_import_ident).collect();
     let mut merged: Vec<Declaration> = Vec::new();
     let mut visited: HashSet<String> = HashSet::new();
-    collect_import_decls(declarations, base_dir, &mut visited, &mut reserved, &mut merged)?;
+    collect_import_decls(
+        declarations,
+        base_dir,
+        &mut visited,
+        &mut reserved,
+        &mut merged,
+    )?;
     Ok(merged)
 }
 
@@ -186,10 +192,8 @@ fn collect_import_decls(
                     module_path, file_path, e
                 )
             })?;
-            let module_decls =
-                crate::parser::parse(&source).map_err(|e| {
-                    format!("parse error in module '{}': {}", module_path, e)
-                })?;
+            let module_decls = crate::parser::parse(&source)
+                .map_err(|e| format!("parse error in module '{}': {}", module_path, e))?;
             collect_import_decls(&module_decls, base_dir, visited, reserved, out)?;
             for module_decl in module_decls {
                 match &module_decl {

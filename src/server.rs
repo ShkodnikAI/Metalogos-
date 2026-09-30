@@ -688,9 +688,7 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
             // №479: the refusal carries the FIRST blocking finding's stable
             // code at position 0 (mirrors the run gate in lib.rs).
             let code = blocking.iter().find_map(|err| err.kind.stable_code());
-            let stamp = code
-                .map(|c| format!("[{}] ", c))
-                .unwrap_or_default();
+            let stamp = code.map(|c| format!("[{}] ", c)).unwrap_or_default();
             let lines: Vec<String> = blocking
                 .iter()
                 .map(|err| crate::semantic::format_blocking_line(err))

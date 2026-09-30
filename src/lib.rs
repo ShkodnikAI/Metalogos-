@@ -174,9 +174,7 @@ pub fn run_program_with_dir(
             // code at position 0 — machine consumers read the class, not
             // the prose (mirrors the bytecode compiler's coded errors).
             let code = blocking.iter().find_map(|err| err.kind.stable_code());
-            let stamp = code
-                .map(|c| format!("[{}] ", c))
-                .unwrap_or_default();
+            let stamp = code.map(|c| format!("[{}] ", c)).unwrap_or_default();
             let lines: Vec<String> = blocking
                 .iter()
                 .map(|err| semantic::format_blocking_line(err))

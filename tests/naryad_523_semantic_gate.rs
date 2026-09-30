@@ -58,9 +58,8 @@ flow Main { input: String = who -> AdminCheck -> output }
 /// undefined function.
 #[test]
 fn n523_run_blocks_unknown_function_in_condition() {
-    let err = metalogos::run_program(ADMN_PROGRAM).expect_err(
-        "run must refuse: is_admn is undefined — the liar string must not come back",
-    );
+    let err = metalogos::run_program(ADMN_PROGRAM)
+        .expect_err("run must refuse: is_admn is undefined — the liar string must not come back");
     assert!(
         err.contains("Naryad #523"),
         "the gate refusal must carry the наряд stamp: {}",
@@ -141,8 +140,7 @@ pattern Gate() -> String {
 }
 entity verdict: String = Gate()
 "#;
-    let declarations =
-        metalogos::parser::parse(src).expect("parses: the failure is semantic");
+    let declarations = metalogos::parser::parse(src).expect("parses: the failure is semantic");
     let mut interp = Interpreter::new();
     let out = interp.run(declarations);
     let err = out.expect_err("phantom_gate is undefined — the declaration phase must refuse");
@@ -309,6 +307,9 @@ fn n523_blocking_line_formatting() {
         format_blocking_line(&known),
         "finding with a place (line 7)"
     );
-    let unknown = metalogos::semantic::SpannedError::at("finding without a place", metalogos::ast::Span::unknown());
+    let unknown = metalogos::semantic::SpannedError::at(
+        "finding without a place",
+        metalogos::ast::Span::unknown(),
+    );
     assert_eq!(format_blocking_line(&unknown), "finding without a place");
 }

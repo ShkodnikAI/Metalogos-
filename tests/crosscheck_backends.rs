@@ -139,21 +139,21 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
                         || name == "reflex_gen_declare.mlog"
                         || name == "reflex_gen_from_text.mlog"
                         || name == "reflex_batch_train.mlog"
-                        // №513 (issue #797): p71_retry_demo declared
-                        // call_proxy_with_retry referencing `env_get` — a
-                        // function that existed in NEITHER backend. The TW
-                        // compiled pattern bodies lazily, so the never-called
-                        // pattern never failed and the real run's output was
-                        // honestly empty (the .expected sidecar); the VM
-                        // compiler refused the whole file with
-                        // [UNDEFINED_FUNCTION] — a compile-time TW/VM
-                        // asymmetry, not a program defect. №523 surfaced the
-                        // dormant reference at the semantic gate, and the
-                        // example was repaired to the real `env()` builtin
-                        // (same naryad) — the reference is known to both
-                        // backends now, so the exclusion is gone. (The №204
-                        // posture: exclusions carry their reason; this
-                        // removed exclusion keeps its record here.)
+                    // №513 (issue #797): p71_retry_demo declared
+                    // call_proxy_with_retry referencing `env_get` — a
+                    // function that existed in NEITHER backend. The TW
+                    // compiled pattern bodies lazily, so the never-called
+                    // pattern never failed and the real run's output was
+                    // honestly empty (the .expected sidecar); the VM
+                    // compiler refused the whole file with
+                    // [UNDEFINED_FUNCTION] — a compile-time TW/VM
+                    // asymmetry, not a program defect. №523 surfaced the
+                    // dormant reference at the semantic gate, and the
+                    // example was repaired to the real `env()` builtin
+                    // (same naryad) — the reference is known to both
+                    // backends now, so the exclusion is gone. (The №204
+                    // posture: exclusions carry their reason; this
+                    // removed exclusion keeps its record here.)
                     {
                         continue;
                     }

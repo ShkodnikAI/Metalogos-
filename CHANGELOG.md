@@ -4,6 +4,19 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №537 (issue #847; the wave-23 typing line 3-A, P1): the list
+  package leaves stage 0 — 9 rows typed against the verified handlers
+  (slice/zip/sort_by/filter/dedup/condense/chunk/make_list → List;
+  matches_any → Float, the 1.0/0.0 numeric verdict form). 5 rows stay
+  Unknown HONESTLY with the inline reasons: get/first/last return the
+  ELEMENT of a heterogeneous list (first/last add the ADR-0180
+  soft-failure "" path), reduce returns the ACCUMULATOR, compact_list
+  is List | the struct report{compacted, removed_count} — the flat
+  vocabulary has no union and the №486 base-type comparison would warn
+  falsely on a bent claim. Floor: 62/507 (1222 bp) → 71/507 = 1400 bp
+  (+178 bp ≈ +1.8 pp; the honest exhaustion: of the 17 list rows 3
+  were typed before, the 5 polymorphic element/accumulator returns
+  cannot take a flat type without lying).
 - Naryad №536 (issue #846; the wave-23 typing line 3-A, P1): the string
   package leaves stage 0 — 10 rows of BUILTIN_REGISTRY carry the
   verified return type (capitalize/title_case/redact/squeeze/

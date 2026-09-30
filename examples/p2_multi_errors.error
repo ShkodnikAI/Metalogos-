@@ -1,1 +1,1 @@
-unknown struct type: FakeType
+entity 'bad' references unknown type 'FakeType'

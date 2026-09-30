@@ -9,6 +9,7 @@
 // `result.errors.iter()` as `&String` now see `&SpannedError` and must
 // read `.message` (or `.span` for LSP / programmatic consumers).
 
+#![deny(clippy::wildcard_enum_match_arm)] // №532: the N-1 class lives in wildcard Value arms — new wildcards need an explicit allow + reason
 use crate::ast::*;
 use crate::audit::{audit_category_a, Severity};
 use crate::builtins_classification::{classify, Reversibility, Role};
@@ -151,6 +152,7 @@ pub fn resolve_imports_statically(
 /// DFS over `Declaration::Import` nodes: parse each module file once
 /// (visited-set on the trimmed import path), recurse into sub-imports,
 /// and append the module's own declarations (deduplicated) to `out`.
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 fn collect_import_decls(
     declarations: &[Declaration],
     base_dir: &std::path::Path,
@@ -225,6 +227,7 @@ fn collect_import_decls(
 /// Entity may legally share a name, two Patterns may not. Unnamed
 /// declarations (rules, memorize, hooks, ...) return None and are
 /// always included — they carry no duplicate-name error class.
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 fn decl_import_ident(decl: &Declaration) -> Option<(String, String)> {
     let tag: &str;
     let name: String;
@@ -439,6 +442,7 @@ pub struct LabelInference {
 /// Source/sanitizer vocabulary — mirrors audit.rs `binding_taint`, keyed
 /// the same way, projected via the ADR-0154 §5 table. `None` = not a
 /// source (the caller falls back to argument propagation).
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 fn label_source(fn_name: &str, args: &[Expr], env: &BTreeMap<String, Label>) -> Option<Label> {
     // Static kind names only — the ADR-0154 §5 table covers them (pinned
     // by the exhaustiveness test in audit.rs); the fallback never fires.
@@ -667,6 +671,7 @@ fn expr_label(expr: &Expr, env: &BTreeMap<String, Label>) -> Label {
 
 /// Join of every expression label appearing (top-level-ish) in a block —
 /// used for block-expression value approximation only.
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 fn block_expr_label(stmts: &[Statement], env: &BTreeMap<String, Label>) -> Label {
     let mut acc = Label::bottom();
     for st in stmts {
@@ -727,6 +732,7 @@ fn merge_envs(
 /// statement sequence (recursively through nested blocks) — used by the
 /// Match scrutinee rule, which must trigger on assignment SHAPE, not on
 /// label changes (a branch can assign the same label it inherited).
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 fn collect_assigned_vars(stmts: &[Statement], out: &mut std::collections::HashSet<String>) {
     for st in stmts {
         match st {
@@ -999,6 +1005,7 @@ fn validate_label_ann(ann: &LabelAnn, context: &str, errors: &mut Vec<SpannedErr
 /// position of entity record/simple declarations. Everywhere else a
 /// `<...>` after a type name remains a parse error — annotations cannot
 /// appear where the label system does not see them.
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 fn validate_decl_labels(decl: &Declaration, errors: &mut Vec<SpannedError>) {
     match decl {
         Declaration::Pattern(p) => {
@@ -1138,6 +1145,7 @@ fn is_media_producing_builtin(name: &str) -> bool {
 
 /// `true` when the expression's value is a media handle by direct
 /// construction (a producing builtin call).
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 fn is_media_binding_expr(value: &Expr) -> bool {
     match value {
         Expr::FnCall { name, .. } => is_media_producing_builtin(name),
@@ -1154,6 +1162,7 @@ fn is_media_binding_expr(value: &Expr) -> bool {
 }
 
 /// Is this expression's static bottom a media-typed binding?
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 fn media_typed_object(object: &Expr, media_vars: &std::collections::HashSet<String>) -> bool {
     match object {
         Expr::Ident { name, .. } => media_vars.contains(name),
@@ -1169,6 +1178,7 @@ fn media_typed_object(object: &Expr, media_vars: &std::collections::HashSet<Stri
 
 /// Walk one expression for field accesses on media-typed objects and
 /// for further media bindings (recursively).
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 fn check_media_expr(
     expr: &Expr,
     media_vars: &mut std::collections::HashSet<String>,
@@ -1405,6 +1415,7 @@ impl MediaOpacityViolation {
 /// Public entry point: every field access on a media-typed expression in
 /// every statement container (the same containers the №324 effect fixpoint
 /// walks). See ADR-0162 §2.5.
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 pub fn media_opacity_violations(declarations: &[Declaration]) -> Vec<MediaOpacityViolation> {
     let mut violations = Vec::new();
     for decl in declarations {
@@ -1539,6 +1550,7 @@ fn validate_origin_decls(declarations: &[Declaration], errors: &mut Vec<SpannedE
 
 /// Public entry point: the origin-chain rule over every statement
 /// container (the same containers the №331 opacity pass walks).
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 pub fn media_origin_violations(declarations: &[Declaration]) -> Vec<OriginViolation> {
     // №337 (ADR-0166 §2.3): name → declared kind — the generation
     // contract message needs the KIND of the bound origin. Declared
@@ -1604,6 +1616,7 @@ enum BindingForm {
     Other,
 }
 
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 fn classify_binding(value: &Expr) -> BindingForm {
     match value {
         Expr::HandleSource { origin, .. } => BindingForm::Source(origin.clone()),
@@ -1620,6 +1633,7 @@ fn classify_binding(value: &Expr) -> BindingForm {
     }
 }
 
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 fn check_origin_stmts(
     stmts: &[Statement],
     media_vars: &mut std::collections::HashSet<String>,
@@ -1733,6 +1747,7 @@ fn check_origin_stmts(
 
 /// Nested-expression check: handle constructions are illegal outside
 /// binding initializers.
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 fn check_origin_expr(
     expr: &Expr,
     origins: &std::collections::HashMap<String, String>,
@@ -1902,6 +1917,7 @@ fn check_origin_expr(
 
 /// Statement-level helper for nested block/match bodies inside the
 /// expression walker (lightweight: only the construction sites matter).
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 fn check_origin_expr_stmt(
     st: &Statement,
     origins: &std::collections::HashMap<String, String>,
@@ -1987,6 +2003,7 @@ pub struct LadderViolation {
 /// applies, so a statically-broken ladder is loud on EVERY compile path
 /// (`compile_program`/`run_program_with_dir` call `audit_category_a`, not
 /// `check_program` — the №332 origin-chain posture).
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 pub fn backend_select_ladder_violations(declarations: &[Declaration]) -> Vec<LadderViolation> {
     let device_production = crate::profile::resolve(declarations).device_mode_production;
     let mut violations: Vec<LadderViolation> = Vec::new();
@@ -2014,6 +2031,7 @@ pub fn backend_select_ladder_violations(declarations: &[Declaration]) -> Vec<Lad
     violations
 }
 
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 fn verify_backend_ladder(
     args: &[Expr],
     span: &Span,
@@ -2144,6 +2162,7 @@ fn verify_backend_ladder(
     }
 }
 
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 fn check_backend_stmts(stmts: &[Statement], production: bool, out: &mut Vec<LadderViolation>) {
     for st in stmts {
         match st {
@@ -2352,6 +2371,7 @@ pub struct RecallViolation {
 /// Public entry for the audit path (№442): the SAME rules the
 /// companion applies, so a statically-broken recall call site is loud
 /// on EVERY compile path.
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 pub fn recall_surface_violations(declarations: &[Declaration]) -> Vec<RecallViolation> {
     let mut violations: Vec<RecallViolation> = Vec::new();
     for decl in declarations {
@@ -2374,6 +2394,7 @@ pub fn recall_surface_violations(declarations: &[Declaration]) -> Vec<RecallViol
     violations
 }
 
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 fn verify_recall_call(name: &str, args: &[Expr], span: &Span, out: &mut Vec<RecallViolation>) {
     let push = |out: &mut Vec<RecallViolation>, kind, message: String| {
         out.push(RecallViolation {
@@ -2492,6 +2513,7 @@ fn verify_recall_call(name: &str, args: &[Expr], span: &Span, out: &mut Vec<Reca
     }
 }
 
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 fn check_recall_stmts(stmts: &[Statement], out: &mut Vec<RecallViolation>) {
     for st in stmts {
         match st {
@@ -2554,6 +2576,7 @@ fn check_recall_stmts(stmts: &[Statement], out: &mut Vec<RecallViolation>) {
     }
 }
 
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 fn check_recall_expr(expr: &Expr, out: &mut Vec<RecallViolation>) {
     match expr {
         Expr::FnCall { name, args, span } => {
@@ -2635,6 +2658,7 @@ fn check_recall_expr(expr: &Expr, out: &mut Vec<RecallViolation>) {
 /// companion applies, so a statically-broken forecast call site is
 /// loud on EVERY compile path (`compile_program`/`run_program_with_dir`
 /// call `audit_category_a`, not `check_program` — the №332 posture).
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 pub fn forecast_surface_violations(declarations: &[Declaration]) -> Vec<ForecastViolation> {
     let mut violations: Vec<ForecastViolation> = Vec::new();
     for decl in declarations {
@@ -2705,6 +2729,7 @@ fn verify_forecast_call(name: &str, args: &[Expr], span: &Span, out: &mut Vec<Fo
     }
 }
 
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 fn check_forecast_stmts(stmts: &[Statement], out: &mut Vec<ForecastViolation>) {
     for st in stmts {
         match st {
@@ -3132,6 +3157,7 @@ enum ContainerKind<'a> {
 /// welcome but not required). An unannotated recursive pattern
 /// therefore behaves predictably: its effects are inferred, and the
 /// gate applies only where a trail is declared.
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 fn check_effect_trails(declarations: &[Declaration], errors: &mut Vec<SpannedError>) {
     // ── Validate every declared trail (bad words are loud) and collect
     //    containers; a trail that failed validation is NOT registered
@@ -3167,6 +3193,7 @@ fn check_effect_trails(declarations: &[Declaration], errors: &mut Vec<SpannedErr
         }
     }
 
+    #[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
     fn register<'a>(
         containers: &mut Vec<EffectContainer<'a>>,
         declared: &mut HashMap<String, EffectSet>,
@@ -3415,6 +3442,7 @@ fn entity_seed_label(value: Option<&Expr>) -> Label {
 /// forms: `source <origin>` carries the origin's declared label; `from
 /// <origin> <construction>` carries the JOIN of the origin label and the
 /// construction's data-flow label (conservative — the strongest axis wins).
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 fn sink_arg_label(
     expr: &Expr,
     env: &BTreeMap<String, Label>,
@@ -3471,6 +3499,7 @@ struct FlowCtx {
 /// Resolve the origin kind a media argument carries: a direct
 /// `source <origin>` handle, or a variable bound through the alias
 /// chain (the №387 FlowCtx). Unknown provenance -> None.
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 fn media_arg_origin_kind(expr: &Expr, ctx: &FlowCtx) -> Option<String> {
     match expr {
         Expr::HandleSource { origin, .. } => ctx.origin_kind_map.get(origin).cloned(),
@@ -3570,6 +3599,7 @@ pub const ACTION_BRIDGE: &[ActionBridgeThreshold] = &[
     },
 ];
 
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolation> {
     let mut violations = Vec::new();
 
@@ -3932,6 +3962,7 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
         }
     };
 
+    #[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
     fn walk_expr(
         expr: &Expr,
         container: &str,
@@ -4081,6 +4112,7 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
         }
     }
 
+    #[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
     fn walk_stmts(
         stmts: &[Statement],
         container: &str,
@@ -4566,6 +4598,7 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
 /// Messages carry the `[DENY_` prefix — the run path (`run_program`)
 /// blocks on it the way it blocks on distill_to errors (ADR-0117 §2-3
 /// precedent).
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 pub fn check_deny_events(declarations: &[Declaration], errors: &mut Vec<SpannedError>) {
     // (1) class validation + duplicate detection.
     let mut seen_classes: HashMap<&str, u32> = HashMap::new();
@@ -4712,6 +4745,7 @@ fn walk_stmt_for_deny(stmt: &Statement, in_handler: bool, errors: &mut Vec<Spann
 /// An arm naming an unknown reason is a compile error; a match without
 /// an `else` arm that does not cover every reason is a compile error
 /// listing exactly the unhandled reasons.
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 fn check_deny_match_exhaustiveness(
     scrutinee: &Expr,
     arms: &[crate::ast::MatchArm],
@@ -4913,6 +4947,7 @@ fn decision_source_name(expr: &Expr, prov: &BTreeMap<String, String>) -> String 
 }
 
 /// Direct sub-expressions of `expr` (one level).
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 fn expr_operands(expr: &Expr) -> Vec<&Expr> {
     match expr {
         Expr::BinaryOp { left, right, .. } => vec![left.as_ref(), right.as_ref()],
@@ -4935,6 +4970,7 @@ fn expr_operands(expr: &Expr) -> Vec<&Expr> {
 /// decision positions: `if`/`else if` conditions, `while` conditions,
 /// `match` scrutinees. (Sink-target decisions are the №325 classes:
 /// UNTRUSTED_EXEC_DECISION / UNTRUSTED_EGRESS_NETWORK.)
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 pub fn integrity_decision_violations(declarations: &[Declaration]) -> Vec<DecisionViolation> {
     let mut violations = Vec::new();
 
@@ -4988,6 +5024,7 @@ pub fn integrity_decision_violations(declarations: &[Declaration]) -> Vec<Decisi
     ) {
         // Provenance: a variable bound to a DIRECT Source call keeps the
         // call's name; bindings derived from such a variable inherit it.
+        #[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
         fn prov_of(value: &Expr, prov: &BTreeMap<String, String>) -> Option<String> {
             match value {
                 Expr::FnCall { name, .. } => {
@@ -5018,6 +5055,7 @@ pub fn integrity_decision_violations(declarations: &[Declaration]) -> Vec<Decisi
                 _ => None,
             }
         }
+        #[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
         fn args_of(value: &Expr) -> Vec<&Expr> {
             match value {
                 Expr::FnCall { args, .. } | Expr::QualifiedCall { args, .. } => {
@@ -5283,6 +5321,7 @@ pub fn integrity_decision_violations(declarations: &[Declaration]) -> Vec<Decisi
 ///   - Route methods are valid HTTP methods (Phase 6.1)
 ///   - Template return type is Html (Phase 6.2)
 ///   - Opaque types used in correct contexts (Phase 6.2–6.5)
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
     let mut result = AnalysisResult::default();
     let mut entity_types: HashSet<String> = HashSet::new();
@@ -7602,6 +7641,7 @@ fn walk_stmt_for_svg_security(stmt: &Statement, result: &mut AnalysisResult, ctx
 }
 
 /// Walk all declarations and run the SVG/HTML security lint.
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 fn svg_security_lint(declarations: &[Declaration], result: &mut AnalysisResult) {
     for decl in declarations {
         match decl {

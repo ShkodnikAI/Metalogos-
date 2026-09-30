@@ -794,6 +794,17 @@ jobs:
   fuzz-smoke:
     name: fuzz-smoke (non-blocking)
     runs-on: ubuntu-latest
+    env:
+      # HOTFIX (the first real CI run): №528's rust-toolchain.toml pins
+      # channel = "stable" for the workspace — and it silently overrode
+      # the dtolnay nightly install here, so cargo-fuzz's -Zsanitizer
+      # build probes died on the stable rustc ("the option `Z` is only
+      # accepted on the nightly compiler"). cargo-fuzz REQUIRES a
+      # nightly rustc; the rustup override precedence
+      # (RUSTUP_TOOLCHAIN > the toolchain file) is the single-point fix
+      # — every cargo invocation of this job resolves nightly, the rest
+      # of the repo keeps the №528 stable contract.
+      RUSTUP_TOOLCHAIN: nightly
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@nightly

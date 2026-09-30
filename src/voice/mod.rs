@@ -52,16 +52,95 @@ pub struct VoiceRegistry {
 /// limit; the oldest handle — the lowest id — is evicted at the cap).
 pub const VOICE_ARTIFACTS_MAX: usize = 64;
 
+/// №529 (issue #838; the consolidated audit 30.09 Д-5+N-6): the SECOND
+/// circuit — the byte ceiling on BOTH in-memory voice maps (the audio
+/// artifacts and the voiceprints). The count cap (№515) bounds the
+/// NUMBER of entries; large renders/embeddings could grow the footprint
+/// unboundedly within it. Accounting: the raw audio bytes + the
+/// manifest's text fields; a voiceprint counts its embedding (f32 × 4 ×
+/// dim) + the model id. Deterministic by construction.
+pub const VOICE_ARTIFACTS_MAX_BYTES: usize = 32 * 1024 * 1024; // 32 MiB
+
+/// №529: the eviction metrics — the serve-visible observability of the
+/// two-circuit bound (one loud `[REGISTRY_EVICTION]` line per victim is
+/// the serve-report primitive; the counters make the totals observable).
+static VOICE_EVICTED_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static VOICE_EVICTED_BYTES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// №529: the public eviction metrics for the voice registry (both maps
+/// together) — `(victims_total, victim_bytes_total)` since process start.
+#[doc(hidden)]
+pub fn voice_registry_eviction_metrics() -> (u64, u64) {
+    use std::sync::atomic::Ordering::Relaxed;
+    (
+        VOICE_EVICTED_COUNT.load(Relaxed),
+        VOICE_EVICTED_BYTES.load(Relaxed),
+    )
+}
+
+/// №529: the deterministic byte accounting of one audio artifact.
+pub fn audio_artifact_bytes(a: &AudioArtifact) -> usize {
+    const MANIFEST_STRUCT: usize = 48;
+    a.audio_bytes.len()
+        + a.manifest
+            .as_ref()
+            .map(|m| {
+                m.model_id.len()
+                    + m.weights_sha.len()
+                    + m.prompt_hash.len()
+                    + m.audio_sha.len()
+                    + MANIFEST_STRUCT
+            })
+            .unwrap_or(0)
+}
+
+/// №529: the deterministic byte accounting of one voiceprint.
+pub fn voiceprint_bytes(vp: &Voiceprint) -> usize {
+    vp.embedding.len() * 4 + vp.model_id.len() + 16
+}
+
 impl VoiceRegistry {
     pub fn new() -> Self {
         Self::default()
     }
 
     pub fn insert_artifact(&mut self, artifact: AudioArtifact) -> AudioId {
-        // №515: the bounded insert — evict the oldest orphan at the cap.
-        if self.artifacts.len() >= VOICE_ARTIFACTS_MAX {
-            if let Some(&oldest) = self.artifacts.keys().min() {
-                self.artifacts.remove(&oldest);
+        use std::sync::atomic::Ordering::Relaxed;
+        // №529: the two-circuit eviction — the COUNT circuit (№515) and the
+        // BYTE circuit (№529); the victim order is the lowest id = least
+        // recently created (ids are monotonic; the in-memory getters are
+        // &self — the restamp boundary is documented in the inventory). A
+        // single artifact larger than the byte cap is admitted into an
+        // EMPTY store (the cap bounds accumulation, not one artifact).
+        let incoming = audio_artifact_bytes(&artifact);
+        let mut total: usize = self.artifacts.values().map(audio_artifact_bytes).sum();
+        while !self.artifacts.is_empty()
+            && (self.artifacts.len() >= VOICE_ARTIFACTS_MAX
+                || total + incoming > VOICE_ARTIFACTS_MAX_BYTES)
+        {
+            let reason = if self.artifacts.len() >= VOICE_ARTIFACTS_MAX {
+                "count"
+            } else {
+                "bytes"
+            };
+            let Some(&oldest) = self.artifacts.keys().min() else {
+                break;
+            };
+            if let Some(victim) = self.artifacts.remove(&oldest) {
+                let vb = audio_artifact_bytes(&victim);
+                total -= vb;
+                VOICE_EVICTED_COUNT.fetch_add(1, Relaxed);
+                VOICE_EVICTED_BYTES.fetch_add(vb as u64, Relaxed);
+                eprintln!(
+                    "[REGISTRY_EVICTION] voice_registry artifact={} victim_bytes={} reason={} store_len={} store_bytes={} caps=({},{})",
+                    oldest,
+                    vb,
+                    reason,
+                    self.artifacts.len(),
+                    total,
+                    VOICE_ARTIFACTS_MAX,
+                    VOICE_ARTIFACTS_MAX_BYTES
+                );
             }
         }
         let id = AudioId(self.next_id);
@@ -71,11 +150,39 @@ impl VoiceRegistry {
     }
 
     pub fn insert_voiceprint(&mut self, vp: Voiceprint) -> VoiceId {
-        // №515: the same bound on the voiceprint map (the mock runtime's
-        // skeleton path is the only writer since №512's fail-closed store).
-        if self.voiceprints.len() >= VOICE_ARTIFACTS_MAX {
-            if let Some(&oldest) = self.voiceprints.keys().min() {
-                self.voiceprints.remove(&oldest);
+        use std::sync::atomic::Ordering::Relaxed;
+        // №529: the same two-circuit bound on the voiceprint map (the mock
+        // runtime's skeleton path is the only writer since №512's
+        // fail-closed store; the byte circuit accounts the embedding).
+        let incoming = voiceprint_bytes(&vp);
+        let mut total: usize = self.voiceprints.values().map(voiceprint_bytes).sum();
+        while !self.voiceprints.is_empty()
+            && (self.voiceprints.len() >= VOICE_ARTIFACTS_MAX
+                || total + incoming > VOICE_ARTIFACTS_MAX_BYTES)
+        {
+            let reason = if self.voiceprints.len() >= VOICE_ARTIFACTS_MAX {
+                "count"
+            } else {
+                "bytes"
+            };
+            let Some(&oldest) = self.voiceprints.keys().min() else {
+                break;
+            };
+            if let Some(victim) = self.voiceprints.remove(&oldest) {
+                let vb = voiceprint_bytes(&victim);
+                total -= vb;
+                VOICE_EVICTED_COUNT.fetch_add(1, Relaxed);
+                VOICE_EVICTED_BYTES.fetch_add(vb as u64, Relaxed);
+                eprintln!(
+                    "[REGISTRY_EVICTION] voice_registry voiceprint={} victim_bytes={} reason={} store_len={} store_bytes={} caps=({},{})",
+                    oldest,
+                    vb,
+                    reason,
+                    self.voiceprints.len(),
+                    total,
+                    VOICE_ARTIFACTS_MAX,
+                    VOICE_ARTIFACTS_MAX_BYTES
+                );
             }
         }
         let id = VoiceId(self.next_id);

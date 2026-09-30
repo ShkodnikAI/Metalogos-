@@ -534,6 +534,19 @@ jobs:
         run: |
           python3 scripts/ci/sync_gate_facts.py --tamper-test
 
+  registry-bounds:
+    name: registry-bounds (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # №529 (issue #838): the two-circuit ratchet — every process-global
+      # registry keeps its count AND byte bounds, every map-shaped static
+      # is inventoried (a new unbounded registry is the C-12 class
+      # re-opening). Pure Python — no Rust toolchain needed.
+      - name: "Gate — the registry inventory matches the sources (№529)"
+        run: |
+          python3 scripts/ci/registry_bounds_check.py
+
   ops-pairs:
     name: ops-pairs (blocking)
     runs-on: ubuntu-latest

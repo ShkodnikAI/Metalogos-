@@ -4,6 +4,47 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №529 (issue #838; the consolidated audit 30.09, Д-5+N-6,
+  P1 reliability/hardening): the bounded registries grow the SECOND
+  circuit — the total BYTE ceiling next to the №515 count ceiling.
+  THE FACT: №515 bounded the NUMBER of entries (64 per registry), but
+  neither the volume nor the aging — 64 entries × a large artifact
+  stayed unbounded, and a long-lived serve held everything up to the
+  count cap regardless of size. THE CIRCUITS: `PDF_DOCS_MAX_BYTES`
+  (16 MiB, the estimated CONTENT bytes — title/author/every element's
+  text+rows+path plus a fixed structural overhead, honestly NOT the
+  serialized-PDF size), `VIDEO_ARTIFACTS_MAX_BYTES` (64 MiB — render
+  bytes + latent payload f32×4 + the manifest text fields),
+  `VOICE_ARTIFACTS_MAX_BYTES` (32 MiB — the audio bytes and the
+  voiceprint embeddings, both maps). THE ORDER: one deterministic
+  victim order per registry — the PDF store is true LRU (every
+  mutation-path access restamps the seq via `pdf_store_touch`; the
+  eviction victim is least-recently-USED), the in-memory video/voice
+  maps evict by insertion age (the lowest monotonic id — their `&self`
+  getters cannot restamp without interior mutability, the honest
+  boundary is documented in the inventory). THE HONEST ALLOWANCE: a
+  single artifact larger than the byte cap is admitted into an EMPTY
+  store — the cap bounds accumulation, not one legit artifact (pinned).
+  THE OBSERVABILITY: one loud `[REGISTRY_EVICTION]` stderr line per
+  victim with the reason (count/bytes) and the store state — the
+  serve-report primitive — plus the public metrics getters
+  (`pdf_store_eviction_metrics`, `video_registry_eviction_metrics`,
+  `voice_registry_eviction_metrics`); a structured HTTP metrics
+  endpoint does not exist in this codebase and inventing one is outside
+  the naryad's boundary. THE RATCHET: the machine-checked SSOT of the
+  bounds lands (`scripts/ci/registry_bounds_inventory.txt` + the
+  blocking `registry-bounds` CI job) — every map-shaped process-global
+  static must carry an inventory row with BOTH bounds or an explicit
+  exception reason (the LLM stream registry keeps the №263 LOUD
+  refusal — silent eviction would kill in-flight streams; the per-stream
+  byte growth is bounded upstream by the №757 max_tokens ceiling;
+  GLOBAL_TEMPLATES is name-overwrite by design); the job verifies the
+  constants against the sources (a silently moved cap = drift = failure)
+  and is mutation-verified (a renamed anchor and a drifted value both
+  trip it). Tests: the two-circuit pins per registry (1000 small /
+  several large — each circuit bites on its own, the eviction order is
+  deterministic), the PDF LRU restamp pin, the single-giant allowance;
+  the №515 suite stays green unchanged (4/4).
 - Naryad №527 (issue #836; the consolidated audit 30.09, N-3,
   P1 security/voice): the AES-256-GCM ciphertext is now BOUND TO ITS
   SUBJECT — the GCM AAD carries the (subject_id, registry, schema

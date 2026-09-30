@@ -54,6 +54,14 @@
 # The full ratchet: 60 → 56 → 49 → 42 → 35 → 20 → 0 — the counter's
 # fact is now ZERO duplicated names; the threshold below = the fact
 # (the ratchet holds only-down; a new duplicate name fails CI at once).
+#
+# Machine-readable quorum record (№525): the transfer covered the seven
+# №466 group entries above plus the №483 FINAL group = 8 groups at the
+# transfer start. The counter's --quorum mode parses this marker and
+# cross-checks it against the counted history entries; the gate fact
+# fact_quorum_den (scripts/ci/gate_028_goals.txt) must equal it —
+# the sync is enforced by scripts/ci/sync_gate_facts.py in CI.
+# groups_at_transfer_start: 8
 # threshold: 0
 
 media_bind_origin

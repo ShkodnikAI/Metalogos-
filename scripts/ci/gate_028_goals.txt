@@ -18,14 +18,31 @@ goal_quorum_num: 1
 goal_quorum_den: 3
 
 # ── The live facts (the release process syncs these before the gate) ──
+# Every fact below is machine-verified against its generating source by
+# scripts/ci/sync_gate_facts.py in CI (№525) — a hand-edited drift is a
+# blocking failure. A new fact_* record without a checker there is
+# itself a failure (fail-closed: a fact without a machine source is the
+# Д-2 class re-opening).
+#
 # The open High findings in the server path. MUST match the count of
 # the open GitHub issues labeled `release-block` (the №509 discipline:
 # every known High gets the label; the label blocks the release; the
 # record and the label set are synced at the gate run — the checklist
 # names the sync step).
+# Source: the GitHub API — open issues labeled `release-block`;
+# machine-verified by scripts/ci/sync_gate_facts.py (needs GH_TOKEN,
+# always present in Actions; locally the check skips loudly).
 fact_open_high_server: 0
 # The transfer domain quorum fact: (groups still carrying duplicates)
-# / (the №466 group total at the transfer start). Synced from the
-# count_duplicated_names.py report at the gate run.
-fact_quorum_num: 9
-fact_quorum_den: 9
+# / (the №466 group total at the transfer start).
+# Source: `python3 scripts/ci/count_duplicated_names.py --quorum`
+# (№525) — quorum_num = live groups still carrying >= 1 duplicated
+# name (the counter's classification); quorum_den = the transfer-start
+# group total, machine-parsed from the tw_vm_dup_names_baseline.txt
+# history (the 7 №466 group entries + the №483 FINAL group = 8,
+# anchored by the baseline's groups_at_transfer_start marker).
+# The Д-2 desync (9/9 against the counter's ZERO duplicates) is closed:
+# the honest record is 0/8.
+# Machine-verified by scripts/ci/sync_gate_facts.py in CI.
+fact_quorum_num: 0
+fact_quorum_den: 8

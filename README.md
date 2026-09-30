@@ -9,7 +9,7 @@
 [![Rust](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org/)
 [![Version](https://img.shields.io/badge/v0.27.1-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/releases)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-green.svg)](#license)
-[![CI](https://img.shields.io/badge/CI-29%20blocking%20jobs-brightgreen.svg)](https://github.com/ShkodnikAI/Metalogos-/actions)
+[![CI](https://img.shields.io/badge/CI-28%20blocking%20jobs-brightgreen.svg)](https://github.com/ShkodnikAI/Metalogos-/actions)
 [![Open Collective](https://img.shields.io/opencollective/all/metalogos?label=Backers&logo=open-collective&color=7fadf2)](https://opencollective.com/metalogos)
 
 </div>
@@ -218,13 +218,13 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 | Metric | Value (generated — do not hand-edit) |
 | ------ | ------------------------------------- |
 | Version | 0.27.1 |
-| Built-in Functions | 505 functions across 45 modules |
+| Built-in Functions | 507 functions across 45 modules |
 | SVG/Graphics | 44 builtins, hand-rolled in pure Rust |
 | Grammar | 339 rules |
 | Architecture Decisions | 172 ADRs |
 | Example Programs | 259 .mlog programs |
-| Reference | REFERENCE.md (~290 KB) — 100% registry coverage |
-| Changelog | CHANGELOG.md (~551 KB) — every wave documented |
+| Reference | REFERENCE.md (~292 KB) — 100% registry coverage |
+| Changelog | CHANGELOG.md (~553 KB) — every wave documented |
 <!-- END GENERATED METRICS -->
 
 Validated on every CI run: `scripts/gen_metrics.py --check` plus the independent recomputation in `tests/readme_consistency.rs`.

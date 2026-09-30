@@ -13,6 +13,8 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+use crate::interpreter::Value;
+
 /// Opaque handle to a Voice artifact (voiceprint) in VoiceRegistry.
 /// Weights/embeddings never enter Value — only the index.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -94,6 +96,43 @@ impl VoiceRegistry {
         self.artifacts.remove(&id.0);
     }
 
+    /// №526: remove a voiceprint by handle — the RAM-side erasure.
+    /// Returns whether the handle was present (the idempotency signal:
+    /// `false` = already absent, the repeated erase is not an error).
+    pub fn remove_voiceprint(&mut self, id: VoiceId) -> bool {
+        self.voiceprints.remove(&id.0).is_some()
+    }
+
+    /// №526: list the held voiceprints — the informed-deletion basis at
+    /// the runtime surface. Deterministic order (ascending id); the
+    /// embedding bytes NEVER enter the result (id + model only — the
+    /// metadata composition, mirroring the store's VoiceprintRecord
+    /// posture: the listing never decrypts, never materializes bytes).
+    pub fn list_voiceprints(&self) -> Vec<(VoiceId, String)> {
+        let mut ids: Vec<&u32> = self.voiceprints.keys().collect();
+        ids.sort();
+        ids.iter()
+            .map(|&k| {
+                let vp = &self.voiceprints[k];
+                (VoiceId(*k), vp.model_id.clone())
+            })
+            .collect()
+    }
+
+    /// №526: list the held audio artifacts — ascending id + the byte
+    /// length (the size is the deletion-relevant fact; the bytes never
+    /// enter the result).
+    pub fn list_artifacts(&self) -> Vec<(AudioId, usize)> {
+        let mut ids: Vec<&u32> = self.artifacts.keys().collect();
+        ids.sort();
+        ids.iter()
+            .map(|&k| {
+                let a = &self.artifacts[k];
+                (AudioId(*k), a.audio_bytes.len())
+            })
+            .collect()
+    }
+
     pub fn len(&self) -> usize {
         self.artifacts.len() + self.voiceprints.len()
     }
@@ -151,11 +190,79 @@ pub mod store;
 // are available in all builds, mirroring KNOWN_VOICE_MODELS).
 pub mod backend;
 //
-// All voice builtins are stubs in the skeleton phase (A1). They return
-// loud errors — no silent fallbacks. Real implementation in A2/A3/A5+.
+// №526: voice_delete / voice_list are REAL (not stubs) — the GDPR Art. 17
+// erasure path over the live runtime surfaces (the RAM registry + the
+// store API), available in ALL builds (the erasure right is not
+// feature-gated; VOICE_REGISTRY itself was never feature-gated).
 
-#[cfg(feature = "voice")]
-use crate::interpreter::Value;
+/// №526 (issue #835; audit 30.09 N-2): `voice_delete(handle)` — the
+/// erasure path over the live VOICE_REGISTRY. Accepts a Voice handle
+/// (the voiceprint — the biometric embedding) or an Audio handle (the
+/// audio artifact — the "artifact file" bytes of the registry). IDEMPOTENT:
+/// an absent handle is `"absent"` (the repeated erase succeeds — GDPR
+/// Art. 17(1): erasure without obstacles), never an error. The consent
+/// ledger is untouched (the Art. 9 consent proof survives by design —
+/// docs/privacy.md §2.1). Wrong types refuse loudly.
+/// The PERSISTED (SQLite) prints are erased through the store API
+/// `VoiceStore::delete_voiceprint` (the same secure zero-then-delete
+/// path, tested at the store level) — a shipped runtime persists zero
+/// voiceprints today (privacy.md §2.1), so the registry is the live
+/// surface the builtin erases.
+pub(crate) fn builtin_voice_delete(args: &[Value]) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err(format!(
+            "voice_delete(): expects 1 argument (voice|audio handle), got {}",
+            args.len()
+        ));
+    }
+    let mut reg = VOICE_REGISTRY
+        .lock()
+        .map_err(|_| "voice_delete(): VOICE_REGISTRY poisoned".to_string())?;
+    let erased = match &args[0] {
+        Value::Voice(id) => reg.remove_voiceprint(*id),
+        Value::Audio(id) => {
+            let present = reg.get_artifact(*id).is_some();
+            reg.remove_artifact(*id);
+            present
+        }
+        other => {
+            return Err(format!(
+                "voice_delete(): expects a Voice or Audio handle, got {}",
+                other.type_name()
+            ));
+        }
+    };
+    Ok(Value::String(
+        if erased { "deleted" } else { "absent" }.to_string(),
+    ))
+}
+
+/// №526: `voice_list()` — the informed-deletion basis at the runtime
+/// surface: the held voiceprints (id, model — the embedding NEVER enters
+/// the result) and the held audio artifacts (id, byte length). Empty
+/// registry → the empty string (the honest zero). Deterministic order
+/// (ascending ids). The persisted-store listing (name/model/saved_at/
+/// algo/ciphertext length, never decrypted) is `VoiceStore::list_voiceprints`
+/// — the same №526 composition at the store level.
+pub(crate) fn builtin_voice_list(args: &[Value]) -> Result<Value, String> {
+    if !args.is_empty() {
+        return Err(format!(
+            "voice_list(): expects 0 arguments, got {}",
+            args.len()
+        ));
+    }
+    let reg = VOICE_REGISTRY
+        .lock()
+        .map_err(|_| "voice_list(): VOICE_REGISTRY poisoned".to_string())?;
+    let mut out = String::new();
+    for (id, model) in reg.list_voiceprints() {
+        out.push_str(&format!("voice\t{}\t{}\n", id, model));
+    }
+    for (id, len) in reg.list_artifacts() {
+        out.push_str(&format!("audio\t{}\t{} bytes\n", id, len));
+    }
+    Ok(Value::String(out))
+}
 
 #[cfg(feature = "voice")]
 /// `voice_enroll(decl, audio, kind)` stub — ADR-0145.
@@ -277,5 +384,106 @@ mod tests {
         assert!(builtin_voice_design_stub(&[]).is_err());
         assert!(builtin_voice_save_stub(&[]).is_err());
         assert!(builtin_voice_load_stub(&[]).is_err());
+    }
+
+    // ── №526 (issue #835; N-2): the runtime erasure path ──
+
+    #[test]
+    fn n526_registry_delete_and_list_cycle() {
+        let mut reg = VoiceRegistry::new();
+        let id = reg.insert_voiceprint(Voiceprint {
+            embedding: vec![0.1, 0.2],
+            model_id: "koko-ro-82m".to_string(),
+        });
+        let listed = reg.list_voiceprints();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].0, id);
+        assert_eq!(listed[0].1, "koko-ro-82m");
+        assert!(reg.remove_voiceprint(id));
+        assert!(
+            !reg.remove_voiceprint(id),
+            "idempotent: the second erase is false"
+        );
+        assert!(reg.list_voiceprints().is_empty());
+    }
+
+    #[test]
+    fn n526_builtin_voice_delete_then_list_empty() {
+        // the №526 language-path cycle: insert → voice_list shows it →
+        // voice_delete → voice_list empty; a repeated erase is "absent"
+        let id = {
+            let mut reg = VOICE_REGISTRY.lock().unwrap();
+            reg.insert_voiceprint(Voiceprint {
+                embedding: vec![0.3, 0.4],
+                model_id: "chatterbox-multilingual-v3".to_string(),
+            })
+        };
+        let listed = builtin_voice_list(&[]).unwrap();
+        match &listed {
+            Value::String(s) => {
+                assert!(s.contains("voice\t[Voice#"), "the print is listed: {s}");
+                assert!(
+                    s.contains("chatterbox-multilingual-v3"),
+                    "the model is listed: {s}"
+                );
+                assert!(!s.contains("0.3"), "the embedding never enters the listing");
+            }
+            other => panic!("voice_list must return String, got {}", other.type_name()),
+        }
+        let erased = builtin_voice_delete(&[Value::Voice(id)]).unwrap();
+        assert!(
+            matches!(&erased, Value::String(s) if s == "deleted"),
+            "the erase reports deleted, got {erased:?}"
+        );
+        let again = builtin_voice_delete(&[Value::Voice(id)]).unwrap();
+        assert!(
+            matches!(&again, Value::String(s) if s == "absent"),
+            "idempotent: the repeated erase reports absent, got {again:?}"
+        );
+        let listed = builtin_voice_list(&[]).unwrap();
+        match &listed {
+            Value::String(s) => assert!(
+                !s.contains("[Voice#") || !s.contains("chatterbox-multilingual-v3"),
+                "the deleted print is not listed: {s}"
+            ),
+            other => panic!("voice_list must return String, got {}", other.type_name()),
+        }
+        // cleanup: the audio map is untouched; the voiceprint map is clean
+        let reg = VOICE_REGISTRY.lock().unwrap();
+        assert_eq!(reg.list_voiceprints().len(), 0);
+    }
+
+    #[test]
+    fn n526_builtin_voice_delete_audio_artifact() {
+        let id = {
+            let mut reg = VOICE_REGISTRY.lock().unwrap();
+            reg.insert_artifact(AudioArtifact {
+                audio_bytes: vec![7u8; 32],
+                manifest: None,
+            })
+        };
+        let listed = builtin_voice_list(&[]).unwrap();
+        match &listed {
+            Value::String(s) => assert!(s.contains("audio\t[Audio#") && s.contains("32 bytes")),
+            other => panic!("voice_list must return String, got {}", other.type_name()),
+        }
+        let erased = builtin_voice_delete(&[Value::Audio(id)]).unwrap();
+        assert!(
+            matches!(&erased, Value::String(s) if s == "deleted"),
+            "the artifact erase reports deleted, got {erased:?}"
+        );
+        let reg = VOICE_REGISTRY.lock().unwrap();
+        assert!(reg.get_artifact(id).is_none(), "the artifact is gone");
+    }
+
+    #[test]
+    fn n526_builtin_voice_delete_loud_on_wrong_type() {
+        let r = builtin_voice_delete(&[Value::Float(3.0)]);
+        assert!(r.is_err(), "a non-handle argument refuses loudly");
+        assert!(r.unwrap_err().contains("Voice or Audio handle"));
+        let r = builtin_voice_delete(&[]);
+        assert!(r.is_err(), "arity refuses loudly");
+        let r = builtin_voice_list(&[Value::Float(1.0)]);
+        assert!(r.is_err(), "voice_list takes no arguments");
     }
 }

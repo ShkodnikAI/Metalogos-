@@ -587,6 +587,11 @@ pub static BUILTIN_CLASSES: &[BuiltClassEntry] = &[
     BuiltClassEntry { name: "voice_design", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "persists a designed voice artifact" } },
     BuiltClassEntry { name: "voice_save", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "persists a Voice artifact" } },
     BuiltClassEntry { name: "voice_load", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "ingests a persisted Voice artifact" } },
+    // №526 (issue #835): the GDPR Art. 17 erasure path — the destructive
+    // side (sink, irreversible) and the informed-deletion listing (source,
+    // pure — metadata only, the biometric bytes never enter the result).
+    BuiltClassEntry { name: "voice_delete", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Irreversible, rationale: "destructively erases a voiceprint or an audio artifact from the registry (GDPR Art. 17, №526) — no undo; the consent ledger rows survive by design (the Art. 9 consent proof, privacy.md §2.1)" } },
+    BuiltClassEntry { name: "voice_list", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "lists the held voiceprints and audio artifacts (ids + models/sizes only — the biometric bytes never enter the result, №526)" } },
     BuiltClassEntry { name: "video_render", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "persists a generated video artifact in VIDEO_REGISTRY — local tiny pipeline; egress only at video_export" } },
     BuiltClassEntry { name: "video_export", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "writes the signed .mlgv container to disk — egress point (gate VIDEO_UNSIGNED_EXPORT, ADR-0151 D5)" } },
     BuiltClassEntry { name: "av_mux", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "persists the A/V sidecar container in VIDEO_REGISTRY (ADR-0151 D4)" } },

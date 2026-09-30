@@ -4,6 +4,36 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №526 (issue #835; the consolidated audit A+D 30.09, N-2,
+  P1 security/voice): the GDPR Art. 17 erasure path for voiceprints
+  LANDS — the right-to-erasure is no longer a document-only promise
+  (privacy.md §2.1). THE HOLE: the store had only `INSERT OR REPLACE`
+  (save), no delete, no list, no purge — a persisted print outlived
+  every consent revocation. THE PATH: `voice_delete(handle)` — the
+  idempotent registry erasure (`"deleted"`/`"absent"`, a repeated erase
+  succeeds; Voice handles erase the biometric print, Audio handles erase
+  the artifact bytes; wrong types refuse loudly) and `voice_list()` —
+  the informed-deletion basis (ids + models/sizes; the listing NEVER
+  decrypts, the embedding bytes never enter any result). Neither is
+  feature-gated: the erasure right cannot depend on a build flag. The
+  PERSISTED twin: `VoiceStore::delete_voiceprint` runs the
+  SECURE-DELETE path — the ciphertext blob is zero-overwritten in place
+  BEFORE the row removal and the same-name voice_artifacts row is
+  purged the same way ("файл артефакта + запись реестра") — and
+  `VoiceStore::list_voiceprints` enumerates name/model/saved_at/algo/
+  ciphertext-length without a key. HONEST BOUNDARIES (loud, not
+  silent): SQLite cannot guarantee per-row block-level erasure
+  (freelist/WAL page images persist until reused) — the row-level
+  overwrite erases the row's live copy, the file-level guarantee stays
+  the DB owner's; the consent_ledger rows SURVIVE erasure by design
+  (the Art. 9 consent proof). privacy.md §2.1/§3 rewritten in the same
+  PR (the №524 rule): "Delete path: ABSENT" → "available since the
+  v0.27.x line", voice_delete/voice_list removed from the ABSENT list,
+  the anchors re-verified by hand. Tests: the store cycle (save → list
+  → delete → list empty), the zero-overwrite pin, the reopen/no-
+  resurrection restart test, the artifact-row purge, the registry
+  cycle, the builtin idempotency and loud-type refusals; the
+  classification SSOT and REFERENCE.md carry both builtins (505→507).
 - Naryad №525 (issue #834; the consolidated audit A+D 30.09, Д-2,
   P1 process/ci): every `fact_*` record in `gate_028_goals.txt` is now
   machine-verified against its generating source by the blocking

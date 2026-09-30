@@ -79,25 +79,47 @@ a wrong key refuses at the GCM auth tag (`[VOICEPRINT_DECRYPT]`, store.rs:225–
 **The PARTIAL caveat, stated twice on purpose:**
 
 - The **mock runtime** (`METALOGOS_MOCK_LLM=1`) persists through an INSECURE
-  XOR placeholder keyed by the PUBLIC name (`src/voice/store.rs:297–313`) —
+  XOR placeholder keyed by the PUBLIC name (`src/voice/store.rs:391–407`) —
   it is not encryption, and the schema marks such rows `algo =
   'INSECURE-XOR-MOCK'` (store.rs:29) so a mock row can never masquerade as
   encrypted.
 - `VoiceStore::new` has **no production call site** — only tests construct it
-  (`src/voice/store.rs:431` is a test-module helper; the test files
+  (`src/voice/store.rs:523` is a test-module helper; the test files
   `tests/naryad_512_voice_insecure_store.rs`, `tests/naryad_517_voice_aes_gcm.rs`).
   The program-facing builtins `voice_enroll` / `voice_save` / `voice_load`
-  are **loud stubs that always error** (`src/voice/mod.rs:162–197`,
-  registered at `src/builtins/registry.rs:888–898`). **A shipped runtime
+  are **loud stubs that always error** (`src/voice/mod.rs:269–303`,
+  registered at `src/builtins/registry.rs:909–919`). **A shipped runtime
   therefore stores zero voiceprints**; the honest crypto is the load-bearing
   foundation for the day the wiring lands, not a working feature today.
 
-**Delete path: ABSENT.** No `voice_delete`, no enroll-management, no purge
-function exists in the store — only `INSERT OR REPLACE` on save
-(store.rs:177–180). Retention: rows live until replaced or the DB file is
-deleted by its owner. The in-process companion `VOICE_REGISTRY` (audio
+**Delete path: available since the v0.27.x line (№526, gh#835 — closed in
+the same PR as this row per the №524 rule).** The erasure surface has two
+layers, both landed by №526:
+- **Runtime registry** (the live surface — a shipped runtime persists zero
+  voiceprints, see above): `voice_delete(handle)` erases a voiceprint (a
+  Voice handle) or an audio artifact (an Audio handle) from
+  `VOICE_REGISTRY`, IDEMPOTENT (`"deleted"`/`"absent"` — a repeated erase
+  succeeds, GDPR Art. 17(1)); `voice_list()` lists the held prints (id +
+  model) and artifacts (id + size) as the informed-deletion basis. Neither
+  is feature-gated: the erasure right cannot depend on a build flag.
+- **Persisted store** (`VoiceStore`): `delete_voiceprint(name)` runs the
+  SECURE-DELETE path — the ciphertext blob is zero-overwritten in place
+  BEFORE the row is removed, the same-name audio artifact row gets the
+  same treatment ("файл артефакта + запись реестра"); `list_voiceprints()`
+  enumerates the persisted prints (name/model/saved_at/algo/ciphertext
+  length) WITHOUT decrypting. HONEST BOUNDARY: SQLite cannot guarantee
+  per-row block-level erasure (freelist/WAL page images may persist until
+  reused) — the row-level overwrite erases the row's live copy; the
+  file-level guarantee stays the DB file owner's (delete the whole file).
+- The `consent_ledger` rows SURVIVE erasure BY DESIGN: they are the
+  Art. 9 consent proof (a pseudonymous embedding hash, no biometric
+  bytes), the retention basis this policy documents.
+
+Retention (unchanged by №526): rows live until erased by the delete path
+above, replaced, or the DB file is deleted by its owner. The in-process
+companion `VOICE_REGISTRY` (audio
 artifacts + mock voiceprints, RAM only) is bounded at 64 entries with
-oldest-id eviction (№515; `src/voice/mod.rs:46–83, 139–140`) and dies at
+oldest-id eviction (№515; `src/voice/mod.rs:46–53, 71–83, 178–179`) and dies at
 process exit.
 
 ### 2.2 Memory statements — the remember/recall/forget surface (CONFIRMED, with two lanes)
@@ -248,7 +270,7 @@ All registries hold state in process memory and evaporate at exit. Since
 №515 the error-growth registries are **bounded at 64 with oldest-entry
 eviction** ("bounded ≠ request-scoped" — limitations.md): `PDF_DOCS`
 (in-progress PDF builds; `src/builtins/pdf.rs:126–162`), `VIDEO_REGISTRY`
-(`src/video/mod.rs:52–63, 264`), `VOICE_REGISTRY` (`src/voice/mod.rs:46–83`),
+(`src/video/mod.rs:52–63, 264`), `VOICE_REGISTRY` (`src/voice/mod.rs:53, 178–179`),
 and `LLM_STREAM_REGISTRY` is capped with a loud `STREAM_LIMIT_REACHED`
 (№263; `src/llm.rs:2137–2162`). Not bounded, named openly: `CARD_SESSIONS`/
 `CAL_SESSIONS` (§2.3), `LIKENESS_REGISTRY` (§2.4), `REMINDERS`
@@ -270,14 +292,15 @@ construction.
 
 | Flavor | Mechanism | Where it applies | The honest caveat |
 |---|---|---|---|
-| **Hard DELETE** | SQL `DELETE` (or Vec `retain` in RAM) at the moment of the call | `forget`, `kv_delete`, `mem_delete`, `mtree_forget`, expired cache rows | Immediate and irreversible; FTS5 indexes are kept in sync by triggers (`src/memory_store.rs:437–449`) |
+| **Hard DELETE** | SQL `DELETE` (or Vec `retain` in RAM) at the moment of the call | `forget`, `kv_delete`, `mem_delete`, `mtree_forget`, expired cache rows, `voice_delete` (№526 — the registry row + the store row after a zero-overwrite) | Immediate and irreversible; FTS5 indexes are kept in sync by triggers (`src/memory_store.rs:437–449`) |
 | **Soft ledger + owner vacuum** | `__forgotten` rows record the deletion intent; nothing physically leaves the file until an owner-side vacuum | `memory_forget` (№280/№445) | The ledger table itself contains ids/reasons; the vacuum is NOT a builtin — **ABSENT** as an automated path |
 | **Process-exit eviction** | Everything RAM-only dies with the process | consent ledger, likeness tokens, sessions/audit, all bounded registries, in-process memory and media | No durability and no deletion problem at the same time; while the process lives, the data lives |
 | **Remote DELETE** | HTTP `DELETE` to the CardDAV/CalDAV server | `card_delete`, `cal_delete` | Deletion authority is the remote server's, not this runtime's |
 
-**What does NOT exist (ABSENT — the load-bearing list):** `voice_delete` /
-any voiceprint removal; `memory_forget_all`; a consent-ledger purge; a
-voice/vision artifact delete-or-upsert builtin; CardDAV/CalDAV session
+**What does NOT exist (ABSENT — the load-bearing list; the №526 erasure
+path REMOVED `voice_delete`/`voice_list` from this list — see §2.1):**
+`memory_forget_all`; a consent-ledger purge; a VISION artifact
+delete-or-upsert builtin; CardDAV/CalDAV session
 eviction; a reminder persistence wiring. Nothing in this document should be
 read as promising any of them.
 
@@ -287,8 +310,8 @@ read as promising any of them.
 
 | Data | At-rest status | Anchor |
 |---|---|---|
-| Voiceprints, REAL runtime | **AES-256-GCM** (env-key via secret() semantics, per-write nonce) — but the store is unwired (§2.1) | `src/voice/store.rs:331–365` |
-| Voiceprints, mock runtime | **INSECURE name-keyed XOR**, visibly marked `INSECURE-XOR-MOCK` | `src/voice/store.rs:29, 297–313` |
+| Voiceprints, REAL runtime | **AES-256-GCM** (env-key via secret() semantics, per-write nonce) — but the store is unwired (§2.1) | `src/voice/store.rs:425–461` |
+| Voiceprints, mock runtime | **INSECURE name-keyed XOR**, visibly marked `INSECURE-XOR-MOCK` | `src/voice/store.rs:29, 391–407` |
 | Media entries, non-public sensitivity | **AES-256-GCM**, per-store random `Zeroizing` key | `src/media/mod.rs:227–349` |
 | Typed-memory private containers | **AES-256-GCM** (`is_enc` rows) | `src/memory_typed.rs:234–250, 815–838` |
 | Legacy `memories` / `kv_store` / vector payloads / LLM caches / distill samples | **NOT encrypted** — plaintext SQLite, protected only by the file system and the fs sandbox on the way in | §2.2, §2.7 |

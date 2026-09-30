@@ -1,0 +1,102 @@
+# cargo-deny configuration — naryad №518 (issue #802).
+#
+# Why this file exists: before this naryad nothing verified the licenses of
+# the dependency tree (the cargo-audit job covers RUSTSEC advisories only).
+# The project is dual-licensed "MIT OR Apache-2.0", so every dependency must
+# be compatible with that choice when Metalogos is adopted externally.
+#
+# Discipline rules for this file (mirror of the imap/ADR-0109 comment style):
+#   * every exception carries a stated reason, inline, next to the entry;
+#   * no silent carve-outs; if an entry stops being needed, remove it;
+#   * the first run (2026-09-29, cargo-deny 0.18.5) with an empty allow-list
+#     rejected ~330 crates across all targets — the inventory below is that
+#     observed set, not a speculative wish-list.
+
+[graph]
+# Empty target list = every target-specific dependency is included in the
+# graph (windows-sys, security-framework, ... are licensed and checked too).
+all-features = false
+no-default-features = false
+
+[output]
+feature-depth = 1
+
+[advisories]
+version = 2
+# Vulnerabilities are errors by default (vulnerability = "deny"). Unmaintained
+# crates (bincode RUSTSEC-2025-0141, ttf-parser RUSTSEC-2026-0192 at check-in
+# time) are NOT errors here — "none" mirrors the cargo-audit job posture where
+# unmaintained-crate findings stay advisory warnings; the RUSTSEC visibility
+# for those lives in the cargo-audit job, this check owns vulnerabilities.
+unmaintained = "none"
+# Yanked releases surface as warnings so a lockfile refresh is visible
+# without breaking CI on a stale-but-working pin.
+yanked = "warn"
+# No ignores. If an advisory ever needs an ignore, it lands here WITH the
+# RUSTSEC id, the reason, and the expiry review date — never silently.
+ignore = []
+
+[licenses]
+version = 2
+# The observed permissive set compatible with the "MIT OR Apache-2.0"
+# project licensing. Each entry names why it is here.
+allow = [
+    # The project's own two licenses and the dominant tree licenses.
+    "MIT",
+    "Apache-2.0",
+    # Classic permissive clause sets present in the tree
+    # (5× BSD-3-Clause sole, plus "MIT AND BSD-3-Clause" conjunctions).
+    "BSD-3-Clause",
+    # unicode-ident / litemap / zerofrom / icu family (18 crates).
+    "Unicode-3.0",
+    # 2 sole-ISC crates, plus the "Apache-2.0 AND ISC" conjunction.
+    "ISC",
+    # Boost-style permissive (2 crates, e.g. ryu-adjacent aux crates).
+    "BSL-1.0",
+    # 2 sole-Zlib crates (adler32 family), plus Zlib OR-expressions.
+    "Zlib",
+    # Public-domain-style dedications (Unlicense OR MIT pairs; one 0BSD crate).
+    "Unlicense",
+    "0BSD",
+    # webpki-roots v1.0.9 (root CA bundle shipped as data, via
+    # reqwest/rustls-tls): CDLA-Permissive-2.0 is a permissive data license —
+    # a certificate list, not code; no copyleft obligations attached to
+    # shipping it. First allowed 2026-09-29 (naryad №518).
+    "CDLA-Permissive-2.0",
+]
+confidence-threshold = 0.8
+# ical 0.11.0 (direct dep, MLG-5 calendar): upstream ships an Apache-2.0
+# LICENSE file in the crate but forgets the `license` field in Cargo.toml
+# (upstream defect). The clarify records the OBSERVED license so the tree's
+# license story is complete; the missing manifest field remains visible as
+# a no-license-field warning on every run. Once upstream declares a license
+# field, this clarify is redundant — remove it and let the manifest speak.
+[[licenses.clarify]]
+name = "ical"
+expression = "Apache-2.0"
+license-files = [{ path = "LICENSE", hash = 0x0 }]
+
+[licenses.private]
+# The workspace is the only private crate; its license is declared, so
+# nothing to skip here.
+ignore = false
+registries = []
+
+[bans]
+# Transitive duplicate versions are surfaced loudly but do not fail the job:
+# fighting every duplicate is a losing war against the ecosystem (the naryad
+# explicitly chooses warn here). Any single-version pinning happens as its
+# own decision, not as collateral of this check.
+multiple-versions = "warn"
+wildcards = "allow"
+highlight = "all"
+deny = []
+skip = []
+
+[sources]
+# Supply-chain fence: dependencies may come from crates.io only. A git or
+# unknown-registry dependency fails loudly before it can drift in.
+unknown-registry = "warn"
+unknown-git = "warn"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

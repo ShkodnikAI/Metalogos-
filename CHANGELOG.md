@@ -4,6 +4,36 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №518 (issue #802; the consolidated audit 28.09 C-19, P2 — the only
+  survived contribution Г not covered by В19): the dependency-tree gate LANDS —
+  `deny.toml` (cargo-deny) plus the blocking `cargo-deny` CI job. Before this
+  naryad nothing verified dependency LICENSES (the cargo-audit job covers
+  RUSTSEC advisories only), while the project ships as "MIT OR Apache-2.0" —
+  a legal exposure the moment an external adoption audits its transitive
+  licenses. The gate runs `cargo deny check licenses advisories bans` over
+  the whole graph, ALL targets (409 crates at check-in). The allow-list is
+  the OBSERVED permissive set compatible with the project licensing (MIT,
+  Apache-2.0, BSD-3-Clause, ISC, Unicode-3.0, BSL-1.0, Zlib, Unlicense, 0BSD,
+  CDLA-Permissive-2.0 — the last one is `webpki-roots`' root-CA data bundle,
+  a certificate list, not code), every entry carries its reason inline (the
+  imap/ADR-0109 comment discipline). Advisories: vulnerabilities FAIL, the
+  unmaintained findings stay advisory warnings — `unmaintained = "none"`
+  mirrors the cargo-audit job posture (bincode RUSTSEC-2025-0141 and
+  ttf-parser RUSTSEC-2026-0192 are the two known warnings at check-in; the
+  RUSTSEC visibility for those lives in cargo-audit). Bans: duplicate
+  versions warn, never fail — the explicit naryad choice. One license
+  exception documented: `ical` 0.11.0 ships an Apache-2.0 LICENSE file but
+  forgets the manifest `license` field — recorded via a `clarify` entry, the
+  missing-field warning stays visible on every run. The branch-protection
+  required-contexts list on `main` grows to 21 entries ("cargo-deny
+  (blocking)"); the README CI badge moves 27 → 28. Mutation-verified: the
+  check with an empty allow-list rejects every crate in the graph (red),
+  dropping CDLA-Permissive-2.0 from the allow-list turns the run red at
+  `webpki-roots`, `unmaintained = "all"` turns the advisories run red on the
+  two RUSTSEC ids — the gate is load-bearing, not decorative. Scope note:
+  the naryad does not update `imap` and does not touch dependency versions —
+  control and documentation only.
+
 - Naryad №517 (issue #801; the consolidated audit 28.09 C-06 step 2, P2 —
   the wave-21 security/voice): the honest at-rest crypto for voiceprints
   LANDS — the №512 fail-closed refusal lifts where it can be lifted

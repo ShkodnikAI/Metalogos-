@@ -661,6 +661,47 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
         .into());
     }
 
+    // Наряд №523 (audit 30.09 N-1, release-block): the serve path checks
+    // program semantics TOO — `mlog serve` previously ran NO semantic
+    // pass at all, so an undefined function inside a route body evaluated
+    // to the truthy string "[ERROR: unknown function ...]" at request
+    // time (a security check becoming its own bypass). EVERY
+    // semantic::check_program error blocks the STARTUP; exemptions
+    // classify ONLY by the structured kind in
+    // `semantic::is_exempt_from_blocking` (the ONE explicit place), never
+    // by substring. Imports are resolved statically with the same
+    // base_dir rule the registration loop below uses for its
+    // interpreters ("." — identical to the runtime loader's lookup).
+    {
+        let base_dir = std::path::PathBuf::from(".");
+        let module_decls = crate::semantic::resolve_imports_statically(&declarations, &base_dir)
+            .map_err(|e| format!("Compilation error (Naryad #523): {}", e))?;
+        let mut merged_decls = module_decls;
+        merged_decls.extend(declarations.clone());
+        let sem_result = crate::semantic::check_program(&merged_decls);
+        let blocking: Vec<&crate::semantic::SpannedError> = sem_result
+            .errors
+            .iter()
+            .filter(|err| !crate::semantic::is_exempt_from_blocking(err.kind))
+            .collect();
+        if !blocking.is_empty() {
+            // №479: the refusal carries the FIRST blocking finding's stable
+            // code at position 0 (mirrors the run gate in lib.rs).
+            let code = blocking.iter().find_map(|err| err.kind.stable_code());
+            let stamp = code.map(|c| format!("[{}] ", c)).unwrap_or_default();
+            let lines: Vec<String> = blocking
+                .iter()
+                .map(|err| crate::semantic::format_blocking_line(err))
+                .collect();
+            return Err(format!(
+                "{}Compilation error (Naryad #523): semantic findings block serve startup:\n{}",
+                stamp,
+                lines.join("\n")
+            )
+            .into());
+        }
+    }
+
     let mut interp = Interpreter::new();
     // Run declarations to populate templates, patterns, etc. (skip flows)
     // Наряд №457: фаза регистрации — ЯВНАЯ top-level зона: в serve-режиме

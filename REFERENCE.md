@@ -727,6 +727,13 @@ text_chunk(doc, "markdown", {max_chars: 1200, overlap: 100})
   //   header_path: "Guide"}, {…, header_path: "Guide > Setup"}, …]
 let chunks = text_chunk(doc, "markdown")
 let c = chunks[0]
+```
+
+```mlog
+// doc-test: skip — embed()/vec_store() live behind the off-by-default
+// `vec` feature (№272, ADR-0104). №523: the semantic gate reads this
+// block with the default feature set, so the vector lines run as their
+// own skipped block instead of riding the liar-string silence.
 vec_store("kb.db", "sections", c.header_path + "#" + str(c.index), embed(c.text), c.text)
   // section-aware RAG: search hits carry the header path as id
 ```

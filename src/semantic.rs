@@ -27,15 +27,273 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 pub struct SpannedError {
     pub message: String,
     pub span: Span,
+    /// Наряд №523: the structured KIND of the finding — set at the
+    /// construction site, never derived from the message text. The
+    /// run/serve blocking gates classify by this enum (ONE place,
+    /// `is_exempt_from_blocking`), never by substring. (The compile path
+    /// blocks in the bytecode compiler itself — №479 coded errors — and
+    /// never consults this enum.)
+    pub kind: SemanticErrorKind,
+}
+
+/// Наряд №523: the structured kinds of semantic findings. The blocking
+/// gates in the run/serve paths exempt ONLY the kinds listed in
+/// `is_exempt_from_blocking` — the ONE explicit place. The previous
+/// substring filters (`contains("distill_to")`, `contains("[DENY_")`)
+/// are gone: a message-substring filter is a liar-class mechanism (the
+/// audit 30.09 N-1 lesson — "a semantic error cannot be a value").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SemanticErrorKind {
+    /// UNDEFINED_FUNCTION — the called name is not a builtin, pattern,
+    /// or learnable known to the semantic pass (`check_expr_calls`).
+    /// With the №523 static import merge the pass sees every imported
+    /// symbol, so this kind now blocks like everything else; the kind
+    /// stays named so the gate's exemption list can be explicit and
+    /// future kinds can be classified without new plumbing.
+    UndefinedFunction,
+    /// Every other semantic finding — blocks run/serve unconditionally.
+    Other,
+}
+
+impl SemanticErrorKind {
+    /// Наряд №523: the stable №479 diagnostic code for this kind, when one
+    /// exists. The blocking gate prefixes its refusal with the FIRST
+    /// blocking finding's code so machine consumers (the №465 diff-fuzzer's
+    /// class signature, log scrapers) read the CODE, not the prose.
+    /// Kinds without a code return None — no invented codes (the honest
+    /// gap stays unstamped until an origin site owns one).
+    pub fn stable_code(self) -> Option<&'static str> {
+        match self {
+            SemanticErrorKind::UndefinedFunction => {
+                Some(crate::interpreter::values::CODE_UNDEFINED_FUNCTION)
+            }
+            SemanticErrorKind::Other => None,
+        }
+    }
+}
+
+/// Наряд №523: the ONE explicit exemption list for the run/serve
+/// blocking gates. EVERY `check_program` error blocks by default; a kind
+/// is exempt only if listed here — by enum, never by message substring.
+///
+/// Current exemptions: NONE. The №523 static import merge (the gate
+/// resolves imports before checking) removed the only historical reason
+/// to exempt a class — the false-positive "undefined function" on
+/// symbols that the interpreter resolves from imported modules at
+/// runtime. The function stays as the single named place: a future
+/// exemption must land HERE, visibly, with its rationale — not as a
+/// new substring filter at a call site.
+pub fn is_exempt_from_blocking(kind: SemanticErrorKind) -> bool {
+    let _ = kind; // the explicit list is empty today (see the doc comment)
+    false
+}
+
+/// Наряд №523: one formatting rule for the blocking gates' per-finding
+/// lines — the semantic message, plus the 1-indexed line when the span
+/// is known (line 0 is the historical `at_line(0)` unknown-span
+/// fallback; "(line 0)" would be a lie of its own).
+pub fn format_blocking_line(err: &SpannedError) -> String {
+    if err.span.start_line > 0 {
+        format!("{} (line {})", err.message, err.span.start_line)
+    } else {
+        err.message.clone()
+    }
+}
+
+/// Наряд №523: statically resolve a program's import tree so the
+/// semantic pass sees every symbol the interpreter will have at runtime.
+///
+/// THE WHY: the historical reason the run path did NOT block on every
+/// semantic finding was a false-positive class — "undefined function"
+/// on symbols merged from imported modules at runtime (`handle_import`
+/// loads `{base_dir}/{path}.mlog` and registers its patterns flat).
+/// With the gate resolving the same import tree BEFORE checking, the
+/// false-positive class is gone and nothing needs to be exempt.
+///
+/// MECHANICS (mirror the runtime loader and the bytecode compiler's
+/// `resolve_import` — same file-lookup rule `{base_dir}/{path}.mlog`,
+/// same recursive sub-import walk, same visited-set on module path):
+///
+///   * the importing file's declarations WIN over module declarations
+///     (runtime parity: imports register first, main registration is
+///     last-wins);
+///   * name collisions BETWEEN modules are deduplicated first-wins —
+///     the runtime treats a flat-merge collision as a warning, so the
+///     gate must not invent a "duplicate pattern" error the runtime
+///     never raises;
+///   * a cycle is skipped via the visited set (no new error class — the
+///     runtime loader still rejects circular imports with its own loud
+///     error, so net run behavior is unchanged);
+///   * `Profile` is skipped (the runtime import loader skips it too).
+///
+/// The result is the module-side declaration list to be PREPENDED to the
+/// program's own declarations before `check_program`. This is a gate
+/// helper: it never executes anything, it only parses.
+pub fn resolve_imports_statically(
+    declarations: &[Declaration],
+    base_dir: &std::path::Path,
+) -> Result<Vec<Declaration>, String> {
+    // Reserve the importing file's names first — main wins.
+    let mut reserved: HashSet<(String, String)> =
+        declarations.iter().filter_map(decl_import_ident).collect();
+    let mut merged: Vec<Declaration> = Vec::new();
+    let mut visited: HashSet<String> = HashSet::new();
+    collect_import_decls(
+        declarations,
+        base_dir,
+        &mut visited,
+        &mut reserved,
+        &mut merged,
+    )?;
+    Ok(merged)
+}
+
+/// DFS over `Declaration::Import` nodes: parse each module file once
+/// (visited-set on the trimmed import path), recurse into sub-imports,
+/// and append the module's own declarations (deduplicated) to `out`.
+fn collect_import_decls(
+    declarations: &[Declaration],
+    base_dir: &std::path::Path,
+    visited: &mut HashSet<String>,
+    reserved: &mut HashSet<(String, String)>,
+    out: &mut Vec<Declaration>,
+) -> Result<(), String> {
+    for decl in declarations {
+        if let Declaration::Import(import) = decl {
+            // Parser may include trailing whitespace in `import_path` when
+            // the optional `as alias` group is present — the runtime loader
+            // trims (modules.rs handle_import); mirror it exactly.
+            let module_path = import.path.trim().to_string();
+            if !visited.insert(module_path.clone()) {
+                continue;
+            }
+            let file_path = base_dir.join(format!("{}.mlog", module_path));
+            // №475: the import source loader — compile-time, AUTHOR-controlled
+            // source text (the same trust domain as the file being checked);
+            // the sandbox targets PROGRAM-RUNTIME I/O. The runtime loader
+            // (interpreter/modules.rs) and the bytecode compiler's
+            // `resolve_import` carry the same justification.
+            #[allow(clippy::disallowed_methods)]
+            // №475: the import source loader — compile-time, AUTHOR-controlled
+            // source text (the same trust domain as the file being checked);
+            // the sandbox targets PROGRAM-RUNTIME I/O. The runtime loader
+            // (interpreter/modules.rs) and the bytecode compiler's
+            // `resolve_import` carry the same justification.
+            #[allow(clippy::disallowed_methods)]
+            // №475: the import source loader — compile-time, AUTHOR-controlled
+            // source text (the same trust domain as the file being checked);
+            // the sandbox targets PROGRAM-RUNTIME I/O. The runtime loader
+            // (interpreter/modules.rs) and the bytecode compiler's
+            // `resolve_import` carry the same justification.
+            #[allow(clippy::disallowed_methods)]
+            let source = std::fs::read_to_string(&file_path).map_err(|e| {
+                format!(
+                    "import '{}': cannot read {:?}: {} (the №523 semantic gate resolves imports statically with the same file-lookup rule as the runtime loader)",
+                    module_path, file_path, e
+                )
+            })?;
+            let module_decls = crate::parser::parse(&source)
+                .map_err(|e| format!("parse error in module '{}': {}", module_path, e))?;
+            collect_import_decls(&module_decls, base_dir, visited, reserved, out)?;
+            for module_decl in module_decls {
+                match &module_decl {
+                    // Sub-imports were handled by the recursion above.
+                    Declaration::Import(_) => {}
+                    // The runtime import loader skips profiles (№325).
+                    Declaration::Profile(_) => {}
+                    _ => match decl_import_ident(&module_decl) {
+                        // Collision: the runtime flat-merge WARNS, it does not
+                        // error — the gate must not invent a duplicate error.
+                        Some(key) if reserved.contains(&key) => {}
+                        Some(key) => {
+                            reserved.insert(key);
+                            out.push(module_decl);
+                        }
+                        None => out.push(module_decl),
+                    },
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The (kind-tag, name) pair a declaration is deduplicated by during the
+/// static import merge. The kind tag matches `check_program`'s own
+/// per-kind duplicate namespaces (pattern / learnable / entity_type /
+/// entity / flow / reflex / template / vision / ...): a Pattern and an
+/// Entity may legally share a name, two Patterns may not. Unnamed
+/// declarations (rules, memorize, hooks, ...) return None and are
+/// always included — they carry no duplicate-name error class.
+fn decl_import_ident(decl: &Declaration) -> Option<(String, String)> {
+    let tag: &str;
+    let name: String;
+    match decl {
+        Declaration::Pattern(p) => {
+            tag = "pattern";
+            name = p.name.clone();
+        }
+        Declaration::LearnablePattern(lp) => {
+            tag = "learnable";
+            name = lp.name.clone();
+        }
+        Declaration::EntityType(e) => {
+            tag = "entity_type";
+            name = e.name.clone();
+        }
+        Declaration::EntityRecord(e) => {
+            tag = "entity";
+            name = e.name.clone();
+        }
+        Declaration::EntitySimple(e) => {
+            tag = "entity";
+            name = e.name.clone();
+        }
+        Declaration::Flow(f) => {
+            tag = "flow";
+            name = f.name.clone();
+        }
+        Declaration::Reflex(r) => {
+            tag = "reflex";
+            name = r.name.clone();
+        }
+        Declaration::Template(t) => {
+            tag = "template";
+            name = t.name.clone();
+        }
+        Declaration::Vision(v) => {
+            tag = "vision";
+            name = v.name.clone();
+        }
+        Declaration::Sandbox(s) => {
+            tag = "sandbox";
+            name = s.name.clone();
+        }
+        Declaration::Tool(t) => {
+            tag = "tool";
+            name = t.name.clone();
+        }
+        _ => return None,
+    }
+    Some((tag.to_string(), name))
 }
 
 impl SpannedError {
     /// Build a `SpannedError` from a message and an explicit span.
+    /// The kind defaults to `Other` (blocking); use `with_kind` at the
+    /// construction sites that produce a named kind.
     pub fn at(message: impl Into<String>, span: Span) -> Self {
         Self {
             message: message.into(),
             span,
+            kind: SemanticErrorKind::Other,
         }
+    }
+
+    /// Наряд №523: attach an explicit structured kind (builder style).
+    pub fn with_kind(mut self, kind: SemanticErrorKind) -> Self {
+        self.kind = kind;
+        self
     }
 
     /// Build a `SpannedError` from a message and a declaration's span.
@@ -5435,7 +5693,24 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                 // eval_statements (server.rs), so the `let mut` contract
                 // applies there identically; the static pass now catches the
                 // violation at `mlog check` time for both serve backends.
+                // Наряд №523: route bodies get the same CALL walk as pattern
+                // bodies too — an undefined function inside a route body was
+                // invisible to the semantic pass (the serve startup gate
+                // could not see it; only the VM route compiler refused, and
+                // only on the VM backend). With the walk in place the serve
+                // startup gate refuses on both backends; the same-import
+                // caveat as pattern bodies applies (mlog check without
+                // --root has never seen imported symbols on either).
                 for route in &srv.routes {
+                    for stmt in &route.body {
+                        check_stmt_exprs(
+                            stmt,
+                            &builtin_names,
+                            &pattern_param_counts,
+                            &learnable_names,
+                            &mut result.errors,
+                        );
+                    }
                     check_pattern_mutability(&route.body, &mut result.errors);
                 }
             }
@@ -7416,19 +7691,42 @@ fn check_expr_calls(
         if !is_known && !INTERCEPTED_FUNCTIONS.contains(&name.as_str()) {
             // Наряд №165: span taken from the FnCall expression itself —
             // the call site is the natural place to point the squiggle.
-            errors.push(SpannedError::at_expr(
-                expr,
-                format!(
-                    "undefined: function '{}' is not a builtin, pattern, or learnable",
-                    name
-                ),
-            ));
+            // Наряд №523: the finding carries the structured
+            // UNDEFINED_FUNCTION kind — the blocking gates classify by
+            // the enum, never by the message text.
+            errors.push(
+                SpannedError::at_expr(
+                    expr,
+                    format!(
+                        "undefined: function '{}' is not a builtin, pattern, or learnable",
+                        name
+                    ),
+                )
+                .with_kind(SemanticErrorKind::UndefinedFunction),
+            );
         }
 
         // Check builtin arity
         if builtin_names.contains(name) {
-            if let Err(e) = crate::builtins::check_builtin_arity(name, args.len()) {
-                errors.push(SpannedError::at_expr(expr, e));
+            // №523: DYNAMIC-ARITY builtins — the registry's (min..=max)
+            // spec cannot state their real contract, so the static check
+            // stays silent here and the builtin itself remains the loud
+            // runtime validator:
+            //   * forget — two real surfaces: the №72 memory form
+            //     forget(query, days?) [1..2, served by the TW/VM
+            //     intercepts in memory_ops.rs] and the registry form
+            //     forget(handle, key, grant, dry_run?) [3..4]. The union
+            //     is non-contiguous; one spec cannot say it.
+            //   * render — the template's parameter list is DATA (№115);
+            //     the 1-arg form is the №448 taint-lift surface. Unbounded.
+            // The №523 run gate surfaced both drifts (examples/p72,
+            // examples/leak/ok_448_*). One named place, structured by
+            // name — the same posture as is_exempt_from_blocking.
+            let dynamic_arity = matches!(name.as_str(), "forget" | "render");
+            if !dynamic_arity {
+                if let Err(e) = crate::builtins::check_builtin_arity(name, args.len()) {
+                    errors.push(SpannedError::at_expr(expr, e));
+                }
             }
         }
 

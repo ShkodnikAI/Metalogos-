@@ -114,7 +114,9 @@ flow Main { input: String = "x" -> Generate -> output }
 "#;
     let err = metalogos::run_program(source).expect_err("arity 1 must fail loudly");
     assert!(
-        err.contains("expects 2 arguments"),
+        // №523: the refusal is the run gate's semantic arity check now —
+        // "argument(s)" (the runtime text stays the VM-path backstop).
+        err.contains("expects 2 argument"),
         "error must state the arity contract: {}",
         err
     );

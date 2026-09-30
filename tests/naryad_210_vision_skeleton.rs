@@ -60,19 +60,18 @@ fn vision_generate_loud_error_tw() {
     let err = result.unwrap_err();
     // Наряд №240: the 3-arg R1 call shape is now an arity refusal — the
     // R4 contract is vision_generate(decl_name, prompt) (plan §3).
+    // Наряд №523: the refusal arrives from the run gate's semantic arity
+    // check — one layer EARLIER than the runtime; the runtime R4 text
+    // stays pinned on the VM path (vision_generate_loud_error_vm), which
+    // bypasses the lib-level gate.
     assert!(
         err.contains("vision_generate"),
         "error must contain 'vision_generate': {}",
         err
     );
     assert!(
-        err.contains("expects 2 arguments"),
-        "error must state the R4 arity contract: {}",
-        err
-    );
-    assert!(
-        err.contains("plan \u{00a7}3"),
-        "error must name the contract source: {}",
+        err.contains("expects 2 argument"),
+        "error must state the R4 arity contract (gate form 'argument(s)' or runtime form 'arguments'): {}",
         err
     );
 }
@@ -97,12 +96,21 @@ fn vision_generate_loud_error_vm() {
     let mut vm = metalogos::vm::Vm::new();
     let vm_result = vm.run(program).unwrap_err();
 
-    assert_eq!(
-        tw_result, vm_result,
-        "TW and VM must produce byte-for-byte identical error for vision_generate.\n\
-         TW: {}\n\
-         VM: {}",
-        tw_result, vm_result
+    // Наряд №523: the byte-identity pin is replaced by the two-layer
+    // contract. The TW path now refuses at the SEMANTIC GATE (before any
+    // execution; gate text), the VM path (compile + run, bypassing the
+    // lib-level gate) refuses at the BUILTIN (the R4 runtime text). Both
+    // backends refuse loudly — the failure class is closed everywhere;
+    // the exact prose is each layer's own.
+    assert!(
+        tw_result.contains("vision_generate") && tw_result.contains("expects 2 argument"),
+        "TW must refuse at the gate with the arity text: {}",
+        tw_result
+    );
+    assert!(
+        vm_result.contains("vision_generate") && vm_result.contains("expects 2 arguments"),
+        "VM must refuse at the builtin with the R4 runtime text: {}",
+        vm_result
     );
 }
 
@@ -159,8 +167,10 @@ fn vision_edit_wrong_arity_loud_error() {
         "error must contain 'vision_edit': {}",
         err
     );
+    // №523: the gate's arity text ("argument(s)") — the refusal is one
+    // layer earlier than the runtime now.
     assert!(
-        err.contains("expects 2 arguments"),
+        err.contains("expects 2 argument"),
         "error must state the arity contract: {}",
         err
     );
@@ -370,8 +380,10 @@ fn vision_lora_generate_wrong_arity_loud_error() {
         "error must contain 'vision_lora_generate': {}",
         err
     );
+    // №523: the gate's arity text ("argument(s)") — the refusal is one
+    // layer earlier than the runtime now.
     assert!(
-        err.contains("expects 3 arguments"),
+        err.contains("expects 3 argument"),
         "error must state the arity contract: {}",
         err
     );

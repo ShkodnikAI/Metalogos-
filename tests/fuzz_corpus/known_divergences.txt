@@ -53,25 +53,3 @@
 # declaration globals, parity with the VM); the memory_forget compile gap
 # is root-caused in gh#786 with the repair plan (the vec-gate/soft-fn
 # semantics decision belongs to the owner).
-
-# class: phase family — TW reports a runtime type mismatch in concatenation
-#   ([TYPE_MISMATCH]@binary_op) while the VM refuses EARLIER at compile
-#   (memory_forget, [UNDEFINED_FUNCTION]): both error, the construct and
-#   the phase differ.
-# example: class_example_phase_concat_vs_compile.mlog
-# status: open — phase-parity family; repaired by the transfer/parity line, never pinned silently
-known-errorclass|tw=err:[TYPE_MISMATCH]@binary_op|vm=err:[UNDEFINED_FUNCTION]@fn_call
-
-# class: phase family — TW reports a builtin argument type mismatch
-#   (len() over a non-String/List, [TYPE_MISMATCH]@fn_call) while the VM
-#   refuses EARLIER at compile (memory_forget, [UNDEFINED_FUNCTION]).
-# example: class_example_phase_lenarg_vs_compile.mlog
-# status: open — phase-parity family; repaired by the transfer/parity line, never pinned silently
-known-errorclass|tw=err:[TYPE_MISMATCH]@fn_call|vm=err:[UNDEFINED_FUNCTION]@fn_call
-
-# class: phase family — TW reports an undefined variable at runtime
-#   ([UNDEFINED_VARIABLE]@ident) while the VM refuses EARLIER at compile
-#   (memory_forget first, [UNDEFINED_FUNCTION]).
-# example: class_example_phase_ident_vs_compile.mlog
-# status: open — phase-parity family; repaired by the transfer/parity line, never pinned silently
-known-errorclass|tw=err:[UNDEFINED_VARIABLE]@ident|vm=err:[UNDEFINED_FUNCTION]@fn_call

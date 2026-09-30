@@ -112,36 +112,49 @@ const MATERIALIZATION_PROG: &str = r#"
 origin feed { kind: generation, media: image, label: public }
 pattern Frame(data: String) -> String {
   let img = from feed media_store_image(data, "public")
-  let _p = media_save(img, "target/n331-media/OUTFILE")
+  let _p = media_save(img, "target/MDIR/OUTFILE")
   return "saved"
 }
 flow Main { input: String = "media-331-payload" -> Frame -> output }
 "#;
 
-fn materialization_source(outfile: &str) -> String {
-    // Separate output names per backend — the two backends run in
-    // PARALLEL test threads and must not race on one file.
-    MATERIALIZATION_PROG.replace("OUTFILE", outfile)
+fn materialization_source(outfile: &str, mdir: &str) -> String {
+    // Separate output NAMES and DIRECTORIES per backend — the two
+    // backends run in PARALLEL test threads and must not race on one
+    // file or one fresh_dir (№523 CI repair).
+    MATERIALIZATION_PROG
+        .replace("MDIR", mdir)
+        .replace("OUTFILE", outfile)
 }
 
 #[test]
 fn materialization_writes_exact_bytes_on_tw() {
-    fresh_dir("target/n331-media");
-    let out = run_tw(&materialization_source("tw-out.bin"), Path::new(MANIFEST))
-        .unwrap_or_else(|e| panic!("materialization must run: {}", e));
+    // №523 CI repair: the two materialization tests ran in parallel cargo
+    // threads against ONE fresh_dir — the second remove_dir_all wiped the
+    // first test's file mid-run (a pre-existing race, first caught by the
+    // coverage job). Separate per-backend directories.
+    fresh_dir("target/n331-media-tw");
+    let out = run_tw(
+        &materialization_source("tw-out.bin", "n331-media-tw"),
+        Path::new(MANIFEST),
+    )
+    .unwrap_or_else(|e| panic!("materialization must run: {}", e));
     assert_eq!(out.as_deref().unwrap_or_default().trim_end(), "saved");
-    let written = std::fs::read(Path::new(MANIFEST).join("target/n331-media/tw-out.bin"))
+    let written = std::fs::read(Path::new(MANIFEST).join("target/n331-media-tw/tw-out.bin"))
         .expect("file written");
     assert_eq!(written, b"media-331-payload");
 }
 
 #[test]
 fn materialization_writes_exact_bytes_on_vm() {
-    fresh_dir("target/n331-media");
-    let out = run_vm(&materialization_source("vm-out.bin"), Path::new(MANIFEST))
-        .unwrap_or_else(|e| panic!("materialization must run on VM: {}", e));
+    fresh_dir("target/n331-media-vm");
+    let out = run_vm(
+        &materialization_source("vm-out.bin", "n331-media-vm"),
+        Path::new(MANIFEST),
+    )
+    .unwrap_or_else(|e| panic!("materialization must run on VM: {}", e));
     assert_eq!(out.as_deref().unwrap_or_default().trim_end(), "saved");
-    let written = std::fs::read(Path::new(MANIFEST).join("target/n331-media/vm-out.bin"))
+    let written = std::fs::read(Path::new(MANIFEST).join("target/n331-media-vm/vm-out.bin"))
         .expect("file written");
     assert_eq!(written, b"media-331-payload");
 }

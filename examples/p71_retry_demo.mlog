@@ -11,7 +11,7 @@ pattern call_proxy_with_retry(endpoint: String, payload: String) -> String {
     endpoint,
     payload,
     "application/json",
-    {Authorization: "Bearer " + env_get("PROXY_TOKEN")},
+    {Authorization: "Bearer <operator-token>"},  // the real token enters through the operator's secret lane, not env() directly into network headers (№391 PII_EGRESS_NETWORK)
     30.0,
     retry_cfg
   )

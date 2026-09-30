@@ -217,10 +217,18 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("dict_keys", 1, "json"; builtin_dict_keys),
     spec!("dict_values", 1, "json"; builtin_dict_values), // ── Web builtins ──
     spec!("respond", 1, 2, "web"; builtin_respond),
-    spec!("respond_html", 1, "web"; builtin_respond_html),
+    // №523: the spec is 2 — the implementation (builtins/http.rs
+    // builtin_respond_html) requires (status, html); the 1 here was
+    // stale and the №523 run gate surfaced it (examples/p_p01 calls
+    // with 2 on every line).
+    spec!("respond_html", 2, "web"; builtin_respond_html),
     spec!("form_data", 1, "web"; builtin_form_data),
     spec!("json_body", 0, "web"; builtin_json_body),
     spec!("query_param", 1, "web"; builtin_query_param),
+    // №523: the 2..3 range is NOMINAL — render's real contract is dynamic
+    // (the template's parameter list is data, №115; the 1-arg form is the
+    // №448 taint-lift surface). The builtin validates loudly at runtime;
+    // the semantic arity check exempts the name (see check_expr_calls).
     spec!("render", 2, 3, "web"; builtin_render),
     spec!("http_get", 1, 4, "web"; builtin_http_get), // url | url,headers | url,headers,timeout | ...,{max_retries:N,base_delay:N}
     spec!("http_post", 2, 6, "web"; builtin_http_post), // up to +retry_config Struct
@@ -255,7 +263,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("session_poll_wake", 1, "session"; builtin_session_poll_wake),
     spec!("session_interrupt", 2, 3, "session"; builtin_session_interrupt),
     spec!("session_take_interrupt", 1, "session"; builtin_session_take_interrupt),
-    spec!("session_clear", 0, "memory"; builtin_session_clear), // ── Bot — Telegram messaging ──
+    spec!("session_clear", 1, "memory"; builtin_session_clear), // ── Bot — Telegram messaging ──
     spec!("send_message", 2, 3, "bot"; builtin_send_message),   // chat_id,text | +reply_markup
     spec!("answer_callback_query", 1, 3, "bot"; builtin_answer_callback_query), // id | id,text | id,text,show_alert
     spec!("edit_message_text", 3, 4, "bot"; builtin_edit_message_text), // chat_id,message_id,text | +reply_markup
@@ -389,8 +397,17 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("conv_history", 1, "stub"),
     spec!("conv_context", 1, "stub"),
     spec!("conv_end", 1, "stub"),
-    spec!("session_set", 2, "memory"; builtin_session_set),
-    spec!("session_get", 1, "memory"; builtin_session_get),
+    // №523: the spec is 3 — the implementation (builtins/memory.rs
+    // builtin_session_set) hard-requires (session_id, key, value) and
+    // refuses 2 arguments loudly at runtime; the 2 here was a stale
+    // pre-session-id spec the №523 run gate surfaced (examples/p8 calls
+    // with 3 on every line).
+    spec!("session_set", 3, "memory"; builtin_session_set),
+    // №523: the specs are the implementation's truth (builtins/memory.rs):
+    // session_get hard-requires (session_id, key); session_clear requires
+    // exactly (session_id). The stale 1/0 specs predated the session-id
+    // parameter; the №523 run gate surfaced the drift (examples/p8).
+    spec!("session_get", 2, "memory"; builtin_session_get),
     spec!("ref", 1, "memory"; builtin_content_ref),
     spec!("deref", 1, "memory"; builtin_content_deref), // ── Time builtins ──
     spec!("now", 0, "time"; builtin_now, "Float"),

@@ -4,6 +4,65 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №523 (issue #832; the consolidated audit A+D 30.09, N-1 High,
+  P0 release-block): semantic findings now BLOCK `mlog run` and
+  `mlog serve` — the liar string is gone. THE HOLE: `run_program_with_dir`
+  blocked only two substring classes (`contains("distill_to")`,
+  `contains("[DENY_")`), `mlog serve` ran NO semantic pass at all, and the
+  tree-walking interpreter returned the string
+  `"[ERROR: unknown function 'x']"` as the call's VALUE — non-empty
+  strings are truthy in `is_truthy`, so `if is_admn(user)` with no
+  `is_admn` defined took the then-branch: a security check became its own
+  bypass. THE FIX: (1) every `semantic::check_program` error blocks the
+  run path and the serve startup; exemptions classify ONLY by the
+  structured `SemanticErrorKind` through `semantic::is_exempt_from_blocking`
+  — the ONE explicit place, empty today — never by message substring;
+  (2) the gate resolves the program's import tree STATICALLY first
+  (`semantic::resolve_imports_statically`, the same file-lookup rule as
+  the runtime loader and the bytecode compiler's `resolve_import`,
+  visited-set on module path, main-file-wins dedup with first-wins
+  module collisions — the runtime flat-merge warns, so the gate must not
+  invent duplicate-name errors), which removes the historical
+  false-positive class that once justified NOT blocking; (3) both TW
+  unknown-function origins (`run`'s call resolution and
+  `eval_expr_with_env`) return the coded err-origin
+  `[UNDEFINED_FUNCTION] undefined function: 'x'` instead of the truthy
+  string (the №479 stable code); (4) the refusal carries the FIRST
+  blocking finding's stable code at position 0 —
+  `[UNDEFINED_FUNCTION] Compilation error (Naryad #523): ...` — machine
+  consumers read the class, not the prose; (5) `check_program` walks
+  ROUTE bodies for calls too (the №264-mutability-walk precedent) — an
+  undefined function inside a route body now refuses the TW serve startup
+  instead of failing per-request. The gate surfaced three PRE-EXISTING
+  spec-vs-implementation arity drifts, fixed at the SSOT:
+  `session_set` 2→3 and `session_get` 1→2 (the implementations
+  hard-require the session-id forms), `session_clear` 0→1 (left the
+  arity-0 "variadic" list that never checked anything),
+  `respond_html` 1→2 (status + html); `forget` (the №72 memory surface
+  1..2 + the registry surface 3..4 — a non-contiguous union) and
+  `render` (template params are data, the 1-arg form is the №448
+  taint-lift surface) are DYNAMIC-ARITY names — the static check stays
+  silent, the builtin stays the loud runtime validator. Contracts
+  repaired per place: `examples/p50_unknown_fn` flipped from a .expected
+  golden (the liar string enshrined as the expected stdout) to a .error
+  contract; `examples/p2_multi_errors.error` updated to the gate text
+  (the unknown-type refusal arrives one layer earlier);
+  `examples/p71_retry_demo` dropped its `env_get` reference (a function
+  that existed in NEITHER backend — the №513 crosscheck exclusion dies
+  with it) for a placeholder header, since reading env() straight into
+  network headers is the №391 PII_EGRESS_NETWORK violation; the
+  REFERENCE.md vector sample runs as its own `doc-test: skip` block
+  (embed/vec_store are `vec`-feature, off by default); the №465
+  diff-fuzzer's three phase-family known-classes closed by the ratchet
+  (the TW side refuses at the gate with the same №479 code the VM compile
+  side always had) — the lines and their corpus examples are removed.
+  Tests: tests/naryad_523_semantic_gate.rs — the exploit shape refused on
+  TW (gate) and VM (compile), the interpreter err-origin pinned (no liar
+  string from any call site), serve startup refusals through the real
+  `run_server` (route body and pattern body shapes), the
+  import-using program still runs (no false positives), the №181/№392
+  classes still block, the exemption list pinned empty.
+
 - Naryad №519 (issue #803; the consolidated audit 28.09 C-20, P2 — the
   contribution Г tied to the C-06 voice work): the engineering privacy policy
   LANDS — `docs/privacy.md`, an honest inventory of what the runtime stores,

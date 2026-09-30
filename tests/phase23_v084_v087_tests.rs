@@ -267,7 +267,7 @@ fn test_compress_html() {
             let html = "<html><head><title>Test</title><script>alert(1)</script></head><body><p>Hello World 488</p></body></html>"
             let text = compress_html(html)
             assert_eq(contains(text, "alert(1)"), false)
-            assert(contains(text, "Hello World 488"))
+            assert_contains(text, "Hello World 488")
         }
     "#,
     );

@@ -143,29 +143,47 @@ pub fn run_program_with_dir(
     }
 
     // Наряд №181 (ADR-0117 §2-3): enforce distill_to semantic checks at
-    // run_program time too (not just `mlog check`). This catches:
-    //   1. distill_to referencing an undeclared reflex
-    //   2. distill_to on a String-returning pattern with empty labels
-    //      (free-form generation, permanently out of scope per ADR-0117 §3)
-    // We run check_program (the full semantic pass) and surface only
-    // distill_to errors — other semantic findings (e.g., "undefined
-    // function" for imported symbols) are deliberately NOT blocking
-    // here, because the interpreter resolves those at runtime.
+    // run_program time too (not just `mlog check`).
+    //
+    // Наряд №523 (audit 30.09 N-1, release-block): EVERY semantic::check_program
+    // error now blocks the run path. The №181-era substring filters
+    // (`contains("distill_to")`, `contains("[DENY_")`) are gone — a
+    // message-substring filter is a liar-class mechanism: with only two
+    // classes blocking, `if is_admn(user)` on an undefined `is_admn`
+    // evaluated to the truthy string "[ERROR: unknown function ...]" and
+    // a security check became its own bypass. Exemptions classify ONLY by
+    // the structured kind in `semantic::is_exempt_from_blocking` (the ONE
+    // explicit place), never by substring. Imports are resolved
+    // STATICALLY first (same file-lookup rule as the runtime loader), so
+    // symbols merged from imported modules are known to the pass — the
+    // historical false-positive class that once justified NOT blocking
+    // (see the №98 note above) is gone.
     {
-        let sem_result = semantic::check_program(&declarations);
-        for err in &sem_result.errors {
-            if err.message.contains("distill_to") {
-                return Err(format!(
-                    "Compilation error (ADR-0117 §2-3): {}",
-                    err.message
-                ));
-            }
-            // Наряд №392: deny-event analyzer failures block the run path
-            // the same way — handler scope, class validation and
-            // exhaustive matching are compile-time contract, not warnings.
-            if err.message.contains("[DENY_") {
-                return Err(format!("Compilation error (Naryad #392): {}", err.message));
-            }
+        let module_decls = semantic::resolve_imports_statically(&declarations, &base_dir)
+            .map_err(|e| format!("Compilation error (Naryad #523): {}", e))?;
+        let mut merged_decls = module_decls;
+        merged_decls.extend(declarations.clone());
+        let sem_result = semantic::check_program(&merged_decls);
+        let blocking: Vec<&semantic::SpannedError> = sem_result
+            .errors
+            .iter()
+            .filter(|err| !semantic::is_exempt_from_blocking(err.kind))
+            .collect();
+        if !blocking.is_empty() {
+            // №479: the refusal carries the FIRST blocking finding's stable
+            // code at position 0 — machine consumers read the class, not
+            // the prose (mirrors the bytecode compiler's coded errors).
+            let code = blocking.iter().find_map(|err| err.kind.stable_code());
+            let stamp = code.map(|c| format!("[{}] ", c)).unwrap_or_default();
+            let lines: Vec<String> = blocking
+                .iter()
+                .map(|err| semantic::format_blocking_line(err))
+                .collect();
+            return Err(format!(
+                "{}Compilation error (Naryad #523): semantic findings block execution:\n{}",
+                stamp,
+                lines.join("\n")
+            ));
         }
     }
 

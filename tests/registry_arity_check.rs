@@ -105,7 +105,8 @@ fn registry_arity_exhaustive() {
         ("dict_values", 1, 1),
         // ── Web builtins ──
         ("respond", 1, 2),
-        ("respond_html", 1, 1),
+        // №523: the spec follows the implementation — respond_html(status, html)
+        ("respond_html", 2, 2),
         ("form_data", 1, 1),
         ("query_param", 1, 1),
         ("render", 2, 3),
@@ -179,8 +180,13 @@ fn registry_arity_exhaustive() {
         ("conv_history", 1, 1),
         ("conv_context", 1, 1),
         ("conv_end", 1, 1),
-        ("session_set", 2, 2),
-        ("session_get", 1, 1),
+        // №523: the specs follow the implementations (session_id, key, value) /
+        // (session_id, key) — the stale pre-session-id arities are gone.
+        ("session_set", 3, 3),
+        ("session_get", 2, 2),
+        // №523: session_clear requires exactly (session_id) — it left the
+        // arity-0 "variadic" list (the 0 spec never checked anything).
+        ("session_clear", 1, 1),
         ("ref", 1, 1),
         ("deref", 1, 1),
         // ── Time builtins ──
@@ -355,7 +361,6 @@ fn registry_arity_exhaustive() {
         "json_body",
         "request_body",
         "generate_key",
-        "session_clear",
         "trace_start",
         "trace_end",
         "llm_usage",

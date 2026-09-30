@@ -469,12 +469,16 @@ fn n274_arity_pin() {
         .position(|n| n == "redact")
         .expect("redact registered");
     assert!(idx > 0, "redact must be in the registry");
-    // Arity 2: один аргумент — громкая ошибка времени выполнения.
+    // Arity 2: один аргумент — громкая ошибка. С №523 отказ приходит
+    // РАНЬШЕ исполнения — от семантического гейта run-пути (the same
+    // refusal, one layer earlier); the runtime message stays the
+    // backstop for gate-bypassing callers.
     let err = metalogos::run_program(
         "pattern M(_input: String) -> String { return redact(\"only-text\") } flow F { input: String = \"x\" -> M -> output }",
     )
     .unwrap_err();
-    assert!(err.contains("redact()"), "{}", err);
+    assert!(err.contains("redact"), "{}", err);
+    assert!(err.contains("expects 2 argument(s)"), "{}", err);
 }
 
 // ── Local fuzz smoke (cargo-fuzz в контейнере нет — см. PR-девиацию) ────

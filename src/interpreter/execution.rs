@@ -983,13 +983,21 @@ impl Interpreter {
         }
 
         // Look up compiled pattern
+        // Наряд №523 (audit 30.09 N-1): an unknown function is an ERROR, not
+        // a value. The previous form returned the string
+        // "[ERROR: unknown function ...]" as the call's VALUE — non-empty
+        // strings are truthy in is_truthy, so `if is_admn(user)` with no
+        // `is_admn` defined evaluated the then-branch: a security check
+        // became its own bypass. The err-origin carries the stable №479
+        // diagnostic code (the diff-fuzzer's class signature compares
+        // codes, not prose).
         let pattern = match self.patterns.get(name) {
             Some(p) => p.clone(),
             None => {
-                return Ok(Value::String(format!(
-                    "[ERROR: unknown function '{}']",
-                    name
-                )))
+                return Err(crate::interpreter::values::coded_error(
+                    crate::interpreter::values::CODE_UNDEFINED_FUNCTION,
+                    format!("undefined function: '{}'", name),
+                ))
             }
         };
 
@@ -2513,13 +2521,16 @@ impl Interpreter {
                 }
 
                 // Look up compiled pattern
+                // Наряд №523 (audit 30.09 N-1): same err-origin contract as
+                // the `run`-path call site — an unknown function is an
+                // ERROR, never a truthy "[ERROR: ...]" string value.
                 let pattern = match self.patterns.get(name) {
                     Some(p) => p.clone(),
                     None => {
-                        return Ok(Value::String(format!(
-                            "[ERROR: unknown function '{}']",
-                            name
-                        )))
+                        return Err(crate::interpreter::values::coded_error(
+                            crate::interpreter::values::CODE_UNDEFINED_FUNCTION,
+                            format!("undefined function: '{}'", name),
+                        ))
                     }
                 };
 

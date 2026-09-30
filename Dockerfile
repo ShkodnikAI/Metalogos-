@@ -33,6 +33,7 @@ RUN mkdir -p src mlogpkg/src mlog-lsp/src benches && \
     echo "fn main() {}" > mlogpkg/src/main.rs && \
     echo "" > mlog-lsp/src/main.rs && \
     echo "" > benches/core_benchmarks.rs && \
+    echo "" > benches/stage4_benchmark.rs && \
     cargo build --release --bin mlog
 
 # Copy real source and rebuild (only application code changes)

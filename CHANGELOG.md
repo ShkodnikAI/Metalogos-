@@ -27,7 +27,14 @@ All notable changes to the Metalogos project.
   Both fixed byte-level and YAML-validated; the pull_request trigger
   lands (Dockerfile/.dockerignore/example/src mains/Cargo.toml/Cargo.lock/
   rust-toolchain.toml/the workflow) so a dependency refresh rebuilds the
-  image BEFORE the merge, not after.
+  image BEFORE the merge, not after. THE PR-TRIGGERED RUNS EXPOSED A
+  THIRD LAYER: the dependency-priming step built the dummy source for
+  `core_benchmarks` only while Cargo.toml declares TWO benches
+  (`stage4_benchmark` landed with №482) — the manifest parse failed and
+  the image could not build at all; the stub is added. The deploy path
+  was dead-on-parse AND dead-on-build since №511's landing, unverified
+  for the whole window — exactly the blindness the №511 job was built
+  to kill.
 - Naryad №526 (issue #835; the consolidated audit A+D 30.09, N-2,
   P1 security/voice): the GDPR Art. 17 erasure path for voiceprints
   LANDS — the right-to-erasure is no longer a document-only promise

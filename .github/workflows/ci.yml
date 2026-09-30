@@ -518,6 +518,22 @@ jobs:
         run: |
           python3 scripts/ci/count_duplicated_names.py --artifact
 
+  gate-facts-sync:
+    name: gate-facts-sync (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: "Gate — every fact_* in gate_028_goals.txt matches its machine source (№525)"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/ci/sync_gate_facts.py
+      - name: "Negative test — every tampered fact value trips the check (№525 task 3)"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/ci/sync_gate_facts.py --tamper-test
+
   ops-pairs:
     name: ops-pairs (blocking)
     runs-on: ubuntu-latest

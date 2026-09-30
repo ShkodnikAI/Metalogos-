@@ -4,6 +4,27 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №525 (issue #834; the consolidated audit A+D 30.09, Д-2,
+  P1 process/ci): every `fact_*` record in `gate_028_goals.txt` is now
+  machine-verified against its generating source by the blocking
+  `gate-facts-sync` CI job — a hand-edited drift is a failure. THE
+  DESYNC: the goals file carried `fact_quorum_num: 9 / den: 9` while
+  the single source of truth (`count_duplicated_names.py`) reports
+  ZERO duplicated names since №483 — a liar gate record. THE SYNC: the
+  counter gains a `--quorum` mode (quorum_num = live groups still
+  carrying duplicates; quorum_den = the transfer-start group total,
+  machine-parsed from the baseline history — the 7 №466 group entries
+  plus the №483 FINAL group — and anchored by a new
+  `groups_at_transfer_start: 8` marker in the baseline header, which
+  the mode cross-checks against the counted entries); the honest record
+  is now 0/8 (goal 1/3 — MET). `fact_open_high_server` is verified
+  against the live `release-block` label count via the GitHub API
+  (token always present in Actions; locally the check skips loudly —
+  the ADR-0179 §6 step-1 sync stays a release-time human step). An
+  unknown `fact_*` without a machine source fails the gate (fail-closed:
+  a fact without a checker is the Д-2 class re-opening). The negative
+  test (`--tamper-test`, a CI step): every tampered fact value, and an
+  unknown fact key, trips the check — the traps all spring.
 - Naryad №524 (issue #833; the consolidated audit A+D 30.09, Д-1,
   P1 docs): the limitations.md row for the serve-distillation defect
   reads **Fixed in №495, v0.27.1** — its own condition had come true

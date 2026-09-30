@@ -22,6 +22,11 @@ Usage:
   count_duplicated_names.py --list          → sorted names, one per line
   count_duplicated_names.py --artifact      → grouped sorted list (the artifact)
   count_duplicated_names.py --gate BASELINE → exit 1 if count > baseline threshold
+  count_duplicated_names.py --quorum [BASELINE] → machine-readable quorum record
+            (№525): quorum_num = the number of groups still carrying >= 1
+            duplicated name; quorum_den = the transfer-start group total,
+            machine-parsed from the baseline header's group history and
+            cross-checked against its 'groups_at_transfer_start' marker.
 """
 import glob
 import re
@@ -91,6 +96,43 @@ def main() -> None:
             print(f'\n[{label}] ({len(by_group[label])})')
             for name in by_group[label]:
                 print(f'  {name}')
+        return
+    if '--quorum' in args:
+        baseline = args[args.index('--baseline') + 1] \
+            if '--baseline' in args else ROOT + '/scripts/ci/tw_vm_dup_names_baseline.txt'
+        # num: the live groups still carrying >= 1 duplicated name
+        # (the counter's own GROUPS classification + 'other').
+        by_group = {}
+        for name in dups:
+            by_group.setdefault(group_of(name), []).append(name)
+        quorum_num = len(by_group)
+        # den: the transfer-start group total, machine-parsed from the
+        # baseline history — every '№466 ... group K' entry plus the
+        # '№483 ... FINAL group' entry — cross-checked against the
+        # machine-readable marker line in the same header.
+        marker = None
+        entries = 0
+        for line in open(baseline, encoding='utf-8'):
+            m = re.match(r'#\s*groups_at_transfer_start:\s*(\d+)', line)
+            if m:
+                marker = int(m.group(1))
+            # the group history lives on DATED entry lines only — the
+            # marker comment itself must not self-match
+            if not re.match(r'#\s*20\d\d-\d\d-\d\d\s', line):
+                continue
+            if re.search(r'№466[ \t]*\([^)]*\)[ \t]*group \d+', line) or (
+                    '№483' in line and 'FINAL group' in line):
+                entries += 1
+        if marker is None:
+            print('::error::baseline fixture has no "# groups_at_transfer_start: N" marker')
+            sys.exit(2)
+        if marker != entries:
+            print(f'::error::the baseline quorum record is inconsistent: the marker says '
+                  f'{marker} groups, the counted history entries are {entries}')
+            sys.exit(2)
+        print(f'quorum_num: {quorum_num}')
+        print(f'quorum_den: {marker}')
+        print(f'quorum groups carrying duplicates today: {quorum_num}/{marker}')
         return
     if '--gate' in args:
         baseline = args[args.index('--gate') + 1]

@@ -4,6 +4,29 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №520 (issue #819; the Wave-22 serve-e2e line, P2; the №509
+  functional criterion, ADR-0179 §2.5): the memory accumulation arc
+  through the SERVING path — tests/naryad_520_memory_serve_e2e.rs, both
+  serve backends, one sequential test fn (the №496 pattern). Arc 1, the
+  `memory { persist }` + `memorize`/`recall` lane: the same-request
+  roundtrip works on BOTH backends; the cross-request accumulation is
+  pinned per the honest per-backend posture — on the TW the per-request
+  interpreter re-opens the SQLite-backed store at the declared path, so
+  request B's recall finds request A's memorize AND the store survives
+  a server RESTART; on the VM the simple-memory twin is request-scoped
+  BY DESIGN (the №442 posture; `Vm::reset_for_reuse` clears the store
+  between pooled generations — the isolation class pinned by
+  naryad_402_step_a), so the test pins the honest ABSENCE — an
+  accidental cross-request leak turns RED. Arc 2, the typed-memory lane
+  (`memory_open`/`memory_put`/`memory_read`, the №350 surface): the
+  container registry is process-global and backend-independent (the
+  subject IS the address), so the accumulation arc is identical on both
+  backends — a PUT in request A, a READ in request B, and a READ after
+  the restart with the persistence anchors (METALOGOS_MEMORY_DB +
+  METALOGOS_MEMORY_MASTER, ADR-0173 §3.5) set — the value decrypts
+  across the restart. The serve_e2e inventory row (memory) flips to
+  done IN THE SAME PR; the security gates (№335 consent, №442 ledger)
+  are NOT re-tested here — their own suites pin them.
 - Naryad №541 (issue #851; the wave-23 line 6-A, P1): the
   second-maintainer lane goes operational for the NLnet/Restack
   milestone (03.11.2026) — the pool, the onboarding package and the

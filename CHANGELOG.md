@@ -26,6 +26,26 @@ All notable changes to the Metalogos project.
   manifest following 1:1, then the re-export shell) are sequenced
   behind it. No contour growth: the split is a transfer, not an
   expansion (ADR-0178 §4); the stop-list baseline is untouched.
+- Naryad №549 (issue #887; Wave 24, P2; the NLnet/Restack traction
+  lane, M1 2026-11-03): the draft traction package lands in
+  `metalogos-grants/` — the owner-gated surface (nothing here is
+  published by an executor; the №541 postulate). The one-command demo
+  script (`scripts/demo_traction.sh`, three legs over the public
+  examples VERBATIM: the static taint refusal — the private camera
+  frame denied at compile time with the exact class/rule/node; the
+  live serve loop; the action-ledger chain — grant → allow → exhaust
+  → deny → key rotation → export → `mlog ledger verify`, the Ed25519
+  chain verified WITHOUT the Metalogos runtime; exit 0 = every leg
+  reproduced, cleanup after itself). The metrics one-pager
+  (`metalogos-grants/nlnet-traction/01-metrics-one-pager.md`):
+  repository facts with dates, machine-generated where a generator
+  exists — no market analysis (the §16.0-7 sanitization). The demo
+  narrative (`02-demo.md`) frames the arc honestly: the three legs
+  are the design center — authorization as dataflow, refusals that
+  explain themselves, irreversible actions that leave evidence.
+  Transmission to the owner: this PR + the naryad report; the
+  external wordings and any publication stay the owner's.
+fe6d21a (Naryad 549 (issue #887): the draft NLnet/Restack traction package lands in metalogos-grants - the one-command demo script (three legs over the public examples verbatim: static taint refusal, live serve, the signed ledger chain verified without the runtime), the metrics one-pager (repo facts with dates, no market analysis), the demo narrative; transmission to the owner, publication stays the owner's gate)
 - Naryad №546 (issue #884; Wave 24, P2; ADR-0178 §5 preconditions 4–5):
   the generative contour's embedding seam becomes a NAMED, fail-closed
   boundary instead of an accident of the String argument contract.

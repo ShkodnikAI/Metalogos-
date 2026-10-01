@@ -267,8 +267,9 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("session_poll_wake", 1, "session"; builtin_session_poll_wake),
     spec!("session_interrupt", 2, 3, "session"; builtin_session_interrupt),
     spec!("session_take_interrupt", 1, "session"; builtin_session_take_interrupt),
-    spec!("session_clear", 1, "memory"; builtin_session_clear), // ── Bot — Telegram messaging ──
-    spec!("send_message", 2, 3, "bot"; builtin_send_message),   // chat_id,text | +reply_markup
+    // №539: String — the literal "ok" return (verified handler; not Unit).
+    spec!("session_clear", 1, "memory"; builtin_session_clear, "String"), // ── Bot — Telegram messaging ──
+    spec!("send_message", 2, 3, "bot"; builtin_send_message), // chat_id,text | +reply_markup
     spec!("answer_callback_query", 1, 3, "bot"; builtin_answer_callback_query), // id | id,text | id,text,show_alert
     spec!("edit_message_text", 3, 4, "bot"; builtin_edit_message_text), // chat_id,message_id,text | +reply_markup
     // ── Voice / transcription ──
@@ -295,15 +296,17 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     #[cfg(feature = "llm")]
     spec!("call_llm_schema", 2, 3, "llm"; builtin_call_llm_schema), // prompt,schema | prompt,input,schema (Наряд №269, ADR-0133)
     // ── Memory builtins ──
-    spec!("kv_set", 2, "memory"; builtin_kv_set),
-    spec!("kv_get", 1, "memory"; builtin_kv_get),
-    spec!("kv_delete", 1, "memory"; builtin_kv_delete),
-    spec!("kv_exists", 1, "memory"; builtin_kv_exists),
-    spec!("kv_list", 0, "memory"; builtin_kv_list),
-    spec!("mem_set", 2, "memory"; builtin_mem_set),
-    spec!("mem_get", 1, "memory"; builtin_mem_get),
-    spec!("mem_delete", 1, "memory"; builtin_mem_delete),
-    spec!("memorize", 2, 3, "memory"; builtin_kv_set),
+    spec!("kv_set", 2, "memory"; builtin_kv_set, "Unit"),
+    spec!("kv_get", 1, "memory"; builtin_kv_get, "String"),
+    spec!("kv_delete", 1, "memory"; builtin_kv_delete, "Unit"),
+    spec!("kv_exists", 1, "memory"; builtin_kv_exists, "Bool"),
+    spec!("kv_list", 0, "memory"; builtin_kv_list, "List"),
+    // №539: the mem_* twins RETURN the value (String) — the honest
+    // asymmetry vs kv_set/kv_delete (Unit), verified in the handlers.
+    spec!("mem_set", 2, "memory"; builtin_mem_set, "String"),
+    spec!("mem_get", 1, "memory"; builtin_mem_get, "String"),
+    spec!("mem_delete", 1, "memory"; builtin_mem_delete, "String"),
+    spec!("memorize", 2, 3, "memory"; builtin_kv_set, "Unit"), // №539: the kv_set handler — Unit
     // Наряд №442: recall — the front door of memory, a REAL handler
     // (zero stub-spec on the name). The registry-level handler serves
     // the TYPED lane (the only state a bare fn can reach): consent-
@@ -322,39 +325,39 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // state-carrying block (vm.rs call_builtin) against the VM's memory —
     // handler stays None here because both backends intercept by name before
     // the generic fallback (the media_store_* stub pattern).
-    spec!("recall_top_k", 1, 3, "memory"),
+    spec!("recall_top_k", 1, 3, "memory"), // №539: handlerless row — the spec! macro keeps it untyped (no honest fill-site type for a no-handler row); the verified intercept fact for stage 1: BOTH backends return the serialized JSON hit array as a String (memory_ops recall_top_k_tw / recall_top_k_vm)
     // Наряд №272 (ADR-0134): векторный контур поверх sqlite-vec — KNN
     // (distance_metric=cosine), песочница через sandbox_path_ex, dim-гейт.
     #[cfg(feature = "vec")]
-    spec!("embed", 1, "memory"; builtin_embed),
+    spec!("embed", 1, "memory"; builtin_embed, "List"), // №539: the Float embedding vector
     #[cfg(feature = "vec")]
-    spec!("vec_store", 4, 5, "memory"; builtin_vec_store), // db_path,table,id,embedding | +text|opts{text,scope} (№281)
+    spec!("vec_store", 4, 5, "memory"; builtin_vec_store, "Struct"), // db_path,table,id,embedding | +text|opts{text,scope} (№281) — №539: the VecStoreResult
     #[cfg(feature = "vec")]
-    spec!("vec_search", 4, 5, "memory"; builtin_vec_search), // db_path,table,query,k | +include_forgotten (№280, дефолт false)
+    spec!("vec_search", 4, 5, "memory"; builtin_vec_search, "List"), // db_path,table,query,k | +include_forgotten (№280, дефолт false) — №539: the hit structs (the post-filter may shrink below k)
     // Наряд №442: the registry-level recall row (see the №442 comment at
     // the memory block head) — a REAL handler over the typed lane; the
     // stub-spec row is gone. forget/find/inspect remain the planned
     // high-level memory API rows (use kv_*/mem_* instead).
-    spec!("recall", 1, 2, "memory"; builtin_recall),
+    spec!("recall", 1, 2, "memory"; builtin_recall, "String"), // №539: the best hit's text + the [MEM] provenance suffix; the miss is ""
     // ── Typed Memory<K> (№350): label-typed containers over the
     // process-global registry (src/memory_typed.rs) — private is
     // consent-gated + encrypted at rest, reads/exports are audited
     // sinks, redact is the only private egress. Category "memory".
-    spec!("memory_open", 2, "memory"; builtin_memory_open),
-    spec!("memory_put", 3, 5, "memory"; builtin_memory_put),
-    spec!("memory_read", 2, "memory"; builtin_memory_read),
-    spec!("memory_keys", 1, "memory"; builtin_memory_keys),
-    spec!("memory_provenance", 2, "memory"; builtin_memory_provenance),
-    spec!("memory_export", 3, "memory"; builtin_memory_export),
+    spec!("memory_open", 2, "memory"; builtin_memory_open), // №539: Unknown honest — the opaque Value::Memory handle; the flat vocabulary has no Memory spelling (the №538 Query posture)
+    spec!("memory_put", 3, 5, "memory"; builtin_memory_put, "Unit"),
+    spec!("memory_read", 2, "memory"; builtin_memory_read), // №539: Unknown honest — String|Secret by the container label (public → String, private → the gated Secret); typing String would false-warn the private lane
+    spec!("memory_keys", 1, "memory"; builtin_memory_keys, "List"),
+    spec!("memory_provenance", 2, "memory"; builtin_memory_provenance, "List"),
+    spec!("memory_export", 3, "memory"; builtin_memory_export, "String"), // №539: the exported path
     // №351 (ADR-0173): the derived-graph surfaces — the cascade preview
     // (the №280 dry-run discipline), the retain pins, and the grant-gated
     // cascading forget (the ADR-0155 linear action, `irreversible.
     // memory_forget` ledger record; scope `memory:forget:<container>`).
-    spec!("memory_cascade_preview", 2, "memory"; builtin_memory_cascade_preview),
-    spec!("memory_retain", 2, "memory"; builtin_memory_retain),
-    spec!("memory_release", 2, "memory"; builtin_memory_release),
-    spec!("memory_retained", 1, "memory"; builtin_memory_retained),
-    spec!("memory_forget_cascade", 3, "memory"; builtin_memory_forget_cascade),
+    spec!("memory_cascade_preview", 2, "memory"; builtin_memory_cascade_preview, "Struct"), // №539: the MemoryCascadePlan
+    spec!("memory_retain", 2, "memory"; builtin_memory_retain, "Unit"),
+    spec!("memory_release", 2, "memory"; builtin_memory_release, "Unit"),
+    spec!("memory_retained", 1, "memory"; builtin_memory_retained, "List"),
+    spec!("memory_forget_cascade", 3, "memory"; builtin_memory_forget_cascade, "Struct"), // №539: the MemoryForgetResult
     // №352 (ADR-0174): the duplex channel — barge-in over the №348
     // session priority ladder. NOT feature-gated: the CI contour
     // exercises the same state machine as the serve contour. The
@@ -392,7 +395,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // irreversible.memory_forget. The legacy 1..2-argument
     // forget(query, days?) surface (№72) is intact — the TW/VM
     // intercepts keep it; 3..4 arguments fall through to the handler.
-    spec!("forget", 3, 4, "memory"; builtin_forget),
+    spec!("forget", 3, 4, "memory"; builtin_forget, "Struct"), // №539: the 3..4-argument typed front door (MemoryForgetResult); the legacy 1..2-argument forget(query, days?) intercepts first and returns Unit — a different arity surface
     spec!("find", 4, "stub"),
     spec!("inspect", 1, "stub"),
     // conv_start/add/history/context/end: conversation lifecycle management; not yet implemented
@@ -406,14 +409,14 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // refuses 2 arguments loudly at runtime; the 2 here was a stale
     // pre-session-id spec the №523 run gate surfaced (examples/p8 calls
     // with 3 on every line).
-    spec!("session_set", 3, "memory"; builtin_session_set),
+    spec!("session_set", 3, "memory"; builtin_session_set, "String"), // №539: the stored value
     // №523: the specs are the implementation's truth (builtins/memory.rs):
     // session_get hard-requires (session_id, key); session_clear requires
     // exactly (session_id). The stale 1/0 specs predated the session-id
     // parameter; the №523 run gate surfaced the drift (examples/p8).
-    spec!("session_get", 2, "memory"; builtin_session_get),
-    spec!("ref", 1, "memory"; builtin_content_ref),
-    spec!("deref", 1, "memory"; builtin_content_deref), // ── Time builtins ──
+    spec!("session_get", 2, "memory"; builtin_session_get, "String"),
+    spec!("ref", 1, "memory"; builtin_content_ref, "String"), // №539: the SHA-256 hex hash
+    spec!("deref", 1, "memory"; builtin_content_deref, "String"), // ── Time builtins ──
     spec!("now", 0, "time"; builtin_now, "Float"),
     spec!("sleep", 1, "time"; builtin_sleep, "Unit"),
     spec!("time", 0, "time"; builtin_now),
@@ -428,10 +431,10 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("graph_query", 1, 3, "graph"; builtin_graph_query), // query | query,limit | query,limit,level
     spec!("graph_path", 2, "graph"; builtin_graph_path),      // from_id,to_id
     spec!("graph_neighbors", 0, "graph"; builtin_graph_neighbors),
-    spec!("memory_decay", 0, "memory"; builtin_memory_decay),
-    spec!("memory_boost", 0, "memory"; builtin_memory_boost),
-    spec!("memory_prune", 0, "memory"; builtin_memory_prune),
-    spec!("memory_revise", 0, "memory"; builtin_memory_revise),
+    spec!("memory_decay", 0, "memory"; builtin_memory_decay, "Struct"), // №539: the DecayResult
+    spec!("memory_boost", 0, "memory"; builtin_memory_boost, "Struct"), // №539: the BoostResult
+    spec!("memory_prune", 0, "memory"; builtin_memory_prune, "Struct"), // №539: the PruneResult
+    spec!("memory_revise", 0, "memory"; builtin_memory_revise, "Struct"), // №539: the ReviseResult
     spec!("subgraph_extract", 0, "graph"; builtin_subgraph_extract),
     spec!("subgraph_nodes", 0, "graph"; builtin_subgraph_nodes),
     spec!("subgraph_json", 0, "graph"; builtin_subgraph_json),
@@ -862,7 +865,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // вытеснение updates-фактом) — v2, вне скоупа. Категория "memory".
     // Registry 402→403 (append-only, bytecode-индексы стабильны).
     #[cfg(feature = "vec")]
-    spec!("memory_forget", 5, 7, "memory"; builtin_memory_forget),
+    spec!("memory_forget", 5, 7, "memory"; builtin_memory_forget, "Struct"), // №539: the store-lane dry-run/apply result (MemoryForgetResult)
     // ── Наряд №281 (P2, M2): user_profile — детерминированная выжимка
     // контейнера одним вызовом (supermemory user-profiles): static /
     // dynamic / buckets из KV-записей container:<c>:<bucket>:<key>
@@ -872,7 +875,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // Контейнер-префикс — жёсткая изоляция (cross-container физически
     // не виден); scope-параметр — на vec_store/vec_search. Не
     // feature-гейт: kv-контур ядровой. Registry 403→404 (append-only).
-    spec!("user_profile", 2, "memory"; builtin_user_profile),
+    spec!("user_profile", 2, "memory"; builtin_user_profile, "Struct"), // №539: the UserProfile (both the fresh-build and the cache-hit path)
     // ── Наряд №285 (P2, feature/memory): text_chunk — структура-осознанное
     // чанкование для RAG-пайплайна (первая стадия поверх №272 vec-контур):
     // strategies markdown|paragraph|fixed; opts{max_chars, overlap,
@@ -1035,7 +1038,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // auto-forgets it (the №280 "v2" deferral lifted). APPENDED at the
     // end — inserting mid-array would shift existing CallBuiltin
     // indices (.mbc contract). Registry 499→500 (append-only).
-    spec!("memory_retain_ttl", 3, "memory"; builtin_memory_retain_ttl),
+    spec!("memory_retain_ttl", 3, "memory"; builtin_memory_retain_ttl, "Unit"),
     // ── №757 (P1, llm/hardening): the mlog-visible truncation probe —
     // the finish_reason/stop_reason of the last completed call/stream
     // ("" = none reported yet). The non-silent half of №757: the caller

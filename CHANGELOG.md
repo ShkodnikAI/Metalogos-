@@ -4,6 +4,29 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №539 (issue #849; the wave-23 typing line 3-A, P1): the memory
+  package leaves stage 0 — the wave's largest package (38 rows) types
+  35 rows against the verified handlers: kv_set/kv_delete/memorize →
+  Unit, kv_get/mem_set/mem_get/mem_delete/session_set/session_get/
+  session_clear/ref/deref → String, kv_exists → Bool, kv_list → List,
+  memory_put/memory_retain/memory_release/memory_retain_ttl → Unit,
+  memory_keys/memory_provenance/memory_retained → List,
+  memory_export → String (the exported path), memory_cascade_preview/
+  memory_forget_cascade/forget/memory_decay/memory_boost/memory_prune/
+  memory_revise/memory_forget/user_profile/vec_store → Struct,
+  embed/vec_search → List, recall → String. Three rows stay Unknown
+  HONESTLY with the inline reasons: memory_open returns the opaque
+  `Value::Memory` handle (the flat vocabulary has no Memory spelling —
+  the №538 Query posture), memory_read is String|Secret by the
+  container label (public → String, private → the gated Secret; the
+  flat vocabulary has no union, and typing String would false-warn the
+  private lane), and recall_top_k is a handlerless row (the spec!
+  macro keeps it untyped; the verified intercept fact — both backends
+  return the serialized JSON hit array as a String — is recorded
+  inline for stage 1). Floor: 72/507 (1420 bp) → 107/507 = 2110 bp
+  (+690 bp ≈ +6.9 pp — the package's own mass delivers the +3–5 pp
+  wave target; the biggest single-package gain of the typing line).
+  The memory semantics are untouched — registry/spec metadata only.
 - Naryad №538 (issue #848; the wave-23 typing line 3-A, P1): the db
   package — the honest exhaustion case. The package holds exactly TWO
   rows: `db_execute` → Unit (the interpreter path verified; the

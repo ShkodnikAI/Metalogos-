@@ -2332,7 +2332,12 @@ impl Interpreter {
                     );
                 }
                 if name == crate::db_ops::NAME_QUERY_ROW {
-                    return crate::db_ops::query_row_tw(&self.db_conn, &eval_args);
+                    // №540: the suffix-free body over the DbAccess trait
+                    // (the pair collapsed, the threshold 10 → 8).
+                    return crate::db_ops::query_row(
+                        &mut crate::db_ops::TwDbAccess::lock(&self.db_conn)?,
+                        &eval_args,
+                    );
                 }
 
                 // Problem B (reverse-iteration): map(list, "pattern_name") — needs pattern access
@@ -2372,10 +2377,14 @@ impl Interpreter {
                 }
 
                 // Problem C (reverse-iteration): db_insert(table, struct) — needs db_conn
-                // №466: the body moved to the shared live module (src/db_ops.rs)
-                // as db_insert_tw — the per-backend texts stay per backend.
+                // №466: the body moved to the shared live module (src/db_ops.rs).
+                // №540: the suffix-free body over the DbAccess trait (the pair
+                // collapsed, the threshold 10 → 8).
                 if name == crate::db_ops::NAME_DB_INSERT {
-                    return crate::db_ops::db_insert_tw(&self.db_conn, &eval_args);
+                    return crate::db_ops::db_insert(
+                        &mut crate::db_ops::TwDbAccess::lock(&self.db_conn)?,
+                        &eval_args,
+                    );
                 }
 
                 // Problem A: resolve_skill_index(dept) — returns registered index as Value::Struct

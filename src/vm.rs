@@ -2293,8 +2293,9 @@ impl Vm {
         // №466: the body lives in the shared live module (src/db_ops.rs);
         // the VM keeps only the marshaling hook through the DbAccess
         // contract (the lazy open fires inside, exactly as before).
+        // №540: the suffix-free body (the pair collapsed, the threshold 10 → 8).
         if name == crate::db_ops::NAME_DB_INSERT {
-            return crate::db_ops::db_insert_vm(self, args);
+            return crate::db_ops::db_insert(self, args);
         }
 
         // query_scalar(sql, params) — execute SELECT returning one scalar value
@@ -2560,8 +2561,9 @@ impl Vm {
         // №466: the body lives in the shared live module (src/db_ops.rs);
         // №474: the params bind TYPED on both backends (the convert_params
         // SSOT — the stringify-bind divergence is closed, issue #722).
+        // №540: the suffix-free body (the pair collapsed, the threshold 10 → 8).
         if name == crate::db_ops::NAME_QUERY_ROW {
-            return crate::db_ops::query_row_vm(self, args);
+            return crate::db_ops::query_row(self, args);
         }
 
         // ── Наряд №72: inspect — parity with interpreter::invoke_inspect ──

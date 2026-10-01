@@ -99,4 +99,24 @@
 # one PR = one package, the wave's rule).
 # typed: 137
 # total: 507
-# threshold_bp: 2702
+# (superseded) threshold_bp: 2702
+
+# 2026-10-01 №543 part 2 (gh#881): the pdf package (25 rows) — every
+# row typed against the verified handlers: 20 Struct (the make_struct
+# family: pdf_create/pdf_add_page/pdf_write_text/pdf_draw_line/
+# pdf_draw_rect/pdf_save/pdf_merge/pdf_split/pdf_metadata/
+# pdf_set_metadata/html_to_pdf/pdf_draw_table/pdf_add_image/
+# pdf_set_page_header/pdf_set_page_footer/pdf_page_numbers/
+# pdf_watermark/pdf_fill_form/pdf_rotate_page/pdf_delete_pages) and
+# 5 List (pdf_classify/pdf_to_markdown/pdf_ocr — the pdf.rs make_dict
+# returns a List of String items, NOT a Struct — the per-helper fact
+# that distinguishes this package; pdf_extract_regions/
+# pdf_extract_images — the plain vectors). 0 Unknown: no mixed paths.
+# 137/507 → 162/507; (162*10000)//507 = 3195 bp (+493 bp ≈ +4.9 pp).
+# THE NARYAD STOP CONDITION IS REACHED: 3195 bp ≥ goal_typed_share_bp
+# 3000 (ADR-0179 §2.1 draft). The compiled default-feature count (the
+# in-tree lock) is 158 — the same 4 gated vec/store rows as in part 1
+# are source-counted only; the lock's comment documents the gap.
+# typed: 162
+# total: 507
+# threshold_bp: 3195

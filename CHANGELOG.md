@@ -4,6 +4,28 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №543 part 2 (issue #881; Wave 24, the typing line to the 0.28
+  gate, P1): the pdf package (25 rows) leaves stage 0 — THE NARYAD'S
+  STOP CONDITION REACHED. 20 rows typed Struct (the pdf.rs make_struct
+  family: pdf_create, pdf_add_page, pdf_write_text, pdf_draw_line,
+  pdf_draw_rect, pdf_save, pdf_merge, pdf_split, pdf_metadata,
+  pdf_set_metadata, html_to_pdf, pdf_draw_table, pdf_add_image,
+  pdf_set_page_header, pdf_set_page_footer, pdf_page_numbers,
+  pdf_watermark, pdf_fill_form, pdf_rotate_page, pdf_delete_pages) and
+  5 rows typed List — INCLUDING the per-helper fact that distinguishes
+  this package: pdf_classify/pdf_to_markdown/pdf_ocr return the
+  pdf.rs make_dict, which is a LIST of String items (pdf.rs:363-371),
+  NOT a Struct (a naive helper-name match would have typed them wrong);
+  pdf_extract_regions/pdf_extract_images are the plain vectors. 0
+  Unknown: no mixed paths in the package. Floor: 137/507 → 162/507,
+  threshold_bp 2702 → 3195 (+493 bp ≈ +4.9 pp) — 3195 ≥ 3000
+  (goal_typed_share_bp, ADR-0179 §2.1 draft); the final measurement is
+  in the naryad report. The in-tree lock moves with the baseline:
+  133 → 158 (compiled default-feature count; the same 4 gated
+  vec/store rows ride the source count only). The final measurement:
+  the source count 3195 bp is the CI-gated floor; the compiled count
+  is 158/507 = 3118 bp — both over the gate. Runtime/semantics
+  untouched.
 - Naryad №543 (issue #881; Wave 24, the typing line to the 0.28 gate,
   P1; ADR-0179 §2.1 goal, §13.10 decision 3-A): the bot package — the
   largest remaining registry package (35 rows) — leaves stage 0. 30 rows

@@ -51,4 +51,27 @@
 # gate lives in the packages outside the wave-23 line.
 # typed: 72
 # total: 507
-# threshold_bp: 1420
+# (superseded) threshold_bp: 1420
+
+# 2026-10-01 №539 (gh#849): the memory package — the wave's largest
+# package (38 rows). 35 rows typed against the verified handlers:
+# kv_set/kv_delete/memorize → Unit; kv_get/mem_set/mem_get/mem_delete/
+# session_set/session_get/session_clear/ref/deref → String; kv_exists
+# → Bool; kv_list → List; memory_put/memory_retain/memory_release/
+# memory_retain_ttl → Unit; memory_keys/memory_provenance/memory_
+# retained → List; memory_export/ref → String (the path / the hash);
+# memory_cascade_preview/memory_forget_cascade/forget/memory_decay/
+# memory_boost/memory_prune/memory_revise/memory_forget/user_profile/
+# vec_store → Struct; embed/vec_search → List; recall → String.
+# 3 rows stay Unknown HONESTLY: memory_open (the opaque Value::Memory
+# handle — no Memory spelling in the flat vocabulary, the №538 Query
+# posture), memory_read (String|Secret by the container label — the
+# flat vocabulary has no union, typing String would false-warn the
+# private lane), recall_top_k (a handlerless row — the spec! macro
+# keeps it untyped; the intercept fact, String, is recorded inline for
+# stage 1). 72/507 → 107/507; (107*10000)//507 = 2110 bp (+690 bp ≈
+# +6.9 pp — the package's own mass delivers the wave target; the
+# memory line was the wave's biggest single-package gain).
+# typed: 107
+# total: 507
+# threshold_bp: 2110

@@ -2355,6 +2355,9 @@ pub(crate) async fn execute_tick_call(
         // METALOGOS_ALLOW_EXEC. Раньше тик был единственной незакрытой
         // точкой запуска (роуты TW/VM и MCP-инструменты уже под guard'ом).
         let _serve_exec_guard = ServeRouteExecGuard::new();
+        // №546 (ADR-0178 §5.5): the tick is a per-tick budget scope — the
+        // contour-call counter resets at the tick boundary.
+        let _contour_budget_scope = crate::builtins::embed_seam::ContourBudgetScope::new();
         if let Some(builtin_fn) = interp.get_builtin(&target) {
             builtin_fn(&args)
         } else {
@@ -2555,6 +2558,9 @@ pub(crate) async fn execute_route_body(
             // exec()/exec_argv() здесь требуют METALOGOS_SERVE_ALLOW_EXEC=1
             // (процесс-флаг METALOGOS_ALLOW_EXEC на тела роутов не распространяется).
             let _serve_exec_guard = ServeRouteExecGuard::new();
+            // №546 (ADR-0178 §5.5): the request is a per-request budget scope —
+            // the contour-call counter resets at the route-body boundary (TW).
+            let _contour_budget_scope = crate::builtins::embed_seam::ContourBudgetScope::new();
             let mut env = HashMap::new();
             // Issue #600: ONE mutability set threaded through the WHOLE route
             // body. Top-level `let mut` registers here; nested blocks (if /
@@ -2842,6 +2848,9 @@ async fn execute_route_body_vm(
         // Наряд №253 (Вариант А): VM-путь тела роута — тот же serve-роут-контекст,
         // exec()/exec_argv() требуют METALOGOS_SERVE_ALLOW_EXEC=1 (паритет с TW-путём).
         let _serve_exec_guard = ServeRouteExecGuard::new();
+        // №546 (ADR-0178 §5.5): the per-request budget scope — VM parity with
+        // the TW route body (one scope per request, reset at the boundary).
+        let _contour_budget_scope = crate::builtins::embed_seam::ContourBudgetScope::new();
         // №403: warm checkout — the returned VM has already run
         // load_program successfully (either a pooled reset-and-reload VM
         // or a cold build; both are indistinguishable from the pre-pool

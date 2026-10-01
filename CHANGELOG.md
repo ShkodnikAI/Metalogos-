@@ -4,6 +4,41 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №546 (issue #884; Wave 24, P2; ADR-0178 §5 preconditions 4–5):
+  the generative contour's embedding seam becomes a NAMED, fail-closed
+  boundary instead of an accident of the String argument contract.
+  PRECONDITION 4 — the runtime secret check: the secret family
+  (`Value::Secret`/`Encrypted`/`Hash`) is refused LOUDLY at the seam
+  (`[EMBED_SECRET_REJECTED]`, the error names the legal redact() path)
+  at the seam's three entry points — the `embed` builtin, the shared
+  `embed_text` SSOT helper (the learnable semantic probe, №272/№273)
+  and the vault `semantic_search` builtin (its own manager instance —
+  the third seam consumer the audit-style inventory caught). The
+  value-level guarantee is the whole runtime surface today: a
+  `Secret`'s content cannot become a plain `String` except through
+  `redact()` (the masked form is by construction not the secret); the
+  compile-time №322 labels stay the static lane's job — stated in the
+  seam module, no theater. PRECONDITION 5 — the call budget: one unit
+  = one embedding operation; the counter is thread-local (the №457
+  mechanism), reset by an RAII `ContourBudgetScope` at the
+  per-request/per-tick boundaries (the TW route body, the VM route
+  body, `execute_tick_call` — the same threads the №457 guards mark,
+  reset-on-entry because tokio reuses blocking threads); the limit is
+  configurable (`METALOGOS_CONTOUR_BUDGET`, default 64, deliberately
+  conservative); over the limit the seam refuses loudly
+  (`[CONTOUR_BUDGET_EXCEEDED]`) BEFORE any embed runs — a multi-unit
+  call that would overshoot is refused whole. vec_store/vec_search
+  take pre-computed vectors — no seam, no budget unit. Tests: 4 seam
+  unit tests + the integration file on BOTH backends (the loud
+  refusals pinned on TW and VM, the within-budget path green, the
+  scope-reset behavior pinned; serial — the env var and the
+  thread-local counter are process/thread-global). ADR-0178 §5 is
+  actualized in the same PR: rows 4–5 CLOSED (this PR), row 3 CLOSED
+  post factum (№530, PR #859 — the row was not re-read then; recorded
+  honestly), and the closing line states explicitly that the closures
+  authorize nothing — §6 stays the gate, the stop-list holds
+  regardless. The stop-list manifest is untouched (no contour file
+  grew; the seam module is a NEW file outside the manifest).
 - Naryad №543 part 2 (issue #881; Wave 24, the typing line to the 0.28
   gate, P1): the pdf package (25 rows) leaves stage 0 — THE NARYAD'S
   STOP CONDITION REACHED. 20 rows typed Struct (the pdf.rs make_struct

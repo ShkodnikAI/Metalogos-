@@ -674,6 +674,12 @@ fn collapse_blank_lines(s: &str) -> String {
 /// * `documents` — list of document strings to search through
 /// * `top_k` — number of results to return
 pub(crate) fn builtin_semantic_search(args: &[Value]) -> Result<Value, String> {
+    // №546 (ADR-0178 §5.4–5.5): this builtin owns its own manager instance
+    // and embeds the query PLUS every document — it is a seam consumer
+    // exactly like embed/embed_text. The secret-family check runs on the
+    // raw query Value (before the String contract), the budget consumes
+    // one unit per embedding the call will perform (1 + doc count).
+    crate::builtins::embed_seam::seam_secret_check(&args[0])?;
     let query = expect_string_arg("semantic_search", args, 0)?;
     let documents = expect_list_arg("semantic_search", args, 1)?;
     let top_k = expect_string_arg("semantic_search", args, 2)?;
@@ -687,6 +693,12 @@ pub(crate) fn builtin_semantic_search(args: &[Value]) -> Result<Value, String> {
     if documents.is_empty() {
         return Ok(Value::List(vec![]));
     }
+
+    // The budget rides the same scope as the work it guards: one unit per
+    // embedding the call will perform (the query + every document), all
+    // consumed BEFORE the first embed — one loud refusal covers the whole
+    // call (fail-closed, never a partial run).
+    crate::builtins::embed_seam::seam_budget_check(1 + documents.len() as u64)?;
 
     // Create embedding manager (reads METALOGOS_EMBEDDING_PROVIDER env)
     let mgr = EmbeddingManager::new();

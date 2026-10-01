@@ -53,7 +53,10 @@ owner's lane — the second maintainer has no veto there.
    `Require review from Code Owners` on `main` — the veto becomes
    machine-enforced from that moment.
 4. Take one of the `good-first-issue` onboarding tasks (see below) as
-   the first PR.
+   the first PR — the step-by-step path (fork → branch → CI → PR →
+   report) and the pool's health metric (the time to the first merge)
+   are written down in `CONTRIBUTING.md` ("Your First PR — the
+   Good-First-Issue Lane", naryad №541).
 
 ## Expectations
 
@@ -65,14 +68,32 @@ owner's lane — the second maintainer has no veto there.
 
 ## The upkeep tasks (the good-first-issue pool)
 
+Nine self-contained tasks as of naryad №541 (each carries a full guide:
+the reproducible check, the expected scope, the acceptance criteria and
+the honest boundary — follow its issue text; the first-PR path lives in
+`CONTRIBUTING.md`):
+
 - The №468 debt-gate upkeep: review the `#[ignore]`/`dead_code`
   inventory drift at each release, keep the baseline honest (movement
-  only down).
+  only down) — gh#716.
 - The №463 stop-list upkeep: new generative-model candidates in the
-  tree → the manifest row + the LOC baseline, before the merge.
+  tree → the manifest row + the LOC baseline, before the merge — gh#717.
 - The №462/№467 floors: regenerate the dup-names and type-share
   baselines at releases (the counters print the follow-up note), one PR
-  per movement, the history line in the baseline header each time.
+  per movement, the history line in the baseline header each time —
+  gh#718.
+- The cargo-audit override ledger: the release-time review of
+  `.cargo/audit.toml` exceptions against the live advisory DB — gh#777.
+- The maintainers × CODEOWNERS sync review: keep the written authority
+  matching reality — gh#778.
+- The book examples freshness pass: every fenced mlog snippet in
+  `docs/book/src/` runs against the live binary — gh#872.
+- The ADR index freshness review: `gen_adr_index.py` output vs
+  `docs/adr/` at each release — gh#873.
+- The limitations.md anchor walk: every claim keeps a live
+  `file:line` anchor — gh#874.
+- The fresh-clone quickstart pass: README and CONTRIBUTING commands
+  work verbatim on a clean machine — gh#875.
 
 ## Escalation
 
@@ -95,7 +116,8 @@ maintainer may propose, not decide.
 > perimeter (CI workflows, the dependency lock, secret scanning, the
 > threshold gates) is written down in `docs/maintainers.md` and
 > mapped to `.github/CODEOWNERS`; the onboarding plan, the first-PR
-> pool (five `good-first-issue` upkeep tasks) and the escalation path
+> pool (nine documented `good-first-issue` tasks with reproducible
+> checks and acceptance criteria) and the escalation path
 > are documented. The veto becomes active with one owner toggle
 > (`Require review from Code Owners`) the day a second maintainer
 > joins. The search runs through the NLnet/Restack community and the

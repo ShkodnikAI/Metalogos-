@@ -5,6 +5,7 @@ Thank you for your interest in contributing to Metalogos! This document provides
 ## Table of Contents
 
 - [Code of Conduct](#code-of-conduct)
+- [Your First PR — the Good-First-Issue Lane](#your-first-pr--the-good-first-issue-lane)
 - [Getting Started](#getting-started)
 - [How to Contribute](#how-to-contribute)
 - [Development Workflow](#development-workflow)
@@ -20,6 +21,22 @@ Thank you for your interest in contributing to Metalogos! This document provides
 ## Code of Conduct
 
 This project and everyone participating in it is governed by our [Code of Conduct](CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code.
+
+## Your First PR — the Good-First-Issue Lane
+
+The project runs a deliberate first-PR pool for incoming contributors and the incoming second maintainer (the authority document: [`docs/maintainers.md`](docs/maintainers.md), naryad №471). Every task in the pool carries the `good-first-issue` label and is written to be self-contained: a narrow docs/tests perimeter, a reproducible check you can run before you commit, explicit acceptance criteria, and an honest boundary of what the task does NOT touch.
+
+**The current pool (nine tasks):** the three threshold-gate upkeep tasks (№468 debt-gate, №463 stop-list, №462/№467 baseline floors — `#716`/`#717`/`#718`), the cargo-audit override ledger review (`#777`), the maintainers × CODEOWNERS sync review (`#778`), the book examples freshness pass (`#872`), the ADR index freshness review (`#873`), the limitations.md anchor walk (`#874`), and the fresh-clone quickstart pass (`#875`).
+
+**The path (fork → branch → CI → PR → report):**
+
+1. Comment on the issue you take — it gets assigned to you (one task per person at a time).
+2. Fork, clone, branch (the workflow below; any branch name — the pool tasks are small).
+3. Run the task's reproducible check from the issue, make the change, and run the local gates that apply (`cargo fmt -- --check`, `cargo clippy`, the task's own commands).
+4. Open the PR with `Closes #NNN` in the body, and put the REASON LINE per changed file in the description — the repo's discipline is that every movement is reasoned, never silent.
+5. CI runs the full blocking suite; green is the merge gate. Address the review; the maintainer merges.
+
+**The health metric.** The pool is measured by the **time to the first merge**: the wall-clock time from the issue claim (the comment in step 1) to the merge of the first PR. The maintainer records it per newcomer in the wave reports; the honest target is days, not weeks — if the path above made it slow, the path is the bug, and the friction gets filed as an issue on the pool itself.
 
 ## Getting Started
 

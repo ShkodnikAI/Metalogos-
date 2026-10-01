@@ -4,6 +4,28 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №545 stage 1 (issue #883; Wave 24, P1; the №472 roadmap,
+  decision 2-B; docs/refactoring-split-plan.md): the crate-stub of the
+  reflex domain lands as a workspace member — `metalogos-reflex`
+  (version lockstep via [workspace.package]; the crate's own candle
+  gate mirrors the off-by-default posture; the workspace builds green
+  on all profiles). The stub ships NO moved code DELIBERATELY: the
+  physical move of the reflex domain (the NN module, the generative
+  machinery, the candle surfaces — ADR-0178 §3) is blocked on the
+  dependency-direction fork the roadmap explicitly reserves for the
+  owner's gate. The inversion inventory is recorded in the stub's
+  library docs: `Value::Reflex`/`Value::BpeVocab` live in the CORE
+  value enum, and 6 core files import `crate::nn::` directly
+  (vm.rs, distill_hub.rs, builtins/reflex.rs,
+  interpreter/{mod,learnable,execution}.rs, builtins/template.rs) —
+  moving before these edges are inverted would be a cyclic crate
+  dependency. The fork: (i) the core-first inversion through trait
+  seams (the №484 DbAccess precedent) or (ii) the tiny
+  `metalogos-values` crate — the owner decides; the follow-up
+  sub-PRs (inversion, then the physical move with the stop-list
+  manifest following 1:1, then the re-export shell) are sequenced
+  behind it. No contour growth: the split is a transfer, not an
+  expansion (ADR-0178 §4); the stop-list baseline is untouched.
 - Naryad №546 (issue #884; Wave 24, P2; ADR-0178 §5 preconditions 4–5):
   the generative contour's embedding seam becomes a NAMED, fail-closed
   boundary instead of an accident of the String argument contract.

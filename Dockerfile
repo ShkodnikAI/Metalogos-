@@ -27,15 +27,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY Cargo.toml Cargo.lock ./
 COPY mlogpkg/Cargo.toml mlogpkg/
 COPY mlog-lsp/Cargo.toml mlog-lsp/
+COPY metalogos-reflex/Cargo.toml metalogos-reflex/
 
 # Create stub sources so dependency layer compiles.
 # src/lib.rs stub: mlogpkg and mlog-lsp depend on the metalogos lib target.
+# metalogos-reflex/src stub: the №545 workspace member's manifest must load
+#   in the dependency layer too (the crate-stub compiles empty by design).
 # benches/ stub: [[bench]] in Cargo.toml requires the file for manifest parsing.
-RUN mkdir -p src mlogpkg/src mlog-lsp/src benches && \
+RUN mkdir -p src mlogpkg/src mlog-lsp/src metalogos-reflex/src benches && \
     echo "fn main() {}" > src/main.rs && \
     echo "" > src/lib.rs && \
     echo "fn main() {}" > mlogpkg/src/main.rs && \
     echo "" > mlog-lsp/src/main.rs && \
+    echo "" > metalogos-reflex/src/lib.rs && \
     echo "" > benches/core_benchmarks.rs && \
     echo "" > benches/stage4_benchmark.rs && \
     cargo build --release --bin mlog

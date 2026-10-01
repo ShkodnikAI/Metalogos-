@@ -22,6 +22,7 @@ fn minimal_program() -> Program {
         origin_decls: vec![],
         deny_handlers: vec![],
         memory_persist_path: None,
+        conversation_config: Default::default(),
         db_url: None,
         db_url_env: None,
         schema_ddl: vec![],

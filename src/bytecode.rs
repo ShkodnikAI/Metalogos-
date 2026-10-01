@@ -648,6 +648,13 @@ pub struct Program {
     /// `interpreter.memory_persist_path`).
     #[serde(default)]
     pub memory_persist_path: Option<String>,
+    /// №521: the declared `conversation { ttl, max_messages, compress_after }`
+    /// config — the VM lane's conv_add/conv_context read it (the same
+    /// plumbing as `memory_persist_path`; before this field the VM used the
+    /// DEFAULTS unconditionally — the declared config was dead on the VM
+    /// serve lane). `#[serde(default)]` — old .mbc files deserialize cleanly.
+    #[serde(default)]
+    pub conversation_config: crate::interpreter::types::ConversationConfig,
     /// Schema DDL statements to execute on DB init (CREATE TABLE IF NOT EXISTS).
     pub schema_ddl: Vec<String>,
     /// Top-level instruction sequence (declarations + flow execution).

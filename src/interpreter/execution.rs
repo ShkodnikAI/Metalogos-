@@ -267,6 +267,12 @@ impl Interpreter {
                         max_messages: c.max_messages,
                         compress_after: c.compress_after,
                     };
+                    // №521: mark the config as DECLARED — the boot merge
+                    // (clone_definitions_into) copies it only from an
+                    // interpreter that saw the declaration, so a later
+                    // declaration's throwaway interpreter cannot clobber
+                    // it with the defaults.
+                    self.conversation_config_declared = true;
                 }
                 Declaration::ContextBudget(b) => {
                     // sqz-inspired P3: store token budget for a learnable pattern

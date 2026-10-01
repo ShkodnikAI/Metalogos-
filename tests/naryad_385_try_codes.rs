@@ -428,6 +428,7 @@ fn n385_vm_runtime_sink_refusal_carries_classifier_stamp() {
         db_url: None,
         db_url_env: None,
         memory_persist_path: None,
+        conversation_config: Default::default(),
         schema_ddl: vec![],
         main_code: vec![
             Instruction::LabelJoin(Box::new(metalogos::bytecode::LabelJoinData {

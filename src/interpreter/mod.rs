@@ -227,6 +227,15 @@ pub struct Interpreter {
     /// Conversation configuration (ADR-0053).
     /// Set by `conversation { ttl: N max_messages: N compress_after: N }`.
     conversation_config: ConversationConfig,
+    /// №521: whether a `conversation {}` declaration was actually SEEN by
+    /// this interpreter. The boot merge (`merge_interpreter` →
+    /// `clone_definitions_into`) runs ONE declaration per throwaway
+    /// interpreter — a later tmp (which never saw the declaration) used to
+    /// CLOBBER the declared config with the defaults on every merge (the
+    /// №381 db_conn clobber class). The marker makes the copy conditional:
+    /// only an interpreter that SAW the declaration may overwrite the
+    /// target's config.
+    conversation_config_declared: bool,
     /// sqz-inspired P3: token budgets per learnable pattern.
     /// Set by `context_budget { pattern: "name", limit: 4096 }`.
     context_budgets: std::collections::HashMap<String, Option<f64>>,
@@ -357,6 +366,7 @@ impl Interpreter {
             event_next_id: std::sync::atomic::AtomicU64::new(1),
             conversations: std::sync::Mutex::new(HashMap::new()),
             conversation_config: ConversationConfig::default(),
+            conversation_config_declared: false,
             context_budgets: std::collections::HashMap::new(),
             checkpoint_db: std::sync::Mutex::new(None),
             checkpoint_mem: std::sync::Mutex::new(HashMap::new()),
@@ -751,8 +761,17 @@ impl Interpreter {
                 target.deny_handlers.push(d.clone());
             }
         }
-        // ADR-0053: copy conversation config (conversations themselves are per-session)
-        target.conversation_config = self.conversation_config.clone();
+        // ADR-0053: copy conversation config (conversations themselves are per-session).
+        // №521: CONDITIONAL on the source actually having SEEN a
+        // `conversation {}` declaration — the boot merge runs ONE
+        // declaration per throwaway interpreter, and an unconditional copy
+        // let a later declaration's defaults clobber the declared config
+        // (the serve path never saw the program's own settings — the
+        // №520-serve-e2e red run caught it; the №381 clobber class).
+        if self.conversation_config_declared {
+            target.conversation_config = self.conversation_config.clone();
+            target.conversation_config_declared = true;
+        }
 
         // Copy LLM cache so route handlers benefit from cached LLM responses
         if let Ok(mut target_cache) = target.llm_cache.lock() {

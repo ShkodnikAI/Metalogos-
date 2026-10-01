@@ -4,6 +4,36 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №543 (issue #881; Wave 24, the typing line to the 0.28 gate,
+  P1; ADR-0179 §2.1 goal, §13.10 decision 3-A): the bot package — the
+  largest remaining registry package (35 rows) — leaves stage 0. 30 rows
+  typed against the VERIFIED handlers (the Ok-path facts, one commit of
+  archaeology per family): the make_date_struct family → Struct
+  (memory_score, todo_add, todo_update, goal_get, goal_set, goals_add,
+  goal_complete, goals_reflect, human_create, human_mood, human_delete,
+  learn_preference, ask_approval, read_file_tokens); the row vectors →
+  List (todo_list, goals_list, get_profile, human_personas, human_recall,
+  extract_entities, check_reminders, list_reminders); the text returns →
+  String (human_remember, human_respond, compress_html, extract_param,
+  remind, remind_recurring, cancel_remind); estimate_tokens → Float.
+  5 rows stay Unknown HONESTLY, not metric-fitted: send_message/
+  answer_callback_query/edit_message_text/send_document (String on
+  delivery | Unit on the no-TELEGRAM_BOT_TOKEN fallback — the flat
+  vocabulary has no env-dependent union) and human_forget (Float deleted
+  count on the 1-arg all-persona path | String "ok"/"not_found" on the
+  2-arg path — the arity-dependent union). The floor moves up IN THE SAME
+  PR (the rule): 107/507 → 137/507 source rows, threshold_bp 2110 → 2702
+  (+592 bp ≈ +5.9 pp). The №542 registration is closed here: the in-tree
+  double lock (tests/type_signature_metric.rs TYPED_FLOOR) moves in the
+  same PR from now on — 50 → 133, and the lock's comment now documents
+  the by-design gap (the script counts SOURCE rows; the test counts the
+  COMPILED default-feature registry — the feature-gated vec/store-lane
+  rows embed/vec_store/vec_search/memory_forget exist in the source
+  count only). Runtime/semantics untouched (the naryad's boundary); the
+  №486 warn-contour is not affected (the typed rows' categories were
+  silent there). Remaining typing mass toward the 3000 bp gate: pdf (25),
+  diagram (21), web (19), voice (19) — the descending-weight order per
+  the naryad.
 - Naryad №522 (issue #821; the Wave-22 serve-e2e line, P2; the №509
   functional criterion, ADR-0179 §2.5): the cron accumulation arc
   through the SERVING path — tests/naryad_522_cron_serve_e2e.rs, both

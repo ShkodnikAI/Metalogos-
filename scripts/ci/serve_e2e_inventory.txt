@@ -5,6 +5,6 @@
 # The gate (unfreeze_gate.py --gate-target 0.28) fails while any row is
 # `pending`. Each row flips to `done` IN THE SAME PR as its e2e test.
 distill_to: done — naryad 496, tests/naryad_496_distill_serve_e2e.rs (TW+VM, restart persistence)
-memory: pending — the follow-up naryad from the gh#792 report (the accumulation arc through run_test_server, TW+VM)
+memory: done — naryad 520, tests/naryad_520_memory_serve_e2e.rs (the memory { persist } + memorize/recall arc: the TW cross-request accumulation + the restart persistence through the SQLite-backed store; the VM simple-memory twin is request-scoped by design — the isolation pin; PLUS the typed-memory arc memory_open/put/read — the process-global registry, identical on both backends, the restart persistence through METALOGOS_MEMORY_DB + METALOGOS_MEMORY_MASTER)
 conversation: pending — the follow-up naryad from the gh#792 report (the accumulation arc through run_test_server, TW+VM)
 cron: pending — the follow-up naryad from the gh#792 report (the accumulation arc through run_test_server, TW+VM)

@@ -272,6 +272,12 @@ use embodied::*;
 // в `portable` включён (ADR-0134 D3).
 #[cfg(feature = "vec")]
 pub(crate) mod vector;
+// №546 (ADR-0178 §5.4–5.5): the embedding seam — the secret-family check
+// and the contour call budget, shared by the seam's three entry points.
+pub(crate) mod embed_seam;
+// №546: the test-side scope constructor (the same reset the route/tick
+// boundaries perform) is part of the public seam surface.
+pub use embed_seam::ContourBudgetScope;
 pub use memory::{reset_session_store, session_key_count, session_store_count};
 #[cfg(feature = "vec")]
 use vector::*;

@@ -106,16 +106,32 @@ Before any expansion (new capability, new file, new surface) ALL of:
    barrier (landed, Wave 16);
 2. №457 CLOSED — the strict serve context incl. cron/webhook ticks
    (landed, Wave 16);
-3. Background training OUT of the interpreter mutex (the Wave 17
-   finding 3.11 — not yet landed; blocks expansion, not the frozen
-   status quo);
-4. The runtime Secret check in the embedding path (the taint layer's
-   embedding seam — not yet landed; blocks expansion);
-5. The call budget defined (per-tick/per-request invocation limits for
-   the contour — not yet landed; blocks expansion).
+3. №530 CLOSED — background training OUT of the interpreter mutex:
+   distillation trains on a weights snapshot, the gated atomic swap
+   returns the result, the failed gate no longer mutates the live
+   weights (landed, Wave 22, PR #859; the §5 row was not re-read at
+   the time — the closure is recorded here post factum, №546);
+4. №546 CLOSED — the runtime Secret check in the embedding path: the
+   secret family (`Secret`/`Encrypted`/`Hash`) is refused LOUDLY at
+   the embedding seam (`[EMBED_SECRET_REJECTED]`) — the named,
+   fail-closed guarantee at the seam's three entry points (the `embed`
+   builtin, the shared `embed_text` SSOT helper, the vault
+   `semantic_search` builtin), tested on both backends (landed,
+   Wave 24, №546);
+5. №546 CLOSED — the call budget defined: one budget unit = one
+   embedding operation at the seam; the counter is thread-local, reset
+   by an RAII scope at the per-request / per-tick boundaries (the TW
+   and VM route bodies, `execute_tick_call` — the same threads the
+   №457 guards mark); the limit is configurable
+   (`METALOGOS_CONTOUR_BUDGET`, default 64 — deliberately
+   conservative); over the limit the seam refuses loudly
+   (`[CONTOUR_BUDGET_EXCEEDED]`), never a silent degradation (landed,
+   Wave 24, №546).
 
-The unlanded preconditions (3–5) are tracked here; the freeze does not
-depend on them — the stop-list holds regardless.
+ALL five preconditions read CLOSED as of №546 (Wave 24, 2026-10-01).
+The preconditions do NOT authorize any expansion: §6 stays the gate —
+the freeze does not depend on them (the stop-list holds regardless),
+and the expansion decision remains the owner's alone.
 
 ## 6. The removal/expansion rights — the owner only
 

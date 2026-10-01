@@ -152,6 +152,11 @@ pub(crate) fn builtin_embed(args: &[Value]) -> Result<Value, String> {
             args.len()
         ));
     }
+    // №546 (ADR-0178 §5.4): the named seam guard — the secret family is
+    // refused LOUDLY here (before the String contract's generic error),
+    // and the call consumes one budget unit (§5.5).
+    crate::builtins::embed_seam::seam_secret_check(&args[0])?;
+    crate::builtins::embed_seam::seam_budget_check(1)?;
     let text = value_as_string("embed", 1, &args[0], "text")?;
     let manager = EMBEDDING_MANAGER
         .lock()
@@ -166,6 +171,11 @@ pub(crate) fn builtin_embed(args: &[Value]) -> Result<Value, String> {
 /// (наряд №273: semantic cache в learnable-контуре) — тот же SSOT-менеджер,
 /// что и у билтина `embed` (векторы сравнимы по определению).
 pub(crate) fn embed_text(text: &str) -> Result<Vec<f32>, String> {
+    // №546 (ADR-0178 §5.5): the learnable semantic probe's SSOT seam —
+    // every contour invocation through this helper consumes a budget
+    // unit (the value-level secret check happened upstream at the Value
+    // boundary; a plain &str cannot carry the secret family by type).
+    crate::builtins::embed_seam::seam_budget_check(1)?;
     let manager = EMBEDDING_MANAGER
         .lock()
         .map_err(|_| "embedding manager poisoned".to_string())?;

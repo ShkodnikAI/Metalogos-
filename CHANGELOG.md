@@ -4,6 +4,29 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №541 (issue #851; the wave-23 line 6-A, P1): the
+  second-maintainer lane goes operational for the NLnet/Restack
+  milestone (03.11.2026) — the pool, the onboarding package and the
+  grant wording, finalized. The good-first-issue pool grows from five
+  to NINE self-contained tasks: four new guides with the full format
+  (the what / the why / the reproducible check / the expected scope /
+  the acceptance criteria / the honest boundary) — the book examples
+  freshness pass (gh#872), the ADR index freshness review (gh#873),
+  the limitations.md anchor walk (gh#874), and the fresh-clone
+  quickstart pass (gh#875) — all inside the narrow docs/tests
+  perimeter. The onboarding package lands IN THE TREE: CONTRIBUTING.md
+  gains "Your First PR — the Good-First-Issue Lane" (the fork → branch
+  → CI → PR → report path, the reason-line-per-changed-file rule, and
+  the pool's health metric — the time to the first merge, recorded per
+  newcomer in the wave reports), and docs/maintainers.md syncs its
+  pool section to the full nine with the issue numbers (the in-tree
+  list had drifted to three) and cross-references the first-PR path.
+  The NLnet application wording is finalized in-tree (the owner's
+  draft, updated to the current honest fact: "nine documented
+  good-first-issue tasks with reproducible checks and acceptance
+  criteria"). The channel-search options and the access/publishing
+  decisions remain the OWNER's gate (№541 §3) — the materials are
+  prepared in the M2 report, nothing external is opened by the naryad.
 - Naryad №540 (issue #850; the wave-23 line 4-A, P1): the FIRST two
   byte-identical ops pairs collapse into suffix-free functions over the
   `DbAccess` trait (the №484 mechanics) — `query_row` and `db_insert`

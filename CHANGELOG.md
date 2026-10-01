@@ -4,6 +4,32 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №522 (issue #821; the Wave-22 serve-e2e line, P2; the №509
+  functional criterion, ADR-0179 §2.5): the cron accumulation arc
+  through the SERVING path — tests/naryad_522_cron_serve_e2e.rs, both
+  serve backends (the №496 pattern). The arc: a POST route registers
+  the job (`cron_add("* * * * *", "tick_job")` — the KV-backed job
+  store, persisted through the `memory { persist }` SQLite
+  write-through); `cron_run(id)` (the №418 manual force_run) marks the
+  job and the SCHEDULER's 5-second pass fires the tick (the №426
+  program-context executor) into a pattern that increments a KV
+  counter — the accumulation is visible in the /ticks route response;
+  the RESTART leg proves BOTH survivals: the job is still found (the
+  force re-queues instead of "not_found") and the counter CONTINUES
+  from the pre-restart value (the KV SQLite load-back — "SQLite is
+  authoritative on init") instead of restarting from zero. THE RED RUN
+  CAUGHT THE HARNESS DEFECT, fixed in the same PR: the test boot
+  (`run_test_server_in_dir_impl`) NEVER spawned the scheduler loop —
+  only `run_server` did — so the cron arc was invisible to the
+  serve-e2e lane ENTIRELY (a test asserting the arc could never pass,
+  and no test asserted it). The loop is now the ONE shared constructor
+  (`spawn_scheduler`, the №480 rule) called verbatim by BOTH boots —
+  production behavior byte-unchanged, the test harness gains the
+  production scheduler. The №457 tick security posture is NOT
+  re-tested here (its own suite pins it). THE SERVE-E2E INVENTORY IS
+  NOW FULLY DONE (distill/memory/conversation/cron) — the №509
+  functional criterion of the 0.28 gate is MET on all four rows; the
+  unfreeze gate v2 recalculates.
 - Naryad №521 (issue #820; the Wave-22 serve-e2e line, P2; the №509
   functional criterion, ADR-0179 §2.5): the conversation accumulation
   arc through the SERVING path — tests/naryad_521_conversation_serve_e2e.rs,

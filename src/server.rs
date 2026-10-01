@@ -634,6 +634,129 @@ pub enum ServeBackend {
 
 // ── Public API ─────────────────────────────────────────────────────
 
+/// №522 (gh#821): the reminder+cron scheduler spawn — ONE constructor for
+/// BOTH serve boots (the №480 rule: one constructor, no drifted copies).
+/// Before this extraction only `run_server` spawned the loop; the test
+/// harness (`run_test_server_in_dir_impl`) ran serve WITHOUT the
+/// scheduler, so the cron accumulation arc was invisible to the
+/// serve-e2e lane (the №509 functional-criterion gap the №522 e2e
+/// closes). Verbatim transplant of the v0.8.2/v0.8.3 loop.
+pub(crate) fn spawn_scheduler(state: std::sync::Arc<ServerState>) {
+    // v0.8.2 — Background reminder scheduler (checks every 5 seconds)
+    // v0.8.3 — Extended: also checks cron jobs from OpenHuman-inspired cron_add
+    let scheduler_state = state;
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+            // ── Phase 1: collect reminder + cron data under short write lock ──
+            let check_result = {
+                let interp = scheduler_state.interpreter.write().await;
+                if let Some(builtin_fn) = interp.get_builtin("check_reminders") {
+                    builtin_fn(&[])
+                } else {
+                    Ok(crate::interpreter::Value::List(vec![]))
+                }
+                // write lock released here
+            };
+
+            // ── Phase 2: process reminders (delivery to the dispatch
+            // surface, №418 D5; the eprintln stays the journal) ──
+            if let Ok(crate::interpreter::Value::List(items)) = check_result {
+                let mut due: Vec<(String, String, String)> = Vec::new();
+                for item in &items {
+                    if let crate::interpreter::Value::Struct { fields, .. } = item {
+                        let msg = fields
+                            .get("message")
+                            .map(|v| format!("{}", v))
+                            .unwrap_or_default();
+                        let rtype = fields
+                            .get("type")
+                            .map(|v| format!("{}", v))
+                            .unwrap_or_default();
+                        let data = fields
+                            .get("data")
+                            .map(|v| format!("{}", v))
+                            .unwrap_or_default();
+                        eprintln!("[scheduler] due {}: [{}] {}", rtype, msg, data);
+                        due.push((msg, data, rtype));
+                    }
+                }
+                if !due.is_empty() {
+                    // Short write lock: the delivery dispatches the
+                    // registered `ReminderCheck` pattern (if defined).
+                    let interp = scheduler_state.interpreter.read().await;
+                    let failures = crate::builtins::cron::deliver_due_reminders(
+                        &due,
+                        Some("ReminderCheck"),
+                        |name, args| interp.call_pattern(name, args),
+                    );
+                    for f in failures {
+                        eprintln!("[scheduler] {}", f);
+                    }
+                }
+            }
+
+            // ── Phase 3: dispatch cron jobs (per-job write lock) ──
+            // №418: the fire decision is the subsystem's pure core
+            // (`cron_fire_decision` — dedup window D1, catch-up D2,
+            // per-job timezone D3); the loop only EXECUTES it. The specs
+            // come from the persisted job store (lock-free read).
+            let now_epoch = chrono::Utc::now().timestamp();
+            let specs = crate::builtins::cron::enabled_job_specs();
+            for spec in &specs {
+                let decision = match crate::builtins::cron::cron_fire_decision(spec, now_epoch) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        eprintln!(
+                            "[cron] {}",
+                            crate::builtins::cron::cron_stamped(format!(
+                                "job '{}' decision: {}",
+                                spec.id, e
+                            ))
+                        );
+                        continue;
+                    }
+                };
+                if !decision.fire {
+                    if decision.advance {
+                        if let Some(w) = decision.window {
+                            let _ = crate::builtins::cron::advance_window(&spec.id, w);
+                        }
+                    }
+                    continue;
+                }
+                let args = crate::builtins::cron::cron_dispatch_args(spec.payload.as_deref());
+                {
+                    eprintln!(
+                        "[cron] firing: {} — {} ({})",
+                        spec.cron_expr, spec.prompt, decision.reason
+                    );
+                    // №426 (ADR-0175 §3.1): the tick executes in the
+                    // PROGRAM context (the route-style stor-set: db{},
+                    // schema DDL, patterns) on a BLOCKING thread — no
+                    // interpreter lock is held, so routes serve while
+                    // the tick runs and an HTTP self-call loops back
+                    // into a live server (the №423 defects 1/2 closed).
+                    let result = execute_tick_call(&scheduler_state, &spec.prompt, args).await;
+                    if let Err(e) = result {
+                        eprintln!(
+                            "[cron] dispatch '{}' error: {}",
+                            spec.prompt,
+                            crate::builtins::cron::cron_stamped(e)
+                        );
+                    }
+                    if let Err(e) =
+                        crate::builtins::cron::mark_fired_with_window(&spec.id, decision.window)
+                    {
+                        eprintln!("[cron] mark_fired error: {}", e);
+                    }
+                }
+            }
+        }
+    });
+}
+
 /// Parse source, build Axum router, start server on configured port.
 /// This is the entry point for `mlog serve <file>`.
 pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -861,119 +984,10 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
 
     let app = build_router(state.clone());
 
-    // v0.8.2 — Background reminder scheduler (checks every 5 seconds)
-    // v0.8.3 — Extended: also checks cron jobs from OpenHuman-inspired cron_add
-    let scheduler_state = state.clone();
-    tokio::spawn(async move {
-        loop {
-            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-
-            // ── Phase 1: collect reminder + cron data under short write lock ──
-            let check_result = {
-                let interp = scheduler_state.interpreter.write().await;
-                if let Some(builtin_fn) = interp.get_builtin("check_reminders") {
-                    builtin_fn(&[])
-                } else {
-                    Ok(crate::interpreter::Value::List(vec![]))
-                }
-                // write lock released here
-            };
-
-            // ── Phase 2: process reminders (delivery to the dispatch
-            // surface, №418 D5; the eprintln stays the journal) ──
-            if let Ok(crate::interpreter::Value::List(items)) = check_result {
-                let mut due: Vec<(String, String, String)> = Vec::new();
-                for item in &items {
-                    if let crate::interpreter::Value::Struct { fields, .. } = item {
-                        let msg = fields
-                            .get("message")
-                            .map(|v| format!("{}", v))
-                            .unwrap_or_default();
-                        let rtype = fields
-                            .get("type")
-                            .map(|v| format!("{}", v))
-                            .unwrap_or_default();
-                        let data = fields
-                            .get("data")
-                            .map(|v| format!("{}", v))
-                            .unwrap_or_default();
-                        eprintln!("[scheduler] due {}: [{}] {}", rtype, msg, data);
-                        due.push((msg, data, rtype));
-                    }
-                }
-                if !due.is_empty() {
-                    // Short write lock: the delivery dispatches the
-                    // registered `ReminderCheck` pattern (if defined).
-                    let interp = scheduler_state.interpreter.read().await;
-                    let failures = crate::builtins::cron::deliver_due_reminders(
-                        &due,
-                        Some("ReminderCheck"),
-                        |name, args| interp.call_pattern(name, args),
-                    );
-                    for f in failures {
-                        eprintln!("[scheduler] {}", f);
-                    }
-                }
-            }
-
-            // ── Phase 3: dispatch cron jobs (per-job write lock) ──
-            // №418: the fire decision is the subsystem's pure core
-            // (`cron_fire_decision` — dedup window D1, catch-up D2,
-            // per-job timezone D3); the loop only EXECUTES it. The specs
-            // come from the persisted job store (lock-free read).
-            let now_epoch = chrono::Utc::now().timestamp();
-            let specs = crate::builtins::cron::enabled_job_specs();
-            for spec in &specs {
-                let decision = match crate::builtins::cron::cron_fire_decision(spec, now_epoch) {
-                    Ok(d) => d,
-                    Err(e) => {
-                        eprintln!(
-                            "[cron] {}",
-                            crate::builtins::cron::cron_stamped(format!(
-                                "job '{}' decision: {}",
-                                spec.id, e
-                            ))
-                        );
-                        continue;
-                    }
-                };
-                if !decision.fire {
-                    if decision.advance {
-                        if let Some(w) = decision.window {
-                            let _ = crate::builtins::cron::advance_window(&spec.id, w);
-                        }
-                    }
-                    continue;
-                }
-                let args = crate::builtins::cron::cron_dispatch_args(spec.payload.as_deref());
-                {
-                    eprintln!(
-                        "[cron] firing: {} — {} ({})",
-                        spec.cron_expr, spec.prompt, decision.reason
-                    );
-                    // №426 (ADR-0175 §3.1): the tick executes in the
-                    // PROGRAM context (the route-style stor-set: db{},
-                    // schema DDL, patterns) on a BLOCKING thread — no
-                    // interpreter lock is held, so routes serve while
-                    // the tick runs and an HTTP self-call loops back
-                    // into a live server (the №423 defects 1/2 closed).
-                    let result = execute_tick_call(&scheduler_state, &spec.prompt, args).await;
-                    if let Err(e) = result {
-                        eprintln!(
-                            "[cron] dispatch '{}' error: {}",
-                            spec.prompt,
-                            crate::builtins::cron::cron_stamped(e)
-                        );
-                    }
-                    if let Err(e) =
-                        crate::builtins::cron::mark_fired_with_window(&spec.id, decision.window)
-                    {
-                        eprintln!("[cron] mark_fired error: {}", e);
-                    }
-                }
-            }
-        }
-    });
+    // v0.8.2/v0.8.3 — the reminder+cron scheduler: ONE constructor for
+    // both serve boots (№522 — the test harness previously ran serve
+    // WITHOUT the scheduler, the №509 serve-e2e gap).
+    spawn_scheduler(std::sync::Arc::new(state.clone()));
 
     // Наряд №29 §2.2 — Background CSRF token cleanup task (every 60s).
     // Evicts tokens older than 15 minutes from the in-memory store.
@@ -1211,6 +1225,9 @@ async fn run_test_server_in_dir_impl(
     // №496: the state rides out (Arc) so integration tests can observe
     // the hub's audit trail without inventing new HTTP surface.
     let state = std::sync::Arc::new(state);
+    // №522: the serve-e2e lane runs the SAME scheduler as production
+    // serve (reminders + cron ticks every 5s) — the №509 criterion.
+    spawn_scheduler(state.clone());
     let app = build_router((*state).clone());
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;

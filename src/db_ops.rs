@@ -19,16 +19,18 @@
 //! (Float/Bool via Display, unsupported values silently DROPPED by a
 //! `filter_map` with `_ => None`, shifting the positional `$N`
 //! placeholders) is gone; an unsupported param value is now a LOUD
-//! error naming the 1-based parameter position. The deliberately kept
-//! per-backend differences are behavioral-neutral: the second-argument
-//! error text of `db_insert` differs by one suffix; the VM lazily opens
-//! the connection on first use (№409) while the TW opens at declaration
-//! time. Every per-backend form below is a verbatim transplant; the
-//! genuinely shared pieces factored here once are the `query_param`
-//! parse/return shape (injected context lookup) and the grant-use note
-//! format. The divergences the №465 fuzzer pinned stay pinned — fixes
-//! land as separate owner-gated naryads, never silently inside a
-//! transfer.
+//! error naming the 1-based parameter position. №540 (gh#850) collapses
+//! the FIRST two byte-identical pairs into suffix-free functions over
+//! the `DbAccess` trait: `query_row` and `db_insert` (the ops-pair
+//! threshold 10 → 8; the not-open / second-argument error texts unify
+//! on the RICHER form per the №484 discipline — behavior-neutral). The
+//! remaining pairs carry SEMANTIC divergences and STAY per №480, each
+//! with the divergence named in its docstring (the parity-fix
+//! candidates, the №474 class — never silently inside a transfer).
+//! The `query_param` parse/return shape (injected context lookup) and
+//! the grant-use note format remain the factored-once shared pieces.
+//! The divergences the №465 fuzzer pinned stay pinned — fixes land as
+//! separate owner-gated naryads, never silently inside a transfer.
 //!
 //! The live-contract requirement of the naryad (the owner's
 //! "revive-or-delete" strengthening for the dead `RuntimeContext`) is
@@ -440,13 +442,18 @@ pub fn query_scalar(db: &mut impl DbAccess, args: &[Value]) -> Result<Value, Str
     }
 }
 
-/// `query_row(sql, params?)` — TW. Наряда-26 P1-7: executes a SELECT
-/// that returns exactly one row; a List of column values (preserving
-/// column order). Params bind TYPED (the №381 convert_params contract).
-pub fn query_row_tw(
-    db: &Mutex<Option<rusqlite::Connection>>,
-    args: &[Value],
-) -> Result<Value, String> {
+/// `query_row(sql, params?)` — the ONE implementation for both backends
+/// (№540): the state arrives through the `DbAccess` trait — the TW wraps
+/// its `Mutex<Option<Connection>>` in `TwDbAccess`, the VM implements the
+/// trait on `Vm`. The two former per-backend bodies were byte-identical
+/// from the argument parsing onward (the №381 typed binding already shared
+/// the `convert_params` SSOT); the unification keeps the RICHER not-open
+/// error on BOTH lanes (the №758 named remedy — the former VM text; the TW
+/// lane gains the remedy — behavior-neutral, the Err outcome is the same).
+/// Наряда-26 P1-7: executes a SELECT that returns exactly one row; a List
+/// of column values (preserving column order). Params bind TYPED (the
+/// №381 convert_params contract).
+pub fn query_row(db: &mut impl DbAccess, args: &[Value]) -> Result<Value, String> {
     let sql = match args.first() {
         Some(Value::String(s)) => s.clone(),
         Some(other) => {
@@ -457,7 +464,10 @@ pub fn query_row_tw(
         }
         None => return Err("query_row() requires at least 1 argument (SQL string)".to_string()),
     };
-    // Наряд №99: convert_params — type-safe, no silent shift
+    // №474 (issue #722): the typed binding via the convert_params SSOT —
+    // the same contract on both lanes. Unit → Null keeps the placeholder
+    // count (no positional shift); an unsupported value is a loud error
+    // naming the 1-based parameter position — never a silent drop.
     let params: Vec<rusqlite::types::Value> = if args.len() > 1 {
         match &args[1] {
             Value::List(items) => convert_params(items)?,
@@ -467,10 +477,15 @@ pub fn query_row_tw(
         Vec::new()
     };
 
-    let guard = db.lock().map_err(|e| format!("db lock error: {}", e))?;
-    let conn = guard
+    // №409: the lazy open fires on the VM lane; a no-op through the TW
+    // adapter (the TW opens at the db declaration).
+    db.ensure_db_open();
+    // №758: the loud reason is read BEFORE the &mut connection borrow.
+    let loud = db.db_open_error();
+    let conn = db
+        .db_conn()
         .as_ref()
-        .ok_or_else(|| "query_row() error: no database connection.".to_string())?;
+        .ok_or_else(|| db_not_open_error(loud, "query_row"))?;
 
     let mut stmt = conn
         .prepare(&sql)
@@ -505,15 +520,17 @@ pub fn query_row_tw(
     }
 }
 
-/// `db_insert(table, struct)` — TW (the inline execution.rs body).
-/// Inserts the struct fields as one row, returns the last-inserted
-/// rowid as a Float. The TW second-argument error text carries the
-/// literal-shape suffix — verbatim (the VM text differs; each side
-/// keeps its own).
-pub fn db_insert_tw(
-    db: &Mutex<Option<rusqlite::Connection>>,
-    args: &[Value],
-) -> Result<Value, String> {
+/// `db_insert(table, struct)` — the ONE implementation for both backends
+/// (№540): the state arrives through the `DbAccess` trait — the №409 lazy
+/// open fires on the VM lane and is a no-op through the TW adapter (the
+/// TW materializes the connection at the db declaration). The two former
+/// per-backend bodies were byte-identical from the INSERT construction
+/// onward; the unification keeps the RICHER second-argument error on BOTH
+/// lanes (the former TW text with the literal-shape suffix — the VM lane
+/// gains the detail; behavior-neutral, an Err outcome with a fuller
+/// message, the №484 richer-text discipline). Inserts the struct fields
+/// as one row, returns the last-inserted rowid as a Float.
+pub fn db_insert(db: &mut impl DbAccess, args: &[Value]) -> Result<Value, String> {
     let table = match args.first() {
         Some(Value::String(s)) => s.clone(),
         _ => {
@@ -531,11 +548,16 @@ pub fn db_insert_tw(
             )
         }
     };
-    let guard = db.lock().map_err(|e| format!("db lock error: {}", e))?;
-    let conn = guard.as_ref().ok_or_else(|| {
-        "db_insert() error: no database connection. Declare db { url: \"sqlite::memory:\" } first."
-            .to_string()
-    })?;
+    // №409: the lazy open fires on the VM lane — the connection (in-memory
+    // sqlite + schema DDL) materializes here, on first use; a no-op through
+    // the TW adapter.
+    db.ensure_db_open();
+    // №758: the loud reason is read BEFORE the &mut connection borrow.
+    let loud = db.db_open_error();
+    let conn = db
+        .db_conn()
+        .as_mut()
+        .ok_or_else(|| db_not_open_error(loud, "db_insert"))?;
     let col_names: Vec<String> = fields.keys().cloned().collect();
     let placeholders: Vec<String> = col_names.iter().map(|_| "?".to_string()).collect();
     let sql = format!(
@@ -616,63 +638,22 @@ pub fn query_param_vm(vm: &impl DbAccess, args: &[Value]) -> Result<Value, Strin
     })
 }
 
-/// `db_insert(table, struct)` — VM. The VM second-argument error text
-/// has NO shape suffix (the TW text differs — each side keeps its own);
-/// the connection is lazily opened (№409).
-pub fn db_insert_vm(vm: &mut impl DbAccess, args: &[Value]) -> Result<Value, String> {
-    let table = match args.first() {
-        Some(Value::String(s)) => s.clone(),
-        _ => {
-            return Err(
-                "db_insert() expects first argument to be a table name (String)".to_string(),
-            )
-        }
-    };
-    let fields = match args.get(1) {
-        Some(Value::Struct { fields, .. }) => fields.clone(),
-        _ => return Err("db_insert() expects second argument to be a Struct".to_string()),
-    };
-    // №409: LAZY db open — the connection (in-memory sqlite +
-    // schema DDL) materializes here, on first use.
-    vm.ensure_db_open();
-    // №758: the loud reason is read BEFORE the &mut connection borrow.
-    let loud = vm.db_open_error();
-    let conn = vm
-        .db_conn()
-        .as_mut()
-        .ok_or_else(|| db_not_open_error(loud, "db_insert"))?;
-    let col_names: Vec<String> = fields.keys().cloned().collect();
-    let placeholders: Vec<String> = col_names.iter().map(|_| "?".to_string()).collect();
-    let sql = format!(
-        "INSERT INTO {} ({}) VALUES ({})",
-        table,
-        col_names.join(", "),
-        placeholders.join(", ")
-    );
-    let params: Vec<Box<dyn rusqlite::types::ToSql>> = fields
-        .values()
-        .map(|v| match v {
-            Value::String(s) => Box::new(s.clone()) as Box<dyn rusqlite::types::ToSql>,
-            Value::Float(f) => Box::new(*f) as Box<dyn rusqlite::types::ToSql>,
-            Value::Bool(b) => Box::new(*b) as Box<dyn rusqlite::types::ToSql>,
-            Value::Unit => Box::new(Option::<String>::None) as Box<dyn rusqlite::types::ToSql>,
-            other => Box::new(format!("{}", other)) as Box<dyn rusqlite::types::ToSql>,
-        })
-        .collect();
-    let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-    conn.execute(&sql, param_refs.as_slice())
-        .map_err(|e| sql_err("db_insert() SQL error", e))?;
-    let rowid: i64 = conn
-        .query_row("SELECT last_insert_rowid()", [], |row| row.get(0))
-        .unwrap_or(0);
-    Ok(Value::Float(rowid as f64))
-}
-
+// №540: the former `db_insert_vm` body collapsed into the suffix-free
+// `db_insert` over the `DbAccess` trait (the shared section above); the
+// call site passes `&mut Vm` unchanged.
 /// `query_scalar(sql, params?)` — VM. TYPED param binding (the №381
 /// parity fix); the connection is lazily opened (№409).
 /// `query(sql, params?)` — VM. SELECT → List of Struct ("Row"); the
 /// optional params list binds TYPED (the №381 parity fix — the VM
 /// dropped it entirely before that naryad).
+/// №480/№540: this pair STAYS — the success-path shapes are identical,
+/// but the error paths differ in KIND: the TW lane silently SKIPS an
+/// erroring row (`query_map` + `filter_map(r.ok())`, cell errors → Unit)
+/// while the VM lane fails LOUDLY (row/column errors name the column).
+/// The paths are practically unreachable over embedded sqlite (the
+/// ValueRef conversions are infallible for the mapped columns), yet
+/// they are semantically different — a parity-fix candidate (the №474
+/// class), not pinned here.
 pub fn query_vm(vm: &mut impl DbAccess, args: &[Value]) -> Result<Value, String> {
     let sql = match args.first() {
         Some(Value::String(s)) => s.clone(),
@@ -737,9 +718,16 @@ pub fn query_vm(vm: &mut impl DbAccess, args: &[Value]) -> Result<Value, String>
     Ok(Value::List(results))
 }
 
-/// `db_execute(sql, params?)` — VM. TYPED binding (№381); returns
-/// `Unit` (the TW returns the affected count as a String — the known
-/// divergence class stays as-is); lazy open (№409).
+/// `db_execute(sql, params?)` — VM. TYPED binding (№381); returns the
+/// affected-row count as a String (ONE contract on both backends — №474,
+/// issue #722; the doc below used to claim the Unit return — stale since
+/// that naryad). Lazy open (№409).
+/// №480/№540: this pair STAYS — the divergence is SEMANTIC, not textual:
+/// on a non-List second argument the TW lane is LOUD
+/// ("second argument must be List, got {}") while the VM lane treats it
+/// as no params (silent `Vec::new()`). A transfer PR must not change
+/// semantics (the №466 rule) — the divergence is a parity-fix candidate
+/// (the №474 class, a separate owner-gated naryad), not pinned here.
 pub fn db_execute_vm(vm: &mut impl DbAccess, args: &[Value]) -> Result<Value, String> {
     let sql = match args.first() {
         Some(Value::String(s)) => s.clone(),
@@ -780,6 +768,12 @@ pub fn db_execute_vm(vm: &mut impl DbAccess, args: &[Value]) -> Result<Value, St
 /// tree-walking backend (ledger state/TTL/scope via src/grants.rs,
 /// typed binding via convert_params — the №381 contract); consumption
 /// happens only after the statement succeeded. Lazy open (№409).
+/// №480/№540: this pair STAYS — the divergence is SEMANTIC: the TW lane
+/// upfront-checks the arity (2..3) and is LOUD on a non-List params
+/// argument, the VM lane parses per-argument (the missing-argument texts)
+/// and treats a non-List params argument as no params (silent); the
+/// not-open text differs (the VM carries no named remedy here). A
+/// parity-fix candidate (the №474 class), not pinned here.
 pub fn db_execute_with_grant_vm(vm: &mut impl DbAccess, args: &[Value]) -> Result<Value, String> {
     let handle = match args.first() {
         Some(Value::Grant(h)) => h.clone(),
@@ -878,77 +872,9 @@ pub fn db_execute_with_grant_vm(vm: &mut impl DbAccess, args: &[Value]) -> Resul
     Ok(Value::String(affected.to_string()))
 }
 
-/// `query_row(sql, params?)` — VM. Params bind TYPED through the №381
-/// `convert_params` SSOT — the same contract as the TW lane (№474,
-/// issue #722: the old stringify-bind lane dropped unsupported values
-/// silently via `filter_map` with `_ => None`, shifting the positional
-/// `$N` placeholders; an unsupported value is now a loud error naming
-/// the 1-based parameter position). Lazy open (№409).
-pub fn query_row_vm(vm: &mut impl DbAccess, args: &[Value]) -> Result<Value, String> {
-    let sql = match args.first() {
-        Some(Value::String(s)) => s.clone(),
-        Some(other) => {
-            return Err(format!(
-                "query_row() expected String SQL, got {}",
-                other.type_name()
-            ))
-        }
-        None => return Err("query_row() requires at least 1 argument (SQL string)".to_string()),
-    };
-    // №474 (issue #722): the typed binding via the convert_params SSOT —
-    // the same contract as the TW lane. Unit → Null keeps the placeholder
-    // count (no positional shift); an unsupported value is a loud error
-    // naming the 1-based parameter position — never a silent drop.
-    let params: Vec<rusqlite::types::Value> = if args.len() > 1 {
-        match &args[1] {
-            Value::List(items) => convert_params(items)?,
-            _ => Vec::new(),
-        }
-    } else {
-        Vec::new()
-    };
-
-    // №409: lazy db open on first use.
-    vm.ensure_db_open();
-    // №758: the loud reason is read BEFORE the &mut connection borrow.
-    let loud = vm.db_open_error();
-    let conn = vm
-        .db_conn()
-        .as_mut()
-        .ok_or_else(|| db_not_open_error(loud, "query_row"))?;
-    let mut stmt = conn
-        .prepare(&sql)
-        .map_err(|e| sql_err("query_row() SQL error", e))?;
-    let col_count = stmt.column_count();
-    let mut rows = stmt
-        .query_map(rusqlite::params_from_iter(params.iter()), |row| {
-            let mut vals = Vec::with_capacity(col_count);
-            for i in 0..col_count {
-                let val = match row.get_ref(i) {
-                    Ok(rusqlite::types::ValueRef::Null) => Value::Unit,
-                    Ok(rusqlite::types::ValueRef::Integer(n)) => Value::Float(n as f64),
-                    Ok(rusqlite::types::ValueRef::Real(f)) => Value::Float(f),
-                    Ok(rusqlite::types::ValueRef::Text(s)) => {
-                        Value::String(String::from_utf8_lossy(s).to_string())
-                    }
-                    Ok(rusqlite::types::ValueRef::Blob(b)) => {
-                        Value::String(b.iter().map(|byte| format!("{:02x}", byte)).collect())
-                    }
-                    Err(_) => Value::Unit,
-                };
-                vals.push(val);
-            }
-            Ok(vals)
-        })
-        .map_err(|e| sql_err("query_row() execution error", e))?;
-
-    match rows.next() {
-        Some(Ok(vals)) => Ok(Value::List(vals)),
-        Some(Err(e)) => Err(sql_err("query_row() row error", e)),
-        None => Ok(Value::List(vec![])),
-    }
-}
-
+// №540: the former `query_row_vm` body collapsed into the suffix-free
+// `query_row` over the `DbAccess` trait (the shared section above); the
+// call site passes `&mut Vm` unchanged.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1060,8 +986,8 @@ mod tests {
         let db = tw_db();
         table(&db);
         db_execute_tw(&db, &[s("INSERT INTO t VALUES ('x', 1.5)")]).unwrap();
-        let _ = db_insert_tw(
-            &db,
+        let _ = db_insert(
+            &mut TwDbAccess::lock(&db).unwrap(),
             &[
                 s("t"),
                 Value::Struct {
@@ -1154,13 +1080,21 @@ mod tests {
             .unwrap(),
             Value::Unit
         );
-        let row = query_row_tw(&db, &[s("SELECT a, b FROM t LIMIT 1")]).unwrap();
+        let row = query_row(
+            &mut TwDbAccess::lock(&db).unwrap(),
+            &[s("SELECT a, b FROM t LIMIT 1")],
+        )
+        .unwrap();
         match row {
             Value::List(vals) => val_eq!(vals, vec![s("a"), Value::Float(7.0)]),
             other => panic!("expected List row, got {}", other.type_name()),
         }
         val_eq!(
-            query_row_tw(&db, &[s("SELECT a FROM t WHERE a='zz'")]).unwrap(),
+            query_row(
+                &mut TwDbAccess::lock(&db).unwrap(),
+                &[s("SELECT a FROM t WHERE a='zz'")]
+            )
+            .unwrap(),
             Value::List(vec![])
         );
         // Typed bind (the №381 contract): Float → REAL, not text.
@@ -1176,13 +1110,17 @@ mod tests {
     fn tw_db_insert_rowid_and_error_texts() {
         let db = tw_db_empty();
         assert_eq!(
-            db_insert_tw(&db, &[s("t"), Value::Float(1.0)]).unwrap_err(),
+            db_insert(
+                &mut TwDbAccess::lock(&db).unwrap(),
+                &[s("t"), Value::Float(1.0)]
+            )
+            .unwrap_err(),
             "db_insert() expects second argument to be a Struct { field: value, ... }"
         );
         let db = tw_db();
         table(&db);
-        let id = db_insert_tw(
-            &db,
+        let id = db_insert(
+            &mut TwDbAccess::lock(&db).unwrap(),
             &[
                 s("t"),
                 Value::Struct {
@@ -1199,7 +1137,7 @@ mod tests {
         .unwrap();
         val_eq!(id, Value::Float(1.0));
         assert_eq!(
-            db_insert_tw(&db, &[Value::Float(1.0)]).unwrap_err(),
+            db_insert(&mut TwDbAccess::lock(&db).unwrap(), &[Value::Float(1.0)]).unwrap_err(),
             "db_insert() expects first argument to be a table name (String)"
         );
     }
@@ -1304,7 +1242,7 @@ mod tests {
         };
         let legacy = "no database connection. Declare db { url: \"sqlite::memory:\" } first.";
         assert_eq!(
-            query_row_vm(&mut failed, &[s("SELECT 1")]).unwrap_err(),
+            query_row(&mut failed, &[s("SELECT 1")]).unwrap_err(),
             format!("query_row() error: {}", legacy)
         );
         assert_eq!(
@@ -1330,7 +1268,7 @@ mod tests {
                     .to_string(),
             ),
         };
-        let err = query_row_vm(&mut loud, &[s("SELECT 1")]).unwrap_err();
+        let err = query_row(&mut loud, &[s("SELECT 1")]).unwrap_err();
         assert!(
             err.starts_with("query_row() error: unsupported DB URL scheme"),
             "the loud reason must surface: {}",
@@ -1358,7 +1296,7 @@ mod tests {
         // stringify lane the Unit was silently dropped → 2 placeholders, 1
         // parameter → InvalidParameterCount (or, with the Unit first, a
         // silently WRONG-SHAPE match — the audit's worst case).
-        let row = query_row_vm(
+        let row = query_row(
             &mut vm,
             &[
                 s("SELECT a FROM t WHERE a = ? AND ? IS NULL"),
@@ -1369,7 +1307,7 @@ mod tests {
         val_eq!(row, Value::List(vec![Value::Float(3.0)]));
         // An unsupported param value is a LOUD error naming the 1-based
         // position — never a silent filter_map drop.
-        let err = query_row_vm(
+        let err = query_row(
             &mut vm,
             &[
                 s("SELECT a FROM t WHERE a = ?"),
@@ -1422,7 +1360,7 @@ mod tests {
     fn vm_db_insert_rowid_and_error_texts() {
         let mut vm = MockVm::new();
         db_execute_vm(&mut vm, &[s("CREATE TABLE t (a TEXT)")]).unwrap();
-        let id = db_insert_vm(
+        let id = db_insert(
             &mut vm,
             &[
                 s("t"),
@@ -1435,12 +1373,12 @@ mod tests {
         .unwrap();
         val_eq!(id, Value::Float(1.0));
         assert_eq!(
-            db_insert_vm(&mut vm, &[s("t"), Value::Float(1.0)]).unwrap_err(),
-            "db_insert() expects second argument to be a Struct",
-            "the VM text has no shape suffix — the TW text differs (each side keeps its own)"
+            db_insert(&mut vm, &[s("t"), Value::Float(1.0)]).unwrap_err(),
+            "db_insert() expects second argument to be a Struct { field: value, ... }",
+            "№540: the unified body keeps the RICHER TW text on both lanes (the VM gains the shape suffix)"
         );
         assert_eq!(
-            db_insert_vm(&mut vm, &[Value::Float(1.0)]).unwrap_err(),
+            db_insert(&mut vm, &[Value::Float(1.0)]).unwrap_err(),
             "db_insert() expects first argument to be a table name (String)"
         );
     }

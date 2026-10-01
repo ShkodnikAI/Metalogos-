@@ -4,6 +4,31 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №540 (issue #850; the wave-23 line 4-A, P1): the FIRST two
+  byte-identical ops pairs collapse into suffix-free functions over the
+  `DbAccess` trait (the №484 mechanics) — `query_row` and `db_insert`
+  (the ops-pair threshold 10 → 8, moved in the same PR on the actual
+  collapse; `scripts/ci/ops_pair_counter.py` + `ops_pair_baseline.txt`,
+  the source comments on the collapsed sites carry the fact). The
+  `query_row` not-open error unifies on the RICHER №758 named-remedy
+  text (the former VM text; the TW lane gains the remedy) and the
+  `db_insert` second-argument error on the RICHER literal-shape suffix
+  (the former TW text; the VM lane gains the detail) — both
+  behavior-neutral per the №484 richer-text discipline, the Err
+  outcomes are unchanged on every path. The REMAINING EIGHT pairs stay:
+  the four memory pairs (memorize/forget/recall/recall_top_k + the
+  dispatch marshaling twins) are the №442 honest simple-memory twin
+  posture (different stores, different algorithms, documented per
+  side), and the three db pairs (query, db_execute,
+  db_execute_with_grant) carry SEMANTIC divergences on the error paths
+  (the TW-loud/VM-silent non-List params handling; the TW
+  silent-skip/VM-loud row errors) — named in the docstrings per №480 as
+  parity-fix candidates (the №474 class), never pinned inside a
+  transfer (the №466 rule: a transfer PR must not change semantics).
+  The stale `db_execute_vm` docstring (it still claimed the pre-№474
+  Unit return) is corrected. Verified: the №465 diff-fuzzer, the №503
+  outcome-parity gate, the crosscheck and property TW/VM parity suites
+  green; the semantics of every caller path unchanged.
 - Naryad №539 (issue #849; the wave-23 typing line 3-A, P1): the memory
   package leaves stage 0 — the wave's largest package (38 rows) types
   35 rows against the verified handlers: kv_set/kv_delete/memorize →

@@ -62,6 +62,10 @@ pub struct Compiler {
     /// Наряд №204 (ADR-0121 stage 2): memory persist path from `memory { persist: ... }`.
     /// Passed to the VM so reflex_save/reflex_load work without the interpreter.
     memory_persist_path: Option<String>,
+    /// №521: the declared `conversation {}` config — carried to the Program
+    /// so the VM lane's conv_* builtins read the DECLARED values (before
+    /// this field the VM used the defaults unconditionally).
+    conversation_config: crate::interpreter::types::ConversationConfig,
     /// Database URL extracted from db declaration (for VM).
     db_url: Option<String>,
     /// №758: the NAME part of `db { url: env("NAME") }` — resolved by
@@ -276,6 +280,7 @@ impl Compiler {
             deny_handlers: Vec::new(),
             deny_handler_indices: HashMap::new(),
             memory_persist_path: None,
+            conversation_config: Default::default(),
             db_url: None,
             db_url_env: None,
             schema_ddl: Vec::new(),
@@ -344,6 +349,7 @@ impl Compiler {
             db_url: self.db_url.take(),
             db_url_env: self.db_url_env.take(),
             memory_persist_path: self.memory_persist_path.take(),
+            conversation_config: self.conversation_config.clone(),
             schema_ddl: std::mem::take(&mut self.schema_ddl),
             main_code,
             collections_loaded: self.collections_loaded,
@@ -513,7 +519,10 @@ impl Compiler {
                 }
                 Declaration::MlogServer(_)
                 | Declaration::Template(_)
-                | Declaration::Conversation(_)
+                // №521: Conversation is NOT in this bucket anymore — the
+                // declared config rides the Program now (see the dedicated
+                // arm below; the bucket ignored it and the VM lane kept
+                // the defaults unconditionally).
                 | Declaration::ContextBudget(_)
                 | Declaration::TypeAlias(_)
                 | Declaration::Tool(_)
@@ -527,6 +536,17 @@ impl Compiler {
                     if let Some(ref persist) = m.persist {
                         self.memory_persist_path = Some(persist.clone());
                     }
+                }
+                // №521: the declared conversation config rides the Program
+                // to the VM lane (the interpreter applies its own copy in
+                // `run`; the VM has no interpreter to read it from).
+                Declaration::Conversation(c) => {
+                    self.conversation_config =
+                        crate::interpreter::types::ConversationConfig {
+                            ttl: c.ttl,
+                            max_messages: c.max_messages,
+                            compress_after: c.compress_after,
+                        };
                 }
                 // Наряд №204 (ADR-0121 stage 3): collect `reflex_seq`
                 // declarations for the VM. Candle-feature-gated — the VM

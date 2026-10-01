@@ -192,6 +192,7 @@ fn generate_runtime_model_recheck_loud_error() {
         db_url: None,
         db_url_env: None,
         memory_persist_path: None,
+        conversation_config: Default::default(),
         schema_ddl: vec![],
         main_code: vec![],
         collections_loaded: false,

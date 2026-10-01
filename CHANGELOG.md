@@ -4,6 +4,38 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №521 (issue #820; the Wave-22 serve-e2e line, P2; the №509
+  functional criterion, ADR-0179 §2.5): the conversation accumulation
+  arc through the SERVING path — tests/naryad_521_conversation_serve_e2e.rs,
+  both serve backends (the №496 pattern). The arc drives six conv_add
+  calls against `conversation { compress_after: 2, ttl: 3600,
+  max_messages: 5 }` (the fields in a NON-canonical order — the boot
+  re-pins the №508 free-field-order guarantee) through one POST route
+  and pins the honest per-backend posture: the max_messages ROTATION is
+  the shared core (the oldest message evicted, both backends); the
+  ADR-0053 COMPRESSION tail diverges BY DESIGN — the TW collapses
+  everything beyond compress_after into ONE system summary (3 lines:
+  system + m5 + m6), the VM keeps the rotated window (5 lines: m2..m6,
+  the documented no-op tail); and the per-request conversation
+  isolation (№72: "request A's dialogue must not continue in request
+  B") is pinned via a fresh request's conv_history reporting the
+  conversation NOT FOUND on both backends. THE RED RUNS CAUGHT TWO
+  CONFIG-DELIVERY DEFECTS, fixed in the same PR (the №495 class — the
+  declared config was dead on the serve path): (1) the TW boot merge
+  ran ONE declaration per throwaway interpreter and
+  clone_definitions_into copied the conversation_config UNCONDITIONALLY,
+  so every later declaration's defaults clobbered the declared config
+  before any route ran — the copy is now CONDITIONAL on the source
+  having actually SEEN a `conversation {}` declaration (a declared-flag
+  marker; the №381 db_conn clobber class); (2) the VM lane NEVER
+  received the declared config at all — the compiler ignored the
+  declaration, so the VM used the defaults unconditionally; the config
+  now rides the compiled Program (the memory_persist_path plumbing:
+  a `#[serde(default)]` Program field — old .mbc files deserialize
+  cleanly — applied in load_program). The ttl field has NO runtime
+  enforcement on the access path today — honestly NOT asserted (the
+  declaration parses; the enforcement is a separate owner-gated
+  decision). The remaining pending serve-e2e row: cron (№522).
 - Naryad №520 (issue #819; the Wave-22 serve-e2e line, P2; the №509
   functional criterion, ADR-0179 §2.5): the memory accumulation arc
   through the SERVING path — tests/naryad_520_memory_serve_e2e.rs, both

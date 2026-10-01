@@ -333,7 +333,10 @@ pub struct Conversation {
 
 /// Conversation configuration (ADR-0053).
 /// Set by `conversation { ttl: N max_messages: N compress_after: N }`.
-#[derive(Debug, Clone)]
+/// №521: serde derives — the declared config rides the compiled Program
+/// to the VM lane (the same plumbing as `memory_persist_path`); the
+/// `#[serde(default)]` on the Program field keeps old .mbc files loading.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ConversationConfig {
     /// Time-to-live in seconds. Default: 1800 (30 minutes).
     pub ttl: u64,

@@ -134,6 +134,7 @@ fn n415_legacy_wire_still_loads_and_runs() {
         db_url: None,
         db_url_env: None,
         memory_persist_path: None,
+        conversation_config: Default::default(),
         schema_ddl: vec![],
         main_code: vec![
             Instruction::RegisterPattern(Box::new(body_fn)),
@@ -180,6 +181,7 @@ fn n415_out_of_range_ref_fails_loudly() {
         db_url: None,
         db_url_env: None,
         memory_persist_path: None,
+        conversation_config: Default::default(),
         schema_ddl: vec![],
         main_code: vec![Instruction::RegisterPatternRef(7), Instruction::Halt],
         collections_loaded: false,

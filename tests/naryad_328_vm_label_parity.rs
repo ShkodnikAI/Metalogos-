@@ -32,6 +32,7 @@ fn program_with(main_code: Vec<Instruction>) -> Program {
         db_url: None,
         db_url_env: None,
         memory_persist_path: None,
+        conversation_config: Default::default(),
         schema_ddl: vec![],
         main_code,
         collections_loaded: false,

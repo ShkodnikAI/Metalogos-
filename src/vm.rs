@@ -450,6 +450,10 @@ impl Vm {
         // Наряд №204 (ADR-0121 stage 2): memory persist path for
         // reflex_save/reflex_load.
         self.memory_persist_path = program.memory_persist_path.clone();
+        // №521: the declared conversation config (before this line the VM
+        // used the DEFAULTS unconditionally — the declared config never
+        // reached the serve lane; the №521 e2e red run caught it).
+        self.conversation_config = program.conversation_config.clone();
 
         // Наряд №240 (Vision R4.2): register vision declarations
         // (name → parameters). Generation state lives in the VM's own
@@ -3457,6 +3461,7 @@ impl Vm {
                     vision_decls: Vec::new(),
                     deny_handlers: Vec::new(),
                     memory_persist_path: None,
+                    conversation_config: Default::default(),
                     db_url: None,
                     db_url_env: None,
                     schema_ddl: Vec::new(),

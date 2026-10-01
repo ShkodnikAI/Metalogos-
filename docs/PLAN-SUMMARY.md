@@ -3,7 +3,7 @@
 > Publisher's derived artifact (access mode §16.0-7 of plan canon v2): the list of phases,
 > the current wave, criteria. The plan canon is held by the coordinator (private office repo); the public
 > repository does not contain the canon. Updated by the publisher in sync with canon edits.
-> Updated: 2026-09-25.
+> Updated: 2026-10-01.
 
 ## Status
 
@@ -30,17 +30,27 @@
 | Wave 16 (dispatch #681) | The audit 25.09 reaction: mock-LLM fail-loud, the read_file gate, the strict serve context, HARDCODED_SECRET category A, the audit synthetics, the lean front door + release 0.26.0 | Executed (PRs #697–#705, tag v0.26.0 on `01bec90`, 2026-09-26) |
 | Wave 17 (dispatch #695) | The strategic decisions of the gate gh#680: the domain freeze (ADR-0177), the generative stop-list, the CI gates (dup-names, debt, type-share), the enum Type stage 0, the media isolation (the physical core→media ban), the naryad classes and the quota counter, the second maintainer's perimeter, release 0.26.1; the №466 dedup transfer continues into В18 (threshold 35) | Executed (PRs #698–#721, 2026-09-26; the closing recount — REALITY §6.11) |
 | Wave 18 (dispatch #745) | The unfreeze path (ADR-0177 §4): №466 completed — the groups 5–7 leave the audit-ledger, recipe and server/runtime names into the shared live modules (threshold 35→20; the media/vision 20 ride the 0.27 split), №474 — the enum Type stage 1 (the let-type inference, warn-only), №475 — the FO-056 evidence on 0.26.1; all four §4 criteria read GREEN; the lift is the owner's; release 0.26.2 | Executed (PRs #746–#749, 2026-09-27; the closing recount — REALITY §6.12) |
+| Wave 19 (dispatch #793) | The audit 28.09 (v0.27.0) reaction: distillation in serve, the fs_gate bypass via lopdf, the P0 semantic-error blocking, the voiceprint honesty, release 0.27.1 | Executed (13 naryads merged; the release shipped as v0.27.1, tag on `5b79996`, 2026-09-30) |
+| Wave 20 | The reserve №498/№499 (skills/, demos/) | Reserve — not dispatched yet |
+| Wave 21 (dispatch #804) | The consolidated audit over four independent runs (А/Б/В/Г): the `!=`→`==` compiler defect, the Dockerfile repair, the voice honesty, the soft-fail inventory, the registry isolation, cargo-deny, privacy.md | Executed (naryads №510–№519, PRs #824–#831, 2026-09-28–30) |
+| Wave 22 (dispatch #845) | The consolidated audit А+Д 30.09 (v0.27.1) — corrective: semantic findings block run/serve (P0 №523), the voiceprint erasure path (GDPR Art. 17), the AAD binding, the LRU registry eviction, MSRV, the wildcard lint, the blocking-checks table | Executed (naryads №520–№535, PRs #853–#866, 2026-09-30) |
+| Wave 23 (dispatch #852) | The typing wave to the 0.28 gate: the string/list/db/memory packages leave stage 0 (floor 998→2110 bp), the first two ops pairs collapse over DbAccess, the second-maintainer lane goes operational | Executed (naryads №536–№541, PRs #867–#871, #876, 2026-09-30) |
+| Wave 24 (dispatch #888) | Development per ПСРМ after В22/В23: the cycle sync + the actuality audit №2, the typing top-up to the 3000 bp gate, the typed-stage 2 strictly behind the gate, the crate split, the 0.28 window prep, the NLnet traction | In force since 2026-10-01 |
 
 ## List of phases (no rationale, no timelines)
 
 1. Phase 0 — Foundation and inventory (executed).
-2. Phase 1 — Label-checker on existing types (current).
-3. Phase 2 — Media handles and the backend registry.
-4. Phase 3 — Capability / Action security.
-5. Phase 4 — Always-on, memory, forgetting.
-6. Phase 5 — Embodied, sim-only.
+2. Phase 1 — Label-checker on existing types (executed; the continuation landed in Wave 15).
+3. Phase 2 — Media handles and the backend registry (executed).
+4. Phase 3 — Capability / Action security (executed).
+5. Phase 4 — Always-on, memory, forgetting (executed; the continuation in Waves 13–14).
+6. Phase 5 — Embodied, sim-only (behind the entry gate: the GPU budget).
 7. Phase 6 — Spatial / XR.
 8. Phase 7 — Edge deepening + verifier.
+
+The recent waves (16–24) run inside the strategic frame: the domain freeze
+(ADR-0177, gh#680) and the release gate 0.28 (ADR-0179) — the capacity goes to the
+core (types, dedup, debt, parity) until the owner lifts the freeze.
 
 The sequence, the phase rationale, and the composition of subsequent waves are not subject to publication —
 they reside in the canon held by the coordinator (§16.0-7).
@@ -54,13 +64,17 @@ they reside in the canon held by the coordinator (§16.0-7).
 - C2PA mini-slice: manifest read/write, Art 50 labeling — a narrow slice (#320).
 - Completion-audits of Wave 0 — accepted (gh#404–#406).
 
-## Current wave — Phase 1 "Label-checker"
+## Current wave — Wave 24 (dispatch gh#888, 2026-10-01)
 
-Phase goal: static information-flow labels (conf, integrity, consent-scope) on
-the existing types of the language — a label lattice, control-flow inference, a sink gate with
-the `legacy` compatibility profile, redact/declassify, anti-injection, runtime parity,
-dogfooding of the office loop. Naryads: #322–#329 (gh#416–#423), the dispatch with rules
-and acceptance — gh#424. The public Go criteria of the phase — in dispatch gh#424.
+The development cycle per ПСРМ after the corrective waves В22/В23: the cycle sync with the
+ratchet recount and the actuality audit №2 (№542, gh#880), the typing top-up to the absolute
+goal of the 0.28 gate (3000 bp, ADR-0179; now 2110 bp), the typed-stage 2 (SECRET_LEAK /
+SQL_DYNAMIC / HTML_INJECTION) strictly behind the gate, the crate split stage 1
+(metalogos-core + metalogos-reflex), the 0.28 window prep (ADR-0179 §6 checklist), the
+domain-unfreeze evidence pack for the owner (ADR-0177 §4 — the lift stays the owner's),
+and the NLnet/Restack traction package (M1 deadline 2026-11-03). Naryads: №542–№549
+(gh#880–#887). The wave rules: the typing floor moves only up; the stop-list/debt/pairs/mirrors
+only down; no domain opens by a naryad.
 
 ## Acceptance criteria (public part of the methodology)
 

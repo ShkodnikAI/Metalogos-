@@ -269,7 +269,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("session_take_interrupt", 1, "session"; builtin_session_take_interrupt),
     // №539: String — the literal "ok" return (verified handler; not Unit).
     spec!("session_clear", 1, "memory"; builtin_session_clear, "String"), // ── Bot — Telegram messaging ──
-    spec!("send_message", 2, 3, "bot"; builtin_send_message),   // chat_id,text | +reply_markup
+    spec!("send_message", 2, 3, "bot"; builtin_send_message), // chat_id,text | +reply_markup
     spec!("answer_callback_query", 1, 3, "bot"; builtin_answer_callback_query), // id | id,text | id,text,show_alert
     spec!("edit_message_text", 3, 4, "bot"; builtin_edit_message_text), // chat_id,message_id,text | +reply_markup
     // ── Voice / transcription ──

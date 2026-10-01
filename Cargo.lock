@@ -2416,6 +2416,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "metalogos-reflex"
+version = "0.27.1"
+dependencies = [
+ "candle-core",
+ "candle-nn",
+ "metalogos",
+]
+
+[[package]]
 name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"

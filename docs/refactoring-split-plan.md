@@ -29,6 +29,19 @@ this document is the roadmap the owner's decision 2-B fixed.
 
 ## 0.27 — the first physical split: `metalogos-core` + `metalogos-reflex`
 
+> **Status (№545 stage 1, Wave 24, 2026-10-01):** the
+> `metalogos-reflex` crate-stub is a workspace member (lockstep
+> version, the off-by-default candle gate). The physical module moves
+> are sequenced behind the DEPENDENCY-DIRECTION FORK this roadmap
+> reserves for the owner's gate: the inversion inventory (the
+> `Value::Reflex`/`Value::BpeVocab` variants in the core value enum +
+> the 6 core files importing `crate::nn::` directly) is recorded in
+> the stub's library docs; the fork (core-first trait-seam inversion
+> vs the tiny `metalogos-values` crate) decides the shape of every
+> follow-up sub-PR. The stub compiles empty on purpose — an honest
+> staging point, not a silent placeholder.
+
+
 - `metalogos-core`: the language — parser, ast, compiler, bytecode, the
   TW/VM backends (deduplicated by №466 by then), the runtime values,
   audit/semantic lanes, the builtin registry shell. No media, no server,

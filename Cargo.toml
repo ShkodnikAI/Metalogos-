@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "mlogpkg", "mlog-lsp"]
+members = [".", "mlogpkg", "mlog-lsp", "metalogos-reflex"]
 resolver = "2"
 
 [workspace.package]

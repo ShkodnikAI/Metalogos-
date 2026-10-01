@@ -1,0 +1,24 @@
+[package]
+name = "metalogos-reflex"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+description = "The reflex domain crate (the generative contour's future home) — the №472 roadmap, ADR-0178 §3; Wave 24 №545 stage 1"
+
+[dependencies]
+# The dependency-direction fork (the roadmap's "the split PR decides with
+# the owner's gate"): this stub takes the CORE-DEPENDENCY side as its
+# provisional shape — the crate depends on the language crate for the
+# value/handle types. The alternative (a tiny `metalogos-values` crate
+# both depend on) stays open for the owner's gate BEFORE the physical
+# module moves; see the naryad №545 report and
+# docs/refactoring-split-plan.md.
+metalogos = { path = ".." }
+candle-core = { version = "0.11", optional = true }
+candle-nn = { version = "0.11", optional = true }
+
+[features]
+# The crate's own candle gate mirrors the language crate's posture
+# (off-by-default; the workspace feature unification keeps the
+# default/portable/full profiles coherent).
+candle = ["dep:candle-core", "dep:candle-nn"]

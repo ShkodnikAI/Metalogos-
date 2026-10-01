@@ -269,9 +269,9 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("session_take_interrupt", 1, "session"; builtin_session_take_interrupt),
     // №539: String — the literal "ok" return (verified handler; not Unit).
     spec!("session_clear", 1, "memory"; builtin_session_clear, "String"), // ── Bot — Telegram messaging ──
-    spec!("send_message", 2, 3, "bot"; builtin_send_message), // chat_id,text | +reply_markup
-    spec!("answer_callback_query", 1, 3, "bot"; builtin_answer_callback_query), // id | id,text | id,text,show_alert
-    spec!("edit_message_text", 3, 4, "bot"; builtin_edit_message_text), // chat_id,message_id,text | +reply_markup
+    spec!("send_message", 2, 3, "bot"; builtin_send_message), // №543: Unknown honest — String (delivered) | Unit (no TELEGRAM_BOT_TOKEN fallback); the flat vocabulary has no env-dependent union
+    spec!("answer_callback_query", 1, 3, "bot"; builtin_answer_callback_query), // №543: Unknown honest — String | Unit (no-token fallback), same env-dependent split as send_message
+    spec!("edit_message_text", 3, 4, "bot"; builtin_edit_message_text), // №543: Unknown honest — String | Unit (no-token fallback), same env-dependent split as send_message
     // ── Voice / transcription ──
     // Naryad #279 fact-check: registry said min=1, implementation has always
     // required 3 strings (file_id, bot_token, whisper_key) + optional provider.
@@ -440,7 +440,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("subgraph_json", 0, "graph"; builtin_subgraph_json),
     spec!("trace_start", 0, "graph"; builtin_trace_start),
     spec!("trace_end", 0, "graph"; builtin_trace_end),
-    spec!("memory_score", 1, "bot" => "ext"; builtin_memory_score),
+    spec!("memory_score", 1, "bot" => "ext"; builtin_memory_score, "Struct"), // №543: the MemoryScore make_date_struct (verified office/text.rs)
     spec!("mtree_summarize", 0, "mtree"; builtin_mtree_summarize),
     spec!("mtree_retrieve", 1, 2, "mtree"; builtin_mtree_retrieve), // query | query,limit
     spec!("mtree_store", 2, "mtree"; builtin_mtree_store),
@@ -484,36 +484,36 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("config_load", 1, "vault" => "ext"; builtin_config_load),
     spec!("vault_validate", 2, "vault" => "ext"; builtin_vault_validate),
     // ── Bot — Telegram ──
-    spec!("todo_add", 2, "bot" => "ext"; builtin_todo_add),
-    spec!("todo_list", 0, "bot" => "ext"; builtin_todo_list),
-    spec!("todo_update", 2, "bot" => "ext"; builtin_todo_update),
-    spec!("goal_get", 0, "bot" => "ext"; builtin_goal_get),
-    spec!("goal_set", 2, "bot" => "ext"; builtin_goal_set),
-    spec!("goals_add", 1, "bot" => "ext"; builtin_goals_add),
-    spec!("goals_list", 0, "bot" => "ext"; builtin_goals_list),
-    spec!("remind", 3, "bot"; builtin_remind_stamped),
-    spec!("get_profile", 0, "bot" => "ext"; builtin_get_profile),
-    spec!("human_mood", 3, "bot"; builtin_human_mood),
-    spec!("ask_approval", 1, "bot" => "ext"; builtin_ask_approval),
-    spec!("goal_complete", 0, "bot" => "ext"; builtin_goal_complete),
-    spec!("goals_reflect", 0, "bot" => "ext"; builtin_goals_reflect),
-    spec!("cancel_remind", 1, "bot"; builtin_cancel_remind_stamped),
-    spec!("check_reminders", 0, "bot"; builtin_check_reminders_stamped),
-    spec!("list_reminders", 0, "bot"; builtin_list_reminders_stamped),
-    spec!("remind_recurring", 2, "bot"; builtin_remind_recurring_stamped),
-    spec!("human_create", 2, "bot"; builtin_human_create),
-    spec!("human_delete", 1, "bot" => "ext"; builtin_human_delete),
-    spec!("human_forget", 2, "bot"; builtin_human_forget),
-    spec!("human_personas", 0, "bot" => "ext"; builtin_human_personas),
-    spec!("human_recall", 3, "bot"; builtin_human_recall),
-    spec!("human_remember", 4, "bot"; builtin_human_remember),
-    spec!("human_respond", 2, "bot" => "ext"; builtin_human_respond),
-    spec!("compress_html", 1, "bot" => "ext"; builtin_compress_html),
-    spec!("estimate_tokens", 1, "bot" => "ext"; builtin_estimate_tokens),
-    spec!("extract_entities", 1, "bot" => "ext"; builtin_extract_entities),
-    spec!("extract_param", 2, "bot" => "ext"; builtin_extract_param), // text,index
-    spec!("learn_preference", 3, "bot" => "ext"; builtin_learn_preference),
-    spec!("read_file_tokens", 1, "bot" => "ext"; builtin_read_file_tokens),
+    spec!("todo_add", 2, "bot" => "ext"; builtin_todo_add, "Struct"), // №543: the Todo make_date_struct (verified goals.rs)
+    spec!("todo_list", 0, "bot" => "ext"; builtin_todo_list, "List"), // №543: the todo rows vector (verified goals.rs)
+    spec!("todo_update", 2, "bot" => "ext"; builtin_todo_update, "Struct"), // №543: the TodoUpdate make_date_struct (verified goals.rs)
+    spec!("goal_get", 0, "bot" => "ext"; builtin_goal_get, "Struct"), // №543: the ThreadGoal make_date_struct (verified goals.rs)
+    spec!("goal_set", 2, "bot" => "ext"; builtin_goal_set, "Struct"), // №543: the ThreadGoal make_date_struct (verified goals.rs)
+    spec!("goals_add", 1, "bot" => "ext"; builtin_goals_add, "Struct"), // №543: the Goal make_date_struct (verified goals.rs)
+    spec!("goals_list", 0, "bot" => "ext"; builtin_goals_list, "List"), // №543: the goal rows vector (verified goals.rs)
+    spec!("remind", 3, "bot"; builtin_remind_stamped, "String"), // №543: the reminder id (verified cron.rs builtin_remind; the stamped wrapper is pass-through)
+    spec!("get_profile", 0, "bot" => "ext"; builtin_get_profile, "List"), // №543: the profile rows vector (verified)
+    spec!("human_mood", 3, "bot"; builtin_human_mood, "Struct"), // №543: the Mood make_date_struct (verified server.rs)
+    spec!("ask_approval", 1, "bot" => "ext"; builtin_ask_approval, "Struct"), // №543: the Approval make_date_struct (verified config.rs)
+    spec!("goal_complete", 0, "bot" => "ext"; builtin_goal_complete, "Struct"), // №543: the GoalComplete make_date_struct (verified goals.rs)
+    spec!("goals_reflect", 0, "bot" => "ext"; builtin_goals_reflect, "Struct"), // №543: the GoalsReflection make_date_struct (verified goals.rs)
+    spec!("cancel_remind", 1, "bot"; builtin_cancel_remind_stamped, "String"), // №543: the literal "ok"/"not_found" (verified cron.rs)
+    spec!("check_reminders", 0, "bot"; builtin_check_reminders_stamped, "List"), // №543: the DueReminder rows vector (verified cron.rs)
+    spec!("list_reminders", 0, "bot"; builtin_list_reminders_stamped, "List"), // №543: the Reminder rows vector (verified cron.rs)
+    spec!("remind_recurring", 2, "bot"; builtin_remind_recurring_stamped, "String"), // №543: the reminder id (verified cron.rs)
+    spec!("human_create", 2, "bot"; builtin_human_create, "Struct"), // №543: the Persona make_date_struct (verified server.rs)
+    spec!("human_delete", 1, "bot" => "ext"; builtin_human_delete, "Struct"), // №543: the DeleteResult make_date_struct (verified office/human.rs)
+    spec!("human_forget", 2, "bot"; builtin_human_forget), // №543: Unknown honest — Float (deleted count, 1-arg all-persona path) | String ("ok"/"not_found", 2-arg path); arity-dependent union
+    spec!("human_personas", 0, "bot" => "ext"; builtin_human_personas, "List"), // №543: the persona rows vector (verified)
+    spec!("human_recall", 3, "bot"; builtin_human_recall, "List"), // №543: the matched memory rows vector (verified server.rs)
+    spec!("human_remember", 4, "bot"; builtin_human_remember, "String"), // №543: the literal "ok" (verified server.rs)
+    spec!("human_respond", 2, "bot" => "ext"; builtin_human_respond, "String"), // №543: the reply text (delegates to human_recall; verified)
+    spec!("compress_html", 1, "bot" => "ext"; builtin_compress_html, "String"), // №543: the compressed HTML (verified)
+    spec!("estimate_tokens", 1, "bot" => "ext"; builtin_estimate_tokens, "Float"), // №543: the token estimate (verified)
+    spec!("extract_entities", 1, "bot" => "ext"; builtin_extract_entities, "List"), // №543: the entity rows vector (verified)
+    spec!("extract_param", 2, "bot" => "ext"; builtin_extract_param, "String"), // text,index — №543: the extracted substring (verified)
+    spec!("learn_preference", 3, "bot" => "ext"; builtin_learn_preference, "Struct"), // №543: the Preference make_date_struct (verified office/human.rs)
+    spec!("read_file_tokens", 1, "bot" => "ext"; builtin_read_file_tokens, "Struct"), // №543: the token-accounting struct (verified)
     // ── sqz-inspired: string/list utilities ──
     spec!("squeeze", 2, "string"; builtin_squeeze, "String"),
     spec!("to_int", 1, "string"; builtin_to_int, "Float"), // parse string/float to integer
@@ -533,7 +533,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("pdf_metadata", 1, "pdf"; builtin_pdf_metadata), // path
     spec!("pdf_set_metadata", 3, "pdf"; builtin_pdf_set_metadata), // path, key, value
     spec!("html_to_pdf", 2, "pdf"; builtin_html_to_pdf), // html, path
-    spec!("send_document", 2, 3, "bot" => "ext"; builtin_send_document), // chat_id, file_path [,caption]
+    spec!("send_document", 2, 3, "bot" => "ext"; builtin_send_document), // chat_id, file_path [,caption] — №543: Unknown honest — String | Unit (no-token fallback), same env-dependent split as send_message
     // ── Crypto: SHA-256 / HMAC (Наряд №50 Block 3) ──
     spec!("sha256", 1, "crypto"; builtin_sha256),
     spec!("hmac_sha256", 2, "crypto"; builtin_hmac_sha256),

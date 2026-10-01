@@ -14,12 +14,17 @@
 
 use metalogos::builtins::{sig_types::Type, BUILTIN_REGISTRY};
 
-/// The checked-in floor: raised by №757 (2026-09-27 — the new
-/// llm_last_finish_reason row ships typed "String"; 50 typed rows of
-/// 501). MUST move only up, in the same PR that types more rows;
-/// mirrors `scripts/ci/type_signature_baseline.txt`
-/// (`# threshold_bp: 998`).
-const TYPED_FLOOR: usize = 50;
+/// The checked-in floor: raised by №543 (2026-10-01 — the bot package
+/// types 30 rows). NOTE the by-design gap between the two locks (the
+/// file header says it): the CI script counts the SOURCE rows (137 —
+/// includes the feature-gated `vec`/store-lane rows embed/vec_store/
+/// vec_search/memory_forget), this test counts the COMPILED default-
+/// feature registry (133). MUST move only up, in the same PR that types
+/// more rows — AND together with `scripts/ci/type_signature_baseline.txt`
+/// (`# threshold_bp: 2702`): the №542 registration (this lock lagging
+/// the baseline since №757) is closed by this raise — both locks move
+/// in the same PR from now on.
+const TYPED_FLOOR: usize = 133;
 
 #[test]
 fn typed_signature_share_never_falls_below_the_floor() {

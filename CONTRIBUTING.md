@@ -123,8 +123,11 @@ Branch naming conventions:
 # Run all tests
 cargo test
 
-# Run with all features
-cargo test --all-features
+# Run with the max buildable-everywhere feature set (the CI platform jobs
+# run the same set). `--all-features` includes `pdf-ocr`, which requires
+# the system tesseract-ocr + leptonica C libraries (naryad №265) and
+# fails on a stock machine — do not use it for the local walk.
+cargo test --features portable
 
 # Check formatting
 cargo fmt -- --check
@@ -132,7 +135,8 @@ cargo fmt -- --check
 # Run linter
 cargo clippy -- -D warnings
 
-# Run security audit
+# Run security audit (fetches the RustSec advisory DB — network needed
+# on the first run)
 cargo audit
 
 # Build documentation

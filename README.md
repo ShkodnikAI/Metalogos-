@@ -68,13 +68,13 @@ cargo build --release
 ./target/release/mlog run examples/m1_hello.mlog
 ```
 
-**Run, check, audit, serve:**
+**Run, check, audit, serve** (the binary is `./target/release/mlog` — add it to `PATH` or keep the relative prefix; the commands below abbreviate it as `mlog`):
 
 ```bash
 mlog run examples/m1_hello.mlog       # execute
-mlog check program.mlog               # semantic analysis, no execution
-mlog audit program.mlog               # static security audit
-mlog serve app.mlog                   # HTTP server from route declarations
+mlog check examples/m1_hello.mlog     # semantic analysis, no execution
+mlog audit examples/m1_hello.mlog     # static security audit
+mlog serve examples/docker_hello.mlog # HTTP server from route declarations
 ```
 
 Every subcommand: [Quick Start — the Full CLI Tour](docs/book/src/quickstart.md).

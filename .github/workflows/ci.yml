@@ -629,7 +629,7 @@ jobs:
         run: |
           if [ "${{ steps.office_tests.outcome }}" = "success" ]; then OT=pass; else OT=fail; fi
           python3 scripts/ci/unfreeze_gate.py --office-tests "$OT"
-      - name: Upload the unfreeze summary artifact (the 0.27.0 release-gate read)
+      - name: Upload the unfreeze summary artifact (the release-gate read — the default target is 0.28, №550)
         if: always()
         uses: actions/upload-artifact@v7
         with:

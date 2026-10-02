@@ -253,10 +253,12 @@ def main():
     c2 = criterion_dedup(baseline_dir)
     c3 = criterion_debt(baseline_dir)
     c4 = criterion_memory(baseline_dir, office_tests)
-    # №509: the v2 gate (the 0.28 ABSOLUTE goals) is OFF by default —
-    # the 0.27.x releases read the legacy §4 verdict; the 0.28 release
-    # runs the gate with --gate-target 0.28 (ADR-0179 §5).
-    gate_target = args[args.index('--gate-target') + 1] if '--gate-target' in args else None
+    # №550 (gh#911; the audit 02.10 M-3): the default gate target IS 0.28 —
+    # without the flag the gate reads the 0.28 ABSOLUTE goals (the v2
+    # verdict, ADR-0179 §5), not the legacy 0.27.x verdict. The legacy
+    # read stays available explicitly: --gate-target legacy. The 0.27.x
+    # era is closed; the release train is 0.28.
+    gate_target = args[args.index('--gate-target') + 1] if '--gate-target' in args else '0.28'
     c5 = criterion_goals_028(baseline_dir) if gate_target == '0.28' else None
 
     rows = []
@@ -306,11 +308,11 @@ def main():
     if gate_target == '0.28':
         pass  # the v2 verdict above is the release read for 0.28
     elif overall == 'GREEN':
-        lines.append('The 0.27.0 release gate: **SATISFIED** (release-blocking '
+        lines.append('The legacy (0.27.x) release gate: **SATISFIED** (release-blocking '
                      'label — a RED anywhere in this summary blocks the release '
                      'read; the summary is the artifact `unfreeze-summary`).')
     else:
-        lines.append('The 0.27.0 release gate: **BLOCKED** — the release is not '
+        lines.append('The legacy (0.27.x) release gate: **BLOCKED** — the release is not '
                      'published while any §4 criterion is red (ADR-0177 §6).')
     lines.append('')
     lines.append('<details><summary>the raw gate outputs</summary>')
@@ -341,7 +343,8 @@ def main():
             f.write(text)
 
     if overall != 'GREEN':
-        print('::error::the unfreeze summary is RED — the 0.27.0 release gate reads this verdict (ADR-0177 §6)')
+        target_name = 'the 0.28 release gate' if gate_target == '0.28' else 'the legacy release gate'
+        print('::error::the unfreeze summary is RED — %s reads this verdict (ADR-0177 §6 / ADR-0179 §5)' % target_name)
         return 1
     return 0
 

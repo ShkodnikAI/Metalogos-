@@ -21,8 +21,11 @@ what each step closes.
    the PR that adds the actual both-backend `run_test_server` test for
    that declaration (distill — №496; memory/conversation/cron — the
    follow-up naryads from gh#792).
-4. **The gate, v2 mode.** Run
-   `python3 scripts/ci/unfreeze_gate.py --office-tests <pass|fail> --gate-target 0.28`;
+4. **The gate, the release read.** Run
+   `python3 scripts/ci/unfreeze_gate.py --office-tests <pass|fail>` —
+   the default target is 0.28 since №550 (the v2 absolute goals are the
+   release read; the explicit `--gate-target 0.28` still works and the
+   legacy 0.27.x read stays available via `--gate-target legacy`);
    attach `unfreeze_summary.md` to the release. A RED anywhere blocks
    the read — the release does not proceed while blocked.
 5. **The owner's read.** The OWNER reads the summary and decides the
@@ -30,5 +33,6 @@ what each step closes.
 
 ## The legacy read (0.27.x)
 
-`unfreeze_gate.py --office-tests <pass|fail>` without `--gate-target` —
-the ADR-0177 §4 verdicts only. Unchanged.
+`unfreeze_gate.py --office-tests <pass|fail> --gate-target legacy` —
+the ADR-0177 §4 verdicts only. The no-flag invocation is NO LONGER the
+legacy read: since №550 (gh#911) the default target is 0.28.

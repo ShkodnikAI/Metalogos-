@@ -67,11 +67,14 @@ keeps the machinery honest and the facts synced.
 
 ## 5. Mechanics
 
-- Legacy mode (default): `unfreeze_gate.py --office-tests pass|fail` —
-  the §4 summary, the 0.27.x read. Unchanged.
-- v2 mode: `unfreeze_gate.py --office-tests pass --gate-target 0.28` —
-  the §4 summary + the v2 goals section; the overall verdict is the
-  0.28 release read.
+- v2 mode (the DEFAULT since №550, gh#911 — amended 2026-10-03):
+  `unfreeze_gate.py --office-tests pass|fail` — the §4 summary + the v2
+  goals section; the overall verdict is the 0.28 release read. The
+  explicit `--gate-target 0.28` form is equivalent.
+- Legacy mode (explicit): `unfreeze_gate.py --office-tests pass|fail
+  --gate-target legacy` — the §4 summary, the 0.27.x read. The 0.27.x
+  era is closed; the legacy read exists for archaeology, not for
+  releases.
 - The summary artifact (`unfreeze-summary`) remains the one-page
   evidence; the v2 section lands in the same page.
 

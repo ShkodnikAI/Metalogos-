@@ -4,6 +4,151 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+_The 0.29 cycle opens here — the wave-25 P1/P2 entries land below (the 0.28.0 tag is the owner's gate, gh#911 №550)._
+
+- Naryad №550 (issue #911; Wave 25, P0, the pre-release block; the
+  audit 02.10 M-3): the 0.28.0 release is PREPARED — the tag and the
+  GitHub Release remain the OWNER's gate (§6.5; this naryad publishes
+  nothing). The section `[0.28.0]` above is cut with the Security
+  (№523, №526, №527, the №527-closure) and Fixed (gh#892) subsections
+  moved verbatim from the train; the machine gate's DEFAULT target is
+  0.28 (`scripts/ci/unfreeze_gate.py` — the no-flag invocation now
+  reads the v2 absolute goals, ADR-0179 §5; the legacy 0.27.x read
+  stays explicit via `--gate-target legacy`); the release-checklist and
+  ADR-0179 §5 carry the amended mechanics. The gate evidence on this
+  content: `Overall (§4 + v2): GREEN`, the 0.28 release gate
+  **SATISFIED** (exit 0, `--office-tests pass`).
+
+## [0.28.0] - 2026-10-03
+
+**The 0.28 release train — the gate 0.28 (ADR-0179 §5) read SATISFIED on this content (the v2 absolute goals GREEN; gh#885, gh#911). The tag is the OWNER's gate (§6.5) — the release-prep naryad (№550) publishes nothing.**
+
+### Security
+
+**The audit-driven security train: the v0.27.1 tag (2026-09-29)
+predates every entry below — 0.27.1 and earlier do not carry them.
+The №523 check-bypass is the High: update is mandatory.**
+
+- Naryad №523 (issue #832; the consolidated audit A+D 30.09, N-1 High,
+  P0 release-block): semantic findings now BLOCK `mlog run` and
+  `mlog serve` — the liar string is gone. THE HOLE: `run_program_with_dir`
+  blocked only two substring classes (`contains("distill_to")`,
+  `contains("[DENY_")`), `mlog serve` ran NO semantic pass at all, and the
+  tree-walking interpreter returned the string
+  `"[ERROR: unknown function 'x']"` as the call's VALUE — non-empty
+  strings are truthy in `is_truthy`, so `if is_admn(user)` with no
+  `is_admn` defined took the then-branch: a security check became its own
+  bypass. THE FIX: (1) every `semantic::check_program` error blocks the
+  run path and the serve startup; exemptions classify ONLY by the
+  structured `SemanticErrorKind` through `semantic::is_exempt_from_blocking`
+  — the ONE explicit place, empty today — never by message substring;
+  (2) the gate resolves the program's import tree STATICALLY first
+  (`semantic::resolve_imports_statically`, the same file-lookup rule as
+  the runtime loader and the bytecode compiler's `resolve_import`,
+  visited-set on module path, main-file-wins dedup with first-wins
+  module collisions — the runtime flat-merge warns, so the gate must not
+  invent duplicate-name errors), which removes the historical
+  false-positive class that once justified NOT blocking; (3) both TW
+  unknown-function origins (`run`'s call resolution and
+  `eval_expr_with_env`) return the coded err-origin
+  `[UNDEFINED_FUNCTION] undefined function: 'x'` instead of the truthy
+  string (the №479 stable code); (4) the refusal carries the FIRST
+  blocking finding's stable code at position 0 —
+  `[UNDEFINED_FUNCTION] Compilation error (Naryad #523): ...` — machine
+  consumers read the class, not the prose; (5) `check_program` walks
+  ROUTE bodies for calls too (the №264-mutability-walk precedent) — an
+  undefined function inside a route body now refuses the TW serve startup
+  instead of failing per-request. The gate surfaced three PRE-EXISTING
+  spec-vs-implementation arity drifts, fixed at the SSOT:
+  `session_set` 2→3 and `session_get` 1→2 (the implementations
+  hard-require the session-id forms), `session_clear` 0→1 (left the
+  arity-0 "variadic" list that never checked anything),
+  `respond_html` 1→2 (status + html); `forget` (the №72 memory surface
+  1..2 + the registry surface 3..4 — a non-contiguous union) and
+  `render` (template params are data, the 1-arg form is the №448
+  taint-lift surface) are DYNAMIC-ARITY names — the static check stays
+  silent, the builtin stays the loud runtime validator. Contracts
+  repaired per place: `examples/p50_unknown_fn` flipped from a .expected
+  golden (the liar string enshrined as the expected stdout) to a .error
+  contract; `examples/p2_multi_errors.error` updated to the gate text
+  (the unknown-type refusal arrives one layer earlier);
+  `examples/p71_retry_demo` dropped its `env_get` reference (a function
+  that existed in NEITHER backend — the №513 crosscheck exclusion dies
+  with it) for a placeholder header, since reading env() straight into
+  network headers is the №391 PII_EGRESS_NETWORK violation; the
+  REFERENCE.md vector sample runs as its own `doc-test: skip` block
+  (embed/vec_store are `vec`-feature, off by default); the №465
+  diff-fuzzer's three phase-family known-classes closed by the ratchet
+  (the TW side refuses at the gate with the same №479 code the VM compile
+  side always had) — the lines and their corpus examples are removed.
+  Tests: tests/naryad_523_semantic_gate.rs — the exploit shape refused on
+  TW (gate) and VM (compile), the interpreter err-origin pinned (no liar
+  string from any call site), serve startup refusals through the real
+  `run_server` (route body and pattern body shapes), the
+  import-using program still runs (no false positives), the №181/№392
+  classes still block, the exemption list pinned empty.
+
+- Naryad №526 (issue #835; the consolidated audit A+D 30.09, N-2,
+  P1 security/voice): the GDPR Art. 17 erasure path for voiceprints
+  LANDS — the right-to-erasure is no longer a document-only promise
+  (privacy.md §2.1). THE HOLE: the store had only `INSERT OR REPLACE`
+  (save), no delete, no list, no purge — a persisted print outlived
+  every consent revocation. THE PATH: `voice_delete(handle)` — the
+  idempotent registry erasure (`"deleted"`/`"absent"`, a repeated erase
+  succeeds; Voice handles erase the biometric print, Audio handles erase
+  the artifact bytes; wrong types refuse loudly) and `voice_list()` —
+  the informed-deletion basis (ids + models/sizes; the listing NEVER
+  decrypts, the embedding bytes never enter any result). Neither is
+  feature-gated: the erasure right cannot depend on a build flag. The
+  PERSISTED twin: `VoiceStore::delete_voiceprint` runs the
+  SECURE-DELETE path — the ciphertext blob is zero-overwritten in place
+  BEFORE the row removal and the same-name voice_artifacts row is
+  purged the same way ("файл артефакта + запись реестра") — and
+  `VoiceStore::list_voiceprints` enumerates name/model/saved_at/algo/
+  ciphertext-length without a key. HONEST BOUNDARIES (loud, not
+  silent): SQLite cannot guarantee per-row block-level erasure
+  (freelist/WAL page images persist until reused) — the row-level
+  overwrite erases the row's live copy, the file-level guarantee stays
+  the DB owner's; the consent_ledger rows SURVIVE erasure by design
+  (the Art. 9 consent proof). privacy.md §2.1/§3 rewritten in the same
+  PR (the №524 rule): "Delete path: ABSENT" → "available since the
+  v0.27.x line", voice_delete/voice_list removed from the ABSENT list,
+  the anchors re-verified by hand. Tests: the store cycle (save → list
+  → delete → list empty), the zero-overwrite pin, the reopen/no-
+  resurrection restart test, the artifact-row purge, the registry
+  cycle, the builtin idempotency and loud-type refusals; the
+  classification SSOT and REFERENCE.md carry both builtins (505→507).
+
+- Naryad №527 (issue #836; the consolidated audit 30.09, N-3,
+  P1 security/voice): the AES-256-GCM ciphertext is now BOUND TO ITS
+  SUBJECT — the GCM AAD carries the (subject_id, registry, schema
+  version) triplet (the registry `voiceprints`, the subject name, the
+  `voiceprints-aad-v1` schema label — joined with the 0x1F unit
+  separator so the ordered fields stay unambiguous), so a blob
+  transplanted onto another subject's row FAILS authentication (the
+  swap attack the bare tag accepted since №517 is closed — the tag
+  proved integrity of the bytes, never the binding). THE HONEST
+  BOUNDARY kept: the storage schema and the `algo` mark are untouched
+  (№517's T2 pins `AES-256-GCM-v1`), the secret()-gate semantics are
+  untouched; the discriminator between a bound row and a legacy row is
+  the GCM authentication itself (try-bound first, then the loud
+  transitional fallback). THE TRANSITION: №517-era rows (empty AAD)
+  stay readable in the announced window — every such read emits
+  `[VOICEPRINT_NO_AAD_LEGACY]` on stderr AND surfaces the honest
+  `VoiceprintCryptoStatus` (`LegacyNoAad`) through the new
+  `load_voiceprint_with_status`; every WRITE is AAD-bound, so the
+  legacy population only shrinks; the deadline row (the fallback
+  removal at v0.28.0) lives in limitations.md (the №524 rule), and
+  privacy.md §2.1/§4 carry the new contour with re-verified anchors.
+  THE KEY LIFETIME: the decoded 32-byte key buffer lives under
+  `Zeroizing` in BOTH directions (wiped at the operation's scope exit
+  — the crate was already in the tree, zero new dependencies). Tests:
+  the swap refusal (RED-baseline verified — the binding mutation
+  reddens exactly the three binding tests), the loud legacy read with
+  the flag, the re-save rebinds story, the wrong-key refusal surviving
+  the two-step decrypt, the fresh-writes-are-bound pin; №517 (7/7),
+  №512 (4/4) and the store unit tests stay green unchanged.
+
 - Naryad №527-closure (issue #836; the №524 deadline rule; the v0.28.0
   release-train companion): the deadline EXECUTES — the transitional
   empty-AAD decrypt fallback is REMOVED from
@@ -26,6 +171,35 @@ All notable changes to the Metalogos project.
   T3 keeps the re-save-rebinds story behind a loud first refusal, T4's
   wrong-key refusal is unchanged; the swap refusal (T1) and the
   fresh-write binding (T5) are untouched.
+
+### Fixed
+
+**The respond_html contract regression was introduced on main by
+№523's arity tightening and NEVER shipped in any release — recorded
+here for the trace (gh#892, fixed by gh#899).**
+
+- Issue #892 fix (prod regression, the FOSVED-office-v2 FORGE pages 500/404
+  on 0.27.x): the `respond_html` contract is restored — all three forms in
+  one builtin. `respond_html(html)` (the 1-arg office corpus form) is legal
+  again — the registry/semantic spec drops №523's hard 2 back to 1..2, so
+  `mlog check` no longer rejects every office HTML route and the runtime no
+  longer 500s with "requires an argument at position 1". The 2-arg form
+  disambiguates by fact: when the first argument opens with a valid HTTP
+  status token ("200", "404 Not Found") it stays the documented
+  `(status, html)` form with the body VERBATIM; otherwise it is the office's
+  `(title, body)` shape — a full HTML document is built, the title lands
+  tag-stripped in `<head><title>` AND verbatim at the top of `<body>` (it is
+  not dropped anymore). Every form now serves `Content-Type: text/html;
+  charset=utf-8`: `Value::HttpResponse` carries an optional `content_type`
+  (None keeps the historical `respond()` text/plain default) and the server
+  honors it (`value_to_response` + both VM serve paths share the new
+  `http_response_into_response`) — the axum String-body text/plain default
+  that actually broke the office pages no longer applies to HTML responses.
+  REFERENCE.md §4.13 + the web table document the three forms; contract
+  pinned by `tests/n892_respond_html_contract.rs` (12 tests: all three
+  forms, status-vs-title precedence, out-of-range numbers stay titles,
+  semantic 1-arg pass / 3-arg fail, registry arity) and 3 server.rs unit
+  tests (content-type header, the None default, custom status).
 
 - Naryad №544 (issue #882; Wave 24, P1, compiler/security; stage 2 of the
   type system, №467 canon — the three audit classes on
@@ -72,28 +246,6 @@ All notable changes to the Metalogos project.
   — the mechanism surfaces + the end-to-end parity shapes + the №98
   compile-time classes.
 
-- Issue #892 fix (prod regression, the FOSVED-office-v2 FORGE pages 500/404
-  on 0.27.x): the `respond_html` contract is restored — all three forms in
-  one builtin. `respond_html(html)` (the 1-arg office corpus form) is legal
-  again — the registry/semantic spec drops №523's hard 2 back to 1..2, so
-  `mlog check` no longer rejects every office HTML route and the runtime no
-  longer 500s with "requires an argument at position 1". The 2-arg form
-  disambiguates by fact: when the first argument opens with a valid HTTP
-  status token ("200", "404 Not Found") it stays the documented
-  `(status, html)` form with the body VERBATIM; otherwise it is the office's
-  `(title, body)` shape — a full HTML document is built, the title lands
-  tag-stripped in `<head><title>` AND verbatim at the top of `<body>` (it is
-  not dropped anymore). Every form now serves `Content-Type: text/html;
-  charset=utf-8`: `Value::HttpResponse` carries an optional `content_type`
-  (None keeps the historical `respond()` text/plain default) and the server
-  honors it (`value_to_response` + both VM serve paths share the new
-  `http_response_into_response`) — the axum String-body text/plain default
-  that actually broke the office pages no longer applies to HTML responses.
-  REFERENCE.md §4.13 + the web table document the three forms; contract
-  pinned by `tests/n892_respond_html_contract.rs` (12 tests: all three
-  forms, status-vs-title precedence, out-of-range numbers stay titles,
-  semantic 1-arg pass / 3-arg fail, registry arity) and 3 server.rs unit
-  tests (content-type header, the None default, custom status).
 - Naryad №545 stage 1 (issue #883; Wave 24, P1; the №472 roadmap,
   decision 2-B; docs/refactoring-split-plan.md): the crate-stub of the
   reflex domain lands as a workspace member — `metalogos-reflex`
@@ -116,6 +268,7 @@ All notable changes to the Metalogos project.
   manifest following 1:1, then the re-export shell) are sequenced
   behind it. No contour growth: the split is a transfer, not an
   expansion (ADR-0178 §4); the stop-list baseline is untouched.
+
 - Naryad №545 stages 2-3 (issue #883; Wave 24, P1; the owner's gate
   decision of 2026-10-02: fork (i) — the core-first inversion through
   trait seams, the №484 DbAccess precedent): THE CRATE SPLIT IS
@@ -147,6 +300,7 @@ All notable changes to the Metalogos project.
   10 (the reflex crate's own moved unit tests) + 906 (portable); the
   №183/№184×3/№185/№193/№195×4/№179 seam suites and the №210/№211/№212
   vision suites all green; the №463 gate and the core→media gate green.
+
 - Naryad №549 (issue #887; Wave 24, P2; the NLnet/Restack traction
   lane, M1 2026-11-03): the draft traction package lands in
   `metalogos-grants/` — the owner-gated surface (nothing here is
@@ -167,6 +321,7 @@ All notable changes to the Metalogos project.
   Transmission to the owner: this PR + the naryad report; the
   external wordings and any publication stay the owner's.
 fe6d21a (Naryad 549 (issue #887): the draft NLnet/Restack traction package lands in metalogos-grants - the one-command demo script (three legs over the public examples verbatim: static taint refusal, live serve, the signed ledger chain verified without the runtime), the metrics one-pager (repo facts with dates, no market analysis), the demo narrative; transmission to the owner, publication stays the owner's gate)
+
 - Naryad №546 (issue #884; Wave 24, P2; ADR-0178 §5 preconditions 4–5):
   the generative contour's embedding seam becomes a NAMED, fail-closed
   boundary instead of an accident of the String argument contract.
@@ -202,6 +357,7 @@ fe6d21a (Naryad 549 (issue #887): the draft NLnet/Restack traction package lands
   authorize nothing — §6 stays the gate, the stop-list holds
   regardless. The stop-list manifest is untouched (no contour file
   grew; the seam module is a NEW file outside the manifest).
+
 - Naryad №543 part 2 (issue #881; Wave 24, the typing line to the 0.28
   gate, P1): the pdf package (25 rows) leaves stage 0 — THE NARYAD'S
   STOP CONDITION REACHED. 20 rows typed Struct (the pdf.rs make_struct
@@ -224,6 +380,7 @@ fe6d21a (Naryad 549 (issue #887): the draft NLnet/Restack traction package lands
   the source count 3195 bp is the CI-gated floor; the compiled count
   is 158/507 = 3118 bp — both over the gate. Runtime/semantics
   untouched.
+
 - Naryad №543 (issue #881; Wave 24, the typing line to the 0.28 gate,
   P1; ADR-0179 §2.1 goal, §13.10 decision 3-A): the bot package — the
   largest remaining registry package (35 rows) — leaves stage 0. 30 rows
@@ -254,6 +411,7 @@ fe6d21a (Naryad 549 (issue #887): the draft NLnet/Restack traction package lands
   silent there). Remaining typing mass toward the 3000 bp gate: pdf (25),
   diagram (21), web (19), voice (19) — the descending-weight order per
   the naryad.
+
 - Naryad №522 (issue #821; the Wave-22 serve-e2e line, P2; the №509
   functional criterion, ADR-0179 §2.5): the cron accumulation arc
   through the SERVING path — tests/naryad_522_cron_serve_e2e.rs, both
@@ -280,6 +438,7 @@ fe6d21a (Naryad 549 (issue #887): the draft NLnet/Restack traction package lands
   NOW FULLY DONE (distill/memory/conversation/cron) — the №509
   functional criterion of the 0.28 gate is MET on all four rows; the
   unfreeze gate v2 recalculates.
+
 - Naryad №521 (issue #820; the Wave-22 serve-e2e line, P2; the №509
   functional criterion, ADR-0179 §2.5): the conversation accumulation
   arc through the SERVING path — tests/naryad_521_conversation_serve_e2e.rs,
@@ -312,6 +471,7 @@ fe6d21a (Naryad 549 (issue #887): the draft NLnet/Restack traction package lands
   enforcement on the access path today — honestly NOT asserted (the
   declaration parses; the enforcement is a separate owner-gated
   decision). The remaining pending serve-e2e row: cron (№522).
+
 - Naryad №520 (issue #819; the Wave-22 serve-e2e line, P2; the №509
   functional criterion, ADR-0179 §2.5): the memory accumulation arc
   through the SERVING path — tests/naryad_520_memory_serve_e2e.rs, both
@@ -335,6 +495,7 @@ fe6d21a (Naryad 549 (issue #887): the draft NLnet/Restack traction package lands
   across the restart. The serve_e2e inventory row (memory) flips to
   done IN THE SAME PR; the security gates (№335 consent, №442 ledger)
   are NOT re-tested here — their own suites pin them.
+
 - Naryad №541 (issue #851; the wave-23 line 6-A, P1): the
   second-maintainer lane goes operational for the NLnet/Restack
   milestone (03.11.2026) — the pool, the onboarding package and the
@@ -358,6 +519,7 @@ fe6d21a (Naryad 549 (issue #887): the draft NLnet/Restack traction package lands
   criteria"). The channel-search options and the access/publishing
   decisions remain the OWNER's gate (№541 §3) — the materials are
   prepared in the M2 report, nothing external is opened by the naryad.
+
 - Naryad №540 (issue #850; the wave-23 line 4-A, P1): the FIRST two
   byte-identical ops pairs collapse into suffix-free functions over the
   `DbAccess` trait (the №484 mechanics) — `query_row` and `db_insert`
@@ -383,6 +545,7 @@ fe6d21a (Naryad 549 (issue #887): the draft NLnet/Restack traction package lands
   Unit return) is corrected. Verified: the №465 diff-fuzzer, the №503
   outcome-parity gate, the crosscheck and property TW/VM parity suites
   green; the semantics of every caller path unchanged.
+
 - Naryad №539 (issue #849; the wave-23 typing line 3-A, P1): the memory
   package leaves stage 0 — the wave's largest package (38 rows) types
   35 rows against the verified handlers: kv_set/kv_delete/memorize →
@@ -406,6 +569,7 @@ fe6d21a (Naryad 549 (issue #887): the draft NLnet/Restack traction package lands
   (+690 bp ≈ +6.9 pp — the package's own mass delivers the +3–5 pp
   wave target; the biggest single-package gain of the typing line).
   The memory semantics are untouched — registry/spec metadata only.
+
 - Naryad №538 (issue #848; the wave-23 typing line 3-A, P1): the db
   package — the honest exhaustion case. The package holds exactly TWO
   rows: `db_execute` → Unit (the interpreter path verified; the
@@ -419,6 +583,7 @@ fe6d21a (Naryad 549 (issue #887): the draft NLnet/Restack traction package lands
   conclusion (the flat-vocabulary wall + the small packages) is
   recorded in the M2 report; the remaining typing mass toward the 30%
   gate lives in the packages outside the wave-23 line.
+
 - Naryad №537 (issue #847; the wave-23 typing line 3-A, P1): the list
   package leaves stage 0 — 9 rows typed against the verified handlers
   (slice/zip/sort_by/filter/dedup/condense/chunk/make_list → List;
@@ -432,6 +597,7 @@ fe6d21a (Naryad 549 (issue #887): the draft NLnet/Restack traction package lands
   (+178 bp ≈ +1.8 pp; the honest exhaustion: of the 17 list rows 3
   were typed before, the 5 polymorphic element/accumulator returns
   cannot take a flat type without lying).
+
 - Naryad №536 (issue #846; the wave-23 typing line 3-A, P1): the string
   package leaves stage 0 — 10 rows of BUILTIN_REGISTRY carry the
   verified return type (capitalize/title_case/redact/squeeze/
@@ -452,6 +618,7 @@ fe6d21a (Naryad 549 (issue #887): the draft NLnet/Restack traction package lands
   pre-PR (1025 bp) → 62/507 = 1222 bp. The package's +3–5 pp target was
   unreachable inside the package bounds (only 12 untyped rows existed);
   the honest gain is ≈ +2.0 pp, the gap documented in the M2 report.
+
 - Naryad №534 (issue #843; the consolidated audit 30.09, Д-3 — the base
   №504, the threshold 3, the three sites): the last three TW-mirror
   marks leave src/vm.rs — the distill TRAINING gate sequence collapses
@@ -479,6 +646,7 @@ fe6d21a (Naryad 549 (issue #887): the draft NLnet/Restack traction package lands
   green at 0). Local battery: check clean, clippy -D warnings clean,
   fmt clean, lib 887/887, №503 2/2, №465 fuzzer 9/9, №530 3/3,
   bug_530 VM recall parity 3/3.
+
 - Naryad №533 (issue #842; the consolidated audit 30.09, N-8,
   P2 docs/examples): the 14 COMPAT-tagged examples (№513) leave the
   live catalog — `examples/compat/` is the honest archive. THE MOVE:
@@ -539,6 +707,7 @@ fe6d21a (Naryad 549 (issue #887): the draft NLnet/Restack traction package lands
   the nightly compiler"); the job now pins `RUSTUP_TOOLCHAIN: nightly`
   at the job level (the rustup override precedence: env > the
   toolchain file), the rest of the repo keeps the №528 stable contract.
+
 - Naryad №535 (issue #844; the consolidated audit 30.09, the gate-0.28
   checklist item 3 — ADR-0179, P1 process/testing): the machine-readable
   record of WHO BLOCKS EXECUTION lands —
@@ -608,35 +777,7 @@ fe6d21a (Naryad 549 (issue #887): the draft NLnet/Restack traction package lands
   several large — each circuit bites on its own, the eviction order is
   deterministic), the PDF LRU restamp pin, the single-giant allowance;
   the №515 suite stays green unchanged (4/4).
-- Naryad №527 (issue #836; the consolidated audit 30.09, N-3,
-  P1 security/voice): the AES-256-GCM ciphertext is now BOUND TO ITS
-  SUBJECT — the GCM AAD carries the (subject_id, registry, schema
-  version) triplet (the registry `voiceprints`, the subject name, the
-  `voiceprints-aad-v1` schema label — joined with the 0x1F unit
-  separator so the ordered fields stay unambiguous), so a blob
-  transplanted onto another subject's row FAILS authentication (the
-  swap attack the bare tag accepted since №517 is closed — the tag
-  proved integrity of the bytes, never the binding). THE HONEST
-  BOUNDARY kept: the storage schema and the `algo` mark are untouched
-  (№517's T2 pins `AES-256-GCM-v1`), the secret()-gate semantics are
-  untouched; the discriminator between a bound row and a legacy row is
-  the GCM authentication itself (try-bound first, then the loud
-  transitional fallback). THE TRANSITION: №517-era rows (empty AAD)
-  stay readable in the announced window — every such read emits
-  `[VOICEPRINT_NO_AAD_LEGACY]` on stderr AND surfaces the honest
-  `VoiceprintCryptoStatus` (`LegacyNoAad`) through the new
-  `load_voiceprint_with_status`; every WRITE is AAD-bound, so the
-  legacy population only shrinks; the deadline row (the fallback
-  removal at v0.28.0) lives in limitations.md (the №524 rule), and
-  privacy.md §2.1/§4 carry the new contour with re-verified anchors.
-  THE KEY LIFETIME: the decoded 32-byte key buffer lives under
-  `Zeroizing` in BOTH directions (wiped at the operation's scope exit
-  — the crate was already in the tree, zero new dependencies). Tests:
-  the swap refusal (RED-baseline verified — the binding mutation
-  reddens exactly the three binding tests), the loud legacy read with
-  the flag, the re-save rebinds story, the wrong-key refusal surviving
-  the two-step decrypt, the fresh-writes-are-bound pin; №517 (7/7),
-  №512 (4/4) and the store unit tests stay green unchanged.
+
 - Naryad №531 (issue #840; the consolidated audit A+D 30.09, N-9,
   P1 core/hardening): the LAST silently-soft refusal outside the №514
   naming rule enters its TRANSITION period. `read_file` of a missing
@@ -655,6 +796,7 @@ fe6d21a (Naryad 549 (issue #887): the draft NLnet/Restack traction package lands
   compile-time suite and stays untouched). REFERENCE.md carries the
   contract in both read_file rows: `*_or` is soft, everything else is
   loud.
+
 - Naryad №530 (issue #839; the consolidated audit A+D 30.09, N-4,
   P1 reliability/llm): distill training no longer blocks the registry —
   the 30-epoch run happens on a WEIGHTS SNAPSHOT taken under the short
@@ -678,6 +820,7 @@ fe6d21a (Naryad 549 (issue #887): the draft NLnet/Restack traction package lands
   degradation revert to TEACHING (`distill.degraded` audit) — silent
   degradation is impossible. The №496 e2e stays green (the TEACHING
   semantics byte-preserved).
+
 - Naryad №528 (issue #837; the consolidated audit A+D 30.09, Д-4+N-5,
   P1 deploy/ci): the MSRV lives in the build contract. `rust-version =
   "1.93.1"` in [workspace.package] (mlogpkg/mlog-lsp inherit) — cargo on
@@ -714,36 +857,7 @@ fe6d21a (Naryad 549 (issue #887): the draft NLnet/Restack traction package lands
   was dead-on-parse AND dead-on-build since №511's landing, unverified
   for the whole window — exactly the blindness the №511 job was built
   to kill.
-- Naryad №526 (issue #835; the consolidated audit A+D 30.09, N-2,
-  P1 security/voice): the GDPR Art. 17 erasure path for voiceprints
-  LANDS — the right-to-erasure is no longer a document-only promise
-  (privacy.md §2.1). THE HOLE: the store had only `INSERT OR REPLACE`
-  (save), no delete, no list, no purge — a persisted print outlived
-  every consent revocation. THE PATH: `voice_delete(handle)` — the
-  idempotent registry erasure (`"deleted"`/`"absent"`, a repeated erase
-  succeeds; Voice handles erase the biometric print, Audio handles erase
-  the artifact bytes; wrong types refuse loudly) and `voice_list()` —
-  the informed-deletion basis (ids + models/sizes; the listing NEVER
-  decrypts, the embedding bytes never enter any result). Neither is
-  feature-gated: the erasure right cannot depend on a build flag. The
-  PERSISTED twin: `VoiceStore::delete_voiceprint` runs the
-  SECURE-DELETE path — the ciphertext blob is zero-overwritten in place
-  BEFORE the row removal and the same-name voice_artifacts row is
-  purged the same way ("файл артефакта + запись реестра") — and
-  `VoiceStore::list_voiceprints` enumerates name/model/saved_at/algo/
-  ciphertext-length without a key. HONEST BOUNDARIES (loud, not
-  silent): SQLite cannot guarantee per-row block-level erasure
-  (freelist/WAL page images persist until reused) — the row-level
-  overwrite erases the row's live copy, the file-level guarantee stays
-  the DB owner's; the consent_ledger rows SURVIVE erasure by design
-  (the Art. 9 consent proof). privacy.md §2.1/§3 rewritten in the same
-  PR (the №524 rule): "Delete path: ABSENT" → "available since the
-  v0.27.x line", voice_delete/voice_list removed from the ABSENT list,
-  the anchors re-verified by hand. Tests: the store cycle (save → list
-  → delete → list empty), the zero-overwrite pin, the reopen/no-
-  resurrection restart test, the artifact-row purge, the registry
-  cycle, the builtin idempotency and loud-type refusals; the
-  classification SSOT and REFERENCE.md carry both builtins (505→507).
+
 - Naryad №525 (issue #834; the consolidated audit A+D 30.09, Д-2,
   P1 process/ci): every `fact_*` record in `gate_028_goals.txt` is now
   machine-verified against its generating source by the blocking
@@ -765,6 +879,7 @@ fe6d21a (Naryad 549 (issue #887): the draft NLnet/Restack traction package lands
   a fact without a checker is the Д-2 class re-opening). The negative
   test (`--tamper-test`, a CI step): every tampered fact value, and an
   unknown fact key, trips the check — the traps all spring.
+
 - Naryad №524 (issue #833; the consolidated audit A+D 30.09, Д-1,
   P1 docs): the limitations.md row for the serve-distillation defect
   reads **Fixed in №495, v0.27.1** — its own condition had come true
@@ -776,64 +891,6 @@ fe6d21a (Naryad 549 (issue #887): the draft NLnet/Restack traction package lands
   in the same PR as its fix, by the number from its text — the gate-0.28
   checklist item, ADR-0179) is formalized as a wave-reporting protocol
   point and a candidate row for the №535 blocking-checks table.
-- Naryad №523 (issue #832; the consolidated audit A+D 30.09, N-1 High,
-  P0 release-block): semantic findings now BLOCK `mlog run` and
-  `mlog serve` — the liar string is gone. THE HOLE: `run_program_with_dir`
-  blocked only two substring classes (`contains("distill_to")`,
-  `contains("[DENY_")`), `mlog serve` ran NO semantic pass at all, and the
-  tree-walking interpreter returned the string
-  `"[ERROR: unknown function 'x']"` as the call's VALUE — non-empty
-  strings are truthy in `is_truthy`, so `if is_admn(user)` with no
-  `is_admn` defined took the then-branch: a security check became its own
-  bypass. THE FIX: (1) every `semantic::check_program` error blocks the
-  run path and the serve startup; exemptions classify ONLY by the
-  structured `SemanticErrorKind` through `semantic::is_exempt_from_blocking`
-  — the ONE explicit place, empty today — never by message substring;
-  (2) the gate resolves the program's import tree STATICALLY first
-  (`semantic::resolve_imports_statically`, the same file-lookup rule as
-  the runtime loader and the bytecode compiler's `resolve_import`,
-  visited-set on module path, main-file-wins dedup with first-wins
-  module collisions — the runtime flat-merge warns, so the gate must not
-  invent duplicate-name errors), which removes the historical
-  false-positive class that once justified NOT blocking; (3) both TW
-  unknown-function origins (`run`'s call resolution and
-  `eval_expr_with_env`) return the coded err-origin
-  `[UNDEFINED_FUNCTION] undefined function: 'x'` instead of the truthy
-  string (the №479 stable code); (4) the refusal carries the FIRST
-  blocking finding's stable code at position 0 —
-  `[UNDEFINED_FUNCTION] Compilation error (Naryad #523): ...` — machine
-  consumers read the class, not the prose; (5) `check_program` walks
-  ROUTE bodies for calls too (the №264-mutability-walk precedent) — an
-  undefined function inside a route body now refuses the TW serve startup
-  instead of failing per-request. The gate surfaced three PRE-EXISTING
-  spec-vs-implementation arity drifts, fixed at the SSOT:
-  `session_set` 2→3 and `session_get` 1→2 (the implementations
-  hard-require the session-id forms), `session_clear` 0→1 (left the
-  arity-0 "variadic" list that never checked anything),
-  `respond_html` 1→2 (status + html); `forget` (the №72 memory surface
-  1..2 + the registry surface 3..4 — a non-contiguous union) and
-  `render` (template params are data, the 1-arg form is the №448
-  taint-lift surface) are DYNAMIC-ARITY names — the static check stays
-  silent, the builtin stays the loud runtime validator. Contracts
-  repaired per place: `examples/p50_unknown_fn` flipped from a .expected
-  golden (the liar string enshrined as the expected stdout) to a .error
-  contract; `examples/p2_multi_errors.error` updated to the gate text
-  (the unknown-type refusal arrives one layer earlier);
-  `examples/p71_retry_demo` dropped its `env_get` reference (a function
-  that existed in NEITHER backend — the №513 crosscheck exclusion dies
-  with it) for a placeholder header, since reading env() straight into
-  network headers is the №391 PII_EGRESS_NETWORK violation; the
-  REFERENCE.md vector sample runs as its own `doc-test: skip` block
-  (embed/vec_store are `vec`-feature, off by default); the №465
-  diff-fuzzer's three phase-family known-classes closed by the ratchet
-  (the TW side refuses at the gate with the same №479 code the VM compile
-  side always had) — the lines and their corpus examples are removed.
-  Tests: tests/naryad_523_semantic_gate.rs — the exploit shape refused on
-  TW (gate) and VM (compile), the interpreter err-origin pinned (no liar
-  string from any call site), serve startup refusals through the real
-  `run_server` (route body and pattern body shapes), the
-  import-using program still runs (no false positives), the №181/№392
-  classes still block, the exemption list pinned empty.
 
 - Naryad №519 (issue #803; the consolidated audit 28.09 C-20, P2 — the
   contribution Г tied to the C-06 voice work): the engineering privacy policy
@@ -922,6 +979,7 @@ fe6d21a (Naryad 549 (issue #887): the draft NLnet/Restack traction package lands
   mark. Mutation-verified: a silent legacy read turns T4 red; a fixed
   nonce turns the uniqueness test red. The privacy policy cross-ref
   follows in №519 (docs/privacy.md).
+
 - Naryad №515 (issue #799; the consolidated audit 28.09 C-12, Low/Medium —
   the wave-21 P2 reliability): the process-global registries are BOUNDED —
   growth under errors no longer linear. THE HOLE: `PDF_DOCS` (the
@@ -945,6 +1003,7 @@ fe6d21a (Naryad 549 (issue #887): the draft NLnet/Restack traction package lands
   bounded ≠ request-scoped — full request-bound isolation is a separate
   infra naryad if a workload ever demonstrates the cap breaking a legit
   program.
+
 - Naryad №514 (issue #798; the consolidated audit 28.09 C-10, Medium —
   the wave-21 P1 hardening): the ONE soft-failure rule lands for the
   conversions — "silence is visible in the name" (ADR-0180, the №481
@@ -975,6 +1034,7 @@ fe6d21a (Naryad 549 (issue #887): the draft NLnet/Restack traction package lands
   refusals, the explicit-silence twins, the unchanged conversions, the
   roundtrip through `to_string`, the classification drift guard
   (№449), mutation-verified.
+
 - Naryad №513 (issue #797; the consolidated audit 28.09 C-09, Medium):
   the 35 unverifiable examples are checked or honestly COMPAT-tagged,
   and the hole is fenced. The audit found 45 `examples/*.mlog` without
@@ -1042,6 +1102,7 @@ fe6d21a (Naryad 549 (issue #887): the draft NLnet/Restack traction package lands
   Blocking tests (tests/naryad_511_docker_health.rs): the built-in
   /health, the program-declared /health precedence, the bind-host
   ladder (declaration > env > loopback).
+
 - Naryad №504 (issue #787; the audit 28.09 §3.1 companion, P1 — the
   wave-19 tail): the distillation features leave the byte-position
   `simple_embedding` (the sum of bytes over `i % dim` — NOT a semantic
@@ -1079,6 +1140,7 @@ fe6d21a (Naryad 549 (issue #887): the draft NLnet/Restack traction package lands
   corpus keyed on the byte extractor's first-character bucket; the gate
   contract unchanged); the №496 serve e2e unaffected (single-class
   corpus, feature-independent).
+
 - Naryad №516 (issue #800; the consolidated audit 28.09 C-14, Low): the
   stale match-support ignores lifted. The audit's grep-protocol found
   the whole "TODO: VM compiler does not yet support match with X"

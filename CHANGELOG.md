@@ -6,6 +6,25 @@ All notable changes to the Metalogos project.
 
 _The 0.29 cycle opens here — the wave-25 P1/P2 entries land below (the 0.28.0 tag is the owner's gate, gh#911 №550)._
 
+- Naryad №551 (issue #912; Wave 25, P0, the pre-release block; the
+  audit 02.10 M-1 + §6.2): the merge-freeze rule is written and the
+  divergence audit is machine-checked. `docs/maintainers.md` gains the
+  «When CI is down» section — the audit's rule verbatim («a merge
+  without a green required-check run is a process violation, not a
+  judgement call»), the 30.09 outage record (six checkless merges,
+  two unseen defects, the hotfix 0c9a013), the owner-acknowledged
+  exception with the EXACT marker, and the branch-protection checklist
+  for the owner (the required-set names verified against the live
+  ci.yml job ids; the admin toggles are the owner's, the naryad
+  applies none). `scripts/ci/merge_ci_audit.py`: the weekly merge ↔ CI
+  reconciliation — every squash-merge commit on main must carry a
+  green run of the required set; a divergence opens ONE tracking
+  issue (deduped); an owner-marker merge reports as acknowledged,
+  never silent; the fixture test (canned, no network,
+  `--fixture-test`) pins the green/violation/acknowledged/dedup
+  shapes; the new `merge-ci-audit` workflow runs it weekly
+  (Mondays 06:23 UTC) with the fixture test as the first step.
+
 - Naryad №550 (issue #911; Wave 25, P0, the pre-release block; the
   audit 02.10 M-3): the 0.28.0 release is PREPARED — the tag and the
   GitHub Release remain the OWNER's gate (§6.5; this naryad publishes

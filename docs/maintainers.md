@@ -115,6 +115,46 @@ recorded in the PR. A disagreement about the PERIMETER ITSELF (growing
 or shrinking the veto zone) is an owner decision by definition; the
 maintainer may propose, not decide.
 
+## When CI is down (the merge freeze, №551)
+
+**No merges while GitHub Actions is degraded. A merge without a green
+required-check run is a process violation, not a judgement call.**
+
+The 30.09 incident (the Actions event-delivery outage, 14:30–19:37
+UTC): six PRs (gh#836–gh#840, gh#844) merged without any check run,
+and two defects reached main unseen (the hotfix 0c9a013, gh#865). The
+rule and the machinery below are the M-1 closure:
+
+- While GitHub's status or the repo's own check runs show a delivery
+  outage, merging STANDS STILL — the PRs wait, nothing bypasses.
+- A PR merged without its required checks green is a process violation
+  even when the code is right. The weekly audit
+  (`scripts/ci/merge_ci_audit.py`, the `merge-ci-audit` workflow)
+  reconciles every PR merge on main with its green required set and
+  opens one tracking issue per finding week.
+- If a merge is ABSOLUTELY required during an outage (a security
+  hotfix), the OWNER performs it explicitly and puts the exact marker
+  `CI-down merge acknowledged by the owner` in the PR body — the audit
+  reports it as acknowledged, never silent, and not a violation.
+
+### The branch-protection checklist (the owner's admin toggle)
+
+The settings are an OWNER action (admin); this document carries the
+checklist only — №551 applies nothing itself.
+`Settings → Branches → main → Add branch protection rule`:
+
+- [ ] Require a pull request before merging (no direct pushes).
+- [ ] Require status checks to pass — the required set, the names
+      verified against the `.github/workflows/ci.yml` job ids
+      (2026-10-03): `test-lib`, `test-integration`, `crosscheck`,
+      `clippy`, `fmt`, `cargo-audit`, `cargo-deny`, `gitleaks`,
+      `gate-facts-sync`, `blocking-checks-sync`,
+      `registry-arity-check`.
+- [ ] Require branches to be up to date before merging.
+- [ ] Do not allow bypassing the above settings (including admins).
+- [ ] (the second-maintainer step, №471/№491 — one toggle the day a
+      maintainer joins:) Require review from Code Owners.
+
 ## The NLnet application wording (the owner's draft)
 
 > Narjad №491 (the audit 26.09 §3.10 correction): grant texts must say

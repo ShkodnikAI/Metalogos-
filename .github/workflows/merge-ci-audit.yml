@@ -1,0 +1,42 @@
+name: merge-ci-audit (weekly, №551)
+
+# Наряд №551 (issue #912; аудит 02.10 M-1 + §6.2): еженедельная сверка
+# «каждый merge на main ↔ зелёный прогон required checks». Правило
+# (docs/maintainers.md, «When CI is down»): мерж без зелёного
+# required-check прогона — process violation, а не judgment call.
+# Машинная половина правила: скрипт сканирует squash-коммиты main
+# (субъект несёт (#NNN)), требует зелёный набор required-джоб на
+# самом коммите и открывает ОДИН tracking-issue на расхождения
+# (dedup по уже открытому). Owner-признанный мерж (маркер в теле PR
+# — «CI-down merge acknowledged by the owner») — acknowledged, не
+# violation, никогда не молчаливый.
+#
+# Exit 1 при violations — недельный прогон остаётся видимым красным,
+# пока расхождение не разобрано (прецедент честного красного —
+# unfreeze-gate). Fixture-тест скрипта (без сети) — часть blocking
+# прогона: python3 scripts/ci/merge_ci_audit.py --fixture-test
+
+on:
+  schedule:
+    - cron: "23 6 * * 1" # понедельники 06:23 UTC — еженедельно
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  actions: read
+
+jobs:
+  audit:
+    name: merge-ci-audit (weekly — every main merge carries green required checks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: The fixture test — the canned reconciliation, no network (№551)
+        run: python3 scripts/ci/merge_ci_audit.py --fixture-test
+
+      - name: The weekly merge ↔ CI reconciliation (№551)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/merge_ci_audit.py

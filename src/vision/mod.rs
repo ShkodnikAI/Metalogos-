@@ -165,25 +165,13 @@ pub const KNOWN_VISION_MODELS: &[&str] = &["z-image-turbo"];
 // metalogos-reflex crate; the shell preserves the consumer paths.
 #[cfg(feature = "vision")]
 pub use metalogos_reflex::vision::{coverage, dit, lora, sampler, text_encoder, tokenizer};
-// №545 (в): the VAE machinery is re-exported through a façade — the
-// write half of `save_png` STAYS in the language crate (the file write
-// goes through the №475 fs gate, the language's security perimeter);
-// the encoder lives in the reflex crate. Every historical
-// `crate::vision::vae::*` path is preserved.
+// №545 (в): the VAE machinery is re-exported through the `vae` module
+// (src/vision/vae.rs) — a deliberate FILE so the FS-glue (`save_png`'s
+// write half through the №475 fs gate) never lands in THIS mod.rs:
+// mod.rs itself carries zero `crate::` edges (the C4 inventory stays
+// frozen — the diffusion shell hangs off the graph as a leaf).
 #[cfg(feature = "vision")]
-pub mod vae {
-    pub use metalogos_reflex::vision::vae::*;
-
-    /// Save a `[3, H, W]` F32 image tensor (in [0,1]) as a PNG file —
-    /// the encoding comes from the reflex crate, the write goes through
-    /// the №475 fs gate (the language's perimeter). The №240 contract:
-    /// bit-identical to `encode_png`'s bytes.
-    pub fn save_png(img: &candle_core::Tensor, path: &std::path::Path) -> Result<(), String> {
-        let bytes = metalogos_reflex::vision::vae::encode_png(img)?;
-        crate::fs_gate::write_bytes(&path.to_string_lossy(), "vision save_png", &bytes)
-            .map_err(|e| format!("save_png: write to {}: {}", path.display(), e))
-    }
-}
+pub mod vae;
 
 #[cfg(feature = "vision")]
 pub mod weights;

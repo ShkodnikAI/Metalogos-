@@ -3,6 +3,10 @@ name = "metalogos-reflex"
 version.workspace = true
 rust-version.workspace = true
 edition.workspace = true
+# №518 discipline: the license field is declared — the crate is now a
+# dependency edge (metalogos -> metalogos-reflex), so the cargo-deny
+# license check walks it (leaf workspace members are never walked).
+license = "MIT OR Apache-2.0"
 description = "The reflex domain crate — the generative contour's home (ADR-0178 made physical; the №472 roadmap, №545 stage (v))"
 
 [dependencies]

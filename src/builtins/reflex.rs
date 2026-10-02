@@ -314,7 +314,9 @@ pub fn build_reflex_seq_model(
     decl: &CompiledReflexSeqDecl,
 ) -> Result<crate::nn::seq_model::ReflexSeqModel, String> {
     use crate::nn::seq_model::ReflexSeqModel;
-    use crate::nn::trainable_attention::build_trainable_attention;
+    // №545 (б): the trainable builders are the check-time spec surface —
+    // sequence_spec (the language side of the crate seam).
+    use crate::nn::sequence_spec::build_trainable_attention;
     use candle_core::Device;
     use candle_nn::{VarBuilder, VarMap};
 
@@ -357,7 +359,7 @@ pub fn build_reflex_seq_model(
                 }
                 "transformer_block" => {
                     let prefix = format!("block{}", i);
-                    crate::nn::trainable_transformer_block::build_trainable_transformer_block(
+                    crate::nn::sequence_spec::build_trainable_transformer_block(
                         &args,
                         decl.seed.wrapping_add(i as u64),
                         &var_map,
@@ -437,21 +439,19 @@ pub fn build_reflex_gen_model(
         let prefix = format!("block{}", i);
         let layer: Box<dyn crate::nn::sequence_layer::SequenceLayer> =
             match layer_spec.name.as_str() {
-                "transformer_block" => {
-                    crate::nn::trainable_transformer_block::build_trainable_transformer_block(
-                        &args,
-                        decl.seed.wrapping_add(i as u64),
-                        &var_map,
-                        &prefix,
+                "transformer_block" => crate::nn::sequence_spec::build_trainable_transformer_block(
+                    &args,
+                    decl.seed.wrapping_add(i as u64),
+                    &var_map,
+                    &prefix,
+                )
+                .map_err(|e| {
+                    format!(
+                        "reflex_gen '{}': layer {} build failed: {}",
+                        decl.name, i, e
                     )
-                    .map_err(|e| {
-                        format!(
-                            "reflex_gen '{}': layer {} build failed: {}",
-                            decl.name, i, e
-                        )
-                    })?
-                }
-                "attention" => crate::nn::trainable_attention::build_trainable_attention(
+                })?,
+                "attention" => crate::nn::sequence_spec::build_trainable_attention(
                     &args,
                     decl.seed.wrapping_add(i as u64),
                     &var_map,
@@ -705,8 +705,8 @@ pub fn reflex_train_dispatch(
             // The feature portion is flattened [seq_len, dim] row-major; we reshape
             // to a 2D Tensor for forward.
             use candle_core::{Device, Tensor};
-            let seq_len = model.seq_len;
-            let input_dim = model.input_dim;
+            let seq_len = model.seq_len();
+            let input_dim = model.input_dim();
             let expected_features = seq_len * input_dim;
 
             let mut input_tensors: Vec<Tensor> = Vec::with_capacity(data.len());
@@ -741,10 +741,10 @@ pub fn reflex_train_dispatch(
                     None => unreachable!(),
                 };
                 let class_idx = class_idx_f as usize;
-                if class_idx >= model.labels.len() {
+                if class_idx >= model.labels().len() {
                     return Err(format!(
                         "reflex_train(seq): row {} class_idx {} out of range (model has {} labels: {:?})",
-                        i, class_idx, model.labels.len(), model.labels
+                        i, class_idx, model.labels().len(), model.labels()
                     ));
                 }
                 let feature_vec: Vec<f32> = features[..features.len() - 1]
@@ -883,7 +883,7 @@ pub fn reflex_predict_dispatch(registry: &ReflexRegistry, args: &[Value]) -> Res
             // ── Sequence path: Наряд №185 Block 2 ──
             // Input format: flattened [seq_len * dim] row-major.
             use candle_core::{Device, Tensor};
-            let expected_len = model.seq_len * model.input_dim;
+            let expected_len = model.seq_len() * model.input_dim();
             let feature_vec: Vec<f32> = input_list
                 .iter()
                 .map(|v| match v {
@@ -897,20 +897,23 @@ pub fn reflex_predict_dispatch(registry: &ReflexRegistry, args: &[Value]) -> Res
             if feature_vec.len() != expected_len {
                 return Err(format!(
                     "reflex_predict(seq): input has {} features, model expects {} (seq_len {} * dim {})",
-                    feature_vec.len(), expected_len, model.seq_len, model.input_dim
+                    feature_vec.len(), expected_len, model.seq_len(), model.input_dim()
                 ));
             }
-            let tensor =
-                Tensor::from_vec(feature_vec, (model.seq_len, model.input_dim), &Device::Cpu)
-                    .map_err(|e| format!("reflex_predict(seq): tensor build: {}", e))?
-                    .to_dtype(candle_core::DType::F32)
-                    .map_err(|e| format!("reflex_predict(seq): dtype: {}", e))?;
+            let tensor = Tensor::from_vec(
+                feature_vec,
+                (model.seq_len(), model.input_dim()),
+                &Device::Cpu,
+            )
+            .map_err(|e| format!("reflex_predict(seq): tensor build: {}", e))?
+            .to_dtype(candle_core::DType::F32)
+            .map_err(|e| format!("reflex_predict(seq): dtype: {}", e))?;
 
             let probs = model.predict_probs(&tensor)?;
 
             use crate::interpreter::FluidValueVariant;
             let variants: Vec<FluidValueVariant> = model
-                .labels
+                .labels()
                 .iter()
                 .zip(probs.iter())
                 .map(|(label, &prob)| FluidValueVariant {
@@ -1169,18 +1172,18 @@ pub fn reflex_metrics_dispatch(registry: &ReflexRegistry, args: &[Value]) -> Res
         ),
         #[cfg(feature = "candle")]
         crate::nn::ModelKind::Sequence(m) => (
-            m.name.clone(),
-            m.last_metric.is_some(),
-            m.last_metric,
-            m.input_dim,
-            &m.labels,
+            m.name().to_string(),
+            m.last_metric().is_some(),
+            m.last_metric(),
+            m.input_dim(),
+            m.labels(),
         ),
         #[cfg(feature = "candle")]
         crate::nn::ModelKind::Gen(m) => (
-            m.name.clone(),
+            m.name().to_string(),
             false, // Gen models don't have last_metric (training returns loss, not accuracy)
             None,
-            m.input_dim,
+            m.input_dim(),
             &[], // Gen models don't have labels
         ),
     };

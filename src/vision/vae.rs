@@ -978,7 +978,7 @@ impl VaeDecoder {
             .filter(|k| k.starts_with("decoder."))
             .cloned()
             .collect();
-        crate::vision::weights::check_tensor_coverage(&expected_keys, &loaded_keys)
+        crate::vision::coverage::check_tensor_coverage(&expected_keys, &loaded_keys)
             .map_err(|e| format!("VaeDecoder::from_weights: tensor coverage: {}", e))?;
 
         Ok(VaeDecoder {

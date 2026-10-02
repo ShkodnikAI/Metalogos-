@@ -42,7 +42,6 @@
 
 #![cfg(feature = "candle")]
 
-use crate::interpreter::Value;
 use crate::nn::sequence_layer::SequenceLayer;
 
 use candle_core::{DType, Device, Tensor, D};
@@ -414,72 +413,6 @@ impl SequenceLayer for Attention {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-}
-
-/// Build function for the SEQUENCE_LAYER_REGISTRY.
-///
-/// `args` is the parsed `layer_arg` list from the grammar
-/// (наряд №178's `layer_spec = { IDENT ~ "(" ~ layer_arg_list? ~ ")" }`).
-///
-/// Args:
-///   - `attention(heads, dim)` → standard MHA (Наряд №183 backward compat)
-///   - `attention(heads, dim, kv_heads)` → GQA (Наряд №188)
-///
-/// The 3rd arg is optional — when omitted, `n_kv_heads = n_heads`.
-pub fn build_attention(args: &[Value], seed: u64) -> Result<Box<dyn SequenceLayer>, String> {
-    if args.len() != 2 && args.len() != 3 {
-        return Err(format!(
-            "attention: expected 2 args (heads, dim) or 3 args (heads, dim, kv_heads), got {}",
-            args.len()
-        ));
-    }
-    let heads = match &args[0] {
-        Value::Float(n) => *n as usize,
-        Value::String(s) => s
-            .parse::<usize>()
-            .map_err(|_| format!("attention: heads must be a positive integer, got '{}'", s))?,
-        other => {
-            return Err(format!(
-                "attention: heads must be a number, got {}",
-                other.type_name()
-            ))
-        }
-    };
-    let dim = match &args[1] {
-        Value::Float(n) => *n as usize,
-        Value::String(s) => s
-            .parse::<usize>()
-            .map_err(|_| format!("attention: dim must be a positive integer, got '{}'", s))?,
-        other => {
-            return Err(format!(
-                "attention: dim must be a number, got {}",
-                other.type_name()
-            ))
-        }
-    };
-    // Наряд №188: optional 3rd arg — n_kv_heads for GQA.
-    let n_kv_heads = if args.len() == 3 {
-        match &args[2] {
-            Value::Float(n) => *n as usize,
-            Value::String(s) => s.parse::<usize>().map_err(|_| {
-                format!(
-                    "attention: kv_heads must be a positive integer, got '{}'",
-                    s
-                )
-            })?,
-            other => {
-                return Err(format!(
-                    "attention: kv_heads must be a number, got {}",
-                    other.type_name()
-                ))
-            }
-        }
-    } else {
-        heads // default: standard MHA
-    };
-
-    let attn = Attention::new_with_kv_heads(heads, n_kv_heads, dim, seed)?;
-    Ok(Box::new(attn))
 }
 
 // ── Deterministic PRNG (xorshift64, наряд №177) ──────────────────────

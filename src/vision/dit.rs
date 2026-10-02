@@ -865,7 +865,7 @@ impl ZImageTransformer {
         // n236: key-level loader guard — calls extracted generator (single source of truth).
         let expected_keys = zimage_expected_keys(&config);
         let loaded_keys: Vec<String> = tensors.keys().cloned().collect();
-        crate::vision::weights::check_tensor_coverage(&expected_keys, &loaded_keys)
+        crate::vision::coverage::check_tensor_coverage(&expected_keys, &loaded_keys)
             .map_err(|e| format!("ZImageTransformer::from_weights: tensor coverage: {}", e))?;
 
         Ok(ZImageTransformer {

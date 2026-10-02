@@ -413,7 +413,7 @@ impl Interpreter {
                             .reflex_registry
                             .lock()
                             .map_err(|e| format!("reflex registry poisoned: {}", e))?;
-                        let id = reg.register_seq(model);
+                        let id = reg.register_seq(Box::new(model));
                         self.reflex_names.insert(r.name.clone(), id);
                     }
                 }
@@ -462,7 +462,7 @@ impl Interpreter {
                             .reflex_registry
                             .lock()
                             .map_err(|e| format!("reflex registry poisoned: {}", e))?;
-                        let id = reg.register_gen(model);
+                        let id = reg.register_gen(Box::new(model));
                         self.reflex_names.insert(r.name.clone(), id);
                     }
                 }

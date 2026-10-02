@@ -37,7 +37,6 @@
 
 #![cfg(feature = "candle")]
 
-use crate::interpreter::Value;
 use crate::nn::sequence_layer::SequenceLayer;
 
 use candle_core::{DType, Device, Tensor};
@@ -167,62 +166,6 @@ impl SequenceLayer for RmsNorm {
     }
 }
 
-/// Build function for the SEQUENCE_LAYER_REGISTRY.
-///
-/// Args: `(dim)` or `(dim, eps)`. The `eps` parameter is optional —
-/// default `1e-6` (Llama's value) when omitted.
-pub fn build_rmsnorm(args: &[Value], seed: u64) -> Result<Box<dyn SequenceLayer>, String> {
-    if args.is_empty() || args.len() > 2 {
-        return Err(format!(
-            "rms_norm: expected 1 or 2 args (dim, [eps]), got {}",
-            args.len()
-        ));
-    }
-    let dim = parse_usize_arg(&args[0], "rms_norm", "dim")?;
-    let eps = if args.len() == 2 {
-        parse_f64_arg(&args[1], "rms_norm", "eps")?
-    } else {
-        1e-6
-    };
-    let layer = RmsNorm::new(dim, seed, eps)?;
-    Ok(Box::new(layer))
-}
-
-// ── helpers (local copies; kept local to avoid cross-module coupling) ──
-
 fn map_err<T, E: std::fmt::Display>(r: Result<T, E>, ctx: &str) -> Result<T, String> {
     r.map_err(|e| format!("{}: {}", ctx, e))
-}
-
-fn parse_usize_arg(v: &Value, layer: &str, name: &str) -> Result<usize, String> {
-    match v {
-        Value::Float(n) => Ok(*n as usize),
-        Value::String(s) => s.parse::<usize>().map_err(|_| {
-            format!(
-                "{}: {} must be a positive integer, got '{}'",
-                layer, name, s
-            )
-        }),
-        other => Err(format!(
-            "{}: {} must be a number, got {}",
-            layer,
-            name,
-            other.type_name()
-        )),
-    }
-}
-
-fn parse_f64_arg(v: &Value, layer: &str, name: &str) -> Result<f64, String> {
-    match v {
-        Value::Float(n) => Ok(*n),
-        Value::String(s) => s
-            .parse::<f64>()
-            .map_err(|_| format!("{}: {} must be a number, got '{}'", layer, name, s)),
-        other => Err(format!(
-            "{}: {} must be a number, got {}",
-            layer,
-            name,
-            other.type_name()
-        )),
-    }
 }

@@ -165,6 +165,11 @@ pub mod dit;
 // Наряд №244 (R6.3): LoRA adapter loading/validation + application. The
 // adapter's only home is SQLite (ADR-0124 §6) — this module carries NO
 // session state (VisionRegistry is NOT touched).
+/// №545 (б): the shared tensor-key coverage check — its own leaf so the
+/// moving diffusion machinery and the staying weights infra both reach
+/// it without cross-depending (see the module's docs).
+#[cfg(feature = "vision")]
+pub mod coverage;
 #[cfg(feature = "vision")]
 pub mod lora;
 #[cfg(feature = "vision")]

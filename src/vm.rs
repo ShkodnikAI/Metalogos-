@@ -437,12 +437,12 @@ impl Vm {
         {
             for decl in &program.reflex_seq_decls {
                 let model = crate::builtins::build_reflex_seq_model(decl)?;
-                let id = self.reflex_registry.register_seq(model);
+                let id = self.reflex_registry.register_seq(Box::new(model));
                 self.reflex_names.insert(decl.name.clone(), id);
             }
             for decl in &program.reflex_gen_decls {
                 let model = crate::builtins::build_reflex_gen_model(decl)?;
-                let id = self.reflex_registry.register_gen(model);
+                let id = self.reflex_registry.register_gen(Box::new(model));
                 self.reflex_names.insert(decl.name.clone(), id);
             }
         }

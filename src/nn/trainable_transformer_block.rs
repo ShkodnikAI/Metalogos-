@@ -39,7 +39,6 @@
 
 #![cfg(feature = "candle")]
 
-use crate::interpreter::Value;
 use crate::nn::rmsnorm::RmsNorm;
 use crate::nn::sequence_layer::SequenceLayer;
 use crate::nn::swiglu::SwiGlu;
@@ -157,61 +156,4 @@ impl SequenceLayer for TrainableTransformerBlock {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-}
-
-/// Build function — accepts same args as `build_transformer_block`
-/// (heads, dim, ff_dim) from Наряд №184.
-///
-/// Наряд №190: `prefix` parameter makes each block in a stack register
-/// its weights under unique VarMap names.
-pub fn build_trainable_transformer_block(
-    args: &[Value],
-    seed: u64,
-    var_map: &candle_nn::VarMap,
-    prefix: &str,
-) -> Result<Box<dyn SequenceLayer>, String> {
-    if args.len() != 3 {
-        return Err(format!(
-            "trainable_transformer_block: expected 3 args (heads, dim, ff_dim), got {}",
-            args.len()
-        ));
-    }
-    let heads = match &args[0] {
-        Value::Float(n) => *n as usize,
-        Value::String(s) => s
-            .parse::<usize>()
-            .map_err(|_| format!("trainable_tb: heads must be integer, got '{}'", s))?,
-        other => {
-            return Err(format!(
-                "trainable_tb: heads must be a number, got {}",
-                other.type_name()
-            ))
-        }
-    };
-    let dim = match &args[1] {
-        Value::Float(n) => *n as usize,
-        Value::String(s) => s
-            .parse::<usize>()
-            .map_err(|_| format!("trainable_tb: dim must be integer, got '{}'", s))?,
-        other => {
-            return Err(format!(
-                "trainable_tb: dim must be a number, got {}",
-                other.type_name()
-            ))
-        }
-    };
-    let ff_dim = match &args[2] {
-        Value::Float(n) => *n as usize,
-        Value::String(s) => s
-            .parse::<usize>()
-            .map_err(|_| format!("trainable_tb: ff_dim must be integer, got '{}'", s))?,
-        other => {
-            return Err(format!(
-                "trainable_tb: ff_dim must be a number, got {}",
-                other.type_name()
-            ))
-        }
-    };
-    let block = TrainableTransformerBlock::new(heads, dim, ff_dim, seed, var_map, prefix)?;
-    Ok(Box::new(block))
 }

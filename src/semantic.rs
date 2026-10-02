@@ -491,7 +491,13 @@ fn label_source(fn_name: &str, args: &[Expr], env: &BTreeMap<String, Label>) -> 
                 })
                 .unwrap_or(false) =>
         {
-            Some(kind_label("Secret"))
+            // №544 step 1: the lattice label directly (conf=private,
+            // integrity=trusted) — the "Secret" taint row is retired.
+            Some(Label {
+                conf: crate::labels::Conf::Private,
+                integrity: crate::labels::Integrity::Trusted,
+                consent: Default::default(),
+            })
         }
         "http_get" | "read_file" => Some(kind_label("UserInput")),
         // Sanitizers restore trust.

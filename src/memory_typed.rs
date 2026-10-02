@@ -1727,12 +1727,13 @@ pub fn ledger_recall_denied(query: &str, container_id: &str) {
 }
 
 /// The taint projection of one recall hit onto the №322 lattice: a
-/// private container projects the Secret taint kind (confidentiality —
+/// private container projects conf=private (confidentiality —
 /// the content is intact, the EGRESS is the consent-gated concern);
-/// a public container projects the lattice bottom. The Secret mapping
-/// is the same `legacy_taint_label("Secret")` row applies; it is
-/// constructed directly because the projection is a compile-time
-/// constant of the contract.
+/// a public container projects the lattice bottom. №544 step 1: the
+/// "Secret" taint-kind row retired — the projection is constructed
+/// directly as the lattice label (the same value the type-layer source
+/// `secret_label::secret_source_type` carries as
+/// `Labeled(String, Private)`).
 fn hit_label(label_word: &str) -> crate::labels::Label {
     match label_word {
         "private" => crate::labels::Label {

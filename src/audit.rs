@@ -791,6 +791,17 @@ fn check_hardcoded_secrets(
 /// Check that all query() and db_execute() calls use literal SQL strings.
 /// db_execute has no safe non-literal path (same as query: parameterized
 /// queries require a literal SQL template with ?/$N placeholders).
+///
+/// №544 step 2: the SQL lane is typed — the verdict is the TYPE question
+/// [`crate::sql_label::is_literal_sql`]: the argument must carry the
+/// unlabeled literal string (the trusted template); every derived string
+/// carries the derivation marker `Labeled(String, Internal)` (Private
+/// when a secret part joined in — the shared vocabulary with the secret
+/// lane) and refuses. The two type rules keep the observable parity with
+/// the old syntactic verdict: concatenation is derivation itself (a
+/// BinaryOp never yields the literal type), and a binding demotes the
+/// literal (a variable reference is never a literal). The walk topology,
+/// the messages, the snippets and the all-literal Info path are unchanged.
 fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut Vec<AuditFinding>) {
     let mut all_literal = true;
     let mut literal_count = 0usize;
@@ -802,59 +813,68 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
         all_literal: &mut bool,
         literal_count: &mut usize,
     ) {
+        // №544 step 2: the SQL lane's type environment (variable → its
+        // label-carrying type). A binding NEVER carries the literal type
+        // (the demotion rule) — the environment annotates the refusals;
+        // the verdict parity rests on the type rules, not on the env.
+        let mut sql_vars: std::collections::HashMap<String, Type> =
+            std::collections::HashMap::new();
+
         fn walk_query(
             expr: &Expr,
             source: &str,
             findings: &mut Vec<AuditFinding>,
             all_literal: &mut bool,
             literal_count: &mut usize,
+            sql_vars: &mut std::collections::HashMap<String, Type>,
         ) {
             if let Expr::FnCall { name, args, .. } = expr {
                 if name == "query" || name == "db_execute" {
                     if let Some(arg) = args.first() {
-                        match arg {
-                            Expr::StringLit { .. } => {
-                                *literal_count += 1;
-                            }
-                            _ => {
-                                *all_literal = false;
-                                let snippet = match arg {
-                                    Expr::Ident { name: id, .. } => id.clone(),
-                                    Expr::BinaryOp { .. } => "dynamic expression".to_string(),
-                                    Expr::FnCall { name: n, .. } => format!("{}()", n),
-                                    _ => "non-literal".to_string(),
-                                };
-                                let line = find_line(source, &snippet);
-                                findings.push(AuditFinding {
-                                    severity: Severity::Error,
-                                    check_id: "SQL_DYNAMIC",
-                                    line,
-                                    message: format!(
-                                        "SQL injection risk — {}() with non-literal SQL ({})",
-                                        name, snippet
-                                    ),
-                                });
-                            }
+                        // №544 step 2: the question is the TYPE — is the
+                        // argument's type the literal string template?
+                        if crate::sql_label::is_literal_sql(&crate::sql_label::sql_type_of_expr(
+                            arg, sql_vars,
+                        )) {
+                            *literal_count += 1;
+                        } else {
+                            *all_literal = false;
+                            let snippet = match arg {
+                                Expr::Ident { name: id, .. } => id.clone(),
+                                Expr::BinaryOp { .. } => "dynamic expression".to_string(),
+                                Expr::FnCall { name: n, .. } => format!("{}()", n),
+                                _ => "non-literal".to_string(),
+                            };
+                            let line = find_line(source, &snippet);
+                            findings.push(AuditFinding {
+                                severity: Severity::Error,
+                                check_id: "SQL_DYNAMIC",
+                                line,
+                                message: format!(
+                                    "SQL injection risk — {}() with non-literal SQL ({})",
+                                    name, snippet
+                                ),
+                            });
                         }
                     }
                 }
                 // Recurse into args to find nested query() calls
                 for arg in args {
-                    walk_query(arg, source, findings, all_literal, literal_count);
+                    walk_query(arg, source, findings, all_literal, literal_count, sql_vars);
                 }
             } else {
                 // Recurse into other expression types
                 match expr {
                     Expr::QualifiedCall { args, .. } => {
                         for arg in args {
-                            walk_query(arg, source, findings, all_literal, literal_count);
+                            walk_query(arg, source, findings, all_literal, literal_count, sql_vars);
                         }
                     }
                     Expr::BinaryOp {
                         left: l, right: r, ..
                     } => {
-                        walk_query(l, source, findings, all_literal, literal_count);
-                        walk_query(r, source, findings, all_literal, literal_count);
+                        walk_query(l, source, findings, all_literal, literal_count, sql_vars);
+                        walk_query(r, source, findings, all_literal, literal_count, sql_vars);
                     }
                     _ => {}
                 }
@@ -866,28 +886,63 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
             findings: &mut Vec<AuditFinding>,
             all_literal: &mut bool,
             literal_count: &mut usize,
+            sql_vars: &mut std::collections::HashMap<String, Type>,
         ) {
             match stmt {
-                Statement::LetBinding { value, .. } => {
-                    walk_query(value, source, findings, all_literal, literal_count)
+                Statement::LetBinding { name, value, .. } => {
+                    walk_query(
+                        value,
+                        source,
+                        findings,
+                        all_literal,
+                        literal_count,
+                        sql_vars,
+                    );
+                    // №544 step 2: the type follows the binding (or is
+                    // dropped when the initializer proves nothing — the
+                    // honesty rule). The demotion rule keeps the literal
+                    // type out of the environment.
+                    match crate::sql_label::binding_sql_type(value, sql_vars) {
+                        Some(ty) => {
+                            sql_vars.insert(name.clone(), ty);
+                        }
+                        None => {
+                            sql_vars.remove(name);
+                        }
+                    }
                 }
-                Statement::Assign { value, .. } => {
-                    walk_query(value, source, findings, all_literal, literal_count)
+                Statement::Assign { name, value, .. } => {
+                    walk_query(
+                        value,
+                        source,
+                        findings,
+                        all_literal,
+                        literal_count,
+                        sql_vars,
+                    );
+                    match crate::sql_label::binding_sql_type(value, sql_vars) {
+                        Some(ty) => {
+                            sql_vars.insert(name.clone(), ty);
+                        }
+                        None => {
+                            sql_vars.remove(name);
+                        }
+                    }
                 }
                 Statement::ExprStmt { expr, .. } => {
-                    walk_query(expr, source, findings, all_literal, literal_count)
+                    walk_query(expr, source, findings, all_literal, literal_count, sql_vars)
                 }
                 Statement::Return { value: expr, .. } => {
-                    walk_query(expr, source, findings, all_literal, literal_count)
+                    walk_query(expr, source, findings, all_literal, literal_count, sql_vars)
                 }
                 Statement::Each { body, .. } => {
                     for s in body {
-                        walk_stmt(s, source, findings, all_literal, literal_count);
+                        walk_stmt(s, source, findings, all_literal, literal_count, sql_vars);
                     }
                 }
                 Statement::While { body, .. } => {
                     for s in body {
-                        walk_stmt(s, source, findings, all_literal, literal_count);
+                        walk_stmt(s, source, findings, all_literal, literal_count, sql_vars);
                     }
                 }
                 Statement::IfElseBlock {
@@ -897,29 +952,36 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
                     ..
                 } => {
                     for s in then_body {
-                        walk_stmt(s, source, findings, all_literal, literal_count);
+                        walk_stmt(s, source, findings, all_literal, literal_count, sql_vars);
                     }
                     for (_, body) in else_ifs {
                         for s in body {
-                            walk_stmt(s, source, findings, all_literal, literal_count);
+                            walk_stmt(s, source, findings, all_literal, literal_count, sql_vars);
                         }
                     }
                     if let Some(body) = else_body {
                         for s in body {
-                            walk_stmt(s, source, findings, all_literal, literal_count);
+                            walk_stmt(s, source, findings, all_literal, literal_count, sql_vars);
                         }
                     }
                 }
                 Statement::IfThen { body, .. } => {
                     for s in body {
-                        walk_stmt(s, source, findings, all_literal, literal_count);
+                        walk_stmt(s, source, findings, all_literal, literal_count, sql_vars);
                     }
                 }
                 _ => {}
             }
         }
         for stmt in stmts {
-            walk_stmt(stmt, source, findings, all_literal, literal_count);
+            walk_stmt(
+                stmt,
+                source,
+                findings,
+                all_literal,
+                literal_count,
+                &mut sql_vars,
+            );
         }
     }
 

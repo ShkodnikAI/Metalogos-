@@ -1310,7 +1310,7 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                     }
                     // The label follows the binding (or is dropped when
                     // the initializer proves nothing — honesty).
-                    match crate::semantic_types::binding_label(value, label_vars) {
+                    match crate::secret_label::binding_label(value, label_vars) {
                         Some(ty) => {
                             label_vars.insert(name.clone(), ty);
                         }
@@ -1325,7 +1325,7 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                     } else {
                         tracker.untaint(name);
                     }
-                    match crate::semantic_types::binding_label(value, label_vars) {
+                    match crate::secret_label::binding_label(value, label_vars) {
                         Some(ty) => {
                             label_vars.insert(name.clone(), ty);
                         }
@@ -1397,8 +1397,8 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                         // Ident + direct env()/tainted expr (e.g. print(env("X")))
                         // №544 step 1: the question is the LABEL — does the
                         // argument's type carry Labeled(_, Private)?
-                        if crate::semantic_types::is_private_labeled(
-                            &crate::semantic_types::label_of_expr(arg, label_vars),
+                        if crate::secret_label::is_private_labeled(
+                            &crate::secret_label::label_of_expr(arg, label_vars),
                         ) {
                             let line = find_line(source, fn_name);
                             findings.push(AuditFinding {
@@ -1421,8 +1421,8 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                 if fn_name == "http_post" {
                     // arg 0: URL — secret leak
                     if let Some(arg) = args.first() {
-                        if crate::semantic_types::is_private_labeled(
-                            &crate::semantic_types::label_of_expr(arg, label_vars),
+                        if crate::secret_label::is_private_labeled(
+                            &crate::secret_label::label_of_expr(arg, label_vars),
                         ) {
                             let line = find_line(source, fn_name);
                             findings.push(AuditFinding {
@@ -1436,8 +1436,8 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                     }
                     // arg 1: body — secret leak
                     if let Some(arg) = args.get(1) {
-                        if crate::semantic_types::is_private_labeled(
-                            &crate::semantic_types::label_of_expr(arg, label_vars),
+                        if crate::secret_label::is_private_labeled(
+                            &crate::secret_label::label_of_expr(arg, label_vars),
                         ) {
                             let line = find_line(source, fn_name);
                             findings.push(AuditFinding {
@@ -1465,8 +1465,8 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                             // №544 step 1: the SECRET_LEAK question is the
                             // label; the UserInput question stays on the
                             // taint tracker (its migration is a follow-up).
-                            let private = crate::semantic_types::is_private_labeled(
-                                &crate::semantic_types::label_of_expr(arg, label_vars),
+                            let private = crate::secret_label::is_private_labeled(
+                                &crate::secret_label::label_of_expr(arg, label_vars),
                             );
                             let t = get_expr_taint(arg, tracker);
                             if private {
@@ -6567,7 +6567,7 @@ mod tests {
         // (semantic_types::secret_source_type == Labeled(String, Private),
         // sig_types::Label::Private — the conf=private of ADR-0154 §2).
         assert_eq!(
-            crate::semantic_types::secret_source_type(),
+            crate::secret_label::secret_source_type(),
             crate::builtins::sig_types::Type::Labeled(
                 Box::new(crate::builtins::sig_types::Type::String),
                 crate::builtins::sig_types::Label::Private

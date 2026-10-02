@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 use metalogos::builtins::sig_types::{Label, Type};
 use metalogos::parser;
-use metalogos::semantic_types::{
+use metalogos::secret_label::{
     binding_label, is_private_labeled, label_of_expr, secret_source_type,
 };
 

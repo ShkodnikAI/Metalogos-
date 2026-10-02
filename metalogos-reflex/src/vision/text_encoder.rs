@@ -456,7 +456,7 @@ pub struct TextEncoder {
 /// n236: TextEncoder expected-key generator — single source of truth.
 /// Real Qwen3-4B: 398 keys (verified from index.json, fetched 2026-09-09).
 /// Breakdown: 2 static (embed_tokens + norm) + 36 layers × 11 per layer = 2 + 396 = 398.
-pub(crate) fn te_expected_keys(num_layers: usize) -> Vec<String> {
+pub fn te_expected_keys(num_layers: usize) -> Vec<String> {
     let mut keys = vec![
         "model.embed_tokens.weight".into(),
         "model.norm.weight".into(),

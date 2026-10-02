@@ -3,22 +3,33 @@ name = "metalogos-reflex"
 version.workspace = true
 rust-version.workspace = true
 edition.workspace = true
-description = "The reflex domain crate (the generative contour's future home) — the №472 roadmap, ADR-0178 §3; Wave 24 №545 stage 1"
+# №518 discipline: the license field is declared — the crate is now a
+# dependency edge (metalogos -> metalogos-reflex), so the cargo-deny
+# license check walks it (leaf workspace members are never walked).
+license = "MIT OR Apache-2.0"
+description = "The reflex domain crate — the generative contour's home (ADR-0178 made physical; the №472 roadmap, №545 stage (v))"
 
 [dependencies]
-# The dependency-direction fork (the roadmap's "the split PR decides with
-# the owner's gate"): this stub takes the CORE-DEPENDENCY side as its
-# provisional shape — the crate depends on the language crate for the
-# value/handle types. The alternative (a tiny `metalogos-values` crate
-# both depend on) stays open for the owner's gate BEFORE the physical
-# module moves; see the naryad №545 report and
-# docs/refactoring-split-plan.md.
-metalogos = { path = ".." }
+# №545 (в): the dependency direction is CORE -> REFLEX — this crate
+# imports NOTHING from the language crate (Value-free by design).
 candle-core = { version = "0.11", optional = true }
 candle-nn = { version = "0.11", optional = true }
+# №212 (R3) lineage: the HF fast tokenizer moved here with the
+# diffusion tokenizer module (№545 (в)).
+tokenizers = { version = "0.23", optional = true }
+# PNG encode/decode of the VAE pipeline (№212 R3).
+image = { version = "0.25", optional = true, default-features = false, features = ["png"] }
+# The bpe registry's id/vocab persistence derives (ungated module).
+serde = { version = "1", features = ["derive"] }
 
 [features]
 # The crate's own candle gate mirrors the language crate's posture
 # (off-by-default; the workspace feature unification keeps the
 # default/portable/full profiles coherent).
 candle = ["dep:candle-core", "dep:candle-nn"]
+# The diffusion chain: candle + the HF tokenizer + the PNG codec.
+vision = ["candle", "dep:tokenizers", "dep:image"]
+
+[dev-dependencies]
+# The tokenizer round-trip tests write to a tempdir (№212).
+tempfile = "3"

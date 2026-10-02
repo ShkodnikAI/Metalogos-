@@ -152,32 +152,27 @@ pub type SharedVisionRegistry = Mutex<VisionRegistry>;
 /// code-level edit).
 pub const KNOWN_VISION_MODELS: &[&str] = &["z-image-turbo"];
 
-// Наряд №211 (R2): текст-энкодер (Qwen3-архитектура на Reflex-примитивах).
-// Feature-gated behind `vision` (которая влечёт `candle`).
-#[cfg(feature = "vision")]
-pub mod text_encoder;
-
-// Наряд №212 (R3): weights infrastructure + tokenizer wrapper.
-// Both feature-gated behind `vision`. tokenizers crate is the canonical HF
-// BPE implementation — see ADR-0124 update for rationale.
-#[cfg(feature = "vision")]
-pub mod dit;
+// Наряды №211 (R2) / №212 (R3): the text encoder and the DiT moved to
+// the reflex crate (№545 (в)) — see the shell re-exports below.
 // Наряд №244 (R6.3): LoRA adapter loading/validation + application. The
 // adapter's only home is SQLite (ADR-0124 §6) — this module carries NO
 // session state (VisionRegistry is NOT touched).
 /// №545 (б): the shared tensor-key coverage check — its own leaf so the
 /// moving diffusion machinery and the staying weights infra both reach
 /// it without cross-depending (see the module's docs).
+// ── №545 (в): the diffusion chain (dit, vae, lora, sampler,
+// text_encoder, tokenizer) + the shared coverage check moved to the
+// metalogos-reflex crate; the shell preserves the consumer paths.
 #[cfg(feature = "vision")]
-pub mod coverage;
-#[cfg(feature = "vision")]
-pub mod lora;
-#[cfg(feature = "vision")]
-pub mod sampler;
-#[cfg(feature = "vision")]
-pub mod tokenizer;
+pub use metalogos_reflex::vision::{coverage, dit, lora, sampler, text_encoder, tokenizer};
+// №545 (в): the VAE machinery is re-exported through the `vae` module
+// (src/vision/vae.rs) — a deliberate FILE so the FS-glue (`save_png`'s
+// write half through the №475 fs gate) never lands in THIS mod.rs:
+// mod.rs itself carries zero `crate::` edges (the C4 inventory stays
+// frozen — the diffusion shell hangs off the graph as a leaf).
 #[cfg(feature = "vision")]
 pub mod vae;
+
 #[cfg(feature = "vision")]
 pub mod weights;
 // №334: vision-UNDERSTANDING backend wiring (molmoact2) — mock-first

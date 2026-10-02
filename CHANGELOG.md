@@ -93,6 +93,37 @@ All notable changes to the Metalogos project.
   manifest following 1:1, then the re-export shell) are sequenced
   behind it. No contour growth: the split is a transfer, not an
   expansion (ADR-0178 §4); the stop-list baseline is untouched.
+- Naryad №545 stages 2-3 (issue #883; Wave 24, P1; the owner's gate
+  decision of 2026-10-02: fork (i) — the core-first inversion through
+  trait seams, the №484 DbAccess precedent): THE CRATE SPLIT IS
+  PHYSICAL. Stage 2 (PR #909): the inversion — `ModelKind::Sequence/Gen`
+  payloads go through the handle contracts `SequenceModelHandle` /
+  `GenModelHandle` (`src/nn/handles.rs`, the consumer-owned seam that
+  stays in the language crate), `register_seq`/`register_gen` take the
+  boxed handles; the Value-speaking spec surface (the
+  `SEQUENCE_LAYER_REGISTRY` + the six `build_*` fns) lands in
+  `src/nn/sequence_spec.rs` — the check-time language surface cannot
+  move with the machinery; the shared `check_tensor_coverage` gets its
+  own leaf (`src/vision/coverage.rs`, now moved with the diffusion
+  chain). Stage 3 (this PR): the 16 stop-list files move 1:1 into
+  `metalogos-reflex` (ten `nn` modules + six `vision` diffusion
+  modules + the coverage check + the accuracy SSOT
+  `compute_accuracy`), the dependency direction lands CORE → REFLEX
+  (the reflex crate is Value-free by design — the Value marshaling
+  stays with the language builtins), the re-export shells
+  (`metalogos::nn::*`, `metalogos::vision::*`) preserve every consumer
+  path — the no-API-change contract holds (the integration suites run
+  UNCHANGED), `save_png`'s write half stays behind the №475 fs gate in
+  the language crate (the façade module), and the №463 manifest
+  entries follow the files in the same PR with the baseline re-frozen:
+  9430 → 9025 LOC (movement only down; no new contour files, no
+  expansion — ADR-0178 §4 needs no patch). The tokenizers dependency
+  moved to the reflex crate; `image` stays (the provenance marks).
+  Verification: check default/candle/vision/portable green; clippy
+  candle/vision/voice `-D warnings` green; lib tests 894 (default) +
+  10 (the reflex crate's own moved unit tests) + 906 (portable); the
+  №183/№184×3/№185/№193/№195×4/№179 seam suites and the №210/№211/№212
+  vision suites all green; the №463 gate and the core→media gate green.
 - Naryad №549 (issue #887; Wave 24, P2; the NLnet/Restack traction
   lane, M1 2026-11-03): the draft traction package lands in
   `metalogos-grants/` — the owner-gated surface (nothing here is

@@ -2384,6 +2384,7 @@ dependencies = [
  "lettre",
  "libc",
  "lopdf",
+ "metalogos-reflex",
  "native-tls",
  "once_cell",
  "pdf-inspector",
@@ -2406,7 +2407,6 @@ dependencies = [
  "tempfile",
  "tesseract",
  "thiserror 2.0.21",
- "tokenizers 0.23.2",
  "tokio",
  "tower 0.5.3",
  "tower-http 0.7.1",
@@ -2421,7 +2421,10 @@ version = "0.27.1"
 dependencies = [
  "candle-core",
  "candle-nn",
- "metalogos",
+ "image",
+ "serde",
+ "tempfile",
+ "tokenizers 0.23.2",
 ]
 
 [[package]]

@@ -16,30 +16,37 @@
 # --freeze).
 #
 # ── Core generative contour (audit 25.09 §5.2; the №166 boundary breach) ──
-src/nn/gen_model.rs
-src/nn/bpe.rs
-src/nn/attention.rs
-src/nn/transformer_block.rs
-src/nn/trainable_transformer_block.rs
-src/vision/dit.rs
-src/vision/vae.rs
-src/vision/lora.rs
+metalogos-reflex/src/nn/gen_model.rs
+metalogos-reflex/src/nn/bpe.rs
+metalogos-reflex/src/nn/attention.rs
+metalogos-reflex/src/nn/transformer_block.rs
+metalogos-reflex/src/nn/trainable_transformer_block.rs
+metalogos-reflex/src/vision/dit.rs
+metalogos-reflex/src/vision/vae.rs
+metalogos-reflex/src/vision/lora.rs
 # ── Disputed — included conservatively; ADR-0178 (№464) resolves ──────────
 # disputed: trainable_attention.rs — trainable attention machinery, the same
 #   family as trainable_transformer_block.rs (not named by the audit; the
 #   same generation-capable class).
-src/nn/trainable_attention.rs
+metalogos-reflex/src/nn/trainable_attention.rs
 # disputed: rmsnorm.rs / swiglu.rs — transformer building blocks; they serve
 #   the generative blocks and would grow with them.
-src/nn/rmsnorm.rs
-src/nn/swiglu.rs
+metalogos-reflex/src/nn/rmsnorm.rs
+metalogos-reflex/src/nn/swiglu.rs
 # disputed: seq_model.rs / sequence_layer.rs — the Sequence model family
 #   (candle-gated); generation-adjacent; the Dense lane (№456 distill heads)
 #   does NOT live here and is not gated by this manifest.
-src/nn/seq_model.rs
-src/nn/sequence_layer.rs
+metalogos-reflex/src/nn/seq_model.rs
+metalogos-reflex/src/nn/sequence_layer.rs
 # disputed: sampler.rs / text_encoder.rs / tokenizer.rs — the diffusion
 #   inference chain around DiT/VAE (Z-Image's generation path).
-src/vision/sampler.rs
-src/vision/text_encoder.rs
-src/vision/tokenizer.rs
+metalogos-reflex/src/vision/sampler.rs
+metalogos-reflex/src/vision/text_encoder.rs
+metalogos-reflex/src/vision/tokenizer.rs
+#
+# №545 (в) RELOCATION RECORD (2026-10-02): the sixteen entries below
+# moved WITH their files into the metalogos-reflex crate (the owner's
+# fork decision (i) in issue #883; the naryad's contract: the manifest
+# follows the files, the baseline does not grow — ADR-0178 §4 needs no
+# expansion patch: no new files, no higher baseline, movement only
+# down). The baseline was re-frozen in the same PR.

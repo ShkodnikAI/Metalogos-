@@ -1515,7 +1515,7 @@ fn proj_field_of(rest: &str) -> Result<u8, String> {
 /// Real Z-Image-Turbo: 521 keys (verified from index.json, fetched 2026-09-09).
 /// Breakdown: 15 static (embedders+t_embedder+final) + 30×15 (layers) + 2×15 (noise_refiner)
 /// + 2×13 (context_refiner) = 15+450+30+26 = 521.
-pub(crate) fn zimage_expected_keys(config: &ZImageConfig) -> Vec<String> {
+pub fn zimage_expected_keys(config: &ZImageConfig) -> Vec<String> {
     let mut keys = vec![
         "all_x_embedder.2-1.weight".into(),
         "all_x_embedder.2-1.bias".into(),

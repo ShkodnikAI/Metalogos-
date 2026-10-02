@@ -27,6 +27,11 @@ name = "mlog"
 path = "src/main.rs"
 
 [dependencies]
+# №545 (в): the reflex domain crate — the generative contour's home;
+# unconditional (tiny without its candle/vision features) so the
+# re-export shells compile in every profile.
+metalogos-reflex = { path = "metalogos-reflex" }
+
 pest = "2.7"
 pest_derive = "2.7"
 clap = { version = "4.5", features = ["derive"] }
@@ -134,7 +139,6 @@ candle-nn = { version = "0.11", optional = true }
 # Both gated under `vision` (NOT in default/full). tokenizers is the canonical
 # HF BPE implementation — hand-rolling it is high-risk (see ADR-0124 update).
 # image is for PNG encode of the VAE decoder output.
-tokenizers = { version = "0.23", optional = true }
 image = { version = "0.25", optional = true, default-features = false, features = ["png"] }
 
 # Optional OCR support (requires system tesseract-ocr + training data)
@@ -170,7 +174,7 @@ full = ["svg", "chart", "diagram", "template", "llm", "server"]
 # Наряд №183 (ADR-0118): candle for sequence-layer (attention) extension.
 # Off by default — adds significant build time and dependency surface.
 # Enable with: cargo build --features candle
-candle = ["dep:candle-core", "dep:candle-nn"]
+candle = ["dep:candle-core", "dep:candle-nn", "metalogos-reflex/candle"]
 
 # Наряд №272 (ADR-0134): векторный контур языка — embed / vec_store /
 # vec_search над vec0-таблицами. Off-by-default (ADR-0104 measured impact:
@@ -192,7 +196,10 @@ pdf-ocr = ["tesseract"]
 # Наряд №212 (R3): vision влечёт tokenizers (HF BPE, нельзя вручную) +
 # image (PNG encode VAE output).
 # Enable with: cargo build --features vision
-vision = ["candle", "dep:tokenizers", "dep:image"]
+# №545 (в): tokenizers moved with the diffusion tokenizer module
+# to the reflex crate (its `vision` feature); `image` stays
+# (the provenance marks).
+vision = ["candle", "dep:image", "metalogos-reflex/vision"]
 
 # Наряд №302 (ADR-0143-0146): Voice pillar — TTS, voice cloning, voice design.
 # Off-by-default: voice implies candle (same as vision). No new heavy deps in

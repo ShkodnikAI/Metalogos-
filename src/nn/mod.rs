@@ -9,17 +9,7 @@
 //! (ADR-0114): model weights never enter `Value`, only an index.
 
 pub mod activation;
-/// Наряд №183: multi-head self-attention with RoPE — first SequenceLayer.
-/// Feature-gated behind `candle` (off by default).
-#[cfg(feature = "candle")]
-pub mod attention;
-/// Наряд №195: BPE tokenizer.
-pub mod bpe;
 pub mod dense;
-/// Наряд №193: ReflexGenModel — text generation model with KV-cache.
-/// Feature-gated behind `candle`.
-#[cfg(feature = "candle")]
-pub mod gen_model;
 /// №545 (б): the reflex model HANDLE CONTRACTS — the DbAccess №484
 /// seam. This file stays in the language crate across the №545 (в)
 /// move: the contract belongs to the consumer.
@@ -31,17 +21,6 @@ pub mod metric;
 pub mod optim;
 /// Наряд №180: persistence (ADR-0116) — save/load trained weights to SQLite.
 pub mod persist;
-/// Наряд №184 (Block 1): RmsNorm as SequenceLayer.
-#[cfg(feature = "candle")]
-pub mod rmsnorm;
-/// Наряд №185: ReflexSeqModel — sequence-classification model with
-/// candle autograd training. Feature-gated behind `candle`.
-#[cfg(feature = "candle")]
-pub mod seq_model;
-/// Наряд №183 (ADR-0119): sequence-processing layer trait + registry.
-/// Feature-gated behind `candle` — separate scope from initial Reflex rollout.
-#[cfg(feature = "candle")]
-pub mod sequence_layer;
 /// №545 (б): the check-time spec surface — the SEQUENCE_LAYER_REGISTRY
 /// and the Value-arg builders. The LANGUAGE side of the crate seam:
 /// the machinery moves toward the reflex crate, the Value marshaling
@@ -49,21 +28,17 @@ pub mod sequence_layer;
 #[cfg(feature = "candle")]
 pub mod sequence_spec;
 pub mod serde_weights;
-/// Наряд №184 (Block 2): SwiGLU feedforward as SequenceLayer.
+
+// ── №545 (в): the physical move — the generative machinery now lives
+// in the metalogos-reflex crate; these shell re-exports preserve every
+// `crate::nn::*` consumer path (the no-API-change contract). The
+// №463 stop-list manifest entries moved with the files in this PR.
+pub use metalogos_reflex::nn::bpe;
 #[cfg(feature = "candle")]
-pub mod swiglu;
-/// Наряд №185: TrainableAttention — Var-based attention for autograd.
-/// Parallel to №183's Attention (which is forward-only, untouched).
-#[cfg(feature = "candle")]
-pub mod trainable_attention;
-/// Наряд №185 follow-up: TrainableTransformerBlock — Var-based
-/// transformer block for autograd. Composes TrainableAttention +
-/// forward-only RmsNorm/SwiGLU (partial training — see module docs).
-#[cfg(feature = "candle")]
-pub mod trainable_transformer_block;
-/// Наряд №184 (Block 3): full transformer_block (attention + norms + ffn).
-#[cfg(feature = "candle")]
-pub mod transformer_block;
+pub use metalogos_reflex::nn::{
+    attention, gen_model, rmsnorm, seq_model, sequence_layer, swiglu, trainable_attention,
+    trainable_transformer_block, transformer_block,
+};
 
 pub use activation::{Activation, ActivationKind};
 pub use dense::Dense;

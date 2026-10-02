@@ -25,24 +25,8 @@ pub fn metric_names() -> Vec<&'static str> {
     METRIC_REGISTRY.iter().map(|m| m.name).collect()
 }
 
-/// Compute accuracy: fraction of correct predictions.
-/// Uses argmax of predictions (the class with highest probability).
-pub fn compute_accuracy(predictions: &[Vec<f64>], target_classes: &[usize]) -> f64 {
-    if predictions.is_empty() {
-        return 0.0;
-    }
-    let correct = predictions
-        .iter()
-        .zip(target_classes.iter())
-        .filter(|(pred, &target)| {
-            let predicted = pred
-                .iter()
-                .enumerate()
-                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .map(|(i, _)| i)
-                .unwrap_or(0);
-            predicted == target
-        })
-        .count();
-    correct as f64 / predictions.len() as f64
-}
+// №545 (в): the compute_accuracy SSOT moved with the generative
+// machinery to metalogos-reflex (the reflex-side holdout gate uses
+// it); the path below keeps every crate::nn::metric::compute_accuracy
+// consumer identical.
+pub use metalogos_reflex::nn::metric::compute_accuracy;

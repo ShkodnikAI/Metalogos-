@@ -152,32 +152,39 @@ pub type SharedVisionRegistry = Mutex<VisionRegistry>;
 /// code-level edit).
 pub const KNOWN_VISION_MODELS: &[&str] = &["z-image-turbo"];
 
-// Наряд №211 (R2): текст-энкодер (Qwen3-архитектура на Reflex-примитивах).
-// Feature-gated behind `vision` (которая влечёт `candle`).
-#[cfg(feature = "vision")]
-pub mod text_encoder;
-
-// Наряд №212 (R3): weights infrastructure + tokenizer wrapper.
-// Both feature-gated behind `vision`. tokenizers crate is the canonical HF
-// BPE implementation — see ADR-0124 update for rationale.
-#[cfg(feature = "vision")]
-pub mod dit;
+// Наряды №211 (R2) / №212 (R3): the text encoder and the DiT moved to
+// the reflex crate (№545 (в)) — see the shell re-exports below.
 // Наряд №244 (R6.3): LoRA adapter loading/validation + application. The
 // adapter's only home is SQLite (ADR-0124 §6) — this module carries NO
 // session state (VisionRegistry is NOT touched).
 /// №545 (б): the shared tensor-key coverage check — its own leaf so the
 /// moving diffusion machinery and the staying weights infra both reach
 /// it without cross-depending (see the module's docs).
+// ── №545 (в): the diffusion chain (dit, vae, lora, sampler,
+// text_encoder, tokenizer) + the shared coverage check moved to the
+// metalogos-reflex crate; the shell preserves the consumer paths.
 #[cfg(feature = "vision")]
-pub mod coverage;
+pub use metalogos_reflex::vision::{coverage, dit, lora, sampler, text_encoder, tokenizer};
+// №545 (в): the VAE machinery is re-exported through a façade — the
+// write half of `save_png` STAYS in the language crate (the file write
+// goes through the №475 fs gate, the language's security perimeter);
+// the encoder lives in the reflex crate. Every historical
+// `crate::vision::vae::*` path is preserved.
 #[cfg(feature = "vision")]
-pub mod lora;
-#[cfg(feature = "vision")]
-pub mod sampler;
-#[cfg(feature = "vision")]
-pub mod tokenizer;
-#[cfg(feature = "vision")]
-pub mod vae;
+pub mod vae {
+    pub use metalogos_reflex::vision::vae::*;
+
+    /// Save a `[3, H, W]` F32 image tensor (in [0,1]) as a PNG file —
+    /// the encoding comes from the reflex crate, the write goes through
+    /// the №475 fs gate (the language's perimeter). The №240 contract:
+    /// bit-identical to `encode_png`'s bytes.
+    pub fn save_png(img: &candle_core::Tensor, path: &std::path::Path) -> Result<(), String> {
+        let bytes = metalogos_reflex::vision::vae::encode_png(img)?;
+        crate::fs_gate::write_bytes(&path.to_string_lossy(), "vision save_png", &bytes)
+            .map_err(|e| format!("save_png: write to {}: {}", path.display(), e))
+    }
+}
+
 #[cfg(feature = "vision")]
 pub mod weights;
 // №334: vision-UNDERSTANDING backend wiring (molmoact2) — mock-first

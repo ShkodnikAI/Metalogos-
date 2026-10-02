@@ -611,7 +611,7 @@ pub struct VaeDecoder {
 /// Real Z-Image-Turbo: 138 keys (verified from safetensors header, fetched 2026-09-09).
 /// Breakdown: conv_in 2 + conv_norm_out 2 + conv_out 2 + mid 26 (2×8 resnets + 10 attn)
 /// + up 106 (4 blocks × 3 resnets × 8 + 2 shortcuts on blocks 2/3 resnet 0 + 6 upsampler keys).
-pub(crate) fn vae_expected_decoder_keys(config: &VaeConfig) -> Vec<String> {
+pub fn vae_expected_decoder_keys(config: &VaeConfig) -> Vec<String> {
     let base = config.block_out_channels[0];
     let mut keys = vec![
         "decoder.conv_in.weight".into(),
@@ -1770,17 +1770,11 @@ pub fn decode_png(png_bytes: &[u8]) -> Result<Tensor, String> {
         .map_err(|e| format!("decode_png: tensor: {}", e))
 }
 
-/// Save a `[3, H, W]` F32 image tensor (in [0,1]) as a PNG file.
+/// №545 (в): the WRITE half of the former `save_png` moved to the
+/// language crate (`metalogos::vision::vae::save_png` — the file write
+/// goes through the №475 fs gate, the language's security perimeter;
+/// this crate is gate-free by design). The ENCODING half stays here.
 ///
-/// Наряд №240 (R4.2): thin wrapper over `encode_png` — the encoding logic
-/// is shared with the `vision_generate` dispatch (PNG bytes go into the
-/// `VisionRegistry`), only the file write differs.
-pub fn save_png(img: &Tensor, path: &Path) -> Result<(), String> {
-    let bytes = encode_png(img)?;
-    crate::fs_gate::write_bytes(&path.to_string_lossy(), "vision save_png", &bytes) // №475 facade
-        .map_err(|e| format!("save_png: write to {}: {}", path.display(), e))
-}
-
 /// Encode a `[3, H, W]` F32 image tensor (in [0,1]) as PNG bytes.
 ///
 /// Наряд №240 (R4.2): encoding half of the former `save_png`, factored out

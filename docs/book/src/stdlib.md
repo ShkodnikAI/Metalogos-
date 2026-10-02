@@ -42,8 +42,12 @@ Joins a list of strings with a separator.
 
 ```mlog
 import std/string
-let parts = ["x", "y", "z"]
-let result = join(parts, "-")  // "x-y-z"
+
+pattern Demo() -> String {
+  let parts = ["x", "y", "z"]
+  let result = join(parts, "-")  // "x-y-z"
+  return result
+}
 ```
 
 ## std/math
@@ -83,8 +87,12 @@ Constrains a value to a range.
 
 ```mlog
 import std/math
-let val = 5.0
-let clamped = clamp(val, 0.0, 10.0)  // 5.0
+
+pattern Demo() -> Float {
+  let val = 5.0
+  let clamped = clamp(val, 0.0, 10.0)  // 5.0
+  return clamped
+}
 ```
 
 ### `round(n: Float) -> Float`
@@ -106,8 +114,12 @@ Returns the first element of a list.
 
 ```mlog
 import std/collections
-let items = ["alpha", "beta", "gamma"]
-let head = first(items)  // "alpha"
+
+pattern Demo() -> String {
+  let items = ["alpha", "beta", "gamma"]
+  let head = first(items)  // "alpha"
+  return head
+}
 ```
 
 ### `last(items: List) -> String`
@@ -116,8 +128,12 @@ Returns the last element of a list.
 
 ```mlog
 import std/collections
-let items = ["alpha", "beta", "gamma"]
-let tail = last(items)  // "gamma"
+
+pattern Demo() -> String {
+  let items = ["alpha", "beta", "gamma"]
+  let tail = last(items)  // "gamma"
+  return tail
+}
 ```
 
 ### `push(items: List, item: String) -> List`
@@ -126,6 +142,10 @@ Adds an item to the end of a list, returning a new list.
 
 ```mlog
 import std/collections
-let items = ["alpha", "beta", "gamma"]
-let extended = push(items, "delta")  // [..., "delta"]
+
+pattern Demo() -> List {
+  let items = ["alpha", "beta", "gamma"]
+  let extended = push(items, "delta")  // [..., "delta"]
+  return extended
+}
 ```

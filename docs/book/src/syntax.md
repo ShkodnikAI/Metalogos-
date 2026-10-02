@@ -38,7 +38,7 @@ Defines a structured type schema with named fields.
 ```mlog
 // doc-test: skip
 entity Message {
-  text: String
+  text: String,
   urgency: Float
 }
 ```
@@ -186,8 +186,8 @@ mutate PatternName {
 ```mlog
 // doc-test: skip
 sandbox name {
-  allowed: [capability, ...]
-  forbidden: [capability, ...]
+  allowed: [capability, ...],
+  forbidden: [capability, ...],
   timeout: N
 }
 ```
@@ -275,8 +275,8 @@ legal PASS-by-convention case).
 ```mlog
 // doc-test: skip
 conversation {
-  ttl: 1800
-  max_messages: 50
+  ttl: 1800,
+  max_messages: 50,
   compress_after: 20
 }
 ```
@@ -298,8 +298,8 @@ position. An empty body is valid (the env-var fallback applies).
 llm {
   providers: [
     { alias: main, provider: openai, key: env("OPENAI_KEY") }
-  ]
-  default_model: "main"
+  ],
+  default_model: "main",
   timeout: 30
 }
 ```
@@ -309,8 +309,11 @@ llm {
 ### Let Binding
 
 ```mlog
-let x = 42.0
-let name = if x > 10.0 then "big" else "small"
+pattern Demo() -> String {
+  let x = 42.0
+  let name = if x > 10.0 then "big" else "small"
+  return name
+}
 ```
 
 ### Assignment
@@ -323,85 +326,115 @@ x = 10.0
 ### Each Loop
 
 ```mlog
-let items = ["alpha", "beta", "gamma"]
-each item in items {
-  print(item)
+pattern Demo() -> String {
+  let items = ["alpha", "beta", "gamma"]
+  each item in items {
+    print(item)
+  }
+  return "done"
 }
 ```
 
 ### Each With Index
 
 ```mlog
-let items = ["alpha", "beta", "gamma"]
-each i, item in items {
-  print(to_string(i) + ": " + item)
+pattern Demo() -> String {
+  let items = ["alpha", "beta", "gamma"]
+  each i, item in items {
+    print(to_string(i) + ": " + item)
+  }
+  return "done"
 }
 ```
 
 ### While Loop
 
 ```mlog
-let mut count = 0.0
-while count < 10.0 {
-  count = count + 1.0
+pattern Demo() -> Float {
+  let mut count = 0.0
+  while count < 10.0 {
+    count = count + 1.0
+  }
+  return count
 }
 ```
 
 ### Break / Continue
 
 ```mlog
-let items = ["alpha", "beta", "stop", "gamma"]
-each item in items {
-  if item == "stop" then { break }
-  if item == "skip" then { continue }
-  print(item)
+pattern Demo() -> String {
+  let items = ["alpha", "beta", "stop", "gamma"]
+  each item in items {
+    if item == "stop" then { break }
+    if item == "skip" then { continue }
+    print(item)
+  }
+  return "done"
 }
 ```
 
 ### If-Else Block
 
 ```mlog
-let x = 15.0
-if x > 10.0 {
-  print("big")
-} else if x > 5.0 {
-  print("medium")
-} else {
-  print("small")
+pattern Demo() -> String {
+  let x = 15.0
+  if x > 10.0 {
+    print("big")
+  } else if x > 5.0 {
+    print("medium")
+  } else {
+    print("small")
+  }
+  return "done"
 }
 ```
 
 ### If-Then-Else Expression
 
 ```mlog
-let score = 95.0
-let label = if score >= 90.0 then "A" else "B"
+pattern Demo() -> String {
+  let score = 95.0
+  let label = if score >= 90.0 then "A" else "B"
+  return label
+}
 ```
 
 ### Match
 
 ```mlog
-let command = "start"
-match command {
-  "start" then { print("starting") }
-  starts_with "stop" then { print("stopping") }
-  contains "help" then { print("helping") }
-  > 100.0 then { print("too big") }
-  else { print("unknown") }
+pattern Demo() -> String {
+  let command = "start"
+  match command {
+    "start" then { print("starting") }
+    starts_with "stop" then { print("stopping") }
+    contains "help" then { print("helping") }
+    > 100.0 then { print("too big") }
+    else { print("unknown") }
+  }
+  return command
 }
 ```
 
 ### Return
 
 ```mlog
-let result = "done"
-return result
+pattern Demo() -> String {
+  let result = "done"
+  return result
+}
 ```
 
 ### Try
 
 ```mlog
-let result = try risky_operation()
+pattern risky_operation() -> String {
+  return "ok"
+}
+
+pattern Demo() -> String {
+  let result = try risky_operation()
+  return result
+}
 ```
 
 ## Expressions

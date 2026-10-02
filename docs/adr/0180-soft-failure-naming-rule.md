@@ -1,6 +1,7 @@
 # ADR-0180: The Soft-Failure Naming Rule — "Silence Is Visible in the Name"
 
-- Status: ACCEPTED (implemented by №481 env/env_or, №507 read_file_or, №514 to_float/to_int loud + to_float_or/to_int_or)
+**Status:** ACCEPTED — implemented by №481 env/env_or, №507 read_file_or, №514 to_float/to_int loud + to_float_or/to_int_or
+
 - Date: 2026-09-29
 - driven by: №514 (gh#798); the consolidated audit 28.09 C-10; the №481 precedent (audit 25.09 §3.9)
 

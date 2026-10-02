@@ -218,7 +218,7 @@ real ADRs (№309/№320/№412) before the booking.
 | 0174 | Directed audio effects (`listen`/`speak`) and the duplex channel — barge-in over the session priority ladder | Accepted |
 | 0175 | The tick context — the cron dispatch executes in the program context | Accepted |
 | 0176 | The plan-v2 memory contract — the SSOT of the memory surface | Accepted |
-| 0177 | The domain freeze until 0.27 — no new subsystems, the core first | Lifted 2026-09-27 — the owner's decision (gh#680, 5851623870) |
+| 0177 | The domain freeze until 0.27 — no new subsystems, the core first | Lifted |
 | 0178 | The generative contour boundary — experimental, scoped, exit-ready | Accepted |
-| 0179 | The 0.28 release gate — the absolute-goals criteria (v2) | PROPOSED (the executor's draft per №509; the parameters are the owner's to fix) |
-| 0180 | The soft-failure naming rule — "silence is visible in the name" (`*_or`), the silent/loud inventory | Accepted (№481 + №507 + №514) |
+| 0179 | The 0.28 Release Gate — the Absolute-Goals Criteria (v2) | PROPOSED |
+| 0180 | The Soft-Failure Naming Rule — "Silence Is Visible in the Name" | ACCEPTED |

@@ -1,6 +1,7 @@
 # ADR-0179: The 0.28 Release Gate — the Absolute-Goals Criteria (v2)
 
-- Status: PROPOSED (the executor's draft per №509; the PARAMETERS are the owner's to fix — §3)
+**Status:** PROPOSED — the executor's draft per №509 (the parameters are the owner's to fix — §3)
+
 - Date: 2026-09-29
 - driven by: №509 (gh#792); the audit 28.09 §4 + §3.4п3; supersedes the gate mechanics of ADR-0177 §6 for the 0.28 release (ADR-0177 stays the history and the §4 ratchets remain in force)
 

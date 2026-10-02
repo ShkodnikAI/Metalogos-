@@ -1,6 +1,6 @@
 # ADR-0177: The domain freeze until 0.27 — no new subsystems, the core first
 
-**Status:** **Lifted — the owner's explicit unfreeze decision**
+**Status:** Lifted — the owner's explicit unfreeze decision
 (gh#680, the lift record comment 5851623870, 2026-09-27; the owner
 directive received via the office channel, trace_id
 `1a0e06d976daf0c9`: the lift is recorded by the owner's publication in

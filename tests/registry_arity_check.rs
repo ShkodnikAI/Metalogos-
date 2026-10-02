@@ -105,8 +105,9 @@ fn registry_arity_exhaustive() {
         ("dict_values", 1, 1),
         // ── Web builtins ──
         ("respond", 1, 2),
-        // №523: the spec follows the implementation — respond_html(status, html)
-        ("respond_html", 2, 2),
+        // #892: the contract is restored — 1 arg (office corpus form) or
+        // 2 args (documented (status, html) OR office (title, body)).
+        ("respond_html", 1, 2),
         ("form_data", 1, 1),
         ("query_param", 1, 1),
         ("render", 2, 3),

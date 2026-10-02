@@ -221,11 +221,11 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("dict_keys", 1, "json"; builtin_dict_keys),
     spec!("dict_values", 1, "json"; builtin_dict_values), // ── Web builtins ──
     spec!("respond", 1, 2, "web"; builtin_respond),
-    // №523: the spec is 2 — the implementation (builtins/http.rs
-    // builtin_respond_html) requires (status, html); the 1 here was
-    // stale and the №523 run gate surfaced it (examples/p_p01 calls
-    // with 2 on every line).
-    spec!("respond_html", 2, "web"; builtin_respond_html),
+    // №523: the spec followed the then-implementation (status, html) — and
+    // broke the 1-arg office corpus form (issue #892: 500 on every HTML route).
+    // #892 restores the full contract: 1 arg (office form) / 2 args (documented
+    // (status, html) OR office (title, body) — the builtin disambiguates).
+    spec!("respond_html", 1, 2, "web"; builtin_respond_html),
     spec!("form_data", 1, "web"; builtin_form_data),
     spec!("json_body", 0, "web"; builtin_json_body),
     spec!("query_param", 1, "web"; builtin_query_param),

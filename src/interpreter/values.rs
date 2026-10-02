@@ -74,9 +74,14 @@ pub enum Value {
     /// Opaque session data (Phase 6.5)
     Session(std::collections::HashMap<String, String>),
     /// HTTP response value (Phase 6.1)
+    /// #892: optional explicit content type — `respond_html` carries
+    /// `text/html; charset=utf-8` so the server no longer serves HTML
+    /// bodies as text/plain (the axum default for a bare String body).
+    /// `None` keeps the historical default (respond(): text/plain).
     HttpResponse {
         status: u16,
         body: String,
+        content_type: Option<String>,
     },
     /// Graph subgraph — opaque first-class graph value (V3).
     /// Contains a serializable GraphSnapshot that can be passed between functions.

@@ -67,18 +67,119 @@ pub(crate) fn builtin_respond(args: &[Value]) -> Result<Value, String> {
         let status_body = expect_string_arg("respond", args, 0)?;
         parse_status_line(&status_body)
     };
-    Ok(Value::HttpResponse { status, body })
+    Ok(Value::HttpResponse {
+        status,
+        body,
+        content_type: None,
+    })
 }
 
-/// respond_html(status, html) — respond with HTML content.
-/// In server context, value_to_response converts HttpResponse to Axum response.
-/// The Html variant would auto-set Content-Type, but FOSVED uses respond_html("200", ...)
-/// with return, so HttpResponse is the correct type here — the server sets Content-Type.
+// ── Issue #892 — the respond_html contract restored ────────────────────
+// The 0.27.x regression: the registry spec demanded 2 args while the whole
+// FOSVED office corpus calls the 1-arg form (→ 500 "requires an argument at
+// position 1"), and the 2-arg form treated the first argument as an HTTP
+// status, silently dropping the office's (title, body) title and serving
+// the body as text/plain (the axum default for a bare String body — the
+// old doc comment claimed "the server sets Content-Type", it never did).
+//
+// The restored contract (all forms carry `text/html; charset=utf-8`):
+//   1. `respond_html(html)` — the office corpus form: the whole argument
+//      is the body, status 200 (the №493 respond(<body>) precedent).
+//   2. `respond_html(status, html)` — the REFERENCE.md documented form:
+//      when the first argument's first whitespace-separated token parses
+//      as a u16 in 100..=599 ("200", "404 Not Found"), it is the status
+//      and the second argument is the body VERBATIM (no wrapping).
+//   3. `respond_html(title, body)` — the office (title, body) shape: when
+//      the first argument is not a status, it is a heading fragment —
+//      both arguments land in a full HTML document (the title is rendered
+//      at the top of <body> verbatim AND tag-stripped into <head><title>;
+//      it is not dropped).
+// Status-vs-title precedence is documented: a bare numeric title inside
+// 100..=599 ("404") reads as the legacy status form — the documented
+// contract wins over the pathological title.
+const RESPOND_HTML_CT: &str = "text/html; charset=utf-8";
+
+/// True when the string opens with a valid HTTP status token ("200",
+/// "200 OK", "404 Not Found") — the documented respond_html(status, html)
+/// first argument. "2001" (out of range) and "<h1>T</h1>" are not statuses.
+fn looks_like_http_status(s: &str) -> bool {
+    match s.split_whitespace().next() {
+        Some(tok) => tok
+            .parse::<u16>()
+            .map(|code| (100..=599).contains(&code))
+            .unwrap_or(false),
+        None => false,
+    }
+}
+
+/// Strip HTML tags for the <head><title> text of the (title, body) document
+/// form ("<h1>Заголовок</h1>" → "Заголовок"). Entities are left as-is — the
+/// title fragment is authored HTML, not untrusted input (escape happens in
+/// render/escape_html when the author needs it).
+fn strip_html_tags_for_title(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut in_tag = false;
+    for ch in s.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            c if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    out.trim().to_string()
+}
+
+/// Full HTML document for the (title, body) form: the title lands both in
+/// <head><title> (tag-stripped, escaped) and at the top of <body> verbatim.
+fn build_html_document(title: &str, body: &str) -> String {
+    let plain_title = crate::builtins::string::escape_html_chars(&strip_html_tags_for_title(title));
+    format!(
+        "<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n<title>{}</title>\n</head>\n<body>\n{}\n{}\n</body>\n</html>\n",
+        plain_title, title, body
+    )
+}
+
+/// respond_html — issue #892 contract (see the block comment above).
+/// In server context, value_to_response converts HttpResponse to an Axum
+/// response honoring the value's content_type (text/html — not the axum
+/// String default text/plain that broke the office pages).
 pub(crate) fn builtin_respond_html(args: &[Value]) -> Result<Value, String> {
-    let status_str = expect_string_arg("respond_html", args, 0)?;
-    let html = expect_string_arg("respond_html", args, 1)?;
-    let (status, _) = parse_status_line(&status_str);
-    Ok(Value::HttpResponse { status, body: html })
+    match args.len() {
+        0 => Err("respond_html() requires an argument at position 0".to_string()),
+        1 => {
+            let html = expect_string_arg("respond_html", args, 0)?;
+            Ok(Value::HttpResponse {
+                status: 200,
+                body: html,
+                content_type: Some(RESPOND_HTML_CT.to_string()),
+            })
+        }
+        _ => {
+            let first = expect_string_arg("respond_html", args, 0)?;
+            let html = expect_string_arg("respond_html", args, 1)?;
+            if looks_like_http_status(&first) {
+                // Form 2: the legacy documented (status, html) — body verbatim.
+                let status = first
+                    .split_whitespace()
+                    .next()
+                    .and_then(|tok| tok.parse::<u16>().ok())
+                    .unwrap_or(200);
+                Ok(Value::HttpResponse {
+                    status,
+                    body: html,
+                    content_type: Some(RESPOND_HTML_CT.to_string()),
+                })
+            } else {
+                // Form 3: the office (title, body) — full HTML document.
+                Ok(Value::HttpResponse {
+                    status: 200,
+                    body: build_html_document(&first, &html),
+                    content_type: Some(RESPOND_HTML_CT.to_string()),
+                })
+            }
+        }
+    }
 }
 
 pub(crate) fn builtin_form_data(args: &[Value]) -> Result<Value, String> {

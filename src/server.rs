@@ -2911,9 +2911,13 @@ async fn execute_route_body_vm(
     match result {
         Ok(val) => {
             // Check if the result is an HttpResponse (from respond())
-            if let Value::HttpResponse { status, body } = val {
-                let code = StatusCode::from_u16(status).unwrap_or(StatusCode::OK);
-                return Ok((code, body).into_response());
+            if let Value::HttpResponse {
+                status,
+                body,
+                content_type,
+            } = val
+            {
+                return Ok(http_response_into_response(status, body, content_type));
             }
             // For other value types, convert like the interpreter does
             Ok(value_to_response(val))
@@ -2997,12 +3001,34 @@ fn parse_audit_entry(entry: &str) -> (String, Option<String>, Option<String>) {
     }
 }
 
+/// #892: convert an HttpResponse value to an Axum response honoring the
+/// value's explicit content_type (respond_html carries text/html) instead
+/// of silently defaulting every String body to text/plain (the axum
+/// default that broke the office HTML pages).
+fn http_response_into_response(
+    status: u16,
+    body: String,
+    content_type: Option<String>,
+) -> Response {
+    let code = StatusCode::from_u16(status).unwrap_or(StatusCode::OK);
+    let mut resp = (code, body).into_response();
+    if let Some(ct) = content_type {
+        // An invalid header value falls back to the historical default
+        // rather than failing the request.
+        if let Ok(v) = header::HeaderValue::from_str(&ct) {
+            resp.headers_mut().insert(header::CONTENT_TYPE, v);
+        }
+    }
+    resp
+}
+
 fn value_to_response(val: Value) -> Response {
     match val {
-        Value::HttpResponse { status, body } => {
-            let code = StatusCode::from_u16(status).unwrap_or(StatusCode::OK);
-            (code, body).into_response()
-        }
+        Value::HttpResponse {
+            status,
+            body,
+            content_type,
+        } => http_response_into_response(status, body, content_type),
         Value::Html(html) => AxumHtml(html).into_response(),
         Value::String(s) => (StatusCode::OK, s).into_response(),
         Value::Unit => StatusCode::OK.into_response(),
@@ -3211,6 +3237,60 @@ mod tests {
     use super::*;
 
     // ── Phase 6 tests (unchanged) ──
+
+    // ── #892: value_to_response honors the HttpResponse content_type ──
+
+    #[test]
+    fn n892_value_to_response_honors_html_content_type() {
+        let resp = value_to_response(Value::HttpResponse {
+            status: 200,
+            body: "<p>Тело</p>".to_string(),
+            content_type: Some("text/html; charset=utf-8".to_string()),
+        });
+        let ct = resp
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert_eq!(
+            ct, "text/html; charset=utf-8",
+            "#892: respond_html must serve text/html"
+        );
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn n892_value_to_response_default_stays_text_plain() {
+        // respond() carries content_type: None — the historical default
+        // (axum String body → text/plain) is preserved.
+        let resp = value_to_response(Value::HttpResponse {
+            status: 200,
+            body: "plain".to_string(),
+            content_type: None,
+        });
+        let ct = resp
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert_eq!(ct, "text/plain; charset=utf-8");
+    }
+
+    #[test]
+    fn n892_http_response_custom_status_is_kept() {
+        let resp = http_response_into_response(
+            404,
+            "<p>missing</p>".to_string(),
+            Some("text/html; charset=utf-8".to_string()),
+        );
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+        let ct = resp
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert_eq!(ct, "text/html; charset=utf-8");
+    }
 
     #[test]
     fn test_escape_html_prevents_xss() {
@@ -4330,9 +4410,13 @@ mlogserver {
             flush_vm_audit_entries_to_db(state, &audit_entries).await;
             match result {
                 Ok(val) => {
-                    if let crate::interpreter::Value::HttpResponse { status, body } = val {
-                        let code = StatusCode::from_u16(status).unwrap_or(StatusCode::OK);
-                        Ok((code, body).into_response())
+                    if let crate::interpreter::Value::HttpResponse {
+                        status,
+                        body,
+                        content_type,
+                    } = val
+                    {
+                        Ok(http_response_into_response(status, body, content_type))
                     } else {
                         Ok(value_to_response(val))
                     }
@@ -4510,9 +4594,13 @@ mlogserver {
         flush_vm_audit_entries_to_db(state, &audit_entries).await;
         match result {
             Ok(val) => {
-                if let crate::interpreter::Value::HttpResponse { status, body } = val {
-                    let code = StatusCode::from_u16(status).unwrap_or(StatusCode::OK);
-                    Ok((code, body).into_response())
+                if let crate::interpreter::Value::HttpResponse {
+                    status,
+                    body,
+                    content_type,
+                } = val
+                {
+                    Ok(http_response_into_response(status, body, content_type))
                 } else {
                     Ok(value_to_response(val))
                 }

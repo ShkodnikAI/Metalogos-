@@ -4,6 +4,28 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Issue #892 fix (prod regression, the FOSVED-office-v2 FORGE pages 500/404
+  on 0.27.x): the `respond_html` contract is restored — all three forms in
+  one builtin. `respond_html(html)` (the 1-arg office corpus form) is legal
+  again — the registry/semantic spec drops №523's hard 2 back to 1..2, so
+  `mlog check` no longer rejects every office HTML route and the runtime no
+  longer 500s with "requires an argument at position 1". The 2-arg form
+  disambiguates by fact: when the first argument opens with a valid HTTP
+  status token ("200", "404 Not Found") it stays the documented
+  `(status, html)` form with the body VERBATIM; otherwise it is the office's
+  `(title, body)` shape — a full HTML document is built, the title lands
+  tag-stripped in `<head><title>` AND verbatim at the top of `<body>` (it is
+  not dropped anymore). Every form now serves `Content-Type: text/html;
+  charset=utf-8`: `Value::HttpResponse` carries an optional `content_type`
+  (None keeps the historical `respond()` text/plain default) and the server
+  honors it (`value_to_response` + both VM serve paths share the new
+  `http_response_into_response`) — the axum String-body text/plain default
+  that actually broke the office pages no longer applies to HTML responses.
+  REFERENCE.md §4.13 + the web table document the three forms; contract
+  pinned by `tests/n892_respond_html_contract.rs` (12 tests: all three
+  forms, status-vs-title precedence, out-of-range numbers stay titles,
+  semantic 1-arg pass / 3-arg fail, registry arity) and 3 server.rs unit
+  tests (content-type header, the None default, custom status).
 - Naryad №545 stage 1 (issue #883; Wave 24, P1; the №472 roadmap,
   decision 2-B; docs/refactoring-split-plan.md): the crate-stub of the
   reflex domain lands as a workspace member — `metalogos-reflex`

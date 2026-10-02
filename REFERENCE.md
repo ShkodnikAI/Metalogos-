@@ -1100,7 +1100,7 @@ Functions for use inside route handlers of `mlogserver`/`server` blocks.
 | Function | Signature | Return | Description |
 |---------|-----------|---------|----------|
 | `respond(status_line)` | `String -> HttpResponse` | HttpResponse | Builds an HTTP response. Format: `"200 OK"`, `"404 Not Found"`, etc. |
-| `respond_html(status, html)` | `String, String -> HttpResponse` | HttpResponse | An HTML response with the given status |
+| `respond_html(html)` / `respond_html(status, html)` / `respond_html(title, body)` | `String -> HttpResponse`; `String, String -> HttpResponse` | HttpResponse | Three forms (#892). **1-arg:** the whole argument is the HTML body, status 200. **2-arg, first arg is a status** (opens with "200", "404 Not Found", …): the legacy documented form — the second argument is the body VERBATIM. **2-arg, first arg is not a status:** the (title, body) form — a full HTML document is built (the title renders at the top of `<body>` verbatim and tag-stripped into `<head><title>`). All three serve `Content-Type: text/html; charset=utf-8` |
 | `form_data()` | `-> Struct {FormData}` | Struct | Parses data from an `application/x-www-form-urlencoded` request body |
 | `json_body()` | `-> Struct {JsonBody}` | Struct | Parses JSON from the request body |
 | `query_param(name)` | `String -> String` | String | Gets a query parameter from the URL. `curl "localhost:8080/search?q=hello" -> query_param("q") == "hello"`. An empty string if the parameter is absent. Percent-decoding: RFC 3986 bytes reassembled as UTF-8 (`%D0%B6` → `"ж"`), `+` → space (form-urlencoded convention), invalid escapes pass through literally, invalid UTF-8 is lossy — see the §4.13 note (Naryad #257) |
@@ -1116,7 +1116,7 @@ mlogserver {
   route "/api/data" method=POST {
     let data = json_body()
     let name = json_get(data, "name", "unknown")
-    respond_html("200", "<h1>Hello " + escape_html(name) + "</h1>")
+    respond_html("<h1>Hello " + escape_html(name) + "</h1>")
   }
   route "/search" method=GET {
     let q = query_param("q")
@@ -2863,7 +2863,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `request_body(...)` | variadic | — | `json_body()` / `request_body()` — raw body of the current route request, parsed as JSON into a `Dict` Struct; `request_body` is the explicit-name alias. Result carries `UserInput` taint (untrusted request data). |
 | `require(...)` | 1..2 | `Bool -> Unit` | A runtime assertion. Errors if `false` |
 | `respond(...)` | 1..2 | `String -> HttpResponse` | Builds an HTTP response. Format: `"200 OK"`, `"404 Not Found"`, etc. |
-| `respond_html(...)` | 1 | `String, String -> HttpResponse` | An HTML response with the given status |
+| `respond_html(...)` | 1..2 | `String -> HttpResponse`; `String, String -> HttpResponse` | Three forms (#892): `respond_html(html)` — body verbatim, status 200; `respond_html(status, html)` — when the first arg opens with an HTTP status token ("200", "404 Not Found", …), the body is verbatim; `respond_html(title, body)` — otherwise a full HTML document is built (title in `<head><title>` and at the top of `<body>`). All forms: `Content-Type: text/html; charset=utf-8` |
 | `server_path_param(...)` | 1 | — | `server_path_param(name)` — stub that returns empty string (Наряд №283). Real implementation is handled in interpreter.rs and vm.rs FnCall dispatch (needs access to server_path_params HashMap on the runtime context — same pattern as `query_param`). Returns empty string when no templated route matched (static route, or no server context). |
 | `weather(...)` | 2 | — | `weather(city_or_lat, lon?)` — current weather via Open-Meteo (FREE, no API key). `weather("Minsk")` or `weather(53.9, 27.57)`. Returns Struct {temp, feels_like, temp_min, temp_max, humidity, description, wind_speed, wind_direction, pressure, cloud_cover, is_day, city, country}. |
 | `weather_forecast(...)` | 1..3 | — | `weather_forecast(city_or_lat, lon?, days?)` — multi-day forecast via Open-Meteo (FREE, no API key). `weather_forecast("Minsk", 7)` or `weather_forecast(53.9, 27.57, 3)`. Default: 7 days. Max: 16 days. Returns List of DayForecast structs. |

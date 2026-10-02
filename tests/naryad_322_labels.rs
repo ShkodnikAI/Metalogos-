@@ -264,21 +264,27 @@ fn n322_duplicate_components_are_loud() {
 
 #[test]
 fn n322_legacy_taint_projection_is_additive_and_total() {
-    // The five legacy kinds project; unknown names do not.
-    for kind in [
-        "LlmOutput",
-        "Secret",
-        "UserInput",
-        "Sanitized",
-        "CanaryLeak",
-    ] {
+    // The legacy kinds project; unknown names do not.
+    // №544 step 1: "Secret" retired from the table — the secret lane's
+    // projection is the TYPE-LAYER label now
+    // (secret_label::secret_source_type == Labeled(String, Private),
+    // the same conf=private of ADR-0154 §2, carried by the type).
+    assert!(legacy_taint_label("Secret").is_none());
+    let secret_ty = metalogos::secret_label::secret_source_type();
+    assert_eq!(
+        secret_ty,
+        metalogos::builtins::sig_types::Type::Labeled(
+            Box::new(metalogos::builtins::sig_types::Type::String),
+            metalogos::builtins::sig_types::Label::Private
+        )
+    );
+    for kind in ["LlmOutput", "UserInput", "Sanitized", "CanaryLeak"] {
         let l = legacy_taint_label(kind).unwrap_or_else(|| panic!("{kind} must project"));
         assert!(!l.to_string().is_empty());
     }
     assert!(legacy_taint_label("Nonexistent").is_none());
 
     // Spot-check the semantic of the mapping (ADR-0154 §5).
-    assert_eq!(legacy_taint_label("Secret").unwrap().conf, Conf::Private);
     assert_eq!(
         legacy_taint_label("CanaryLeak").unwrap().conf,
         Conf::Poisoned

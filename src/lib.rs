@@ -21,6 +21,9 @@ pub mod audit;
 pub mod audit_ops;
 pub mod builtins;
 pub mod secret_label;
+// №544 (gh#882) step 2: the SQL lane's label semantics — the leaf module
+// the audit's check_sql_dynamic consumes (the Labeled migration).
+pub mod sql_label;
 // Naryad #475 (issue #723): the filesystem FACADE — every program-
 // influenced file operation enters here (the №455 gate + the hard
 // write-deny + the serve data-dir containment); the clippy.toml

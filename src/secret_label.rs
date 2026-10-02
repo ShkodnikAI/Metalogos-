@@ -15,9 +15,11 @@
 //! (`render` / `escape_html`), `redact` lifts it exactly when the
 //! policy is one-way (the redact-policy registry, ADR-0136 D2), and
 //! the sink check asks the TYPE question. The lanes of the other audit
-//! classes (LlmOutput / UserInput / CanaryLeak) stay on the taint
-//! machinery until their own migration steps (step 2: SQL_DYNAMIC,
-//! step 3: HTML_INJECTION).
+//! classes: SQL_DYNAMIC is typed since №544 step 2 (its own leaf
+//! `sql_label.rs` — the derivation marker `Labeled(String, Internal)`,
+//! the sink demanding the literal template); LlmOutput / UserInput /
+//! CanaryLeak stay on the taint machinery until their own migration
+//! step (step 3: HTML_INJECTION).
 
 use std::collections::HashMap;
 
@@ -51,9 +53,10 @@ use crate::builtins::sig_types::{Label, Type};
 // comparison. The OBSERVABLE behavior — which programs are flagged,
 // severities, messages, line resolution, the leak-suite corpus parity —
 // is unchanged and pinned by the existing suites; the MECHANISM is the
-// type. The lanes of the other audit classes (LlmOutput / UserInput /
-// CanaryLeak) stay on the taint machinery until their own migration
-// steps (step 2: SQL_DYNAMIC, step 3: HTML_INJECTION).
+// type. The lanes of the other audit classes: SQL_DYNAMIC is typed
+// since №544 step 2 (its own leaf `sql_label.rs`); LlmOutput /
+// UserInput / CanaryLeak stay on the taint machinery until their own
+// migration step (step 3: HTML_INJECTION).
 
 /// The type of a secret source: `env()` / `secret()` produce a private
 /// string — the canonical labeled type of the secret lane.

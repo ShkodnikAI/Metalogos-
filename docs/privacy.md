@@ -74,17 +74,20 @@ a fresh random 96-bit nonce per write, the self-contained
 (`src/voice/store.rs:39, 536–588`). A keyless or short-key save is
 fail-closed (`[VOICE_INSECURE_STORE]`, store.rs:217–229); a legacy
 pre-№517 row is never silently decrypted (`[VOICEPRINT_STALE]`, store.rs:289–298);
-a wrong key refuses at the GCM auth tag (`[VOICEPRINT_DECRYPT]`, store.rs:598–670).
+a wrong key (or a legacy №517-era row after the v0.28.0 deadline) refuses at
+the GCM auth tag (`[VOICEPRINT_DECRYPT]`, store.rs:605–664).
 Since №527 the ciphertext is BOUND TO ITS SUBJECT: every write carries the GCM
 AAD = (subject_id, registry, schema version) (`src/voice/store.rs:50–73`) — a
 blob transplanted onto another subject's row fails authentication (the swap
 attack the bare tag accepted is closed), and the decoded key buffer lives under
-`Zeroizing` (wiped at the operation's scope exit). The №517-era rows (empty
-AAD) stay readable in the announced transition window: every such read emits
-`[VOICEPRINT_NO_AAD_LEGACY]` on stderr and surfaces the honest
-`VoiceprintCryptoStatus::LegacyNoAad` flag through `load_voiceprint_with_status`
-(`store.rs:269–340`); every write is AAD-bound, so the legacy population only
-shrinks (the deadline row lives in limitations.md — the №524 rule).
+`Zeroizing` (wiped at the operation's scope exit). The №517-era transition
+window (empty-AAD rows readable with a loud warning) CLOSED at v0.28.0, as the
+limitations.md deadline row required (the №524 rule): the transitional
+empty-AAD decrypt fallback and the `VoiceprintCryptoStatus::LegacyNoAad` flag
+are removed — a legacy №517-era row now refuses with the single coded
+`[VOICEPRINT_DECRYPT]` refusal through both load entry points, and the only
+path back is re-enroll/re-save (`store.rs:262–340`); every write was
+AAD-bound since №527, so the legacy population only shrank toward the deadline.
 
 **The PARTIAL caveat, stated twice on purpose:**
 

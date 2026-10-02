@@ -4,6 +4,29 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №527-closure (issue #836; the №524 deadline rule; the v0.28.0
+  release-train companion): the deadline EXECUTES — the transitional
+  empty-AAD decrypt fallback is REMOVED from
+  `decrypt_voiceprint_with_status` (`src/voice/store.rs`). A №517-era
+  legacy voiceprint row (empty AAD) now refuses with the single coded
+  `[VOICEPRINT_DECRYPT]` refusal through BOTH load entry points — the
+  same loud GCM-auth failure as a wrong key; nothing is returned,
+  nothing leaks — and the only path back is re-enroll/re-save (every
+  write was AAD-bound since №527, so the legacy population only shrank
+  toward this moment). The transitional
+  `VoiceprintCryptoStatus::LegacyNoAad` flag is removed together with
+  the fallback it reported (the status enum keeps `AadBound`; the
+  mock-skeleton path is out of the migration and keeps the pre-№527
+  shape). The limitations.md transition row CLOSES in the same PR (the
+  №524 rule); privacy.md §2.1 carries the closed window with refreshed
+  anchors. The swap-attack surface (the empty-AAD tag validating any
+  permutation of the ciphertext) is no longer reachable through a read.
+  Contracts: tests/naryad_527_voice_aad.rs — T2 flips to the refusal
+  shape (the legacy row refuses both entry points after the deadline),
+  T3 keeps the re-save-rebinds story behind a loud first refusal, T4's
+  wrong-key refusal is unchanged; the swap refusal (T1) and the
+  fresh-write binding (T5) are untouched.
+
 - Naryad №544 (issue #882; Wave 24, P1, compiler/security; stage 2 of the
   type system, №467 canon — the three audit classes on
   `Labeled(Box<Type>, Label)`, executed behind the ADR-0179 gate in three

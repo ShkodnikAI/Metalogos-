@@ -25,12 +25,14 @@
 // fails authentication (the swap attack the bare tag accepted). The
 // key material is wiped under Zeroizing (the decoded 32-byte buffer's
 // lifetime is the single operation). The storage schema and the algo
-// mark are UNTOUCHED (the №527 boundary): legacy №517 rows (empty AAD)
-// stay readable in the announced transition window — every such read
-// announces [VOICEPRINT_NO_AAD_LEGACY] on stderr and the honest crypto
-// status (LegacyNoAad) is surfaced through load_voiceprint_with_status;
-// every WRITE is AAD-bound, so the legacy population only shrinks.
-// The deadline row lives in docs/limitations.md (the №524 rule).
+// mark are UNTOUCHED (the №527 boundary). The №517-era transition
+// window (empty-AAD rows readable with a loud [VOICEPRINT_NO_AAD_LEGACY]
+// announcement) CLOSED at v0.28.0 (the №524 rule): the fallback and the
+// LegacyNoAad flag are removed — a legacy row refuses
+// [VOICEPRINT_DECRYPT], re-enroll/re-save to migrate;
+// every WRITE is AAD-bound, so the legacy population only shrank toward
+// that moment. The closure record lives in docs/limitations.md (the №524
+// rule).
 
 use rusqlite::Connection;
 use std::sync::Mutex;
@@ -42,23 +44,21 @@ pub(crate) const VOICEPRINT_ALGO_INSECURE_MOCK: &str = "INSECURE-XOR-MOCK";
 
 /// №527: the schema-version component of the AAD triplet. NOT the schema
 /// `algo` mark (the №527 boundaries keep the storage schema untouched):
-/// rows carrying the same algo mark can be AAD-bound (№527-era writes) or
-/// legacy no-AAD (№517-era writes) — the discriminator is the GCM
-/// authentication itself (try-bound first, then the loud transitional
-/// fallback), because a blob that authenticates only under the empty AAD
-/// IS a legacy row by construction.
+/// rows carrying the same algo mark are AAD-bound (№527-era writes; the
+/// №517-era no-AAD rows refuse since the v0.28.0 deadline removed the
+/// transitional fallback — the discriminator is the GCM authentication
+/// itself, and a blob that fails under its subject AAD is a refusal,
+/// not a legacy read).
 pub(crate) const VOICEPRINT_AAD_SCHEMA: &str = "voiceprints-aad-v1";
 
-/// №527: the transitional crypto status of a loaded voiceprint — the
-/// "переходный флаг" of the AAD migration, observable by the caller.
+/// №527 → the v0.28.0 deadline: the crypto status of a loaded voiceprint.
+/// The transitional flag (`LegacyNoAad`) is REMOVED with the fallback it
+/// reported — every successful load is subject-bound.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VoiceprintCryptoStatus {
     /// The row is AAD-bound to its subject (№527): a swapped or misplaced
     /// ciphertext fails GCM authentication.
     AadBound,
-    /// A legacy №517 row (encrypted with an empty AAD) — readable only in
-    /// the announced transition window, with a loud warning on every read.
-    LegacyNoAad,
 }
 
 /// №527: the AAD = (subject_id, registry, schema version) — the ordered
@@ -258,14 +258,15 @@ impl VoiceStore {
             .map(|(embedding, model, _status)| (embedding, model))
     }
 
-    /// №527: the status-returning load — the third element is the honest
-    /// crypto status of the row ([`VoiceprintCryptoStatus`]): `AadBound`
-    /// for №527-era rows (the subject-bound ciphertext), `LegacyNoAad`
-    /// for №517-era rows read in the transition window (every such read
-    /// also announces [VOICEPRINT_NO_AAD_LEGACY] on stderr — the flag and
-    /// the warning are the observable pair, the caller decides on the
-    /// re-enroll). The write path is always AAD-bound, so `LegacyNoAad`
-    /// can only shrink to zero — the deadline lives in limitations.md.
+    /// №527 → the v0.28.0 deadline: the status-returning load — the third
+    /// element is the honest crypto status of the row
+    /// ([`VoiceprintCryptoStatus`]): `AadBound` for every SUCCESSFUL load
+    /// (the №527 subject-bound ciphertext). The `LegacyNoAad` flag is
+    /// REMOVED with the transitional fallback it reported (the v0.28.0
+    /// deadline, the №524 rule) — a №517-era legacy row refuses with the
+    /// single coded [VOICEPRINT_DECRYPT] refusal; the only path back is
+    /// re-enroll/re-save (the write path is always AAD-bound, so the
+    /// legacy population only shrank toward this moment).
     pub fn load_voiceprint_with_status(
         &self,
         name: &str,
@@ -301,7 +302,7 @@ impl VoiceStore {
                 // The mock row is out of the AAD migration entirely (it
                 // never held real biometric persistence — №512), so the
                 // crypto status is meaningless there; the load keeps the
-                // pre-№527 shape and never reports LegacyNoAad for it.
+                // pre-№527 shape and always reports AadBound for it.
                 (self.insecure_restore(&stored, name), VoiceprintCryptoStatus::AadBound)
             }
             Some(VOICEPRINT_ALGO_AES_GCM) => {
@@ -594,14 +595,13 @@ fn encrypt_voiceprint(data: &[u8], key_hex: &str, name: &str) -> Result<Vec<u8>,
     Ok(blob)
 }
 
-/// AES-256-GCM decrypt a stored voiceprint blob (№517 → №527). A wrong key
-/// or a corrupted blob refuses LOUDLY ([VOICEPRINT_DECRYPT] — the GCM auth
-/// tag does not lie). №527: the status-returning core of the transitional
-/// decrypt — the bound attempt (the №527 AAD) first; if it fails, the
-/// transitional empty-AAD attempt (the №517-era rows) succeeds ONLY for a
-/// genuinely legacy blob, announcing [VOICEPRINT_NO_AAD_LEGACY] on stderr
-/// and reporting [`VoiceprintCryptoStatus::LegacyNoAad`]. A wrong key fails
-/// BOTH attempts — the single coded refusal, nothing leaks.
+/// AES-256-GCM decrypt a stored voiceprint blob (№517 → №527). A wrong key,
+/// a corrupted blob, or a legacy №517-era row refuses LOUDLY
+/// ([VOICEPRINT_DECRYPT] — the GCM auth tag does not lie). The v0.28.0
+/// deadline (the №524 rule) removed the transitional empty-AAD attempt:
+/// only the subject-bound composition authenticates, and the only path
+/// back for a legacy row is re-enroll/re-save (every write is AAD-bound
+/// since №527). Nothing leaks — one coded refusal for every failure.
 fn decrypt_voiceprint_with_status(
     blob: &[u8],
     key_hex: &str,
@@ -642,34 +642,24 @@ fn decrypt_voiceprint_with_status(
     let (nonce_bytes, ciphertext) = blob.split_at(12);
     let nonce = Nonce::try_from(nonce_bytes)
         .map_err(|_| format!("voiceprint '{}': nonce conversion failed", name))?;
-    // Attempt 1: the №527 subject-bound composition.
-    if let Ok(plaintext) = cipher.decrypt(
+    // The v0.28.0 deadline (№527; the №524 rule): the transitional
+    // empty-AAD attempt is REMOVED — a №517-era legacy row refuses with
+    // the single coded [VOICEPRINT_DECRYPT] refusal, the same loud
+    // failure as a wrong key; nothing is returned, nothing leaks. The
+    // only path back is re-enroll/re-save (the write path is always
+    // AAD-bound).
+    match cipher.decrypt(
         &nonce,
         Payload {
             msg: ciphertext,
             aad: &voiceprint_aad(name),
         },
     ) {
-        return Ok((plaintext, VoiceprintCryptoStatus::AadBound));
-    }
-    // Attempt 2: the transitional legacy read (the №517-era empty AAD).
-    // Success here means the row IS a legacy row by construction (a bound
-    // blob never authenticates without its AAD); the swap of a legacy blob
-    // onto another name still authenticates — that residue is exactly what
-    // the transition window is for, and it announces itself loudly on
-    // EVERY read until the deadline removes the fallback.
-    match cipher.decrypt(&nonce, ciphertext) {
-        Ok(plaintext) => {
-            eprintln!(
-                "[VOICEPRINT_NO_AAD_LEGACY] voiceprint '{}': the row is a legacy №517 blob (no AAD subject binding) — readable in the transition window only; re-enroll or re-save to bind it (№527; the deadline: docs/limitations.md)",
-                name
-            );
-            Ok((plaintext, VoiceprintCryptoStatus::LegacyNoAad))
-        }
+        Ok(plaintext) => Ok((plaintext, VoiceprintCryptoStatus::AadBound)),
         Err(_) => Err(crate::interpreter::values::coded_error(
             crate::interpreter::values::CODE_VOICEPRINT_DECRYPT,
             format!(
-                "voiceprint '{}': AES-256-GCM authentication FAILED — wrong key or corrupted data; nothing is returned (№517)",
+                "voiceprint '{}': AES-256-GCM authentication FAILED — wrong key, corrupted data, or a legacy №517 row (the empty-AAD fallback was removed at v0.28.0 — re-enroll the speaker); nothing is returned (№517/№527)",
                 name
             ),
         )),

@@ -24,5 +24,9 @@
 # The dependency lock (the supply-chain fact itself):
 Cargo.lock @ShkodnikAI
 # The CI threshold gates and their checked-in baselines
-# (№462 dup-names, №463 stop-list, №467 type-share, №468 debt, №469 risk):
+# (the dedup family: №462 dup-names, №484 ops-pairs (gh#732), №502
+# vm-mirror (gh#785); №463 stop-list, №467 type-share, №468 debt,
+# №469 risk; №472 core→media (gh#693), №482 unfreeze (gh#730), №497
+# badge sync, №505 naryad-number, №525 gate-facts, №529 registry-bounds,
+# №535 blocking-checks — the enumeration mirrors docs/maintainers.md):
 scripts/ci/ @ShkodnikAI

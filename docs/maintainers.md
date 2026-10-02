@@ -17,8 +17,15 @@ supply-chain perimeter, defined in `.github/CODEOWNERS` as:
   RUSTSEC exception);
 - `Cargo.lock` — the dependency lock (the supply-chain fact itself);
 - `scripts/ci/**` — the threshold gates and their checked-in baselines
-  (the №462 dup-names gate, the №463 generative stop-list, the №467
-  type-share floor, the №468 debt gate, the №469 risk-review script).
+  (the dedup family: the №462 dup-names gate, the №484 ops-pair gate
+  (gh#732), the №502 vm-mirror gate (gh#785); the №463 generative
+  stop-list, the №467 type-share floor, the №468 debt gate, the №469
+  risk-review script; the №472 core→media ban (gh#693), the №482
+  unfreeze-gate summary (gh#730), the №497 badge sync, the №505
+  naryad-number check, the №525 gate-facts sync, the №529
+  registry-bounds gate, the №535 blocking-checks sync — the blocking
+  table `blocking_checks.tsv` is the machine-read record of what
+  blocks).
 
 The perimeter is FROZEN at this list: it does not grow with the codebase.
 Everything outside it (the core, the domains, the docs) stays the
@@ -40,11 +47,16 @@ owner's lane — the second maintainer has no veto there.
 
 ## Onboarding (the first week, in order)
 
-1. Read this document, `.github/CODEOWNERS`, and the five threshold
-   gates listed above (each gate's baseline header explains its
-   only-down / only-up rule).
+1. Read this document, `.github/CODEOWNERS`, and the threshold gates
+   listed above (each gate's baseline header explains its
+   only-down / only-up rule; `blocking_checks.tsv` records what
+   blocks).
 2. Run the gates locally: `python3 scripts/ci/count_duplicated_names.py
    --gate scripts/ci/tw_vm_dup_names_baseline.txt`,
+   `python3 scripts/ci/ops_pair_counter.py --gate
+   scripts/ci/ops_pair_baseline.txt`,
+   `python3 scripts/ci/mirror_counter.py --gate
+   scripts/ci/vm_mirror_baseline.txt`,
    `scripts/ci/type_signature_share.py --gate ...`,
    `scripts/ci/debt_counters.py --gate ...`,
    `scripts/ci/generative_stop_list_gate.py` and

@@ -301,87 +301,23 @@ fn is_untrusted_frame_expr(expr: &Expr, tracker: &TaintTracker) -> bool {
     get_expr_taint(expr, tracker) == Some(TaintKind::UserInput)
 }
 
-/// Maximum nesting depth for `expr_is_llm_tainted` recursion.
-/// Баунделенная константа — prevent stack overflow on deeply nested
-/// expressions. Громкое примечание при превышении — анализ отказывается
-/// идти глубже, но это не crash, и documented в README "Known boundaries".
-/// Наряд №295 (issue #359): was single-level (depth=1), now 3.
-const TAINT_NESTING_MAX_DEPTH: usize = 3;
-
-/// Check whether an expression carries LLM-output taint.
-/// Handles both variable references (via tracker) and direct LLM
-/// function calls (call_llm / call_claude / reflex_generate) without
-/// an intermediate variable binding.
-///
-/// Наряд №295 (issue #359): was single-level nesting only (`FnCall { name: "call_llm", .. }`
-/// matched directly; `upper(call_llm(...))` did NOT match because the outer
-/// FnCall name was "upper"). Now bounded-recursive up to
-/// `TAINT_NESTING_MAX_DEPTH = 3` — catches `respond(upper(upper(call_llm(...))))`
-/// and equivalent chains. Sanitizers (`render`/`escape_html`) at any depth
-/// return false (taint lifted) — zero false positives on legitimate code.
-///
-/// Interprocedural analysis (across pattern-call boundaries) is a separate
-/// check (`check_taint_interp_pattern`, Наряд №292).
-fn expr_is_llm_tainted(expr: &Expr, tracker: &TaintTracker) -> bool {
-    expr_is_llm_tainted_bounded(expr, tracker, 0)
-}
-
-fn expr_is_llm_tainted_bounded(expr: &Expr, tracker: &TaintTracker, depth: usize) -> bool {
-    if depth > TAINT_NESTING_MAX_DEPTH {
-        // Громкое примечание не выдается здесь (return false) — README
-        // "Known boundaries" документирует границу. Interprocedural
-        // taint (TAINT_INTERP, Наряд №292) ловит через summary-based analysis.
-        return false;
-    }
-    match expr {
-        Expr::Ident { name, .. } => tracker.get_taint(name) == Some(TaintKind::LlmOutput),
-        Expr::FnCall { name, args, .. } => {
-            // Direct LLM source — return true regardless of depth.
-            if is_llm_source(name) {
-                return true;
-            }
-            // Sanitizers lift the taint — render()/escape_html() at any depth.
-            if name == "render" || name == "escape_html" {
-                return false;
-            }
-            // Recurse into args — bounded nesting. Any arg that's
-            // LLM-tainted (directly or through a bounded sub-chain) → true.
-            args.iter()
-                .any(|arg| expr_is_llm_tainted_bounded(arg, tracker, depth + 1))
-        }
-        // BinaryOp / IfElse / List / FieldAccess / IndexAccess — recurse
-        // into sub-expressions (mirrors `get_expr_taint` propagation).
-        Expr::BinaryOp { left, right, .. } => {
-            expr_is_llm_tainted_bounded(left, tracker, depth + 1)
-                || expr_is_llm_tainted_bounded(right, tracker, depth + 1)
-        }
-        Expr::IfElse {
-            condition,
-            then_branch,
-            else_branch,
-            ..
-        } => {
-            expr_is_llm_tainted_bounded(condition, tracker, depth + 1)
-                || expr_is_llm_tainted_bounded(then_branch, tracker, depth + 1)
-                || expr_is_llm_tainted_bounded(else_branch, tracker, depth + 1)
-        }
-        Expr::List { items, .. } => items
-            .iter()
-            .any(|item| expr_is_llm_tainted_bounded(item, tracker, depth + 1)),
-        Expr::FieldAccess { object, .. } => expr_is_llm_tainted_bounded(object, tracker, depth + 1),
-        Expr::IndexAccess { object, index, .. } => {
-            expr_is_llm_tainted_bounded(object, tracker, depth + 1)
-                || expr_is_llm_tainted_bounded(index, tracker, depth + 1)
-        }
-        // Literals, struct literals, etc. — never LLM-tainted directly.
-        _ => false,
-    }
-}
+// №544 step 3 (gh#882): the HTML lane's walk moved to the type system —
+// `src/html_label.rs` carries the two mirrored walks (the binding-level
+// sources and the depth-bounded sink question) over the label
+// environment (`Labeled(String, Untrusted)` for the LLM output; the
+// UserInput kinds mirror as `Labeled(String, Private)` — silent at this
+// lane's sink). The taint machinery below stays for the checks that
+// have not migrated (TAINT_PERSISTENCE, CANARY_LEAK, TAINT_INTERP, the
+// UserInput lane).
 
 /// Returns true if the function name is a known LLM output source.
 /// Наряд №201: reflex_generate produces untrusted output (model trained
 /// on data that may include LLM-tainted content per ADR-0117), so its
 /// output is treated as LlmOutput for HTML_INJECTION purposes.
+/// №544 step 3: the HTML_INJECTION check itself moved to the typed lane
+/// (`src/html_label.rs`, the sink-level source set lives there); this
+/// helper STAYS for the not-yet-migrated taint checks (№141/№386
+/// TAINT_PERSISTENCE, the passthrough collector).
 fn is_llm_source(name: &str) -> bool {
     matches!(name, "call_llm" | "call_claude" | "reflex_generate")
 }
@@ -1139,6 +1075,15 @@ fn check_csrf(declarations: &[Declaration], source: &str, findings: &mut Vec<Aud
 
 // ── Check: HTML_INJECTION — LLM output in respond() without template ──
 
+/// Check that respond()/respond_html() arguments carry no LLM-output
+/// label. №544 step 3: the HTML lane is typed — the state is the label
+/// environment (variable → its label-carrying type) and the sink
+/// question is [`crate::html_label::sink_arg_is_untrusted`]; the
+/// binding updates go through [`crate::html_label::binding_label`]. The
+/// walk topology, the source sets (both of them — the binding-level and
+/// the sink-level, quirks included), the depth bound (№295) and the
+/// findings (Warning, message, line) are the exact mirror of the old
+/// taint machinery — the observable behavior is unchanged.
 fn check_html_injection(
     declarations: &[Declaration],
     source: &str,
@@ -1163,7 +1108,7 @@ fn check_html_injection(
 
     fn check_respond_for_html(
         expr: &Expr,
-        tracker: &TaintTracker,
+        html_vars: &std::collections::HashMap<String, Type>,
         learnable_names: &std::collections::HashSet<String>,
         source: &str,
         findings: &mut Vec<AuditFinding>,
@@ -1177,13 +1122,13 @@ fn check_html_injection(
             if fn_name == "respond" || fn_name == "respond_html" {
                 for arg in args {
                     // Наряд №123: catch both variable references
-                    // (tracker) and direct nested LLM calls
+                    // (the label environment) and direct nested LLM calls
                     // (e.g. respond(call_llm(...))).
                     // Наряд №201: also catch calls to learnable patterns
                     // (their output is untrusted per ADR-0117).
-                    if expr_is_llm_tainted(arg, tracker)
-                        || expr_is_learnable_tainted(arg, learnable_names)
-                    {
+                    // №544 step 3: the question is the LABEL — does the
+                    // argument carry Labeled(_, Untrusted)?
+                    if crate::html_label::sink_arg_is_untrusted(arg, html_vars, learnable_names) {
                         let line = find_line(source, "respond");
                         findings.push(AuditFinding {
                             severity: Severity::Warning,
@@ -1197,80 +1142,69 @@ fn check_html_injection(
         }
     }
 
-    /// Check if an expression is a direct call to a learnable pattern.
-    fn expr_is_learnable_tainted(
-        expr: &Expr,
-        learnable_names: &std::collections::HashSet<String>,
-    ) -> bool {
-        match expr {
-            Expr::FnCall { name, .. } => learnable_names.contains(name),
-            _ => false,
-        }
-    }
-
-    /// Analyze a list of statements for LLM→respond taint flow.
+    /// Analyze a list of statements for LLM→respond label flow.
     fn analyze_scope(
         stmts: &[Statement],
         learnable_names: &std::collections::HashSet<String>,
         source: &str,
         findings: &mut Vec<AuditFinding>,
     ) {
-        let mut tracker = TaintTracker::new();
+        // №544 step 3: the HTML lane's label environment (variable → its
+        // label-carrying type) — the typed replacement of the per-scope
+        // taint tracker this check used before.
+        let mut html_vars: std::collections::HashMap<String, Type> =
+            std::collections::HashMap::new();
 
         fn process_stmt(
             stmt: &Statement,
-            tracker: &mut TaintTracker,
+            html_vars: &mut std::collections::HashMap<String, Type>,
             learnable_names: &std::collections::HashSet<String>,
             source: &str,
             findings: &mut Vec<AuditFinding>,
         ) {
             match stmt {
                 Statement::LetBinding { name, value, .. } => {
-                    // Check if this let-binding calls respond() with tainted args
-                    check_respond_for_html(value, tracker, learnable_names, source, findings);
-                    // Наряд №201: calls to learnable patterns produce LlmOutput taint.
-                    if let Expr::FnCall { name: fn_name, .. } = value {
-                        if learnable_names.contains(fn_name) {
-                            tracker.taint(name, TaintKind::LlmOutput);
-                            return;
+                    // Check if this let-binding calls respond() with labeled args
+                    check_respond_for_html(value, html_vars, learnable_names, source, findings);
+                    // №544 step 3: the label follows the binding (or is
+                    // dropped when the initializer proves nothing — the
+                    // honesty rule). The direct sources (learnable
+                    // patterns №201, call_llm/call_claude/call_llm_schema/
+                    // reflex_generate), the sanitizers and the user-form
+                    // kinds mirror the old binding_taint arms exactly.
+                    match crate::html_label::binding_label(value, html_vars, learnable_names) {
+                        Some(ty) => {
+                            html_vars.insert(name.clone(), ty);
                         }
-                    }
-                    // Propagate taint from expression (handles both direct
-                    // function calls and variable references)
-                    if let Some(taint) = binding_taint(value, tracker) {
-                        tracker.taint(name, taint);
-                    } else {
-                        // Reassignment to a clean literal clears taint
-                        tracker.untaint(name);
+                        None => {
+                            html_vars.remove(name);
+                        }
                     }
                 }
                 Statement::Assign { name, value, .. } => {
-                    if let Expr::FnCall { name: fn_name, .. } = value {
-                        if learnable_names.contains(fn_name) {
-                            tracker.taint(name, TaintKind::LlmOutput);
-                            return;
+                    match crate::html_label::binding_label(value, html_vars, learnable_names) {
+                        Some(ty) => {
+                            html_vars.insert(name.clone(), ty);
                         }
-                    }
-                    if let Some(taint) = binding_taint(value, tracker) {
-                        tracker.taint(name, taint);
-                    } else {
-                        tracker.untaint(name);
+                        None => {
+                            html_vars.remove(name);
+                        }
                     }
                 }
                 Statement::ExprStmt { expr, .. } => {
-                    check_respond_for_html(expr, tracker, learnable_names, source, findings);
+                    check_respond_for_html(expr, html_vars, learnable_names, source, findings);
                 }
                 Statement::Return { value: expr, .. } => {
-                    check_respond_for_html(expr, tracker, learnable_names, source, findings);
+                    check_respond_for_html(expr, html_vars, learnable_names, source, findings);
                 }
                 Statement::Each { body, .. } => {
                     for s in body {
-                        process_stmt(s, tracker, learnable_names, source, findings);
+                        process_stmt(s, html_vars, learnable_names, source, findings);
                     }
                 }
                 Statement::While { body, .. } => {
                     for s in body {
-                        process_stmt(s, tracker, learnable_names, source, findings);
+                        process_stmt(s, html_vars, learnable_names, source, findings);
                     }
                 }
                 Statement::IfElseBlock {
@@ -1280,22 +1214,22 @@ fn check_html_injection(
                     ..
                 } => {
                     for s in then_body {
-                        process_stmt(s, tracker, learnable_names, source, findings);
+                        process_stmt(s, html_vars, learnable_names, source, findings);
                     }
                     for (_, body) in else_ifs {
                         for s in body {
-                            process_stmt(s, tracker, learnable_names, source, findings);
+                            process_stmt(s, html_vars, learnable_names, source, findings);
                         }
                     }
                     if let Some(body) = else_body {
                         for s in body {
-                            process_stmt(s, tracker, learnable_names, source, findings);
+                            process_stmt(s, html_vars, learnable_names, source, findings);
                         }
                     }
                 }
                 Statement::IfThen { body, .. } => {
                     for s in body {
-                        process_stmt(s, tracker, learnable_names, source, findings);
+                        process_stmt(s, html_vars, learnable_names, source, findings);
                     }
                 }
                 _ => {}
@@ -1303,7 +1237,7 @@ fn check_html_injection(
         }
 
         for stmt in stmts {
-            process_stmt(stmt, &mut tracker, learnable_names, source, findings);
+            process_stmt(stmt, &mut html_vars, learnable_names, source, findings);
         }
     }
 

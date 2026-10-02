@@ -4,6 +4,51 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №544 (issue #882; Wave 24, P1, compiler/security; stage 2 of the
+  type system, №467 canon — the three audit classes on
+  `Labeled(Box<Type>, Label)`, executed behind the ADR-0179 gate in three
+  sub-PRs): the stage-2 migration is COMPLETE — SECRET_LEAK, SQL_DYNAMIC
+  and HTML_INJECTION speak the stage-0 label vocabulary, the bespoke
+  verdict logic is gone from all three lanes. SECRET_LEAK (№544.1, PR
+  #900): a secret source (`env()`/`secret()`) is
+  `Labeled(String, Private)` (`src/secret_label.rs`); the label joins
+  through composition, sanitizers strip it, `redact` lifts it exactly on
+  the one-way policy (ADR-0136 D2); `TaintKind::Secret` is deleted from
+  the enum (consumers 7 → 0). SQL_DYNAMIC (№544.2, PR #901): the literal
+  string IS the SQL template (the unlabeled `String`), every derived
+  string carries `Labeled(String, Internal)` (`src/sql_label.rs`);
+  `Private` when a secret part joined in; the two parity type rules —
+  concatenation is derivation itself (a `BinaryOp` never yields the
+  literal type) and a binding demotes the literal (a variable reference
+  is never a literal). HTML_INJECTION (№544.3, PR #902): an LLM-output
+  source is `Labeled(String, Untrusted)` — the third stage-0 label
+  (`src/html_label.rs`); the UserInput kinds mirror as
+  `Labeled(String, Private)` (silent at this lane's sink, №268); both
+  mirrored walks keep the pinned quirks — the wider binding-level source
+  set (call_llm_schema flags via a binding), the depth-bounded sink walk
+  (№295, `TAINT_NESTING_MAX_DEPTH = 3`), the direct-only learnable
+  match; sanitizers lift at any depth; `redact` passes through (masking
+  is not channel sanitization). All three walks are LEAF modules (the C4
+  acyclicity ratchet sees no new intra-cycle edge); the walk topologies,
+  messages, severities, line resolutions and the №98 compile-time
+  refusals are the exact mirrors — the observable behavior is unchanged
+  and pinned (leak suite, n172/n274/n292/n322/n325/n386/n455, №123/№201/
+  №268/№295, the n98 golden, the №465 diff-fuzzer 9/9 on every step; the
+  full 280-file integration sweep green). Audit-surface measure (the
+  honest, FINAL one): step 3 alone slimmed audit.rs by −128/+62 (net
+  −66: the HTML tracker, the bounded walker and the learnable matcher
+  left the file; the remaining taint machinery serves only the
+  not-migrated checks); across the whole stage 2 audit.rs moved 7756 →
+  7796 (+40 — the walk plumbing and the env threading), while the three
+  manual per-class contours were REPLACED by one-line typed questions
+  and the lane semantics moved to three typed leaf modules (secret_label
+  190 / sql_label 163 / html_label 268 lines); the bespoke verdict
+  consumers: 0 (`TaintKind::Secret` deleted, the syntactic SQL match
+  deleted, the HTML tracker deleted). Contracts: tests/n544_step1_secret_label.rs (8),
+  tests/n544_step2_sql_label.rs (10), tests/n544_step3_html_label.rs (10)
+  — the mechanism surfaces + the end-to-end parity shapes + the №98
+  compile-time classes.
+
 - Issue #892 fix (prod regression, the FOSVED-office-v2 FORGE pages 500/404
   on 0.27.x): the `respond_html` contract is restored — all three forms in
   one builtin. `respond_html(html)` (the 1-arg office corpus form) is legal

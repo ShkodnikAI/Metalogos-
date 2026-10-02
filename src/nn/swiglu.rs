@@ -41,7 +41,6 @@
 
 #![cfg(feature = "candle")]
 
-use crate::interpreter::Value;
 use crate::nn::sequence_layer::SequenceLayer;
 // Reuse the project's PRNG (kept in attention.rs as the canonical home for
 // `generate_uniform_f32`; documented public there in Наряд №184).
@@ -198,44 +197,6 @@ impl SequenceLayer for SwiGlu {
     }
 }
 
-/// Build function for the SEQUENCE_LAYER_REGISTRY.
-///
-/// Args: `(dim, ff_dim)`. Both are required — no defaults, to keep
-/// the declaration explicit (consistent with Attention's `(heads, dim)`
-/// API from Наряд №183).
-pub fn build_swiglu(args: &[Value], seed: u64) -> Result<Box<dyn SequenceLayer>, String> {
-    if args.len() != 2 {
-        return Err(format!(
-            "swiglu: expected 2 args (dim, ff_dim), got {}",
-            args.len()
-        ));
-    }
-    let dim = parse_usize_arg(&args[0], "swiglu", "dim")?;
-    let ff_dim = parse_usize_arg(&args[1], "swiglu", "ff_dim")?;
-    let layer = SwiGlu::new(dim, ff_dim, seed)?;
-    Ok(Box::new(layer))
-}
-
-// ── helpers (local; mirror rmsnorm.rs's local copies) ─────────────────
-
 fn map_err<T, E: std::fmt::Display>(r: Result<T, E>, ctx: &str) -> Result<T, String> {
     r.map_err(|e| format!("{}: {}", ctx, e))
-}
-
-fn parse_usize_arg(v: &Value, layer: &str, name: &str) -> Result<usize, String> {
-    match v {
-        Value::Float(n) => Ok(*n as usize),
-        Value::String(s) => s.parse::<usize>().map_err(|_| {
-            format!(
-                "{}: {} must be a positive integer, got '{}'",
-                layer, name, s
-            )
-        }),
-        other => Err(format!(
-            "{}: {} must be a number, got {}",
-            layer,
-            name,
-            other.type_name()
-        )),
-    }
 }

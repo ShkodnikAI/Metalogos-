@@ -20,6 +20,11 @@ pub mod dense;
 /// Feature-gated behind `candle`.
 #[cfg(feature = "candle")]
 pub mod gen_model;
+/// №545 (б): the reflex model HANDLE CONTRACTS — the DbAccess №484
+/// seam. This file stays in the language crate across the №545 (в)
+/// move: the contract belongs to the consumer.
+#[cfg(feature = "candle")]
+pub mod handles;
 pub mod layer;
 pub mod loss;
 pub mod metric;
@@ -37,6 +42,12 @@ pub mod seq_model;
 /// Feature-gated behind `candle` — separate scope from initial Reflex rollout.
 #[cfg(feature = "candle")]
 pub mod sequence_layer;
+/// №545 (б): the check-time spec surface — the SEQUENCE_LAYER_REGISTRY
+/// and the Value-arg builders. The LANGUAGE side of the crate seam:
+/// the machinery moves toward the reflex crate, the Value marshaling
+/// stays with the language (the DbAccess №484 principle).
+#[cfg(feature = "candle")]
+pub mod sequence_spec;
 pub mod serde_weights;
 /// Наряд №184 (Block 2): SwiGLU feedforward as SequenceLayer.
 #[cfg(feature = "candle")]
@@ -59,10 +70,13 @@ pub use dense::Dense;
 pub use layer::{Layer, LayerSpec, LAYER_REGISTRY};
 pub use metric::{compute_accuracy, find_metric, metric_names, MetricSpec, METRIC_REGISTRY};
 // Наряд №183: re-export SequenceLayer types when candle feature is on.
+// №545 (б): the spec surface (registry + builders) moved to
+// sequence_spec; the public paths are preserved.
 #[cfg(feature = "candle")]
-pub use sequence_layer::{
-    find_sequence_layer_spec, sequence_layer_names, SequenceLayer, SequenceLayerSpec,
-    SEQUENCE_LAYER_REGISTRY,
+pub use sequence_layer::SequenceLayer;
+#[cfg(feature = "candle")]
+pub use sequence_spec::{
+    find_sequence_layer_spec, sequence_layer_names, SequenceLayerSpec, SEQUENCE_LAYER_REGISTRY,
 };
 
 /// Opaque handle to a Reflex model in the registry.
@@ -86,8 +100,13 @@ pub struct ReflexId(pub usize);
 #[cfg(feature = "candle")]
 pub enum ModelKind {
     Dense(ReflexModel),
-    Sequence(crate::nn::seq_model::ReflexSeqModel),
-    Gen(crate::nn::gen_model::ReflexGenModel),
+    /// №545 (б): the payload goes through the HANDLE CONTRACT (the
+    /// DbAccess №484 precedent) — the registry holds the model without
+    /// naming the concrete machinery type beyond the construction
+    /// boundary, and the physical crate split (№545 (в)) moves the
+    /// machinery without touching the consumers.
+    Sequence(Box<dyn crate::nn::handles::SequenceModelHandle>),
+    Gen(Box<dyn crate::nn::handles::GenModelHandle>),
 }
 
 /// Non-candle fallback — only Dense models can exist when candle is off.
@@ -385,7 +404,10 @@ impl ReflexRegistry {
     /// Наряд №185: new path — separate from `register`, doesn't touch
     /// the dense path.
     #[cfg(feature = "candle")]
-    pub fn register_seq(&mut self, model: crate::nn::seq_model::ReflexSeqModel) -> ReflexId {
+    pub fn register_seq(
+        &mut self,
+        model: Box<dyn crate::nn::handles::SequenceModelHandle>,
+    ) -> ReflexId {
         let id = ReflexId(self.models.len());
         self.models.push(ModelKind::Sequence(model));
         id
@@ -394,7 +416,7 @@ impl ReflexRegistry {
     /// Register a Gen model, return its handle.
     /// Наряд №193: new path — separate from `register`/`register_seq`.
     #[cfg(feature = "candle")]
-    pub fn register_gen(&mut self, model: crate::nn::gen_model::ReflexGenModel) -> ReflexId {
+    pub fn register_gen(&mut self, model: Box<dyn crate::nn::handles::GenModelHandle>) -> ReflexId {
         let id = ReflexId(self.models.len());
         self.models.push(ModelKind::Gen(model));
         id
@@ -467,16 +489,16 @@ impl std::fmt::Debug for ReflexRegistry {
                     #[cfg(feature = "candle")]
                     ModelKind::Sequence(m) => format!(
                         "{}(seq, {} layers, metric={:?})",
-                        m.name,
-                        m.seq_layers.len(),
-                        m.last_metric
+                        m.name(),
+                        m.seq_layer_count(),
+                        m.last_metric()
                     ),
                     #[cfg(feature = "candle")]
                     ModelKind::Gen(m) => format!(
                         "{}(gen, {} layers, vocab={})",
-                        m.name,
-                        m.seq_layers.len(),
-                        m.vocab_size
+                        m.name(),
+                        m.seq_layer_count(),
+                        m.vocab_size()
                     ),
                 })
                 .collect::<Vec<_>>()

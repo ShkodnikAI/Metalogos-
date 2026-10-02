@@ -40,7 +40,6 @@
 
 #![cfg(feature = "candle")]
 
-use crate::interpreter::Value;
 use crate::nn::sequence_layer::SequenceLayer;
 
 use candle_core::Tensor;
@@ -142,55 +141,5 @@ impl SequenceLayer for TransformerBlock {
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
-    }
-}
-
-/// Build function for the SEQUENCE_LAYER_REGISTRY.
-///
-/// Args: `(heads, dim, ff_dim)`. All three are required — no defaults.
-///
-/// Matches the naryad spec's example:
-/// ```text
-/// reflex_seq TinyTransformer {
-///   input: embedding(64)
-///   seq_len: 16
-///   layers: [transformer_block(4, 64, 256)]
-///   seed: 42
-/// }
-/// ```
-pub fn build_transformer_block(
-    args: &[Value],
-    seed: u64,
-) -> Result<Box<dyn SequenceLayer>, String> {
-    if args.len() != 3 {
-        return Err(format!(
-            "transformer_block: expected 3 args (heads, dim, ff_dim), got {}",
-            args.len()
-        ));
-    }
-    let heads = parse_usize_arg(&args[0], "transformer_block", "heads")?;
-    let dim = parse_usize_arg(&args[1], "transformer_block", "dim")?;
-    let ff_dim = parse_usize_arg(&args[2], "transformer_block", "ff_dim")?;
-    let layer = TransformerBlock::new(heads, dim, ff_dim, seed)?;
-    Ok(Box::new(layer))
-}
-
-// ── helpers (local; mirror rmsnorm.rs / swiglu.rs) ─────────────────────
-
-fn parse_usize_arg(v: &Value, layer: &str, name: &str) -> Result<usize, String> {
-    match v {
-        Value::Float(n) => Ok(*n as usize),
-        Value::String(s) => s.parse::<usize>().map_err(|_| {
-            format!(
-                "{}: {} must be a positive integer, got '{}'",
-                layer, name, s
-            )
-        }),
-        other => Err(format!(
-            "{}: {} must be a number, got {}",
-            layer,
-            name,
-            other.type_name()
-        )),
     }
 }

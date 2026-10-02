@@ -53,22 +53,12 @@
 // with a clean error message naming the missing feature.
 #![cfg(feature = "candle")]
 
-use crate::interpreter::Value;
-
-/// Type alias for the build function signature.
-/// Takes `&[Value]` (the same shape as `LayerSpec::build` from наряд №178)
-/// so the grammar's `layer_spec = { IDENT ~ "(" ~ args ")" }` works
-/// uniformly for both registries.
-pub type SequenceLayerBuildFn =
-    fn(args: &[Value], seed: u64) -> Result<Box<dyn SequenceLayer>, String>;
-
-/// A sequence-processing layer — operates on `[seq_len, hidden_dim]`
-/// tensors (per `ADR-0119`).
-///
-/// Distinct from `Layer` (наряд №178, single `&[f64]` input):
-/// attention fundamentally operates on a *sequence* of vectors —
-/// self-attention computes relationships *between* positions, which
-/// the single-vector signature cannot express.
+/// NOTE (№545 б): the SEQUENCE_LAYER_REGISTRY, the `SequenceLayerSpec`
+/// type and the `build_*` Value-arg builders now live in
+/// `crate::nn::sequence_spec` — the check-time LANGUAGE surface stays
+/// in the language crate while the machinery moves toward the reflex
+/// crate (the №545 split, issue #883). This file keeps the
+/// machinery-side trait only.
 pub trait SequenceLayer: Send + Sync + std::any::Any {
     /// Forward pass: input tensor → output tensor.
     ///
@@ -97,62 +87,4 @@ pub trait SequenceLayer: Send + Sync + std::any::Any {
     /// Upcast to `Any` for downcasting to concrete types (Attention, etc.)
     /// — same pattern as `Layer::as_any` (наряд №178).
     fn as_any(&self) -> &dyn std::any::Any;
-}
-
-/// Specification for a sequence-layer type — analogous to `LayerSpec`
-/// (наряд №178). The registry is the single source of truth for
-/// available sequence-layer types.
-pub struct SequenceLayerSpec {
-    /// Layer type name (e.g. "attention", "rmsnorm" in future naryads).
-    pub name: &'static str,
-    /// Parameter names in order (e.g. `&["heads", "dim"]`).
-    /// Used for error messages and documentation.
-    pub param_names: &'static [&'static str],
-    /// Build function: takes Value args + seed, returns a boxed SequenceLayer.
-    /// The seed is for deterministic weight init (xorshift64 from наряд №177,
-    /// reused so the same declaration with the same seed always produces
-    /// the same forward-pass result — Наряд №183 Contract 5).
-    pub build: SequenceLayerBuildFn,
-}
-
-/// The sequence-layer registry — extensible without grammar changes
-/// (ADR-0114 addendum principle, applied to the new category).
-///
-/// Наряд №183 shipped `attention`. Наряд №184 adds `rms_norm`,
-/// `swiglu`, and `transformer_block`. Future naryads may add GQA if/when
-/// authorized.
-pub static SEQUENCE_LAYER_REGISTRY: &[SequenceLayerSpec] = &[
-    SequenceLayerSpec {
-        name: "attention",
-        param_names: &["heads", "dim", "kv_heads?"],
-        build: crate::nn::attention::build_attention,
-    },
-    // Наряд №184 (Block 1): RmsNorm.
-    SequenceLayerSpec {
-        name: "rms_norm",
-        param_names: &["dim", "eps?"],
-        build: crate::nn::rmsnorm::build_rmsnorm,
-    },
-    // Наряд №184 (Block 2): SwiGLU feedforward.
-    SequenceLayerSpec {
-        name: "swiglu",
-        param_names: &["dim", "ff_dim"],
-        build: crate::nn::swiglu::build_swiglu,
-    },
-    // Наряд №184 (Block 3): full transformer block.
-    SequenceLayerSpec {
-        name: "transformer_block",
-        param_names: &["heads", "dim", "ff_dim"],
-        build: crate::nn::transformer_block::build_transformer_block,
-    },
-];
-
-/// Look up a sequence-layer spec by name. Returns None if not found.
-pub fn find_sequence_layer_spec(name: &str) -> Option<&'static SequenceLayerSpec> {
-    SEQUENCE_LAYER_REGISTRY.iter().find(|s| s.name == name)
-}
-
-/// List all registered sequence-layer names (for error messages).
-pub fn sequence_layer_names() -> Vec<&'static str> {
-    SEQUENCE_LAYER_REGISTRY.iter().map(|s| s.name).collect()
 }

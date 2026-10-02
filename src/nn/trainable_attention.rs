@@ -36,7 +36,6 @@
 
 #![cfg(feature = "candle")]
 
-use crate::interpreter::Value;
 use crate::nn::attention::generate_uniform_f32;
 use crate::nn::sequence_layer::SequenceLayer;
 
@@ -661,68 +660,4 @@ impl SequenceLayer for TrainableAttention {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-}
-
-/// Build function — accepts same args as `build_attention` (Наряд №188:
-/// heads, dim, [kv_heads]). Takes the `VarMap` (not VarBuilder) so it can
-/// register the Vars manually with deterministic init values.
-///
-/// Наряд №190: `prefix` parameter makes each layer in a stack register
-/// its weights under unique VarMap names (avoids collision).
-pub fn build_trainable_attention(
-    args: &[Value],
-    seed: u64,
-    var_map: &candle_nn::VarMap,
-    prefix: &str,
-) -> Result<Box<dyn SequenceLayer>, String> {
-    if args.len() != 2 && args.len() != 3 {
-        return Err(format!(
-            "trainable_attention: expected 2 args (heads, dim) or 3 args (heads, dim, kv_heads), got {}",
-            args.len()
-        ));
-    }
-    let heads = match &args[0] {
-        Value::Float(n) => *n as usize,
-        Value::String(s) => s
-            .parse::<usize>()
-            .map_err(|_| format!("trainable_attention: heads must be integer, got '{}'", s))?,
-        other => {
-            return Err(format!(
-                "trainable_attention: heads must be a number, got {}",
-                other.type_name()
-            ))
-        }
-    };
-    let dim = match &args[1] {
-        Value::Float(n) => *n as usize,
-        Value::String(s) => s
-            .parse::<usize>()
-            .map_err(|_| format!("trainable_attention: dim must be integer, got '{}'", s))?,
-        other => {
-            return Err(format!(
-                "trainable_attention: dim must be a number, got {}",
-                other.type_name()
-            ))
-        }
-    };
-    // Наряд №188: optional 3rd arg — n_kv_heads for GQA.
-    let n_kv_heads = if args.len() == 3 {
-        match &args[2] {
-            Value::Float(n) => *n as usize,
-            Value::String(s) => s.parse::<usize>().map_err(|_| {
-                format!("trainable_attention: kv_heads must be integer, got '{}'", s)
-            })?,
-            other => {
-                return Err(format!(
-                    "trainable_attention: kv_heads must be a number, got {}",
-                    other.type_name()
-                ))
-            }
-        }
-    } else {
-        heads
-    };
-    let attn =
-        TrainableAttention::new_with_kv_heads(heads, n_kv_heads, dim, seed, var_map, prefix)?;
-    Ok(Box::new(attn))
 }

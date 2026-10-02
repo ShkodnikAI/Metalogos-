@@ -6,6 +6,25 @@ All notable changes to the Metalogos project.
 
 _The 0.29 cycle opens here — the wave-25 P1/P2 entries land below (the 0.28.0 tag is the owner's gate, gh#911 №550)._
 
+- Naryad №552 (issue #913; Wave 25, P0, the pre-release block; the
+  audit 02.10 M-2 step 3 + the §7.3 tail): the respond_html
+  Content-Type contract is pinned ON THE WIRE —
+  `tests/naryad_892_respond_html_content_type.rs` boots a real HTTP
+  server (`run_test_server_with_backend_state_in_dir`) and asserts the
+  served `content-type` starts with `text/html` for ALL THREE contract
+  forms (the 1-arg office corpus form, the (status, html) form with
+  the requested status on the wire, the (title, html) document form)
+  on BOTH serve backends (the VM serve default and the TW opt-out,
+  the №496 one-fn pattern). The original gh#892 defect was exactly
+  the server-level shape this test pins (the String body served as
+  text/plain) — the builtin-level n892 contract alone could not see
+  it. The test BITES: the mutation check (a route returning the bare
+  String) fails with the regression-class message. The blocking
+  integration lane picks the file up automatically (the tests/
+  convention). Boundaries: the gh#899 contract is the SSOT, nothing
+  changed — test protection only (the explicit-forms evolution is
+  №565).
+
 - Naryad №551 (issue #912; Wave 25, P0, the pre-release block; the
   audit 02.10 M-1 + §6.2): the merge-freeze rule is written and the
   divergence audit is machine-checked. `docs/maintainers.md` gains the

@@ -39,12 +39,19 @@
 /// The confidentiality-label vocabulary of stage 0 (the audit §4.4:
 /// "метки Internal/Private" — the two labels the typed-signature lane
 /// needs; the full №322 label algebra stays in `src/labels.rs`).
+/// №544 step 3 (gh#882): the stage-2 HTML lane adds the third label —
+/// `Untrusted` marks model-generated text (ADR-0117: the LLM output is
+/// untrusted content; egress through respond() is gated by the
+/// HTML_INJECTION check, sanitizers strip it).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Label {
     /// The value may move inside the trust boundary only.
     Internal,
     /// The value is user data / a secret — egress is gated (№325 lane).
     Private,
+    /// №544 step 3: the value is model/user-generated content — untrusted
+    /// text; sanitize (render/escape_html) before the HTML egress.
+    Untrusted,
 }
 
 impl Label {
@@ -53,6 +60,7 @@ impl Label {
         match self {
             Label::Internal => "internal",
             Label::Private => "private",
+            Label::Untrusted => "untrusted",
         }
     }
 }
@@ -258,6 +266,7 @@ pub fn parse_type(s: &str) -> Type {
             let label = match label_body {
                 "private" => Some(Label::Private),
                 "internal" => Some(Label::Internal),
+                "untrusted" => Some(Label::Untrusted),
                 _ => None,
             };
             if let Some(label) = label {

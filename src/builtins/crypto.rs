@@ -279,7 +279,7 @@ pub(crate) fn builtin_hex_decode(args: &[Value]) -> Result<Value, String> {
 //     immediately, not only when bound to a Secret-typed entity).
 //
 // `binding_taint` in `src/audit.rs` treats `"secret"` the same as
-// `"env"` — both taint the result as `TaintKind::Secret`, so
+// `"env"` — both carry the private label `Labeled(String, Private)` (№544), so
 // `respond(secret("KEY"))` triggers `SECRET_LEAK` at compile time.
 /// `secret(key)` — reads an environment variable as an OPAQUE `Value::Secret`:
 /// hard-failure when the variable is missing, the value never prints,

@@ -492,9 +492,6 @@ impl Label {
 /// Rationale:
 /// - `LlmOutput` is meant for display (no conf concern) but is the
 ///   HTML_INJECTION vector — its problem is integrity, not secrecy.
-/// - `Secret` is the confidentiality concern: private, integrity
-///   trusted (the secret itself is intact; the LEAK is the sink's
-///   problem, checked by SECRET_LEAK).
 /// - `UserInput` is not secret but untrusted (SQL_DYNAMIC's vector).
 /// - `Sanitized` passed through render()/escape_html(): trusted again.
 /// - `CanaryLeak` is a confirmed-compromised channel — the quarantine
@@ -506,7 +503,9 @@ impl Label {
 pub fn legacy_taint_label(kind: &str) -> Option<Label> {
     let (conf, integrity) = match kind {
         "LlmOutput" => (Conf::Public, Integrity::Untrusted),
-        "Secret" => (Conf::Private, Integrity::Trusted),
+        // №544 step 1: the "Secret" row retired — the secret lane's
+        // projection is the type-layer Labeled(String, Private)
+        // (semantic_types::secret_source_type), not a taint kind.
         "UserInput" => (Conf::Public, Integrity::Untrusted),
         "Sanitized" => (Conf::Public, Integrity::Trusted),
         "CanaryLeak" => (Conf::Poisoned, Integrity::Untrusted),
@@ -718,8 +717,10 @@ mod tests {
             l("LlmOutput"),
             label(Conf::Public, Integrity::Untrusted, &[])
         );
-        // Secret: the confidentiality concern.
-        assert_eq!(l("Secret"), label(Conf::Private, Integrity::Trusted, &[]));
+        // №544 step 1: the "Secret" row retired — the secret lane's
+        // projection is the type-layer Labeled(String, Private)
+        // (semantic_types::secret_source_type, sig_types::Label::Private
+        // — the same conf=private of ADR-0154 §2, now carried by the type).
         // UserInput: not secret, untrusted (SQL_DYNAMIC vector).
         assert_eq!(
             l("UserInput"),

@@ -5,6 +5,7 @@
 //         TAINT_PERSISTENCE, TAINT_PASSTHROUGH, CANARY_LEAK (№284).
 
 use crate::ast::*;
+use crate::builtins::sig_types::Type;
 use crate::parser;
 use std::collections::HashMap;
 
@@ -119,8 +120,10 @@ impl AuditResult {
 enum TaintKind {
     /// Value came from call_llm() / call_claude() — untrusted HTML.
     LlmOutput,
-    /// Value came from env() — a secret that must not be leaked.
-    Secret,
+    // №544 step 1: the `Secret` variant is GONE — the secret lane speaks
+    // the stage-0 label type now (`semantic_types::secret_source_type`,
+    // Labeled(String, Private)); a taint kind for a secret was the
+    // bespoke vocabulary the stage-2 migration removes.
     /// Value came from user input (form_data, json_body, query_param).
     UserInput,
     /// Value was processed through render() or escape_html() — safe for HTML output.
@@ -190,14 +193,9 @@ fn get_expr_taint(expr: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
             if fn_name == "redact" {
                 return redact_result_taint(args, tracker);
             }
-            // env() and secret() are secret sources even with no tainted args.
-            // Наряд №172: secret() has the same taint as env() — both produce
-            // TaintKind::Secret. binding_taint above also handles this, but
-            // get_expr_taint is called for inline calls like respond(secret("K"))
-            // where there's no intermediate let-binding to taint.
-            if fn_name == "env" || fn_name == "secret" {
-                return Some(TaintKind::Secret);
-            }
+            // №544 step 1: env()/secret() are no longer taint sources —
+            // the secret lane speaks the label type
+            // (semantic_types::label_of_expr: Labeled(String, Private)).
             // Наряд №201: reflex_generate is an LLM-output-equivalent source
             // (model output is untrusted per ADR-0117). Same treatment as
             // call_llm — produces LlmOutput taint even with no tainted args.
@@ -264,7 +262,8 @@ fn binding_taint(value: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
             "call_llm" | "call_claude" | "call_llm_schema" | "reflex_generate" => {
                 return Some(TaintKind::LlmOutput)
             }
-            "env" | "secret" => return Some(TaintKind::Secret),
+            // №544 step 1: env()/secret() left the taint lane — the
+            // secret sources are typed (semantic_types::binding_label).
             "render" | "escape_html" => return Some(TaintKind::Sanitized),
             // Наряд №274 (ADR-0136): redact — taint-санитайзер для Secret
             // («mask before sink»). Семантика снятия — redact_result_taint.
@@ -432,13 +431,12 @@ fn redact_result_taint(args: &[Expr], tracker: &TaintTracker) -> Option<TaintKin
         .is_some_and(|p| p.target_conf == "public");
     match mode {
         // One-way policies destroy the SECRET DATA (ADR-0136 D2 stays
-        // authoritative): Secret lifts to Sanitized. Channel-level kinds
-        // (LlmOutput) and the quarantine path (CanaryLeak) are NOT
-        // curable by redact — masking is not channel sanitization (№284).
-        Some(_) if target_public => match input {
-            Some(TaintKind::Secret) => Some(TaintKind::Sanitized),
-            other => other,
-        },
+        // authoritative). №544 step 1: the Secret lane left the taint
+        // machinery (the label lift lives in semantic_types::
+        // redact_result_label) — the remaining kinds (LlmOutput, the
+        // quarantine path CanaryLeak) are NOT curable by redact —
+        // masking is not channel sanitization (№284).
+        Some(_) if target_public => input,
         _ => input,
     }
 }
@@ -1284,22 +1282,41 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
 
     fn analyze_scope(stmts: &[Statement], source: &str, findings: &mut Vec<AuditFinding>) {
         let mut tracker = TaintTracker::new();
+        // №544 step 1: the secret lane is typed — the label environment
+        // (variable → its label-carrying type). A variable bound to
+        // env()/secret() carries Labeled(String, Private); the leak
+        // questions below ask the label, not a taint kind. The
+        // UserInput/CANARY_LEAK lanes of the same walk keep reading the
+        // taint tracker (their migration is steps 2-3 / follow-ups).
+        let mut label_vars: std::collections::HashMap<String, Type> =
+            std::collections::HashMap::new();
 
         fn process_stmt(
             stmt: &Statement,
             tracker: &mut TaintTracker,
+            label_vars: &mut std::collections::HashMap<String, Type>,
             source: &str,
             findings: &mut Vec<AuditFinding>,
         ) {
             match stmt {
                 Statement::LetBinding { name, value, .. } => {
                     // Check if this let-binding calls a sink function with tainted args
-                    check_expr_for_leak(value, tracker, source, findings);
+                    check_expr_for_leak(value, tracker, label_vars, source, findings);
                     // Propagate taint from expression
                     if let Some(taint) = binding_taint(value, tracker) {
                         tracker.taint(name, taint);
                     } else {
                         tracker.untaint(name);
+                    }
+                    // The label follows the binding (or is dropped when
+                    // the initializer proves nothing — honesty).
+                    match crate::semantic_types::binding_label(value, label_vars) {
+                        Some(ty) => {
+                            label_vars.insert(name.clone(), ty);
+                        }
+                        None => {
+                            label_vars.remove(name);
+                        }
                     }
                 }
                 Statement::Assign { name, value, .. } => {
@@ -1308,21 +1325,29 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                     } else {
                         tracker.untaint(name);
                     }
+                    match crate::semantic_types::binding_label(value, label_vars) {
+                        Some(ty) => {
+                            label_vars.insert(name.clone(), ty);
+                        }
+                        None => {
+                            label_vars.remove(name);
+                        }
+                    }
                 }
                 Statement::ExprStmt { expr, .. } => {
-                    check_expr_for_leak(expr, tracker, source, findings);
+                    check_expr_for_leak(expr, tracker, label_vars, source, findings);
                 }
                 Statement::Return { value: expr, .. } => {
-                    check_expr_for_leak(expr, tracker, source, findings);
+                    check_expr_for_leak(expr, tracker, label_vars, source, findings);
                 }
                 Statement::Each { body, .. } => {
                     for s in body {
-                        process_stmt(s, tracker, source, findings);
+                        process_stmt(s, tracker, label_vars, source, findings);
                     }
                 }
                 Statement::While { body, .. } => {
                     for s in body {
-                        process_stmt(s, tracker, source, findings);
+                        process_stmt(s, tracker, label_vars, source, findings);
                     }
                 }
                 Statement::IfElseBlock {
@@ -1332,22 +1357,22 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                     ..
                 } => {
                     for s in then_body {
-                        process_stmt(s, tracker, source, findings);
+                        process_stmt(s, tracker, label_vars, source, findings);
                     }
                     for (_, body) in else_ifs {
                         for s in body {
-                            process_stmt(s, tracker, source, findings);
+                            process_stmt(s, tracker, label_vars, source, findings);
                         }
                     }
                     if let Some(body) = else_body {
                         for s in body {
-                            process_stmt(s, tracker, source, findings);
+                            process_stmt(s, tracker, label_vars, source, findings);
                         }
                     }
                 }
                 Statement::IfThen { body, .. } => {
                     for s in body {
-                        process_stmt(s, tracker, source, findings);
+                        process_stmt(s, tracker, label_vars, source, findings);
                     }
                 }
                 _ => {}
@@ -1357,6 +1382,7 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
         fn check_expr_for_leak(
             expr: &Expr,
             tracker: &TaintTracker,
+            label_vars: &std::collections::HashMap<String, Type>,
             source: &str,
             findings: &mut Vec<AuditFinding>,
         ) {
@@ -1369,7 +1395,11 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                 if is_sink(fn_name) {
                     for arg in args {
                         // Ident + direct env()/tainted expr (e.g. print(env("X")))
-                        if get_expr_taint(arg, tracker) == Some(TaintKind::Secret) {
+                        // №544 step 1: the question is the LABEL — does the
+                        // argument's type carry Labeled(_, Private)?
+                        if crate::semantic_types::is_private_labeled(
+                            &crate::semantic_types::label_of_expr(arg, label_vars),
+                        ) {
                             let line = find_line(source, fn_name);
                             findings.push(AuditFinding {
                                 severity: Severity::Error,
@@ -1387,12 +1417,13 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                 //   arg 0 (url) — secret in URL is a leak (logged, visible).
                 //   arg 1 (body) — secret in request body is a leak.
                 //   arg 3 (headers) — legitimate auth (Bearer tokens), NOT flagged.
-                // Наряд №123: use get_expr_taint to catch both variable refs
-                // and direct env() calls (e.g. http_post(u, env("K"), h)).
+                // №544 step 1: the leak question is the label type.
                 if fn_name == "http_post" {
                     // arg 0: URL — secret leak
                     if let Some(arg) = args.first() {
-                        if get_expr_taint(arg, tracker) == Some(TaintKind::Secret) {
+                        if crate::semantic_types::is_private_labeled(
+                            &crate::semantic_types::label_of_expr(arg, label_vars),
+                        ) {
                             let line = find_line(source, fn_name);
                             findings.push(AuditFinding {
                                 severity: Severity::Error,
@@ -1405,7 +1436,9 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                     }
                     // arg 1: body — secret leak
                     if let Some(arg) = args.get(1) {
-                        if get_expr_taint(arg, tracker) == Some(TaintKind::Secret) {
+                        if crate::semantic_types::is_private_labeled(
+                            &crate::semantic_types::label_of_expr(arg, label_vars),
+                        ) {
                             let line = find_line(source, fn_name);
                             findings.push(AuditFinding {
                                 severity: Severity::Error,
@@ -1429,8 +1462,14 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                 if fn_name == "reflex_train" {
                     for pos in [1usize, 2usize] {
                         if let Some(arg) = args.get(pos) {
+                            // №544 step 1: the SECRET_LEAK question is the
+                            // label; the UserInput question stays on the
+                            // taint tracker (its migration is a follow-up).
+                            let private = crate::semantic_types::is_private_labeled(
+                                &crate::semantic_types::label_of_expr(arg, label_vars),
+                            );
                             let t = get_expr_taint(arg, tracker);
-                            if t == Some(TaintKind::Secret) {
+                            if private {
                                 let line = find_line(source, fn_name);
                                 findings.push(AuditFinding {
                                     severity: Severity::Error,
@@ -1561,7 +1600,7 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
         }
 
         for stmt in stmts {
-            process_stmt(stmt, &mut tracker, source, findings);
+            process_stmt(stmt, &mut tracker, &mut label_vars, source, findings);
         }
     }
 
@@ -6505,7 +6544,6 @@ mod tests {
     fn n322_taint_kind_label_projection_covers_all_variants() {
         let all = [
             TaintKind::LlmOutput,
-            TaintKind::Secret,
             TaintKind::UserInput,
             TaintKind::Sanitized,
             TaintKind::CanaryLeak,
@@ -6524,10 +6562,16 @@ mod tests {
                 .conf,
             crate::labels::Conf::Poisoned
         );
-        // Secrets are the confidentiality concern.
+        // №544 step 1: the "Secret" taint row is GONE — the secret
+        // lane's confidentiality projection is the TYPE-LAYER label now
+        // (semantic_types::secret_source_type == Labeled(String, Private),
+        // sig_types::Label::Private — the conf=private of ADR-0154 §2).
         assert_eq!(
-            crate::labels::legacy_taint_label("Secret").unwrap().conf,
-            crate::labels::Conf::Private
+            crate::semantic_types::secret_source_type(),
+            crate::builtins::sig_types::Type::Labeled(
+                Box::new(crate::builtins::sig_types::Type::String),
+                crate::builtins::sig_types::Label::Private
+            )
         );
         // LLM output / user input are the integrity concern.
         assert_eq!(

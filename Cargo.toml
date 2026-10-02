@@ -113,7 +113,7 @@ lettre = { version = "0.11", features = ["builder", "smtp-transport", "native-tl
 # Cargo.lock (no auto-update). Revisit when imap 3.0 stable ships — bump the version
 # string only; API should stay compatible so email.rs need not be rewritten.
 imap = { version = "3.0.0-alpha.15", features = ["native-tls"] }
-imap-proto = "0.16"
+imap-proto = "0.17"
 native-tls = "0.2"
 
 # Наряд MLG-5: Calendar (CalDAV + iCal, pure Rust)

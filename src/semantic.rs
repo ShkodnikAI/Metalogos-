@@ -448,8 +448,16 @@ fn label_source(fn_name: &str, args: &[Expr], env: &BTreeMap<String, Label>) -> 
     // by the exhaustiveness test in audit.rs); the fallback never fires.
     let kind_label = |kind: &str| legacy_taint_label(kind).unwrap_or_else(Label::bottom);
     match fn_name {
-        // Secret sources.
-        "env" | "secret" => Some(kind_label("Secret")),
+        // Secret sources. №544 step 1: the label is the ADR-0154 lattice
+        // directly (conf=private, integrity=trusted) — the same projection
+        // the type-layer source carries (semantic_types::secret_source_type
+        // == Labeled(String, Private)); the "Secret" taint-kind
+        // indirection is retired with the stage-2 migration.
+        "env" | "secret" => Some(Label {
+            conf: crate::labels::Conf::Private,
+            integrity: crate::labels::Integrity::Trusted,
+            consent: Default::default(),
+        }),
         // LLM-output sources (model output is untrusted — ADR-0117).
         "call_llm" | "call_claude" | "call_llm_schema" | "reflex_generate" => {
             Some(kind_label("LlmOutput"))
@@ -483,7 +491,13 @@ fn label_source(fn_name: &str, args: &[Expr], env: &BTreeMap<String, Label>) -> 
                 })
                 .unwrap_or(false) =>
         {
-            Some(kind_label("Secret"))
+            // №544 step 1: the lattice label directly (conf=private,
+            // integrity=trusted) — the "Secret" taint row is retired.
+            Some(Label {
+                conf: crate::labels::Conf::Private,
+                integrity: crate::labels::Integrity::Trusted,
+                consent: Default::default(),
+            })
         }
         "http_get" | "read_file" => Some(kind_label("UserInput")),
         // Sanitizers restore trust.

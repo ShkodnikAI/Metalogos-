@@ -8,17 +8,26 @@ The compiler enforces structural security invariants — these are errors, not w
 
 ```mlog
 // doc-test: skip
-// SQL injection — non-literal query() is rejected by Category A
-let user = query("SELECT * FROM users WHERE id = $1", [id])
+// SQL injection — a non-literal query() is rejected by Category A
+pattern UnsafeSql() -> List {
+  let id = "1 OR 1=1"
+  return query("SELECT * FROM users WHERE id = " + id)   // [SQL_DYNAMIC]
+}
+// the literal form with bound params is the SAFE shape and passes:
+// query("SELECT * FROM users WHERE id = $1", [id])
 
-// Secret leak — env() to respond()/print() is rejected by Category A
-entity token: Secret = env("API_KEY")
-respond(token)   // [SECRET_LEAK] via mlog audit / Category A checks
-print(token)     // runtime error: print() refused: Secret values cannot be printed
+// Secret leak — env() to print()/respond() is rejected by Category A
+pattern SecretLeak() -> String {
+  let _ = print(env("API_KEY"))   // [SECRET_LEAK] — env() value passed to print()
+  return "x"
+}
 
 // XSS via LLM — unsanitized LLM output to respond() is rejected by Category A
-let reply = call_llm(prompt)
-respond(reply)   // [HTML_INJECTION] — use render() or escape_html()
+pattern XssViaLlm(prompt: String) -> String {
+  let reply = call_llm(prompt)
+  respond(reply)   // [HTML_INJECTION] — use render() or escape_html()
+  return reply
+}
 
 // Templates: render(Name, args...) substitutes {{ var }} with HTML-escaped values (naryad 115)
 // {{{ var }}} skips escaping — trusted author code only, not caught by audit
@@ -118,10 +127,13 @@ existing `try`-using test only checked the error path.
 Persona system with memory trees, mood tracking, and human-like response generation — inspired by [OpenHuman](https://github.com/tinyhumansai/OpenHuman):
 
 ```mlog
-human_create("Alice", "friendly, professional, curious")
-human_remember("Alice", "project", "building AI assistant in Metalogos", 0.8)
-human_mood("Alice", "excited", 0.9)
-let reply = human_respond("Alice", "How is my project going?")
+pattern Demo() -> String {
+  human_create("Alice", "friendly, professional, curious")
+  human_remember("Alice", "project", "building AI assistant in Metalogos", 0.8)
+  human_mood("Alice", "excited", 0.9)
+  let reply = human_respond("Alice", "How is my project going?")
+  return reply
+}
 ```
 
 ### Cron Scheduler
@@ -129,26 +141,32 @@ let reply = human_respond("Alice", "How is my project going?")
 Fuzzy matching (Jaro-Winkler), content-verified hashline editing (CRC32), context compaction, budget awareness, replay logging, shell policy enforcement:
 
 ```mlog
-let code = "1:3f|fn main() {"
-let text = "alpha\nbeta\ngamma"
-let messages = ["a", "b", "c", "d", "e", "f"]
-let events = ["e1", "e2", "e3", "e4", "e5"]
-fuzzy_match("metalogos", "metalogus")           // 0.96
-fuzzy_find_best("Mikhail", ["Michele", "Mikael"])  // FuzzyMatch{index:1, candidate:"Mikael", score:0.82}
-hashline_read(code)                                  // "1:3f|fn main() {"
-hashline_edit(text, [{op:"set_line", ref:"1:6a", content:"..."}])
-compact_list(messages, 2, 4)                          // protect head/tail, compress middle
-budget_check(8, 10)                                   // BudgetStatus{level:"warning", pct_remaining:20}
-policy_check("vim file.txt")                          // PolicyResult{allowed:false, reason:"blocked: interactive..."}
-replay_snapshot(events)                              // ReplaySnapshot{seq:0, count:5, snapshot:"..."}
+pattern Demo() -> String {
+  let code = "1:3f|fn main() {"
+  let text = "alpha\nbeta\ngamma"
+  let messages = ["a", "b", "c", "d", "e", "f"]
+  let events = ["e1", "e2", "e3", "e4", "e5"]
+  fuzzy_match("metalogos", "metalogus")           // 0.96
+  fuzzy_find_best("Mikhail", ["Michele", "Mikael"])  // FuzzyMatch{index:1, candidate:"Mikael", score:0.82}
+  hashline_read(code)                                  // "1:3f|fn main() {"
+  hashline_edit(text, [{op:"set_line", ref:"1:6a", content:"..."}])
+  compact_list(messages, 2, 4)                          // protect head/tail, compress middle
+  budget_check(8, 10)                                   // BudgetStatus{level:"warning", pct_remaining:20}
+  policy_check("vim file.txt")                          // PolicyResult{allowed:false, reason:"blocked: interactive..."}
+  replay_snapshot(events)                              // ReplaySnapshot{seq:0, count:5, snapshot:"..."}
+  return "ok"
+}
 ```
 
 Cron scheduler, recurring and one-shot jobs, dispatches both builtins and user patterns:
 
 ```mlog
-cron_run("*/30 * * * *", "HealthCheck")     // every 30 min
-cron_run("0 9 * * 1-5", "MorningReport")     // weekdays 09:00
-cron_list()   // list all jobs
+pattern Demo() -> List {
+  let nightly = cron_add("*/30 * * * *", "HealthCheck")   // every 30 min
+  cron_add("0 9 * * 1-5", "MorningReport")                // weekdays 09:00
+  cron_run(nightly.id)   // force a run outside the schedule
+  return cron_list()     // list all jobs
+}
 ```
 
 ### Memory Tree
@@ -160,8 +178,10 @@ Three-level hierarchical memory: L0 (raw entries) → L1 (chunk summaries) → L
 Memory entries carry a type tag (`persona`, `episodic`, `instruction`, `fact`) for differentiated recall. SQLite-backed persistence with FTS5 BM25 keyword index + cosine similarity, merged via Reciprocal Rank Fusion (k=60). Top-K recall with type filtering:
 
 ```mlog
-memorize("user likes spicy food", 0.9, "persona")
-let results = recall_top_k("food preferences", 5, "persona")
+pattern Demo() -> List {
+  memorize("user likes spicy food", 0.9, "persona")
+  return recall_top_k("food preferences", 5, "persona")
+}
 ```
 
 ### Goals & Todos
@@ -185,25 +205,29 @@ reflex SentimentClassifier {
 }
 
 // 2. Train on labeled data — returns Struct {loss, accuracy, metric, threshold_met}.
-let result = reflex_train(SentimentClassifier, [
-  [0.1, 0.2, 0.0],   // features + class_idx (last element)
-  [0.8, 0.9, 1.0],
-  // ... ≥10 samples for 80/20 holdout (ADR-0115)
-], 200.0, "accuracy", 0.85)
-
 // 3. Predict on new input — returns Fluid with label variants, sorted by confidence.
-let prediction = reflex_predict(SentimentClassifier, [0.15, 0.25])
-// prediction → Fluid{ "positive" (0.92), "negative" (0.08) }
+pattern Demo() -> Fluid {
+  // ... ≥10 samples for 80/20 holdout (ADR-0115)
+  let result = reflex_train(SentimentClassifier, [
+    [0.1, 0.2, 0.0],   // features + class_idx (last element)
+    [0.8, 0.9, 1.0]
+  ], 200.0, "accuracy", 0.85)
+  let prediction = reflex_predict(SentimentClassifier, [0.15, 0.25])
+  // prediction → Fluid{ "positive" (0.92), "negative" (0.08) }
+  return prediction
+}
 ```
 
 **Distillation** — a `learnable pattern` can `distill_to` a reflex model: the LLM is called during the *teaching* phase, then the local head replaces it once confidence exceeds the `fallback_if` threshold.
 
 ```mlog
 // doc-test: skip
+// the LLM call happens THROUGH the prompt during training/inference;
+// the body declares the distillation target and the fallback policy.
 learnable pattern Classify(text: String) -> String {
+  prompt: "Classify the input text"
   distill_to: SentimentClassifier
   fallback_if: confidence < 0.85
-  call_llm(system_prompt, text)
 }
 ```
 

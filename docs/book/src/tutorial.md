@@ -51,7 +51,7 @@ learnable pattern Greet(name: String) -> String {
 }
 ```
 
-When invoked in a flow, the pattern sends the prompt and input to the LLM, returning its response. In tests, the `MockLlm` backend returns deterministic outputs.
+When invoked in a flow, the pattern sends the prompt and input to the LLM, returning its response. Running it for real needs an LLM backend key (`METALOGOS_API_KEY` — the refusal names it loudly); in tests, the `MockLlm` backend returns deterministic outputs and needs no key.
 
 ```mlog
 learnable pattern Greet(who: String) -> String {
@@ -94,8 +94,8 @@ Adaptive operations must run inside a sandbox for safety:
 ```mlog
 // doc-test: skip
 sandbox test_sandbox {
-  allowed: [compute]
-  forbidden: [network, write_permanent]
+  allowed: [compute],
+  forbidden: [network, write_permanent],
   timeout: 10
 }
 ```
@@ -173,8 +173,8 @@ learnable pattern Sentiment(text: String) -> String {
 adapt Sentiment add_example("great service", "positive")
 
 sandbox test_sandbox {
-  allowed: [compute]
-  forbidden: [network, write_permanent]
+  allowed: [compute],
+  forbidden: [network, write_permanent],
   timeout: 10
 }
 

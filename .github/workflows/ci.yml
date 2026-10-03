@@ -660,6 +660,22 @@ jobs:
           python3 scripts/ci/type_signature_share.py --precise
           python3 scripts/ci/type_signature_share.py --list | head -50
 
+  # №562 (issue #923; the audit 02.10 §6.1): the tag↔main gap gate — a
+  # pending Security entry in [Unreleased] older than the floor FAILS the
+  # gate (the M-3 class measured: a High fix must not live outside a
+  # release). The floor N=14 days is the OWNER's parameter (№562 proposes,
+  # it does not choose); the publication itself stays the owner's gate —
+  # the criterion only measures the limbo.
+  release-gap:
+    name: release-gap (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: The release gap vs the Security-age floor (№562)
+        run: |
+          python3 scripts/ci/release_gap_gate.py
+          python3 scripts/ci/release_gap_gate.py --self-test
+
   unfreeze-gate:
     name: unfreeze-gate (blocking)
     runs-on: ubuntu-latest

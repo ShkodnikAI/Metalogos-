@@ -33,7 +33,7 @@ const SCRIPT: &str = include_str!("../scripts/ci/merge_ci_audit.py");
 /// `REQUIRED_CHECKS` and to the branch-protection checklist in
 /// docs/maintainers.md ("When CI is down"). All three move together in
 /// one PR, never alone. (`msrv (blocking)` joined by №555, issue #916.)
-const REQUIRED_SET: [&str; 12] = [
+const REQUIRED_SET: [&str; 13] = [
     "test-lib (blocking)",
     "test-integration (blocking)",
     "crosscheck (blocking)",
@@ -46,6 +46,7 @@ const REQUIRED_SET: [&str; 12] = [
     "blocking-checks-sync (blocking)",
     "registry-arity-check (blocking)",
     "msrv (blocking)",
+    "release-gap (blocking)",
 ];
 
 #[test]

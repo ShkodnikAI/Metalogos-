@@ -33,8 +33,8 @@ what each step closes.
 6. **The assets.** Publication fires `.github/workflows/release.yml`
    (`release: published`): it builds the tagged commit, generates the
    CycloneDX SBOM, signs the two attestations (build provenance + SBOM) and
-   attaches binary, SBOM and `SHA256SUMS` to the release. Confirm the run is
-   green and the release shows the three assets; spot-check with
+   attaches binary, SBOM, `BUILD-INFO.txt` and `SHA256SUMS` to the release.
+   Confirm the run is green and the release shows the four assets; spot-check with
    `gh attestation verify mlog-linux-x86_64 --repo ShkodnikAI/Metalogos-`.
    A red run does NOT invalidate the release — re-run it with
    `workflow_dispatch` (`tag` = the release tag, `upload` = true). The

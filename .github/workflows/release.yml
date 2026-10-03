@@ -7,11 +7,14 @@ name: Release assets (binary + SBOM + provenance)
 # build provenance + the SBOM bound to the binary) via GitHub's Sigstore
 # integration. It then attaches binary, SBOM and SHA256SUMS to the release.
 #
-# What this does NOT claim: the build is not bit-for-bit reproducible, it
-# links glibc of `ubuntu-latest`, and it is not signed by a human-held key
-# — the attestation proves WHICH workflow run on WHICH commit produced the
-# bytes, nothing more. Releases published before this file landed have no
-# assets.
+# What this does NOT claim: reproducibility is neither claimed nor verified
+# (two CI runs on different commits did yield byte-identical binaries, but
+# the floating `stable` toolchain and the build paths are not pinned — the
+# exact toolchain is recorded in BUILD-INFO.txt). The binary links the glibc
+# of the pinned runner image (ubuntu-24.04), and no human-held signing key is
+# involved: the attestation proves WHICH workflow run on WHICH commit
+# produced the bytes, nothing more. Releases published before this file
+# landed have no assets.
 #
 # Triggers:
 #   release: published   — the real path (uploads to the release).
@@ -46,7 +49,10 @@ permissions:
 jobs:
   release-assets:
     name: release-assets
-    runs-on: ubuntu-latest
+    # Pinned, not `ubuntu-latest`: the label migrates to Ubuntu 26 on
+    # 2026-10-19, which would silently change the glibc a release binary
+    # links against.
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
       contents: write      # attach assets to the release (upload step only)
@@ -119,10 +125,20 @@ jobs:
           jq -e '[.components[].name] | index("pest")' "$f" > /dev/null
           echo "components: $(jq '.components | length' "$f")"
 
+      - name: Record the exact toolchain
+        run: |
+          {
+            echo "source commit: $(git rev-parse HEAD)"
+            rustc -Vv
+            cargo -V
+            echo "runner image: ${ImageOS:-unknown} ${ImageVersion:-unknown}"
+            echo "built with: cargo build --release --locked --bin mlog"
+          } | tee dist/BUILD-INFO.txt
+
       - name: Checksums
         working-directory: dist
         run: |
-          sha256sum mlog-linux-x86_64 mlog-linux-x86_64.cdx.json > SHA256SUMS
+          sha256sum mlog-linux-x86_64 mlog-linux-x86_64.cdx.json BUILD-INFO.txt > SHA256SUMS
           cat SHA256SUMS
 
       - name: Publish digests and SBOM facts as annotations
@@ -139,15 +155,18 @@ jobs:
           candle="$(jq '[.components[].name | select(test("candle"))] | length' "$sbom")"
           echo "::notice title=sbom facts::describes=[$desc] components=$n without_license=$nolic candle_components=$candle"
 
+      # actions/attest-sbom is deprecated in favour of actions/attest, which
+      # covers both modes: no `sbom-path` = SLSA build provenance, `sbom-path`
+      # = SBOM attestation bound to the same subject.
       - name: Attest build provenance
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-        uses: actions/attest-build-provenance@v4.2.2
+        uses: actions/attest@v4.2.2
         with:
           subject-path: dist/mlog-linux-x86_64
 
       - name: Attest SBOM (bound to the binary)
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-        uses: actions/attest-sbom@v4.1.0
+        uses: actions/attest@v4.2.2
         with:
           subject-path: dist/mlog-linux-x86_64
           sbom-path: dist/mlog-linux-x86_64.cdx.json

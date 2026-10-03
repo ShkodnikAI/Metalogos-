@@ -138,11 +138,12 @@ References: ADR-0154 (the lattice), ADR-0156 (TW/VM/JIT parity), ADR-0158 (decla
 
 ## Verifying release artifacts
 
-A GitHub Release published after this section landed carries three assets,
+A GitHub Release published after this section landed carries four assets,
 attached by `.github/workflows/release.yml` once the owner publishes the
 release: the `mlog-linux-x86_64` binary, its CycloneDX 1.5 SBOM
 (`mlog-linux-x86_64.cdx.json`, generated for exactly that binary with the
-default feature set) and `SHA256SUMS`. GitHub also stores two Sigstore-signed
+default feature set), `BUILD-INFO.txt` (exact `rustc`/`cargo`/runner versions)
+and `SHA256SUMS`. GitHub also stores two Sigstore-signed
 attestations for the binary: SLSA build provenance, and the SBOM bound to it.
 
 ```sh
@@ -155,8 +156,9 @@ gh attestation verify mlog-linux-x86_64 --repo ShkodnikAI/Metalogos- \
 What this proves: the bytes were produced by that workflow, in that
 repository, from the tagged commit, and the SBOM lists the dependency tree
 that build resolved from `Cargo.lock` (`--locked`). What it does not: the build
-is not bit-for-bit reproducible, it links the glibc of the GitHub-hosted
-`ubuntu-latest` runner, and no human-held signing key is involved — trust
+reproducibility is neither claimed nor verified (the `stable` toolchain floats;
+`BUILD-INFO.txt` records the one actually used), it links the glibc of the
+pinned `ubuntu-24.04` runner image, and no human-held signing key is involved — trust
 anchors on GitHub's Sigstore integration. Releases published before this
 workflow existed (up to v0.27.1) have no assets.
 

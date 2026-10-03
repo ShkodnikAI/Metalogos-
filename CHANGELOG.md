@@ -4,6 +4,19 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Release supply-chain assets (CI infrastructure; no language or runtime
+  change): the new `.github/workflows/release.yml` runs after the owner
+  publishes a GitHub Release and attaches the `mlog` binary, a CycloneDX 1.5
+  SBOM that describes exactly that binary (cargo-cyclonedx 0.5.9, pinned),
+  `BUILD-INFO.txt` (exact toolchain) and `SHA256SUMS`, plus two Sigstore-signed
+  attestations (SLSA build provenance
+  and the SBOM bound to the binary). Until now releases were a tag and notes
+  with no assets. Honest limits: reproducibility not claimed or verified, glibc of the
+  pinned `ubuntu-24.04` runner, no human-held key; releases up to v0.27.1 have
+  no assets.
+  Verification recipe: `SECURITY.md` → "Verifying release artifacts";
+  operator step: `docs/release-checklist.md` step 6.
+
 - Naryad №554 (issue #915; Wave 25 P1; the audit 02.10 §3.3, position Е
   on the memory pairs — the dispatch resolution "memory — document"):
   the memory pairs are PERMANENT BY DESIGN. The honest record lands in

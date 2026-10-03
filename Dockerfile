@@ -14,8 +14,14 @@
 # №528: the builder image tracks the build contract's MSRV (rust-version =
 # 1.93.1 in Cargo.toml) — a rust:1.85 builder now refuses to parse the
 # manifest ("rustc 1.85.1 is not supported by the following packages"),
-# which is the gate working as designed; the image follows the floor.
-FROM rust:1.93-slim-bookworm AS builder
+# which is the gate working as designed.
+# №555 (the audit 02.10 M-5): the patch is PINNED to the MSRV exactly
+# (1.93.1, the tag exists on Docker Hub) — a floating `rust:1.93` could
+# drift to a 1.93.0-class patch BELOW the declared floor. The policy:
+# builder == MSRV, and bumping rust-version in Cargo.toml bumps this tag
+# in the same PR (the pair is grep-able: rust-version ↔ FROM rust:).
+# The digest pin still lands in the CI docker job's first successful run.
+FROM rust:1.93.1-slim-bookworm AS builder
 
 WORKDIR /app
 

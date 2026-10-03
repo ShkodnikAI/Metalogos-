@@ -46,6 +46,14 @@ The project runs a deliberate first-PR pool for incoming contributors and the in
 - [Cargo](https://doc.rust-lang.org/cargo/) (comes with Rust)
 - [Git](https://git-scm.com/)
 
+> **The toolchain floor (for external auditors and packagers):** the
+> workspace declares `rust-version = "1.93.1"` (the MSRV contract,
+> №528/№555). rustc **≥ 1.93.1 is mandatory**: an older toolchain
+> refuses to parse the manifest — that refusal IS the contract working,
+> not a build breakage, so do not file "does not compile" against a
+> pre-1.93.1 toolchain. The floor is checked continuously by the
+> blocking `msrv (blocking)` CI job; current stable always satisfies it.
+
 ### Building from Source
 
 ```bash

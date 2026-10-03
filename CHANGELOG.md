@@ -106,6 +106,28 @@ All notable changes to the Metalogos project.
   the generator --check green right now, the stale "now 2110 bp"
   claim must not return.
 
+- Naryad №561 (issue #922; Wave 25 P2; the audit 02.10 §7.2 W-1): the
+  good-first-issue pool policy — the pool drains from the INSIDE (five
+  of the №541 positions closed by owner/agent commits within a day; a
+  newcomer on 03.10 saw an EMPTY pool), so the refill rule is now
+  written: internal closing is allowed but the refill to 8–10 open
+  positions happens in the same wave, the pool-size counter is part of
+  the wave report, and the `reserved-for-newcomer` label marks the
+  pool (AGENTS.md §3: agents do NOT take labeled tasks — a recurring
+  upkeep task an agent did internally is re-opened as a
+  good-first-issue for the next external contributor). The policy
+  lands in docs/maintainers.md (the onboarding-lane section) + AGENTS.md;
+  the label created on the repository. THE POOL REFILLED TO 9 in the
+  same wave, each issue by the №491 filter (self-contained volume, no
+  context dependency) with the expected volume and the entry point:
+  gh#951 (the 40 examples without a golden `.expected` sidecar),
+  gh#952 (the book syntax page — 41 fenced snippets), gh#953 (the
+  tutorial + stdlib pages — 25 snippets), gh#954 (doc-tests.md
+  freshness), gh#955 (testing-evidence.md citations), gh#956
+  (risk-review-checklist.md links), gh#957 (CONTRIBUTING first-PR
+  path), gh#958 (AGENTS.md §1 applied to itself), gh#959
+  (PLAN-SUMMARY/REALITY numbers vs the generated metrics SSOT).
+
 ## [0.28.0] - 2026-10-03
 
 ### Security

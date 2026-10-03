@@ -58,6 +58,17 @@ semantic pillar (not a mechanical extension of an existing one). The
 boundary is not distrust of one's own judgment, but that the course
 of the project is decided by the owner, not the agent.
 
+**Never take tasks labeled `reserved-for-newcomer`** (№561, the
+audit 02.10 §7.2 W-1): the good-first-issue pool exists for the
+INCOMING external contributors (№491/№471 onboarding lane); an agent
+solving those tasks empties the pool and kills the lane. If a pool
+task blocks something urgent, escalate to the owner instead of
+taking it. A recurring upkeep task (docs passes, freshness checks)
+that an agent just did internally must be re-opened as a
+good-first-issue for the next external contributor — internal work
+trains nobody; the pool refills in the same wave (the policy lives
+in docs/maintainers.md).
+
 ## 4. Synchronization — the most frequent own mistake
 
 **Twice in one day (today) an action was taken based on a stale

@@ -3,7 +3,7 @@ use libfuzzer_sys::fuzz_target;
 
 // ── Наряд №256: фаззинг ручного percent-декодера query-параметров ───
 //
-// `url_decode_fallback(&str)` (src/server.rs) принимает внешние данные
+// `url_decode_fallback(&str)` (metalogos-server/src/server.rs) принимает внешние данные
 // от пользователей сервера.
 //
 // Инварианты:
@@ -20,13 +20,13 @@ use libfuzzer_sys::fuzz_target;
 fuzz_target!(|data: &[u8]| {
     if let Ok(s) = std::str::from_utf8(data) {
         // Инвариант 1: панико-свобода на любом корректном UTF-8 входе.
-        let _ = metalogos::server::url_decode_fallback(s);
+        let _ = metalogos_server::server::url_decode_fallback(s);
 
         // Инвариант 2: ASCII-раунд-трип.
         if s.is_ascii() {
             let encoded = percent_encode_upper(s.as_bytes());
             let reparsed = std::str::from_utf8(&encoded).expect("encoder is ASCII-only");
-            let decoded = metalogos::server::url_decode_fallback(reparsed);
+            let decoded = metalogos_server::server::url_decode_fallback(reparsed);
             assert_eq!(
                 decoded, s,
                 "ASCII roundtrip failed: {:?} -> {:?} -> {:?}",

@@ -104,6 +104,20 @@ limitations.md — the №524 rule).
   therefore stores zero voiceprints**; the honest crypto is the load-bearing
   foundation for the day the wiring lands, not a working feature today.
 
+**Audio artifacts (№556, gh#917):** the persisted `voice_artifacts` table no
+longer carries plaintext audio. The legacy `audio_bytes` column is migrated
+away at store init in favor of `audio_encrypted` — the SAME AES-256-GCM
+scheme with the №527 subject binding, the AAD registry `voice_artifacts`
+(a blob transplanted onto another name refuses with
+`[VOICE_ARTIFACT_DECRYPT]`); the mock runtime keeps the visible-mark
+placeholder path (`algo = 'INSECURE-XOR-MOCK'`), and a keyless real-runtime
+write fails closed (`[VOICE_INSECURE_STORE]`). The migration secures the
+legacy plaintext bytes (zero-overwrite, then the table rebuild) — no
+released version ever wrote an audio row (the write path never shipped),
+so nothing is carried. The store-level `save/load_audio_artifact` pair is
+the at-rest contour only: no program-facing audio write surface exists
+after №556 either.
+
 **Delete path: available since the v0.27.x line (№526, gh#835 — closed in
 the same PR as this row per the №524 rule).** The erasure surface has two
 layers, both landed by №526:
@@ -119,10 +133,18 @@ layers, both landed by №526:
   BEFORE the row is removed, the same-name audio artifact row gets the
   same treatment ("файл артефакта + запись реестра"); `list_voiceprints()`
   enumerates the persisted prints (name/model/saved_at/algo/ciphertext
-  length) WITHOUT decrypting. HONEST BOUNDARY: SQLite cannot guarantee
-  per-row block-level erasure (freelist/WAL page images may persist until
-  reused) — the row-level overwrite erases the row's live copy; the
-  file-level guarantee stays the DB file owner's (delete the whole file).
+  length) WITHOUT decrypting. №556 hardens the erasure with two SQLite
+  postures the audit demanded: the store's setup turns
+  **`PRAGMA secure_delete = ON`** (deleted content is overwritten before
+  the pages are freed — the freelist cannot carry the erased bytes
+  either) and every delete ends with **`PRAGMA wal_checkpoint(TRUNCATE)`**
+  (the write-ahead log is reset to zero length — the deleted page does
+  not live on in the journal; a busy WAL is a loud error, never
+  silence). HONEST BOUNDARY: these postures cover the store's OWN
+  connection; SQLite still cannot guarantee per-row block-level erasure
+  against foreign writers or pre-existing residue — the row-level
+  overwrite erases the row's live copy; the file-level guarantee stays
+  the DB file owner's (delete the whole file).
 - The `consent_ledger` rows SURVIVE erasure BY DESIGN: they are the
   Art. 9 consent proof (a pseudonymous embedding hash, no biometric
   bytes), the retention basis this policy documents.

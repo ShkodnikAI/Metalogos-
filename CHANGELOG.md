@@ -127,6 +127,46 @@ All notable changes to the Metalogos project.
   (risk-review-checklist.md links), gh#957 (CONTRIBUTING first-PR
   path), gh#958 (AGENTS.md §1 applied to itself), gh#959
   (PLAN-SUMMARY/REALITY numbers vs the generated metrics SSOT).
+### Deprecated
+
+- Naryad №565 (issue #927; Wave 25 P2 tail; the audit 02.10 §7.2 W-3):
+  the TWO-ARGUMENT `respond_html(a, b)` form is deprecated — its sense
+  depends on the CONTENT of the first argument (a first token 100..=599
+  reads as an HTTP status, anything else as a document title: the
+  audit's `respond_html("200 причин выбрать нас", body)` served HTTP 200
+  and silently dropped the title; a DB- or LLM-sourced string would
+  decide the response's meaning). THE EXPLICIT FORMS LAND:
+  `respond_html_status(status, body)` — the body verbatim at the given
+  status; the status must open with an HTTP code in 100..=599 or be a
+  whole number 100..=599, otherwise a LOUD argument error (no legacy
+  silent-200 fallback — the №514 rule); `respond_html_doc(title,
+  body)` — the title is never read as a status and never dropped, the
+  same full-document shape as the office form (№892). Both serve
+  `Content-Type: text/html; charset=utf-8`, both are typed in the
+  registry ("Struct" — the HttpResponse shape), classified as
+  Sink/Public/Irreversible, and ride EVERY HTML egress gate exactly
+  like `respond_html` (LLM-output, open-redirect, secret-leak,
+  recall-taint — the explicit name is not a bypass). The deprecation
+  carries a WARN-ONLY semantic pass (the №474 posture): every 2-arg
+  call whose first argument is NOT a string literal is announced with
+  both migration paths; a literal first argument keeps working
+  silently this release; removal no earlier than one release with the
+  warning. The 1-arg form is the UNCHANGED SSOT contract (gh#899).
+  The floors moved WITH the rows that earned them (the №757
+  procedure): the general typed floor 3195 → 3241 bp (165/509), the
+  precise floor 1637 → 1650 bp (84/509 — query_param ships typed
+  "String", both paths verified), the in-tree compiled lock
+  158 → 161. Pinned by tests/naryad_565_respond_html_forms.rs (13):
+  the explicit forms on BOTH backends (TW + VM flows), the loud
+  strictness, the warning fires on non-literals in patterns AND route
+  bodies, no warning for literals, HTML_INJECTION/SECRET_LEAK through
+  the new names, the registry facts. The corpus: 241 programs, 0
+  warnings; registry-vs-corpus 711 pairs OK; REFERENCE regenerated
+  (509 builtins, 0 TODO(doc)). The office migration snapshot: the
+  public corpus carries exactly one 2-arg call site
+  (examples/p_p01_respond_html_query_param.mlog — two literal-status
+  calls) → the migration targets respond_html_status; the private
+  office corpus rides the №559 call-shapes snapshot per the dispatch.
 
 ## [0.28.0] - 2026-10-03
 

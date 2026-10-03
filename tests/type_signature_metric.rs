@@ -14,16 +14,16 @@
 
 use metalogos::builtins::{sig_types::Type, BUILTIN_REGISTRY};
 
-/// The checked-in floor: raised by №543 part 2 (2026-10-01 — the pdf
-/// package types 25 rows: 20 Struct + 5 List; the compiled default-
-/// feature registry reads 158 typed). The by-design gap continues (see
-/// part 1's comment): the CI script counts SOURCE rows (162 — the same
-/// 4 gated vec/store rows ride only there), this test counts the
-/// COMPILED default-feature registry (158). MUST move only up, in the
-/// same PR that types more rows — AND together with
-/// `scripts/ci/type_signature_baseline.txt` (`# threshold_bp: 3195`).
-/// THE №543 STOP CONDITION IS REACHED HERE: source 3195 bp ≥ 3000.
-const TYPED_FLOOR: usize = 158;
+/// The checked-in floor: raised by №565 (2026-10-03 — the explicit
+/// respond_html_status/respond_html_doc rows ship typed "Struct" and the
+/// serve-surface top-up types query_param "String"; +3 compiled rows).
+/// The by-design gap continues (see part 1's comment): the CI script
+/// counts SOURCE rows (165 — the same 4 gated vec/store rows ride only
+/// there), this test counts the COMPILED default-feature registry (161).
+/// MUST move only up, in the same PR that types more rows — AND together
+/// with `scripts/ci/type_signature_baseline.txt` (`# threshold_bp: 3241`).
+/// THE №543 STOP CONDITION STAYS REACHED: source 3241 bp ≥ 3000.
+const TYPED_FLOOR: usize = 161;
 
 #[test]
 fn typed_signature_share_never_falls_below_the_floor() {

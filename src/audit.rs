@@ -1119,7 +1119,12 @@ fn check_html_injection(
             ..
         } = expr
         {
-            if fn_name == "respond" || fn_name == "respond_html" {
+            // №565: the explicit respond_html_status/respond_html_doc forms
+            // ride the SAME egress gate — an explicit name is not a bypass.
+            if matches!(
+                fn_name.as_str(),
+                "respond" | "respond_html" | "respond_html_status" | "respond_html_doc"
+            ) {
                 for arg in args {
                     // Наряд №123: catch both variable references
                     // (the label environment) and direct nested LLM calls
@@ -1270,7 +1275,16 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
     /// http_post is handled separately with positional logic below:
     ///   arg 0 (url) — leak;  arg 1 (body) — leak;  arg 3 (headers) — safe.
     /// send_message is also not a sink — it is an intentional API call point.
-    const SINK_FUNCTIONS: &[&str] = &["respond", "respond_html", "write_file", "print"];
+    /// №565: the explicit respond_html_status/respond_html_doc forms are
+    /// the same HTML egress surface — an explicit name is not a bypass.
+    const SINK_FUNCTIONS: &[&str] = &[
+        "respond",
+        "respond_html",
+        "respond_html_status",
+        "respond_html_doc",
+        "write_file",
+        "print",
+    ];
 
     fn is_sink(name: &str) -> bool {
         SINK_FUNCTIONS.contains(&name)
@@ -2150,21 +2164,26 @@ fn check_open_redirect(
             ..
         } = expr
         {
-            // Only flag respond_html for open redirect (HTML can set Location header)
-            if fn_name == "respond_html" {
+            // Only flag the HTML egress forms for open redirect (HTML can set
+            // Location header). №565: the explicit forms ride the same gate.
+            if matches!(
+                fn_name.as_str(),
+                "respond_html" | "respond_html_status" | "respond_html_doc"
+            ) {
                 for arg in args {
                     // Наряд №140: catch both variable references
                     // (tracker) and direct nested user-input calls
                     // (e.g. respond_html(query_param("url"))).
                     if expr_is_user_input_tainted(arg, tracker) {
-                        let line = find_line(source, "respond_html");
+                        let line = find_line(source, fn_name);
                         findings.push(AuditFinding {
                             severity: Severity::Warning,
                             check_id: "OPEN_REDIRECT",
                             line,
-                            message:
-                                "possible open redirect — respond_html() with user-controlled input"
-                                    .to_string(),
+                            message: format!(
+                                "possible open redirect — {}() with user-controlled input",
+                                fn_name
+                            ),
                         });
                     }
                 }
@@ -2326,7 +2345,11 @@ fn check_taint_persistence(
                 if name == "recall" {
                     *has_recall = true;
                 }
-                if name == "respond" || name == "respond_html" {
+                // №565: the explicit respond_html forms ride the same gate.
+                if matches!(
+                    name.as_str(),
+                    "respond" | "respond_html" | "respond_html_status" | "respond_html_doc"
+                ) {
                     *has_respond = true;
                 }
                 for arg in args {
@@ -2792,7 +2815,11 @@ fn recall_taint_scan_sinks(
 ) -> bool {
     let mut found = false;
     if let Expr::FnCall { name, args, .. } = expr {
-        if name == "respond" || name == "respond_html" {
+        // №565: the explicit respond_html forms ride the same gate.
+        if matches!(
+            name.as_str(),
+            "respond" | "respond_html" | "respond_html_status" | "respond_html_doc"
+        ) {
             for a in args {
                 if recall_taint_reaches_expr(a, keys, tainted_vars, bindings, strict_armed, matched)
                 {

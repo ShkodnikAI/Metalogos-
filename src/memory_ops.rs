@@ -18,6 +18,16 @@
 //! timestamp helper, and the JSON result shape of `recall_top_k`; the
 //! store algorithms and the exact per-backend error texts stay per
 //! backend exactly as they were.
+//!
+//! №554 (the audit 02.10 §3.3, position Е): the memory pairs are
+//! PERMANENT BY DESIGN — the honest record lives in the TW/VM
+//! Divergences table of docs/limitations.md ("the memory builtins run
+//! on two engines: the VM's honest simple-memory store and the TW's
+//! full store | №442 | Permanent by design"). Merging the pairs at the
+//! cost of semantics is explicitly forbidden (the audit §5.3 rule);
+//! the ops-pair baseline marks the five memory pairs
+//! documented-permanent (scripts/ci/ops_pair_baseline.txt). Pinned by
+//! tests/n554_memory_pairs_permanent.rs.
 
 use crate::bytecode::{VmMemoryEntry, VmRelation};
 use crate::embeddings::EmbeddingManager;

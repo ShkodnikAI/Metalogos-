@@ -14,6 +14,11 @@
 //   3. the audit's exact stale claim ("now 2110 bp") is gone (the
 //      historical wave-23 row "floor 998→2110 bp" is a frozen snapshot
 //      and stays — the Block-3 invariant: history is not a claim).
+//
+// №475's fs_gate ratchet targets PRODUCTION I/O paths; this file reads
+// the digest and spawns the generator gate BY DESIGN — the scoped allow
+// mirrors the n563 debt-counter / readme_consistency posture.
+#![allow(clippy::disallowed_methods)]
 
 use regex::Regex;
 use std::collections::HashMap;
@@ -51,10 +56,13 @@ fn recompute_floor() -> (usize, usize, usize, usize, usize) {
     }
     let n_typed = typed.len();
     let precise_types = ["String", "Float", "Bool", "Unit"];
-    let n_precise = typed.values().filter(|t| precise_types.contains(&t.as_str())).count();
+    let n_precise = typed
+        .values()
+        .filter(|t| precise_types.contains(&t.as_str()))
+        .count();
 
-    let typed_bp = if n_total > 0 { (n_typed * 10000) / n_total } else { 0 };
-    let precise_bp = if n_total > 0 { (n_precise * 10000) / n_total } else { 0 };
+    let typed_bp = (n_typed * 10000).checked_div(n_total).unwrap_or(0);
+    let precise_bp = (n_precise * 10000).checked_div(n_total).unwrap_or(0);
     (n_total, n_typed, typed_bp, n_precise, precise_bp)
 }
 
@@ -81,7 +89,9 @@ fn n566_generated_block_matches_the_independent_recomputation() {
         .expect("the digest must carry the END GENERATED NUMBERS marker (№566)");
     let block = &text[begin..end];
     assert_eq!(
-        text[begin..].matches("<!-- BEGIN GENERATED NUMBERS").count(),
+        text[begin..]
+            .matches("<!-- BEGIN GENERATED NUMBERS")
+            .count(),
         1,
         "exactly ONE generated block in the digest"
     );
@@ -154,6 +164,7 @@ fn n566_the_audit_stale_claim_is_gone() {
     let (_total, _typed, typed_bp, _precise, _precise_bp) = recompute_floor();
     assert!(
         text.contains(&format!("{} bp", typed_bp)),
-        "the live floor ({} bp) must be present in the digest", typed_bp
+        "the live floor ({} bp) must be present in the digest",
+        typed_bp
     );
 }

@@ -280,6 +280,18 @@ jobs:
           prefix-key: v2
       - name: Registry/dispatcher arity sync
         run: cargo test --workspace --test registry_arity_check --no-fail-fast
+      # №559 (issue #920; the audit 02.10 M-2 systematic + §6.3): the
+      # corpus check — every registry-bound call shape in the known corpus
+      # (the committed office_call_shapes.txt snapshot) must be accepted by
+      # the registry's arity spec. A warning→error change that breaks a
+      # corpus call fails HERE, before a user hits it (the respond_html
+      # lesson). The same job stays the blocking surface (the required
+      # set is unchanged); the Rust fixture test pins the export↔registry
+      # sync and drives the validator's self-test.
+      - name: Registry vs corpus (the №559 check)
+        run: |
+          cargo test --workspace --test naryad_559_registry_vs_corpus --no-fail-fast
+          python3 scripts/ci/registry_vs_corpus.py
 
   test-llm-cache-contract:
     name: test-llm-cache-contract (blocking)

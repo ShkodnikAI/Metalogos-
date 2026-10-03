@@ -151,6 +151,28 @@ cargo audit
 cargo doc --no-deps
 ```
 
+#### The warning→error review rule (№559, the audit 02.10 M-2 + §6.3)
+
+A change that turns a WARNING into an ERROR — a builtin spec hardening
+(an arity narrowing, a new refusal class, a severity bump) — MUST be
+accompanied by a run over the ENTIRE known corpus:
+
+1. `examples/` and `self-host/` (they run in the corpus tests), and
+2. the committed call-shape snapshot
+   `scripts/ci/office_call_shapes.txt` — the corpus contract with the
+   language, checked continuously by the blocking
+   `registry-arity-check (blocking)` CI job through
+   `scripts/ci/registry_vs_corpus.py` (every registry-bound pair must be
+   accepted by the registry's arity spec; a divergence names the builtin
+   and the arity and fails the merge).
+
+The respond_html lesson: the office corpus was not run when the №523
+spec hardened, and a USER caught the regression. The snapshot carries no
+code and no query strings — only `name|argc|count` triples (the №559
+privacy boundary); the office snapshot is handed in by the owner with
+the same one-liner: `rg -o '<pattern>' corpus/ | python3
+scripts/ci/extract_call_shapes.py - --out office_snapshot.txt`.
+
 ### 5. Commit
 
 Follow our [Commit Message Guidelines](#commit-message-guidelines).

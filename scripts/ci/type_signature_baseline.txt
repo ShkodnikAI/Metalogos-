@@ -117,6 +117,16 @@
 # 3000 (ADR-0179 §2.1 draft). The compiled default-feature count (the
 # in-tree lock) is 158 — the same 4 gated vec/store rows as in part 1
 # are source-counted only; the lock's comment documents the gap.
-# typed: 162
-# total: 507
-# threshold_bp: 3195
+# (superseded) typed: 162 | total: 507 | threshold_bp was 3195
+
+# 2026-10-03 №565 (gh#927): the explicit respond_html forms land in the
+# registry — respond_html_status/respond_html_doc ship TYPED ("Struct" —
+# the Value::HttpResponse struct shape, the html_to_pdf precedent) and
+# the serve-surface top-up types query_param ("String" — both paths
+# verified: the handler stub and the db_ops::query_param dispatch return
+# Value::String; the №543 line continues in the same PR that grows the
+# registry). 162/507 → 165/509; (165*10000)//509 = 3241 bp (+46 bp).
+# The floor rises WITH the rows that earned it (the №757 procedure).
+# typed: 165
+# total: 509
+# threshold_bp: 3241

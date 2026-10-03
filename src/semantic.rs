@@ -3708,7 +3708,7 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
             "git_push" => "vcs",
             "tts_send" => "voice",
             "db_execute" => "db",
-            "print" | "respond" | "respond_html" | "html_response" => "output",
+            "print" | "respond" | "respond_html" | "respond_html_status" | "respond_html_doc" | "html_response" => "output",
             "write_file" | "append_file" | "delete_file" => "file",
             // Persistent memory writes: untrusted data must not persist
             // (the TAINT_PERSISTENCE vocabulary; №266 statement forms are
@@ -5868,6 +5868,13 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
     result
         .warnings
         .extend(crate::semantic_types::stage1_warnings(declarations));
+    // №565 (gh#927; the audit 02.10 §7.2 W-3): the respond_html
+    // TWO-ARGUMENT form is deprecated — the WARN-ONLY deprecation pass
+    // (the №474 posture: warnings only, errors and both runtimes
+    // untouched). See the pass docstring below.
+    result
+        .warnings
+        .extend(respond_html_two_arg_warnings(declarations));
 
     result
 }
@@ -7727,6 +7734,222 @@ fn get_type_fields<'a>(declarations: &'a [Declaration], type_name: &str) -> Opti
         }
     }
     None
+}
+
+/// №565 (gh#927; the audit 02.10 §7.2 W-3): the respond_html TWO-ARGUMENT
+/// form is DEPRECATED — its sense depends on the CONTENT of the first
+/// argument (a first token 100..=599 reads as an HTTP status, anything
+/// else as a document title: `respond_html("200 причин выбрать нас",
+/// body)` served HTTP 200 and silently dropped the title — and a DB- or
+/// LLM-sourced string would decide the response's meaning at runtime).
+/// One release carries this WARN-ONLY pass (the №474 posture: warnings
+/// only, errors structurally untouched, no runtime change): every 2-arg
+/// call whose first argument is NOT a string literal is announced with
+/// the migration path (respond_html_status / respond_html_doc). A
+/// LITERAL first argument keeps working silently this release (the
+/// audit's exact wording); the removal comes no earlier than one
+/// release with the warning in place. The walk mirrors the call walk's
+/// surfaces (pattern bodies, route bodies, flows, entities) — the same
+/// sites the arity checker sees.
+fn respond_html_two_arg_warnings(declarations: &[Declaration]) -> Vec<SpannedError> {
+    fn walk_expr(expr: &Expr, out: &mut Vec<SpannedError>) {
+        if let Expr::FnCall { name, args, .. } = expr {
+            if name == "respond_html" && args.len() == 2 {
+                let literal_first = matches!(&args[0], Expr::StringLit { .. });
+                if !literal_first {
+                    out.push(SpannedError::at_expr(
+                        expr,
+                        "deprecated: respond_html(a, b) reads its sense from the first \
+                         argument's CONTENT (a number-like string becomes an HTTP status, \
+                         anything else a document title). Name the form explicitly: \
+                         respond_html_status(status, body) or respond_html_doc(title, body) \
+                         — №565, removal no earlier than one release with this warning",
+                    ));
+                }
+            }
+            for arg in args {
+                walk_expr(arg, out);
+            }
+            return;
+        }
+        match expr {
+            Expr::BinaryOp { left, right, .. } => {
+                walk_expr(left, out);
+                walk_expr(right, out);
+            }
+            Expr::IfElse {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                walk_expr(condition, out);
+                walk_expr(then_branch, out);
+                walk_expr(else_branch, out);
+            }
+            Expr::FieldAccess { object, .. } => walk_expr(object, out),
+            Expr::IndexAccess { object, index, .. } => {
+                walk_expr(object, out);
+                walk_expr(index, out);
+            }
+            Expr::Try { expr: inner, .. } => walk_expr(inner, out),
+            Expr::List { items, .. } => {
+                for i in items {
+                    walk_expr(i, out);
+                }
+            }
+            Expr::StructLit { fields, .. } => {
+                for v in fields.values() {
+                    walk_expr(v, out);
+                }
+            }
+            Expr::BlockIfElse {
+                condition,
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                walk_expr(condition, out);
+                walk_stmts(then_body, out);
+                for (cond, body) in else_ifs {
+                    walk_expr(cond, out);
+                    walk_stmts(body, out);
+                }
+                if let Some(body) = else_body {
+                    walk_stmts(body, out);
+                }
+            }
+            Expr::MatchExpr {
+                scrutinee,
+                arms,
+                else_body,
+                ..
+            } => {
+                walk_expr(scrutinee, out);
+                for arm in arms {
+                    match arm {
+                        MatchArm::Compare(_, e, body) => {
+                            walk_expr(e, out);
+                            walk_stmts(body, out);
+                        }
+                        MatchArm::Exact(_, body) | MatchArm::StartsWith(_, body)
+                        | MatchArm::Contains(_, body) => walk_stmts(body, out),
+                    }
+                }
+                if let Some(body) = else_body {
+                    walk_stmts(body, out);
+                }
+            }
+            Expr::ProvBind { inner, .. } => walk_expr(inner, out),
+            _ => {}
+        }
+    }
+
+    fn walk_stmts(stmts: &[Statement], out: &mut Vec<SpannedError>) {
+        for stmt in stmts {
+            match stmt {
+                Statement::LetBinding { value, .. } | Statement::Assign { value, .. } => {
+                    walk_expr(value, out)
+                }
+                Statement::Return { value: e, .. } | Statement::ExprStmt { expr: e, .. } => {
+                    walk_expr(e, out)
+                }
+                Statement::Each { iterable, body, .. } | Statement::EachWithIndex { iterable, body, .. } => {
+                    walk_expr(iterable, out);
+                    walk_stmts(body, out);
+                }
+                Statement::While {
+                    condition, body, ..
+                } => {
+                    walk_expr(condition, out);
+                    walk_stmts(body, out);
+                }
+                Statement::IfElseBlock {
+                    condition,
+                    then_body,
+                    else_ifs,
+                    else_body,
+                    ..
+                } => {
+                    walk_expr(condition, out);
+                    walk_stmts(then_body, out);
+                    for (cond, body) in else_ifs {
+                        walk_expr(cond, out);
+                        walk_stmts(body, out);
+                    }
+                    if let Some(body) = else_body {
+                        walk_stmts(body, out);
+                    }
+                }
+                Statement::IfThen {
+                    condition: cond,
+                    body,
+                    ..
+                } => {
+                    walk_expr(cond, out);
+                    walk_stmts(body, out);
+                }
+                Statement::Match {
+                    scrutinee,
+                    arms,
+                    else_body,
+                    ..
+                } => {
+                    walk_expr(scrutinee, out);
+                    for arm in arms {
+                        match arm {
+                            MatchArm::Compare(_, e, body) => {
+                                walk_expr(e, out);
+                                walk_stmts(body, out);
+                            }
+                            MatchArm::Exact(_, body) | MatchArm::StartsWith(_, body)
+                            | MatchArm::Contains(_, body) => walk_stmts(body, out),
+                        }
+                    }
+                    if let Some(body) = else_body {
+                        walk_stmts(body, out);
+                    }
+                }
+                Statement::Memorize(m) => walk_expr(&m.value, out),
+                Statement::Forget(f) => walk_expr(&f.query, out),
+                Statement::Relate(r) => {
+                    walk_expr(&r.from, out);
+                    walk_expr(&r.to, out);
+                }
+                Statement::Break | Statement::Continue => {}
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    for decl in declarations {
+        match decl {
+            Declaration::Pattern(p) => walk_stmts(&p.body, &mut out),
+            Declaration::EntitySimple(e) => walk_expr(&e.value, &mut out),
+            Declaration::EntityRecord(e) => {
+                for f in &e.fields {
+                    walk_expr(&f.value, &mut out);
+                }
+            }
+            Declaration::Flow(f) => {
+                walk_expr(&f.source, &mut out);
+                for (_, branches) in &f.branch_defs {
+                    for b in branches {
+                        walk_expr(&b.condition.target, &mut out);
+                        walk_expr(&b.condition.threshold, &mut out);
+                    }
+                }
+            }
+            Declaration::MlogServer(srv) => {
+                for route in &srv.routes {
+                    walk_stmts(&route.body, &mut out);
+                }
+            }
+            _ => {}
+        }
+    }
+    out
 }
 
 /// Walk an expression tree, checking FnCall arity and detecting undefined functions.

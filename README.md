@@ -218,8 +218,8 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 | Metric | Value (generated — do not hand-edit) |
 | ------ | ------------------------------------- |
 | Version | 0.28.0 |
-| Built-in Functions | 507 functions across 45 modules |
-| Typed Signatures | 162/507 (31.95%) — precise 83/507 (16.37%) (№467/№560) |
+| Built-in Functions | 509 functions across 45 modules |
+| Typed Signatures | 165/509 (32.41%) — precise 84/509 (16.50%) (№467/№560) |
 | SVG/Graphics | 44 builtins, hand-rolled in pure Rust |
 | Grammar | 339 rules |
 | Architecture Decisions | 172 ADRs |

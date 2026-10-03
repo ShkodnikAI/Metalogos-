@@ -20,6 +20,15 @@
 # The 0.29 precise-share GOAL is the OWNER's parameter (§3 ADR-0179) —
 # the naryad delivers the metric and this lock, the owner fixes the number.
 #
-# precise: 83
-# total: 507
-# threshold_bp: 1637
+# (superseded) precise: 83 | total: 507 | threshold_bp was 1637
+
+# 2026-10-03 №565 (gh#927): query_param ships PRECISE ("String" — both
+# paths verified: the handler stub and the db_ops::query_param dispatch
+# return Value::String) — 83/507 → 84/509 (the registry grows by the two
+# explicit respond_html rows, typed-but-coarse "Struct" per the
+# html_to_pdf precedent). (84*10000)//509 = 1650 bp. The floor rises
+# with the row that earned it (the №757 procedure); the PRECISE_TYPES
+# definition is untouched.
+# precise: 84
+# total: 509
+# threshold_bp: 1650

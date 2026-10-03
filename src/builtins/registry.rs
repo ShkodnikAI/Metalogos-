@@ -225,10 +225,12 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // broke the 1-arg office corpus form (issue #892: 500 on every HTML route).
     // #892 restores the full contract: 1 arg (office form) / 2 args (documented
     // (status, html) OR office (title, body) — the builtin disambiguates).
-    spec!("respond_html", 1, 2, "web"; builtin_respond_html),
+    spec!("respond_html", 1, 2, "web"; builtin_respond_html), // №565: the 2-arg form is DEPRECATED (the sense-by-content hazard) — migrate to respond_html_status/respond_html_doc; the 1-arg form is the gh#899 SSOT
+    spec!("respond_html_status", 2, 2, "web"; builtin_respond_html_status, "Struct"), // №565: the explicit (status, body) form — the HttpResponse struct shape; the HTML egress gates treat it like respond_html
+    spec!("respond_html_doc", 2, 2, "web"; builtin_respond_html_doc, "Struct"), // №565: the explicit (title, body) form — the title is never a status
     spec!("form_data", 1, "web"; builtin_form_data),
     spec!("json_body", 0, "web"; builtin_json_body),
-    spec!("query_param", 1, "web"; builtin_query_param),
+    spec!("query_param", 1, "web"; builtin_query_param, "String"), // №565 top-up (the №543 line): both paths verified — the handler stub and the db_ops::query_param dispatch return Value::String
     // №523: the 2..3 range is NOMINAL — render's real contract is dynamic
     // (the template's parameter list is data, №115; the 1-arg form is the
     // №448 taint-lift surface). The builtin validates loudly at runtime;

@@ -144,6 +144,18 @@ fn build_html_document(title: &str, body: &str) -> String {
 /// In server context, value_to_response converts HttpResponse to an Axum
 /// response honoring the value's content_type (text/html — not the axum
 /// String default text/plain that broke the office pages).
+///
+/// №565 (gh#927; the audit 02.10 §7.2 W-3): the TWO-ARGUMENT form is
+/// DEPRECATED — its sense depends on the CONTENT of the first argument
+/// (a first token 100..=599 reads as a status, anything else reads as a
+/// document title: `respond_html("200 reasons to join", body)` served
+/// HTTP 200 and silently dropped the title; a DB- or LLM-sourced string
+/// decided the response's meaning). One release carries the deprecation
+/// with a semantic-analysis WARNING when the first argument is not a
+/// string literal (the semantic.rs pass); migrate NOW:
+///   - respond_html(status, html)  → respond_html_status(status, html)
+///   - respond_html(title, body)   → respond_html_doc(title, body)
+/// The 1-argument form is the UNCHANGED SSOT contract (gh#899).
 pub(crate) fn builtin_respond_html(args: &[Value]) -> Result<Value, String> {
     match args.len() {
         0 => Err("respond_html() requires an argument at position 0".to_string()),
@@ -160,6 +172,7 @@ pub(crate) fn builtin_respond_html(args: &[Value]) -> Result<Value, String> {
             let html = expect_string_arg("respond_html", args, 1)?;
             if looks_like_http_status(&first) {
                 // Form 2: the legacy documented (status, html) — body verbatim.
+                // DEPRECATED since №565 — migrate to respond_html_status.
                 let status = first
                     .split_whitespace()
                     .next()
@@ -172,6 +185,7 @@ pub(crate) fn builtin_respond_html(args: &[Value]) -> Result<Value, String> {
                 })
             } else {
                 // Form 3: the office (title, body) — full HTML document.
+                // DEPRECATED since №565 — migrate to respond_html_doc.
                 Ok(Value::HttpResponse {
                     status: 200,
                     body: build_html_document(&first, &html),
@@ -180,6 +194,80 @@ pub(crate) fn builtin_respond_html(args: &[Value]) -> Result<Value, String> {
             }
         }
     }
+}
+
+/// `respond_html_status(status, body)` — the EXPLICIT status form (№565,
+/// gh#927; the audit 02.10 §7.2 W-3): the sense lives in the NAME, not in
+/// the shape of the first argument (the audit's example:
+/// `respond_html("200 причин выбрать нас", body)` read "200" as a status
+/// and silently dropped the title — meaning decided by data). Body
+/// verbatim; the status must be HONEST — a new surface carries no legacy
+/// debt, so instead of the legacy silent `unwrap_or(200)` a non-parsing
+/// status is a LOUD argument error (the №514 rule):
+///   - a String whose FIRST token parses as an HTTP status code in
+///     100..=599 ("404", "404 Not Found") — the documented spelling, or
+///   - a whole-number Float in 100..=599 (the language's number shape).
+/// The response carries text/html; charset=utf-8 (the №892 contract —
+/// value_to_response honors it on the wire; the HTML egress gates —
+/// LLM-output, open-redirect, secret-leak, recall-taint — treat this
+/// name EXACTLY like respond_html: the explicit name is not a bypass).
+pub(crate) fn builtin_respond_html_status(args: &[Value]) -> Result<Value, String> {
+    if args.len() != 2 {
+        return Err(format!(
+            "respond_html_status() requires exactly 2 arguments (status, body), got {}",
+            args.len()
+        ));
+    }
+    let status: u16 = match &args[0] {
+        Value::String(s) => s
+            .split_whitespace()
+            .next()
+            .and_then(|tok| tok.parse::<u16>().ok())
+            .filter(|code| (100..=599).contains(code))
+            .ok_or_else(|| {
+                format!(
+                    "respond_html_status() status must open with an HTTP status code in 100..=599 (\"404\", \"404 Not Found\"), got {:?}",
+                    s
+                )
+            })?,
+        Value::Float(f) if f.fract() == 0.0 && (100.0..=599.0).contains(f) => *f as u16,
+        other => {
+            return Err(format!(
+                "respond_html_status() status must be String (\"404 Not Found\") or a whole number 100..=599, got {}",
+                other.type_name()
+            ))
+        }
+    };
+    let body = expect_string_arg("respond_html_status", args, 1)?;
+    Ok(Value::HttpResponse {
+        status,
+        body,
+        content_type: Some(RESPOND_HTML_CT.to_string()),
+    })
+}
+
+/// `respond_html_doc(title, body)` — the EXPLICIT document form (№565):
+/// the first argument is a TITLE — never read as a status, never
+/// dropped, whatever string arrives from a DB or an LLM. The same
+/// document shape as the office (title, body) form (№892): the title
+/// lands tag-stripped + escaped in <head><title> and verbatim at the
+/// top of <body>. Status 200, text/html; charset=utf-8 (the №892
+/// contract). The HTML egress gates treat this name EXACTLY like
+/// respond_html (the explicit name is not a bypass).
+pub(crate) fn builtin_respond_html_doc(args: &[Value]) -> Result<Value, String> {
+    if args.len() != 2 {
+        return Err(format!(
+            "respond_html_doc() requires exactly 2 arguments (title, body), got {}",
+            args.len()
+        ));
+    }
+    let title = expect_string_arg("respond_html_doc", args, 0)?;
+    let body = expect_string_arg("respond_html_doc", args, 1)?;
+    Ok(Value::HttpResponse {
+        status: 200,
+        body: build_html_document(&title, &body),
+        content_type: Some(RESPOND_HTML_CT.to_string()),
+    })
 }
 
 pub(crate) fn builtin_form_data(args: &[Value]) -> Result<Value, String> {

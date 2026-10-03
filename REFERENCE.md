@@ -1100,7 +1100,9 @@ Functions for use inside route handlers of `mlogserver`/`server` blocks.
 | Function | Signature | Return | Description |
 |---------|-----------|---------|----------|
 | `respond(status_line)` | `String -> HttpResponse` | HttpResponse | Builds an HTTP response. Format: `"200 OK"`, `"404 Not Found"`, etc. |
-| `respond_html(html)` / `respond_html(status, html)` / `respond_html(title, body)` | `String -> HttpResponse`; `String, String -> HttpResponse` | HttpResponse | Three forms (#892). **1-arg:** the whole argument is the HTML body, status 200. **2-arg, first arg is a status** (opens with "200", "404 Not Found", …): the legacy documented form — the second argument is the body VERBATIM. **2-arg, first arg is not a status:** the (title, body) form — a full HTML document is built (the title renders at the top of `<body>` verbatim and tag-stripped into `<head><title>`). All three serve `Content-Type: text/html; charset=utf-8` |
+| `respond_html(html)` / `respond_html(status, html)` / `respond_html(title, body)` | `String -> HttpResponse`; `String, String -> HttpResponse` | HttpResponse | Three forms (#892). **1-arg:** the whole argument is the HTML body, status 200. **2-arg, first arg is a status** (opens with "200", "404 Not Found", …): the legacy documented form — the second argument is the body VERBATIM. **2-arg, first arg is not a status:** the (title, body) form — a full HTML document is built (the title renders at the top of `<body>` verbatim and tag-stripped into `<head><title>`). All three serve `Content-Type: text/html; charset=utf-8`. **The 2-arg form is DEPRECATED (№565)** — the sense is read from the first argument's CONTENT (a number-like string becomes a status, anything else a title); a semantic warning fires when the first argument is not a string literal; migrate to `respond_html_status` / `respond_html_doc` (removal no earlier than one release with the warning) |
+| `respond_html_status(status, body)` | `String \| Float, String -> HttpResponse` | HttpResponse | The EXPLICIT status form (№565): the sense lives in the NAME, not in the data. The body is served VERBATIM with the given status; the status must open with an HTTP code in 100..=599 ("404", "404 Not Found") or be a whole number 100..=599 — otherwise a LOUD argument error (no silent 200 fallback). `Content-Type: text/html; charset=utf-8`; the HTML egress gates (LLM-output, open-redirect, secret-leak, recall-taint) treat it exactly like `respond_html` |
+| `respond_html_doc(title, body)` | `String, String -> HttpResponse` | HttpResponse | The EXPLICIT document form (№565): the first argument is a TITLE — never read as a status, never dropped. Full HTML document (the title renders at the top of `<body>` verbatim and tag-stripped into `<head><title>`), status 200. `Content-Type: text/html; charset=utf-8`; the HTML egress gates treat it exactly like `respond_html` |
 | `form_data()` | `-> Struct {FormData}` | Struct | Parses data from an `application/x-www-form-urlencoded` request body |
 | `json_body()` | `-> Struct {JsonBody}` | Struct | Parses JSON from the request body |
 | `query_param(name)` | `String -> String` | String | Gets a query parameter from the URL. `curl "localhost:8080/search?q=hello" -> query_param("q") == "hello"`. An empty string if the parameter is absent. Percent-decoding: RFC 3986 bytes reassembled as UTF-8 (`%D0%B6` → `"ж"`), `+` → space (form-urlencoded convention), invalid escapes pass through literally, invalid UTF-8 is lossy — see the §4.13 note (Naryad #257) |
@@ -2133,7 +2135,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 507 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 509 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2845,7 +2847,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `voice_save(...)` | 2 | — | `voice_save(handle, name)` stub — ADR-0143 (persistence). |
 | `whisper_transcribe(...)` | 3..4 | `String, String, String[, String] -> String` | Downloads a voice message from Telegram by `file_id`, sends it for transcription to the Whisper API. `provider`: `"openai"` (default) or `"groq"`. `METALOGOS_STT_BASE_URL` overrides the transcription API base (mock servers / self-host proxies) — `/audio/transcriptions` is appended. Returns the recognized text. Arity 3..4 — the registry used to declare min 1 while the runtime always required 3 (Naryad #279 fact-check fix; a 1-arg call now fails `mlog check` on statics instead of exploding at runtime) |
 
-### `web` — 19 builtin(s)
+### `web` — 21 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
@@ -2863,7 +2865,9 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `request_body(...)` | variadic | — | `json_body()` / `request_body()` — raw body of the current route request, parsed as JSON into a `Dict` Struct; `request_body` is the explicit-name alias. Result carries `UserInput` taint (untrusted request data). |
 | `require(...)` | 1..2 | `Bool -> Unit` | A runtime assertion. Errors if `false` |
 | `respond(...)` | 1..2 | `String -> HttpResponse` | Builds an HTTP response. Format: `"200 OK"`, `"404 Not Found"`, etc. |
-| `respond_html(...)` | 1..2 | `String -> HttpResponse`; `String, String -> HttpResponse` | Three forms (#892). **1-arg:** the whole argument is the HTML body, status 200. **2-arg, first arg is a status** (opens with "200", "404 Not Found", …): the legacy documented form — the second argument is the body VERBATIM. **2-arg, first arg is not a status:** the (title, body) form — a full HTML document is built (the title renders at the top of `<body>` verbatim and tag-stripped into `<head><title>`). All three serve `Content-Type: text/html; charset=utf-8` |
+| `respond_html(...)` | 1..2 | `String -> HttpResponse`; `String, String -> HttpResponse` | Three forms (#892). **1-arg:** the whole argument is the HTML body, status 200. **2-arg, first arg is a status** (opens with "200", "404 Not Found", …): the legacy documented form — the second argument is the body VERBATIM. **2-arg, first arg is not a status:** the (title, body) form — a full HTML document is built (the title renders at the top of `<body>` verbatim and tag-stripped into `<head><title>`). All three serve `Content-Type: text/html; charset=utf-8`. **The 2-arg form is DEPRECATED (№565)** — the sense is read from the first argument's CONTENT (a number-like string becomes a status, anything else a title); a semantic warning fires when the first argument is not a string literal; migrate to `respond_html_status` / `respond_html_doc` (removal no earlier than one release with the warning) |
+| `respond_html_doc(...)` | 2 | `String, String -> HttpResponse` | The EXPLICIT document form (№565): the first argument is a TITLE — never read as a status, never dropped. Full HTML document (the title renders at the top of `<body>` verbatim and tag-stripped into `<head><title>`), status 200. `Content-Type: text/html; charset=utf-8`; the HTML egress gates treat it exactly like `respond_html` |
+| `respond_html_status(...)` | 2 | `String \ | HttpResponse |
 | `server_path_param(...)` | 1 | — | `server_path_param(name)` — stub that returns empty string (Наряд №283). Real implementation is handled in interpreter.rs and vm.rs FnCall dispatch (needs access to server_path_params HashMap on the runtime context — same pattern as `query_param`). Returns empty string when no templated route matched (static route, or no server context). |
 | `weather(...)` | 2 | — | `weather(city_or_lat, lon?)` — current weather via Open-Meteo (FREE, no API key). `weather("Minsk")` or `weather(53.9, 27.57)`. Returns Struct {temp, feels_like, temp_min, temp_max, humidity, description, wind_speed, wind_direction, pressure, cloud_cover, is_day, city, country}. |
 | `weather_forecast(...)` | 1..3 | — | `weather_forecast(city_or_lat, lon?, days?)` — multi-day forecast via Open-Meteo (FREE, no API key). `weather_forecast("Minsk", 7)` or `weather_forecast(53.9, 27.57, 3)`. Default: 7 days. Max: 16 days. Returns List of DayForecast structs. |
@@ -2990,6 +2994,8 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `dict_values` | pure | public | pure | — |
 | `respond` | sink | public | irreversible | writes the HTTP response — public channel, cannot be unsent |
 | `respond_html` | sink | public | irreversible | writes the HTTP response as HTML — public channel (escaping contract) |
+| `respond_html_status` | sink | public | irreversible | №565: the explicit (status, body) HTML response — the same public-channel sink as respond_html (the explicit name is not a bypass) |
+| `respond_html_doc` | sink | public | irreversible | №565: the explicit (title, body) HTML document response — the same public-channel sink as respond_html (the explicit name is not a bypass) |
 | `form_data` | source | internal | pure | ingests untrusted user form input — UserInput taint (№201 vocabulary) |
 | `json_body` | source | internal | pure | ingests untrusted request body — UserInput taint |
 | `query_param` | source | internal | pure | ingests untrusted request query parameter — UserInput taint |

@@ -44,8 +44,13 @@ fn readme_lines() -> Vec<String> {
 }
 
 fn limitations_text() -> String {
+    // №571 (gh#935): the closed rows moved to docs/limitations-archive.md —
+    // the gate reads BOTH files (a lost row fails either way).
     let p = repo_root().join("docs").join("limitations.md");
-    fs::read_to_string(&p).unwrap_or_else(|e| panic!("cannot read {:?}: {}", p, e))
+    let a = repo_root().join("docs").join("limitations-archive.md");
+    let live = fs::read_to_string(&p).unwrap_or_else(|e| panic!("cannot read {:?}: {}", p, e));
+    let archive = fs::read_to_string(&a).unwrap_or_else(|e| panic!("cannot read {:?}: {}", a, e));
+    format!("{}\n{}", live, archive)
 }
 
 // ── (а) CLOSED VM rows in limitations.md must not be denied in README ─
@@ -85,8 +90,9 @@ fn readme_never_denies_a_closed_vm_feature() {
 #[test]
 fn limitations_md_still_carries_the_closed_vm_rows() {
     // The gate is only as honest as its source: if the CLOSED rows are
-    // removed from limitations.md, this test screams — the two docs
-    // cannot silently drift apart in either direction.
+    // removed from limitations.md (or its №571 archive), this test
+    // screams — the two docs cannot silently drift apart in either
+    // direction.
     let text = limitations_text();
     for marker in [
         "CLOSED (№369)",
@@ -97,7 +103,7 @@ fn limitations_md_still_carries_the_closed_vm_rows() {
     ] {
         assert!(
             text.contains(marker),
-            "limitations.md lost its {} row — the docs-consistency gate depends on it",
+            "limitations.md (or its №571 archive) lost its {} row — the docs-consistency gate depends on it",
             marker
         );
     }

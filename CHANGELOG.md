@@ -4,6 +4,20 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №571 (issue #935; Wave 26 P2, the post-0.28.0 sweep): the
+  limitations.md honest fold — the 15 CLOSED rows (the VM Stage-1/flip
+  family, the adapt mock-metric real-mode closure, the distill-serve
+  fix, the read_file loud flip, the try error codes, the MCP transport
+  and tool-gates closures, the write-deny case fix, the voiceprint AAD
+  removal) move VERBATIM to the new `docs/limitations-archive.md`; the
+  live limitations.md carries only the OPEN obligations (the two fully
+  closed sections keep the loud archive pointer). The №524 rule holds —
+  a closed row is never removed silently: the pinning gates
+  (docs_consistency, naryad_373) now read BOTH files, a lost row fails
+  either way. REFERENCE/README counters verified against gen_metrics
+  (509/509, no drift); the [Unreleased] structure after the №550 cut
+  verified clean.
+
 - Naryad №569 (issue #933; Wave 26 P2, the debt-honesty classification):
   every `#[ignore]` verdicted. THREE movements, debt ONLY down. (1) The
   №468 counter heuristic is STRICT — the trimmed line must START with

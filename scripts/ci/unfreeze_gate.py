@@ -253,10 +253,11 @@ def main():
     c2 = criterion_dedup(baseline_dir)
     c3 = criterion_debt(baseline_dir)
     c4 = criterion_memory(baseline_dir, office_tests)
-    # №509: the v2 gate (the 0.28 ABSOLUTE goals) is OFF by default —
-    # the 0.27.x releases read the legacy §4 verdict; the 0.28 release
-    # runs the gate with --gate-target 0.28 (ADR-0179 §5).
-    gate_target = args[args.index('--gate-target') + 1] if '--gate-target' in args else None
+    # №550 (the 0.28 release prep; the audit 02.10 M-3 sketch): the
+    # DEFAULT gate target is 0.28 — a bare run checks the 0.28 ABSOLUTE
+    # goals (ADR-0179 §5, the v2 gate), not the legacy 0.27.x reading;
+    # the legacy reading stays available explicitly (--gate-target legacy).
+    gate_target = args[args.index('--gate-target') + 1] if '--gate-target' in args else '0.28'
     c5 = criterion_goals_028(baseline_dir) if gate_target == '0.28' else None
 
     rows = []

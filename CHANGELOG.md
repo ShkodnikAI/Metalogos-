@@ -4,6 +4,89 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+(nothing yet)
+
+## [0.28.0] - 2026-10-03
+
+### Security
+
+**The audit-driven security release: the v0.27.1 tag (2026-09-29)
+predates every fix below. v0.27.1 and earlier are affected — update is
+mandatory.**
+
+- **№523 (gh#832; the consolidated audit A+D 30.09, N-1, High):**
+  semantic findings now BLOCK `mlog run` and `mlog serve` — the
+  liar-string security-check bypass is closed. v0.27.1 blocked only two
+  message-substring classes (`contains("distill_to")`,
+  `contains("[DENY_")`), `mlog serve` ran NO semantic pass at all, and
+  an unknown function returned the STRING
+  `"[ERROR: unknown function 'x']"` as the call's VALUE — a non-empty
+  string is truthy in `is_truthy`, so `if is_admn(user)` with
+  `is_admn` undefined took the then-branch: the security check became
+  its own bypass (a typo in a function name was enough). Now every
+  `semantic::check_program` error blocks the run path and the serve
+  startup (exemptions classify ONLY by the structured error kind in
+  ONE explicit place — never by message substring), the unknown
+  function is the coded `[UNDEFINED_FUNCTION]` compile error, and the
+  refusal carries the stable code at position 0. The tree-walking
+  runtime was the affected path; the VM backend's compile stage
+  already refused the class — the exploit shape is now refused on BOTH
+  backends (pinned in `tests/naryad_523_semantic_gate.rs`).
+- **№526 (gh#835; the consolidated audit A+D 30.09, N-2):** the GDPR
+  Art. 17 erasure path for voiceprints LANDS — `voice_delete(handle)`
+  (idempotent; the persisted twin runs the SECURE-DELETE path: the
+  ciphertext blob is zero-overwritten in place BEFORE the row removal)
+  and `voice_list()` (the informed-deletion basis; the listing never
+  decrypts, the embedding bytes never enter any result). Neither is
+  feature-gated — the erasure right cannot depend on a build flag.
+  v0.27.1 and earlier had ONLY insert/replace: a persisted print
+  outlived every consent revocation ("Delete path: ABSENT",
+  privacy.md §2.1).
+- **№527 (gh#836; the consolidated audit 30.09, N-3):** the voiceprint
+  ciphertext is BOUND TO ITS SUBJECT — the AES-256-GCM AAD carries the
+  (subject_id, registry, schema version) triplet, so a blob
+  transplanted onto another subject's row FAILS authentication (the
+  swap attack the bare tag accepted is closed), and the decoded key
+  buffer lives under `Zeroizing`. The transitional empty-AAD read
+  announced by №527 existed ONLY on main — its deadline is honored IN
+  THIS RELEASE: the fallback is removed, a legacy row refuses with
+  `[VOICEPRINT_DECRYPT]`, the only path back is re-enroll/re-save. No
+  released version ever wrote a legacy row (the GCM store itself ships
+  in 0.28.0).
+- **№517 (gh#801) + №512 (gh#796; the consolidated audit 28.09
+  C-06):** the honest at-rest crypto for voiceprints — real
+  AES-256-GCM with a fresh random 96-bit nonce per write, the key
+  ONLY through the secret()-gate semantics (env-sourced hex-256,
+  never derived from the name), a keyless save fails closed
+  (`[VOICE_INSECURE_STORE]`); №512 removed the FAKE crypto claims
+  first (the pre-№517 store's schema said AES-256-GCM while the bytes
+  were name-XOR plaintext). v0.27.1 and earlier persisted voiceprints
+  without honest at-rest encryption.
+
+### Changed and fixed
+
+- The №527 deadline honored in the release prep (issue #836 — the
+  limitations.md TRANSITION row, closed in this PR per the №524 rule):
+  the transitional empty-AAD read (the second decrypt attempt) is
+  REMOVED — a legacy №517-era voiceprint row refuses with
+  `[VOICEPRINT_DECRYPT]` (the message names the legacy possibility and
+  the path back: re-enroll/re-save). `VoiceprintCryptoStatus` loses
+  the `LegacyNoAad` variant (no producer remains); the
+  status-returning load keeps its signature (`AadBound` for every
+  readable row). Tests: `tests/naryad_527_voice_aad.rs` — T2 (the
+  legacy row refuses after the deadline), T3 (re-enroll/re-save is
+  the ONLY path back; the rebound row refuses the swap again), T4
+  (the single-attempt wrong-key refusal); T1/T5 unchanged. No released
+  version ever wrote a legacy row — the transitional population was
+  main-only.
+- Naryad №550 (issue #911; Wave 25 P0, the release prep): the
+  unfreeze-gate DEFAULT target is 0.28 — a bare `unfreeze_gate.py` run
+  now checks the 0.28 ABSOLUTE goals (ADR-0179 §5, the v2 gate)
+  instead of the legacy §4-only reading; the legacy reading stays
+  available explicitly (`--gate-target legacy`). The workspace version
+  is 0.28.0; the README version badge is re-rendered from Cargo.toml
+  (the №497 badge-sync gate).
+
 - Naryad №544 (issue #882; Wave 24, P1, compiler/security; stage 2 of the
   type system, №467 canon — the three audit classes on
   `Labeled(Box<Type>, Label)`, executed behind the ADR-0179 gate in three
@@ -49,8 +132,9 @@ All notable changes to the Metalogos project.
   — the mechanism surfaces + the end-to-end parity shapes + the №98
   compile-time classes.
 
-- Issue #892 fix (prod regression, the FOSVED-office-v2 FORGE pages 500/404
-  on 0.27.x): the `respond_html` contract is restored — all three forms in
+- Issue #892 fix (prod regression on main — introduced by №523's spec
+  hardening, never shipped in any release; the FOSVED-office-v2 FORGE
+  pages 500/404): the `respond_html` contract is restored — all three forms in
   one builtin. `respond_html(html)` (the 1-arg office corpus form) is legal
   again — the registry/semantic spec drops №523's hard 2 back to 1..2, so
   `mlog check` no longer rejects every office HTML route and the runtime no

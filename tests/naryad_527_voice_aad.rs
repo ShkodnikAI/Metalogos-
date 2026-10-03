@@ -6,18 +6,17 @@
 // swap attack №517 left open: the tag validated for ANY permutation).
 //   T1: THE SWAP REFUSAL — A's blob under B's row is a loud
 //       [VOICEPRINT_DECRYPT] refusal, nothing is returned.
-//   T2: THE TRANSITIONAL READ — a legacy №517 row (empty AAD, the same
-//       algo mark — the schema is untouched by №527) is still READABLE
-//       in the transition window, with the LOUD warning on stderr and
-//       the honest crypto status flag (LegacyNoAad) surfaced to the
-//       caller through load_voiceprint_with_status.
-//   T3: THE MIGRATION STORY — a re-save of a legacy-read embedding goes
-//       through the AAD-bound write path (every write is bound; the
-//       transitional window is for READS only), and the rebound row
+//   T2: THE DEADLINE HONORED — a legacy №517 row (empty AAD, the same
+//       algo mark — the schema is untouched) REFUSES with the loud
+//       [VOICEPRINT_DECRYPT]: the transitional empty-AAD read existed
+//       only between №527 and v0.28.0; the v0.28.0 release prep (№550)
+//       removed it. No released version ever wrote a legacy row.
+//   T3: THE MIGRATION STORY — with the transitional read gone, the ONLY
+//       path back for a legacy row is re-enroll/re-save from the source
+//       (the write path is always AAD-bound), and the rebound row
 //       refuses the swap again.
-//   T4: THE WRONG KEY still refuses loudly — the two-step decrypt
-//       (try-bound, then transitional) leaks nothing: both attempts
-//       fail on a wrong key, the answer is the same coded refusal.
+//   T4: THE WRONG KEY still refuses loudly — the single subject-bound
+//       decrypt leaks nothing: a wrong key is the same coded refusal.
 //   T5: FRESH WRITES ARE AAD-BOUND — the status flag of every freshly
 //       saved row is AadBound (no new legacy rows can be produced).
 // Boundaries held: the storage schema and the secret()-gate semantics
@@ -112,15 +111,15 @@ fn n527_swap_between_subjects_fails_authentication() {
     pin_mock(false);
 }
 
-// ── T2: the transitional legacy read (empty AAD, loud, flagged) ─────────
+// ── T2: the deadline honored — the legacy row REFUSES (no transitional read)
 
 #[test]
-fn n527_legacy_no_aad_row_reads_loud_with_flag() {
+fn n527_legacy_no_aad_row_refuses_after_the_v0280_deadline() {
     let _guard = MOCK_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     pin_mock(false);
 
     let store = test_store();
-    let embedding = vec![1.5f32, -2.5, 0.0, 42.0];
+    let embedding = [1.5f32, -2.5, 0.0, 42.0];
 
     // A №517-era row: encrypted with an EMPTY AAD (the old contour), the
     // same algo mark — the №527 schema boundary keeps the mark.
@@ -142,38 +141,39 @@ fn n527_legacy_no_aad_row_reads_loud_with_flag() {
         .unwrap();
     }
 
-    // The compat entry point still reads it (the transition window) —
-    // the loud warning goes to stderr from inside the decrypt.
-    let (loaded, model) = store.load_voiceprint("legacy517", Some(KEY_A)).unwrap();
-    assert_eq!(loaded, embedding, "the legacy row decrypts exactly");
-    assert_eq!(model, "chatterbox-v3");
-
-    // The honest status flag: the caller can SEE the row is not bound.
-    let (loaded2, model2, status) = store
-        .load_voiceprint_with_status("legacy517", Some(KEY_A))
-        .unwrap();
-    assert_eq!(loaded2, embedding);
-    assert_eq!(model2, "chatterbox-v3");
-    assert_eq!(
-        status,
-        metalogos::voice::store::VoiceprintCryptoStatus::LegacyNoAad,
-        "the legacy row reports LegacyNoAad — the transition is observable"
+    // The deadline (limitations.md TRANSITION row, №550): the row does
+    // NOT decrypt anymore — neither through the compat entry point nor
+    // through the status-returning one. The refusal is the single loud
+    // [VOICEPRINT_DECRYPT], and it names the legacy possibility honestly.
+    let err = store.load_voiceprint("legacy517", Some(KEY_A)).unwrap_err();
+    assert!(
+        err.starts_with("[VOICEPRINT_DECRYPT] "),
+        "the legacy row refuses after the deadline, got: {}",
+        err
     );
+    assert!(
+        err.contains("legacy №517-era row"),
+        "the refusal names the removed transitional read, got: {}",
+        err
+    );
+    assert!(store
+        .load_voiceprint_with_status("legacy517", Some(KEY_A))
+        .is_err());
 
     pin_mock(false);
 }
 
-// ── T3: the migration story — a re-save rebinds the row ─────────────────
+// ── T3: the migration story — re-enroll/re-save is the ONLY path back ──
 
 #[test]
-fn n527_resave_of_legacy_row_rebinds_and_refuses_swap() {
+fn n527_reenroll_is_the_only_path_back_and_rebinds() {
     let _guard = MOCK_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     pin_mock(false);
 
     let store = test_store();
     let embedding = [0.125f32, 3.5];
 
-    // A legacy row again (the T2 fixture shape).
+    // A legacy row again (the T2 fixture shape) — unreadable now.
     let blob = metalogos::voice::store::encrypt_voiceprint_legacy_no_aad_for_tests(
         &embedding
             .iter()
@@ -191,18 +191,15 @@ fn n527_resave_of_legacy_row_rebinds_and_refuses_swap() {
         )
         .unwrap();
     }
-    let (loaded, _, status) = store
+    assert!(store
         .load_voiceprint_with_status("carol", Some(KEY_A))
-        .unwrap();
-    assert_eq!(
-        status,
-        metalogos::voice::store::VoiceprintCryptoStatus::LegacyNoAad
-    );
+        .is_err());
 
-    // The re-enroll path: the write path is ALWAYS AAD-bound (№527 task 1:
-    // "запись — только с AAD"). The row is now bound to its subject.
+    // The re-enroll path — the ONLY one left: the write path is ALWAYS
+    // AAD-bound (№527 task 1: "запись — только с AAD"). The row is bound
+    // to its subject again.
     store
-        .save_voiceprint("carol", &loaded, "chatterbox-v3", Some(KEY_A))
+        .save_voiceprint("carol", &embedding, "chatterbox-v3", Some(KEY_A))
         .unwrap();
     let (_, _, status2) = store
         .load_voiceprint_with_status("carol", Some(KEY_A))
@@ -210,7 +207,7 @@ fn n527_resave_of_legacy_row_rebinds_and_refuses_swap() {
     assert_eq!(
         status2,
         metalogos::voice::store::VoiceprintCryptoStatus::AadBound,
-        "the re-saved row is bound — the transition window shrank by one row"
+        "the re-saved row is bound — the legacy population is gone"
     );
 
     // The rebound row refuses the swap again (the T1 property).
@@ -236,7 +233,7 @@ fn n527_resave_of_legacy_row_rebinds_and_refuses_swap() {
 // ── T4: the wrong key still refuses loudly, nothing leaks ───────────────
 
 #[test]
-fn n527_wrong_key_refusal_survives_the_two_step_decrypt() {
+fn n527_wrong_key_still_refuses_loudly() {
     let _guard = MOCK_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     pin_mock(false);
 
@@ -245,8 +242,8 @@ fn n527_wrong_key_refusal_survives_the_two_step_decrypt() {
         .save_voiceprint("eve", &[0.1f32, 0.2], "koko-ro-82m", Some(KEY_A))
         .unwrap();
 
-    // The wrong key fails BOTH decrypt attempts (bound and transitional):
-    // the answer stays the single loud [VOICEPRINT_DECRYPT] refusal.
+    // The single subject-bound decrypt: a wrong key is the one loud
+    // [VOICEPRINT_DECRYPT] refusal — nothing leaks, nothing falls back.
     let err = store.load_voiceprint("eve", Some(KEY_B)).unwrap_err();
     assert!(err.starts_with("[VOICEPRINT_DECRYPT] "), "got: {}", err);
     assert!(store

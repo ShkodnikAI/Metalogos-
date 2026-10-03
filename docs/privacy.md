@@ -80,11 +80,13 @@ AAD = (subject_id, registry, schema version) (`src/voice/store.rs:50–73`) — 
 blob transplanted onto another subject's row fails authentication (the swap
 attack the bare tag accepted is closed), and the decoded key buffer lives under
 `Zeroizing` (wiped at the operation's scope exit). The №517-era rows (empty
-AAD) stay readable in the announced transition window: every such read emits
-`[VOICEPRINT_NO_AAD_LEGACY]` on stderr and surfaces the honest
-`VoiceprintCryptoStatus::LegacyNoAad` flag through `load_voiceprint_with_status`
-(`store.rs:269–340`); every write is AAD-bound, so the legacy population only
-shrinks (the deadline row lives in limitations.md — the №524 rule).
+AAD) were readable ONLY in the announced transition window — the v0.28.0
+release prep (№550) honored the deadline and REMOVED the empty-AAD fallback:
+a legacy row now refuses with `[VOICEPRINT_DECRYPT]` (the refusal names the
+legacy possibility), and the only path back is re-enroll/re-save. No released
+version ever wrote a legacy row — the GCM store itself ships in 0.28.0;
+every write is AAD-bound (the deadline row's closure lives in
+limitations.md — the №524 rule).
 
 **The PARTIAL caveat, stated twice on purpose:**
 

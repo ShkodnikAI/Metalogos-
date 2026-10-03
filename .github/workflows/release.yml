@@ -1,0 +1,167 @@
+name: Release assets (binary + SBOM + provenance)
+
+# Release supply-chain assets: AFTER the owner publishes a GitHub Release
+# (docs/release-checklist.md: "the machine never publishes"), this workflow
+# builds the `mlog` binary from the tagged commit, generates a CycloneDX
+# SBOM for exactly that binary, and signs two build attestations (SLSA
+# build provenance + the SBOM bound to the binary) via GitHub's Sigstore
+# integration. It then attaches binary, SBOM and SHA256SUMS to the release.
+#
+# What this does NOT claim: the build is not bit-for-bit reproducible, it
+# links glibc of `ubuntu-latest`, and it is not signed by a human-held key
+# — the attestation proves WHICH workflow run on WHICH commit produced the
+# bytes, nothing more. Releases published before this file landed have no
+# assets.
+#
+# Triggers:
+#   release: published   — the real path (uploads to the release).
+#   workflow_dispatch    — dry run by default (build + SBOM + attest, NO
+#                          upload); `upload: true` + `tag` backfills an
+#                          existing release.
+#   pull_request         — only when this file itself changes: build + SBOM
+#                          sanity so a broken edit is caught before it can
+#                          fail on a real release day. Same-repo PRs only
+#                          get attestations; they are never uploaded.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to build from / upload to (empty = build current commit)"
+        required: false
+        default: ""
+      upload:
+        description: "Attach the assets to the release for `tag` (default false = dry run)"
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  release-assets:
+    name: release-assets
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write      # attach assets to the release (upload step only)
+      id-token: write      # OIDC token for the Sigstore-signed attestations
+      attestations: write  # persist the attestations on the repository
+    steps:
+      - name: Resolve tag and mode
+        id: tag
+        env:
+          EVENT: ${{ github.event_name }}
+          REL_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_UPLOAD: ${{ inputs.upload }}
+        run: |
+          case "$EVENT" in
+            release)           tag="$REL_TAG";   upload=true ;;
+            workflow_dispatch) tag="$INPUT_TAG"; upload="$INPUT_UPLOAD" ;;
+            *)                 tag="";           upload=false ;;
+          esac
+          if [ "$upload" = "true" ] && [ -z "$tag" ]; then
+            echo "::error::upload=true requires a release tag"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "upload=$upload" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.tag.outputs.tag || github.sha }}
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary (locked)
+        run: cargo build --release --locked --bin mlog
+
+      - name: Install cargo-cyclonedx (pinned)
+        run: cargo install cargo-cyclonedx --version 0.5.9 --locked
+
+      - name: Package binary and generate the SBOM
+        run: |
+          mkdir dist
+          cp target/release/mlog dist/mlog-linux-x86_64
+
+          # One SBOM per workspace binary; pick the one that describes `mlog`.
+          cargo cyclonedx --manifest-path Cargo.toml --format json \
+            --spec-version 1.5 --describe binaries
+          sbom=""
+          while IFS= read -r f; do
+            name="$(jq -r '.metadata.component.name // empty' "$f")"
+            echo "SBOM candidate: $f -> component '$name'"
+            if [ "$name" = "mlog" ]; then sbom="$f"; fi
+          done < <(find . -path ./target -prune -o -name '*.cdx.json' -print)
+          if [ -z "$sbom" ]; then
+            echo "::error::no generated SBOM describes the 'mlog' binary"
+            exit 1
+          fi
+          cp "$sbom" dist/mlog-linux-x86_64.cdx.json
+
+      - name: SBOM smoke checks
+        run: |
+          f=dist/mlog-linux-x86_64.cdx.json
+          jq -e '.bomFormat == "CycloneDX"' "$f" > /dev/null
+          jq -e '.specVersion == "1.5"' "$f" > /dev/null
+          jq -e '(.components | length) > 0' "$f" > /dev/null
+          # A direct dependency of the parser must be present, otherwise the
+          # SBOM describes an empty/wrong tree.
+          jq -e '[.components[].name] | index("pest")' "$f" > /dev/null
+          echo "components: $(jq '.components | length' "$f")"
+
+      - name: Checksums
+        working-directory: dist
+        run: |
+          sha256sum mlog-linux-x86_64 mlog-linux-x86_64.cdx.json > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Attest build provenance
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/attest-build-provenance@v4.2.2
+        with:
+          subject-path: dist/mlog-linux-x86_64
+
+      - name: Attest SBOM (bound to the binary)
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/attest-sbom@v4.1.0
+        with:
+          subject-path: dist/mlog-linux-x86_64
+          sbom-path: dist/mlog-linux-x86_64.cdx.json
+
+      - name: Keep the assets for inspection (7 days)
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-dist
+          path: dist/*
+          retention-days: 7
+
+      - name: Attach assets to the release
+        if: steps.tag.outputs.upload == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+
+      - name: Summary
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          UPLOAD: ${{ steps.tag.outputs.upload }}
+        run: |
+          {
+            echo "### Release assets"
+            echo "- mode: upload=$UPLOAD tag='$TAG'"
+            echo '```'
+            cat dist/SHA256SUMS
+            echo '```'
+            echo "Verify: \`gh attestation verify mlog-linux-x86_64 --repo $GITHUB_REPOSITORY\`"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -3,7 +3,7 @@
 > Publisher's derived artifact (access mode §16.0-7 of plan canon v2): the list of phases,
 > the current wave, criteria. The plan canon is held by the coordinator (private office repo); the public
 > repository does not contain the canon. Updated by the publisher in sync with canon edits.
-> Updated: 2026-10-01.
+> Updated: 2026-10-03.
 
 ## Status
 
@@ -68,13 +68,21 @@ they reside in the canon held by the coordinator (§16.0-7).
 
 The development cycle per ПСРМ after the corrective waves В22/В23: the cycle sync with the
 ratchet recount and the actuality audit №2 (№542, gh#880), the typing top-up to the absolute
-goal of the 0.28 gate (3000 bp, ADR-0179; now 2110 bp), the typed-stage 2 (SECRET_LEAK /
+goal of the 0.28 gate (3000 bp, ADR-0179; the live floor — the generated block below), the
+typed-stage 2 (SECRET_LEAK /
 SQL_DYNAMIC / HTML_INJECTION) strictly behind the gate, the crate split stage 1
 (metalogos-core + metalogos-reflex), the 0.28 window prep (ADR-0179 §6 checklist), the
 domain-unfreeze evidence pack for the owner (ADR-0177 §4 — the lift stays the owner's),
 and the NLnet/Restack traction package (M1 deadline 2026-11-03). Naryads: №542–№549
 (gh#880–#887). The wave rules: the typing floor moves only up; the stop-list/debt/pairs/mirrors
 only down; no domain opens by a naryad.
+
+<!-- BEGIN GENERATED NUMBERS (scripts/gen_metrics.py — do not edit inside) -->
+| Machine fact (generated — do not hand-edit) | Value |
+| --- | --- |
+| Typed-signature floor — the 0.28-gate line (ADR-0179) | 3195 bp — 162/507 = 31.95% (precise 83/507 = 16.37%, №560) |
+| BUILTIN_REGISTRY rows | 507 |
+<!-- END GENERATED NUMBERS -->
 
 ## Acceptance criteria (public part of the methodology)
 

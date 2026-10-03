@@ -25,9 +25,20 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 README = REPO / "README.md"
+PLAN_SUMMARY = REPO / "docs" / "PLAN-SUMMARY.md"
 
 BEGIN = "<!-- BEGIN GENERATED METRICS (scripts/gen_metrics.py — do not edit inside) -->"
 END = "<!-- END GENERATED METRICS -->"
+
+# №566 (gh#928; the audit 02.10 §7.2 W-4): the SECOND generated target —
+# the machine facts the public digest (docs/PLAN-SUMMARY.md) quotes as
+# CURRENT. The audit's finding: the digest carried a hand-written
+# "now 2110 bp" while the fact was 3195 bp — the grantors' digest lagged
+# the machine metrics. The fix mirrors the №460 posture: ONE generator,
+# the numbers between explicit markers, the narrative stays hand-written
+# (the №566 boundary: the digest's prose is the publisher's voice).
+PS_BEGIN = "<!-- BEGIN GENERATED NUMBERS (scripts/gen_metrics.py — do not edit inside) -->"
+PS_END = "<!-- END GENERATED NUMBERS -->"
 
 
 def count_total_builtins() -> int:
@@ -141,24 +152,81 @@ def block() -> str:
     )
 
 
+def plan_summary_block() -> str:
+    """№566: the digest's CURRENT machine facts — the same sources as the
+    README's Typed Signatures row (one SSOT; the two can never disagree
+    because one process computes both)."""
+    typed, total_fns, precise = count_typed_signatures()
+    typed_bp = (typed * 10000) // total_fns if total_fns else 0
+    precise_bp = (precise * 10000) // total_fns if total_fns else 0
+    return (
+        f"| Machine fact (generated — do not hand-edit) | Value |\n"
+        f"| --- | --- |\n"
+        f"| Typed-signature floor — the 0.28-gate line (ADR-0179) "
+        f"| {typed_bp} bp — {typed}/{total_fns} = {typed_bp / 100:.2f}% "
+        f"(precise {precise}/{total_fns} = {precise_bp / 100:.2f}%, №560) |\n"
+        f"| BUILTIN_REGISTRY rows | {total_fns} |\n"
+    )
+
+
+def upsert_block(path: Path, begin: str, end: str, generated: str, label: str) -> tuple[bool, str]:
+    """Replace (or verify, in --check mode) the block between the markers.
+    Returns (ok, current_block) — ok=False means stale in check mode."""
+    text = path.read_text(encoding="utf-8")
+    if begin not in text or end not in text:
+        print(f"ERROR: {path.name} is missing the {label} markers", file=sys.stderr)
+        sys.exit(2)
+    start = text.index(begin) + len(begin)
+    end_pos = text.index(end, start)
+    current = text[start:end_pos]
+    fresh = "\n" + generated
+    return current == fresh, current
+
+
 def main() -> int:
     check = "--check" in sys.argv
-    text = README.read_text(encoding="utf-8")
-    if BEGIN not in text or END not in text:
-        print("ERROR: README.md is missing the metrics markers", file=sys.stderr)
-        return 2
-    start = text.index(BEGIN) + len(BEGIN)
-    end = text.index(END)
-    current = text[start:end]
-    generated = "\n" + block()
+    stale = []
+    ok, current = upsert_block(README, BEGIN, END, block(), "metrics")
     if check:
-        if current == generated:
-            print("OK: generated metrics block is up to date")
-            return 0
-        print("STALE: generated metrics block does not match the repository — run scripts/gen_metrics.py", file=sys.stderr)
+        if ok:
+            print("OK: README.md generated metrics block is up to date")
+        else:
+            stale.append("README.md")
+    else:
+        if not ok:
+            text = README.read_text(encoding="utf-8")
+            start = text.index(BEGIN) + len(BEGIN)
+            end_pos = text.index(END, start)
+            README.write_text(text[:start] + "\n" + block() + text[end_pos:], encoding="utf-8")
+            print("README.md metrics block regenerated")
+
+    if not PLAN_SUMMARY.exists():
+        print("ERROR: docs/PLAN-SUMMARY.md is missing", file=sys.stderr)
+        return 2
+    ok, current = upsert_block(PLAN_SUMMARY, PS_BEGIN, PS_END, plan_summary_block(), "numbers")
+    if check:
+        if ok:
+            print("OK: PLAN-SUMMARY.md generated numbers block is up to date")
+        else:
+            stale.append("docs/PLAN-SUMMARY.md")
+    else:
+        if not ok:
+            text = PLAN_SUMMARY.read_text(encoding="utf-8")
+            start = text.index(PS_BEGIN) + len(PS_BEGIN)
+            end_pos = text.index(PS_END, start)
+            PLAN_SUMMARY.write_text(
+                text[:start] + "\n" + plan_summary_block() + text[end_pos:], encoding="utf-8"
+            )
+            print("docs/PLAN-SUMMARY.md numbers block regenerated")
+
+    if check and stale:
+        print(
+            "STALE: generated blocks do not match the repository: "
+            + ", ".join(stale)
+            + " — run scripts/gen_metrics.py",
+            file=sys.stderr,
+        )
         return 1
-    README.write_text(text[:start] + generated + text[end:], encoding="utf-8")
-    print("README.md metrics block regenerated")
     return 0
 
 

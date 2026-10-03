@@ -843,8 +843,11 @@ jobs:
       # Няряд №460: the README numbers are GENERATED (scripts/gen_metrics.py)
       # and validated on every run — a stale metric (LOC, builtins, ADRs,
       # sizes) fails CI instead of drifting silently. The independent
-      # recomputation lives in tests/readme_consistency.rs.
-      - name: Validate the generated metrics block
+      # recomputation lives in tests/readme_consistency.rs. №566: the
+      # check covers the SECOND target too — the grantors' digest
+      # (docs/PLAN-SUMMARY.md) generates its CURRENT numbers from the
+      # same sources (the pinning test: naryad_566_plan_summary_numbers).
+      - name: Validate the generated metrics blocks (README + PLAN-SUMMARY)
         run: python3 scripts/gen_metrics.py --check
 
   # Наряд №256 (part B, PR #284's ready block): дымовой фаззинг новых целей

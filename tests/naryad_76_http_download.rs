@@ -39,6 +39,15 @@ mod tests {
     const SERVER_PORT: u16 = 18776;
     const BASE_URL: &str = "http://127.0.0.1:18776";
 
+    // №569 (gh#933): the n206 ignores LIFTED. The SSRF guard blocks loopback
+    // egress — these tests target 127.0.0.1 BY DESIGN (the documented
+    // kill-switch METALOGOS_HTTP_ALLOW_PRIVATE=1, read per call in
+    // src/builtins/http.rs). All tests here are #[serial], so the
+    // process-global env is sequenced.
+    fn allow_loopback_egress() {
+        std::env::set_var("METALOGOS_HTTP_ALLOW_PRIVATE", "1");
+    }
+
     /// RAII guard: kills the child server process on drop.
     struct ServerGuard(Child);
 
@@ -91,14 +100,17 @@ mod tests {
 
     // ── Scenario 1: Successful download ─────────────────────────────
 
-    #[ignore = "n206: requires python3 + test server on port 18776 (env-dependent)"]
     #[test]
     #[serial]
     fn test_http_download_success() {
+        allow_loopback_egress();
         let _server = ServerGuard::spawn();
         let dest = "downloads/p76_test_success.bin";
         cleanup_file(dest);
         cleanup_dir("downloads");
+        // №569: the fs sandbox does not create parent directories — the test
+        // owns its fixture dir (the download then writes INSIDE it).
+        fs::create_dir_all("downloads").expect("create downloads fixture dir");
 
         let http_download = http_download_fn();
         let result = http_download(&[
@@ -125,14 +137,16 @@ mod tests {
 
     // ── Scenario 2: Byte-for-byte match (non-UTF-8 binary) ──────────
 
-    #[ignore = "n206: requires python3 + test server on port 18776 (env-dependent)"]
     #[test]
     #[serial]
     fn test_http_download_byte_for_byte_match() {
+        allow_loopback_egress();
         let _server = ServerGuard::spawn();
         let dest = "downloads/p76_test_bytes.bin";
         cleanup_file(dest);
         cleanup_dir("downloads");
+        // №569: the fs sandbox does not create parent directories.
+        fs::create_dir_all("downloads").expect("create downloads fixture dir");
 
         let http_download = http_download_fn();
         let result = http_download(&[
@@ -175,14 +189,16 @@ mod tests {
 
     // ── Scenario 3: HTTP 404 → false, no file written ───────────────
 
-    #[ignore = "n206: requires python3 + test server on port 18776 (env-dependent)"]
     #[test]
     #[serial]
     fn test_http_download_404_returns_false() {
+        allow_loopback_egress();
         let _server = ServerGuard::spawn();
         let dest = "downloads/p76_test_404.bin";
         cleanup_file(dest);
         cleanup_dir("downloads");
+        // №569: the fs sandbox does not create parent directories.
+        fs::create_dir_all("downloads").expect("create downloads fixture dir");
 
         let http_download = http_download_fn();
         let result = http_download(&[
@@ -209,12 +225,12 @@ mod tests {
         cleanup_dir("downloads");
     }
 
-    // ── Scenario 4: Sandbox escape attempt → false ──────────────────
+    // ── Scenario 4: Sandbox escape attempt → LOUD refusal ───────────
 
-    #[ignore = "n206: requires python3 + test server on port 18776 (env-dependent)"]
     #[test]
     #[serial]
     fn test_http_download_sandbox_escape_rejected() {
+        allow_loopback_egress();
         let _server = ServerGuard::spawn();
         let outside_file = "p76_outside_sandbox.bin";
         cleanup_file(outside_file);
@@ -226,11 +242,24 @@ mod tests {
             Value::String(dest.to_string()),
         ]);
 
-        assert!(
-            matches!(result, Ok(Value::Bool(false))),
-            "Expected Ok(Bool(false)) for sandbox violation, got: {:?}",
-            result
-        );
+        // №569: the expectation follows the CURRENT contract — since the
+        // №475 fs_gate facade and the №481 loud-refusal discipline, a path
+        // traversal is a LOUD Err([SANDBOX_VIOLATION]), not a soft Bool(false).
+        match &result {
+            Err(e) => {
+                assert!(
+                    e.contains("[SANDBOX_VIOLATION]"),
+                    "Expected the loud [SANDBOX_VIOLATION] refusal, got: {}",
+                    e
+                );
+                assert!(
+                    e.contains("path traversal"),
+                    "The refusal must name the traversal, got: {}",
+                    e
+                );
+            }
+            other => panic!("Expected the loud sandbox refusal, got: {:?}", other),
+        }
 
         // File must NOT exist outside the working directory
         let outside_path = PathBuf::from(outside_file);

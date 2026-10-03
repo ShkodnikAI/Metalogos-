@@ -64,7 +64,7 @@ flow F { input: String = "x" -> Main -> output }
 
 /// Pipe syntax `{{ x | safe }}` not implemented — keep ignored with honest reason.
 #[test]
-#[ignore = "pipe syntax {{ var | safe }} not implemented (naryad 115); composition needs ADR"]
+#[ignore = "Known issue gh#967 §7: the pipe syntax {{ var | safe }} is not implemented (№115); composition needs an ADR"]
 fn template_safe_pipe_not_implemented() {
     let source = r#"
 template Layout(content: Html) -> Html {
@@ -76,7 +76,7 @@ template Layout(content: Html) -> Html {
 
 /// Compile-time opaque Html check not implemented — runtime only (naryad 114/115).
 #[test]
-#[ignore = "opaque Html is enforced at runtime (cannot concatenate), not in semantic checker — see naryad 114 coerce; compile-time check is separate work"]
+#[ignore = "Known issue gh#967 §7: opaque Html is enforced at runtime (cannot concatenate), not in the semantic checker — the compile-time check is separate work (№114 coerce)"]
 fn check_html_from_string_error() {
     let source = r#"entity page: Html = "<div>" + "hello" + "</div>""#;
     let result = metalogos::check_program(source).unwrap();
@@ -96,7 +96,7 @@ fn check_template_render_valid() {
 
 /// Unknown template in server route — semantic checker still does not catch it.
 #[test]
-#[ignore = "unknown template detection not in semantic checker; runtime error via builtin_render (naryad 115)"]
+#[ignore = "Known issue gh#967 §7: unknown template detection is a runtime error via builtin_render, not a semantic-checker refusal (№115)"]
 fn check_server_render_unknown_template() {
     let source = r#"server { port: 8080  route "/" method=GET { render("Unknown", "x") } }"#;
     let result = metalogos::check_program(source).unwrap();

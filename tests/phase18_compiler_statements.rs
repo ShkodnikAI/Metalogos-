@@ -180,7 +180,7 @@ pattern sum_list(items: List) -> Float {
 }
 
 #[test]
-#[ignore = "TODO: VM compiler does not yet support process-style declarations (legacy syntax)"]
+#[ignore = "Known issue gh#967 §4: the VM compiler does not yet support process-style declarations (legacy syntax)"]
 fn test_compile_each_empty_list() {
     let source = r#"
 process_empty() {

@@ -80,7 +80,7 @@ fn test_e2e_persist_memorize_then_recall() {
 // ── E2E-2: recall a second fact from same DB ────────────────────
 
 #[test]
-#[ignore = "TODO(№493, revise 2026-10-15): recall(capital-of-France) returns the FIRST lane hit (the spicy entry), not the best match — the lane relevance ranking is the finding, not the harness; un-ignore when the ranking is fixed"]
+#[ignore = "Known issue gh#967 §1 (№493 line, revise 2026-10-15): recall(capital-of-France) returns the FIRST lane hit (the spicy entry), not the best match — the lane relevance ranking is the finding, not the harness"]
 fn test_e2e_persist_recall_second_fact() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("test_memory2.db");
@@ -145,7 +145,7 @@ flow Main {{ input: String = r1 -> output }}
 // ── E2E-4: third run still has all data ─────────────────────────
 
 #[test]
-#[ignore = "TODO(№493, revise 2026-10-15): same lane-ranking finding as E2E-2 — recall across restarts returns the first hit, not the query-matched one"]
+#[ignore = "Known issue gh#967 §1 (№493 line, revise 2026-10-15): same lane-ranking finding — recall across restarts returns the first hit, not the query-matched one"]
 fn test_e2e_persist_third_run() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("test_third.db");
@@ -211,7 +211,7 @@ flow Main { input: String = r -> output }
 // ── E2E-6: forget works on persistent store ─────────────────────
 
 #[test]
-#[ignore = "TODO(№493, revise 2026-10-15): forget removes the node from the persisted graph but the recall lane still serves the entry — the forget/recall consistency is the finding"]
+#[ignore = "Known issue gh#967 §1 (№493 line, revise 2026-10-15): forget removes the node from the persisted graph but the recall lane still serves the entry — the forget/recall consistency is the finding"]
 fn test_e2e_persist_forget() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("test_forget.db");
@@ -292,7 +292,7 @@ memory { }
 // ── E2E-8: KG persistence across runs ───────────────────────────
 
 #[test]
-#[ignore = "TODO(№493, revise 2026-10-15): KG persist+recall returns an empty string across runs — the KG recall lane is the finding"]
+#[ignore = "Known issue gh#967 §1 (№493 line, revise 2026-10-15): KG persist+recall returns an empty string across runs — the KG recall lane is the finding"]
 fn test_e2e_kg_persist_across_runs() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("test_kg.db");

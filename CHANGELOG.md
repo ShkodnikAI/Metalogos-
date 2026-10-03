@@ -4,7 +4,33 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
-(nothing yet)
+- Naryad №569 (issue #933; Wave 26 P2, the debt-honesty classification):
+  every `#[ignore]` verdicted. THREE movements, debt ONLY down. (1) The
+  №468 counter heuristic is STRICT — the trimmed line must START with
+  `#[ignore`: 12 string-literal false positives leave the count (the
+  ignore_reasons_lint.rs fixtures ×11, the naryad_240 print_skip message
+  ×1) — ignore 52 → 40 by the fix alone. (2) The n206 env-dependent
+  family LIFTS with proof: `naryad_71_http_retry` 7/7 and
+  `naryad_76_http_download` 4/4 (the documented SSRF kill-switch
+  `METALOGOS_HTTP_ALLOW_PRIVATE=1` set per test body — the loopback is
+  the test target BY DESIGN; the p76 sandbox-escape expectation follows
+  the CURRENT loud `Err([SANDBOX_VIOLATION])` contract, not the obsolete
+  soft `Bool(false)`), `problem_c_schema` 3/3 (sqlite::memory is
+  in-process rusqlite; the round-trip test modernized to the
+  parameterized `?1` form — the dynamic-concat shape is a deliberate
+  SQL_DYNAMIC refusal) — ignore 40 → 26. (3) The 19 known-issue ignores
+  link the consolidated ledger gh#967 (the memory lane ranking, the VM
+  json_body field access, the semantic-checker gaps, the VM
+  template_render gap, the self-host lexer, the template semantics) —
+  no TODO text remains: ignore_todo 16 → 0. The 7 by-design ignores are
+  reworded to the PERMANENT form (the provider/endpoint credential
+  gates, the Chromium platform gate, the release-only 10k ledger
+  golden, the calibration tooling, the n250 process-global store note).
+  Floors re-lock to the fact in the same PR: ignore 26, ignore_todo 0,
+  dead_code 33 (the 37 floor was stale — the fact reached 33 in
+  В24/В25). Coverage: the CI `cargo llvm-cov` lane measures it (the
+  advisory job, №555-era); the threshold proposal rides the naryad
+  report — the OWNER sets it (§16.0 гейт владельца).
 
 ## [0.28.0] - 2026-10-03
 

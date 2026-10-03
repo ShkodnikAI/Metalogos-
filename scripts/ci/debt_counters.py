@@ -2,13 +2,17 @@
 """№468 (gh#689): the CI debt gate — the ignore/dead_code counters vs the checked-in fact.
 
 Heuristic (documented, checked-in, reproducible):
-  1. `#[ignore]` — every `#[ignore` attribute found on the pre-comment part
-     of a line in src/, tests/, benches/ (`//`-suffix stripped first, so a
-     commented-out attribute never counts). The TODO subset — the attribute
-     line or either of the two following lines (RAW text, comments kept)
-     containing "TODO": the audit's phase23/flaky/webhook markers carry the
-     TODO in the adjacent comment; the 3-line window is the documented
-     approximation, identical to the one that produced the checked-in fact.
+  1. `#[ignore]` — every `#[ignore` ATTRIBUTE occurrence in src/, tests/,
+     benches/. Since №569 (gh#933) the attribute recognition is strict: the
+     pre-comment part of the line must START with `#[ignore` (trimmed) — a
+     real attribute always opens its line in this codebase. This closes the
+     string-literal false positives (the №569 audit found 12: the
+     ignore_reasons_lint.rs fixtures and the naryad_240 print_skip message
+     contain the `#[ignore` TEXT inside strings — the old substring match
+     counted them as debt). The TODO subset — the attribute line or either
+     of the two following lines (RAW text, comments kept) containing "TODO":
+     the 3-line window is the documented approximation, identical to the one
+     that produced the checked-in fact.
   2. `allow(dead_code)` — every `allow(dead_code)` attribute found on the
      pre-comment part of a line in the same trees.
   3. The TW/VM duplicate-name count is NOT re-counted here — the №462
@@ -66,7 +70,12 @@ def collect():
         lines = open(path, encoding='utf-8', errors='replace').read().splitlines()
         for i, line in enumerate(lines):
             code = strip_line_suffix(line)
-            if IGNORE_RE.search(code):
+            # №569 (gh#933): strict attribute recognition — the trimmed line
+            # must START with `#[ignore`. The old substring match counted the
+            # `#[ignore` TEXT inside string literals (12 false positives: the
+            # ignore_reasons_lint.rs fixtures, the naryad_240 print_skip
+            # message) as debt.
+            if code.lstrip().startswith('#[ignore'):
                 ignores.append(f'{rel}:{i + 1}')
                 window = '\n'.join(lines[i:i + 3])
                 if 'TODO' in window:

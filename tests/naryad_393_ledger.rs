@@ -105,7 +105,7 @@ fn empty_ledger_file_refuses_and_verify_file_reads_from_disk() {
 // ── 2. The 10k golden (release-only; run by the CI `ledger-golden` step)
 
 #[test]
-#[ignore = "release-only golden (10k Ed25519 signs+verifies); run by the CI ledger-golden step: cargo test --release --test naryad_393_ledger -- --ignored"]
+#[ignore = "PERMANENT (by design — release-only golden, 10k Ed25519 signs+verifies): run by the CI ledger-golden step: cargo test --release --test naryad_393_ledger -- --ignored"]
 fn golden_10k_chain_signs_and_verifies_under_10s() {
     let specs: Vec<(&str, &str, &str)> = (0..10_000)
         .map(|_| ("grant.used", "n393-golden", "db:delete:golden"))

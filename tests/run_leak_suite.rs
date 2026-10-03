@@ -264,7 +264,7 @@ fn leak_positives_pass() {
 /// class for EVERY negative without any contract comparison. Run:
 /// `cargo test --test run_leak_suite leak_corpus_calibration_dump -- --ignored --nocapture`
 #[test]
-#[ignore = "calibration tooling for the leak corpus (№317)"]
+#[ignore = "PERMANENT (calibration tooling, not a test target): the leak-corpus calibration dump (№317)"]
 fn leak_corpus_calibration_dump() {
     let dir = leak_dir();
     let mut negatives: Vec<PathBuf> = fs::read_dir(&dir)

@@ -587,7 +587,7 @@ async fn block4_tw_vs_vm_405() {
     );
 }
 
-#[ignore = "n250 root re-analysis (NOT the n206 route-body divergence — that root is fixed): KV_STORE is a process-global static (src/builtins/memory.rs:18) BY DESIGN — TW and VM server instances in one test process share it, so this test's isolation premise contradicts the design for BOTH backends; instance isolation would require a memory.rs redesign outside the naryad-250 §3 perimeter. Loud analysis in the PR description and the ADR-0122 #250 row"]
+#[ignore = "PERMANENT (by design): n250 root re-analysis (NOT the n206 route-body divergence — that root is fixed): KV_STORE is a process-global static (src/builtins/memory.rs:18) BY DESIGN — TW and VM server instances in one test process share it, so this test's isolation premise contradicts the design for BOTH backends; instance isolation would require a memory.rs redesign outside the naryad-250 §3 perimeter. Loud analysis in the PR description and the ADR-0122 #250 row"]
 #[tokio::test]
 async fn block4_tw_vm_kv_shared_store() {
     let (tw_port, tw_handle) = start_server(SOURCE_KV_ROUTES, ServeBackend::Interpreter).await;

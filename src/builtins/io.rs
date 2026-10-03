@@ -568,18 +568,20 @@ pub(crate) fn sandbox_path_ex(path: &str, mode: SandboxMode) -> Result<std::path
 pub(crate) use crate::fs_gate::open_sandbox_write;
 
 /// `read_file(path)` — read file contents as String.
-/// MISSING file — the documented №254 soft contract: empty string (pinned
-/// by the №481 suite). A file that EXISTS (or passed the sandbox) but
-/// cannot be opened/read — a configuration/environment error, refused
-/// LOUDLY with the stable code `[IO_ERROR]` and the OS reason (№481, audit
-/// 25.09 §3.9): the old silent "" swallowed real defects. Sandbox
-/// violations — absolute paths, `..`, symlink escapes, broken symlinks —
-/// are a LOUD error with the stable code `[SANDBOX_VIOLATION]` (ADR-0131):
-/// they are programmer errors, not environmental failures, and swallowing
-/// them hid real defects.
+/// MISSING file — a LOUD `[IO_ERROR]` refusal since v0.28.0 (№563: the
+/// №254 soft contract ENDED — the №531 transition window closed with the
+/// release; the №514 rule, gh#798: softness lives in the `_or` name, so
+/// the explicit-silence surface is `read_file_or(path, default)`). A file
+/// that EXISTS (or passed the sandbox) but cannot be opened/read — a
+/// configuration/environment error, refused LOUDLY with the stable code
+/// `[IO_ERROR]` and the OS reason (№481, audit 25.09 §3.9): the old silent
+/// "" swallowed real defects. Sandbox violations — absolute paths, `..`,
+/// symlink escapes, broken symlinks — are a LOUD error with the stable
+/// code `[SANDBOX_VIOLATION]` (ADR-0131): they are programmer errors, not
+/// environmental failures, and swallowing them hid real defects.
 pub(crate) fn builtin_read_file(args: &[Value]) -> Result<Value, String> {
     let path = expect_string_arg("read_file", args, 0)?;
-    read_file_impl("read_file", &path, ReadMissing::SoftEmpty)
+    read_file_impl("read_file", &path, None)
 }
 
 /// `read_file_or(path, default)` — the EXPLICIT-silence twin of
@@ -591,26 +593,29 @@ pub(crate) fn builtin_read_file(args: &[Value]) -> Result<Value, String> {
 /// (the №481 naming rule). Every OTHER branch is byte-identical to
 /// `read_file`: sandbox violations and the №455 deny-list stay LOUD
 /// (they are programmer errors — the explicit silence never bypasses
-/// them), open/read failures stay LOUD `[IO_ERROR]` (№481). The
-/// `read_file` contract is unchanged (№254, the empty-string soft
-/// default stays).
+/// them), open/read failures stay LOUD `[IO_ERROR]` (№481). Since №563
+/// this is the ONLY missing-file soft surface (the base `read_file`
+/// refuses loudly).
 pub(crate) fn builtin_read_file_or(args: &[Value]) -> Result<Value, String> {
     let path = expect_string_arg("read_file_or", args, 0)?;
     let default = expect_string_arg("read_file_or", args, 1)?;
-    read_file_impl("read_file_or", &path, ReadMissing::ExplicitDefault(default))
+    read_file_impl("read_file_or", &path, Some(default))
 }
 
-/// The missing-file behavior of the read family: `read_file` keeps the
-/// №254 empty string; `read_file_or` yields the explicit default.
-enum ReadMissing {
-    SoftEmpty,
-    ExplicitDefault(String),
-}
+/// The missing-file behavior of the read family (№563): `read_file`
+/// carries NO default — a missing file is the loud `[IO_ERROR]` refusal
+/// (the №254 soft contract ended at v0.28.0); `read_file_or` yields its
+/// explicit default (the only remaining soft surface).
+type MissingDefault = Option<String>;
 
 /// The shared read path of `read_file` / `read_file_or` (№507) — one
 /// body, two missing-file policies; every loud branch is shared so the
 /// `_or` twin can never drift from the base contract.
-fn read_file_impl(name: &str, path: &str, on_missing: ReadMissing) -> Result<Value, String> {
+fn read_file_impl(
+    name: &str,
+    path: &str,
+    missing_default: MissingDefault,
+) -> Result<Value, String> {
     // Наряд №282 (спайк): виртуальная SMFS-зона sm: (read-only экспорт памяти).
     if super::smfs::is_virtual(path) {
         return super::smfs::read(path);
@@ -636,34 +641,34 @@ fn read_file_impl(name: &str, path: &str, on_missing: ReadMissing) -> Result<Val
             // symlink) — громкая ошибка с кодом SANDBOX_VIOLATION:
             // это дефект программы, молча проглатывать его значит прятать баг.
             if sandbox_path_missing(path) {
-                return match on_missing {
-                    // №254: read_file keeps the empty-string soft default.
-                    // №531 (issue #840; audit 30.09 N-9): the TRANSITION
-                    // period — every hit is announced loudly on stderr
-                    // with the stable `READ_FILE_MISSING` marker; the
-                    // next release flips this branch to a loud
-                    // [IO_ERROR] refusal (the №514 rule: softness is
-                    // visible in the name — `read_file_or`). The debt
-                    // gate carries the marker counter (movement only
-                    // down); the deadline lives in docs/limitations.md
-                    // (the №524 row rule).
-                    ReadMissing::SoftEmpty => {
-                        eprintln!(
-                            "[READ_FILE_MISSING] '{}' is missing — read_file returns the soft \"\" (№254→№531 TRANSITION: the next release refuses LOUDLY; migrate to read_file_or(path, default))",
-                            path
-                        );
-                        Ok(Value::String(String::new()))
-                    }
+                return match missing_default {
                     // №507: read_file_or yields the EXPLICIT default —
                     // announced on the audit stderr (the №326 posture:
-                    // the PATH is named, the default VALUE never).
-                    ReadMissing::ExplicitDefault(default) => {
+                    // the PATH is named, the default VALUE never). The
+                    // ONLY remaining missing-file soft surface (№563).
+                    Some(default) => {
                         eprintln!(
                             "[READ_FILE_OR] '{}' is missing — using the explicit default",
                             path
                         );
                         Ok(Value::String(default))
                     }
+                    // №563 (issue #924; the audit 02.10): the №531
+                    // TRANSITION ENDED with v0.28.0 — the missing-file
+                    // branch is the LOUD [IO_ERROR] refusal (the №514
+                    // rule, gh#798: softness lives in the `_or` name;
+                    // the №254 empty-string contract is gone with the
+                    // transition release). The soft surface is the
+                    // explicit `read_file_or(path, default)`.
+                    None => Err(crate::interpreter::values::coded_error(
+                        crate::interpreter::values::CODE_IO_ERROR,
+                        format!(
+                            "{}('{}'): the file is missing — the №254 soft contract \
+                             ended at v0.28.0 (№563): use read_file_or(path, default) \
+                             for the explicit fallback",
+                            name, path
+                        ),
+                    )),
                 };
             }
             return Err(sandbox_violation(e));
@@ -1985,10 +1990,17 @@ mod tests_n254 {
 
     #[test]
     #[serial]
-    fn n254_read_missing_file_is_soft() {
+    fn n254_read_missing_file_refuses_loudly_since_v0280() {
         super::tests_n131::with_temp_sandbox("metalogos_n254_soft", || {
-            let out = builtin_read_file(&[Value::String("нет_такого.txt".to_string())]).unwrap();
-            assert_eq!(s(out), "", "нет файла = мягкая пустая строка");
+            // №563: the №531 transition ended with v0.28.0 — the loud flip
+            // this pin promised; the soft surface is read_file_or only.
+            let err =
+                builtin_read_file(&[Value::String("нет_такого.txt".to_string())]).unwrap_err();
+            assert!(
+                err.contains("[IO_ERROR]"),
+                "нет файла = громкий отказ с кодом (№563), got: {}",
+                err
+            );
         });
     }
 
@@ -2118,8 +2130,14 @@ mod tests_n254 {
             assert_eq!(s(out), "hi!");
             let out = builtin_delete_file(&[Value::String("f.txt".to_string())]).unwrap();
             assert_eq!(s(out), "ok");
-            let out = builtin_read_file(&[Value::String("f.txt".to_string())]).unwrap();
-            assert_eq!(s(out), "");
+            // №563: the read after the delete is the LOUD refusal (the
+            // soft empty-string contract ended with v0.28.0).
+            let err = builtin_read_file(&[Value::String("f.txt".to_string())]).unwrap_err();
+            assert!(
+                err.contains("[IO_ERROR]"),
+                "после удаления — громкий отказ (№563), got: {}",
+                err
+            );
         });
     }
 }

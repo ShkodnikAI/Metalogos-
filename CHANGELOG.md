@@ -166,6 +166,26 @@ mandatory.**
   the required-set sync between the script, the test and the
   checklist).
 
+- Naryad №563 (issue #924; Wave 25 P2; the audit 02.10 "the rest"
+  line): the read_file soft-missing debt is 5 → 0 — the №531
+  transition ENDED with v0.28.0 and `read_file` of a MISSING file now
+  refuses LOUDLY with `[IO_ERROR]` on BOTH backends (the refusal names
+  the explicit-fallback surface `read_file_or(path, default)`). The
+  №254 empty-string contract is gone with the transition release; the
+  №514 rule (gh#798) is now total: softness lives in the `_or` name,
+  everything else is loud. `read_file_or` is UNCHANGED (the only
+  remaining missing-file soft surface; no new soft functions — the
+  naryad boundary); existing-file reads are byte-identical. The debt
+  counter reads 0 with the only-down lock
+  (`scripts/ci/debt_baseline.txt`); the transition marker string is
+  GONE from the tree (the counter counts it — the flip is proven by
+  the code, not the marker). The limitations.md TRANSITION row closed
+  in the same PR (the №524 rule); REFERENCE.md §4.13 + the
+  generated index updated. Tests: tests/naryad_563_read_file_loud.rs
+  (6 — the loud flip on TW AND VM, the `_or` twin on both, the
+  existing-file byte-identity, the debt-gate pin); the n254/n455/n507
+  pins flipped as their own comments promised.
+
 - Naryad №562 (issue #923; Wave 25 P2; the audit 02.10 §6.1): the
   tag↔main gap gate — the M-3 class ("a High fix lives outside a
   release") becomes a MEASURED state. The new blocking `release-gap

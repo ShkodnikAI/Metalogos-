@@ -26,14 +26,21 @@ fn eval_expr(src: &str) -> Result<String, String> {
 // ── Точный контракт наряда ──────────────────────────────────────────
 
 #[test]
-// №531 TRANSITION pin: the soft "" stays during the transition release
-// (the READ_FILE_MISSING warning is on stderr); this test FLIPS to
-// expecting the loud [IO_ERROR] when the deadline lands.
-fn n254_read_missing_file_returns_empty_string() {
-    let out = eval_expr("read_file(\"нет_такого_254.txt\")").expect("soft-failure должен быть Ok");
-    assert_eq!(
-        out, "",
-        "файла нет → пустая строка (контракт сохранён: переход №531)"
+// №563 (issue #924): the №531 transition ENDED with v0.28.0 — the flip
+// this test promised has landed: a missing file is the LOUD [IO_ERROR]
+// refusal (the №514 rule: softness lives in the `_or` name).
+fn n254_read_missing_file_refuses_loudly() {
+    let err = eval_expr("read_file(\"нет_такого_254.txt\")")
+        .expect_err("the loud refusal replaced the soft empty string");
+    assert!(
+        err.contains("[IO_ERROR]"),
+        "файла нет → громкий отказ с кодом (№563): got: {}",
+        err
+    );
+    assert!(
+        err.contains("read_file_or"),
+        "the refusal names the explicit-fallback surface: {}",
+        err
     );
 }
 
@@ -80,15 +87,21 @@ fn n254_delete_missing_soft_traversal_loud() {
 
 #[test]
 fn n254_positive_roundtrip_unbroken() {
-    // write → read → delete → read: полный мягкий контракт в силе.
+    // write → read → delete → read: запись и чтение существующего не
+    // изменились; чтение УДАЛЁННОГО файла — громкий отказ с v0.28.0 (№563).
     let out = eval_expr("write_file(\"n254_tmp.txt\", \"v254\")").expect("write should succeed");
     assert_eq!(out, "ok");
     let out = eval_expr("read_file(\"n254_tmp.txt\")").expect("read should succeed");
     assert_eq!(out, "v254");
     let out = eval_expr("delete_file(\"n254_tmp.txt\")").expect("delete should succeed");
     assert_eq!(out, "ok");
-    let out = eval_expr("read_file(\"n254_tmp.txt\")").expect("read after delete is soft");
-    assert_eq!(out, "", "после удаления — пустая строка");
+    let err = eval_expr("read_file(\"n254_tmp.txt\")")
+        .expect_err("the read after the delete refuses loudly (№563)");
+    assert!(
+        err.contains("[IO_ERROR]"),
+        "после удаления — громкий отказ с кодом (№563), got: {}",
+        err
+    );
 }
 
 #[test]

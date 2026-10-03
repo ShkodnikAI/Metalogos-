@@ -28,6 +28,19 @@ what each step closes.
 5. **The owner's read.** The OWNER reads the summary and decides the
    publication. The machine never lifts a gate and never publishes.
 
+## After the owner publishes
+
+6. **The assets.** Publication fires `.github/workflows/release.yml`
+   (`release: published`): it builds the tagged commit, generates the
+   CycloneDX SBOM, signs the two attestations (build provenance + SBOM) and
+   attaches binary, SBOM, `BUILD-INFO.txt` and `SHA256SUMS` to the release.
+   Confirm the run is green and the release shows the four assets; spot-check with
+   `gh attestation verify mlog-linux-x86_64 --repo ShkodnikAI/Metalogos-`.
+   A red run does NOT invalidate the release — re-run it with
+   `workflow_dispatch` (`tag` = the release tag, `upload` = true). The
+   machine still never publishes: this step only decorates a release the
+   owner already published.
+
 ## The legacy read (0.27.x)
 
 `unfreeze_gate.py --office-tests <pass|fail>` without `--gate-target` —

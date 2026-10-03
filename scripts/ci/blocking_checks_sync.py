@@ -10,8 +10,9 @@ with the verdict {blocks, warns, absent}. This script validates:
   2. TEST BINDING: every blocks/warns row names a test_id that EXISTS in
      the repo (a word-boundary grep over tests/ and src/) — a cell whose
      test is gone (renamed/deleted) is a drift = failure.
-  3. COVERAGE: the four commands are present; the JIT and mcp-serve
-     "absent (зафиксировано)" rows exist (the №535 boundary).
+  3. COVERAGE: the five commands are present (mcp-serve carries real
+     read/parse/audit/semantic cells since №557, gh#918); the JIT
+     "absent (зафиксировано)" row exists (the №535 boundary).
   4. --count mode: prints `blocking_check_cells: N` (+ the per-verdict
      counts) for the №525 gate-facts wiring.
   5. --tamper-test: the negative test — a row with an unresolvable
@@ -32,8 +33,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = Path(HERE).resolve().parent.parent
 TABLE = os.path.join(HERE, 'blocking_checks.tsv')
 VERDICTS = ('blocks', 'warns', 'absent')
-REQUIRED_COMMANDS = ('run', 'check', 'compile', 'serve')
-REQUIRED_ABSENT_ROWS = (('jit', 'jit-compilation'), ('mcp-serve', 'tool-gate-coverage'))
+REQUIRED_COMMANDS = ('run', 'check', 'compile', 'serve', 'mcp-serve')
+REQUIRED_ABSENT_ROWS = (('jit', 'jit-compilation'),)
 
 
 def load_rows(path: str = TABLE) -> list[dict]:

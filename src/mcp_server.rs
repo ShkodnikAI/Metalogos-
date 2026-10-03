@@ -322,12 +322,59 @@ pub fn enforce_category_a_startup(declarations: &[Declaration]) -> Result<(), St
     }
 }
 
+/// №557 (issue #918; the audit 02.10 M-7): the SEMANTIC startup gate for
+/// every mcp-serve entrypoint — the same level of protection `mlog serve`
+/// got in №523. mcp-serve ran NO semantic pass at all: a tool file never
+/// `mlog check`-ed could carry blocking semantic findings and serve them
+/// (an undefined function inside a tool body evaluates to the truthy
+/// liar string at call time on the interpreter path — the exact exploit
+/// shape №523 closed for serve). Every `semantic::check_program` error
+/// blocks the STARTUP; exemptions classify ONLY by the structured kind in
+/// `semantic::is_exempt_from_blocking` (the ONE explicit place), never by
+/// substring. Imports resolve statically with the same "." base_dir rule
+/// the №523 serve gate uses (identical to the runtime loader's lookup),
+/// and the refusal carries the FIRST blocking finding's stable code at
+/// position 0 (the №479 posture), in the serve refusal's format.
+pub fn enforce_semantic_startup(declarations: &[Declaration]) -> Result<(), String> {
+    let base_dir = std::path::PathBuf::from(".");
+    let module_decls = crate::semantic::resolve_imports_statically(declarations, &base_dir)
+        .map_err(|e| format!("Compilation error (Naryad #557): {}", e))?;
+    let mut merged_decls = module_decls;
+    merged_decls.extend(declarations.to_vec());
+    let sem_result = crate::semantic::check_program(&merged_decls);
+    let blocking: Vec<&crate::semantic::SpannedError> = sem_result
+        .errors
+        .iter()
+        .filter(|err| !crate::semantic::is_exempt_from_blocking(err.kind))
+        .collect();
+    if blocking.is_empty() {
+        return Ok(());
+    }
+    // №479: the refusal carries the FIRST blocking finding's stable code
+    // at position 0 (mirrors the run gate in lib.rs and the №523 serve
+    // gate in server.rs).
+    let code = blocking.iter().find_map(|err| err.kind.stable_code());
+    let stamp = code.map(|c| format!("[{}] ", c)).unwrap_or_default();
+    let lines: Vec<String> = blocking
+        .iter()
+        .map(|err| crate::semantic::format_blocking_line(err))
+        .collect();
+    Err(format!(
+        "{}Compilation error (Naryad #557): semantic findings block mcp-serve startup:\n{}",
+        stamp,
+        lines.join("\n")
+    ))
+}
+
 /// Run the MCP server loop over stdio: read JSON-RPC from stdin, write
 /// to stdout. Behavior identical to №297 (the default transport).
 pub fn run_mcp_server(declarations: &[Declaration], allowlist: &[String]) -> Result<(), String> {
     // gh#536 Finding 2: the gate runs BEFORE the allowlist check — a
     // dangerous file is refused for what it IS, not for what it exposes.
     enforce_category_a_startup(declarations)?;
+    // №557: the semantic gate — a lying tool never serves (the №523 serve
+    // posture on the MCP surface).
+    enforce_semantic_startup(declarations)?;
     let server = McpServer::new(declarations, allowlist)?;
 
     let stdin = io::stdin();
@@ -534,6 +581,9 @@ pub fn run_mcp_server_network(
     // transports cannot drift (the request core is shared; so is the
     // front door).
     enforce_category_a_startup(declarations)?;
+    // №557: the semantic gate — the transports cannot drift on it either
+    // (the same posture the stdio front door carries).
+    enforce_semantic_startup(declarations)?;
     let server = std::sync::Arc::new(McpServer::new(declarations, allowlist)?);
 
     // ── The loud auth posture (№263 WARN precedent, Naryad #394 §4) ──
@@ -737,6 +787,9 @@ pub async fn run_test_mcp_server(
     // surface — the startup gate is part of it (the №394 suite's clean
     // sources pass it; a dirty source is refused before any bind).
     enforce_category_a_startup(declarations)?;
+    // №557: the semantic gate — the same posture on the test harness (it
+    // walks the REAL entrypoint surface, so it carries BOTH gates).
+    enforce_semantic_startup(declarations)?;
     let server = std::sync::Arc::new(McpServer::new(declarations, allowlist)?);
     let app = mcp_router(server, auth);
 

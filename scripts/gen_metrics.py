@@ -56,6 +56,23 @@ def count_builtin_modules() -> int:
     return len(categories)
 
 
+def count_typed_signatures() -> tuple[int, int, int]:
+    """№467/№560: the general and PRECISE typed-signature counts over
+    BUILTIN_REGISTRY (the same regex contract as
+    scripts/ci/type_signature_share.py; precise = the bare scalar shapes
+    String/Float/Bool/Unit)."""
+    content = (REPO / "src" / "builtins" / "registry.rs").read_text(encoding="utf-8")
+    spec_re = re.compile(r'spec!\("([a-z_0-9]+)"')
+    typed_re = re.compile(
+        r'spec!\("([a-z_0-9]+)",[^\n;]*;\s*[A-Za-z_0-9]+\s*,\s*"([A-Za-z][A-Za-z0-9<>]*)"\s*\)'
+    )
+    precise_types = {"String", "Float", "Bool", "Unit"}
+    total = spec_re.findall(content)
+    typed = typed_re.findall(content)
+    precise = sum(1 for _, t in typed if t in precise_types)
+    return len(typed), len(total), precise
+
+
 def count_svg_builtins() -> int:
     content = (REPO / "src" / "builtins" / "registry.rs").read_text(encoding="utf-8")
     re_svg = re.compile(r'spec!\("(svg_|chart_|diagram_|color_palette|template_render|html_render)')
@@ -106,11 +123,15 @@ def block() -> str:
     version = cargo_version()
     changelog_kb = file_kb("CHANGELOG.md")
     reference_kb = file_kb("REFERENCE.md")
+    typed, total_fns, precise = count_typed_signatures()
+    typed_bp = (typed * 10000) // total_fns if total_fns else 0
+    precise_bp = (precise * 10000) // total_fns if total_fns else 0
     return (
         f"| Metric | Value (generated — do not hand-edit) |\n"
         f"| ------ | ------------------------------------- |\n"
         f"| Version | {version} |\n"
         f"| Built-in Functions | {total} functions across {modules} modules |\n"
+        f"| Typed Signatures | {typed}/{total_fns} ({typed_bp / 100:.2f}%) — precise {precise}/{total_fns} ({precise_bp / 100:.2f}%) (№467/№560) |\n"
         f"| SVG/Graphics | {svg} builtins, hand-rolled in pure Rust |\n"
         f"| Grammar | {rules} rules |\n"
         f"| Architecture Decisions | {adrs} ADRs |\n"

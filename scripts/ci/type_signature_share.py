@@ -29,28 +29,67 @@ TYPED_RE = re.compile(
     r'spec!\("([a-z_0-9]+)",[^\n;]*;\s*[A-Za-z_0-9]+\s*,\s*"([A-Za-z][A-Za-z0-9<>]*)"\s*\)'
 )
 
+# №560 (gh#921; the audit 02.10 M-4): the PRECISE type set — a typed row
+# counts as precise when its signature names the exact shape, not just the
+# family. The registry's stage-0 spec strings are bare (no `List<Param>` /
+# `Struct(Name)` parameterized forms exist in the source — the honest fact
+# the metric records), so precise == the bare scalar shapes
+# {String, Float, Bool, Unit}; a bare `List`/`Struct` is typed-but-coarse
+# (the audit: ≈49% of the typed rows). The set grows when the registry
+# starts carrying parameterized signatures — by a registry PR, never by
+# loosening this definition.
+PRECISE_TYPES = {'String', 'Float', 'Bool', 'Unit'}
+
 
 def rows():
     text = open(REGISTRY, encoding='utf-8').read()
     total = SPEC_RE.findall(text)
     typed = TYPED_RE.findall(text)
-    typed_names = {name for name, _ in typed}
-    return total, typed_names
+    typed_types = {name: t for name, t in typed}
+    return total, typed_types
+
+
+def compute():
+    """(total, typed, typed_bp, precise, precise_bp) — integer-exact bp."""
+    total, typed_types = rows()
+    n_total = len(total)
+    n_typed = len(typed_types)
+    n_precise = sum(1 for t in typed_types.values() if t in PRECISE_TYPES)
+    typed_bp = (n_typed * 10000) // n_total if n_total else 0
+    precise_bp = (n_precise * 10000) // n_total if n_total else 0
+    return n_total, n_typed, typed_bp, n_precise, precise_bp
 
 
 def main():
-    total, typed_names = rows()
+    total, typed_types = rows()
+    n_total, n_typed, typed_bp, n_precise, precise_bp = compute()
     args = sys.argv[1:]
     if '--list' in args:
         for name in sorted(total):
-            if name not in typed_names:
+            if name not in typed_types:
                 print(name)
         return
-    n_total = len(total)
-    n_typed = len(typed_names)
+    # №560: --precise switches the METRIC (the report and the --gate value)
+    # from the general typed share to the precise one. The baseline file
+    # decides which floor is checked (the precise baseline carries the
+    # precise floor; the general baseline the general one).
+    precise = '--precise' in args
+    if precise:
+        n, bp = n_precise, precise_bp
+        print(f'precise signatures: {n}/{n_total} ({bp / 100:.2f}%)')
+        print(
+            '  (the precise set: String/Float/Bool/Unit; a bare List/Struct is '
+            'typed-but-coarse \u2014 the audit 02.10 M-4: the general share is '
+            'reachable by coarse types, the precise one is the honest 0.29 target)'
+        )
+    else:
+        print(f'typed signatures: {n_typed}/{n_total} ({typed_bp / 100:.2f}%)')
+        print(
+            f'precise signatures: {n_precise}/{n_total} '
+            f'({precise_bp / 100:.2f}%) \u2014 №560: the two shares side by side'
+        )
     # basis points keep the comparison integer-exact
-    share_bp = (n_typed * 10000) // n_total if n_total else 0
-    print(f'typed signatures: {n_typed}/{n_total} ({share_bp / 100:.2f}%)')
+    share_bp = precise_bp if precise else typed_bp
     if '--gate' in args:
         baseline = args[args.index('--gate') + 1]
         floor = None
@@ -63,18 +102,20 @@ def main():
             print('::error::baseline fixture has no "# threshold_bp: N" line')
             sys.exit(2)
         if share_bp < floor:
+            kind = 'precise typed-signature' if precise else 'typed-signature'
             print(
-                f'::error::the typed-signature share regressed: {share_bp} bp < '
-                f'{floor} bp floor (№467: the metric rises every release; '
+                f'::error::the {kind} share regressed: {share_bp} bp < '
+                f'{floor} bp floor (№467/№560: the metric rises every release; '
                 f'a typed row lost its type or an untyped row was added — '
                 f'type the new rows or restore the lost paths).'
             )
             sys.exit(1)
         if share_bp > floor:
+            kind = 'precise' if precise else 'general'
             print(
-                f'note: the share rose above the floor ({floor} bp) — №467 '
-                f'should raise the baseline floor to {share_bp} bp in a '
-                f'follow-up naryad.'
+                f'note: the {kind} share rose above the floor ({floor} bp) — '
+                f'№467/№560 should raise the baseline floor to {share_bp} bp in '
+                f'a follow-up naryad.'
             )
 
 

@@ -47,7 +47,7 @@ COPY metalogos-server/Cargo.toml metalogos-server/
 #   metalogos-server (the root crate has NO bin anymore — no src/main.rs).
 # benches/ stub: core_benchmarks.rs is the root's only bench (the №567
 # stage4 bench moved to metalogos-server/benches/).
-RUN mkdir -p src mlogpkg/src mlog-lsp/src metalogos-reflex/src metalogos-server/src/bin benches && \
+RUN mkdir -p src mlogpkg/src mlog-lsp/src metalogos-reflex/src metalogos-server/src/bin metalogos-server/benches benches && \
     echo "" > src/lib.rs && \
     echo "fn main() {}" > mlogpkg/src/main.rs && \
     echo "" > mlog-lsp/src/main.rs && \

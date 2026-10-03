@@ -42,11 +42,29 @@
 # (the TW loud / VM silent params handling; the TW silent-skip / VM
 # loud row errors) — named in the docstrings per №480 as parity-fix
 # candidates (the №474 class), never pinned inside a transfer.
-# threshold: 8
+# 2026-10-03 №553 (gh#914) — the wave-25 line (the audit 02.10 §3.3,
+# position А on the SQL pairs): the TWO db pairs whose success paths
+# were byte-identical collapsed into suffix-free functions over the
+# `DbAccess` trait — `db_execute` and `db_execute_with_grant`. THE
+# DIVERGENCE IS FIXED, not just unified: a non-List params argument is
+# LOUD on BOTH backends now ("second/third argument must be List, got
+# {}") — the VM lane used to treat it as no params (silent
+# `Vec::new()`), so `db_execute("UPDATE accounts SET frozen = 1 WHERE
+# id = ?1", user_id)` executed with the placeholder UNBOUND on the
+# serve-default backend. The error texts unify on the RICHER form per
+# the №484 discipline (behavior-neutral: the TW lane gains the №758
+# not-open remedy on db_execute, the VM lane gains the type-detail
+# texts and the named remedy on the grant fn). Mutation-parity tests:
+# tests/n553_sql_params_parity.rs (the audit example refused IDENTICALLY
+# on both backends). The REMAINING SIX pairs stay: the five memory
+# pairs are the №442 honest simple-memory twin posture — PERMANENT BY
+# DESIGN, documented in limitations.md (№554, the same wave); the query
+# pair carries a real success-path divergence (the TW's SELECT/PRAGMA
+# dispatch vs the VM's always-rows shape) — a separate parity-fix
+# candidate, not a text unification.
+# threshold: 6
 #
 # The paired bases at landing (the fact; the artifact):
-db_execute (db_ops.rs)
-db_execute_with_grant (db_ops.rs)
 dispatch (memory_ops.rs)
 forget (memory_ops.rs)
 memorize (memory_ops.rs)

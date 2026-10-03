@@ -20,13 +20,18 @@
 //! `filter_map` with `_ => None`, shifting the positional `$N`
 //! placeholders) is gone; an unsupported param value is now a LOUD
 //! error naming the 1-based parameter position. №540 (gh#850) collapses
-//! the FIRST two byte-identical pairs into suffix-free functions over
-//! the `DbAccess` trait: `query_row` and `db_insert` (the ops-pair
-//! threshold 10 → 8; the not-open / second-argument error texts unify
-//! on the RICHER form per the №484 discipline — behavior-neutral). The
-//! remaining pairs carry SEMANTIC divergences and STAY per №480, each
+//! the first two byte-identical pairs (`query_row`, `db_insert`) and
+//! №553 (the audit 02.10 §3.3 position А) collapses the next two —
+//! `db_execute`, `db_execute_with_grant` — into suffix-free functions
+//! over the `DbAccess` trait; the ops-pair threshold 10 → 8 → 6. The
+//! not-open / second-argument error texts unify on the RICHER form per
+//! the №484 discipline — behavior-neutral. THE №553 FIX: a non-List
+//! params argument is LOUD on BOTH backends now (the VM lane used to
+//! treat it as no params — the audit's placeholder-unbound example).
+//! The remaining pairs carry SEMANTIC divergences and STAY per №480, each
 //! with the divergence named in its docstring (the parity-fix
-//! candidates, the №474 class — never silently inside a transfer).
+//! candidates, the №474 class — never silently inside a transfer;
+//! the memory pairs are documented PERMANENT by design — №554).
 //! The `query_param` parse/return shape (injected context lookup) and
 //! the grant-use note format remain the factored-once shared pieces.
 //! The divergences the №465 fuzzer pinned stay pinned — fixes land as
@@ -200,13 +205,26 @@ pub fn query_tw(db: &Mutex<Option<rusqlite::Connection>>, args: &[Value]) -> Res
     }
 }
 
-/// `db_execute(sql, params?)` — TW. ADR-0068: optional second argument
-/// (List) for parameterised statements; returns the affected-row count
-/// as a String (Наряд №7).
-pub fn db_execute_tw(
-    db: &Mutex<Option<rusqlite::Connection>>,
-    args: &[Value],
-) -> Result<Value, String> {
+/// `db_execute(sql, params?)` — the ONE implementation for both backends
+/// (№553, the №540 mechanics): the state arrives through the `DbAccess`
+/// trait — the TW wraps its `Mutex<Option<Connection>>` in
+/// `TwDbAccess`, the VM implements the trait on `Vm`. The two former
+/// per-backend bodies were byte-identical from the statement execution
+/// onward. THE AUDIT 02.10 §3.3 (position А) DIVERGENCE IS CLOSED: a
+/// non-List second argument is LOUD on both lanes now ("second argument
+/// must be List, got {}") — the VM lane used to treat it as no params
+/// (silent `Vec::new()`), so `db_execute("UPDATE accounts SET frozen = 1
+/// WHERE id = ?1", user_id)` silently executed with the placeholder
+/// UNBOUND on the serve-default backend. The unified fn keeps the
+/// RICHER error on each axis: the SQL-argument error carries the type
+/// detail (the former TW text) and the not-open error keeps the №758
+/// loud reason / named remedy (the former VM text — the TW lane gains
+/// the remedy; behavior-neutral, the Err outcome is the same). Returns
+/// the affected-row count as a String (ONE contract on both backends —
+/// №474, issue #722). Lazy open (№409) fires on the VM lane and is a
+/// no-op through the TW adapter (the TW materializes at the db
+/// declaration).
+pub fn db_execute(db: &mut impl DbAccess, args: &[Value]) -> Result<Value, String> {
     let sql = match args.first() {
         Some(Value::String(s)) => s.clone(),
         Some(other) => {
@@ -217,7 +235,9 @@ pub fn db_execute_tw(
         }
         None => return Err("db_execute() requires at least 1 argument (SQL string)".to_string()),
     };
-    // Наряд №99: convert_params — type-safe, no silent empty-string degradation
+    // №553: the loud non-List refusal — ONE contract on both backends
+    // (the audit example: a placeholder SQL with a non-List second
+    // argument must never degrade into a silent no-params execute).
     let params: Vec<rusqlite::types::Value> = match args.get(1) {
         Some(Value::List(items)) => convert_params(items)?,
         Some(other) => {
@@ -228,61 +248,81 @@ pub fn db_execute_tw(
         }
         None => Vec::new(),
     };
-    let guard = db.lock().map_err(|e| format!("db lock error: {}", e))?;
-    let conn = guard.as_ref().ok_or_else(|| {
-        "db_execute() error: no database connection. Declare db { url: \"sqlite::memory:\" } first."
-            .to_string()
-    })?;
+    // №409: the lazy open fires on the VM lane; a no-op through the TW
+    // adapter.
+    db.ensure_db_open();
+    // №758: the loud reason is read BEFORE the &mut connection borrow.
+    let loud = db.db_open_error();
+    let conn = db
+        .db_conn()
+        .as_ref()
+        .ok_or_else(|| db_not_open_error(loud, "db_execute"))?;
     let affected = conn
         .execute(&sql, rusqlite::params_from_iter(params.iter()))
         .map_err(|e| sql_err("db_execute() SQL error", e))?;
     Ok(Value::String(affected.to_string()))
 }
 
-/// `db_execute_with_grant(g, sql, params?)` — TW. Naryad #390
-/// (ADR-0155 §3.3 rule 6): the granted destructive-SQL action. Gates at
-/// runtime, in order: ledger state (active / not-consumed /
-/// not-revoked), TTL, SCOPE coverage of the SQL's destructive ops
-/// (GRANT_SCOPE_MISMATCH), then execute, then consume (Once ->
-/// consumed, N(n) -> decrement, Unlimited -> audited event).
-/// Non-destructive SQL under a grant executes WITHOUT consumption
-/// (nothing irreversible happened) and still writes the event.
-pub fn db_execute_with_grant_tw(
-    db: &Mutex<Option<rusqlite::Connection>>,
-    args: &[Value],
-) -> Result<Value, String> {
-    if args.len() < 2 || args.len() > 3 {
-        return Err(format!(
-            "{}: expects 2..3 arguments (grant, sql, params?), got {}",
-            NAME_DB_EXECUTE_WITH_GRANT,
-            args.len()
-        ));
-    }
-    let handle = match &args[0] {
-        Value::Grant(h) => h.clone(),
-        other => {
+/// `db_execute_with_grant(g, sql, params?)` — the ONE implementation for
+/// both backends (№553, the №540 mechanics): the state arrives through
+/// the `DbAccess` trait (the TW rides `TwDbAccess`, the VM the `Vm`'s
+/// own impl). Naryad #390 (ADR-0155 §3.3 rule 6): the granted
+/// destructive-SQL action. Gates at runtime, in order: ledger state
+/// (active / not-consumed / not-revoked), TTL, SCOPE coverage of the
+/// SQL's destructive ops (GRANT_SCOPE_MISMATCH), then execute, then
+/// consume (Once -> consumed, N(n) -> decrement, Unlimited -> audited
+/// event). Non-destructive SQL under a grant executes WITHOUT
+/// consumption (nothing irreversible happened) and still writes the
+/// event. THE AUDIT 02.10 §3.3 (position А) DIVERGENCE IS CLOSED: a
+/// non-List third argument is LOUD on both lanes now ("third argument
+/// must be List, got {}") — the VM lane used to treat it as no params
+/// (silent). The unified fn keeps the RICHER error on each axis: the
+/// first/second-argument errors keep the `name()` prefix with the type
+/// detail and the specific missing-argument texts (the former VM
+/// texts), the not-open error gains the named remedy (the former TW
+/// text — the VM lane gains the remedy; behavior-neutral, the Err
+/// outcome is the same). The №393 journal record + the [GRANT_USE]
+/// audit events ride the shared success path (the same one-process
+/// ledger on both lanes).
+pub fn db_execute_with_grant(db: &mut impl DbAccess, args: &[Value]) -> Result<Value, String> {
+    let handle = match args.first() {
+        Some(Value::Grant(h)) => h.clone(),
+        Some(other) => {
             return Err(format!(
-                "{}: first argument must be a Grant, got {}",
+                "{}() first argument must be a Grant, got {}",
                 NAME_DB_EXECUTE_WITH_GRANT,
                 other.type_name()
             ))
         }
-    };
-    let sql = match &args[1] {
-        Value::String(s) => s.clone(),
-        other => {
+        None => {
             return Err(format!(
-                "{}: second argument must be String SQL, got {}",
+                "{}() missing grant argument",
+                NAME_DB_EXECUTE_WITH_GRANT
+            ))
+        }
+    };
+    let sql = match args.get(1) {
+        Some(Value::String(s)) => s.clone(),
+        Some(other) => {
+            return Err(format!(
+                "{}() second argument must be String SQL, got {}",
                 NAME_DB_EXECUTE_WITH_GRANT,
                 other.type_name()
             ))
         }
+        None => {
+            return Err(format!(
+                "{}() missing sql argument",
+                NAME_DB_EXECUTE_WITH_GRANT
+            ))
+        }
     };
+    // №553: the loud non-List refusal — ONE contract on both backends.
     let params: Vec<rusqlite::types::Value> = match args.get(2) {
         Some(Value::List(items)) => convert_params(items)?,
         Some(other) => {
             return Err(format!(
-                "{}: third argument must be List, got {}",
+                "{}() third argument must be List, got {}",
                 NAME_DB_EXECUTE_WITH_GRANT,
                 other.type_name()
             ))
@@ -302,16 +342,21 @@ pub fn db_execute_with_grant_tw(
             ));
         }
     }
-    let guard = db.lock().map_err(|e| format!("db lock error: {}", e))?;
-    let conn = guard.as_ref().ok_or_else(|| {
-        "db_execute_with_grant() error: no database connection. Declare db { url: \"sqlite::memory:\" } first."
-            .to_string()
+    // №409: the lazy open fires on the VM lane; a no-op through the TW
+    // adapter.
+    db.ensure_db_open();
+    let conn = db.db_conn().as_ref().ok_or_else(|| {
+        format!(
+            "{}() error: no database connection. Declare db {{ url: \"sqlite::memory:\" }} first.",
+            NAME_DB_EXECUTE_WITH_GRANT
+        )
     })?;
     let affected = conn
         .execute(&sql, rusqlite::params_from_iter(params.iter()))
         .map_err(|e| sql_err("db_execute_with_grant() SQL error", e))?;
-    drop(guard);
-    // Post-success consumption/audit (never on SQL failure).
+    // Post-success consumption/audit (never on SQL failure). The TW
+    // adapter's guard releases when the adapter drops at the call site —
+    // nothing below touches the connection.
     if destructive {
         crate::grants::grant_use(&handle, &grant_use_note(&sql))?;
         // ── Naryad #393 (ADR-0167 §3.4): the irreversible action
@@ -344,9 +389,6 @@ pub fn db_execute_with_grant_tw(
     Ok(Value::String(affected.to_string()))
 }
 
-/// `query_scalar(sql, params?)` — TW. Наряда-26 P1-7: executes a SELECT
-/// that returns exactly one row with one column; the scalar value
-/// directly (String, Float, or Unit for NULL).
 /// The TW-side `DbAccess` adapter (№484): the interpreter's db state is
 /// the `Mutex<Option<Connection>>` — the adapter locks it once and holds
 /// the guard for the statement's duration. `ensure_db_open` is a no-op
@@ -718,160 +760,6 @@ pub fn query_vm(vm: &mut impl DbAccess, args: &[Value]) -> Result<Value, String>
     Ok(Value::List(results))
 }
 
-/// `db_execute(sql, params?)` — VM. TYPED binding (№381); returns the
-/// affected-row count as a String (ONE contract on both backends — №474,
-/// issue #722; the doc below used to claim the Unit return — stale since
-/// that naryad). Lazy open (№409).
-/// №480/№540: this pair STAYS — the divergence is SEMANTIC, not textual:
-/// on a non-List second argument the TW lane is LOUD
-/// ("second argument must be List, got {}") while the VM lane treats it
-/// as no params (silent `Vec::new()`). A transfer PR must not change
-/// semantics (the №466 rule) — the divergence is a parity-fix candidate
-/// (the №474 class, a separate owner-gated naryad), not pinned here.
-pub fn db_execute_vm(vm: &mut impl DbAccess, args: &[Value]) -> Result<Value, String> {
-    let sql = match args.first() {
-        Some(Value::String(s)) => s.clone(),
-        _ => return Err("db_execute() expected String SQL".to_string()),
-    };
-    // Naryad #381 parity fix: typed param binding (convert_params
-    // SSOT) instead of stringification — same contract as the
-    // tree-walking backend (Bool→0/1, Float→REAL, no affinity hacks).
-    let params: Vec<rusqlite::types::Value> = if args.len() > 1 {
-        match &args[1] {
-            Value::List(items) => convert_params(items)?,
-            _ => Vec::new(),
-        }
-    } else {
-        Vec::new()
-    };
-    // №409: lazy db open on first use.
-    vm.ensure_db_open();
-    // №758: the loud reason is read BEFORE the &mut connection borrow.
-    let loud = vm.db_open_error();
-    let conn = vm
-        .db_conn()
-        .as_ref()
-        .ok_or_else(|| db_not_open_error(loud, "db_execute"))?;
-    let affected = conn
-        .execute(&sql, rusqlite::params_from_iter(params.iter()))
-        .map_err(|e| sql_err("db_execute() SQL error", e))?;
-    // №474 (issue #722): ONE contract on both backends — the affected-row
-    // count as a String (the TW form, db_ops.rs `db_execute_tw`). The old
-    // VM-only `Value::Unit` made a program that checks the result behave
-    // differently under `mlog run` and `mlog serve` (the VM is the default
-    // production backend since ADR-0171).
-    Ok(Value::String(affected.to_string()))
-}
-
-/// `db_execute_with_grant(g, sql, params?)` — VM. Naryad #390
-/// (ADR-0155): the granted destructive-SQL action. Same gates as the
-/// tree-walking backend (ledger state/TTL/scope via src/grants.rs,
-/// typed binding via convert_params — the №381 contract); consumption
-/// happens only after the statement succeeded. Lazy open (№409).
-/// №480/№540: this pair STAYS — the divergence is SEMANTIC: the TW lane
-/// upfront-checks the arity (2..3) and is LOUD on a non-List params
-/// argument, the VM lane parses per-argument (the missing-argument texts)
-/// and treats a non-List params argument as no params (silent); the
-/// not-open text differs (the VM carries no named remedy here). A
-/// parity-fix candidate (the №474 class), not pinned here.
-pub fn db_execute_with_grant_vm(vm: &mut impl DbAccess, args: &[Value]) -> Result<Value, String> {
-    let handle = match args.first() {
-        Some(Value::Grant(h)) => h.clone(),
-        Some(other) => {
-            return Err(format!(
-                "{}() first argument must be a Grant, got {}",
-                NAME_DB_EXECUTE_WITH_GRANT,
-                other.type_name()
-            ))
-        }
-        None => {
-            return Err(format!(
-                "{}() missing grant argument",
-                NAME_DB_EXECUTE_WITH_GRANT
-            ))
-        }
-    };
-    let sql = match args.get(1) {
-        Some(Value::String(s)) => s.clone(),
-        Some(other) => {
-            return Err(format!(
-                "{}() second argument must be String SQL, got {}",
-                NAME_DB_EXECUTE_WITH_GRANT,
-                other.type_name()
-            ))
-        }
-        None => {
-            return Err(format!(
-                "{}() missing sql argument",
-                NAME_DB_EXECUTE_WITH_GRANT
-            ))
-        }
-    };
-    let params: Vec<rusqlite::types::Value> = if args.len() > 2 {
-        match &args[2] {
-            Value::List(items) => convert_params(items)?,
-            _ => Vec::new(),
-        }
-    } else {
-        Vec::new()
-    };
-    crate::grants::check_active(&handle)?;
-    let ops = crate::grants::extract_destructive_ops(&sql);
-    let destructive = !ops.is_empty();
-    for (op, table) in &ops {
-        if !crate::grants::scope_covers(&handle.scope, op, table) {
-            return Err(format!(
-                "GRANT_SCOPE_MISMATCH: grant {} ({}, scope '{}') does not cover {} {}",
-                handle.grant_id, handle.class, handle.scope, op, table
-            ));
-        }
-    }
-    // №409: lazy db open on first use.
-    vm.ensure_db_open();
-    let conn = vm.db_conn().as_ref().ok_or_else(|| {
-        format!(
-            "{}() error: no database connection.",
-            NAME_DB_EXECUTE_WITH_GRANT
-        )
-    })?;
-    let affected = conn
-        .execute(&sql, rusqlite::params_from_iter(params.iter()))
-        .map_err(|e| sql_err("db_execute_with_grant() SQL error", e))?;
-    if destructive {
-        crate::grants::grant_use(&handle, &grant_use_note(&sql))?;
-        // ── Naryad #393 (ADR-0167 §3.4), runtime-twin parity with
-        // src/interpreter/db.rs (the naryad-397 follow-up caught
-        // the VM side missing this record — the wave-3 e2e could
-        // not see it because the TW+VM records share one process
-        // ledger and the content assertions were not per-run): the
-        // irreversible action SUCCEEDED — the journal entry is a
-        // side effect of the success path itself. The SQL preimage
-        // never enters the journal — only its SHA-256.
-        crate::ledger::record(
-            LEDGER_IRREVERSIBLE_DB_EXECUTE,
-            &handle.issuer,
-            &handle.scope,
-            &format!("{}|{}|{}", handle.grant_id, handle.scope, sql),
-        );
-        eprintln!(
-            "[GRANT_USE] grant (scope '{}', class {}) executed {} (affected {}) — remaining {}",
-            handle.scope,
-            handle.class,
-            sql.trim(),
-            affected,
-            crate::grants::state_of(&handle.grant_id)
-                .map(|(_, r)| r)
-                .unwrap_or(-1)
-        );
-    } else {
-        eprintln!(
-            "[GRANT_USE] grant (scope '{}') ran non-destructive SQL — no consumption",
-            handle.scope
-        );
-    }
-    Ok(Value::String(affected.to_string()))
-}
-
 // №540: the former `query_row_vm` body collapsed into the suffix-free
 // `query_row` over the `DbAccess` trait (the shared section above); the
 // call site passes `&mut Vm` unchanged.
@@ -955,7 +843,11 @@ mod tests {
     }
 
     fn table(db: &Arc<Mutex<Option<rusqlite::Connection>>>) {
-        db_execute_tw(db, &[s("CREATE TABLE t (a TEXT, b REAL)")]).unwrap();
+        db_execute(
+            &mut TwDbAccess::lock(db).unwrap(),
+            &[s("CREATE TABLE t (a TEXT, b REAL)")],
+        )
+        .unwrap();
     }
 
     // ── handles(): the name set is spelled exactly once ──
@@ -985,7 +877,11 @@ mod tests {
     fn tw_query_select_returns_rows_of_structs_and_dml_returns_count() {
         let db = tw_db();
         table(&db);
-        db_execute_tw(&db, &[s("INSERT INTO t VALUES ('x', 1.5)")]).unwrap();
+        db_execute(
+            &mut TwDbAccess::lock(&db).unwrap(),
+            &[s("INSERT INTO t VALUES ('x', 1.5)")],
+        )
+        .unwrap();
         let _ = db_insert(
             &mut TwDbAccess::lock(&db).unwrap(),
             &[
@@ -1038,24 +934,32 @@ mod tests {
     fn tw_db_execute_params_and_connection_texts_are_exact() {
         let db = tw_db_empty();
         assert_eq!(
-            db_execute_tw(&db, &[s("DELETE FROM t")]).unwrap_err(),
+            db_execute(&mut TwDbAccess::lock(&db).unwrap(), &[s("DELETE FROM t")]).unwrap_err(),
             "db_execute() error: no database connection. Declare db { url: \"sqlite::memory:\" } first."
         );
         let db = tw_db();
         assert_eq!(
-            db_execute_tw(&db, &[]).unwrap_err(),
+            db_execute(&mut TwDbAccess::lock(&db).unwrap(), &[]).unwrap_err(),
             "db_execute() requires at least 1 argument (SQL string)"
         );
         assert_eq!(
-            db_execute_tw(&db, &[Value::Bool(true)]).unwrap_err(),
+            db_execute(&mut TwDbAccess::lock(&db).unwrap(), &[Value::Bool(true)]).unwrap_err(),
             "db_execute() expected String SQL, got Bool"
         );
         assert_eq!(
-            db_execute_tw(&db, &[s("DELETE FROM t"), Value::Float(2.0)]).unwrap_err(),
+            db_execute(
+                &mut TwDbAccess::lock(&db).unwrap(),
+                &[s("DELETE FROM t"), Value::Float(2.0)]
+            )
+            .unwrap_err(),
             "db_execute() second argument must be List, got Float"
         );
         table(&db);
-        let out = db_execute_tw(&db, &[s("INSERT INTO t VALUES ('x', 1.5)")]).unwrap();
+        let out = db_execute(
+            &mut TwDbAccess::lock(&db).unwrap(),
+            &[s("INSERT INTO t VALUES ('x', 1.5)")],
+        )
+        .unwrap();
         val_eq!(out, s("1"));
     }
 
@@ -1063,7 +967,11 @@ mod tests {
     fn tw_query_scalar_and_query_row_shapes() {
         let db = tw_db();
         table(&db);
-        db_execute_tw(&db, &[s("INSERT INTO t VALUES ('a', 7.0)")]).unwrap();
+        db_execute(
+            &mut TwDbAccess::lock(&db).unwrap(),
+            &[s("INSERT INTO t VALUES ('a', 7.0)")],
+        )
+        .unwrap();
         val_eq!(
             query_scalar(
                 &mut TwDbAccess::lock(&db).unwrap(),
@@ -1145,21 +1053,32 @@ mod tests {
     #[test]
     fn tw_db_execute_with_grant_arity_type_and_scope_texts() {
         let db = tw_db();
+        // №553: the unified texts — the VM `name()` form with the
+        // specific missing-argument texts (the richer axis, kept on
+        // both lanes; the former TW arity text is subsumed).
         assert_eq!(
-            db_execute_with_grant_tw(&db, &[s("db:delete:users")]).unwrap_err(),
-            "db_execute_with_grant: expects 2..3 arguments (grant, sql, params?), got 1"
+            db_execute_with_grant(&mut TwDbAccess::lock(&db).unwrap(), &[s("db:delete:users")])
+                .unwrap_err(),
+            "db_execute_with_grant() first argument must be a Grant, got String"
         );
         assert_eq!(
-            db_execute_with_grant_tw(&db, &[Value::Float(1.0), s("DELETE FROM t")]).unwrap_err(),
-            "db_execute_with_grant: first argument must be a Grant, got Float"
+            db_execute_with_grant(
+                &mut TwDbAccess::lock(&db).unwrap(),
+                &[Value::Float(1.0), s("DELETE FROM t")]
+            )
+            .unwrap_err(),
+            "db_execute_with_grant() first argument must be a Grant, got Float"
         );
         let class = crate::grants::GrantClass::parse("unlimited").unwrap();
         let handle =
             crate::grants::issue("n466-tw-unrelated:table", 3600, &class, "n466-test").unwrap();
         assert!(
-            db_execute_with_grant_tw(&db, &[Value::Grant(handle), s("DROP TABLE t")])
-                .unwrap_err()
-                .starts_with("GRANT_SCOPE_MISMATCH:"),
+            db_execute_with_grant(
+                &mut TwDbAccess::lock(&db).unwrap(),
+                &[Value::Grant(handle), s("DROP TABLE t")]
+            )
+            .unwrap_err()
+            .starts_with("GRANT_SCOPE_MISMATCH:"),
             "an out-of-scope destructive statement must refuse with the stable code"
         );
     }
@@ -1171,8 +1090,8 @@ mod tests {
         let class = crate::grants::GrantClass::parse("once").unwrap();
         let handle = crate::grants::issue("db:delete:t:n466", 3600, &class, "n466-test").unwrap();
         // Non-destructive SQL under the grant: executes, does NOT consume.
-        let out = db_execute_with_grant_tw(
-            &db,
+        let out = db_execute_with_grant(
+            &mut TwDbAccess::lock(&db).unwrap(),
             &[
                 Value::Grant(handle.clone()),
                 s("INSERT INTO t VALUES ('a', 1.0)"),
@@ -1181,9 +1100,11 @@ mod tests {
         .unwrap();
         val_eq!(out, s("1"));
         // The same Once grant still covers the destructive statement…
-        let out =
-            db_execute_with_grant_tw(&db, &[Value::Grant(handle.clone()), s("DELETE FROM t")])
-                .unwrap();
+        let out = db_execute_with_grant(
+            &mut TwDbAccess::lock(&db).unwrap(),
+            &[Value::Grant(handle.clone()), s("DELETE FROM t")],
+        )
+        .unwrap();
         val_eq!(out, s("1"));
         // …and consumption happens exactly on the destructive success.
         let (_, remaining) = crate::grants::state_of(&handle.grant_id).unwrap();
@@ -1198,19 +1119,19 @@ mod tests {
     #[test]
     fn vm_db_execute_returns_affected_count_and_lazily_opens_once() {
         let mut vm = MockVm::new();
-        let out = db_execute_vm(&mut vm, &[s("CREATE TABLE t (a TEXT)")]).unwrap();
+        let out = db_execute(&mut vm, &[s("CREATE TABLE t (a TEXT)")]).unwrap();
         val_eq!(
             out,
             s("0"),
             "the affected-row count as a String — ONE contract on both backends (№474, issue #722)"
         );
         assert_eq!(vm.opens.get(), 1, "the lazy open fires exactly once");
-        let ins = db_execute_vm(&mut vm, &[s("INSERT INTO t VALUES ('x')")]).unwrap();
+        let ins = db_execute(&mut vm, &[s("INSERT INTO t VALUES ('x')")]).unwrap();
         val_eq!(ins, s("1"), "one row inserted → \"1\"");
         assert_eq!(vm.opens.get(), 1, "an open connection is not re-opened");
         assert_eq!(
-            db_execute_vm(&mut vm, &[Value::Unit]).unwrap_err(),
-            "db_execute() expected String SQL"
+            db_execute(&mut vm, &[Value::Unit]).unwrap_err(),
+            "db_execute() expected String SQL, got Unit"
         );
     }
 
@@ -1254,7 +1175,7 @@ mod tests {
             format!("query() error: {}", legacy)
         );
         assert_eq!(
-            db_execute_vm(&mut failed, &[s("SELECT 1")]).unwrap_err(),
+            db_execute(&mut failed, &[s("SELECT 1")]).unwrap_err(),
             format!("db_execute() error: {}", legacy)
         );
         // ── the №758 loud case: the stored reason REPLACES the legacy
@@ -1280,7 +1201,7 @@ mod tests {
     #[test]
     fn vm_query_row_binds_params_typed_and_rejects_unsupported_loudly() {
         let mut vm = MockVm::new();
-        db_execute_vm(&mut vm, &[s("CREATE TABLE t (a REAL)")]).unwrap();
+        db_execute(&mut vm, &[s("CREATE TABLE t (a REAL)")]).unwrap();
         // The typed lane on BOTH backends now (№474, issue #722 — the
         // №381 convert_params contract): Float → REAL, not the Display
         // string "3".
@@ -1290,7 +1211,7 @@ mod tests {
         )
         .unwrap();
         val_eq!(bind, s("real"));
-        db_execute_vm(&mut vm, &[s("INSERT INTO t VALUES (3.0)")]).unwrap();
+        db_execute(&mut vm, &[s("INSERT INTO t VALUES (3.0)")]).unwrap();
         // Positions do NOT shift: Unit → Null keeps the placeholder count,
         // so BOTH `?` are bound (a = 3.0 AND ? IS NULL). Under the removed
         // stringify lane the Unit was silently dropped → 2 placeholders, 1
@@ -1329,8 +1250,8 @@ mod tests {
             query_vm(&mut vm, &[]).unwrap_err(),
             "query() expected String SQL"
         );
-        db_execute_vm(&mut vm, &[s("CREATE TABLE t (a TEXT, b REAL)")]).unwrap();
-        db_execute_vm(&mut vm, &[s("INSERT INTO t VALUES ('x', 1.5)")]).unwrap();
+        db_execute(&mut vm, &[s("CREATE TABLE t (a TEXT, b REAL)")]).unwrap();
+        db_execute(&mut vm, &[s("INSERT INTO t VALUES ('x', 1.5)")]).unwrap();
         let out = query_vm(&mut vm, &[s("SELECT a, b FROM t")]).unwrap();
         match out {
             Value::List(rows) => {
@@ -1359,7 +1280,7 @@ mod tests {
     #[test]
     fn vm_db_insert_rowid_and_error_texts() {
         let mut vm = MockVm::new();
-        db_execute_vm(&mut vm, &[s("CREATE TABLE t (a TEXT)")]).unwrap();
+        db_execute(&mut vm, &[s("CREATE TABLE t (a TEXT)")]).unwrap();
         let id = db_insert(
             &mut vm,
             &[
@@ -1387,18 +1308,18 @@ mod tests {
     fn vm_db_execute_with_grant_texts_and_scope_gate() {
         let mut vm = MockVm::new();
         assert_eq!(
-            db_execute_with_grant_vm(&mut vm, &[]).unwrap_err(),
+            db_execute_with_grant(&mut vm, &[]).unwrap_err(),
             "db_execute_with_grant() missing grant argument"
         );
         assert_eq!(
-            db_execute_with_grant_vm(&mut vm, &[Value::Float(1.0)]).unwrap_err(),
+            db_execute_with_grant(&mut vm, &[Value::Float(1.0)]).unwrap_err(),
             "db_execute_with_grant() first argument must be a Grant, got Float"
         );
         let class = crate::grants::GrantClass::parse("unlimited").unwrap();
         let handle =
             crate::grants::issue("n466-vm-unrelated:table", 3600, &class, "n466-test").unwrap();
         assert!(
-            db_execute_with_grant_vm(&mut vm, &[Value::Grant(handle), s("DROP TABLE t")])
+            db_execute_with_grant(&mut vm, &[Value::Grant(handle), s("DROP TABLE t")])
                 .unwrap_err()
                 .starts_with("GRANT_SCOPE_MISMATCH:"),
             "the scope gate fires before the connection is even opened"

@@ -4,7 +4,33 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
-(nothing yet)
+- Naryad №553 (issue #914; Wave 25 P1; the audit 02.10 §3.3, position А
+  on the SQL pairs — the dispatch resolution "SQL — fix"): the
+  SQL-params divergence is FIXED, and the two db pairs collapse. THE
+  FIX: a non-List params argument is a LOUD refusal on BOTH backends —
+  `db_execute() second argument must be List, got {}` /
+  `db_execute_with_grant() third argument must be List, got {}`. The
+  VM lane used to end the params match with `_ => Vec::new()` — the
+  audit's example `db_execute("UPDATE accounts SET frozen = 1 WHERE id
+  = ?1", user_id)` executed with the placeholder UNBOUND (or, on a
+  placeholder-free statement, the argument was silently IGNORED) on
+  the serve-default backend, while the TW lane refused loudly. THE
+  COLLAPSE (the №540 mechanics): `db_execute` and
+  `db_execute_with_grant` are ONE suffix-free function over the
+  `DbAccess` trait each — the TW rides `TwDbAccess::lock`, the VM its
+  own trait impl; the ops-pair threshold 8 → 6
+  (`ops_pair_baseline.txt` moved in the same PR). The unified bodies
+  keep the RICHER error on each axis per the №484 discipline:
+  `db_execute` gains the №758 not-open remedy on the TW lane, the
+  grant fn keeps the `name()` missing-argument texts on both lanes
+  (the former TW upfront-arity text is subsumed). Behavior-neutral on
+  the success paths (byte-identical); the observable change is exactly
+  the loud refusal the audit demanded. Mutation-parity pinned by
+  tests/n553_sql_params_parity.rs — the audit example refused
+  IDENTICALLY on both backends (red-before: the VM half failed on the
+  pre-№553 revision), the grant twin likewise, and the proper-List
+  path still executes in parity; the №465 diff-fuzzer 9/9; the db
+  suites (№474/№484/№758/№397, registry checks) green.
 
 ## [0.28.0] - 2026-10-03
 

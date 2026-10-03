@@ -2317,7 +2317,7 @@ impl Vm {
         // db_execute(sql, params?) — execute SQL (INSERT/UPDATE/DELETE/DDL)
         // №466: the body lives in the shared live module (src/db_ops.rs).
         if name == crate::db_ops::NAME_DB_EXECUTE {
-            return crate::db_ops::db_execute_vm(self, args);
+            return crate::db_ops::db_execute(self, args);
         }
 
         // db_execute_with_grant(g, sql, params?) — Naryad #390 (ADR-0155):
@@ -2326,7 +2326,7 @@ impl Vm {
         // TTL/scope via src/grants.rs) and the post-success consumption
         // stay byte-for-byte the contract they were.
         if name == crate::db_ops::NAME_DB_EXECUTE_WITH_GRANT {
-            return crate::db_ops::db_execute_with_grant_vm(self, args);
+            return crate::db_ops::db_execute_with_grant(self, args);
         }
 
         // resolve_skill_index(dept) — returns compiled skill index as Value::Struct

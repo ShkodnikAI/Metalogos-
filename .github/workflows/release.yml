@@ -125,6 +125,20 @@ jobs:
           sha256sum mlog-linux-x86_64 mlog-linux-x86_64.cdx.json > SHA256SUMS
           cat SHA256SUMS
 
+      - name: Publish digests and SBOM facts as annotations
+        # Readable through the checks API without downloading the artifact,
+        # so the result can be cross-checked independently of this job.
+        run: |
+          bin=dist/mlog-linux-x86_64
+          sbom=dist/mlog-linux-x86_64.cdx.json
+          echo "::notice title=sha256 mlog-linux-x86_64::$(sha256sum "$bin" | cut -d' ' -f1)"
+          echo "::notice title=sha256 sbom::$(sha256sum "$sbom" | cut -d' ' -f1)"
+          desc="$(jq -r '.metadata.component.name + " " + (.metadata.component.version // "?")' "$sbom")"
+          n="$(jq '.components | length' "$sbom")"
+          nolic="$(jq '[.components[] | select((.licenses // []) | length == 0)] | length' "$sbom")"
+          candle="$(jq '[.components[].name | select(test("candle"))] | length' "$sbom")"
+          echo "::notice title=sbom facts::describes=[$desc] components=$n without_license=$nolic candle_components=$candle"
+
       - name: Attest build provenance
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/attest-build-provenance@v4.2.2

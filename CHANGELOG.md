@@ -4,6 +4,23 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №554 (issue #915; Wave 25 P1; the audit 02.10 §3.3, position Е
+  on the memory pairs — the dispatch resolution "memory — document"):
+  the memory pairs are PERMANENT BY DESIGN. The honest record lands in
+  the TW/VM Divergences table of docs/limitations.md ("the memory
+  builtins run on TWO ENGINES: memorize/recall/recall_top_k/forget
+  (plus the dispatch marshaling twins) — the VM's honest simple-memory
+  store and the TW's full store | №442 | PERMANENT BY DESIGN"), with
+  live links to the shared module, the baseline and the pinning test.
+  src/memory_ops.rs cross-links the record (the module docstring keeps
+  the shared-HOME-not-unification statement); the ops-pair baseline
+  marks the five pairs [permanent — №554] while the query pair stays
+  UNMARKED (a parity-fix candidate, position А — never a design
+  decision). Pinned by tests/n554_memory_pairs_permanent.rs (3/3): the
+  three artifacts cannot drift apart — a lost record fails the file.
+  NO behavior change (the §5.3 rule: the memory pairs are never merged
+  at the cost of semantics).
+
 - Naryad №553 (issue #914; Wave 25 P1; the audit 02.10 §3.3, position А
   on the SQL pairs — the dispatch resolution "SQL — fix"): the
   SQL-params divergence is FIXED, and the two db pairs collapse. THE

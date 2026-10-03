@@ -62,12 +62,23 @@
 # pair carries a real success-path divergence (the TW's SELECT/PRAGMA
 # dispatch vs the VM's always-rows shape) — a separate parity-fix
 # candidate, not a text unification.
+# (superseded by the №554 entry — the fact is the same) threshold: 6
+#
+# 2026-10-03 №554 (gh#915) — the wave-25 line (the audit 02.10 §3.3,
+# position Е on the memory pairs): the five memory pairs are
+# DOCUMENTED-PERMANENT BY DESIGN — the honest record lives in the
+# TW/VM Divergences table of docs/limitations.md ("the memory builtins
+# run on two engines ... | №442 | Permanent by design"); merging them
+# at the cost of semantics is forbidden (the audit §5.3 rule). The
+# threshold is NOT moved by this entry — the five pairs stay, each
+# line below marked with its domain.
 # threshold: 6
 #
-# The paired bases at landing (the fact; the artifact):
-dispatch (memory_ops.rs)
-forget (memory_ops.rs)
-memorize (memory_ops.rs)
+# The paired bases at landing (the fact; the artifact; the
+# [permanent] mark = documented-permanent, №554):
+dispatch (memory_ops.rs) [permanent — №554]
+forget (memory_ops.rs) [permanent — №554]
+memorize (memory_ops.rs) [permanent — №554]
 query (db_ops.rs)
-recall (memory_ops.rs)
-recall_top_k (memory_ops.rs)
+recall (memory_ops.rs) [permanent — №554]
+recall_top_k (memory_ops.rs) [permanent — №554]

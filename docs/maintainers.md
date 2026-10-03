@@ -56,7 +56,7 @@ owner's lane — the second maintainer has no veto there.
    `python3 scripts/ci/ops_pair_counter.py --gate
    scripts/ci/ops_pair_baseline.txt`,
    `python3 scripts/ci/mirror_counter.py --gate
-   scripts/ci/vm_mirror_baseline.txt`,
+   scripts/ci/src_mirror_baseline.txt`,
    `scripts/ci/type_signature_share.py --gate ...`,
    `scripts/ci/debt_counters.py --gate ...`,
    `scripts/ci/generative_stop_list_gate.py` and

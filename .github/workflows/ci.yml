@@ -619,9 +619,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: "Gate — the third dedup metric: the explicit TW-mirror mentions in vm.rs (№502; movement only down)"
+      - name: "Gate — the third dedup metric: the explicit mirror mentions across the whole src/ tree (№502 → №564 whole-tree; movement only down)"
         run: |
-          python3 scripts/ci/mirror_counter.py --gate scripts/ci/vm_mirror_baseline.txt
+          python3 scripts/ci/mirror_counter.py --gate scripts/ci/src_mirror_baseline.txt
       - name: Artifact — the mirror-mark list (the unification base)
         run: |
           python3 scripts/ci/mirror_counter.py --list

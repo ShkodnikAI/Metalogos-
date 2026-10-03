@@ -104,10 +104,12 @@ def criterion_dedup(baseline_dir):
     rc, out = run([DUP_SCRIPT, '--gate', os.path.join(baseline_dir, 'tw_vm_dup_names_baseline.txt')])
     m = re.search(r'duplicated builtin names:\s*(\d+)\s*\(threshold (\d+)\)', out)
     detail = ('count %s (threshold %s)' % (m.group(1), m.group(2))) if m else 'unparsed: %s' % out.strip()
-    # №502: the third metric joins the criterion — the vm.rs mirror
+    # №502: the third metric joins the criterion — the explicit mirror
     # mentions (the audit 28.09 §3.3: neither №462 nor №484 saw the
     # vm.rs mirrors, and the distillation drift lived exactly there).
-    rc_m, out_m = run([MIRROR_SCRIPT, '--gate', os.path.join(baseline_dir, 'vm_mirror_baseline.txt')])
+    # №564: the scan is whole-tree (src/**/*.rs), the baseline carries
+    # the widened fact (7) + the html_label.rs taint-walk registration.
+    rc_m, out_m = run([MIRROR_SCRIPT, '--gate', os.path.join(baseline_dir, 'src_mirror_baseline.txt')])
     mm = re.search(r'mirror mentions:\s*(\d+)\s*\(threshold (\d+)\)', out_m)
     detail_m = ('mirrors %s (threshold %s)' % (mm.group(1), mm.group(2))) if mm else 'unparsed: %s' % out_m.strip()
     rc = rc or rc_m

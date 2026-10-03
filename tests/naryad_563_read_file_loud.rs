@@ -14,6 +14,15 @@
 // flip is proven by the CODE, not by the old marker).
 #![allow(clippy::disallowed_methods)]
 
+// The SandboxDir helper below moves the PROCESS cwd (a chdir is not
+// thread-scoped): the six tests touch relative paths and must not run
+// concurrently with each other or the process-global cwd is yanked out
+// from under a mid-test read (the CI race: an existing-file read saw a
+// foreign sandbox as its cwd and refused with the loud missing-file
+// error — the №563 flip turned the formerly-silent race into a failure,
+// which is exactly what a loud contract is FOR). serial_test serializes
+// the suite within the binary; cargo test runs the binaries sequentially.
+use serial_test::serial;
 use std::cell::RefCell;
 
 thread_local! {
@@ -63,6 +72,7 @@ const MISSING_OR_FLOW: &str = "pattern ReadOr563(_x: String) -> String {\n  retu
 // ── the loud flip on BOTH backends ───────────────────────────────────
 
 #[test]
+#[serial]
 fn n563_tw_read_file_missing_refuses_loudly() {
     let _sb = SandboxDir::enter("tw_missing");
     let err = metalogos::run_program(MISSING_FLOW)
@@ -80,6 +90,7 @@ fn n563_tw_read_file_missing_refuses_loudly() {
 }
 
 #[test]
+#[serial]
 fn n563_vm_read_file_missing_refuses_loudly() {
     let _sb = SandboxDir::enter("vm_missing");
     let err =
@@ -94,6 +105,7 @@ fn n563_vm_read_file_missing_refuses_loudly() {
 // ── the `_or` twin: the ONLY remaining soft surface (unchanged) ──────
 
 #[test]
+#[serial]
 fn n563_read_file_or_still_yields_the_default_tw() {
     let _sb = SandboxDir::enter("tw_or");
     let out = metalogos::run_program(MISSING_OR_FLOW)
@@ -106,6 +118,7 @@ fn n563_read_file_or_still_yields_the_default_tw() {
 }
 
 #[test]
+#[serial]
 fn n563_read_file_or_still_yields_the_default_vm() {
     let _sb = SandboxDir::enter("vm_or");
     let out = run_vm(MISSING_OR_FLOW)
@@ -120,6 +133,7 @@ fn n563_read_file_or_still_yields_the_default_vm() {
 // ── existing-file reads: byte-identical ──────────────────────────────
 
 #[test]
+#[serial]
 fn n563_existing_file_reads_exactly_as_before() {
     let _sb = SandboxDir::enter("existing");
     std::fs::write("n563_present.txt", "the real content").unwrap();
@@ -129,6 +143,7 @@ fn n563_existing_file_reads_exactly_as_before() {
 }
 
 #[test]
+#[serial]
 fn n563_debt_counter_reads_zero() {
     // The only-down lock: the committed baseline records 0 and the live
     // count agrees (the marker string is gone from the tree).

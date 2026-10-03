@@ -14,7 +14,12 @@
 // 3. read_file: a file that passed the sandbox and is NOT missing but
 //    cannot be opened/read is a config/environment error — refused
 //    LOUDLY (IO_ERROR, the OS reason) instead of a silent "". The
-//    missing-file soft contract (№254) is preserved and pinned.
+//    missing-file soft contract (№254) was preserved and pinned here —
+//    and ENDED at v0.28.0 (№563): the №531 transition window closed
+//    with the release, so a MISSING file refuses LOUDLY too; the
+//    explicit-silence surface is `read_file_or(path, default)` (the
+//    №514 naming rule). This pin was updated with the flip (the pin
+//    follows the contract, the contract does not follow the pin).
 // 4. Back-compat: programs needing the old silence migrate to `env_or`
 //    (the name already says "default"); nothing else changes.
 
@@ -216,7 +221,7 @@ fn n481_env_or_does_not_bypass_the_serve_gate() {
 
 #[cfg(unix)]
 #[test]
-fn n481_read_file_unreadable_is_loud_but_missing_stays_soft() {
+fn n481_read_file_unreadable_and_missing_refuse_loudly() {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
 
@@ -243,11 +248,25 @@ fn n481_read_file_unreadable_is_loud_but_missing_stays_soft() {
         err
     );
 
-    // (b) A MISSING file → the documented №254 soft contract ("").
+    // (b) A MISSING file → the LOUD [IO_ERROR] refusal since v0.28.0
+    //     (№563: the №254 soft contract ended with the transition
+    //     release; migrate to read_file_or(path, default) — the message
+    //     names the migration path, the same posture the loud env
+    //     refusal has).
     fs::remove_file(path).ok();
     let src = program("  return read_file(\"target/n481_really_missing.txt\")");
-    let out = metalogos::run_program(&src).expect("the missing-file soft contract holds");
-    assert_eq!(out.unwrap_or_default().trim_end(), "");
+    let err = metalogos::run_program(&src)
+        .expect_err("the missing-file soft contract ended at v0.28.0 (№563)");
+    assert!(
+        err.contains("[IO_ERROR]") && err.contains("target/n481_really_missing.txt"),
+        "the missing-file refusal must carry the stable code and the path: {}",
+        err
+    );
+    assert!(
+        err.contains("read_file_or"),
+        "the refusal must name the migration path (the loud contract teaches): {}",
+        err
+    );
 
     perms.set_mode(0o644);
 }

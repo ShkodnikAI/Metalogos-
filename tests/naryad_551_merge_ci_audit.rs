@@ -32,8 +32,8 @@ const SCRIPT: &str = include_str!("../scripts/ci/merge_ci_audit.py");
 /// The №551 required set — MUST stay identical to the script's
 /// `REQUIRED_CHECKS` and to the branch-protection checklist in
 /// docs/maintainers.md ("When CI is down"). All three move together in
-/// one PR, never alone.
-const REQUIRED_SET: [&str; 11] = [
+/// one PR, never alone. (`msrv (blocking)` joined by №555, issue #916.)
+const REQUIRED_SET: [&str; 12] = [
     "test-lib (blocking)",
     "test-integration (blocking)",
     "crosscheck (blocking)",
@@ -45,6 +45,7 @@ const REQUIRED_SET: [&str; 11] = [
     "gate-facts-sync (blocking)",
     "blocking-checks-sync (blocking)",
     "registry-arity-check (blocking)",
+    "msrv (blocking)",
 ];
 
 #[test]

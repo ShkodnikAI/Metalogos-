@@ -153,6 +153,24 @@ mandatory.**
   the required-set sync between the script, the test and the
   checklist).
 
+- Naryad №555 (issue #916; Wave 25 P1; the audit 02.10 M-5 + Е-3): the
+  MSRV contract is CHECKED, not just claimed — a blocking `msrv
+  (blocking)` CI job pins the toolchain to exactly 1.93.1 (both the
+  `dtolnay/rust-toolchain@1.93.1` action ref AND the
+  `RUSTUP_TOOLCHAIN: "1.93.1"` env, the documented override over the
+  rust-toolchain.toml `channel = "stable"` — the gh#865 silent-switch
+  failure mode cannot recur) and runs `cargo check --workspace
+  --all-targets` on the floor; clippy stays on stable by design (the
+  №500 lint-set precedent). The job joined the №551 required set (the
+  script, the sync test and the branch-protection checklist moved
+  together in this PR). Dockerfile: the builder patch is PINNED to the
+  MSRV (`rust:1.93.1-slim-bookworm`, the tag verified to exist) — a
+  floating `rust:1.93` could drift below the declared floor; the
+  policy in the file says rust-version and the FROM tag bump in the
+  same PR. CONTRIBUTING.md carries the external-auditor note (Е-3):
+  rustc ≥ 1.93.1 is mandatory and the pre-1.93.1 manifest refusal is
+  the contract working, not a breakage.
+
 - Naryad №544 (issue #882; Wave 24, P1, compiler/security; stage 2 of the
   type system, №467 canon — the three audit classes on
   `Labeled(Box<Type>, Label)`, executed behind the ADR-0179 gate in three

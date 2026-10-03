@@ -323,6 +323,34 @@ jobs:
       - name: Build with minimal features (no server/llm)
         run: cargo build --release --no-default-features --features "svg,chart,diagram,template"
 
+  # №555 (issue #916; the audit 02.10 M-5 + Е-3): the MSRV job — the
+  # declared contract (rust-version = 1.93.1 in Cargo.toml [workspace.package])
+  # is CHECKED, not just claimed. RUSTUP_TOOLCHAIN pins the toolchain ABOVE
+  # the rust-toolchain.toml file (channel = "stable" would silently switch
+  # the job off the floor — the exact gh#865 fuzzing failure mode, fixed
+  # before by hotfix 0c9a013). The action ref pins 1.93.1 too (two
+  # independent pins). cargo CHECK only, no clippy: the clippy ratchet is
+  # written FOR new clippy (the №500 precedent — a lint absent from 1.93.1
+  # would fail -D warnings with `unknown lint`), so linting stays on stable
+  # and the floor job only proves the workspace COMPILES on 1.93.1.
+  msrv:
+    name: msrv (blocking)
+    runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: "1.93.1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.93.1
+      # №445 wave-infra: the cache step is a performance aid, never a
+      # correctness signal — non-fatal, own prefix so the floor job's
+      # artifacts never alias the stable toolchain's cache partition.
+      - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          prefix-key: v2-msrv
+      - name: The workspace compiles on the MSRV floor (1.93.1)
+        run: cargo check --workspace --all-targets
+
   test-integration:
     name: test-integration (blocking)
     runs-on: ubuntu-latest

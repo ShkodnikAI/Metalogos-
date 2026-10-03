@@ -269,7 +269,8 @@ fn c8_crashed_server_is_loud() {
 fn c9_exec_gate_denied_without_flag() {
     let _env = lock_env();
     unset_env(&["METALOGOS_ALLOW_EXEC"]);
-    let err = run_tw(&fixture_src(LIST_CONTRACT)).expect_err("MCP spawn without flag must be denied");
+    let err =
+        run_tw(&fixture_src(LIST_CONTRACT)).expect_err("MCP spawn without flag must be denied");
     assert!(err.contains("EXEC_NOT_PERMITTED"), "got: {}", err);
     assert!(
         err.contains("METALOGOS_ALLOW_EXEC=1"),

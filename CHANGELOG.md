@@ -4,169 +4,7 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
-- Release supply-chain assets (CI infrastructure; no language or runtime
-  change): the new `.github/workflows/release.yml` runs after the owner
-  publishes a GitHub Release and attaches the `mlog` binary, a CycloneDX 1.5
-  SBOM that describes exactly that binary (cargo-cyclonedx 0.5.9, pinned),
-  `BUILD-INFO.txt` (exact toolchain) and `SHA256SUMS`, plus two Sigstore-signed
-  attestations (SLSA build provenance
-  and the SBOM bound to the binary). Until now releases were a tag and notes
-  with no assets. Honest limits: reproducibility not claimed or verified, glibc of the
-  pinned `ubuntu-24.04` runner, no human-held key; releases up to v0.27.1 have
-  no assets.
-  Verification recipe: `SECURITY.md` → "Verifying release artifacts";
-  operator step: `docs/release-checklist.md` step 6.
-
-- Naryad №554 (issue #915; Wave 25 P1; the audit 02.10 §3.3, position Е
-  on the memory pairs — the dispatch resolution "memory — document"):
-  the memory pairs are PERMANENT BY DESIGN. The honest record lands in
-  the TW/VM Divergences table of docs/limitations.md ("the memory
-  builtins run on TWO ENGINES: memorize/recall/recall_top_k/forget
-  (plus the dispatch marshaling twins) — the VM's honest simple-memory
-  store and the TW's full store | №442 | PERMANENT BY DESIGN"), with
-  live links to the shared module, the baseline and the pinning test.
-  src/memory_ops.rs cross-links the record (the module docstring keeps
-  the shared-HOME-not-unification statement); the ops-pair baseline
-  marks the five pairs [permanent — №554] while the query pair stays
-  UNMARKED (a parity-fix candidate, position А — never a design
-  decision). Pinned by tests/n554_memory_pairs_permanent.rs (3/3): the
-  three artifacts cannot drift apart — a lost record fails the file.
-  NO behavior change (the §5.3 rule: the memory pairs are never merged
-  at the cost of semantics).
-
-- Naryad №553 (issue #914; Wave 25 P1; the audit 02.10 §3.3, position А
-  on the SQL pairs — the dispatch resolution "SQL — fix"): the
-  SQL-params divergence is FIXED, and the two db pairs collapse. THE
-  FIX: a non-List params argument is a LOUD refusal on BOTH backends —
-  `db_execute() second argument must be List, got {}` /
-  `db_execute_with_grant() third argument must be List, got {}`. The
-  VM lane used to end the params match with `_ => Vec::new()` — the
-  audit's example `db_execute("UPDATE accounts SET frozen = 1 WHERE id
-  = ?1", user_id)` executed with the placeholder UNBOUND (or, on a
-  placeholder-free statement, the argument was silently IGNORED) on
-  the serve-default backend, while the TW lane refused loudly. THE
-  COLLAPSE (the №540 mechanics): `db_execute` and
-  `db_execute_with_grant` are ONE suffix-free function over the
-  `DbAccess` trait each — the TW rides `TwDbAccess::lock`, the VM its
-  own trait impl; the ops-pair threshold 8 → 6
-  (`ops_pair_baseline.txt` moved in the same PR). The unified bodies
-  keep the RICHER error on each axis per the №484 discipline:
-  `db_execute` gains the №758 not-open remedy on the TW lane, the
-  grant fn keeps the `name()` missing-argument texts on both lanes
-  (the former TW upfront-arity text is subsumed). Behavior-neutral on
-  the success paths (byte-identical); the observable change is exactly
-  the loud refusal the audit demanded. Mutation-parity pinned by
-  tests/n553_sql_params_parity.rs — the audit example refused
-  IDENTICALLY on both backends (red-before: the VM half failed on the
-  pre-№553 revision), the grant twin likewise, and the proper-List
-  path still executes in parity; the №465 diff-fuzzer 9/9; the db
-  suites (№474/№484/№758/№397, registry checks) green.
-
-- Naryad №564 (issue #926; Wave 25 P2 tail; the audit 02.10 §7.2 W-2):
-  the mirror metric sees the WHOLE src/ tree — the №502 counter
-  (vm.rs-only) widens to `src/**/*.rs` because the mirror CLASS is not
-  vm.rs-specific: html_label.rs (№544.3) carries two taint-walk mirrors
-  ("the parity demands the EXACT mirror, quirks included") that the
-  narrow scan never saw — the same class as M-8 (№558). The fixed
-  regex gains the §7.2 audit-sketch markers (`mirror of the …`,
-  `exact mirror`) beside the №502 pair (continuity: `ported verbatim`,
-  `TW-identical`, `same as the TW` stay in the set). The widened fact
-  is fixated ONCE — 7 mentions (5 in html_label.rs, 1 in audit.rs doc,
-  1 vm.rs №456 banner; the vm.rs fact under the narrow patterns stays
-  0) — in the new `scripts/ci/src_mirror_baseline.txt` (the
-  vm.rs-only baseline retires; the same `vm-mirrors (blocking)` CI
-  job, the same unfreeze-gate dedup criterion, movement ONLY down).
-  The REGISTRATION (the naryad item 3, for the stage-3 typing gate):
-  both html_label.rs walks are tracked mirrors — the BINDING walk
-  (binding_label → binding_taint + get_expr_taint shape) and the SINK
-  walk (sink_arg_is_untrusted → expr_is_llm_tainted +
-  expr_is_learnable_tainted, depth-bounded 3 per №295) — with the
-  unification requirement recorded (ONE lane-parameterized walk,
-  SECRET/SQL/HTML); html_label.rs itself is NOT touched (the naryad
-  boundary). docs/maintainers.md gate list and
-  scripts/ci/unfreeze_gate.py moved to the new baseline in the same PR.
-- Naryad №566 (issue #928; Wave 25 P2 tail; the audit 02.10 §7.2 W-4):
-  the grantors' digest stops lagging the machine metrics —
-  docs/PLAN-SUMMARY.md's CURRENT numbers are GENERATED by
-  scripts/gen_metrics.py (the same sources as the README metrics block:
-  one SSOT, one process computes both, they cannot disagree). The
-  audit's exact finding is fixed first: the digest's wave-24 section
-  claimed "now 2110 bp" while the live floor is 3195 bp (162/507 =
-  31.95%, precise 83/507 = 16.37% — the №560 second share side by
-  side); the hand-written current number is GONE, the generated block
-  (between explicit markers, the №460 posture) carries the floor and
-  the registry size instead — the narrative stays hand-written (the
-  №566 boundary: the digest's prose is the publisher's voice; the
-  historical wave-23 snapshot "floor 998→2110 bp" is a frozen fact and
-  stays). `gen_metrics.py --check` now verifies BOTH targets and the
-  blocking metrics job runs it — a future drift is CI-red by
-  construction. Pinned by tests/naryad_566_plan_summary_numbers.rs
-  (3 tests): the digest block == an INDEPENDENT recomputation from
-  registry.rs (the exact type_signature_share.py regex contract),
-  the generator --check green right now, the stale "now 2110 bp"
-  claim must not return.
-
-- Naryad №561 (issue #922; Wave 25 P2; the audit 02.10 §7.2 W-1): the
-  good-first-issue pool policy — the pool drains from the INSIDE (five
-  of the №541 positions closed by owner/agent commits within a day; a
-  newcomer on 03.10 saw an EMPTY pool), so the refill rule is now
-  written: internal closing is allowed but the refill to 8–10 open
-  positions happens in the same wave, the pool-size counter is part of
-  the wave report, and the `reserved-for-newcomer` label marks the
-  pool (AGENTS.md §3: agents do NOT take labeled tasks — a recurring
-  upkeep task an agent did internally is re-opened as a
-  good-first-issue for the next external contributor). The policy
-  lands in docs/maintainers.md (the onboarding-lane section) + AGENTS.md;
-  the label created on the repository. THE POOL REFILLED TO 9 in the
-  same wave, each issue by the №491 filter (self-contained volume, no
-  context dependency) with the expected volume and the entry point:
-  gh#951 (the 40 examples without a golden `.expected` sidecar),
-  gh#952 (the book syntax page — 41 fenced snippets), gh#953 (the
-  tutorial + stdlib pages — 25 snippets), gh#954 (doc-tests.md
-  freshness), gh#955 (testing-evidence.md citations), gh#956
-  (risk-review-checklist.md links), gh#957 (CONTRIBUTING first-PR
-  path), gh#958 (AGENTS.md §1 applied to itself), gh#959
-  (PLAN-SUMMARY/REALITY numbers vs the generated metrics SSOT).
-### Deprecated
-
-- Naryad №565 (issue #927; Wave 25 P2 tail; the audit 02.10 §7.2 W-3):
-  the TWO-ARGUMENT `respond_html(a, b)` form is deprecated — its sense
-  depends on the CONTENT of the first argument (a first token 100..=599
-  reads as an HTTP status, anything else as a document title: the
-  audit's `respond_html("200 причин выбрать нас", body)` served HTTP 200
-  and silently dropped the title; a DB- or LLM-sourced string would
-  decide the response's meaning). THE EXPLICIT FORMS LAND:
-  `respond_html_status(status, body)` — the body verbatim at the given
-  status; the status must open with an HTTP code in 100..=599 or be a
-  whole number 100..=599, otherwise a LOUD argument error (no legacy
-  silent-200 fallback — the №514 rule); `respond_html_doc(title,
-  body)` — the title is never read as a status and never dropped, the
-  same full-document shape as the office form (№892). Both serve
-  `Content-Type: text/html; charset=utf-8`, both are typed in the
-  registry ("Struct" — the HttpResponse shape), classified as
-  Sink/Public/Irreversible, and ride EVERY HTML egress gate exactly
-  like `respond_html` (LLM-output, open-redirect, secret-leak,
-  recall-taint — the explicit name is not a bypass). The deprecation
-  carries a WARN-ONLY semantic pass (the №474 posture): every 2-arg
-  call whose first argument is NOT a string literal is announced with
-  both migration paths; a literal first argument keeps working
-  silently this release; removal no earlier than one release with the
-  warning. The 1-arg form is the UNCHANGED SSOT contract (gh#899).
-  The floors moved WITH the rows that earned them (the №757
-  procedure): the general typed floor 3195 → 3241 bp (165/509), the
-  precise floor 1637 → 1650 bp (84/509 — query_param ships typed
-  "String", both paths verified), the in-tree compiled lock
-  158 → 161. Pinned by tests/naryad_565_respond_html_forms.rs (13):
-  the explicit forms on BOTH backends (TW + VM flows), the loud
-  strictness, the warning fires on non-literals in patterns AND route
-  bodies, no warning for literals, HTML_INJECTION/SECRET_LEAK through
-  the new names, the registry facts. The corpus: 241 programs, 0
-  warnings; registry-vs-corpus 711 pairs OK; REFERENCE regenerated
-  (509 builtins, 0 TODO(doc)). The office migration snapshot: the
-  public corpus carries exactly one 2-arg call site
-  (examples/p_p01_respond_html_query_param.mlog — two literal-status
-  calls) → the migration targets respond_html_status; the private
-  office corpus rides the №559 call-shapes snapshot per the dispatch.
+(nothing yet)
 
 ## [0.28.0] - 2026-10-03
 
@@ -227,6 +65,19 @@ mandatory.**
 
 ### Changed and fixed
 
+- Release supply-chain assets (CI infrastructure; no language or runtime
+  change): the new `.github/workflows/release.yml` runs after the owner
+  publishes a GitHub Release and attaches the `mlog` binary, a CycloneDX 1.5
+  SBOM that describes exactly that binary (cargo-cyclonedx 0.5.9, pinned),
+  `BUILD-INFO.txt` (exact toolchain) and `SHA256SUMS`, plus two Sigstore-signed
+  attestations (SLSA build provenance
+  and the SBOM bound to the binary). Until now releases were a tag and notes
+  with no assets. Honest limits: reproducibility not claimed or verified, glibc of the
+  pinned `ubuntu-24.04` runner, no human-held key; releases up to v0.27.1 have
+  no assets.
+  Verification recipe: `SECURITY.md` → "Verifying release artifacts";
+  operator step: `docs/release-checklist.md` step 6.
+
 - The №527 deadline honored in the release prep (issue #836 — the
   limitations.md TRANSITION row, closed in this PR per the №524 rule):
   the transitional empty-AAD read (the second decrypt attempt) is
@@ -272,6 +123,90 @@ mandatory.**
   the required-set sync between the script, the test and the
   checklist).
 
+- Naryad №566 (issue #928; Wave 25 P2 tail; the audit 02.10 §7.2 W-4):
+  the grantors' digest stops lagging the machine metrics —
+  docs/PLAN-SUMMARY.md's CURRENT numbers are GENERATED by
+  scripts/gen_metrics.py (the same sources as the README metrics block:
+  one SSOT, one process computes both, they cannot disagree). The
+  audit's exact finding is fixed first: the digest's wave-24 section
+  claimed "now 2110 bp" while the live floor is 3195 bp (162/507 =
+  31.95%, precise 83/507 = 16.37% — the №560 second share side by
+  side); the hand-written current number is GONE, the generated block
+  (between explicit markers, the №460 posture) carries the floor and
+  the registry size instead — the narrative stays hand-written (the
+  №566 boundary: the digest's prose is the publisher's voice; the
+  historical wave-23 snapshot "floor 998→2110 bp" is a frozen fact and
+  stays). `gen_metrics.py --check` now verifies BOTH targets and the
+  blocking metrics job runs it — a future drift is CI-red by
+  construction. Pinned by tests/naryad_566_plan_summary_numbers.rs
+  (3 tests): the digest block == an INDEPENDENT recomputation from
+  registry.rs (the exact type_signature_share.py regex contract),
+  the generator --check green right now, the stale "now 2110 bp"
+  claim must not return.
+
+- Naryad №565 (issue #927; Wave 25 P2 tail; the audit 02.10 §7.2 W-3):
+  the TWO-ARGUMENT `respond_html(a, b)` form is deprecated — its sense
+  depends on the CONTENT of the first argument (a first token 100..=599
+  reads as an HTTP status, anything else as a document title: the
+  audit's `respond_html("200 причин выбрать нас", body)` served HTTP 200
+  and silently dropped the title; a DB- or LLM-sourced string would
+  decide the response's meaning). THE EXPLICIT FORMS LAND:
+  `respond_html_status(status, body)` — the body verbatim at the given
+  status; the status must open with an HTTP code in 100..=599 or be a
+  whole number 100..=599, otherwise a LOUD argument error (no legacy
+  silent-200 fallback — the №514 rule); `respond_html_doc(title,
+  body)` — the title is never read as a status and never dropped, the
+  same full-document shape as the office form (№892). Both serve
+  `Content-Type: text/html; charset=utf-8`, both are typed in the
+  registry ("Struct" — the HttpResponse shape), classified as
+  Sink/Public/Irreversible, and ride EVERY HTML egress gate exactly
+  like `respond_html` (LLM-output, open-redirect, secret-leak,
+  recall-taint — the explicit name is not a bypass). The deprecation
+  carries a WARN-ONLY semantic pass (the №474 posture): every 2-arg
+  call whose first argument is NOT a string literal is announced with
+  both migration paths; a literal first argument keeps working
+  silently this release; removal no earlier than one release with the
+  warning. The 1-arg form is the UNCHANGED SSOT contract (gh#899).
+  The floors moved WITH the rows that earned them (the №757
+  procedure): the general typed floor 3195 → 3241 bp (165/509), the
+  precise floor 1637 → 1650 bp (84/509 — query_param ships typed
+  "String", both paths verified), the in-tree compiled lock
+  158 → 161. Pinned by tests/naryad_565_respond_html_forms.rs (13):
+  the explicit forms on BOTH backends (TW + VM flows), the loud
+  strictness, the warning fires on non-literals in patterns AND route
+  bodies, no warning for literals, HTML_INJECTION/SECRET_LEAK through
+  the new names, the registry facts. The corpus: 241 programs, 0
+  warnings; registry-vs-corpus 711 pairs OK; REFERENCE regenerated
+  (509 builtins, 0 TODO(doc)). The office migration snapshot: the
+  public corpus carries exactly one 2-arg call site
+  (examples/p_p01_respond_html_query_param.mlog — two literal-status
+  calls) → the migration targets respond_html_status; the private
+  office corpus rides the №559 call-shapes snapshot per the dispatch.
+
+- Naryad №564 (issue #926; Wave 25 P2 tail; the audit 02.10 §7.2 W-2):
+  the mirror metric sees the WHOLE src/ tree — the №502 counter
+  (vm.rs-only) widens to `src/**/*.rs` because the mirror CLASS is not
+  vm.rs-specific: html_label.rs (№544.3) carries two taint-walk mirrors
+  ("the parity demands the EXACT mirror, quirks included") that the
+  narrow scan never saw — the same class as M-8 (№558). The fixed
+  regex gains the §7.2 audit-sketch markers (`mirror of the …`,
+  `exact mirror`) beside the №502 pair (continuity: `ported verbatim`,
+  `TW-identical`, `same as the TW` stay in the set). The widened fact
+  is fixated ONCE — 7 mentions (5 in html_label.rs, 1 in audit.rs doc,
+  1 vm.rs №456 banner; the vm.rs fact under the narrow patterns stays
+  0) — in the new `scripts/ci/src_mirror_baseline.txt` (the
+  vm.rs-only baseline retires; the same `vm-mirrors (blocking)` CI
+  job, the same unfreeze-gate dedup criterion, movement ONLY down).
+  The REGISTRATION (the naryad item 3, for the stage-3 typing gate):
+  both html_label.rs walks are tracked mirrors — the BINDING walk
+  (binding_label → binding_taint + get_expr_taint shape) and the SINK
+  walk (sink_arg_is_untrusted → expr_is_llm_tainted +
+  expr_is_learnable_tainted, depth-bounded 3 per №295) — with the
+  unification requirement recorded (ONE lane-parameterized walk,
+  SECRET/SQL/HTML); html_label.rs itself is NOT touched (the naryad
+  boundary). docs/maintainers.md gate list and
+  scripts/ci/unfreeze_gate.py moved to the new baseline in the same PR.
+
 - Naryad №563 (issue #924; Wave 25 P2; the audit 02.10 "the rest"
   line): the read_file soft-missing debt is 5 → 0 — the №531
   transition ENDED with v0.28.0 and `read_file` of a MISSING file now
@@ -313,6 +248,29 @@ mandatory.**
   driver, the committed-CHANGELOG pass, fresh/over-age/unstamped
   fixtures through the real script, the structural required-set pin);
   n551 3/3 stays green.
+
+- Naryad №561 (issue #922; Wave 25 P2; the audit 02.10 §7.2 W-1): the
+  good-first-issue pool policy — the pool drains from the INSIDE (five
+  of the №541 positions closed by owner/agent commits within a day; a
+  newcomer on 03.10 saw an EMPTY pool), so the refill rule is now
+  written: internal closing is allowed but the refill to 8–10 open
+  positions happens in the same wave, the pool-size counter is part of
+  the wave report, and the `reserved-for-newcomer` label marks the
+  pool (AGENTS.md §3: agents do NOT take labeled tasks — a recurring
+  upkeep task an agent did internally is re-opened as a
+  good-first-issue for the next external contributor). The policy
+  lands in docs/maintainers.md (the onboarding-lane section) + AGENTS.md;
+  the label created on the repository. THE POOL REFILLED TO 9 in the
+  same wave, each issue by the №491 filter (self-contained volume, no
+  context dependency) with the expected volume and the entry point:
+  gh#951 (the 40 examples without a golden `.expected` sidecar),
+  gh#952 (the book syntax page — 41 fenced snippets), gh#953 (the
+  tutorial + stdlib pages — 25 snippets), gh#954 (doc-tests.md
+  freshness), gh#955 (testing-evidence.md citations), gh#956
+  (risk-review-checklist.md links), gh#957 (CONTRIBUTING first-PR
+  path), gh#958 (AGENTS.md §1 applied to itself), gh#959
+  (PLAN-SUMMARY/REALITY numbers vs the generated metrics SSOT).
+### Deprecated
 
 - Naryad №560 (issue #921; Wave 25 P2; the audit 02.10 M-4): the PRECISE
   typed-signature share lands as the second metric beside the general
@@ -481,6 +439,51 @@ mandatory.**
   same PR. CONTRIBUTING.md carries the external-auditor note (Е-3):
   rustc ≥ 1.93.1 is mandatory and the pre-1.93.1 manifest refusal is
   the contract working, not a breakage.
+
+- Naryad №554 (issue #915; Wave 25 P1; the audit 02.10 §3.3, position Е
+  on the memory pairs — the dispatch resolution "memory — document"):
+  the memory pairs are PERMANENT BY DESIGN. The honest record lands in
+  the TW/VM Divergences table of docs/limitations.md ("the memory
+  builtins run on TWO ENGINES: memorize/recall/recall_top_k/forget
+  (plus the dispatch marshaling twins) — the VM's honest simple-memory
+  store and the TW's full store | №442 | PERMANENT BY DESIGN"), with
+  live links to the shared module, the baseline and the pinning test.
+  src/memory_ops.rs cross-links the record (the module docstring keeps
+  the shared-HOME-not-unification statement); the ops-pair baseline
+  marks the five pairs [permanent — №554] while the query pair stays
+  UNMARKED (a parity-fix candidate, position А — never a design
+  decision). Pinned by tests/n554_memory_pairs_permanent.rs (3/3): the
+  three artifacts cannot drift apart — a lost record fails the file.
+  NO behavior change (the §5.3 rule: the memory pairs are never merged
+  at the cost of semantics).
+
+- Naryad №553 (issue #914; Wave 25 P1; the audit 02.10 §3.3, position А
+  on the SQL pairs — the dispatch resolution "SQL — fix"): the
+  SQL-params divergence is FIXED, and the two db pairs collapse. THE
+  FIX: a non-List params argument is a LOUD refusal on BOTH backends —
+  `db_execute() second argument must be List, got {}` /
+  `db_execute_with_grant() third argument must be List, got {}`. The
+  VM lane used to end the params match with `_ => Vec::new()` — the
+  audit's example `db_execute("UPDATE accounts SET frozen = 1 WHERE id
+  = ?1", user_id)` executed with the placeholder UNBOUND (or, on a
+  placeholder-free statement, the argument was silently IGNORED) on
+  the serve-default backend, while the TW lane refused loudly. THE
+  COLLAPSE (the №540 mechanics): `db_execute` and
+  `db_execute_with_grant` are ONE suffix-free function over the
+  `DbAccess` trait each — the TW rides `TwDbAccess::lock`, the VM its
+  own trait impl; the ops-pair threshold 8 → 6
+  (`ops_pair_baseline.txt` moved in the same PR). The unified bodies
+  keep the RICHER error on each axis per the №484 discipline:
+  `db_execute` gains the №758 not-open remedy on the TW lane, the
+  grant fn keeps the `name()` missing-argument texts on both lanes
+  (the former TW upfront-arity text is subsumed). Behavior-neutral on
+  the success paths (byte-identical); the observable change is exactly
+  the loud refusal the audit demanded. Mutation-parity pinned by
+  tests/n553_sql_params_parity.rs — the audit example refused
+  IDENTICALLY on both backends (red-before: the VM half failed on the
+  pre-№553 revision), the grant twin likewise, and the proper-List
+  path still executes in parity; the №465 diff-fuzzer 9/9; the db
+  suites (№474/№484/№758/№397, registry checks) green.
 
 - Naryad №544 (issue #882; Wave 24, P1, compiler/security; stage 2 of the
   type system, №467 canon — the three audit classes on

@@ -166,6 +166,28 @@ mandatory.**
   the required-set sync between the script, the test and the
   checklist).
 
+- Naryad №562 (issue #923; Wave 25 P2; the audit 02.10 §6.1): the
+  tag↔main gap gate — the M-3 class ("a High fix lives outside a
+  release") becomes a MEASURED state. The new blocking `release-gap
+  (blocking)` CI job runs scripts/ci/release_gap_gate.py: a pending
+  Security entry in [Unreleased] older than the floor FAILS the gate
+  with the oldest stamp named; an UNDATED pending Security entry fails
+  too (fail-closed — an undated pending fix cannot be measured); no
+  Security part in [Unreleased] passes. The floor N=14 days is the
+  OWNER's parameter (the naryad proposes, it does not choose; the
+  publication itself stays the owner's gate — the criterion only
+  measures the limbo). Embedding decision (the naryad's "факт решает"):
+  a separate blocking job, NOT a fifth criterion inside unfreeze_gate —
+  the unfreeze gate is the ADR-0177 §4 four-criteria machine verdict
+  (a frozen list); the release-gap criterion is release hygiene, not an
+  unfreeze criterion. The job joined the №551 required set (13 items —
+  the script, the sync test and the branch-protection checklist moved
+  together). Today's CHANGELOG passes ([Unreleased] carries no Security
+  part). Tests: tests/naryad_562_release_gap.rs (6 — the self-test
+  driver, the committed-CHANGELOG pass, fresh/over-age/unstamped
+  fixtures through the real script, the structural required-set pin);
+  n551 3/3 stays green.
+
 - Naryad №560 (issue #921; Wave 25 P2; the audit 02.10 M-4): the PRECISE
   typed-signature share lands as the second metric beside the general
   one — the audit's finding: 79 of the 162 typed rows are bare

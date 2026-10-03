@@ -157,13 +157,15 @@ document records the checklist; the executor cannot apply it. Settings
 - [ ] **Require status checks to pass before merging** — the required
       set (the job display names as the check-runs API reports them,
       fact-checked against `.github/workflows/ci.yml` @ `6e66d3d`;
-      `msrv (blocking)` joined by №555):
+      `msrv (blocking)` joined by №555, `release-gap (blocking)` by
+      №562):
       `test-lib (blocking)`, `test-integration (blocking)`,
       `crosscheck (blocking)`, `clippy (blocking)`, `fmt (blocking)`,
       `cargo-audit (blocking)`, `cargo-deny (blocking)`,
       `gitleaks (blocking)`, `gate-facts-sync (blocking)`,
       `blocking-checks-sync (blocking)`,
-      `registry-arity-check (blocking)`, `msrv (blocking)`;
+      `registry-arity-check (blocking)`, `msrv (blocking)`,
+      `release-gap (blocking)`;
 - [ ] **Require branches to be up to date before merging** (no merge
       over a stale base);
 - [ ] **Do not allow bypassing the above settings** — including

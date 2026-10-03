@@ -40,7 +40,7 @@ DEFAULT_DAYS = 7
 # The required set (the branch-protection checklist of №551 — the job
 # DISPLAY names as they appear in the check-runs API; fact-checked
 # against .github/workflows/ci.yml on the audit revision 6e66d3d;
-# `msrv (blocking)` added by №555, issue #916).
+# `msrv (blocking)` added by №555, issue #916; `release-gap (blocking)` by №562, issue #923).
 REQUIRED_CHECKS = [
     "test-lib (blocking)",
     "test-integration (blocking)",
@@ -54,6 +54,7 @@ REQUIRED_CHECKS = [
     "blocking-checks-sync (blocking)",
     "registry-arity-check (blocking)",
     "msrv (blocking)",
+    "release-gap (blocking)",
 ]
 
 MERGE_PR_RE = re.compile(r"\(#(\d+)\)\s*$")

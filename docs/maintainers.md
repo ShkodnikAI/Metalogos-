@@ -147,6 +147,33 @@ script only reports — it never merges, reverts, or edits history; the
 required set is pinned by `tests/naryad_551_merge_ci_audit.rs` and
 moves together with the checklist below, never alone.
 
+### The good-first-issue pool policy (№561, the audit 02.10 §7.2 W-1)
+
+The pool exists for the INCOMING external contributors — the №491/№471
+onboarding lane (the "second maintainer" procedure prepared, the grant
+wording honest). The audit's finding: the pool drains from the INSIDE —
+of the №541 positions, five were closed by owner/agent commits within a
+day (gh#778, gh#872–gh#875, closed 02.10 15:08 UTC), and a newcomer
+arriving on 03.10 saw an EMPTY pool. The policy:
+
+- **Internal closing is allowed, but the refill happens in the same
+  wave**: closing a pool position by an owner/agent commit obligates
+  the same wave to re-open enough good-first-issues to bring the pool
+  back to **8–10 open positions** (the №541 size);
+- **the pool-size counter is part of the wave report** (the dispatch
+  summary states the open-pool count next to the wave progress);
+- the `reserved-for-newcomer` label marks the pool's positions; per
+  AGENTS.md §3, agents do NOT take labeled tasks — a recurring upkeep
+  task an agent did internally is re-opened as a good-first-issue for
+  the next external contributor (internal work trains nobody);
+- the №491 filter holds for every new position: self-contained volume,
+  test-helpers/doc passes over core changes, no context dependency
+  beyond the repo; each issue carries the expected volume and the
+  entry point (the #872–#875 shape);
+- the health metric stays **the time to the first merge** (§ above) —
+  an empty pool is an infinite time-to-first-merge, which is why the
+  refill rule exists.
+
 ### The branch-protection checklist (the owner's admin toggle)
 
 Applying the settings is an ADMIN action on the repository — this

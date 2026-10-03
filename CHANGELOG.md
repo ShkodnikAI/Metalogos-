@@ -166,6 +166,34 @@ mandatory.**
   the required-set sync between the script, the test and the
   checklist).
 
+- Naryad №558 (issue #919; Wave 25 P1; the audit 02.10 M-8): the ONE
+  module-search rule — `src/module_path.rs::resolve_module_file` is the
+  single implementation of the "module_path → file" rule, and all THREE
+  call sites call it: the interpreter's runtime loader
+  (interpreter/modules.rs), the compiler's `resolve_import`
+  (compiler.rs) and the semantic static resolution
+  (`resolve_imports_statically`, semantic.rs — the third copy that
+  lived outside the mirror metrics). The previous forms composed the
+  same path two ways (`format!("{}.mlog")` append vs
+  `with_extension("mlog")` replace) — EQUIVALENT on every reachable
+  input, because the import-path grammar admits no dots
+  (`import_path_segments = { IDENT ~ (SLASH ~ IDENT)* }`), so the
+  extension-replace could never fire; the append form is the SSOT and
+  the equivalence is recorded in the file. The base directory stays a
+  site's own choice (base_dir for the loader and the semantic pass,
+  std_root for the compiler) — the RULE is shared, the roots differ by
+  design. The file-existence rule stays at each site's read: the loud
+  per-site refusals keep their exact pinned wording. Behavior is
+  byte-identical — pinned by tests/naryad_558_module_path.rs (6): the
+  three sites × found/not-found/nested shapes (the flat
+  `import my_utils`, the nested `import lib/extra`), the semantic
+  merged-set assertion (both modules' patterns land), and the
+  source-level SSOT pin (every site delegates; no inline composition
+  remains). Honest metrics: dup-names 0, mirrors 0 — no new pair
+  entered the contour (the collapse REMOVED the unmeasured third copy;
+  the leaf module adds no C4 edge). n523 11/11, n535 17/17, n557 7/7
+  stay green.
+
 - Naryad №557 (issue #918; Wave 25 P1; the audit 02.10 M-7): the
   SEMANTIC startup gate lands on every mcp-serve entrypoint — the same
   level of protection `mlog serve` got in №523. mcp-serve ran NO

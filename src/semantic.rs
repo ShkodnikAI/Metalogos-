@@ -169,7 +169,9 @@ fn collect_import_decls(
             if !visited.insert(module_path.clone()) {
                 continue;
             }
-            let file_path = base_dir.join(format!("{}.mlog", module_path));
+            // №558: the ONE module-search rule (src/module_path.rs) — the
+            // same SSOT the runtime loader and the compiler call.
+            let file_path = crate::module_path::resolve_module_file(base_dir, &module_path);
             // №475: the import source loader — compile-time, AUTHOR-controlled
             // source text (the same trust domain as the file being checked);
             // the sandbox targets PROGRAM-RUNTIME I/O. The runtime loader

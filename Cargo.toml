@@ -3,7 +3,7 @@ members = [".", "mlogpkg", "mlog-lsp", "metalogos-reflex"]
 resolver = "2"
 
 [workspace.package]
-version = "0.27.1"
+version = "0.28.0"
 edition = "2021"
 # №528 (issue #837; audit 30.09 Д-4+N-5): the MSRV lives in the build
 # contract — the resolver refuses older toolchains with a clear error.

@@ -25,12 +25,13 @@
 // fails authentication (the swap attack the bare tag accepted). The
 // key material is wiped under Zeroizing (the decoded 32-byte buffer's
 // lifetime is the single operation). The storage schema and the algo
-// mark are UNTOUCHED (the №527 boundary): legacy №517 rows (empty AAD)
-// stay readable in the announced transition window — every such read
-// announces [VOICEPRINT_NO_AAD_LEGACY] on stderr and the honest crypto
-// status (LegacyNoAad) is surfaced through load_voiceprint_with_status;
-// every WRITE is AAD-bound, so the legacy population only shrinks.
-// The deadline row lives in docs/limitations.md (the №524 rule).
+// mark are UNTOUCHED (the №527 boundary). THE DEADLINE IS HONORED: the
+// transitional empty-AAD read (the №517-era legacy rows) existed ONLY
+// between №527 and v0.28.0 — the fallback is REMOVED in the 0.28.0
+// release prep (№550), so a legacy row now refuses with
+// [VOICEPRINT_DECRYPT] and the only path back is re-enroll/re-save.
+// No released version ever wrote a legacy row (the GCM store itself
+// ships in 0.28.0) — the transitional population was main-only.
 
 use rusqlite::Connection;
 use std::sync::Mutex;
@@ -43,22 +44,24 @@ pub(crate) const VOICEPRINT_ALGO_INSECURE_MOCK: &str = "INSECURE-XOR-MOCK";
 /// №527: the schema-version component of the AAD triplet. NOT the schema
 /// `algo` mark (the №527 boundaries keep the storage schema untouched):
 /// rows carrying the same algo mark can be AAD-bound (№527-era writes) or
-/// legacy no-AAD (№517-era writes) — the discriminator is the GCM
-/// authentication itself (try-bound first, then the loud transitional
-/// fallback), because a blob that authenticates only under the empty AAD
-/// IS a legacy row by construction.
+/// legacy no-AAD (№517-era writes) — the discriminator WAS the GCM
+/// authentication itself (try-bound first, then the transitional
+/// fallback). THE DEADLINE (limitations.md, the №524 rule): v0.28.0
+/// removed the fallback — a blob that does not authenticate under its
+/// subject AAD refuses with [VOICEPRINT_DECRYPT]; there is no second
+/// attempt anymore.
 pub(crate) const VOICEPRINT_AAD_SCHEMA: &str = "voiceprints-aad-v1";
 
-/// №527: the transitional crypto status of a loaded voiceprint — the
-/// "переходный флаг" of the AAD migration, observable by the caller.
+/// №527: the crypto status of a loaded voiceprint — observable by the
+/// caller. Since the v0.28.0 deadline (the limitations.md TRANSITION row
+/// honored in №550) the only value is `AadBound`: the empty-AAD
+/// transitional read is gone, so a row either authenticates under its
+/// subject AAD or refuses with [VOICEPRINT_DECRYPT].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VoiceprintCryptoStatus {
     /// The row is AAD-bound to its subject (№527): a swapped or misplaced
     /// ciphertext fails GCM authentication.
     AadBound,
-    /// A legacy №517 row (encrypted with an empty AAD) — readable only in
-    /// the announced transition window, with a loud warning on every read.
-    LegacyNoAad,
 }
 
 /// №527: the AAD = (subject_id, registry, schema version) — the ordered
@@ -260,12 +263,11 @@ impl VoiceStore {
 
     /// №527: the status-returning load — the third element is the honest
     /// crypto status of the row ([`VoiceprintCryptoStatus`]): `AadBound`
-    /// for №527-era rows (the subject-bound ciphertext), `LegacyNoAad`
-    /// for №517-era rows read in the transition window (every such read
-    /// also announces [VOICEPRINT_NO_AAD_LEGACY] on stderr — the flag and
-    /// the warning are the observable pair, the caller decides on the
-    /// re-enroll). The write path is always AAD-bound, so `LegacyNoAad`
-    /// can only shrink to zero — the deadline lives in limitations.md.
+    /// for every readable row (the subject-bound ciphertext). Since the
+    /// v0.28.0 deadline (№550 — the limitations.md TRANSITION row
+    /// honored) a №517-era legacy row (empty AAD) refuses with
+    /// [VOICEPRINT_DECRYPT] instead of reading — the only path back is
+    /// re-enroll/re-save. The write path is always AAD-bound.
     pub fn load_voiceprint_with_status(
         &self,
         name: &str,
@@ -301,7 +303,7 @@ impl VoiceStore {
                 // The mock row is out of the AAD migration entirely (it
                 // never held real biometric persistence — №512), so the
                 // crypto status is meaningless there; the load keeps the
-                // pre-№527 shape and never reports LegacyNoAad for it.
+                // AadBound shape without a GCM round-trip.
                 (self.insecure_restore(&stored, name), VoiceprintCryptoStatus::AadBound)
             }
             Some(VOICEPRINT_ALGO_AES_GCM) => {
@@ -596,12 +598,12 @@ fn encrypt_voiceprint(data: &[u8], key_hex: &str, name: &str) -> Result<Vec<u8>,
 
 /// AES-256-GCM decrypt a stored voiceprint blob (№517 → №527). A wrong key
 /// or a corrupted blob refuses LOUDLY ([VOICEPRINT_DECRYPT] — the GCM auth
-/// tag does not lie). №527: the status-returning core of the transitional
-/// decrypt — the bound attempt (the №527 AAD) first; if it fails, the
-/// transitional empty-AAD attempt (the №517-era rows) succeeds ONLY for a
-/// genuinely legacy blob, announcing [VOICEPRINT_NO_AAD_LEGACY] on stderr
-/// and reporting [`VoiceprintCryptoStatus::LegacyNoAad`]. A wrong key fails
-/// BOTH attempts — the single coded refusal, nothing leaks.
+/// tag does not lie). №527 + the v0.28.0 deadline (№550): the ONLY
+/// attempt is the subject-bound decrypt (the №527 AAD). The transitional
+/// empty-AAD attempt for the №517-era legacy rows is REMOVED (the
+/// limitations.md TRANSITION row honored) — a legacy row now refuses
+/// with the same single coded refusal, and the only path back is
+/// re-enroll/re-save. A wrong key fails the attempt — nothing leaks.
 fn decrypt_voiceprint_with_status(
     blob: &[u8],
     key_hex: &str,
@@ -642,34 +644,24 @@ fn decrypt_voiceprint_with_status(
     let (nonce_bytes, ciphertext) = blob.split_at(12);
     let nonce = Nonce::try_from(nonce_bytes)
         .map_err(|_| format!("voiceprint '{}': nonce conversion failed", name))?;
-    // Attempt 1: the №527 subject-bound composition.
-    if let Ok(plaintext) = cipher.decrypt(
+    // The ONLY attempt: the №527 subject-bound composition. The
+    // transitional legacy read (the №517-era empty AAD) is REMOVED at the
+    // v0.28.0 deadline (№550 — the limitations.md TRANSITION row): a blob
+    // that does not authenticate under its subject AAD is a loud refusal,
+    // never a silent fallback — the swap residue the window existed for
+    // is gone with it.
+    match cipher.decrypt(
         &nonce,
         Payload {
             msg: ciphertext,
             aad: &voiceprint_aad(name),
         },
     ) {
-        return Ok((plaintext, VoiceprintCryptoStatus::AadBound));
-    }
-    // Attempt 2: the transitional legacy read (the №517-era empty AAD).
-    // Success here means the row IS a legacy row by construction (a bound
-    // blob never authenticates without its AAD); the swap of a legacy blob
-    // onto another name still authenticates — that residue is exactly what
-    // the transition window is for, and it announces itself loudly on
-    // EVERY read until the deadline removes the fallback.
-    match cipher.decrypt(&nonce, ciphertext) {
-        Ok(plaintext) => {
-            eprintln!(
-                "[VOICEPRINT_NO_AAD_LEGACY] voiceprint '{}': the row is a legacy №517 blob (no AAD subject binding) — readable in the transition window only; re-enroll or re-save to bind it (№527; the deadline: docs/limitations.md)",
-                name
-            );
-            Ok((plaintext, VoiceprintCryptoStatus::LegacyNoAad))
-        }
+        Ok(plaintext) => Ok((plaintext, VoiceprintCryptoStatus::AadBound)),
         Err(_) => Err(crate::interpreter::values::coded_error(
             crate::interpreter::values::CODE_VOICEPRINT_DECRYPT,
             format!(
-                "voiceprint '{}': AES-256-GCM authentication FAILED — wrong key or corrupted data; nothing is returned (№517)",
+                "voiceprint '{}': AES-256-GCM authentication FAILED — wrong key, corrupted data, or a legacy №517-era row (the empty-AAD transitional read was removed at v0.28.0): re-enroll or re-save to bind the subject (№527)",
                 name
             ),
         )),

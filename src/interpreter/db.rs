@@ -204,11 +204,12 @@ impl Interpreter {
     }
 
     // №466 (gh#687) group 2 (db): the five db invoke methods moved to the
-    // shared live module src/db_ops.rs (query_tw, db_execute_tw,
-    // db_execute_with_grant_tw) and the unified query_scalar (№484);
-    // №540 (gh#850) collapsed query_row and db_insert into suffix-free
-    // bodies over the DbAccess trait — the TW call sites wrap the state
-    // in TwDbAccess::lock. The name literals live only in that module.
+    // shared live module src/db_ops.rs (query_tw and the unified
+    // query_scalar №484); №540 (gh#850) collapsed query_row and
+    // db_insert, №553 collapsed db_execute and db_execute_with_grant
+    // into suffix-free bodies over the DbAccess trait — the TW call
+    // sites wrap the state in TwDbAccess::lock. The name literals live
+    // only in that module.
 
     /// Open a new DB connection using stored db_url (Наряд №8).
     /// Called by per-request interpreters to get their own SQLite connection.

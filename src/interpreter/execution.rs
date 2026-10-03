@@ -1715,7 +1715,10 @@ impl Interpreter {
                     return crate::db_ops::query_tw(&self.db_conn, &eval_args);
                 }
                 if function == crate::db_ops::NAME_DB_EXECUTE {
-                    return crate::db_ops::db_execute_tw(&self.db_conn, &eval_args);
+                    return crate::db_ops::db_execute(
+                        &mut crate::db_ops::TwDbAccess::lock(&self.db_conn)?,
+                        &eval_args,
+                    );
                 }
                 // Naryad #390 (ADR-0155): the granted destructive-SQL
                 // action — intercepted like db_execute (needs db_conn);
@@ -1725,8 +1728,10 @@ impl Interpreter {
                     // deny event — the on_deny handler for the db class
                     // handles it (degraded Unit); without a handler the
                     // loud typed error is unchanged.
-                    return match crate::db_ops::db_execute_with_grant_tw(&self.db_conn, &eval_args)
-                    {
+                    return match crate::db_ops::db_execute_with_grant(
+                        &mut crate::db_ops::TwDbAccess::lock(&self.db_conn)?,
+                        &eval_args,
+                    ) {
                         Err(e) if e.starts_with("GRANT_") => {
                             let handled = self.fire_on_deny(crate::deny::DenyEventArgs {
                                 reason: "IRREVERSIBLE_NO_GRANT".into(),
@@ -2303,14 +2308,19 @@ impl Interpreter {
                     return crate::db_ops::query_tw(&self.db_conn, &eval_args);
                 }
                 if name == crate::db_ops::NAME_DB_EXECUTE {
-                    return crate::db_ops::db_execute_tw(&self.db_conn, &eval_args);
+                    return crate::db_ops::db_execute(
+                        &mut crate::db_ops::TwDbAccess::lock(&self.db_conn)?,
+                        &eval_args,
+                    );
                 }
                 // Naryad #390 (ADR-0155): granted destructive-SQL action.
                 if name == crate::db_ops::NAME_DB_EXECUTE_WITH_GRANT {
                     // Наряд №392: grant refusal → on_deny (db class),
                     // same contract as the QualifiedCall site above.
-                    return match crate::db_ops::db_execute_with_grant_tw(&self.db_conn, &eval_args)
-                    {
+                    return match crate::db_ops::db_execute_with_grant(
+                        &mut crate::db_ops::TwDbAccess::lock(&self.db_conn)?,
+                        &eval_args,
+                    ) {
                         Err(e) if e.starts_with("GRANT_") => {
                             let handled = self.fire_on_deny(crate::deny::DenyEventArgs {
                                 reason: "IRREVERSIBLE_NO_GRANT".into(),

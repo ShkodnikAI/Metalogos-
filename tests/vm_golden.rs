@@ -169,7 +169,7 @@ fn p4_vm_hello_matches_tw() {
 /// template registration not being wired in the VM path. This is a
 /// known VM gap — template rendering is interpreter-only (Phase 6.2).
 /// Ignored until VM template support is added (separate naryad).
-#[ignore = "n206: VM template_render gap — p115_render_basic fails; needs VM template support (separate naryad)"]
+#[ignore = "Known issue gh#967 §6: the VM backend lacks template_render — p115_render_basic fails; the VM template support is separate work"]
 #[test]
 fn all_vm_examples_match_tree_walking() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
@@ -225,7 +225,7 @@ fn all_vm_examples_match_tree_walking() {
 
 /// Legacy test (kept for CI compatibility): all VM outputs match .expected files.
 /// Наряд №206: same VM template gap as all_vm_examples_match_tree_walking.
-#[ignore = "n206: VM template_render gap — same as all_vm_examples_match_tree_walking"]
+#[ignore = "Known issue gh#967 §6: the VM backend lacks template_render — same as all_vm_examples_match_tree_walking"]
 #[test]
 fn all_vm_golden_tests_pass() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());

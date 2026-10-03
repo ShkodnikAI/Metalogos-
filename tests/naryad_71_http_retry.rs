@@ -22,6 +22,15 @@ mod tests {
     const SERVER_PORT: u16 = 18771;
     const BASE_URL: &str = "http://127.0.0.1:18771";
 
+    // №569 (gh#933): the n206 ignores LIFTED. The SSRF guard (№441 line) blocks
+    // loopback egress — these tests target 127.0.0.1 BY DESIGN (the documented
+    // kill-switch METALOGOS_HTTP_ALLOW_PRIVATE=1, read per call at
+    // src/builtins/http.rs ssrf_guard_enabled). The env is set per test body;
+    // all tests here are #[serial] so the process-global env is sequenced.
+    fn allow_loopback_egress() {
+        std::env::set_var("METALOGOS_HTTP_ALLOW_PRIVATE", "1");
+    }
+
     /// RAII guard: kills the child server process on drop.
     struct ServerGuard(Child);
 
@@ -71,10 +80,10 @@ mod tests {
 
     // ── Scenario 1: Success after retries (503, 503, 200) ──
 
-    #[ignore = "n206: requires python3 + test server on port 18771 (env-dependent)"]
     #[test]
     #[serial_test::serial]
     fn test_retry_succeeds_after_503s() {
+        allow_loopback_egress();
         let _server = ServerGuard::spawn();
         reset_server();
 
@@ -101,10 +110,10 @@ mod tests {
         }
     }
 
-    #[ignore = "n206: requires python3 + test server on port 18771 (env-dependent)"]
     #[test]
     #[serial_test::serial]
     fn test_retry_http_post_succeeds_after_503s() {
+        allow_loopback_egress();
         let _server = ServerGuard::spawn();
         reset_server();
 
@@ -133,10 +142,10 @@ mod tests {
 
     // ── Scenario 2: No retry on fatal 400 ──
 
-    #[ignore = "n206: requires python3 + test server on port 18771 (env-dependent)"]
     #[test]
     #[serial_test::serial]
     fn test_no_retry_on_fatal_400() {
+        allow_loopback_egress();
         let _server = ServerGuard::spawn();
         reset_server();
 
@@ -164,10 +173,10 @@ mod tests {
 
     // ── Scenario 3: Backward compatibility — no retry without config ──
 
-    #[ignore = "n206: requires python3 + test server on port 18771 (env-dependent)"]
     #[test]
     #[serial_test::serial]
     fn test_backward_compat_no_retry_config() {
+        allow_loopback_egress();
         let _server = ServerGuard::spawn();
         reset_server();
 
@@ -190,10 +199,10 @@ mod tests {
         }
     }
 
-    #[ignore = "n206: requires python3 + test server on port 18771 (env-dependent)"]
     #[test]
     #[serial_test::serial]
     fn test_backward_compat_post_no_retry_on_503() {
+        allow_loopback_egress();
         let _server = ServerGuard::spawn();
         reset_server();
 
@@ -217,10 +226,10 @@ mod tests {
 
     // ── Retry config parsing edge cases ──
 
-    #[ignore = "n206: requires python3 + test server on port 18771 (env-dependent)"]
     #[test]
     #[serial_test::serial]
     fn test_retry_config_with_zero_retries() {
+        allow_loopback_egress();
         let _server = ServerGuard::spawn();
         reset_server();
 
@@ -242,10 +251,10 @@ mod tests {
         }
     }
 
-    #[ignore = "n206: requires python3 + test server on port 18771 (env-dependent)"]
     #[test]
     #[serial_test::serial]
     fn test_retry_struct_not_confused_with_headers() {
+        allow_loopback_egress();
         // A Struct without retry-specific fields should be treated as headers,
         // not as retry config — verify parse_retry_config returns None
         let builtins = Builtins::new();

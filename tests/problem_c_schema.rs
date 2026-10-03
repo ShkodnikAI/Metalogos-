@@ -6,7 +6,6 @@
 mod tests {
     use metalogos::run_program;
 
-    #[ignore = "n206: requires sqlite3 connection (env-dependent)"]
     #[test]
     fn schema_creates_table_and_inserts() {
         let source = r#"
@@ -22,7 +21,7 @@ schema test_dept {
 
 pattern InsertAndQuery(topic: String) -> String {
   let id = db_insert("analysis", { topic: topic, status: "drafted" })
-  let rows = query("SELECT topic FROM analysis WHERE id = " + to_string(id), [])
+  let rows = query("SELECT topic FROM analysis WHERE id = ?1", [id])
   let first = get(rows, 0)
   return first.topic
 }
@@ -40,7 +39,12 @@ flow Main {
         );
     }
 
-    #[ignore = "n206: requires sqlite3 connection (env-dependent)"]
+    // №569 (gh#933): the n206 ignores LIFTED — sqlite::memory runs in-process (rusqlite
+    // bundled; no external sqlite3 CLI dependency). The round-trip test now uses the
+    // parameterized `?1` form (№99 convert_params): the old dynamic-concat shape
+    // ("...WHERE id = " + to_string(id)) is a DELIBERATE refusal since the SQL_DYNAMIC
+    // invariant (№543 line) — the literal-SQL + List-params form is the sanctioned one.
+
     #[test]
     fn schema_with_all_modifiers() {
         let source = r#"
@@ -76,7 +80,6 @@ flow Main {
         );
     }
 
-    #[ignore = "n206: requires sqlite3 connection (env-dependent)"]
     #[test]
     fn schema_additive_no_drop() {
         // Running schema twice should not fail (IF NOT EXISTS)

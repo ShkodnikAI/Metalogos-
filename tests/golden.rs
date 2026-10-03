@@ -364,7 +364,7 @@ fn all_error_tests_pass() {
 /// visibility, never blocking. Наряд №88: "Hidden red is worse than
 /// visible red" (same principle as Наряд №49).
 #[test]
-#[ignore = "requires METALOGOS_BROWSER_BIN and a real Chromium binary — not available in CI"]
+#[ignore = "PERMANENT (platform-gated, by design): requires METALOGOS_BROWSER_BIN and a real Chromium binary — not available in CI; run on a desktop with the browser installed"]
 fn p88_browser_contract_visibility() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
     let examples_dir = Path::new(&manifest_dir).join("examples");

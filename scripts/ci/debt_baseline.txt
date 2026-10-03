@@ -39,10 +39,40 @@
 # that blocks work twice per cycle for nothing is re-thresholded by
 # revision (the owner's hygiene note, gh#689).
 #
+# №569 (gh#933, 2026-10-03): the full debt-honesty classification (Wave 26).
+# (1) The counter heuristic STRICTIFIED: the attribute recognition requires the
+# trimmed line to START with `#[ignore` — 12 string-literal false positives
+# removed from the count (the ignore_reasons_lint.rs fixtures ×11, the
+# naryad_240 print_skip message ×1): they were prose, not attributes. ignore:
+# 52 -> 40 by the heuristic fix alone.
+# (2) The n206 env-dependent family LIFTED with proof (green in the PR):
+# naryad_71_http_retry 7/7 (the documented SSRF kill-switch
+# METALOGOS_HTTP_ALLOW_PRIVATE=1 set per test body — loopback is the test
+# target BY DESIGN), naryad_76_http_download 4/4 (the same kill-switch; the
+# fixture dir is created by the test — the sandbox does not create parents;
+# the sandbox-escape expectation follows the CURRENT loud
+# Err([SANDBOX_VIOLATION]) contract, not the obsolete soft Bool(false)),
+# problem_c_schema 3/3 (sqlite::memory is in-process rusqlite — no external
+# CLI dependency; the round-trip test modernized to the parameterized `?1`
+# form — the dynamic-concat shape is a deliberate SQL_DYNAMIC refusal).
+# ignore: 40 -> 26.
+# (3) The TODO markers re-verdicted per the №516 ledger: 19 known-issues
+# linked to the consolidated ledger gh#967 (the memory lane ranking, the VM
+# json_body field access, the semantic-checker gaps, the VM template_render
+# gap, the self-host lexer), the reasons carry the issue link — no TODO
+# text remains. ignore_todo: 16 -> 0.
+# (4) The 7 by-design ignores reworded to the PERMANENT form (the llm
+# provider/endpoint credential gates ×3, the Chromium platform gate, the
+# release-only 10k ledger golden, the leak-corpus calibration tooling, the
+# naryad-250 process-global store design note).
+# New floors = the post-classification fact: ignore 26, ignore_todo 0,
+# dead_code 33 (the 37 floor was stale — the fact reached 33 in В24/В25 and
+# the floor follows the fact down in the same PR).
+
 dup_baseline: scripts/ci/tw_vm_dup_names_baseline.txt
-ignore: 52
-ignore_todo: 16
-dead_code: 37
+ignore: 26
+ignore_todo: 0
+dead_code: 33
 example_uncovered: 0
 # №531 (issue #840): the read_file soft-missing TRANSITION marker count —
 # the stderr warning site(s) in src/ + the tests pinning the transition

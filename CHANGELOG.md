@@ -4,6 +4,40 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №567 (issue #931; Wave 26 P1, [core], the crate-split stage 2):
+  the transport contour is a CRATE — `metalogos-server/` lands as the
+  fifth workspace member, carrying `server.rs` + `mcp_server.rs` +
+  `mcp_policy.rs` (6257 LOC moved 1:1 — zero semantic edits; the only line delta is
+  rustfmt wrapping the lines the `crate::` to `metalogos::` rebinding
+  lengthened past 100 chars: 6257 to 6268, +11 wrap lines, 0.17%)
+  AND the `mlog` binary itself (`metalogos-server/src/bin/mlog.rs`; the
+  name and the whole CLI surface are unchanged). THE STRUCTURAL FINDING,
+  posted in the naryad thread before the move: the Cargo package graph
+  forbids `metalogos -> metalogos-server -> metalogos`, and the reflex
+  precedent does not transfer (reflex is a leaf; the transport consumes
+  the language core by essence) — so the consumer edge lives INSIDE the
+  transport crate: the bin links the language crate for the core and its
+  own lib for the transport; the root became a PURE LIBRARY. The heavy
+  stack (axum/tower/tower-http/hyper/tokio/futures-util — non-optional
+  now, per the naryad) plus dashmap/clap/rustyline moved to the new
+  crate's manifest; the root pulls NEITHER axum NOR tokio in any feature
+  combination anymore (the №278 criterion holds a fortiori; the
+  `cargo tree -e features` proof in the PR). The root `server` feature
+  stays as a thin no-op compat gate (the staying tests' cfg sites). The
+  38 consumer test files moved WITH the modules (the paths re-bound
+  mechanically: `metalogos::server` to `metalogos_server::server`, the
+  repo-root anchors re-parented in naryad_160/161/381/513; the mcp
+  python fixture and the n394/n402 data artifacts followed their tests);
+  the serve-e2e 4/4 grid (distill/memory/conversation/cron, both
+  backends) runs from the new location UNCHANGED. The gates follow the
+  code: risk_review PERIMETER, blocking-checks binding grep, the debt
+  counters' trees, the serve-e2e inventory paths. architecture_contract
+  gets the deliberate boundary update (the ownership table + the
+  anchors: the transport pins live in the crate manifest/lib check —
+  the Cargo cycle ban IS the boundary now, stronger than the
+  source-level rules it replaces). Dockerfile: the stub layer builds
+  the new member (no root src/main.rs anymore). №524: the root
+  lib.rs carries the pointer note where the modules used to be.
 - Naryad №568 (issue #932; Wave 26 P1, the stage-3 typing pass): the
   TWO html_label.rs taint walks UNIFY into ONE mode-parameterized walk
   (`WalkMode`: BindingTop / BindingNested / Sink) — the duplicated walk

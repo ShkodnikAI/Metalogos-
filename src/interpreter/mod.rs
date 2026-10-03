@@ -103,7 +103,8 @@ struct StructType {
 /// The interpreter holds all runtime state.
 pub struct Interpreter {
     /// Global variable store.
-    pub(crate) variables: HashMap<String, Value>,
+    // №567: pub for the metalogos-server transport (the route-state merge).
+    pub variables: HashMap<String, Value>,
     /// Struct type registry.
     struct_types: HashMap<String, StructType>,
     /// Compiled patterns (pure).
@@ -136,7 +137,8 @@ pub struct Interpreter {
     /// Base directory for resolving relative imports (set before run).
     base_dir: std::path::PathBuf,
     /// Template registry (Phase 6.2)
-    pub(crate) templates: HashMap<String, TemplateDecl>,
+    // №567: pub for the metalogos-server transport.
+    pub templates: HashMap<String, TemplateDecl>,
     /// DB config (Phase 6.3)
     db_config: Option<DbDecl>,
     /// Mock DB store (Phase 6.3)
@@ -619,7 +621,8 @@ impl Interpreter {
     /// №495: attach the server-level distillation hub (the serve path).
     /// Both backends then route their distill touchpoints through the
     /// hub instead of the per-context state.
-    pub(crate) fn attach_distill_hub(
+    // №567: pub for the metalogos-server transport (see eval_statements).
+    pub fn attach_distill_hub(
         &mut self,
         hub: std::sync::Arc<dyn crate::distill_hub::DistillAccess>,
     ) {

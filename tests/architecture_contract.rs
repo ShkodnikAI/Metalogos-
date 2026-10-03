@@ -17,12 +17,23 @@
 //!
 //! | Component             | MUST own                                                | MUST NOT own                              |
 //! |-----------------------|---------------------------------------------------------|-------------------------------------------|
-//! | root crate metalogos  | language core: parser, semantic, execution, gates, CLI  | mlogpkg / mlog-lsp (satellite crates)     |
-//! | builtins              | builtin registry and implementations                    | transport (server, mcp_server)            |
-//! | vm / interpreter      | execution, evaluation, runtime state                    | transport (server, mcp_server)            |
-//! | parser / ast          | syntax, AST, lowering                                   | transport (server, mcp_server)            |
+//! | root crate metalogos  | language core: parser, semantic, execution, gates       | mlogpkg / mlog-lsp / metalogos-server     |
+//! | builtins              | builtin registry and implementations                    | transport (metalogos-server)              |
+//! | vm / interpreter      | execution, evaluation, runtime state                    | transport (metalogos-server)              |
+//! | parser / ast          | syntax, AST, lowering                                   | transport (metalogos-server)              |
 //! | ledger / consent      | provenance substrate: records, chain, consent surface   | builtin surface; transport                |
 //! | mlogpkg / mlog-lsp    | packaging / LSP tooling (may depend on metalogos)       | -                                         |
+//! | metalogos-server      | transport: server, mcp_server, mcp_policy + the mlog    | - (the core imports are its essence; the  |
+//! | (№567, stage 2)       | CLI (may depend on metalogos — one-way, Cargo-enforced) | Cargo package cycle ban IS the boundary)  |
+//!
+//! №567 boundary note (the §5.3 deliberate change, THIS PR): the
+//! transport layer moved out of the scanned src/ tree into the
+//! metalogos-server crate. The C2/C3/C5/C6 forbidden-edge rules below
+//! are enforced STRUCTURALLY now — the Cargo package graph cannot
+//! express metalogos -> metalogos-server (the cycle ban), so no root
+//! source can import the transport at all; the source-level rules stay
+//! as documentation of the same boundary (they pass vacuously over the
+//! root scan and trip the moment the topology regresses).
 //!
 //! # Boundary-change rule (§5.3)
 //!
@@ -38,9 +49,8 @@
 //!   parsed (a module path inside a string literal is a rare
 //!   false-positive risk, accepted loudly);
 //! * macros are NOT expanded; `build.rs` is not analyzed; cfg-feature
-//!   graphs are not modeled — a `#[cfg(feature = "server")] use
-//!   crate::server;` is still an architectural edge at source level and
-//!   still counts;
+//!   graphs are not modeled — a `#[cfg(feature = "x")] use crate::y;`
+//!   is still an architectural edge at source level and still counts;
 //! * `use super::X` resolves to the TOP-LEVEL module of the file (the
 //!   naryad spec), not to the immediate parent path component;
 //! * transitive dependencies are out of scope — these contracts are
@@ -732,8 +742,9 @@ fn contract_anchors_hold() {
         "src/ast.rs",
         "src/ledger.rs",
         "src/consent.rs",
-        "src/server.rs",
-        "src/mcp_server.rs",
+        // №567: the transport anchors (src/server.rs, src/mcp_server.rs)
+        // moved with the crate — pinned below by the metalogos-server
+        // manifest+lib check instead of the src/ scan.
     ] {
         assert!(
             scan.files.iter().any(|f| f == anchor),
@@ -741,10 +752,30 @@ fn contract_anchors_hold() {
         );
     }
 
-    for head in ["server", "mcp_server", "builtins", "interpreter", "parser"] {
+    for head in ["builtins", "interpreter", "parser", "vm", "semantic"] {
         assert!(
             scan.modules.contains_key(head),
             "forbidden-head module `{head}` no longer resolves - rename the heads in the contracts deliberately"
+        );
+    }
+
+    // №567 (gh#931): the transport layer is a crate — its existence and
+    // its module surface are the pinned anchors that replaced
+    // src/server.rs / src/mcp_server.rs.
+    let server_lib = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("metalogos-server")
+        .join("src")
+        .join("lib.rs");
+    let server_lib_text = fs::read_to_string(&server_lib)
+        .expect("metalogos-server/src/lib.rs is readable - the transport crate moved or was deleted; update the ownership table deliberately");
+    for module in [
+        "pub mod mcp_policy;",
+        "pub mod mcp_server;",
+        "pub mod server;",
+    ] {
+        assert!(
+            server_lib_text.contains(module),
+            "metalogos-server/src/lib.rs lost `{module}` - the transport surface moved; update the ownership table deliberately"
         );
     }
 
@@ -752,15 +783,17 @@ fn contract_anchors_hold() {
     let toml = fs::read_to_string(&toml_path).expect("root Cargo.toml is readable");
     assert!(
         toml.contains("[workspace]"),
-        "root Cargo.toml lost its [workspace] section - the three-crate topology is a pinned fact"
+        "root Cargo.toml lost its [workspace] section - the five-crate topology is a pinned fact"
     );
     let members = toml
         .lines()
         .find(|l| l.trim().starts_with("members"))
         .expect("workspace members declared");
     assert!(
-        members.contains("mlogpkg") && members.contains("mlog-lsp"),
-        "workspace members no longer declare the satellite crates: {members}"
+        members.contains("mlogpkg")
+            && members.contains("mlog-lsp")
+            && members.contains("metalogos-server"),
+        "workspace members no longer declare the satellite crates + the transport crate (№567): {members}"
     );
 
     for f in FROZEN_SCCS {

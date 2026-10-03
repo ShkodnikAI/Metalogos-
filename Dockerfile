@@ -34,26 +34,34 @@ COPY Cargo.toml Cargo.lock ./
 COPY mlogpkg/Cargo.toml mlogpkg/
 COPY mlog-lsp/Cargo.toml mlog-lsp/
 COPY metalogos-reflex/Cargo.toml metalogos-reflex/
+# №567: the transport crate's manifest joins the dependency layer —
+# it now carries the heavy stack (axum/tokio/...) AND the mlog bin.
+COPY metalogos-server/Cargo.toml metalogos-server/
 
 # Create stub sources so dependency layer compiles.
 # src/lib.rs stub: mlogpkg and mlog-lsp depend on the metalogos lib target.
 # metalogos-reflex/src stub: the №545 workspace member's manifest must load
 #   in the dependency layer too (the crate-stub compiles empty by design).
-# benches/ stub: [[bench]] in Cargo.toml requires the file for manifest parsing.
-RUN mkdir -p src mlogpkg/src mlog-lsp/src metalogos-reflex/src benches && \
-    echo "fn main() {}" > src/main.rs && \
+# metalogos-server stubs: the №567 workspace member — the lib stub for the
+#   dependency layer, the bin stub because `--bin mlog` now resolves to
+#   metalogos-server (the root crate has NO bin anymore — no src/main.rs).
+# benches/ stub: core_benchmarks.rs is the root's only bench (the №567
+# stage4 bench moved to metalogos-server/benches/).
+RUN mkdir -p src mlogpkg/src mlog-lsp/src metalogos-reflex/src metalogos-server/src/bin metalogos-server/benches benches && \
     echo "" > src/lib.rs && \
     echo "fn main() {}" > mlogpkg/src/main.rs && \
     echo "" > mlog-lsp/src/main.rs && \
     echo "" > metalogos-reflex/src/lib.rs && \
+    echo "" > metalogos-server/src/lib.rs && \
+    echo "fn main() {}" > metalogos-server/src/bin/mlog.rs && \
     echo "" > benches/core_benchmarks.rs && \
-    echo "" > benches/stage4_benchmark.rs && \
-    cargo build --release --bin mlog
+    echo "" > metalogos-server/benches/stage4_benchmark.rs && \
+    cargo build --release --bin mlog -p metalogos-server
 
 # Copy real source and rebuild (only application code changes)
 COPY . .
-RUN touch src/lib.rs src/main.rs mlogpkg/src/main.rs mlog-lsp/src/main.rs && \
-    cargo build --release --bin mlog
+RUN touch src/lib.rs metalogos-server/src/lib.rs metalogos-server/src/bin/mlog.rs mlogpkg/src/main.rs mlog-lsp/src/main.rs && \
+    cargo build --release --bin mlog -p metalogos-server
 
 # ── Runtime image ────────────────────────────────────
 FROM debian:bookworm-slim

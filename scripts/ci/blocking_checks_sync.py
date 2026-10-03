@@ -8,8 +8,9 @@ with the verdict {blocks, warns, absent}. This script validates:
   1. FORMAT: every row has the 6 columns; the verdict is one of
      blocks|warns|absent; the (command, phase, check) key is unique.
   2. TEST BINDING: every blocks/warns row names a test_id that EXISTS in
-     the repo (a word-boundary grep over tests/ and src/) — a cell whose
-     test is gone (renamed/deleted) is a drift = failure.
+     the repo (a word-boundary grep over tests/, src/, benches/ and
+     metalogos-server/tests/) — a cell whose test is gone
+     (renamed/deleted) is a drift = failure.
   3. COVERAGE: the five commands are present (mcp-serve carries real
      read/parse/audit/semantic cells since №557, gh#918); the JIT
      "absent (зафиксировано)" row exists (the №535 boundary).
@@ -61,7 +62,9 @@ def load_rows(path: str = TABLE) -> list[dict]:
 
 def collect_sources() -> str:
     chunks = []
-    for base in ('tests', 'src', 'benches'):
+    # №567 (gh#931): the transport tests moved to metalogos-server/tests/
+    # — the binding grep follows them (a moved test is not a deleted test).
+    for base in ('tests', 'src', 'benches', 'metalogos-server/tests'):
         p = ROOT / base
         if p.exists():
             for f in p.rglob('*.rs'):

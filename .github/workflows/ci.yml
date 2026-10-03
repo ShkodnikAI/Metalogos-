@@ -256,7 +256,8 @@ jobs:
         with:
           prefix-key: v2
       - name: Build mlog
-        run: cargo build --bin mlog
+        # №567: the bin lives in the metalogos-server package now.
+        run: cargo build --bin mlog -p metalogos-server
       - name: Doc-tests on REFERENCE/README/docs (Naryad #287)
         run: ./target/debug/mlog test --docs
 

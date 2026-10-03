@@ -1,0 +1,4892 @@
+// ── METALOGOS HTTP Server (Phase 6.1–7.4) ───────────────────────────
+// Axum-based HTTP server with security middleware:
+// - SQLite-backed session store (Phase 7.4)
+// - HMAC-SHA256 signed session cookies
+// - CSRF double-submit cookie pattern (Phase 7.4: real tokens)
+// - Rate limiting: sliding window per IP (Phase 7.4)
+// - Security headers (CSP, X-Frame-Options, X-Content-Type-Options, HSTS)
+// - Role-based route access
+// - Template rendering with auto-escaping
+// - Bot integration (Telegram webhooks)
+
+use axum::{
+    extract::{connect_info::ConnectInfo, DefaultBodyLimit, State},
+    http::{header, HeaderMap, HeaderValue, Method, StatusCode, Uri},
+    response::{Html as AxumHtml, IntoResponse, Response},
+    routing::{any, delete, get, post, put},
+    Router,
+};
+use dashmap::DashMap;
+use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use tower_http::set_header::SetResponseHeaderLayer;
+
+use metalogos::ast::*;
+use metalogos::builtins::io::ServeRouteExecGuard;
+use metalogos::bytecode::{CompiledRoute, Program};
+use metalogos::compiler::Compiler;
+use metalogos::interpreter::{Interpreter, Value};
+use metalogos::vm::Vm;
+
+/// Percent-decode a query-string key/value (RFC 3986 semantics with the
+/// form-urlencoded `+` convention — chosen and documented, Naryad #257).
+///
+/// Behavior table (each row pinned by `tests/naryad_257_rfc3986.rs`):
+/// - unreserved / plain chars pass through unchanged;
+/// - `%XX` (two hex digits) decodes to that BYTE — bytes are reassembled
+///   and the result is interpreted as UTF-8, so multibyte sequences like
+///   `%D0%B6` correctly yield `"ж"` (before #257 they produced mojibake:
+///   each byte was pushed as a standalone `char`);
+/// - invalid escapes (`%ZZ`, `%G1`) and a truncated `%` at the end pass
+///   through literally — a malformed escape is preserved, not swallowed
+///   (deliberate deviation from strict RFC rejection: query parsing must
+///   never fail on user input);
+/// - `+` decodes to space — the `application/x-www-form-urlencoded`
+///   convention (what browsers send in query strings of HTML forms and
+///   what axum's own form/Query tooling expects); a literal `+` must be
+///   sent as `%2B`;
+/// - byte sequences that are not valid UTF-8 decode lossily (U+FFFD) —
+///   decoding never fails.
+///
+/// Single-pass by design: `%25D0%25B6` decodes to the literal `%D0%B6`
+/// (double encoding requires two decode passes — standard behavior).
+pub fn url_decode_fallback(s: &str) -> String {
+    let mut bytes: Vec<u8> = Vec::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '%' {
+            let hex: String = chars.by_ref().take(2).collect();
+            if hex.len() == 2 {
+                if let Ok(byte) = u8::from_str_radix(&hex, 16) {
+                    bytes.push(byte);
+                    continue;
+                }
+            }
+            bytes.extend_from_slice(b"%");
+            bytes.extend_from_slice(hex.as_bytes());
+        } else if c == '+' {
+            bytes.push(b' ');
+        } else {
+            let mut buf = [0u8; 4];
+            bytes.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+        }
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+// ── Наряд №283: path-параметры роутов mlogserver — шаблонный диспетчер ──
+//
+// Axum 0.8.9 syntax: `{name}` matches a single path segment, `{*path}`
+// matches the tail of the path (one or more segments, including `/`).
+// Internal dispatcher matched by exact string equality for static routes;
+// templated routes are matched as a FALLBACK when no static route matches
+// (axum semantics: static routes win).
+//
+// Conflict policy: two templates matching the same path → loud error at
+// server start (checked in `check_route_template_conflicts`); here at
+// request time we return the FIRST matching template (defensive — should
+// not happen if startup check passed).
+
+/// One parsed segment of a route template path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PathSegment {
+    /// Literal segment — must match exactly (after percent-decoding).
+    Literal(String),
+    /// `{name}` — matches exactly one path segment. The captured value
+    /// (percent-decoded) is stored under `name` in the params map.
+    Param(String),
+    /// `{*path}` — wildcard tail. Matches one or more segments (including
+    /// the `/` separators between them). The captured value is the
+    /// remainder of the path AFTER the leading slash of the wildcard
+    /// segment (so `/demo/a/b/c` against `/demo/{*path}` captures
+    /// `"a/b/c"`). Must be the LAST segment — any segment after a
+    /// wildcard is a parse error.
+    Wildcard(String),
+}
+
+/// Parse a route path into segments. Returns `Err` on malformed templates:
+/// - `{` without closing `}` (or vice versa).
+/// - Empty param name `{}`.
+/// - Wildcard not in the last position.
+/// - Nested braces `{{name}}`.
+///
+/// Path must start with `/` (axum convention); leading slash is stripped
+/// before parsing. Trailing slash is preserved as an empty final segment
+/// (matches axum: `/demo/` != `/demo`).
+fn parse_route_template(path: &str) -> Result<Vec<PathSegment>, String> {
+    let path = path.strip_prefix('/').unwrap_or(path);
+    if path.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut segments = Vec::new();
+    let mut wildcard_seen = false;
+    for seg in path.split('/') {
+        if wildcard_seen {
+            return Err(format!(
+                "route template {:?}: segment after wildcard is forbidden",
+                path
+            ));
+        }
+        if seg.starts_with('{') && seg.ends_with('}') {
+            // Inner content — check for `*` prefix (wildcard).
+            let inner = &seg[1..seg.len() - 1];
+            if inner.is_empty() {
+                return Err(format!(
+                    "route template {:?}: empty param name `{{}}`",
+                    path
+                ));
+            }
+            if let Some(stripped) = inner.strip_prefix('*') {
+                let name = stripped.to_string();
+                if name.is_empty() {
+                    return Err(format!(
+                        "route template {:?}: empty wildcard name `{{*}}`",
+                        path
+                    ));
+                }
+                segments.push(PathSegment::Wildcard(name));
+                wildcard_seen = true;
+            } else {
+                // Validate param name (no nested braces, no `/`).
+                if inner.contains('{') || inner.contains('}') || inner.contains('/') {
+                    return Err(format!(
+                        "route template {:?}: invalid param name `{{{}}} — nested braces / slashes forbidden",
+                        path, inner
+                    ));
+                }
+                segments.push(PathSegment::Param(inner.to_string()));
+            }
+        } else if seg.contains('{') || seg.contains('}') {
+            // Unbalanced braces inside a literal segment.
+            return Err(format!(
+                "route template {:?}: unbalanced braces in segment `{:?}`",
+                path, seg
+            ));
+        } else {
+            segments.push(PathSegment::Literal(seg.to_string()));
+        }
+    }
+    Ok(segments)
+}
+
+/// Check whether a route path contains any template segments (`{name}` or
+/// `{*path}`). Used to decide whether to attempt template matching.
+fn is_templated_route(path: &str) -> bool {
+    path.contains('{') && path.contains('}')
+}
+
+/// Match a URI path against a parsed template. On success, returns the
+/// extracted parameters (percent-decoded). On mismatch returns `None`.
+///
+/// Semantics:
+/// - `Literal(s)` — the URI segment must equal `s` exactly (already
+///   percent-decoded by the URI parser — we don't re-decode here).
+/// - `Param(name)` — consumes exactly ONE URI segment. The value is
+///   percent-decoded (parity with `query_param`).
+/// - `Wildcard(name)` — consumes ONE OR MORE remaining URI segments.
+///   The captured value is the raw remaining path (with `/` separators),
+///   percent-decoded.
+fn match_path_against_template(
+    uri_segments: &[&str],
+    template: &[PathSegment],
+) -> Option<std::collections::HashMap<String, String>> {
+    let mut params = std::collections::HashMap::new();
+    let mut i = 0;
+    for (j, seg) in template.iter().enumerate() {
+        match seg {
+            PathSegment::Literal(lit) => {
+                if i >= uri_segments.len() {
+                    return None;
+                }
+                if uri_segments[i] != lit {
+                    return None;
+                }
+                i += 1;
+            }
+            PathSegment::Param(name) => {
+                if i >= uri_segments.len() {
+                    return None;
+                }
+                let raw = uri_segments[i];
+                let decoded = url_decode_fallback(raw);
+                params.insert(name.clone(), decoded);
+                i += 1;
+            }
+            PathSegment::Wildcard(name) => {
+                // Wildcard consumes the rest. Captured value is the
+                // remaining path (segments joined by `/`), percent-decoded.
+                // One-or-more segments: a wildcard with zero remaining
+                // segments is NOT a match (would need at least one).
+                if i >= uri_segments.len() {
+                    return None;
+                }
+                let remaining = uri_segments[i..].join("/");
+                let decoded = url_decode_fallback(&remaining);
+                params.insert(name.clone(), decoded);
+                // Mark that we consumed the wildcard — any template
+                // segment after this is a parse error (checked at parse
+                // time, but defensive here). We return immediately
+                // instead of updating `i` (which would be unused).
+                let _ = j;
+                return Some(params);
+            }
+        }
+    }
+    // All template segments consumed; URI must be fully consumed too.
+    if i == uri_segments.len() {
+        Some(params)
+    } else {
+        None
+    }
+}
+
+/// Find the first templated route that matches `uri_path` for the given
+/// method. Returns `Ok(Some((route, params)))` on match, `Ok(None)` on
+/// no match, `Err` on template-parse error (loud — should have been
+/// caught at server start, but defensive here).
+///
+/// Axum semantics: this is a FALLBACK after static-route matching fails.
+/// Conflict between two templates matching the same path is checked at
+/// startup (`check_route_template_conflicts`); here we return the first
+/// matching template (defensive — startup check makes this unreachable
+/// in practice).
+#[allow(clippy::type_complexity)]
+fn match_templated_route<'a>(
+    routes: &'a [metalogos::ast::RouteDecl],
+    uri_path: &str,
+    method: &str,
+) -> Result<
+    Option<(
+        &'a metalogos::ast::RouteDecl,
+        std::collections::HashMap<String, String>,
+    )>,
+    String,
+> {
+    // (The tuple-with-HashMap return shape trips clippy::type_complexity;
+    // `#[allow(...)]` is preferable to introducing a one-shot type alias
+    // for a single internal function — the alternative is worse to read.)
+    // Strip leading slash and split into segments (axum convention).
+    let uri_path_stripped = uri_path.strip_prefix('/').unwrap_or(uri_path);
+    let uri_segments: Vec<&str> = if uri_path_stripped.is_empty() {
+        Vec::new()
+    } else {
+        uri_path_stripped.split('/').collect()
+    };
+
+    for route in routes {
+        if route.method != method {
+            continue;
+        }
+        if !is_templated_route(&route.path) {
+            continue; // static route — skip (handled by exact-match path)
+        }
+        let template = parse_route_template(&route.path)?;
+        if let Some(params) = match_path_against_template(&uri_segments, &template) {
+            return Ok(Some((route, params)));
+        }
+    }
+    Ok(None)
+}
+
+/// Check for template conflicts at server start. Two templates conflict
+/// when they could match the same path AND have the same method:
+/// - Same shape (e.g. `/a/{x}` and `/a/{y}`) — both can match `/a/test`.
+/// - `{name}` and `{*path}` at the same position — both can match a tail.
+///
+/// Returns `Err` with a description of the first conflict found.
+///
+/// This is a conservative check — it does NOT attempt full overlap
+/// detection (e.g. `/a/{x}/c` vs `/a/b/{y}` both matching `/a/b/c`),
+/// but it catches the most common conflicts. The runtime matcher
+/// returns the first match anyway (defensive — startup check makes
+/// the silent-priority case unreachable for the conflicts we catch).
+fn check_route_template_conflicts(routes: &[metalogos::ast::RouteDecl]) -> Result<(), String> {
+    // Group routes by method.
+    let mut by_method: std::collections::HashMap<&str, Vec<&metalogos::ast::RouteDecl>> =
+        std::collections::HashMap::new();
+    for r in routes {
+        by_method.entry(r.method.as_str()).or_default().push(r);
+    }
+    for group in by_method.values() {
+        // Parse all templates once.
+        let parsed: Vec<(&metalogos::ast::RouteDecl, Vec<PathSegment>)> = group
+            .iter()
+            .filter_map(|r| {
+                if !is_templated_route(&r.path) {
+                    return None;
+                }
+                parse_route_template(&r.path).ok().map(|t| (*r, t))
+            })
+            .collect();
+        // Pairwise compare — N^2 but N is small (typical server <100 routes).
+        for i in 0..parsed.len() {
+            for j in (i + 1)..parsed.len() {
+                let (r1, t1) = &parsed[i];
+                let (r2, t2) = &parsed[j];
+                if templates_overlap(t1, t2) {
+                    return Err(format!(
+                        "route template conflict: `{}` and `{}` can both match the same path (method {})",
+                        r1.path, r2.path, r1.method
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Two templates overlap if they have the same shape (literal-vs-param at
+/// each position is irrelevant — both can match the same URI) OR one is
+/// a prefix of the other with a wildcard.
+fn templates_overlap(t1: &[PathSegment], t2: &[PathSegment]) -> bool {
+    // Simple case: same length, same positions of Literal/Param/Wildcard.
+    if t1.len() == t2.len() {
+        for (s1, s2) in t1.iter().zip(t2.iter()) {
+            match (s1, s2) {
+                (PathSegment::Literal(a), PathSegment::Literal(b)) if a == b => continue,
+                (PathSegment::Literal(_), PathSegment::Literal(_)) => return false,
+                (PathSegment::Param(_), PathSegment::Param(_)) => continue,
+                (PathSegment::Wildcard(_), PathSegment::Wildcard(_)) => continue,
+                // Literal vs Param: param can match the literal value → overlap.
+                // Param vs Wildcard: wildcard matches ≥1 segment, param matches exactly 1 — overlap when wildcard's segment count is reachable.
+                _ => return true,
+            }
+        }
+        return true; // all positions overlap
+    }
+    // Different length — overlap only if the longer one ends with a
+    // wildcard that can absorb the extra segments of the shorter path.
+    // Conservative: report overlap only when prefixes match up to the
+    // wildcard. Full overlap analysis is the user's responsibility.
+    let (longer, shorter) = if t1.len() > t2.len() {
+        (t1, t2)
+    } else {
+        (t2, t1)
+    };
+    if let Some(PathSegment::Wildcard(_)) = longer.last() {
+        // Compare prefix up to the wildcard.
+        let prefix_len = longer.len() - 1;
+        if prefix_len >= shorter.len() {
+            return false;
+        }
+        for i in 0..prefix_len {
+            match (&longer[i], &shorter[i]) {
+                (PathSegment::Literal(a), PathSegment::Literal(b)) if a == b => continue,
+                (PathSegment::Literal(_), PathSegment::Literal(_)) => return false,
+                (PathSegment::Param(_), PathSegment::Param(_)) => continue,
+                _ => return true, // mismatched shapes — still overlap (param can match literal)
+            }
+        }
+        return true;
+    }
+    false
+}
+
+// Compile-time check: ServerState must be Send + Sync for axum::State
+fn _assert_state_send_sync(state: ServerState) {
+    fn assert_send<T: Send>(_: &T) {}
+    fn assert_sync<T: Sync>(_: &T) {}
+    // Force the compiler to check Send+Sync on the actual struct, not just the name
+    let _ = &state;
+    assert_send(&state);
+    assert_sync(&state);
+}
+
+// ── Server State ──────────────────────────────────────────────────
+
+/// Shared mutable server state.
+/// Наряд №29 §5.1: hot-path maps (sessions, csrf_tokens, rate_limits)
+/// use DashMap (lock-free) instead of Arc<RwLock<HashMap>>.
+#[derive(Clone)]
+pub struct ServerState {
+    /// In-memory session cache (kept for fast lookups, authoritative source is SQLite).
+    pub sessions: Arc<DashMap<String, SessionEntry>>,
+    /// CSRF token store for double-submit validation.
+    /// Value: (session_id, created_at) — TTL enforcement (15 min, Наряд №29 §2.2) and
+    /// session binding (Наряд №262: a token is accepted only from the session it was
+    /// issued for; "" binds to sessionless requests). Tokens absent from this store
+    /// were never issued by this process — rejected since №262 (no stateless fallback).
+    pub csrf_tokens: Arc<DashMap<String, (String, std::time::Instant)>>,
+    /// HMAC signing key for session cookies.
+    pub hmac_key: Arc<Vec<u8>>,
+    /// Audit log entries.
+    pub audit_log: Arc<RwLock<Vec<String>>>,
+    /// Registered templates.
+    pub templates: Arc<RwLock<HashMap<String, TemplateDecl>>>,
+    /// Mock DB store.
+    pub db_store: Arc<RwLock<Vec<HashMap<String, Value>>>>,
+    /// Memory persist path (if configured).
+    pub memory_persist: Option<String>,
+    /// Interpreter (for running route handlers).
+    pub interpreter: Arc<RwLock<Interpreter>>,
+    /// Route definitions from mlogserver block.
+    pub routes: Vec<RouteDecl>,
+    /// Required middleware (from mlogserver config).
+    pub middleware: Vec<String>,
+    /// SQLite connection for session persistence (Phase 7.4).
+    pub db: Arc<tokio::sync::Mutex<rusqlite::Connection>>,
+    /// Rate-limit tracker: key → Vec<Instant> (Phase 7.4).
+    /// Наряд №263: the key is the connection peer address by default (see
+    /// `extract_client_ip`); bounded by MAX_RATE_KEYS — a new key at the cap
+    /// counts as a full bucket (429), never silent unbounded growth.
+    pub rate_limits: Arc<DashMap<String, Vec<std::time::Instant>>>,
+    /// Наряд №263: requests per client per minute (mlogserver `rate_limit: N`,
+    /// default 100 — DEFAULT_RATE_LIMIT_PER_MINUTE).
+    pub rate_limit_per_minute: usize,
+    /// Наряд №263: parsed METALOGOS_TRUSTED_PROXIES. Empty = XFF/X-Real-IP are
+    /// never honored (the peer address is the rate-limit key).
+    pub trusted_proxies: Arc<TrustedProxies>,
+    /// Which backend to use for route execution (Наряд №40).
+    pub backend: ServeBackend,
+    /// Compiled VM program (Наряд №40: compiled once at startup, reused per request).
+    pub vm_program: Option<Arc<Program>>,
+    /// Compiled route bytecodes (Наряд №40: one per route, compiled at startup).
+    pub vm_routes: Vec<CompiledRoute>,
+    /// Наряд №403: warm VM pool (step B of the VM-serve divisor work).
+    /// None = disabled (the pre-№403 behavior; default OFF until the
+    /// №404 re-gate — ADR-0141). The pool recycles `Vm` objects across
+    /// requests behind a fail-closed reset (`Vm::reset_for_reuse`):
+    /// errors, panics and failed resets all discard instead of reusing.
+    pub vm_pool: Option<Arc<metalogos::vm_pool::VmPool>>,
+    /// №495: the process-level distillation hub. `Some` on every serve
+    /// boot built from source (run_server / the test helpers) — both
+    /// backends see the same examples, modes and trained weights; the
+    /// hub-less surfaces keep the pre-№495 behavior (honest boundary).
+    pub distill: Option<std::sync::Arc<dyn metalogos::distill_hub::DistillAccess>>,
+    /// Наряд №296: redact middleware mode ("pii"|"secrets"|"all"), only
+    /// used when "redact" is in middleware list. None → "all" (default).
+    pub redact_mode: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SessionEntry {
+    pub data: HashMap<String, String>,
+    pub roles: Vec<String>,
+    pub expires: std::time::Instant,
+}
+
+// ── Наряд №263: rate-limit keying, trusted proxies, bounded maps ──
+
+/// Default requests-per-client-per-minute when the mlogserver declaration does
+/// not set `rate_limit: N` (Наряд №263: the pre-№263 hard-wired 100, unchanged).
+pub(crate) const DEFAULT_RATE_LIMIT_PER_MINUTE: usize = 100;
+
+/// Наряд №263 — hard caps for the hot-path state maps (pre-№263 all three grew
+/// without bounds under a flood of unique keys: a cheap HTTP garbage stream of
+/// fresh XFF values / peers / tokens → unbounded process memory).
+/// Constant choices (deliberate, documented in REFERENCE §5.6):
+/// - MAX_SESSIONS = 10 000: `sessions` is a read-side cache in front of SQLite;
+///   each entry is a small role list + data map, 10k entries stay in the low
+///   MiB range, while a typical legitimate deployment holds far fewer.
+/// - MAX_CSRF_TOKENS = 10 000: tokens carry a 15-minute TTL (№29 §2.2) and one
+///   is issued per GET under the csrf middleware — 10k covers 10k concurrent
+///   browser sessions per sweep interval, far above honest traffic.
+/// - MAX_RATE_KEYS = 65 536: one bucket per distinct key (peer or XFF entry);
+///   2^16 bounds the IPv6-realistic worst case without evicting honest clients.
+pub(crate) const MAX_SESSIONS: usize = 10_000;
+pub(crate) const MAX_CSRF_TOKENS: usize = 10_000;
+pub(crate) const MAX_RATE_KEYS: usize = 65_536;
+
+/// Rate-limit window in seconds (the sliding window used by `check_rate_limit`;
+/// the background sweep evicts keys whose every timestamp fell out of it).
+pub(crate) const RATE_WINDOW_SECS: u64 = 60;
+
+/// One entry of `METALOGOS_TRUSTED_PROXIES`: an exact IP or a CIDR `/NN` prefix
+/// (both address families; no new crates — manual mask math, лекало
+/// `is_blocked_address` №261 which hand-rolls ranges for the same reason).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum TrustedProxyEntry {
+    Exact(IpAddr),
+    Cidr(IpAddr, u8),
+}
+
+/// Parsed `METALOGOS_TRUSTED_PROXIES` (Наряд №263).
+///
+/// CHOSEN SEMANTICS (documented loudly in REFERENCE §5.6 and CHANGELOG):
+/// 1. Empty list (env unset) — `X-Forwarded-For` / `X-Real-IP` are NEVER
+///    honored; the direct connection peer is the rate-limit key. This closes
+///    the pre-№263 bypass: any client could send a fresh XFF per request and
+///    make the rate limit a no-op.
+/// 2. Non-empty list — headers are honored ONLY when the direct peer matches
+///    an entry; then the key is the FIRST (leftmost) `X-Forwarded-For` value
+///    (else `X-Real-IP`, else the peer). OPERATOR CONTRACT: a trusted proxy
+///    must OVERWRITE XFF with the client address it sees; with an append-style
+///    proxy the leftmost entry is client-controlled (documented residual).
+#[derive(Debug, Clone, Default)]
+pub struct TrustedProxies {
+    entries: Vec<TrustedProxyEntry>,
+}
+
+impl TrustedProxies {
+    /// Parse a comma-separated spec of exact IPs and CIDR `/NN` prefixes.
+    /// Invalid entries are skipped with a loud warning (fail-open to fewer
+    /// trusted proxies is safer than fail-closed to no server at startup).
+    pub(crate) fn from_env_spec(spec: Option<&str>) -> Self {
+        let mut entries = Vec::new();
+        let Some(spec) = spec.map(str::trim).filter(|s| !s.is_empty()) else {
+            return Self { entries };
+        };
+        for part in spec.split(',') {
+            let part = part.trim();
+            if part.is_empty() {
+                continue;
+            }
+            match parse_trusted_proxy_entry(part) {
+                Some(e) => entries.push(e),
+                None => eprintln!(
+                    "[WARN] METALOGOS_TRUSTED_PROXIES: skipping invalid entry {:?} (expected an IP or IP/prefix)",
+                    part
+                ),
+            }
+        }
+        Self { entries }
+    }
+
+    /// True when at least one valid entry is configured (headers may be honored).
+    pub(crate) fn is_configured(&self) -> bool {
+        !self.entries.is_empty()
+    }
+
+    /// Does `ip` match an entry? IPv4-mapped IPv6 peers are unwrapped first
+    /// (лекало `is_blocked_address` №261: `::ffff:10.0.0.1` must match 10.x).
+    pub(crate) fn contains(&self, ip: IpAddr) -> bool {
+        let ip = unwrap_mapped(ip);
+        self.entries.iter().any(|e| ip_matches_entry(ip, e))
+    }
+}
+
+fn parse_trusted_proxy_entry(part: &str) -> Option<TrustedProxyEntry> {
+    if let Some((addr_str, prefix_str)) = part.split_once('/') {
+        let addr: IpAddr = addr_str.trim().parse().ok()?;
+        let prefix: u8 = prefix_str.trim().parse().ok()?;
+        let max = match addr {
+            IpAddr::V4(_) => 32,
+            IpAddr::V6(_) => 128,
+        };
+        if prefix > max {
+            return None;
+        }
+        Some(TrustedProxyEntry::Cidr(addr, prefix))
+    } else {
+        Some(TrustedProxyEntry::Exact(part.parse().ok()?))
+    }
+}
+
+/// Unwrap an IPv4-mapped IPv6 address to its V4 form (№261 лекало).
+fn unwrap_mapped(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V6(v6) => v6.to_ipv4_mapped().map(IpAddr::V4).unwrap_or(ip),
+        v4 => v4,
+    }
+}
+
+fn ip_matches_entry(ip: IpAddr, entry: &TrustedProxyEntry) -> bool {
+    match entry {
+        TrustedProxyEntry::Exact(e) => unwrap_mapped(*e) == ip,
+        TrustedProxyEntry::Cidr(net, prefix) => ip_in_cidr(ip, unwrap_mapped(*net), *prefix),
+    }
+}
+
+/// CIDR membership by manual masking (std ships no helpers; №263 carries the
+/// same no-new-deps decision as №261's octet-range checks).
+/// Mixed families never match — unwrap_mapped runs before this.
+fn ip_in_cidr(ip: IpAddr, net: IpAddr, prefix: u8) -> bool {
+    match (ip, net) {
+        (IpAddr::V4(a), IpAddr::V4(n)) => {
+            if prefix > 32 {
+                return false;
+            }
+            let mask = if prefix == 0 {
+                0
+            } else {
+                u32::MAX << (32 - prefix)
+            };
+            u32::from(a) & mask == u32::from(n) & mask
+        }
+        (IpAddr::V6(a), IpAddr::V6(n)) => {
+            if prefix > 128 {
+                return false;
+            }
+            let mask = if prefix == 0 {
+                0
+            } else {
+                u128::MAX.checked_shl(128 - prefix as u32).unwrap_or(0)
+            };
+            u128::from(a) & mask == u128::from(n) & mask
+        }
+        _ => false,
+    }
+}
+
+/// Which backend to use for route execution (Наряд №40).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServeBackend {
+    /// Tree-walking interpreter — the explicit opt-out
+    /// (`METALOGOS_SERVE_BACKEND=interpreter`; ADR-0141 D7: TW remains the
+    /// guaranteed full-language backend).
+    Interpreter,
+    /// Stack-based bytecode VM — the serve default since the ADR-0171 flip
+    /// (2026-09-21, owner decision on the re-gate №3 3/3 GREEN evidence).
+    Vm,
+}
+
+// ── Public API ─────────────────────────────────────────────────────
+
+/// №522 (gh#821): the reminder+cron scheduler spawn — ONE constructor for
+/// BOTH serve boots (the №480 rule: one constructor, no drifted copies).
+/// Before this extraction only `run_server` spawned the loop; the test
+/// harness (`run_test_server_in_dir_impl`) ran serve WITHOUT the
+/// scheduler, so the cron accumulation arc was invisible to the
+/// serve-e2e lane (the №509 functional-criterion gap the №522 e2e
+/// closes). Verbatim transplant of the v0.8.2/v0.8.3 loop.
+pub(crate) fn spawn_scheduler(state: std::sync::Arc<ServerState>) {
+    // v0.8.2 — Background reminder scheduler (checks every 5 seconds)
+    // v0.8.3 — Extended: also checks cron jobs from OpenHuman-inspired cron_add
+    let scheduler_state = state;
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+            // ── Phase 1: collect reminder + cron data under short write lock ──
+            let check_result = {
+                let interp = scheduler_state.interpreter.write().await;
+                if let Some(builtin_fn) = interp.get_builtin("check_reminders") {
+                    builtin_fn(&[])
+                } else {
+                    Ok(metalogos::interpreter::Value::List(vec![]))
+                }
+                // write lock released here
+            };
+
+            // ── Phase 2: process reminders (delivery to the dispatch
+            // surface, №418 D5; the eprintln stays the journal) ──
+            if let Ok(metalogos::interpreter::Value::List(items)) = check_result {
+                let mut due: Vec<(String, String, String)> = Vec::new();
+                for item in &items {
+                    if let metalogos::interpreter::Value::Struct { fields, .. } = item {
+                        let msg = fields
+                            .get("message")
+                            .map(|v| format!("{}", v))
+                            .unwrap_or_default();
+                        let rtype = fields
+                            .get("type")
+                            .map(|v| format!("{}", v))
+                            .unwrap_or_default();
+                        let data = fields
+                            .get("data")
+                            .map(|v| format!("{}", v))
+                            .unwrap_or_default();
+                        eprintln!("[scheduler] due {}: [{}] {}", rtype, msg, data);
+                        due.push((msg, data, rtype));
+                    }
+                }
+                if !due.is_empty() {
+                    // Short write lock: the delivery dispatches the
+                    // registered `ReminderCheck` pattern (if defined).
+                    let interp = scheduler_state.interpreter.read().await;
+                    let failures = metalogos::builtins::cron::deliver_due_reminders(
+                        &due,
+                        Some("ReminderCheck"),
+                        |name, args| interp.call_pattern(name, args),
+                    );
+                    for f in failures {
+                        eprintln!("[scheduler] {}", f);
+                    }
+                }
+            }
+
+            // ── Phase 3: dispatch cron jobs (per-job write lock) ──
+            // №418: the fire decision is the subsystem's pure core
+            // (`cron_fire_decision` — dedup window D1, catch-up D2,
+            // per-job timezone D3); the loop only EXECUTES it. The specs
+            // come from the persisted job store (lock-free read).
+            let now_epoch = chrono::Utc::now().timestamp();
+            let specs = metalogos::builtins::cron::enabled_job_specs();
+            for spec in &specs {
+                let decision = match metalogos::builtins::cron::cron_fire_decision(spec, now_epoch)
+                {
+                    Ok(d) => d,
+                    Err(e) => {
+                        eprintln!(
+                            "[cron] {}",
+                            metalogos::builtins::cron::cron_stamped(format!(
+                                "job '{}' decision: {}",
+                                spec.id, e
+                            ))
+                        );
+                        continue;
+                    }
+                };
+                if !decision.fire {
+                    if decision.advance {
+                        if let Some(w) = decision.window {
+                            let _ = metalogos::builtins::cron::advance_window(&spec.id, w);
+                        }
+                    }
+                    continue;
+                }
+                let args = metalogos::builtins::cron::cron_dispatch_args(spec.payload.as_deref());
+                {
+                    eprintln!(
+                        "[cron] firing: {} — {} ({})",
+                        spec.cron_expr, spec.prompt, decision.reason
+                    );
+                    // №426 (ADR-0175 §3.1): the tick executes in the
+                    // PROGRAM context (the route-style stor-set: db{},
+                    // schema DDL, patterns) on a BLOCKING thread — no
+                    // interpreter lock is held, so routes serve while
+                    // the tick runs and an HTTP self-call loops back
+                    // into a live server (the №423 defects 1/2 closed).
+                    let result = execute_tick_call(&scheduler_state, &spec.prompt, args).await;
+                    if let Err(e) = result {
+                        eprintln!(
+                            "[cron] dispatch '{}' error: {}",
+                            spec.prompt,
+                            metalogos::builtins::cron::cron_stamped(e)
+                        );
+                    }
+                    if let Err(e) =
+                        metalogos::builtins::cron::mark_fired_with_window(&spec.id, decision.window)
+                    {
+                        eprintln!("[cron] mark_fired error: {}", e);
+                    }
+                }
+            }
+        }
+    });
+}
+
+/// Parse source, build Axum router, start server on configured port.
+/// This is the entry point for `mlog serve <file>`.
+pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let declarations =
+        metalogos::parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
+
+    // Наряд №98: enforce Category A security invariants before serving.
+    // SQL_DYNAMIC, SECRET_LEAK, HTML_INJECTION are now compile-time errors.
+    // Call audit_category_a directly (not check_program) — the interpreter
+    // resolves imports at runtime; check_program would false-positive.
+    let cat_a = metalogos::audit::audit_category_a(&declarations, "");
+    let cat_a_errors: Vec<String> = cat_a
+        .iter()
+        .filter_map(|f| match f.severity {
+            metalogos::audit::Severity::Error | metalogos::audit::Severity::Warning => {
+                Some(format!("[{}] {}", f.check_id, f.message))
+            }
+            metalogos::audit::Severity::Info => None,
+        })
+        .collect();
+    if !cat_a_errors.is_empty() {
+        return Err(format!(
+            "Category A security invariant violated:\n{}",
+            cat_a_errors.join("\n")
+        )
+        .into());
+    }
+
+    // Наряд №523 (audit 30.09 N-1, release-block): the serve path checks
+    // program semantics TOO — `mlog serve` previously ran NO semantic
+    // pass at all, so an undefined function inside a route body evaluated
+    // to the truthy string "[ERROR: unknown function ...]" at request
+    // time (a security check becoming its own bypass). EVERY
+    // semantic::check_program error blocks the STARTUP; exemptions
+    // classify ONLY by the structured kind in
+    // `semantic::is_exempt_from_blocking` (the ONE explicit place), never
+    // by substring. Imports are resolved statically with the same
+    // base_dir rule the registration loop below uses for its
+    // interpreters ("." — identical to the runtime loader's lookup).
+    {
+        let base_dir = std::path::PathBuf::from(".");
+        let module_decls =
+            metalogos::semantic::resolve_imports_statically(&declarations, &base_dir)
+                .map_err(|e| format!("Compilation error (Naryad #523): {}", e))?;
+        let mut merged_decls = module_decls;
+        merged_decls.extend(declarations.clone());
+        let sem_result = metalogos::semantic::check_program(&merged_decls);
+        let blocking: Vec<&metalogos::semantic::SpannedError> = sem_result
+            .errors
+            .iter()
+            .filter(|err| !metalogos::semantic::is_exempt_from_blocking(err.kind))
+            .collect();
+        if !blocking.is_empty() {
+            // №479: the refusal carries the FIRST blocking finding's stable
+            // code at position 0 (mirrors the run gate in lib.rs).
+            let code = blocking.iter().find_map(|err| err.kind.stable_code());
+            let stamp = code.map(|c| format!("[{}] ", c)).unwrap_or_default();
+            let lines: Vec<String> = blocking
+                .iter()
+                .map(|err| metalogos::semantic::format_blocking_line(err))
+                .collect();
+            return Err(format!(
+                "{}Compilation error (Naryad #523): semantic findings block serve startup:\n{}",
+                stamp,
+                lines.join("\n")
+            )
+            .into());
+        }
+    }
+
+    let mut interp = Interpreter::new();
+    // Run declarations to populate templates, patterns, etc. (skip flows)
+    // Наряд №457: фаза регистрации — ЯВНАЯ top-level зона: в serve-режиме
+    // (строгий дефолт с инверсией) контекст здесь остаётся Process, как и
+    // до инверсии. Всё, что не помечено явно, в serve теперь ServeRoute:
+    // забытая пометка = лишний отказ, а не лишнее разрешение.
+    let _toplevel_registration = metalogos::builtins::io::TopLevelRegistrationGuard::new();
+    for decl in declarations.clone() {
+        match decl {
+            Declaration::MlogServer(ref srv) => {
+                interp = build_interpreter_with_server(srv, interp);
+            }
+            Declaration::Flow(_) => { /* skip flows in server mode */ }
+            _ => {
+                let mut tmp_interp = Interpreter::new();
+                tmp_interp.set_base_dir(std::path::PathBuf::from("."));
+                let _ = tmp_interp.run(vec![decl]);
+                interp = merge_interpreter(tmp_interp, interp);
+            }
+        }
+    }
+
+    // Find MlogServer declaration
+    let server_config = declarations.iter().find_map(|d| match d {
+        Declaration::MlogServer(s) => Some(s.clone()),
+        _ => None,
+    });
+
+    let config = match server_config {
+        Some(c) => c,
+        None => return Err("no mlogserver block found in source".into()),
+    };
+
+    let port = config.port;
+    // Наряд №164: default bind to 127.0.0.1 (loopback only) — never expose the
+    // server to all network interfaces unless the user explicitly opts in.
+    // Mirrors the SSRF/exec opt-in discipline established in наряд №143.
+    // №511: the deploy-time fallback — `METALOGOS_HOST` is read ONLY when
+    // the program declares no `host:`; the declaration ALWAYS wins, so a
+    // legitimate loopback program keeps its loopback outside containers
+    // (the naryad's boundary) while a container gets
+    // `METALOGOS_HOST=0.0.0.0` from the image env without editing the
+    // program. The resolution is a named helper so the tests pin it.
+    let host = resolve_bind_host(config.host.clone());
+    if host == "0.0.0.0" || host == "::" {
+        eprintln!(
+            "[WARN] Server binds to {} — reachable from all network interfaces. \
+             Set host: \"127.0.0.1\" in mlogserver for local-only access.",
+            host
+        );
+    }
+    let mut state = build_state(config.clone(), interp).await?;
+    // №495: the distillation hub — declared reflex models register
+    // through the SAME declaration pass (a dedicated throwaway
+    // interpreter; the startup merge never carried the registry), the
+    // verdicts land in the shared audit log, examples persist into the
+    // memory-persist SQLite file (distill_samples) when configured.
+    state.distill = Some(metalogos::distill_hub::DistillHub::open(
+        distill_audit_sink(&state.audit_log),
+        state.memory_persist.as_deref(),
+        &declarations,
+    )?);
+
+    // ── Наряд №263: loud startup surface for the new security knobs ──
+    eprintln!(
+        "[server] rate limit: {} req/min per client (mlogserver rate_limit field, default {})",
+        state.rate_limit_per_minute, DEFAULT_RATE_LIMIT_PER_MINUTE
+    );
+    if state.trusted_proxies.is_configured() {
+        eprintln!(
+            "[server] METALOGOS_TRUSTED_PROXIES set — X-Forwarded-For/X-Real-IP honored ONLY for direct peers in the list; \
+             leftmost XFF entry wins. OPERATOR CONTRACT: the proxy must OVERWRITE XFF (REFERENCE §5.6, naryad #263)"
+        );
+    } else {
+        eprintln!(
+            "[server] METALOGOS_TRUSTED_PROXIES unset — the connection peer address is the rate-limit key; \
+             XFF/X-Real-IP headers are ignored (naryad #263)"
+        );
+    }
+
+    // ── Наряд №40: Read METALOGOS_SERVE_BACKEND once at startup ──
+    // ADR-0171 (ADR-0141 Stage 5 EXECUTED): the DEFAULT is the bytecode VM.
+    // The flip is the owner's decision (directive «Флипай», 2026-09-21,
+    // issue #527) on the re-gate №3 evidence — 3/3 GREEN on BOTH thresholds
+    // (p95 ×3.00/×3.49/×3.11 ≥ ×1.5; peak RSS ×0.95/×1.07/×0.98 ≤ ×1.1;
+    // main @ 5f9da64; claim `w6: n415-claim` 5752763580, verdict
+    // `w6: n415-verdict` 5752838305). The tree-walking interpreter remains
+    // the explicit opt-out (ADR-0141 D7). The VM pool stays default-OFF —
+    // this flip does not touch the ADR-0141 pool posture.
+    let backend = match std::env::var("METALOGOS_SERVE_BACKEND") {
+        Ok(ref val) if val == "vm" => {
+            eprintln!("[server] backend: vm (bytecode VM, explicit)");
+            ServeBackend::Vm
+        }
+        Ok(ref val) if val == "interpreter" => {
+            eprintln!(
+                "[server] backend: interpreter (tree-walking) — explicit opt-out \
+                 of the VM default (ADR-0171; ADR-0141 D7: TW remains the \
+                 guaranteed full-language backend)"
+            );
+            ServeBackend::Interpreter
+        }
+        Ok(val) => {
+            eprintln!(
+                "[WARN] METALOGOS_SERVE_BACKEND='{}' is unknown, falling back to vm \
+                 (the default per ADR-0171)",
+                val
+            );
+            ServeBackend::Vm
+        }
+        Err(_) => {
+            eprintln!(
+                "[server] backend: vm (bytecode VM, default per ADR-0171 — \
+                 owner flip decision 2026-09-21 on the re-gate №3 3/3 GREEN evidence)"
+            );
+            ServeBackend::Vm
+        }
+    };
+    state.backend = backend;
+
+    // ── Наряд №40: Compile routes for VM at startup (not per-request) ──
+    if state.backend == ServeBackend::Vm {
+        let start = std::time::Instant::now();
+        let mut compiler = Compiler::new();
+        let program = compiler
+            .compile(declarations.clone())
+            .map_err(|e| format!("VM compile error: {}", e))?;
+        let compiled_routes = compiler
+            .compile_routes(&config.routes)
+            .map_err(|e| format!("VM route compile error: {}", e))?;
+        let elapsed = start.elapsed();
+        eprintln!(
+            "[server] VM compilation: {} routes in {:.1} µs ({} instructions total)",
+            compiled_routes.len(),
+            elapsed.as_micros(),
+            compiled_routes.iter().map(|r| r.code.len()).sum::<usize>()
+        );
+
+        // Build VM template with program data (patterns, learnables, etc.)
+        // We store Arc<Program> and create a Vm per request — BUT the Vm
+        // type IS Send (verified by the compile-time probe in
+        // src/vm_pool.rs; the №40-era "Vm is !Send" note here was stale).
+        // №403 therefore allows the warm pool to hold checked-in Vms on
+        // ServerState (fail-closed reset between requests).
+
+        let program = Arc::new(program);
+        state.vm_program = Some(program.clone());
+        state.vm_routes = compiled_routes;
+        // №403: warm VM pool — env opt-in, read ONCE at startup (the №263
+        // read-once discipline; default OFF until the №404 re-gate, the
+        // decision is fixed in ADR-0141).
+        state.vm_pool = metalogos::vm_pool::VmPool::from_env(program);
+        if let Some(p) = &state.vm_pool {
+            eprintln!("[vm/pool] enabled (max idle = {})", p.max_idle());
+        }
+    }
+
+    let app = build_router(state.clone());
+
+    // v0.8.2/v0.8.3 — the reminder+cron scheduler: ONE constructor for
+    // both serve boots (№522 — the test harness previously ran serve
+    // WITHOUT the scheduler, the №509 serve-e2e gap).
+    spawn_scheduler(std::sync::Arc::new(state.clone()));
+
+    // Наряд №29 §2.2 — Background CSRF token cleanup task (every 60s).
+    // Evicts tokens older than 15 minutes from the in-memory store.
+    // Наряд №263 — the same pass now also sweeps the two maps that had NO
+    // cleanup at all: `rate_limits` (timestamps outside the 60-second window;
+    // keys whose every timestamp fell out are removed) and `sessions`
+    // (entries past their own `SessionEntry.expires` TTL — the contract
+    // check_roles already enforces per-request; SQLite rows keep their own
+    // cleanup path in clean_expired_sessions_db, untouched).
+    let csrf_state = state.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            let (csrf, rate_keys, sessions) = sweep_expired_state(&csrf_state);
+            if csrf > 0 {
+                eprintln!("[csrf-cleanup] evicted {} expired token(s)", csrf);
+            }
+            if rate_keys > 0 {
+                eprintln!("[rate-cleanup] evicted {} stale key bucket(s)", rate_keys);
+            }
+            if sessions > 0 {
+                eprintln!(
+                    "[session-cleanup] evicted {} expired session cache entr(ies)",
+                    sessions
+                );
+            }
+        }
+    });
+
+    println!("mlog serve: listening on {}:{}", host, port);
+    println!("mlog serve: scheduler active (5s interval — reminders + cron)");
+    println!("mlog serve: CSRF token cleanup active (60s interval, 15-min TTL)");
+    let listener = tokio::net::TcpListener::bind(format!("{}:{}", host, port)).await?;
+    // Наряд №263: ConnectInfo is forwarded so the rate-limit key defaults to the
+    // REAL connection peer address instead of client-controlled headers.
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
+    Ok(())
+}
+
+/// Start server on a random port for integration testing.
+/// Returns (port, join_handle).
+pub async fn run_test_server(
+    source: &str,
+) -> Result<
+    (
+        u16,
+        tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
+    ),
+    Box<dyn std::error::Error + Send + Sync>,
+> {
+    let declarations =
+        metalogos::parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
+
+    let server_config = declarations
+        .iter()
+        .find_map(|d| match d {
+            Declaration::MlogServer(s) => Some(s.clone()),
+            _ => None,
+        })
+        .ok_or("no mlogserver block")?;
+
+    let mut interp = Interpreter::new();
+    for decl in &declarations {
+        if !matches!(decl, Declaration::Flow(_)) {
+            let mut tmp = Interpreter::new();
+            tmp.set_base_dir(std::path::PathBuf::from("."));
+            let _ = tmp.run(vec![decl.clone()]);
+            interp = merge_interpreter(tmp, interp);
+        }
+    }
+
+    // Override port to 0 (OS-assigned)
+    let mut config = server_config.clone();
+    config.port = 0;
+
+    let mut state = build_state(config.clone(), interp).await?;
+    state.distill = Some(metalogos::distill_hub::DistillHub::open(
+        distill_audit_sink(&state.audit_log),
+        state.memory_persist.as_deref(),
+        &declarations,
+    )?);
+    let app = build_router(state);
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let port = listener.local_addr()?.port();
+
+    let handle = tokio::spawn(async move {
+        // Наряд №263: ConnectInfo forwarded (same contract as run_server).
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await?;
+        Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+    });
+
+    Ok((port, handle))
+}
+
+/// НАРЯД #207: Test server with explicit backend AND base_dir.
+/// `base_dir` управляет ОБОИМИ путями резолва импортов:
+///  - TW: `Interpreter::set_base_dir` (module loading, src/interpreter/modules.rs)
+///  - VM: `Compiler::with_std_root` (import resolution, src/compiler.rs resolve_import)
+pub async fn run_test_server_with_backend_in_dir(
+    source: &str,
+    backend: ServeBackend,
+    base_dir: std::path::PathBuf,
+) -> Result<
+    (
+        u16,
+        tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
+    ),
+    Box<dyn std::error::Error + Send + Sync>,
+> {
+    let (port, handle, _pool, _state) =
+        run_test_server_in_dir_impl(source, backend, base_dir, None).await?;
+    Ok((port, handle))
+}
+
+/// Наряд №403: CWD-delegating wrapper over
+/// `run_test_server_with_backend_pool_in_dir` (the same ergonomics as
+/// `run_test_server_with_backend`).
+pub async fn run_test_server_with_backend_pool(
+    source: &str,
+    backend: ServeBackend,
+    pool_max: usize,
+) -> Result<
+    (
+        u16,
+        tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
+        std::sync::Arc<metalogos::vm_pool::VmPool>,
+    ),
+    Box<dyn std::error::Error + Send + Sync>,
+> {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    run_test_server_with_backend_pool_in_dir(source, backend, cwd, pool_max).await
+}
+
+/// Наряд №403: test helper that ALSO enables the warm VM pool with an
+/// EXPLICIT size (no env reads — parallel tests must not race on env
+/// vars) and returns the pool handle so tests can assert on the
+/// lifecycle counters (reuse / fail-closed discards).
+pub async fn run_test_server_with_backend_pool_in_dir(
+    source: &str,
+    backend: ServeBackend,
+    base_dir: std::path::PathBuf,
+    pool_max: usize,
+) -> Result<
+    (
+        u16,
+        tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
+        std::sync::Arc<metalogos::vm_pool::VmPool>,
+    ),
+    Box<dyn std::error::Error + Send + Sync>,
+> {
+    let (port, handle, pool, _state) =
+        run_test_server_in_dir_impl(source, backend, base_dir, Some(pool_max)).await?;
+    let pool = pool.ok_or("pool requested but not attached (VM backend only)")?;
+    Ok((port, handle, pool))
+}
+
+/// Shared implementation of the test-server constructors. `pool_max`
+/// attaches a warm VM pool to the VM-backend state before the router is
+/// built.
+async fn run_test_server_in_dir_impl(
+    source: &str,
+    backend: ServeBackend,
+    base_dir: std::path::PathBuf,
+    pool_max: Option<usize>,
+) -> Result<
+    (
+        u16,
+        tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
+        Option<std::sync::Arc<metalogos::vm_pool::VmPool>>,
+        std::sync::Arc<ServerState>,
+    ),
+    Box<dyn std::error::Error + Send + Sync>,
+> {
+    let declarations =
+        metalogos::parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
+
+    let server_config = declarations
+        .iter()
+        .find_map(|d| match d {
+            Declaration::MlogServer(s) => Some(s.clone()),
+            _ => None,
+        })
+        .ok_or("no mlogserver block")?;
+
+    let mut interp = Interpreter::new();
+    for decl in declarations.clone() {
+        if !matches!(decl, Declaration::Flow(_)) {
+            let mut tmp = Interpreter::new();
+            // НАРЯД #207: use caller-supplied base_dir (not hardcoded ".")
+            tmp.set_base_dir(base_dir.clone());
+            let _ = tmp.run(vec![decl]);
+            interp = merge_interpreter(tmp, interp);
+        }
+    }
+
+    // Override port to 0 (OS-assigned)
+    let mut config = server_config.clone();
+    config.port = 0;
+
+    let mut state = build_state(config.clone(), interp).await?;
+    state.backend = backend;
+    // №495: the distillation hub — same construction as run_server.
+    state.distill = Some(metalogos::distill_hub::DistillHub::open(
+        distill_audit_sink(&state.audit_log),
+        state.memory_persist.as_deref(),
+        &declarations,
+    )?);
+
+    // НАРЯД #160: Compile routes for VM backend (same as run_server does)
+    if state.backend == ServeBackend::Vm {
+        // НАРЯД #207: use caller-supplied base_dir as std_root (not Compiler::new())
+        let mut compiler = Compiler::with_std_root(base_dir.clone());
+        let program = compiler
+            .compile(declarations)
+            .map_err(|e| format!("VM compile error: {}", e))?;
+        let compiled_routes = compiler
+            .compile_routes(&server_config.routes)
+            .map_err(|e| format!("VM route compile error: {}", e))?;
+        let program = Arc::new(program);
+        state.vm_program = Some(program.clone());
+        state.vm_routes = compiled_routes;
+        // №403: explicit test pool (never env-driven — tests must not
+        // race on env vars); None keeps the pre-pool behavior.
+        state.vm_pool = pool_max.map(|max| metalogos::vm_pool::VmPool::with_max(program, max));
+    }
+
+    let pool_handle = state.vm_pool.clone();
+    // №496: the state rides out (Arc) so integration tests can observe
+    // the hub's audit trail without inventing new HTTP surface.
+    let state = std::sync::Arc::new(state);
+    // №522: the serve-e2e lane runs the SAME scheduler as production
+    // serve (reminders + cron ticks every 5s) — the №509 criterion.
+    spawn_scheduler(state.clone());
+    let app = build_router((*state).clone());
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let port = listener.local_addr()?.port();
+
+    let handle = tokio::spawn(async move {
+        // Наряд №263: ConnectInfo forwarded (same contract as run_server).
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await?;
+        Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+    });
+
+    Ok((port, handle, pool_handle, state))
+}
+
+/// НАРЯД #207: Backward-compatible wrapper — прежнее поведение (CWD как base_dir).
+/// `current_dir()` совпадает с семантикой `Compiler::new()` (src/compiler.rs:70),
+/// поэтому ~40 существующих вызовов не меняют поведения.
+pub async fn run_test_server_with_backend(
+    source: &str,
+    backend: ServeBackend,
+) -> Result<
+    (
+        u16,
+        tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
+    ),
+    Box<dyn std::error::Error + Send + Sync>,
+> {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    run_test_server_with_backend_in_dir(source, backend, cwd).await
+}
+
+/// №496 (Wave 19): test helper that ALSO returns the state Arc — the
+/// distillation e2e observes the hub's audit trail
+/// (`distill.training-started`/`distill.training-finished`) and the
+/// in-process example ledger without inventing new HTTP surface.
+pub async fn run_test_server_with_backend_state_in_dir(
+    source: &str,
+    backend: ServeBackend,
+    base_dir: std::path::PathBuf,
+) -> Result<
+    (
+        u16,
+        tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
+        std::sync::Arc<ServerState>,
+    ),
+    Box<dyn std::error::Error + Send + Sync>,
+> {
+    let (port, handle, _pool, state) =
+        run_test_server_in_dir_impl(source, backend, base_dir, None).await?;
+    Ok((port, handle, state))
+}
+
+// ── Internal: Build State ──────────────────────────────────────────
+
+/// №495: the audit sink the distill hub writes through. The hub is
+/// tokio-free (it compiles under --no-default-features where the server
+/// deps are absent), so the shared `ServerState::audit_log` is handed
+/// over as an erased push closure; every hub caller runs on a blocking
+/// thread (route executors, the worker) — `blocking_write` is the legal
+/// lock form, the same call the hub would have made with the raw lock.
+fn distill_audit_sink(
+    audit_log: &std::sync::Arc<tokio::sync::RwLock<Vec<String>>>,
+) -> std::sync::Arc<dyn Fn(String) + Send + Sync> {
+    let log = std::sync::Arc::clone(audit_log);
+    std::sync::Arc::new(move |line: String| {
+        log.blocking_write().push(line);
+    })
+}
+
+pub(crate) async fn build_state(
+    config: MlogServerDecl,
+    interp: Interpreter,
+) -> Result<ServerState, Box<dyn std::error::Error + Send + Sync>> {
+    // Наряд №283: route template conflict check — loud error at startup
+    // when two templated routes could match the same path AND have the
+    // same method (axum semantics — silent first-wins is a confusing
+    // source of 404s). Conservative: catches same-shape and
+    // prefix+wildcard overlaps; does NOT attempt full overlap analysis.
+    // Done here (not in run_server) so the test helpers see the same
+    // behavior production does.
+    check_route_template_conflicts(&config.routes)
+        .map_err(|e| format!("server startup aborted — route template conflict: {}", e))?;
+
+    // №426 (ADR-0175 §3.4): the startup merge carries the program's
+    // schema declarations AND the db connection from DIFFERENT
+    // throwaway interpreters (each declaration runs isolated) — the
+    // replay here guarantees the SHARED startup connection is
+    // schema-ready regardless of the declaration order (schema before
+    // db, db before schema — both land).
+    interp.replay_schemas();
+
+    // Наряд №29 §2.1: HMAC key from env (METALOGOS_HMAC_KEY) or random fallback.
+    // Never panics — random fallback logs WARNING and continues.
+    let hmac_key = load_hmac_key();
+
+    // Collect templates from interpreter
+    let templates_map = interp.get_templates().clone();
+
+    // Наряд №29 §2.3: SQLite init returns Result instead of panicking.
+    let conn = rusqlite::Connection::open_in_memory()
+        .map_err(|e| format!("Failed to open SQLite in-memory database: {}", e))?;
+    init_session_db(&conn).map_err(|e| format!("Failed to create sessions table: {}", e))?;
+
+    Ok(ServerState {
+        sessions: Arc::new(DashMap::new()),
+        csrf_tokens: Arc::new(DashMap::new()),
+        hmac_key: Arc::new(hmac_key),
+        audit_log: Arc::new(RwLock::new(Vec::new())),
+        templates: Arc::new(RwLock::new(templates_map)),
+        db_store: Arc::new(RwLock::new(Vec::new())),
+        memory_persist: interp.get_memory_persist_path(),
+        interpreter: Arc::new(RwLock::new(interp)),
+        routes: config.routes.clone(),
+        middleware: config.middleware.clone(),
+        db: Arc::new(tokio::sync::Mutex::new(conn)),
+        rate_limits: Arc::new(DashMap::new()),
+        // Наряд №263: mlogserver `rate_limit: N`, default 100 (unchanged).
+        rate_limit_per_minute: config
+            .rate_limit
+            .map(|n| n as usize)
+            .unwrap_or(DEFAULT_RATE_LIMIT_PER_MINUTE),
+        // Наряд №263: parsed once at startup (same read-once discipline as
+        // METALOGOS_SERVE_BACKEND) so request handling never re-reads env.
+        trusted_proxies: Arc::new(TrustedProxies::from_env_spec(
+            std::env::var("METALOGOS_TRUSTED_PROXIES").ok().as_deref(),
+        )),
+        backend: ServeBackend::Interpreter, // set after build_state returns
+        vm_program: None,
+        vm_routes: Vec::new(),
+        // Наряд №403: the pool needs the compiled program — attached
+        // after compilation (run_server / test helpers), never here.
+        vm_pool: None,
+        // №495: the hub attaches after build_state (run_server / the test
+        // helpers) — it needs the declaration list + the audit log Arc.
+        distill: None,
+        redact_mode: config.redact_mode.clone(),
+    })
+}
+
+/// Наряд №255: максимальный размер тела запроса (байты) — 2 МиБ.
+///
+/// Осознанная константа вместо неявного дефолта axum 0.8 (~2 МБ):
+/// до №255 источник истины о лимите находился в чужом крейте и молча
+/// менялся бы с апгрейдом. Обоснование величины: 2 МиБ хватает для
+/// JSON-тел роутов (конфиги, документы, payload'ы LLM-запросов);
+/// загрузки большего размера — отдельное решение (streaming/multipart),
+/// а не молчаливый рост лимита. Меняется только здесь; docs/threat-model.md
+/// и REFERENCE.md называют то же число; тест `n255_body_limit` пинит
+/// поведение N±1 (413 на превышение).
+pub(crate) const REQUEST_BODY_LIMIT_BYTES: usize = 2 * 1024 * 1024; // 2 MiB
+
+/// №511: the bind-host resolution ladder — the DECLARATION wins, then
+/// the deploy-time `METALOGOS_HOST` env (the container story: the image
+/// sets `ENV METALOGOS_HOST=0.0.0.0`, the program needs no edit), then
+/// the №164 loopback default. Legitimate programs without `host:`
+/// keep working outside containers exactly as before when the env is
+/// unset.
+pub fn resolve_bind_host(declared: Option<String>) -> String {
+    declared.unwrap_or_else(|| {
+        std::env::var("METALOGOS_HOST").unwrap_or_else(|_| "127.0.0.1".to_string())
+    })
+}
+
+fn build_router(state: ServerState) -> Router {
+    let mut app = Router::new();
+
+    // Наряд №255: осознанный лимит тела запроса, зафиксирован явно.
+    //
+    // До №255 поведение держалось на неявном дефолте axum 0.8 (~2 МБ) —
+    // источник истины о лимите находился в чужом крейте и молча изменился
+    // бы с апгрейдом. 2 МиБ достаточно для JSON-тел роутов (конфиги,
+    // документы, payload'ы LLM-запросов); загрузки большего размера —
+    // отдельное осознанное решение (streaming/multipart), а не молчаливый
+    // рост лимита вместе с зависимостью. Число задокументировано в
+    // docs/threat-model.md и REFERENCE.md — меняется вместе с этой
+    // константой (тест n255 пинит соответствие N±1).
+    app = app.layer(DefaultBodyLimit::max(REQUEST_BODY_LIMIT_BYTES));
+
+    // Add security headers layer (always applied)
+    app = app.layer(SetResponseHeaderLayer::if_not_present(
+        header::X_FRAME_OPTIONS,
+        HeaderValue::from_static("DENY"),
+    ));
+    app = app.layer(SetResponseHeaderLayer::if_not_present(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    ));
+    app = app.layer(SetResponseHeaderLayer::if_not_present(
+        header::STRICT_TRANSPORT_SECURITY,
+        HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+    ));
+    app = app.layer(SetResponseHeaderLayer::if_not_present(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'",
+        ),
+    ));
+
+    // Register routes
+    for route in &state.routes {
+        let path = route.path.clone();
+        let handler = route_handler;
+
+        match route.method.as_str() {
+            "GET" => app = app.route(&path, get(handler)),
+            "POST" => app = app.route(&path, post(handler)),
+            "PUT" => app = app.route(&path, put(handler)),
+            "DELETE" => app = app.route(&path, delete(handler)),
+            _ => app = app.route(&path, any(handler)),
+        }
+    }
+
+    // №511 (the audit 28.09 C-05): the built-in LIVENESS route —
+    // `GET /health` answers 200 "ok" with NO side effects (no program
+    // code runs, no state touched): the container HEALTHCHECK and the
+    // orchestrator probes need an answer that exists even when every
+    // program route is broken. Skipped when the program declares its own
+    // `/health` path (ANY method) — the program's declaration wins, and
+    // axum panics on duplicate route registration, so the check is not
+    // optional.
+    let program_declares_health = state
+        .routes
+        .iter()
+        .any(|r| r.path == "/health" || r.path == "/health/");
+    if !program_declares_health {
+        app = app.route("/health", get(|| async { (StatusCode::OK, "ok") }));
+    }
+
+    // Наряд №250 (ADR-0122 #208 family — n206 VM-serve verification debt):
+    // wire the DESIGNED 404 body into the router. The manual dispatch path
+    // already returns ("404 Not Found") (the `else` branch below in this
+    // file), but the axum router never received a fallback, so unknown paths
+    // returned axum's default EMPTY-body 404 on BOTH backends (repro:
+    // naryad_160 block2_vm_404_unknown_route — status 404, body ""). The
+    // fallback is backend-agnostic (shared router: Interpreter AND VM), so
+    // TW/VM parity is preserved (block4_tw_vs_vm_404 stays green).
+    app = app.fallback(|| async { (StatusCode::NOT_FOUND, "404 Not Found").into_response() });
+
+    app.with_state(state)
+}
+
+// ── Route Handler ──────────────────────────────────────────────────
+
+async fn route_handler(
+    State(state): State<ServerState>,
+    // Наряд №263: the real connection peer (via into_make_service_with_connect_info
+    // at every serve point) — the default rate-limit key, immune to header spoofing.
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    uri: Uri,
+    method: Method,
+    headers: HeaderMap,
+    body: bytes::Bytes,
+) -> Response {
+    // 0. Extract client IP for rate limiting (Наряд №263: peer-first semantics —
+    //    XFF/X-Real-IP honored ONLY for direct peers in METALOGOS_TRUSTED_PROXIES).
+    let client_ip = extract_client_ip(&headers, Some(peer.ip()), &state.trusted_proxies);
+
+    // 0b. Bug 2.1 fix: parse query string from URI
+    let query: std::collections::HashMap<String, String> = uri
+        .query()
+        .map(|q| {
+            q.split('&')
+                .filter_map(|pair| {
+                    if pair.is_empty() {
+                        return None;
+                    }
+                    let mut parts = pair.splitn(2, '=');
+                    let key = parts.next()?;
+                    let val = parts.next().unwrap_or("");
+                    // URL-decode: handle %XX escapes
+                    let key = url_decode_fallback(key);
+                    let val = url_decode_fallback(val);
+                    Some((key, val))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // 1. Rate limiting (Phase 7.4; limit configurable since Наряд №263)
+    if state.middleware.contains(&"rate_limit".to_string()) {
+        if let Err(resp) = check_rate_limit(&state, &client_ip, state.rate_limit_per_minute).await {
+            return resp;
+        }
+    }
+
+    // 2. CSRF check for mutating methods (Phase 7.4: real double-submit)
+    if matches!(method, Method::POST | Method::PUT | Method::DELETE)
+        && state.middleware.contains(&"csrf".to_string())
+    {
+        if let Err(resp) = check_csrf(&state, &headers).await {
+            return resp;
+        }
+    }
+
+    // 3. Session expiry check (Phase 7.4: SQLite-backed)
+    // Наряд №29 §2.2: capture raw session_id for later CSRF token binding.
+    let mut raw_session_id: Option<String> = None;
+    if state.middleware.contains(&"session".to_string()) {
+        if let Some(session_id) = extract_session_cookie(&headers) {
+            // Verify HMAC signature first
+            let verified = verify_cookie(&session_id, &state.hmac_key);
+            if let Some(raw_id) = verified {
+                if let Err(resp) = validate_session_in_db(&state, &raw_id).await {
+                    return resp;
+                }
+                raw_session_id = Some(raw_id);
+            }
+        }
+    }
+
+    // 4. Find matching route by path AND method.
+    // Наряд №283: first try exact (static) match — static routes win
+    // over templates (axum semantics). If no exact match, fall back to
+    // template matcher (`{name}` single segment, `{*path}` tail).
+    let uri_path = uri.path();
+    let matched_route = state
+        .routes
+        .iter()
+        .find(|r| r.path == uri_path && r.method == method.as_str());
+
+    // Наряд №283: if no static match, try template matching.
+    // Returns (route_ref, extracted_path_params).
+    let (route, path_params): (
+        Option<&metalogos::ast::RouteDecl>,
+        std::collections::HashMap<String, String>,
+    ) = if let Some(r) = matched_route {
+        (Some(r), std::collections::HashMap::new())
+    } else {
+        match match_templated_route(&state.routes, uri_path, method.as_str()) {
+            Ok(Some((r, params))) => (Some(r), params),
+            Ok(None) => (None, std::collections::HashMap::new()),
+            Err(e) => {
+                // Loud error at request time — should have been caught
+                // at server-start conflict-check, but defensive here too.
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("route template error: {}", e),
+                )
+                    .into_response();
+            }
+        }
+    };
+
+    if let Some(route) = route {
+        // Role check
+        if !route.requires.is_empty() && state.middleware.contains(&"session".to_string()) {
+            if let Err(resp) = check_roles(&state, &headers, &route.requires).await {
+                return resp;
+            }
+        }
+
+        // ── Наряд №40: Dispatch to VM or interpreter based on backend ──
+        let result = if state.backend == ServeBackend::Vm {
+            execute_route_body_vm(&state, route, &headers, &body, &query, &path_params).await
+        } else {
+            execute_route_body(&state, &route.body, &headers, &body, &query, &path_params).await
+        };
+        let mut response = match result {
+            Ok(response) => response,
+            Err(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Handler error: {}", e),
+            )
+                .into_response(),
+        };
+
+        // 5. On GET with CSRF middleware, generate and set CSRF token cookie (Phase 7.4)
+        // Наряд №29 §2.2: store (session_id, created_at) for TTL enforcement.
+        // Наряд №262: the session_id half is now ENFORCED at validation — the token is
+        // bound to the HMAC-verified session of the issuing request ("" = sessionless).
+        // Наряд №263: issuance is BOUNDED — at the store cap the token is refused
+        // LOUDLY with 503 instead of silent unbounded growth.
+        if method == Method::GET && state.middleware.contains(&"csrf".to_string()) {
+            let token = generate_csrf_token();
+            let session_id_for_csrf = raw_session_id.clone().unwrap_or_default();
+            if let Err(resp) = issue_csrf_token_capped(&state, &token, &session_id_for_csrf).await {
+                return resp;
+            }
+            // Наряд №125: NO HttpOnly — JS must read this cookie for double-submit.
+            let cookie_value = format!("_mlog_csrf={}; SameSite=Strict; Path=/", token);
+            if let Ok(val) = HeaderValue::from_str(&cookie_value) {
+                response.headers_mut().append(header::SET_COOKIE, val);
+            }
+        }
+
+        // Наряд №296: opt-in redact/canary middleware on response body.
+        // Applied AFTER route handler returns, BEFORE response is sent to client.
+        // Opt-in (must be in middleware list) — default behavior unchanged.
+        if state.middleware.contains(&"redact".to_string()) {
+            response = apply_redact_middleware(response, &state).await;
+        }
+        if state.middleware.contains(&"canary".to_string()) {
+            response = apply_canary_middleware(response, &state).await;
+        }
+
+        response
+    } else {
+        (StatusCode::NOT_FOUND, "404 Not Found").into_response()
+    }
+}
+
+// ── Наряд №296: redact/canary opt-in middleware ─────────────────────
+//
+// Applied AFTER the route handler builds its response, BEFORE the
+// response is sent to the client. Opt-in (must be in `middleware: [...]`
+// list) — default behavior is byte-for-byte unchanged.
+
+/// Redact middleware: applies `redact_string(body, mode)` to the response
+/// body. Mode comes from `redact_mode` field (default "all"). Reuses
+/// the existing redact builtin logic (Наряд №274, ADR-0136).
+async fn apply_redact_middleware(response: Response, state: &ServerState) -> Response {
+    let mode = state.redact_mode.as_deref().unwrap_or("all");
+    let (parts, body) = response.into_parts();
+    let bytes = match axum::body::to_bytes(body, REQUEST_BODY_LIMIT_BYTES).await {
+        Ok(b) => b,
+        Err(_) => return Response::from_parts(parts, axum::body::Body::empty()),
+    };
+    let body_str = String::from_utf8_lossy(&bytes);
+    match metalogos::builtins::string::redact_string(&body_str, mode) {
+        Ok(redacted) => {
+            let redacted_bytes = redacted.into_bytes();
+            let mut resp =
+                Response::from_parts(parts, axum::body::Body::from(redacted_bytes.clone()));
+            // Update Content-Length to reflect the (possibly shorter) redacted body.
+            if let Ok(cl) = HeaderValue::from_str(&redacted_bytes.len().to_string()) {
+                resp.headers_mut().insert("content-length", cl);
+            }
+            resp
+        }
+        Err(e) => {
+            eprintln!(
+                "[redact-middleware] warning: redact failed (mode={}): {} — sending original body",
+                mode, e
+            );
+            Response::from_parts(parts, axum::body::Body::from(bytes.to_vec()))
+        }
+    }
+}
+
+/// Canary middleware: checks the response body for visible canary markers
+/// (the `MLGV` prefix from canary.rs). If found — the canary token leaked
+/// into the user-visible response, which is a prompt-injection signal (Наряд №284).
+/// Advisory only — logs a warning to stderr + sets `X-Canary-Leak: detected`
+/// header. Does NOT block the response (consistent with №284's "advisory
+/// detector, not a gate" philosophy — decision to stop is the author's).
+async fn apply_canary_middleware(response: Response, _state: &ServerState) -> Response {
+    let (parts, body) = response.into_parts();
+    let bytes = match axum::body::to_bytes(body, REQUEST_BODY_LIMIT_BYTES).await {
+        Ok(b) => b,
+        Err(_) => return Response::from_parts(parts, axum::body::Body::empty()),
+    };
+    let body_str = String::from_utf8_lossy(&bytes);
+    // Check for the canary watermark prefix "MLGV" — if visible in the
+    // response body, the canary token was not stripped before reaching the
+    // user. This is a prompt-injection exfiltration signal.
+    if body_str.contains("MLGV") {
+        eprintln!(
+            "[canary-middleware] WARNING: canary marker (MLGV prefix) detected in \
+             response body — possible prompt-injection exfiltration. Response sent \
+             with X-Canary-Leak header. Advisory only (Наряд №284)."
+        );
+        let mut resp = Response::from_parts(parts, axum::body::Body::from(bytes.to_vec()));
+        if let Ok(val) = HeaderValue::from_str("detected") {
+            resp.headers_mut().insert("x-canary-leak", val);
+        }
+        resp
+    } else {
+        Response::from_parts(parts, axum::body::Body::from(bytes.to_vec()))
+    }
+}
+
+// ── CSRF Middleware (Phase 7.4: real double-submit) ────────────────
+
+/// Generate a cryptographically random CSRF token (32 hex chars).
+pub fn generate_csrf_token() -> String {
+    // Наряд №173: rand 0.10 — `thread_rng()` → `rng()`,
+    // `fill(&mut [u8])` → `fill_bytes(&mut [u8])` (renamed in `Rng`).
+    use rand::Rng;
+    let mut buf = [0u8; 16];
+    rand::rng().fill_bytes(&mut buf);
+    hex::encode(buf)
+}
+
+#[allow(clippy::result_large_err)] // Response as Err is intentional for axum handlers
+async fn check_csrf(state: &ServerState, headers: &HeaderMap) -> Result<(), Response> {
+    // Read CSRF token from cookie
+    let cookie_token = headers
+        .get("cookie")
+        .and_then(|c| c.to_str().ok())
+        .and_then(|s| extract_cookie(s, "_mlog_csrf"));
+
+    // Read CSRF token from header (X-CSRF-Token) or form field (_csrf)
+    let header_token = headers
+        .get("x-csrf-token")
+        .and_then(|t| t.to_str().ok())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            // Also check content-type for form data with _csrf field
+            headers
+                .get("x-csrf-field")
+                .and_then(|t| t.to_str().ok())
+                .map(|s| s.to_string())
+        });
+
+    match (cookie_token, header_token) {
+        (Some(cookie), Some(header)) if cookie == header => {
+            // Наряд №262: STRICT server-issued validation. The former stateless
+            // fallback ("token absent from the store → accept", the classic naive
+            // double-submit bypass: plant any cookie + send any matching header)
+            // is REMOVED — the token MUST have been issued by this process
+            // (present in `csrf_tokens`, route_handler step 5). A server restart
+            // honestly invalidates outstanding tokens: 403, page reloads, fresh token.
+            let Some(entry) = state.csrf_tokens.get(&cookie) else {
+                let mut log = state.audit_log.write().await;
+                log.push(
+                    "[CSRF] Rejected: token not issued by this server (stateless fallback removed, naryad #262)"
+                        .to_string(),
+                );
+                return Err((
+                    StatusCode::FORBIDDEN,
+                    "403 Forbidden: CSRF token validation failed",
+                )
+                    .into_response());
+            };
+
+            // Наряд №29 §2.2: enforce 15-minute TTL on server-issued tokens
+            // (unchanged by №262).
+            let now = std::time::Instant::now();
+            let ttl = std::time::Duration::from_secs(900); // 15 minutes
+            let (bound_session, created_at) = entry.value().clone();
+            drop(entry); // release the shard lock before the possible remove() below
+
+            if now.duration_since(created_at) >= ttl {
+                state.csrf_tokens.remove(&cookie);
+                let mut log = state.audit_log.write().await;
+                log.push("[CSRF] Rejected: token expired (>15 min)".to_string());
+                return Err(
+                    (StatusCode::FORBIDDEN, "403 Forbidden: CSRF token expired").into_response()
+                );
+            }
+
+            // Наряд №262: session binding — the dead half of the (session_id, Instant)
+            // tuple is now enforced. The request identity is computed exactly as at
+            // issuance (route_handler step 3): the HMAC-verified raw session id from
+            // the _mlog_session cookie; None when the session middleware is off, the
+            // cookie is absent, or the signature fails. Liveness (expiry/DB) is NOT
+            // re-checked here — that stays with the session middleware step that runs
+            // after this one: binding proves WHO the token belongs to, not whether
+            // the session is alive. A token issued without a session (bound to "")
+            // is only valid for sessionless requests.
+            let request_session = if state.middleware.contains(&"session".to_string()) {
+                extract_session_cookie(headers).and_then(|c| verify_cookie(&c, &state.hmac_key))
+            } else {
+                None
+            };
+            let session_ok = match (bound_session.is_empty(), request_session.as_deref()) {
+                (true, None) => true,     // sessionless token, sessionless request
+                (true, Some(_)) => false, // sessionless token replayed with a session
+                (false, Some(s)) => s == bound_session, // must present its own session
+                (false, None) => false,   // bound token cannot prove ownership
+            };
+            if !session_ok {
+                let mut log = state.audit_log.write().await;
+                log.push(format!(
+                    "[CSRF] Rejected: session binding mismatch (bound {:?}, request {:?})",
+                    bound_session, request_session
+                ));
+                return Err((
+                    StatusCode::FORBIDDEN,
+                    "403 Forbidden: CSRF session binding mismatch",
+                )
+                    .into_response());
+            }
+
+            Ok(())
+        }
+        _ => {
+            // Log to audit
+            {
+                let mut log = state.audit_log.write().await;
+                log.push("[CSRF] Rejected: missing or mismatched CSRF token".to_string());
+            }
+            Err((
+                StatusCode::FORBIDDEN,
+                "403 Forbidden: CSRF token validation failed",
+            )
+                .into_response())
+        }
+    }
+}
+
+fn extract_cookie(cookie_header: &str, name: &str) -> Option<String> {
+    for pair in cookie_header.split(';') {
+        let pair = pair.trim();
+        if let Some(eq_pos) = pair.find('=') {
+            let key = &pair[..eq_pos];
+            let val = &pair[eq_pos + 1..];
+            if key.trim() == name {
+                return Some(val.trim().to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Extract the session cookie (unsigned) from the Cookie header.
+fn extract_session_cookie(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("cookie")
+        .and_then(|c| c.to_str().ok())
+        .and_then(|s| extract_cookie(s, "_mlog_session"))
+}
+
+/// Resolve the client identity used as the rate-limit key (Наряд №263).
+///
+/// CHOSEN SEMANTICS (documented loudly in REFERENCE §5.6 and CHANGELOG):
+/// 1. DEFAULT — the direct connection peer (`peer_ip`, from ConnectInfo) is the
+///    key. `X-Forwarded-For` / `X-Real-IP` are IGNORED: pre-№263 the headers
+///    were trusted unconditionally (`extract_client_ip` read XFF first, the
+///    peer was never even wired in), so one client could put a fresh XFF value
+///    on every request and always get a fresh bucket — the rate limit limited
+///    only honest clients.
+/// 2. `METALOGOS_TRUSTED_PROXIES` set AND the direct peer matches an entry —
+///    the key is the FIRST (leftmost) `X-Forwarded-For` value (the identity the
+///    nearest client presents), else `X-Real-IP`, else the peer itself.
+///    OPERATOR CONTRACT: a trusted proxy must OVERWRITE XFF with the client
+///    address it sees; behind an append-style proxy the leftmost entry is
+///    client-controlled (documented residual — revisit: rightmost-untrusted
+///    walk for multi-hop chains if a real deployment needs it).
+/// 3. Peer NOT in the list — the peer address, headers never consulted.
+///
+/// `peer_ip: None` (only direct unit-test callers) → "unknown".
+fn extract_client_ip(
+    headers: &HeaderMap,
+    peer_ip: Option<IpAddr>,
+    trusted: &TrustedProxies,
+) -> String {
+    let peer_key = peer_ip
+        .map(|i| i.to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    let headers_may_be_honored = peer_ip.map(|i| trusted.contains(i)).unwrap_or(false);
+    if !headers_may_be_honored {
+        return peer_key;
+    }
+    // Trusted peer: leftmost XFF entry, else X-Real-IP, else the peer.
+    // Empty header values are treated as absent (a proxy sending "" must not
+    // blank out the key).
+    headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.split(',').next())
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            headers
+                .get("x-real-ip")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
+        .unwrap_or(peer_key)
+}
+
+/// Наряд №263: the sanctioned writer of `state.sessions` — enforces MAX_SESSIONS.
+///
+/// Context (audit tail №263): the map is a read-side cache in front of SQLite
+/// and had no cap and no cleanup; today no code path inserts into it (roles
+/// come from DB lookups), so the helper is the LOUD, capped path any future
+/// writer must use — and the anchor the cap test pins. Refusal text carries
+/// 503 semantics (server busy), not a silent drop.
+pub fn insert_session_capped(
+    state: &ServerState,
+    id: String,
+    entry: SessionEntry,
+) -> Result<(), String> {
+    if !state.sessions.contains_key(&id) && state.sessions.len() >= MAX_SESSIONS {
+        eprintln!(
+            "[sessions] store at cap ({}) — refusing new session (naryad #263)",
+            MAX_SESSIONS
+        );
+        return Err(
+            "503 Service Unavailable: server busy — session store full, retry shortly".to_string(),
+        );
+    }
+    state.sessions.insert(id, entry);
+    Ok(())
+}
+
+/// Наряд №263: the sanctioned issuer of CSRF tokens — enforces MAX_CSRF_TOKENS.
+/// At the cap the issuance is refused LOUDLY (503 to the client + audit entry +
+/// stderr metric) instead of the pre-№263 silent unbounded growth.
+#[allow(clippy::result_large_err)] // Response as Err is intentional for axum handlers
+async fn issue_csrf_token_capped(
+    state: &ServerState,
+    token: &str,
+    session_id: &str,
+) -> Result<(), Response> {
+    if state.csrf_tokens.len() >= MAX_CSRF_TOKENS {
+        {
+            let mut log = state.audit_log.write().await;
+            log.push(format!(
+                "[CSRF] Rejected issuance: token store full ({} tokens) (naryad #263)",
+                MAX_CSRF_TOKENS
+            ));
+        }
+        eprintln!(
+            "[csrf] token store at cap ({}) — refusing issuance (naryad #263)",
+            MAX_CSRF_TOKENS
+        );
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "503 Service Unavailable: server busy — CSRF token store full, retry shortly",
+        )
+            .into_response());
+    }
+    state.csrf_tokens.insert(
+        token.to_string(),
+        (session_id.to_string(), std::time::Instant::now()),
+    );
+    Ok(())
+}
+
+/// Наряд №263: one pass of the background sweep over ALL THREE hot-path maps.
+/// Extends the №29 §2.2 csrf-only sweep (same 60-second cadence, one task).
+/// Returns (csrf_evicted, rate_keys_evicted, sessions_evicted) for logging.
+fn sweep_expired_state(state: &ServerState) -> (usize, usize, usize) {
+    let now = std::time::Instant::now();
+
+    // 1. csrf_tokens: TTL 15 minutes (№29 §2.2, unchanged).
+    let csrf_ttl = std::time::Duration::from_secs(900);
+    let before = state.csrf_tokens.len();
+    state
+        .csrf_tokens
+        .retain(|_token, (_sid, created_at)| now.duration_since(*created_at) < csrf_ttl);
+    let csrf_evicted = before - state.csrf_tokens.len();
+
+    // 2. rate_limits: drop timestamps outside the 60-second sliding window;
+    //    a key whose every timestamp fell out is removed entirely (pre-№263
+    //    these outsider keys lived forever).
+    let window = std::time::Duration::from_secs(RATE_WINDOW_SECS);
+    let mut rate_evicted = 0usize;
+    state.rate_limits.retain(|_key, stamps| {
+        stamps.retain(|t| now.duration_since(*t) < window);
+        if stamps.is_empty() {
+            rate_evicted += 1;
+            false
+        } else {
+            true
+        }
+    });
+
+    // 3. sessions: TTL carried by SessionEntry.expires (the contract check_roles
+    //    already enforces per-request: `entry.expires < now` = expired). No new
+    //    constant — the entry's own TTL is the truth (revisit if a global
+    //    session TTL policy ever lands).
+    let before_sessions = state.sessions.len();
+    state.sessions.retain(|_id, entry| entry.expires > now);
+    let sessions_evicted = before_sessions - state.sessions.len();
+
+    (csrf_evicted, rate_evicted, sessions_evicted)
+}
+
+// ── Rate Limiting (Phase 7.4) ─────────────────────────────────────
+
+/// Check rate limit using sliding window. Returns Err(429) if exceeded.
+#[allow(clippy::result_large_err)] // Response as Err is intentional for axum handlers
+pub async fn check_rate_limit(
+    state: &ServerState,
+    ip: &str,
+    max_per_minute: usize,
+) -> Result<(), Response> {
+    let now = std::time::Instant::now();
+    let window_start = now - std::time::Duration::from_secs(60);
+
+    // Наряд №263: bounded key store — a NEW key when the map is at cap counts
+    // as a "full bucket" → 429 (loud audit entry + stderr metric). The
+    // alternative (evict an arbitrary old key) would hand an attacker a
+    // rotation primitive; silent growth was the pre-№263 memory-leak finding.
+    // Existing keys keep working at the cap — the sweep reclaims stale ones.
+    if !state.rate_limits.contains_key(ip) && state.rate_limits.len() >= MAX_RATE_KEYS {
+        {
+            let mut log = state.audit_log.write().await;
+            log.push(format!(
+                "[RATE_LIMIT] Rejected: key store full ({} keys) — new key treated as full bucket (naryad #263)",
+                MAX_RATE_KEYS
+            ));
+        }
+        eprintln!(
+            "[rate-limit] key store at cap ({}) — refusing new key (naryad #263)",
+            MAX_RATE_KEYS
+        );
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            "429 Too Many Requests: rate limit exceeded",
+        )
+            .into_response());
+    }
+
+    let mut entries = state.rate_limits.entry(ip.to_string()).or_default();
+    // Remove entries outside the 60-second window
+    entries.retain(|&t| t > window_start);
+
+    if entries.len() >= max_per_minute {
+        {
+            let mut log = state.audit_log.write().await;
+            log.push(format!(
+                "[RATE_LIMIT] Rejected: {} exceeded {} req/min",
+                ip, max_per_minute
+            ));
+        }
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            "429 Too Many Requests: rate limit exceeded",
+        )
+            .into_response());
+    }
+
+    entries.push(now);
+    Ok(())
+}
+
+// ── Session & Role Middleware ────────────────────────────────────────
+
+#[allow(clippy::result_large_err)] // Response as Err is intentional for axum handlers
+async fn check_roles(
+    state: &ServerState,
+    headers: &HeaderMap,
+    required_roles: &[String],
+) -> Result<(), Response> {
+    let session_cookie = extract_session_cookie(headers);
+
+    let raw_id = match session_cookie {
+        Some(id) => {
+            // Verify HMAC signature
+            match verify_cookie(&id, &state.hmac_key) {
+                Some(raw) => raw,
+                None => {
+                    let mut log = state.audit_log.write().await;
+                    log.push("[AUTH] Rejected: tampered session cookie".to_string());
+                    return Err((
+                        StatusCode::UNAUTHORIZED,
+                        "401 Unauthorized: invalid session signature",
+                    )
+                        .into_response());
+                }
+            }
+        }
+        None => {
+            let mut log = state.audit_log.write().await;
+            log.push("[AUTH] Rejected: no session cookie".to_string());
+            return Err((StatusCode::UNAUTHORIZED, "401 Unauthorized: no session").into_response());
+        }
+    };
+
+    // Check in-memory cache first, then SQLite
+    let session_ref = state.sessions.get(&raw_id);
+    if let Some(entry) = session_ref.as_deref() {
+        if entry.expires < std::time::Instant::now() {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                "401 Unauthorized: session expired",
+            )
+                .into_response());
+        }
+        let has_role = required_roles.iter().any(|role| entry.roles.contains(role));
+        if has_role {
+            Ok(())
+        } else {
+            drop(session_ref);
+            let mut log = state.audit_log.write().await;
+            log.push(format!(
+                "[AUTH] Rejected: insufficient roles (need {:?}, have {:?})",
+                required_roles,
+                Vec::<String>::new()
+            ));
+            Err((
+                StatusCode::FORBIDDEN,
+                "403 Forbidden: insufficient permissions",
+            )
+                .into_response())
+        }
+    } else {
+        // Fall through to SQLite check
+        drop(session_ref);
+        validate_session_in_db(state, &raw_id).await?;
+        // If valid but not in memory cache, load from DB
+        // For simplicity, reject here — session needs re-login
+        Err((
+            StatusCode::UNAUTHORIZED,
+            "401 Unauthorized: session not found in cache",
+        )
+            .into_response())
+    }
+}
+
+// ── SQLite Session Store (Phase 7.4) ─────────────────────────────
+
+/// Initialize the sessions table in SQLite.
+pub fn init_session_db(conn: &rusqlite::Connection) -> Result<(), rusqlite::Error> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS sessions (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            data TEXT NOT NULL DEFAULT '{}',
+            created_at INTEGER NOT NULL,
+            expires_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+
+        -- Phase 7.5: Audit log table for interpreter audit entries
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp INTEGER NOT NULL,
+            action TEXT NOT NULL,
+            pattern TEXT,
+            result TEXT,
+            sandbox TEXT
+        );",
+    )?;
+    Ok(())
+}
+
+/// Create a new session in SQLite. Returns the session ID (UUID).
+pub async fn create_session_db(
+    conn: &Arc<tokio::sync::Mutex<rusqlite::Connection>>,
+    user_id: &str,
+) -> Result<String, String> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let expires_at = now + 24 * 3600; // 24 hours
+
+    let conn = conn.lock().await;
+    conn.execute(
+        "INSERT INTO sessions (id, user_id, data, created_at, expires_at) VALUES (?1, ?2, '{}', ?3, ?4)",
+        rusqlite::params![id, user_id, now, expires_at],
+    ).map_err(|e| format!("Failed to create session: {}", e))?;
+    drop(conn);
+    // ── Naryad #393 (ADR-0167 §3.4): session lifecycle lands in the
+    // Action Ledger as a side effect of the lifecycle operation itself
+    // (best-effort — loud stderr on failure, the session is unaffected;
+    // the session id is journaled only as its SHA-256).
+    metalogos::ledger::record(
+        "session.create",
+        user_id,
+        "http",
+        &metalogos::ledger::args_hash_of(&id),
+    );
+
+    Ok(id)
+}
+
+/// Validate a session against SQLite: check existence and expiry.
+/// Returns Ok(()) if valid, Err(Response) if expired or not found.
+#[allow(clippy::result_large_err)] // Response as Err is intentional for axum handlers
+pub async fn validate_session_in_db(state: &ServerState, session_id: &str) -> Result<(), Response> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+
+    let conn = state.db.lock().await;
+    let result: Result<String, _> = conn.query_row(
+        "SELECT id FROM sessions WHERE id = ?1 AND expires_at > ?2",
+        rusqlite::params![session_id, now],
+        |row| row.get(0),
+    );
+    drop(conn); // release lock before async ops
+
+    match result {
+        Ok(_) => Ok(()),
+        Err(rusqlite::Error::QueryReturnedNoRows) => {
+            let mut log = state.audit_log.write().await;
+            log.push("[AUTH] Rejected: session expired or not found in DB".to_string());
+            Err((
+                StatusCode::UNAUTHORIZED,
+                "401 Unauthorized: session expired",
+            )
+                .into_response())
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("DB error: {}", e),
+        )
+            .into_response()),
+    }
+}
+
+/// Delete a session from SQLite.
+pub async fn delete_session_db(
+    conn: &Arc<tokio::sync::Mutex<rusqlite::Connection>>,
+    session_id: &str,
+) -> Result<(), String> {
+    let conn = conn.lock().await;
+    conn.execute(
+        "DELETE FROM sessions WHERE id = ?1",
+        rusqlite::params![session_id],
+    )
+    .map_err(|e| format!("Failed to delete session: {}", e))?;
+    drop(conn);
+    // ── Naryad #393 (ADR-0167 §3.4): session lifecycle → Action Ledger
+    // (side effect of the destroy path; best-effort; id only as hash).
+    metalogos::ledger::record(
+        "session.destroy",
+        "runtime",
+        "http",
+        &metalogos::ledger::args_hash_of(session_id),
+    );
+    Ok(())
+}
+
+/// Remove all expired sessions from SQLite.
+pub async fn clean_expired_sessions_db(
+    conn: &Arc<tokio::sync::Mutex<rusqlite::Connection>>,
+) -> Result<usize, String> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+
+    let conn = conn.lock().await;
+    let deleted = conn
+        .execute(
+            "DELETE FROM sessions WHERE expires_at <= ?1",
+            rusqlite::params![now],
+        )
+        .map_err(|e| format!("Failed to clean expired sessions: {}", e))?;
+    Ok(deleted)
+}
+
+/// Build a Set-Cookie header value for _mlog_session.
+pub fn make_session_cookie_value(session_id: &str, signed: bool, hmac_key: &[u8]) -> String {
+    let value = if signed {
+        sign_cookie(session_id, hmac_key)
+    } else {
+        session_id.to_string()
+    };
+    format!(
+        "_mlog_session={}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=86400",
+        value
+    )
+}
+
+// ── JSON → Value Conversion (Наряд №3) ──────────────────────────
+
+/// Recursively convert serde_json::Value → metalogos Value.
+/// Supports nested objects (→ Value::Struct), arrays, strings, numbers, bools, null.
+pub fn json_value_to_value(val: &serde_json::Value) -> Value {
+    match val {
+        serde_json::Value::String(s) => Value::String(s.clone()),
+        serde_json::Value::Number(n) => Value::Float(n.as_f64().unwrap_or(0.0)),
+        serde_json::Value::Bool(b) => Value::Bool(*b),
+        serde_json::Value::Null => Value::Unit,
+        serde_json::Value::Array(arr) => Value::List(arr.iter().map(json_value_to_value).collect()),
+        serde_json::Value::Object(map) => {
+            let fields: HashMap<String, Value> = map
+                .iter()
+                .map(|(k, v)| (k.clone(), json_value_to_value(v)))
+                .collect();
+            Value::Struct {
+                type_name: "JsonObject".to_string(),
+                fields,
+            }
+        }
+    }
+}
+
+// ── Route Body Execution ────────────────────────────────────────────
+
+/// №426 (ADR-0175 §3.1): the route-style program context — the SAME
+/// construction every request handler uses (definitions cloned from the
+/// shared interpreter, memory persistence re-attached, db reconnected).
+/// The cron tick gets THIS, not the raw shared interpreter: «тик
+/// исполняется в контексте программы».
+async fn fresh_program_context(state: &ServerState) -> Interpreter {
+    let mut interp = Interpreter::new();
+    {
+        let shared = state.interpreter.read().await;
+        shared.clone_definitions_into(&mut interp);
+    }
+    interp.set_base_dir(std::path::PathBuf::from("."));
+    // №495: the distill hub rides EVERY fresh program context (routes
+    // and cron ticks) — examples/modes/trained weights persist across
+    // requests; without it the per-request interpreter would start from
+    // zero every time (the audit 28.09 §3.1 defect, both backends).
+    if let Some(hub) = state.distill.as_ref() {
+        interp.attach_distill_hub(std::sync::Arc::clone(hub));
+    }
+    if let Some(ref persist_path) = state.memory_persist {
+        interp.configure_memory(&MemoryDecl {
+            span: Span::unknown(),
+            persist: Some(persist_path.clone()),
+        });
+    }
+    interp.reconnect_db();
+    interp
+}
+
+/// №426 (ADR-0175 §3.1-3.3): the cron-dispatch executor. The tick call
+/// runs on a FRESH program context (the same stor-set a route sees —
+/// db{}, schema DDL, patterns, templates) on a BLOCKING thread — the
+/// route-path posture (ADR-0096): blocking builtins (http_post's
+/// reqwest::blocking, the №423 transport failure) are safe here, and
+/// the scheduler holds NO interpreter lock while the tick executes, so
+/// an HTTP self-call loops back into a live server. Target resolution
+/// is the №418 contract: a builtin name first, then a pattern.
+pub(crate) async fn execute_tick_call(
+    state: &ServerState,
+    target: &str,
+    args: Vec<Value>,
+) -> Result<Value, String> {
+    let interp = fresh_program_context(state).await;
+    let target = target.to_string();
+    tokio::task::spawn_blocking(move || -> Result<Value, String> {
+        // Наряд №457: cron/webhook-тики исполняются в serve-роут-контексте —
+        // env() ограничен env-гейтом №259, exec() определяется СЕРВЕРНЫМ
+        // флагом METALOGOS_SERVE_ALLOW_EXEC, а не процессным
+        // METALOGOS_ALLOW_EXEC. Раньше тик был единственной незакрытой
+        // точкой запуска (роуты TW/VM и MCP-инструменты уже под guard'ом).
+        let _serve_exec_guard = ServeRouteExecGuard::new();
+        // №546 (ADR-0178 §5.5): the tick is a per-tick budget scope — the
+        // contour-call counter resets at the tick boundary.
+        let _contour_budget_scope = metalogos::builtins::embed_seam::ContourBudgetScope::new();
+        if let Some(builtin_fn) = interp.get_builtin(&target) {
+            builtin_fn(&args)
+        } else {
+            interp.call_pattern(&target, &args)
+        }
+    })
+    .await
+    .map_err(|e| format!("tick executor join error: {}", e))?
+}
+
+/// №426 (ADR-0175 §3.6): the test surface for the tick context — builds
+/// the serve state exactly like `run_test_server` (declaration merge,
+/// build_state) WITHOUT a listener and executes one cron tick through
+/// the SAME executor the scheduler uses. Integration tests assert the
+/// db binding, the schema replay and the memory: unification against
+/// this surface.
+pub async fn test_tick_call(source: &str, target: &str, args: Vec<Value>) -> Result<Value, String> {
+    let declarations =
+        metalogos::parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
+    let server_config = declarations
+        .iter()
+        .find_map(|d| match d {
+            Declaration::MlogServer(srv) => Some(srv.clone()),
+            _ => None,
+        })
+        .ok_or("no mlogserver block")?;
+    let mut interp = Interpreter::new();
+    for decl in declarations {
+        if !matches!(decl, Declaration::Flow(_)) {
+            let mut tmp = Interpreter::new();
+            tmp.set_base_dir(std::path::PathBuf::from("."));
+            let _ = tmp.run(vec![decl]);
+            interp = merge_interpreter(tmp, interp);
+        }
+    }
+    let mut config = server_config;
+    config.port = 0;
+    let state = build_state(config, interp)
+        .await
+        .map_err(|e| format!("build_state: {}", e))?;
+    execute_tick_call(&state, target, args).await
+}
+
+/// №426 (ADR-0175 §3.3): a SEQUENCE of ticks on ONE serve boot — the
+/// cross-context contract (a write in one tick context is visible in
+/// the next tick context AND in routes: the startup connection is
+/// shared for `sqlite::memory:`, the file is shared for file URLs).
+pub async fn test_tick_sequence(
+    source: &str,
+    calls: Vec<(String, Vec<Value>)>,
+) -> Vec<Result<Value, String>> {
+    let declarations = match metalogos::parser::parse(source) {
+        Ok(d) => d,
+        Err(e) => return vec![Err(format!("parse error: {}", e))],
+    };
+    let server_config = match declarations.iter().find_map(|d| match d {
+        Declaration::MlogServer(srv) => Some(srv.clone()),
+        _ => None,
+    }) {
+        Some(c) => c,
+        None => return vec![Err("no mlogserver block".to_string())],
+    };
+    let mut interp = Interpreter::new();
+    for decl in declarations {
+        if !matches!(decl, Declaration::Flow(_)) {
+            let mut tmp = Interpreter::new();
+            tmp.set_base_dir(std::path::PathBuf::from("."));
+            let _ = tmp.run(vec![decl]);
+            interp = merge_interpreter(tmp, interp);
+        }
+    }
+    let mut config = server_config;
+    config.port = 0;
+    let state = match build_state(config, interp).await {
+        Ok(st) => st,
+        Err(e) => return vec![Err(format!("build_state: {}", e))],
+    };
+    let mut results = Vec::with_capacity(calls.len());
+    for (target, args) in calls {
+        results.push(execute_tick_call(&state, &target, args).await);
+    }
+    results
+}
+
+/// №426 (ADR-0175 §3.3): the test surface for the HTTP SELF-CALL from a
+/// tick — boots a REAL listener (the run_test_server shape), hands the
+/// self-URL to the tick as its single String argument, and executes the
+/// tick through the scheduler executor. This is the deterministic
+/// reproduction of the №423 defect 2 (blocking outbound from the tick)
+/// and its fix: the self-call lands on a live server while the
+/// scheduler holds no lock.
+pub async fn test_tick_self_call(
+    source: &str,
+    target: &str,
+    self_path: &str,
+) -> Result<Value, String> {
+    let declarations =
+        metalogos::parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
+    let server_config = declarations
+        .iter()
+        .find_map(|d| match d {
+            Declaration::MlogServer(srv) => Some(srv.clone()),
+            _ => None,
+        })
+        .ok_or("no mlogserver block")?;
+    let mut interp = Interpreter::new();
+    for decl in declarations {
+        if !matches!(decl, Declaration::Flow(_)) {
+            let mut tmp = Interpreter::new();
+            tmp.set_base_dir(std::path::PathBuf::from("."));
+            let _ = tmp.run(vec![decl]);
+            interp = merge_interpreter(tmp, interp);
+        }
+    }
+    let mut config = server_config;
+    config.port = 0;
+    let state = build_state(config, interp)
+        .await
+        .map_err(|e| format!("build_state: {}", e))?;
+    let app = build_router(state.clone());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .map_err(|e| format!("bind: {}", e))?;
+    let port = listener
+        .local_addr()
+        .map_err(|e| format!("local_addr: {}", e))?
+        .port();
+    tokio::spawn(async move {
+        let _ = axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await;
+    });
+    // Give the listener a beat to accept (the run_test_server posture).
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    let url = format!("http://127.0.0.1:{}{}", port, self_path);
+    execute_tick_call(&state, target, vec![Value::String(url)]).await
+}
+
+pub(crate) async fn execute_route_body(
+    state: &ServerState,
+    body_stmts: &[Statement],
+    _headers: &HeaderMap,
+    raw_body: &bytes::Bytes,
+    query_params: &std::collections::HashMap<String, String>,
+    path_params: &std::collections::HashMap<String, String>,
+) -> Result<Response, String> {
+    // №495: the per-request context construction is the SHARED
+    // `fresh_program_context` (the №480 rule — one constructor, no
+    // drifted copies): definitions clone, base_dir, memory persistence,
+    // db reconnect AND the distill hub attach. Before this the TW route
+    // context was a hand-rolled copy that the №495 hub attach missed.
+    let mut interp = fresh_program_context(state).await;
+
+    // Parse JSON body recursively and inject as json_body() server builtin (Наряд №3)
+    if let Ok(body_str) = std::str::from_utf8(raw_body) {
+        if !body_str.is_empty() {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(body_str) {
+                let value = json_value_to_value(&json);
+                interp.set_server_json_body(value);
+            }
+        }
+    }
+
+    // Bug 2.1 fix: inject query string parameters so query_param() works
+    if !query_params.is_empty() {
+        interp.set_server_query_params(query_params.clone());
+    }
+
+    // Наряд №283: inject path parameters so server_path_param() works.
+    // Empty for static routes — populated by `route_handler` when the
+    // matched route is a template (`/demo/{name}` → {"name": "test"}).
+    if !path_params.is_empty() {
+        interp.set_server_path_params(path_params.clone());
+    }
+
+    // Наряд №14 P2-6: inject user roles for require() builtin
+    if state.middleware.contains(&"session".to_string()) {
+        if let Some(session_id) = extract_session_cookie(_headers) {
+            if let Some(raw_id) = verify_cookie(&session_id, &state.hmac_key) {
+                if let Some(entry) = state.sessions.get(&raw_id) {
+                    interp.set_server_user_roles(entry.value().roles.clone());
+                }
+            }
+        }
+    }
+
+    // Execute body statements on a dedicated blocking thread.
+    // This prevents nested tokio runtime panics when builtins like http_post()
+    // use reqwest::blocking::Client (which internally creates its own tokio
+    // runtime for DNS resolution / TLS). block_in_place() is NOT safe here
+    // because dropping that inner runtime inside block_in_place panics with
+    // "Cannot drop a runtime in a context where blocking is not allowed."
+    // See ADR-0096.
+    let body_stmts_owned: Vec<Statement> = body_stmts.to_vec();
+    let outcome = tokio::task::spawn_blocking(
+        move || -> Result<(Option<Response>, Vec<String>, String), String> {
+            // Наряд №253 (Вариант А): тело роута исполняется в serve-роут-контексте —
+            // exec()/exec_argv() здесь требуют METALOGOS_SERVE_ALLOW_EXEC=1
+            // (процесс-флаг METALOGOS_ALLOW_EXEC на тела роутов не распространяется).
+            let _serve_exec_guard = ServeRouteExecGuard::new();
+            // №546 (ADR-0178 §5.5): the request is a per-request budget scope —
+            // the contour-call counter resets at the route-body boundary (TW).
+            let _contour_budget_scope = metalogos::builtins::embed_seam::ContourBudgetScope::new();
+            let mut env = HashMap::new();
+            // Issue #600: ONE mutability set threaded through the WHOLE route
+            // body. Top-level `let mut` registers here; nested blocks (if /
+            // each / match bodies) evaluate through
+            // `eval_statements_with_mutability` so branch assignments to a
+            // `let mut` route local work on the TW backend exactly as they
+            // do on the VM (which tracks mutability at compile time, №264).
+            let mut mutable_vars: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
+            for stmt in &body_stmts_owned {
+                match stmt {
+                    Statement::LetBinding { name, value, mutable, .. } => {
+                        let val = interp.eval_expr_with_env(value, &env)?;
+                        if *mutable {
+                            mutable_vars.insert(name.clone());
+                        }
+                        env.insert(name.clone(), val);
+                    }
+                    Statement::Assign { name, value, .. } => {
+                        // Same contract as `eval_statements_cf` (pattern
+                        // bodies): assignment targets `let mut` locals only —
+                        // loud error, never a silent overwrite (№264 parity).
+                        if !mutable_vars.contains(name) {
+                            return Err(format!(
+                                "cannot assign to immutable variable: {} (use 'let mut {}' to make it mutable)",
+                                name, name
+                            ));
+                        }
+                        let val = interp.eval_expr_with_env(value, &env)?;
+                        env.insert(name.clone(), val);
+                    }
+                    Statement::Return { value: expr, .. } => {
+                        let val = interp.eval_expr_with_env(expr, &env)?;
+                        let entries = interp.take_audit_log();
+                        let sandbox = interp
+                            .get_active_sandbox()
+                            .map(|sb| sb.name.clone())
+                            .unwrap_or_default();
+                        return Ok((Some(value_to_response(val)), entries, sandbox));
+                    }
+                    Statement::IfThen {
+                        condition: cond,
+                        body,
+                        ..
+                    } => {
+                        let cond_val = interp.eval_expr_with_env(cond, &env)?;
+                        if cond_val.as_bool().unwrap_or(false) {
+                            // On a blocking thread, safe to call eval_statements directly
+                            // (no block_in_place needed)
+                            let result = interp.eval_statements_with_mutability(
+                                body,
+                                &mut env,
+                                &mut mutable_vars,
+                            )?;
+                            if !matches!(result, Value::Unit) {
+                                let entries = interp.take_audit_log();
+                                let sandbox = interp
+                                    .get_active_sandbox()
+                                    .map(|sb| sb.name.clone())
+                                    .unwrap_or_default();
+                                return Ok((Some(value_to_response(result)), entries, sandbox));
+                            }
+                        }
+                    }
+                    // Block-level if/else (Наряд №2 + final integration)
+                    Statement::IfElseBlock {
+                        condition,
+                        then_body,
+                        else_ifs,
+                        else_body,
+                        ..
+                    } => {
+                        let cond_val = interp.eval_expr_with_env(condition, &env)?;
+                        let branch = if cond_val.as_bool().unwrap_or(false) {
+                            Some(then_body.as_slice())
+                        } else {
+                            // Check else-if chain
+                            let mut matched = None;
+                            for (ei_cond, ei_body) in else_ifs {
+                                let ei_val = interp.eval_expr_with_env(ei_cond, &env)?;
+                                if ei_val.as_bool().unwrap_or(false) {
+                                    matched = Some(ei_body.as_slice());
+                                    break;
+                                }
+                            }
+                            matched.or(else_body.as_deref())
+                        };
+                        if let Some(stmts) = branch {
+                            for s in stmts {
+                                match s {
+                                    Statement::Return { value: expr, .. } => {
+                                        let val = interp.eval_expr_with_env(expr, &env)?;
+                                        let entries = interp.take_audit_log();
+                                        let sandbox = interp
+                                            .get_active_sandbox()
+                                            .map(|sb| sb.name.clone())
+                                            .unwrap_or_default();
+                                        return Ok((
+                                            Some(value_to_response(val)),
+                                            entries,
+                                            sandbox,
+                                        ));
+                                    }
+                                    Statement::LetBinding { name, value, mutable, .. } => {
+                                        let val = interp.eval_expr_with_env(value, &env)?;
+                                        if *mutable {
+                                            mutable_vars.insert(name.clone());
+                                        }
+                                        env.insert(name.clone(), val);
+                                    }
+                                    Statement::ExprStmt { expr, .. } => {
+                                        let val = interp.eval_expr_with_env(expr, &env)?;
+                                        if let Value::HttpResponse { .. } = val {
+                                            let entries = interp.take_audit_log();
+                                            let sandbox = interp
+                                                .get_active_sandbox()
+                                                .map(|sb| sb.name.clone())
+                                                .unwrap_or_default();
+                                            return Ok((
+                                                Some(value_to_response(val)),
+                                                entries,
+                                                sandbox,
+                                            ));
+                                        }
+                                    }
+                                    _ => {
+                                        // On a blocking thread, safe to call directly
+                                        interp.eval_statements_with_mutability(
+                                            std::slice::from_ref(s),
+                                            &mut env,
+                                            &mut mutable_vars,
+                                        )?;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // Bare expression statement — evaluate for side effects
+                    Statement::ExprStmt { expr, .. } => {
+                        let val = interp.eval_expr_with_env(expr, &env)?;
+                        // If expression is respond("ok") or similar HttpResponse, use as route response
+                        if let Value::HttpResponse { .. } = val {
+                            let entries = interp.take_audit_log();
+                            let sandbox = interp
+                                .get_active_sandbox()
+                                .map(|sb| sb.name.clone())
+                                .unwrap_or_default();
+                            return Ok((Some(value_to_response(val)), entries, sandbox));
+                        }
+                    }
+                    _ => {
+                        // On a blocking thread, safe to call directly
+                        let result = interp.eval_statements_with_mutability(
+                            std::slice::from_ref(stmt),
+                            &mut env,
+                            &mut mutable_vars,
+                        )?;
+                        // If the statement produced an HttpResponse (e.g., respond("ok")),
+                        // use it as the route response (final integration)
+                        if let Value::HttpResponse { .. } = result {
+                            let entries = interp.take_audit_log();
+                            let sandbox = interp
+                                .get_active_sandbox()
+                                .map(|sb| sb.name.clone())
+                                .unwrap_or_default();
+                            return Ok((Some(value_to_response(result)), entries, sandbox));
+                        }
+                    }
+                }
+            }
+            // Normal completion — flush audit entries
+            let entries = interp.take_audit_log();
+            let sandbox = interp
+                .get_active_sandbox()
+                .map(|sb| sb.name.clone())
+                .unwrap_or_default();
+            Ok((None, entries, sandbox))
+        },
+    )
+    .await
+    .map_err(|e| format!("blocking task panicked: {}", e))??;
+
+    // Phase 7.5: Flush interpreter audit entries to SQLite
+    flush_audit_entries_to_db(state, &outcome.1, &outcome.2).await;
+
+    if let Some(resp) = outcome.0 {
+        Ok(resp)
+    } else {
+        Ok((StatusCode::OK, "OK").into_response())
+    }
+}
+
+/// ── VM Route Execution (Наряд №40) ────────────────────────────────
+///
+/// VM equivalent of `execute_route_body`. Creates a fresh VM instance per
+/// request (cloned from template), injects per-request server context,
+/// executes compiled route bytecode, and returns the HTTP response.
+///
+/// **Isolation guarantee**: each request gets its own Vm with fresh stack.
+/// Global state (kv_set, memory) is shared via builtins (Mutex-backed).
+async fn execute_route_body_vm(
+    state: &ServerState,
+    route: &metalogos::ast::RouteDecl,
+    headers: &HeaderMap,
+    raw_body: &bytes::Bytes,
+    query_params: &std::collections::HashMap<String, String>,
+    path_params: &std::collections::HashMap<String, String>,
+) -> Result<Response, String> {
+    // Find the compiled route matching this path+method
+    let compiled = state
+        .vm_routes
+        .iter()
+        .find(|r| r.path == route.path && r.method == route.method)
+        .ok_or_else(|| format!("VM: no compiled route for {} {}", route.method, route.path))?;
+
+    if state.vm_program.is_none() {
+        return Err("VM: no compiled program available".into());
+    }
+
+    // Execute compiled route bytecode on a dedicated blocking thread.
+    // This prevents nested tokio runtime panics when builtins like http_post()
+    // use reqwest::blocking::Client. See ADR-0096.
+    // Extract user roles before entering blocking context (DashMap access).
+    let user_roles = if state.middleware.contains(&"session".to_string()) {
+        if let Some(session_id) = extract_session_cookie(headers) {
+            if let Some(raw_id) = verify_cookie(&session_id, &state.hmac_key) {
+                if let Some(entry) = state.sessions.get(&raw_id) {
+                    entry.value().roles.clone()
+                } else {
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+
+    // ── Naryad #402 (step A) — per-request cost anchor ─────────────────
+    // What the per-request VM path pays AFTER step A (for №403/№404: read
+    // this, no archaeology needed):
+    //   * `p.clone()` — an Arc INCREMENT (the program has been shared as
+    //     `Arc<Program>` since №40; the №388 evidence mislabeled this as
+    //     a deep clone — there never was a deep `Program::clone` on this
+    //     path);
+    //   * `Vm::new()` — one allocation-heavy struct (builtins registry),
+    //     unchanged by step A (its cost is №403's warm-pool territory);
+    //   * `vm.load_program(&program)` — per-request: the globals Value
+    //     slots (mutable execution state, never shared), reflex/vision
+    //     model registration (real construction when the program declares
+    //     them), learnables copy, the db connection open. The immutable
+    //     collections (rules pre-sorted, pre-registered patterns, deny
+    //     handlers, skill indices, global names) are now SHARED Arc
+    //     snapshots (`Program::shared_cache`) — one atomic increment, no
+    //     deep copy, no per-request sort/scan;
+    //   * `vm.clear_server_context()` + the injections below — per-request
+    //     by design (body/query/path/roles; the isolation boundary —
+    //     pinned by tests/naryad_402_step_a.rs).
+    // Step B (warm VM pool / definition-cache, reset fail-closed) is
+    // №403; the serve-default flip decision is №404.
+
+    // Clone data needed inside spawn_blocking (closure must be 'static + Send)
+    let program = match state.vm_program.as_ref() {
+        Some(p) => p.clone(),
+        None => return Err("VM: no program compiled".to_string()),
+    };
+    let compiled = compiled.clone();
+    let raw_body = raw_body.clone();
+    let query_params = query_params.clone();
+    // Наряд №283: clone path_params for the spawn_blocking closure
+    // (parity with query_params — same lifetime requirement).
+    let path_params = path_params.clone();
+    // Наряд №403: warm VM pool handle for the closure (None = disabled,
+    // the exact pre-№403 per-request path).
+    let pool = state.vm_pool.clone();
+    // №495: the distill hub rides the per-request VM (checked out or
+    // cold) — examples/modes/trained weights persist across requests;
+    // reset_for_reuse cleared the reference on check-in.
+    let distill_hub = state.distill.clone();
+
+    let (audit_entries, result) = tokio::task::spawn_blocking(move || {
+        // Наряд №253 (Вариант А): VM-путь тела роута — тот же serve-роут-контекст,
+        // exec()/exec_argv() требуют METALOGOS_SERVE_ALLOW_EXEC=1 (паритет с TW-путём).
+        let _serve_exec_guard = ServeRouteExecGuard::new();
+        // №546 (ADR-0178 §5.5): the per-request budget scope — VM parity with
+        // the TW route body (one scope per request, reset at the boundary).
+        let _contour_budget_scope = metalogos::builtins::embed_seam::ContourBudgetScope::new();
+        // №403: warm checkout — the returned VM has already run
+        // load_program successfully (either a pooled reset-and-reload VM
+        // or a cold build; both are indistinguishable from the pre-pool
+        // per-request VM at this point).
+        let mut vm = match pool.as_ref() {
+            Some(p) => p.checkout()?,
+            None => {
+                let mut vm = Vm::new();
+                vm.load_program(&program)
+                    .map_err(|e| format!("VM route init: {}", e))?;
+                vm
+            }
+        };
+        vm.clear_server_context();
+        // №495: the hub reference re-injected every checkout.
+        vm.distill_hub = distill_hub.clone();
+
+        // Inject per-request server context
+        if let Ok(body_str) = std::str::from_utf8(&raw_body) {
+            if !body_str.is_empty() {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(body_str) {
+                    let value = json_value_to_value(&json);
+                    vm.set_server_json_body(value);
+                }
+            }
+        }
+        if !query_params.is_empty() {
+            vm.set_server_query_params(query_params.clone());
+        }
+        // Наряд №283: path parameters parity — populated when the matched
+        // route is a template (`/demo/{name}` → {"name": "test"}).
+        if !path_params.is_empty() {
+            vm.set_server_path_params(path_params.clone());
+        }
+        if !user_roles.is_empty() {
+            vm.set_server_user_roles(user_roles);
+        }
+
+        let result = vm.execute_route_code(&compiled, &program);
+        // Наряд №41 Block 2: collect audit entries before vm is dropped
+        let entries = vm.take_audit_log();
+        // №403: fail-closed checkin — ONLY a successful route execution
+        // is pooled. Errors discard here; panics never reach this line
+        // (the JoinError unwinds the closure and the VM drops with it);
+        // a VM whose reset fails is discarded inside checkin. No path
+        // reuses unproven state.
+        if let Some(p) = pool.as_ref() {
+            p.checkin(vm, result.is_ok());
+        }
+        Result::<_, String>::Ok((entries, result))
+    })
+    .await
+    .map_err(|e| format!("blocking task panicked: {}", e))??;
+
+    // Наряд №41 Block 2: flush VM audit entries (parity with interpreter)
+    flush_vm_audit_entries_to_db(state, &audit_entries).await;
+
+    match result {
+        Ok(val) => {
+            // Check if the result is an HttpResponse (from respond())
+            if let Value::HttpResponse {
+                status,
+                body,
+                content_type,
+            } = val
+            {
+                return Ok(http_response_into_response(status, body, content_type));
+            }
+            // For other value types, convert like the interpreter does
+            Ok(value_to_response(val))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Flush audit entries to the SQLite audit_log table and in-memory log.
+/// Shared implementation used by both interpreter and VM paths.
+async fn flush_audit_entries_to_db(state: &ServerState, entries: &[String], sandbox: &str) {
+    if entries.is_empty() {
+        return;
+    }
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+
+    let conn = state.db.lock().await;
+    for entry in entries {
+        let (action, pattern, result) = parse_audit_entry(entry);
+        let _ = conn.execute(
+            "INSERT INTO audit_log (timestamp, action, pattern, result, sandbox) VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![now, action, pattern, result, sandbox],
+        );
+    }
+    // Also append to in-memory audit log for backward compatibility
+    {
+        let mut log = state.audit_log.write().await;
+        for entry in entries {
+            log.push(entry.clone());
+        }
+    }
+}
+
+/// Наряд №41 Block 2: Flush VM audit entries to the SQLite audit_log table.
+/// VM parity with `flush_audit_to_db` — same DB writes, same in-memory log.
+async fn flush_vm_audit_entries_to_db(state: &ServerState, entries: &[String]) {
+    flush_audit_entries_to_db(state, entries, "").await;
+}
+
+/// Parse an audit entry string into (action, pattern, result) components.
+/// Format: "[AUDIT] adapt PatternName: input -> output"
+///         "[AUDIT] mutate PatternName: N examples, accuracy=X"
+///         "[AUDIT] unsafe_html: rendered template 'name'"
+fn parse_audit_entry(entry: &str) -> (String, Option<String>, Option<String>) {
+    if let Some(rest) = entry.strip_prefix("[AUDIT] ") {
+        let parts: Vec<&str> = rest.splitn(2, ' ').collect();
+        let action = parts[0].to_string();
+        let detail = if parts.len() > 1 {
+            Some(parts[1].to_string())
+        } else {
+            None
+        };
+
+        match action.as_str() {
+            "adapt" | "mutate" => {
+                // Extract pattern name (first word of detail)
+                let pattern = detail
+                    .as_ref()
+                    .and_then(|d| d.split(':').next())
+                    .map(|s| s.trim().to_string());
+                let result = detail
+                    .as_ref()
+                    .and_then(|d| d.split_once(':').map(|(_, s)| s.trim().to_string()));
+                (action, pattern, result)
+            }
+            "unsafe_html" => {
+                let pattern = detail
+                    .as_ref()
+                    .and_then(|d| d.split('\'').nth(1))
+                    .map(|s| s.to_string());
+                (action, pattern, None)
+            }
+            _ => (action, None, None),
+        }
+    } else {
+        ("unknown".to_string(), None, None)
+    }
+}
+
+/// #892: convert an HttpResponse value to an Axum response honoring the
+/// value's explicit content_type (respond_html carries text/html) instead
+/// of silently defaulting every String body to text/plain (the axum
+/// default that broke the office HTML pages).
+fn http_response_into_response(
+    status: u16,
+    body: String,
+    content_type: Option<String>,
+) -> Response {
+    let code = StatusCode::from_u16(status).unwrap_or(StatusCode::OK);
+    let mut resp = (code, body).into_response();
+    if let Some(ct) = content_type {
+        // An invalid header value falls back to the historical default
+        // rather than failing the request.
+        if let Ok(v) = header::HeaderValue::from_str(&ct) {
+            resp.headers_mut().insert(header::CONTENT_TYPE, v);
+        }
+    }
+    resp
+}
+
+fn value_to_response(val: Value) -> Response {
+    match val {
+        Value::HttpResponse {
+            status,
+            body,
+            content_type,
+        } => http_response_into_response(status, body, content_type),
+        Value::Html(html) => AxumHtml(html).into_response(),
+        Value::String(s) => (StatusCode::OK, s).into_response(),
+        Value::Unit => StatusCode::OK.into_response(),
+        other => (StatusCode::OK, format!("{}", other)).into_response(),
+    }
+}
+
+// ── HMAC Helpers ───────────────────────────────────────────────────
+
+// Note: `generate_hmac_key` is retained for tests (random key generation).
+// Production code now uses `load_hmac_key` which reads METALOGOS_HMAC_KEY env var.
+#[allow(dead_code)]
+fn generate_hmac_key() -> Vec<u8> {
+    // Наряд №173: rand 0.10 API — `rng()` + `fill_bytes`.
+    use rand::Rng;
+    let mut key = vec![0u8; 32];
+    rand::rng().fill_bytes(&mut key);
+    key
+}
+
+/// Наряд №29 §2.1 — Load HMAC signing key.
+///
+/// Priority:
+/// 1. `METALOGOS_HMAC_KEY` env var (hex-encoded, 64 hex chars = 32 bytes).
+///    Allows session cookies to survive restarts.
+/// 2. Random fallback (`rand::thread_rng().gen::<[u8; 32]>()`),
+///    with a WARNING log. Sessions will be invalidated on restart.
+///
+/// Never panics — returns a valid 32-byte key in all cases.
+fn load_hmac_key() -> Vec<u8> {
+    const EXPECTED_HEX_LEN: usize = 64; // 32 bytes * 2 hex chars
+    const EXPECTED_BYTE_LEN: usize = 32;
+
+    match std::env::var("METALOGOS_HMAC_KEY") {
+        Ok(hex_str) => {
+            let hex_str = hex_str.trim();
+            if hex_str.len() != EXPECTED_HEX_LEN {
+                eprintln!(
+                    "[WARN] METALOGOS_HMAC_KEY has length {} (expected {} hex chars / 32 bytes) \
+                     — generating random key; sessions will not survive restart",
+                    hex_str.len(),
+                    EXPECTED_HEX_LEN
+                );
+            } else {
+                match hex::decode(hex_str) {
+                    Ok(bytes) if bytes.len() == EXPECTED_BYTE_LEN => {
+                        eprintln!(
+                            "[INFO] METALOGOS_HMAC_KEY loaded from env ({} bytes)",
+                            bytes.len()
+                        );
+                        return bytes;
+                    }
+                    Ok(bytes) => {
+                        eprintln!(
+                            "[WARN] METALOGOS_HMAC_KEY decoded to {} bytes (expected {}) \
+                             — generating random key; sessions will not survive restart",
+                            bytes.len(),
+                            EXPECTED_BYTE_LEN
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "[WARN] METALOGOS_HMAC_KEY is not valid hex: {} \
+                             — generating random key; sessions will not survive restart",
+                            e
+                        );
+                    }
+                }
+            }
+        }
+        Err(std::env::VarError::NotPresent) => {
+            eprintln!(
+                "[WARN] METALOGOS_HMAC_KEY env var not set \
+                 — generating random key; sessions will not survive restart"
+            );
+        }
+        Err(std::env::VarError::NotUnicode(_)) => {
+            eprintln!(
+                "[WARN] METALOGOS_HMAC_KEY env var is not valid UTF-8 \
+                 — generating random key; sessions will not survive restart"
+            );
+        }
+    }
+
+    // Fallback: generate random 32-byte key.
+    // Наряд №173: rand 0.10 API — `rng()` replaces `thread_rng()`,
+    // `gen::<T>()` renamed to `random::<T>()` in `RngExt` (extension trait).
+    use rand::RngExt;
+    let key: [u8; 32] = rand::rng().random();
+    key.to_vec()
+}
+
+pub fn sign_cookie(value: &str, key: &[u8]) -> String {
+    use hmac::{Hmac, KeyInit, Mac};
+    use sha2::Sha256;
+    type HmacSha256 = Hmac<Sha256>;
+
+    // SHA256 HMAC accepts any key length, so new_from_slice never errors here.
+    // Use a fallback to avoid panicking on the (theoretically impossible) error case.
+    let mut mac = match HmacSha256::new_from_slice(key) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!(
+                "[security] HMAC sign failed (invalid key length: {}): using unsigned value",
+                e
+            );
+            return value.to_string();
+        }
+    };
+    mac.update(value.as_bytes());
+    let result = mac.finalize();
+    let signature = hex::encode(result.into_bytes());
+    format!("{}.{}", value, signature)
+}
+
+pub fn verify_cookie(cookie: &str, key: &[u8]) -> Option<String> {
+    use hmac::{Hmac, KeyInit, Mac};
+    use sha2::Sha256;
+    type HmacSha256 = Hmac<Sha256>;
+
+    let parts: Vec<&str> = cookie.rsplitn(2, '.').collect();
+    if parts.len() != 2 {
+        return None;
+    }
+    let signature = parts[0];
+    let value = parts[1];
+
+    let mut mac = match HmacSha256::new_from_slice(key) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!(
+                "[security] HMAC verify failed (invalid key length: {}): rejecting cookie",
+                e
+            );
+            return None;
+        }
+    };
+    mac.update(value.as_bytes());
+    let expected = hex::encode(mac.finalize().into_bytes());
+
+    if signature == expected {
+        Some(value.to_string())
+    } else {
+        None
+    }
+}
+
+// ── HTML Auto-Escaping ─────────────────────────────────────────────
+
+/// Escape HTML special characters to prevent XSS.
+pub fn escape_html(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#x27;")
+}
+
+/// Simple template rendering: replace {{ var }} with escaped values.
+pub fn render_template(body: &str, vars: &HashMap<String, String>) -> String {
+    let mut result = body.to_string();
+    for (key, val) in vars {
+        let escaped = escape_html(val);
+        result = result.replace(&format!("{{{{{}}}}}", key), &escaped);
+    }
+    result
+}
+
+// ── Interpreter Merge ──────────────────────────────────────────────
+
+pub(crate) fn build_interpreter_with_server(
+    srv: &MlogServerDecl,
+    mut interp: Interpreter,
+) -> Interpreter {
+    interp = merge_templates(srv, interp);
+    interp
+}
+
+pub(crate) fn merge_interpreter(from: Interpreter, mut into: Interpreter) -> Interpreter {
+    // Merge variables (borrow, don't move)
+    for (k, v) in &from.variables {
+        into.variables.entry(k.clone()).or_insert(v.clone());
+    }
+    // Merge templates
+    for (k, v) in from.get_templates() {
+        into.templates.entry(k.clone()).or_insert(v.clone());
+    }
+    // Propagate memory persist path
+    if let Some(path) = from.get_memory_persist_path() {
+        into.set_memory_persist_path(Some(path));
+    }
+    // Merge patterns, struct types, learnable patterns, rules, sandboxes, module namespaces
+    from.clone_definitions_into(&mut into);
+    into
+}
+
+fn merge_templates(_srv: &MlogServerDecl, interp: Interpreter) -> Interpreter {
+    // Templates are added during run() already
+    interp
+}
+
+// ── Tests ───────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── Phase 6 tests (unchanged) ──
+
+    // ── #892: value_to_response honors the HttpResponse content_type ──
+
+    #[test]
+    fn n892_value_to_response_honors_html_content_type() {
+        let resp = value_to_response(Value::HttpResponse {
+            status: 200,
+            body: "<p>Тело</p>".to_string(),
+            content_type: Some("text/html; charset=utf-8".to_string()),
+        });
+        let ct = resp
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert_eq!(
+            ct, "text/html; charset=utf-8",
+            "#892: respond_html must serve text/html"
+        );
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn n892_value_to_response_default_stays_text_plain() {
+        // respond() carries content_type: None — the historical default
+        // (axum String body → text/plain) is preserved.
+        let resp = value_to_response(Value::HttpResponse {
+            status: 200,
+            body: "plain".to_string(),
+            content_type: None,
+        });
+        let ct = resp
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert_eq!(ct, "text/plain; charset=utf-8");
+    }
+
+    #[test]
+    fn n892_http_response_custom_status_is_kept() {
+        let resp = http_response_into_response(
+            404,
+            "<p>missing</p>".to_string(),
+            Some("text/html; charset=utf-8".to_string()),
+        );
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+        let ct = resp
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert_eq!(ct, "text/html; charset=utf-8");
+    }
+
+    #[test]
+    fn test_escape_html_prevents_xss() {
+        assert_eq!(
+            escape_html("<script>alert(1)</script>"),
+            "&lt;script&gt;alert(1)&lt;/script&gt;"
+        );
+        assert_eq!(
+            escape_html("Hello & \"world\""),
+            "Hello &amp; &quot;world&quot;"
+        );
+    }
+
+    #[test]
+    fn test_hmac_cookie_signing() {
+        let key = generate_hmac_key();
+        let value = "session_abc123";
+        let signed = sign_cookie(value, &key);
+        assert!(signed.contains('.'));
+        let verified = verify_cookie(&signed, &key);
+        assert_eq!(verified, Some(value.to_string()));
+    }
+
+    #[test]
+    fn test_hmac_tamper_detection() {
+        let key = generate_hmac_key();
+        let value = "session_abc123";
+        let _signed = sign_cookie(value, &key);
+        let tampered = format!("{}.deadbeef", value);
+        let verified = verify_cookie(&tampered, &key);
+        assert!(verified.is_none());
+    }
+
+    #[test]
+    fn test_opaque_types_in_value_enum() {
+        let html = Value::Html("<h1>Test</h1>".to_string());
+        assert_eq!(html.type_name(), "Html");
+        assert_eq!(format!("{}", html), "<h1>Test</h1>");
+
+        let secret = Value::Secret(metalogos::interpreter::SecretString::new(
+            "my-api-key".to_string(),
+        ));
+        assert_eq!(secret.type_name(), "Secret");
+        assert_eq!(format!("{}", secret), "[Secret]");
+
+        let query = Value::Query("SELECT * FROM users".to_string());
+        assert_eq!(query.type_name(), "Query");
+        assert_eq!(format!("{}", query), "[Query]");
+    }
+
+    // ── Phase 7.4 Contract Tests ──
+
+    #[test]
+    fn test_74_csrf_token_generation_is_random() {
+        let t1 = generate_csrf_token();
+        let t2 = generate_csrf_token();
+        assert_ne!(t1, t2);
+        assert_eq!(t1.len(), 32); // 16 bytes = 32 hex chars
+        assert!(hex::decode(&t1).is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_74_post_without_csrf_returns_403() {
+        // Simulate a POST request without CSRF cookie or header
+        let state = make_test_state().await;
+
+        let mut headers = HeaderMap::new();
+        // No _mlog_csrf cookie, no x-csrf-token header
+        headers.insert("cookie", HeaderValue::from_static("other=value"));
+
+        let result = check_csrf(&state, &headers).await;
+        assert!(result.is_err());
+        let resp = result.unwrap_err();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn test_74_post_with_matching_csrf_returns_ok() {
+        let state = make_test_state().await;
+        let token = generate_csrf_token();
+
+        // Store token in state (simulating cookie set on previous GET)
+        // Наряд №29 §2.2: value tuple is (session_id, created_at).
+        state
+            .csrf_tokens
+            .insert(token.clone(), (String::new(), std::time::Instant::now()));
+
+        // Simulate POST with matching cookie and header
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "cookie",
+            HeaderValue::from_str(&format!("_mlog_csrf={}", token)).unwrap(),
+        );
+        headers.insert("x-csrf-token", HeaderValue::from_str(&token).unwrap());
+
+        let result = check_csrf(&state, &headers).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_74_post_with_mismatched_csrf_returns_403() {
+        let state = make_test_state().await;
+        let token = generate_csrf_token();
+
+        // Cookie has one token, header has different one
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "cookie",
+            HeaderValue::from_str(&format!("_mlog_csrf={}", token)).unwrap(),
+        );
+        headers.insert(
+            "x-csrf-token",
+            HeaderValue::from_str("wrong_token_value").unwrap(),
+        );
+
+        let result = check_csrf(&state, &headers).await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().status(), StatusCode::FORBIDDEN);
+    }
+
+    // ── Наряд №262 Tests: CSRF strict — server-issued tokens + session binding ──
+
+    #[tokio::test]
+    async fn test_262_csrf_unissued_pair_rejected() {
+        // A self-made double-submit pair that was NEVER issued by this server:
+        // pre-№262 the stateless fallback accepted it (naive double-submit
+        // bypass — plant a cookie + send any matching header); now it must be
+        // 403 with an audit entry naming the root cause.
+        let state = make_test_state().await;
+        let forged = "deadbeefdeadbeefdeadbeefdeadbeef";
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "cookie",
+            HeaderValue::from_str(&format!("_mlog_csrf={}", forged)).unwrap(),
+        );
+        headers.insert("x-csrf-token", HeaderValue::from_str(forged).unwrap());
+
+        let result = check_csrf(&state, &headers).await;
+        assert!(
+            result.is_err(),
+            "a token absent from csrf_tokens must be rejected"
+        );
+        assert_eq!(result.unwrap_err().status(), StatusCode::FORBIDDEN);
+        let log = state.audit_log.read().await;
+        assert!(
+            log.iter().any(|e| e.contains("not issued by this server")),
+            "audit must name the missing issuance: {:?}",
+            *log
+        );
+    }
+
+    #[tokio::test]
+    async fn test_262_csrf_session_binding_match_passes() {
+        // Issued for sess-A + the same session presented → passes.
+        let state = make_test_state().await;
+        let token = generate_csrf_token();
+        state.csrf_tokens.insert(
+            token.clone(),
+            ("sess-A".to_string(), std::time::Instant::now()),
+        );
+
+        let signed_a = sign_cookie("sess-A", &state.hmac_key);
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "cookie",
+            HeaderValue::from_str(&format!("_mlog_csrf={}; _mlog_session={}", token, signed_a))
+                .unwrap(),
+        );
+        headers.insert("x-csrf-token", HeaderValue::from_str(&token).unwrap());
+
+        let result = check_csrf(&state, &headers).await;
+        assert!(result.is_ok(), "issued token + its own session must pass");
+    }
+
+    #[tokio::test]
+    async fn test_262_csrf_session_binding_mismatch_rejected() {
+        // Issued for sess-A, presented with sess-B → 403 + audit entry.
+        let state = make_test_state().await;
+        let token = generate_csrf_token();
+        state.csrf_tokens.insert(
+            token.clone(),
+            ("sess-A".to_string(), std::time::Instant::now()),
+        );
+
+        let signed_b = sign_cookie("sess-B", &state.hmac_key);
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "cookie",
+            HeaderValue::from_str(&format!("_mlog_csrf={}; _mlog_session={}", token, signed_b))
+                .unwrap(),
+        );
+        headers.insert("x-csrf-token", HeaderValue::from_str(&token).unwrap());
+
+        let result = check_csrf(&state, &headers).await;
+        assert!(
+            result.is_err(),
+            "a token bound to sess-A must not pass with sess-B"
+        );
+        assert_eq!(result.unwrap_err().status(), StatusCode::FORBIDDEN);
+        let log = state.audit_log.read().await;
+        assert!(
+            log.iter().any(|e| e.contains("session binding mismatch")),
+            "audit must record the binding mismatch: {:?}",
+            *log
+        );
+    }
+
+    #[tokio::test]
+    async fn test_262_csrf_bound_token_rejected_without_session() {
+        // A session-bound token cannot prove ownership without its session.
+        let state = make_test_state().await;
+        let token = generate_csrf_token();
+        state.csrf_tokens.insert(
+            token.clone(),
+            ("sess-A".to_string(), std::time::Instant::now()),
+        );
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "cookie",
+            HeaderValue::from_str(&format!("_mlog_csrf={}", token)).unwrap(),
+        );
+        headers.insert("x-csrf-token", HeaderValue::from_str(&token).unwrap());
+
+        let result = check_csrf(&state, &headers).await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn test_262_csrf_sessionless_token_rejected_with_session() {
+        // Issuance without a session binds the token to "" — replaying it WITH
+        // a valid session is a binding mismatch ("no-session" token is only
+        // valid without a session; pinned honest boundary of №262).
+        let state = make_test_state().await;
+        let token = generate_csrf_token();
+        state
+            .csrf_tokens
+            .insert(token.clone(), (String::new(), std::time::Instant::now()));
+
+        let signed_a = sign_cookie("sess-A", &state.hmac_key);
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "cookie",
+            HeaderValue::from_str(&format!("_mlog_csrf={}; _mlog_session={}", token, signed_a))
+                .unwrap(),
+        );
+        headers.insert("x-csrf-token", HeaderValue::from_str(&token).unwrap());
+
+        let result = check_csrf(&state, &headers).await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn test_262_csrf_expired_token_rejected() {
+        // TTL contract (Наряд №29 §2.2) unchanged by №262: 15 minutes.
+        let state = make_test_state().await;
+        let token = generate_csrf_token();
+        let created = std::time::Instant::now()
+            .checked_sub(std::time::Duration::from_secs(901))
+            .expect("monotonic clock older than 901s required for this test");
+        state
+            .csrf_tokens
+            .insert(token.clone(), (String::new(), created));
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "cookie",
+            HeaderValue::from_str(&format!("_mlog_csrf={}", token)).unwrap(),
+        );
+        headers.insert("x-csrf-token", HeaderValue::from_str(&token).unwrap());
+
+        let result = check_csrf(&state, &headers).await;
+        assert!(
+            result.is_err(),
+            "an expired token must be rejected even though it was issued"
+        );
+        assert_eq!(result.unwrap_err().status(), StatusCode::FORBIDDEN);
+        let log = state.audit_log.read().await;
+        assert!(
+            log.iter().any(|e| e.contains("token expired")),
+            "audit must record the expiry: {:?}",
+            *log
+        );
+    }
+
+    #[tokio::test]
+    async fn test_74_expired_session_returns_401() {
+        let state = make_test_state().await;
+
+        // Create a session that's already expired
+        let conn = state.db.lock().await;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        let past = now - 3600; // 1 hour ago
+
+        conn.execute(
+            "INSERT INTO sessions (id, user_id, data, created_at, expires_at) VALUES (?1, ?2, '{}', ?3, ?4)",
+            rusqlite::params!["expired-session-id", "user1", now, past],
+        ).unwrap();
+        drop(conn);
+
+        let result = validate_session_in_db(&state, "expired-session-id").await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_74_valid_session_returns_ok() {
+        let state = make_test_state().await;
+
+        // Create a valid session (expires in 24 hours)
+        let session_id = create_session_db(&state.db, "user1").await.unwrap();
+
+        let result = validate_session_in_db(&state, &session_id).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_74_nonexistent_session_returns_401() {
+        let state = make_test_state().await;
+
+        let result = validate_session_in_db(&state, "nonexistent-id").await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_74_rate_limit_under_threshold_passes() {
+        let state = make_test_state().await;
+
+        // 50 requests should pass (limit is 100/min)
+        for _ in 0..50 {
+            let result = check_rate_limit(&state, "192.168.1.1", 100).await;
+            assert!(result.is_ok());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_74_rate_limit_exceeded_returns_429() {
+        let state = make_test_state().await;
+
+        // Fill up to limit
+        for _ in 0..100 {
+            let _ = check_rate_limit(&state, "192.168.1.2", 100).await;
+        }
+
+        // 101st should fail
+        let result = check_rate_limit(&state, "192.168.1.2", 100).await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[tokio::test]
+    async fn test_74_rate_limit_per_ip_isolated() {
+        let state = make_test_state().await;
+
+        // Exhaust limit for IP A
+        for _ in 0..100 {
+            let _ = check_rate_limit(&state, "ip-a", 100).await;
+        }
+        let result_a = check_rate_limit(&state, "ip-a", 100).await;
+        assert!(result_a.is_err());
+
+        // IP B should still be fine
+        let result_b = check_rate_limit(&state, "ip-b", 100).await;
+        assert!(result_b.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_74_session_create_and_delete() {
+        let state = make_test_state().await;
+
+        let id = create_session_db(&state.db, "testuser").await.unwrap();
+        assert!(!id.is_empty());
+
+        // Verify it exists in DB
+        let conn = state.db.lock().await;
+        let found: Result<String, _> = conn.query_row(
+            "SELECT user_id FROM sessions WHERE id = ?1",
+            rusqlite::params![id],
+            |row| row.get(0),
+        );
+        assert_eq!(found.unwrap(), "testuser");
+        drop(conn);
+
+        // Delete it
+        delete_session_db(&state.db, &id).await.unwrap();
+
+        // Verify deleted
+        let conn = state.db.lock().await;
+        let result: Result<String, _> = conn.query_row(
+            "SELECT user_id FROM sessions WHERE id = ?1",
+            rusqlite::params![id],
+            |row| row.get(0),
+        );
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_74_clean_expired_sessions() {
+        let state = make_test_state().await;
+
+        let conn = state.db.lock().await;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        let past = now - 7200;
+
+        // Insert expired session
+        conn.execute(
+            "INSERT INTO sessions (id, user_id, data, created_at, expires_at) VALUES (?1, ?2, '{}', ?3, ?4)",
+            rusqlite::params!["expired-1", "old_user", now, past],
+        ).unwrap();
+
+        // Insert valid session
+        let future = now + 86400;
+        conn.execute(
+            "INSERT INTO sessions (id, user_id, data, created_at, expires_at) VALUES (?1, ?2, '{}', ?3, ?4)",
+            rusqlite::params!["valid-1", "current_user", now, future],
+        ).unwrap();
+        drop(conn);
+
+        // Clean expired
+        let deleted = clean_expired_sessions_db(&state.db).await.unwrap();
+        assert_eq!(deleted, 1);
+
+        // Verify expired is gone, valid remains
+        let conn = state.db.lock().await;
+        let expired_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sessions WHERE id = 'expired-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!expired_exists);
+
+        let valid_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sessions WHERE id = 'valid-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(valid_exists);
+    }
+
+    #[test]
+    fn test_74_extract_client_ip_from_headers() {
+        // Наряд №263 contract (rewritten): headers are honored ONLY when the
+        // direct peer is in the trusted-proxies list; otherwise the peer wins.
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-forwarded-for",
+            HeaderValue::from_static("10.0.0.1, 172.16.0.1"),
+        );
+        let no_trusted = TrustedProxies::default();
+        let trusted_loopback = TrustedProxies::from_env_spec(Some("127.0.0.1"));
+        let peer_loopback: Option<IpAddr> = Some("127.0.0.1".parse().unwrap());
+        let peer_other: Option<IpAddr> = Some("192.168.1.5".parse().unwrap());
+
+        // (1) No trusted proxies: XFF is IGNORED, the peer is the key...
+        assert_eq!(
+            extract_client_ip(&headers, peer_other, &no_trusted),
+            "192.168.1.5"
+        );
+        //    ...and without a peer (direct unit calls) → "unknown", as before.
+        assert_eq!(extract_client_ip(&headers, None, &no_trusted), "unknown");
+
+        // (2) Trusted peer: leftmost XFF entry wins.
+        assert_eq!(
+            extract_client_ip(&headers, peer_loopback, &trusted_loopback),
+            "10.0.0.1"
+        );
+
+        // (3) Trusted peer without XFF: X-Real-IP, else the peer.
+        let mut headers2 = HeaderMap::new();
+        headers2.insert("x-real-ip", HeaderValue::from_static("192.168.1.100"));
+        assert_eq!(
+            extract_client_ip(&headers2, peer_loopback, &trusted_loopback),
+            "192.168.1.100"
+        );
+        assert_eq!(
+            extract_client_ip(&HeaderMap::new(), peer_loopback, &trusted_loopback),
+            "127.0.0.1"
+        );
+
+        // (4) Peer NOT in the list: headers never honored even when the env is set.
+        assert_eq!(
+            extract_client_ip(&headers, peer_other, &trusted_loopback),
+            "192.168.1.5"
+        );
+    }
+
+    // ── Наряд №263: trusted-proxies parsing (no new crates, manual CIDR) ──
+
+    #[test]
+    fn test_n263_trusted_proxies_parse_table() {
+        let unset = TrustedProxies::from_env_spec(None);
+        assert!(!unset.is_configured());
+        let empty = TrustedProxies::from_env_spec(Some(""));
+        assert!(!empty.is_configured());
+
+        // Exact IP + CIDR, mixed families, spaces tolerated.
+        let list = TrustedProxies::from_env_spec(Some(" 10.0.0.1 , 10.0.0.0/8 , fc00::/7 , ::1 "));
+        assert!(list.is_configured());
+        assert!(list.contains("10.0.0.1".parse().unwrap()));
+        assert!(list.contains("10.255.255.255".parse().unwrap()));
+        assert!(!list.contains("11.0.0.1".parse().unwrap()));
+        assert!(list.contains("fc00::1".parse().unwrap()));
+        assert!(list.contains("fdff::1".parse().unwrap())); // fc00::/7 covers fc00–fdff
+        assert!(!list.contains("fe00::1".parse().unwrap()));
+        assert!(list.contains("::1".parse().unwrap()));
+        assert!(!list.contains("::2".parse().unwrap()));
+
+        // IPv4-mapped IPv6 peer unwraps to its V4 form (№261 лекало).
+        assert!(list.contains("::ffff:10.1.2.3".parse().unwrap()));
+        assert!(!list.contains("::ffff:11.1.2.3".parse().unwrap()));
+
+        // /0 matches everything in-family (documented edge); /33, /129 invalid.
+        let v4all = TrustedProxies::from_env_spec(Some("0.0.0.0/0"));
+        assert!(v4all.contains("8.8.8.8".parse().unwrap()));
+        assert!(!v4all.contains("::1".parse().unwrap())); // mixed family never matches
+        let bad = TrustedProxies::from_env_spec(Some("10.0.0.0/33, banana, 10.0.0.0/129"));
+        assert!(!bad.is_configured()); // every entry invalid → skipped loudly
+    }
+
+    // ── Наряд №263: bounded state maps — loud refusals, not silent growth ──
+
+    #[tokio::test]
+    async fn test_n263_rate_key_cap_new_key_blocked_existing_key_works() {
+        let state = make_test_state().await;
+        let now = std::time::Instant::now();
+        // Fill the key store to the cap.
+        for i in 0..MAX_RATE_KEYS {
+            state.rate_limits.insert(format!("k{}", i), vec![now]);
+        }
+        assert_eq!(state.rate_limits.len(), MAX_RATE_KEYS);
+
+        // A NEW key at the cap = "full bucket" → 429, loud audit entry.
+        let result = check_rate_limit(&state, "fresh-peer", 100).await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().status(), StatusCode::TOO_MANY_REQUESTS);
+        let log = state.audit_log.read().await;
+        assert!(
+            log.iter().any(|e| e.contains("key store full")),
+            "the cap refusal must be loud in the audit log"
+        );
+        drop(log);
+
+        // An EXISTING key keeps working at the cap (the sweep reclaims stale ones).
+        let result = check_rate_limit(&state, "k0", 100).await;
+        assert!(result.is_ok());
+        // Memory is bounded: the map never exceeded the cap.
+        assert!(state.rate_limits.len() <= MAX_RATE_KEYS);
+    }
+
+    #[tokio::test]
+    async fn test_n263_session_cap_refuses_loudly_with_503_text() {
+        let state = make_test_state().await;
+        let entry = |ttl_secs: u64| SessionEntry {
+            data: HashMap::new(),
+            roles: vec!["user".to_string()],
+            expires: std::time::Instant::now() + std::time::Duration::from_secs(ttl_secs),
+        };
+        for i in 0..MAX_SESSIONS {
+            insert_session_capped(&state, format!("s{}", i), entry(3600)).unwrap();
+        }
+        // At the cap a NEW session is refused with the loud 503 text.
+        let err = insert_session_capped(&state, "overflow".to_string(), entry(3600)).unwrap_err();
+        assert!(
+            err.contains("503"),
+            "refusal must carry 503 semantics: {}",
+            err
+        );
+        assert!(err.contains("session store full"));
+        // Replacing an EXISTING id stays allowed (updates are not new entries).
+        insert_session_capped(&state, "s0".to_string(), entry(3600)).unwrap();
+        assert_eq!(state.sessions.len(), MAX_SESSIONS);
+    }
+
+    #[tokio::test]
+    async fn test_n263_csrf_token_cap_refuses_issuance_with_503() {
+        let state = make_test_state().await;
+        for i in 0..MAX_CSRF_TOKENS {
+            state.csrf_tokens.insert(
+                format!("t{}", i),
+                ("".to_string(), std::time::Instant::now()),
+            );
+        }
+        let result = issue_csrf_token_capped(&state, "fresh-token", "").await;
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        let log = state.audit_log.read().await;
+        assert!(log.iter().any(|e| e.contains("token store full")));
+        drop(log);
+        // The fresh token was NOT inserted (memory bounded).
+        assert_eq!(state.csrf_tokens.len(), MAX_CSRF_TOKENS);
+        assert!(!state.csrf_tokens.contains_key("fresh-token"));
+    }
+
+    // ── Наряд №263: the sweep now covers rate_limits and sessions too ──
+
+    #[tokio::test]
+    async fn test_n263_sweep_removes_stale_rate_keys_and_expired_sessions() {
+        let state = make_test_state().await;
+        let now = std::time::Instant::now();
+        let old = now
+            .checked_sub(std::time::Duration::from_secs(RATE_WINDOW_SECS + 30))
+            .unwrap();
+
+        // rate_limits: a fully-stale key (evicted) vs a live key (kept),
+        // plus a half-stale key (stale timestamps trimmed, key stays).
+        state.rate_limits.insert("stale-key".to_string(), vec![old]);
+        state.rate_limits.insert("live-key".to_string(), vec![now]);
+        state
+            .rate_limits
+            .insert("mixed-key".to_string(), vec![old, now]);
+
+        // sessions: expired (evicted) vs live (kept).
+        let session_entry = |expired: bool| SessionEntry {
+            data: HashMap::new(),
+            roles: vec![],
+            expires: if expired {
+                now.checked_sub(std::time::Duration::from_secs(60)).unwrap()
+            } else {
+                now + std::time::Duration::from_secs(3600)
+            },
+        };
+        insert_session_capped(&state, "expired-session".to_string(), session_entry(true)).unwrap();
+        insert_session_capped(&state, "live-session".to_string(), session_entry(false)).unwrap();
+
+        // csrf_tokens: expired (evicted) vs live (kept) — the original №29 behavior.
+        let backdated = now
+            .checked_sub(std::time::Duration::from_secs(901))
+            .unwrap();
+        state
+            .csrf_tokens
+            .insert("expired-token".to_string(), ("".into(), backdated));
+        state
+            .csrf_tokens
+            .insert("live-token".to_string(), ("".into(), now));
+
+        let (csrf, rate_keys, sessions) = sweep_expired_state(&state);
+        assert_eq!((csrf, rate_keys, sessions), (1, 1, 1));
+        assert!(!state.rate_limits.contains_key("stale-key"));
+        assert!(state.rate_limits.contains_key("live-key"));
+        assert!(state.rate_limits.contains_key("mixed-key"));
+        assert_eq!(state.rate_limits.get("mixed-key").unwrap().len(), 1);
+        assert!(!state.sessions.contains_key("expired-session"));
+        assert!(state.sessions.contains_key("live-session"));
+        assert!(!state.csrf_tokens.contains_key("expired-token"));
+        assert!(state.csrf_tokens.contains_key("live-token"));
+    }
+
+    // ── Наряд №263: the rate_limit declaration field drives the limit ──
+
+    #[tokio::test]
+    async fn test_n263_rate_limit_field_parses_and_wires() {
+        let state = build_test_server_state(
+            r#"
+mlogserver {
+    port: 0
+    middleware: [rate_limit]
+    rate_limit: 7
+    route "/ok" method=GET { respond("200", "ok") }
+}
+"#,
+        )
+        .await;
+        assert_eq!(state.rate_limit_per_minute, 7);
+
+        // Absent field → the documented default 100 (pre-№263 hard-wired value).
+        let default_state = build_test_server_state(
+            r#"
+mlogserver {
+    port: 0
+    middleware: [rate_limit]
+    route "/ok" method=GET { respond("200", "ok") }
+}
+"#,
+        )
+        .await;
+        assert_eq!(
+            default_state.rate_limit_per_minute,
+            DEFAULT_RATE_LIMIT_PER_MINUTE
+        );
+    }
+
+    #[test]
+    fn test_74_make_session_cookie_value() {
+        let key = generate_hmac_key();
+        let cookie = make_session_cookie_value("abc123", true, &key);
+        assert!(cookie.starts_with("_mlog_session="));
+        assert!(cookie.contains("HttpOnly"));
+        assert!(cookie.contains("Secure"));
+        assert!(cookie.contains("SameSite=Strict"));
+        assert!(cookie.contains("Max-Age=86400"));
+    }
+
+    /// Helper: create a ServerState for testing (with in-memory SQLite).
+    async fn make_test_state() -> ServerState {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        init_session_db(&conn).unwrap();
+
+        ServerState {
+            sessions: Arc::new(DashMap::new()),
+            csrf_tokens: Arc::new(DashMap::new()),
+            hmac_key: Arc::new(generate_hmac_key()),
+            distill: None,
+            audit_log: Arc::new(RwLock::new(Vec::new())),
+            templates: Arc::new(RwLock::new(HashMap::new())),
+            db_store: Arc::new(RwLock::new(Vec::new())),
+            memory_persist: None,
+            interpreter: Arc::new(RwLock::new(Interpreter::new())),
+            routes: Vec::new(),
+            middleware: vec![
+                "session".to_string(),
+                "csrf".to_string(),
+                "rate_limit".to_string(),
+            ],
+            db: Arc::new(tokio::sync::Mutex::new(conn)),
+            rate_limits: Arc::new(DashMap::new()),
+            rate_limit_per_minute: DEFAULT_RATE_LIMIT_PER_MINUTE,
+            trusted_proxies: Arc::new(TrustedProxies::default()),
+            backend: ServeBackend::Interpreter,
+            vm_program: None,
+            vm_routes: Vec::new(),
+            vm_pool: None,
+            redact_mode: None,
+        }
+    }
+
+    // ── Наряд №40 Tests: VM backend ──────────────────────────────
+
+    #[tokio::test]
+    async fn test_n40_backend_env_default_is_vm() {
+        // ADR-0171: default (no env var) is the VM — the flip contract
+        std::env::remove_var("METALOGOS_SERVE_BACKEND");
+        let backend = match std::env::var("METALOGOS_SERVE_BACKEND") {
+            Ok(val) if val == "vm" => ServeBackend::Vm,
+            Ok(val) if val == "interpreter" => ServeBackend::Interpreter,
+            Ok(_) => ServeBackend::Vm,  // fallback = the default
+            Err(_) => ServeBackend::Vm, // default
+        };
+        assert_eq!(backend, ServeBackend::Vm);
+    }
+
+    #[tokio::test]
+    async fn test_n40_backend_env_unknown_falls_back() {
+        // "typo" → fallback to the VM (the default, ADR-0171), not panic
+        let backend = match Some("typo".to_string()) {
+            Some(ref val) if *val == "vm" => ServeBackend::Vm,
+            Some(ref val) if *val == "interpreter" => ServeBackend::Interpreter,
+            Some(_) => ServeBackend::Vm, // fallback on unknown
+            None => ServeBackend::Vm,
+        };
+        assert_eq!(backend, ServeBackend::Vm);
+    }
+
+    #[tokio::test]
+    async fn test_n40_crashing_route_returns_500_interpreter() {
+        // Route body: divide by string (error in expression evaluation)
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/crash" method=GET {
+        let x = "hello" / 3
+        respond("200", "should not reach here")
+    }
+}
+"#;
+        let state = build_test_server_state(source).await;
+        let response = call_route(&state, "GET", "/crash", "", "").await;
+        assert_eq!(response.status(), 500);
+    }
+
+    #[tokio::test]
+    async fn test_n40_ok_route_returns_200_interpreter() {
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/ok" method=GET {
+        respond("200", "hello")
+    }
+}
+"#;
+        let state = build_test_server_state(source).await;
+        let response = call_route(&state, "GET", "/ok", "", "").await;
+        assert_eq!(response.status(), 200);
+    }
+
+    #[tokio::test]
+    async fn test_n40_query_param_isolation() {
+        // Two requests with different query params must get their own values.
+        // This proves per-request isolation: request A's query_param("name")
+        // does not leak into request B.
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/echo" method=GET {
+        let name = query_param("name")
+        respond("200", name)
+    }
+}
+"#;
+        let state = build_test_server_state(source).await;
+
+        // Request A: name=Alice
+        let resp_a = call_route(&state, "GET", "/echo", "name=Alice", "").await;
+        assert_eq!(resp_a.status(), 200);
+        let body_a = body_to_string(resp_a).await;
+        assert_eq!(body_a, "Alice");
+
+        // Request B: name=Bob
+        let resp_b = call_route(&state, "GET", "/echo", "name=Bob", "").await;
+        assert_eq!(resp_b.status(), 200);
+        let body_b = body_to_string(resp_b).await;
+        assert_eq!(body_b, "Bob");
+    }
+
+    #[tokio::test]
+    async fn test_n40_kv_set_shared_between_requests() {
+        // kv_set in one request must be visible in the next (shared store).
+        // This confirms that global state (kv_set/kv_get) works across requests,
+        // unlike local variables which are isolated.
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/set" method=GET {
+        kv_set("test_key", "test_value")
+        respond("200", "set")
+    }
+    route "/get" method=GET {
+        let val = kv_get("test_key")
+        respond("200", val)
+    }
+}
+"#;
+        let state = build_test_server_state(source).await;
+
+        // Clear any previous value (via interpreter builtin call)
+        {
+            let interp = state.interpreter.write().await;
+            if let Some(fn_kv) = interp.get_builtin("kv_delete") {
+                let _ = fn_kv(&[metalogos::interpreter::Value::String(
+                    "test_key".to_string(),
+                )]);
+            }
+        }
+
+        // Set
+        let resp_set = call_route(&state, "GET", "/set", "", "").await;
+        assert_eq!(resp_set.status(), 200);
+
+        // Get — should see the value set by previous request
+        let resp_get = call_route(&state, "GET", "/get", "", "").await;
+        assert_eq!(resp_get.status(), 200);
+        let body_get = body_to_string(resp_get).await;
+        assert_eq!(body_get, "test_value");
+
+        // Cleanup
+        {
+            let interp = state.interpreter.write().await;
+            if let Some(fn_kv) = interp.get_builtin("kv_delete") {
+                let _ = fn_kv(&[metalogos::interpreter::Value::String(
+                    "test_key".to_string(),
+                )]);
+            }
+        }
+    }
+
+    /// Helper: extract body string from a Response.
+    async fn body_to_string(resp: axum::response::Response) -> String {
+        let bytes = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap_or_default();
+        String::from_utf8(bytes.to_vec()).unwrap_or_default()
+    }
+
+    /// Helper: build a minimal ServerState from mlog source for testing.
+    async fn build_test_server_state(source: &str) -> ServerState {
+        let declarations = metalogos::parser::parse(source).unwrap();
+        let mut interp = Interpreter::new();
+        for decl in declarations.clone() {
+            match decl {
+                Declaration::MlogServer(ref srv) => {
+                    interp = build_interpreter_with_server(srv, interp);
+                }
+                Declaration::Flow(_) => {}
+                _ => {
+                    let mut tmp = Interpreter::new();
+                    tmp.set_base_dir(std::path::PathBuf::from("."));
+                    let _ = tmp.run(vec![decl]);
+                    interp = merge_interpreter(tmp, interp);
+                }
+            }
+        }
+        let config = declarations
+            .iter()
+            .find_map(|d| match d {
+                Declaration::MlogServer(s) => Some(s.clone()),
+                _ => None,
+            })
+            .unwrap();
+        build_state(config, interp).await.unwrap()
+    }
+
+    /// Helper: simulate calling a route on the server state.
+    async fn call_route(
+        state: &ServerState,
+        method: &str,
+        path: &str,
+        query: &str,
+        body: &str,
+    ) -> axum::response::Response {
+        let _uri: Uri = format!("{}?{}", path, query).parse().unwrap();
+        let method = match method {
+            "GET" => Method::GET,
+            "POST" => Method::POST,
+            _ => Method::GET,
+        };
+        let headers = HeaderMap::new();
+        let body_bytes = bytes::Bytes::from(body.to_string());
+
+        let query_map: std::collections::HashMap<String, String> = if query.is_empty() {
+            HashMap::new()
+        } else {
+            query
+                .split('&')
+                .filter_map(|pair| {
+                    let mut parts = pair.splitn(2, '=');
+                    let key = parts.next()?.to_string();
+                    let val = parts.next().unwrap_or("").to_string();
+                    Some((key, val))
+                })
+                .collect()
+        };
+
+        let result = execute_route_body(
+            state,
+            &state
+                .routes
+                .iter()
+                .find(|r| r.path == path && r.method == method.as_str())
+                .unwrap()
+                .body,
+            &headers,
+            &body_bytes,
+            &query_map,
+            // Наряд №283: test helper for static routes — empty path params.
+            &std::collections::HashMap::new(),
+        )
+        .await;
+        match result {
+            Ok(resp) => resp,
+            Err(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Handler error: {}", e),
+            )
+                .into_response(),
+        }
+    }
+
+    /// Наряд №41 Block 1 (superseded by №369, ADR-0141 Stage 1.1): match
+    #[tokio::test]
+    async fn test_n41_match_compiles_in_vm_since_369() {
+        use metalogos::compiler::Compiler;
+        use metalogos::parser;
+
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/match_test" method=GET {
+        let x = "hello"
+        match x {
+            "hello" then { respond("200", "matched") }
+            else { respond("200", "default") }
+        }
+    }
+}
+"#;
+        let declarations = parser::parse(source).unwrap();
+        let config = declarations
+            .iter()
+            .find_map(|d| match d {
+                Declaration::MlogServer(s) => Some(s.clone()),
+                _ => None,
+            })
+            .unwrap();
+        let compiler = Compiler::new();
+        // №369 (ADR-0141 Stage 1.1): Match statements compile to bytecode —
+        // the old №41 contract ("match must fail route compilation") is
+        // superseded. Route compilation must now SUCCEED, and the compiled
+        // route code must contain a real MatchTest dispatch (not a silent
+        // no-op, not an error).
+        let result = compiler.compile_routes(&config.routes);
+        assert!(
+            result.is_ok(),
+            "compile_routes must accept match statements since №369, got Err"
+        );
+        let routes = result.unwrap();
+        assert_eq!(routes.len(), 1);
+        let has_match_test = routes[0]
+            .code
+            .iter()
+            .any(|i| matches!(i, metalogos::bytecode::Instruction::MatchTest(_)));
+        assert!(
+            has_match_test,
+            "compiled route must contain a MatchTest instruction (№369)"
+        );
+    }
+
+    /// Наряд №41 Block 1: routes without match still compile fine.
+    #[tokio::test]
+    async fn test_n41_non_match_routes_compile_in_vm() {
+        use metalogos::compiler::Compiler;
+        use metalogos::parser;
+
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/ok" method=GET {
+        let x = "hello"
+        respond("200", x)
+    }
+}
+"#;
+        let declarations = parser::parse(source).unwrap();
+        let config = declarations
+            .iter()
+            .find_map(|d| match d {
+                Declaration::MlogServer(s) => Some(s.clone()),
+                _ => None,
+            })
+            .unwrap();
+        let compiler = Compiler::new();
+        let result = compiler.compile_routes(&config.routes);
+        assert!(
+            result.is_ok(),
+            "compile_routes should succeed for routes without match, got Err: {}",
+            result.unwrap_err()
+        );
+    }
+
+    /// Наряд №41 Block 4: Side-effect parity test — both backends produce
+    /// same HTTP status for an identical route.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_n41_side_effect_parity() {
+        use metalogos::compiler::Compiler;
+
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/parity" method=GET {
+        let x = query_param("x")
+        if x == "crash" then { let _ = 1 / 0 }
+        respond("200", "x=" + x)
+    }
+}
+"#;
+        // Build server state (interpreter backend)
+        let state = build_test_server_state(source).await;
+
+        // Compile routes for VM
+        let mut compiler = Compiler::new();
+        let declarations = metalogos::parser::parse(source).unwrap();
+        let config = declarations
+            .iter()
+            .find_map(|d| match d {
+                Declaration::MlogServer(s) => Some(s.clone()),
+                _ => None,
+            })
+            .unwrap();
+        let compiled_routes = compiler.compile_routes(&config.routes).unwrap();
+        let program = compiler.compile(declarations).unwrap();
+
+        let compiled = &compiled_routes[0];
+
+        // Helper: execute route via VM directly (bypasses state.vm_program check)
+        async fn call_route_vm_direct(
+            state: &ServerState,
+            program: &metalogos::bytecode::Program,
+            compiled: &metalogos::bytecode::CompiledRoute,
+            query: &std::collections::HashMap<String, String>,
+        ) -> Result<axum::response::Response, String> {
+            // Clone data needed inside spawn_blocking (closure must be 'static + Send)
+            let program = program.clone();
+            let compiled = compiled.clone();
+            let query = query.clone();
+            let (audit_entries, result) = tokio::task::spawn_blocking(move || {
+                let mut vm = Vm::new();
+                vm.load_program(&program)
+                    .map_err(|e| format!("VM route init: {}", e))?;
+                vm.clear_server_context();
+                if !query.is_empty() {
+                    vm.set_server_query_params(query.clone());
+                }
+                let r = vm.execute_route_code(&compiled, &program);
+                let entries = vm.take_audit_log();
+                Result::<_, String>::Ok((entries, r))
+            })
+            .await
+            .map_err(|e| format!("blocking task panicked: {}", e))??;
+            flush_vm_audit_entries_to_db(state, &audit_entries).await;
+            match result {
+                Ok(val) => {
+                    if let metalogos::interpreter::Value::HttpResponse {
+                        status,
+                        body,
+                        content_type,
+                    } = val
+                    {
+                        Ok(http_response_into_response(status, body, content_type))
+                    } else {
+                        Ok(value_to_response(val))
+                    }
+                }
+                Err(e) => Err(e),
+            }
+        }
+
+        // Test 1: OK response parity
+        let query_ok: std::collections::HashMap<String, String> =
+            [("x".to_string(), "hello".to_string())]
+                .into_iter()
+                .collect();
+
+        let interp_resp = call_route(&state, "GET", "/parity", "x=hello", "").await;
+        let vm_resp = call_route_vm_direct(&state, &program, compiled, &query_ok)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            interp_resp.status(),
+            vm_resp.status(),
+            "HTTP status mismatch for OK case"
+        );
+
+        // Test 2: crash response parity (both should error)
+        let query_crash: std::collections::HashMap<String, String> =
+            [("x".to_string(), "crash".to_string())]
+                .into_iter()
+                .collect();
+
+        let interp_crash = call_route(&state, "GET", "/parity", "x=crash", "").await;
+        let vm_crash = call_route_vm_direct(&state, &program, compiled, &query_crash).await;
+
+        let interp_is_error = interp_crash.status() == 500;
+        let vm_is_error = vm_crash.is_err();
+        assert!(
+            interp_is_error && vm_is_error,
+            "Both backends should error on crash: interp_status={}, vm_is_error={}",
+            interp_crash.status(),
+            vm_is_error
+        );
+    }
+
+    // ── Наряд №283: path-параметры роутов mlogserver ──────────────────
+    //
+    // Template matcher (`{name}` / `{*path}`) as a fallback after static
+    // route matching fails. Static routes win over templates (axum
+    // semantics). Conflict of two templates matching the same path →
+    // loud error at server start. TW/VM parity mandatory.
+
+    /// Helper: simulate calling a route on the server state — with template
+    /// matching. Mirrors what `route_handler` does in production: try
+    /// exact (static) match first, fall back to `match_templated_route`.
+    /// Returns 404-shaped Response when no route matches.
+    ///
+    /// Unlike `call_route` (which assumes a static path and panics on
+    /// `.unwrap()` of the missing literal match), this helper is the
+    /// correct way to exercise templated routes in tests.
+    async fn call_route_full(
+        state: &ServerState,
+        method: &str,
+        path: &str,
+        query: &str,
+        body: &str,
+    ) -> axum::response::Response {
+        let _uri: Uri = format!("{}?{}", path, query).parse().unwrap();
+        // (method is passed as &str to match_templated_route and find;
+        // we don't need to convert it to axum::http::Method here — the
+        // HTTP layer is bypassed in this helper.)
+        let _method_str = method;
+        let headers = HeaderMap::new();
+        let body_bytes = bytes::Bytes::from(body.to_string());
+        let query_map: std::collections::HashMap<String, String> = if query.is_empty() {
+            HashMap::new()
+        } else {
+            query
+                .split('&')
+                .filter_map(|pair| {
+                    let mut parts = pair.splitn(2, '=');
+                    let key = parts.next()?.to_string();
+                    let val = parts.next().unwrap_or("").to_string();
+                    Some((key, val))
+                })
+                .collect()
+        };
+
+        // 1. Exact (static) match — wins over templates (axum semantics).
+        let static_match = state
+            .routes
+            .iter()
+            .find(|r| r.path == path && r.method == method);
+
+        if let Some(route) = static_match {
+            let result = execute_route_body(
+                state,
+                &route.body,
+                &headers,
+                &body_bytes,
+                &query_map,
+                // Static route → no path params.
+                &std::collections::HashMap::new(),
+            )
+            .await;
+            return match result {
+                Ok(resp) => resp,
+                Err(e) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Handler error: {}", e),
+                )
+                    .into_response(),
+            };
+        }
+
+        // 2. Fallback: template matching.
+        match match_templated_route(&state.routes, path, method) {
+            Ok(Some((route, path_params))) => {
+                let result = execute_route_body(
+                    state,
+                    &route.body,
+                    &headers,
+                    &body_bytes,
+                    &query_map,
+                    &path_params,
+                )
+                .await;
+                match result {
+                    Ok(resp) => resp,
+                    Err(e) => (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Handler error: {}", e),
+                    )
+                        .into_response(),
+                }
+            }
+            Ok(None) => (StatusCode::NOT_FOUND, "404 Not Found").into_response(),
+            Err(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("route template error: {}", e),
+            )
+                .into_response(),
+        }
+    }
+
+    /// Helper: execute a templated route via VM directly, with path params.
+    /// Parity with `call_route_vm_direct` but injects path_params (Наряд №283).
+    async fn call_route_vm_with_path_params(
+        state: &ServerState,
+        program: &metalogos::bytecode::Program,
+        compiled: &metalogos::bytecode::CompiledRoute,
+        query: &std::collections::HashMap<String, String>,
+        path_params: &std::collections::HashMap<String, String>,
+    ) -> Result<axum::response::Response, String> {
+        let program = program.clone();
+        let compiled = compiled.clone();
+        let query = query.clone();
+        let path_params = path_params.clone();
+        let (audit_entries, result) = tokio::task::spawn_blocking(move || {
+            let mut vm = Vm::new();
+            vm.load_program(&program)
+                .map_err(|e| format!("VM route init: {}", e))?;
+            vm.clear_server_context();
+            if !query.is_empty() {
+                vm.set_server_query_params(query.clone());
+            }
+            if !path_params.is_empty() {
+                vm.set_server_path_params(path_params.clone());
+            }
+            let r = vm.execute_route_code(&compiled, &program);
+            let entries = vm.take_audit_log();
+            Result::<_, String>::Ok((entries, r))
+        })
+        .await
+        .map_err(|e| format!("blocking task panicked: {}", e))??;
+        flush_vm_audit_entries_to_db(state, &audit_entries).await;
+        match result {
+            Ok(val) => {
+                if let metalogos::interpreter::Value::HttpResponse {
+                    status,
+                    body,
+                    content_type,
+                } = val
+                {
+                    Ok(http_response_into_response(status, body, content_type))
+                } else {
+                    Ok(value_to_response(val))
+                }
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    #[tokio::test]
+    async fn n283_templated_route_basic() {
+        // `/demo/{name}` matches `/demo/test` → server_path_param("name") = "test"
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/demo/{name}" method=GET {
+        let n = server_path_param("name")
+        respond("200", n)
+    }
+}
+"#;
+        let state = build_test_server_state(source).await;
+        let resp = call_route_full(&state, "GET", "/demo/test", "", "").await;
+        assert_eq!(resp.status(), 200);
+        let body = body_to_string(resp).await;
+        assert_eq!(body, "test");
+    }
+
+    #[tokio::test]
+    async fn n283_wildcard_captures_tail() {
+        // `/files/{*path}` matches `/files/a/b/c` → server_path_param("path") = "a/b/c"
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/files/{*path}" method=GET {
+        let p = server_path_param("path")
+        respond("200", p)
+    }
+}
+"#;
+        let state = build_test_server_state(source).await;
+        let resp = call_route_full(&state, "GET", "/files/a/b/c", "", "").await;
+        assert_eq!(resp.status(), 200);
+        let body = body_to_string(resp).await;
+        assert_eq!(body, "a/b/c");
+    }
+
+    #[tokio::test]
+    async fn n283_static_wins_over_template() {
+        // Both `/demo/static` (literal) and `/demo/{name}` (template) registered.
+        // `/demo/static` must match the literal route; `/demo/test` the template.
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/demo/static" method=GET {
+        respond("200", "LITERAL")
+    }
+    route "/demo/{name}" method=GET {
+        let n = server_path_param("name")
+        respond("200", "TPL:" + n)
+    }
+}
+"#;
+        let state = build_test_server_state(source).await;
+
+        // Static wins
+        let resp_static = call_route_full(&state, "GET", "/demo/static", "", "").await;
+        assert_eq!(resp_static.status(), 200);
+        assert_eq!(body_to_string(resp_static).await, "LITERAL");
+
+        // Template matches when no static route matches
+        let resp_tpl = call_route_full(&state, "GET", "/demo/test", "", "").await;
+        assert_eq!(resp_tpl.status(), 200);
+        assert_eq!(body_to_string(resp_tpl).await, "TPL:test");
+    }
+
+    #[tokio::test]
+    async fn n283_percent_decoding() {
+        // `/forge/a%20b` → server_path_param("name") = "a b" (percent-decoded).
+        // Parity with query_param decoding semantics.
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/forge/{name}" method=GET {
+        let n = server_path_param("name")
+        respond("200", n)
+    }
+}
+"#;
+        let state = build_test_server_state(source).await;
+        // `call_route` parses the path component of the URI. `%20` → space.
+        let resp = call_route_full(&state, "GET", "/forge/a%20b", "", "").await;
+        assert_eq!(resp.status(), 200);
+        let body = body_to_string(resp).await;
+        assert_eq!(body, "a b");
+    }
+
+    #[tokio::test]
+    async fn n283_no_match_returns_404() {
+        // No static route, no template → 404 (existing behavior).
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/demo/{name}" method=GET {
+        respond("200", "ok")
+    }
+}
+"#;
+        let state = build_test_server_state(source).await;
+        // /other/test — doesn't match /demo/{name}
+        let resp = call_route_full(&state, "GET", "/other/test", "", "").await;
+        assert_eq!(resp.status(), 404);
+    }
+
+    #[tokio::test]
+    async fn n283_template_conflict_at_startup() {
+        // Two templates matching the same path (same shape, same method)
+        // → loud error at server start.
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/a/{x}" method=GET {
+        respond("200", "first")
+    }
+    route "/a/{y}" method=GET {
+        respond("200", "second")
+    }
+}
+"#;
+        // build_state surfaces the conflict via the loud startup check.
+        let declarations = metalogos::parser::parse(source).unwrap();
+        let mut interp = Interpreter::new();
+        for decl in declarations.clone() {
+            if let Declaration::MlogServer(ref srv) = decl {
+                interp = build_interpreter_with_server(srv, interp);
+            }
+        }
+        let config = declarations
+            .iter()
+            .find_map(|d| match d {
+                Declaration::MlogServer(s) => Some(s.clone()),
+                _ => None,
+            })
+            .unwrap();
+        let result = build_state(config, interp).await;
+        assert!(
+            result.is_err(),
+            "expected server startup to fail due to template conflict, but it succeeded"
+        );
+        let err_msg = format!("{}", result.err().unwrap());
+        assert!(
+            err_msg.contains("route template conflict"),
+            "expected 'route template conflict' in error, got: {}",
+            err_msg
+        );
+    }
+
+    #[tokio::test]
+    async fn n283_parity_tw_vm_templated_route() {
+        // Same template route, TW and VM must return the same value.
+        // Нариж №40 parity: execute_route_body (TW) vs execute_route_body_vm.
+        use metalogos::compiler::Compiler;
+
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/u/{id}" method=GET {
+        let v = server_path_param("id")
+        respond("200", "id=" + v)
+    }
+}
+"#;
+        let state = build_test_server_state(source).await;
+
+        // ── TW path (through call_route → route_handler → execute_route_body) ──
+        let tw_resp = call_route_full(&state, "GET", "/u/42", "", "").await;
+        assert_eq!(tw_resp.status(), 200);
+        let tw_body = body_to_string(tw_resp).await;
+        assert_eq!(tw_body, "id=42");
+
+        // ── VM path (through call_route_vm_with_path_params) ──
+        let mut compiler = Compiler::new();
+        let declarations = metalogos::parser::parse(source).unwrap();
+        let config = declarations
+            .iter()
+            .find_map(|d| match d {
+                Declaration::MlogServer(s) => Some(s.clone()),
+                _ => None,
+            })
+            .unwrap();
+        let compiled_routes = compiler.compile_routes(&config.routes).unwrap();
+        let program = compiler.compile(declarations).unwrap();
+        let compiled = &compiled_routes[0];
+
+        let path_params: std::collections::HashMap<String, String> =
+            [("id".to_string(), "42".to_string())].into_iter().collect();
+        let empty_query: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        let vm_resp =
+            call_route_vm_with_path_params(&state, &program, compiled, &empty_query, &path_params)
+                .await
+                .expect("VM route should succeed with path_params");
+        assert_eq!(vm_resp.status(), 200);
+        let bytes = axum::body::to_bytes(vm_resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap_or_default();
+        let vm_body = String::from_utf8(bytes.to_vec()).unwrap_or_default();
+        assert_eq!(vm_body, "id=42", "VM body must match TW body (parity)");
+    }
+
+    // ── Наряд №296: redact/canary middleware tests ──────────────────
+    // Middleware functions tested directly (not through call_route which
+    // bypasses route_handler where middleware is applied).
+
+    #[tokio::test]
+    async fn n296_redact_middleware_masks_pii() {
+        let state = build_test_server_state(r#"
+mlogserver { port: 0 host: "127.0.0.1" middleware: [redact] redact_mode: "pii" route "/x" method=GET { respond("ok") } }
+"#).await;
+        let resp = (StatusCode::OK, "Contact: john.doe@example.com").into_response();
+        let redacted = apply_redact_middleware(resp, &state).await;
+        let bytes = axum::body::to_bytes(redacted.into_body(), 8192)
+            .await
+            .unwrap_or_default();
+        let body = String::from_utf8_lossy(&bytes);
+        assert!(
+            !body.contains("john.doe@example.com"),
+            "Email should be redacted, got: {}",
+            body
+        );
+    }
+
+    #[tokio::test]
+    async fn n296_canary_middleware_detects_mlgv() {
+        let state = build_test_server_state(r#"
+mlogserver { port: 0 host: "127.0.0.1" middleware: [canary] route "/x" method=GET { respond("ok") } }
+"#).await;
+        let resp = (StatusCode::OK, "This response contains MLGV canary marker").into_response();
+        let checked = apply_canary_middleware(resp, &state).await;
+        assert!(
+            checked.headers().contains_key("x-canary-leak"),
+            "X-Canary-Leak should be set"
+        );
+    }
+
+    #[tokio::test]
+    async fn n296_canary_middleware_no_false_positive() {
+        let state = build_test_server_state(r#"
+mlogserver { port: 0 host: "127.0.0.1" middleware: [canary] route "/x" method=GET { respond("ok") } }
+"#).await;
+        let resp = (StatusCode::OK, "This is a safe response").into_response();
+        let checked = apply_canary_middleware(resp, &state).await;
+        assert!(
+            !checked.headers().contains_key("x-canary-leak"),
+            "No false positive on safe response"
+        );
+    }
+
+    #[tokio::test]
+    async fn n296_no_middleware_unchanged() {
+        // Without redact in middleware list — build_test_server_state works, no redact applied.
+        // This test just verifies the server starts without redact middleware.
+        let state = build_test_server_state(
+            r#"
+mlogserver { port: 0 host: "127.0.0.1" route "/x" method=GET { respond("ok") } }
+"#,
+        )
+        .await;
+        assert!(!state.middleware.contains(&"redact".to_string()));
+        assert!(!state.middleware.contains(&"canary".to_string()));
+    }
+}

@@ -15,6 +15,10 @@ libfuzzer-sys = "0.4"
 [dependencies.metalogos]
 path = ".."
 
+# №567: url_decode_fallback moved with the transport crate.
+[dependencies.metalogos-server]
+path = "../metalogos-server"
+
 [[bin]]
 name = "fuzz_target_1"
 path = "fuzz_targets/fuzz_target_1.rs"

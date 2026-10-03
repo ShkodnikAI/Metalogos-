@@ -5071,7 +5071,8 @@ fn check_canary_leak(declarations: &[Declaration], source: &str, findings: &mut 
 // sink_check_id (№392) so the runtime deny path classifies sinks with
 // the exact same mapping the static audit uses. (Section comment, not
 // a doc block: the doc above this point belongs to the section header.)
-pub(crate) fn sink_kind(fn_name: &str) -> &'static str {
+// №567: pub for the metalogos-server transport (the runtime deny path).
+pub fn sink_kind(fn_name: &str) -> &'static str {
     match fn_name {
         "exec" | "exec_argv" => "exec",
         "git_push" => "vcs",

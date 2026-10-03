@@ -17,7 +17,8 @@ use super::memory::*;
 /// failed. Never double-stamps: an inner origin stamp (e.g. `SQL_ERROR`
 /// from the persistence layer) stays authoritative at position 0.
 /// №418: pub(crate) — the server's dispatch fail-paths stamp through it.
-pub(crate) fn cron_stamped(e: String) -> String {
+// №567: pub for the metalogos-server transport.
+pub fn cron_stamped(e: String) -> String {
     if split_origin_stamp(&e).is_some() {
         e
     } else {

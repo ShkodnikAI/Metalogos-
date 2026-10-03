@@ -188,7 +188,8 @@ pub struct Vm {
     /// route checkout, cleared by `reset_for_reuse` — a checked-in VM
     /// rests hub-free (the same discipline as the per-request context).
     /// `None` = the pre-№495 local behavior (plain `mlog run`).
-    pub(crate) distill_hub: Option<std::sync::Arc<dyn crate::distill_hub::DistillAccess>>,
+    // №567: pub for the metalogos-server transport (the serve-path hub).
+    pub distill_hub: Option<std::sync::Arc<dyn crate::distill_hub::DistillAccess>>,
 }
 
 /// Collapse threshold for Fluid values (matches interpreter).

@@ -1049,7 +1049,9 @@ impl Interpreter {
     // №369: `compare_values` moved to `ast::MatchArm::compare_values` —
     // the shared predicate both backends run (the interpreter included).
 
-    pub(crate) fn eval_statements(
+    // №567: pub for the metalogos-server transport (the route exec
+    // path was an in-crate consumer before the split).
+    pub fn eval_statements(
         &self,
         stmts: &[Statement],
         env: &mut HashMap<String, Value>,
@@ -1067,7 +1069,8 @@ impl Interpreter {
     /// program fine: the compiler tracks mutability per №264, branch
     /// assigns compile to `StoreAssignLocal { mutable: true }`). Same
     /// control-flow mapping as [`Self::eval_statements`].
-    pub(crate) fn eval_statements_with_mutability(
+    // №567: pub for the metalogos-server transport (see eval_statements).
+    pub fn eval_statements_with_mutability(
         &self,
         stmts: &[Statement],
         env: &mut HashMap<String, Value>,
@@ -1463,7 +1466,8 @@ impl Interpreter {
         self.eval_expr_with_env(expr, &self.variables)
     }
     #[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
-    pub(crate) fn eval_expr_with_env(
+                                              // №567: pub for the metalogos-server transport (see eval_statements).
+    pub fn eval_expr_with_env(
         &self,
         expr: &Expr,
         env: &HashMap<String, Value>,

@@ -630,6 +630,15 @@ pub const CODE_VOICEPRINT_STALE: &str = "VOICEPRINT_STALE";
 /// yet — the same rationale as CODE_VOICE_INSECURE_STORE).
 pub const CODE_VOICEPRINT_DECRYPT: &str = "VOICEPRINT_DECRYPT";
 
+/// №556 (issue #917; audit 02.10 M-6): an AES-256-GCM audio-artifact row
+/// failed to decrypt — a wrong key, corrupted data, or a transplanted blob
+/// (the №527 subject binding refuses the swap: the AAD registry is
+/// `voice_artifacts`, a blob moved to another name fails authentication).
+/// Deliberately NOT in `ORIGIN_STAMPED_CODES` (no program-facing surface —
+/// the same rationale as CODE_VOICEPRINT_DECRYPT above; the at-rest store
+/// has no builtin routes).
+pub const CODE_VOICE_ARTIFACT_DECRYPT: &str = "VOICE_ARTIFACT_DECRYPT";
+
 /// The whitelist of codes a subsystem may stamp onto the String error
 /// channel. `RUNTIME_ERROR` is deliberately NOT in this list: it is the
 /// fallback for unstamped errors, never an explicit stamp.

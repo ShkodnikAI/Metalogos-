@@ -198,6 +198,40 @@ mandatory.**
   n535 structural pins updated (mcp-serve must NOT regress to absent);
   n535 17/17, n536 10/10, n523 11/11 stay green.
 
+- Naryad №556 (issue #917; Wave 25 P1; the audit 02.10 M-6; the GDPR
+  line №526→№527→№556): the strict-erasure posture for the voice store
+  closes the two residuals the audit found. (1) The DELETED page no
+  longer survives in the journal: the store setup turns
+  `PRAGMA secure_delete = ON` (verified loudly — a connection refusing
+  the posture fails init) and every `delete_voiceprint` ends with
+  `PRAGMA wal_checkpoint(TRUNCATE)` — a WAL-mode database's log is reset
+  to zero length by the call, a busy WAL is a loud error, never silence
+  (the n526 zero-overwrite left the page image in the WAL — exactly the
+  residual the audit flagged). (2) The audio artifacts stop lying about
+  at-rest secrecy (the №512 lesson): the legacy plaintext `audio_bytes`
+  column becomes `audio_encrypted` — the SAME AES-256-GCM scheme as the
+  voiceprints (№517) with the №527 subject binding (the AAD registry is
+  `voice_artifacts`; a blob transplanted onto another name refuses with
+  the new `[VOICE_ARTIFACT_DECRYPT]` code), the mock runtime keeps the
+  visible INSECURE-XOR-MOCK mark, and a keyless real-runtime write fails
+  closed ([VOICE_INSECURE_STORE]). The migration secures the legacy
+  plaintext bytes (zero-overwrite first; the DROP purges the freed pages
+  under secure_delete) and rebuilds the table — no released version ever
+  wrote an audio row (the write path never shipped), so the dev-era rows
+  are not carried. The store-level `save/load_audio_artifact` pair is
+  the AT-REST contour only — wiring a program-facing audio write surface
+  is deliberately NOT in №556 (the boundary). The crypto plumbing is one
+  shared core (`aes_gcm_encrypt`/`aes_gcm_decrypt` + the
+  `DecryptFailure` taxonomy) with the registry-specific AAD composable —
+  the voiceprint refusals keep their exact pinned wording; dup-names 0,
+  mirrors 0. Tests: tests/naryad_556_voice_secure_delete.rs (9 — the
+  PRAGMA posture, the observable WAL truncate, the encrypted roundtrip,
+  the wrong-key/swap/keyless refusals, the mock mark, the legacy
+  migration); the voiceprint suites (n512/n517/n527) and the 23
+  store-unit tests stay green. docs/privacy.md §2.1 records both
+  postures with the honest boundary (the store's OWN connection; the
+  file-level guarantee stays the DB file owner's).
+
 - Naryad №555 (issue #916; Wave 25 P1; the audit 02.10 M-5 + Е-3): the
   MSRV contract is CHECKED, not just claimed — a blocking `msrv
   (blocking)` CI job pins the toolchain to exactly 1.93.1 (both the

@@ -32,6 +32,30 @@
 // [VOICEPRINT_DECRYPT] and the only path back is re-enroll/re-save.
 // No released version ever wrote a legacy row (the GCM store itself
 // ships in 0.28.0) — the transitional population was main-only.
+// №556 (issue #917; audit 02.10 M-6; the GDPR line №526→№527→№556): the
+// strict-erasure posture closes the two residuals the audit found.
+// (1) The DELETED page no longer survives inside the database file's
+// journal: the store's setup turns PRAGMA secure_delete ON (deleted
+// content is overwritten before the pages are freed) and every
+// delete_voiceprint ends with PRAGMA wal_checkpoint(TRUNCATE) — the WAL
+// cannot carry the erased page after the call (a non-WAL connection
+// takes the harmless no-op checkpoint; a WAL-mode deployment gets the
+// truncate, and a busy WAL is a LOUD error, never silence).
+// (2) The audio artifacts stop lying about at-rest secrecy (the №512
+// lesson): the legacy plaintext `audio_bytes` column becomes
+// `audio_encrypted` — the SAME AES-256-GCM scheme as the voiceprints
+// (№517) with the №527 subject binding (the AAD registry is
+// `voice_artifacts`: a blob transplanted onto another name fails
+// authentication), the mock-runtime placeholder keeps its visible
+// INSECURE-XOR-MOCK mark, and a keyless real-runtime write fails closed
+// ([VOICE_INSECURE_STORE]). The migration: a pre-№556 database's
+// plaintext payload cannot honestly become ciphertext (the key is
+// unavailable at init time; the №517 posture refuses keyless
+// persistence) and no released version ever wrote an audio row (the
+// write path never shipped) — the legacy bytes are zero-overwritten and
+// the table is rebuilt in the new shape. The store-level
+// save/load_audio_artifact pair is the AT-REST CONTOUR ONLY — wiring a
+// program-facing audio write surface is NOT in №556 (the boundary).
 
 use rusqlite::Connection;
 use std::sync::Mutex;
@@ -52,6 +76,17 @@ pub(crate) const VOICEPRINT_ALGO_INSECURE_MOCK: &str = "INSECURE-XOR-MOCK";
 /// attempt anymore.
 pub(crate) const VOICEPRINT_AAD_SCHEMA: &str = "voiceprints-aad-v1";
 
+/// №556: the scheme marks of the audio-artifact rows — the SAME scheme as
+/// the voiceprints (the AES-256-GCM-v1 contour, the INSECURE-XOR-MOCK
+/// placeholder); only the AAD REGISTRY differs (`voice_artifacts`). The
+/// aliases keep the schema marks grep-able per table.
+pub(crate) const ARTIFACT_ALGO_AES_GCM: &str = VOICEPRINT_ALGO_AES_GCM;
+pub(crate) const ARTIFACT_ALGO_INSECURE_MOCK: &str = VOICEPRINT_ALGO_INSECURE_MOCK;
+
+/// №556: the schema-version component of the audio-artifact AAD triplet —
+/// the mirror of VOICEPRINT_AAD_SCHEMA for the `voice_artifacts` registry.
+pub(crate) const VOICE_ARTIFACT_AAD_SCHEMA: &str = "voice-artifacts-aad-v1";
+
 /// №527: the crypto status of a loaded voiceprint — observable by the
 /// caller. Since the v0.28.0 deadline (the limitations.md TRANSITION row
 /// honored in №550) the only value is `AadBound`: the empty-AAD
@@ -64,15 +99,26 @@ pub enum VoiceprintCryptoStatus {
     AadBound,
 }
 
-/// №527: the AAD = (subject_id, registry, schema version) — the ordered
-/// triplet joined with the unit separator (0x1F, absent from ordinary
-/// subject names), the registry being the store's own `voiceprints` table.
-/// The composition is deterministic: the same subject always yields the
-/// same AAD, so a ciphertext moved to another name (or another registry)
-/// no longer authenticates — the swap attack the bare GCM tag accepted
-/// (№517) is closed.
+/// №527 (generalized by №556): the AAD = (registry, subject, schema
+/// version) — the ordered triplet joined with the unit separator (0x1F,
+/// absent from ordinary subject names). The composition is deterministic:
+/// the same subject always yields the same AAD, so a ciphertext moved to
+/// another name (or another registry) no longer authenticates — the swap
+/// attack the bare GCM tag accepted (№517) is closed.
+fn voice_aad(registry: &str, subject: &str, schema: &str) -> Vec<u8> {
+    format!("{registry}\u{1f}{subject}\u{1f}{schema}").into_bytes()
+}
+
 fn voiceprint_aad(name: &str) -> Vec<u8> {
-    format!("voiceprints\u{1f}{name}\u{1f}{VOICEPRINT_AAD_SCHEMA}").into_bytes()
+    voice_aad("voiceprints", name, VOICEPRINT_AAD_SCHEMA)
+}
+
+/// №556: the audio-artifact subject binding — the same triplet shape, the
+/// `voice_artifacts` registry. A blob saved under name A refuses to load
+/// under name B (the swap attack the bare GCM tag accepted is closed for
+/// the artifacts exactly as it is closed for the voiceprints).
+fn voice_artifact_aad(name: &str) -> Vec<u8> {
+    voice_aad("voice_artifacts", name, VOICE_ARTIFACT_AAD_SCHEMA)
 }
 
 /// The №526 listing record — the persisted voiceprint's metadata WITHOUT
@@ -91,17 +137,30 @@ pub struct VoiceprintRecord {
 /// Voice store — SQLite-backed persistence for voiceprints and audio artifacts.
 /// Voiceprints stored as BLOBs: AES-256-GCM (nonce ‖ ciphertext+tag) in the
 /// real runtime with a secret()-gate key; the INSECURE XOR placeholder in the
-/// mock runtime only (marked in the `algo` column); audio as raw BLOBs.
+/// mock runtime only (marked in the `algo` column). №556: audio artifacts are
+/// encrypted AT REST with the SAME scheme (the `audio_encrypted` column,
+/// the `voice_artifacts` AAD registry) — the pre-№556 plaintext `audio_bytes`
+/// column is migrated away at init. The setup turns PRAGMA secure_delete ON
+/// and every delete ends with a WAL checkpoint (TRUNCATE) — the strict-erasure
+/// posture.
 pub struct VoiceStore {
     conn: Mutex<Connection>,
 }
 
 /// Schema (№517 adds the additive `algo` column — old databases are
-/// extended, never rejected; the №504 migration posture):
+/// extended, never rejected; the №504 migration posture. №556 migrates the
+/// audio-artifacts table to the encrypted shape — see the init_tables
+/// migration note: the pre-№556 plaintext column cannot honestly become
+/// ciphertext at init time):
 /// ```sql
 /// CREATE TABLE voice_artifacts (
 ///     name TEXT PRIMARY KEY,
-///     audio_bytes BLOB NOT NULL,
+///     audio_encrypted BLOB NOT NULL,  -- №556: AES-256-GCM nonce‖ct with
+///                                     -- the voice_artifacts AAD registry
+///                                     -- (№527 subject binding); the mock
+///                                     -- runtime keeps the visible
+///                                     -- INSECURE-XOR-MOCK mark
+///     algo TEXT,           -- №556: 'AES-256-GCM-v1' or 'INSECURE-XOR-MOCK'
 ///     manifest_json TEXT,  -- NULL if no manifest
 ///     saved_at TEXT NOT NULL  -- RFC 3339
 /// );
@@ -149,10 +208,60 @@ impl VoiceStore {
 
     pub fn init_tables(&self) -> Result<(), String> {
         let conn = self.conn.lock().map_err(|e| format!("lock: {}", e))?;
+        // №556: the strict-erasure setup — PRAGMA secure_delete = ON is a
+        // PER-CONNECTION setting: deleted content is overwritten before the
+        // pages are freed, so the freelist cannot carry the erased bytes
+        // either. Set FIRST (before any table work), verified loudly: a
+        // connection that refuses the posture is an init error, never a
+        // silent degradation.
+        let secure_delete: i64 = conn
+            .query_row("PRAGMA secure_delete = ON;", [], |row| row.get(0))
+            .map_err(|e| format!("voice store secure_delete setup: {}", e))?;
+        if secure_delete != 1 {
+            return Err(format!(
+                "voice store secure_delete setup: the PRAGMA returned {secure_delete} — the strict-erasure posture is not active (fail-closed, №556)"
+            ));
+        }
+        // №556 migration: a pre-№556 database carries the legacy plaintext
+        // `audio_bytes` column. The plaintext payload CANNOT honestly become
+        // ciphertext at init time (the key is not available here; the №517
+        // posture refuses keyless persistence) and no released version ever
+        // wrote an audio row (the write path never shipped — the honest
+        // store was born in №517 with voiceprints only). The migration
+        // SECURES the legacy bytes (the zero-overwrite first — the №526
+        // posture; secure_delete is already ON so the DROP purges the freed
+        // pages) and lets the CREATE below rebuild the table in the new
+        // shape. The dev-era rows are NOT carried.
+        let artifacts_table_exists: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'voice_artifacts'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|e| format!("voice store migration probe: {}", e))?;
+        if artifacts_table_exists > 0 {
+            let legacy_column: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('voice_artifacts') WHERE name = 'audio_bytes'",
+                    [],
+                    |row| row.get(0),
+                )
+                .map_err(|e| format!("voice store migration probe: {}", e))?;
+            if legacy_column > 0 {
+                conn.execute(
+                    "UPDATE voice_artifacts SET audio_bytes = zeroblob(LENGTH(audio_bytes))",
+                    [],
+                )
+                .map_err(|e| format!("voice store migration (secure the legacy bytes): {}", e))?;
+                conn.execute_batch("DROP TABLE voice_artifacts;")
+                    .map_err(|e| format!("voice store migration (drop the legacy table): {}", e))?;
+            }
+        }
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS voice_artifacts (
                 name TEXT PRIMARY KEY,
-                audio_bytes BLOB NOT NULL,
+                audio_encrypted BLOB NOT NULL,
+                algo TEXT,
                 manifest_json TEXT,
                 saved_at TEXT NOT NULL
             );
@@ -339,6 +448,121 @@ impl VoiceStore {
         Ok((embedding, model_id, crypto_status))
     }
 
+    /// Save an audio artifact (№556) — the AT-REST contour for the
+    /// `voice_artifacts` table. The SAME dual-path as `save_voiceprint`:
+    /// the real runtime persists AES-256-GCM ciphertext (the №527 subject
+    /// binding, the `voice_artifacts` AAD registry; a keyless write fails
+    /// closed with [VOICE_INSECURE_STORE]); the mock runtime keeps the
+    /// insecure XOR placeholder with the visible INSECURE-XOR-MOCK mark.
+    /// BOUNDARY: this is a store-level method — wiring a program-facing
+    /// audio write surface is NOT in №556.
+    pub fn save_audio_artifact(
+        &self,
+        name: &str,
+        audio: &[u8],
+        manifest_json: Option<&str>,
+        key_hex: Option<&str>,
+    ) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| format!("lock: {}", e))?;
+        let (stored, algo): (Vec<u8>, &'static str) = if crate::llm::mock_llm_requested() {
+            // INSECURE placeholder — the mock-only skeleton path (№512);
+            // the mark is visible in the schema (№517 posture), never
+            // faked as crypto.
+            (
+                self.insecure_placeholder(audio, name),
+                ARTIFACT_ALGO_INSECURE_MOCK,
+            )
+        } else {
+            let key_hex = key_hex.ok_or_else(|| {
+                crate::interpreter::values::coded_error(
+                    crate::interpreter::values::CODE_VOICE_INSECURE_STORE,
+                    format!(
+                        "audio artifact '{}' not saved: no key provided — audio is persisted ONLY under AES-256-GCM with a secret()-gate key (64 hex chars); unencrypted persistence stays refused (fail-closed, №556)",
+                        name
+                    ),
+                )
+            })?;
+            (
+                encrypt_audio_artifact(audio, key_hex, name)?,
+                ARTIFACT_ALGO_AES_GCM,
+            )
+        };
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT OR REPLACE INTO voice_artifacts (name, audio_encrypted, algo, manifest_json, saved_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![name, stored, algo, manifest_json, now],
+        )
+        .map_err(|e| format!("voice store artifact save '{}': {}", name, e))?;
+        Ok(())
+    }
+
+    /// Load an audio artifact by name (№556) — returns the decrypted audio
+    /// bytes and the manifest (None if the row carries none). The SAME
+    /// loud-legacy posture as the voiceprints: a NULL-algo row refuses
+    /// (it cannot exist after the №556 migration — a NULL-algo row means
+    /// tampering or a foreign writer), an unknown algo refuses, the
+    /// AES-256-GCM path requires the key and the №527 subject binding
+    /// (a transplanted blob refuses with [VOICE_ARTIFACT_DECRYPT]).
+    pub fn load_audio_artifact(
+        &self,
+        name: &str,
+        key_hex: Option<&str>,
+    ) -> Result<(Vec<u8>, Option<String>), String> {
+        let conn = self.conn.lock().map_err(|e| format!("lock: {}", e))?;
+        let row = conn
+            .query_row(
+                "SELECT audio_encrypted, algo, manifest_json FROM voice_artifacts WHERE name = ?1",
+                rusqlite::params![name],
+                |row| {
+                    let stored: Vec<u8> = row.get(0)?;
+                    let algo: Option<String> = row.get(1)?;
+                    let manifest: Option<String> = row.get(2)?;
+                    Ok((stored, algo, manifest))
+                },
+            )
+            .map_err(|e| format!("voice store artifact load '{}': {}", name, e))?;
+        let (stored, algo, manifest) = row;
+        let bytes = match algo.as_deref() {
+            None => {
+                return Err(crate::interpreter::values::coded_error(
+                    crate::interpreter::values::CODE_VOICE_ARTIFACT_DECRYPT,
+                    format!(
+                        "audio artifact '{}': a row without the algo mark (the pre-№556 plaintext era is migrated away; NULL means a foreign writer or tampering) — refusing (№556)",
+                        name
+                    ),
+                ))
+            }
+            Some(ARTIFACT_ALGO_INSECURE_MOCK) => {
+                // The mock skeleton path — XOR restore (NOT decryption);
+                // the key is keyed by the name, exactly like the
+                // voiceprint placeholder path.
+                self.insecure_restore(&stored, name)
+            }
+            Some(ARTIFACT_ALGO_AES_GCM) => {
+                let key_hex = key_hex.ok_or_else(|| {
+                    crate::interpreter::values::coded_error(
+                        crate::interpreter::values::CODE_VOICE_ARTIFACT_DECRYPT,
+                        format!(
+                            "audio artifact '{}': the row is AES-256-GCM encrypted (№556) — the key is required to load it",
+                            name
+                        ),
+                    )
+                })?;
+                decrypt_audio_artifact(&stored, key_hex, name)?
+            }
+            Some(other) => {
+                return Err(crate::interpreter::values::coded_error(
+                    crate::interpreter::values::CODE_VOICE_ARTIFACT_DECRYPT,
+                    format!(
+                        "audio artifact '{}': unknown storage algo '{}' — refusing (№556)",
+                        name, other
+                    ),
+                ))
+            }
+        };
+        Ok((bytes, manifest))
+    }
+
     /// Record a consent ledger entry.
     pub fn record_consent(
         &self,
@@ -448,8 +672,9 @@ impl VoiceStore {
             .map_err(|e| format!("voice store delete '{}': {}", name, e))?;
         // (3) the same-name audio artifact row — the same zero-then-delete
         // treatment (best-effort purge; a name may carry no artifact).
+        // №556: the column is the encrypted shape now.
         conn.execute(
-            "UPDATE voice_artifacts SET audio_bytes = zeroblob(LENGTH(audio_bytes)) \
+            "UPDATE voice_artifacts SET audio_encrypted = zeroblob(LENGTH(audio_encrypted)) \
              WHERE name = ?1",
             rusqlite::params![name],
         )
@@ -459,6 +684,22 @@ impl VoiceStore {
             rusqlite::params![name],
         )
         .map_err(|e| format!("voice store artifact delete '{}': {}", name, e))?;
+        // (4) №556: the WAL checkpoint — the deleted page must not live on
+        // in the write-ahead log after the erasure returns. TRUNCATE resets
+        // the WAL file to zero length (a non-WAL connection takes the
+        // harmless no-op checkpoint: busy = 0). A busy WAL is a LOUD error —
+        // silence about a page that may still hold the erased bytes is the
+        // exact lie №556 closes.
+        let (busy, _log_pages, _checkpointed): (i64, i64, i64) = conn
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE);", [], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
+            .map_err(|e| format!("voice store wal checkpoint: {}", e))?;
+        if busy != 0 {
+            return Err(
+                "voice store wal checkpoint: the WAL was BUSY — the deleted page may still live in the log; retry the erasure (fail-closed, №556)".into(),
+            );
+        }
         Ok(deleted > 0)
     }
 
@@ -543,6 +784,24 @@ pub fn encrypt_voiceprint_legacy_no_aad_for_tests(
 }
 
 fn encrypt_voiceprint(data: &[u8], key_hex: &str, name: &str) -> Result<Vec<u8>, String> {
+    aes_gcm_encrypt(data, key_hex, &voiceprint_aad(name))
+        .map_err(|e| format!("voiceprint '{}': {}", name, e))
+}
+
+/// №556: the audio-artifact encrypt wrapper — the SAME shared AES-256-GCM
+/// core, the `voice_artifacts` AAD registry.
+fn encrypt_audio_artifact(data: &[u8], key_hex: &str, name: &str) -> Result<Vec<u8>, String> {
+    aes_gcm_encrypt(data, key_hex, &voice_artifact_aad(name))
+        .map_err(|e| format!("audio artifact '{}': {}", name, e))
+}
+
+/// The shared AES-256-GCM encrypt core (№517 → №556): the key is 32 bytes
+/// (64 hex chars — the secret()-gate value, NEVER derived from the name),
+/// the nonce is a fresh random 96 bits per write, the stored blob is
+/// self-contained `nonce ‖ ciphertext+tag`, the AAD binds the ciphertext
+/// to its subject (№527 — the caller composes the registry-specific AAD),
+/// the decoded key buffer lives under Zeroizing.
+fn aes_gcm_encrypt(data: &[u8], key_hex: &str, aad: &[u8]) -> Result<Vec<u8>, String> {
     use aes_gcm::aead::{Aead, KeyInit, Payload};
     use aes_gcm::{Aes256Gcm, Key, Nonce};
     use zeroize::Zeroizing;
@@ -551,46 +810,32 @@ fn encrypt_voiceprint(data: &[u8], key_hex: &str, name: &str) -> Result<Vec<u8>,
     // wiped when the scope exits, the key's plaintext lifetime is the
     // single operation (the hex string itself comes from the secret() gate,
     // whose lifetime is the caller's — unchanged by №527).
-    let key_bytes = Zeroizing::new(
-        hex::decode(key_hex)
-            .map_err(|e| format!("voiceprint '{}': the key must be hex: {}", name, e))?,
-    );
+    let key_bytes =
+        Zeroizing::new(hex::decode(key_hex).map_err(|e| format!("the key must be hex: {}", e))?);
     if key_bytes.len() != 32 {
         return Err(crate::interpreter::values::coded_error(
             crate::interpreter::values::CODE_VOICE_INSECURE_STORE,
             format!(
-                "voiceprint '{}': the key must be 256-bit (64 hex chars), got {} bytes — fail-closed (№517)",
-                name,
+                "the key must be 256-bit (64 hex chars), got {} bytes — fail-closed (№517)",
                 key_bytes.len()
             ),
         ));
     }
     let key = Key::<Aes256Gcm>::try_from(key_bytes.as_slice())
-        .map_err(|_| format!("voiceprint '{}': key conversion failed", name))?;
+        .map_err(|_| "key conversion failed".to_string())?;
     let cipher = Aes256Gcm::new(&key);
     // Fresh random 96-bit nonce per write — uniqueness by construction.
     let mut nonce_bytes = [0u8; 12];
     use rand::Rng;
     rand::rng().fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::try_from(nonce_bytes.as_slice())
-        .map_err(|_| format!("voiceprint '{}': nonce conversion failed", name))?;
+        .map_err(|_| "nonce conversion failed".to_string())?;
     // №527: the AAD binds the ciphertext to (subject_id, registry, schema
     // version) — a blob transplanted onto another subject's row fails the
     // authentication (the swap attack the bare tag accepted is closed).
     let ciphertext = cipher
-        .encrypt(
-            &nonce,
-            Payload {
-                msg: data,
-                aad: &voiceprint_aad(name),
-            },
-        )
-        .map_err(|e| {
-            format!(
-                "voiceprint '{}': AES-256-GCM encryption failed: {}",
-                name, e
-            )
-        })?;
+        .encrypt(&nonce, Payload { msg: data, aad })
+        .map_err(|e| format!("AES-256-GCM encryption failed: {}", e))?;
     let mut blob = nonce.to_vec();
     blob.extend_from_slice(&ciphertext);
     Ok(blob)
@@ -609,63 +854,100 @@ fn decrypt_voiceprint_with_status(
     key_hex: &str,
     name: &str,
 ) -> Result<(Vec<u8>, VoiceprintCryptoStatus), String> {
+    let plaintext = aes_gcm_decrypt(blob, key_hex, &voiceprint_aad(name)).map_err(|reason| {
+        crate::interpreter::values::coded_error(
+            crate::interpreter::values::CODE_VOICEPRINT_DECRYPT,
+            format!("voiceprint '{}': {}", name, reason.describe()),
+        )
+    })?;
+    Ok((plaintext, VoiceprintCryptoStatus::AadBound))
+}
+
+/// №556: the audio-artifact decrypt wrapper — the SAME shared core, the
+/// `voice_artifacts` AAD registry, the [VOICE_ARTIFACT_DECRYPT] code.
+fn decrypt_audio_artifact(blob: &[u8], key_hex: &str, name: &str) -> Result<Vec<u8>, String> {
+    aes_gcm_decrypt(blob, key_hex, &voice_artifact_aad(name)).map_err(|reason| {
+        crate::interpreter::values::coded_error(
+            crate::interpreter::values::CODE_VOICE_ARTIFACT_DECRYPT,
+            format!("audio artifact '{}': {}", name, reason.describe()),
+        )
+    })
+}
+
+/// The shared decrypt-failure taxonomy (№556): the core names WHAT failed,
+/// the wrappers own the coded message and the subject label — the voiceprint
+/// refusals keep their exact №517/№527-era wording (the tests pin the
+/// substrings), the artifacts get the mirror wording under their own code.
+enum DecryptFailure {
+    TooShort,
+    BadHex(String),
+    KeyLength(usize),
+    KeyConversion,
+    NonceConversion,
+    AuthFailed,
+}
+
+impl DecryptFailure {
+    fn describe(&self) -> String {
+        match self {
+            Self::TooShort => {
+                "the stored blob is too short to carry nonce‖ciphertext — corrupted (№517)"
+                    .to_string()
+            }
+            Self::BadHex(e) => format!("the key must be hex: {}", e),
+            Self::KeyLength(n) => format!(
+                "the key must be 256-bit (64 hex chars), got {} bytes (№517)",
+                n
+            ),
+            Self::KeyConversion => "key conversion failed".to_string(),
+            Self::NonceConversion => "nonce conversion failed".to_string(),
+            Self::AuthFailed =>
+                "AES-256-GCM authentication FAILED — wrong key, corrupted data, or a legacy №517-era row (the empty-AAD transitional read was removed at v0.28.0): re-enroll or re-save to bind the subject (№527)"
+                    .to_string(),
+        }
+    }
+}
+
+/// The shared AES-256-GCM decrypt core (№517 → №527 → №556): the ONLY
+/// attempt is the subject-bound decrypt — the caller composes the
+/// registry-specific AAD; the transitional empty-AAD legacy read stays
+/// REMOVED (the v0.28.0 deadline, №550). A wrong key fails the attempt —
+/// nothing leaks.
+fn aes_gcm_decrypt(blob: &[u8], key_hex: &str, aad: &[u8]) -> Result<Vec<u8>, DecryptFailure> {
     use aes_gcm::aead::{Aead, KeyInit, Payload};
     use aes_gcm::{Aes256Gcm, Key, Nonce};
     use zeroize::Zeroizing;
 
     if blob.len() < 13 {
-        return Err(crate::interpreter::values::coded_error(
-            crate::interpreter::values::CODE_VOICEPRINT_DECRYPT,
-            format!(
-                "voiceprint '{}': the stored blob is too short to carry nonce‖ciphertext — corrupted (№517)",
-                name
-            ),
-        ));
+        return Err(DecryptFailure::TooShort);
     }
     // №527: the decoded key material lives under Zeroizing (the wipe at the
     // scope exit — the same minimal-lifetime posture as the encrypt side).
-    let key_bytes = Zeroizing::new(
-        hex::decode(key_hex)
-            .map_err(|e| format!("voiceprint '{}': the key must be hex: {}", name, e))?,
-    );
+    let key_bytes =
+        Zeroizing::new(hex::decode(key_hex).map_err(|e| DecryptFailure::BadHex(e.to_string()))?);
     if key_bytes.len() != 32 {
-        return Err(crate::interpreter::values::coded_error(
-            crate::interpreter::values::CODE_VOICEPRINT_DECRYPT,
-            format!(
-                "voiceprint '{}': the key must be 256-bit (64 hex chars), got {} bytes (№517)",
-                name,
-                key_bytes.len()
-            ),
-        ));
+        return Err(DecryptFailure::KeyLength(key_bytes.len()));
     }
     let key = Key::<Aes256Gcm>::try_from(key_bytes.as_slice())
-        .map_err(|_| format!("voiceprint '{}': key conversion failed", name))?;
+        .map_err(|_| DecryptFailure::KeyConversion)?;
     let cipher = Aes256Gcm::new(&key);
     let (nonce_bytes, ciphertext) = blob.split_at(12);
-    let nonce = Nonce::try_from(nonce_bytes)
-        .map_err(|_| format!("voiceprint '{}': nonce conversion failed", name))?;
+    let nonce = Nonce::try_from(nonce_bytes).map_err(|_| DecryptFailure::NonceConversion)?;
     // The ONLY attempt: the №527 subject-bound composition. The
     // transitional legacy read (the №517-era empty AAD) is REMOVED at the
     // v0.28.0 deadline (№550 — the limitations.md TRANSITION row): a blob
     // that does not authenticate under its subject AAD is a loud refusal,
     // never a silent fallback — the swap residue the window existed for
     // is gone with it.
-    match cipher.decrypt(
-        &nonce,
-        Payload {
-            msg: ciphertext,
-            aad: &voiceprint_aad(name),
-        },
-    ) {
-        Ok(plaintext) => Ok((plaintext, VoiceprintCryptoStatus::AadBound)),
-        Err(_) => Err(crate::interpreter::values::coded_error(
-            crate::interpreter::values::CODE_VOICEPRINT_DECRYPT,
-            format!(
-                "voiceprint '{}': AES-256-GCM authentication FAILED — wrong key, corrupted data, or a legacy №517-era row (the empty-AAD transitional read was removed at v0.28.0): re-enroll or re-save to bind the subject (№527)",
-                name
-            ),
-        )),
-    }
+    cipher
+        .decrypt(
+            &nonce,
+            Payload {
+                msg: ciphertext,
+                aad,
+            },
+        )
+        .map_err(|_| DecryptFailure::AuthFailed)
 }
 
 /// Compute a hash of a voiceprint embedding for the ledger.
@@ -918,15 +1200,11 @@ mod tests {
             .save_voiceprint("frank", &[0.5], "koko-ro-82m", None)
             .unwrap();
         // a same-name audio artifact row — "файл артефакта + запись реестра"
-        {
-            let conn = store.raw_connection_for_tests();
-            conn.execute(
-                "INSERT INTO voice_artifacts (name, audio_bytes, manifest_json, saved_at) \
-                 VALUES ('frank', ?1, NULL, '2026-09-30T00:00:00Z')",
-                rusqlite::params![vec![0xABu8; 128]],
-            )
+        // (№556: the store-level at-rest contour; the mock runtime keeps
+        // the visible-mark placeholder path)
+        store
+            .save_audio_artifact("frank", &[0xABu8; 128], None, None)
             .unwrap();
-        }
         assert!(store.delete_voiceprint("frank").unwrap());
         {
             let conn = store.raw_connection_for_tests();

@@ -63,8 +63,16 @@ pub mod error;
 pub mod interpreter;
 pub mod labels;
 pub mod llm;
-pub mod mcp_policy;
-pub mod mcp_server;
+// №567 (gh#931; the crate-split stage 2): the transport modules
+// (`mcp_policy`, `mcp_server`, `server`) MOVED to the metalogos-server
+// crate (metalogos-server/src/lib.rs) together with the `mlog` bin and
+// the 38 consumer test files. The move is a Cargo-graph necessity — the
+// package cycle metalogos -> metalogos-server -> metalogos is
+// forbidden — and it is NOT a silent API removal (the №524 rule): the
+// paths re-bind mechanically (`metalogos::server::*` →
+// `metalogos_server::server::*`), the CLI surface is unchanged, and
+// the direction is one-way (this crate cannot and does not depend on
+// the transport).
 pub mod media;
 pub mod media_ops;
 pub mod memory_graph;
@@ -111,8 +119,6 @@ pub mod forecast;
 pub mod module_path;
 pub mod semantic;
 pub mod semantic_types;
-#[cfg(feature = "server")]
-pub mod server;
 pub mod util;
 pub mod video;
 pub mod vision;
@@ -314,13 +320,6 @@ pub fn feed_line(
             None => Ok(Some(mutate_log.join("\n"))),
         }
     }
-}
-
-/// Serve a .mlog program as an HTTP server.
-/// Parses the source, finds the mlogserver block, and starts Axum.
-#[cfg(feature = "server")]
-pub async fn serve_program(source: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    server::run_server(source).await
 }
 
 /// Compile a .mlog source to bytecode Program.

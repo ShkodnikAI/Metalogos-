@@ -14,7 +14,7 @@
 
 // ── Parsing contract: `host` is absent → `config.host` is `None` ──────────
 //
-// The runtime in `src/server.rs` interprets `None` as `127.0.0.1` (Наряд №164).
+// The runtime in `metalogos-server/src/server.rs` interprets `None` as `127.0.0.1` (Наряд №164).
 // We assert the parsing side of that contract: omitting `host:` yields
 // `MlogServerDecl.host == None`, which the runtime then turns into `127.0.0.1`.
 
@@ -99,7 +99,7 @@ mlogserver {
 
 // ── Runtime default contract: `None` resolves to `127.0.0.1`, not `0.0.0.0` ──
 //
-// Mirrors the exact expression used in `src/server.rs` (Наряд №164):
+// Mirrors the exact expression used in `metalogos-server/src/server.rs` (Наряд №164):
 //   let host = config.host.clone().unwrap_or_else(|| "127.0.0.1".to_string());
 //
 // This is a regression guard: if someone reverts `unwrap_or_else` back to
@@ -109,7 +109,7 @@ mlogserver {
 // Implementation note: the default resolution is wrapped in a helper function
 // (not an inline `Option::<String>::None.unwrap_or_else(...)`) so that clippy's
 // `unnecessary_literal_unwrap` lint does not fire on a literal `None`. The
-// runtime in `src/server.rs` operates on a non-literal `config.host` field, so
+// runtime in `metalogos-server/src/server.rs` operates on a non-literal `config.host` field, so
 // the lint does not apply there — this helper mirrors that shape.
 
 fn resolve_default_host(parsed: Option<String>) -> String {
@@ -123,13 +123,13 @@ fn test_runtime_default_host_resolves_to_loopback() {
     assert_eq!(
         resolved, "127.0.0.1",
         "Наряд №164: missing `host:` field must resolve to 127.0.0.1 (loopback). \
-         If this test fails, the default in `src/server.rs` was reverted to 0.0.0.0."
+         If this test fails, the default in `metalogos-server/src/server.rs` was reverted to 0.0.0.0."
     );
 }
 
 // ── Warning trigger contract: the broadcast values are exactly {"0.0.0.0", "::"} ──
 //
-// Documents the set of host values that trigger the `[WARN]` in `src/server.rs`.
+// Documents the set of host values that trigger the `[WARN]` in `metalogos-server/src/server.rs`.
 // If a future naryad widens this set, this test must be updated in the same
 // commit — the same "contract before code" rule (ADR-0110 §2).
 

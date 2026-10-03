@@ -33,7 +33,9 @@ ROOT = __file__.rsplit('/scripts/ci/', 1)[0]
 # The high-risk perimeter (the audit 25.09 §8.2 p.3).
 PERIMETER = (
     "src/io.rs",
-    "src/server.rs",
+    # №567 (gh#931): server.rs moved with the transport crate; the
+    # perimeter follows the file.
+    "metalogos-server/src/server.rs",
     "src/audit.rs",
     "src/semantic.rs",
 )

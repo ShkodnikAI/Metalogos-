@@ -1,0 +1,84 @@
+[package]
+name = "metalogos-server"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+# №518 discipline: the license field is declared — the crate is a
+# workspace member; the supply-chain tooling walks every member manifest.
+license = "MIT OR Apache-2.0"
+description = "The transport crate: the HTTP server (mlog serve), the MCP server and the mlog CLI binary (the №472 roadmap stage 2, naryad №567)"
+
+[lib]
+name = "metalogos_server"
+path = "src/lib.rs"
+
+# №567 (gh#931; the crate-split stage 2): the bin `mlog` MOVED here with
+# the transport contour. The Cargo package graph forbids the cycle
+# metalogos -> metalogos-server -> metalogos (the №545 reflex precedent
+# does not transfer: the reflex crate is a leaf, the transport consumes
+# the language core by essence), so the consumer edge lives inside this
+# package: the bin links BOTH the language crate (metalogos, for the
+# core) and its own transport lib (crate::server / crate::mcp_server).
+# The CLI surface (`mlog serve`, `mlog mcp-serve`, ...) is unchanged —
+# the binary name and every subcommand are the same.
+[[bin]]
+name = "mlog"
+path = "src/bin/mlog.rs"
+
+[dependencies]
+# The language core (parser, ast, compiler, bytecode, interpreter, vm,
+# builtins, audit, semantic, ledger) — the ONE dependency direction:
+# metalogos-server -> metalogos, never back.
+metalogos = { path = ".." }
+
+# The heavy transport stack — NON-optional here (the crate IS the
+# transport; the root crate no longer carries any of these, so
+# `cargo build --no-default-features` in the root pulls neither axum
+# nor tokio — the №278 criterion holds a fortiori).
+axum = { version = "0.8", features = ["macros"] }
+tokio = { version = "1", features = ["full"] }
+tower = { version = "0.5" }
+tower-http = { version = "0.7", features = ["cors", "set-header"] }
+# Naryad #394 (ADR-0168): the SSE transport's Stream trait — ALREADY in the
+# dependency tree via axum/tower (zero new compiled crates); declared direct
+# for honest accounting.
+futures-util = { version = "0.3", default-features = false }
+hyper = { version = "1", features = ["full"] }
+dashmap = "6.1"
+# The session-cookie HMAC and the policy/DTO derives (mcp_policy's
+# serde::Serialize; the cookie signing at server.rs) — used inside the
+# moved files' bodies.
+hmac = "0.13"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rusqlite = { version = "0.40", features = ["bundled"] }
+rand = "0.10"
+hex = "0.4"
+bytes = "1"
+reqwest = { version = "0.12", features = ["blocking", "json", "rustls-tls", "multipart"], default-features = false }
+uuid = { version = "1", features = ["v4"] }
+sha2 = "0.11"
+chrono = "0.4"
+
+# The mlog CLI binary's needs (moved with the bin).
+clap = { version = "4.5", features = ["derive"] }
+rustyline = "18"
+libc = "0.2"
+
+[features]
+# №567: the transport gate inherited from the root crate's posture —
+# `--no-default-features` builds the mcp-stdio-only profile (the same
+# surface the root crate offered before the split); the default (and
+# the CI reality) carries the full HTTP transport.
+server = []
+default = ["server"]
+
+[[bench]]
+name = "stage4_benchmark"
+harness = false
+
+[dev-dependencies]
+# The serve-e2e harness: tempdirs (naryad_513 et al.) and the
+# process-global state serialization (naryad_257 and friends).
+tempfile = "3"
+serial_test = "4"

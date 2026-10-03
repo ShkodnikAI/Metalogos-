@@ -77,7 +77,7 @@
 
 | Limitation | Primary source | Status / condition for removal |
 |---|---|---|
-| MCP server is fail-closed — no tools exposed without explicit allowlist | [src/mcp_server.rs](../src/mcp_server.rs) | By design — explicitness principle (the server refuses to start on EVERY transport without `--allowlist`) |
+| MCP server is fail-closed — no tools exposed without explicit allowlist | [metalogos-server/src/mcp_server.rs](../metalogos-server/src/mcp_server.rs) | By design — explicitness principle (the server refuses to start on EVERY transport without `--allowlist`) |
 | Grant surface (№390/№412, ADR-0155): scope coverage of the destructive SQL is a RUNTIME property — the static layer enforces Once-linearity (`GRANT_REUSED` flow walk), the type-level opacity of `Value::Grant` and the ungranted deny (`IRREVERSIBLE_NO_GRANT`), but it cannot verify that a handle's scope matches the SQL string (an arbitrary runtime-composed `DELETE` is only caught by the runtime `GRANT_SCOPE_MISMATCH`/`GRANT_EXPIRED`/quota gates + the ledger) | [src/grants.rs](../src/grants.rs); [src/audit.rs](../src/audit.rs); [scripts/mutation_verify_grants.sh](../scripts/mutation_verify_grants.sh) | By design (ADR-0155 §3.3): SQL scope coverage requires parsing the SQL literal at execution time; the runtime backstop is the authoritative gate and every issue/use/deny is a signed ledger event; the mutation harness pins the two gates (scope, TTL) red→green | 
 
 ## Session / Typed Memory / Duplex / Tick Context — Wave 9 (ADR-0172–0175)

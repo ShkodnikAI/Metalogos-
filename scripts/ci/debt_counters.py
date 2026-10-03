@@ -45,7 +45,10 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-TREES = ['src', 'tests', 'benches']
+# №567 (gh#931): the transport contour (server/mcp_server/mcp_policy +
+# its 38 test files) moved to metalogos-server/ — the counters follow
+# the code (a moved #[ignore] is not a cured one).
+TREES = ['src', 'tests', 'benches', 'metalogos-server/src', 'metalogos-server/tests']
 
 IGNORE_RE = re.compile(r'#\[ignore')
 DEAD_CODE_RE = re.compile(r'allow\(dead_code\)')
@@ -115,7 +118,9 @@ TEXT_SUFFIXES = ('.rs', '.yml', '.yaml', '.py', '.txt', '.toml', '.md')
 def example_uncovered_inventory():
     """Return examples/*.mlog files with NO sidecar, NO mention, NO COMPAT tag."""
     haystack_parts = []
-    for tree in ('tests', 'benches', 'scripts', '.github'):
+    # №567: the transport tests moved to metalogos-server/tests/ — the
+    # mention-haystack follows them.
+    for tree in ('tests', 'benches', 'scripts', '.github', 'metalogos-server/tests'):
         for path in sorted(glob.glob(os.path.join(ROOT, tree, '**', '*'), recursive=True)):
             if os.path.isfile(path) and path.endswith(TEXT_SUFFIXES):
                 try:

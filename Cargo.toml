@@ -1,5 +1,11 @@
 [workspace]
-members = [".", "mlogpkg", "mlog-lsp", "metalogos-reflex"]
+# №567 (gh#931; the crate-split stage 2): metalogos-server carries the
+# transport contour (server, mcp_server, mcp_policy) AND the `mlog` bin
+# — the Cargo package graph forbids metalogos -> metalogos-server ->
+# metalogos, so the consumer edge lives in the transport crate itself
+# (the bin links the language crate for the core; the root became a
+# pure library).
+members = [".", "metalogos-server", "mlogpkg", "mlog-lsp", "metalogos-reflex"]
 resolver = "2"
 
 [workspace.package]
@@ -22,10 +28,9 @@ description = "METALOGOS — AI-native programming language with security by des
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/ShkodnikAI/Metalogos-"
 
-[[bin]]
-name = "mlog"
-path = "src/main.rs"
-
+# №567: the `mlog` bin moved to metalogos-server (see the members note)
+# — the binary name, the CLI surface and the release pipeline
+# (`cargo build --release --bin mlog`) are unchanged.
 [dependencies]
 # №545 (в): the reflex domain crate — the generative contour's home;
 # unconditional (tiny without its candle/vision features) so the
@@ -34,24 +39,21 @@ metalogos-reflex = { path = "metalogos-reflex" }
 
 pest = "2.7"
 pest_derive = "2.7"
-clap = { version = "4.5", features = ["derive"] }
-rustyline = "18"
+# №567: clap/rustyline moved with the bin (metalogos-server); libc stays
+# — src/fs_gate.rs uses it.
 libc = "0.2"
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 bincode = { version = "2.0", default-features = false, features = ["serde", "std"] }
 thiserror = "2.0"
 
-# Phase 6: Web platform
-axum = { version = "0.8", features = ["macros"], optional = true }
-tokio = { version = "1", features = ["full"], optional = true }
-tower = { version = "0.5", optional = true }
-tower-http = { version = "0.7", features = ["cors", "set-header"], optional = true }
-# Naryad #394 (ADR-0168): the SSE transport's Stream trait — ALREADY in the
-# dependency tree via axum/tower (zero new compiled crates); declared direct
-# under the `server` feature for honest accounting.
-futures-util = { version = "0.3", default-features = false, optional = true }
-hyper = { version = "1", features = ["full"], optional = true }
+# №567 (gh#931): the Phase 6 web stack (axum/tower/tower-http/hyper/
+# tokio/futures-util — all formerly optional behind `server`) moved to
+# metalogos-server/Cargo.toml as non-optional. The root crate pulls
+# NEITHER axum NOR tokio in any feature combination anymore — the №278
+# criterion (`cargo build --no-default-features` without the heavy
+# stack) holds a fortiori; the proof is `cargo tree -e features` in the
+# naryad report.
 hmac = "0.13"
 sha2 = "0.11"
 hex = "0.4"
@@ -80,9 +82,8 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 # sqlite3_auto_extension (feature load_extension НЕ нужна — факт-чек спайка №271).
 sqlite-vec = { version = "0.1.9", optional = true }
 
-# Наряд №29 §5.1: Lock-free concurrent HashMap for hot paths
-dashmap = "6.1"
-
+# №567: dashmap moved with the transport (the only user was the server
+# contour).
 # Наряд №4: Global lazy static for LLM usage tracking
 once_cell = "1"
 
@@ -163,12 +164,15 @@ llm = []
 # the №334 contract still demands the Apache-2.0 weights fetched and
 # SHA-verified on disk before real inference.
 timesfm = []
-# Naryad #278 (wasm spike): tokio is ONLY needed by the server stack (verified
-# by use-graph: src/server.rs + the cfg(server) cmd_serve runtime in main.rs) —
-# it is now optional behind `server`. Core (parser/compiler/VM) builds without
-# it; clean-build time and dep-graph deltas are recorded in
-# docs/research/naryad-278-wasm-spike.md.
-server = ["dep:axum", "dep:tower", "dep:tower-http", "dep:hyper", "dep:tokio", "dep:futures-util"]
+# №567 (gh#931): the `server` feature is now a THIN no-op compat gate —
+# the heavy stack moved to the metalogos-server crate (whose own
+# `server` feature gates its axum runtime; default on there). The name
+# is kept so the existing invocations (`--features server`, the
+# default/full lists, the staying tests' `#[cfg(feature = "server")]`)
+# remain valid; no root source is gated on it anymore.
+# History: №278 made tokio optional behind this feature (the dep-graph
+# deltas are recorded in docs/research/naryad-278-wasm-spike.md).
+server = []
 full = ["svg", "chart", "diagram", "template", "llm", "server"]
 
 # Наряд №183 (ADR-0118): candle for sequence-layer (attention) extension.
@@ -236,11 +240,8 @@ proptest = "1"
 name = "core_benchmarks"
 harness = false
 
-# Naryad #381 (issue #467, ADR-0141 §D5): Stage 4 real-load benchmark —
-# production-class corpus, both serve backends, one environment per
-# backend (own process → clean peak-RSS HWM), p50/p95/mean + RSS +
-# startup, JSON report, loud §D5 verdict.
-[[bench]]
-name = "stage4_benchmark"
-harness = false
+# №567: the stage4_benchmark bench (№381, ADR-0141 §D5) moved to
+# metalogos-server/benches/ — it benchmarks the transport
+# (run_test_server_with_backend) and follows its subject; the fixtures
+# stay at the repo root.
 

@@ -119,11 +119,19 @@ fn naryad_373_every_golden_example_is_classified() {
     );
 }
 
-/// docs/limitations.md: every Stage-1 VM row must be CLOSED (№369–№372);
-/// the only open VM row allowed is the Stage-3+ default-flip gate.
+/// docs/limitations.md (+ its №571 archive): every Stage-1 VM row must be
+/// CLOSED (№369–№372); the only open VM row allowed is the Stage-3+
+/// default-flip gate.
 #[test]
 fn naryad_373_limitations_stage1_rows_closed() {
-    let doc = fs::read_to_string("docs/limitations.md").expect("limitations.md exists");
+    // №571 (gh#935): the closed rows moved to docs/limitations-archive.md —
+    // the gate reads BOTH files (a lost row fails either way).
+    let mut doc = fs::read_to_string("docs/limitations.md").expect("limitations.md exists");
+    doc.push('\n');
+    doc.push_str(
+        &fs::read_to_string("docs/limitations-archive.md")
+            .expect("limitations-archive.md exists (№571)"),
+    );
     for (fragment, naryad) in [
         ("`Match` statement not compiled to VM", "369"),
         (
@@ -139,7 +147,7 @@ fn naryad_373_limitations_stage1_rows_closed() {
         let row = doc
             .lines()
             .find(|l| l.contains(fragment))
-            .unwrap_or_else(|| panic!("limitations.md lost the row for {}", fragment));
+            .unwrap_or_else(|| panic!("limitations.md/archive lost the row for {}", fragment));
         // …and require the CLOSED marker with the right наряд number.
         assert!(
             row.contains("CLOSED") && row.contains(naryad),

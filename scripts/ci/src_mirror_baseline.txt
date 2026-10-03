@@ -30,24 +30,36 @@
 #                          the distill holdout gate" (a banner mention;
 #                          the narrow №502 patterns do not match it)
 #
-# THE REGISTRATION (№564 item 3 — for the stage-3 typing gate, behind
-# its own gate): the TWO html_label.rs taint walks are TRACKED mirrors:
-#   - the BINDING walk (binding_label) mirrors the audit machinery's
-#     binding_taint + get_expr_taint propagation shape (unbounded;
-#     IfElse branches only; the first labeled argument wins —
-#     Sanitized and unknown skip);
-#   - the SINK walk (sink_arg_is_untrusted) mirrors the audit
-#     machinery's expr_is_llm_tainted + expr_is_learnable_tainted
-#     (the direct source set NARROWER, the recursion DEPTH-BOUNDED at
-#     3 — №295, pinned NOT flagged; the IfElse CONDITION participates).
-# The unification requirement recorded for the stage-3 typing pass:
-# ONE lane-parameterized walk (SECRET/SQL/HTML) shared with the audit
-# machinery; the audit's parity demand ("the parity demands the EXACT
-# mirror, quirks included") is WHY the mirrors exist today. №564 does
-# NOT touch html_label.rs (the naryad boundary) — the registration is
-# the deliverable here, the unification is the stage-3 work.
+# THE REGISTRATION (№564 item 3) — RESOLVED by №568 (gh#932, Wave 26,
+# the stage-3 typing pass): the TWO html_label.rs taint walks (the
+# BINDING walk binding_label and the SINK walk sink_arg_is_untrusted)
+# are UNIFIED into ONE mode-parameterized walk (`WalkMode`:
+# BindingTop/BindingNested/Sink) — the parity quirks became the mode
+# CONTRACTS (IfElse-only vs condition-included; the depth bound at
+# №295's 3; the narrower sink source set; the redact arm difference;
+# the IndexAccess shape), pinned unchanged by the n544 contract grid
+# (8+10+10 green without assert edits), the №465 diff-fuzzer (9/9) and
+# the leak suite. The DUPLICATED walk code is gone; the remaining
+# html_label.rs mentions are the doc-lineage lines of the modes.
+#
+# №568 movement (the same PR moved the threshold, the №502/№534
+# discipline): 7 -> 6. The live inventory (mirror_counter.py --list):
+#   src/audit.rs:1085    — the doc mention: findings "are the exact
+#                          mirror of the old machinery" (a doc line, no
+#                          live duplicated block)
+#   src/html_label.rs:26 — the lane header: "the parity demands the
+#                          EXACT mirror, quirks included"
+#   src/html_label.rs:39 — the SINK mode lineage: "the mirror of the
+#                          audit's expr_is_llm_tainted"
+#   src/html_label.rs:72 — "the mirror of the old machinery's UserInput
+#                          kind"
+#   src/html_label.rs:286 — the sink question doc: "mirror of the
+#                           audit's expr_is_llm_tainted(arg) ||"
+#   src/vm.rs:4776       — the №456 holdout-gate banner (a banner
+#                          mention; the narrow №502 patterns do not
+#                          match it)
 #
 # MOVEMENT: ONLY DOWN. Unifying a mirror lowers the count; the same PR
 # moves this threshold (the №502/№534 discipline). Never raise it.
 
-# threshold: 7
+# threshold: 6

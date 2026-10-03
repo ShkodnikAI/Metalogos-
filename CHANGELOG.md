@@ -4,6 +4,21 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №568 (issue #932; Wave 26 P1, the stage-3 typing pass): the
+  TWO html_label.rs taint walks UNIFY into ONE mode-parameterized walk
+  (`WalkMode`: BindingTop / BindingNested / Sink) — the duplicated walk
+  code is GONE, the parity quirks became the mode CONTRACTS (the
+  IfElse-branches-only binding vs the condition-included bounded sink;
+  the №295 depth bound 3; the narrower sink source set — call_llm_schema
+  is not a sink source; the redact arm present in the binding walks and
+  absent at the sink; the IndexAccess shape; the first-labeled-wins vs
+  the any-Untrusted existence). The observable behavior is unchanged:
+  the n544 contract grid green WITHOUT assert edits (step1 8, step2 10,
+  step3 10), the №465 diff-fuzzer 9/9, the leak suite green, clippy 0.
+  The №564 mirror baseline moves DOWN in the same PR: 7 → 6 (the
+  remaining mentions are the doc-lineage lines; the registered two-walk
+  requirement is resolved).
+
 - Naryad №570 (issue #934; Wave 26 P2, the release-gate succession): the
   0.29 gate DRAFT — `scripts/ci/gate_029_goals.txt` + ADR-0181
   (release-gate-029-criteria, status Proposed) in the ADR-0179 shape.

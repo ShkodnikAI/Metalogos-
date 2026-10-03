@@ -166,6 +166,41 @@ mandatory.**
   the required-set sync between the script, the test and the
   checklist).
 
+- Naryad №559 (issue #920; Wave 25 P1; the audit 02.10 M-2 systematic +
+  §6.3): the corpus contract is machine-checked — changes that turn a
+  warning into an error run against the KNOWN corpus, not wait for a
+  user (the respond_html lesson). Three pieces, one blocking surface:
+  (1) scripts/ci/extract_call_shapes.py — the call-shape extractor
+  (string-aware, comment-stripping, struct-literal-bracket-aware; the
+  declaration heads excluded; the `name|argc|count` triples carry no
+  code and no query strings — the №559 privacy boundary);
+  (2) scripts/ci/office_call_shapes.txt — the committed snapshot of
+  examples/ + self-host/ (712 pairs; the office snapshot is the owner's
+  hand-off with the same one-liner; hand-annotated
+  `SKIP|name|argc|reason` lines mark try-wrapped negative fixtures and
+  survive as a documented convention); (3)
+  scripts/ci/registry_vs_corpus.py — the blocking validator (every
+  registry-bound pair must satisfy the registry's arity spec; the
+  non-builtin names and the dynamic-arity list — forget, render, the
+  semantic.rs posture — are skipped; a divergence FAILs with the name
+  and the arity) wired as a step into the existing
+  registry-arity-check (blocking) CI job (the required set is
+  unchanged — the job IS the blocking surface). The specs reach the
+  validator through scripts/ci/registry_arity.txt — the machine-read
+  export pinned to BUILTIN_REGISTRY by tests/naryad_559_registry_vs_corpus.rs
+  (the file moves with the registry, never alone; the METALOGOS_N559_BLESS=1
+  dev path regenerates). The review rule lands in CONTRIBUTING.md.
+  The check PAID FOR ITSELF IN THE SAME PR: the snapshot caught a
+  LATENT 1-arg session_login(user) call in examples/compat/p6_full_app.mlog
+  — the runtime refuses 1-arg (the spec is 2..2) and the branch was
+  never executed by any test; the example is fixed to the honest 2-arg
+  form (the password is NOT verified — ADR-0172 §6) with the finding
+  documented in place. Tests: naryad_559_registry_vs_corpus.rs 4/4
+  (the export sync, the dynamic-arity posture pin, the self-test
+  driver, the committed-corpus acceptance); the validator self-test
+  covers green/divergence/skip/dynamic-arity/range cases + the SKIP
+  annotation round-trip.
+
 - Naryad №558 (issue #919; Wave 25 P1; the audit 02.10 M-8): the ONE
   module-search rule — `src/module_path.rs::resolve_module_file` is the
   single implementation of the "module_path → file" rule, and all THREE

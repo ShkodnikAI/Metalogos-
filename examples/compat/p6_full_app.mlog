@@ -120,10 +120,16 @@ mlogserver {
   }
 
   // Login handler (Level 5: CSRF protection on POST)
+  // №559: the corpus check caught this call as a LATENT break — the
+  // 1-arg session_login(user) form refuses at runtime (the registry spec
+  // is 2..2) and the branch was never executed by any test. The honest
+  // 2-arg form (the password is NOT verified — ADR-0172 §6) fixes the
+  // shape; the behavior is unchanged (the branch's outcome is the same
+  // session handle either way — when it runs at all).
   route "/login" method=POST {
     let creds = form_data()
     let user = authenticate(creds.email, creds.password)
-    if user then session_login(user) else return "403 Forbidden"
+    if user then session_login(user, "pw-not-checked-by-design") else return "403 Forbidden"
   }
 
   // Admin panel (Level 4: role-based access)

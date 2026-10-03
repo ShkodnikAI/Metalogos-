@@ -4,6 +4,19 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Release supply-chain assets (CI infrastructure; no language or runtime
+  change): the new `.github/workflows/release.yml` runs after the owner
+  publishes a GitHub Release and attaches the `mlog` binary, a CycloneDX 1.5
+  SBOM that describes exactly that binary (cargo-cyclonedx 0.5.9, pinned),
+  `BUILD-INFO.txt` (exact toolchain) and `SHA256SUMS`, plus two Sigstore-signed
+  attestations (SLSA build provenance
+  and the SBOM bound to the binary). Until now releases were a tag and notes
+  with no assets. Honest limits: reproducibility not claimed or verified, glibc of the
+  pinned `ubuntu-24.04` runner, no human-held key; releases up to v0.27.1 have
+  no assets.
+  Verification recipe: `SECURITY.md` → "Verifying release artifacts";
+  operator step: `docs/release-checklist.md` step 6.
+
 - Naryad №554 (issue #915; Wave 25 P1; the audit 02.10 §3.3, position Е
   on the memory pairs — the dispatch resolution "memory — document"):
   the memory pairs are PERMANENT BY DESIGN. The honest record lands in
@@ -186,6 +199,23 @@ mandatory.**
   store-unit tests stay green. docs/privacy.md §2.1 records both
   postures with the honest boundary (the store's OWN connection; the
   file-level guarantee stays the DB file owner's).
+- Naryad №555 (issue #916; Wave 25 P1; the audit 02.10 M-5 + Е-3): the
+  MSRV contract is CHECKED, not just claimed — a blocking `msrv
+  (blocking)` CI job pins the toolchain to exactly 1.93.1 (both the
+  `dtolnay/rust-toolchain@1.93.1` action ref AND the
+  `RUSTUP_TOOLCHAIN: "1.93.1"` env, the documented override over the
+  rust-toolchain.toml `channel = "stable"` — the gh#865 silent-switch
+  failure mode cannot recur) and runs `cargo check --workspace
+  --all-targets` on the floor; clippy stays on stable by design (the
+  №500 lint-set precedent). The job joined the №551 required set (the
+  script, the sync test and the branch-protection checklist moved
+  together in this PR). Dockerfile: the builder patch is PINNED to the
+  MSRV (`rust:1.93.1-slim-bookworm`, the tag verified to exist) — a
+  floating `rust:1.93` could drift below the declared floor; the
+  policy in the file says rust-version and the FROM tag bump in the
+  same PR. CONTRIBUTING.md carries the external-auditor note (Е-3):
+  rustc ≥ 1.93.1 is mandatory and the pre-1.93.1 manifest refusal is
+  the contract working, not a breakage.
 
 - Naryad №544 (issue #882; Wave 24, P1, compiler/security; stage 2 of the
   type system, №467 canon — the three audit classes on

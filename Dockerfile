@@ -56,12 +56,12 @@ RUN mkdir -p src mlogpkg/src mlog-lsp/src metalogos-reflex/src metalogos-server/
     echo "fn main() {}" > metalogos-server/src/bin/mlog.rs && \
     echo "" > benches/core_benchmarks.rs && \
     echo "" > metalogos-server/benches/stage4_benchmark.rs && \
-    cargo build --release --bin mlog
+    cargo build --release --bin mlog -p metalogos-server
 
 # Copy real source and rebuild (only application code changes)
 COPY . .
 RUN touch src/lib.rs metalogos-server/src/lib.rs metalogos-server/src/bin/mlog.rs mlogpkg/src/main.rs mlog-lsp/src/main.rs && \
-    cargo build --release --bin mlog
+    cargo build --release --bin mlog -p metalogos-server
 
 # ── Runtime image ────────────────────────────────────
 FROM debian:bookworm-slim

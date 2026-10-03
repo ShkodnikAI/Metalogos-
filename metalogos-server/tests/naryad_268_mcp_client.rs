@@ -31,12 +31,15 @@ fn lock_env() -> std::sync::MutexGuard<'static, ()> {
     ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-const FIXTURE: &str = "tests/fixtures/mcp_echo_server.py";
+// №567: the test moved with the CLI bin (metalogos-server/tests/) — the
+// fixture stayed with the repo-root example corpus (p100_mcp_echo, the
+// golden suite): from this test's CWD it is one level up.
+const FIXTURE: &str = "../../tests/fixtures/mcp_echo_server.py";
 
 /// mlog-контракт: tools/list → List[Struct] → get → json_get.
 const LIST_CONTRACT: &str = r#"
 pattern Tools(x: String) -> String {
-  let tools = mcp_list_tools("python3", ["tests/fixtures/mcp_echo_server.py"])
+  let tools = mcp_list_tools("python3", ["../../tests/fixtures/mcp_echo_server.py"])
   let first = get(tools, 0)
   return json_get(first, "name") + " | " + json_get(first, "description")
 }
@@ -50,7 +53,7 @@ flow Main {
 /// mlog-контракт: tools/call echo → text-блоки → String.
 const CALL_CONTRACT: &str = r#"
 pattern CallIt(x: String) -> String {
-  let out = mcp_call("python3", ["tests/fixtures/mcp_echo_server.py"], "echo", "{\"text\":\"hi\"}")
+  let out = mcp_call("python3", ["../../tests/fixtures/mcp_echo_server.py"], "echo", "{\"text\":\"hi\"}")
   return out
 }
 flow Main {
@@ -307,7 +310,7 @@ const TAINT_TRAIN_SOURCE: &str = r#"
         }
 
         pattern Poison(x: String) -> String {
-            let body = mcp_call("python3", ["tests/fixtures/mcp_echo_server.py"], "echo", "{\"text\":\"hi\"}")
+            let body = mcp_call("python3", ["../../tests/fixtures/mcp_echo_server.py"], "echo", "{\"text\":\"hi\"}")
             let data = [[body, 0.0]]
             reflex_train(Classifier, data, 10.0, "accuracy", 0.5)
             return "ok"
@@ -357,7 +360,7 @@ fn c11b_negative_literal_data_no_finding() {
 fn c12_taint_policy_parity_with_json_body() {
     let mcp_src = r#"
         pattern Direct(x: String) -> String {
-            return respond("200", mcp_call("python3", ["tests/fixtures/mcp_echo_server.py"], "echo", "{\"text\":\"hi\"}"))
+            return respond("200", mcp_call("python3", ["../../tests/fixtures/mcp_echo_server.py"], "echo", "{\"text\":\"hi\"}"))
         }
     "#;
     let json_src = r#"
@@ -449,7 +452,7 @@ mod serve_gate {
 mlogserver {
   port: 8096
   route "/mcp" method=GET {
-    let tools = mcp_list_tools("python3", ["tests/fixtures/mcp_echo_server.py"])
+    let tools = mcp_list_tools("python3", ["../../tests/fixtures/mcp_echo_server.py"])
     let first = get(tools, 0)
     respond("200", json_get(first, "name"))
   }
@@ -546,6 +549,6 @@ mlogserver {
     // константа держит источник истины рядом с тестами.
     #[test]
     fn fixture_path_is_stable() {
-        assert!(FIXTURE.starts_with("tests/fixtures/"));
+        assert!(FIXTURE.starts_with("../../tests/fixtures/"));
     }
 }

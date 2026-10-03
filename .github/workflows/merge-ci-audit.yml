@@ -1,0 +1,43 @@
+name: merge-ci-audit (weekly)
+
+# Наряд №551 (Волна 25, P0; аудит 02.10 M-1 + §6.2): еженедельная
+# сверка merge-коммитов main с зелёным прогоном required checks на
+# head-SHA их PR. Класс: сбой доставки событий 30.09 (14:30–19:37 UTC)
+# пропустил шесть мержей без проверок, два дефекта ушли в main
+# незамеченными (hotfix gh#865). Branch protection (чек-лист владельца —
+# docs/maintainers.md «When CI is down») закрывает вход; этот workflow —
+# детектив: ловит то, что прошло мимо защиты (mis-config, bypass, новый
+# класс).
+#
+# Скрипт ТОЛЬКО репортит: расхождение → красный прогон + issue с
+# перечнем (никаких мержей/ревертов/правок истории). Пропущенный
+# required-чек — не зелёный; чек, отсутствующий в наборе head-SHA
+# (джоба родилась после мержа), тоже флаг — закрытие issue с вердиктом
+# (например, задокументированные мержи окна сбоя 30.09, предшествующие
+# джобам №525/№535).
+#
+# Первый прогон после включения УЙДЁТ В КРАСНЫЙ, если окно 7 дней
+# накрывает мержи без зелёного набора (30.09-окно это сделает) — это
+# ожидаемое срабатывание детектива, а не регрессия: issue разбирается,
+# закрывается с вердиктом, следующая неделя зелёная.
+
+on:
+  schedule:
+    - cron: "0 5 * * 1" # понедельник 05:00 UTC — до волновой работы
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write # единственная запись — issue с расхождениями
+
+jobs:
+  audit:
+    name: merge-ci-audit (detective)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: The audit (divergence = red run + the issue)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/ci/merge_ci_audit.py --days 7 --open-issue

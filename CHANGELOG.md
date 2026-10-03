@@ -87,6 +87,29 @@ mandatory.**
   is 0.28.0; the README version badge is re-rendered from Cargo.toml
   (the №497 badge-sync gate).
 
+- Naryad №551 (issue #912; Wave 25 P0; the audit 02.10 M-1 + §6.2): the
+  "merge without CI" class closes on both halves. The POLICY half:
+  docs/maintainers.md "When CI is down" — the verbatim audit rule ("No
+  merges while GitHub Actions is degraded. A merge without a green
+  required-check run is a process violation, not a judgement call"),
+  the unverified-≠-green posture ("no red X" is not "green" — the dead
+  event delivery of 30.09 looked exactly like that), and the
+  branch-protection CHECKLIST for the owner (require PR + the required
+  set fact-checked against the ci.yml display names + up-to-date +
+  no-bypass; applying it is an admin action the executor cannot
+  perform). The MACHINE half: scripts/ci/merge_ci_audit.py + the
+  scheduled `merge-ci-audit` workflow (Mondays 05:00 UTC) — every main
+  merge of the last 7 days is re-checked against a GREEN run of the
+  required set on its PR's head SHA; a skipped check is not green, an
+  unfetchable PR head is a divergence (fail-closed: unknown is never
+  green), a divergence = a red run + an automatically filed issue with
+  the list; the script only reports (no merge/revert/history edits).
+  The first scheduled run is EXPECTED to flag the documented 30.09
+  outage merges — the issue asks for verdicts, not for panic. Pinned by
+  tests/naryad_551_merge_ci_audit.rs (the fixture self-test driver +
+  the required-set sync between the script, the test and the
+  checklist).
+
 - Naryad №544 (issue #882; Wave 24, P1, compiler/security; stage 2 of the
   type system, №467 canon — the three audit classes on
   `Labeled(Box<Type>, Label)`, executed behind the ADR-0179 gate in three

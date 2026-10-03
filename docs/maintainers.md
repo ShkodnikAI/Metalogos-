@@ -107,6 +107,70 @@ the honest boundary — follow its issue text; the first-PR path lives in
 - The fresh-clone quickstart pass: README and CONTRIBUTING commands
   work verbatim on a clean machine — gh#875.
 
+## When CI is down (the M-1 rule, №551)
+
+**No merges while GitHub Actions is degraded. A merge without a green
+required-check run is a process violation, not a judgement call.**
+
+The 2026-09-30 event-delivery outage (14:30–19:37 UTC) let six PRs
+merge with zero checks and shipped two defects to main unseen (the
+hotfix gh#865: "the two shipped-unseen CI defects the dead event
+delivery hid"). The rule above is written down so the next outage meets
+a policy, not an improvisation:
+
+- GitHub Actions degraded (an incident on
+  [githubstatus.com](https://www.githubstatus.com/) or runs simply not
+  appearing): merges STOP. The queue waits; no PR is "small enough to
+  skip".
+- A PR whose required checks have NOT RUN (no check-runs at all — the
+  dead event delivery looks exactly like this) is UNVERIFIED, not
+  green. "No red X" is not "green".
+- If a merge is business-critical during an outage: document the
+  decision in the PR, merge, and open a follow-up issue the moment
+  Actions recovers. The weekly audit flags it anyway (below) — the
+  honest paper trail is the difference between a recorded decision and
+  a violation.
+
+### The weekly detective control (the machine half of the rule)
+
+`scripts/ci/merge_ci_audit.py` — scheduled weekly in the
+`merge-ci-audit` workflow (Mondays 05:00 UTC, plus `workflow_dispatch`)
+— re-checks every main merge of the last 7 days against a GREEN run of
+the required set on its PR's head SHA. A divergence is a red workflow
+run AND an automatically filed issue with the list. Honest boundaries
+of the check: a `skipped` required check is NOT green; a check absent
+from the head SHA's workflow set (a job born after the merge) is
+flagged too — it cannot be proven retroactively, so every flag needs a
+human verdict, and the issue is closed WITH that verdict (e.g., the
+documented 30.09-outage merges predating the №525/№535 jobs). The
+script only reports — it never merges, reverts, or edits history; the
+required set is pinned by `tests/naryad_551_merge_ci_audit.rs` and
+moves together with the checklist below, never alone.
+
+### The branch-protection checklist (the owner's admin toggle)
+
+Applying the settings is an ADMIN action on the repository — this
+document records the checklist; the executor cannot apply it. Settings
+→ Branches → Branch protection rule for `main`:
+
+- [ ] **Require a pull request before merging** (no direct pushes);
+- [ ] **Require status checks to pass before merging** — the required
+      set (the job display names as the check-runs API reports them,
+      fact-checked against `.github/workflows/ci.yml` @ `6e66d3d`):
+      `test-lib (blocking)`, `test-integration (blocking)`,
+      `crosscheck (blocking)`, `clippy (blocking)`, `fmt (blocking)`,
+      `cargo-audit (blocking)`, `cargo-deny (blocking)`,
+      `gitleaks (blocking)`, `gate-facts-sync (blocking)`,
+      `blocking-checks-sync (blocking)`,
+      `registry-arity-check (blocking)`;
+- [ ] **Require branches to be up to date before merging** (no merge
+      over a stale base);
+- [ ] **Do not allow bypassing the above settings** — including
+      administrators: an outage bypass defeats the whole rule;
+- [ ] (the №471 lane, with the second maintainer) **Require review
+      from Code Owners** — the veto becomes active with the same
+      toggle.
+
 ## Escalation
 
 A disagreement between the maintainer and a PR author that the two

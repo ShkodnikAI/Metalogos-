@@ -80,8 +80,8 @@ only down; no domain opens by a naryad.
 <!-- BEGIN GENERATED NUMBERS (scripts/gen_metrics.py — do not edit inside) -->
 | Machine fact (generated — do not hand-edit) | Value |
 | --- | --- |
-| Typed-signature floor — the 0.28-gate line (ADR-0179) | 3195 bp — 162/507 = 31.95% (precise 83/507 = 16.37%, №560) |
-| BUILTIN_REGISTRY rows | 507 |
+| Typed-signature floor — the 0.28-gate line (ADR-0179) | 3241 bp — 165/509 = 32.41% (precise 84/509 = 16.50%, №560) |
+| BUILTIN_REGISTRY rows | 509 |
 <!-- END GENERATED NUMBERS -->
 
 ## Acceptance criteria (public part of the methodology)

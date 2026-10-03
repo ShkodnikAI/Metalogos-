@@ -61,17 +61,30 @@ fn run_vm(source: &str) -> Option<String> {
 
 #[test]
 fn n565_status_form_names_the_sense_and_serves_verbatim() {
-    let (status, body, ct) =
-        as_http_response(call_builtin("respond_html_status", &[s("404 Not Found"), s("<p>gone</p>")]).unwrap());
-    assert_eq!(status, 404, "the status is explicit — not guessed from content");
+    let (status, body, ct) = as_http_response(
+        call_builtin(
+            "respond_html_status",
+            &[s("404 Not Found"), s("<p>gone</p>")],
+        )
+        .unwrap(),
+    );
+    assert_eq!(
+        status, 404,
+        "the status is explicit — not guessed from content"
+    );
     assert_eq!(body, "<p>gone</p>", "the body is verbatim");
-    assert_eq!(ct.as_deref(), Some(HTML_CT), "the №892 content-type contract");
+    assert_eq!(
+        ct.as_deref(),
+        Some(HTML_CT),
+        "the №892 content-type contract"
+    );
 }
 
 #[test]
 fn n565_status_form_accepts_a_whole_number_float() {
-    let (status, _, _) =
-        as_http_response(call_builtin("respond_html_status", &[Value::Float(404.0), s("b")]).unwrap());
+    let (status, _, _) = as_http_response(
+        call_builtin("respond_html_status", &[Value::Float(404.0), s("b")]).unwrap(),
+    );
     assert_eq!(status, 404);
 }
 
@@ -80,7 +93,13 @@ fn n565_status_form_refuses_loudly_instead_of_the_legacy_silent_200() {
     // The legacy 2-arg form fell back to unwrap_or(200) — the exact
     // silence the audit flagged. The explicit form has no legacy debt:
     // a non-status first argument is a LOUD argument error.
-    for bad in [s("banana"), s(""), Value::Float(200.5), Value::Float(99.0), Value::Float(600.0)] {
+    for bad in [
+        s("banana"),
+        s(""),
+        Value::Float(200.5),
+        Value::Float(99.0),
+        Value::Float(600.0),
+    ] {
         let err = call_builtin("respond_html_status", &[bad, s("b")])
             .expect_err("a non-status must refuse loudly");
         assert!(
@@ -89,8 +108,8 @@ fn n565_status_form_refuses_loudly_instead_of_the_legacy_silent_200() {
             err
         );
     }
-    let err = call_builtin("respond_html_status", &[s("404")])
-        .expect_err("the arity is strict (2)");
+    let err =
+        call_builtin("respond_html_status", &[s("404")]).expect_err("the arity is strict (2)");
     assert!(err.contains("exactly 2"), "{}", err);
 }
 
@@ -108,8 +127,16 @@ fn n565_doc_form_title_is_never_a_status() {
         .unwrap(),
     );
     assert_eq!(status, 200);
-    assert!(body.contains("<title>404 — страница-пасхалка</title>"), "the title lands in <head>: {}", body);
-    assert!(body.contains("the real body"), "the body is present: {}", body);
+    assert!(
+        body.contains("<title>404 — страница-пасхалка</title>"),
+        "the title lands in <head>: {}",
+        body
+    );
+    assert!(
+        body.contains("the real body"),
+        "the body is present: {}",
+        body
+    );
     assert_eq!(ct.as_deref(), Some(HTML_CT));
 
     // The other audit example: a number-like title is a TITLE here.
@@ -121,7 +148,11 @@ fn n565_doc_form_title_is_never_a_status() {
         .unwrap(),
     );
     assert_eq!(status2, 200, "no status guessing in the doc form");
-    assert!(body2.contains("200 причин выбрать нас"), "the title survives: {}", body2);
+    assert!(
+        body2.contains("200 причин выбрать нас"),
+        "the title survives: {}",
+        body2
+    );
 }
 
 // ── the 1-arg SSOT form is unchanged ─────────────────────────────────
@@ -321,13 +352,21 @@ pattern Leak(input: String) -> String {
 
 #[test]
 fn n565_registry_rows_are_strict_and_typed() {
-    for (name, ret) in [("respond_html_status", Type::Struct), ("respond_html_doc", Type::Struct)] {
+    for (name, ret) in [
+        ("respond_html_status", Type::Struct),
+        ("respond_html_doc", Type::Struct),
+    ] {
         let spec = BUILTIN_REGISTRY
             .iter()
             .find(|s| s.name == name)
             .unwrap_or_else(|| panic!("{} must be registered", name));
         assert_eq!(spec.arity, 2, "{}: exactly 2", name);
-        assert_eq!(spec.max_arity, Some(2), "{}: no range — the sense is in the name", name);
+        assert_eq!(
+            spec.max_arity,
+            Some(2),
+            "{}: no range — the sense is in the name",
+            name
+        );
         assert_eq!(
             spec.return_type, ret,
             "{}: the HttpResponse struct shape (the html_to_pdf precedent)",

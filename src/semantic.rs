@@ -3708,7 +3708,12 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
             "git_push" => "vcs",
             "tts_send" => "voice",
             "db_execute" => "db",
-            "print" | "respond" | "respond_html" | "respond_html_status" | "respond_html_doc" | "html_response" => "output",
+            "print"
+            | "respond"
+            | "respond_html"
+            | "respond_html_status"
+            | "respond_html_doc"
+            | "html_response" => "output",
             "write_file" | "append_file" | "delete_file" => "file",
             // Persistent memory writes: untrusted data must not persist
             // (the TAINT_PERSISTENCE vocabulary; №266 statement forms are
@@ -7752,6 +7757,42 @@ fn get_type_fields<'a>(declarations: &'a [Declaration], type_name: &str) -> Opti
 /// surfaces (pattern bodies, route bodies, flows, entities) — the same
 /// sites the arity checker sees.
 fn respond_html_two_arg_warnings(declarations: &[Declaration]) -> Vec<SpannedError> {
+    // The №532 report-only catch-alls: the walker reads only the variants
+    // that can CARRY a call (patterns, entities, flows, route bodies; the
+    // FnCall/operator/block/list/struct/match expressions); the wildcard
+    // tails cover the literal/structural variants that carry no calls —
+    // documented in docs/wildcard-tail-ledger.md.
+    #[allow(clippy::wildcard_enum_match_arm)] // the Declaration tail (Import/Test/Reflex/... carry no callable surface this pass reads)
+    fn walk_decls(declarations: &[Declaration], out: &mut Vec<SpannedError>) {
+        for decl in declarations {
+            match decl {
+                Declaration::Pattern(p) => walk_stmts(&p.body, out),
+                Declaration::EntitySimple(e) => walk_expr(&e.value, out),
+                Declaration::EntityRecord(e) => {
+                    for f in &e.fields {
+                        walk_expr(&f.value, out);
+                    }
+                }
+                Declaration::Flow(f) => {
+                    walk_expr(&f.source, out);
+                    for (_, branches) in &f.branch_defs {
+                        for b in branches {
+                            walk_expr(&b.condition.target, out);
+                            walk_expr(&b.condition.threshold, out);
+                        }
+                    }
+                }
+                Declaration::MlogServer(srv) => {
+                    for route in &srv.routes {
+                        walk_stmts(&route.body, out);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    #[allow(clippy::wildcard_enum_match_arm)] // the Expr tail (StringLit/FloatLit/BoolLit/Ident/HandleSource carry no sub-expressions)
     fn walk_expr(expr: &Expr, out: &mut Vec<SpannedError>) {
         if let Expr::FnCall { name, args, .. } = expr {
             if name == "respond_html" && args.len() == 2 {
@@ -7833,7 +7874,8 @@ fn respond_html_two_arg_warnings(declarations: &[Declaration]) -> Vec<SpannedErr
                             walk_expr(e, out);
                             walk_stmts(body, out);
                         }
-                        MatchArm::Exact(_, body) | MatchArm::StartsWith(_, body)
+                        MatchArm::Exact(_, body)
+                        | MatchArm::StartsWith(_, body)
                         | MatchArm::Contains(_, body) => walk_stmts(body, out),
                     }
                 }
@@ -7855,7 +7897,8 @@ fn respond_html_two_arg_warnings(declarations: &[Declaration]) -> Vec<SpannedErr
                 Statement::Return { value: e, .. } | Statement::ExprStmt { expr: e, .. } => {
                     walk_expr(e, out)
                 }
-                Statement::Each { iterable, body, .. } | Statement::EachWithIndex { iterable, body, .. } => {
+                Statement::Each { iterable, body, .. }
+                | Statement::EachWithIndex { iterable, body, .. } => {
                     walk_expr(iterable, out);
                     walk_stmts(body, out);
                 }
@@ -7903,7 +7946,8 @@ fn respond_html_two_arg_warnings(declarations: &[Declaration]) -> Vec<SpannedErr
                                 walk_expr(e, out);
                                 walk_stmts(body, out);
                             }
-                            MatchArm::Exact(_, body) | MatchArm::StartsWith(_, body)
+                            MatchArm::Exact(_, body)
+                            | MatchArm::StartsWith(_, body)
                             | MatchArm::Contains(_, body) => walk_stmts(body, out),
                         }
                     }
@@ -7923,32 +7967,7 @@ fn respond_html_two_arg_warnings(declarations: &[Declaration]) -> Vec<SpannedErr
     }
 
     let mut out = Vec::new();
-    for decl in declarations {
-        match decl {
-            Declaration::Pattern(p) => walk_stmts(&p.body, &mut out),
-            Declaration::EntitySimple(e) => walk_expr(&e.value, &mut out),
-            Declaration::EntityRecord(e) => {
-                for f in &e.fields {
-                    walk_expr(&f.value, &mut out);
-                }
-            }
-            Declaration::Flow(f) => {
-                walk_expr(&f.source, &mut out);
-                for (_, branches) in &f.branch_defs {
-                    for b in branches {
-                        walk_expr(&b.condition.target, &mut out);
-                        walk_expr(&b.condition.threshold, &mut out);
-                    }
-                }
-            }
-            Declaration::MlogServer(srv) => {
-                for route in &srv.routes {
-                    walk_stmts(&route.body, &mut out);
-                }
-            }
-            _ => {}
-        }
-    }
+    walk_decls(declarations, &mut out);
     out
 }
 

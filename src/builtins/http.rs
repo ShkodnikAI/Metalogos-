@@ -155,6 +155,7 @@ fn build_html_document(title: &str, body: &str) -> String {
 /// string literal (the semantic.rs pass); migrate NOW:
 ///   - respond_html(status, html)  → respond_html_status(status, html)
 ///   - respond_html(title, body)   → respond_html_doc(title, body)
+///
 /// The 1-argument form is the UNCHANGED SSOT contract (gh#899).
 pub(crate) fn builtin_respond_html(args: &[Value]) -> Result<Value, String> {
     match args.len() {
@@ -207,6 +208,7 @@ pub(crate) fn builtin_respond_html(args: &[Value]) -> Result<Value, String> {
 ///   - a String whose FIRST token parses as an HTTP status code in
 ///     100..=599 ("404", "404 Not Found") — the documented spelling, or
 ///   - a whole-number Float in 100..=599 (the language's number shape).
+///
 /// The response carries text/html; charset=utf-8 (the №892 contract —
 /// value_to_response honors it on the wire; the HTML egress gates —
 /// LLM-output, open-redirect, secret-leak, recall-taint — treat this

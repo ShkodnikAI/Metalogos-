@@ -4,6 +4,19 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №570 (issue #934; Wave 26 P2, the release-gate succession): the
+  0.29 gate DRAFT — `scripts/ci/gate_029_goals.txt` + ADR-0181
+  (release-gate-029-criteria, status Proposed) in the ADR-0179 shape.
+  Draft parameters, owner to fix (§3): typed share ≥ 3500 bp (+300 over
+  the achieved 3000; the 0.28.0 fact is 3241), 0 open High, the quorum
+  form kept (the fact 0/8), the debt goals = the №569 floors (26/0/33,
+  riding §4.3). NO new fact_* keys (the fail-closed №525 rule — the 029
+  record reuses the 0.28 checkers). The gate learned `--gate-target
+  0.29` + `--dry`: while `owner_fixed: false` stands, the 0.29 read is
+  an honest RED ("parameters not owner-fixed") that blocks NOTHING and
+  is not wired into CI (ADR-0181 §3/§5 — the fixation is the owner's
+  gate; the 0.28 read is byte-identical to before).
+
 - Naryad №571 (issue #935; Wave 26 P2, the post-0.28.0 sweep): the
   limitations.md honest fold — the 15 CLOSED rows (the VM Stage-1/flip
   family, the adapt mock-metric real-mode closure, the distill-serve

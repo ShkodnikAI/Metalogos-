@@ -62,6 +62,30 @@ All notable changes to the Metalogos project.
   path still executes in parity; the №465 diff-fuzzer 9/9; the db
   suites (№474/№484/№758/№397, registry checks) green.
 
+- Naryad №564 (issue #926; Wave 25 P2 tail; the audit 02.10 §7.2 W-2):
+  the mirror metric sees the WHOLE src/ tree — the №502 counter
+  (vm.rs-only) widens to `src/**/*.rs` because the mirror CLASS is not
+  vm.rs-specific: html_label.rs (№544.3) carries two taint-walk mirrors
+  ("the parity demands the EXACT mirror, quirks included") that the
+  narrow scan never saw — the same class as M-8 (№558). The fixed
+  regex gains the §7.2 audit-sketch markers (`mirror of the …`,
+  `exact mirror`) beside the №502 pair (continuity: `ported verbatim`,
+  `TW-identical`, `same as the TW` stay in the set). The widened fact
+  is fixated ONCE — 7 mentions (5 in html_label.rs, 1 in audit.rs doc,
+  1 vm.rs №456 banner; the vm.rs fact under the narrow patterns stays
+  0) — in the new `scripts/ci/src_mirror_baseline.txt` (the
+  vm.rs-only baseline retires; the same `vm-mirrors (blocking)` CI
+  job, the same unfreeze-gate dedup criterion, movement ONLY down).
+  The REGISTRATION (the naryad item 3, for the stage-3 typing gate):
+  both html_label.rs walks are tracked mirrors — the BINDING walk
+  (binding_label → binding_taint + get_expr_taint shape) and the SINK
+  walk (sink_arg_is_untrusted → expr_is_llm_tainted +
+  expr_is_learnable_tainted, depth-bounded 3 per №295) — with the
+  unification requirement recorded (ONE lane-parameterized walk,
+  SECRET/SQL/HTML); html_label.rs itself is NOT touched (the naryad
+  boundary). docs/maintainers.md gate list and
+  scripts/ci/unfreeze_gate.py moved to the new baseline in the same PR.
+
 ## [0.28.0] - 2026-10-03
 
 ### Security

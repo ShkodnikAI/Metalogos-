@@ -31,15 +31,29 @@ fn lock_env() -> std::sync::MutexGuard<'static, ()> {
     ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-// №567: the test moved with the CLI bin (metalogos-server/tests/) — the
-// fixture stayed with the repo-root example corpus (p100_mcp_echo, the
-// golden suite): from this test's CWD it is one level up.
-const FIXTURE: &str = "../../tests/fixtures/mcp_echo_server.py";
+// №567: the fixture stayed with the repo-root example corpus
+// (p100_mcp_echo, the golden suite). The path is resolved to an ABSOLUTE
+// one at runtime — the test binaries run under different CWDs (cargo
+// test: the package dir; the coverage job: the repo root), and the mcp
+// spawn resolves the script path against the process CWD.
+const FIXTURE_TMPL: &str = "__FIXTURE__";
+
+fn fixture_abs() -> String {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("tests/fixtures/mcp_echo_server.py")
+        .to_string_lossy()
+        .into_owned()
+}
+
+fn fixture_src(tmpl: &str) -> String {
+    tmpl.replace(FIXTURE_TMPL, &fixture_abs())
+}
 
 /// mlog-контракт: tools/list → List[Struct] → get → json_get.
 const LIST_CONTRACT: &str = r#"
 pattern Tools(x: String) -> String {
-  let tools = mcp_list_tools("python3", ["../../tests/fixtures/mcp_echo_server.py"])
+  let tools = mcp_list_tools("python3", ["__FIXTURE__"])
   let first = get(tools, 0)
   return json_get(first, "name") + " | " + json_get(first, "description")
 }
@@ -53,7 +67,7 @@ flow Main {
 /// mlog-контракт: tools/call echo → text-блоки → String.
 const CALL_CONTRACT: &str = r#"
 pattern CallIt(x: String) -> String {
-  let out = mcp_call("python3", ["../../tests/fixtures/mcp_echo_server.py"], "echo", "{\"text\":\"hi\"}")
+  let out = mcp_call("python3", ["__FIXTURE__"], "echo", "{\"text\":\"hi\"}")
   return out
 }
 flow Main {
@@ -101,7 +115,7 @@ fn unset_env(keys: &[&str]) {
 fn c1_list_tools_contract_tw() {
     let _env = lock_env();
     let _allow = AllowExec::set();
-    let out = run_tw(LIST_CONTRACT).expect("TW must run the list contract");
+    let out = run_tw(&fixture_src(LIST_CONTRACT)).expect("TW must run the list contract");
     let out = out.expect("flow output expected");
     assert!(
         out.contains("echo | Returns its input text back"),
@@ -114,7 +128,7 @@ fn c1_list_tools_contract_tw() {
 fn c1_list_tools_contract_vm() {
     let _env = lock_env();
     let _allow = AllowExec::set();
-    let out = run_vm(LIST_CONTRACT).expect("VM must run the list contract");
+    let out = run_vm(&fixture_src(LIST_CONTRACT)).expect("VM must run the list contract");
     let out = out.expect("flow output expected");
     assert!(
         out.contains("echo | Returns its input text back"),
@@ -127,7 +141,7 @@ fn c1_list_tools_contract_vm() {
 fn c2_call_echo_contract_tw() {
     let _env = lock_env();
     let _allow = AllowExec::set();
-    let out = run_tw(CALL_CONTRACT).expect("TW must run the call contract");
+    let out = run_tw(&fixture_src(CALL_CONTRACT)).expect("TW must run the call contract");
     assert_eq!(
         out.expect("flow output expected").trim(),
         "echo: hi",
@@ -139,7 +153,7 @@ fn c2_call_echo_contract_tw() {
 fn c2_call_echo_contract_vm() {
     let _env = lock_env();
     let _allow = AllowExec::set();
-    let out = run_vm(CALL_CONTRACT).expect("VM must run the call contract");
+    let out = run_vm(&fixture_src(CALL_CONTRACT)).expect("VM must run the call contract");
     assert_eq!(
         out.expect("flow output expected").trim(),
         "echo: hi",
@@ -155,7 +169,7 @@ fn c2_call_echo_contract_vm() {
 fn c3_tool_not_found_is_loud() {
     let _env = lock_env();
     let _allow = AllowExec::set();
-    let src = CALL_CONTRACT.replace("\"echo\"", "\"nosuchtool\"");
+    let src = fixture_src(CALL_CONTRACT).replace("\"echo\"", "\"nosuchtool\"");
     let err = run_tw(&src).expect_err("unknown tool must be a loud error");
     assert!(err.contains("MCP_TOOL_NOT_FOUND"), "got: {}", err);
     assert!(
@@ -171,7 +185,7 @@ fn c3_tool_not_found_is_loud() {
 fn c4_tool_iserror_is_loud() {
     let _env = lock_env();
     let _allow = AllowExec::set();
-    let src = CALL_CONTRACT.replace("\"echo\"", "\"fail\"");
+    let src = fixture_src(CALL_CONTRACT).replace("\"echo\"", "\"fail\"");
     let err = run_tw(&src).expect_err("isError=true must be a loud error");
     assert!(err.contains("MCP_TOOL_ERROR"), "got: {}", err);
     assert!(
@@ -186,7 +200,7 @@ fn c4_tool_iserror_is_loud() {
 fn c5_jsonrpc_error_propagates() {
     let _env = lock_env();
     let _allow = AllowExec::set();
-    let src = CALL_CONTRACT.replace("\"echo\"", "\"boom\"");
+    let src = fixture_src(CALL_CONTRACT).replace("\"echo\"", "\"boom\"");
     let err = run_tw(&src).expect_err("JSON-RPC error must be loud");
     assert!(err.contains("MCP_PROTOCOL_ERROR"), "got: {}", err);
     assert!(
@@ -203,7 +217,7 @@ fn c6_timeout_is_loud() {
     let _env = lock_env();
     let _allow = AllowExec::set();
     std::env::set_var("METALOGOS_MCP_TIMEOUT_SECS", "1");
-    let src = CALL_CONTRACT
+    let src = fixture_src(CALL_CONTRACT)
         .replace("\"echo\"", "\"sleep\"")
         .replace("{\"text\":\"hi\"}", "{\"seconds\":3}");
     let err = run_tw(&src).expect_err("slow tool must hit the phase timeout");
@@ -219,7 +233,7 @@ fn c7_garbage_stdout_is_loud() {
     let _env = lock_env();
     let _allow = AllowExec::set();
     std::env::set_var("MCP_FIXTURE_GARBAGE", "1");
-    let err = run_tw(LIST_CONTRACT).expect_err("garbage on stdout must be loud");
+    let err = run_tw(&fixture_src(LIST_CONTRACT)).expect_err("garbage on stdout must be loud");
     assert!(err.contains("MCP_PROTOCOL_ERROR"), "got: {}", err);
     assert!(
         err.contains("not valid JSON-RPC"),
@@ -237,7 +251,7 @@ fn c8_crashed_server_is_loud() {
     let _env = lock_env();
     let _allow = AllowExec::set();
     std::env::set_var("MCP_FIXTURE_CRASH", "1");
-    let err = run_tw(LIST_CONTRACT).expect_err("crashed server must be loud");
+    let err = run_tw(&fixture_src(LIST_CONTRACT)).expect_err("crashed server must be loud");
     assert!(err.contains("MCP_IO_ERROR"), "got: {}", err);
     assert!(
         err.contains("closed stdout") || err.contains("stream broken"),
@@ -255,7 +269,7 @@ fn c8_crashed_server_is_loud() {
 fn c9_exec_gate_denied_without_flag() {
     let _env = lock_env();
     unset_env(&["METALOGOS_ALLOW_EXEC"]);
-    let err = run_tw(LIST_CONTRACT).expect_err("MCP spawn without flag must be denied");
+    let err = run_tw(&fixture_src(LIST_CONTRACT)).expect_err("MCP spawn without flag must be denied");
     assert!(err.contains("EXEC_NOT_PERMITTED"), "got: {}", err);
     assert!(
         err.contains("METALOGOS_ALLOW_EXEC=1"),
@@ -271,7 +285,7 @@ fn c10_allowlist_empty_denies_all() {
     let _env = lock_env();
     let _allow = AllowExec::set();
     std::env::set_var("METALOGOS_MCP_ALLOWLIST", "");
-    let err = run_tw(LIST_CONTRACT).expect_err("empty allowlist must deny all MCP");
+    let err = run_tw(&fixture_src(LIST_CONTRACT)).expect_err("empty allowlist must deny all MCP");
     assert!(err.contains("MCP_NOT_ALLOWLISTED"), "got: {}", err);
     unset_env(&["METALOGOS_MCP_ALLOWLIST"]);
 }
@@ -282,12 +296,12 @@ fn c10b_allowlist_exact_match() {
     let _env = lock_env();
     let _allow = AllowExec::set();
     std::env::set_var("METALOGOS_MCP_ALLOWLIST", "uvx , notpython");
-    let err = run_tw(LIST_CONTRACT).expect_err("non-listed command must be denied");
+    let err = run_tw(&fixture_src(LIST_CONTRACT)).expect_err("non-listed command must be denied");
     assert!(err.contains("MCP_NOT_ALLOWLISTED"), "got: {}", err);
     assert!(err.contains("python3"), "denied command named: {}", err);
     // Положительный случай: точное имя в списке (trim элементов — конвенция №259).
     std::env::set_var("METALOGOS_MCP_ALLOWLIST", "uvx , python3");
-    let out = run_tw(LIST_CONTRACT).expect("listed command must pass the allowlist");
+    let out = run_tw(&fixture_src(LIST_CONTRACT)).expect("listed command must pass the allowlist");
     assert!(out.expect("output").contains("echo"), "echo tool listed");
     unset_env(&["METALOGOS_MCP_ALLOWLIST"]);
 }
@@ -310,7 +324,7 @@ const TAINT_TRAIN_SOURCE: &str = r#"
         }
 
         pattern Poison(x: String) -> String {
-            let body = mcp_call("python3", ["../../tests/fixtures/mcp_echo_server.py"], "echo", "{\"text\":\"hi\"}")
+            let body = mcp_call("python3", ["__FIXTURE__"], "echo", "{\"text\":\"hi\"}")
             let data = [[body, 0.0]]
             reflex_train(Classifier, data, 10.0, "accuracy", 0.5)
             return "ok"
@@ -360,7 +374,7 @@ fn c11b_negative_literal_data_no_finding() {
 fn c12_taint_policy_parity_with_json_body() {
     let mcp_src = r#"
         pattern Direct(x: String) -> String {
-            return respond("200", mcp_call("python3", ["../../tests/fixtures/mcp_echo_server.py"], "echo", "{\"text\":\"hi\"}"))
+            return respond("200", mcp_call("python3", ["__FIXTURE__"], "echo", "{\"text\":\"hi\"}"))
         }
     "#;
     let json_src = r#"
@@ -410,7 +424,7 @@ fn c13_audit_log_records_mcp_spawn() {
     let dir = tempfile::tempdir().expect("tempdir");
     let log = dir.path().join("mcp_audit.log");
     std::env::set_var("METALOGOS_AUDIT_LOG_PATH", log.to_str().expect("utf8 path"));
-    let _ = run_tw(LIST_CONTRACT).expect("contract must run");
+    let _ = run_tw(&fixture_src(LIST_CONTRACT)).expect("contract must run");
     let contents = std::fs::read_to_string(&log).expect("audit log must exist");
     assert!(
         contents.contains("\tmcp_list_tools\t"),
@@ -445,14 +459,14 @@ mod serve_gate {
     // не-async тесты берут его на короткое тело без вложенных ожиданий).
     #![allow(clippy::await_holding_lock)]
 
-    use super::{lock_env, unset_env, FIXTURE};
+    use super::{fixture_abs, fixture_src, lock_env, unset_env};
     use metalogos_server::server::ServeBackend;
 
     const MCP_ROUTE_SOURCE: &str = r#"
 mlogserver {
   port: 8096
   route "/mcp" method=GET {
-    let tools = mcp_list_tools("python3", ["../../tests/fixtures/mcp_echo_server.py"])
+    let tools = mcp_list_tools("python3", ["__FIXTURE__"])
     let first = get(tools, 0)
     respond("200", json_get(first, "name"))
   }
@@ -467,7 +481,7 @@ mlogserver {
     ) {
         let base_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         metalogos_server::server::run_test_server_with_backend_in_dir(
-            MCP_ROUTE_SOURCE,
+            &fixture_src(MCP_ROUTE_SOURCE),
             backend,
             base_dir,
         )
@@ -549,6 +563,6 @@ mlogserver {
     // константа держит источник истины рядом с тестами.
     #[test]
     fn fixture_path_is_stable() {
-        assert!(FIXTURE.starts_with("../../tests/fixtures/"));
+        assert!(fixture_abs().ends_with("mcp_echo_server.py"));
     }
 }

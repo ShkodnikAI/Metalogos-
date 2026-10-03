@@ -58,6 +58,9 @@ DEBT_SCRIPT = os.path.join(HERE, 'debt_counters.py')
 # REACHING of goals — the release passed with open High findings and a
 # dead distillation. The v2 gate flips the direction: goals, not ratchets.
 GOALS_028 = os.path.join(HERE, 'gate_028_goals.txt')
+# №570 (gh#934, ADR-0181): the 0.29 DRAFT goals — the same shape, the
+# parameters NOT owner-fixed until the owner's fixation gate.
+GOALS_029 = os.path.join(HERE, 'gate_029_goals.txt')
 SERVE_E2E = os.path.join(HERE, 'serve_e2e_inventory.txt')
 ADR = 'docs/adr/0177-domain-freeze-until-027.md'
 ADR_V2 = 'docs/adr/0179-release-gate-028-criteria-v2.md'
@@ -154,7 +157,7 @@ def criterion_memory(baseline_dir, office_tests):
     return rc, ' | '.join(notes[:2]), rec, '\n'.join('- ' + n for n in notes[2:])
 
 
-def criterion_goals_028(baseline_dir):
+def criterion_goals_028(baseline_dir, goals_path=GOALS_028):
     """№509 (gh#792, ADR-0179): the 0.28 ABSOLUTE goals — the v2 gate.
 
     Reads the owner-fixed parameters and the live facts from
@@ -162,12 +165,15 @@ def criterion_goals_028(baseline_dir):
     record, a missing key, or an unparsable value is a RED. The share
     fact comes live from the №467 gate script (the same evidence the
     §4.1 criterion reads — the v2 gate compares it against the GOAL,
-    not against the no-regress threshold)."""
+    not against the no-regress threshold). №570: the same core reads
+    the 0.29 DRAFT record (goals_path=GOALS_029) behind the
+    owner-fixation gate — criterion_goals_029."""
     notes = []
     rc = 0
     details = []
 
-    def goal_fact(key, path=GOALS_028):
+    def goal_fact(key, path=None):
+        path = path or goals_path
         if not os.path.isfile(path):
             return None
         for line in open(path, encoding='utf-8'):
@@ -242,6 +248,30 @@ def criterion_goals_028(baseline_dir):
     return rc, '; '.join(details), out, '\n'.join('- ' + n for n in notes)
 
 
+def criterion_goals_029(baseline_dir):
+    """№570 (gh#934, ADR-0181 DRAFT): the 0.29 ABSOLUTE goals.
+
+    The OWNER-FIXATION gate first: while the draft record carries
+    `owner_fixed: false`, the verdict is RED with the honest reason —
+    the parameters are the owner's to fix (ADR-0181 §3/§5), and this
+    run blocks NOTHING (the 0.29 gate is not wired into the blocking
+    CI until the fixation). After the fixation (owner_fixed: true) the
+    same v2 core reads the 0.29 record verbatim."""
+    marker = None
+    if os.path.isfile(GOALS_029):
+        for line in open(GOALS_029, encoding='utf-8'):
+            m = re.match(r'^owner_fixed:\s*(\w+)\s*$', line)
+            if m:
+                marker = m.group(1)
+                break
+    if marker != 'true':
+        detail = ('the 0.29 parameters are NOT owner-fixed (the ADR-0181 draft, '
+                  'owner_fixed: %s) — the gate reports NOT GREEN until the owner '
+                  'fixes them; this run blocks nothing (not wired into CI)' % (marker or 'absent'))
+        return 1, detail, detail, ''
+    return criterion_goals_028(baseline_dir, goals_path=GOALS_029)
+
+
 def main():
     args = sys.argv[1:]
     baseline_dir = args[args.index('--baseline-dir') + 1] if '--baseline-dir' in args else os.path.join(ROOT, 'scripts', 'ci')
@@ -260,7 +290,12 @@ def main():
     # goals (ADR-0179 §5, the v2 gate), not the legacy 0.27.x reading;
     # the legacy reading stays available explicitly (--gate-target legacy).
     gate_target = args[args.index('--gate-target') + 1] if '--gate-target' in args else '0.28'
+    # №570 (gh#934): --dry — compute and PRINT the summary, write NO file
+    # (no out_path, no GITHUB_STEP_SUMMARY) — the draft-read primitive.
+    dry = '--dry' in args
     c5 = criterion_goals_028(baseline_dir) if gate_target == '0.28' else None
+    if gate_target == '0.29':
+        c5 = criterion_goals_029(baseline_dir)
 
     rows = []
     lines = []
@@ -306,8 +341,27 @@ def main():
             lines.append('The 0.28 release gate: **SATISFIED** (ADR-0179 §5; the release-block label discipline holds — the fact record is label-synced).')
         else:
             lines.append('The 0.28 release gate: **BLOCKED** — the goals are not reached (ADR-0179 §5); the release does not pass the read.')
+    if gate_target == '0.29':
+        v_rc, v_detail, v_raw, v_note = c5
+        v_verdict = 'GREEN' if v_rc == 0 else 'RED'
+        lines.append('')
+        lines.append('## The v2 gate — the 0.29 ABSOLUTE goals (DRAFT, №570, ADR-0181)')
+        lines.append('')
+        lines.append('| § | Goal | Verdict | Evidence |')
+        lines.append('|---|------|---------|----------|')
+        lines.append('| v2 | The absolute goals: typed share ≥ goal, 0 open High (server path), the domain quorum, the serve-e2e inventory | **%s** | %s |'
+                     % (v_verdict, v_detail))
+        overall = 'GREEN' if (overall == 'GREEN' and v_rc == 0) else 'RED'
+        lines.append('')
+        lines.append('**Overall (§4 + v2 draft): %s.**' % overall)
+        lines.append('The 0.29 release gate: **DRAFT — NOT BLOCKING** (ADR-0181 §3/§5: the '
+                     'parameters are the OWNER\'s to fix; until the fixation this read '
+                     'is an honest status report, not a gate — nothing is blocked, '
+                     'nothing is wired into CI).')
     if gate_target == '0.28':
         pass  # the v2 verdict above is the release read for 0.28
+    elif gate_target == '0.29':
+        pass  # the DRAFT read above is the honest 0.29 report
     elif overall == 'GREEN':
         lines.append('The 0.27.0 release gate: **SATISFIED** (release-blocking '
                      'label — a RED anywhere in this summary blocks the release '
@@ -335,16 +389,20 @@ def main():
     lines.append('')
 
     text = '\n'.join(lines)
-    with open(out_path, 'w', encoding='utf-8') as f:
-        f.write(text)
-    print(text)
-    step = os.environ.get('GITHUB_STEP_SUMMARY')
-    if step:
-        with open(step, 'a', encoding='utf-8') as f:
+    if not dry:
+        with open(out_path, 'w', encoding='utf-8') as f:
             f.write(text)
+        step = os.environ.get('GITHUB_STEP_SUMMARY')
+        if step:
+            with open(step, 'a', encoding='utf-8') as f:
+                f.write(text)
+    print(text)
 
     if overall != 'GREEN':
-        print('::error::the unfreeze summary is RED — the 0.27.0 release gate reads this verdict (ADR-0177 §6)')
+        if gate_target == '0.29':
+            print('::error::the 0.29 DRAFT read is RED — the parameters are not owner-fixed yet (ADR-0181 §3/§5); this blocks nothing')
+        else:
+            print('::error::the unfreeze summary is RED — the 0.27.0 release gate reads this verdict (ADR-0177 §6)')
         return 1
     return 0
 

@@ -13,7 +13,8 @@
 # greps it; an unresolvable id = failure). A note documents the boundary.
 #
 # The table feeds the №525 gate-facts (fact_blocking_check_cells) and the
-# ADR-0179 §6 inventory. JIT and mcp-serve are absent (зафиксировано) rows.
+# ADR-0179 §6 inventory. JIT is the absent (зафиксировано) row; mcp-serve
+# carries real read/parse/audit/semantic cells since №557 (gh#918).
 command|phase|check|verdict|test_id|note
 run|read|file-readable|blocks|n535_run_missing_file_blocks|the CLI boundary: an unreadable file exits 1
 run|parse|parse-error|blocks|n535_run_parse_error_blocks|a parse error refuses before any execution
@@ -41,4 +42,8 @@ serve|audit|category-a|blocks|n535_serve_cat_a_blocks|the startup audit gate (th
 serve|semantic|check-program-errors|blocks|n523_serve_startup_refuses_unknown_function|№523: the semantic gate blocks the STARTUP — a lying route never serves
 serve|semantic|import-resolution|blocks|n523_serve_startup_refuses_undefined_in_pattern_body|№523: the static import resolution feeds the startup gate
 jit|all|jit-compilation|absent||absent (зафиксировано): the JIT is experimental (ADR-0022, ADR-0073) and outside the CLI pipeline — no JIT-specific blocking checks exist to record
-mcp-serve|all|tool-gate-coverage|absent||absent (зафиксировано): the MCP transport is a separate surface (ADR-0168); its per-tool gates are the №536-family naryads, not the CLI pipeline table
+mcp-serve|read|file-readable|blocks|n557_mcp_missing_file_blocks|the CLI boundary: cmd_mcp_serve exits 1 on an unreadable file (№557)
+mcp-serve|parse|parse-error|blocks|n557_mcp_parse_error_blocks|a parse error refuses before any exposure (№557)
+mcp-serve|audit|category-a|blocks|n557_mcp_cat_a_blocks|the №536 Category A startup gate (enforce_category_a_startup) runs BEFORE the allowlist check — the same audit_category_a as serve (№557)
+mcp-serve|semantic|import-resolution|blocks|n557_mcp_startup_refuses_missing_import|№557: imports resolve STATICALLY first (the same "." rule as serve); a resolution failure is the coded [Naryad #557] refusal
+mcp-serve|semantic|check-program-errors|blocks|n557_mcp_startup_refuses_unknown_function|№557: EVERY semantic::check_program error blocks the STARTUP — a lying tool never serves; exemptions classify ONLY by the structured kind (is_exempt_from_blocking, the ONE explicit place)

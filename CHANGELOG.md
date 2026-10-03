@@ -166,6 +166,38 @@ mandatory.**
   the required-set sync between the script, the test and the
   checklist).
 
+- Naryad №557 (issue #918; Wave 25 P1; the audit 02.10 M-7): the
+  SEMANTIC startup gate lands on every mcp-serve entrypoint — the same
+  level of protection `mlog serve` got in №523. mcp-serve ran NO
+  semantic pass at all (grep 0 check_program sites on the audit
+  revision): a tool file never `mlog check`-ed could carry blocking
+  semantic findings and serve. Now `resolve_imports_statically` (the
+  same "." base_dir rule as serve) feeds `check_program`, the exemption
+  filter reads ONLY the structured kind (is_exempt_from_blocking — the
+  ONE explicit place), and a non-empty blocking list refuses the
+  STARTUP with the serve refusal's format: the FIRST blocking finding's
+  stable code at position 0 (№479), the onряд stamp "Naryad #557",
+  the format_blocking_line list. The gate is wired at ALL THREE
+  entrypoints (stdio run_mcp_server, run_mcp_server_network, the test
+  harness run_test_mcp_server) right after the №536 Category A gate —
+  a structural test pins the both-gates parity (the transports cannot
+  drift). The blocking-checks matrix: the mcp-serve "absent
+  (зафиксировано)" row is REPLACED by five real cells
+  (read/parse/audit/semantic×2, all blocks) — the matrix has no
+  mcp-serve absent row anymore; blocking_checks_sync.py asserts the
+  five-command coverage (the JIT absent row stays — the honest
+  boundary); fact_blocking_check_cells 27 → 31. HONOR BOUNDARY (the
+  naryad forbids semantic changes): the check_program walk surface is
+  UNCHANGED — pattern and route bodies are walked (the №523 walks),
+  tool-method bodies are NOT (the pre-existing blindness both serve and
+  mcp-serve share; the honest extension is a check_program semantic
+  change = a separate gated decision, recorded as a candidate). The
+  fixtures pin the walked surfaces: a pattern-bodied undefined call and
+  a missing import refuse the startup loudly and early; a clean tool
+  file passes. Tests: tests/naryad_557_mcp_semantic_gate.rs (7); the
+  n535 structural pins updated (mcp-serve must NOT regress to absent);
+  n535 17/17, n536 10/10, n523 11/11 stay green.
+
 - Naryad №556 (issue #917; Wave 25 P1; the audit 02.10 M-6; the GDPR
   line №526→№527→№556): the strict-erasure posture for the voice store
   closes the two residuals the audit found. (1) The DELETED page no
@@ -199,6 +231,7 @@ mandatory.**
   store-unit tests stay green. docs/privacy.md §2.1 records both
   postures with the honest boundary (the store's OWN connection; the
   file-level guarantee stays the DB file owner's).
+
 - Naryad №555 (issue #916; Wave 25 P1; the audit 02.10 M-5 + Е-3): the
   MSRV contract is CHECKED, not just claimed — a blocking `msrv
   (blocking)` CI job pins the toolchain to exactly 1.93.1 (both the

@@ -9,7 +9,9 @@
 //   - pinned by the existing test named in the table's test_id column
 //     (n98_*, n523_* — the sync script greps them), or
 //   - an honest `absent` row (warns-dropped-on-run, the empty exemption
-//     list, JIT, mcp-serve) whose absence is the record itself.
+//     list, JIT) whose absence is the record itself. mcp-serve carried the
+//     real read/parse/audit/semantic cells since №557 — no absent row
+//     there anymore (gh#918).
 // A behavior change without a table update (or a table edit without the
 // behavior) breaks this file or the blocking-checks-sync CI job — the
 // N-1 class ("фильтр по подстроке"/"молчаливый пропуск") re-opens only
@@ -45,22 +47,27 @@ fn write_program(name: &str, body: &str) -> std::path::PathBuf {
 // ── the table's structural integrity ────────────────────────────────────
 
 #[test]
-fn n535_table_covers_all_four_commands() {
+fn n535_table_covers_all_commands() {
     let rows = rows();
     assert!(
         rows.len() >= 25,
         "the table carries at least 25 cells, got {}",
         rows.len()
     );
-    for cmd in ["run", "check", "compile", "serve"] {
+    for cmd in ["run", "check", "compile", "serve", "mcp-serve"] {
         assert!(
             rows.iter().any(|r| r[0] == cmd),
             "the command `{cmd}` must have rows"
         );
     }
-    // The №535 boundary: JIT and mcp-serve are recorded as absent.
+    // The №535 boundary: JIT is recorded as absent. №557: mcp-serve is NOT
+    // — the MCP surface carries real cells, the matrix must not regress to
+    // an absent row there.
     assert!(rows.iter().any(|r| r[0] == "jit" && r[3] == "absent"));
-    assert!(rows.iter().any(|r| r[0] == "mcp-serve" && r[3] == "absent"));
+    assert!(
+        !rows.iter().any(|r| r[0] == "mcp-serve" && r[3] == "absent"),
+        "mcp-serve must not regress to an absent row (№557: the gate exists)"
+    );
     // The verdict domain.
     for r in &rows {
         assert!(

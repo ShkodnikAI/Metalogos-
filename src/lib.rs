@@ -105,6 +105,10 @@ pub mod schema;
 // the LabelJoin taint transfer and the gated forecast export (the
 // typed FORECAST_TAINTED refusal + the forecast.* ledger family).
 pub mod forecast;
+// №558 (issue #919; the audit 02.10 M-8): the ONE module-search rule —
+// the runtime loader, the compiler's resolve_import and the semantic
+// static resolution all call resolve_module_file (the SSOT).
+pub mod module_path;
 pub mod semantic;
 pub mod semantic_types;
 #[cfg(feature = "server")]

@@ -3007,7 +3007,12 @@ impl Compiler {
             self.collections_loaded = true;
         }
 
-        let file_path = self.std_root.join(module_path).with_extension("mlog");
+        // №558: the ONE module-search rule (src/module_path.rs) — the
+        // same SSOT the runtime loader and the semantic pass call. The
+        // previous extension-replacing form was equivalent on every
+        // reachable input (the grammar admits no dots in module paths);
+        // the append form is the SSOT.
+        let file_path = crate::module_path::resolve_module_file(&self.std_root, module_path);
         // №475: the IMPORT source loader — compile-time, AUTHOR-controlled
         // source text (the same trust domain as the file being compiled);
         // the sandbox targets PROGRAM-RUNTIME I/O, and `mlog run <abs

@@ -52,7 +52,9 @@ impl Interpreter {
 
     fn load_module_inner(&mut self, module_path: &str) -> Result<(), String> {
         // Resolve file path: std/string -> std/string.mlog, ./my_utils -> ./my_utils.mlog
-        let file_path = self.base_dir.join(format!("{}.mlog", module_path));
+        // №558: the ONE module-search rule (src/module_path.rs) — the same
+        // SSOT the compiler and the semantic pass call.
+        let file_path = crate::module_path::resolve_module_file(&self.base_dir, module_path);
 
         // №475: the module-system loader — compile-time, author-controlled
         // imports (see the compiler.rs note).

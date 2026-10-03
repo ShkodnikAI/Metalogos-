@@ -647,9 +647,17 @@ jobs:
       - name: Gate — the typed-signature share vs the checked-in floor (№467; movement only up)
         run: |
           python3 scripts/ci/type_signature_share.py --gate scripts/ci/type_signature_baseline.txt
+      # №560 (issue #921; the audit 02.10 M-4): the PRECISE share — the
+      # second floor beside the general one, movement only up. The 0.29
+      # precise-share goal is the owner's parameter; the metric + the lock
+      # are the naryad's deliverable.
+      - name: Gate — the precise typed-signature share vs the checked-in floor (№560; movement only up)
+        run: |
+          python3 scripts/ci/type_signature_share.py --precise --gate scripts/ci/type_signature_precise_baseline.txt
       - name: Artifact — the share report + the untyped inventory (the stage-1 base)
         run: |
           python3 scripts/ci/type_signature_share.py
+          python3 scripts/ci/type_signature_share.py --precise
           python3 scripts/ci/type_signature_share.py --list | head -50
 
   unfreeze-gate:

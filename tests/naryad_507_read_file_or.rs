@@ -73,14 +73,16 @@ fn n507_read_or_missing_file_yields_the_explicit_default() {
 
 #[test]
 #[serial_test::serial]
-fn n507_read_file_missing_contract_is_unchanged() {
+fn n507_read_file_missing_contract_flipped_with_the_deadline() {
     let _sb = SandboxDir::enter("basecontract");
     let src = program(r#"  return read_file("нет_такого_507.txt")"#);
-    let out = metalogos::run_program(&src).expect("the №254 soft contract holds");
-    assert_eq!(
-        out.as_deref(),
-        Some(""),
-        "read_file of a missing file stays the №254 empty string (the №531 transition — READ_FILE_MISSING; flips to the loud refusal with the deadline)"
+    let err = metalogos::run_program(&src).expect_err(
+        "the №254 soft contract ENDED at v0.28.0 (№563 — the flip this transition promised)",
+    );
+    assert!(
+        err.contains("[IO_ERROR]"),
+        "read_file of a missing file refuses loudly with the code, got: {}",
+        err
     );
 }
 

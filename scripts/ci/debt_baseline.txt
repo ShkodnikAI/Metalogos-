@@ -49,4 +49,4 @@ example_uncovered: 0
 # contract. Exists ONLY during the transition release; the flip to the
 # loud [IO_ERROR] refusal deletes the sites, the counter reaches 0, the
 # threshold follows it down and the №514 softness class closes.
-read_file_soft_missing: 5
+read_file_soft_missing: 0

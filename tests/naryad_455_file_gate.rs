@@ -89,17 +89,20 @@ fn n455_deny_list_covers_the_audit_vocabulary() {
 #[test]
 #[serial]
 fn n455_ordinary_reads_keep_working_in_process_context() {
-    // A non-sensitive relative read stays exactly as before (the №254
-    // contract: missing file → soft empty string, existing file → content).
-    // №531 TRANSITION: the soft "" flips to a loud refusal after the
-    // deadline (READ_FILE_MISSING); this assertion flips with it.
+    // A non-sensitive relative read stays exactly as before for an
+    // EXISTING file (content); the missing-file contract flipped with the
+    // №531 deadline (№563): the loud refusal, not the soft empty string.
     let out = metalogos::run_program(
         r#"
 flow Main { input: String = "n455_definitely_missing_normal.txt" -> read_file -> output }
 "#,
-    )
-    .expect("a normal missing file keeps the soft-failure contract");
-    assert_eq!(out.unwrap_or_default(), "", "soft empty string");
+    );
+    let err = out.expect_err("the missing-file soft contract ended (№563)");
+    assert!(
+        err.contains("[IO_ERROR]"),
+        "the missing file refuses loudly with the code, got: {}",
+        err
+    );
 }
 
 // ── Layer 3: the escape crane allows, and the label engine vouches ─────
@@ -108,14 +111,18 @@ flow Main { input: String = "n455_definitely_missing_normal.txt" -> read_file ->
 #[serial]
 fn n455_allowlist_lets_an_explicitly_named_file_through() {
     std::env::set_var("METALOGOS_SENSITIVE_PATH_ALLOWLIST", ".env");
+    // №563: the file EXISTS in this fixture — the flip of the missing-file
+    // contract must not confound the deny-list assertion (the allowlist's
+    // contract: the READ is not refused by the deny-list).
+    std::fs::write(".env", "TEST=1").unwrap();
     let result = metalogos::run_program(
         r#"
 flow Main { input: String = ".env" -> read_file -> output }
 "#,
     );
     std::env::remove_var("METALOGOS_SENSITIVE_PATH_ALLOWLIST");
-    // Whether the file exists or not, the READ ITSELF must not be refused
-    // by the deny-list anymore (the soft contract answers for missing).
+    // The read goes through (the deny-list is unblocked); the content is
+    // the file's (an existing file reads exactly as before).
     assert!(
         result.is_ok(),
         "the allowlist must unblock the deny-list refusal — err: {:?}",

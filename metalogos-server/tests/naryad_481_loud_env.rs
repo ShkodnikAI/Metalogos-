@@ -164,6 +164,9 @@ fn n481_env_or_fallback_is_announced_without_the_value() {
     ));
     let file =
         std::path::Path::new("target").join(format!("n481_or_pin_{}.mlog", std::process::id()));
+    // №567: the test's CWD is the package dir now — its local target/ may
+    // not exist yet (the workspace target lives at the repo root).
+    std::fs::create_dir_all("target").expect("create the local target dir");
     std::fs::write(&file, &src).expect("write the probe program");
 
     let out = std::process::Command::new(env!("CARGO_BIN_EXE_mlog"))

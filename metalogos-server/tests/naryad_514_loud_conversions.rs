@@ -183,6 +183,8 @@ fn run_mlog(label: &str, body: &str) -> (String, String, bool) {
         std::process::id(),
         label
     ));
+    // №567: the test's CWD is the package dir — create its local target/ first.
+    std::fs::create_dir_all("target").expect("create the local target dir");
     std::fs::write(&file, &src).expect("write the probe program");
     let out = std::process::Command::new(env!("CARGO_BIN_EXE_mlog"))
         .arg("run")

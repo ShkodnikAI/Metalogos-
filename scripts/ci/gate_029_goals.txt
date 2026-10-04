@@ -1,17 +1,19 @@
-# The 0.29 release-gate ABSOLUTE goals (№570, ADR-0181) — the DRAFT record
-# the v2 gate reads. STATUS: DRAFT — the PARAMETERS below are NOT
-# owner-fixed (owner_fixed: false): per ADR-0181 §3/§5 the fixation is the
-# OWNER's gate, and until it happens the 0.29 gate reports NOT GREEN
-# honestly and blocks NOTHING (it is not wired into the blocking CI — a
-# separate decision after the fixation). The FACTS below carry the same
+# The 0.29 release-gate ABSOLUTE goals (№570, ADR-0181) — the record the
+# v2 gate reads. STATUS: OWNER-FIXED (2026-10-04) — the owner accepted
+# the №570 draft parameters VERBATIM (the authorization record: «1. А,
+# 2.А, 3. Б. -выполняй», the owner's chat, 2026-10-04; ADR-0181 §3/§5 —
+# the fixation is the OWNER's gate, the executor ran the mechanical
+# edit and owns NOTHING about the values). The 0.29 gate still blocks
+# NOTHING until wired into the blocking CI (a separate decision,
+# ADR-0181 §6). The FACTS below carry the same
 # machine sources as the 0.28 record (the same checkers in
 # scripts/ci/sync_gate_facts.py verify them; no new fact_* key is
 # introduced without a checker — the fail-closed №525 rule).
 
-owner_fixed: false
+owner_fixed: true
 
-# ── The parameters (DRAFT values, owner to fix — ADR-0181 §3) ─────────
-# The typed-signature share floor, basis points. Draft: 3500 = 35.00% —
+# ── The parameters (OWNER-FIXED 2026-10-04: the №570 draft accepted verbatim, ADR-0181 §3) ─────────
+# The typed-signature share floor, basis points. Fixed: 3500 = 35.00% —
 # a +300bp step from the ACHIEVED 0.28 goal (3000; the live fact at the
 # 0.28.0 cut: 3241 bp — the step lands above the current fact, the same
 # "the goal must demand movement" shape the audit 28.09 §4 prescribed).

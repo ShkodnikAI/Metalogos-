@@ -1,8 +1,10 @@
-# ADR-0181: Release gate 0.29 criteria (the draft)
+# ADR-0181: Release gate 0.29 criteria
 
-- Status: Proposed
+- Status: Accepted (the parameters fixed by the OWNER, 2026-10-04)
 - Date: 2026-10-03
-- Deciders: the owner (the parameters fixation — PENDING), the executor (the draft)
+- Deciders: the owner (the parameters fixation — 2026-10-04, the draft
+  accepted verbatim; the authorization record: «1. А, 2.А, 3. Б.
+  -выполняй»), the executor (the draft)
 - Naryad: №570 (gh#934, Wave 26)
 - Predecessor: [ADR-0179 — release-gate-028-criteria-v2](0179-release-gate-028-criteria-v2.md)
 
@@ -34,19 +36,25 @@ What changes: the goal values (§3) and the debt-goal surface (the №569
 re-locked floors become the 0.29 debt goals; they ride the §4.3 legacy
 criterion — no duplication into fact keys).
 
-## §3. The parameters (DRAFT — the owner's column is EMPTY)
+## §3. The parameters (OWNER-FIXED 2026-10-04 — the draft accepted verbatim)
 
 | Parameter | Draft value (№570) | The owner's fixation | Cost to the contour |
 |---|---|---|---|
-| goal_typed_share_bp | 3500 (+300bp over the achieved 3000; the live fact at the 0.28.0 cut is 3241) | — | ~+260 typed signatures over the 0.28.0 fact (165 → ~425 of 509) — roughly two №543-class typing waves |
-| goal_open_high_server | 0 (unchanged) | — | none — the release-block label discipline holds |
-| goal_quorum_num / den | 1 / 3 (the 0.28 form kept verbatim; the live fact is 0/8) | — | none — the headroom is already honest |
-| debt goals (ignore / ignore_todo / dead_code) | the №569 floors: 26 / 0 / 33 (ride §4.3, only-down) | — | none — the floors are already the fact |
+| goal_typed_share_bp | 3500 (+300bp over the achieved 3000; the live fact at the 0.28.0 cut is 3241) | **fixed: 3500 (verbatim)** | ~+260 typed signatures over the 0.28.0 fact (165 → ~425 of 509) — roughly two №543-class typing waves |
+| goal_open_high_server | 0 (unchanged) | **fixed: 0 (verbatim)** | none — the release-block label discipline holds |
+| goal_quorum_num / den | 1 / 3 (the 0.28 form kept verbatim; the live fact is 0/8) | **fixed: 1 / 3 (verbatim)** | none — the headroom is already honest |
+| debt goals (ignore / ignore_todo / dead_code) | the №569 floors: 26 / 0 / 33 (ride §4.3, only-down) | **fixed: the №569 floors 26 / 0 / 33 (verbatim)** | none — the floors are already the fact |
 
-**The fixation is the OWNER's gate (§5).** Until the owner fills the
-fixation column (or edits the draft values), `owner_fixed: false` stands
-in the goals file and the 0.29 gate reports NOT GREEN honestly — it
-blocks NOTHING and is NOT wired into the blocking CI.
+**The fixation happened on 2026-10-04 — the OWNER's gate (§5).** The
+owner accepted the draft verbatim (the authorization record: «1. А,
+2.А, 3. Б. -выполняй»; the executor ran the mechanical edit and owns
+nothing about the values). The fixation column above is filled,
+`owner_fixed: true` stands in `gate_029_goals.txt`, and the v2 reader
+now reads the 0.29 record the same way it reads 0.28
+(criterion_goals_029 → criterion_goals_028 verbatim). The typed-share
+goal (3500 bp) is a target AHEAD of the live fact (3241 at the 0.28.0
+cut) — an honest NOT MET until the typing waves land; the 0.29 gate
+still blocks NOTHING until it is wired into the blocking CI (§6).
 
 ## §4. The 0.29 window checklist (the ADR-0179 §6 shape)
 

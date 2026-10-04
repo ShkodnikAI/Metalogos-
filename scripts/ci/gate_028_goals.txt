@@ -32,7 +32,14 @@ goal_quorum_den: 3
 # Source: the GitHub API — open issues labeled `release-block`;
 # machine-verified by scripts/ci/sync_gate_facts.py (needs GH_TOKEN,
 # always present in Actions; locally the check skips loudly).
-fact_open_high_server: 0
+# №580 (wave 29, the audit d63cc1d X-1/X-2 honesty): the fact follows
+# the wave dispatch gh#1004 trajectory — 0 → 2 (№581 = the X-1 High
+# fix + №583 = the 0.28.1 release carrier; the honest-boundary rows
+# live in docs/limitations.md since №580) → 1 (the №581 merge) → 0
+# (the live v0.28.1 tag closes №583). While the fact is nonzero, the
+# gates are honestly RED — the counter is machine-read, never
+# hand-zeroed.
+fact_open_high_server: 2
 # The transfer domain quorum fact: (groups still carrying duplicates)
 # / (the №466 group total at the transfer start).
 # Source: `python3 scripts/ci/count_duplicated_names.py --quorum`

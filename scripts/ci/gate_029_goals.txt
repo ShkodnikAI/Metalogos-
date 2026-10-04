@@ -45,7 +45,15 @@ goal_quorum_den: 3
 # The open High findings in the server path: the count of the open
 # GitHub issues labeled `release-block`. Machine-verified by
 # scripts/ci/sync_gate_facts.py (the same checker as 0.28).
-fact_open_high_server: 0
+# №580 (wave 29, the audit d63cc1d X-1/X-2 honesty): the fact follows
+# the wave dispatch gh#1004 trajectory — 0 → 2 (the wave-29 issue:
+# №581 = the X-1 High fix + №583 = the 0.28.1 release carrier; the
+# honest-boundary rows live in docs/limitations.md since №580) → 1
+# (the №581 merge removes the №581 issue) → 0 (the live v0.28.1 tag
+# closes №583 and the release-block label). While the fact is 2, the
+# gate 0.29 is honestly RED (2 > goal 0, unfreeze_gate.py NOT MET) —
+# the goal stays 0 and the counter is machine-read, never hand-zeroed.
+fact_open_high_server: 2
 # The transfer domain quorum fact. Source:
 # `python3 scripts/ci/count_duplicated_names.py --quorum`; the same
 # checker verifies it (the live fact: 0 groups of 8 carry duplicates).

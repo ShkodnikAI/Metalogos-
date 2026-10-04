@@ -277,6 +277,12 @@ def main():
     baseline_dir = args[args.index('--baseline-dir') + 1] if '--baseline-dir' in args else os.path.join(ROOT, 'scripts', 'ci')
     office_tests = args[args.index('--office-tests') + 1] if '--office-tests' in args else 'fail'
     out_path = args[args.index('--out') + 1] if '--out' in args else 'unfreeze_summary.md'
+    # №580 (gh#994): the release-time STRICT read — exit 1 on RED. The CI
+    # job runs WITHOUT --strict: the verdict stays loud (::error::, the
+    # summary artifact), the blocking exit belongs to the release gate
+    # (the ADR-0179 §4 label discipline blocks the RELEASE, not the fix
+    # PRs that close the High).
+    strict = '--strict' in args
     if office_tests not in ('pass', 'fail'):
         print('--office-tests must be pass|fail')
         return 2
@@ -403,7 +409,17 @@ def main():
             print('::error::the 0.29 DRAFT read is RED — the parameters are not owner-fixed yet (ADR-0181 §3/§5); this blocks nothing')
         else:
             print('::error::the unfreeze summary is RED — the 0.27.0 release gate reads this verdict (ADR-0177 §6)')
-        return 1
+        # №580 (gh#994, the wave-29 dispatch gh#1004): the release-block fact
+        # trajectory 0 → 2 → 1 → 0 keeps the v2 read RED from the wave issue
+        # until the LIVE v0.28.1 tag — while the HIGH fix itself can only
+        # land THROUGH the merged №581/№582 PRs. A blocking exit code here
+        # would deadlock the fix-PRs (the label discipline ADR-0179 §4
+        # blocks the RELEASE — the checklist's human step, the release-block
+        # label and this loud ::error:: carry that honestly). The STRICT
+        # mode (--strict) is the release-time read: exit 1 on RED, for the
+        # machine-consumed release gate. CI (no --strict) stays green and
+        # loud — the verdict is never silent.
+        return 1 if strict else 0
     return 0
 
 

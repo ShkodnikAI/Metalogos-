@@ -1504,6 +1504,14 @@ impl Vm {
                     stack.pop();
                     ip += 1;
                 }
+                // №582 (the audit d63cc1d X-2): the route-epilogue value —
+                // the fall-through body whose final statement left no stack
+                // value ends with PushUnit, so the route exit's stack.pop()
+                // reads Unit (the TW `200 OK` parity), NEVER a local slot.
+                Instruction::PushUnit => {
+                    stack.push(Value::Unit);
+                    ip += 1;
+                }
                 Instruction::StartsWith => {
                     let needle = stack.pop().unwrap_or(Value::Unit);
                     let haystack = stack.pop().unwrap_or(Value::Unit);
@@ -1991,6 +1999,14 @@ impl Vm {
                 }
                 Instruction::Pop => {
                     stack.pop();
+                    ip += 1;
+                }
+                // №582 (the audit d63cc1d X-2): the route-epilogue value —
+                // the fall-through body whose final statement left no stack
+                // value ends with PushUnit, so the route exit's stack.pop()
+                // reads Unit (the TW `200 OK` parity), NEVER a local slot.
+                Instruction::PushUnit => {
+                    stack.push(Value::Unit);
                     ip += 1;
                 }
                 Instruction::StartsWith => {

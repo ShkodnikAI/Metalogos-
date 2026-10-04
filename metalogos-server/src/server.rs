@@ -2926,6 +2926,17 @@ async fn execute_route_body_vm(
             {
                 return Ok(http_response_into_response(status, body, content_type));
             }
+            // №582 (the audit d63cc1d X-2): the FALL-THROUGH parity — a body
+            // that ends without an HttpResponse (a let/assign tail, a loop
+            // tail, a guard that fell through) answers the SAME default the
+            // TW lane answers below (`200 "OK"`). Before the PushUnit
+            // epilogue this pop used to read the LAST LOCAL SLOT and
+            // serialize it (the data-leak class); the epilogue now yields
+            // Unit, and the Unit answer is the shared TW default — never an
+            // empty-body divergence with the interpreter lane.
+            if matches!(val, Value::Unit) {
+                return Ok((StatusCode::OK, "OK").into_response());
+            }
             // For other value types, convert like the interpreter does
             Ok(value_to_response(val))
         }

@@ -2013,8 +2013,44 @@ impl Compiler {
         // FINAL Pop so the last statement's value stays on the stack — the
         // fall-through return then yields exactly what TW yields. Interior
         // statements keep their Pop; explicit `return` bodies are untouched.
-        if matches!(code.last(), Some(Instruction::Pop)) {
-            code.pop();
+        //
+        // №582 (the audit d63cc1d X-2): the route-epilogue INVARIANT — the
+        // body exit's stack.pop() NEVER reads a local slot. The local slots
+        // LIVE on the stack (StoreLocal resizes it), so a body whose final
+        // statement leaves no value (a let/assign tail, a loop tail, a
+        // kept if/match whose branches were patched — see the keep-tail
+        // synthesis) ended its fall-through pop ON THE LAST LOCAL SLOT and
+        // serialized it as the response (the data-leak class: `route {
+        // let row = query_row(...) }` returned the row). The dispatch:
+        //   - ExprStmt tail → the №250 keep applies (its value survives);
+        //   - Return/Break/Continue tail → the body exits on that path, no
+        //     epilogue value is owed;
+        //   - if/match tail → the keep-tail synthesis guarantees exactly
+        //     one value on every live path (see compile_if_stmt_with_keep /
+        //     compile_match_stmt) — nothing to add;
+        //   - everything else (let/assign/while/each/memorize/…) → the
+        //     epilogue `PushUnit`: the fall-through is Unit, the same `200
+        //     OK` the tree-walking lane yields.
+        match body.last() {
+            None => {
+                // An empty body — the pop still happens at the exit.
+                code.push(Instruction::PushUnit);
+            }
+            Some(Statement::ExprStmt { .. }) => {
+                if matches!(code.last(), Some(Instruction::Pop)) {
+                    code.pop();
+                }
+            }
+            Some(Statement::Return { .. } | Statement::Break | Statement::Continue) => {}
+            Some(
+                Statement::IfThen { .. } | Statement::IfElseBlock { .. } | Statement::Match { .. },
+            ) => {
+                // The keep-tail synthesis already put exactly one value on
+                // every live path (or the paths all terminate).
+            }
+            Some(_) => {
+                code.push(Instruction::PushUnit);
+            }
         }
         Ok(code)
     }
@@ -2359,11 +2395,30 @@ impl Compiler {
             code.push(Instruction::JumpIfNot(0));
             let jmp_idx = code.len() - 1;
             let saved = *next_slot;
-            for s in arm.body() {
-                self.compile_stmt_with_locals(s, code, locals, next_slot, loop_stack, mutable)?;
+            // №582: the kept arm's FINAL statement goes through the keep
+            // compiler (recursively) — the arm leaves EXACTLY one value on
+            // the stack: the kept trailing value (the old Pop-strip, the
+            // №250/№574 behavior for value tails) or a synthesized epilogue
+            // Unit for the NoValue tails (let/assign/loop/…, the
+            // leftover-local class). Terminator tails owe nothing.
+            let arm_body = arm.body();
+            for (s_idx, s) in arm_body.iter().enumerate() {
+                if keep_last_value && s_idx + 1 == arm_body.len() {
+                    self.compile_stmt_keeping_value(
+                        s, code, locals, next_slot, loop_stack, mutable,
+                    )?;
+                } else {
+                    self.compile_stmt_with_locals(s, code, locals, next_slot, loop_stack, mutable)?;
+                }
             }
-            if keep_last_value && matches!(code.last(), Some(Instruction::Pop)) {
-                code.pop();
+            if keep_last_value && arm_body.is_empty() {
+                // An EMPTY arm: no final statement compiled — the arm path
+                // leaves no value; give it the epilogue Unit. (A non-empty
+                // arm's final statement went through compile_stmt_keeping_value,
+                // which already guarantees exactly one value: the kept value,
+                // a synthesized Unit for the NoValue tails, or a terminator
+                // that exits the body.)
+                code.push(Instruction::PushUnit);
             }
             *next_slot = saved;
             code.push(Instruction::Jump(0));
@@ -2371,12 +2426,22 @@ impl Compiler {
             code[jmp_idx] = Instruction::JumpIfNot(code.len());
         }
         if let Some(eb) = else_body {
-            for s in eb {
-                self.compile_stmt_with_locals(s, code, locals, next_slot, loop_stack, mutable)?;
+            for (s_idx, s) in eb.iter().enumerate() {
+                if keep_last_value && s_idx + 1 == eb.len() {
+                    self.compile_stmt_keeping_value(
+                        s, code, locals, next_slot, loop_stack, mutable,
+                    )?;
+                } else {
+                    self.compile_stmt_with_locals(s, code, locals, next_slot, loop_stack, mutable)?;
+                }
             }
-            if keep_last_value && matches!(code.last(), Some(Instruction::Pop)) {
-                code.pop();
+            if keep_last_value && eb.is_empty() {
+                code.push(Instruction::PushUnit);
             }
+        } else if keep_last_value {
+            // №582: NO else — a no-match path would reach the end with no
+            // value while the arms leave one; synthesize the missing arm.
+            code.push(Instruction::PushUnit);
         }
         let end = code.len();
         for f in end_fixups {
@@ -2401,12 +2466,13 @@ impl Compiler {
     /// tails: only the branch-FINAL statement sheds its Pop, recursively
     /// through nested if-forms; interior statements compile as usual.
     ///
-    /// Branch shapes without a trailing value keep the pre-№574 behavior:
-    /// a branch whose final statement is a let/assign leaves the
-    /// fall-through pop reading the last local slot (the №250-documented
-    /// leftover-local class; TW yields Unit → the 200 "OK" fall-through —
-    /// the divergence is pre-existing, out of the №574 scope, unchanged
-    /// by this edit).
+    /// Branch shapes without a trailing value are №582 territory: a
+    /// let/assign tail no longer leaves the fall-through pop reading the
+    /// last local slot — the keep compiler appends the epilogue `PushUnit`
+    /// (and a missing else arm is synthesized as one), so the body exit is
+    /// Unit, the same `200 OK` fall-through the TW yields. The №574
+    /// value-tail behavior (the branch value survives) is preserved
+    /// unchanged — the №574.1 regression tests must stay green.
     #[allow(clippy::too_many_arguments)]
     #[allow(clippy::type_complexity)]
     fn compile_if_stmt_with_keep(
@@ -2424,7 +2490,7 @@ impl Compiler {
         mutable: &mut HashSet<String>,
     ) -> Result<(), String> {
         if !is_else_block {
-            // IfThen: cond → JumpIfNot(after) → branch (the pre-№574 shape).
+            // IfThen: cond → JumpIfNot(else) → branch → end.
             self.compile_expr_with_locals(condition, code, locals, next_slot, loop_stack, mutable)?;
             code.push(Instruction::JumpIfNot(0)); // placeholder
             let jmp_idx = code.len() - 1;
@@ -2435,8 +2501,37 @@ impl Compiler {
             )?;
             *next_slot = saved_next_slot;
 
-            let after = code.len();
-            code[jmp_idx] = Instruction::JumpIfNot(after);
+            // №582: the epilogue invariant over the if-tail — every live
+            // path past the if carries EXACTLY one stack value (the kept
+            // branch value, or a synthesized Unit), so the route exit's
+            // pop NEVER lands on a local slot (the leftover-local class).
+            let then_final_is_terminator = then_body
+                .last()
+                .map(Self::stmt_is_terminator)
+                .unwrap_or(false);
+            if !keep_tail {
+                // Nested position: the general statement compiler keeps the
+                // stack balanced around the whole if — the pre-№574 shape.
+                let after = code.len();
+                code[jmp_idx] = Instruction::JumpIfNot(after);
+            } else if then_final_is_terminator {
+                // The taken path EXITS the body (return/break/continue) —
+                // only the cond=false path reaches the end; give it the
+                // epilogue value directly.
+                let else_start = code.len();
+                code[jmp_idx] = Instruction::JumpIfNot(else_start);
+                code.push(Instruction::PushUnit);
+            } else {
+                // The taken path leaves a value — skip the synthesized
+                // else arm so the two paths cannot stack up twice.
+                code.push(Instruction::Jump(0)); // skip the synthesized else
+                let jump_end = code.len() - 1;
+                let else_start = code.len();
+                code[jmp_idx] = Instruction::JumpIfNot(else_start);
+                code.push(Instruction::PushUnit);
+                let end = code.len();
+                code[jump_end] = Instruction::Jump(end);
+            }
             return Ok(());
         }
         // IfElseBlock: compile if/else if/else chain (the pre-№574 shape,
@@ -2488,6 +2583,11 @@ impl Compiler {
                 else_body, keep_tail, code, locals, next_slot, loop_stack, mutable,
             )?;
             *next_slot = saved_ns;
+        } else if keep_tail {
+            // №582: NO else — the cond=false path would reach the block end
+            // with NO value on the stack while the taken paths leave one.
+            // Synthesize the missing else arm: a single epilogue Unit.
+            code.push(Instruction::PushUnit);
         }
 
         let block_end = code.len();
@@ -2495,6 +2595,18 @@ impl Compiler {
             code[fixup] = Instruction::Jump(block_end);
         }
         Ok(())
+    }
+
+    /// №582: does this statement EXIT the body when executed (a terminator)?
+    /// A terminator path owes no epilogue value — Return leaves the frame,
+    /// Break/Continue jump to the loop edges; a PushUnit after them would
+    /// be dead code. Everything else either leaves a value or needs the
+    /// synthesized one.
+    fn stmt_is_terminator(stmt: &Statement) -> bool {
+        matches!(
+            stmt,
+            Statement::Return { .. } | Statement::Break | Statement::Continue
+        )
     }
 
     /// №574: one branch body — every statement through
@@ -2513,6 +2625,12 @@ impl Compiler {
         loop_stack: &mut Vec<(usize, Vec<usize>, Vec<usize>)>,
         mutable: &mut HashSet<String>,
     ) -> Result<(), String> {
+        // №582: an EMPTY kept branch leaves no value — give it the epilogue
+        // Unit so every live path of the branch carries exactly one value.
+        if keep_tail && stmts.is_empty() {
+            code.push(Instruction::PushUnit);
+            return Ok(());
+        }
         for (s_idx, s) in stmts.iter().enumerate() {
             if keep_tail && s_idx + 1 == stmts.len() {
                 self.compile_stmt_keeping_value(s, code, locals, next_slot, loop_stack, mutable)?;
@@ -2593,19 +2711,40 @@ impl Compiler {
                     mutable,
                 )?;
             }
+            other @ (Statement::Return { .. } | Statement::Break | Statement::Continue) => {
+                // №582: the terminator forms — every path EXITS the body
+                // here (Return returns, Break/Continue jump to the loop
+                // edges), so no epilogue value is owed on this path and a
+                // PushUnit would be dead code. Compile as usual.
+                self.compile_stmt_with_locals(other, code, locals, next_slot, loop_stack, mutable)?;
+            }
             other @ (Statement::LetBinding { .. }
             | Statement::Assign { .. }
             | Statement::Each { .. }
             | Statement::EachWithIndex { .. }
             | Statement::While { .. }
-            | Statement::Return { .. }
-            | Statement::Match { .. }
-            | Statement::Break
-            | Statement::Continue
             | Statement::Memorize(_)
             | Statement::Forget(_)
             | Statement::Relate(_)) => {
+                // №582: these forms leave NO value on the stack (the
+                // leftover-local class — the epilogue pop would read the
+                // last local slot). The keep-tail contract now guarantees
+                // a value on every live path: emit the epilogue Unit.
                 self.compile_stmt_with_locals(other, code, locals, next_slot, loop_stack, mutable)?;
+                code.push(Instruction::PushUnit);
+            }
+            Statement::Match {
+                scrutinee,
+                arms,
+                else_body,
+                ..
+            } => {
+                // №582: a kept match tail goes through the same epilogue
+                // invariant as a kept if — every arm (and the synthesized
+                // missing else) ends with exactly one value on the stack.
+                self.compile_match_stmt(
+                    scrutinee, arms, else_body, code, locals, next_slot, loop_stack, mutable, true,
+                )?;
             }
         }
         Ok(())
@@ -3096,6 +3235,7 @@ impl Compiler {
                 | Instruction::MakeList(_)
                 | Instruction::ListLen
                 | Instruction::Pop
+                | Instruction::PushUnit
                 | Instruction::StartsWith
                 | Instruction::MakeFluid(_)
                 | Instruction::Jump(_)

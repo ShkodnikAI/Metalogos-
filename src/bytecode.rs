@@ -101,6 +101,18 @@ pub enum Instruction {
     ListLen,
     /// Discard top-of-stack value. Used after ExprStmt to keep stack clean. (Наряд №18)
     Pop,
+    /// №582 (the audit d63cc1d X-2): push `Value::Unit` — the route-epilogue
+    /// value for a body whose final statement leaves no stack value (the
+    /// leftover-local class: a `let`/assignment tail ends in StoreLocal, the
+    /// local SLOTS live on the stack, and the route exit's `stack.pop()`
+    /// used to read the LAST LOCAL SLOT and serialize it as the response).
+    /// With the epilogue `PushUnit` the route exit NEVER reads a local slot:
+    /// the fall-through is Unit → the same `200 OK` the tree-walking lane
+    /// yields. Emitted by the compiler's route/pattern epilogue (the
+    /// №250-keep twin) and by the keep-tail branch synthesis — see
+    /// compile_pattern_body_with_locals / compile_if_stmt_with_keep /
+    /// compile_match_stmt.
+    PushUnit,
     /// Pop two strings; push 1.0 if left starts with right, else 0.0. (Наряд №21)
     StartsWith,
 

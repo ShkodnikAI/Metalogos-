@@ -74,6 +74,7 @@ const ALL_INSTRUCTIONS: &[&str] = &[
     "MakeList",
     "ListLen",
     "Pop",
+    "PushUnit", // №582: the route-epilogue Unit (the leftover-local fix)
     "StartsWith",
     // Fluid Types
     "MakeFluid",
@@ -288,11 +289,11 @@ fn vm_dispatch_coverage() {
     // Verify: expected total count matches.
     // If someone adds a new Instruction variant to the enum without updating
     // ALL_INSTRUCTIONS, this assertion will catch it (count mismatch).
-    // Current: 45 total (27 shared + 18 top-level-only).
+    // Current: 46 total (28 shared + 18 top-level-only) — №582 added PushUnit.
     assert_eq!(
         ALL_INSTRUCTIONS.len(),
-        45,
-        "ADR-0076: ALL_INSTRUCTIONS count changed (expected 45). \
+        46,
+        "ADR-0076: ALL_INSTRUCTIONS count changed (expected 46). \
          If a new Instruction variant was added to the enum, update ALL_INSTRUCTIONS \
          and optionally TOP_LEVEL_ONLY_INSTRUCTIONS."
     );

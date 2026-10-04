@@ -4,6 +4,39 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №580 (issue #994; Wave 29 P0, [process]/[docs], the wave-29
+  dispatch gh#1004 — STRICTLY FIRST): the gate honesty for the
+  consolidated audit d63cc1d — the honest-boundary rows for the X-1
+  (High, `release-block`) and X-2 (Medium) server-path divergences
+  landed in `docs/limitations.md` ("Serve Security Boundaries"), the
+  `fact_open_high_server` record follows its machine source 0 → 2, and
+  the gates 0.29 turned honestly RED (the b678def knowledge lived in
+  git history only — the honest red is the GOAL of the naryad). The
+  blocking unfreeze-gate job learned the loud-but-non-deadlocking read
+  (the `--strict` release-time exit; the RED verdict stays visible in
+  CI while the fix-PRs themselves must merge).
+- Naryad №581 (issue #995; Wave 29 P0, [core]/[serve], the audit
+  d63cc1d X-1 step 1): the `RESPOND_NOT_TERMINAL` semantic gate — a
+  bare `respond*` call in a NON-terminal position of a route body
+  fails the pass on BOTH backends (fail-closed; NOT exempt from
+  blocking); the migration is one word: `return respond(...)`. The
+  migrated audit guard answers 403 to the non-admin and the protected
+  DELETE never runs (12/12 real-HTTP tests, both backends); the bare
+  form refuses `run` and `serve` startup with the stable code stamped
+  first; the tail legality survives; the X-1 limitations row removed
+  in the same PR. The fact trajectory: `fact_open_high_server` 2 → 1.
+- Naryad №582 (issue #996; Wave 29 P0, [core], the audit d63cc1d X-2):
+  the `PushUnit` route-epilogue invariant — the body exit's
+  `stack.pop()` NEVER reads a local slot; the let/assign/loop tails
+  and the no-else/no-match fall-throughs answer the shared interpreter
+  default (`200 "OK"`) instead of serializing the last local slot (the
+  data-leak class: the queried row reached the caller). The №574.1
+  value-tail behavior is preserved (the regression suite rides the
+  same PR); the №465 differential fuzzer 9/9 — no new divergence
+  classes. The X-2 limitations row removed in the same PR; both closed
+  rows archived verbatim (the №524/№571 rule).
+
+
 - Naryad №572 (issue #973; Wave 27 P0, [process], the release-pipeline
   repair): the release workflows follow the bin — `build.yml`/
   `release.yml` pin the `metalogos-server` crate (the `mlog` bin left
@@ -168,6 +201,44 @@ All notable changes to the Metalogos project.
   В24/В25). Coverage: the CI `cargo llvm-cov` lane measures it (the
   advisory job, №555-era); the threshold proposal rides the naryad
   report — the OWNER sets it (§16.0 гейт владельца).
+
+## [0.28.1] - Unreleased (staged 2026-10-05; the publication is the owner's gate, №549/gh#997)
+
+### Security (UPDATE REQUIRED)
+
+**0.28.0 and earlier are affected on the VM backend (`mlog serve` runs the
+bytecode VM by default since 2026-09-21) — update required.** The
+consolidated audit d63cc1d (2026-10-04) found two server-path divergences;
+both were honestly named in the b678def commit body (№574.1) before the fix
+existed, and both are closed by the wave-29 security wave (the dispatch
+gh#1004; the wave-29 rule: the gates read the truth —
+`fact_open_high_server` 0 → 2 → 1 → 0):
+
+- **X-1 (High) — the guard bypass (№581, gh#995, PR #1007):** a bare
+  `respond*`/`respond_html*` call in a NON-tail position of a route body did
+  NOT stop route execution on the VM backend — the TW answered immediately
+  from any block, the VM compiled the call with `Instruction::Pop`, so the
+  guard pattern `if is_admin(...) == false { respond("403", "forbidden") }`
+  silently FELL THROUGH to the protected code (an unauthorized caller
+  reached the protected handler). Fixed: the `RESPOND_NOT_TERMINAL`
+  semantic gate refuses every such program at startup on BOTH backends
+  (fail-closed); the migration is one word — `return respond(...)`.
+  The fix/audit date: **2026-10-04**.
+- **X-2 (Medium) — the leftover-local data leak (№582, gh#996, PR #1008):**
+  a route/branch body whose final statement is a `let`/assignment made the
+  VM's route epilogue pop the LAST LOCAL SLOT and serialize it as the
+  response body (`route { let row = query_row(...) }` returned the row to
+  the caller; the interpreter answered the plain `200 OK`). Fixed: the
+  `PushUnit` route-epilogue invariant — the body exit never reads a local
+  slot; the fall-through answers the same shared default as the interpreter
+  lane. The fix/audit date: **2026-10-04**.
+
+The honest-boundary trail: b678def (№574.1) named both divergences in the
+commit body; the wave-29 dispatch (gh#1004) made the gates read that truth;
+the `release-block` label discipline (ADR-0179 §4) holds until the live
+v0.28.1 tag. The stage-2 parity step (the VM serves respond in ANY position
+— №584) and the route-body differential-fuzzer lane (№585) follow in the
+0.29 cycle.
 
 ## [0.28.0] - 2026-10-03
 

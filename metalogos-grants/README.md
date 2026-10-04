@@ -10,11 +10,18 @@ postulate; №549, issue #887).
 
 - `nlnet-traction/01-metrics-one-pager.md` — the honesty-metrics
   one-pager: repository facts with dates, machine-generated where a
-  generator exists.
+  generator exists (refreshed 2026-10-05, №577).
 - `nlnet-traction/02-demo.md` — the demo narrative: the language →
   serve → taint-labels → action-ledger arc, reproduced by ONE command
   (`bash scripts/demo_traction.sh`), over the public examples
   verbatim.
+- `nlnet-traction/03-code-intelligence-cbm.md` — the CBM pilot
+  extract (№577): the code-intelligence-class measurement — the
+  language's own counters versus a generic tool of the class, with the
+  methodology and the honest limits.
+- `nlnet-traction/04-m1-checklist.md` — the M1 reconciliation
+  (№577): the evidence matrix, the honest gaps, the owner's action
+  list; M1 — 2026-11-03, the package delivery — 2026-10-20.
 
 ## The gates
 

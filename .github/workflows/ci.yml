@@ -677,6 +677,39 @@ jobs:
           python3 scripts/ci/release_gap_gate.py
           python3 scripts/ci/release_gap_gate.py --self-test
 
+  release-bin-guard:
+    name: release-bin-guard (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      # №445 wave-infra: the rust-cache restore for the heavy jobs
+      # (clippy + the feature-gated test jobs) died deterministically in
+      # the GitHub cache service 3 runs in a row (the job was killed
+      # mid-restore, before any check ran). A cache failure is a
+      # performance loss, never a correctness signal — make the step
+      # non-fatal and bust the poisoned cache partition (prefix-key v2).
+      # No check is weakened: clippy/tests still run and still fail the
+      # job on their own findings.
+      - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          prefix-key: v2
+      # №572 (gh#973): the release pipeline follows the bin. №567 moved the
+      # `mlog` bin into metalogos-server and the release workflows were
+      # missed — the next release build of main fails (Actions run
+      # 37158618960); test-CI does not execute the release build, so 45/45
+      # green sailed the regression onto main. This guard trips the
+      # "bin moved, workflows forgot" class on EVERY push/PR: exactly one
+      # `mlog` bin (cargo metadata), and both release workflows pin its
+      # owning package with `-p`.
+      - name: "Guard — the release workflows follow the mlog bin (№572)"
+        run: |
+          python3 scripts/ci/release_bin_guard.py
+          python3 scripts/ci/release_bin_guard.py --self-test
+      - name: Build the release bin from its owning crate
+        run: cargo build -p metalogos-server --bin mlog
+
   unfreeze-gate:
     name: unfreeze-gate (blocking)
     runs-on: ubuntu-latest

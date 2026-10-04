@@ -16,7 +16,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build release
-        run: cargo build --release --bin mlog
+        # №572 (gh#973; the release pipeline follows the bin): №567 moved
+        # the `mlog` bin into the metalogos-server crate; without `-p` this
+        # job fails with "no bin target named `mlog` in default-run
+        # packages" (Actions run 37158618960). The release-bin-guard job in
+        # ci.yml trips the "bin moved, workflows forgot" class on every
+        # push/PR, before a release day.
+        run: cargo build --release -p metalogos-server --bin mlog
 
       - name: Upload binary
         uses: actions/upload-artifact@v7

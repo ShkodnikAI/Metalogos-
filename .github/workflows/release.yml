@@ -89,7 +89,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build release binary (locked)
-        run: cargo build --release --locked --bin mlog
+        # №572 (gh#973; the release pipeline follows the bin): the `mlog`
+        # bin lives in the metalogos-server crate since №567 — the `-p` is
+        # REQUIRED ("no bin target named `mlog` in default-run packages"
+        # otherwise). The release-bin-guard job in ci.yml trips the
+        # "bin moved, workflows forgot" class on every push/PR.
+        run: cargo build --release --locked -p metalogos-server --bin mlog
 
       - name: Install cargo-cyclonedx (pinned)
         run: cargo install cargo-cyclonedx --version 0.5.9 --locked
@@ -132,7 +137,7 @@ jobs:
             rustc -Vv
             cargo -V
             echo "runner image: ${ImageOS:-unknown} ${ImageVersion:-unknown}"
-            echo "built with: cargo build --release --locked --bin mlog"
+            echo "built with: cargo build --release --locked -p metalogos-server --bin mlog"
           } | tee dist/BUILD-INFO.txt
 
       - name: Checksums

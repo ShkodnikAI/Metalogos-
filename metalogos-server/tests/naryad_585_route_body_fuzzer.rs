@@ -92,7 +92,10 @@ enum Stmt {
     Let(String),
     MutLet(String),
     Assign(String),
-    Respond { args: String, returned: bool },
+    Respond {
+        args: String,
+        returned: bool,
+    },
     If {
         cond: String,
         then_body: Vec<Stmt>,
@@ -209,14 +212,8 @@ fn gen_body(rng: &mut Rng, budget: &mut u32) -> Vec<Stmt> {
                 // The assignment tail (the same leftover-local class):
                 // a declared MUT binding, assigned as the final statement.
                 let name = format!("m{}", rng.alnum(2));
-                out.push(Stmt::MutLet(format!(
-                    "{name} = \"{}\"",
-                    rng.alnum(4)
-                )));
-                out.push(Stmt::Assign(format!(
-                    "{name} = \"{}\"",
-                    rng.alnum(5)
-                )));
+                out.push(Stmt::MutLet(format!("{name} = \"{}\"", rng.alnum(4))));
+                out.push(Stmt::Assign(format!("{name} = \"{}\"", rng.alnum(5))));
             }
             5 => {
                 // (d): the guard with respond inside, MORE CODE AFTER —
@@ -245,7 +242,11 @@ fn gen_body(rng: &mut Rng, budget: &mut u32) -> Vec<Stmt> {
                         returned: false,
                     }]
                 } else {
-                    vec![Stmt::Let(format!("n{} = \"{}\"", rng.alnum(2), rng.alnum(4)))]
+                    vec![Stmt::Let(format!(
+                        "n{} = \"{}\"",
+                        rng.alnum(2),
+                        rng.alnum(4)
+                    ))]
                 };
                 out.push(Stmt::If {
                     cond,
@@ -340,13 +341,10 @@ fn extract_routes(source: &str) -> Vec<String> {
 }
 
 async fn probe(source: &str) -> Outcome {
-    let tw = metalogos_server::server::run_test_server_with_backend(
-        source,
-        ServeBackend::Interpreter,
-    )
-    .await;
-    let vm =
-        metalogos_server::server::run_test_server_with_backend(source, ServeBackend::Vm).await;
+    let tw =
+        metalogos_server::server::run_test_server_with_backend(source, ServeBackend::Interpreter)
+            .await;
+    let vm = metalogos_server::server::run_test_server_with_backend(source, ServeBackend::Vm).await;
     match (tw, vm) {
         (Err(et), Err(ev)) => {
             let ct = startup_class(&et.to_string());

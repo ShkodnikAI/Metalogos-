@@ -40,7 +40,7 @@ criterion — no duplication into fact keys).
 
 | Parameter | Draft value (№570) | The owner's fixation | Cost to the contour |
 |---|---|---|---|
-| goal_typed_share_bp | 3500 (+300bp over the achieved 3000; the live fact at the 0.28.0 cut is 3241) | **fixed: 3500 (verbatim)** | ~+260 typed signatures over the 0.28.0 fact (165 → ~425 of 509) — roughly two №543-class typing waves |
+| goal_typed_share_bp | 3500 (+300bp over the achieved 3000; the live fact at the 0.28.0 cut is 3241) | **fixed: 3500 (verbatim)** | ≈+14 typed signatures over the 0.28.0 fact (165 → 179 of 509; 178 = 3497bp < 3500) — a fraction of one №543-class wave. The draft's "~+260 (165 → ~425 of 509)" was an arithmetic error (×20), corrected 2026-10-05, the fixed VALUES untouched; the live fact at the correction is 186/509 = 3654bp — the goal is already met (№573) |
 | goal_open_high_server | 0 (unchanged) | **fixed: 0 (verbatim)** | none — the release-block label discipline holds |
 | goal_quorum_num / den | 1 / 3 (the 0.28 form kept verbatim; the live fact is 0/8) | **fixed: 1 / 3 (verbatim)** | none — the headroom is already honest |
 | debt goals (ignore / ignore_todo / dead_code) | the №569 floors: 26 / 0 / 33 (ride §4.3, only-down) | **fixed: the №569 floors 26 / 0 / 33 (verbatim)** | none — the floors are already the fact |

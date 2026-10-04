@@ -80,7 +80,11 @@ fn test_e2e_persist_memorize_then_recall() {
 // ── E2E-2: recall a second fact from same DB ────────────────────
 
 #[test]
-#[ignore = "Known issue gh#967 §1 (№493 line, revise 2026-10-15): recall(capital-of-France) returns the FIRST lane hit (the spicy entry), not the best match — the lane relevance ranking is the finding, not the harness"]
+// №575: the ignore lifted — the gh#967 §1 finding is already fixed by the
+// №493 anchors: the store lane's filter + max_by picks the BEST qualifying
+// signal (anchor 4), and the substring match (sim = 1.0) is checked first
+// in SqliteStore, so recall("capital of France") returns the
+// query-matched "capital of France is Paris", not the first hybrid hit.
 fn test_e2e_persist_recall_second_fact() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("test_memory2.db");
@@ -145,7 +149,10 @@ flow Main {{ input: String = r1 -> output }}
 // ── E2E-4: third run still has all data ─────────────────────────
 
 #[test]
-#[ignore = "Known issue gh#967 §1 (№493 line, revise 2026-10-15): same lane-ranking finding — recall across restarts returns the first hit, not the query-matched one"]
+// №575: the ignore lifted — same anchor-4 ranking, verified across TWO
+// restarts: every session opens the same SqliteStore and the best-match
+// selection is iteration-order independent, so the recall stays
+// query-matched on the third run.
 fn test_e2e_persist_third_run() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("test_third.db");
@@ -211,7 +218,11 @@ flow Main { input: String = r -> output }
 // ── E2E-6: forget works on persistent store ─────────────────────
 
 #[test]
-#[ignore = "Known issue gh#967 §1 (№493 line, revise 2026-10-15): forget removes the node from the persisted graph but the recall lane still serves the entry — the forget/recall consistency is the finding"]
+// №575: the ignore lifted — the forget/recall consistency holds: `forget
+// "spicy food" after 0.days` hits the №493 anchor-5 path (days=0 passes
+// i64::MAX as the cutoff, so every matching row is deleted regardless of
+// age), the FTS delete-trigger keeps the index in sync, and the recall
+// lane returns the empty string while the other fact survives.
 fn test_e2e_persist_forget() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("test_forget.db");
@@ -292,7 +303,10 @@ memory { }
 // ── E2E-8: KG persistence across runs ───────────────────────────
 
 #[test]
-#[ignore = "Known issue gh#967 §1 (№493 line, revise 2026-10-15): KG persist+recall returns an empty string across runs — the KG recall lane is the finding"]
+// №575: the ignore lifted — the KG lane works across runs: the №493
+// anchor-6 third fallback asks SqliteKg for edges_for(query) directly
+// when the store and the typed lanes both miss, and the persisted
+// relations come back as the [GRAPH] body on the next session.
 fn test_e2e_kg_persist_across_runs() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("test_kg.db");

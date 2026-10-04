@@ -4,6 +4,67 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №572 (issue #973; Wave 27 P0, [process], the release-pipeline
+  repair): the release workflows follow the bin — `build.yml`/
+  `release.yml` pin the `metalogos-server` crate (the `mlog` bin left
+  the language crate in №567; the Build-and-Release regression on
+  `2cd7c31` was the finding — the per-commit test-CI passed 45/45 while
+  the release build was broken, so the release workflows are OUTSIDE
+  the test contour by construction) and the SBOM contract stays intact
+  (the CycloneDX generation follows the crate pin); the
+  `release_bin_guard.py` blocking job lands — the release-critical
+  build paths (the bin build over the pinned crate + the SBOM
+  generation) re-run on every PR, closing the "release workflows are
+  covered by nothing" gap the №567 regression exposed.
+- Naryad №573 (issue #974; Wave 27 P1, [core], the typing step 0.29
+  №1): the diagram package leaves stage 0 END TO END — 20 rows typed
+  `"String"` against the verified handlers (all 20 `builtin_diagram_*`
+  handlers in `src/builtins/svg/diagrams/*.rs` return
+  `Ok(Value::String(...))`, the SVG-markup fact) and the tokens package
+  completes in the same PR per the №565 procedure (`diagram_style` →
+  `"Struct"`, the design-token fact). The typed share 165/509 →
+  186/509 = 3654 bp (+4.1 pp, inside the №543 band +3–5 pp); the
+  precise floor 1650 → 2043 bp (104/509, 20 precise rows); the in-tree
+  lock 161 → 182 (all default-feature rows); the №566 generated
+  digests follow the fact (README + PLAN-SUMMARY, `--check` green).
+  THE GATE 0.29 DRAFT GOAL IS REACHED: 3654 ≥ `goal_typed_share_bp`
+  3500 (ADR-0181; the gate still blocks nothing until wired into
+  blocking CI — ADR-0181 §6). The honest arithmetic flag recorded in
+  the PR: the owner-fixed cost line "~+260 typed signatures
+  (165 → ~425 of 509)" is incompatible with its own 3500 bp goal
+  (425/509 = 8350 bp); the correct cost ≈ +14 signatures — this PR
+  overdelivers it; the goal value stays the owner's (ADR-0181 §3).
+  Zero semantic edits (warn-only stage 0), the №465 diff-fuzzer 9/9.
+- Naryad №574.1 (issue #975; Wave 27 P1, [std], the VM json_body serve
+  contract): the 5 ledger gh#967 §2 ignored tests lifted —
+  `server_json_body.rs :153/:179/:200/:247/:278` (the TW side was
+  always green; the VM side is pinned by the new
+  `tests/server_json_body_vm.rs` — 5 scenarios + 3 route-tail if/else
+  pins). The compile-side root cause fixed: the route-tail if-forms
+  kept the taken branch's trailing value (the №250 rule extended to
+  branch tails). The ignore floor follows the fact down in the same PR
+  (the №569 procedure): 26 → 21.
+- Naryad №575 (issue #976; Wave 27 P2, [std], the memory recall lane):
+  the 4 ledger gh#967 §1 ignored tests lifted GREEN with ZERO source
+  edits — `memory_persist_e2e.rs :83/:148/:214/:295`; the findings
+  were already cured by the №493 anchors (4: the filter + max_by
+  best-match over the hybrid candidates, substring-first in
+  SqliteStore; 5: the days=0 forget cutoff = i64::MAX; 6: the KG
+  `edges_for` fallback synthesizing the [GRAPH] body), the ignore
+  reasons were stale ledger links. The builtins surface untouched
+  (memorize/recall/recall_top_k/query keep their permanent signatures,
+  №554). The ignore floor follows the fact down in the same PR: 21 →
+  17.
+- Naryad №576 (issue #977; Wave 27 P2, [docs], the post-wave docs
+  sync): the wave-27 fact lands in the doc set — REALITY §6.13 (the
+  wave-27 counter recount, every number from its machine), the
+  PLAN-SUMMARY wave rows 25–27 + the current-wave section reads Wave
+  27, the CHANGELOG [Unreleased] carries the wave-27 entries (this
+  block), the machines verified: `gen_metrics.py --check` green,
+  `gen_reference_check.py` 509/509, the debt gate 17/0/33, the mirrors
+  6, the typed share 3654 bp. limitations.md: no new honest-boundaries
+  (№575 was zero-source-edit; №574 fixed the compile contract the pins
+  already guarded) — the docs sync is loud here instead.
 - Naryad №567 (issue #931; Wave 26 P1, [core], the crate-split stage 2):
   the transport contour is a CRATE — `metalogos-server/` lands as the
   fifth workspace member, carrying `server.rs` + `mcp_server.rs` +

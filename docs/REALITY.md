@@ -822,3 +822,38 @@ version bump and the release only, per the naryad boundary). The
 non-blocking `coverage` job flagged the new `semantic_types.rs` lines on
 PR #749 (the inference paths are covered by the dedicated test file; the
 coverage job is advisory — recorded per the conveyor discipline).
+
+### 6.13. Wave 27 recount (naryad №576): the counters (main @ `1c79fc2`, 2026-10-04)
+
+Protocol: №414/№318 — the same machines, no hand-written numbers. The
+honest headline: this is a COUNTER recount, not a P0-readiness protocol
+recount — the subsystem weights of section 3 stay as of the №476
+recount (§6.12); Wave 27 was the release-pipeline repair + the typing
+step + the two ledger lanes (the doc facts below), no functional-weight
+claim is made by a docs naryad. The wave-fact documentation lives in
+the public digest (docs/PLAN-SUMMARY.md — the wave rows 25–27, the
+current-wave section reads Wave 27); this section pins the machine
+counters the waves 19–27 moved.
+
+**The Wave 27 counters (every value from its machine, the command
+reproduces it):**
+
+| Counter | Value | Machine | Movement |
+|---|---|---|---|
+| Typed-signature share (№467) | **186/509 = 3654 bp** (the №573 diagram package: 20 rows `"String"` + the tokens completion `"Struct"`; THE 0.29 DRAFT GOAL 3500 bp REACHED — ADR-0181, the gate still blocks nothing until wired into blocking CI) | `python3 scripts/ci/type_signature_share.py --gate scripts/ci/type_signature_baseline.txt` | only up: 998→1222→1420→2110→2702→3195→3241→3654 |
+| Precise typed share (№560) | **104/509 = 2043 bp** (the same 20 `"String"` rows are precise; `"Struct"` rides typed-but-coarse) | `python3 scripts/ci/type_signature_share.py --gate scripts/ci/type_signature_precise_baseline.txt --precise` | only up: 1637→1650→2043 |
+| `#[ignore]` debt (№468) | **17** (TODO: 0) — the gh#967 ledger lanes closed: §2 (№574, 5 tests), §1 (№575, 4 tests); the floor re-locked down in the same PRs | `python3 scripts/ci/debt_counters.py --gate scripts/ci/debt_baseline.txt` | only down: 85→58→52→40→26→21→17 |
+| `dead_code` (№468) | **33** (unchanged) | same gate | only down (unchanged) |
+| TW/VM duplicated builtin names (№462) | **0** (the quorum 0/8 groups) | `python3 scripts/ci/count_duplicated_names.py --quorum` | only down (0 since В19) |
+| Registered mirrors (№502/№564) | **6** (the html_label/vm doc-lineage lines; unchanged) | `python3 scripts/ci/mirror_counter.py` | only down (unchanged) |
+| Workspace members (№567) | **5** (`.`, `metalogos-server`, `mlogpkg`, `mlog-lsp`, `metalogos-reflex`) | `grep -A20 '^\[workspace\]' Cargo.toml` | the №567 split fact |
+| The 0.29 gate parameters (ADR-0181) | **OWNER-FIXED 2026-10-04** (`owner_fixed: true` — the №570 draft accepted verbatim; the typed-share cost line's arithmetic flag recorded in PR #987: ~+260 sigs = 8350 bp ≠ 3500 bp, the correct cost ≈ +14 — overdelivered by №573) | `head -20 scripts/ci/gate_029_goals.txt` | the owner's gate |
+
+**The release state:** 0.28.0 published (tag on `3576887`, the binary +
+the CycloneDX SBOM + Sigstore). The release-pipeline regression the В27
+dispatch exposed (№567's bin move broke Build-and-Release while the
+per-commit test-CI stayed 45/45 green) is closed by №572 — the release
+workflows follow the bin and the `release_bin_guard.py` blocking job
+re-runs the release-critical paths on every PR. The [Unreleased]
+CHANGELOG carries the wave-27 entries; the next release cut folds them
+per the №550 procedure.

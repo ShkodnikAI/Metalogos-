@@ -14,7 +14,7 @@
 #       green on the current commit — run live by the unfreeze-gate job;
 #   (b) this record is present and well-formed (fail-closed otherwise).
 #
-# ── Record (refreshed: 2026-10-04, the owner decision 4А recount; before that: 2026-09-27, by naryad №482) ──────────────────
+# ── Record (refreshed: 2026-10-05, the gh#981 resolution recount; before that: 2026-10-04, the owner decision 4А recount; 2026-09-27, by naryad №482) ──
 office_repo: ShkodnikAI/FOSVED-office-v2 (private)
 naryad_issue: office#373 (FO-056, closed 2026-09-25)
 landing_pr: office PR #375, squash ec1c048 (2026-09-25)
@@ -43,6 +43,18 @@ verified_runs:
     the office-side extension. Filed: gh#981 (the resolution — the
     typed builtin OR the office-side `== false` rewrite — is the
     wave/owner decision)
+  - the RESOLUTION recount (2026-10-05, the office side landed the
+    honest helper — office f10b6fb via PR office#473: the scenario
+    defines the local `pattern not_contains(rows: List, sub: String)
+    -> Bool`, pure language (`contains`/`to_string` only; the comment
+    names the №523 run-blocking and the 0.27.x truthy-error-string
+    latent always-PASS it removes): PURE 0.28.0 (the vendored official
+    release artifact, bin/mlog) — scenario 16/16 PASS, rc=0; the
+    office-pinned 0.27.1 lineage (bin/mlog-0271) — 16/16 PASS, rc=0;
+    labels pairwise identical; pytest 3/3. gh#981 CLOSED by this row —
+    the office resolution suffices; the upstream `not_contains` builtin
+    stays a 0.29 backlog ergonomics candidate (the full typed-builtin
+    discipline applies), not a need
 office_ci_last_success: a5ff332 (2026-09-21, FOSVED CI run 35655159452)
 office_ci_note: the office CI on main is RED since 2026-10-03 (run
   37138697544, the "Metalogos syntax check" job): the vendored audit

@@ -29,6 +29,15 @@
 # html_to_pdf precedent). (84*10000)//509 = 1650 bp. The floor rises
 # with the row that earned it (the №757 procedure); the PRECISE_TYPES
 # definition is untouched.
-# precise: 84
+# (superseded) precise: 84 | total: 509 | threshold_bp was 1650
+
+# 2026-10-04 №573 (gh#974, волна 27): the diagram package's 20 rows ship
+# PRECISE ("String" ∈ PRECISE_TYPES — the verified Ok(Value::String)
+# handler fact) alongside the general-floor PR; diagram_style →
+# "Struct" rides typed-but-coarse (the family has no precise spelling).
+# 84/509 → 104/509; (104*10000)//509 = 2043 bp (+393 bp ≈ +3.9 pp).
+# The floor rises with the rows that earned it (the №757 procedure);
+# the PRECISE_TYPES definition is untouched.
+# precise: 104
 # total: 509
-# threshold_bp: 1650
+# threshold_bp: 2043

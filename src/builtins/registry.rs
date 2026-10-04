@@ -605,7 +605,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("svg_canvas", 4, "svg"; builtin_svg_canvas), // width, height, viewbox, children
     // Level 2: design tokens
     #[cfg(feature = "svg")]
-    spec!("diagram_style", 1, "tokens"; builtin_diagram_style), // {paper, ink, accent, muted, rule}
+    spec!("diagram_style", 1, "tokens"; builtin_diagram_style, "Struct"), // {paper, ink, accent, muted, rule}
     // Level 2.5: wow-effects
     #[cfg(feature = "svg")]
     spec!("svg_sketchy_filter", 1, 5, "svg"; builtin_svg_sketchy_filter), // id [, base_freq, octaves, scale, seed]
@@ -640,35 +640,35 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("svg_canvas_preset", 3, "svg"; builtin_svg_canvas_preset), // preset_name, viewbox, children
     // Level 3.1: diagrams (Наряд №81) — hierarchies & flows
     #[cfg(feature = "diagram")]
-    spec!("diagram_tree", 2, "diagram"; builtin_diagram_tree), // data, style — recursive tree
+    spec!("diagram_tree", 2, "diagram"; builtin_diagram_tree, "String"), // data, style — recursive tree
     #[cfg(feature = "diagram")]
-    spec!("diagram_org_chart", 2, "diagram"; builtin_diagram_org_chart), // data, style — tree with title field
+    spec!("diagram_org_chart", 2, "diagram"; builtin_diagram_org_chart, "String"), // data, style — tree with title field
     #[cfg(feature = "diagram")]
-    spec!("diagram_flowchart", 2, "diagram"; builtin_diagram_flowchart), // data, style — layered DAG
+    spec!("diagram_flowchart", 2, "diagram"; builtin_diagram_flowchart, "String"), // data, style — layered DAG
     #[cfg(feature = "diagram")]
-    spec!("diagram_layers", 2, "diagram"; builtin_diagram_layers), // data, style — horizontal stripes
+    spec!("diagram_layers", 2, "diagram"; builtin_diagram_layers, "String"), // data, style — horizontal stripes
     // Level 3.2: diagrams (Наряд №82) — temporal & process
     #[cfg(feature = "diagram")]
-    spec!("diagram_sequence", 2, "diagram"; builtin_diagram_sequence), // data, style — UML sequence (lifelines + messages; builtin_diagram_sequence)
+    spec!("diagram_sequence", 2, "diagram"; builtin_diagram_sequence, "String"), // data, style — UML sequence (lifelines + messages; builtin_diagram_sequence)
     #[cfg(feature = "diagram")]
-    spec!("diagram_timeline", 2, "diagram"; builtin_diagram_timeline), // data, style — horizontal axis with event dots
+    spec!("diagram_timeline", 2, "diagram"; builtin_diagram_timeline, "String"), // data, style — horizontal axis with event dots
     #[cfg(feature = "diagram")]
-    spec!("diagram_gantt", 2, "diagram"; builtin_diagram_gantt), // data, style — horizontal bars per task
+    spec!("diagram_gantt", 2, "diagram"; builtin_diagram_gantt, "String"), // data, style — horizontal bars per task
     #[cfg(feature = "diagram")]
-    spec!("diagram_process", 2, "diagram"; builtin_diagram_process), // data, style — linear numbered step chain
+    spec!("diagram_process", 2, "diagram"; builtin_diagram_process, "String"), // data, style — linear numbered step chain
     #[cfg(feature = "diagram")]
-    spec!("diagram_loop", 2, "diagram"; builtin_diagram_loop), // data, style — closed-loop circular steps
+    spec!("diagram_loop", 2, "diagram"; builtin_diagram_loop, "String"), // data, style — closed-loop circular steps
     // Level 3.3: diagrams (Наряд №83) — sets & comparisons
     #[cfg(feature = "diagram")]
-    spec!("diagram_venn", 2, "diagram"; builtin_diagram_venn), // data, style — 2 or 3 overlapping circles
+    spec!("diagram_venn", 2, "diagram"; builtin_diagram_venn, "String"), // data, style — 2 or 3 overlapping circles
     #[cfg(feature = "diagram")]
-    spec!("diagram_quadrant", 2, "diagram"; builtin_diagram_quadrant), // data, style — 2x2 strategic quadrant
+    spec!("diagram_quadrant", 2, "diagram"; builtin_diagram_quadrant, "String"), // data, style — 2x2 strategic quadrant
     #[cfg(feature = "diagram")]
-    spec!("diagram_pyramid", 2, "diagram"; builtin_diagram_pyramid), // data, style — stacked trapezoids (top=apex; builtin_diagram_pyramid)
+    spec!("diagram_pyramid", 2, "diagram"; builtin_diagram_pyramid, "String"), // data, style — stacked trapezoids (top=apex; builtin_diagram_pyramid)
     #[cfg(feature = "diagram")]
-    spec!("diagram_nested", 2, "diagram"; builtin_diagram_nested), // data, style — concentric circles
+    spec!("diagram_nested", 2, "diagram"; builtin_diagram_nested, "String"), // data, style — concentric circles
     #[cfg(feature = "diagram")]
-    spec!("diagram_medallion", 2, "diagram"; builtin_diagram_medallion), // data, style — row of round badges w/ icons
+    spec!("diagram_medallion", 2, "diagram"; builtin_diagram_medallion, "String"), // data, style — row of round badges w/ icons
     // Level 3.4: diagrams (Наряд №84) — data & state
     //   diagram_er         — Struct{entities: [{name, fields: [String]}], relations: [{from,to,label?}]}
     //                       simple grid layout (no graph analysis), entities ≤ 12, fields ≤ 8.
@@ -681,17 +681,17 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     //   diagram_high_level — same shape, NO cycles (topological), larger bolder blocks.
     //   diagram_architecture — same shape + optional `icon` per node (reuses svg_icon's 10 names).
     #[cfg(feature = "diagram")]
-    spec!("diagram_er", 2, "diagram"; builtin_diagram_er), // data, style — entity boxes on a grid w/ relations
+    spec!("diagram_er", 2, "diagram"; builtin_diagram_er, "String"), // data, style — entity boxes on a grid w/ relations
     #[cfg(feature = "diagram")]
-    spec!("diagram_state", 2, "diagram"; builtin_diagram_state), // data, style — state machine (cycles OK; builtin_diagram_state)
+    spec!("diagram_state", 2, "diagram"; builtin_diagram_state, "String"), // data, style — state machine (cycles OK; builtin_diagram_state)
     #[cfg(feature = "diagram")]
-    spec!("diagram_swimlane", 2, "diagram"; builtin_diagram_swimlane), // data, style — lanes × steps positioned by order
+    spec!("diagram_swimlane", 2, "diagram"; builtin_diagram_swimlane, "String"), // data, style — lanes × steps positioned by order
     #[cfg(feature = "diagram")]
-    spec!("diagram_data_flow", 2, "diagram"; builtin_diagram_data_flow), // data, style — graph w/ cycles OK
+    spec!("diagram_data_flow", 2, "diagram"; builtin_diagram_data_flow, "String"), // data, style — graph w/ cycles OK
     #[cfg(feature = "diagram")]
-    spec!("diagram_high_level", 2, "diagram"; builtin_diagram_high_level), // data, style — large bolder blocks, no cycles
+    spec!("diagram_high_level", 2, "diagram"; builtin_diagram_high_level, "String"), // data, style — large bolder blocks, no cycles
     #[cfg(feature = "diagram")]
-    spec!("diagram_architecture", 2, "diagram"; builtin_diagram_architecture), // data, style — high_level + svg_icon per node
+    spec!("diagram_architecture", 2, "diagram"; builtin_diagram_architecture, "String"), // data, style — high_level + svg_icon per node
     // ── Наряд №86: Mini template engine ──
     //   template_render(template, data) -> Html
     //   Parses Mustache/Handlebars-like subset: {{ var }} (auto-escaped),

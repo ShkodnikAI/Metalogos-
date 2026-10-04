@@ -127,6 +127,22 @@
 # Value::String; the №543 line continues in the same PR that grows the
 # registry). 162/507 → 165/509; (165*10000)//509 = 3241 bp (+46 bp).
 # The floor rises WITH the rows that earned it (the №757 procedure).
-# typed: 165
+# (superseded) typed: 165 | total: 509 | threshold_bp was 3241
+
+# 2026-10-04 №573 (gh#974, волна 27): the diagram package (20 rows) —
+# every row typed against the verified handlers ("String" — all 20
+# builtin_diagram_* handlers in src/builtins/svg/diagrams/*.rs return
+# Ok(Value::String(...)), the SVG-markup fact; zero mixed paths, zero
+# honest Unknowns in the package). The tokens package completes in the
+# same PR per the №565 procedure: diagram_style → "Struct" (the
+# builtin_diagram_style design-token fact; the package's only row).
+# 165/509 → 186/509; (186*10000)//509 = 3654 bp (+413 bp ≈ +4.1 pp —
+# inside the №543 wave band +3–5 pp). THE GATE 0.29 DRAFT GOAL IS
+# REACHED EARLY: 3654 bp ≥ goal_typed_share_bp 3500 (ADR-0181; the
+# gate still blocks nothing until wired into blocking CI — §6). The
+# in-tree lock (tests/type_signature_metric.rs TYPED_FLOOR) is raised
+# in the SAME PR: 161 → 182 (both diagram rows and diagram_style are
+# default-feature rows, so the compiled count moves with the source).
+# typed: 186
 # total: 509
-# threshold_bp: 3241
+# threshold_bp: 3654

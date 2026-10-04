@@ -68,9 +68,18 @@
 # New floors = the post-classification fact: ignore 26, ignore_todo 0,
 # dead_code 33 (the 37 floor was stale — the fact reached 33 in В24/В25 and
 # the floor follows the fact down in the same PR).
+#
+# №574 (gh#975, волна 27): the gh#967 §2 lane (VM json_body field access)
+# — all 5 ignored tests lifted: server_json_body.rs :153/:179/:200/:247/:278
+# (the TW side was always green; the VM side is pinned by the new
+# tests/server_json_body_vm.rs — 5 scenarios + 3 route-tail if/else pins).
+# Compile-side root cause fixed: the route-tail if-forms kept the taken
+# branch's trailing value (the №250 rule extended to branch tails). The
+# floor follows the fact down IN THE SAME PR (the №569 procedure):
+# ignore: 26 -> 21.
 
 dup_baseline: scripts/ci/tw_vm_dup_names_baseline.txt
-ignore: 26
+ignore: 21
 ignore_todo: 0
 dead_code: 33
 example_uncovered: 0

@@ -52,6 +52,18 @@ pub enum SemanticErrorKind {
     /// stays named so the gate's exemption list can be explicit and
     /// future kinds can be classified without new plumbing.
     UndefinedFunction,
+    /// №581 (the audit d63cc1d X-1, release-block): RESPOND_NOT_TERMINAL —
+    /// a bare `respond*`/`respond_html*` call (an ExprStmt, no enclosing
+    /// `return`) sits in a NON-terminal position of a route body (not the
+    /// route tail, not the tail chain of a final if/match branch). On the
+    /// tree-walking serve lane such a call answers IMMEDIATELY from any
+    /// block (the HttpResponse-as-Return propagation), while the VM
+    /// compiles it with `Instruction::Pop` — the guard pattern
+    /// `if is_admin(...) == false { respond("403", ...) }` silently falls
+    /// through to the protected code on the VM backend. Blocks run/serve
+    /// on BOTH backends (fail-closed); the migration is one word:
+    /// `return respond(...)`.
+    RespondNotTerminal,
     /// Every other semantic finding — blocks run/serve unconditionally.
     Other,
 }
@@ -68,6 +80,7 @@ impl SemanticErrorKind {
             SemanticErrorKind::UndefinedFunction => {
                 Some(crate::interpreter::values::CODE_UNDEFINED_FUNCTION)
             }
+            SemanticErrorKind::RespondNotTerminal => Some(CODE_RESPOND_NOT_TERMINAL),
             SemanticErrorKind::Other => None,
         }
     }
@@ -281,6 +294,176 @@ fn decl_import_ident(decl: &Declaration) -> Option<(String, String)> {
         _ => return None,
     }
     Some((tag.to_string(), name))
+}
+
+/// №581 (the audit d63cc1d X-1, release-block): the stable №479 diagnostic
+/// code of the respond-terminality gate. The run/serve refusal stamps it at
+/// position 0 so machine consumers (the №465 diff-fuzzer's class signature,
+/// log scrapers, the serve-e2e inventory) read the CODE, not the prose.
+pub const CODE_RESPOND_NOT_TERMINAL: &str = "RESPOND_NOT_TERMINAL";
+
+/// №581: the four route-response builtins whose BARE (statement) form owns
+/// the early-answer semantics on the tree-walking lane. Exactly the registry
+/// set (src/builtins/registry.rs, the "web" family) — a fifth name,
+/// `html_response`, lives only in the sink-classification tables and is NOT
+/// a registered builtin (a call to it already fails UNDEFINED_FUNCTION).
+const RESPOND_STATEMENT_NAMES: [&str; 4] = [
+    "respond",
+    "respond_html",
+    "respond_html_status",
+    "respond_html_doc",
+];
+
+/// №581: is this expression a BARE call of one of the RESPOND_STATEMENT_NAMES?
+/// Only the direct `name(args)` form counts: a respond* call wrapped in a
+/// larger expression (passed as an argument, bound by `let`, compared) does
+/// NOT terminate a route on EITHER backend (the value is consumed inline on
+/// both) — it is not the X-1 divergence class, and inventing a broader net
+/// would manufacture false positives the fail-closed rule forbids.
+fn bare_respond_call(expr: &Expr) -> bool {
+    match expr {
+        Expr::FnCall { name, .. } => RESPOND_STATEMENT_NAMES.contains(&name.as_str()),
+        // №532 ledger: the parse-only/report tail arm — no security
+        // decision reads the non-call variants here (a respond* consumed
+        // inside any larger expression terminates nothing on either
+        // backend; see the doc comment above).
+        Expr::StringLit { .. }
+        | Expr::FloatLit { .. }
+        | Expr::BoolLit { .. }
+        | Expr::Ident { .. }
+        | Expr::FieldAccess { .. }
+        | Expr::QualifiedCall { .. }
+        | Expr::BinaryOp { .. }
+        | Expr::IfElse { .. }
+        | Expr::List { .. }
+        | Expr::IndexAccess { .. }
+        | Expr::StructLit { .. }
+        | Expr::BlockIfElse { .. }
+        | Expr::MatchExpr { .. }
+        | Expr::Try { .. }
+        | Expr::HandleSource { .. }
+        | Expr::ProvBind { .. } => false,
+    }
+}
+
+/// №581 (the audit d63cc1d X-1, release-block): the RESPOND_NOT_TERMINAL
+/// gate over route bodies.
+///
+/// THE INVARIANT (fail-closed): every route whose execution would NOT stop
+/// at a bare respond* on the VM — but WOULD on the tree-walking lane — must
+/// fail the semantic pass. The TW answers immediately from ANY block (the
+/// HttpResponse-as-Return propagation, and the serve lane's per-statement
+/// HttpResponse check); the VM only honors a respond compiled in the TAIL
+/// CHAIN: the route's final statement, or the final statement of an
+/// if/match branch that itself ends the route (the №574 branch-tail keep,
+/// recursively). Anything else compiles with `Instruction::Pop` — the guard
+/// silently falls through.
+///
+/// A bare respond is accepted ONLY in a TERMINAL CONTEXT, defined as:
+///   - the body of the route itself (a respond in tail position there is
+///     the route's value on BOTH backends), or
+///   - the body of an if/match branch whose owner statement is the LAST
+///     statement of a list that is itself in a terminal context
+///     (recursively — the same chain the VM's keep mechanism honors).
+///
+/// Every other position is an error. Cyclic bodies (while/each) are NEVER
+/// a terminal context: the TW answers on the FIRST iteration, the VM would
+/// surface a value only after the loop exits — the divergence class itself.
+/// `return respond(...)` (Statement::Return) is the sanctioned early answer
+/// on both backends and is never flagged.
+fn check_route_respond_terminality(
+    stmts: &[Statement],
+    terminal_ctx: bool,
+    route_label: &str,
+    errors: &mut Vec<SpannedError>,
+) {
+    let last = stmts.len().checked_sub(1);
+    for (i, stmt) in stmts.iter().enumerate() {
+        let is_last = Some(i) == last;
+        match stmt {
+            Statement::ExprStmt { expr, span } => {
+                if bare_respond_call(expr) && !(terminal_ctx && is_last) {
+                    errors.push(
+                        SpannedError::at(
+                            format!(
+                                "a bare respond* call in a mid-route position does not stop \
+                                 the route on the VM backend (the guard falls through — \
+                                 the X-1 divergence): write `return respond(...)`; \
+                                 ({route_label})"
+                            ),
+                            span.clone(),
+                        )
+                        .with_kind(SemanticErrorKind::RespondNotTerminal),
+                    );
+                }
+            }
+            Statement::Return { .. } => {
+                // The sanctioned early-answer form on both backends — the
+                // respond* call under a `return` is never flagged.
+            }
+            Statement::IfThen { body, .. } => {
+                check_route_respond_terminality(body, terminal_ctx && is_last, route_label, errors);
+            }
+            Statement::IfElseBlock {
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                let branch_ctx = terminal_ctx && is_last;
+                check_route_respond_terminality(then_body, branch_ctx, route_label, errors);
+                for (_, body) in else_ifs {
+                    check_route_respond_terminality(body, branch_ctx, route_label, errors);
+                }
+                if let Some(eb) = else_body {
+                    check_route_respond_terminality(eb, branch_ctx, route_label, errors);
+                }
+            }
+            Statement::Match {
+                arms, else_body, ..
+            } => {
+                let branch_ctx = terminal_ctx && is_last;
+                for arm in arms {
+                    check_route_respond_terminality(arm.body(), branch_ctx, route_label, errors);
+                }
+                if let Some(eb) = else_body {
+                    check_route_respond_terminality(eb, branch_ctx, route_label, errors);
+                }
+            }
+            // Cyclic bodies are NEVER terminal: the TW answers on the first
+            // iteration, the VM keeps looping — the divergence class itself
+            // (fail-closed: every bare respond inside a cycle is an error).
+            Statement::While { body, .. }
+            | Statement::Each { body, .. }
+            | Statement::EachWithIndex { body, .. } => {
+                check_route_respond_terminality(body, false, route_label, errors);
+            }
+            // LetBinding/Assign/Memorize/Forget/Relate/Break/Continue
+            // carry no statement bodies; a respond* consumed inside
+            // their VALUE expressions does not terminate a route on
+            // either backend (see bare_respond_call).
+            Statement::LetBinding { .. }
+            | Statement::Assign { .. }
+            | Statement::Break
+            | Statement::Continue
+            | Statement::Memorize(_)
+            | Statement::Forget(_)
+            | Statement::Relate(_) => {}
+        }
+    }
+}
+
+/// №581: the declaration-level entry — every route of every server walks
+/// through the terminality gate.
+fn check_respond_terminality(declarations: &[Declaration], errors: &mut Vec<SpannedError>) {
+    for decl in declarations {
+        if let Declaration::MlogServer(srv) = decl {
+            for r in &srv.routes {
+                let label = format!("route {} {}", r.method, r.path);
+                check_route_respond_terminality(&r.body, true, &label, errors);
+            }
+        }
+    }
 }
 
 impl SpannedError {
@@ -5420,6 +5603,12 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
     // of deny_event()/deny_reason(), exhaustive matching over the deny
     // reasons. Messages carry the [DENY_ prefix the run path blocks on.
     check_deny_events(declarations, &mut result.errors);
+
+    // №581 (the audit d63cc1d X-1, release-block): the RESPOND_NOT_TERMINAL
+    // gate — a bare respond* outside the VM's tail chain fails the pass on
+    // both backends (fail-closed); the migration is `return respond(...)`.
+    // NOT listed in is_exempt_from_blocking — it blocks run AND serve.
+    check_respond_terminality(declarations, &mut result.errors);
 
     // First pass: collect all declarations (names)
     for decl in declarations {

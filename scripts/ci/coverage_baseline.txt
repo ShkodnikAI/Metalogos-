@@ -1,0 +1,30 @@
+# The coverage floor record (the OWNER decision 2А, 2026-10-04; the
+# №569 gh#933 proposal follow-up — the proposal is adopted as-is).
+#
+# The floor is the CURRENT FACT (line 76.60% @ main e662ffd, the №569
+# cargo-llvm-cov measurement) — the same "the floor follows the fact"
+# shape the debt counters ride (№569) and the goals read (ADR-0181 §3).
+#
+# mode: advisory — the CI coverage job (non-blocking, №445 shape)
+#   compares the live line % against the floor via
+#   scripts/ci/coverage_floor_check.py: a below-floor prints a LOUD
+#   ::warning, the job stays green. An unreadable summary or an
+#   unreadable record is a fail-closed exit 2 — never a silent pass.
+#
+# blocking_after_stable_waves: 2 — the OWNER criterion: after TWO
+#   consecutive STABLE waves the mode flips to `blocking` (a
+#   below-floor then exits 1). A wave is stable when its wave-closing
+#   completion-audit lands with the floor met; stable_waves_confirmed
+#   counts them and is bumped (never reset) by the wave PR that lands
+#   the completion-audit, cited to both audits. THE FLIP ITSELF IS AN
+#   OWNER-VISIBLE WAVE PR EDIT of this one-word record; the check
+#   script reads the mode verbatim. When the mode flips to blocking,
+#   the №535 blocking-checks.tsv gains its row (the coverage job joins
+#   the "who blocks" table) in the SAME PR — the table + its pinning
+#   test move together (№535).
+#
+# The fields (machine-read by scripts/ci/coverage_floor_check.py):
+floor_line_pct: 76
+mode: advisory
+blocking_after_stable_waves: 2
+stable_waves_confirmed: 0

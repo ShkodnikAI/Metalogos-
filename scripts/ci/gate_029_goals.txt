@@ -17,8 +17,12 @@ owner_fixed: true
 # a +300bp step from the ACHIEVED 0.28 goal (3000; the live fact at the
 # 0.28.0 cut: 3241 bp — the step lands above the current fact, the same
 # "the goal must demand movement" shape the audit 28.09 §4 prescribed).
-# Cost to the contour: ~+260 typed signatures over the 0.28.0 fact
-# (165 → ~425 of 509) — roughly the №543-class typing waves ×2.
+# Cost to the contour: ≈+14 typed signatures over the 0.28.0 fact
+# (165 → 179 of 509: 178/509 = 3497bp falls short of the floor, so the
+# 3500bp goal holds from 179 files up; the draft's "~+260 (165 → ~425
+# of 509)" was an arithmetic error, ×20 off — the office correction of
+# 2026-10-05, the owner-fixed VALUES untouched). The live fact at the
+# correction: 186/509 = 3654bp — the goal is ALREADY MET (№573, gh#974).
 goal_typed_share_bp: 3500
 # Zero open High findings in the server path — the unchanged ratchet
 # (the release-block label discipline; no regression is possible).

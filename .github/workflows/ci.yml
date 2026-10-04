@@ -999,3 +999,13 @@ jobs:
         with:
           name: coverage-summary
           path: coverage-summary.txt
+      # The coverage floor (the OWNER decision 2А, 2026-10-04 — the №569
+      # gh#933 proposal adopted): the live line % vs
+      # scripts/ci/coverage_baseline.txt. mode: advisory — a below-floor
+      # prints a LOUD warning, the job stays green; the mode flips to
+      # blocking after two consecutive stable waves (the same record, the
+      # owner criterion). An unparsable summary/record is exit 2 —
+      # fail-closed, never a silent pass.
+      - name: Coverage floor check (advisory — the owner decision 2А)
+        run: |
+          python3 scripts/ci/coverage_floor_check.py coverage-summary.txt

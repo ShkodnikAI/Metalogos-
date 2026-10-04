@@ -150,7 +150,6 @@ fn test_json_to_value_deeply_nested() {
 // ── Integration tests: live server + reqwest ─────────────────────────
 
 #[tokio::test]
-#[ignore = "Known issue gh#967 §2 (№493 line, revise 2026-10-15): the respond payload loses the leading concat operand (Got: prefix absent from the serve body) — the VM serve-path concat is the finding; the harness is ready (run_test_server)"]
 async fn test_webhook_telegram_contract() {
     let (port, _handle) = metalogos_server::server::run_test_server(SOURCE_WEBHOOK)
         .await
@@ -176,7 +175,6 @@ async fn test_webhook_telegram_contract() {
 }
 
 #[tokio::test]
-#[ignore = "Known issue gh#967 §2 (№493 line, revise 2026-10-15): respond(data.name) on a flat JSON body serves an empty body — the direct field access on the VM json_body is the finding; the harness is ready"]
 async fn test_webhook_flat_json() {
     let (port, _handle) = metalogos_server::server::run_test_server(SOURCE_FLAT_JSON)
         .await
@@ -197,7 +195,6 @@ async fn test_webhook_flat_json() {
 }
 
 #[tokio::test]
-#[ignore = "Known issue gh#967 §2 (№493 line, revise 2026-10-15): get(data.items, 0) serves an empty body — the array-field access on the VM json_body is the finding; the harness is ready"]
 async fn test_webhook_array_field() {
     let source = r#"
 mlogserver {
@@ -244,7 +241,6 @@ async fn test_webhook_empty_body_returns_empty_struct() {
 }
 
 #[tokio::test]
-#[ignore = "Known issue gh#967 §2 (№493 line, revise 2026-10-15): the bool field serves an empty body — the VM json_body field-access finding; the harness is ready"]
 async fn test_webhook_bool_field() {
     let source = r#"
 mlogserver {
@@ -275,7 +271,6 @@ mlogserver {
 }
 
 #[tokio::test]
-#[ignore = "Known issue gh#967 §2 (№493 line, revise 2026-10-15): the null field must surface as the unit () — the serve body comes back empty (the VM json_body finding); the harness is ready"]
 async fn test_webhook_null_field_becomes_unit() {
     let source = r#"
 mlogserver {

@@ -1879,32 +1879,21 @@ impl Compiler {
                     body: then_body,
                     ..
                 } => {
-                    self.compile_expr_with_locals(
+                    // №574: the if-form compilation lives in ONE place with
+                    // the keep-tail rule (the two arms differ only in shape).
+                    self.compile_if_stmt_with_keep(
                         cond,
+                        then_body,
+                        &[],
+                        None,
+                        false,
+                        is_last,
                         &mut code,
                         locals,
                         &mut next_slot,
                         &mut loop_stack,
                         mutable,
                     )?;
-                    code.push(Instruction::JumpIfNot(0)); // placeholder
-                    let jmp_idx = code.len() - 1;
-
-                    let saved_next_slot = next_slot;
-                    for s in then_body {
-                        self.compile_stmt_with_locals(
-                            s,
-                            &mut code,
-                            locals,
-                            &mut next_slot,
-                            &mut loop_stack,
-                            mutable,
-                        )?;
-                    }
-                    next_slot = saved_next_slot;
-
-                    let after = code.len();
-                    code[jmp_idx] = Instruction::JumpIfNot(after);
                 }
                 Statement::IfElseBlock {
                     condition,
@@ -1913,95 +1902,19 @@ impl Compiler {
                     else_body,
                     ..
                 } => {
-                    // Compile if/else if/else chain
-                    let mut jump_to_end_fixups: Vec<usize> = Vec::new();
-
-                    // if condition
-                    self.compile_expr_with_locals(
+                    self.compile_if_stmt_with_keep(
                         condition,
+                        then_body,
+                        else_ifs.as_slice(),
+                        else_body.as_deref(),
+                        true,
+                        is_last,
                         &mut code,
                         locals,
                         &mut next_slot,
                         &mut loop_stack,
                         mutable,
                     )?;
-                    code.push(Instruction::JumpIfNot(0));
-                    let jmp_idx = code.len() - 1;
-
-                    let saved_next_slot = next_slot;
-                    for s in then_body {
-                        self.compile_stmt_with_locals(
-                            s,
-                            &mut code,
-                            locals,
-                            &mut next_slot,
-                            &mut loop_stack,
-                            mutable,
-                        )?;
-                    }
-                    next_slot = saved_next_slot;
-
-                    code.push(Instruction::Jump(0)); // skip else
-                    let then_end = code.len() - 1;
-                    jump_to_end_fixups.push(then_end);
-
-                    let then_else_start = code.len();
-                    code[jmp_idx] = Instruction::JumpIfNot(then_else_start);
-
-                    // else if chain
-                    for (ei_cond, ei_body) in else_ifs {
-                        self.compile_expr_with_locals(
-                            ei_cond,
-                            &mut code,
-                            locals,
-                            &mut next_slot,
-                            &mut loop_stack,
-                            mutable,
-                        )?;
-                        code.push(Instruction::JumpIfNot(0));
-                        let ei_jmp = code.len() - 1;
-
-                        let saved_ns = next_slot;
-                        for s in ei_body {
-                            self.compile_stmt_with_locals(
-                                s,
-                                &mut code,
-                                locals,
-                                &mut next_slot,
-                                &mut loop_stack,
-                                mutable,
-                            )?;
-                        }
-                        next_slot = saved_ns;
-
-                        code.push(Instruction::Jump(0));
-                        let ei_end = code.len() - 1;
-                        jump_to_end_fixups.push(ei_end);
-
-                        let ei_else_start = code.len();
-                        code[ei_jmp] = Instruction::JumpIfNot(ei_else_start);
-                    }
-
-                    // else body
-                    if let Some(else_body) = else_body {
-                        let saved_ns = next_slot;
-                        for s in else_body {
-                            self.compile_stmt_with_locals(
-                                s,
-                                &mut code,
-                                locals,
-                                &mut next_slot,
-                                &mut loop_stack,
-                                mutable,
-                            )?;
-                        }
-                        next_slot = saved_ns;
-                    }
-
-                    let block_end = code.len();
-                    for fixup in jump_to_end_fixups {
-                        code[fixup] = Instruction::Jump(block_end);
-                    }
                 }
                 Statement::ExprStmt { expr, .. } => {
                     self.compile_expr_with_locals(
@@ -2468,6 +2381,232 @@ impl Compiler {
         let end = code.len();
         for f in end_fixups {
             code[f] = Instruction::Jump(end);
+        }
+        Ok(())
+    }
+
+    /// №574 (gh#975): the if-form statement compilation for pattern/route
+    /// bodies — the two dispatcher arms (IfThen / IfElseBlock) share this
+    /// ONE place, and the keep-tail rule lives here.
+    ///
+    /// The keep-tail rule (`keep_tail: true` exactly when the if-form is
+    /// the FINAL statement of the body): the TAKEN branch's trailing value
+    /// stays on the stack, so the body's fall-through value (execute_code:
+    /// `Ok(stack.pop())`) IS the branch's value — TW parity. TW serves a
+    /// respond() inside a taken if-branch (execute_route_body evaluates the
+    /// branch through eval_statements and takes its non-Unit trailing value
+    /// as the route response); the VM route executor reads the stack top,
+    /// so the branch tail must SURVIVE compilation. This is the №250
+    /// route-tail mechanism (the flat ExprStmt tail) extended to branch
+    /// tails: only the branch-FINAL statement sheds its Pop, recursively
+    /// through nested if-forms; interior statements compile as usual.
+    ///
+    /// Branch shapes without a trailing value keep the pre-№574 behavior:
+    /// a branch whose final statement is a let/assign leaves the
+    /// fall-through pop reading the last local slot (the №250-documented
+    /// leftover-local class; TW yields Unit → the 200 "OK" fall-through —
+    /// the divergence is pre-existing, out of the №574 scope, unchanged
+    /// by this edit).
+    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::type_complexity)]
+    fn compile_if_stmt_with_keep(
+        &self,
+        condition: &Expr,
+        then_body: &[Statement],
+        else_ifs: &[(Expr, Vec<Statement>)],
+        else_body: Option<&[Statement]>,
+        is_else_block: bool,
+        keep_tail: bool,
+        code: &mut Vec<Instruction>,
+        locals: &mut HashMap<String, usize>,
+        next_slot: &mut usize,
+        loop_stack: &mut Vec<(usize, Vec<usize>, Vec<usize>)>,
+        mutable: &mut HashSet<String>,
+    ) -> Result<(), String> {
+        if !is_else_block {
+            // IfThen: cond → JumpIfNot(after) → branch (the pre-№574 shape).
+            self.compile_expr_with_locals(condition, code, locals, next_slot, loop_stack, mutable)?;
+            code.push(Instruction::JumpIfNot(0)); // placeholder
+            let jmp_idx = code.len() - 1;
+
+            let saved_next_slot = *next_slot;
+            self.compile_branch_stmts(
+                then_body, keep_tail, code, locals, next_slot, loop_stack, mutable,
+            )?;
+            *next_slot = saved_next_slot;
+
+            let after = code.len();
+            code[jmp_idx] = Instruction::JumpIfNot(after);
+            return Ok(());
+        }
+        // IfElseBlock: compile if/else if/else chain (the pre-№574 shape,
+        // branch compilation keep-aware).
+        let mut jump_to_end_fixups: Vec<usize> = Vec::new();
+
+        // if condition
+        self.compile_expr_with_locals(condition, code, locals, next_slot, loop_stack, mutable)?;
+        code.push(Instruction::JumpIfNot(0));
+        let jmp_idx = code.len() - 1;
+
+        let saved_next_slot = *next_slot;
+        self.compile_branch_stmts(
+            then_body, keep_tail, code, locals, next_slot, loop_stack, mutable,
+        )?;
+        *next_slot = saved_next_slot;
+
+        code.push(Instruction::Jump(0)); // skip else
+        let then_end = code.len() - 1;
+        jump_to_end_fixups.push(then_end);
+
+        let then_else_start = code.len();
+        code[jmp_idx] = Instruction::JumpIfNot(then_else_start);
+
+        // else if chain
+        for (ei_cond, ei_body) in else_ifs {
+            self.compile_expr_with_locals(ei_cond, code, locals, next_slot, loop_stack, mutable)?;
+            code.push(Instruction::JumpIfNot(0));
+            let ei_jmp = code.len() - 1;
+
+            let saved_ns = *next_slot;
+            self.compile_branch_stmts(
+                ei_body, keep_tail, code, locals, next_slot, loop_stack, mutable,
+            )?;
+            *next_slot = saved_ns;
+
+            code.push(Instruction::Jump(0));
+            let ei_end = code.len() - 1;
+            jump_to_end_fixups.push(ei_end);
+
+            let ei_else_start = code.len();
+            code[ei_jmp] = Instruction::JumpIfNot(ei_else_start);
+        }
+
+        // else body
+        if let Some(else_body) = else_body {
+            let saved_ns = *next_slot;
+            self.compile_branch_stmts(
+                else_body, keep_tail, code, locals, next_slot, loop_stack, mutable,
+            )?;
+            *next_slot = saved_ns;
+        }
+
+        let block_end = code.len();
+        for fixup in jump_to_end_fixups {
+            code[fixup] = Instruction::Jump(block_end);
+        }
+        Ok(())
+    }
+
+    /// №574: one branch body — every statement through
+    /// `compile_stmt_with_locals`, EXCEPT the branch-final statement when
+    /// `keep_tail` is set: it compiles through
+    /// `compile_stmt_keeping_value` (its trailing value survives).
+    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::type_complexity)]
+    fn compile_branch_stmts(
+        &self,
+        stmts: &[Statement],
+        keep_tail: bool,
+        code: &mut Vec<Instruction>,
+        locals: &mut HashMap<String, usize>,
+        next_slot: &mut usize,
+        loop_stack: &mut Vec<(usize, Vec<usize>, Vec<usize>)>,
+        mutable: &mut HashSet<String>,
+    ) -> Result<(), String> {
+        for (s_idx, s) in stmts.iter().enumerate() {
+            if keep_tail && s_idx + 1 == stmts.len() {
+                self.compile_stmt_keeping_value(s, code, locals, next_slot, loop_stack, mutable)?;
+            } else {
+                self.compile_stmt_with_locals(s, code, locals, next_slot, loop_stack, mutable)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// №574: keep-value compilation of a branch-FINAL statement — the
+    /// statement's trailing value stays on the stack (the branch's value,
+    /// the route response for respond()). ExprStmt sheds its Pop (the
+    /// №328/№392 sink-check machinery stays identical — only the Pop is
+    /// omitted); nested if-forms recurse with keep_tail=true; everything
+    /// else compiles normally (lets/assigns terminate in StoreLocal —
+    /// no value to keep).
+    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::type_complexity)]
+    fn compile_stmt_keeping_value(
+        &self,
+        stmt: &Statement,
+        code: &mut Vec<Instruction>,
+        locals: &mut HashMap<String, usize>,
+        next_slot: &mut usize,
+        loop_stack: &mut Vec<(usize, Vec<usize>, Vec<usize>)>,
+        mutable: &mut HashSet<String>,
+    ) -> Result<(), String> {
+        match stmt {
+            Statement::ExprStmt { expr, .. } => {
+                // №328: the runtime twin of the №325 gate at sink sites.
+                // №392: armed the same way — a handled refusal degrades
+                // to Unit, which (unlike compile_stmt_with_locals) stays
+                // on the stack here as the kept branch value.
+                let deny_checks = self.emit_armed_sink_checks(code, expr);
+                self.compile_expr_with_locals(expr, code, locals, next_slot, loop_stack, mutable)?;
+                let skip_to = code.len();
+                Self::patch_deny_skip_to(code, &deny_checks, skip_to);
+                // №574: NO trailing Pop — the value is the branch's value.
+            }
+            Statement::IfThen {
+                condition,
+                body: then_body,
+                ..
+            } => {
+                self.compile_if_stmt_with_keep(
+                    condition,
+                    then_body,
+                    &[],
+                    None,
+                    false,
+                    true,
+                    code,
+                    locals,
+                    next_slot,
+                    loop_stack,
+                    mutable,
+                )?;
+            }
+            Statement::IfElseBlock {
+                condition,
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                self.compile_if_stmt_with_keep(
+                    condition,
+                    then_body,
+                    else_ifs.as_slice(),
+                    else_body.as_deref(),
+                    true,
+                    true,
+                    code,
+                    locals,
+                    next_slot,
+                    loop_stack,
+                    mutable,
+                )?;
+            }
+            other @ (Statement::LetBinding { .. }
+            | Statement::Assign { .. }
+            | Statement::Each { .. }
+            | Statement::EachWithIndex { .. }
+            | Statement::While { .. }
+            | Statement::Return { .. }
+            | Statement::Match { .. }
+            | Statement::Break
+            | Statement::Continue
+            | Statement::Memorize(_)
+            | Statement::Forget(_)
+            | Statement::Relate(_)) => {
+                self.compile_stmt_with_locals(other, code, locals, next_slot, loop_stack, mutable)?;
+            }
         }
         Ok(())
     }

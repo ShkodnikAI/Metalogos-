@@ -53,7 +53,7 @@ goal_quorum_den: 3
 # closes №583 and the release-block label). While the fact is 2, the
 # gate 0.29 is honestly RED (2 > goal 0, unfreeze_gate.py NOT MET) —
 # the goal stays 0 and the counter is machine-read, never hand-zeroed.
-fact_open_high_server: 2
+fact_open_high_server: 1
 # The transfer domain quorum fact. Source:
 # `python3 scripts/ci/count_duplicated_names.py --quorum`; the same
 # checker verifies it (the live fact: 0 groups of 8 carry duplicates).

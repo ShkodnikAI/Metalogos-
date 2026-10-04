@@ -39,7 +39,7 @@ goal_quorum_den: 3
 # (the live v0.28.1 tag closes №583). While the fact is nonzero, the
 # gates are honestly RED — the counter is machine-read, never
 # hand-zeroed.
-fact_open_high_server: 2
+fact_open_high_server: 1
 # The transfer domain quorum fact: (groups still carrying duplicates)
 # / (the №466 group total at the transfer start).
 # Source: `python3 scripts/ci/count_duplicated_names.py --quorum`

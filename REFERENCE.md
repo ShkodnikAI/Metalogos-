@@ -655,7 +655,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 511 registered builtins (511 of 511): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 515 registered builtins (515 of 515): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -2137,7 +2137,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 511 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 515 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2768,18 +2768,22 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `assert_contains(...)` | 2 | `Any, Any -> Unit` | Panics if the string representation of `needle` is not found in `haystack` |
 | `assert_eq(...)` | 2 | `Any, Any -> Any` | A runtime equality assertion. Returns actual on success, panics with `actual != expected` |
 
-### `time` — 11 builtin(s)
+### `time` — 15 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
 | `add_days(...)` | 2 | `Float, Float -> Float` | Adds `days` to a timestamp. Negative `days` subtracts. `ts + days * 86400` |
 | `add_hours(...)` | 2 | `Float, Float -> Float` | Adds `hours` to a timestamp. Negative `hours` subtracts. `ts + hours * 3600` |
+| `date_diff_days(...)` | 2 | — | `date_diff_days(a, b)` — the SIGNED fractional difference of two Unix timestamps in days: (a − b)/86400 (positive when a is later). No rounding — the consumer (the response-age decay, the synodic-month arithmetic) owns the rounding policy. Non-finite inputs are a loud [DATE_INVALID] refusal (NaN would poison the arithmetic silently). Pure function (№316). |
+| `date_format_iso(...)` | 1 | — | `date_format_iso(t)` — format a Unix UTC timestamp as the canonical RFC 3339 UTC string "YYYY-MM-DDTHH:MM:SSZ". The display is UTC (the Z form); the sub-second part of the input is truncated at DISPLAY only — the arithmetic surfaces (date_diff_days, the raw timestamp) keep full precision. An out-of-range or non-finite timestamp is a loud [DATE_INVALID] refusal. Pure function (№316). |
+| `date_parse_iso(...)` | 1 | — | `date_parse_iso(s)` — parse an ISO-8601/RFC 3339 datetime string and return the Unix UTC timestamp as Float seconds (microsecond precision). Accepted: the full RFC 3339 form (Z or ±HH:MM — the offset is honored and converted to UTC), the naive datetime with a T or space separator (interpreted as UTC — never the machine's local zone), and the date-only form (midnight UTC). An invalid string is a LOUD typed refusal stamped [DATE_INVALID] — never a zero date. Pure function (parsing already-present bytes, №316). |
 | `date_parts(...)` | 1 | `Float? -> Dict` | Returns `DateParts { year, month, day, hour, minute, second, weekday }`. `timestamp` defaults to the current moment |
 | `days_between(...)` | 2 | `Float, Float -> Float` | The absolute difference between two timestamps, in days. ` |
 | `days_in_month(...)` | 2 | `Float, Float -> Float` | The number of days in a month. `month` is 1-12. Errors if the month is out of range. Accounts for leap years |
 | `format_date(...)` | 2 | `String?, Float? -> String` | Formats a timestamp using a strftime string. `fmt` defaults to `"%Y-%m-%d %H:%M:%S"`. `timestamp` defaults to the current moment |
 | `is_leap_year(...)` | 1 | `Float -> Bool` | `true` if the year is a leap year (Gregorian rules) |
 | `now(...)` | variadic | `-> Float` | The current Unix timestamp, in seconds |
+| `now_unix(...)` | variadic | — | `now_unix()` — the current Unix timestamp as Float (seconds since the epoch; UTC by definition — a Unix timestamp has no timezone). The UTC-facing twin of `now()` (the same read, the honest name for the consumer's UTC-first arithmetic). |
 | `sleep(...)` | 1 | `Float -> Unit` | Blocks the current thread for `seconds` seconds. Use carefully in `mlog serve` — it blocks request handling |
 | `time(...)` | variadic | `-> Float` | The current Unix timestamp (seconds since the epoch). High precision (sub-second) |
 | `weekday_name(...)` | 1 | `Float -> String` | The weekday's name (localized via chrono::Local). E.g. `"Monday"` |
@@ -3398,6 +3402,10 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `to_int_or` | pure | public | pure | — |
 | `lomb_scargle` | pure | public | pure | — |
 | `spectral_peak` | pure | public | pure | — |
+| `now_unix` | source | internal | pure | reads the wall clock — the epoch-seconds read carries provenance (the №316 Source semantics: wall clock); the UTC-facing twin of now() |
+| `date_parse_iso` | pure | public | pure | — |
+| `date_diff_days` | pure | public | pure | — |
+| `date_format_iso` | pure | public | pure | — |
 
 <!-- END GENERATED BUILTIN CLASSIFICATION -->
 

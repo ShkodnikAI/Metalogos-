@@ -18,13 +18,13 @@ use metalogos::builtins::{sig_types::Type, BUILTIN_REGISTRY};
 /// contour's two rows ship typed "Struct" (lomb_scargle/spectral_peak,
 /// default-feature rows) and weekday_name completes its verified
 /// "String" typing; +3 compiled rows). The by-design gap continues (see
-/// part 1's comment): the CI script counts SOURCE rows (189 — the same 4
+/// part 1's comment): the CI script counts SOURCE rows (193 — the same 4
 /// gated vec/store rows ride only there), this test counts the COMPILED
-/// default-feature registry (185). MUST move only up, in the same PR
+/// default-feature registry (189). MUST move only up, in the same PR
 /// that types more rows — AND together with
 /// `scripts/ci/type_signature_baseline.txt` (`# threshold_bp: 3679`).
 /// The general share 3679 bp ≥ the 0.29 gate goal 3500 (ADR-0181).
-const TYPED_FLOOR: usize = 185;
+const TYPED_FLOOR: usize = 189;
 
 #[test]
 fn typed_signature_share_never_falls_below_the_floor() {

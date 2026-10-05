@@ -644,6 +644,20 @@ pub static BUILTIN_CLASSES: &[BuiltClassEntry] = &[
     // classification block is kept row-for-row in sync (the drift test).
     BuiltClassEntry { name: "lomb_scargle", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     BuiltClassEntry { name: "spectral_peak", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
+    // №595 (Волна 30): the UTC calendar surface. now_unix reads the WALL
+    // CLOCK — the №316 Source semantics — so it carries an EXPLICIT
+    // override, NOT the silent default; the other three are the
+    // provably-pure `time` category default (closed-form calendar
+    // arithmetic; parsing already-present bytes is Pure). The rows are
+    // exactly what gen_classification.py emits (the generator RUN on main
+    // is blocked by the pre-existing OVERRIDES drift — the №590 PR
+    // carries the repair; the OVERRIDES entry for now_unix is added in
+    // this PR); the REFERENCE classification block is kept row-for-row in
+    // sync (the drift test).
+    BuiltClassEntry { name: "now_unix", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "reads the wall clock — the epoch-seconds read carries provenance (the №316 Source semantics: wall clock); the UTC-facing twin of now()" } },
+    BuiltClassEntry { name: "date_parse_iso", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
+    BuiltClassEntry { name: "date_diff_days", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
+    BuiltClassEntry { name: "date_format_iso", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
 ];
 
 #[cfg(test)]

@@ -51,6 +51,14 @@
 # floor rises with the row that earned it (the №757 procedure); the
 # PRECISE_TYPES definition is untouched — the movement-only-up contract
 # holds with the coarse rows absorbed.
-# precise: 105
-# total: 511
-# threshold_bp: 2054
+# (superseded) precise: 105 | total: 511 | threshold_bp was 2054
+#
+# 2026-10-05 №595 (gh#1020, волна 30) — the merge-order rebase on №591
+# (the cumulative triple): the UTC calendar surface's four rows ship
+# PRECISE ("Float"/"String" — the verified single-shape handler facts):
+# 105/511 → 109/515; (109*10000)//515 = 2116 bp (+62 bp). The floor
+# rises with the rows that earned it (the №757 procedure); the
+# PRECISE_TYPES definition is untouched.
+# precise: 109
+# total: 515
+# threshold_bp: 2116

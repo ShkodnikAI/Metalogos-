@@ -219,6 +219,10 @@ use collections::*;
 /// handlers are imported by `registry.rs` explicitly (the glob would be
 /// an unused-import warning — registry is the single consumer).
 pub(crate) mod spectral;
+/// Наряд №595 (Волна 30): the UTC calendar arithmetic — the ISO parse /
+/// format / signed day-difference surface. A leaf module (the C4
+/// ratchet); the handlers are imported by `registry.rs` explicitly.
+pub(crate) mod calendar_utc;
 pub mod string;
 use string::*;
 // Наряд №274 (ADR-0136): core-функция маскирования публична для fuzz-цели

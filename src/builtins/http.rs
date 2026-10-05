@@ -624,6 +624,10 @@ fn apply_ssrf_resolves(
 /// Usage: http_post(url, body, content_type, headers_struct)    — sets headers from Struct fields
 /// Наряд №12 Bug 2: Added 4th parameter for authorization headers.
 /// Наряд №71: Optional trailing retry_config Struct {max_retries, base_delay}.
+/// Send an HTTP POST request. №592: the per-call deadline 1..=300 s with
+/// the LOUD [HTTP_TIMEOUT_RANGE] gate; the outcome taxonomy mirrors
+/// http_get ([HTTP_TIMEOUT] / [HTTP_CONNECT] / [HTTP_STATUS], branchable
+/// via try{}); the retry stays the caller's (№71).
 pub(crate) fn builtin_http_post(args: &[Value]) -> Result<Value, String> {
     // Наряд №71: extract retry_config from last arg if present (Struct with retry fields).
     // When no retry_config provided, max_retries=0 → no retry (backward compatible).
@@ -673,16 +677,10 @@ pub(crate) fn builtin_http_post(args: &[Value]) -> Result<Value, String> {
         _ => ("application/json".to_string(), 2),
     };
 
-    // Наряда-26 P0-1: configurable timeout (default 30s, max 300s)
-    // Signatures: http_post(url, body, timeout) | http_post(url, body, ct, timeout) | http_post(url, body, ct, headers, timeout)
-    let timeout_secs = if let Some(Value::Float(f)) = effective_args.get(timeout_arg_idx) {
-        let t = f.clamp(1.0, 300.0) as u64;
-        if *f > 300.0 {
-            eprintln!("[http_post] timeout clamped from {} to 300s", f);
-        }
-        t
-    } else {
-        30
+    // №592: the loud range gate replaces the silent clamp
+    let timeout_secs = match effective_args.get(timeout_arg_idx) {
+        Some(Value::Float(f)) => validated_timeout_secs("http_post", *f)?,
+        _ => 30,
     };
 
     // Наряд №261: redirect-политика none() — reqwest по умолчанию ходит по 30x
@@ -754,17 +752,22 @@ pub(crate) fn builtin_http_post(args: &[Value]) -> Result<Value, String> {
             req = req.header(k.as_str(), v.as_str());
         }
 
-        let resp = req.send().map_err(|e| {
-            let err_str = e.to_string();
-            if err_str.contains("timeout") || err_str.contains("timed out") {
-                format!("ERROR: http timeout after {}s", timeout_secs)
-            } else {
-                format!("http_post() request failed: {}", e)
-            }
-        })?;
+        // №592: the transport outcome is TYPED (timeout vs connection),
+        // not a string sniff
+        let resp = req
+            .send()
+            .map_err(|e| classify_transport_error("http_post", &e, timeout_secs))?;
 
         let status = resp.status().as_u16();
-        let resp_body = resp.text().unwrap_or_default();
+        // №592: a mid-response break is a typed [HTTP_CONNECT] failure —
+        // the previous unwrap_or_default LAUNDERED it into a silent empty
+        // body (the DoD row: the break must be distinguishable, not quiet)
+        let resp_body = resp.text().map_err(|e| {
+            crate::interpreter::values::coded_error(
+                crate::interpreter::values::CODE_HTTP_CONNECT,
+                format!("http_post: connection dropped mid-response: {}", e),
+            )
+        })?;
 
         // Retry on 429/rate-limit and 5xx server errors; fail immediately on other 4xx
         if status >= 400 {
@@ -772,25 +775,74 @@ pub(crate) fn builtin_http_post(args: &[Value]) -> Result<Value, String> {
                 last_error = format!("status {}: {}", status, resp_body);
                 continue;
             }
-            return Err(format!(
-                "http_post() returned status {}: {}",
-                status, resp_body
+            return Err(crate::interpreter::values::coded_error(
+                crate::interpreter::values::CODE_HTTP_STATUS,
+                format!("http_post() returned status {}: {}", status, resp_body),
             ));
         }
 
         return Ok(Value::String(resp_body));
     }
 
-    Err(format!(
-        "http_post() failed after {} retries: {}",
-        retry_cfg.max_retries, last_error
+    // The retry loop only loops on STATUS errors (the transport failures
+    // exit immediately), so the exhausted-retries verdict is a status
+    // outcome — stamped as such.
+    Err(crate::interpreter::values::coded_error(
+        crate::interpreter::values::CODE_HTTP_STATUS,
+        format!(
+            "http_post() failed after {} retries: {}",
+            retry_cfg.max_retries, last_error
+        ),
     ))
+}
+
+/// №592: the validated per-call deadline — the documented 1..=300 s range
+/// with a LOUD typed refusal ([HTTP_TIMEOUT_RANGE]) replacing №261's
+/// silent clamp (which printed nothing and proceeded). Non-finite values
+/// (NaN/inf) refuse too — not a finite number is not a deadline. Within
+/// the range the value semantics are UNCHANGED (the same truncation to
+/// whole seconds).
+fn validated_timeout_secs(fn_name: &str, f: f64) -> Result<u64, String> {
+    if !f.is_finite() || !(1.0..=300.0).contains(&f) {
+        return Err(crate::interpreter::values::coded_error(
+            crate::interpreter::values::CODE_HTTP_TIMEOUT_RANGE,
+            format!(
+                "{}: per-call timeout must be within 1..=300 seconds, got {}",
+                fn_name, f
+            ),
+        ));
+    }
+    Ok(f as u64)
+}
+
+/// №592: the per-call transport outcome classifier — the deadline expiry
+/// ([HTTP_TIMEOUT]) vs every other transport failure ([HTTP_CONNECT]:
+/// DNS, refused, reset, AND the connection dropped mid-response). The
+/// message keeps the underlying detail; the STAMP at position 0 is what
+/// `try{}` branches on (№385/ADR-0169) — three distinct outcomes
+/// (timeout / drop / status) instead of one unstamped string. The retry
+/// policy stays the caller's (№71's retry_config is untouched — the
+/// language does not hide a retry inside).
+fn classify_transport_error(fn_name: &str, e: &reqwest::Error, timeout_secs: u64) -> String {
+    if e.is_timeout() {
+        crate::interpreter::values::coded_error(
+            crate::interpreter::values::CODE_HTTP_TIMEOUT,
+            format!("{}: http timeout after {}s", fn_name, timeout_secs),
+        )
+    } else {
+        crate::interpreter::values::coded_error(
+            crate::interpreter::values::CODE_HTTP_CONNECT,
+            format!("{}: connection failed: {}", fn_name, e),
+        )
+    }
 }
 
 /// Send an HTTP GET request. Returns the response body as String.
 /// Usage: http_get(url) -> String
+/// Usage: http_get(url, timeout) -> String  — №261/№592: the per-call deadline, 1..=300 s, LOUD [HTTP_TIMEOUT_RANGE] outside the range
 /// Usage: http_get(url, headers_struct) -> String  — sets headers from Struct fields
 /// Usage: http_get(url, headers, timeout, retry_config) -> String  — Наряд №71: retry
+/// №592 outcome taxonomy (branchable via try{}): [HTTP_TIMEOUT] the deadline expired; [HTTP_CONNECT] the transport failed (DNS/refused/reset/mid-response break); [HTTP_STATUS] the server answered >= 400. The retry stays the caller's (№71).
 pub(crate) fn builtin_http_get(args: &[Value]) -> Result<Value, String> {
     // Наряд №71: extract retry_config from last arg if present (Struct with retry fields).
     // When no retry_config provided, max_retries=0 → no retry (backward compatible).
@@ -831,16 +883,16 @@ pub(crate) fn builtin_http_get(args: &[Value]) -> Result<Value, String> {
         2 => {
             // 2nd arg could be timeout (Float) or headers (String/Struct)
             match &effective_args[1] {
-                Value::Float(f) => (None, f.clamp(1.0, 300.0) as u64),
+                // №592: the loud range gate replaces the silent clamp
+                Value::Float(f) => (None, validated_timeout_secs("http_get", *f)?),
                 other => (Some(other), 30),
             }
         }
         _ => {
             // 3+ args: 2nd is headers, 3rd is timeout
-            let timeout = if let Some(Value::Float(f)) = effective_args.get(2) {
-                f.clamp(1.0, 300.0) as u64
-            } else {
-                30
+            let timeout = match effective_args.get(2) {
+                Some(Value::Float(f)) => validated_timeout_secs("http_get", *f)?,
+                _ => 30,
             };
             (effective_args.get(1), timeout)
         }
@@ -900,17 +952,22 @@ pub(crate) fn builtin_http_get(args: &[Value]) -> Result<Value, String> {
             req = req.header(k.as_str(), v.as_str());
         }
 
-        let resp = req.send().map_err(|e| {
-            let err_str = e.to_string();
-            if err_str.contains("timeout") || err_str.contains("timed out") {
-                format!("ERROR: http timeout after {}s", timeout_secs)
-            } else {
-                format!("http_get() request failed: {}", e)
-            }
-        })?;
+        // №592: the transport outcome is TYPED (timeout vs connection),
+        // not a string sniff
+        let resp = req
+            .send()
+            .map_err(|e| classify_transport_error("http_get", &e, timeout_secs))?;
 
         let status = resp.status().as_u16();
-        let resp_body = resp.text().unwrap_or_default();
+        // №592: a mid-response break is a typed [HTTP_CONNECT] failure —
+        // the previous unwrap_or_default LAUNDERED it into a silent empty
+        // body (the DoD row: the break must be distinguishable, not quiet)
+        let resp_body = resp.text().map_err(|e| {
+            crate::interpreter::values::coded_error(
+                crate::interpreter::values::CODE_HTTP_CONNECT,
+                format!("http_get: connection dropped mid-response: {}", e),
+            )
+        })?;
 
         // Retry on 429/rate-limit and 5xx server errors; fail immediately on other 4xx
         if status >= 400 {
@@ -918,18 +975,24 @@ pub(crate) fn builtin_http_get(args: &[Value]) -> Result<Value, String> {
                 last_error = format!("status {}: {}", status, resp_body);
                 continue;
             }
-            return Err(format!(
-                "http_get() returned status {}: {}",
-                status, resp_body
+            return Err(crate::interpreter::values::coded_error(
+                crate::interpreter::values::CODE_HTTP_STATUS,
+                format!("http_get() returned status {}: {}", status, resp_body),
             ));
         }
 
         return Ok(Value::String(resp_body));
     }
 
-    Err(format!(
-        "http_get() failed after {} retries: {}",
-        retry_cfg.max_retries, last_error
+    // The retry loop only loops on STATUS errors (the transport failures
+    // exit immediately), so the exhausted-retries verdict is a status
+    // outcome — stamped as such.
+    Err(crate::interpreter::values::coded_error(
+        crate::interpreter::values::CODE_HTTP_STATUS,
+        format!(
+            "http_get() failed after {} retries: {}",
+            retry_cfg.max_retries, last_error
+        ),
     ))
 }
 

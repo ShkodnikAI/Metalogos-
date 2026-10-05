@@ -4,6 +4,37 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №592 (issue #1017; Волна 30, Камертон Н1-06, [core]): the
+  per-call HTTP deadline and the outcome taxonomy for http_get/http_post.
+  THREE DISTINCT, branchable outcomes instead of one unstamped string:
+  `[HTTP_TIMEOUT]` the per-call deadline expired; `[HTTP_CONNECT]` the
+  transport failed (DNS/refused/reset AND the connection DROPPED
+  MID-RESPONSE — the previous `resp.text().unwrap_or_default()` LAUNDERED
+  a mid-body break into a silent empty body; now a typed error, the DoD
+  row); `[HTTP_STATUS]` the server answered >= 400 (the status number
+  stays in the message; the exhausted-retries verdict is stamped too —
+  the №71 retry loop only loops on status errors). The deadline range
+  1..=300 s is now a LOUD typed gate `[HTTP_TIMEOUT_RANGE]` (NaN/inf
+  refuse) replacing №261's silent clamp that printed nothing and
+  proceeded — the timeout parameter itself existed on both builtins since
+  №261 but was undocumented (the naryad's fact row; the REFERENCE rows
+  now document the forms and the taxonomy). The classification is read
+  via `e.is_timeout()` (reqwest), not a substring sniff. The retry stays
+  the CALLER's: №71's retry_config is untouched, the language hides no
+  retry inside. ZERO edits to the LLM path and SmartRouter (№156/№248
+  deadline machinery untouched — the dispatch's «не делать» row). Effects
+  classification unchanged (№316/№449 — no classification row touched,
+  the network axis rides on the existing entries). Evidence: the local
+  Python server (tests/p592_http_timeout_server.py, the №71 house
+  pattern): the deadline fires within ±10% of the 2.0 s deadline
+  (measured [1.9, 2.2] band with the documented client-build overhead);
+  the mid-response break (Content-Length 100, 10 bytes delivered, socket
+  slammed) is a typed [HTTP_CONNECT], not an empty Ok; the 404/500
+  statuses are typed [HTTP_STATUS] with the number in the message; the
+  out-of-range/NaN deadlines refuse before any network activity; the
+  try{} classification pins HTTP_STATUS/HTTP_CONNECT/HTTP_TIMEOUT on BOTH
+  backends. The pre-existing №71/№130/№76/№391/№327/№300 contract suites
+  stay green.
 - Naryad №591 (issue #1016; Волна 30, Камертон Н1-05/Н1-07, инвариант 3,
   [core]): the spectral contour — `lomb_scargle(times, values) -> Spectrum`
   and `spectral_peak(spectrum) -> {freq, power_fraction, p_value, degraded}`

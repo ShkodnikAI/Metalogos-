@@ -650,6 +650,27 @@ pub const CODE_VOICE_ARTIFACT_DECRYPT: &str = "VOICE_ARTIFACT_DECRYPT";
 /// the typed `Degraded` struct instead.
 pub const CODE_SPECTRAL_INPUT: &str = "SPECTRAL_INPUT";
 
+/// №592 (Волна 30, Камертон Н1-06): the per-call HTTP deadline expired —
+/// the request did not complete within the explicit per-call timeout.
+/// Distinct from the transport failure: the caller (the long-polling
+/// consumer) MUST be able to branch «timeout → poll again» against
+/// «connection dropped → back off».
+pub const CODE_HTTP_TIMEOUT: &str = "HTTP_TIMEOUT";
+/// №592 (Волна 30, Камертон Н1-06): the transport-level failure — DNS,
+/// refused, reset, or the connection DROPPED MID-RESPONSE (the
+/// `resp.text()` read). The mid-response break was previously laundered
+/// into a silent empty body (`unwrap_or_default`) — now a typed error.
+pub const CODE_HTTP_CONNECT: &str = "HTTP_CONNECT";
+/// №592 (Волна 30, Камертон Н1-06): the server ANSWERED with a non-2xx
+/// status (>= 400). A completed exchange, not a transport failure — the
+/// status number stays in the message.
+pub const CODE_HTTP_STATUS: &str = "HTTP_STATUS";
+/// №592 (Волна 30, Камертон Н1-06): the per-call timeout argument is
+/// outside the documented 1..=300 s range (or not a finite number) — the
+/// LOUD replacement of the previous silent clamp (№261's `clamp(1.0,
+/// 300.0)` printed nothing and proceeded).
+pub const CODE_HTTP_TIMEOUT_RANGE: &str = "HTTP_TIMEOUT_RANGE";
+
 /// The whitelist of codes a subsystem may stamp onto the String error
 /// channel. `RUNTIME_ERROR` is deliberately NOT in this list: it is the
 /// fallback for unstamped errors, never an explicit stamp.
@@ -710,6 +731,14 @@ const ORIGIN_STAMPED_CODES: &[&str] = &[
     // (length mismatch / non-numeric / non-finite) are loud typed refusals,
     // branchable on both backends.
     CODE_SPECTRAL_INPUT,
+    // №592 (Волна 30): the per-call HTTP outcome taxonomy — the deadline
+    // expiry, the transport failure (incl. the mid-response break), the
+    // non-2xx answer and the out-of-range deadline argument. Four
+    // distinct, branchable outcomes instead of one unstamped string.
+    CODE_HTTP_TIMEOUT,
+    CODE_HTTP_CONNECT,
+    CODE_HTTP_STATUS,
+    CODE_HTTP_TIMEOUT_RANGE,
 ];
 
 /// Stamp an error at its ORIGIN with a stable code (naryad №385, ADR-0169).

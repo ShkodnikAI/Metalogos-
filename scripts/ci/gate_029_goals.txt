@@ -3,9 +3,11 @@
 # the №570 draft parameters VERBATIM (the authorization record: «1. А,
 # 2.А, 3. Б. -выполняй», the owner's chat, 2026-10-04; ADR-0181 §3/§5 —
 # the fixation is the OWNER's gate, the executor ran the mechanical
-# edit and owns NOTHING about the values). The 0.29 gate still blocks
-# NOTHING until wired into the blocking CI (a separate decision,
-# ADR-0181 §6). The FACTS below carry the same
+# edit and owns NOTHING about the values). №597 (2026-10-05, the
+# owner's authorization: the accepted recommendation — the wiring):
+# the 0.29 read is WIRED into the blocking CI — the DEFAULT gate
+# target of unfreeze_gate.py (the №550 pattern; ADR-0181 §6). The
+# FACTS below carry the same
 # machine sources as the 0.28 record (the same checkers in
 # scripts/ci/sync_gate_facts.py verify them; no new fact_* key is
 # introduced without a checker — the fail-closed №525 rule).

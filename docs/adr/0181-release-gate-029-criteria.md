@@ -54,7 +54,8 @@ now reads the 0.29 record the same way it reads 0.28
 (criterion_goals_029 → criterion_goals_028 verbatim). The typed-share
 goal (3500 bp) is a target AHEAD of the live fact (3241 at the 0.28.0
 cut) — an honest NOT MET until the typing waves land; the 0.29 gate
-still blocks NOTHING until it is wired into the blocking CI (§6).
+was wired into the blocking CI on 2026-10-05 (№597, §6) — the goals
+were MET by then (the live fact 3654 bp).
 
 ## §4. The 0.29 window checklist (the ADR-0179 §6 shape)
 
@@ -81,9 +82,14 @@ own. Any change after the fixation is a NEW draft cycle of this ADR.
 
 ## §6. Honest limits
 
-- The 0.29 gate is NOT in the blocking CI — the wiring is a separate
-  decision after the owner's fixation (the 0.28 pattern: the parameters
-  first, the CI ratchet after).
+- **Wired (2026-10-05, №597):** the DEFAULT gate target of
+  `unfreeze_gate.py` is 0.29 — the 0.28 pattern completed (the
+  parameters first, the CI ratchet after). The wiring was the owner's
+  accepted recommendation («Принимаю все твои рекомендации, выполняй»,
+  the owner's chat, 2026-10-05). The strict release-time read
+  (--strict) exits 1 on RED; the CI job stays green-and-loud (№580 —
+  the blocking exit belongs to the release read, not the fix-PR
+  path).
 - The draft typed-share step (+300bp) is derived from the achieved-goal
   shape, not from a new audit — the owner may re-derive it from the 0.29
   audit facts instead.

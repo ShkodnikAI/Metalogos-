@@ -222,3 +222,5 @@ real ADRs (№309/№320/№412) before the booking.
 | 0178 | The generative contour boundary — experimental, scoped, exit-ready | Accepted |
 | 0179 | The 0.28 Release Gate — the Absolute-Goals Criteria (v2) | IMPLEMENTED |
 | 0180 | The Soft-Failure Naming Rule — "Silence Is Visible in the Name" | ACCEPTED |
+| 0181 | The 0.29 Release Gate — the Absolute-Goals Criteria (owner-fixed 2026-10-04) | Accepted |
+| 0182 | The media-handle family and the backend-registry interface — the domain-line reopening contour | Proposed |

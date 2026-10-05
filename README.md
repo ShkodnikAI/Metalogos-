@@ -222,7 +222,7 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 | Typed Signatures | 186/509 (36.54%) — precise 104/509 (20.43%) (№467/№560) |
 | SVG/Graphics | 44 builtins, hand-rolled in pure Rust |
 | Grammar | 339 rules |
-| Architecture Decisions | 173 ADRs |
+| Architecture Decisions | 174 ADRs |
 | Example Programs | 245 .mlog programs |
 | Reference | REFERENCE.md (~296 KB) — 100% registry coverage |
 | Changelog | CHANGELOG.md (~643 KB) — every wave documented |

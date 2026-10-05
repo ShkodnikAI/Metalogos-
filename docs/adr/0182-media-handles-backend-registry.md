@@ -1,10 +1,10 @@
 # ADR-0182: The media-handle family and the backend-registry interface — the domain-line reopening contour
 
-**Status:** Proposed
+**Status:** Accepted — the §7 answers fixed by the OWNER, 2026-10-05 (the owner's authorization record: «Принимаю все твои рекомендации, выполняй»; the answers drafted by the executor, accepted verbatim)
 **Date:** 2026-10-05
 **Naryad:** №578 (issue #991, Волна 28 — the domain line's first naryad after the lift)
 **Depends on:** ADR-0177 (the domain freeze — Lifted), ADR-0114 (the opaque-handle pattern), ADR-0154 (the label lattice), ADR-0162 (the unified media layer), ADR-0163 (the backend registry), ADR-0165 (the degradation ladder)
-**Blocks:** the first implementation line of the reopened domain line (Wave 29; the owner's §7 answers are the gate)
+**Blocks:** the first implementation line of the reopened domain line (Wave 29; RESOLVED — the §7 answers fixed 2026-10-05, the Image bridge naryad follows)
 
 ## 1. Context
 
@@ -184,20 +184,45 @@ The implementation naryads are NOT issued without the owner's §7 answers
   around.
 - The naryad's diff is this file + the ADR index row — no src edits, no
   builtin changes, no C2PA, no plan edits (the plan sync is office-side).
-- This ADR lands as **Proposed**: §7 is the owner's gate; nothing in §3
-  executes without it.
+- This ADR landed as **Proposed**: §7 was the owner's gate. The gate
+  closed 2026-10-05 (the answers above; the status → Accepted) — §3
+  executes through the §3.3 implementation naryads.
 
-## 7. Open questions for the owner (the Wave-29 gate)
+## 7. The owner's answers (the Wave-29 gate — RESOLVED 2026-10-05)
 
-1. **Type names** — the language-visible names stay `Image` / `Audio` /
-   `VideoFrame` (§3.1)? Or a namespaced form (`Media.Image`)?
-2. **The String forms** of the five backend builtins — keep as overloads
-   (№493 precedent), migrate with a deprecation warning, or refuse in 0.29
-   with a migration text?
-3. **The order** — Image → Audio → VideoFrame confirmed as the first line?
-4. **C2PA slice** — out of this contour (plan v2 §13.4 2.7 as the follow-on
-   benefit, extending the №320 mini-slice), confirmed?
-5. **The production LLM backend** (the Phase-8 core) — which implementation
-   first: real LLM-class registry entries behind the existing `llm` builtin
-   surface, or a new serving backend line? A separate naryad line after the
-   bridge lands; the owner sequences it.
+The gate is closed: the OWNER accepted the executor's recommendations
+verbatim (the authorization record: «Принимаю все твои рекомендации,
+выполняй», the owner's chat, 2026-10-05 — the same record that wired
+the 0.29 gate, №597). The answers, fixed per question:
+
+1. **Type names** — the language-visible names stay `Image` / `Audio`
+   / `VideoFrame` (§3.1). No namespaced form: a rename of the
+   language-visible types buys zero safety against ADR-0162's
+   one-variant decision and the existing `Value::type_name` surface.
+2. **The String forms** — keep as overloads (the №493 multi-form
+   precedent): no deprecation warning in 0.29, no refusal; the golden
+   behavior of the string forms does not change. The handle forms ADD
+   capability, they do not remove it; a deprecation may be revisited
+   at the 0.30 planning after both forms coexist for a cycle (the
+   owner re-asks).
+3. **The order** — Image → Audio → VideoFrame confirmed as the first
+   line (§3.3), and the first line is EXACTLY the three: VideoSegment
+   stays OUT of it (the smallest complete first line; VideoFrame
+   already covers the video-understanding input). VideoSegment's own
+   consumer path follows with video-understanding's next step if the
+   owner keeps it in scope then (the §3.1 reference resolved here).
+4. **The C2PA slice** — out of this contour, confirmed (plan v2
+   §13.4 2.7 as the follow-on benefit, extending the №320 mini-slice;
+   no C2PA work in the first line).
+5. **The production LLM backend** — real LLM-class registry entries
+   behind the existing `llm` builtin surface FIRST (not a new serving
+   backend line): the class fact (`BackendClass::Llm` exists, the
+   registry holds ZERO LLM entries) closes through the already-built
+   surface. A separate naryad line AFTER the bridge lands; the owner
+   sequences it then.
+
+With these answers, the implementation naryads of §3.3 are ISSUABLE:
+the Image bridge naryad follows this record (№599); the
+implementation contract of §3.2 (the capability descriptors, the
+fail-closed selection, the bounds discipline, the TW/VM parity)
+applies verbatim.

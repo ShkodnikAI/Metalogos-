@@ -4,6 +4,21 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №598 (issue #1026; the 0.29 cycle, [process]/[docs]): the
+  ADR-0182 §7 gate RESOLVED — the OWNER accepted the executor's
+  recommendations verbatim («Принимаю все твои рекомендации,
+  выполняй», 2026-10-05) and the five answers are fixed in the ADR
+  (the type names stay Image/Audio/VideoFrame; the String forms stay
+  as overloads per the №493 precedent — no deprecation in 0.29; the
+  order Image → Audio → VideoFrame confirmed with VideoSegment out of
+  the first line; the C2PA slice confirmed out; the production LLM
+  backend = registry entries behind the existing `llm` surface first,
+  sequenced after the bridge). Status Proposed → Accepted; the
+  implementation naryads are ISSUABLE (the Image bridge naryad
+  follows). The ADR index regeneration (№166 script) learned the
+  bullet-metadata status form (`- Status:` — ADR-0181's real prose)
+  and the bold-free match; the 0181 row un-regressed to the file's
+  own title and status.
 - Naryad №597 (issue #1025; the 0.29 cycle, [process]/[ci]): the 0.29
   gate WIRED into the blocking CI — the DEFAULT gate target of
   `unfreeze_gate.py` is 0.29 (the №550 pattern completed: the

@@ -27,6 +27,9 @@
       examples
 - [ ] If the naryad contains an owner decision point (AGENTS.md §3) — the decision is explicitly
       documented in the naryad issue, not assumed
+- [ ] If the diff carries an honest-boundary marker (`honest boundary` / `pre-existing divergence`
+      / `known divergence`) — `docs/limitations.md` is updated in this same PR, and a
+      security-relevant divergence carries the `release-block` label + a PR-description flag (№588)
 
 ## Security Considerations
 <!-- Only if applicable -->

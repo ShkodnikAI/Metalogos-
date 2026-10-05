@@ -186,6 +186,7 @@ pub static BUILTIN_CLASSES: &[BuiltClassEntry] = &[
     BuiltClassEntry { name: "softmax", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     BuiltClassEntry { name: "random_seed", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     BuiltClassEntry { name: "random", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
+    BuiltClassEntry { name: "normal_sample", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     BuiltClassEntry { name: "newline", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     BuiltClassEntry { name: "stdin", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "intended external stdin ingress (registry-only stub)" } },
     BuiltClassEntry { name: "split_tokens", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
@@ -589,11 +590,6 @@ pub static BUILTIN_CLASSES: &[BuiltClassEntry] = &[
     BuiltClassEntry { name: "voice_design", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "persists a designed voice artifact" } },
     BuiltClassEntry { name: "voice_save", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "persists a Voice artifact" } },
     BuiltClassEntry { name: "voice_load", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "ingests a persisted Voice artifact" } },
-    // №526 (issue #835): the GDPR Art. 17 erasure path — the destructive
-    // side (sink, irreversible) and the informed-deletion listing (source,
-    // pure — metadata only, the biometric bytes never enter the result).
-    BuiltClassEntry { name: "voice_delete", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Irreversible, rationale: "destructively erases a voiceprint or an audio artifact from the registry (GDPR Art. 17, №526) — no undo; the consent ledger rows survive by design (the Art. 9 consent proof, privacy.md §2.1)" } },
-    BuiltClassEntry { name: "voice_list", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "lists the held voiceprints and audio artifacts (ids + models/sizes only — the biometric bytes never enter the result, №526)" } },
     BuiltClassEntry { name: "video_render", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "persists a generated video artifact in VIDEO_REGISTRY — local tiny pipeline; egress only at video_export" } },
     BuiltClassEntry { name: "video_export", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "writes the signed .mlgv container to disk — egress point (gate VIDEO_UNSIGNED_EXPORT, ADR-0151 D5)" } },
     BuiltClassEntry { name: "av_mux", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "persists the A/V sidecar container in VIDEO_REGISTRY (ADR-0151 D4)" } },
@@ -658,6 +654,10 @@ pub static BUILTIN_CLASSES: &[BuiltClassEntry] = &[
     BuiltClassEntry { name: "date_parse_iso", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     BuiltClassEntry { name: "date_diff_days", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     BuiltClassEntry { name: "date_format_iso", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
+    // №526 (the №590 drift repair): the GDPR erasure pair, re-homed to the
+    // generator's emission order; the OVERRIDES table carries the rows now.
+    BuiltClassEntry { name: "voice_delete", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Irreversible, rationale: "destructively erases a voiceprint or an audio artifact from the registry (GDPR Art. 17, №526) — no undo; the consent ledger rows survive by design (the Art. 9 consent proof, privacy.md §2.1)" } },
+    BuiltClassEntry { name: "voice_list", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "lists the held voiceprints and audio artifacts (ids + models/sizes only — the biometric bytes never enter the result, №526)" } },
 ];
 
 #[cfg(test)]

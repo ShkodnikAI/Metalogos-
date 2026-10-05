@@ -155,6 +155,32 @@ All notable changes to the Metalogos project.
   byte-identical `math` default emission (the generator run on main is
   blocked by the pre-existing OVERRIDES drift — the №590 PR carries the
   repair).
+- Naryad №590 (issue #1015; Волна 30 «Камертон», [core]): `normal_sample(mean,
+  stddev) -> Float` — one draw from the normal distribution via the classical
+  Box–Muller transform over the SHARED deterministic PRNG (the
+  `random_seed`/`random` thread-local xorshift64 stream — the №372/ADR-0141
+  Stage 1.4 state machine; no own state, no second algorithm — the
+  polar/rejection variant is deliberately NOT introduced). A fixed seed yields
+  the same sequence on BOTH backends (one shared handler; the crosscheck
+  asserts the parity end-to-end). Domain discipline: pure function (№316 —
+  zero effects), typed return signature (№467/№560 — the typed share moves up:
+  187/510 = 36.66%). Loud domain gate: `stddev <= 0` (NaN included) refuses
+  with the stable `[NORMAL_SAMPLE_STDDEV]` origin stamp (№385/ADR-0169,
+  whitelisted in `ORIGIN_STAMPED_CODES`) — `try` classifies it to the typed
+  code on both backends; never a NaN result. The u1 ∈ (0, 1] mapping (1−u)
+  keeps ln finite without a rejection loop and without skewing the uniform
+  law. Evidence: 10⁶ draws' sampled mean/variance within 3σ (deterministic
+  seed — stable bounds, not a flaky stochastic test); the bit-exact mutation
+  pin — an independent second implementation of the contracted state machine
+  lives in the test file, plus a third Python replication
+  (scripts/n590_golden.py) cross-checked at authoring time; the substituted-2π
+  mutation was executed and caught (3 pin tests RED, revert → 7/7 GREEN).
+  Tail repair riding the same PR: the classification generator's curated
+  table was missing the №565/№526 rows (respond_html_status, respond_html_doc,
+  voice_delete, voice_list) that existed only in the committed map —
+  gen_classification.py refused to run on main; the rows are now curated and
+  `--check` is green (the process finding from the №599 session, owner-delegated
+  cleanup).
 - Naryad №599 (issue #1029; the 0.29 cycle, [core]/[media]): the Image
   media-input bridge — step 1 of 3 of the first implementation line of
   ADR-0182 (Accepted, №598). `vision_understand` and `ocr_extract` accept

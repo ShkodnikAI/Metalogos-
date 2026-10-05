@@ -679,6 +679,13 @@ pub const CODE_HTTP_TIMEOUT_RANGE: &str = "HTTP_TIMEOUT_RANGE";
 /// `try{}` classifies the failure to this typed code on TW and VM alike
 /// (stable_try_error_code reads the position-0 stamp).
 pub const CODE_DATE_INVALID: &str = "DATE_INVALID";
+/// №590 (Волна 30, Камертон Н1-05): the `normal_sample` domain error —
+/// `stddev <= 0` (NaN included) is refused loudly instead of returning a
+/// NaN/undefined draw. Program-facing (builtin route on both backends),
+/// so it IS in `ORIGIN_STAMPED_CODES`: `try {}` classifies the failure to
+/// this typed code on TW and VM alike (stable_try_error_code reads the
+/// position-0 stamp).
+pub const CODE_NORMAL_SAMPLE_STDDEV: &str = "NORMAL_SAMPLE_STDDEV";
 
 /// The whitelist of codes a subsystem may stamp onto the String error
 /// channel. `RUNTIME_ERROR` is deliberately NOT in this list: it is the
@@ -752,6 +759,9 @@ const ORIGIN_STAMPED_CODES: &[&str] = &[
     // ISO datetime string or a non-finite timestamp is a loud typed
     // refusal, branchable on both backends (never a zero date).
     CODE_DATE_INVALID,
+    // №590 (Волна 30): the normal_sample domain gate — stddev <= 0 is a
+    // loud typed refusal, branchable on both backends.
+    CODE_NORMAL_SAMPLE_STDDEV,
 ];
 
 /// Stamp an error at its ORIGIN with a stable code (naryad №385, ADR-0169).

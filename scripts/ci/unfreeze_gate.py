@@ -10,6 +10,13 @@ criterion. The 0.27.0 release gate reads this summary ("0.27.0 is NOT
 published while any §4 criterion is red" — ADR-0177 §6); a RED verdict
 anywhere fails the job (blocking) so the gate cannot be missed.
 
+№597 (ADR-0181 §6, the owner's authorization 2026-10-05): the DEFAULT
+gate target is 0.29 — a bare run reads the 0.29 ABSOLUTE goals
+(owner-fixed 2026-10-04); --gate-target 0.28 and legacy stay explicit.
+The verdict behavior is unchanged (№580: a RED is loud — ::error:: +
+the artifact — and the blocking exit belongs to the release-time
+--strict read).
+
 The four criteria (ADR-0177 §4) and their machinery:
   1. Types   — the typed-signature share (№467) may only grow:
                scripts/ci/type_signature_share.py --gate
@@ -58,8 +65,10 @@ DEBT_SCRIPT = os.path.join(HERE, 'debt_counters.py')
 # REACHING of goals — the release passed with open High findings and a
 # dead distillation. The v2 gate flips the direction: goals, not ratchets.
 GOALS_028 = os.path.join(HERE, 'gate_028_goals.txt')
-# №570 (gh#934, ADR-0181): the 0.29 DRAFT goals — the same shape, the
-# parameters NOT owner-fixed until the owner's fixation gate.
+# №570 (gh#934, ADR-0181): the 0.29 ABSOLUTE goals — OWNER-FIXED
+# 2026-10-04 (ADR-0181 §3, owner_fixed: true). №597: the DEFAULT gate
+# target — the wiring into the blocking CI (the №550 pattern: the
+# parameters first, the CI ratchet after; ADR-0181 §6).
 GOALS_029 = os.path.join(HERE, 'gate_029_goals.txt')
 SERVE_E2E = os.path.join(HERE, 'serve_e2e_inventory.txt')
 ADR = 'docs/adr/0177-domain-freeze-until-027.md'
@@ -249,14 +258,15 @@ def criterion_goals_028(baseline_dir, goals_path=GOALS_028):
 
 
 def criterion_goals_029(baseline_dir):
-    """№570 (gh#934, ADR-0181 DRAFT): the 0.29 ABSOLUTE goals.
+    """№570 (gh#934, ADR-0181): the 0.29 ABSOLUTE goals.
 
-    The OWNER-FIXATION gate first: while the draft record carries
+    The OWNER-FIXATION gate first: while the record carries
     `owner_fixed: false`, the verdict is RED with the honest reason —
-    the parameters are the owner's to fix (ADR-0181 §3/§5), and this
-    run blocks NOTHING (the 0.29 gate is not wired into the blocking
-    CI until the fixation). After the fixation (owner_fixed: true) the
-    same v2 core reads the 0.29 record verbatim."""
+    the parameters are the owner's to fix (ADR-0181 §3/§5). The
+    fixation happened 2026-10-04 (owner_fixed: true), and №597 wired
+    the 0.29 read into the blocking CI as the DEFAULT gate target
+    (the №550 pattern; ADR-0181 §6): after the fixation the same v2
+    core reads the 0.29 record verbatim."""
     marker = None
     if os.path.isfile(GOALS_029):
         for line in open(GOALS_029, encoding='utf-8'):
@@ -292,10 +302,14 @@ def main():
     c3 = criterion_debt(baseline_dir)
     c4 = criterion_memory(baseline_dir, office_tests)
     # №550 (the 0.28 release prep; the audit 02.10 M-3 sketch): the
-    # DEFAULT gate target is 0.28 — a bare run checks the 0.28 ABSOLUTE
-    # goals (ADR-0179 §5, the v2 gate), not the legacy 0.27.x reading;
-    # the legacy reading stays available explicitly (--gate-target legacy).
-    gate_target = args[args.index('--gate-target') + 1] if '--gate-target' in args else '0.28'
+    # DEFAULT gate target was 0.28 — a bare run checked the 0.28
+    # ABSOLUTE goals (ADR-0179 §5, the v2 gate), not the legacy 0.27.x
+    # reading. №597 (ADR-0181 §6, the owner's authorization 2026-10-05):
+    # the DEFAULT is 0.29 — the 0.29 goals are owner-fixed and the read
+    # is wired into the blocking CI; the 0.28 and the legacy readings
+    # stay available explicitly (--gate-target 0.28 / --gate-target
+    # legacy).
+    gate_target = args[args.index('--gate-target') + 1] if '--gate-target' in args else '0.29'
     # №570 (gh#934): --dry — compute and PRINT the summary, write NO file
     # (no out_path, no GITHUB_STEP_SUMMARY) — the draft-read primitive.
     dry = '--dry' in args
@@ -351,7 +365,7 @@ def main():
         v_rc, v_detail, v_raw, v_note = c5
         v_verdict = 'GREEN' if v_rc == 0 else 'RED'
         lines.append('')
-        lines.append('## The v2 gate — the 0.29 ABSOLUTE goals (DRAFT, №570, ADR-0181)')
+        lines.append('## The v2 gate — the 0.29 ABSOLUTE goals (№570, ADR-0181 — OWNER-FIXED 2026-10-04, wired by №597)')
         lines.append('')
         lines.append('| § | Goal | Verdict | Evidence |')
         lines.append('|---|------|---------|----------|')
@@ -359,15 +373,14 @@ def main():
                      % (v_verdict, v_detail))
         overall = 'GREEN' if (overall == 'GREEN' and v_rc == 0) else 'RED'
         lines.append('')
-        lines.append('**Overall (§4 + v2 draft): %s.**' % overall)
-        lines.append('The 0.29 release gate: **DRAFT — NOT BLOCKING** (ADR-0181 §3/§5: the '
-                     'parameters are the OWNER\'s to fix; until the fixation this read '
-                     'is an honest status report, not a gate — nothing is blocked, '
-                     'nothing is wired into CI).')
+        lines.append('**Overall (§4 + v2 0.29): %s.**' % overall)
+        lines.append('The 0.29 release gate: **WIRED** (the DEFAULT gate target — №597, '
+                     'ADR-0181 §6, the owner\'s authorization 2026-10-05; the strict '
+                     'release-time read, --strict, exits 1 on RED).')
     if gate_target == '0.28':
         pass  # the v2 verdict above is the release read for 0.28
     elif gate_target == '0.29':
-        pass  # the DRAFT read above is the honest 0.29 report
+        pass  # the 0.29 read above is the wired gate report
     elif overall == 'GREEN':
         lines.append('The 0.27.0 release gate: **SATISFIED** (release-blocking '
                      'label — a RED anywhere in this summary blocks the release '
@@ -406,7 +419,7 @@ def main():
 
     if overall != 'GREEN':
         if gate_target == '0.29':
-            print('::error::the 0.29 DRAFT read is RED — the parameters are not owner-fixed yet (ADR-0181 §3/§5); this blocks nothing')
+            print('::error::the 0.29 ABSOLUTE goals read is RED — the failed goal is named in the summary (ADR-0181 §3/§5; the strict release-time read exits 1)')
         else:
             print('::error::the unfreeze summary is RED — the 0.27.0 release gate reads this verdict (ADR-0177 §6)')
         # №580 (gh#994, the wave-29 dispatch gh#1004): the release-block fact

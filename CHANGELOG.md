@@ -4,6 +4,18 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №597 (issue #1025; the 0.29 cycle, [process]/[ci]): the 0.29
+  gate WIRED into the blocking CI — the DEFAULT gate target of
+  `unfreeze_gate.py` is 0.29 (the №550 pattern completed: the
+  parameters owner-fixed 2026-10-04 first, the CI ratchet after;
+  ADR-0181 §6 recorded). A bare CI run now reads the 0.29 ABSOLUTE
+  goals (typed share ≥ 3500 bp, 0 open High, the domain quorum, the
+  serve-e2e inventory — all MET at the wiring); the 0.28 and the
+  legacy readings stay explicit (--gate-target 0.28 / legacy). The
+  verdict behavior is unchanged (№580: RED is loud, the blocking exit
+  belongs to the release-time --strict read). The summary wording
+  drops the DRAFT state (OWNER-FIXED, wired); the ::error:: line
+  names the failed goal honestly.
 - Naryad №580 (issue #994; Wave 29 P0, [process]/[docs], the wave-29
   dispatch gh#1004 — STRICTLY FIRST): the gate honesty for the
   consolidated audit d63cc1d — the honest-boundary rows for the X-1

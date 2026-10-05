@@ -123,10 +123,6 @@ impl Rng {
     fn below(&mut self, n: u64) -> u64 {
         self.next_u64() % n.max(1)
     }
-    fn pick<'a, T>(&mut self, items: &'a [T]) -> &'a T {
-        let i = self.below(items.len() as u64) as usize;
-        &items[i]
-    }
 }
 
 fn iterations() -> u32 {
@@ -343,15 +339,22 @@ fn gen_shape(seed: u64) -> Shape {
     let mut rng = Rng::new(seed);
     let mean = (rng.below(200) as f64 - 100.0) / 10.0;
     let stddev = 0.5 + (rng.below(20) as f64) / 10.0;
+    // NOTE: direct INDEXING, not a generic pick — the element comes out
+    // as `&'static str` by value, so no reference-of-reference unification
+    // happens at the field site (the 1.93 MSRV refuses that coercion;
+    // found by the msrv job, fixed version-proof).
+    let transform = TRANSFORMS[rng.below(TRANSFORMS.len() as u64) as usize];
+    let cmp = CMPS[rng.below(CMPS.len() as u64) as usize];
+    let (hi, lo) = LABELS[rng.below(LABELS.len() as u64) as usize];
     Shape {
         seed: (rng.below(1_000_000) as f64) + 1.0,
         mean,
         stddev,
-        transform: rng.pick(TRANSFORMS),
-        cmp: rng.pick(CMPS),
+        transform,
+        cmp,
         threshold: (rng.below(20) as f64) / 10.0,
-        hi: rng.pick(LABELS).0,
-        lo: rng.pick(LABELS).1,
+        hi,
+        lo,
     }
 }
 

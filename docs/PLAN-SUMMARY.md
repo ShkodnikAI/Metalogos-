@@ -41,6 +41,7 @@
 | Wave 27 (dispatch gh#978) | Development per ПСРМ after В25+В26: the release-pipeline repair (P0 — the release workflows follow the bin, the release-bin-guard), the typing step 0.29 №1, the VM json_body serve contract, the recall lane ranking, the post-wave docs | Executed (5 naryads, PRs #984–#988, 2026-10-04; the 0.29 draft goal 3500 bp overdelivered — 3654 bp) |
 | Wave 28 (dispatch gh#993) | The pre-M1 line + the domain-line reopening: the pre-M1 NLnet/Restack grants sync (№577 — the delivery 15 days before the 2026-10-20 deadline, M1 2026-11-03), ADR-0182 — the media-handle family + the backend-registry interface contour (№578, docs-only; the owner's §7 answers are the Wave-29 gate), the post-wave docs (№579, strictly last) | Executed (3 naryads, PRs #1006/#1012, 2026-10-05; the counters unchanged — the honest wave fact) |
 | Wave 29 (dispatch gh#1004) | The security wave per the audit d63cc1d + the release line: the 0.28.1 preparation and the post-publication contour (№580–№583), the VM respond-terminality + the gate retired to advisory (№584), the route-body differential fuzzer (№585), the squash-body rule X-5 (№587), the honest-boundary protocol (№588), the post-wave docs (№589 — this row); the owner package rode in the wave's frame: v0.28.1 PUBLISHED, the 0.29 gate wired into blocking CI (№597), the ADR-0182 §7 answers (№598, the ADR → Accepted), the Image bridge (№599, the step 1 of 3); №586 stays blocked by the owner's repo secret | Executed (№580–№585, №587–№589 merged; №586 blocked — the owner's secret; the counters unchanged, the release state: v0.28.1 live) |
+| Wave 30 (dispatch gh#1022) | The language enrichment for the Камертон consumer: the spectral contour (№591), the per-call HTTP deadline taxonomy (№592), the migration-rollback boundary ADR-0183 — the OWNER GATE resolved by delegation, variant B (№593), the UTC calendar arithmetic (№595), the Box–Muller normal sampler (№590, merged last — the merge-order rebase with the cumulative baselines), the tick↔route parity — the third diff axis, tests-only (№594), the post-wave docs (№596 — this row) | Executed (№590–№595 merged, PRs #1034–#1039; the registry 509→516, ALL seven new rows typed; typed 3654 → 3759 bp, precise 2043 → 2131 bp; the classification generator's OVERRIDES drift repaired) |
 
 ## List of phases (no rationale, no timelines)
 
@@ -72,30 +73,30 @@ they reside in the canon held by the coordinator (§16.0-7).
 - C2PA mini-slice: manifest read/write, Art 50 labeling — a narrow slice (#320).
 - Completion-audits of Wave 0 — accepted (gh#404–#406).
 
-## Current wave — Wave 29 (dispatch gh#1004, 2026-10-05)
+## Current wave — Wave 30 (dispatch gh#1022, 2026-10-05)
 
-The security wave per the audit d63cc1d + the release line, executed:
-№580–№585 (the 0.28.1 release contour — the version lockstep, the
-Security section first, the post-publication sync; the VM
-respond-terminality with the gate retired to advisory; the route-body
-differential fuzzer), №587–№589 (the squash-body rule X-5, the
-honest-boundary protocol, this post-wave sync). The owner package
-«Принимаю все твои рекомендации, выполняй» (2026-10-05) rode in the
-wave's frame: **v0.28.1 PUBLISHED** (the tag, the green release run, the
-four assets, the Security announcement — the release-block lifted,
-`fact_open_high_server` = 0), the 0.29 gate WIRED into blocking CI (№597
-— the bare CI run reads the 0.29 targets, both v2 gate reads GREEN),
-the ADR-0182 §7 answers fixed (№598 — the ADR Accepted, the
-implementation line opens: the №599 Image bridge landed as the step 1 of
-3, the String overload forms untouched). The honest open line: №586
-(X-4, the branch-protection audit job) stays BLOCKED on the owner's repo
-secret for the protection API — the only unfinished naryad of the wave,
-waiting on the owner, not on engineering. The counters moved nothing
-(the wave carried no typing/debt naryads — the floors hold where В28
-left them; the release line is the wave's counter fact). The next line:
-Волна 30 (gh#1022 — the language enrichment for the Камертon consumer:
-the spectral contour, the UTC calendar arithmetic, the per-call HTTP
-deadline, the migration-rollback boundary ADR) is in flight.
+The language enrichment for the Камертон consumer, executed: №591 (the
+spectral contour — the Lomb–Scargle periodogram for unevenly sampled
+series), №592 (the per-call HTTP deadline taxonomy — four branchable
+typed outcomes), №593 (ADR-0183, the migration-rollback boundary — the
+OWNER GATE resolved by the delegated decision, VARIANT B: the schema
+evolution stays ADDITIVE-ONLY), №595 (the UTC calendar arithmetic —
+parse/format/diff/epoch, all UTC, the loud [DATE_INVALID] refusals),
+№590 (the Box–Muller normal sampler over the shared PRNG — merged LAST:
+the merge-order rebase on the merged wave, the cumulative baselines
+re-recorded), №594 (the tick↔route parity of a pure function — the
+THIRD differential axis beside №465/№585, tests-only, zero production
+fixes), №596 (this post-wave sync, strictly last). The wave's counter
+fact: the registry 509 → 516 (seven new rows, ALL typed — three
+precise), the typed share 3654 → **3759 bp** (the 0.29 goal 3500 stays
+exceeded), the precise share 2043 → **2131 bp**; the classification
+generator's OVERRIDES drift repaired (№590's tail repair —
+`gen_classification.py` runs again); ADR 175 (the wave's ADR-0183).
+The honest open line: №586 (X-4) stays BLOCKED on the owner's repo
+secret. The next gates are the OWNER's: the В30 acceptance (the start
+of the Камертон wave 1 — the implementation line of ADR-0182), the №586
+secret, the string-form deprecation decision (the 0.30 line), the repo
+rename Metalogos- → Metalogos.
 
 <!-- BEGIN GENERATED NUMBERS (scripts/gen_metrics.py — do not edit inside) -->
 | Machine fact (generated — do not hand-edit) | Value |

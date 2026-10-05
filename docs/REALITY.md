@@ -982,3 +982,72 @@ reproduces it — all unchanged from §6.14):**
   DoD «зелёная на живой защите» is unreachable without it; the wave's
   only unfinished naryad, waiting on the owner, not on engineering.
 
+
+### 6.16. Wave 30 recount (naryad №596): the counters (main @ `75438fa`, 2026-10-05)
+
+Protocol: №414/№318/№576/№579/№589 — the same machines, no hand-written
+numbers. The honest headline: В30 was the LANGUAGE ENRICHMENT wave for
+the Камертон consumer (gh#1022) — the registry grew by SEVEN typed
+builtins across the wave (the spectral contour, the UTC calendar
+arithmetic, the Box–Muller normal sampler), the typed floors moved for
+the first time since В27, the owner gate №593 was resolved by
+delegation (the variant B, ADR-0183 Accepted), and the differential
+family gained its third axis (the tick↔route parity, tests-only). The
+§3 subsystem weights stay as of the №476 recount (§6.12).
+
+**The Wave 30 counters (every value from its machine, the command
+reproduces it):**
+
+| Counter | Value | Machine | Movement |
+|---|---|---|---|
+| Typed-signature share (№467) | **194/516 = 3759 bp** (the 0.29 owner-fixed goal 3500 bp stays exceeded) | `python3 scripts/ci/type_signature_share.py --gate scripts/ci/type_signature_baseline.txt` | **moved** (3654 → 3759 bp, +105 bp across the wave: the №591/№595/№590 rows) |
+| Precise typed share (№560) | **110/516 = 2131 bp** | `python3 scripts/ci/type_signature_share.py --gate scripts/ci/type_signature_precise_baseline.txt --precise` | **moved** (2043 → 2131 bp) |
+| `#[ignore]` debt (№468) | **17** (TODO: 0) | `python3 scripts/ci/debt_counters.py --gate scripts/ci/debt_baseline.txt` | unchanged |
+| `dead_code` (№468) | **33** | same gate | unchanged |
+| TW/VM duplicated builtin names (№462) | **0** (the quorum 0/8 groups) | `python3 scripts/ci/count_duplicated_names.py --quorum` | unchanged |
+| Registered mirrors (№502/№564) | **6** | `python3 scripts/ci/mirror_counter.py` | unchanged |
+| ADR count | **175** (the generated README row; `gen_metrics.py --check` green) | `python3 scripts/gen_metrics.py --check` | **moved** (+1: the wave's ADR-0183) |
+| The release state | **v0.28.1 PUBLISHED** (the В29 fact, unchanged); `fact_open_high_server` = **0** | `scripts/ci/unfreeze_gate.py --office-tests pass` (§4 + v2 0.28/0.29, both GREEN) | unchanged |
+
+**The Wave 30 facts (the wave's own work, not counters):**
+
+- The language surface (each recorded by its own CHANGELOG entry):
+  №591 — the spectral contour (`lomb_scargle`, `spectral_peak`; the
+  Lomb–Scargle periodogram for unevenly sampled series, the degraded-loud
+  struct, the [SPECTRAL_INPUT] gate); №592 — the per-call HTTP deadline
+  taxonomy ([HTTP_TIMEOUT]/[HTTP_CONNECT]/[HTTP_STATUS]/[HTTP_TIMEOUT_RANGE],
+  the mid-response break un-laundered); №595 — the UTC calendar
+  arithmetic (`now_unix`, `date_parse_iso`, `date_diff_days`,
+  `date_format_iso`, the [DATE_INVALID] gate, the explicit №316 Source
+  override for the wall clock); №590 — the Box–Muller normal sampler
+  over the shared PRNG (the [NORMAL_SAMPLE_STDDEV] gate, the bit-exact
+  mutation pin). Registry 509 → 516, append-only (the .mbc contract).
+- The process/owner lines: №593 — the migration-rollback boundary
+  (ADR-0183 Accepted, VARIANT B: the schema evolution stays
+  ADDITIVE-ONLY; the owner gate resolved by the delegated decision,
+  the verbatim record in the ADR §4); №590's tail repair — the
+  classification generator's OVERRIDES table carries the №565/№526 rows
+  again, `gen_classification.py` RUNS on the main tree for the first
+  time since №565 (the drift is repaired, `--check`-equivalent tests
+  green); №594 — the tick↔route parity of a pure function (the sample
+  program byte-identical across the tick and BOTH route backends on 100
+  runs against the independent GoldenReplication, plus the deterministic
+  tick↔route diff-fuzzer arm — the THIRD differential axis beside №465
+  and №585; tests only, zero production fixes).
+- The merge-order mechanics (the dispatch's rule, executed): the wave
+  merged №591 → №592 → №595 → №593 → №589-adjacent → №590 last — the
+  №590 PR was re-based onto the merged wave (the spectral-drop fix
+  commit skipped: on the rebased main the spectral module belongs to
+  №591), and the cumulative baselines were re-recorded by the merge
+  that landed last (the №595 procedure).
+- The limitations rows landed in their own PRs per the №588 protocol:
+  the Spectral Contour section (№591) and the Schema Evolution Boundary
+  section (№593) — verified present by this sync (nothing new to add:
+  the wave's honest-boundary markers were carried same-PR, as the
+  protocol demands).
+- The OPEN line (honest, carried from В29): №586 (X-4 — the
+  branch-protection audit job) stays BLOCKED by the owner's repo secret
+  for the protection API — waiting on the owner, not on engineering.
+  The owner gates ahead of the next wave: the В30 acceptance (the
+  Камертон wave 1 start), the №586 secret, the string-form deprecation
+  (the 0.30 line), the repo rename Metalogos- → Metalogos.

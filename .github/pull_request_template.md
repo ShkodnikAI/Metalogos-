@@ -3,6 +3,13 @@
 <!-- Link to the naryad issue: Closes #NNN -->
 <!-- If the PR is not tied to a specific naryad (e.g. dependabot) — leave empty. -->
 
+**The squash body = THIS naryad's description only** (naryad №587, audit d63cc1d
+X-5). If this PR is branched off another naryad's branch, do NOT inherit the
+foreign naryad's description — rewrite the sections below for THIS naryad before
+opening. The `Naryad numbering (blocking)` job checks the body: a bullet/heading
+claim (`* Наряд №M …`) of a number other than the title's fails the PR. Prose
+mentions of other naryads (precedents, mirrors) stay legal.
+
 ## What was done
 
 <!-- Briefly: what changed and why. Fact base — per the code, not per the documentation. -->
@@ -17,6 +24,9 @@
 
 ## Pre-review checklist
 
+- [ ] The PR description describes THIS naryad only — no foreign naryad's
+      description inherited from a branched-off branch (№587; the body check
+      fails a foreign bullet/heading claim)
 - [ ] The branch is not more than 20 commits behind `main` (the `branch-freshness` job checks
       this automatically — if it is behind, first run `git fetch origin main && git rebase origin/main`)
 - [ ] All 14 blocking jobs are actually green on the merge commit of this PR, not only on the

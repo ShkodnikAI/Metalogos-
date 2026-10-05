@@ -489,13 +489,14 @@ jobs:
       - name: Naryad number collision check
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ -z "$PR_TITLE" ]; then
             echo "Not a pull_request event — the naryad gate runs on PRs only."
             exit 0
           fi
-          python3 scripts/ci/naryad_number_check.py "$PR_TITLE"
+          python3 scripts/ci/naryad_number_check.py "$PR_TITLE" --body "$PR_BODY"
 
   module-size-guard:
     name: module-size-guard (blocking)

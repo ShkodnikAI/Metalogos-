@@ -143,6 +143,18 @@
 # in-tree lock (tests/type_signature_metric.rs TYPED_FLOOR) is raised
 # in the SAME PR: 161 → 182 (both diagram rows and diagram_style are
 # default-feature rows, so the compiled count moves with the source).
-# typed: 186
-# total: 509
-# threshold_bp: 3654
+# (superseded) typed: 186 | total: 509 | threshold_bp was 3654
+#
+# 2026-10-05 №591 (gh#1016, волна 30): the spectral contour's two rows
+# ship typed (lomb_scargle/spectral_peak → "Struct" — the honest shape of
+# the Spectrum/SpectralPeak results; the family has no precise scalar
+# spelling, the diagram_style precedent) and weekday_name completes its
+# verified precise "String" typing (the №565 procedure). 186/509 →
+# 189/511; (189*10000)//511 = 3698 bp (+44 bp). The floor rises with the
+# rows that earned it (the №757 procedure); the in-tree lock
+# (tests/type_signature_metric.rs TYPED_FLOOR) is raised in the SAME PR:
+# 182 → 185. The gate 0.29 goal stays satisfied: 3698 bp ≥ 3500
+# (ADR-0181).
+# typed: 189
+# total: 511
+# threshold_bp: 3698

@@ -253,6 +253,7 @@ llm_stream_next|1|1
 llm_stream_open|1|2
 llm_usage|0|*
 ln|1|1
+lomb_scargle|2|2
 lower|1|1
 make_list|0|*
 map|0|*
@@ -417,6 +418,7 @@ sort|1|1
 sort_by|2|3
 speak_start|2|3
 speak_stop|1|1
+spectral_peak|1|1
 split|2|2
 split_tokens|0|*
 sqrt|1|1

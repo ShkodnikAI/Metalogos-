@@ -38,6 +38,19 @@
 # 84/509 → 104/509; (104*10000)//509 = 2043 bp (+393 bp ≈ +3.9 pp).
 # The floor rises with the rows that earned it (the №757 procedure);
 # the PRECISE_TYPES definition is untouched.
-# precise: 104
-# total: 509
-# threshold_bp: 2043
+# (superseded) precise: 104 | total: 509 | threshold_bp was 2043
+#
+# 2026-10-05 №591 (gh#1016, волна 30): the registry grows by the two
+# spectral rows — typed-but-coarse "Struct" (the Spectrum/SpectralPeak
+# results have no precise scalar spelling; the diagram_style precedent) —
+# which ALONE would dilute the precise share to (104*10000)//511 = 2035 bp
+# < 2043. The dilution is compensated in the SAME PR by the verified
+# precise typing of weekday_name ("String" — the single-path handler fact:
+# the only Ok arm is Value::String(WEEKDAY_NAMES_MON[...]); the №565
+# procedure). 104/509 → 105/511; (105*10000)//511 = 2054 bp (+11 bp). The
+# floor rises with the row that earned it (the №757 procedure); the
+# PRECISE_TYPES definition is untouched — the movement-only-up contract
+# holds with the coarse rows absorbed.
+# precise: 105
+# total: 511
+# threshold_bp: 2054

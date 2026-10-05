@@ -4,6 +4,52 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №591 (issue #1016; Волна 30, Камертон Н1-05/Н1-07, инвариант 3,
+  [core]): the spectral contour — `lomb_scargle(times, values) -> Spectrum`
+  and `spectral_peak(spectrum) -> {freq, power_fraction, p_value, degraded}`
+  (registry 509→511, append-only). The normalized Lomb–Scargle periodogram
+  for UNEVENLY sampled series (Scargle 1982; the per-frequency phase offset
+  τ, Press et al. NR §13.8 formulation) — FFT is deliberately not used: the
+  observation series is gapped by construction and the FFT requires a
+  uniform grid. The frequency grid derives from the DATA (f_min = 1/T,
+  f_max = 1/(2·median positive spacing) with the smallest-gap fallback for
+  heavy-gap layouts, Δf = 1/(N·T) — the N-fold oversampled Rayleigh limit;
+  no magic constants); powers normalize by 2σ² (a bin is Exp(1) under the
+  Gaussian-noise null), so the peak's false-alarm probability is
+  1 − (1 − e^{−z})^M over the scanned bins — the conservative full-bin
+  count: a claimed periodicity survives a stricter bar, the white-noise
+  false-positive rate stays at or below the declared α. power_fraction =
+  the share of total spectral power inside a ±1/T band around the peak (one
+  Rayleigh element per side, derived from the baseline). Degraded-loud
+  (§16.0-D): < 12 points, a zero-variance series, a degenerate baseline or
+  an over-capacity grid (SPECTRAL_MAX_GRID 200 000 bins) return the typed
+  `Degraded` struct (ok=false, degraded=true, class=spectral, reason) —
+  never a quiet spectrum; `spectral_peak` PROPAGATES a Degraded input
+  unchanged. Loud domain gate: a times/values length mismatch, a
+  non-numeric element or a non-finite one refuses with the stable
+  [SPECTRAL_INPUT] origin stamp (№385/ADR-0169 — `try{}` classifies it to
+  the typed code on BOTH backends; the code is whitelisted in
+  ORIGIN_STAMPED_CODES). Classification (№316): the provably-pure `math`
+  category default — zero effects, no state. Instrumental posture
+  inherited from the forecast `timeseries` row: numbers and provenance
+  only, no interpretations (docs/limitations.md — the new Spectral Contour
+  section in the same PR, the №588 protocol). Evidence: the DoD
+  statistical rows as deterministic unit tests (a gapped sinusoid with 30%
+  knocked-out points lands within 2% of the true frequency on 10 seeds at
+  p < 0.01; white noise holds 0 false positives over 100 seeds at α = 0.05
+  with the mean-p sanity floor); the golden pin from
+  scripts/n591_golden.py — a plain-Python implementation written FROM THE
+  CONTRACT and cross-checked at authoring time against
+  scipy.signal.lombscargle (a third implementation: after the exact
+  (N−1)/2 normalization conversion the max relative deviation is 1.3e−13,
+  argmax identical) — reproduced through the language on BOTH backends
+  (TW↔VM parity byte-identical; the second DoD row asserted at the
+  language level too); the loud-gate and degraded-propagation contracts
+  pinned on both backends incl. the `try{}` typed classification.
+  REFERENCE.md regenerated (511 of 511); the classification rows are the
+  byte-identical `math` default emission (the generator run on main is
+  blocked by the pre-existing OVERRIDES drift — the №590 PR carries the
+  repair).
 - Naryad №599 (issue #1029; the 0.29 cycle, [core]/[media]): the Image
   media-input bridge — step 1 of 3 of the first implementation line of
   ADR-0182 (Accepted, №598). `vision_understand` and `ocr_extract` accept

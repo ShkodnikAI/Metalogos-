@@ -655,7 +655,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 509 registered builtins (509 of 509): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 511 registered builtins (511 of 511): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -2135,7 +2135,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 509 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 511 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2433,7 +2433,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `llm_stream_open(...)` | 1..2 | — | `llm_stream_open(prompt, input?) -> Struct { handle, model, provider }` |
 | `llm_usage(...)` | variadic | `-> Struct` | LLM usage statistics: `total_calls`, `total_tokens`, `total_errors`, `cache_hits_semantic` (№273/ADR-0135), `canary_leaks` (№284 — confirmed canary leaks), `providers` (a list of `{alias, calls, tokens, errors, avg_latency_ms, health_score}`) |
 
-### `math` — 14 builtin(s)
+### `math` — 16 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
@@ -2441,6 +2441,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `clamp(...)` | 3 | `Float, Float, Float -> Float` | Clamps a value into the range `[lo, hi]` |
 | `exp(...)` | 1 | `Float -> Float` | e^x. `exp(0)=1`, `exp(1)=e` |
 | `ln(...)` | 1 | `Float -> Float` | Natural logarithm. Soft-failure: `0.0` for `x <= 0` |
+| `lomb_scargle(...)` | 2 | — | `lomb_scargle(times, values)` — the normalized Lomb–Scargle periodogram for unevenly sampled series (Scargle 1982; the per-frequency phase offset τ, Press et al. NR §13.8 formulation). The frequency grid derives from the data: f_min = 1/T, f_max = 1/(2·median-spacing), Δf = 1/(N·T) (N-fold oversampling of the Rayleigh limit) — no magic constants. Powers are normalized by 2σ², so under the Gaussian-noise null a bin is Exp(1)-distributed. Fewer than 12 points, a zero-variance series, a zero baseline, or an over-capacity grid returns the typed `Degraded` struct (degraded=true) — never a quiet spectrum. A length mismatch or a non-finite element is a loud [SPECTRAL_INPUT] domain error. Pure function — zero effects (№316). Numbers only, no interpretations (the instrumental forecast posture, docs/limitations.md). |
 | `max(...)` | 2 | `Float, Float -> Float` | Maximum of two numbers |
 | `min(...)` | 2 | `Float, Float -> Float` | Minimum of two numbers |
 | `pow(...)` | 2 | `Float, Float -> Float` | base^exp |
@@ -2449,6 +2450,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `round(...)` | 1 | `Float -> Float` | Rounds to the nearest integer |
 | `sigmoid(...)` | 1 | `Float -> Float` | The logistic function 1/(1+e^−x). Numerically stable: `sigmoid(1000)=1`, `sigmoid(-1000)=0` (not NaN) |
 | `softmax(...)` | 1 | `List -> List` | Numerically stable softmax (subtracts max before exp). Output sums to 1.0 |
+| `spectral_peak(...)` | 1 | — | `spectral_peak(spectrum)` — the dominant frequency of a `lomb_scargle` Spectrum with its false-alarm p-value (1 − (1 − e^{−z})^M over the scanned grid — the conservative full-bin count) and its share of the total spectral power inside a ±1/T band around the peak (one Rayleigh resolution element on each side — derived from the baseline, not a magic constant). A `Degraded` input propagates loudly and unchanged; anything that is not a Spectrum is a loud [SPECTRAL_INPUT] error. Pure function — zero effects (№316). Numbers only, no interpretations. |
 | `sqrt(...)` | 1 | `Float -> Float` | Square root. Soft-failure: `0.0` for `x < 0` |
 | `tanh(...)` | 1 | `Float -> Float` | Hyperbolic tangent. In (−1, 1). `tanh(1000)=1`, `tanh(-1000)=-1` |
 
@@ -3392,6 +3394,8 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `read_file_or` | source | internal | pure | the №507 explicit-silence twin of read_file — ingests file content with the caller's default on a missing file (input by provenance; the loud branches shared with read_file) |
 | `to_float_or` | pure | public | pure | — |
 | `to_int_or` | pure | public | pure | — |
+| `lomb_scargle` | pure | public | pure | — |
+| `spectral_peak` | pure | public | pure | — |
 
 <!-- END GENERATED BUILTIN CLASSIFICATION -->
 

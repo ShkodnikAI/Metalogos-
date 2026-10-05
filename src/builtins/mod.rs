@@ -213,6 +213,12 @@ pub(crate) mod math_core;
 use math::*;
 pub(crate) mod collections;
 use collections::*;
+/// Наряд №591 (Волна 30): the spectral contour — the Lomb–Scargle
+/// periodogram for unevenly sampled series. A leaf module (the C4
+/// ratchet): depends only on core helpers and interpreter values. The
+/// handlers are imported by `registry.rs` explicitly (the glob would be
+/// an unused-import warning — registry is the single consumer).
+pub(crate) mod spectral;
 pub mod string;
 use string::*;
 // Наряд №274 (ADR-0136): core-функция маскирования публична для fuzz-цели

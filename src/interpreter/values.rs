@@ -639,6 +639,17 @@ pub const CODE_VOICEPRINT_DECRYPT: &str = "VOICEPRINT_DECRYPT";
 /// has no builtin routes).
 pub const CODE_VOICE_ARTIFACT_DECRYPT: &str = "VOICE_ARTIFACT_DECRYPT";
 
+/// №591 (Волна 30, Камертон Н1-05/Н1-07): the spectral-contour domain
+/// error — a length mismatch between `times` and `values`, a non-numeric
+/// element, or a non-finite one is refused loudly instead of poisoning
+/// the periodogram with NaNs. Program-facing (builtin route on both
+/// backends), so it IS in `ORIGIN_STAMPED_CODES`: `try{}` classifies the
+/// failure to this typed code on TW and VM alike (stable_try_error_code
+/// reads the position-0 stamp). Degraded data (too few points, zero
+/// variance, degenerate grid) is deliberately NOT an error — it returns
+/// the typed `Degraded` struct instead.
+pub const CODE_SPECTRAL_INPUT: &str = "SPECTRAL_INPUT";
+
 /// The whitelist of codes a subsystem may stamp onto the String error
 /// channel. `RUNTIME_ERROR` is deliberately NOT in this list: it is the
 /// fallback for unstamped errors, never an explicit stamp.
@@ -695,6 +706,10 @@ const ORIGIN_STAMPED_CODES: &[&str] = &[
     CODE_SANDBOX_SENSITIVE_PATH,
     CODE_MCP_PROTOCOL_ERROR,
     CODE_MCP_NOT_ALLOWLISTED,
+    // №591 (Волна 30): the spectral-contour input gate — malformed series
+    // (length mismatch / non-numeric / non-finite) are loud typed refusals,
+    // branchable on both backends.
+    CODE_SPECTRAL_INPUT,
 ];
 
 /// Stamp an error at its ORIGIN with a stable code (naryad №385, ADR-0169).

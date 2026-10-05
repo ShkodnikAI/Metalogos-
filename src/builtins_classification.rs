@@ -186,7 +186,6 @@ pub static BUILTIN_CLASSES: &[BuiltClassEntry] = &[
     BuiltClassEntry { name: "softmax", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     BuiltClassEntry { name: "random_seed", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     BuiltClassEntry { name: "random", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
-    BuiltClassEntry { name: "normal_sample", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     BuiltClassEntry { name: "newline", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     BuiltClassEntry { name: "stdin", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "intended external stdin ingress (registry-only stub)" } },
     BuiltClassEntry { name: "split_tokens", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
@@ -658,6 +657,7 @@ pub static BUILTIN_CLASSES: &[BuiltClassEntry] = &[
     // generator's emission order; the OVERRIDES table carries the rows now.
     BuiltClassEntry { name: "voice_delete", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Irreversible, rationale: "destructively erases a voiceprint or an audio artifact from the registry (GDPR Art. 17, №526) — no undo; the consent ledger rows survive by design (the Art. 9 consent proof, privacy.md §2.1)" } },
     BuiltClassEntry { name: "voice_list", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "lists the held voiceprints and audio artifacts (ids + models/sizes only — the biometric bytes never enter the result, №526)" } },
+    BuiltClassEntry { name: "normal_sample", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
 ];
 
 #[cfg(test)]

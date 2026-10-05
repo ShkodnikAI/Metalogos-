@@ -161,9 +161,6 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("softmax", 1, "math"; builtin_softmax),
     spec!("random_seed", 1, "math"; builtin_random_seed),
     spec!("random", 0, "math"; builtin_random, "Float"), // ── Phase 4.4 self-hosting — historical placeholders, never implemented ──
-    // №590 (Волна 30, Камертон Н1-05): the Box–Muller normal sampler over
-    // the shared PRNG — typed return, pure function, loud domain gate.
-    spec!("normal_sample", 2, "math"; builtin_normal_sample, "Float"),
     // ADR-0023 described a hybrid lexer approach using 5 builtins (stdin,
     // split_tokens, if_eq, newline, is_string_token). Handler functions were
     // never committed to main — only the builtin names were registered as
@@ -1119,6 +1116,12 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("date_parse_iso", 1, "time"; builtin_date_parse_iso, "Float"),
     spec!("date_diff_days", 2, "time"; builtin_date_diff_days, "Float"),
     spec!("date_format_iso", 1, "time"; builtin_date_format_iso, "String"),
+    // ── №590 (Волна 30, Камертон Н1-05): the Box–Muller normal sampler over
+    // the shared PRNG — typed return, pure function, loud domain gate
+    // ([NORMAL_SAMPLE_STDDEV]). APPENDED at the end — inserting mid-array
+    // would shift existing CallBuiltin indices (.mbc contract).
+    // Registry 515→516 (append-only).
+    spec!("normal_sample", 2, "math"; builtin_normal_sample, "Float"),
 ];
 
 /// Total number of registered builtins.

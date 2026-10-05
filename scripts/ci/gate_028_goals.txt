@@ -36,10 +36,13 @@ goal_quorum_den: 3
 # the wave dispatch gh#1004 trajectory — 0 → 2 (№581 = the X-1 High
 # fix + №583 = the 0.28.1 release carrier; the honest-boundary rows
 # live in docs/limitations.md since №580) → 1 (the №581 merge) → 0
-# (the live v0.28.1 tag closes №583). While the fact is nonzero, the
-# gates are honestly RED — the counter is machine-read, never
-# hand-zeroed.
-fact_open_high_server: 1
+# (the LIVE v0.28.1 tag, published 2026-10-05 — the owner's gate №549
+# executed: the release workflow run 37263503704 green, the four
+# assets verified; the release-block carrier #997 closed on the live
+# tag per its own condition, the syncing PR lands this record).
+# While the fact is nonzero, the gates are honestly RED — the counter
+# is machine-read, never hand-zeroed.
+fact_open_high_server: 0
 # The transfer domain quorum fact: (groups still carrying duplicates)
 # / (the №466 group total at the transfer start).
 # Source: `python3 scripts/ci/count_duplicated_names.py --quorum`

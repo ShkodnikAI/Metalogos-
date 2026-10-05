@@ -213,6 +213,10 @@ pub(crate) mod math_core;
 use math::*;
 pub(crate) mod collections;
 use collections::*;
+/// Наряд №595 (Волна 30): the UTC calendar arithmetic — the ISO parse /
+/// format / signed day-difference surface. A leaf module (the C4
+/// ratchet); the handlers are imported by `registry.rs` explicitly.
+pub(crate) mod calendar_utc;
 /// Наряд №591 (Волна 30): the spectral contour — the Lomb–Scargle
 /// periodogram for unevenly sampled series. A leaf module (the C4
 /// ratchet): depends only on core helpers and interpreter values. The

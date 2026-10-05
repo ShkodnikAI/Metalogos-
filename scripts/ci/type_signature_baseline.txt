@@ -155,6 +155,18 @@
 # (tests/type_signature_metric.rs TYPED_FLOOR) is raised in the SAME PR:
 # 182 → 185. The gate 0.29 goal stays satisfied: 3698 bp ≥ 3500
 # (ADR-0181).
-# typed: 189
-# total: 511
-# threshold_bp: 3698
+# (superseded) typed: 189 | total: 511 | threshold_bp was 3698
+#
+# 2026-10-05 №595 (gh#1020, волна 30) — the merge-order rebase on №591
+# (the dispatch's rule: whoever merges second re-records the CUMULATIVE
+# triple): the UTC calendar surface's four rows ship typed PRECISE
+# (now_unix/date_parse_iso/date_diff_days → "Float", date_format_iso →
+# "String" — the verified single-shape handler facts). 189/511 →
+# 193/515; (193*10000)//515 = 3747 bp (+49 bp). The floor rises with the
+# rows that earned it (the №757 procedure); the in-tree lock
+# (tests/type_signature_metric.rs TYPED_FLOOR) is raised in the SAME PR:
+# 185 → 189. The gate 0.29 goal stays satisfied: 3747 bp ≥ 3500
+# (ADR-0181).
+# typed: 193
+# total: 515
+# threshold_bp: 3747

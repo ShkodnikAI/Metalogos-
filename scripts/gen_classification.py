@@ -354,6 +354,11 @@ OVERRIDES = {
     "git_push": ("Sink", "Network", "Irreversible", "pushes to a remote repository — external, non-undoable effect (issue minimum list)"),
     "mcp_call": ("Source", "Network", "Pure", "ingests untrusted MCP tool output — UserInput taint by ADR-0132 D3"),
     "mcp_list_tools": ("Source", "Network", "Pure", "ingests external tool metadata over MCP (not tainted per ADR-0132, still external ingress)"),
+    # №595 (Волна 30): the UTC calendar surface — now_unix reads the wall
+    # clock, which is the №316 Source semantics (an explicit override, not
+    # the silent default; the `time` category is not risky, so without
+    # this row the generator would stamp it Pure).
+    "now_unix": ("Source", "Internal", "Pure", "reads the wall clock — the epoch-seconds read carries provenance (the №316 Source semantics: wall clock); the UTC-facing twin of now()"),
     # ── web ──
     "respond": ("Sink", "Public", "Irreversible", "writes the HTTP response — public channel, cannot be unsent"),
     "respond_html": ("Sink", "Public", "Irreversible", "writes the HTTP response as HTML — public channel (escaping contract)"),

@@ -44,6 +44,10 @@ use super::forecast::{
 };
 // Наряд №591 (Волна 30): the spectral contour (Lomb–Scargle).
 use super::spectral::{builtin_lomb_scargle, builtin_spectral_peak};
+// Наряд №595 (Волна 30): the UTC calendar arithmetic.
+use super::calendar_utc::{
+    builtin_date_diff_days, builtin_date_format_iso, builtin_date_parse_iso, builtin_now_unix,
+};
 // Наряд №334: real STT/omni/vision-understanding backends — the mock-first
 // call surface over the №333 registry (SHA-pin path, ADR-0163 §2.1).
 use crate::vision::ocr::builtin_ocr_extract;
@@ -1100,6 +1104,18 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // Registry 509→511 (append-only).
     spec!("lomb_scargle", 2, "math"; builtin_lomb_scargle, "Struct"),
     spec!("spectral_peak", 1, "math"; builtin_spectral_peak, "Struct"),
+    // ── №595 (Волна 30, Камертон Н1-05/Н1-07): the UTC calendar arithmetic —
+    // the ISO parse/format pair, the signed fractional day difference and
+    // the UTC-facing epoch read. ALL four typed PRECISE (Float/Float/
+    // Float/String — the verified single-shape handler facts). now_unix
+    // carries the explicit №316 Source classification (the wall-clock
+    // read); the rest are the provably-pure `time` default. APPENDED at
+    // the end — inserting mid-array would shift existing CallBuiltin
+    // indices (.mbc contract). Registry 511→515 (append-only).
+    spec!("now_unix", 0, "time"; builtin_now_unix, "Float"),
+    spec!("date_parse_iso", 1, "time"; builtin_date_parse_iso, "Float"),
+    spec!("date_diff_days", 2, "time"; builtin_date_diff_days, "Float"),
+    spec!("date_format_iso", 1, "time"; builtin_date_format_iso, "String"),
 ];
 
 /// Total number of registered builtins.

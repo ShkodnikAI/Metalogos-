@@ -4,6 +4,44 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №595 (issue #1020; Волна 30, Камертон Н1-05/Н1-07, [core]):
+  the UTC calendar arithmetic — `now_unix()`, `date_parse_iso(s)`,
+  `date_diff_days(a, b)`, `date_format_iso(t)` (registry 511→515,
+  append-only; ALL four rows typed PRECISE Float/Float/Float/String — the
+  verified single-shape handler facts, the precise share moves up
+  2043 → 2116 bp cumulative). THE UTC RULE: every computation is UTC — no
+  Local anywhere; a timezone is applied only at DISPLAY and as an
+  explicit parameter (an offset IN the parsed string — Z or ±HH:MM — is
+  honored and converted to UTC; a naive datetime is interpreted as UTC,
+  documented, never the machine's local zone). `date_parse_iso` closes
+  the missing half of the date surface (the registry had NO ISO parse):
+  RFC 3339 + the date-only form (midnight UTC) + the space separator +
+  fractional seconds (microsecond precision); an invalid string is a
+  LOUD typed refusal stamped [DATE_INVALID] (whitelisted in
+  ORIGIN_STAMPED_CODES — `try{}` classifies it on BOTH backends), never a
+  zero date. `date_diff_days` — the SIGNED fractional difference
+  (a − b)/86400 (the response-age decay and the synodic-month arithmetic
+  own their rounding); the pre-existing absolute `days_between` is
+  untouched. `date_format_iso` — the canonical RFC 3339 UTC Z-form, the
+  sub-second part truncated at DISPLAY only. `now_unix` — the UTC-facing
+  twin of `now()`, with the EXPLICIT №316 Source classification (the
+  wall-clock read carries provenance — not the silent Pure default; the
+  OVERRIDES row is added to gen_classification.py, the committed row is
+  exactly the generator's emission). Honest boundary: the pre-existing
+  legacy getters (format_date/date_parts/weekday_name) keep their v0.8
+  LOCAL contract — the Local→UTC repair is a separate naryad (the wave's
+  «не делать» rule). Evidence: the DoD's 12 control dates computed by an
+  INDEPENDENT source (the Python datetime/calendar stack) and pinned
+  through the language on BOTH backends (byte-identical TW↔VM parity) —
+  epoch, leap Feb 29 (2024 parses, 2023-02-29 refuses loudly), the year
+  end, the midnight crossing (1 s = 1/86400 d), ±offsets, fractional
+  seconds, date-only, pre-2000, the 2000 century-leap window, the space
+  separator; the loud-refusal and try{}-classification contracts on both
+  backends; the round-trip format(parse(x)) = x; now_unix pinned to the
+  process wall-clock envelope (the two backend reads agree within the
+  harness overhead — the honest parity statement for a moving clock).
+  REFERENCE.md regenerated (515 of 515); typing floors raised (general
+  3698 → 3747 bp, TYPED_FLOOR 185 → 189; precise 2054 → 2116 bp).
 - Naryad №592 (issue #1017; Волна 30, Камертон Н1-06, [core]): the
   per-call HTTP deadline and the outcome taxonomy for http_get/http_post.
   THREE DISTINCT, branchable outcomes instead of one unstamped string:

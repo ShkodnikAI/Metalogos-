@@ -671,6 +671,15 @@ pub const CODE_HTTP_STATUS: &str = "HTTP_STATUS";
 /// 300.0)` printed nothing and proceeded).
 pub const CODE_HTTP_TIMEOUT_RANGE: &str = "HTTP_TIMEOUT_RANGE";
 
+/// №595 (Волна 30, Камертон Н1-05/Н1-07): the UTC calendar surface's
+/// domain error — an invalid ISO-8601/RFC 3339 string, a non-finite
+/// timestamp, or an out-of-range value is refused loudly instead of
+/// producing a zero date or a poisoned day-difference. Program-facing
+/// (builtin route on both backends), so it IS in `ORIGIN_STAMPED_CODES`:
+/// `try{}` classifies the failure to this typed code on TW and VM alike
+/// (stable_try_error_code reads the position-0 stamp).
+pub const CODE_DATE_INVALID: &str = "DATE_INVALID";
+
 /// The whitelist of codes a subsystem may stamp onto the String error
 /// channel. `RUNTIME_ERROR` is deliberately NOT in this list: it is the
 /// fallback for unstamped errors, never an explicit stamp.
@@ -739,6 +748,10 @@ const ORIGIN_STAMPED_CODES: &[&str] = &[
     CODE_HTTP_CONNECT,
     CODE_HTTP_STATUS,
     CODE_HTTP_TIMEOUT_RANGE,
+    // №595 (Волна 30): the UTC calendar surface's input gate — an invalid
+    // ISO datetime string or a non-finite timestamp is a loud typed
+    // refusal, branchable on both backends (never a zero date).
+    CODE_DATE_INVALID,
 ];
 
 /// Stamp an error at its ORIGIN with a stable code (naryad №385, ADR-0169).

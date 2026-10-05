@@ -4,6 +4,31 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №586 (issue #1000; Wave 29 P2, [process]/[ci], the wave-29
+  dispatch gh#1004 — audit d63cc1d X-4): the branch-protection audit
+  job — the actual protection of `main` is read via the API and
+  compared to the maintainers.md checklist; the state is fixated, not
+  assumed. `scripts/ci/branch_protection_audit.py` (fail-closed: a
+  documented check missing from the live rule or an off checklist
+  toggle = RED; live-only checks = a recorded DOC-STALE warning; an
+  unreadable state = INFRA exit 2, never silently OK — the №525 rule)
+  + the weekly `branch-protection-audit` workflow (Mondays 06:30 UTC
+  after the merge-ci-audit, + workflow_dispatch; the read-only
+  `BRANCH_PROTECTION_TOKEN` repo secret; the state-on-date report line
+  = the artifact + summary; read-only — the job never modifies the
+  protection and does not run on pull_request). Self-test 10/10
+  synthetic traps (the fixtures derive from the parsed checklist — the
+  SSOT). The FIRST audit read (2026-10-05) fixated a real X-4 finding:
+  the live rule holds 22 required checks with allow_force_pushes /
+  allow_deletions off, but `enforce_admins: false`, `strict: false`,
+  `required_pull_request_reviews: null`, and three documented checks
+  (`blocking-checks-sync`, `msrv`, `release-gap`) are NOT required —
+  the owner's admin toggles, dissected in gh#1000 (the expected
+  detective catch, the merge-ci-audit №551 precedent). The checklist's
+  required set was fact-refreshed by the audit (13 → 25: the twelve
+  live-read names joined, the provenance ci.yml @ `25b375e` + the API
+  read); the checklist's items and toggles are untouched (the job
+  checks against it, not the other way around).
 - Naryad №596 (issue #1021; Волна 30, [docs]): the post-wave record of
   the Камертон enrichment wave, strictly last (the conveyor gh#529) —
   REALITY §6.16 (the counters main @ `75438fa`: the registry 516 rows,

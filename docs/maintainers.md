@@ -206,16 +206,25 @@ document records the checklist; the executor cannot apply it. Settings
 - [ ] **Require a pull request before merging** (no direct pushes);
 - [ ] **Require status checks to pass before merging** — the required
       set (the job display names as the check-runs API reports them,
-      fact-checked against `.github/workflows/ci.yml` @ `6e66d3d`;
+      fact-checked against `.github/workflows/ci.yml` @ `25b375e` and
+      the live-protection API read of 2026-10-05 (the №586 first
+      audit — 22 required contexts on the live rule);
       `msrv (blocking)` joined by №555, `release-gap (blocking)` by
-      №562):
+      №562; the further twelve joined from the live read):
       `test-lib (blocking)`, `test-integration (blocking)`,
       `crosscheck (blocking)`, `clippy (blocking)`, `fmt (blocking)`,
       `cargo-audit (blocking)`, `cargo-deny (blocking)`,
       `gitleaks (blocking)`, `gate-facts-sync (blocking)`,
       `blocking-checks-sync (blocking)`,
       `registry-arity-check (blocking)`, `msrv (blocking)`,
-      `release-gap (blocking)`;
+      `release-gap (blocking)`,
+      `ADR numbering (blocking)`, `branch-freshness (blocking)`,
+      `candle-tests (blocking)`, `doc-tests (blocking)`,
+      `ledger-golden (blocking)`, `minimal-build (blocking)`,
+      `module-size-guard (blocking)`,
+      `test-llm-cache-contract (blocking)`,
+      `video-tests (blocking)`, `vision-tests (blocking)`,
+      `voice-tests (blocking)`, `vscode-extension (blocking)`;
 - [ ] **Require branches to be up to date before merging** (no merge
       over a stale base);
 - [ ] **Do not allow bypassing the above settings** — including
@@ -223,6 +232,20 @@ document records the checklist; the executor cannot apply it. Settings
 - [ ] (the №471 lane, with the second maintainer) **Require review
       from Code Owners** — the veto becomes active with the same
       toggle.
+
+The checklist above is machine-audited (naryad №586, audit d63cc1d
+X-4): the `branch-protection-audit (weekly)` job reads the live
+protection via the read-only `BRANCH_PROTECTION_TOKEN` repo secret
+(Administration: read-only, 90-day rotation) and compares it to THIS
+checklist — the state is fixated, not assumed. A documented required
+check missing from the live rule, or one of the toggles above being
+off, is a RED run; live checks not yet in the list are RECORDED
+(doc-stale warning, never failed — over-protection is not a hole) and
+re-enter the list by the fact-check procedure above. The state-on-date
+report line lands in the run's summary and artifact; the job is
+read-only and never modifies the protection. Applying the divergent
+toggles remains the OWNER's admin action — the first audit run
+(2026-10-05) is fixated in the №586 record (gh#1000).
 
 ## Escalation
 

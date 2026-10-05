@@ -1,0 +1,61 @@
+name: branch-protection-audit (weekly)
+
+# Наряд №586 (Волна 29, P2, [process]/[ci]; аудит d63cc1d X-4):
+# еженедельная сверка ФАКТИЧЕСКОЙ branch protection ветки main с
+# чек-листом docs/maintainers.md — состояние фиксируется, а не
+# предполагается. Класс X-4: включена ли сама защита, из репозитория
+# не видно, а публичный API без токена rate-limits; офисный замер
+# 05.10 жил вне репо — через месяц его снова никто не знает.
+#
+# Скрипт ТОЛЬКО репортит и читает: GET /branches/main/protection
+# read-only токеном из repo-секрета BRANCH_PROTECTION_TOKEN
+# (Administration: read-only, заводит владелец, ротация 90 дней);
+# расхождение с чек-листом → красный прогон; отчёт состояния на дату →
+# артефакт + summary (образец gate-facts-sync, №525). Джоба НИКОГДА не
+# меняет защиту; на pull_request не запускается вовсе — форк-PR
+# секретов не получают.
+#
+# Verdict-дисциплина: документированный required-чек, отсутствующий на
+# живой защите, и выключенный тумблер чек-листа = RED; живые чеки вне
+# списка = DOC-STALE предупреждение (записывается, не валит —
+# избыточная защита дырой не является; имена возвращаются в чек-лист
+# его же фак-процедурой); API/токен нечитаемы = exit 2 INFRA — громко,
+# никогда не «тихо ОК» (правило №525: нечитаемое состояние не есть
+# pass).
+#
+# Первый прогон (2026-10-05, локальный факт-замер №586): RED — 3
+# документированных чека не в required (blocking-checks-sync, msrv,
+# release-gap), тумблеры PR-требования / strict / enforce_admins
+# выключены. Это ожидаемое срабатывание детектива (прецедент
+# merge-ci-audit №551), а не регрессия: тумблеры — admin-действия
+# владельца, разбор — в gh#1000.
+
+on:
+  schedule:
+    - cron: "30 6 * * 1" # понедельник 06:30 UTC — после merge-ci-audit (05:00)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: branch-protection-audit (detective)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: The audit (divergence = red run; the state = fixated)
+        env:
+          BP_TOKEN: ${{ secrets.BRANCH_PROTECTION_TOKEN }}
+        run: python3 scripts/ci/branch_protection_audit.py --report-out branch-protection-report/branch_protection_report.txt
+      - name: The report into the job summary (even on RED/INFRA)
+        if: always()
+        run: cat branch-protection-report/branch_protection_report.txt >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "the report file was not produced" >> "$GITHUB_STEP_SUMMARY"
+      - name: The report artifact (the state-on-date record, even on RED/INFRA)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: branch-protection-report
+          path: branch-protection-report/
+          retention-days: 90

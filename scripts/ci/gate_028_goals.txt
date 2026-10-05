@@ -42,7 +42,14 @@ goal_quorum_den: 3
 # tag per its own condition, the syncing PR lands this record).
 # While the fact is nonzero, the gates are honestly RED — the counter
 # is machine-read, never hand-zeroed.
-fact_open_high_server: 0
+# The fact follows the LIVE machine counter (sync_gate_facts.py, the
+# GitHub API count of OPEN release-block issues) — never hand-zeroed.
+# Carrier: #1041 (№600, the audit 25b375e Y-1 RESPOND_SWALLOWED
+# regression) — open since the В31 issue publication; the fix PR
+# (#1054) keeps the issue OPEN after merge (Part of, not Closes — the
+# #997 lesson), the closure is the release naryad №602's act on the
+# live 0.28.2 tag (the В31 fact trajectory 0 -> 1 -> 0).
+fact_open_high_server: 1
 # The transfer domain quorum fact: (groups still carrying duplicates)
 # / (the №466 group total at the transfer start).
 # Source: `python3 scripts/ci/count_duplicated_names.py --quorum`

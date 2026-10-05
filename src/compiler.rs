@@ -3384,22 +3384,37 @@ impl Compiler {
     // the parsed AST and the semantic advisory still see the source shape —
     // the mid-route style hints are computed on the ORIGINAL body.
     fn route_body_with_terminal_responds(body: &[Statement]) -> Vec<Statement> {
-        Self::body_with_terminal_responds(body, false)
+        Self::body_with_terminal_responds(
+            body,
+            crate::semantic::RespondPosition::OnEarlyAnswerSurface,
+        )
     }
 
-    /// `direct_only` — the branch-body mode of a TOP-LEVEL block-form if
-    /// (Statement::IfElseBlock): only the branch's DIRECT bare respond*
+    /// №600: the recursion mode is the SSOT position predicate
+    /// (`semantic::RespondPosition`) — the lowering and the semantic walk
+    /// apply the SAME transitions (see the enum's transition table).
+    /// `DirectOnlyBranch` — the branch-body mode of a TOP-LEVEL block-form
+    /// if (Statement::IfElseBlock): only the branch's DIRECT bare respond*
     /// statements become `return`; the bodies of statements NESTED inside
     /// the branch keep the pre-№584 compilation (the TW serve lane discards
     /// nested-statement responses there — the lowering must NOT invent an
-    /// early answer the interpreter does not produce).
-    fn body_with_terminal_responds(body: &[Statement], direct_only: bool) -> Vec<Statement> {
+    /// early answer the interpreter does not produce). `SwallowedNested` is
+    /// never ENTERED by the lowering (it does not descend into nested
+    /// bodies from DirectOnlyBranch) — the semantic walk classifies those
+    /// sites as the blocking RESPOND_SWALLOWED refusal instead (№600).
+    fn body_with_terminal_responds(
+        body: &[Statement],
+        mode: crate::semantic::RespondPosition,
+    ) -> Vec<Statement> {
         body.iter()
-            .map(|s| Self::stmt_with_terminal_responds(s, direct_only))
+            .map(|s| Self::stmt_with_terminal_responds(s, mode))
             .collect()
     }
 
-    fn stmt_with_terminal_responds(stmt: &Statement, direct_only: bool) -> Statement {
+    fn stmt_with_terminal_responds(
+        stmt: &Statement,
+        mode: crate::semantic::RespondPosition,
+    ) -> Statement {
         match stmt {
             Statement::ExprStmt { expr, span } => {
                 if crate::semantic::bare_respond_call(expr) {
@@ -3416,7 +3431,7 @@ impl Compiler {
                 body,
                 span,
             } => {
-                if direct_only {
+                if mode != crate::semantic::RespondPosition::OnEarlyAnswerSurface {
                     // Nested under a top-level if/else branch — the serve
                     // lane discards its response; keep the pre-№584 shape.
                     stmt.clone()
@@ -3425,7 +3440,10 @@ impl Compiler {
                     // ANY depth — descend in full-terminal mode.
                     Statement::IfThen {
                         condition: condition.clone(),
-                        body: Self::body_with_terminal_responds(body, false),
+                        body: Self::body_with_terminal_responds(
+                            body,
+                            crate::semantic::RespondPosition::OnEarlyAnswerSurface,
+                        ),
                         span: span.clone(),
                     }
                 }
@@ -3437,26 +3455,38 @@ impl Compiler {
                 else_body,
                 span,
             } => {
-                if direct_only {
+                if mode != crate::semantic::RespondPosition::OnEarlyAnswerSurface {
                     // Nested under a top-level if/else branch — see above.
                     stmt.clone()
                 } else {
                     // TOP-LEVEL block-form if: the branch bodies run under
                     // the server's per-statement loop — their DIRECT bare
                     // respond* answers, everything nested is discarded
-                    // (direct_only mode below).
+                    // (DirectOnlyBranch mode below).
                     Statement::IfElseBlock {
                         condition: condition.clone(),
-                        then_body: Self::body_with_terminal_responds(then_body, true),
+                        then_body: Self::body_with_terminal_responds(
+                            then_body,
+                            crate::semantic::RespondPosition::DirectOnlyBranch,
+                        ),
                         else_ifs: else_ifs
                             .iter()
                             .map(|(cond, b)| {
-                                (cond.clone(), Self::body_with_terminal_responds(b, true))
+                                (
+                                    cond.clone(),
+                                    Self::body_with_terminal_responds(
+                                        b,
+                                        crate::semantic::RespondPosition::DirectOnlyBranch,
+                                    ),
+                                )
                             })
                             .collect(),
-                        else_body: else_body
-                            .as_ref()
-                            .map(|b| Self::body_with_terminal_responds(b, true)),
+                        else_body: else_body.as_ref().map(|b| {
+                            Self::body_with_terminal_responds(
+                                b,
+                                crate::semantic::RespondPosition::DirectOnlyBranch,
+                            )
+                        }),
                         span: span.clone(),
                     }
                 }
@@ -3467,7 +3497,7 @@ impl Compiler {
                 else_body,
                 span,
             } => {
-                if direct_only {
+                if mode != crate::semantic::RespondPosition::OnEarlyAnswerSurface {
                     stmt.clone()
                 } else {
                     // The Match surface propagates the early answer from ANY
@@ -3476,11 +3506,19 @@ impl Compiler {
                         scrutinee: scrutinee.clone(),
                         arms: arms
                             .iter()
-                            .map(|a| Self::arm_with_terminal_responds(a, false))
+                            .map(|a| {
+                                Self::arm_with_terminal_responds(
+                                    a,
+                                    crate::semantic::RespondPosition::OnEarlyAnswerSurface,
+                                )
+                            })
                             .collect(),
-                        else_body: else_body
-                            .as_ref()
-                            .map(|b| Self::body_with_terminal_responds(b, false)),
+                        else_body: else_body.as_ref().map(|b| {
+                            Self::body_with_terminal_responds(
+                                b,
+                                crate::semantic::RespondPosition::OnEarlyAnswerSurface,
+                            )
+                        }),
                         span: span.clone(),
                     }
                 }
@@ -3490,14 +3528,17 @@ impl Compiler {
                 body,
                 span,
             } => {
-                if direct_only {
+                if mode != crate::semantic::RespondPosition::OnEarlyAnswerSurface {
                     stmt.clone()
                 } else {
                     // Cycle bodies propagate from ANY depth — the first
                     // iteration answers (TW first-iteration parity).
                     Statement::While {
                         condition: condition.clone(),
-                        body: Self::body_with_terminal_responds(body, false),
+                        body: Self::body_with_terminal_responds(
+                            body,
+                            crate::semantic::RespondPosition::OnEarlyAnswerSurface,
+                        ),
                         span: span.clone(),
                     }
                 }
@@ -3508,13 +3549,16 @@ impl Compiler {
                 body,
                 span,
             } => {
-                if direct_only {
+                if mode != crate::semantic::RespondPosition::OnEarlyAnswerSurface {
                     stmt.clone()
                 } else {
                     Statement::Each {
                         variable: variable.clone(),
                         iterable: iterable.clone(),
-                        body: Self::body_with_terminal_responds(body, false),
+                        body: Self::body_with_terminal_responds(
+                            body,
+                            crate::semantic::RespondPosition::OnEarlyAnswerSurface,
+                        ),
                         span: span.clone(),
                     }
                 }
@@ -3526,14 +3570,17 @@ impl Compiler {
                 body,
                 span,
             } => {
-                if direct_only {
+                if mode != crate::semantic::RespondPosition::OnEarlyAnswerSurface {
                     stmt.clone()
                 } else {
                     Statement::EachWithIndex {
                         index_var: index_var.clone(),
                         item_var: item_var.clone(),
                         iterable: iterable.clone(),
-                        body: Self::body_with_terminal_responds(body, false),
+                        body: Self::body_with_terminal_responds(
+                            body,
+                            crate::semantic::RespondPosition::OnEarlyAnswerSurface,
+                        ),
                         span: span.clone(),
                     }
                 }
@@ -3555,24 +3602,24 @@ impl Compiler {
         }
     }
 
-    fn arm_with_terminal_responds(arm: &MatchArm, direct_only: bool) -> MatchArm {
+    fn arm_with_terminal_responds(
+        arm: &MatchArm,
+        mode: crate::semantic::RespondPosition,
+    ) -> MatchArm {
         match arm {
-            MatchArm::Exact(s, body) => MatchArm::Exact(
-                s.clone(),
-                Self::body_with_terminal_responds(body, direct_only),
-            ),
-            MatchArm::StartsWith(s, body) => MatchArm::StartsWith(
-                s.clone(),
-                Self::body_with_terminal_responds(body, direct_only),
-            ),
-            MatchArm::Contains(s, body) => MatchArm::Contains(
-                s.clone(),
-                Self::body_with_terminal_responds(body, direct_only),
-            ),
+            MatchArm::Exact(s, body) => {
+                MatchArm::Exact(s.clone(), Self::body_with_terminal_responds(body, mode))
+            }
+            MatchArm::StartsWith(s, body) => {
+                MatchArm::StartsWith(s.clone(), Self::body_with_terminal_responds(body, mode))
+            }
+            MatchArm::Contains(s, body) => {
+                MatchArm::Contains(s.clone(), Self::body_with_terminal_responds(body, mode))
+            }
             MatchArm::Compare(op, threshold, body) => MatchArm::Compare(
                 *op,
                 threshold.clone(),
-                Self::body_with_terminal_responds(body, direct_only),
+                Self::body_with_terminal_responds(body, mode),
             ),
         }
     }

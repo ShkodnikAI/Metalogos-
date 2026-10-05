@@ -10,9 +10,16 @@
 use crate::interpreter::values::Value;
 
 /// `vision_understand(image, prompt?, model?)` — the vision-understanding
-/// backend call (№334). `image` is the image payload reference (String);
-/// `prompt` is the question about the image; `model` defaults to the
-/// registry canon `molmoact2` (weights: molmoact2, allenai/MolmoAct2).
+/// backend call (№334). `image` is the image payload reference (String)
+/// OR an `Image` media handle (№599, ADR-0182 §3.3 step 1 — the
+/// multi-form overload posture of №493: the handle form ADDS capability,
+/// the String golden behavior is untouched). A handle materializes
+/// through the store's sanctioned read path (sealed entries decrypt only
+/// inside the sanctioned consumer — the PROCESSING posture, not byte
+/// egress); the handle's static label joins the result's label through
+/// the existing №323 inference (private image in → private description
+/// out). `prompt` is the question about the image; `model` defaults to
+/// the registry canon `molmoact2` (weights: molmoact2, allenai/MolmoAct2).
 pub(crate) fn builtin_vision_understand(args: &[Value]) -> Result<Value, String> {
     let fn_name = "vision_understand";
     if args.is_empty() || args.len() > 3 {

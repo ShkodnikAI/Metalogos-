@@ -491,6 +491,98 @@ pub fn media_bind_origin_dispatch(
     Ok(Value::Media(handle))
 }
 
+// ── №599 (ADR-0182 §3.3 step 1): the Image media-input bridge ────────
+//
+// `vision_understand(image, …)` and `ocr_extract(image, …)` gain a SECOND
+// input form (the №493 multi-form overload posture): argument 1 may be an
+// `Image` media handle — materialized through the store's SANCTIONED read
+// path (`MediaStore::materialize` — lazy, sealed entries decrypt only
+// inside the sanctioned consumer) and fed to the SAME stateless call body
+// the String form uses (one body per builtin over the shared registry —
+// ADR-0163's marshaling split; the golden behavior of the String forms is
+// untouched). The call is PROCESSING, not byte egress (the Voice
+// precedent): no likeness/consent credential is required here — the
+// handle's static label joins the RESULT's label through the existing
+// №323 inference (private image in → private description out) and the
+// №325 sink gate keeps governing every real egress. Any OTHER media kind
+// is a LOUD fail-closed refusal.
+
+/// Resolve the `image` argument of the two image-consuming backend
+/// builtins (№599). The String form passes through untouched (the golden
+/// path); the `MediaHandle::Image` form materializes through the store
+/// and is replaced by the payload string; any other media kind refuses
+/// loudly (fail-closed). The store's own "unknown handle" error surfaces
+/// for evicted/never-stored handles.
+fn resolve_image_input(
+    fn_name: &str,
+    store: &MediaStore,
+    args: &[Value],
+) -> Result<Vec<Value>, String> {
+    let Some(Value::Media(handle)) = args.first() else {
+        // String form (or an arity error the call body owns) — unchanged.
+        return Ok(args.to_vec());
+    };
+    // Fail-closed on a foreign kind: the handle TYPE is the language-level
+    // truth (an Audio handle can never name an Image entry through a
+    // sanctioned construction).
+    if handle.kind() != crate::media::MediaKind::Image {
+        return Err(format!(
+            "{}: image input must be an Image handle (or a String payload reference), got {} {} — \
+             the Audio/VideoFrame inputs join in the following naryads of the ADR-0182 line (№600+)",
+            fn_name,
+            handle.kind().type_name(),
+            handle
+        ));
+    }
+    // Defense-in-depth: the entry behind the handle must be an Image
+    // entry too (a direct store misuse cannot launder through the
+    // sanctioned read path).
+    let entry_kind = store.entry(*handle)?.kind;
+    if entry_kind != crate::media::MediaKind::Image {
+        return Err(format!(
+            "{}: media entry behind {} is kind '{}', not image — refusing loudly (fail-closed, №599)",
+            fn_name,
+            handle,
+            entry_kind.slug()
+        ));
+    }
+    // The sanctioned read path (lazy; decryption only inside the
+    // sanctioned consumer). The store's language-level constructions
+    // (`media_store_*`) carry String payloads, so the UTF-8 conversion
+    // succeeds for every sanctioned program; a non-UTF-8 payload (only
+    // reachable through the direct Rust store API) is a LOUD refusal —
+    // never a silent lossy rewrite.
+    let bytes = store.materialize(*handle)?;
+    let payload = String::from_utf8(bytes.to_vec()).map_err(|_| {
+        format!(
+            "{}: the payload of {} is not valid UTF-8 text — the sanctioned \
+             media constructions carry String payloads only; binary media \
+             ingestion is the real-inference path (PARKED by hardware, №294)",
+            fn_name, handle
+        )
+    })?;
+    let mut resolved = args.to_vec();
+    resolved[0] = Value::String(payload);
+    Ok(resolved)
+}
+
+/// `vision_understand(image, prompt?, model?)` — the store-backed input
+/// bridge (№599): resolves the Image-handle form through the store, then
+/// runs the stateless call body (the SSOT of the call contract). The
+/// String form routes through unchanged — the golden surface is shared.
+pub fn vision_understand_dispatch(store: &MediaStore, args: &[Value]) -> Result<Value, String> {
+    let args = resolve_image_input("vision_understand", store, args)?;
+    crate::vision::understand::builtin_vision_understand(&args)
+}
+
+/// `ocr_extract(image, lang?, model?)` — the store-backed input bridge
+/// (№599): the ocr twin of `vision_understand_dispatch` (one body per
+/// builtin, both backends route here).
+pub fn ocr_extract_dispatch(store: &MediaStore, args: &[Value]) -> Result<Value, String> {
+    let args = resolve_image_input("ocr_extract", store, args)?;
+    crate::vision::ocr::builtin_ocr_extract(&args)
+}
+
 // ── Registry last-resort handlers (лекало vision stubs) ──────────────
 //
 // The real paths are state-carrying: interpreter and VM intercept these

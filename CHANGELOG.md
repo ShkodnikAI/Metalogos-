@@ -4,6 +4,53 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №599 (issue #1029; the 0.29 cycle, [core]/[media]): the Image
+  media-input bridge — step 1 of 3 of the first implementation line of
+  ADR-0182 (Accepted, №598). `vision_understand` and `ocr_extract` accept
+  `Value::Media(MediaHandle::Image(_))` as the image argument (the №493
+  multi-form overload posture — the handle form ADDS capability, the
+  String forms' golden behavior is untouched): the payload materializes
+  through the store's SANCTIONED read path (`MediaStore::materialize` —
+  lazy; sealed entries decrypt only inside the sanctioned consumer; the
+  call is PROCESSING, not byte egress, per the Voice precedent — no
+  likeness/consent credential is requested and the at-rest sealing and
+  the `media_save` egress gate are untouched). The handle's static label
+  joins the result's label through the existing №323 machinery via a new
+  `label_source` rule for the two builtins: the IMAGE argument is the
+  data carrier (conf, integrity and the consent scope ride into the
+  result — «private image in → private description out»), the text
+  parameters contribute their conf/integrity only; without the rule the
+  generic argument join's bottom-started INTERSECTION consent join would
+  silently empty the handle's scope on every call (the consent ride
+  would be dead on arrival — pinned by the naryad's consent test).
+  Capability descriptors: `BackendEntry` grows `inputs: &[MediaKind]`
+  (ADR-0182 §3.2 — empty = text-only); the VisionUnderstanding/Ocr
+  records declare exactly `[Image]`, every other record stays empty
+  until the №600+ steps, and the table test fails on drift. TW/VM
+  parity: one shared dispatch per builtin
+  (`builtins::vision_understand_dispatch` / `ocr_extract_dispatch`)
+  over the interpreter's and the VM's own stores — the state-carrying
+  interception follows the №331 media-family pattern at both TW sites
+  (statement + expression) and the VM's `call_media_builtin`; the name
+  constants live in `src/media_ops.rs` (the №466 single-spelling
+  discipline — NOT in the №483-pinned `handles()` set). Foreign
+  MediaKind input refuses loudly (fail-closed, the kind named); a
+  forged Image-typed handle naming a non-Image entry cannot launder
+  through the sanctioned read path (the defense-in-depth entry-kind
+  check); non-UTF-8 payloads (direct-store API only) refuse loudly —
+  never a lossy rewrite. Bounds (№515): no new runtime state — no
+  in-flight tables, no caches, materialization is on-demand over the
+  existing per-run `MediaStore`; the inventory is unchanged. The
+  crosscheck corpus grows `examples/w1_media_vision_handle.mlog` (+
+  `.env`/`.expected`) — handle-input cases alongside the string ones,
+  no generative-contour growth. Tests: the new
+  naryad_599_image_bridge.rs (9 — the capability table pin, the
+  handle==string golden equality on both backends for both builtins,
+  the foreign-kind and forged-handle fail-closed refusals, the static
+  private-label and consent-ride joins, the sealed-entry PROCESSING
+  path, the create → use → drop lifecycle, the statement-position
+  path); №331/№407/№333/№334 corpora re-run green unchanged.
+
 - Naryad №584 (issue #998; the 0.29 cycle, [core]/[vm]): the X-1 step 2 —
   the VM respond-terminality PARITY. The route-body compiler
   (`compile_routes`) lowers every bare respond* statement to

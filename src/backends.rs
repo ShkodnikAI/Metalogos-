@@ -26,6 +26,17 @@
 //! licenses is OUT of scope (the issue's loud boundary): classes only.
 //! Unverified licenses are **restrictive by default-deny** — the
 //! `MODEL_WEIGHTS_UNSAFE` allowlist posture.
+//!
+//! ## The capability axis (№599, ADR-0182 §3.2)
+//!
+//! `inputs: &[MediaKind]` — the machine answer to "what media input does
+//! this backend accept" (empty = text-only). Filled per the §3.3 line:
+//! step 1 (this change) fills the VisionUnderstanding/Ocr records with
+//! `Image`; the Audio/VideoFrame steps (№600+) extend their own records.
+//! The field is the compile-time documentation of the media-input
+//! surface; record drift is caught by the table tests (naryad-599).
+
+use crate::media::MediaKind;
 
 /// The §7.6 MDL model classes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -157,6 +168,10 @@ pub struct BackendEntry {
     pub license: LicenseClass,
     /// The license and its classification basis (one line).
     pub license_note: &'static str,
+    /// №599 (ADR-0182 §3.2): the capability descriptor — the media input
+    /// kinds the backend accepts (empty = text-only). The selection key
+    /// for the fail-closed rule; drift is caught by the table tests.
+    pub inputs: &'static [MediaKind],
 }
 
 /// The backend SSOT (ADR-0163 §2.1). Seed entries — the models the tree
@@ -170,6 +185,7 @@ pub const BACKEND_REGISTRY: &[BackendEntry] = &[
         pin: ShaPin::PendingNo334,
         license: LicenseClass::Osi,
         license_note: "Chatterbox (Resemble AI) — MIT (osi)",
+        inputs: &[],
     },
     BackendEntry {
         name: "kokoro",
@@ -178,6 +194,7 @@ pub const BACKEND_REGISTRY: &[BackendEntry] = &[
         pin: ShaPin::PendingNo334,
         license: LicenseClass::Osi,
         license_note: "Kokoro-82M — Apache-2.0 (osi)",
+        inputs: &[],
     },
     BackendEntry {
         name: "z-image-turbo",
@@ -186,6 +203,9 @@ pub const BACKEND_REGISTRY: &[BackendEntry] = &[
         pin: ShaPin::PendingNo334,
         license: LicenseClass::Osi,
         license_note: "Z-Image Turbo (Tongyi) — Apache-2.0 (osi)",
+        // №599 (ADR-0182 §3.3 step 1): the capability descriptor — an
+        // image-understanding record consumes an Image handle.
+        inputs: &[MediaKind::Image],
     },
     BackendEntry {
         name: "molmoact2",
@@ -198,6 +218,9 @@ pub const BACKEND_REGISTRY: &[BackendEntry] = &[
         pin: ShaPin::Pinned("512674fc34842123fd4405fc72143bf8d48ee71165b0dc59e666132ca9447dc9"),
         license: LicenseClass::Osi,
         license_note: "MolmoAct2 (AllenAI lineage) — Apache-2.0 (osi)",
+        // №599: the canon vision-understanding wedge consumes an Image
+        // handle (the `vision_understand` bridge input).
+        inputs: &[MediaKind::Image],
     },
     BackendEntry {
         name: "wall-oss",
@@ -206,6 +229,7 @@ pub const BACKEND_REGISTRY: &[BackendEntry] = &[
         pin: ShaPin::PendingNo334,
         license: LicenseClass::Restrictive,
         license_note: "license NOT verified in-tree — restrictive by default-deny (allowlist posture, ADR-0163 §2.1) until a license record lands",
+        inputs: &[],
     },
     BackendEntry {
         name: "nemotron-omni",
@@ -217,6 +241,7 @@ pub const BACKEND_REGISTRY: &[BackendEntry] = &[
         pin: ShaPin::Pinned("de952574c9189925ad15f8cf164184117b6e5eec2d8b7f092e1268c1f0872244"),
         license: LicenseClass::NonOsi,
         license_note: "Nemotron — NVIDIA Open Model License (non-osi; the MDL-3 test case)",
+        inputs: &[],
     },
     // №334: the STT class joins the registry — the canon ASR wedge
     // (single-file artifact, the whole pin IS the artifact hash).
@@ -227,6 +252,7 @@ pub const BACKEND_REGISTRY: &[BackendEntry] = &[
         pin: ShaPin::Pinned("542566a422ae4f3fd23f1ba11add198fca01bbf82e66e6a2857b3f608b1eb9d1"),
         license: LicenseClass::Osi,
         license_note: "Whisper large-v3-turbo (OpenAI) — MIT (osi)",
+        inputs: &[],
     },
     // №407 (wave 4.5): the OCR class joins the registry — the canon
     // printed-text wedge (single-artifact manifest, the whisper-pin
@@ -242,6 +268,9 @@ pub const BACKEND_REGISTRY: &[BackendEntry] = &[
         pin: ShaPin::Pinned("1cf4a6eedab26afaaf505f1c7f73d9634944924dbd1ed049d569db98039cd596"),
         license: LicenseClass::Osi,
         license_note: "TrOCR base-printed (Microsoft) — MIT (osi)",
+        // №599: the canon OCR wedge consumes an Image handle (the
+        // `ocr_extract` bridge input).
+        inputs: &[MediaKind::Image],
     },
     // №408 (wave 4.5): the video-understanding class joins the registry —
     // the canon video-comprehension wedge. Pins are REAL HF LFS oids
@@ -260,6 +289,7 @@ pub const BACKEND_REGISTRY: &[BackendEntry] = &[
         pin: ShaPin::Pinned("e97b877e47fde53a6c6e77aafb36e58e91ee9d95c4a3eeac6f1b5c0e6a1c986e"),
         license: LicenseClass::Osi,
         license_note: "Qwen2.5-VL-7B-Instruct (Qwen) — Apache-2.0 (osi; HF cardData + tags)",
+        inputs: &[],
     },
     BackendEntry {
         name: "llava-video-7b",
@@ -268,6 +298,7 @@ pub const BACKEND_REGISTRY: &[BackendEntry] = &[
         pin: ShaPin::Pinned("2625213dd97a944180a7ba6776501709f6094e9c07295101518d69ca8ccfb5ad"),
         license: LicenseClass::Osi,
         license_note: "LLaVA-Video-7B-Qwen2 (lmms-lab) — Apache-2.0 (osi; HF cardData + tags)",
+        inputs: &[],
     },
     BackendEntry {
         name: "internvl3-8b",
@@ -276,6 +307,7 @@ pub const BACKEND_REGISTRY: &[BackendEntry] = &[
         pin: ShaPin::Pinned("7ea1f92eaae35cb927e7c7b0f87568ccc046a2446aa68066dfdccb7ebbe0c7f0"),
         license: LicenseClass::Osi,
         license_note: "InternVL3-8B (OpenGVLab) — Apache-2.0 per the HF card declaration (osi; cardData + tags; the naryad's MIT assumption was stale — no separate LICENSE text ships in the repo)",
+        inputs: &[],
     },
     // №355 (wave 10, registry В5 — Phase 5 «Embodied, sim-only»,
     // ADR-0159): the embodied-sim class joins the registry — the sim/
@@ -293,6 +325,7 @@ pub const BACKEND_REGISTRY: &[BackendEntry] = &[
         pin: ShaPin::PendingNo334,
         license: LicenseClass::Osi,
         license_note: "in-tree deterministic kinematics simulator — no external weights artifact exists (nothing to fetch or pin; the №334 loader never routes sim records); governed by the repository license (MIT OR Apache-2.0 — osi)",
+        inputs: &[],
     },
     BackendEntry {
         name: "embodied-mock-device",
@@ -301,6 +334,7 @@ pub const BACKEND_REGISTRY: &[BackendEntry] = &[
         pin: ShaPin::PendingNo334,
         license: LicenseClass::Osi,
         license_note: "in-tree mock device record (trace-recording contour, no kinematics) — no external weights artifact exists (nothing to fetch or pin; the №334 loader never routes sim records); governed by the repository license (MIT OR Apache-2.0 — osi)",
+        inputs: &[],
     },
     // №440 (the forecasting domain): the `timeseries` class joins the
     // registry — the degradation-ladder rungs of the forecast contour.
@@ -318,6 +352,7 @@ pub const BACKEND_REGISTRY: &[BackendEntry] = &[
         pin: ShaPin::PendingNo334,
         license: LicenseClass::Osi,
         license_note: "TimesFM 2.5 200m (google-research/timesfm) — Apache-2.0 (osi; HF weights google/timesfm-2.5-200m-pytorch); the 3.0 weights are non-commercial (timesfm-non-commercial-license-v1.0) and are PINNED NEVER — restrictive default-deny",
+        inputs: &[],
     },
     BackendEntry {
         name: "statsforecast",
@@ -326,6 +361,7 @@ pub const BACKEND_REGISTRY: &[BackendEntry] = &[
         pin: ShaPin::PendingNo334,
         license: LicenseClass::Osi,
         license_note: "Nixtla/statsforecast — Apache-2.0 (osi); a pure-software rung: no weights artifact exists (nothing to fetch or pin; the №334 loader never routes software records) — the external dependency is NOT vendored in-tree (documented dispatcher gap, Устав §11 Шаг 3)",
+        inputs: &[],
     },
     BackendEntry {
         name: "seasonal_naive",
@@ -334,6 +370,7 @@ pub const BACKEND_REGISTRY: &[BackendEntry] = &[
         pin: ShaPin::PendingNo334,
         license: LicenseClass::Osi,
         license_note: "built-in deterministic seasonal-naive rung (src/forecast.rs) — no external weights artifact exists (nothing to fetch or pin; the №334 loader never routes built-in records); governed by the repository license (MIT OR Apache-2.0 — osi)",
+        inputs: &[],
     },
 ];
 

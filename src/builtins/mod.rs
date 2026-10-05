@@ -397,7 +397,8 @@ pub use vision::{
 pub use media::{
     media_bind_origin_dispatch, media_manifest_dispatch, media_meta_dispatch,
     media_release_dispatch, media_retain_dispatch, media_save_dispatch,
-    media_source_capture_dispatch, media_store_dispatch,
+    media_source_capture_dispatch, media_store_dispatch, ocr_extract_dispatch,
+    vision_understand_dispatch,
 };
 // Наряд №333 (ADR-0163): backend registry listing.
 pub use backends::builtin_backend_list;

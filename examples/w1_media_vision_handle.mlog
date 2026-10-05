@@ -1,0 +1,21 @@
+// Наряд №599 (ADR-0182 §3.3 шаг 1): мост Image — `vision_understand` и
+// `ocr_extract` принимают Image-хэндл: полезная нагрузка материализуется
+// через санкционированный read-path store (лениво, запечатанная
+// расшифровывается только внутри санкционированного потребителя —
+// PROCESSING, не byte egress), ответ мока равен ответу строковой формы
+// (оверклоады ДОБАВЛЯЮТ возможность, №493; золотое поведение строк не
+// меняется). Метка хэндла входит в метку результата через №323.
+origin demo_gen { kind: generation, media: image, label: public }
+pattern Describe(_tick: String) -> String {
+  let frame = from demo_gen media_store_image("frame-bytes", "public")
+  let seen = vision_understand(frame, "what is this")
+  let text = ocr_extract(frame, "eng")
+  let _d = media_release(frame)
+  if seen == "[MOCK: vision_understand | molmoact2 | frame-bytes | what is this]" {
+    if text == "[MOCK: ocr_extract | trocr-base-printed | frame-bytes | eng]" {
+      return "bridge-ok"
+    }
+  }
+  return "bridge-broken"
+}
+flow Main { input: String = "tick" -> Describe -> output }

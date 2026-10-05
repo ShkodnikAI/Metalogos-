@@ -673,6 +673,25 @@ impl Interpreter {
                 .map_err(|e| format!("media store poisoned: {}", e))?;
             return crate::builtins::media_save_dispatch(&store, &args);
         }
+        // №599 (ADR-0182 §3.3 step 1): the Image media-input bridge — the
+        // store-carrying interception for the two image-consuming backend
+        // builtins. The Image-handle form materializes through the
+        // sanctioned read path; the String form routes through unchanged
+        // (the same shared dispatches the VM uses — one body per builtin).
+        if name == crate::media_ops::VISION_UNDERSTAND {
+            let store = self
+                .media_store
+                .lock()
+                .map_err(|e| format!("media store poisoned: {}", e))?;
+            return crate::builtins::vision_understand_dispatch(&store, &args);
+        }
+        if name == crate::media_ops::OCR_EXTRACT {
+            let store = self
+                .media_store
+                .lock()
+                .map_err(|e| format!("media store poisoned: {}", e))?;
+            return crate::builtins::ocr_extract_dispatch(&store, &args);
+        }
         // №397 (kitchen-camera e2e): consent as a RUNTIME credential —
         // the scope lands on the media entry (the runtime twin of the
         // static consented-egress rule; statement-position calls).
@@ -2035,6 +2054,23 @@ impl Interpreter {
                         .lock()
                         .map_err(|e| format!("media store poisoned: {}", e))?;
                     return crate::builtins::media_save_dispatch(&store, &eval_args);
+                }
+                // №599 (ADR-0182 §3.3 step 1): the Image media-input
+                // bridge — expression path, the same shared dispatches as
+                // the statement path above (лекало MEDIA_SAVE).
+                if name == crate::media_ops::VISION_UNDERSTAND {
+                    let store = self
+                        .media_store
+                        .lock()
+                        .map_err(|e| format!("media store poisoned: {}", e))?;
+                    return crate::builtins::vision_understand_dispatch(&store, &eval_args);
+                }
+                if name == crate::media_ops::OCR_EXTRACT {
+                    let store = self
+                        .media_store
+                        .lock()
+                        .map_err(|e| format!("media store poisoned: {}", e))?;
+                    return crate::builtins::ocr_extract_dispatch(&store, &eval_args);
                 }
                 // №397 (kitchen-camera e2e): consent as a RUNTIME
                 // credential — expression path, the same shared dispatches

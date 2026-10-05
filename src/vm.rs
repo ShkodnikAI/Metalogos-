@@ -2933,6 +2933,17 @@ impl Vm {
                 &self.media_store,
                 args,
             )),
+            // №599 (ADR-0182 §3.3 step 1): the Image media-input bridge —
+            // the store-carrying interception for the two image-consuming
+            // backend builtins (the SAME shared dispatch functions the
+            // interpreter uses; the String form routes through unchanged).
+            crate::media_ops::VISION_UNDERSTAND => Some(
+                crate::builtins::vision_understand_dispatch(&self.media_store, args),
+            ),
+            crate::media_ops::OCR_EXTRACT => Some(crate::builtins::ocr_extract_dispatch(
+                &self.media_store,
+                args,
+            )),
             // №397 (kitchen-camera e2e): consent as a RUNTIME credential —
             // the same shared dispatches the interpreter uses (the scope
             // lands on the VM's own store entry; the runtime twin of the

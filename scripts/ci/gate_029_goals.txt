@@ -3,9 +3,11 @@
 # the №570 draft parameters VERBATIM (the authorization record: «1. А,
 # 2.А, 3. Б. -выполняй», the owner's chat, 2026-10-04; ADR-0181 §3/§5 —
 # the fixation is the OWNER's gate, the executor ran the mechanical
-# edit and owns NOTHING about the values). The 0.29 gate still blocks
-# NOTHING until wired into the blocking CI (a separate decision,
-# ADR-0181 §6). The FACTS below carry the same
+# edit and owns NOTHING about the values). №597 (2026-10-05, the
+# owner's authorization: the accepted recommendation — the wiring):
+# the 0.29 read is WIRED into the blocking CI — the DEFAULT gate
+# target of unfreeze_gate.py (the №550 pattern; ADR-0181 §6). The
+# FACTS below carry the same
 # machine sources as the 0.28 record (the same checkers in
 # scripts/ci/sync_gate_facts.py verify them; no new fact_* key is
 # introduced without a checker — the fail-closed №525 rule).
@@ -49,11 +51,13 @@ goal_quorum_den: 3
 # the wave dispatch gh#1004 trajectory — 0 → 2 (the wave-29 issue:
 # №581 = the X-1 High fix + №583 = the 0.28.1 release carrier; the
 # honest-boundary rows live in docs/limitations.md since №580) → 1
-# (the №581 merge removes the №581 issue) → 0 (the live v0.28.1 tag
-# closes №583 and the release-block label). While the fact is 2, the
-# gate 0.29 is honestly RED (2 > goal 0, unfreeze_gate.py NOT MET) —
-# the goal stays 0 and the counter is machine-read, never hand-zeroed.
-fact_open_high_server: 1
+# (the №581 merge removes the №581 issue) → 0 (the LIVE v0.28.1 tag,
+# published 2026-10-05: the owner's gate №549 executed, the release
+# workflow green, the four assets verified; #997 closed on the live
+# tag per its own condition). While the fact is nonzero, the gate
+# 0.29 is honestly RED (unfreeze_gate.py NOT MET) — the goal stays 0
+# and the counter is machine-read, never hand-zeroed.
+fact_open_high_server: 0
 # The transfer domain quorum fact. Source:
 # `python3 scripts/ci/count_duplicated_names.py --quorum`; the same
 # checker verifies it (the live fact: 0 groups of 8 carry duplicates).

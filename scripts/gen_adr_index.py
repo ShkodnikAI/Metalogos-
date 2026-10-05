@@ -68,12 +68,16 @@ def extract_status(content: str) -> str:
     lines = content.splitlines()
     for i, line in enumerate(lines):
         stripped = line.strip()
-        candidate = stripped.lstrip(">").strip()
+        # №598: the bullet-metadata form (`- **Status:** X` / `- Status: X`)
+        # is real repo prose (ADR-0181) — the strip is part of the reader,
+        # not a special case.
+        candidate = re.sub(r"^[-*]\s+", "", stripped.lstrip(">").strip())
         # Single-line formats:
         #   `**Status:** Accepted` (English)
         #   `**Status**: Accepted` (colon outside bold)
         #   `**Статус**: Accepted` (Russian)
-        m = re.match(r"^\*\*(Status|Статус)\*?\*?\s*:\s*(.+)$", candidate)
+        #   `Status: Accepted` (bold-free, the bullet-metadata form)
+        m = re.match(r"^(?:\*\*)?(Status|Статус)(?:\*\*)?\s*:\s*(.+)$", candidate)
         if m:
             value = m.group(2).strip().strip("*`").strip()
             for sep in [" — ", " — ", " — ", " ; ", "; "]:

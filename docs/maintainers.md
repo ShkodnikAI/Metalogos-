@@ -107,6 +107,29 @@ the honest boundary — follow its issue text; the first-PR path lives in
 - The fresh-clone quickstart pass: README and CONTRIBUTING commands
   work verbatim on a clean machine — gh#875.
 
+## The honest-boundary protocol (№588, audit d63cc1d §8)
+
+Any "honest boundary" marker a PR adds to the diff (a commit body or a code
+comment: `honest boundary`, `pre-existing divergence`, `known divergence`)
+obliges, in the SAME PR:
+
+1. **A `docs/limitations.md` row** — the divergence leaves the git history
+   and becomes a fact the release gate reads (the limitations page is part
+   of the gate's fact surface).
+2. **If the divergence is security-relevant** — the `release-block` label on
+   the linking issue + an explicit flag line in the PR description (the
+   ADR-0179 §4 discipline; `fact_open_high_server` reads the label).
+
+The mechanical companion: the `Honest boundary protocol (advisory)` CI job
+(`scripts/ci/honest_boundary_check.py`) scans the PR's ADDED lines for the
+markers and warns loudly when `docs/limitations.md` is not among the changed
+files. Advisory by fact (the naryad's warn-only precedent; the blocking
+escalation is decided by the false-positive experience) — loudness is
+mandatory, the block is by fact, never silent. The forward-only boundary:
+the check reads added diff lines, never the landed history — the existing
+in-tree markers already carry their ADR/limitations records and no
+retrospective scan is performed (№588's boundary 4).
+
 ## When CI is down (the M-1 rule, №551)
 
 **No merges while GitHub Actions is degraded. A merge without a green

@@ -489,13 +489,30 @@ jobs:
       - name: Naryad number collision check
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ -z "$PR_TITLE" ]; then
             echo "Not a pull_request event — the naryad gate runs on PRs only."
             exit 0
           fi
-          python3 scripts/ci/naryad_number_check.py "$PR_TITLE"
+          python3 scripts/ci/naryad_number_check.py "$PR_TITLE" --body "$PR_BODY"
+
+  honest-boundary-check:
+    name: Honest boundary protocol (advisory)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Honest-boundary markers must land with a limitations.md row (№588)
+        run: |
+          if [ -z "${{ github.event.pull_request.title }}" ]; then
+            echo "Not a pull_request event — the advisory runs on PRs only."
+            exit 0
+          fi
+          git diff origin/main...HEAD > /tmp/pr.diff
+          python3 scripts/ci/honest_boundary_check.py --diff /tmp/pr.diff
 
   module-size-guard:
     name: module-size-guard (blocking)
@@ -727,7 +744,7 @@ jobs:
         run: |
           if [ "${{ steps.office_tests.outcome }}" = "success" ]; then OT=pass; else OT=fail; fi
           python3 scripts/ci/unfreeze_gate.py --office-tests "$OT"
-      - name: Upload the unfreeze summary artifact (the 0.27.0 release-gate read)
+      - name: Upload the unfreeze summary artifact (the gate read — the 0.29 default since №597)
         if: always()
         uses: actions/upload-artifact@v7
         with:

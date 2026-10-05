@@ -857,3 +857,64 @@ workflows follow the bin and the `release_bin_guard.py` blocking job
 re-runs the release-critical paths on every PR. The [Unreleased]
 CHANGELOG carries the wave-27 entries; the next release cut folds them
 per the №550 procedure.
+
+### 6.14. Wave 28 recount (naryad №579): the counters (main @ `d5af542`, 2026-10-05)
+
+Protocol: №414/№318/№576 — the same machines, no hand-written numbers.
+The honest headline: В28 was the pre-M1 delivery line + the domain-line
+reopening CONTOUR (a docs-only ADR) — the counters moved NOTHING, and
+that is the wave's honest fact: no ignore was lifted, no signature was
+typed, no mirror appeared; the floors hold exactly where В27 left them.
+The §3 subsystem weights stay as of the №476 recount (§6.12).
+
+**The Wave 28 counters (every value from its machine, the command
+reproduces it — all unchanged from §6.13):**
+
+| Counter | Value | Machine | Movement |
+|---|---|---|---|
+| Typed-signature share (№467) | **186/509 = 3654 bp** (the 0.29 owner-fixed goal 3500 bp stays exceeded — ADR-0181 §3) | `python3 scripts/ci/type_signature_share.py --gate scripts/ci/type_signature_baseline.txt` | unchanged (В28 carried no typing naryad) |
+| Precise typed share (№560) | **104/509 = 2043 bp** | `python3 scripts/ci/type_signature_share.py --gate scripts/ci/type_signature_precise_baseline.txt --precise` | unchanged |
+| `#[ignore]` debt (№468) | **17** (TODO: 0) | `python3 scripts/ci/debt_counters.py --gate scripts/ci/debt_baseline.txt` | unchanged |
+| `dead_code` (№468) | **33** | same gate | unchanged |
+| TW/VM duplicated builtin names (№462) | **0** (the quorum 0/8 groups) | `python3 scripts/ci/count_duplicated_names.py --quorum` | unchanged |
+| Registered mirrors (№502/№564) | **6** | `python3 scripts/ci/mirror_counter.py` | unchanged |
+| ADR count | **174** (the generated README row; `gen_metrics.py --check` green — №578's ADR-0182 is the 174th) | `python3 scripts/gen_metrics.py --check` | 173 → 174 (the ADR-0182 landing) |
+
+**The Wave 28 facts (the wave's own work, not counters):**
+
+- The pre-M1 delivery (№577, gh#983): the NLnet/Restack grants sync
+  landed 15 days before the 2026-10-20 deadline — the metrics one-pager
+  (the fresh snapshot, every number generator-read on the day), the CBM
+  pilot extract (the 2026-10-03 measurement), the M1 checklist. The
+  publication stays with the owner (M1 2026-11-03).
+- The domain line reopened BY CONTOUR (№578, gh#991): ADR-0182
+  (`docs/adr/0182-media-handles-backend-registry.md`, **Proposed**) —
+  the honest stock-taking (the unified media layer №331, the backend
+  registry №333 and the label lattice №322 are LANDED and built on),
+  the gap named (the five media-taking backends accept raw strings —
+  the ADR-0114 opacity discipline stops at the backend input; the
+  registry has no capability axis), the Wave-29 map (Image → Audio →
+  VideoFrame), the open questions to the owner (§7 of the ADR — the
+  gate: the implementation naryads are NOT issued without the answers).
+  Zero src edits — the diff is the ADR + the index (+ the generated
+  README metrics row the docs-metrics gate demanded).
+- The owner's gates executed in В28's frame: the Фаза-2 opening
+  (decision 3Б, machine-recorded in `gate_029_goals.txt`, gh#979), the
+  coverage floor 76% in gate mode (gh#980 — the advisory→blocking flip
+  fires itself after two stable waves, no naryad needed), the office
+  tails gh#989 (the typed-share cost arithmetic corrected, the
+  owner-fixed values untouched; ADR-0179 → IMPLEMENTED) and gh#990
+  (the FO-056 recount — the scenario pure-language again, gh#981
+  closed).
+
+**The release state:** 0.28.1 PUBLISHED (2026-10-05) — the owner's
+gate №549 executed: the tag v0.28.1 on `d5af542`, the release
+workflow green (run 37263503704), the four assets attached (binary,
+SBOM, BUILD-INFO, SHA256SUMS), the Security announcement in the
+release notes (the X-1 (High) guard bypass and the X-2 (Medium)
+leftover-local leak, both fixed 2026-10-04). The
+`fact_open_high_server` trajectory (№580) closed at **0** — the
+release-block carrier #997 closed on the live tag per its own
+condition; the syncing PR lands the machine records (both goals
+files, the [0.28.1] CHANGELOG date). Both v2 gate reads (0.28
+ADR-0179, 0.29 ADR-0181) are GREEN.

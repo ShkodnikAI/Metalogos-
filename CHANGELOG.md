@@ -4,6 +4,33 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №598 (issue #1026; the 0.29 cycle, [process]/[docs]): the
+  ADR-0182 §7 gate RESOLVED — the OWNER accepted the executor's
+  recommendations verbatim («Принимаю все твои рекомендации,
+  выполняй», 2026-10-05) and the five answers are fixed in the ADR
+  (the type names stay Image/Audio/VideoFrame; the String forms stay
+  as overloads per the №493 precedent — no deprecation in 0.29; the
+  order Image → Audio → VideoFrame confirmed with VideoSegment out of
+  the first line; the C2PA slice confirmed out; the production LLM
+  backend = registry entries behind the existing `llm` surface first,
+  sequenced after the bridge). Status Proposed → Accepted; the
+  implementation naryads are ISSUABLE (the Image bridge naryad
+  follows). The ADR index regeneration (№166 script) learned the
+  bullet-metadata status form (`- Status:` — ADR-0181's real prose)
+  and the bold-free match; the 0181 row un-regressed to the file's
+  own title and status.
+- Naryad №597 (issue #1025; the 0.29 cycle, [process]/[ci]): the 0.29
+  gate WIRED into the blocking CI — the DEFAULT gate target of
+  `unfreeze_gate.py` is 0.29 (the №550 pattern completed: the
+  parameters owner-fixed 2026-10-04 first, the CI ratchet after;
+  ADR-0181 §6 recorded). A bare CI run now reads the 0.29 ABSOLUTE
+  goals (typed share ≥ 3500 bp, 0 open High, the domain quorum, the
+  serve-e2e inventory — all MET at the wiring); the 0.28 and the
+  legacy readings stay explicit (--gate-target 0.28 / legacy). The
+  verdict behavior is unchanged (№580: RED is loud, the blocking exit
+  belongs to the release-time --strict read). The summary wording
+  drops the DRAFT state (OWNER-FIXED, wired); the ::error:: line
+  names the failed goal honestly.
 - Naryad №580 (issue #994; Wave 29 P0, [process]/[docs], the wave-29
   dispatch gh#1004 — STRICTLY FIRST): the gate honesty for the
   consolidated audit d63cc1d — the honest-boundary rows for the X-1
@@ -36,6 +63,36 @@ All notable changes to the Metalogos project.
   classes. The X-2 limitations row removed in the same PR; both closed
   rows archived verbatim (the №524/№571 rule).
 
+- Naryad №577 (issue #983; Wave 28 P2, [process]/[grants], the pre-M1
+  line): the pre-M1 NLnet/Restack grants sync — the grants package
+  (`metalogos-grants/nlnet-traction/`) refreshed for the 2026-10-20
+  delivery, 15 days ahead: the metrics one-pager re-snapshotted
+  (2026-10-05 — every number generator-read on the day: the typed
+  share 3654 bp / precise 2043 bp, the debt 17/0/33, the mirrors 6,
+  the 31 blocking cells; the release-day snapshot preserved below the
+  fresh one), the CBM pilot extract landed as
+  `03-code-intelligence-cbm.md` (the 2026-10-03 measurement), the M1
+  checklist drawn. The publication stays with the owner (M1
+  2026-11-03).
+- Naryad №578 (issue #991; Wave 28 P1, [process]/[arch], the domain
+  line's first naryad after the lift — the owner's decision 3Б,
+  machine-recorded in `gate_029_goals.txt`): **ADR-0182 — the
+  media-handle family and the backend-registry interface** (the
+  domain-line reopening contour, `docs/adr/0182-…`, **Proposed**) —
+  the honest stock-taking first (the unified media layer №331, the
+  backend registry №333 and the label lattice №322 are LANDED; the
+  naryad's draft fact base corrected loudly in the ADR), the gap the
+  contour closes named (all five media-taking backends accept raw
+  `Value::String` payloads — the ADR-0114 opacity discipline stops at
+  the backend input; the registry carries no capability axis), the
+  decision (the raw-string hatch closes; the registry gains
+  `inputs: &[MediaKind]` + fail-closed selection over the ADR-0165
+  ladder; the Wave-29 map Image → Audio → VideoFrame), the
+  alternatives with prices, and the open questions to the owner (§7 —
+  the implementation naryads are NOT issued without the answers).
+  Docs-only: the diff is the ADR + the index row (plus the missing
+  ADR-0181 index row and the generated README metrics row the
+  docs-metrics gate demanded). Zero src edits.
 
 - Naryad №572 (issue #973; Wave 27 P0, [process], the release-pipeline
   repair): the release workflows follow the bin — `build.yml`/
@@ -202,7 +259,7 @@ All notable changes to the Metalogos project.
   advisory job, №555-era); the threshold proposal rides the naryad
   report — the OWNER sets it (§16.0 гейт владельца).
 
-## [0.28.1] - Unreleased (staged 2026-10-05; the publication is the owner's gate, №549/gh#997)
+## [0.28.1] - 2026-10-05
 
 ### Security (UPDATE REQUIRED)
 

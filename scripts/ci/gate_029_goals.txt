@@ -57,7 +57,14 @@ goal_quorum_den: 3
 # tag per its own condition). While the fact is nonzero, the gate
 # 0.29 is honestly RED (unfreeze_gate.py NOT MET) — the goal stays 0
 # and the counter is machine-read, never hand-zeroed.
-fact_open_high_server: 0
+# The fact follows the LIVE machine counter (the GitHub API count of
+# OPEN release-block issues). Carrier: #1041 (№600, the audit
+# 25b375e Y-1 RESPOND_SWALLOWED regression); the closure is the
+# release naryad №602's act on the live 0.28.2 tag (the В31 fact
+# trajectory 0 -> 1 -> 0). While the fact is nonzero, the gate
+# 0.29 is honestly RED (unfreeze_gate.py NOT MET) — the goal stays 0
+# and the counter is machine-read, never hand-zeroed.
+fact_open_high_server: 1
 # The transfer domain quorum fact. Source:
 # `python3 scripts/ci/count_duplicated_names.py --quorum`; the same
 # checker verifies it (the live fact: 0 groups of 8 carry duplicates).

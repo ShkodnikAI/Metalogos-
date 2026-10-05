@@ -107,12 +107,6 @@ async fn http_post(port: u16, path: &str, query: &str) -> (u16, String) {
     (status, body)
 }
 
-/// №601: POST without a query string (the migrated-guard tests read
-/// `user` from the query — this helper posts one).
-async fn http_post_q(port: u16, path: &str, user: &str) -> (u16, String) {
-    http_post(port, path, &format!("user={user}")).await
-}
-
 // ── A: the audit guard WITHOUT return at the TOP-LEVEL if — still safe ──
 
 // The kv marker key is UNIQUE PER TEST: kv_store is process-global and the

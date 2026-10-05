@@ -4,6 +4,21 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №596 (issue #1021; Волна 30, [docs]): the post-wave record of
+  the Камертон enrichment wave, strictly last (the conveyor gh#529) —
+  REALITY §6.16 (the counters main @ `75438fa`: the registry 516 rows,
+  typed 194/516 = 3759 bp, precise 110/516 = 2131 bp — the wave moved
+  the language floors; debt 17/0/33, the quorum 0/8 and the mirrors 6
+  unchanged; ADR 175 — the wave's ADR-0183; the release state v0.28.1
+  live), the PLAN-SUMMARY current-wave → В30 with the wave row, this
+  consolidated record. The wave's seven new typed builtins
+  (`lomb_scargle`, `spectral_peak`, `now_unix`, `date_parse_iso`,
+  `date_diff_days`, `date_format_iso`, `normal_sample`) are each
+  recorded by their own entry below; the №590 tail repair re-opened the
+  classification generator (the OVERRIDES drift); the №594 third diff
+  axis (tick↔route) is tests-only. The limitations rows landed in their
+  own PRs per the №588 protocol (the Spectral Contour, the Schema
+  Evolution Boundary) — verified present by this sync.
 - Naryads №585/№587/№588 (issues #999/#1001/#1002; Wave 29,
   [testing]/[process]): the post-wave record of the three process lanes —
   №585: the route-body differential fuzzer (the audit d63cc1d lane: the

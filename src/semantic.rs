@@ -64,6 +64,23 @@ pub enum SemanticErrorKind {
     /// on BOTH backends (fail-closed); the migration is one word:
     /// `return respond(...)`.
     RespondNotTerminal,
+    /// №600 (the audit 25b375e Y-1, High, release-block): RESPOND_SWALLOWED —
+    /// a bare `respond*` call carried by a statement NESTED under a
+    /// top-level block-form `if/else` branch (depth ≥ 2). The serve lane's
+    /// per-statement walk of a top-level `IfElseBlock` branch discards the
+    /// value of every NESTED statement, so the response never reaches the
+    /// route on EITHER backend and the branch continues — the guard
+    /// `if is_admin(...) == false { respond("403") }` inside another
+    /// block-if silently falls through to the protected code. №584 lowered
+    /// the whole early-answer surface at once and this form lost the
+    /// fail-closed refusal it had under №581 — the regression is closed
+    /// fail-closed again: the finding is a BLOCKING error (run/serve), the
+    /// migration is one word — `return respond(...)`, the same shape the
+    /// current advisory already recommends. The precise surface enum lives
+    /// in `RespondPosition` (the SSOT predicate shared with the №584
+    /// lowering); the depth-≥2 semantics question itself (an early answer
+    /// everywhere vs the error forever) is a separate owner gate (№603).
+    RespondSwallowed,
     /// Every other semantic finding — blocks run/serve unconditionally.
     Other,
 }
@@ -81,6 +98,7 @@ impl SemanticErrorKind {
                 Some(crate::interpreter::values::CODE_UNDEFINED_FUNCTION)
             }
             SemanticErrorKind::RespondNotTerminal => Some(CODE_RESPOND_NOT_TERMINAL),
+            SemanticErrorKind::RespondSwallowed => Some(CODE_RESPOND_SWALLOWED),
             SemanticErrorKind::Other => None,
         }
     }
@@ -305,6 +323,69 @@ fn decl_import_ident(decl: &Declaration) -> Option<(String, String)> {
 /// CODE, not the prose).
 pub const CODE_RESPOND_NOT_TERMINAL: &str = "RESPOND_NOT_TERMINAL";
 
+/// №600 (the audit 25b375e Y-1, High): the stable №479 diagnostic code of
+/// the RESPOND_SWALLOWED refusal — a bare respond* carried by a statement
+/// nested under a top-level block-form if/else branch is discarded by the
+/// serve lane on BOTH backends (the guard-bypass regression №584 opened);
+/// the finding blocks run/serve again and the refusal stamps this code
+/// first (the №523 shape), so machine consumers read the CODE.
+pub const CODE_RESPOND_SWALLOWED: &str = "RESPOND_SWALLOWED";
+
+/// №600 (the audit 25b375e Y-1): the SSOT POSITION PREDICATE of the №584
+/// early-answer surface — ONE enumeration consumed by BOTH the semantic
+/// walk (`check_route_respond_terminality`) and the route-body compiler
+/// (`route_body_with_terminal_responds`, which reuses these variants as
+/// its recursion mode). The compiler is the REFERENCE enumerator (the TW
+/// serve lane is the etalon); the semantic check never invents a second
+/// enumeration — every position class below names the exact serve-lane
+/// behavior it mirrors:
+///
+///   * the route body's DIRECT statements answer immediately (the
+///     per-statement route walk turns a bare respond* value into the
+///     response);
+///   * `IfThen` / `Match` / cycle bodies propagate the HttpResponse from
+///     ANY depth (eval_block!'s ControlFlow::Return) — cycles answer on
+///     the FIRST iteration;
+///   * a TOP-LEVEL block-form if/else (`Statement::IfElseBlock`) branch
+///     is walked by a PER-STATEMENT loop in server.rs: a DIRECT bare
+///     respond* answers, but the value of every NESTED statement is
+///     DISCARDED and the branch continues — depth ≥ 2 does NOT stop the
+///     route (the compiler's reference comment, compiler.rs).
+///
+/// The transition table (both consumers walk the SAME transitions):
+///   route body → `OnEarlyAnswerSurface`;
+///   `OnEarlyAnswerSurface` + IfThen/Match/cycle body →
+///     `OnEarlyAnswerSurface` (the lowering descends in full-terminal
+///     mode; the bodies propagate from any depth);
+///   `OnEarlyAnswerSurface` + IfElseBlock branch → `DirectOnlyBranch`
+///     (only the branch's DIRECT bare respond* answers);
+///   `DirectOnlyBranch` + any NESTED statement body → `SwallowedNested`
+///     (the serve lane discards nested-statement responses; the lowering
+///     never descends here — it keeps the pre-№584 shape);
+///   `SwallowedNested` + anything → `SwallowedNested`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RespondPosition {
+    /// A bare respond* statement HERE answers the route early on BOTH
+    /// backends (the №584 lowering rewrites it to `return respond*(...)`):
+    /// the route body's direct statements and the IfThen/Match/cycle
+    /// bodies at any depth. The finding stays the style advisory
+    /// (RESPOND_NOT_TERMINAL, warnings) — the form works, `return
+    /// respond(...)` remains the recommended explicit shape.
+    OnEarlyAnswerSurface,
+    /// The DIRECT-statement surface of a top-level block-form if/else
+    /// branch: a DIRECT bare respond* still answers on both backends
+    /// (advisory as above), but every statement body NESTED here descends
+    /// to `SwallowedNested` — the per-statement branch walk discards
+    /// nested-statement values.
+    DirectOnlyBranch,
+    /// A statement body nested under a top-level block-form if/else branch
+    /// (depth ≥ 2): the serve lane discards EVERY response produced here
+    /// and the branch continues on BOTH backends — a bare respond* here is
+    /// the blocking `RESPOND_SWALLOWED` refusal (№600, fail-closed per the
+    /// №581 образец; the migration is one word: `return respond(...)`).
+    SwallowedNested,
+}
+
 /// №581: the four route-response builtins whose BARE (statement) form owns
 /// the early-answer semantics. Exactly the registry
 /// set (src/builtins/registry.rs, the "web" family) — a fifth name,
@@ -353,8 +434,8 @@ pub(crate) fn bare_respond_call(expr: &Expr) -> bool {
     }
 }
 
-/// №581 (the audit d63cc1d X-1) → №584 (X-1 step 2): the respond-terminality
-/// ADVISORY over route bodies.
+/// №581 (the audit d63cc1d X-1) → №584 (X-1 step 2) → №600 (the audit
+/// 25b375e Y-1): the respond-terminality walk over route bodies.
 ///
 /// THE HISTORY (why this walk exists): before №584 the VM honored a bare
 /// respond* only in the TAIL CHAIN (the route's final statement, or the
@@ -370,12 +451,30 @@ pub(crate) fn bare_respond_call(expr: &Expr) -> bool {
 /// top-level if/else branches. The VM stops at a bare respond* wherever
 /// the TW does.
 ///
-/// WHAT REMAINS HERE is a style advisory, not a gate: `return respond(...)`
-/// stays the RECOMMENDED form (the explicit early answer — self-documenting
-/// control flow, and the shape the entire pre-№584 corpus was migrated to).
-/// The advisory carries the stable `RESPOND_NOT_TERMINAL` code as its kind
-/// so machine consumers keep reading one tag; it is pushed to
-/// `result.warnings` and NEVER blocks run or serve.
+/// WHAT REMAINS ADVISORY is a style finding: `return respond(...)` stays
+/// the RECOMMENDED form (the explicit early answer — self-documenting
+/// control flow, and the shape the entire pre-№584 corpus was migrated
+/// to). The advisory carries the stable `RESPOND_NOT_TERMINAL` code as its
+/// kind so machine consumers keep reading one tag; it is pushed to
+/// `warnings` and NEVER blocks run or serve.
+///
+/// №600 RESTORED the fail-closed refusal for the ONE form the №584
+/// lowering does NOT reach: a bare respond* carried by a statement NESTED
+/// under a top-level block-form if/else branch (the serve lane's
+/// per-statement branch walk discards nested-statement responses on BOTH
+/// backends — the audit's guard `if is_admin(...) == false { respond("403")
+/// }` inside another block-if executed the protected DELETE for a
+/// non-admin under a style-only warning). №584 retired the №581 error for
+/// ALL forms at once, including this non-working one — the protection
+/// regression is closed here: the position predicate `RespondPosition`
+/// (the SSOT shared with the lowering — the compiler is the reference
+/// enumerator) classifies every respond* site, and a `SwallowedNested`
+/// site pushes the BLOCKING `RESPOND_SWALLOWED` error into `errors`
+/// (with Span and the one-word migration hint). False positives are
+/// impossible by construction: the predicate enumerates EXACTLY the
+/// positions the lowering rewrites; everything else on the early-answer
+/// surface keeps the advisory, and the positions the serve lane discards
+/// now refuse loudly.
 ///
 /// The recommended-form walk keeps the terminal-context recursion: a bare
 /// respond in the route's tail chain (the №574 shapes) is idiomatic as-is
@@ -384,15 +483,42 @@ pub(crate) fn bare_respond_call(expr: &Expr) -> bool {
 fn check_route_respond_terminality(
     stmts: &[Statement],
     terminal_ctx: bool,
+    position: RespondPosition,
     route_label: &str,
     warnings: &mut Vec<SpannedError>,
+    errors: &mut Vec<SpannedError>,
 ) {
     let last = stmts.len().checked_sub(1);
     for (i, stmt) in stmts.iter().enumerate() {
         let is_last = Some(i) == last;
         match stmt {
             Statement::ExprStmt { expr, span } => {
-                if bare_respond_call(expr) && !(terminal_ctx && is_last) {
+                if !bare_respond_call(expr) {
+                    continue;
+                }
+                if position == RespondPosition::SwallowedNested {
+                    // №600: the serve lane discards this response on BOTH
+                    // backends and the branch continues — the guard-bypass
+                    // regression. Fail-closed again (the №581 posture):
+                    // a blocking error with Span and the one-word fix.
+                    errors.push(
+                        SpannedError::at(
+                            format!(
+                                "respond() nested under a block-form if/else branch does NOT \
+                                 stop the route on either backend — write `return respond(...)`; \
+                                 ({route_label})"
+                            ),
+                            span.clone(),
+                        )
+                        .with_kind(SemanticErrorKind::RespondSwallowed),
+                    );
+                    continue;
+                }
+                // On the early-answer surface (direct route-body statements,
+                // IfThen/Match/cycle bodies, DIRECT statements of a top-level
+                // if/else branch): the form WORKS on both backends — style
+                // advisory only, per the tail-chain rules.
+                if !(terminal_ctx && is_last) {
                     warnings.push(
                         SpannedError::at(
                             format!(
@@ -410,12 +536,19 @@ fn check_route_respond_terminality(
                 // The recommended early-answer form on both backends — the
                 // respond* call under a `return` is never flagged.
             }
+            // IfThen/Match/cycle bodies: from the early-answer surface the
+            // bodies stay on it (the lowering descends in full-terminal
+            // mode — the bodies propagate the response from any depth);
+            // from DirectOnlyBranch or SwallowedNested everything below is
+            // swallowed (the serve lane discards nested-statement values).
             Statement::IfThen { body, .. } => {
                 check_route_respond_terminality(
                     body,
                     terminal_ctx && is_last,
+                    nested_respond_position(position),
                     route_label,
                     warnings,
+                    errors,
                 );
             }
             Statement::IfElseBlock {
@@ -424,13 +557,40 @@ fn check_route_respond_terminality(
                 else_body,
                 ..
             } => {
+                // The block-form if/else: a TOP-LEVEL one (entered from the
+                // early-answer surface) walks its branches per-statement —
+                // only the branch's DIRECT responds answer (DirectOnlyBranch);
+                // a NESTED one (already DirectOnlyBranch/SwallowedNested) is
+                // itself a discarded nested statement — swallowed below.
                 let branch_ctx = terminal_ctx && is_last;
-                check_route_respond_terminality(then_body, branch_ctx, route_label, warnings);
+                let branch_position = branch_respond_position(position);
+                check_route_respond_terminality(
+                    then_body,
+                    branch_ctx,
+                    branch_position,
+                    route_label,
+                    warnings,
+                    errors,
+                );
                 for (_, body) in else_ifs {
-                    check_route_respond_terminality(body, branch_ctx, route_label, warnings);
+                    check_route_respond_terminality(
+                        body,
+                        branch_ctx,
+                        branch_position,
+                        route_label,
+                        warnings,
+                        errors,
+                    );
                 }
                 if let Some(eb) = else_body {
-                    check_route_respond_terminality(eb, branch_ctx, route_label, warnings);
+                    check_route_respond_terminality(
+                        eb,
+                        branch_ctx,
+                        branch_position,
+                        route_label,
+                        warnings,
+                        errors,
+                    );
                 }
             }
             Statement::Match {
@@ -438,22 +598,44 @@ fn check_route_respond_terminality(
             } => {
                 let branch_ctx = terminal_ctx && is_last;
                 for arm in arms {
-                    check_route_respond_terminality(arm.body(), branch_ctx, route_label, warnings);
+                    check_route_respond_terminality(
+                        arm.body(),
+                        branch_ctx,
+                        nested_respond_position(position),
+                        route_label,
+                        warnings,
+                        errors,
+                    );
                 }
                 if let Some(eb) = else_body {
-                    check_route_respond_terminality(eb, branch_ctx, route_label, warnings);
+                    check_route_respond_terminality(
+                        eb,
+                        branch_ctx,
+                        nested_respond_position(position),
+                        route_label,
+                        warnings,
+                        errors,
+                    );
                 }
             }
             // Cycle bodies: the TW answers on the FIRST iteration (the
             // HttpResponse-as-Return propagation) and the №584 VM lowering
             // (Return inside the compiled loop body) answers on the first
             // iteration too — full parity, advisory severity like anywhere
-            // else. A bare respond inside a cycle is unusual style, hence
-            // the same return-form hint.
+            // else ON THE SURFACE; swallowed under a block-if branch like
+            // every other nested body. A bare respond inside a cycle is
+            // unusual style, hence the same return-form hint.
             Statement::While { body, .. }
             | Statement::Each { body, .. }
             | Statement::EachWithIndex { body, .. } => {
-                check_route_respond_terminality(body, false, route_label, warnings);
+                check_route_respond_terminality(
+                    body,
+                    false,
+                    nested_respond_position(position),
+                    route_label,
+                    warnings,
+                    errors,
+                );
             }
             // LetBinding/Assign/Memorize/Forget/Relate/Break/Continue
             // carry no statement bodies; a respond* consumed inside
@@ -470,15 +652,65 @@ fn check_route_respond_terminality(
     }
 }
 
+/// №600: the statement-body transition of the SSOT position predicate
+/// (IfThen/Match/cycle bodies — the surfaces that propagate the response
+/// from any depth). From the early-answer surface the bodies stay on it;
+/// from a top-level if/else branch (DirectOnlyBranch) or deeper under one
+/// (SwallowedNested) everything below is swallowed — the serve lane
+/// discards the whole nested statement's value. THE SAME transition the
+/// lowering applies when it decides whether to descend (compiler.rs: the
+/// non-surface modes keep the pre-№584 shape — no rewrite could make a
+/// discarded response answer).
+fn nested_respond_position(position: RespondPosition) -> RespondPosition {
+    match position {
+        RespondPosition::OnEarlyAnswerSurface => RespondPosition::OnEarlyAnswerSurface,
+        RespondPosition::DirectOnlyBranch | RespondPosition::SwallowedNested => {
+            RespondPosition::SwallowedNested
+        }
+    }
+}
+
+/// №600: the branch-body transition of the SSOT position predicate
+/// (Statement::IfElseBlock — the block-form if/else the serve lane walks
+/// per-statement). A TOP-LEVEL one (entered from the early-answer surface)
+/// puts its branches in DirectOnlyBranch (only the DIRECT bare respond*
+/// answers); a nested one is itself a discarded statement — its branches
+/// are swallowed. The lowering applies the SAME transition
+/// (compiler.rs: OnEarlyAnswerSurface descends the branches in
+/// DirectOnlyBranch mode; the other modes keep the pre-№584 shape).
+fn branch_respond_position(position: RespondPosition) -> RespondPosition {
+    match position {
+        RespondPosition::OnEarlyAnswerSurface => RespondPosition::DirectOnlyBranch,
+        RespondPosition::DirectOnlyBranch | RespondPosition::SwallowedNested => {
+            RespondPosition::SwallowedNested
+        }
+    }
+}
+
 /// №581: the declaration-level entry — every route of every server walks
-/// the terminality advisory. №584: the findings land in `warnings`
-/// (advisory); nothing here blocks run or serve anymore.
-fn check_respond_terminality(declarations: &[Declaration], warnings: &mut Vec<SpannedError>) {
+/// the respond-terminality classification. №584: the surface findings land
+/// in `warnings` (advisory); nothing on the early-answer surface blocks
+/// run or serve. №600: the swallowed sites (statements nested under a
+/// top-level block-form if/else branch) push the BLOCKING
+/// RESPOND_SWALLOWED error into `errors` — the fail-closed posture is
+/// restored exactly where the serve lane discards responses.
+fn check_respond_terminality(
+    declarations: &[Declaration],
+    warnings: &mut Vec<SpannedError>,
+    errors: &mut Vec<SpannedError>,
+) {
     for decl in declarations {
         if let Declaration::MlogServer(srv) = decl {
             for r in &srv.routes {
                 let label = format!("route {} {}", r.method, r.path);
-                check_route_respond_terminality(&r.body, true, &label, warnings);
+                check_route_respond_terminality(
+                    &r.body,
+                    true,
+                    RespondPosition::OnEarlyAnswerSurface,
+                    &label,
+                    warnings,
+                    errors,
+                );
             }
         }
     }
@@ -5651,13 +5883,18 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
     // reasons. Messages carry the [DENY_ prefix the run path blocks on.
     check_deny_events(declarations, &mut result.errors);
 
-    // №581 (the audit d63cc1d X-1) → №584 (X-1 step 2): the respond-terminality
-    // ADVISORY — a bare respond* outside the route's tail chain produces a
-    // style WARNING (the recommended form is `return respond(...)`); it does
-    // NOT block run or serve. The class itself is closed: the route-body
-    // compiler lowers bare respond* to Call+Return in ANY position (exact
-    // TW parity), so the fail-closed error of №581 is retired.
-    check_respond_terminality(declarations, &mut result.warnings);
+    // №581 (the audit d63cc1d X-1) → №584 (X-1 step 2) → №600 (the audit
+    // 25b375e Y-1, release-block): the respond-terminality walk. The
+    // early-answer surface keeps the style ADVISORY (a bare respond*
+    // outside the route's tail chain → WARNING, the recommended form is
+    // `return respond(...)`; the route-body compiler lowers it to
+    // Call+Return — exact TW parity). The ONE form the lowering does not
+    // reach — a bare respond* nested under a top-level block-form if/else
+    // branch, discarded by the serve lane on BOTH backends — is a
+    // BLOCKING RESPOND_SWALLOWED error again (fail-closed; №584 had
+    // retired the №581 error for ALL forms at once, including this
+    // non-working one — the audit's guard-bypass regression).
+    check_respond_terminality(declarations, &mut result.warnings, &mut result.errors);
 
     // First pass: collect all declarations (names)
     for decl in declarations {

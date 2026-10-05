@@ -410,3 +410,33 @@ impl ControlFlow {
         }
     }
 }
+
+/// №600/№601 (the audit 25b375e Y-1 repair): the outcome of evaluating a
+/// NESTED statement for the serve lane's top-level block-form if/else
+/// branch walk — the ONE consumer that must distinguish an explicit
+/// `return` signal from a statement's plain tail value.
+///
+/// THE WHY: `eval_statements_with_mutability` flattens
+/// `ControlFlow::Return(v)` into a plain `Ok(v)` (its public contract is a
+/// Value). The branch walk of the TW serve lane (server.rs
+/// `execute_route_body`) must DISCARD a nested statement's plain tail
+/// value (the etalon swallow — the pre-existing depth-≥2 posture, the
+/// owner gate №603 owns its semantics), but it must PROPAGATE an explicit
+/// `return respond(...)` — the sanctioned early answer the №600 migration
+/// names. The flattened Value cannot tell the two apart (a bare respond's
+/// tail value and a return's payload are both `Value::HttpResponse`), so
+/// the caller reads THIS outcome instead — the distinction is made inside
+/// the interpreter where `ControlFlow` still lives.
+pub enum NestedStatementOutcome {
+    /// The nested statement completed normally. Any tail value — including
+    /// a bare respond's HttpResponse — is DISCARDED by the branch walk
+    /// (the etalon; the bare form itself has been refused at startup by
+    /// the №600 RESPOND_SWALLOWED gate since the same wave).
+    Completed,
+    /// An explicit `return expr` executed inside the nested statement —
+    /// the sanctioned early-answer form on BOTH backends (the VM compiles
+    /// `return` to the Return instruction in every context). The branch
+    /// walk answers the route with this value — the one-word migration
+    /// path of №600 works end to end.
+    Returned(Value),
+}

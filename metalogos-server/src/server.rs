@@ -2694,12 +2694,43 @@ pub(crate) async fn execute_route_body(
                                         }
                                     }
                                     _ => {
-                                        // On a blocking thread, safe to call directly
-                                        interp.eval_statements_with_mutability(
+                                        // On a blocking thread, safe to call directly.
+                                        // №600/№601 repair (the audit 25b375e Y-1): the
+                                        // branch walk distinguishes an EXPLICIT `return`
+                                        // signal (the sanctioned early answer — the VM
+                                        // compiles Return in every context, so the
+                                        // migration path `return respond(...)` already
+                                        // answers there) from a plain tail value (the
+                                        // etalon swallow — discarded, the depth-≥2
+                                        // posture the owner gate №603 owns). Before this
+                                        // repair a nested `return respond(...)` was
+                                        // flattened by eval_statements_with_mutability
+                                        // and discarded here — a PRE-EXISTING DIVERGENCE
+                                        // (honest boundary: the TW silently diverged from
+                                        // the VM on the migration path; discovered by the
+                                        // №601-mandated test, present on main since №584;
+                                        // the limitations.md TW/VM row is updated in the
+                                        // same PR per the №588 protocol).
+                                        match interp.eval_nested_statement(
                                             std::slice::from_ref(s),
                                             &mut env,
                                             &mut mutable_vars,
-                                        )?;
+                                        ) {
+                                            Ok(metalogos::interpreter::types::NestedStatementOutcome::Completed) => {}
+                                            Ok(metalogos::interpreter::types::NestedStatementOutcome::Returned(val)) => {
+                                                let entries = interp.take_audit_log();
+                                                let sandbox = interp
+                                                    .get_active_sandbox()
+                                                    .map(|sb| sb.name.clone())
+                                                    .unwrap_or_default();
+                                                return Ok((
+                                                    Some(value_to_response(val)),
+                                                    entries,
+                                                    sandbox,
+                                                ));
+                                            }
+                                            Err(e) => return Err(e),
+                                        }
                                     }
                                 }
                             }

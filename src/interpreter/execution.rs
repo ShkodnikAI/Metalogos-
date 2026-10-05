@@ -1105,6 +1105,37 @@ impl Interpreter {
         }
     }
 
+    /// №600/№601 (the audit 25b375e Y-1 repair): the ControlFlow-preserving
+    /// variant for the serve lane's top-level block-form if/else branch
+    /// walk — see [`NestedStatementOutcome`] for the contract. The
+    /// flattening of `eval_statements_with_mutability` cannot tell an
+    /// explicit `return` from a plain tail value; this method keeps the
+    /// distinction so the branch walk can propagate the sanctioned early
+    /// answer (`return respond(...)`) while still discarding plain tail
+    /// values (the etalon swallow). break/continue map to the SAME error
+    /// `eval_statements_with_mutability` produces (behavior preservation
+    /// for every non-Return signal).
+    pub fn eval_nested_statement(
+        &self,
+        stmts: &[Statement],
+        env: &mut HashMap<String, Value>,
+        mutable_vars: &mut std::collections::HashSet<String>,
+    ) -> Result<crate::interpreter::types::NestedStatementOutcome, String> {
+        match self.eval_statements_cf(stmts, env, mutable_vars)? {
+            ControlFlow::Return(v) => Ok(
+                crate::interpreter::types::NestedStatementOutcome::Returned(v),
+            ),
+            ControlFlow::ContinueNormal(_) => {
+                Ok(crate::interpreter::types::NestedStatementOutcome::Completed)
+            }
+            ControlFlow::Break | ControlFlow::ContinueLoop => {
+                // Identical to the eval_statements_with_mutability mapping —
+                // break/continue at top level (not inside a loop) is an error.
+                Err("break/continue used outside of a loop".to_string())
+            }
+        }
+    }
+
     /// Наряд №266: shared execution of the memory operations. Used BOTH by the
     /// top-level declarations (Declaration::Memorize/Forget/Relate in `run`)
     /// AND by their statement forms inside pattern/route/hook/tool/test bodies

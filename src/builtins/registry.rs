@@ -1116,6 +1116,12 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("date_parse_iso", 1, "time"; builtin_date_parse_iso, "Float"),
     spec!("date_diff_days", 2, "time"; builtin_date_diff_days, "Float"),
     spec!("date_format_iso", 1, "time"; builtin_date_format_iso, "String"),
+    // ── №590 (Волна 30, Камертон Н1-05): the Box–Muller normal sampler over
+    // the shared PRNG — typed return, pure function, loud domain gate
+    // ([NORMAL_SAMPLE_STDDEV]). APPENDED at the end — inserting mid-array
+    // would shift existing CallBuiltin indices (.mbc contract).
+    // Registry 515→516 (append-only).
+    spec!("normal_sample", 2, "math"; builtin_normal_sample, "Float"),
 ];
 
 /// Total number of registered builtins.

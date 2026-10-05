@@ -304,6 +304,7 @@ mtree_stats|0|*
 mtree_store|2|2
 mtree_summarize|0|*
 newline|0|*
+normal_sample|2|2
 now|0|*
 now_unix|0|*
 ocr_extract|1|3

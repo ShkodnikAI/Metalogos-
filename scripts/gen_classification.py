@@ -362,6 +362,11 @@ OVERRIDES = {
     # ── web ──
     "respond": ("Sink", "Public", "Irreversible", "writes the HTTP response — public channel, cannot be unsent"),
     "respond_html": ("Sink", "Public", "Irreversible", "writes the HTTP response as HTML — public channel (escaping contract)"),
+    # №565 (drift repair: the rows existed in builtins_classification.rs but
+    # never made it into this curated table — the generator refused to run,
+    # found by №590 when regenerating for normal_sample).
+    "respond_html_status": ("Sink", "Public", "Irreversible", "№565: the explicit (status, body) HTML response — the same public-channel sink as respond_html (the explicit name is not a bypass)"),
+    "respond_html_doc": ("Sink", "Public", "Irreversible", "№565: the explicit (title, body) HTML document response — the same public-channel sink as respond_html (the explicit name is not a bypass)"),
     "form_data": ("Source", "Internal", "Pure", "ingests untrusted user form input — UserInput taint (№201 vocabulary)"),
     "json_body": ("Source", "Internal", "Pure", "ingests untrusted request body — UserInput taint"),
     "query_param": ("Source", "Internal", "Pure", "ingests untrusted request query parameter — UserInput taint"),
@@ -596,6 +601,10 @@ OVERRIDES = {
     "voice_design": ("Sink", "Internal", "Reversible", "persists a designed voice artifact"),
     "voice_save": ("Sink", "Internal", "Reversible", "persists a Voice artifact"),
     "voice_load": ("Source", "Internal", "Pure", "ingests a persisted Voice artifact"),
+    # №526 (drift repair: the rows existed in builtins_classification.rs but
+    # never made it into this curated table — see the respond_html note).
+    "voice_delete": ("Sink", "Internal", "Irreversible", "destructively erases a voiceprint or an audio artifact from the registry (GDPR Art. 17, №526) — no undo; the consent ledger rows survive by design (the Art. 9 consent proof, privacy.md §2.1)"),
+    "voice_list": ("Source", "Internal", "Pure", "lists the held voiceprints and audio artifacts (ids + models/sizes only — the biometric bytes never enter the result, №526)"),
     # ── registry (№333/№334/№335/№336 — Волна 2 backends/perception) ──
     "backend_list": ("Source", "Public", "Pure", "reads the static backend registry metadata (name/class/weights_id/pin/license — ADR-0163) — no weights bytes exist behind the entries"),
     "backend_select": ("Source", "Internal", "Pure", "backend try-chain over the №333 registry SSOT (№336, ADR-0165): picks the first available rung or returns Degraded(t) — a typed result, never a panic, never a silent mock; every attempt is an audit event"),

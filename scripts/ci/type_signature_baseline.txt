@@ -169,4 +169,18 @@
 # (ADR-0181).
 # typed: 193
 # total: 515
-# threshold_bp: 3747
+# (superseded) threshold_bp was 3747
+#
+# 2026-10-05 №590 (gh#1015, волна 30) — the merge-order rebase on
+# №591/№595 (the dispatch's rule: whoever merges last re-records the
+# CUMULATIVE triple): the Box–Muller normal sampler ships typed PRECISE
+# ("Float" — the verified single-shape handler fact: one Ok arm,
+# Value::Float; the №565 procedure). 193/515 → 194/516;
+# (194*10000)//516 = 3759 bp (+12 bp). The floor rises with the row that
+# earned it (the №757 procedure); the in-tree lock
+# (tests/type_signature_metric.rs TYPED_FLOOR) is raised in the SAME PR:
+# 189 → 190. The gate 0.29 goal stays satisfied: 3759 bp ≥ 3500
+# (ADR-0181).
+# typed: 194
+# total: 516
+# threshold_bp: 3759

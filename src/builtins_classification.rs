@@ -589,11 +589,6 @@ pub static BUILTIN_CLASSES: &[BuiltClassEntry] = &[
     BuiltClassEntry { name: "voice_design", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "persists a designed voice artifact" } },
     BuiltClassEntry { name: "voice_save", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "persists a Voice artifact" } },
     BuiltClassEntry { name: "voice_load", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "ingests a persisted Voice artifact" } },
-    // №526 (issue #835): the GDPR Art. 17 erasure path — the destructive
-    // side (sink, irreversible) and the informed-deletion listing (source,
-    // pure — metadata only, the biometric bytes never enter the result).
-    BuiltClassEntry { name: "voice_delete", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Irreversible, rationale: "destructively erases a voiceprint or an audio artifact from the registry (GDPR Art. 17, №526) — no undo; the consent ledger rows survive by design (the Art. 9 consent proof, privacy.md §2.1)" } },
-    BuiltClassEntry { name: "voice_list", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "lists the held voiceprints and audio artifacts (ids + models/sizes only — the biometric bytes never enter the result, №526)" } },
     BuiltClassEntry { name: "video_render", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "persists a generated video artifact in VIDEO_REGISTRY — local tiny pipeline; egress only at video_export" } },
     BuiltClassEntry { name: "video_export", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "writes the signed .mlgv container to disk — egress point (gate VIDEO_UNSIGNED_EXPORT, ADR-0151 D5)" } },
     BuiltClassEntry { name: "av_mux", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "persists the A/V sidecar container in VIDEO_REGISTRY (ADR-0151 D4)" } },
@@ -635,29 +630,15 @@ pub static BUILTIN_CLASSES: &[BuiltClassEntry] = &[
     BuiltClassEntry { name: "read_file_or", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "the №507 explicit-silence twin of read_file — ingests file content with the caller's default on a missing file (input by provenance; the loud branches shared with read_file)" } },
     BuiltClassEntry { name: "to_float_or", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     BuiltClassEntry { name: "to_int_or", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
-    // №591 (Волна 30): the spectral contour — the provably-pure `math`
-    // category default (zero effects, no state, no ingress/egress). These
-    // two rows are byte-identical to the generator's default emission for
-    // the non-risky `math` category; the generator RUN on main is blocked
-    // by the pre-existing OVERRIDES drift (the №590 PR carries the repair),
-    // so the rows are appended in the emitted form and the REFERENCE
-    // classification block is kept row-for-row in sync (the drift test).
+    BuiltClassEntry { name: "voice_delete", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Irreversible, rationale: "destructively erases a voiceprint or an audio artifact from the registry (GDPR Art. 17, №526) — no undo; the consent ledger rows survive by design (the Art. 9 consent proof, privacy.md §2.1)" } },
+    BuiltClassEntry { name: "voice_list", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "lists the held voiceprints and audio artifacts (ids + models/sizes only — the biometric bytes never enter the result, №526)" } },
     BuiltClassEntry { name: "lomb_scargle", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     BuiltClassEntry { name: "spectral_peak", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
-    // №595 (Волна 30): the UTC calendar surface. now_unix reads the WALL
-    // CLOCK — the №316 Source semantics — so it carries an EXPLICIT
-    // override, NOT the silent default; the other three are the
-    // provably-pure `time` category default (closed-form calendar
-    // arithmetic; parsing already-present bytes is Pure). The rows are
-    // exactly what gen_classification.py emits (the generator RUN on main
-    // is blocked by the pre-existing OVERRIDES drift — the №590 PR
-    // carries the repair; the OVERRIDES entry for now_unix is added in
-    // this PR); the REFERENCE classification block is kept row-for-row in
-    // sync (the drift test).
     BuiltClassEntry { name: "now_unix", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "reads the wall clock — the epoch-seconds read carries provenance (the №316 Source semantics: wall clock); the UTC-facing twin of now()" } },
     BuiltClassEntry { name: "date_parse_iso", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     BuiltClassEntry { name: "date_diff_days", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     BuiltClassEntry { name: "date_format_iso", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
+    BuiltClassEntry { name: "normal_sample", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
 ];
 
 #[cfg(test)]

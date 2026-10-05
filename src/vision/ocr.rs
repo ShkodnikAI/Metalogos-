@@ -13,7 +13,9 @@
 use crate::interpreter::values::Value;
 
 /// `ocr_extract(image, lang?, model?)` — the OCR backend call (№407).
-/// `image` is the image payload reference (String); `lang` is the
+/// `image` is the image payload reference (String) OR an `Image` media
+/// handle (№599, ADR-0182 §3.3 step 1 — the store-backed bridge, the
+/// vision_understand overload posture verbatim). `lang` is the
 /// recognition language hint (e.g. "eng"); `model` defaults to the
 /// registry canon `trocr-base-printed` (weights: trocr-base-printed,
 /// microsoft/trocr-base-printed).

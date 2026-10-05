@@ -778,6 +778,35 @@ fn label_source(fn_name: &str, args: &[Expr], env: &BTreeMap<String, Label>) -> 
             integrity: crate::labels::Integrity::Untrusted,
             consent: Default::default(),
         }),
+        // №599 (ADR-0182 §3.3 step 1): the Image media-input bridge —
+        // the result label is the IMAGE argument's label: the image is
+        // the DATA carrier, so its conf, integrity AND consent scope
+        // ride into the description (the ADR's «private image in →
+        // private description out» and the consent-scope-on-the-carrier
+        // promise). The text parameters (prompt / lang / model)
+        // contribute their conf and integrity conservatively — the
+        // answer can mirror their content — but NOT their consent
+        // scopes: a scope covers the data it was granted FOR, and the
+        // description is the image's content, not the prompt's (the
+        // prompt's own protection rides its conf axis). Without this
+        // rule the generic argument join would start from `bottom` and
+        // its intersection consent join would silently EMPTY the
+        // handle's scope on every call — the consent ride the ADR
+        // commits to would be dead on arrival (pinned by the
+        // naryad-599 consent test; the string form's labels are
+        // unchanged — its literals carry bottom anyway).
+        "vision_understand" | "ocr_extract" => {
+            let mut out = args
+                .first()
+                .map(|a| expr_label(a, env))
+                .unwrap_or_else(Label::bottom);
+            for a in args.iter().skip(1) {
+                let l = expr_label(a, env);
+                out.conf = out.conf.join(l.conf);
+                out.integrity = out.integrity.join(l.integrity);
+            }
+            Some(out)
+        }
         _ => None,
     }
 }

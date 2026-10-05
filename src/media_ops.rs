@@ -3,6 +3,14 @@
 //! the twenty media/vision builtin NAMES (gate gh#680, decision 4-A;
 //! the threshold 20 → 0 — the transfer's fact).
 //!
+//! №599 (ADR-0182 §3.3 step 1): two more name constants joined the
+//! module (`VISION_UNDERSTAND`, `OCR_EXTRACT`) — the media-input bridge
+//! intercepts those names on BOTH backends with the store in hand, so
+//! the №466 single-spelling discipline applies to them too. They are
+//! deliberately NOT members of `handles()`: that set is the
+//! №483-transferred twenty, pinned EXACTLY by the naryad-483 test (a
+//! new member would be drift); the constants serve dispatch only.
+//!
 //! The №480 boundary holds: this is a NAME transfer, not a logic
 //! unification — the per-backend dispatch bodies stay where they are
 //! (the TW keeps its interpreter-state dispatch in
@@ -60,10 +68,25 @@ pub const VISION_LORA_GENERATE: &str = "vision_lora_generate";
 pub const VISION_LORA_LOAD: &str = "vision_lora_load";
 /// `vision_save` — the vision save surface.
 pub const VISION_SAVE: &str = "vision_save";
+/// `vision_understand` — the vision-understanding backend surface (the
+/// №599 media-input bridge: the TW and the VM intercept the name with
+/// their own stores; ADR-0182 §3.3 step 1). NOT a member of `handles()`
+/// — that set is the №483-transferred twenty, pinned by test; this
+/// constant exists for the №466 discipline (the name is spelled ONCE
+/// outside `BUILTIN_REGISTRY`, the backends compare against the
+/// constant, the №462 counter stays at zero).
+pub const VISION_UNDERSTAND: &str = "vision_understand";
+/// `ocr_extract` — the OCR backend surface (the №599 media-input
+/// bridge; the same `handles()`-excluded constant discipline as
+/// `VISION_UNDERSTAND`).
+pub const OCR_EXTRACT: &str = "ocr_extract";
 
 /// The media/vision names this module owns — the live membership hook
 /// (the audit/semantic tooling and both backends' dispatch prologues ask
-/// this instead of re-spelling the twenty literals).
+/// this instead of re-spelling the twenty literals). №599: the two
+/// bridge constants stay OUT of this hook (the №483 pinned set is
+/// exactly the transferred twenty — membership is test-pinned, not
+/// implied by the constant's presence).
 pub fn handles(name: &str) -> bool {
     matches!(
         name,

@@ -38,7 +38,8 @@
 | Wave 24 (dispatch #888) | Development per ПСРМ after В22/В23: the cycle sync + the actuality audit №2, the typing top-up to the 3000 bp gate, the typed-stage 2 strictly behind the gate, the crate split, the 0.28 window prep, the NLnet traction | Executed (naryads №542–№549, PRs #889–#902, 2026-10-01; the 0.28 gate floor reached — 3195 bp) |
 | Wave 25 (gh#911–928) | The 0.28.0 release prep: the CHANGELOG sectioning, the audit 02.10 reaction (the explicit respond_html forms, the registry-vs-corpus validator, the precise-share second floor, the tag↔main gap gate, the read_file loud refusal, the mirror widening, the generated grantors' digest, the GFI pool policy), the release cut | Executed (17 naryads, PRs #937–#963; tag v0.28.0, 2026-10-03) |
 | Wave 26 (gh#931–936) | The post-0.28.0 development: the crate split stage 2 (metalogos-server lands — the transport contour + the mlog bin leave the language crate), the html_label walks unify (stage 3), the debt-honesty classification (the counter strictified, the ledger gh#967), the 0.29 gate draft + the OWNER FIXATION (ADR-0181, 2026-10-04), the coverage floor 76% line, the limitations archive fold | Executed (5 naryads, PRs #968–#982, 2026-10-03–04) |
-| Wave 27 (dispatch gh#978) | Development per ПСРМ after В25+В26: the release-pipeline repair (P0 — the release workflows follow the bin, the release-bin-guard), the typing step 0.29 №1, the VM json_body serve contract, the recall lane ranking, the post-wave docs | In force since 2026-10-04 |
+| Wave 27 (dispatch gh#978) | Development per ПСРМ after В25+В26: the release-pipeline repair (P0 — the release workflows follow the bin, the release-bin-guard), the typing step 0.29 №1, the VM json_body serve contract, the recall lane ranking, the post-wave docs | Executed (5 naryads, PRs #984–#988, 2026-10-04; the 0.29 draft goal 3500 bp overdelivered — 3654 bp) |
+| Wave 28 (dispatch gh#993) | The pre-M1 line + the domain-line reopening: the pre-M1 NLnet/Restack grants sync (№577 — the delivery 15 days before the 2026-10-20 deadline, M1 2026-11-03), ADR-0182 — the media-handle family + the backend-registry interface contour (№578, docs-only; the owner's §7 answers are the Wave-29 gate), the post-wave docs (№579, strictly last) | Executed (3 naryads, PRs #1006/#1012, 2026-10-05; the counters unchanged — the honest wave fact) |
 
 ## List of phases (no rationale, no timelines)
 
@@ -70,23 +71,22 @@ they reside in the canon held by the coordinator (§16.0-7).
 - C2PA mini-slice: manifest read/write, Art 50 labeling — a narrow slice (#320).
 - Completion-audits of Wave 0 — accepted (gh#404–#406).
 
-## Current wave — Wave 27 (dispatch gh#978, 2026-10-04)
+## Current wave — Wave 28 (dispatch gh#993, 2026-10-05)
 
-The development cycle per ПСРМ after the executed В25+В26 (the verification
-conveyor t91_state.py: В25 17/17 closed with cross-ref PRs, В26 5/5 closed
-with completion-audits, the tag v0.28.0 published with the binary + the
-CycloneDX SBOM + Sigstore): the release-pipeline repair (№572, P0 — the
-release workflows follow the mlog bin into metalogos-server, the
-release-bin-guard blocking job closes the "release workflows are covered by
-nothing" gap the №567 regression exposed), the typing step 0.29 №1 (№573,
-P1 — the №543 line toward the owner-fixed 3500 bp goal of ADR-0181), the
-VM json_body serve contract (№574, P1 — the ledger gh#967 §2 lane), the
-recall lane ranking and the forget/recall consistency (№575, P2 — the
-ledger gh#967 §1 lane), and the post-wave docs sync (№576, P2 — strictly
-last). Naryads: №572–№576 (gh#973–#977). The wave rules: the typing floor
-moves only up; the debt/pairs/mirrors/stop-list only down; the 9 ignore
-lifts (№574+№575) re-lock the floor down per the №569 procedure; no domain
-opens by a naryad.
+The pre-M1 delivery line + the domain-line reopening per the owner's
+decision 3Б (2026-10-04, machine-recorded in `scripts/ci/gate_029_goals.txt`,
+gh#979; the freeze ADR-0177 Lifted 2026-09-27): the pre-M1 grants sync
+(№577, P2 — the NLnet/Restack package synchronized to 2026-10-20, the
+CBM pilot extract, the M1 checklist; the publication stays with the
+owner), ADR-0182 (№578, P1, process/arch — the media-handle family +
+the backend-registry interface, the domain line's first naryad after
+the lift; docs-only, **Proposed** — the owner's §7 answers are the
+gate of the implementation line in В29), and the post-wave docs sync
+(№579, P2 — strictly last, this section). Naryads: №577–№579
+(gh#983, gh#991, gh#992). The wave rules: the domain opens BY CONTOUR
+only (zero src edits in the opening naryad); the counters move nothing
+(the wave carried no typing/debt naryads — the floors hold where В27
+left them); the priority is the M1 deadline (2026-11-03).
 
 <!-- BEGIN GENERATED NUMBERS (scripts/gen_metrics.py — do not edit inside) -->
 | Machine fact (generated — do not hand-edit) | Value |

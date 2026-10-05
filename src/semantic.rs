@@ -411,7 +411,12 @@ fn check_route_respond_terminality(
                 // respond* call under a `return` is never flagged.
             }
             Statement::IfThen { body, .. } => {
-                check_route_respond_terminality(body, terminal_ctx && is_last, route_label, warnings);
+                check_route_respond_terminality(
+                    body,
+                    terminal_ctx && is_last,
+                    route_label,
+                    warnings,
+                );
             }
             Statement::IfElseBlock {
                 then_body,

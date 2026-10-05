@@ -132,7 +132,10 @@ async fn n584_bare_guard_vm_admin_path_runs() {
     let port = start(&src, ServeBackend::Vm).await;
     let (status, body) = http_post(port, "/purge", "user=admin").await;
     assert_eq!(status, 200, "VM: the admin path must serve");
-    assert_eq!(body, "purged", "VM: the admin path must run the protected code");
+    assert_eq!(
+        body, "purged",
+        "VM: the admin path must run the protected code"
+    );
     let (_, marker) = http_get(port, "/purge_ran").await;
     assert_eq!(marker, "1", "VM: the protected code ran for the admin");
 }
@@ -143,7 +146,10 @@ async fn n584_bare_guard_interpreter_admin_path_runs() {
     let port = start(&src, ServeBackend::Interpreter).await;
     let (status, body) = http_post(port, "/purge", "user=admin").await;
     assert_eq!(status, 200, "TW: the admin path must serve");
-    assert_eq!(body, "purged", "TW: the admin path must run the protected code");
+    assert_eq!(
+        body, "purged",
+        "TW: the admin path must run the protected code"
+    );
     let (_, marker) = http_get(port, "/purge_ran").await;
     assert_eq!(marker, "1", "TW: the protected code ran for the admin");
 }

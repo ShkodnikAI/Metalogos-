@@ -3538,11 +3538,20 @@ impl Compiler {
                     }
                 }
             }
-            // LetBinding/Assign/Memorize/Forget/Relate/Break/Continue carry
-            // no statement bodies; a respond* inside their VALUE expressions
-            // is consumed inline on both backends (never the early-answer
-            // class) — pass through untouched.
-            other => other.clone(),
+            // LetBinding/Assign/Return/Memorize/Forget/Relate/Break/Continue
+            // carry no statement bodies (Return is the sanctioned early
+            // answer — never rewritten); a respond* inside their VALUE
+            // expressions is consumed inline on both backends (never the
+            // early-answer class) — pass through untouched. (№532 posture:
+            // enumerated, no wildcard arm.)
+            Statement::LetBinding { .. }
+            | Statement::Assign { .. }
+            | Statement::Return { .. }
+            | Statement::Memorize(_)
+            | Statement::Forget(_)
+            | Statement::Relate(_)
+            | Statement::Break
+            | Statement::Continue => stmt.clone(),
         }
     }
 

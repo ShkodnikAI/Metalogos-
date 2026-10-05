@@ -4,6 +4,30 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №584 (issue #998; the 0.29 cycle, [core]/[vm]): the X-1 step 2 —
+  the VM respond-terminality PARITY. The route-body compiler
+  (`compile_routes`) lowers every bare respond* statement to
+  `return respond*(...)` on the TW early-answer surface: the route
+  body's direct statements (any position, not just the tail), the
+  IfThen/Match/cycle bodies (any nesting depth; cycles answer on the
+  FIRST iteration), and the DIRECT statements of top-level if/else
+  branches. The TW serve lane is the etalon and is NOT changed: under
+  a top-level block-form if a response carried by a NESTED statement
+  is discarded and the branch continues — the form-specific surface
+  the lowering mirrors verbatim (the pre-existing depth-2 posture is
+  preserved, not re-shaped). The №581 RESPOND_NOT_TERMINAL gate is
+  retired to a style ADVISORY: the finding lands in warnings (the
+  stable code stays machine-readable, the return-form hint survives)
+  and never blocks run or serve; `return respond(...)` remains the
+  recommended explicit early-answer form. Tests: the new
+  naryad_584_respond_terminal_anywhere.rs (12 — the audit guard
+  WITHOUT return on both backends with the kv-marker proof, the
+  match/while/each/guard-chain surfaces, the depth-2 swallow, the
+  №582 epilogue invariant, the advisory matrix); naryad_581 re-pinned
+  to the post-№584 contract (11); the №585 route-body fuzzer now
+  HTTP-diffs the WHOLE audit-shape space (200/200 programs served,
+  zero divergences; the guard seed made deterministically fired so a
+  Pop-revert regression is caught on the HTTP surface).
 - Naryad №598 (issue #1026; the 0.29 cycle, [process]/[docs]): the
   ADR-0182 §7 gate RESOLVED — the OWNER accepted the executor's
   recommendations verbatim («Принимаю все твои рекомендации,

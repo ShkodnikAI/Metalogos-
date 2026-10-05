@@ -1,4 +1,4 @@
-# ADR-0181: Release gate 0.29 criteria
+# ADR-0181: The 0.29 Release Gate — the Absolute-Goals Criteria (owner-fixed 2026-10-04)
 
 - Status: Accepted (the parameters fixed by the OWNER, 2026-10-04)
 - Date: 2026-10-03

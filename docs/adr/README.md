@@ -220,7 +220,7 @@ real ADRs (№309/№320/№412) before the booking.
 | 0176 | The plan-v2 memory contract — the SSOT of the memory surface | Accepted |
 | 0177 | The domain freeze until 0.27 — no new subsystems, the core first | Lifted |
 | 0178 | The generative contour boundary — experimental, scoped, exit-ready | Accepted |
-| 0179 | The 0.28 Release Gate — the Absolute-Goals Criteria (v2) | IMPLEMENTED |
+| 0179 | The 0.28 Release Gate — the Absolute-Goals Criteria (v2) | IMPLEMENTED (2026-10-05) |
 | 0180 | The Soft-Failure Naming Rule — "Silence Is Visible in the Name" | ACCEPTED |
-| 0181 | The 0.29 Release Gate — the Absolute-Goals Criteria (owner-fixed 2026-10-04) | Accepted |
-| 0182 | The media-handle family and the backend-registry interface — the domain-line reopening contour | Proposed |
+| 0181 | The 0.29 Release Gate — the Absolute-Goals Criteria (owner-fixed 2026-10-04) | Accepted (the parameters fixed by the OWNER, 2026-10-04) |
+| 0182 | The media-handle family and the backend-registry interface — the domain-line reopening contour | Accepted |

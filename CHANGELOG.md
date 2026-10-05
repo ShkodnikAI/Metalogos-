@@ -163,8 +163,11 @@ All notable changes to the Metalogos project.
   polar/rejection variant is deliberately NOT introduced). A fixed seed yields
   the same sequence on BOTH backends (one shared handler; the crosscheck
   asserts the parity end-to-end). Domain discipline: pure function (№316 —
-  zero effects), typed return signature (№467/№560 — the typed share moves up:
-  187/510 = 36.66%). Loud domain gate: `stddev <= 0` (NaN included) refuses
+  zero effects), typed PRECISE return signature (№467/№560 — the typed
+  share moves up: 193/515 → 194/516 = 3759 bp; the precise share
+  109/515 → 110/516 = 2131 bp — the merge-order rebase on №591/№595
+  re-records the cumulative triple; the registry row APPENDED at the end
+  515→516, the .mbc append-only contract). Loud domain gate: `stddev <= 0` (NaN included) refuses
   with the stable `[NORMAL_SAMPLE_STDDEV]` origin stamp (№385/ADR-0169,
   whitelisted in `ORIGIN_STAMPED_CODES`) — `try` classifies it to the typed
   code on both backends; never a NaN result. The u1 ∈ (0, 1] mapping (1−u)

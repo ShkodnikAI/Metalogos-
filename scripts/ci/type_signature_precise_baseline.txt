@@ -61,4 +61,14 @@
 # PRECISE_TYPES definition is untouched.
 # precise: 109
 # total: 515
-# threshold_bp: 2116
+# (superseded) threshold_bp was 2116
+#
+# 2026-10-05 №590 (gh#1015, волна 30) — the merge-order rebase on
+# №591/№595 (the cumulative triple): the Box–Muller normal sampler ships
+# PRECISE ("Float" ∈ PRECISE_TYPES — the single-shape handler fact: one
+# Ok arm, Value::Float). 109/515 → 110/516; (110*10000)//516 = 2131 bp
+# (+15 bp). The floor rises with the row that earned it (the №757
+# procedure); the PRECISE_TYPES definition is untouched.
+# precise: 110
+# total: 516
+# threshold_bp: 2131

@@ -655,7 +655,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 515 registered builtins (515 of 515): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 516 registered builtins (516 of 516): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -2137,7 +2137,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 515 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 516 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2435,7 +2435,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `llm_stream_open(...)` | 1..2 | — | `llm_stream_open(prompt, input?) -> Struct { handle, model, provider }` |
 | `llm_usage(...)` | variadic | `-> Struct` | LLM usage statistics: `total_calls`, `total_tokens`, `total_errors`, `cache_hits_semantic` (№273/ADR-0135), `canary_leaks` (№284 — confirmed canary leaks), `providers` (a list of `{alias, calls, tokens, errors, avg_latency_ms, health_score}`) |
 
-### `math` — 16 builtin(s)
+### `math` — 17 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
@@ -2446,6 +2446,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `lomb_scargle(...)` | 2 | — | `lomb_scargle(times, values)` — the normalized Lomb–Scargle periodogram for unevenly sampled series (Scargle 1982; the per-frequency phase offset τ, Press et al. NR §13.8 formulation). The frequency grid derives from the data: f_min = 1/T, f_max = 1/(2·median-spacing), Δf = 1/(N·T) (N-fold oversampling of the Rayleigh limit) — no magic constants. Powers are normalized by 2σ², so under the Gaussian-noise null a bin is Exp(1)-distributed. Fewer than 12 points, a zero-variance series, a zero baseline, or an over-capacity grid returns the typed `Degraded` struct (degraded=true) — never a quiet spectrum. A length mismatch or a non-finite element is a loud [SPECTRAL_INPUT] domain error. Pure function — zero effects (№316). Numbers only, no interpretations (the instrumental forecast posture, docs/limitations.md). |
 | `max(...)` | 2 | `Float, Float -> Float` | Maximum of two numbers |
 | `min(...)` | 2 | `Float, Float -> Float` | Minimum of two numbers |
+| `normal_sample(...)` | 2 | — | `normal_sample(mean, stddev)` — one draw from N(mean, stddev) via the classical Box–Muller transform over the shared deterministic PRNG (the random_seed/random xorshift64 stream — a fixed seed yields the same sequence on both backends). Pure function, no own state. stddev <= 0 (NaN included) is a loud domain error stamped [NORMAL_SAMPLE_STDDEV], never a NaN result. |
 | `pow(...)` | 2 | `Float, Float -> Float` | base^exp |
 | `random(...)` | variadic | `-> Float` | `[0.0, 1.0)`. If `random_seed()` was called — deterministic. Otherwise — non-deterministic (system time) |
 | `random_seed(...)` | 1 | `Float -> Unit` | Sets the seed for a deterministic PRNG (xorshift64). Subsequent `random()` calls are reproducible |
@@ -3357,8 +3358,6 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `voice_design` | sink | internal | reversible | persists a designed voice artifact |
 | `voice_save` | sink | internal | reversible | persists a Voice artifact |
 | `voice_load` | source | internal | pure | ingests a persisted Voice artifact |
-| `voice_delete` | sink | internal | irreversible | destructively erases a voiceprint or an audio artifact from the registry (GDPR Art. 17, №526) — no undo; the consent ledger rows survive by design (the Art. 9 consent proof, privacy.md §2.1) |
-| `voice_list` | source | internal | pure | lists the held voiceprints and audio artifacts (ids + models/sizes only — the biometric bytes never enter the result, №526) |
 | `video_render` | sink | internal | reversible | persists a generated video artifact in VIDEO_REGISTRY — local tiny pipeline; egress only at video_export |
 | `video_export` | sink | internal | reversible | writes the signed .mlgv container to disk — egress point (gate VIDEO_UNSIGNED_EXPORT, ADR-0151 D5) |
 | `av_mux` | sink | internal | reversible | persists the A/V sidecar container in VIDEO_REGISTRY (ADR-0151 D4) |
@@ -3400,14 +3399,18 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `read_file_or` | source | internal | pure | the №507 explicit-silence twin of read_file — ingests file content with the caller's default on a missing file (input by provenance; the loud branches shared with read_file) |
 | `to_float_or` | pure | public | pure | — |
 | `to_int_or` | pure | public | pure | — |
+| `voice_delete` | sink | internal | irreversible | destructively erases a voiceprint or an audio artifact from the registry (GDPR Art. 17, №526) — no undo; the consent ledger rows survive by design (the Art. 9 consent proof, privacy.md §2.1) |
+| `voice_list` | source | internal | pure | lists the held voiceprints and audio artifacts (ids + models/sizes only — the biometric bytes never enter the result, №526) |
 | `lomb_scargle` | pure | public | pure | — |
 | `spectral_peak` | pure | public | pure | — |
 | `now_unix` | source | internal | pure | reads the wall clock — the epoch-seconds read carries provenance (the №316 Source semantics: wall clock); the UTC-facing twin of now() |
 | `date_parse_iso` | pure | public | pure | — |
 | `date_diff_days` | pure | public | pure | — |
 | `date_format_iso` | pure | public | pure | — |
+| `normal_sample` | pure | public | pure | — |
 
 <!-- END GENERATED BUILTIN CLASSIFICATION -->
+
 
 
 

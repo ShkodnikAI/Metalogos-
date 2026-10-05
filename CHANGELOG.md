@@ -4,6 +4,28 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryad №593 (issue #1018; Волна 30, Камертон Н1-03 gate, [process],
+  THE OWNER GATE — resolved by delegation): ADR-0183
+  (docs/adr/0183-migration-rollback-boundary.md, Accepted) — the
+  migration-rollback boundary. The owner delegated the A/B choice on
+  2026-10-05 (the verbatim record in the ADR §4, the №598 precedent —
+  revocable, the signature right retained): VARIANT B — the schema
+  evolution stays ADDITIVE-ONLY (ADR-0060, ADR-0175 §3.4 hold without
+  exceptions), NO migrate_down / destructive DDL surface; the Камертон
+  Н1-03 acceptance criterion is amended to «применяется идемпотентно;
+  откат — через восстановление из бэкапа» (the canonical text in the ADR,
+  the amendment record on the dispatch thread gh#1022). The reasoning
+  (§3): a down-migration IS the drop/alter class by another name —
+  re-admitting it under a grant flips a load-bearing invariant; a grant
+  solves AUTHORIZATION, not blast radius (a valid grant under a wrong
+  down-migration destroys the same data); idempotent up-migrations +
+  backup restore is the standard recovery discipline the consumer's use
+  cases actually need. Honest boundary carried in docs/limitations.md in
+  the same PR (the №588 protocol — the new Schema Evolution Boundary
+  section, the re-open condition named: a demonstrated need → variant A
+  as a NEW naryad). Variant B's scope is documents only (the naryad's own
+  boundary row): no code, no registry, no tests touched. The ADR index
+  regenerated (175 entries); the README metrics block regenerated.
 - Naryad №595 (issue #1020; Волна 30, Камертон Н1-05/Н1-07, [core]):
   the UTC calendar arithmetic — `now_unix()`, `date_parse_iso(s)`,
   `date_diff_days(a, b)`, `date_format_iso(t)` (registry 511→515,

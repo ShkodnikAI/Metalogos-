@@ -14,18 +14,17 @@
 
 use metalogos::builtins::{sig_types::Type, BUILTIN_REGISTRY};
 
-/// The checked-in floor: raised by №573 (2026-10-04 — the diagram
-/// package's 20 rows ship typed "String" (the verified
-/// Ok(Value::String) handler fact) and diagram_style completes the
-/// tokens package with "Struct"; +21 compiled rows, all default-feature).
-/// The by-design gap continues (see part 1's comment): the CI script
-/// counts SOURCE rows (186 — the same 4 gated vec/store rows ride only
-/// there), this test counts the COMPILED default-feature registry (182).
-/// MUST move only up, in the same PR that types more rows — AND together
-/// with `scripts/ci/type_signature_baseline.txt` (`# threshold_bp: 3654`).
-/// THE GATE 0.29 DRAFT GOAL IS REACHED: source 3654 bp ≥ 3500
-/// (ADR-0181; the gate blocks nothing until wired into blocking CI — §6).
-const TYPED_FLOOR: usize = 182;
+/// The checked-in floor: raised by №591 (2026-10-05 — the spectral
+/// contour's two rows ship typed "Struct" (lomb_scargle/spectral_peak,
+/// default-feature rows) and weekday_name completes its verified
+/// "String" typing; +3 compiled rows). The by-design gap continues (see
+/// part 1's comment): the CI script counts SOURCE rows (189 — the same 4
+/// gated vec/store rows ride only there), this test counts the COMPILED
+/// default-feature registry (185). MUST move only up, in the same PR
+/// that types more rows — AND together with
+/// `scripts/ci/type_signature_baseline.txt` (`# threshold_bp: 3679`).
+/// The general share 3679 bp ≥ the 0.29 gate goal 3500 (ADR-0181).
+const TYPED_FLOOR: usize = 185;
 
 #[test]
 fn typed_signature_share_never_falls_below_the_floor() {

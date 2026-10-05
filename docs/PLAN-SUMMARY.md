@@ -91,8 +91,8 @@ left them); the priority is the M1 deadline (2026-11-03).
 <!-- BEGIN GENERATED NUMBERS (scripts/gen_metrics.py — do not edit inside) -->
 | Machine fact (generated — do not hand-edit) | Value |
 | --- | --- |
-| Typed-signature floor — the 0.28-gate line (ADR-0179) | 3654 bp — 186/509 = 36.54% (precise 104/509 = 20.43%, №560) |
-| BUILTIN_REGISTRY rows | 509 |
+| Typed-signature floor — the 0.28-gate line (ADR-0179) | 3698 bp — 189/511 = 36.98% (precise 105/511 = 20.54%, №560) |
+| BUILTIN_REGISTRY rows | 511 |
 <!-- END GENERATED NUMBERS -->
 
 ## Acceptance criteria (public part of the methodology)

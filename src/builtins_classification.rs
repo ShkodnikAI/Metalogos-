@@ -635,6 +635,15 @@ pub static BUILTIN_CLASSES: &[BuiltClassEntry] = &[
     BuiltClassEntry { name: "read_file_or", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "the №507 explicit-silence twin of read_file — ingests file content with the caller's default on a missing file (input by provenance; the loud branches shared with read_file)" } },
     BuiltClassEntry { name: "to_float_or", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     BuiltClassEntry { name: "to_int_or", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
+    // №591 (Волна 30): the spectral contour — the provably-pure `math`
+    // category default (zero effects, no state, no ingress/egress). These
+    // two rows are byte-identical to the generator's default emission for
+    // the non-risky `math` category; the generator RUN on main is blocked
+    // by the pre-existing OVERRIDES drift (the №590 PR carries the repair),
+    // so the rows are appended in the emitted form and the REFERENCE
+    // classification block is kept row-for-row in sync (the drift test).
+    BuiltClassEntry { name: "lomb_scargle", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
+    BuiltClassEntry { name: "spectral_peak", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
 ];
 
 #[cfg(test)]

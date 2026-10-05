@@ -42,6 +42,8 @@ use super::forecast::{
     builtin_forecast_next, builtin_forecast_points, builtin_forecast_state, builtin_series_make,
     builtin_series_pull,
 };
+// Наряд №591 (Волна 30): the spectral contour (Lomb–Scargle).
+use super::spectral::{builtin_lomb_scargle, builtin_spectral_peak};
 // Наряд №334: real STT/omni/vision-understanding backends — the mock-first
 // call surface over the №333 registry (SHA-pin path, ADR-0163 §2.1).
 use crate::vision::ocr::builtin_ocr_extract;
@@ -429,7 +431,11 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("days_between", 2, "time"; builtin_days_between),
     spec!("days_in_month", 2, "time"; builtin_days_in_month),
     spec!("is_leap_year", 1, "time"; builtin_is_leap_year),
-    spec!("weekday_name", 1, "time"; builtin_weekday_name), // ── Graph builtins ──
+    // №591: typed PRECISE ("String" — the verified single-path handler
+    // fact: the only Ok arm is Value::String(WEEKDAY_NAMES_MON[...]); the
+    // №565 procedure) — compensates the typed-but-coarse "Struct" of the
+    // spectral rows so the precise share keeps moving only up (№560).
+    spec!("weekday_name", 1, "time"; builtin_weekday_name, "String"), // ── Graph builtins ──
     spec!("graph_query", 1, 3, "graph"; builtin_graph_query), // query | query,limit | query,limit,level
     spec!("graph_path", 2, "graph"; builtin_graph_path),      // from_id,to_id
     spec!("graph_neighbors", 0, "graph"; builtin_graph_neighbors),
@@ -1084,6 +1090,16 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // indices (.mbc contract). Registry 505→507 (append-only).
     spec!("voice_delete", 1, "voice"; builtin_voice_delete), // voice|audio handle
     spec!("voice_list", 0, "voice"; builtin_voice_list),
+    // ── №591 (Волна 30, Камертон Н1-05/Н1-07, инвариант 3): the spectral
+    // contour — the Lomb–Scargle periodogram for unevenly sampled series
+    // (gapped observations are the norm; FFT needs a uniform grid) and the
+    // dominant-frequency readout with the false-alarm p-value. Typed
+    // returns, pure functions, loud degradation ([SPECTRAL_INPUT] stamp +
+    // the typed Degraded struct). APPENDED at the end — inserting
+    // mid-array would shift existing CallBuiltin indices (.mbc contract).
+    // Registry 509→511 (append-only).
+    spec!("lomb_scargle", 2, "math"; builtin_lomb_scargle, "Struct"),
+    spec!("spectral_peak", 1, "math"; builtin_spectral_peak, "Struct"),
 ];
 
 /// Total number of registered builtins.

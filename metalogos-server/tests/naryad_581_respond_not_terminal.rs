@@ -5,10 +5,24 @@
 // Instruction::Pop and silently falls through to the protected code (the
 // guard-pattern bypass). The sanctioned early answer is `return respond(...)`.
 //
-// Blocks:
+// №584 UPDATE (gh#998, the X-1 step 2): the VM now compiles a bare respond*
+// as TERMINAL in ANY position (the route-body compiler lowers it to
+// `return respond*(...)` — exact TW parity), so the blocking gate is
+// RETIRED to a style advisory and the bare form WORKS. The sections below
+// were re-pinned to the post-№584 contract:
+//   B — the bare mid-route form now STARTS and serves correctly on BOTH
+//       backends (the X-1 bypass is closed by parity, not by refusal) —
+//       the full matrix lives in naryad_584_respond_terminal_anywhere.rs.
+//   D — the semantic kind carries the stable code on the ADVISORY
+//       (warnings, not errors — machine consumers read the CODE).
+// Sections A (the migrated return-form guard) and C (tail legality) keep
+// their original shape — they pin the forms that were legal before №584
+// and must stay legal.
+//
+// Original №581 blocks (historical):
 //   A — the migrated audit guard: non-admin gets 403, the protected
 //       db_execute DELETE never runs (BOTH backends, real HTTP).
-//   B — the bare mid-route form refuses to START on BOTH backends with the
+//   B — the bare mid-route form refused to START on BOTH backends with the
 //       [RESPOND_NOT_TERMINAL] code stamped first (the №523 refusal shape).
 //   C — tail legality survives: route-tail / if-tail / match-tail bare
 //       responds stay LEGAL (the VM's tail chain and this gate agree), and
@@ -122,13 +136,16 @@ async fn n581_guard_migrated_interpreter_admin_path_still_serves() {
     assert_eq!(body, "purged", "TW: the admin path must run the DELETE");
 }
 
-// ── B: the bare mid-route form refuses to start, both backends ───────
+// ── B: the bare mid-route form WORKS now (the №584 re-pin) ───────────
 //
-// The full startup entry (`run_server`) is the refuser — the same posture
-// the №523 gate tests pin: a refused program returns Err BEFORE binding.
-// (The `run_test_server_with_backend` helper is the fast harness that
-// intentionally skips the semantic pass — it must NOT be used to assert
-// startup refusals.)
+// Before №584 this section asserted the startup REFUSAL on both backends
+// (the fail-closed №581 posture). №584 closed the class itself: the VM
+// lowers a bare respond* to `return respond*(...)` in ANY position, so the
+// bare form now STARTS (the semantic pass carries a style WARNING, zero
+// errors) and the guard answers 403 with the protected code skipped —
+// TW parity by compilation, not by refusal. The full mid-route matrix
+// (nested shapes, loops, guard chains, the kv-marker proof) lives in
+// naryad_584_respond_terminal_anywhere.rs.
 
 const GUARD_BARE: &str = r#"
 db {
@@ -154,44 +171,27 @@ mlogserver {
 "#;
 
 #[tokio::test]
-async fn n581_bare_mid_route_refuses_vm_startup() {
-    let err = metalogos_server::server::run_server(GUARD_BARE)
-        .await
-        .expect_err("the bare mid-route respond must REFUSE serve startup");
-    let msg = err.to_string();
-    assert!(
-        msg.contains("[RESPOND_NOT_TERMINAL]"),
-        "the refusal must stamp the stable code first, got: {msg}"
+async fn n581_bare_mid_route_starts_and_guards_vm() {
+    // №584 re-pin: the bare form starts on the VM and the guard STOPS the
+    // route — the pre-№581 bypass shape now behaves like the TW.
+    let port = start(GUARD_BARE, ServeBackend::Vm).await;
+    let (status, body) = http_post(port, "/purge", "user=guest").await;
+    assert_eq!(
+        status, 403,
+        "VM: the bare guard must answer 403 (parity by compilation)"
     );
-    assert!(
-        msg.contains("return respond("),
-        "the refusal must carry the migration hint, got: {msg}"
-    );
+    assert_eq!(body, "forbidden");
+    let (status, body) = http_post(port, "/purge", "user=admin").await;
+    assert_eq!(status, 200, "VM: the admin path must still serve");
+    assert_eq!(body, "purged");
 }
 
 #[tokio::test]
-async fn n581_bare_mid_route_refuses_run_startup() {
-    // The run path shares the same semantic gate (lib.rs, the №523 shape):
-    // `mlog run` refuses too — ONE gate, both execution surfaces.
-    let err = metalogos::run_program(GUARD_BARE)
-        .expect_err("the bare mid-route respond must REFUSE the run path");
-    assert!(
-        err.contains("[RESPOND_NOT_TERMINAL]"),
-        "the run refusal must stamp the stable code first, got: {err}"
-    );
-}
-
-#[tokio::test]
-async fn n581_bare_mid_route_refuses_interpreter_startup() {
-    // The interpreter backend shares the SAME semantic gate — the refusal
-    // happens before the backend is even chosen (fail-closed on both).
-    let err = metalogos_server::server::run_server(GUARD_BARE)
-        .await
-        .expect_err("the bare mid-route respond must REFUSE serve startup (both backends)");
-    assert!(
-        err.to_string().contains("[RESPOND_NOT_TERMINAL]"),
-        "the refusal must stamp the stable code first"
-    );
+async fn n581_bare_mid_route_starts_and_guards_interpreter() {
+    let port = start(GUARD_BARE, ServeBackend::Interpreter).await;
+    let (status, body) = http_post(port, "/purge", "user=guest").await;
+    assert_eq!(status, 403, "TW: the bare guard answers 403");
+    assert_eq!(body, "forbidden");
 }
 
 // ── C: tail legality survives (the gate and the VM tail chain agree) ──
@@ -283,9 +283,11 @@ async fn n581_tail_forms_start_and_serve_interpreter() {
 }
 
 // ── D: the whole respond* family + the stable code on the kind ───────
+// №584 re-pin: the advisory lands in WARNINGS (zero errors) — the kind
+// and the stable code stay machine-readable.
 
 #[test]
-fn n581_every_respond_name_flagged_by_the_semantic_pass() {
+fn n581_every_respond_name_advised_by_the_semantic_pass() {
     use metalogos::parser;
     use metalogos::semantic::{check_program, SemanticErrorKind};
     for name in [
@@ -310,18 +312,22 @@ mlogserver {{
             parser::parse(&src).expect("the fixture must parse");
         let result = check_program(&decls);
         assert!(
+            result.errors.is_empty(),
+            "{name}: the advisory must NOT block after №584"
+        );
+        assert!(
             result
-                .errors
+                .warnings
                 .iter()
-                .any(|e| e.kind == SemanticErrorKind::RespondNotTerminal
-                    && e.message.contains("return respond(")),
-            "{name}: the bare mid-route call must carry the RespondNotTerminal kind"
+                .any(|w| w.kind == SemanticErrorKind::RespondNotTerminal
+                    && w.message.contains("return respond(")),
+            "{name}: the bare mid-route call must carry the RespondNotTerminal advisory"
         );
     }
 }
 
 #[test]
-fn n581_stable_code_is_stamped() {
+fn n581_stable_code_is_stamped_on_the_advisory() {
     use metalogos::parser;
     use metalogos::semantic::{check_program, SemanticErrorKind};
     let src = r#"
@@ -338,10 +344,10 @@ mlogserver {
         parser::parse(src).expect("the fixture must parse");
     let result = check_program(&decls);
     let hit = result
-        .errors
+        .warnings
         .iter()
-        .find(|e| e.kind == SemanticErrorKind::RespondNotTerminal)
-        .expect("the bare mid-route respond must be flagged");
+        .find(|w| w.kind == SemanticErrorKind::RespondNotTerminal)
+        .expect("the bare mid-route respond must be advised");
     assert_eq!(
         hit.kind.stable_code(),
         Some("RESPOND_NOT_TERMINAL"),
@@ -374,5 +380,12 @@ mlogserver {
             .iter()
             .any(|e| e.kind == SemanticErrorKind::RespondNotTerminal),
         "the return-form and the route-tail respond are the sanctioned shapes"
+    );
+    assert!(
+        !result
+            .warnings
+            .iter()
+            .any(|w| w.kind == SemanticErrorKind::RespondNotTerminal),
+        "the sanctioned shapes carry no advisory either"
     );
 }

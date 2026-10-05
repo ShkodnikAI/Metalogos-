@@ -3343,11 +3343,241 @@ impl Compiler {
         Ok(resolved)
     }
 
+    // ── №584 (the audit d63cc1d X-1 step 2): the route-body TERMINAL
+    //    lowering of bare respond* statements ──────────────────────────
+    //
+    // THE REFERENCE (the TW serve lane is the etalon and does NOT change):
+    // a bare respond* answers the route early from a form-specific surface
+    // (server.rs `execute_route_body` + the HttpResponse-as-Return
+    // propagation, Наряда-26 P0-2):
+    //   - a DIRECT statement of the route body (any position, not just the
+    //     tail) answers immediately;
+    //   - IfThen / Match / While / Each bodies propagate the HttpResponse
+    //     as ControlFlow::Return from ANY nesting depth (eval_block!) —
+    //     cycles answer on the FIRST iteration;
+    //   - a TOP-LEVEL if/else branch (Statement::IfElseBlock, the block
+    //     form) is walked by a PER-STATEMENT loop in server.rs: a DIRECT
+    //     bare respond answers immediately, but the result of any NESTED
+    //     statement (an inner if/match/loop carrying a respond) is
+    //     DISCARDED and the branch CONTINUES — depth ≥ 2 under a block-form
+    //     if does NOT stop the route.
+    //
+    // The plain body compiler only keeps the TAIL chain (№250/№574) and
+    // Pops every interior respond — the X-1 guard-bypass class (the depth-1
+    // guard shape). The route-body compiler therefore rewrites the body
+    // ONCE at the AST level: every bare respond* STATEMENT (per
+    // `semantic::bare_respond_call` — the same SSOT predicate the semantic
+    // advisory uses) becomes `return respond*(...)` — EXACTLY on the TW
+    // early-answer surface above; everything else the machinery already
+    // knows about `return` applies unchanged:
+    //   - Statement::Return compiles to `expr; Instruction::Return` in every
+    //     context (the route tail, if/match branch bodies, loop bodies) —
+    //     the keep-tail synthesis (№574) treats Return as a terminator that
+    //     owes no epilogue value (№582), so the route exit NEVER reads a
+    //     local slot and the fall-through invariant survives;
+    //   - a respond* consumed INSIDE a larger expression (a let value, a
+    //     match-expression arm, an argument) is NOT rewritten — the value is
+    //     consumed inline on BOTH backends (parity holds without the
+    //     rewrite).
+    //
+    // The rewrite is LOCAL to `compile_routes`: it runs on a CLONED body, so
+    // the parsed AST and the semantic advisory still see the source shape —
+    // the mid-route style hints are computed on the ORIGINAL body.
+    fn route_body_with_terminal_responds(body: &[Statement]) -> Vec<Statement> {
+        Self::body_with_terminal_responds(body, false)
+    }
+
+    /// `direct_only` — the branch-body mode of a TOP-LEVEL block-form if
+    /// (Statement::IfElseBlock): only the branch's DIRECT bare respond*
+    /// statements become `return`; the bodies of statements NESTED inside
+    /// the branch keep the pre-№584 compilation (the TW serve lane discards
+    /// nested-statement responses there — the lowering must NOT invent an
+    /// early answer the interpreter does not produce).
+    fn body_with_terminal_responds(body: &[Statement], direct_only: bool) -> Vec<Statement> {
+        body.iter()
+            .map(|s| Self::stmt_with_terminal_responds(s, direct_only))
+            .collect()
+    }
+
+    fn stmt_with_terminal_responds(stmt: &Statement, direct_only: bool) -> Statement {
+        match stmt {
+            Statement::ExprStmt { expr, span } => {
+                if crate::semantic::bare_respond_call(expr) {
+                    Statement::Return {
+                        value: expr.clone(),
+                        span: span.clone(),
+                    }
+                } else {
+                    stmt.clone()
+                }
+            }
+            Statement::IfThen {
+                condition,
+                body,
+                span,
+            } => {
+                if direct_only {
+                    // Nested under a top-level if/else branch — the serve
+                    // lane discards its response; keep the pre-№584 shape.
+                    stmt.clone()
+                } else {
+                    // The IfThen surface propagates the early answer from
+                    // ANY depth — descend in full-terminal mode.
+                    Statement::IfThen {
+                        condition: condition.clone(),
+                        body: Self::body_with_terminal_responds(body, false),
+                        span: span.clone(),
+                    }
+                }
+            }
+            Statement::IfElseBlock {
+                condition,
+                then_body,
+                else_ifs,
+                else_body,
+                span,
+            } => {
+                if direct_only {
+                    // Nested under a top-level if/else branch — see above.
+                    stmt.clone()
+                } else {
+                    // TOP-LEVEL block-form if: the branch bodies run under
+                    // the server's per-statement loop — their DIRECT bare
+                    // respond* answers, everything nested is discarded
+                    // (direct_only mode below).
+                    Statement::IfElseBlock {
+                        condition: condition.clone(),
+                        then_body: Self::body_with_terminal_responds(then_body, true),
+                        else_ifs: else_ifs
+                            .iter()
+                            .map(|(cond, b)| {
+                                (cond.clone(), Self::body_with_terminal_responds(b, true))
+                            })
+                            .collect(),
+                        else_body: else_body
+                            .as_ref()
+                            .map(|b| Self::body_with_terminal_responds(b, true)),
+                        span: span.clone(),
+                    }
+                }
+            }
+            Statement::Match {
+                scrutinee,
+                arms,
+                else_body,
+                span,
+            } => {
+                if direct_only {
+                    stmt.clone()
+                } else {
+                    // The Match surface propagates the early answer from ANY
+                    // depth (eval_block!) — descend in full-terminal mode.
+                    Statement::Match {
+                        scrutinee: scrutinee.clone(),
+                        arms: arms
+                            .iter()
+                            .map(|a| Self::arm_with_terminal_responds(a, false))
+                            .collect(),
+                        else_body: else_body
+                            .as_ref()
+                            .map(|b| Self::body_with_terminal_responds(b, false)),
+                        span: span.clone(),
+                    }
+                }
+            }
+            Statement::While {
+                condition,
+                body,
+                span,
+            } => {
+                if direct_only {
+                    stmt.clone()
+                } else {
+                    // Cycle bodies propagate from ANY depth — the first
+                    // iteration answers (TW first-iteration parity).
+                    Statement::While {
+                        condition: condition.clone(),
+                        body: Self::body_with_terminal_responds(body, false),
+                        span: span.clone(),
+                    }
+                }
+            }
+            Statement::Each {
+                variable,
+                iterable,
+                body,
+                span,
+            } => {
+                if direct_only {
+                    stmt.clone()
+                } else {
+                    Statement::Each {
+                        variable: variable.clone(),
+                        iterable: iterable.clone(),
+                        body: Self::body_with_terminal_responds(body, false),
+                        span: span.clone(),
+                    }
+                }
+            }
+            Statement::EachWithIndex {
+                index_var,
+                item_var,
+                iterable,
+                body,
+                span,
+            } => {
+                if direct_only {
+                    stmt.clone()
+                } else {
+                    Statement::EachWithIndex {
+                        index_var: index_var.clone(),
+                        item_var: item_var.clone(),
+                        iterable: iterable.clone(),
+                        body: Self::body_with_terminal_responds(body, false),
+                        span: span.clone(),
+                    }
+                }
+            }
+            // LetBinding/Assign/Memorize/Forget/Relate/Break/Continue carry
+            // no statement bodies; a respond* inside their VALUE expressions
+            // is consumed inline on both backends (never the early-answer
+            // class) — pass through untouched.
+            other => other.clone(),
+        }
+    }
+
+    fn arm_with_terminal_responds(arm: &MatchArm, direct_only: bool) -> MatchArm {
+        match arm {
+            MatchArm::Exact(s, body) => MatchArm::Exact(
+                s.clone(),
+                Self::body_with_terminal_responds(body, direct_only),
+            ),
+            MatchArm::StartsWith(s, body) => MatchArm::StartsWith(
+                s.clone(),
+                Self::body_with_terminal_responds(body, direct_only),
+            ),
+            MatchArm::Contains(s, body) => MatchArm::Contains(
+                s.clone(),
+                Self::body_with_terminal_responds(body, direct_only),
+            ),
+            MatchArm::Compare(op, threshold, body) => MatchArm::Compare(
+                *op,
+                threshold.clone(),
+                Self::body_with_terminal_responds(body, direct_only),
+            ),
+        }
+    }
+
     /// Compile route declarations into compiled bytecode route bodies.
     ///
     /// Reuses the same compilation pipeline as pattern bodies:
     /// route statements (LetBinding, Assign, Return, IfThen, IfElseBlock,
     /// ExprStmt, While, Each, etc.) are compiled to stack-based bytecode.
+    ///
+    /// №584: the body is compiled from the terminal-lowered clone
+    /// (`route_body_with_terminal_responds`) — a bare respond* statement
+    /// in ANY position compiles as `Call + Return`, the exact TW early
+    /// answer.
     ///
     /// The caller (server) invokes this once at startup, then stores the
     /// resulting CompiledRoutes in ServerState for per-request execution.
@@ -3362,8 +3592,11 @@ impl Compiler {
             // check as pattern bodies (TW executes them through
             // eval_statements — the let-mut contract applies identically).
             let mut mutable: HashSet<String> = HashSet::new();
-            let code =
-                self.compile_pattern_body_with_locals(&route.body, &mut locals, &mut mutable)?;
+            // №584: the terminal lowering — bare respond* statements become
+            // `return respond*(...)` in the compiled clone (the original AST
+            // is untouched; the semantic advisory reads the source shape).
+            let body = Self::route_body_with_terminal_responds(&route.body);
+            let code = self.compile_pattern_body_with_locals(&body, &mut locals, &mut mutable)?;
             compiled.push(CompiledRoute {
                 path: route.path.clone(),
                 method: route.method.clone(),

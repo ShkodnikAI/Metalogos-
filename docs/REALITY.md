@@ -907,12 +907,14 @@ reproduces it — all unchanged from §6.13):**
   (the FO-056 recount — the scenario pure-language again, gh#981
   closed).
 
-**The release state:** 0.28.1 STAGED on `5e6a588` (№583) — the
-version lockstep 0.28.1, the [0.28.1] CHANGELOG section with the
-Security part FIRST (the X-1 guard bypass (High) and the X-2
-leftover-local leak (Medium) named with the fix/audit dates). The
-publication (the tag + the Security announcement) is the OWNER's gate
-(№549): the `fact_open_high_server` trajectory (№580) holds at **1**
-until the live v0.28.1, then 0 — the machine record and the issue
-state were re-aligned on 2026-10-05 (the release-block carrier issue
-reopened to match the unshipped release).
+**The release state:** 0.28.1 PUBLISHED (2026-10-05) — the owner's
+gate №549 executed: the tag v0.28.1 on `d5af542`, the release
+workflow green (run 37263503704), the four assets attached (binary,
+SBOM, BUILD-INFO, SHA256SUMS), the Security announcement in the
+release notes (the X-1 (High) guard bypass and the X-2 (Medium)
+leftover-local leak, both fixed 2026-10-04). The
+`fact_open_high_server` trajectory (№580) closed at **0** — the
+release-block carrier #997 closed on the live tag per its own
+condition; the syncing PR lands the machine records (both goals
+files, the [0.28.1] CHANGELOG date). Both v2 gate reads (0.28
+ADR-0179, 0.29 ADR-0181) are GREEN.

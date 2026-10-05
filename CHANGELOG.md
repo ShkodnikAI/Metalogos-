@@ -232,7 +232,7 @@ All notable changes to the Metalogos project.
   advisory job, №555-era); the threshold proposal rides the naryad
   report — the OWNER sets it (§16.0 гейт владельца).
 
-## [0.28.1] - Unreleased (staged 2026-10-05; the publication is the owner's gate, №549/gh#997)
+## [0.28.1] - 2026-10-05
 
 ### Security (UPDATE REQUIRED)
 

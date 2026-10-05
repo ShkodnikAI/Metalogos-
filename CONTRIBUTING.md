@@ -283,6 +283,15 @@ Fixes #456
 6. **Squash commits** if requested (maintainers may do this on merge)
 7. **Merge** — Only maintainers can merge PRs
 
+**The squash-body rule** (naryad №587, audit d63cc1d X-5): the PR description
+becomes the squash-commit body — it must describe THIS PR's naryad only. When a
+PR is branched off another naryad's branch, the inherited description travels
+into the squash and the change gets attributed to the wrong naryad when the
+history is read by commit bodies (the b678def precedent). The
+`Naryad numbering (blocking)` job fails a PR whose body carries another
+naryad's bullet/heading claim (`* Наряд №M …` with M ≠ the title's number);
+prose mentions of other naryads (precedents, mirrors, run reports) stay legal.
+
 ### PR Checklist
 
 - [ ] Code compiles without warnings

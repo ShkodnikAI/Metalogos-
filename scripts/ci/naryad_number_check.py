@@ -14,6 +14,18 @@ naryad grammar) and — when GH_TOKEN is available — from the closed
 issue titles (they carry the canonical "Наряд №N (priority, area): …"
 form).
 
+THE SQUASH-BODY RULE (Naryad №587, audit d63cc1d X-5): the squash body
+= the description of THIS naryad only. The precedent: b678def was
+ titled "Наряд №574.1 (issue #975)" but its body OPENED with the full
+description of №572.1 (the PR was branched off the №572.1 branch before
+its merge and the template description traveled into the squash) — at
+tribution time from the commit body the change lands on the wrong
+naryad. The check: a naryad claim in a BULLET/HEADING position of the
+body ("* Наряд №M …") whose base number differs from the title's (and
+that does not name the title's own issue) is a foreign claim — refused.
+Prose mentions ("the №493 precedent", "mirrors №500") stay legal — the
+claim POSITION is the signal, not the mention.
+
 THE TITLE GRAMMAR (what this gate accepts):
 
   [Naryad|Наряд] №?N            — the canonical claim (checked for
@@ -63,6 +75,28 @@ DOT_RE = re.compile(r"(?iu)\bnaryad\s*№?\s*(\d+)\.(\d+)", re.UNICODE)
 RELAND_RE = re.compile(r"(?iu)\b(re-?land|retry|revert|re-?run|redo|take[- ]?\d+)\b")
 # The issue pointer in a title: "(issue #783)".
 ISSUE_RE = re.compile(r"(?i)\bissue\s*#?(\d+)", re.UNICODE)
+
+# The naryad claim in a BULLET/HEADING position of a body (№587, X-5):
+#   "* Наряд №572.1 (issue #973): ..."  "- **Naryad №500** ..."
+#   "## Наряд №500: ..."
+# The claim POSITION (the line's first token) is the signal — prose
+# mentions are not matched.
+BODY_HEADER_RE = re.compile(
+    r"(?im)^\s*(?:[-*+]|\d+[.)])\s+(?:\*\*)?\s*(?:naryad|наряд)\s*№?\s*(\d+(?:\.\d+)?)"
+    r"|^\s*#{1,6}\s+(?:\*\*)?\s*(?:naryad|наряд)\s*№?\s*(\d+(?:\.\d+)?)",
+    re.UNICODE,
+)
+
+# The STATUS-LINE exception (the history-audit fact, №587): a bullet that
+# EVALUATES a run (": PASS", ": FAIL", "rc=0") is evidence prose, not a
+# naryad description claim. The calibration case: "- naryad 465 diff
+# fuzzer on this branch: PASS — ..." (the №474 body) is a run report,
+# while "* naryad 466 group 5 (audit-ledger): the deny pair ..." in the
+# SAME body is a foreign description claim. The verdict marker after a
+# colon separates the two.
+STATUS_LINE_RE = re.compile(
+    r"(?i):\s*(PASS|FAIL|OK|GREEN|RED)\b|\brc\s*=\s*\d", re.UNICODE
+)
 
 API = "https://api.github.com"
 
@@ -139,12 +173,100 @@ def title_claim(title: str) -> tuple[int, str] | None:
     return None
 
 
-def check(title: str, occupied: dict[int, list[str]]) -> int:
+def _base(number_text: str) -> int:
+    """The base of a naryad number: '574.1' -> 574, '500' -> 500."""
+    return int(number_text.split(".", 1)[0])
+
+
+def foreign_body_claims(title: str, body: str) -> list[str]:
+    """The body bullet/heading claims of naryads OTHER than the title's
+    (№587, audit X-5). The same-issue exception of the title grammar
+    mirrors here: a foreign NUMBER whose bullet names the title's own
+    issue is a same-work enumeration, allowed."""
+    claim = title_claim(title)
+    if claim is None:
+        return []
+    own_number, _ = claim
+    title_issue = ISSUE_RE.search(title)
+    own_issue = int(title_issue.group(1)) if title_issue else None
+    foreign: list[str] = []
+    for line in body.splitlines():
+        match = BODY_HEADER_RE.search(line)
+        if not match:
+            continue
+        if STATUS_LINE_RE.search(line):
+            continue  # a run verdict, not a description claim
+        text = match.group(1) or match.group(2)
+        base = _base(text)
+        if base == own_number:
+            continue
+        line_issue = ISSUE_RE.search(line)
+        if own_issue is not None and line_issue and int(line_issue.group(1)) == own_issue:
+            continue
+        foreign.append(line.strip())
+    return foreign
+
+
+def audit_history(repo_dir: str, limit: int) -> int:
+    """The false-positive audit: every merged naryad commit's BODY is
+    checked against its own title (№587 DoD: zero false positives on
+    the clean wave history)."""
+    try:
+        out = subprocess.run(
+            ["git", "log", f"-{limit}", "--pretty=format:%H%x00%B%x01"],
+            cwd=repo_dir,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=True,
+        ).stdout
+    except (subprocess.SubprocessError, OSError) as exc:  # pragma: no cover
+        print(f"::error::git log unavailable ({exc})")
+        return 1
+    scanned = flagged = 0
+    for record in out.split("\x01"):
+        record = record.strip("\n")
+        if "\x00" not in record:
+            continue
+        _sha, _, message = record.partition("\x00")
+        lines = message.splitlines()
+        if not lines:
+            continue
+        title, body = lines[0], "\n".join(lines[1:])
+        if not NARYAD_RE.search(title):
+            continue
+        scanned += 1
+        for hit in foreign_body_claims(title, body):
+            flagged += 1
+            print(f"  FLAG: {title[:96]}")
+            print(f"        {hit[:120]}")
+    print(f"audit-history: {scanned} naryad commits scanned, {flagged} flagged.")
+    return 0
+
+
+def check(title: str, occupied: dict[int, list[str]], body: str = "") -> int:
     if not NARYAD_RE.search(title):
         print("No naryad claim in the title — nothing to check.")
         return 0
     number, kind = title_claim(title)
     assert number is not None
+
+    if body:
+        foreign = foreign_body_claims(title, body)
+        if foreign:
+            print(
+                f"::error::The squash body carries the description of a DIFFERENT "
+                f"naryad than the title's №{number} (№587, audit d63cc1d X-5):"
+            )
+            for hit in foreign[:8]:
+                print(f"::error::  - {hit[:160]}")
+            print(
+                "::error::The PR description = THIS naryad's description only; "
+                "branching off another naryad's branch does not inherit its "
+                "description."
+            )
+            return 1
+        print("The body carries no foreign naryad claims — ok.")
 
     if number not in occupied:
         print(f"Naryad №{number} is not occupied — ok.")
@@ -212,6 +334,47 @@ def self_test() -> int:
         ("Naryad №474 (issue #999): a DIFFERENT work on a busy number", 1, None),
         ("naryad 495 (issue #900): another DistillHub-style work", 1, None),
     ]
+    # The №587 body cases: the title is №574.1's, the bodies speak for
+    # themselves (the b678def synthetic reconstruction first).
+    title_574 = (
+        "Наряд №574.1 (issue #975): the VM json_body serve contract"
+    )
+    body_cases = [
+        ("the b678def class — the body OPENS with the foreign naryad's "
+         "description", 1,
+         title_574,
+         "* Наряд №572.1 (issue #973): the release pipeline follows the bin\n"
+         "\n- build.yml:19 -> '-p metalogos-server --bin mlog'\n"),
+        ("the own bullet-header + prose mentions of foreign naryads", 0,
+         title_574,
+         "* Наряд №574.1 (issue #975): the VM json_body serve contract\n"
+         "- the №493 precedent holds; mirrors №250 branch-tail semantics\n"),
+        ("bold bullet header of a foreign naryad", 1,
+         title_574,
+         "- **Наряд №572 (issue #971): another work**\n  body text\n"),
+        ("heading form of a foreign naryad", 1,
+         title_574,
+         "## Наряд №572: the release pipeline\ntext\n"),
+        ("same-issue exception — a foreign NUMBER naming the title's issue", 0,
+         title_574,
+         "* Наряд №574 (issue #975): the parent work enumeration\n"),
+        ("numbered-list form", 1,
+         title_574,
+         "1. Наряд №573 (issue #977): yet another work\n"),
+        ("prose mention is NOT a claim", 0,
+         title_574,
+         "The route-tail semantics mirrors the №250 and №572.1 contracts.\n"),
+        ("the №474 calibration pair: a fuzzer STATUS line is evidence, "
+         "not a claim", 0,
+         "naryad 474: enum Type stage 1 — the let-type inference",
+         "- naryad 465 diff fuzzer on this branch: PASS — the divergence-class\n"
+         "  set unchanged (the pass is fuzzer-neutral)\n"),
+        ("the №474 calibration pair: the SAME body's group-5 bullet IS a "
+         "foreign claim", 1,
+         "naryad 474: enum Type stage 1 — the let-type inference",
+         "* naryad 466 group 5 (audit-ledger): the deny pair + the event trio\n"),
+        ("no body — the check passes through", 0, title_574, ""),
+    ]
     failed = 0
     for title, expected, _ in ok + bad:
         import io
@@ -223,6 +386,13 @@ def self_test() -> int:
         if code != expected:
             failed += 1
         print(f"  self-test [{status}] expect={expected} got={code}: {title[:60]}")
+    for name, expected, title, body in body_cases:
+        hits = foreign_body_claims(title, body)
+        code = 1 if hits else 0
+        status = "ok" if code == expected else "FAIL"
+        if code != expected:
+            failed += 1
+        print(f"  body-test [{status}] expect={expected} got={code}: {name}")
     print(f"self-test: {'ALL PASS' if failed == 0 else f'{failed} FAILED'}")
     return 1 if failed else 0
 
@@ -230,18 +400,34 @@ def self_test() -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("title", nargs="?", default="", help="the PR title")
+    parser.add_argument(
+        "--body",
+        default="",
+        help="the PR body (becomes the squash body — checked for foreign "
+        "naryad claims, №587); empty skips the body check",
+    )
     parser.add_argument("--repo-dir", default=".")
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument(
+        "--audit-history",
+        type=int,
+        default=0,
+        metavar="N",
+        help="audit the last N merged commits' bodies against their own "
+        "titles (the false-positive audit) and exit",
+    )
     args = parser.parse_args()
     if args.self_test:
         return self_test()
+    if args.audit_history:
+        return audit_history(args.repo_dir, args.audit_history)
     if not args.title:
-        parser.error("the PR title is required (or --self-test)")
+        parser.error("the PR title is required (or --self-test/--audit-history)")
     occupied = collect_occupied(
         commit_subjects(args.repo_dir), closed_issue_titles()
     )
     print(f"The occupied set: {len(occupied)} naryad numbers from the history + issues.")
-    return check(args.title, occupied)
+    return check(args.title, occupied, body=args.body)
 
 
 if __name__ == "__main__":

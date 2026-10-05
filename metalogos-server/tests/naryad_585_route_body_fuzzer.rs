@@ -23,9 +23,12 @@
 //      UNTRUSTED_DECISION gate would refuse the program for a reason
 //      outside this lane's shapes.
 //   2. RUNS each program through BOTH serve backends (real HTTP):
-//      - both refuse at startup with the SAME class (e.g.
-//        [RESPOND_NOT_TERMINAL] — the №581 form-error oracle) → not a
-//        divergence;
+//      - №584 update: the bare respond* forms no longer refuse — the
+//        route-body compiler lowers them to `return respond*(...)` on the
+//        TW early-answer surface, so EVERY audit shape now SERVES and is
+//        HTTP-diffed ((status, body) identical on both lanes);
+//      - both refuse with the SAME class (any OTHER refusal class — the
+//        form-error oracle) → not a divergence;
 //      - both refuse with DIFFERENT classes, or only one side starts →
 //        divergence;
 //      - both start → every generated route is requested on both lanes
@@ -161,9 +164,10 @@ fn render(stmts: &[Stmt], indent: usize) -> String {
     out
 }
 
-/// Generate one route body over the audit §4 shapes. The forms are chosen
-/// so the program is either SERVED identically on both backends or REFUSED
-/// identically by the №581 gate — anything else is a divergence.
+/// Generate one route body over the audit §4 shapes. Since №584 the bare
+/// respond* forms serve on BOTH backends (the terminal lowering), so the
+/// oracle compares the served (status, body) pairs; a same-class refusal
+/// (any other refusal class) stays a legal non-divergence outcome.
 fn gen_body(rng: &mut Rng, budget: &mut u32) -> Vec<Stmt> {
     let mut out: Vec<Stmt> = Vec::new();
     let n = 1 + rng.below(3);
@@ -217,8 +221,9 @@ fn gen_body(rng: &mut Rng, budget: &mut u32) -> Vec<Stmt> {
             }
             5 => {
                 // (d): the guard with respond inside, MORE CODE AFTER —
-                // the bare form here is the №581 gate's exact class (both
-                // backends must refuse); the return form must serve.
+                // №584: the bare form SERVES (the guard answers on both
+                // backends via the terminal lowering) and the return form
+                // serves identically; the HTTP diff pins both.
                 let status = rng.pick(STATUSES).to_string();
                 let returned = rng.below(2) == 0;
                 let cond = format!("\"{}\" == \"{}\"", rng.alnum(3), rng.alnum(3));
@@ -315,7 +320,8 @@ fn startup_class(err: &str) -> String {
 
 enum Outcome {
     /// Both backends refuse with the SAME class — the form-error oracle
-    /// (e.g. [RESPOND_NOT_TERMINAL]). Not a divergence.
+    /// (any OTHER refusal class; the №581 RESPOND_NOT_TERMINAL refusal is
+    /// retired to an advisory by №584). Not a divergence.
     BothRefuseSame { class: String },
     /// Both started — the HTTP diff runs over every route.
     BothStart {
@@ -388,8 +394,8 @@ async fn http_pair(port: u16, path: &str) -> (u16, String) {
 async fn diff_one(source: &str) -> Option<String> {
     match probe(source).await {
         Outcome::BothRefuseSame { class } => {
-            // The form-error oracle: the №581 contract — both backends
-            // refuse with the same class. Not a divergence.
+            // The form-error oracle: both backends refuse with the same
+            // class (any other refusal class — not a divergence).
             println!("n585: both refuse identically: {class}");
             None
         }
@@ -408,13 +414,17 @@ async fn diff_one(source: &str) -> Option<String> {
 }
 
 // ── The seed corpus (the audit §4 shapes, checked-in) ─────────────────
+// №584 re-pin: the guard seed's condition is DETERMINISTICALLY TRUE so the
+// bare guard FIRES — TW answers (403, "forbidden") and a VM that ever
+// reverted to the pre-№581 Pop compilation would answer (200, "purged"):
+// the seed catches the X-1 regression on the HTTP surface.
 
 const SEED_GUARD_BARE: &str = r#"
 mlogserver {
   port: 0
   route "/guard" method=GET {
     let key = redact("k", "hash_only")
-    let expected = redact("admin", "hash_only")
+    let expected = redact("k", "hash_only")
     if key == expected {
       respond("403", "forbidden")
     }

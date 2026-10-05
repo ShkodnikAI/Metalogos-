@@ -918,3 +918,67 @@ release-block carrier #997 closed on the live tag per its own
 condition; the syncing PR lands the machine records (both goals
 files, the [0.28.1] CHANGELOG date). Both v2 gate reads (0.28
 ADR-0179, 0.29 ADR-0181) are GREEN.
+
+### 6.15. Wave 29 recount (naryad №589): the counters (main @ `73480aa`, 2026-10-05)
+
+Protocol: №414/№318/№576/№579 — the same machines, no hand-written
+numbers. The honest headline: В29 was the SECURITY wave per the audit
+d63cc1d + the release line (0.28.1) + the process hardening (the X-5
+squash-body rule, the honest-boundary protocol, the 0.29-gate wiring) +
+the domain line's first IMPLEMENTATION step (the №599 Image bridge) —
+the src moved (№584's VM respond-terminality lowering, №585's fuzzer
+lane, №599's media bridge) while the registry and the floors stayed
+exactly where В28 left them: no new builtin names (the №599 bridge is a
+capability extension of the existing two builtins), no debt lifted, no
+mirror added. The §3 subsystem weights stay as of the №476 recount
+(§6.12).
+
+**The Wave 29 counters (every value from its machine, the command
+reproduces it — all unchanged from §6.14):**
+
+| Counter | Value | Machine | Movement |
+|---|---|---|---|
+| Typed-signature share (№467) | **186/509 = 3654 bp** (the 0.29 owner-fixed goal 3500 bp stays exceeded; the gate is WIRED into blocking CI by №597 — ADR-0181 §6, the bare CI run reads the 0.29 targets) | `python3 scripts/ci/type_signature_share.py --gate scripts/ci/type_signature_baseline.txt` | unchanged |
+| Precise typed share (№560) | **104/509 = 2043 bp** | `python3 scripts/ci/type_signature_share.py --gate scripts/ci/type_signature_precise_baseline.txt --precise` | unchanged |
+| `#[ignore]` debt (№468) | **17** (TODO: 0) | `python3 scripts/ci/debt_counters.py --gate scripts/ci/debt_baseline.txt` | unchanged |
+| `dead_code` (№468) | **33** | same gate | unchanged |
+| TW/VM duplicated builtin names (№462) | **0** (the quorum 0/8 groups) | `python3 scripts/ci/count_duplicated_names.py --quorum` | unchanged |
+| Registered mirrors (№502/№564) | **6** | `python3 scripts/ci/mirror_counter.py` | unchanged |
+| ADR count | **174** (the generated README row; `gen_metrics.py --check` green) | `python3 scripts/gen_metrics.py --check` | unchanged (the В29 frame's ADR-0182 landed in В28's recount) |
+| The release state | **v0.28.1 PUBLISHED** — the tag, the green release run (37263503704), the four assets, the Security announcement; `fact_open_high_server` = **0** (the #997 carrier closed on the live tag) | `scripts/ci/unfreeze_gate.py --office-tests pass` (§4 + v2) | the release-block lifted |
+
+**The Wave 29 facts (the wave's own work, not counters):**
+
+- The security wave per the audit d63cc1d: №581 (the RESPOND_NOT_TERMINAL
+  compiler refusal) and №582 (the PushUnit route-epilogue) closed the
+  X-1/X-2 classes in code; №584 finished the X-1 line — the respond
+  terminality lowers on the TW early-answer surface, the VM parity is
+  contract-tested, and the RESPOND_NOT_TERMINAL gate retired to an
+  ADVISORY (the lint can never block a serve deploy again); №585 built
+  the route-body differential fuzzer lane (the generator, the HTTP
+  oracle, the seed corpus) — the serve contracts are now
+  differential-tested, not snapshot-tested.
+- The process hardening: №587 (X-5) — a squash body describes only its
+  own naryad (the body check + the history audit: 152 naryad commits, 14
+  true chained-PR instances, 0 false positives); №588 — the
+  honest-boundary protocol (a marker in the diff obliges a
+  limitations.md row in the same PR; the advisory CI job + the
+  maintainers.md rule + the template item); №589 — this sync.
+- The release line: №580/№583 prepared and closed the 0.28.1 contour
+  (the version lockstep, the Security section first; the
+  `fact_open_high_server` trajectory 1 → 2 → 1 → **0**, the goals files
+  synced, the REALITY release state landed); the owner's gate №549
+  executed — v0.28.1 PUBLISHED 2026-10-05.
+- The owner package «Принимаю все твои рекомендации, выполняй»
+  (2026-10-05) rode in the В29 frame: №597 wired the 0.29 gate into
+  blocking CI (the DEFAULT `--gate-target 0.29`; both v2 gate reads
+  GREEN); №598 fixed the ADR-0182 §7 answers (the ADR → Accepted, the
+  implementation line opens); №599 landed the Image bridge —
+  `vision_understand`/`ocr_extract` accept `Media(Image)` through the
+  sanctioned read path with the label-join (the ADR-0182 §3.3 step 1 of
+  3; the String overload forms untouched — the №493 posture).
+- The OPEN line (honest): №586 (X-4 — the branch-protection audit job)
+  stays BLOCKED by the owner's repo secret for the protection API — the
+  DoD «зелёная на живой защите» is unreachable without it; the wave's
+  only unfinished naryad, waiting on the owner, not on engineering.
+

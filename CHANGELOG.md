@@ -4,6 +4,20 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- Naryads №585/№587/№588 (issues #999/#1001/#1002; Wave 29,
+  [testing]/[process]): the post-wave record of the three process lanes —
+  №585: the route-body differential fuzzer (the audit d63cc1d lane: the
+  generator, the HTTP oracle, the seed corpus; coordination with №465's
+  shared fuzzer file); №587: the squash-body rule X-5 — a PR body
+  describes only its own naryad (`BODY_HEADER_RE` in
+  naryad_number_check.py, the foreign bullet/heading claims fail, the
+  status-line verdicts stay legal, the CI job passes the PR body, the
+  template + CONTRIBUTING rules; the history audit: 152 naryad commits,
+  14 true class instances, 0 false positives); №588: the honest-boundary
+  protocol — a marker in the diff obliges a limitations.md row in the
+  same PR (`honest_boundary_check.py`, added-lines-only, forward-only;
+  the advisory CI job; the maintainers.md rule + the template checklist
+  item).
 - Naryad №593 (issue #1018; Волна 30, Камертон Н1-03 gate, [process],
   THE OWNER GATE — resolved by delegation): ADR-0183
   (docs/adr/0183-migration-rollback-boundary.md, Accepted) — the

@@ -584,7 +584,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: "Gate — every fact_* in gate_028_goals.txt matches its machine source (№525)"
+      - name: "Gate — every fact_* in the 0.28 + 0.29 goal records matches its machine source (№525, №605)"
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""№525: machine-sync of every fact_* record in gate_028_goals.txt.
+"""№525: machine-sync of every fact_* record in the goal records —
+gate_028_goals.txt AND gate_029_goals.txt (№605: the 0.29 record is
+verified too — it carries the X-3 precise-share fact; the 0.28 record
+predates that parameter and carries no precise record).
 
 The class this closes (the audit 30.09, Д-2): the fact lines in the
 goals file are hand-edited and nothing verified them against their
@@ -18,6 +21,10 @@ The facts and their machine sources:
                        Actions; without it the check prints a loud SKIP
                        note (the ADR-0179 §6 step-1 sync stays a
                        release-time human step locally).
+  fact_precise_share_bp  type_signature_share.py --gate
+                       type_signature_precise_baseline.txt --precise
+                       (№560/№605; the 0.29 record only — the machine
+                       twin of goal_precise_share_bp, ADR-0181 §3.1).
 
 Fail-closed rules:
   - a fact line whose value disagrees with its source → exit 1;
@@ -42,12 +49,22 @@ import tempfile
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-GOALS = os.path.join(HERE, 'gate_028_goals.txt')
 COUNTER = os.path.join(HERE, 'count_duplicated_names.py')
+SHARE_PRECISE = os.path.join(HERE, 'type_signature_share.py')
+PRECISE_BASELINE = os.path.join(HERE, 'type_signature_precise_baseline.txt')
 REPO = 'ShkodnikAI/Metalogos-'
 
-EXPECTED_FACTS = ('fact_open_high_server', 'fact_quorum_num', 'fact_quorum_den',
-                  'fact_blocking_check_cells')
+# The goal records the sync verifies, each with its own expected fact set
+# (№605: the 0.29 record carries the X-3 precise-share fact; the 0.28
+# record predates the parameter).
+RECORDS = (
+    (os.path.join(HERE, 'gate_028_goals.txt'),
+     ('fact_open_high_server', 'fact_quorum_num', 'fact_quorum_den',
+      'fact_blocking_check_cells')),
+    (os.path.join(HERE, 'gate_029_goals.txt'),
+     ('fact_open_high_server', 'fact_quorum_num', 'fact_quorum_den',
+      'fact_blocking_check_cells', 'fact_precise_share_bp')),
+)
 
 
 def read_facts(goals_path: str) -> dict:
@@ -92,6 +109,28 @@ def cells_observed() -> dict:
     return {'fact_blocking_check_cells': m.group(1)}
 
 
+def precise_share_observed() -> dict:
+    """№605 (gh#1046; the audit 25b375e §3 X-3): the live PRECISE
+    typed-share fact — the machine twin of goal_precise_share_bp in the
+    0.29 record (ADR-0181 §3.1). The same №467 gate script, the precise
+    mode (№560); the percentage → basis-point rounding mirrors the v2
+    gate reader exactly."""
+    out = subprocess.run([sys.executable, SHARE_PRECISE, '--gate',
+                          PRECISE_BASELINE, '--precise'],
+                         capture_output=True, text=True)
+    if out.returncode != 0:
+        print(out.stdout + out.stderr)
+        print('::error::the precise-share source script failed (exit %d)'
+              % out.returncode)
+        sys.exit(2)
+    m = re.search(r'precise signatures:\s*\d+/\d+\s*\(([\d.]+)%\)', out.stdout)
+    if not m:
+        print('::error::the precise-share source printed no parsable record')
+        sys.exit(2)
+    bp = int(round(float(m.group(1)) * 100))
+    return {'fact_precise_share_bp': str(bp)}
+
+
 def open_high_observed(token: str) -> str:
     count = 0
     page = 1
@@ -115,23 +154,25 @@ def open_high_observed(token: str) -> str:
     return str(count)
 
 
-def verify(goals_path: str, observed: dict) -> list:
+def verify(goals_path: str, observed: dict, expected) -> list:
     """Compare the goals-file facts with the observed machine facts.
 
     `observed` maps fact name → observed value string; a fact absent
     from `observed` is skipped loudly (no source available in this
-    environment). Returns the list of error strings (empty = in sync).
+    environment). `expected` is the record's own fact set (№605: the
+    records differ — the 0.29 record carries the precise-share fact).
+    Returns the list of error strings (empty = in sync).
     """
     errors = []
     facts = read_facts(goals_path)
-    for key in EXPECTED_FACTS:
+    for key in expected:
         if key not in facts:
             errors.append('%s is MISSING from the goals file (fail-closed)' % key)
             continue
         if not re.match(r'^\d+$', facts[key]):
             errors.append('%s: value "%s" is not a non-negative integer' % (key, facts[key]))
             continue
-    unknown = sorted(set(facts) - set(EXPECTED_FACTS))
+    unknown = sorted(set(facts) - set(expected))
     if unknown:
         errors.append('unknown fact record(s) without a machine source: %s (fail-closed)'
                       % ', '.join(unknown))
@@ -162,59 +203,71 @@ def main() -> None:
         tamper_test()
         return
     token = os.environ.get('GH_TOKEN') or os.environ.get('GITHUB_TOKEN')
-    observed = quorum_observed()
-    observed.update(cells_observed())
+    observed_common = quorum_observed()
+    observed_common.update(cells_observed())
     skips = []
     if token:
-        observed['fact_open_high_server'] = open_high_observed(token)
+        observed_common['fact_open_high_server'] = open_high_observed(token)
     else:
         skips.append('GH_TOKEN absent — fact_open_high_server not verified here '
                      '(the ADR-0179 §6 step-1 sync stays a release-time human step; '
                      'CI always runs this check with the token)')
-    errors = verify(GOALS, observed)
+    errors = []
+    # №605: both records verify — the 0.28 record against the common
+    # observed set, the 0.29 record with the precise-share machine twin.
+    (goals_028, expected_028), (goals_029, expected_029) = RECORDS
+    errors += verify(goals_028, observed_common, expected_028)
+    observed_029 = dict(observed_common)
+    observed_029.update(precise_share_observed())
+    errors += verify(goals_029, observed_029, expected_029)
     report(errors, skips)
     sys.exit(1 if errors else 0)
 
 
 def tamper_test() -> None:
-    """The negative test (№525 task 3): a tampered fact value must fail."""
+    """The negative test (№525 task 3): a tampered fact value must fail —
+    for BOTH goal records (№605: the 0.29 record is tamper-tested too)."""
     token = os.environ.get('GH_TOKEN') or os.environ.get('GITHUB_TOKEN')
-    observed = quorum_observed()
-    observed.update(cells_observed())
+    observed_common = quorum_observed()
+    observed_common.update(cells_observed())
     if token:
-        observed['fact_open_high_server'] = open_high_observed(token)
+        observed_common['fact_open_high_server'] = open_high_observed(token)
     else:
         # the deterministic local fixture for the tamper test
-        observed['fact_open_high_server'] = '0'
-    cases = []
-    for key in sorted(observed):
-        tampered = str(int(observed[key]) + 1)
-        cases.append(('value tamper: %s %s → %s' % (key, observed[key], tampered),
-                      key, tampered))
-    cases.append(('unknown fact without a machine source', 'fact_bogus_key', '5'))
+        observed_common['fact_open_high_server'] = '0'
     failed = []
-    for name, key, value in cases:
-        with tempfile.NamedTemporaryFile('w', suffix='.txt', delete=False) as tmp:
-            tmp.write(open(GOALS, encoding='utf-8').read())
-            path = tmp.name
-        lines = open(path, encoding='utf-8').readlines()
-        if key in read_facts(path):
-            replaced = False
-            for i, line in enumerate(lines):
-                if re.match(r'^%s:' % re.escape(key), line):
-                    lines[i] = '%s: %s\n' % (key, value)
-                    replaced = True
-            if not replaced:
-                failed.append('%s — the tamper could not find the line' % name)
-        else:
-            lines.append('%s: %s\n' % (key, value))
-        open(path, 'w', encoding='utf-8').writelines(lines)
-        errors = verify(path, observed)
-        os.unlink(path)
-        if any(key in e for e in errors):
-            print('PASS: %s — the trap sprang (%d error(s))' % (name, len(errors)))
-        else:
-            failed.append('%s — the tampered record PASSED (the trap did not spring)' % name)
+    for goals_path, expected in RECORDS:
+        observed = dict(observed_common)
+        if 'fact_precise_share_bp' in expected:
+            observed.update(precise_share_observed())
+        cases = []
+        for key in sorted(observed):
+            tampered = str(int(observed[key]) + 1)
+            cases.append(('value tamper: %s %s → %s' % (key, observed[key], tampered),
+                          key, tampered))
+        cases.append(('unknown fact without a machine source', 'fact_bogus_key', '5'))
+        for name, key, value in cases:
+            with tempfile.NamedTemporaryFile('w', suffix='.txt', delete=False) as tmp:
+                tmp.write(open(goals_path, encoding='utf-8').read())
+                path = tmp.name
+            lines = open(path, encoding='utf-8').readlines()
+            if key in read_facts(path):
+                replaced = False
+                for i, line in enumerate(lines):
+                    if re.match(r'^%s:' % re.escape(key), line):
+                        lines[i] = '%s: %s\n' % (key, value)
+                        replaced = True
+                if not replaced:
+                    failed.append('%s — the tamper could not find the line' % name)
+            else:
+                lines.append('%s: %s\n' % (key, value))
+            open(path, 'w', encoding='utf-8').writelines(lines)
+            errors = verify(path, observed, expected)
+            os.unlink(path)
+            if any(key in e for e in errors):
+                print('PASS: %s — the trap sprang (%d error(s))' % (name, len(errors)))
+            else:
+                failed.append('%s — the tampered record PASSED (the trap did not spring)' % name)
     if failed:
         for f in failed:
             print('::error::%s' % f)

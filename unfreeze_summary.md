@@ -4,9 +4,9 @@ The one-page machine verdict over the four unfreeze criteria. The right to lift 
 
 | § | Criterion | Verdict | Evidence |
 |---|-----------|---------|----------|
-| 4.1 | Types — the typed-signature share grows (№467) | **GREEN** | share typed signatures: 241/516 (46.70%); the enforced floor 4670 bp; the latest recorded floor 4670 bp |
+| 4.1 | Types — the typed-signature share grows (№467) | **GREEN** | share typed signatures: 302/516 (58.52%); the enforced floor 5852 bp; the latest recorded floor 5852 bp |
 | 4.2 | Dedup — the TW/VM duplicate names at/below the threshold (№462) | **GREEN** | count 0 (threshold 0); mirrors 6 (threshold 6) |
-| 4.3 | Debt — the ignore/dead_code counters green (№468) | **GREEN** | ignore 17/17; ignore_todo 0/0; dead_code 33/33; example_uncovered 0/0 |
+| 4.3 | Debt — the ignore/dead_code counters green (№468) | **GREEN** | ignore 14/14; ignore_todo 0/0; dead_code 33/33; example_uncovered 0/0 |
 | 4.4 | Memory — the office E2E dogfood (office#373, FO-056) | **GREEN** | the office record verdict: GREEN (the §4.4 criterion evidence is complete: the in-repo | the in-repo twin (naryad_429_memory_office_path) GREEN on this commit |
 
 > 4.4 (Memory): - the office repo is private — the live office CI status is not queryable from the Metalogos CI (no cross-repo token); the checked-in record is the machine-readable evidence, refreshed by the office-side naryads
@@ -17,7 +17,7 @@ The one-page machine verdict over the four unfreeze criteria. The right to lift 
 
 | § | Goal | Verdict | Evidence |
 |---|------|---------|----------|
-| v2 | The absolute goals: typed share ≥ goal, precise share ≥ goal (№605, X-3), 0 open High (server path), the domain quorum, the serve-e2e inventory | **GREEN** | typed share 4670 bp vs goal 3500 bp: MET; precise share 3042 bp vs goal 3000 bp: MET; open High (server path) 0 vs goal 0: MET; domain quorum 0/8 vs goal 1/3: MET; the serve-e2e inventory: all state-accumulating declarations done |
+| v2 | The absolute goals: typed share ≥ goal, precise share ≥ goal (№605, X-3), 0 open High (server path), the domain quorum, the serve-e2e inventory | **GREEN** | typed share 5852 bp vs goal 3500 bp: MET; precise share 4224 bp vs goal 3000 bp: MET; open High (server path) 0 vs goal 0: MET; domain quorum 0/8 vs goal 1/3: MET; the serve-e2e inventory: all state-accumulating declarations done |
 
 **Overall (§4 + v2 0.29): GREEN.**
 The 0.29 release gate: **WIRED** (the DEFAULT gate target — №597, ADR-0181 §6, the owner's authorization 2026-10-05; the strict release-time read, --strict, exits 1 on RED).
@@ -27,8 +27,8 @@ The 0.29 release gate: **WIRED** (the DEFAULT gate target — №597, ADR-0181 �
 **4.1 (types), gate exit 0:**
 
 ```
-typed signatures: 241/516 (46.70%)
-precise signatures: 157/516 (30.42%) — №560: the two shares side by side
+typed signatures: 302/516 (58.52%)
+precise signatures: 218/516 (42.24%) — №560: the two shares side by side
 ```
 
 **4.2 (dedup), gate exit 0:**
@@ -42,7 +42,7 @@ src/ mirror mentions: 6 (threshold 6)
 **4.3 (debt), gate exit 0:**
 
 ```
-ignore: 17 (threshold 17) OK
+ignore: 14 (threshold 14) OK
 ignore_todo: 0 (threshold 0) OK
 dead_code: 33 (threshold 33) OK
 example_uncovered: 0 (threshold 0) OK

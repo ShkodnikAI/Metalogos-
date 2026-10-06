@@ -94,10 +94,12 @@ fact_blocking_check_cells: 31
 # sync_gate_facts.py (the fail-closed №525 rule: the fact exists only
 # with its checker; the 0.28 record predates the parameter and carries
 # no precise record).
-# The fact follows the movement naryad: 2131 (the №605 wiring — the
+# The fact follows the movement naryads: 2131 (the №605 wiring — the
 # honest RED record, PR gh#1069: the v2 verdict NOT MET on precisely
-# this parameter) → 3042 (№613, gh#1070: the 47 verified PRECISE rows —
-# the movement package; the precise floor raised to 3042 in the same PR
-# per the №757 procedure). The goal (3000, OWNER-FIXED) is MET; the
-# counter is machine-read, never hand-zeroed.
-fact_precise_share_bp: 3042
+# this parameter) → 3042 (№613, gh#1070: the 47 verified PRECISE rows) →
+# 4224 (№616, gh#1077, волна 33: the 0.30 movement №1 — 61 verified
+# PRECISE rows; the floors raised in the same PR per the №757
+# procedure: precise 4224 / general 5852 / TYPED_FLOOR 298). The goal
+# (3000, OWNER-FIXED) stays MET; the counter is machine-read, never
+# hand-zeroed.
+fact_precise_share_bp: 4224

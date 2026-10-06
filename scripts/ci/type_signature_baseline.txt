@@ -203,6 +203,11 @@
 # lock (tests/type_signature_metric.rs TYPED_FLOOR) is raised in the
 # SAME PR: 190 → 237. The gate 0.29 goals stay satisfied: general
 # 4670 bp ≥ 3500, precise 3042 bp ≥ 3000 (ADR-0181 §3/§3.1).
-# typed: 241
+# 2026-10-06 №616 (gh#1077, волна 33): the same package rides the
+# general floor — 61 rows typed (all PRECISE scalar shapes; the general
+# share counts them too). 241/516 → 302/516. (302*10000)//516 = 5852 bp.
+# (superseded) typed: 241 | total: 516 | threshold_bp was 4670
+
+# typed: 302
 # total: 516
-# threshold_bp: 4670
+# threshold_bp: 5852

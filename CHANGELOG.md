@@ -4,6 +4,98 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-10-06
+
+### Fixed
+
+- **№612 (gh#1061, PR #1068) — the loop semantics: a bare call in the
+  body NEVER terminates the loop.** The Камертон matrix finding (TW):
+  the loop arms read the block's №13 implicit-return value from the body
+  as an early `Return(v)` of the ENCLOSING function — the first iteration
+  became the last one, the tail after the loop was silently cut, and in
+  test bodies the harness flattened the fabricated Return into Ok — a
+  GREEN VACUOUS test (a deliberately false `assert_eq` stayed green; the
+  asserts never ran). The fix (the honest statement semantics): the loop
+  arms discard the body's implicit value; a loop statement, a binding and
+  an assignment produce NO value (the implicit value resets — the poison
+  class); the sub-block implicit value is replaced unconditionally (the
+  staleness class); the test harness evaluates bodies
+  ControlFlow-preservingly — an explicit `return` in a test body is a
+  LOUD failure, a test that terminated early proves nothing (the corpus
+  scan: zero test bodies use explicit return). Demonstrated pre/post on
+  the honest-count program: pre-fix output 1 (the fabricated Return
+  carried the FIRST `db_insert` id; the COUNT query never ran), post-fix
+  output 3. 8 regression tests + the TW↔VM parity e2e (the VM's jump
+  machinery never fabricated the Return — the honest count 3 on BOTH
+  backends, the №607 precedent).
+- **№611 (gh#1060, PR #1067) — the schema-as-code references: the
+  qualified name parsed in EVERY spacing (the dot is the separator).**
+  The parser's split kept the dot inside a token — `references(parent.id)`
+  stayed one identifier and the modifier was dropped SILENTLY (no
+  REFERENCES clause in the applied DDL), while `references( parent . id )`
+  yielded the broken `REFERENCES parent(.)` clause (SQL_ERROR at apply,
+  check green in every form). The fix (two halves, one contract): the
+  parser tokenizes the qualified name with the dot as the TABLE/FIELD
+  separator — every spacing of `t.f` yields exactly the pair `(t, f)`,
+  anything else is a LOUD parse error, never a silent drop; `mlog check`
+  validates the generated DDL on an in-memory SQLite dry-run — a DDL
+  SQLite rejects fails the check LOUDLY, never the apply. The SSOT:
+  `ast::schema_table_ddl` — the ONE renderer both the interpreter apply
+  and the check dry-run execute. 8 regression tests.
+
+### The 0.29 gate (the release evidence, v2)
+
+- **№605 (gh#1046, PR #1062) — the X-3 precise-share goal, OWNER-FIXED
+  3000 bp (ADR-0181 §3.1).** The audit's X-3 finding: the coarse goal
+  (3500 bp) was already exceeded before the wiring, so it demanded no
+  movement — "the achieved goal measures nothing". The PRECISE share
+  (types without Unknown, №560) is the honest 0.29 target; the coarse
+  goal stays the floor. The between-releases enforcement is the
+  precise-baseline ratchet (the share may ONLY GROW; a raise happens in
+  the same PR that types more rows precisely, the №565/№757 procedure).
+  The honest RED record landed first (the v2 verdict NOT MET on precisely
+  this parameter, 2131 bp — PR #1069) BEFORE the movement.
+- **№613 (gh#1070, PR #1071) — the precise-share movement: 47 verified
+  PRECISE rows, 2131 → 3042 bp ≥ 3000; the 0.29 v2 gate turns GREEN.**
+  The full verification table in the naryad; the honest Unknowns kept
+  (№560: `__first`/`__last`, the telegram trio, `poll_wake`/
+  `take_interrupt`, `hash_password`, `query`, `respond`, the coarse
+  families). The floors raised in the same PR per the №757 procedure:
+  precise 2131 → 3042, general 3759 → 4670, TYPED_FLOOR 190 → 237. The
+  fresh gate read at the release cut (unfreeze_gate.py --gate-target
+  0.29): §4 GREEN, v2 GREEN — typed 4670/3500, precise 3042/3000, open
+  High (server path) 0, domain quorum 0/8, the serve-e2e inventory done.
+
+### The owner's decisions (the records)
+
+- **ADR-0184 (№603, gh#1044, PR #1063) — the depth-≥2 respond boundary:
+  REFUSED FOREVER, variant Б.** The owner's decision («1-Б, 2-3000,
+  3-отложить и добивай остальное», the chat authorization 2026-10-06):
+  `RESPOND_SWALLOWED` stays forever — the bare `respond*`/`respond_html*`
+  form at depth ≥ 2 is refused at startup on BOTH backends, no early
+  answer at any depth will ever be reintroduced; the migration remains
+  one word (`return respond(...)`).
+- **ADR-0185 (№609, gh#1050, PR #1066) — the memory_forget container
+  form DEFERRED to the memory-phase planning.** The owner's decision:
+  postponed, NOT rejected; the return trigger is the memory-phase
+  planning, the container-form sketch stays in the ADR.
+
+### Process
+
+- **№608 (gh#1049, PR #1064) — the Y-4 quota line in the wave report:**
+  the counter learns the real formats of the audited reports, the
+  `--line` mode renders the one-line quota cell for the wave dispatch
+  template; the Y-4 quota (the audit finding) is now machine-counted on
+  every wave report instead of hand-asserted.
+- **№610 (gh#1051, PR #1065) — the newcomer path: the broken first step
+  fixed** (the clone URLs point at the real repository), the live pool
+  list rendered from the good-first-issue pool (gh#951–gh#959), 9/9
+  acceptance criteria.
+- **The post-publication sync of 0.28.2 (PR #1059):** the
+  `fact_open_high_server` trajectory closed at 0 on the live tag
+  (the В31 corrective fact 0 → 1 → 0), REALITY §6.17 release state →
+  PUBLISHED, both goals files carry the machine-verified facts.
+
 ## [0.28.2] - 2026-10-06
 
 ### Security (UPDATE REQUIRED)

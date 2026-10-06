@@ -45,11 +45,14 @@ goal_quorum_den: 3
 # The fact follows the LIVE machine counter (sync_gate_facts.py, the
 # GitHub API count of OPEN release-block issues) — never hand-zeroed.
 # Carrier: #1041 (№600, the audit 25b375e Y-1 RESPOND_SWALLOWED
-# regression) — open since the В31 issue publication; the fix PR
-# (#1054) keeps the issue OPEN after merge (Part of, not Closes — the
-# #997 lesson), the closure is the release naryad №602's act on the
-# live 0.28.2 tag (the В31 fact trajectory 0 -> 1 -> 0).
-fact_open_high_server: 1
+# regression) — CLOSED on the LIVE v0.28.2 tag (published 2026-10-06 —
+# the owner's act: the release workflow run 37412777202 green, the
+# four assets verified, the SBOM describes mlog 0.28.2; the
+# version-lockstep PR #1058), per its own condition; the release
+# naryad #1043 closed with it. The В31 fact trajectory 0 -> 1 -> 0
+# complete; the syncing PR lands this record (the №583/gh#1024
+# pattern).
+fact_open_high_server: 0
 # The transfer domain quorum fact: (groups still carrying duplicates)
 # / (the №466 group total at the transfer start).
 # Source: `python3 scripts/ci/count_duplicated_names.py --quorum`

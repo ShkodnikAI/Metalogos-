@@ -17,9 +17,9 @@ The one-page machine verdict over the four unfreeze criteria. The right to lift 
 
 | § | Goal | Verdict | Evidence |
 |---|------|---------|----------|
-| v2 | The absolute goals: typed share ≥ goal, 0 open High (server path), the domain quorum, the serve-e2e inventory | **RED** | typed share 3759 bp vs goal 3500 bp: MET; open High (server path) 1 vs goal 0: NOT MET; domain quorum 0/8 vs goal 1/3: MET; the serve-e2e inventory: all state-accumulating declarations done |
+| v2 | The absolute goals: typed share ≥ goal, 0 open High (server path), the domain quorum, the serve-e2e inventory | **GREEN** | typed share 3759 bp vs goal 3500 bp: MET; open High (server path) 0 vs goal 0: MET; domain quorum 0/8 vs goal 1/3: MET; the serve-e2e inventory: all state-accumulating declarations done |
 
-**Overall (§4 + v2 0.29): RED.**
+**Overall (§4 + v2 0.29): GREEN.**
 The 0.29 release gate: **WIRED** (the DEFAULT gate target — №597, ADR-0181 §6, the owner's authorization 2026-10-05; the strict release-time read, --strict, exits 1 on RED).
 
 <details><summary>the raw gate outputs</summary>

@@ -52,17 +52,37 @@ pub const BUDGET_SEAM_ERROR: &str = "[CONTOUR_BUDGET_EXCEEDED]";
 
 thread_local! {
     static CONTOUR_CALLS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// №607: whether a budget scope is ACTIVE on this thread. The scope is
+    /// installed at the request/tick/program-run boundaries; the seam
+    /// consumers that charge per-call (`embed` et al. — the №546 surface)
+    /// charge unconditionally, the PURE-MATH consumers (the spectral
+    /// contour, №607) charge ONLY inside a scope — outside one there is no
+    /// request boundary the budget could mean, and a long-lived thread
+    /// (a REPL, a lib-level statistical sweep) must not accumulate charges
+    /// forever.
+    static CONTOUR_SCOPE_ACTIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// RAII scope for one request/tick: resets the contour-call counter at
 /// the boundary entry. Drop does nothing (the counter dies with the
 /// thread or is reset by the next scope — the reset-on-entry form is
 /// the one that cannot forget to run: a scope that starts, counts).
+/// №607: the scope also marks the BUDGETED CONTEXT (see
+/// `seam_budget_check_scoped`) and clears the mark on drop — a nested
+/// scope resets the counter and keeps the mark until the OUTERMOST
+/// scope drops (the mark is per-thread, the nesting depth is tracked by
+/// the counter of scopes itself).
 pub struct ContourBudgetScope;
+
+thread_local! {
+    static CONTOUR_SCOPE_DEPTH: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
 
 impl ContourBudgetScope {
     pub fn new() -> Self {
         CONTOUR_CALLS.with(|c| c.set(0));
+        CONTOUR_SCOPE_DEPTH.with(|d| d.set(d.get() + 1));
+        CONTOUR_SCOPE_ACTIVE.with(|a| a.set(true));
         ContourBudgetScope
     }
 }
@@ -71,6 +91,38 @@ impl Default for ContourBudgetScope {
     fn default() -> Self {
         Self::new()
     }
+}
+
+impl Drop for ContourBudgetScope {
+    fn drop(&mut self) {
+        CONTOUR_SCOPE_DEPTH.with(|d| {
+            let depth = d.get().saturating_sub(1);
+            d.set(depth);
+            if depth == 0 {
+                // The outermost scope dropped — the thread leaves the
+                // budgeted context.
+                CONTOUR_SCOPE_ACTIVE.with(|a| a.set(false));
+            }
+        });
+    }
+}
+
+/// №607: is a budget scope active on this thread?
+pub fn seam_scope_active() -> bool {
+    CONTOUR_SCOPE_ACTIVE.with(|a| a.get())
+}
+
+/// №607: the scoped variant of [`seam_budget_check`] for the PURE-MATH
+/// contours (the spectral contour). Inside a request/tick scope the
+/// charge is identical to the seam's; OUTSIDE one there is no request
+/// boundary the budget could mean — the charge is skipped (the call's
+/// own N × M work budget still bounds it). Never refuses outside a
+/// scope, never refuses silently inside one.
+pub fn seam_budget_check_scoped(units: u64) -> Result<(), String> {
+    if !seam_scope_active() {
+        return Ok(());
+    }
+    seam_budget_check(units)
 }
 
 fn budget_limit() -> u64 {
@@ -105,6 +157,8 @@ pub fn seam_budget_check(units: u64) -> Result<(), String> {
     })
 }
 
+/// №607: the scoped charge — identical to [`seam_budget_check`] inside a
+/// request/tick scope; a no-op outside one (no boundary, no budget).
 /// The runtime secret-family check at the seam (precondition 4). The
 /// opaque secret family (`Value::Secret`/`Encrypted`/`Hash`) NEVER
 /// enters the embedding contour — refuse loudly, name the seam.

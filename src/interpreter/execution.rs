@@ -8,6 +8,10 @@ impl Interpreter {
     // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
     /// Run a complete .mlog program.
     pub fn run(&mut self, declarations: Vec<Declaration>) -> Result<Option<String>, String> {
+        // №607: one program run = one budgeted context (the contour budget
+        // applies per request/tick/program run — the charges of `embed` et
+        // al. accumulate within the run and reset at the next boundary).
+        let _contour_budget_scope = crate::builtins::embed_seam::ContourBudgetScope::new();
         let mut output: Option<String> = None;
 
         // Наряд №119: build type alias map for runtime resolution

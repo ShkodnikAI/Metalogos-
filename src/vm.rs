@@ -326,6 +326,10 @@ impl Vm {
     /// Execute a compiled program. Returns the flow output (if any),
     /// with mutate log messages prepended if present.
     pub fn run(&mut self, program: Program) -> Result<Option<String>, String> {
+        // №607: one program run = one budgeted context (the contour budget
+        // applies per request/tick/program run — the charges of `embed` et
+        // al. accumulate within the run and reset at the next boundary).
+        let _contour_budget_scope = crate::builtins::embed_seam::ContourBudgetScope::new();
         // Наряд №276: LLM traces emitted from builtins during this run carry
         // backend="vm"; the previous tag is restored on exit (thread pools
         // reuse threads — a leaked tag would lie about the next program).

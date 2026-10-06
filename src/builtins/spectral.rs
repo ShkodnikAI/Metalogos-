@@ -73,6 +73,16 @@ const SPECTRAL_MIN_POINTS: usize = 12;
 /// constant — documented in REFERENCE.md).
 const SPECTRAL_MAX_GRID: usize = 200_000;
 
+/// №607 (the audit 25b375e Y-3): the WORK budget of one call — the N × M
+/// sine/cosine pairs the periodogram computes. The natural grid for
+/// near-uniform data is M ≈ N²/2, so the work grows as N³/2: past the
+/// budget the grid is COARSENED over the same band (fewer, wider bins —
+/// the band never shrinks) and the result carries `degraded: true` with
+/// the explicit reason — never a silent truncation, never a silent
+/// refusal (a server route must not spend seconds of CPU on one call).
+/// The guideline magnitude is the naryad's: 10⁷ work units per call.
+const SPECTRAL_WORK_BUDGET: usize = 10_000_000;
+
 // ── The statistical core (one implementation; both builtins and the
 //    unit tests call these fns; the backends share the handlers — the
 //    TW↔VM parity is by construction, asserted end-to-end in
@@ -81,8 +91,15 @@ const SPECTRAL_MAX_GRID: usize = 200_000;
 /// The derived frequency grid: (freqs, baseline T, bin count M).
 /// Fails loudly (Err) on a degenerate window; returns Ok(None)-shaped
 /// degradation reasons via `DegradedReason`.
+/// №607: `coarsened` carries the loud degradation note when the natural
+/// grid was re-sampled to a coarser Δf over the SAME band to fit the work
+/// budget (None = the natural grid, the data-derived Δf untouched).
 enum GridOutcome {
-    Grid { freqs: Vec<f64>, baseline: f64 },
+    Grid {
+        freqs: Vec<f64>,
+        baseline: f64,
+        coarsened: Option<String>,
+    },
     Degraded(String),
 }
 
@@ -142,14 +159,41 @@ fn derive_grid(times: &[f64]) -> GridOutcome {
             m
         ));
     }
-    if m > SPECTRAL_MAX_GRID {
-        return GridOutcome::Degraded(format!(
-            "frequency grid exceeds the capacity guard: {} bins > {}",
-            m, SPECTRAL_MAX_GRID
-        ));
+    // №607: the WORK budget — N × M sine/cosine pairs per call — and the
+    // grid CAPACITY bound the frequency grid together. Past either bound
+    // the grid is re-sampled to a coarser Δf over the SAME band
+    // [f_min, f_max]: the band never shrinks (the low-frequency limit and
+    // the Nyquist-equivalent ceiling both stay honest), the bin count fits
+    // the bounds, and the degradation is carried in the result — loud,
+    // never a silent truncation, never a refusal of a computable spectrum
+    // (the pre-№607 capacity refusal is retired: a computable, honestly
+    // degraded spectrum serves the consumer better than an error).
+    let work = n.saturating_mul(m);
+    if m > SPECTRAL_MAX_GRID || work > SPECTRAL_WORK_BUDGET {
+        let m_budget = (SPECTRAL_WORK_BUDGET / n).clamp(3, SPECTRAL_MAX_GRID);
+        let delta_f_coarse = (f_max - f_min) / (m_budget as f64 - 1.0);
+        let freqs: Vec<f64> = (0..m_budget)
+            .map(|k| f_min + k as f64 * delta_f_coarse)
+            .collect();
+        return GridOutcome::Grid {
+            freqs,
+            baseline,
+            coarsened: Some(format!(
+                "the frequency grid coarsened to fit the work budget: the \
+                 derived grid {} bins × {} points = {} work units exceeds \
+                 the budget {} (the grid capacity {}); sampled {} bins over \
+                 the same band [{} Hz, {} Hz] — the frequency resolution is \
+                 reduced, the band is unchanged",
+                m, n, work, SPECTRAL_WORK_BUDGET, SPECTRAL_MAX_GRID, m_budget, f_min, f_max
+            )),
+        };
     }
     let freqs = (0..m).map(|k| f_min + k as f64 * delta_f).collect();
-    GridOutcome::Grid { freqs, baseline }
+    GridOutcome::Grid {
+        freqs,
+        baseline,
+        coarsened: None,
+    }
 }
 
 /// The Lomb–Scargle power at one frequency, normalized by 2σ² (Scargle's
@@ -261,15 +305,33 @@ fn spectrum_from_args(fn_name: &str, args: &[Value]) -> Result<Value, String> {
                 .to_string(),
         ));
     }
-    let (freqs, baseline) = match derive_grid(&times) {
-        GridOutcome::Grid { freqs, baseline } => (freqs, baseline),
+    let (freqs, baseline, coarsened) = match derive_grid(&times) {
+        GridOutcome::Grid {
+            freqs,
+            baseline,
+            coarsened,
+        } => (freqs, baseline, coarsened),
         GridOutcome::Degraded(reason) => return Ok(degraded(reason)),
     };
+    // №607: the spectral contour joins the per-request/tick CONTOUR BUDGET
+    // (the №546 seam — the scope lives at the serve/request boundaries and
+    // at the program-run entries): the work-based cost (N × M sine/cosine
+    // pairs, 10⁶ per unit) is charged BEFORE the compute; exhaustion is a
+    // LOUD [CONTOUR_BUDGET_EXCEEDED] refusal of the call — fail-closed,
+    // never a silent degradation. Outside a budgeted context (a direct
+    // lib-level call, no request boundary) the charge is skipped — the
+    // call's own N × M work budget still bounds it.
+    let units = ((times.len() as u64) * (freqs.len() as u64) / 1_000_000).max(1);
+    crate::builtins::embed_seam::seam_budget_check_scoped(units)?;
     let y: Vec<f64> = values.iter().map(|v| v - mean).collect();
     let powers: Vec<f64> = freqs
         .iter()
         .map(|f| ls_power_at(*f, &times, &y, variance))
         .collect();
+    let (degraded_flag, reason_field) = match coarsened {
+        Some(reason) => (Value::Bool(true), Value::String(reason)),
+        None => (Value::Bool(false), Value::String(String::new())),
+    };
     Ok(make_struct(
         "Spectrum",
         vec![
@@ -284,7 +346,11 @@ fn spectrum_from_args(fn_name: &str, args: &[Value]) -> Result<Value, String> {
             ("n_points", Value::Float(n)),
             ("baseline", Value::Float(baseline)),
             ("grid_size", Value::Float(freqs.len() as f64)),
-            ("degraded", Value::Bool(false)),
+            ("degraded", degraded_flag),
+            // №607: the explicit coarsening note when the work budget
+            // re-sampled the grid — the consumer reads WHY, never a silent
+            // coarser spectrum.
+            ("degraded_reason", reason_field),
         ],
     ))
 }
@@ -316,6 +382,10 @@ fn degraded(reason: String) -> Value {
 /// non-finite element is a loud [SPECTRAL_INPUT] domain error. Pure
 /// function — zero effects (№316). Numbers only, no interpretations (the
 /// instrumental forecast posture, docs/limitations.md).
+/// №607: past the WORK budget (N × M > 10⁷ sine/cosine pairs) the grid is
+/// COARSENED over the same band — the Spectrum carries `degraded: true` +
+/// the explicit `degraded_reason`; the call also charges the contour budget
+/// seam (the №546 per-request budget) and refuses loudly on exhaustion.
 pub(crate) fn builtin_lomb_scargle(args: &[Value]) -> Result<Value, String> {
     spectrum_from_args("lomb_scargle", args)
 }

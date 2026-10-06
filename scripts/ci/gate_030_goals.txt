@@ -1,0 +1,82 @@
+# The 0.30 release-gate ABSOLUTE goals (№615, ADR-0186) — the record the
+# v2 gate reads. STATUS: **DRAFT — owner_fixed: false.** The executor
+# drafted the parameters (the №570 precedent: the draft is the executor's
+# work); the FIXATION is the OWNER's gate (ADR-0186 §3): until the owner
+# accepts the values (or fixes different ones — the values are not the
+# executor's to own either way), this record stays a draft, the gate
+# reports the honest RED on exactly this fact, and the DEFAULT gate
+# target of unfreeze_gate.py remains 0.29 (the №597 wiring; the draft is
+# NEVER the default — the blocking CI does not read a draft).
+#
+# THE X-3 RULE (the audit 25b375e §3, the ADR-0186 §2 honesty): goals
+# already achieved by the live fact measure NOTHING. Every parameter
+# below sits STRICTLY ABOVE the live fact at the draft's start
+# (main @ 4c66b88, after №616: typed 302/516 = 5852 bp, precise
+# 218/516 = 4224 bp) — the same "the goal must demand movement" shape
+# the audit prescribed and the 0.29 draft honored (3500 > 3241; the
+# X-3 corrective 3000 precise > 2131).
+#
+# The FACTS below carry the same machine sources as the 0.28/0.29
+# records (the same checkers in scripts/ci/sync_gate_facts.py verify
+# them; no new fact_* key is introduced without a checker — the
+# fail-closed №525 rule).
+
+owner_fixed: false
+
+# ── The DRAFT parameters (№615: the executor's proposal, strictly above the live facts; ADR-0186 §3) ─────────
+# The typed-signature share floor, basis points. Draft: 6100 = 61.00% —
+# a +248bp step over the live fact (5852 bp at 4c66b88; needs ~315 typed
+# rows of 516, +13 over the 302 typed). The live fact at the 0.29 cut
+# was 3241 bp; the 0.29 goal 3500; the 0.30 draft demands movement the
+# same way the 0.29 goal did at ITS start.
+goal_typed_share_bp: 6100
+# The PRECISE typed-share goal (the X-3 parameter, ADR-0181 §3.1's
+# successor). Draft: 4500 = 45.00% — a +276bp step over the live fact
+# (4224 bp at 4c66b88; needs ~233 precise rows of 516, +15 over the 218
+# precise). The between-releases enforcement stays the precise-baseline
+# ratchet (type_signature_precise_baseline.txt — the share may ONLY
+# GROW; a raise happens in the same PR that types more rows precisely,
+# the №565/№757 procedure — never by loosening PRECISE_TYPES).
+goal_precise_share_bp: 4500
+# Zero open High findings in the server path — the unchanged ratchet
+# (the release-block label discipline; no regression is possible).
+goal_open_high_server: 0
+# The TW/VM transfer domain quorum: the 0.29 form kept verbatim (no
+# regress; the live fact is ALREADY 0/8 — the honest headroom: the gate
+# can only tighten by the owner's later decision).
+goal_quorum_num: 1
+goal_quorum_den: 3
+
+# ── The debt goals (from the №569 re-locked floors, as amended by №617) ──
+# The debt counters live in scripts/ci/debt_baseline.txt (the §4.3
+# legacy criterion reads it) — this record NOTES them, it does NOT
+# duplicate them into fact keys (a fact without a checker is the Д-2
+# class re-opening, fail-closed №525). The current floors: ignore 14,
+# ignore_todo 0, dead_code 33 — each only-down.
+
+# ── The live facts (the same machine sources as the 0.28/0.29 records) ──
+# The open High findings in the server path: the count of the open
+# GitHub issues labeled `release-block`. Machine-verified by
+# scripts/ci/sync_gate_facts.py. The В31 corrective trajectory closed at
+# 0 on the live v0.28.2 tag (the carrier #1041); no release-block
+# carrier has opened since. The counter is machine-read, never
+# hand-zeroed.
+fact_open_high_server: 0
+# The transfer domain quorum fact. Source:
+# `python3 scripts/ci/count_duplicated_names.py --quorum`; the same
+# checker verifies it (the live fact: 0 groups of 8 carry duplicates).
+fact_quorum_num: 0
+fact_quorum_den: 8
+# The blocking-checks live cell count (the ADR-0179 §6 checklist item 3
+# shape). Machine-verified by scripts/ci/blocking_checks_sync.py --count.
+# The 0.30 draft adds NO new cells — a cell grows only explicitly, with
+# the check that backs it (the №535 discipline).
+fact_blocking_check_cells: 31
+# The live PRECISE typed-share fact (the X-3 parameter's machine twin).
+# Machine: python3 scripts/ci/type_signature_share.py --gate
+# scripts/ci/type_signature_precise_baseline.txt --precise — verified by
+# sync_gate_facts.py. The fact follows the movement naryads: 2131 (the
+# №605 wiring) → 3042 (№613) → 4224 (№616, gh#1077: the 0.30 movement
+# №1 — 61 verified PRECISE rows; the floors raised in the same PR per
+# the №757 procedure). The counter is machine-read, never hand-zeroed.
+fact_precise_share_bp: 4224

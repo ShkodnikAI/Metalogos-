@@ -70,6 +70,11 @@ GOALS_028 = os.path.join(HERE, 'gate_028_goals.txt')
 # target — the wiring into the blocking CI (the №550 pattern: the
 # parameters first, the CI ratchet after; ADR-0181 §6).
 GOALS_029 = os.path.join(HERE, 'gate_029_goals.txt')
+# №615 (gh#1078, ADR-0186): the 0.30 DRAFT record — the successor shape
+# of the №570/ADR-0181 path. The draft is NEVER the default gate target
+# (the №597 wiring stays 0.29 until the owner fixes the 0.30 parameters
+# — the switch happens ONLY in the merge where owner_fixed flips true).
+GOALS_030 = os.path.join(HERE, 'gate_030_goals.txt')
 SERVE_E2E = os.path.join(HERE, 'serve_e2e_inventory.txt')
 ADR = 'docs/adr/0177-domain-freeze-until-027.md'
 ADR_V2 = 'docs/adr/0179-release-gate-028-criteria-v2.md'
@@ -312,6 +317,32 @@ def criterion_goals_029(baseline_dir):
     return criterion_goals_028(baseline_dir, goals_path=GOALS_029, precise=True)
 
 
+def criterion_goals_030(baseline_dir):
+    """№615 (gh#1078, ADR-0186): the 0.30 ABSOLUTE goals — the DRAFT read.
+
+    The OWNER-FIXATION gate first (the same shape as criterion_goals_029's
+    draft era): while the record carries `owner_fixed: false`, the verdict
+    is RED with the honest reason — the parameters are the owner's to fix
+    (ADR-0186 §3). This run blocks nothing: the 0.30 target is available
+    explicitly (--gate-target 0.30) and is NEVER the default until the
+    owner fixes the parameters (the №597 wiring stays 0.29). After the
+    fixation the same v2 core reads the 0.30 record verbatim."""
+    marker = None
+    if os.path.isfile(GOALS_030):
+        for line in open(GOALS_030, encoding='utf-8'):
+            m = re.match(r'^owner_fixed:\s*(\w+)\s*$', line)
+            if m:
+                marker = m.group(1)
+                break
+    if marker != 'true':
+        detail = ('the 0.30 parameters are NOT owner-fixed (the ADR-0186 DRAFT, '
+                  'owner_fixed: %s) — the gate reports the honest RED until the owner '
+                  'fixes them; the draft demands no movement of anyone and blocks nothing '
+                  '(the default gate target stays 0.29, the №597 wiring)' % (marker or 'absent'))
+        return 1, detail, detail, ''
+    return criterion_goals_028(baseline_dir, goals_path=GOALS_030, precise=True)
+
+
 def main():
     args = sys.argv[1:]
     baseline_dir = args[args.index('--baseline-dir') + 1] if '--baseline-dir' in args else os.path.join(ROOT, 'scripts', 'ci')
@@ -346,6 +377,8 @@ def main():
     c5 = criterion_goals_028(baseline_dir) if gate_target == '0.28' else None
     if gate_target == '0.29':
         c5 = criterion_goals_029(baseline_dir)
+    if gate_target == '0.30':
+        c5 = criterion_goals_030(baseline_dir)
 
     rows = []
     lines = []
@@ -407,10 +440,29 @@ def main():
         lines.append('The 0.29 release gate: **WIRED** (the DEFAULT gate target — №597, '
                      'ADR-0181 §6, the owner\'s authorization 2026-10-05; the strict '
                      'release-time read, --strict, exits 1 on RED).')
+    if gate_target == '0.30':
+        v_rc, v_detail, v_raw, v_note = c5
+        v_verdict = 'GREEN' if v_rc == 0 else 'RED'
+        lines.append('')
+        lines.append('## The v2 gate — the 0.30 ABSOLUTE goals (№615, ADR-0186 — the DRAFT, owner_fixed: false)')
+        lines.append('')
+        lines.append('| § | Goal | Verdict | Evidence |')
+        lines.append('|---|------|---------|----------|')
+        lines.append('| v2 | The absolute goals: typed share ≥ draft goal, precise share ≥ draft goal (the X-3 successor), 0 open High (server path), the domain quorum, the serve-e2e inventory | **%s** | %s |'
+                     % (v_verdict, v_detail))
+        overall = 'GREEN' if (overall == 'GREEN' and v_rc == 0) else 'RED'
+        lines.append('')
+        lines.append('**Overall (§4 + v2 0.30 draft): %s.**' % overall)
+        lines.append('The 0.30 release gate: **PROPOSED, NOT WIRED** (ADR-0186 — the draft record, '
+                     'owner_fixed: false; the default gate target stays 0.29, the №597 wiring, '
+                     'until the owner fixes the parameters — the switch lands ONLY in the '
+                     'owner_fixed merge).')
     if gate_target == '0.28':
         pass  # the v2 verdict above is the release read for 0.28
     elif gate_target == '0.29':
         pass  # the 0.29 read above is the wired gate report
+    elif gate_target == '0.30':
+        pass  # the 0.30 DRAFT read above — the proposed, unwired record
     elif overall == 'GREEN':
         lines.append('The 0.27.0 release gate: **SATISFIED** (release-blocking '
                      'label — a RED anywhere in this summary blocks the release '

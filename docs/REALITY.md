@@ -1051,3 +1051,73 @@ reproduces it):**
   The owner gates ahead of the next wave: the В30 acceptance (the
   Камертон wave 1 start), the №586 secret, the string-form deprecation
   (the 0.30 line), the repo rename Metalogos- → Metalogos.
+
+### 6.17. Wave 31 corrective record (naryad №602): the security release 0.28.2 prep (main @ `f85cfa5`, 2026-10-06)
+
+Protocol: №414/№318/№576/№579/№589/№596 — the same machines, no hand-written
+numbers. The honest headline: В31 is the CORRECTIVE wave (the unified audit
+of `25b375e` / v0.28.1, the dispatch gh#1052) — its P0 line closed the audit
+§3 Y-1 regression: №584 had retired the respond-terminality gate for ALL
+forms at once, including the ONE form that never worked (a bare respond*
+NESTED under a top-level block-form if/else branch — the audit's guard
+bypass, the protected code executed for a non-admin under a style warning).
+№600 restored the fail-closed refusal (the blocking `RESPOND_SWALLOWED`
+error, the SSOT `RespondPosition` predicate shared by the semantic walk and
+the №584 lowering); №601 rewired the swallow test contract and pinned the
+audit §3 scenario end-to-end; №586 landed the X-4 branch-protection audit
+job (the first read fixated the real divergences — the owner's admin
+toggles, gh#1000). The execution-honesty finding: the №601-mandated test
+exposed a PRE-EXISTING TW/VM divergence on the migration path itself (the
+TW branch walk discarded an explicit `return respond(...)` carried by a
+nested statement while the VM answered it — broken since №584); repaired in
+the same PR, the honest-boundary marker carried per the №588 protocol.
+
+**The Wave 31 counters (every value from its machine, the command
+reproduces it):**
+
+| Counter | Value | Machine | Movement |
+|---|---|---|---|
+| Typed-signature share (№467) | **194/516 = 3759 bp** (the 0.29 owner-fixed goal 3500 bp stays exceeded) | `python3 scripts/ci/type_signature_share.py --gate scripts/ci/type_signature_baseline.txt` | unchanged (the wave is corrective — no language surface moved) |
+| Precise typed share (№560) | **110/516 = 2131 bp** | `python3 scripts/ci/type_signature_share.py --gate scripts/ci/type_signature_precise_baseline.txt --precise` | unchanged |
+| `#[ignore]` debt (№468) | **17** (TODO: 0) | `python3 scripts/ci/debt_counters.py --gate scripts/ci/debt_baseline.txt` | unchanged |
+| `dead_code` (№468) | **33** | same gate | unchanged |
+| TW/VM duplicated builtin names (№462) | **0** (the quorum 0/8 groups) | `python3 scripts/ci/count_duplicated_names.py --quorum` | unchanged |
+| Registered mirrors (№502/№564) | **6** | `python3 scripts/ci/mirror_counter.py` | unchanged |
+| ADR count | **175** (the generated README row; `gen_metrics.py --check` green) | `python3 scripts/gen_metrics.py --check` | unchanged |
+| The release state | **v0.28.2 PREP** (the CHANGELOG [0.28.2] Security section cut, the publication is the owner's act §6.5); `fact_open_high_server` = **1** (the live carrier #1041 — the В31 trajectory 0 → 1 on the №600 issue → 0 on the №602 closure after the live tag; the goals files carry the honest 1, the sync reads the machine counter) | `GH_TOKEN=… python3 scripts/ci/sync_gate_facts.py` (green); `scripts/ci/unfreeze_gate.py --office-tests pass` (§4 GREEN; the v2 open-High row honestly NOT MET while the carrier is open — the №580 window posture) | **moved** (0 → 1, the honest carrier) |
+
+**The Wave 31 facts (the wave's own work, not counters):**
+
+- №600 (gh#1041, P0, release-block): the blocking `RESPOND_SWALLOWED`
+  refusal — a bare respond* nested under a top-level block-form if/else
+  branch blocks run/serve again on BOTH backends; the stable code stamps
+  the №523 refusal first; the migration is one word (`return
+  respond(...)`); the false-positive scan (363 .mlog files) — zero new
+  refusals; the predicate mutation-verified at both transition points.
+- №601 (gh#1042, P0): the swallow test contract rewired (the startup
+  refusal with the stable code through the PRODUCTION serve entry — the
+  test harness skips the gate by design); the audit §3 guard scenario
+  negative on both backends + the migrated `return respond(...)` variant
+  answering 403-before-the-protected-code / 200-with-the-marker; the
+  №584 surfaces stay green.
+- The execution-honesty repair (carried in №600's PR): the TW serve lane's
+  top-level branch walk propagated an explicit nested `return` NOW (it was
+  silently discarded since №584 — the flattening of
+  `eval_statements_with_mutability`); the interpreter gained the
+  ControlFlow-preserving `eval_nested_statement`; plain tail values stay
+  discarded (the etalon; the depth-≥2 semantics fate — the owner gate
+  №603).
+- №586 (gh#1000, P2): the X-4 branch-protection audit job (the live
+  protection read via the API, compared to the maintainers.md checklist,
+  fail-closed; the weekly workflow + the read-only secret) — the FIRST
+  read (2026-10-05) fixated the real divergences: `enforce_admins: false`,
+  `strict: false`, `required_pull_request_reviews: null`, three
+  documented checks not required; the owner's admin toggles, dissected in
+  gh#1000.
+- The fact discipline (the №580 precedent, executed): the release-block
+  carrier #1041 stays OPEN across the fix merge (Part of, not Closes —
+  the #997 lesson); the goals files carry `fact_open_high_server: 1`
+  honestly; the closure is №602's act on the live v0.28.2 tag.
+- The owner gates ahead: the v0.28.2 publication (§6.5), the depth-≥2
+  semantics (№603), the precise-goal share (№605), №503/memory_forget
+  (№609), the repo rename.

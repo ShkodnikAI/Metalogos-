@@ -26,7 +26,7 @@ This project and everyone participating in it is governed by our [Code of Conduc
 
 The project runs a deliberate first-PR pool for incoming contributors and the incoming second maintainer (the authority document: [`docs/maintainers.md`](docs/maintainers.md), naryad №471). Every task in the pool carries the `good-first-issue` label and is written to be self-contained: a narrow docs/tests perimeter, a reproducible check you can run before you commit, explicit acceptance criteria, and an honest boundary of what the task does NOT touch.
 
-**The current pool (nine tasks):** the three threshold-gate upkeep tasks (№468 debt-gate, №463 stop-list, №462/№467 baseline floors — `#716`/`#717`/`#718`), the cargo-audit override ledger review (`#777`), the maintainers × CODEOWNERS sync review (`#778`), the book examples freshness pass (`#872`), the ADR index freshness review (`#873`), the limitations.md anchor walk (`#874`), and the fresh-clone quickstart pass (`#875`).
+**The current pool (nine tasks):** the examples golden sidecars (`#951`), the book syntax page freshness (`#952`), the tutorial + stdlib pages freshness (`#953`), the doc-tests.md command walk (`#954`), the testing-evidence.md citations (`#955`), the risk-review-checklist links (`#956`), the CONTRIBUTING first-PR command walk (`#957`), the AGENTS.md §1 self-verification (`#958`), and the PLAN-SUMMARY/REALITY hand-written counts (`#959`). (The pool is re-filled by the upkeep rule — the closed position obligates a re-open; the live list always wins over this line.)
 
 **The path (fork → branch → CI → PR → report):**
 
@@ -58,8 +58,8 @@ The project runs a deliberate first-PR pool for incoming contributors and the in
 
 ```bash
 # Clone the repository
-git clone https://github.com/ShkodnikAI/Metalogos.git
-cd Metalogos
+git clone https://github.com/ShkodnikAI/Metalogos-.git
+cd Metalogos-
 
 # Build the project
 cargo build --release
@@ -96,9 +96,9 @@ We welcome the following types of contributions:
 ### 1. Fork and Clone
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/Metalogos.git
-cd Metalogos
-git remote add upstream https://github.com/ShkodnikAI/Metalogos.git
+git clone https://github.com/YOUR_USERNAME/Metalogos-.git
+cd Metalogos-
+git remote add upstream https://github.com/ShkodnikAI/Metalogos-.git
 ```
 
 ### 2. Create a Branch

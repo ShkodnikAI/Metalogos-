@@ -1,0 +1,31 @@
+# The honest-boundary SECURITY dictionary (naryad №604, the audit 25b375e
+# §3 Y-2 + the §7 rule). ONE machine-readable list — the single source the
+# honest_boundary_check.py reads (no second parser, no parallel JSON — the
+# №586/№606 lesson).
+#
+# A docs/limitations.md boundary ROW matching ANY pattern below describes a
+# SECURITY-RELEVANT divergence: per the №588 protocol its linking issue must
+# carry the `release-block` label (ADR-0179 §4) and the PR must flag it.
+# The check is BLOCKING on this class (the gate-facts-sync образец): a
+# dictionary match without the release-block evidence = a red PR.
+#
+# Format: one Python regex per line (re.search, IGNORECASE applied), blank
+# lines and #-comments ignored. Extensible: a new pattern is a one-line PR.
+# Calibrated against the whole docs/limitations.md (the retrospective DoD:
+# zero false positives on the existing rows, the synthetic Y-1 sample caught).
+#
+# ── Class 1: a respond*/deny*/return being IGNORED (the audit §3 Y-1 class
+#    — the guard bypass; the №581/№584/№600 lineage) ──────────────────────
+\brespond\w*.{0,120}\b(discard\w*|swallow\w*|ignor\w+|does\s+NOT\s+stop|never\s+stops?|fall\.?through|falls?\s+through|the\s+branch\s+continues)\b
+\b(discard\w*|swallow\w*|ignor\w+)\b.{0,120}\brespond\w*
+\bdeny\w*.{0,120}\b(discard\w*|swallow\w*|ignor\w+|skip\w*|bypass\w*|not\s+fire\w*)\b
+\breturn\b.{0,100}\b(discard\w*|swallow\w*|ignor\w+)\b.{0,60}\b(route|respond|branch)\b
+# ── Class 2: a SEMANTIC ERROR or a CATEGORY-A check skipped/downgraded ───
+\bsemantic\s+(error|finding|gate|check)\w*.{0,100}\b(skip\w*|retir\w+|downgrad\w+|advisory|warning\s+only|suppresse?\w*)\b
+\b(skip\w*|retir\w+|downgrad\w+|suppresse?\w*)\b.{0,100}\bsemantic\s+(error|finding|gate|check)\b
+\bcategory.?a\b.{0,100}\b(skip\w*|bypass\w*|ignor\w+|unclear\w*)\b
+# ── Class 3: BACKEND-DEPENDENT behavior in the №476 domains (SQL,
+#    filesystem, network, exec, labels, secrets — the never-pinnable list);
+#    the pattern needs BOTH a backend word AND a domain word in one row ──
+\b(TW|VM|tree.?walk\w*|bytecode|interpreter|backend\w*)\b.{0,200}\b(sql|sqlite|file\s?system|filesystem|\bexec\b|\bsecret\w*|\blabel\w*)\b.{0,200}\b(different|divergen\w+|differs?|only\s+on|not\s+on\s+the\s+other|unlike|mismatch|gap|leak\w*|insecure\w*|untrusted)\b
+\b(sql|sqlite|file\s?system|filesystem|\bexec\b|\bsecret\w*|\blabel\w*).{0,200}\b(TW|VM|tree.?walk\w*|bytecode|interpreter)\b.{0,200}\b(different|divergen\w+|differs?|only\s+on|not\s+on\s+the\s+other|unlike|mismatch|gap|leak\w*|insecure\w*|untrusted)\b

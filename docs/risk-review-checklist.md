@@ -16,7 +16,7 @@ checklist; the reviewer (a second agent run, the owner, or the future
 second maintainer — №471) works through the items against the mechanical
 report.
 
-## The eight items
+## The nine items
 
 1. **Execution context.** Does the change touch a serve-route, cron or
    exec path? Every new/changed route and tick runs under its gate
@@ -71,9 +71,20 @@ report.
      (`env("DATABASE_URL")`) is invisible to the prefixed grep; the
      №758 class.
 
-The mechanical report below also computes the three lists for the
-diffed lines — the reviewer closes each entry or the report justifies
-it.
+9. **The downgrade ledger (naryad №604 — the audit 25b375e §7 rule).**
+   If the diff (or its naryad) LOWERS a blocking check to an advisory —
+   a gate retired to a warning, an error re-classified, a severity
+   dropped: the naryad must ENUMERATE the exact forms the check used to
+   catch, and for EACH form show the evidence that the behavior is now
+   correct (a test, a machine run, a parity proof). A form without its
+   evidence STAYS BLOCKING — the downgrade covers only the enumerated,
+   proven forms. The audit's lesson: №584 lowered the
+   respond-terminality gate for ALL forms at once; the ONE form the
+   lowering did not reach (a bare respond* nested under a top-level
+   block-form if/else — the guard-bypass shape) silently lost its
+   fail-closed refusal and became the Y-1 High regression, fixed by
+   №600.
+
 
 ## The mechanical report
 
@@ -89,3 +100,7 @@ perimeter files plus the `.rs` files that add a spawn.
 An item the reviewer cannot close from the evidence becomes a note in
 the PR and, when it is a real gap, a separate naryad (the boundary rule:
 the review does not fix silently inside the reviewed PR).
+The mechanical report below also computes the three lists for the
+diffed lines — the reviewer closes each entry or the report justifies
+it.
+

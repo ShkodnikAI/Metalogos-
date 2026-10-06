@@ -134,15 +134,15 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("capitalize", 1, "string"; builtin_capitalize, "String"),
     spec!("title_case", 1, "string"; builtin_title_case, "String"),
     // ── Stdlib backing (double-underscore prefix) ──
-    spec!("__trim", 1, "std"; builtin_trim),
-    spec!("__replace", 3, "std"; builtin_replace),
+    spec!("__trim", 1, "std"; builtin_trim, "String"),
+    spec!("__replace", 3, "std"; builtin_replace, "String"),
     spec!("__split", 2, "std"; builtin_split),
-    spec!("__join", 2, "std"; builtin_join),
-    spec!("__abs", 1, "std"; builtin_abs),
-    spec!("__min", 2, "std"; builtin_min),
-    spec!("__max", 2, "std"; builtin_max),
-    spec!("__clamp", 3, "std"; builtin_clamp),
-    spec!("__round", 1, "std"; builtin_round),
+    spec!("__join", 2, "std"; builtin_join, "String"),
+    spec!("__abs", 1, "std"; builtin_abs, "Float"),
+    spec!("__min", 2, "std"; builtin_min, "Float"),
+    spec!("__max", 2, "std"; builtin_max, "Float"),
+    spec!("__clamp", 3, "std"; builtin_clamp, "Float"),
+    spec!("__round", 1, "std"; builtin_round, "Float"),
     spec!("__first", 1, "std"; builtin_first),
     spec!("__last", 1, "std"; builtin_last),
     // ── Math builtins (public aliases for __abs/__min/__max/__clamp/__round) ──
@@ -152,14 +152,14 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("clamp", 3, "math"; builtin_clamp, "Float"),
     spec!("round", 1, "math"; builtin_round, "Float"),
     // Наряд №177: Math foundation for Reflex (stage 1/6)
-    spec!("exp", 1, "math"; builtin_exp),
-    spec!("ln", 1, "math"; builtin_ln),
+    spec!("exp", 1, "math"; builtin_exp, "Float"),
+    spec!("ln", 1, "math"; builtin_ln, "Float"),
     spec!("sqrt", 1, "math"; builtin_sqrt, "Float"),
-    spec!("pow", 2, "math"; builtin_pow),
-    spec!("tanh", 1, "math"; builtin_tanh),
-    spec!("sigmoid", 1, "math"; builtin_sigmoid),
+    spec!("pow", 2, "math"; builtin_pow, "Float"),
+    spec!("tanh", 1, "math"; builtin_tanh, "Float"),
+    spec!("sigmoid", 1, "math"; builtin_sigmoid, "Float"),
     spec!("softmax", 1, "math"; builtin_softmax),
-    spec!("random_seed", 1, "math"; builtin_random_seed),
+    spec!("random_seed", 1, "math"; builtin_random_seed, "Unit"),
     spec!("random", 0, "math"; builtin_random, "Float"), // ── Phase 4.4 self-hosting — historical placeholders, never implemented ──
     // ADR-0023 described a hybrid lexer approach using 5 builtins (stdin,
     // split_tokens, if_eq, newline, is_string_token). Handler functions were
@@ -183,21 +183,21 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("is_string_token", 1, "stub"), // db_insert: planned convenience wrapper for INSERT; no handler (use db_execute instead)
     spec!("db_insert", 0, "stub"),       // ── Convert builtins ──
     spec!("float", 1, "convert"; builtin_float, "Float"),
-    spec!("to_string", 1, "convert"; builtin_to_string),
+    spec!("to_string", 1, "convert"; builtin_to_string, "String"),
     spec!("to_float", 1, "convert"; builtin_to_float, "Float"), // ── IO builtins ──
-    spec!("print", 1, "io"; builtin_print),
-    spec!("read_file", 1, "io"; builtin_read_file),
-    spec!("write_file", 2, "io"; builtin_write_file),
-    spec!("append_file", 2, "io"; builtin_append_file),
-    spec!("delete_file", 1, "io"; builtin_delete_file),
-    spec!("file_exists", 1, "io"; builtin_file_exists),
+    spec!("print", 1, "io"; builtin_print, "String"), // №613: returns the echoed string (the handler fact), not Unit
+    spec!("read_file", 1, "io"; builtin_read_file, "String"),
+    spec!("write_file", 2, "io"; builtin_write_file, "String"),
+    spec!("append_file", 2, "io"; builtin_append_file, "String"),
+    spec!("delete_file", 1, "io"; builtin_delete_file, "String"),
+    spec!("file_exists", 1, "io"; builtin_file_exists, "Bool"),
     spec!("list_dir", 1, "io"; builtin_list_dir),
-    spec!("exec", 1, "io"; builtin_exec),
-    spec!("exec_argv", 1, 2, "io"; builtin_exec_argv), // binary required, args list optional
-    spec!("git_push", 1, "io"; builtin_git_push),
+    spec!("exec", 1, "io"; builtin_exec, "String"),
+    spec!("exec_argv", 1, 2, "io"; builtin_exec_argv, "String"), // binary required, args list optional
+    spec!("git_push", 1, "io"; builtin_git_push, "String"),
     // Наряд №268 (ADR-0132): MCP stdio-клиент — stateless, exec-гейт +
     // METALOGOS_MCP_ALLOWLIST + taint UserInput на выводе mcp_call.
-    spec!("mcp_call", 4, "io"; builtin_mcp_call),
+    spec!("mcp_call", 4, "io"; builtin_mcp_call, "String"),
     spec!("mcp_list_tools", 2, "io"; builtin_mcp_list_tools),
     // ── List builtins ──
     spec!("get", 2, "list"; builtin_get), // №537: Unknown honest — returns the ELEMENT; a heterogeneous list has no fixed element type
@@ -218,12 +218,12 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("make_list", 0, "list"; builtin_make_list, "List"),
     spec!("matches_any", 2, "list"; builtin_matches_any, "Float"), // 1.0/0.0 — the numeric verdict form // ── JSON builtins ──
     spec!("parse_json", 1, 2, "json"; builtin_parse_json),
-    spec!("json_encode", 1, "json"; builtin_json_encode),
+    spec!("json_encode", 1, "json"; builtin_json_encode, "String"),
     spec!("json_get", 2, 3, "json"; builtin_json_get),
-    spec!("has_field", 2, "json"; builtin_has_field),
+    spec!("has_field", 2, "json"; builtin_has_field, "Float"),
     spec!("dict_get", 3, "json"; builtin_json_get),
     spec!("dict_set", 3, "json"; builtin_dict_set),
-    spec!("dict_has", 2, "json"; builtin_dict_has),
+    spec!("dict_has", 2, "json"; builtin_dict_has, "Bool"),
     spec!("dict_keys", 1, "json"; builtin_dict_keys),
     spec!("dict_values", 1, "json"; builtin_dict_values), // ── Web builtins ──
     spec!("respond", 1, 2, "web"; builtin_respond),
@@ -246,34 +246,34 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("http_post", 2, 6, "web"; builtin_http_post), // up to +retry_config Struct
     spec!("http_post_multipart", 2, 4, "web"; builtin_http_post_multipart),
     spec!("http_download", 2, 3, "web"; builtin_http_download), // Наряд №76: url,dest_path | url,dest_path,headers
-    spec!("require", 1, 2, "web"; builtin_require),
+    spec!("require", 1, 2, "web"; builtin_require, "Unit"),
     spec!("request_body", 0, "web"; builtin_json_body),
-    spec!("web_search", 1, 2, "web"; builtin_web_search), // query | query,num
-    spec!("geo_ip", 0, 1, "web"; builtin_geo_ip),         // ip? (omit = caller IP; builtin_geo_ip)
+    spec!("web_search", 1, 2, "web"; builtin_web_search, "String"), // query | query,num
+    spec!("geo_ip", 0, 1, "web"; builtin_geo_ip), // ip? (omit = caller IP; builtin_geo_ip)
     spec!("weather", 2, "web"; builtin_weather),
-    spec!("geo_distance", 2, 5, "web"; builtin_geo_distance),
+    spec!("geo_distance", 2, 5, "web"; builtin_geo_distance, "Float"),
     spec!("weather_forecast", 1, 3, "web"; builtin_weather_forecast), // city | lat,lon | lat,lon,days
     // ── Crypto builtins ──
     spec!("hash_password", 1, "crypto"; builtin_hash_password),
-    spec!("verify_password", 2, "crypto"; builtin_verify_password),
+    spec!("verify_password", 2, "crypto"; builtin_verify_password, "Bool"),
     spec!("encrypt", 2, "crypto"; builtin_encrypt),
     spec!("decrypt", 2, "crypto"; builtin_decrypt),
     spec!("generate_key", 0, "crypto"; builtin_generate_key),
-    spec!("base64_encode", 1, "encoding"; builtin_base64_encode),
-    spec!("base64_decode", 1, "encoding"; builtin_base64_decode),
+    spec!("base64_encode", 1, "encoding"; builtin_base64_encode, "String"),
+    spec!("base64_decode", 1, "encoding"; builtin_base64_decode, "String"),
     // ── Auth stubs (interpreter-mode mocks; real auth requires server mode; builtin_base64_decode) ──
     // authenticate: always returns Unit — mock; no user database in interpreter
-    spec!("authenticate", 2, "stub"; builtin_authenticate),
+    spec!("authenticate", 2, "stub"; builtin_authenticate, "Unit"), // №613: the registered handler IS the interpreter surface — the mock contract is Ok(Unit)
     // ── Session (№348, ADR-0172): real session surface over the process-global
     // registry (src/session.rs) — the pre-№348 mock handlers lived above in
     // crypto.rs. Every transition is an Action-Ledger record (ADR-0167 §3.4).
     spec!("session_login", 2, "session"; builtin_session_login),
-    spec!("session_logout", 1, "session"; builtin_session_logout),
-    spec!("session_duty_enter", 1, "session"; builtin_session_duty_enter),
-    spec!("session_duty_exit", 1, "session"; builtin_session_duty_exit),
-    spec!("session_wake", 2, 3, "session"; builtin_session_wake),
+    spec!("session_logout", 1, "session"; builtin_session_logout, "Unit"),
+    spec!("session_duty_enter", 1, "session"; builtin_session_duty_enter, "Bool"),
+    spec!("session_duty_exit", 1, "session"; builtin_session_duty_exit, "Bool"),
+    spec!("session_wake", 2, 3, "session"; builtin_session_wake, "String"), // №613: returns the delivered source (String) so programs can branch
     spec!("session_poll_wake", 1, "session"; builtin_session_poll_wake),
-    spec!("session_interrupt", 2, 3, "session"; builtin_session_interrupt),
+    spec!("session_interrupt", 2, 3, "session"; builtin_session_interrupt, "String"), // №613: returns the accepted priority (String)
     spec!("session_take_interrupt", 1, "session"; builtin_session_take_interrupt),
     // №539: String — the literal "ok" return (verified handler; not Unit).
     spec!("session_clear", 1, "memory"; builtin_session_clear, "String"), // ── Bot — Telegram messaging ──
@@ -284,21 +284,21 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // Naryad #279 fact-check: registry said min=1, implementation has always
     // required 3 strings (file_id, bot_token, whisper_key) + optional provider.
     // A 1-arg call passed mlog check and exploded at runtime — fixed to 3..4.
-    spec!("whisper_transcribe", 3, 4, "voice"; builtin_whisper_transcribe), // file_id,bot_token,whisper_key | +provider
-    spec!("tts_send", 4, 5, "voice"; builtin_tts_send), // text,voice,bot_token,chat_id | +mode — delivery convenience (delegates synthesis to tts_synth, Naryad #279)
-    spec!("tts_generate", 2, 4, "voice"; builtin_tts_generate), // Naryad #279: text,voice | +provider | +model — synthesis to sandbox file, no delivery (APPENDED: bytecode indices must not shift)
+    spec!("whisper_transcribe", 3, 4, "voice"; builtin_whisper_transcribe, "String"), // file_id,bot_token,whisper_key | +provider
+    spec!("tts_send", 4, 5, "voice"; builtin_tts_send, "String"), // text,voice,bot_token,chat_id | +mode — delivery convenience (delegates synthesis to tts_synth, Naryad #279)
+    spec!("tts_generate", 2, 4, "voice"; builtin_tts_generate, "String"), // Naryad #279: text,voice | +provider | +model — synthesis to sandbox file, no delivery (APPENDED: bytecode indices must not shift)
     // ── System builtins ──
-    spec!("env", 1, "system"; builtin_env),
+    spec!("env", 1, "system"; builtin_env, "String"),
     // №481: the EXPLICIT-silence twin of env — the `_or` suffix carries the
     // silent-default semantics in the name (audit 25.09 §3.9 naming rule).
-    spec!("env_or", 2, "system"; builtin_env_or), // ── DB builtins ──
+    spec!("env_or", 2, "system"; builtin_env_or, "String"), // ── DB builtins ──
     spec!("query", 1, 2, "db"; builtin_query), // №538: Unknown honest — returns the opaque Query wrapper (Value::Query); the flat vocabulary has no Query entry, and the EXECUTION result type depends on the backend
     spec!("db_execute", 1, 2, "db"; builtin_db_execute, "Unit"), // ADR-0068: optional params list — the interpreter path returns Unit; the executed surface is the Query pipeline (№484 DbAccess)
     // ── LLM builtins ──
     #[cfg(feature = "llm")]
-    spec!("call_llm", 1, 2, "llm"; builtin_call_llm), // prompt | prompt,input
+    spec!("call_llm", 1, 2, "llm"; builtin_call_llm, "String"), // prompt | prompt,input
     #[cfg(feature = "llm")]
-    spec!("call_claude", 4, "llm"; builtin_call_claude), // api_key,model,system,user
+    spec!("call_claude", 4, "llm"; builtin_call_claude, "String"), // api_key,model,system,user
     #[cfg(feature = "llm")]
     spec!("llm_usage", 0, "llm"; builtin_llm_usage),
     #[cfg(feature = "llm")]

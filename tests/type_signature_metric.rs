@@ -14,17 +14,18 @@
 
 use metalogos::builtins::{sig_types::Type, BUILTIN_REGISTRY};
 
-/// The checked-in floor: raised by №590 (2026-10-05 — the Box–Muller
-/// normal sampler ships typed PRECISE "Float" over the shared PRNG; the
-/// row is a default-feature `math` builtin, so both counts move: source
-/// 194, compiled +1). The by-design gap continues (see
-/// part 1's comment): the CI script counts SOURCE rows (194 — the same 4
+/// The checked-in floor: raised by №613 (2026-10-06 — the precise-movement
+/// package, the 0.29 release criterion 1b: 47 rows typed PRECISE against
+/// the verified single-shape handler facts — the verification table in
+/// the naryad gh#1070). The by-design gap continues (see
+/// part 1's comment): the CI script counts SOURCE rows (241 — the same 4
 /// gated vec/store rows ride only there), this test counts the COMPILED
-/// default-feature registry (190). MUST move only up, in the same PR
+/// default-feature registry (237). MUST move only up, in the same PR
 /// that types more rows — AND together with
-/// `scripts/ci/type_signature_baseline.txt` (`# threshold_bp: 3759`).
-/// The general share 3759 bp ≥ the 0.29 gate goal 3500 (ADR-0181).
-const TYPED_FLOOR: usize = 190;
+/// `scripts/ci/type_signature_baseline.txt` (`# threshold_bp: 4670`).
+/// The general share 4670 bp ≥ the 0.29 gate goal 3500 (ADR-0181); the
+/// precise share 3042 bp ≥ 3000 (ADR-0181 §3.1) — both MET.
+const TYPED_FLOOR: usize = 237;
 
 #[test]
 fn typed_signature_share_never_falls_below_the_floor() {

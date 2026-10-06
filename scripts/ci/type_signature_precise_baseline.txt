@@ -69,6 +69,19 @@
 # Ok arm, Value::Float). 109/515 → 110/516; (110*10000)//516 = 2131 bp
 # (+15 bp). The floor rises with the row that earned it (the №757
 # procedure); the PRECISE_TYPES definition is untouched.
-# precise: 110
+# (superseded) precise: 110 | total: 516 | threshold_bp was 2131
+#
+# 2026-10-06 №613 (gh#1070, волна 32): THE MOVEMENT PACKAGE to the
+# owner-fixed 0.29 precise goal (№605, ADR-0181 §3.1 — the owner's
+# «1-Б, 2-3000, 3-отложить и добивай остальное»): 47 rows ship PRECISE
+# against the verified single-shape handler facts (String ×26, Float
+# ×12, Bool ×5, Unit ×4 — the full verification table in the naryad;
+# the same rows the general baseline records). 110/516 → 157/516;
+# (157*10000)//516 = 3042 bp (+911 bp) ≥ goal_precise_share_bp 3000 —
+# the 0.29 v2 gate criterion turns MET. The floor rises with the rows
+# that earned it (the №757 procedure); the PRECISE_TYPES definition is
+# untouched; the honest Unknowns keep their Unknown (№560 — no chasing
+# the metric).
+# precise: 157
 # total: 516
-# threshold_bp: 2131
+# threshold_bp: 3042

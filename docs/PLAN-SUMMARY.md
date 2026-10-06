@@ -73,7 +73,29 @@ they reside in the canon held by the coordinator (§16.0-7).
 - C2PA mini-slice: manifest read/write, Art 50 labeling — a narrow slice (#320).
 - Completion-audits of Wave 0 — accepted (gh#404–#406).
 
-## Current wave — Wave 32 (the 0.29.0 release, the owner's verdict 2026-10-06)
+## Current wave — Wave 33 (the ПСРМ development after the 0.29.0 release, the dispatch gh#1080, 2026-10-06)
+
+The first DEVELOPMENT wave after the В31 corrective + В32 release line
+(the owner's trigger: «Возвращаемся к Металогос, пиши следующую волну
+нарядов согласно ПСРМ, заливай в issues»). Executed: №617 (gh#1075) —
+the gh#967 §3 lane in the implementation: the variable-scope walk + the
+static opaque-concat check in the semantic checker (the three
+checker-failure tests lifted green; the debt floor 17 → 14; the fuzzer
+lane honesty fix — run_vm carries the №523 gate); №618 (gh#1076) — the
+Камертон closure report (the SHA256 re-run 3/3 OK, the R1–R6 verdicts
+from real runs, the mutation probe goes red; the forwarding — the
+owner's gate); №616 (gh#1077) — the PRECISE movement 0.30 №1: 61
+verified rows, precise 3042 → 4224 bp, general 4670 → 5852 bp,
+TYPED_FLOOR 237 → 298; №615 (gh#1078) — the 0.30 gate DRAFT
+(gate_030_goals.txt, owner_fixed: false, the X-3 floors strictly above
+the live facts; the default gate target stays 0.29) + ADR-0186
+(Proposed); №619 (gh#1079) — this sync, strictly last. The owner gates
+remaining: the 0.30 parameter fixation (№615/ADR-0186 — owner_fixed:
+false → true), the Камертон report forwarding (№618), the type stage 2
+(ADR-0178), branch protection (gh#1000), the Phase-2 domain lines,
+NLnet M1 03.11.2026.
+
+## Executed — Wave 32 (the 0.29.0 release, the owner's verdict 2026-10-06)
 
 The wave executes the release on the owner's verbatim chat verdict
 («Делай релизный наряд 0.29.0», 2026-10-06; the publication itself is

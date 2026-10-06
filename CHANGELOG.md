@@ -4,6 +4,28 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- **№617 (gh#1075) — the semantic checker grows three compile-time
+  refusals (the gh#967 §3 lane):** the variable-scope walk (the TW env
+  model verbatim — flat, never popped, the entities as globals, the
+  render/reflex_* name-reference slots exempt), the undefined-variable
+  read refusal (the runtime message verbatim + the stable
+  `UNDEFINED_VARIABLE` code), the assignment-to-undefined refusal, and
+  the static opaque-concat check (the declared-fact twin of the runtime
+  guard — `cannot concatenate opaque type …`). The three `#[ignore]`d
+  gh#967 §3 tests lifted green; the debt floor 17 → 14; the №465 fuzzer
+  VM lane now carries the №523 semantic gate (the production order).
+- **№616 (gh#1077) — the PRECISE movement 0.30 №1:** 61 registry rows
+  typed against the verified single-shape handler facts — the precise
+  share 3042 → **4224 bp** (218/516), the general share 4670 →
+  **5852 bp** (302/516), TYPED_FLOOR 237 → 298; the floors raised in the
+  same PR (the №757 procedure); the 0.29 gate fact synced (the
+  machine-read rule).
+- **№615 (gh#1078) — the 0.30 gate DRAFT (Proposed, ADR-0186):**
+  `gate_030_goals.txt` with `owner_fixed: false` — the draft parameters
+  strictly above the live facts (typed 6100 > 5852, precise 4500 >
+  4224, the X-3 rule); the gate reads it honestly RED on the fixation
+  fact; the DEFAULT gate target stays 0.29 (the blocking CI never reads
+  a draft) — **the fixation is the OWNER's gate**.
 - **№618 (gh#1076) — the Камертон cycle closure report:** the external
   review report artifact (`docs/audits/kamerton-report-v0.29.0.md`) —
   the SHA256 of the v0.29.0 assets re-run on the downloaded artifacts

@@ -1196,3 +1196,92 @@ reproduces it):**
   owner's admin toggles), the LLM-line sequencing (ADR-0182 §7.5), the
   0.30 string deprecation, №503 (strictly last), the Known-Issue ledger
   №569 (the revision 2026-10-15).
+
+### 6.19. Wave 33 post-wave record (naryad №619): the ПСРМ development wave after the 0.29.0 release (main @ `663447e`, 2026-10-06)
+
+Protocol: №414/№318/№576/№579/№589/№596 — the same machines, no hand-written
+numbers. The honest headline: В33 is the first DEVELOPMENT wave after the
+В31 corrective + В32 release line — the external Камертон cycle closed
+(№618: the R1–R6 verdicts from real runs, the mutation probe goes red),
+the gh#967 §3 lane closed in the implementation (№617: the variable-scope
+walk + the static opaque-concat check — the three semantic-checker
+failures became the check-time refusals on BOTH backends), the first
+0.30 typed-share movement landed (№616: 61 verified PRECISE rows —
+precise 3042 → 4224 bp, general 4670 → 5852 bp), and the 0.30 gate
+exists as the honest DRAFT (№615: gate_030_goals.txt, owner_fixed:
+false, the X-3 floors strictly above the live facts; the default gate
+target stays 0.29 — the blocking CI never reads a draft; the fixation is
+the OWNER's gate, dispatch В33 §Гейты п.1).
+
+**The Wave 33 counters (every value from its machine, the command
+reproduces it):**
+
+| Counter | Value | Machine | Movement |
+|---|---|---|---|
+| Typed-signature share (№467) | **302/516 = 5852 bp** (the 0.29 goal 3500 bp; the 0.30 DRAFT proposal 6100 bp) | `python3 scripts/ci/type_signature_share.py --gate scripts/ci/type_signature_baseline.txt` | **moved** (241/516 = 4670 → 302/516 = 5852, №616 — the 61 verified rows) |
+| Precise typed share (№560) | **218/516 = 4224 bp** (the 0.29 goal 3000 OWNER-FIXED; the 0.30 DRAFT proposal 4500) | `python3 scripts/ci/type_signature_share.py --gate scripts/ci/type_signature_precise_baseline.txt --precise` | **moved** (157/516 = 3042 → 218/516 = 4224, №616) |
+| In-tree TYPED_FLOOR (the compiled lock) | **298/499** | `cargo test -p metalogos --test type_signature_metric` | **moved** (237 → 298, the same PR — the №757 procedure) |
+| `#[ignore]` debt (№468) | **14** (TODO: 0) | `python3 scripts/ci/debt_counters.py --gate scripts/ci/debt_baseline.txt` | **moved** (17 → 14, №617 — the three gh#967 §3 ignores lifted green) |
+| `dead_code` (№468) | **33** | same gate | unchanged |
+| TW/VM duplicated builtin names (№462) | **0** (the quorum 0/8 groups) | `python3 scripts/ci/count_duplicated_names.py --quorum` | unchanged |
+| Registered mirrors (№502/№564) | **6** | `python3 scripts/ci/mirror_counter.py` | unchanged |
+| ADR count | **178** (the generated README row; `gen_metrics.py --check` green) | `python3 scripts/gen_metrics.py --check` | **moved** (+1: ADR-0186 — the 0.30 gate draft) |
+| Blocking-checks cells | **31** | `python3 scripts/ci/blocking_checks_sync.py --count` | unchanged (the 0.30 draft adds no cells — the counter grows only explicitly) |
+| The release state | **0.29.0 PUBLISHED** (2026-10-06T14:17Z) — unchanged through the wave; the gate 0.29 v2 stays GREEN with the moved precise fact (4224 ≥ 3000, the goal file synced by №616 — the machine-read rule) | `python3 scripts/ci/sync_gate_facts.py` (with the token: «every fact_* record matches») | unchanged |
+
+**The Wave 33 facts (the wave's own work, not counters):**
+
+- №617 (gh#1075, PR #1081): the gh#967 §3 lane — the variable-scope walk
+  (the TW env model verbatim: flat, never popped, the entities as
+  globals, the render/reflex_* name-reference slots exempt) + the static
+  opaque-concat check (the declared-fact twin of the eval_binop guard);
+  the new `UndefinedVariable` kind carries the runtime's stable
+  UNDEFINED_VARIABLE code; the `OpaqueConcat` kind stamps no invented
+  code (the runtime origin has none). The corpus-driven corrections
+  recorded loud: the reserved-keyword ident exemption (the tolerated
+  self-host parser artifacts — parser.mlog only, 0 real hits across the
+  corpus; the parser artifact itself — stray keyword tokens accepted as
+  bare Idents — is a separate finding, PR-comment 6022497489), and the
+  №465 fuzzer lane fix (run_vm carries the №523 semantic gate — the
+  production `mlog run --backend vm` order; the lane compared compile
+  behavior unreachable in production; the №479 compile-site pin moved to
+  the direct `mlog compile` surface). The debt floor 17 → 14 follows the
+  MACHINE fact (the naryad's «52 → 49» was stale — noted in the
+  baseline).
+- №618 (gh#1076, PR #1082): the Камертон closure report
+  (`docs/audits/kamerton-report-v0.29.0.md`) — the SHA256 of the v0.29.0
+  assets re-run 3/3 OK over the downloaded artifacts, the R1–R6 verdicts
+  from real runs of the repro corpus (`scripts/repro_kamerton/`, the t92
+  reconstruction, lands with the report per the §16.0-D honest note):
+  R1/R2/R2c identical green, R3/R3b the honest count 3 with the tail
+  executed, R4 green honestly, **R4a (the mutation probe) RED exactly as
+  the contract demands** (`assert_eq failed: 3 != 999`), R6 the full
+  pass with i == 3.0; the D1/D2 map (№611/PR#1067/`7b72f09`,
+  №612/PR#1068/`082a213`), the affected releases (v0.28.1, v0.28.2 →
+  the update path is v0.29.0), the t92 corrections verbatim. The
+  forwarding to the external reviewer — the OWNER's gate (dispatch В33
+  §Гейты п.2). The report is in technical English per the №383 lint
+  (1.78% Cyrillic — the two verbatim t92 quotes under the threshold).
+- №616 (gh#1077, PR #1090): the PRECISE movement 0.30 №1 — the №613
+  procedure hardened (the machine candidate selection: every Ok a
+  literal `Ok(Value::X)`, a single scalar shape; the dynamic-Ok forms
+  excluded as the polymorphic risk) + every handler read. 61 rows typed;
+  the honest exclusions recorded (vision_fetch_weights — the cfg-dual Ok
+  behavior; the polymorphic first/last family). The floors raised in the
+  same PR (№757): precise 4224, general 5852, TYPED_FLOOR 298 (the
+  compiled delta exactly +61 — no package row behind a feature gate).
+- №615 (gh#1078, PR #1091): the 0.30 gate draft — gate_030_goals.txt
+  (owner_fixed: false; typed 6100 > 5852, precise 4500 > 4224 — the X-3
+  floors strictly above the live facts; the same checkers, no new
+  fact_* keys) + ADR-0186 (Proposed: the succession, the X-3 rule
+  applied to the draft itself, the window checklist, the
+  parameter-change rule) + the unfreeze_gate 0.30 target read (the
+  honest RED on the fixation fact; the default stays 0.29). The
+  fixation — the OWNER's gate.
+- The environment lessons (not ledger items): the docs-metrics SSOT
+  blocks include the typed/precise share rows and the ADR count — every
+  registry/ADR change regenerates them (caught locally twice, the
+  PLAN-SUMMARY follow-up commit once); a CI push event may not fire
+  (the №616 ada4010 case — the retrigger with an explicit commit);
+  the git remote's embedded token can fail fetches while the PAT works
+  (fetch with the PAT explicitly).

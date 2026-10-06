@@ -73,7 +73,27 @@ they reside in the canon held by the coordinator (§16.0-7).
 - C2PA mini-slice: manifest read/write, Art 50 labeling — a narrow slice (#320).
 - Completion-audits of Wave 0 — accepted (gh#404–#406).
 
-## Current wave — Wave 31 corrective (dispatch gh#1052, 2026-10-05)
+## Current wave — Wave 32 (the 0.29.0 release, the owner's verdict 2026-10-06)
+
+The wave executes the release on the owner's verbatim chat verdict
+(«Делай релизный наряд 0.29.0», 2026-10-06; the publication itself is
+the owner's act per §6.5, the v0.28.2 precedent). The executor's chain:
+№614 (gh#1072) — the version lockstep 0.29.0 in ONE PR (the №583
+pattern: workspace Cargo.toml + Cargo.lock ×5 members + the README
+badge + the generated Version row and the SSOT blocks), the CHANGELOG
+[0.29.0] cut, the fresh 0.29 v2 gate read GREEN (unfreeze_gate.py
+--gate-target 0.29, exit 0), the tag v0.29.0 on the squash commit, the
+release notes per the v0.28.2 shape, the four assets verified (the SBOM
+describes `mlog 0.29.0`), the post-publication syncing PR (the №583/PR
+#1059 pattern — REALITY §6.18 STAGED → PUBLISHED). The wave so far:
+№605 (the X-3 precise goal 3000 bp OWNER-FIXED, ADR-0181 §3.1) → the
+honest RED record (#1069) → №613 (gh#1070) — 47 verified PRECISE rows,
+2131 → 3042 bp ≥ 3000, the 0.29 v2 gate GREEN (the ratchet: precise
+3042 / general 4670 / TYPED_FLOOR 237). The owner gates remaining:
+branch protection (gh#1000), the LLM-line sequencing (ADR-0182 §7.5),
+the 0.30 string deprecation, №503 (strictly last).
+
+## Executed — Wave 31 corrective (dispatch gh#1052, 2026-10-05)
 
 The wave is the CORRECTIVE line over the unified audit of `25b375e`
 (v0.28.1): №600 (gh#1041, P0, release-block) — the audit §3 Y-1 regression

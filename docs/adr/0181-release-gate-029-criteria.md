@@ -57,6 +57,37 @@ cut) — an honest NOT MET until the typing waves land; the 0.29 gate
 was wired into the blocking CI on 2026-10-05 (№597, §6) — the goals
 were MET by then (the live fact 3654 bp).
 
+### §3.1. The precise typed-share goal (OWNER-FIXED 2026-10-06 — the audit 25b375e §3 X-3 decision)
+
+The В31 unified audit's X-3 finding: the coarse goal (3500 bp) was
+already exceeded before the wiring (the live fact 3654 bp at the
+fixation, 3759 bp at the wiring), so as a gate criterion it demands no
+movement — the audit's words: the achieved goal measures nothing. The
+PRECISE share (a typed row whose signature names the exact shape, no
+Unknown — the №560 metric) is the honest 0.29 movement target: 110/516
+= 2131 bp at the decision.
+
+**The owner's fixation: `goal_precise_share_bp: 3000`.** The
+authorization record (the owner's chat, 2026-10-06): «1-Б, 2-3000,
+3-отложить и добивай остальное» — the executor's formulation, accepted
+as-is (the №598 precedent); the value is the audit's ориентир accepted
+verbatim. The executor owns nothing about the value (the same §3/§5
+fixation rule).
+
+Mechanics: the coarse goal stays the floor (3500 bp, unchanged); the
+between-releases enforcement is the precise-baseline ratchet — the
+№560 lock: the share may ONLY GROW, a raise happens in the same PR
+that types more rows precisely (the №565/№757 procedure), never by
+loosening the PRECISE_TYPES definition. The v2-0.29 read gains the
+criterion (1b): the precise share ≥ the goal, MET/NOT-MET beside the
+others — loud in CI (the №580 posture: the CI job runs without
+--strict), the strict release-time read exits 1 while NOT MET. The
+live fact is machine-synced: `fact_precise_share_bp` in
+gate_029_goals.txt, verified by sync_gate_facts.py with its checker
+(the fail-closed №525 rule: no new fact without a checker; the 0.28
+record predates the parameter and carries no precise record). The
+executor naryad: №605 (gh#1046, the decision marker `w31: precise-goal`).
+
 ## §4. The 0.29 window checklist (the ADR-0179 §6 shape)
 
 1. **The release-block sync** — `fact_open_high_server` = the count of

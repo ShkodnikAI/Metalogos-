@@ -166,7 +166,7 @@ def criterion_memory(baseline_dir, office_tests):
     return rc, ' | '.join(notes[:2]), rec, '\n'.join('- ' + n for n in notes[2:])
 
 
-def criterion_goals_028(baseline_dir, goals_path=GOALS_028):
+def criterion_goals_028(baseline_dir, goals_path=GOALS_028, precise=False):
     """№509 (gh#792, ADR-0179): the 0.28 ABSOLUTE goals — the v2 gate.
 
     Reads the owner-fixed parameters and the live facts from
@@ -176,7 +176,11 @@ def criterion_goals_028(baseline_dir, goals_path=GOALS_028):
     §4.1 criterion reads — the v2 gate compares it against the GOAL,
     not against the no-regress threshold). №570: the same core reads
     the 0.29 DRAFT record (goals_path=GOALS_029) behind the
-    owner-fixation gate — criterion_goals_029."""
+    owner-fixation gate — criterion_goals_029. №605 (gh#1046, the audit
+    25b375e §3 X-3, ADR-0181 §3.1): the 0.29 read adds the PRECISE
+    typed-share goal criterion (precise=True) — the 0.28 record predates
+    the parameter and carries no precise record, so the criterion reads
+    the 0.29 record only."""
     notes = []
     rc = 0
     details = []
@@ -206,6 +210,32 @@ def criterion_goals_028(baseline_dir, goals_path=GOALS_028):
     else:
         details.append('the typed-share fact or the goal is unparsable/missing (fail-closed)')
         rc = 1
+
+    # (1b) the PRECISE typed-signature share reaches the 0.29 release
+    # GOAL (bp) — the audit 25b375e §3 X-3 owner decision (ADR-0181
+    # §3.1, OWNER-FIXED 2026-10-06: goal_precise_share_bp 3000): the
+    # coarse goal was already exceeded before the wiring, so the precise
+    # share is the honest movement target. The machine is the №560
+    # precise gate script; the between-releases enforcement stays the
+    # precise-baseline ratchet (only up). The CI run without --strict
+    # stays loud-not-exiting (the №580 posture); the strict release-time
+    # read exits 1 while NOT MET.
+    if precise:
+        prec_rc, prec_out = run([TYPES_SCRIPT, '--gate',
+                                 os.path.join(baseline_dir, 'type_signature_precise_baseline.txt'),
+                                 '--precise'])
+        pm = re.search(r'precise signatures:\s*\d+/\d+\s*\(([\d.]+)%\)', prec_out)
+        prec_goal = goal_fact('goal_precise_share_bp')
+        if pm and prec_goal is not None:
+            prec_bp = int(round(float(pm.group(1)) * 100))
+            pok = prec_bp >= int(prec_goal)
+            details.append('precise share %s bp vs goal %s bp: %s'
+                           % (prec_bp, prec_goal, 'MET' if pok else 'NOT MET'))
+            if not pok:
+                rc = 1
+        else:
+            details.append('the precise-share fact or the goal is unparsable/missing (fail-closed)')
+            rc = 1
 
     # (2) zero open High findings in the server path (the label-synced fact).
     oh_goal = goal_fact('goal_open_high_server')
@@ -279,7 +309,7 @@ def criterion_goals_029(baseline_dir):
                   'owner_fixed: %s) — the gate reports NOT GREEN until the owner '
                   'fixes them; this run blocks nothing (not wired into CI)' % (marker or 'absent'))
         return 1, detail, detail, ''
-    return criterion_goals_028(baseline_dir, goals_path=GOALS_029)
+    return criterion_goals_028(baseline_dir, goals_path=GOALS_029, precise=True)
 
 
 def main():
@@ -369,7 +399,7 @@ def main():
         lines.append('')
         lines.append('| § | Goal | Verdict | Evidence |')
         lines.append('|---|------|---------|----------|')
-        lines.append('| v2 | The absolute goals: typed share ≥ goal, 0 open High (server path), the domain quorum, the serve-e2e inventory | **%s** | %s |'
+        lines.append('| v2 | The absolute goals: typed share ≥ goal, precise share ≥ goal (№605, X-3), 0 open High (server path), the domain quorum, the serve-e2e inventory | **%s** | %s |'
                      % (v_verdict, v_detail))
         overall = 'GREEN' if (overall == 'GREEN' and v_rc == 0) else 'RED'
         lines.append('')

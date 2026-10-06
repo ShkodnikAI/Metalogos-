@@ -1,0 +1,24 @@
+// №618 corpus — R3 (bare-call each body, PATTERN context), Н1-04/D2.
+// Pre-№612 (main c694b6d): the loop ran ONE iteration out of 3, the
+// pattern tail was silently cut, the pattern returned the bare call's
+// value (the first db_insert id = 1). Post-№612 (v0.29.0): 3 inserts,
+// the tail executes, the honest count 3 (the TW↔VM parity e2e pins the
+// VM's extent — the VM never fabricated the Return).
+db { url: "sqlite::memory:" }
+
+schema app {
+  table markers { id: Int primary_key auto_increment, tag: String }
+}
+
+pattern R3BareCall(_x: String) -> String {
+  each x in [1.0, 2.0, 3.0] {
+    db_insert("markers", { tag: "m" })
+  }
+  let rows = query("SELECT COUNT(*) AS n FROM markers", [])
+  let first = get(rows, 0)
+  return str(first.n)
+}
+
+flow Main {
+  input: String = "go" -> R3BareCall -> output
+}

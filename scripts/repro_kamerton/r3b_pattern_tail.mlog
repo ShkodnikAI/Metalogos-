@@ -1,0 +1,25 @@
+// №618 corpus — R3b (the pattern-tail marker): the INSERT AFTER the loop
+// must execute and the count must be 3. Pre-№612: 0 tail rows, count 1.
+// The honest t92 correction to the Камертон matrix (verbatim): «хвост
+// pattern-тела при D2 НЕ исполняется (их матрица: «выполняется» —
+// неточна)».
+db { url: "sqlite::memory:" }
+
+schema app {
+  table markers { id: Int primary_key auto_increment, tag: String }
+  table tail_marker { id: Int primary_key auto_increment, tag: String }
+}
+
+pattern R3Tail(_x: String) -> String {
+  each x in [1.0, 2.0, 3.0] {
+    db_insert("markers", { tag: "m" })
+  }
+  db_insert("tail_marker", { tag: "tail_ran" })
+  let rows = query("SELECT COUNT(*) AS n FROM markers", [])
+  let first = get(rows, 0)
+  return str(first.n)
+}
+
+flow Main {
+  input: String = "go" -> R3Tail -> output
+}

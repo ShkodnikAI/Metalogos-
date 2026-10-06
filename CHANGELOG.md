@@ -4,6 +4,18 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- **№618 (gh#1076) — the Камертон cycle closure report:** the external
+  review report artifact (`docs/audits/kamerton-report-v0.29.0.md`) —
+  the SHA256 of the v0.29.0 assets re-run on the downloaded artifacts
+  (3/3 OK against the attached SHA256SUMS), the R1–R6 verdicts from real
+  runs of the repro corpus (`scripts/repro_kamerton/`, the t92
+  reconstruction) on the fixed main — every probe now behaves as its
+  contract demands (the mutation probe goes red: `assert_eq failed:
+  3 != 999`), the D1/D2 → PR/commits map, the affected releases
+  (v0.28.1, v0.28.2 — update to v0.29.0), and the honest protocol
+  corrections verbatim from t92. The forwarding to the external
+  reviewer is the owner's gate (the external channel).
+
 ## [0.29.0] - 2026-10-06
 
 ### Fixed

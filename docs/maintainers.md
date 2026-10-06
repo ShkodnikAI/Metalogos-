@@ -120,12 +120,26 @@ obliges, in the SAME PR:
    the linking issue + an explicit flag line in the PR description (the
    ADR-0179 §4 discipline; `fact_open_high_server` reads the label).
 
-The mechanical companion: the `Honest boundary protocol (advisory)` CI job
-(`scripts/ci/honest_boundary_check.py`) scans the PR's ADDED lines for the
-markers and warns loudly when `docs/limitations.md` is not among the changed
-files. Advisory by fact (the naryad's warn-only precedent; the blocking
-escalation is decided by the false-positive experience) — loudness is
-mandatory, the block is by fact, never silent. The forward-only boundary:
+The mechanical companion: the `Honest boundary protocol (blocking on the
+security class — №604)` CI job (`scripts/ci/honest_boundary_check.py`) scans
+the PR's ADDED lines for the markers and warns loudly when
+`docs/limitations.md` is not among the changed files. The №588 marker/row
+form gap stays ADVISORY by fact (the naryad's warn-only precedent; the
+blocking escalation is decided by the false-positive experience) — loudness
+is mandatory, the block is by fact, never silent.
+
+**The SECURITY class BLOCKS (№604, the audit 25b375e §3 Y-2):** a
+`docs/limitations.md` row added by the PR that matches the machine-readable
+dictionary (`scripts/ci/honest_boundary_security_dict.txt` — a respond*/
+deny*/return being ignored; a semantic error or a category-A check
+skipped/downgraded; backend-dependent behavior in the №476 domains: SQL,
+filesystem, exec, labels, secrets) MUST carry the release-block evidence —
+the row links its release-block carrier issue, or the PR itself carries the
+label — and the check verifies it via the GitHub API (a missing GH_TOKEN is
+a loud SKIP; an API error is a loud infra exit 2). Without the evidence the
+PR is RED. The retrospective discipline: the whole limitations page passes
+the same gate (`--retrospective`); the dictionary is extensible — a new
+pattern is a one-line PR. The forward-only boundary:
 the check reads added diff lines, never the landed history — the existing
 in-tree markers already carry their ADR/limitations records and no
 retrospective scan is performed (№588's boundary 4).

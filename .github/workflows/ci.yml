@@ -499,20 +499,23 @@ jobs:
           python3 scripts/ci/naryad_number_check.py "$PR_TITLE" --body "$PR_BODY"
 
   honest-boundary-check:
-    name: Honest boundary protocol (advisory)
+    name: Honest boundary protocol (blocking on the security class — №604)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - name: Honest-boundary markers must land with a limitations.md row (№588)
+      - name: Honest-boundary markers must land with a limitations.md row (№588); the security class blocks (№604)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           if [ -z "${{ github.event.pull_request.title }}" ]; then
-            echo "Not a pull_request event — the advisory runs on PRs only."
+            echo "Not a pull_request event — the check runs on PRs only."
             exit 0
           fi
           git diff origin/main...HEAD > /tmp/pr.diff
-          python3 scripts/ci/honest_boundary_check.py --diff /tmp/pr.diff
+          python3 scripts/ci/honest_boundary_check.py --diff /tmp/pr.diff --pr-number "$PR_NUMBER"
 
   module-size-guard:
     name: module-size-guard (blocking)

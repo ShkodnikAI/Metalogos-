@@ -1,0 +1,18 @@
+// №618 corpus — R4 (the vacuous-green probe, TEST context), Н1-04/D2.
+// Pre-№612: the test came back GREEN VACUOUSLY — 1 insert of 3, the
+// tail cut, the assert never ran. Post-№612: green HONESTLY (the assert
+// executed against 3 rows).
+db { url: "sqlite::memory:" }
+
+schema app {
+  table markers { id: Int primary_key auto_increment, tag: String }
+}
+
+test "R4" {
+  each x in [1.0, 2.0, 3.0] {
+    db_insert("markers", { tag: "m" })
+  }
+  let rows = query("SELECT COUNT(*) AS n FROM markers", [])
+  let first = get(rows, 0)
+  assert_eq(first.n, 3.0)
+}

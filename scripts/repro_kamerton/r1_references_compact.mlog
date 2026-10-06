@@ -1,0 +1,27 @@
+// №618 corpus — R1 (compact references), the Камертон matrix row Н1-03.
+// Pre-№611 (main c694b6d): the REFERENCES clause was dropped SILENTLY
+// (the parser kept `parent.id` as ONE token). Post-№611 (v0.29.0): the
+// applied DDL carries `REFERENCES parent(id)`, check green, run green.
+db { url: "sqlite::memory:" }
+
+schema app {
+  table parent {
+    id: Int primary_key auto_increment,
+    name: String
+  }
+  table child {
+    id: Int primary_key auto_increment,
+    parent_id: Int references(parent.id),
+    name: String
+  }
+}
+
+pattern InsertChild(_x: String) -> String {
+  let pid = db_insert("parent", { name: "p1" })
+  let cid = db_insert("child", { parent_id: pid, name: "c1" })
+  return "ok"
+}
+
+flow Main {
+  input: String = "go" -> InsertChild -> output
+}

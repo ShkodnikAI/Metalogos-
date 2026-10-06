@@ -1,0 +1,18 @@
+// №618 corpus — R4a (the MUTATION probe): the same R4 program with a
+// deliberately false assert. Post-№612 the test MUST go red — a green
+// result here would mean the asserts still never run (the vacuous
+// class). This file is EXPECTED to fail `mlog test` on the fixed main.
+db { url: "sqlite::memory:" }
+
+schema app {
+  table markers { id: Int primary_key auto_increment, tag: String }
+}
+
+test "R4a (mutation: assert must be executed)" {
+  each x in [1.0, 2.0, 3.0] {
+    db_insert("markers", { tag: "m" })
+  }
+  let rows = query("SELECT COUNT(*) AS n FROM markers", [])
+  let first = get(rows, 0)
+  assert_eq(first.n, 999.0)
+}

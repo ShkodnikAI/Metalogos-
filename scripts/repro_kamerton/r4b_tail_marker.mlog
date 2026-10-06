@@ -1,0 +1,24 @@
+// №618 corpus — R6 (the while poison body + the tail marker), Н1-04/D2.
+// The poisoning bare call sits EARLIER in the body; the trailing
+// assignment did not reset the block's implicit value. Pre-№612: one
+// iteration (i stays 1.0), the tail (tail_marker) never created, the
+// test green vacuously. Post-№612: the full pass, i == 3.0, 3 inserts,
+// the tail row present.
+db { url: "sqlite::memory:" }
+
+schema app {
+  table markers { id: Int primary_key auto_increment, tag: String }
+  table tail_marker { id: Int primary_key auto_increment, tag: String }
+}
+
+test "R6" {
+  let mut i = 0.0
+  while i < 3.0 {
+    db_insert("markers", { tag: "m" })
+    i = i + 1.0
+  }
+  db_insert("tail_marker", { tag: "tail_ran" })
+  let rows = query("SELECT COUNT(*) AS n FROM markers", [])
+  let first = get(rows, 0)
+  assert_eq(first.n, 3.0)
+}

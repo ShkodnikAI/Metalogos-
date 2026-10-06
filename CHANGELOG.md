@@ -4,6 +4,59 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+## [0.28.2] - 2026-10-06
+
+### Security (UPDATE REQUIRED)
+
+**0.28.1 and earlier are affected on BOTH backends — update required.** The
+В31 corrective wave (the unified audit of `25b375e` / v0.28.1, the dispatch
+gh#1052) found the audit §3 Y-1 regression (High): №584 retired the
+`RESPOND_NOT_TERMINAL` gate for ALL bare-respond forms at once — including
+the ONE form that never worked. The audit's guard scenario:
+
+> a guard `if is_admin(...) == false { respond("403") }` nested inside
+> another block-form `if` — `db_execute("DELETE …")` executed for a
+> NON-administrator, both backends answered `200 purged`; the compiler gave
+> only a style warning, and the honest limitations.md row did not reach the
+> user.
+
+- **Y-1 (High) — the swallowed respond* regression (№600, gh#1041, PR
+  #1054):** a bare `respond*`/`respond_html*` call carried by a statement
+  NESTED under a top-level block-form `if/else` branch (depth ≥ 2) does NOT
+  stop the route on EITHER backend — the serve lane's per-statement branch
+  walk discards nested-statement responses and the branch continues; №584
+  had lowered the whole early-answer surface at once and this form lost the
+  fail-closed refusal it had under №581. Fixed: the blocking
+  `RESPOND_SWALLOWED` semantic error refuses every such program at startup
+  on BOTH backends again (fail-closed, the №581 posture; the SSOT
+  `RespondPosition` predicate is shared by the semantic walk and the №584
+  lowering — the compiler stays the reference enumerator). The migration is
+  one word — **write `return respond(...)`** — the same shape the advisory
+  already recommends. The fix/audit date: **2026-10-05/06**.
+- **The repair rider (the honest-boundary finding of the №601-mandated
+  test, PR #1054):** the TW serve lane's top-level branch walk discarded an
+  explicit `return respond(...)` carried by a NESTED statement (the
+  ControlFlow::Return signal was flattened into a plain value and dropped)
+  while the VM answered it — the migration path above was silently broken
+  on the TW since №584. Fixed in the same PR: the branch walk now
+  propagates ONLY the explicit Return signal; plain tail values stay
+  discarded (the etalon; the depth-≥2 semantics question itself is the
+  owner gate №603).
+- **The test contract rewire (№601, gh#1042, PR #1054):** the depth-2
+  swallow shape now expects the startup refusal with the stable
+  `[RESPOND_SWALLOWED]` code; the audit §3 guard scenario is pinned as a
+  negative test plus its one-word migration end-to-end on both backends
+  (403 to the non-admin BEFORE the protected code, 200 + the marker to the
+  admin); the №584 early-answer surfaces stay green; the predicate is
+  mutation-verified at both transition points.
+
+The `release-block` label discipline (ADR-0179 §4) holds until the live
+v0.28.2 tag: `fact_open_high_server` 0 → 1 (the №600 carrier) → 0 (the
+release naryad №602's closure on the tag).
+
+### The post-0.28.1 wave records (В29 tail + В30, verbatim)
+
+
 - Naryad №586 (issue #1000; Wave 29 P2, [process]/[ci], the wave-29
   dispatch gh#1004 — audit d63cc1d X-4): the branch-protection audit
   job — the actual protection of `main` is read via the API and

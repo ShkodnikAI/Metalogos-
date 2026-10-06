@@ -73,30 +73,30 @@ they reside in the canon held by the coordinator (§16.0-7).
 - C2PA mini-slice: manifest read/write, Art 50 labeling — a narrow slice (#320).
 - Completion-audits of Wave 0 — accepted (gh#404–#406).
 
-## Current wave — Wave 30 (dispatch gh#1022, 2026-10-05)
+## Current wave — Wave 31 corrective (dispatch gh#1052, 2026-10-05)
 
-The language enrichment for the Камертон consumer, executed: №591 (the
-spectral contour — the Lomb–Scargle periodogram for unevenly sampled
-series), №592 (the per-call HTTP deadline taxonomy — four branchable
-typed outcomes), №593 (ADR-0183, the migration-rollback boundary — the
-OWNER GATE resolved by the delegated decision, VARIANT B: the schema
-evolution stays ADDITIVE-ONLY), №595 (the UTC calendar arithmetic —
-parse/format/diff/epoch, all UTC, the loud [DATE_INVALID] refusals),
-№590 (the Box–Muller normal sampler over the shared PRNG — merged LAST:
-the merge-order rebase on the merged wave, the cumulative baselines
-re-recorded), №594 (the tick↔route parity of a pure function — the
-THIRD differential axis beside №465/№585, tests-only, zero production
-fixes), №596 (this post-wave sync, strictly last). The wave's counter
-fact: the registry 509 → 516 (seven new rows, ALL typed — three
-precise), the typed share 3654 → **3759 bp** (the 0.29 goal 3500 stays
-exceeded), the precise share 2043 → **2131 bp**; the classification
-generator's OVERRIDES drift repaired (№590's tail repair —
-`gen_classification.py` runs again); ADR 175 (the wave's ADR-0183).
-The honest open line: №586 (X-4) stays BLOCKED on the owner's repo
-secret. The next gates are the OWNER's: the В30 acceptance (the start
-of the Камертон wave 1 — the implementation line of ADR-0182), the №586
-secret, the string-form deprecation decision (the 0.30 line), the repo
-rename Metalogos- → Metalogos.
+The wave is the CORRECTIVE line over the unified audit of `25b375e`
+(v0.28.1): №600 (gh#1041, P0, release-block) — the audit §3 Y-1 regression
+closed: a bare respond* NESTED under a top-level block-form if/else branch
+(the guard-bypass shape the audit reproduced) refuses run/serve at startup
+again with the blocking `RESPOND_SWALLOWED` error — the fail-closed posture
+№584 had retired for ALL forms at once; №601 (gh#1042, P0) — the swallow
+test contract rewired, the audit scenario pinned end-to-end on both
+backends; the execution-honesty rider — the №601-mandated test exposed the
+PRE-EXISTING TW divergence on the migration path (a nested explicit
+`return respond(...)` was silently discarded while the VM answered it),
+repaired in the same PR (the honest-boundary marker, the №588 protocol).
+№586 (gh#1000, P2) — the X-4 branch-protection audit job landed; the first
+read fixated the real divergences (the owner's admin toggles, gh#1000).
+The release line: the CHANGELOG [0.28.2] Security section cut (this
+naryad, №602) — the publication is the OWNER's act (§6.5); the
+`fact_open_high_server` trajectory 0 → 1 (the honest №600 carrier) → 0
+(the №602 closure on the live tag). The remaining wave naryads: №604 ∥
+№605 (the owner's precise-goal value) ∥ №606 ∥ №607 → №608 ∥ №609 (the
+owner's №503 decision) ∥ №610; №603 (the depth-≥2 semantics fate) — the
+owner's ADR gate.
+
+## Executed — Wave 30 (dispatch gh#1022, 2026-10-05)
 
 <!-- BEGIN GENERATED NUMBERS (scripts/gen_metrics.py — do not edit inside) -->
 | Machine fact (generated — do not hand-edit) | Value |

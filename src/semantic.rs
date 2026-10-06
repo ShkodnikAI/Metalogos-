@@ -9414,9 +9414,49 @@ fn is_name_reference_builtin(name: &str) -> bool {
     )
 }
 
+/// The reserved expression/statement keywords (№617): a bare `Ident`
+/// node carrying one of these names is a PARSE ARTIFACT of the tolerated
+/// legacy shapes (the self-host parser's `while if … {` / dangling-`else`
+/// chains — self-host/parser.mlog), never a user variable reference: the
+/// grammar reserves the words, so no legal program reads a variable
+/// spelled `if`/`then`/… and the runtime never evaluates the artifact
+/// nodes (parser.mlog runs green on main — the naryad_197 evidence).
+/// The variable walk skips exactly these names; a REAL undefined
+/// variable is never spelled with a reserved word, so the exemption
+/// cannot mask the ledger §3 defect class. The artifact itself (the
+/// expression parser accepting stray keyword tokens as bare Idents) is
+/// a separate parser finding — recorded in the PR, not silently
+/// swallowed here.
+fn is_reserved_keyword(name: &str) -> bool {
+    matches!(
+        name,
+        "if" | "then"
+            | "else"
+            | "while"
+            | "each"
+            | "in"
+            | "match"
+            | "return"
+            | "let"
+            | "mut"
+            | "break"
+            | "continue"
+            | "true"
+            | "false"
+            | "and"
+            | "or"
+            | "not"
+            | "try"
+    )
+}
+
 fn check_expr_vars(expr: &Expr, scope: &mut VarScope, errors: &mut Vec<SpannedError>) {
     match expr {
         Expr::Ident { name, span } => {
+            // №617: the keyword-ident exemption — see is_reserved_keyword.
+            if is_reserved_keyword(name) {
+                return;
+            }
             if !scope.bound.contains(name) {
                 // The TW runtime message verbatim (execution.rs), the
                 // runtime's stable №479 code attached — the static refusal

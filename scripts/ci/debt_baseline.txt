@@ -88,9 +88,17 @@
 # were stale ledger links. Green over 3 consecutive suite runs; the
 # floor follows the fact down IN THE SAME PR (the №569 procedure):
 # ignore: 21 -> 17.
+#
+# №617 (gh#1075, волна 33): the gh#967 §3 lane — all 3 ignored tests lifted
+# (phase19_22_constraints.rs :51/:90/:176): the semantic checker implements
+# the three checks (the variable-scope walk + the static opaque-concat
+# check, the TW лекала verbatim). The floor follows the fact down IN THE
+# SAME PR (the №569 procedure): ignore: 17 -> 14. (The naryad's fact line
+# quoted "52 → 49" — the live counter said 17 at execution; the floor
+# follows the MACHINE fact, never the naryad's stale number.)
 
 dup_baseline: scripts/ci/tw_vm_dup_names_baseline.txt
-ignore: 17
+ignore: 14
 ignore_todo: 0
 dead_code: 33
 example_uncovered: 0

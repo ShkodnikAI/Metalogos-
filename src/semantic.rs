@@ -81,6 +81,26 @@ pub enum SemanticErrorKind {
     /// lowering); the depth-≥2 semantics question itself (an early answer
     /// everywhere vs the error forever) is a separate owner gate (№603).
     RespondSwallowed,
+    /// №617 (ledger gh#967 §3): UNDEFINED_VARIABLE — a bare `Ident` read
+    /// (or an assignment target) that the variable-scope walk cannot
+    /// resolve against the TW scope model (pattern params + entity
+    /// globals + `let` bindings + `each` loop variables — the flat,
+    /// never-popped env of `eval_statements_cf`). The message is the TW
+    /// runtime лекало verbatim (execution.rs: "undefined variable: {n}")
+    /// and the stable code is the runtime origin's code — the static
+    /// refusal fires earlier (run/check/serve startup) on BOTH backends,
+    /// the runtime stays the backstop for the conditionally-bound cases
+    /// the flat walk cannot prove.
+    UndefinedVariable,
+    /// №617 (ledger gh#967 §3): OPAQUE_CONCAT — a `+` (concatenation)
+    /// operand carries a DECLARED opaque type (Html/Query/Secret/
+    /// Encrypted/Hash/Session — the entity/param/let-chain fact). The
+    /// static twin of the runtime guard (execution.rs eval_binop:
+    /// "cannot concatenate opaque type …") — the same refusal shifted
+    /// left to check/startup time. No stable code: the runtime origin
+    /// refuses with a plain message, no code exists there — none is
+    /// invented here (the honest-gap rule).
+    OpaqueConcat,
     /// Every other semantic finding — blocks run/serve unconditionally.
     Other,
 }
@@ -99,6 +119,10 @@ impl SemanticErrorKind {
             }
             SemanticErrorKind::RespondNotTerminal => Some(CODE_RESPOND_NOT_TERMINAL),
             SemanticErrorKind::RespondSwallowed => Some(CODE_RESPOND_SWALLOWED),
+            SemanticErrorKind::UndefinedVariable => {
+                Some(crate::interpreter::values::CODE_UNDEFINED_VARIABLE)
+            }
+            SemanticErrorKind::OpaqueConcat => None,
             SemanticErrorKind::Other => None,
         }
     }
@@ -5866,6 +5890,13 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
     let builtin_names = crate::builtins::builtin_name_set();
     let mut role_names: HashSet<String> = HashSet::new();
     let mut pattern_param_counts: HashSet<(String, usize)> = HashSet::new();
+    // №617 (ledger gh#967 §3): entity names carrying a DECLARED opaque
+    // type (Html/Query/Secret/Encrypted/Hash/Session) — the static fact
+    // for the opaque-concat check. TW seeds ALL entities into
+    // `self.variables` before any pattern body runs (execution.rs:77/88),
+    // so the map is built over the WHOLE declaration list regardless of
+    // source order — same lookup semantics the runtime Ident read has.
+    let mut entity_opaque: HashMap<String, String> = HashMap::new();
     // Наряд №181 (ADR-0117): reflex declarations — name → labels set.
     // Used to validate distill_to references and labels-non-empty rule.
     let mut reflex_decls: HashMap<String, Vec<String>> = HashMap::new();
@@ -5982,6 +6013,16 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                         decl,
                         format!("duplicate entity: {}", e.name),
                     ));
+                }
+                // №617: the declared opaque-type fact (resolved through the
+                // №119 alias map, the same resolution the runtime coercion
+                // applies at execution.rs:85-89).
+                let resolved = type_alias_map
+                    .get(&e.type_name)
+                    .map(|s| s.as_str())
+                    .unwrap_or(&e.type_name);
+                if crate::ast::is_opaque_type(resolved) {
+                    entity_opaque.insert(e.name.clone(), resolved.to_string());
                 }
             }
             Declaration::Pattern(p) => {
@@ -6237,6 +6278,18 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                 // while `mlog check` passed and the VM compiled the
                 // assignment silently — three backends, three answers.
                 check_pattern_mutability(&p.body, &mut result.errors);
+                // №617 (ledger gh#967 §3): the variable-scope walk — an
+                // undefined variable read/assignment and an opaque-concat
+                // refuse at check time on BOTH backends (the runtime stays
+                // the backstop; the messages are the TW лекала verbatim).
+                check_pattern_variables(
+                    &p.body,
+                    &p.params,
+                    &type_alias_map,
+                    &entity_opaque,
+                    &entity_names,
+                    &mut result.errors,
+                );
             }
             // Phase 6.1: Validate mlogserver block
             Declaration::MlogServer(srv) => {
@@ -6308,6 +6361,16 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                         );
                     }
                     check_pattern_mutability(&route.body, &mut result.errors);
+                    // №617: the same variable-scope walk for route bodies —
+                    // no params (the TW route env starts empty, the entities
+                    // resolve as globals, server.rs:2587), the flat let/each
+                    // model identical to pattern bodies.
+                    check_body_variables(
+                        &route.body,
+                        &entity_opaque,
+                        &entity_names,
+                        &mut result.errors,
+                    );
                 }
             }
             // Test declarations: no semantic checks needed (statements inside are checked by patterns)
@@ -9082,6 +9145,442 @@ fn check_stmt_mutability(
         // mutability implications.
         Statement::Memorize(_) | Statement::Forget(_) | Statement::Relate(_) => {}
         Statement::Break | Statement::Continue => {}
+    }
+}
+
+// ── №617 (ledger gh#967 §3): the variable-scope walk + the static opaque-concat check ─────────────
+//
+// Three ledger-§3 tests (tests/phase19_22_constraints.rs) hung #[ignore]:
+// (1) an opaque-typed operand in a `+` concat was refused only at RUNTIME
+// (execution.rs eval_binop — "cannot concatenate opaque type …"), never at
+// check time; (2) a read of an undefined variable passed `mlog check` and
+// exploded at runtime; (3) an assignment to an undefined variable passed
+// check silently (the №264 immutability pass resolves only `let mut`
+// facts — it deliberately reports the immutability message for a
+// never-declared name, the TW runtime behavior — it does NOT decide
+// definedness). This pass closes all three, backend-agnostic (AST-level):
+// the run/serve startup gate refuses on BOTH backends before any backend
+// compiles anything.
+//
+// The scope model is the TW env model EXACTLY (eval_statements_cf):
+//   - ONE flat set of bound names threaded through ALL nested blocks and
+//     NEVER popped (execution.rs threads the same `env` into every block;
+//     a `let` inside a branch stays visible for the rest of the body);
+//   - pattern params are pre-bound; ROUTE bodies have no params (the TW
+//     route env starts empty, server.rs:2587);
+//   - entity declarations resolve as GLOBALS on every Ident read
+//     (execution.rs: `env.get(name).or_else(self.variables.get(name))`)
+//     — the map is built over the whole declaration list regardless of
+//     source order;
+//   - `each x in …` / `each i, item in …` loop variables bind like `let`
+//     (env.insert per iteration, never popped);
+//   - a LetBinding re-binds (shadows) the name — any inherited opaque
+//     fact is replaced (env.insert semantics).
+//
+// The opaque facts tracked statically are the DECLARED ones only: entity
+// type annotations (coerced by №114 at runtime), pattern param type
+// annotations (resolved through the №119 alias map), and the let-chain
+// (a binding whose initializer is a bare Ident of an opaque binding).
+// Builtins returning opaque VALUES (escape_html → Html, query() → Query)
+// are NOT inferred here — the registry's stage-0 Type carries opaque
+// FAMILIES, not the concrete runtime type names the runtime guard
+// prints; inventing a name would stamp an honest gap. The runtime guard
+// stays the complete backstop (fail-closed) — this pass shifts the
+// declared-fact class LEFT, it does not claim the whole class.
+//
+// Known honest divergence (loud, per the naryad's boundary rule): an
+// assignment to a NEVER-declared name reports
+// "assignment to undefined variable: n" at CHECK time (the ledger §3
+// contract) while the TW runtime reports the №264 immutability message
+// for the same program (the mutability check precedes resolution there —
+// execution.rs:989-992). Both refuse fail-closed; the static diagnostic
+// fires first and names the actual defect.
+
+/// The flat variable scope threaded through one body (the TW env лекало).
+struct VarScope {
+    /// Every name a bare `Ident` may legally read.
+    bound: HashSet<String>,
+    /// №617: name → the DECLARED opaque type name (Html/Secret/…) — the
+    /// static fact the opaque-concat check refuses on.
+    opaque: HashMap<String, String>,
+}
+
+/// Entry point for PATTERN bodies: params pre-bound, ALL entities as
+/// globals (both kinds — the runtime resolves any entity name), the
+/// opaque map carries only the opaque-typed subset.
+fn check_pattern_variables(
+    body: &[Statement],
+    params: &[crate::ast::Param],
+    type_alias_map: &HashMap<String, String>,
+    entity_opaque: &HashMap<String, String>,
+    entity_names: &HashSet<String>,
+    errors: &mut Vec<SpannedError>,
+) {
+    let mut scope = VarScope {
+        bound: HashSet::new(),
+        opaque: HashMap::new(),
+    };
+    for p in params {
+        scope.bound.insert(p.name.clone());
+        let resolved = type_alias_map
+            .get(&p.type_name)
+            .map(|s| s.as_str())
+            .unwrap_or(&p.type_name);
+        if crate::ast::is_opaque_type(resolved) {
+            scope.opaque.insert(p.name.clone(), resolved.to_string());
+        }
+    }
+    for name in entity_names {
+        scope.bound.insert(name.clone());
+    }
+    for (name, ty) in entity_opaque {
+        scope.opaque.insert(name.clone(), ty.clone());
+    }
+    check_stmts_vars(body, &mut scope, errors);
+}
+
+/// Entry point for ROUTE bodies: no params (the TW route env starts
+/// empty — server.rs:2587), entities resolve as globals.
+fn check_body_variables(
+    body: &[Statement],
+    entity_opaque: &HashMap<String, String>,
+    entity_names: &HashSet<String>,
+    errors: &mut Vec<SpannedError>,
+) {
+    let mut scope = VarScope {
+        bound: HashSet::new(),
+        opaque: HashMap::new(),
+    };
+    for name in entity_names {
+        scope.bound.insert(name.clone());
+    }
+    for (name, ty) in entity_opaque {
+        scope.opaque.insert(name.clone(), ty.clone());
+    }
+    check_stmts_vars(body, &mut scope, errors);
+}
+
+fn check_stmts_vars(stmts: &[Statement], scope: &mut VarScope, errors: &mut Vec<SpannedError>) {
+    for stmt in stmts {
+        check_stmt_vars(stmt, scope, errors);
+    }
+}
+
+fn check_stmt_vars(stmt: &Statement, scope: &mut VarScope, errors: &mut Vec<SpannedError>) {
+    match stmt {
+        Statement::LetBinding { name, value, .. } => {
+            check_expr_vars(value, scope, errors);
+            // The binding overwrites any inherited fact (env.insert — the
+            // flat shadowing semantics of the runtime).
+            scope.opaque.remove(name);
+            // The honest static opaque facts for the new binding: a bare
+            // Ident of an opaque binding (the let-chain; deeper inference
+            // stays out — see the module comment).
+            if let Expr::Ident { name: src, .. } = value {
+                if let Some(t) = scope.opaque.get(src) {
+                    let t = t.clone();
+                    scope.opaque.insert(name.clone(), t);
+                }
+            }
+            scope.bound.insert(name.clone());
+        }
+        Statement::Assign {
+            name, value, span, ..
+        } => {
+            check_expr_vars(value, scope, errors);
+            if !scope.bound.contains(name) {
+                // The ledger §3 contract: the assignment target must be
+                // bound. (The TW runtime reports the №264 immutability
+                // message for this shape — the divergence is documented
+                // and loud, both refusals are fail-closed.)
+                errors.push(
+                    SpannedError::at(
+                        format!("assignment to undefined variable: {}", name),
+                        span.clone(),
+                    )
+                    .with_kind(SemanticErrorKind::UndefinedVariable),
+                );
+            }
+            // The value expression is walked by check_expr_vars above.
+        }
+        Statement::Return { value: expr, .. } | Statement::ExprStmt { expr, .. } => {
+            check_expr_vars(expr, scope, errors);
+        }
+        Statement::Each {
+            variable,
+            iterable,
+            body,
+            ..
+        } => {
+            check_expr_vars(iterable, scope, errors);
+            scope.bound.insert(variable.clone());
+            scope.opaque.remove(variable);
+            check_stmts_vars(body, scope, errors);
+        }
+        Statement::EachWithIndex {
+            index_var,
+            item_var,
+            iterable,
+            body,
+            ..
+        } => {
+            check_expr_vars(iterable, scope, errors);
+            scope.bound.insert(index_var.clone());
+            scope.bound.insert(item_var.clone());
+            scope.opaque.remove(index_var);
+            scope.opaque.remove(item_var);
+            check_stmts_vars(body, scope, errors);
+        }
+        Statement::While {
+            condition, body, ..
+        } => {
+            check_expr_vars(condition, scope, errors);
+            check_stmts_vars(body, scope, errors);
+        }
+        Statement::IfThen {
+            condition, body, ..
+        } => {
+            check_expr_vars(condition, scope, errors);
+            check_stmts_vars(body, scope, errors);
+        }
+        Statement::IfElseBlock {
+            condition,
+            then_body,
+            else_ifs,
+            else_body,
+            ..
+        } => {
+            check_expr_vars(condition, scope, errors);
+            check_stmts_vars(then_body, scope, errors);
+            for (cond, body) in else_ifs {
+                check_expr_vars(cond, scope, errors);
+                check_stmts_vars(body, scope, errors);
+            }
+            if let Some(else_body) = else_body {
+                check_stmts_vars(else_body, scope, errors);
+            }
+        }
+        Statement::Match {
+            scrutinee,
+            arms,
+            else_body,
+            ..
+        } => {
+            check_expr_vars(scrutinee, scope, errors);
+            for arm in arms {
+                match arm {
+                    MatchArm::Exact(_, body)
+                    | MatchArm::StartsWith(_, body)
+                    | MatchArm::Contains(_, body) => {
+                        check_stmts_vars(body, scope, errors);
+                    }
+                    MatchArm::Compare(_, expr, body) => {
+                        check_expr_vars(expr, scope, errors);
+                        check_stmts_vars(body, scope, errors);
+                    }
+                }
+            }
+            if let Some(else_body) = else_body {
+                check_stmts_vars(else_body, scope, errors);
+            }
+        }
+        Statement::Memorize(m) => check_expr_vars(&m.value, scope, errors),
+        Statement::Forget(f) => check_expr_vars(&f.query, scope, errors),
+        Statement::Relate(r) => {
+            check_expr_vars(&r.from, scope, errors);
+            check_expr_vars(&r.to, scope, errors);
+        }
+        Statement::Break | Statement::Continue => {}
+    }
+}
+
+/// The NAME-REFERENCE argument positions (№617): the runtime treats a
+/// bare `Ident` in these slots as a compile-time reference to a
+/// top-level declaration — NEVER a variable read (execution.rs: render
+/// №115 pushes the template name as a String; reflex_train/predict/
+/// save/metrics/generate №179b/№180/№187/№193 resolve the model name
+/// via reflex_names → Value::Reflex). The variable walk skips exactly
+/// these slots; an undeclared reference is the runtime's own loud error
+/// ("model 'X' not declared"), unchanged.
+fn is_name_reference_builtin(name: &str) -> bool {
+    matches!(
+        name,
+        "render"
+            | crate::reflex_ops::NAME_REFLEX_TRAIN
+            | crate::reflex_ops::NAME_REFLEX_PREDICT
+            | crate::reflex_ops::NAME_REFLEX_SAVE
+            | crate::reflex_ops::NAME_REFLEX_METRICS
+            | crate::reflex_ops::NAME_REFLEX_GENERATE
+    )
+}
+
+/// The reserved expression/statement keywords (№617): a bare `Ident`
+/// node carrying one of these names is a PARSE ARTIFACT of the tolerated
+/// legacy shapes (the self-host parser's `while if … {` / dangling-`else`
+/// chains — self-host/parser.mlog), never a user variable reference: the
+/// grammar reserves the words, so no legal program reads a variable
+/// spelled `if`/`then`/… and the runtime never evaluates the artifact
+/// nodes (parser.mlog runs green on main — the naryad_197 evidence).
+/// The variable walk skips exactly these names; a REAL undefined
+/// variable is never spelled with a reserved word, so the exemption
+/// cannot mask the ledger §3 defect class. The artifact itself (the
+/// expression parser accepting stray keyword tokens as bare Idents) is
+/// a separate parser finding — recorded in the PR, not silently
+/// swallowed here.
+fn is_reserved_keyword(name: &str) -> bool {
+    matches!(
+        name,
+        "if" | "then"
+            | "else"
+            | "while"
+            | "each"
+            | "in"
+            | "match"
+            | "return"
+            | "let"
+            | "mut"
+            | "break"
+            | "continue"
+            | "true"
+            | "false"
+            | "and"
+            | "or"
+            | "not"
+            | "try"
+    )
+}
+
+fn check_expr_vars(expr: &Expr, scope: &mut VarScope, errors: &mut Vec<SpannedError>) {
+    match expr {
+        Expr::Ident { name, span } => {
+            // №617: the keyword-ident exemption — see is_reserved_keyword.
+            if is_reserved_keyword(name) {
+                return;
+            }
+            if !scope.bound.contains(name) {
+                // The TW runtime message verbatim (execution.rs), the
+                // runtime's stable №479 code attached — the static refusal
+                // and the runtime refusal share one class signature.
+                errors.push(
+                    SpannedError::at(format!("undefined variable: {}", name), span.clone())
+                        .with_kind(SemanticErrorKind::UndefinedVariable),
+                );
+            }
+        }
+        Expr::FieldAccess { object, .. } => check_expr_vars(object, scope, errors),
+        Expr::FnCall { name, args, .. } => {
+            for (i, arg) in args.iter().enumerate() {
+                // №617: the name-reference slots (render/reflex_*) — a bare
+                // Ident there is a declaration reference, not a variable.
+                if i == 0 && is_name_reference_builtin(name) {
+                    continue;
+                }
+                check_expr_vars(arg, scope, errors);
+            }
+        }
+        Expr::QualifiedCall { args, .. } => {
+            for arg in args {
+                check_expr_vars(arg, scope, errors);
+            }
+        }
+        Expr::BinaryOp {
+            left, op, right, ..
+        } => {
+            // №617: the static twin of the runtime concat guard —
+            // execution.rs eval_binop refuses Add on an opaque VALUE with
+            // this exact message. The static check fires on the DECLARED
+            // opaque fact before the program runs.
+            if matches!(op, crate::ast::BinOp::Add) {
+                for side in [left, right] {
+                    if let Expr::Ident { name, span } = side.as_ref() {
+                        if let Some(t) = scope.opaque.get(name) {
+                            errors.push(
+                                SpannedError::at(
+                                    format!("cannot concatenate opaque type {}", t),
+                                    span.clone(),
+                                )
+                                .with_kind(SemanticErrorKind::OpaqueConcat),
+                            );
+                        }
+                    }
+                }
+            }
+            check_expr_vars(left, scope, errors);
+            check_expr_vars(right, scope, errors);
+        }
+        Expr::IfElse {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            check_expr_vars(condition, scope, errors);
+            check_expr_vars(then_branch, scope, errors);
+            check_expr_vars(else_branch, scope, errors);
+        }
+        Expr::List { items, .. } => {
+            for item in items {
+                check_expr_vars(item, scope, errors);
+            }
+        }
+        Expr::IndexAccess { object, index, .. } => {
+            check_expr_vars(object, scope, errors);
+            check_expr_vars(index, scope, errors);
+        }
+        Expr::StructLit { fields, .. } => {
+            for v in fields.values() {
+                check_expr_vars(v, scope, errors);
+            }
+        }
+        Expr::BlockIfElse {
+            condition,
+            then_body,
+            else_ifs,
+            else_body,
+            ..
+        } => {
+            check_expr_vars(condition, scope, errors);
+            check_stmts_vars(then_body, scope, errors);
+            for (cond, body) in else_ifs {
+                check_expr_vars(cond, scope, errors);
+                check_stmts_vars(body, scope, errors);
+            }
+            if let Some(else_body) = else_body {
+                check_stmts_vars(else_body, scope, errors);
+            }
+        }
+        Expr::MatchExpr {
+            scrutinee,
+            arms,
+            else_body,
+            ..
+        } => {
+            check_expr_vars(scrutinee, scope, errors);
+            for arm in arms {
+                match arm {
+                    MatchArm::Exact(_, body)
+                    | MatchArm::StartsWith(_, body)
+                    | MatchArm::Contains(_, body) => {
+                        check_stmts_vars(body, scope, errors);
+                    }
+                    MatchArm::Compare(_, expr, body) => {
+                        check_expr_vars(expr, scope, errors);
+                        check_stmts_vars(body, scope, errors);
+                    }
+                }
+            }
+            if let Some(else_body) = else_body {
+                check_stmts_vars(else_body, scope, errors);
+            }
+        }
+        Expr::Try { expr: inner, .. } => check_expr_vars(inner, scope, errors),
+        Expr::ProvBind { inner, .. } => check_expr_vars(inner, scope, errors),
+        // Literals carry no idents; HandleSource's `origin` names a
+        // declared origin (the ADR-0164 rule), not a variable.
+        Expr::StringLit { .. }
+        | Expr::FloatLit { .. }
+        | Expr::BoolLit { .. }
+        | Expr::HandleSource { .. } => {}
     }
 }
 

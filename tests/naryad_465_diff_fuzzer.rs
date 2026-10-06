@@ -341,6 +341,39 @@ fn run_tw(source: &str, base_dir: &Path) -> Result<Option<String>, String> {
 fn run_vm(source: &str, base_dir: &Path) -> Result<Option<String>, String> {
     let declarations =
         metalogos::parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
+    // №523 parity (exposed by №617): the production `mlog run --backend vm`
+    // applies the semantic gate BEFORE the compile — the same gate, the
+    // same first-CODED-finding stamp, on BOTH backends (lib.rs run path).
+    // This lane skipped the gate and compared VM-compile behavior that is
+    // UNREACHABLE in production (the gate had already refused the program):
+    // the №617 static undefined-variable check made TW refuse
+    // [UNDEFINED_VARIABLE] at the gate while this lane answered with the
+    // LATER compile error — a class pair the production never produces.
+    // Mirror the lib.rs run-path gate verbatim (the static import merge
+    // included — the compile's with_std_root resolves the same tree).
+    let module_decls = metalogos::semantic::resolve_imports_statically(&declarations, base_dir)
+        .map_err(|e| format!("Compilation error (Naryad #523): {}", e))?;
+    let mut merged_decls = module_decls;
+    merged_decls.extend(declarations.clone());
+    let sem_result = metalogos::semantic::check_program(&merged_decls);
+    let blocking: Vec<&metalogos::semantic::SpannedError> = sem_result
+        .errors
+        .iter()
+        .filter(|err| !metalogos::semantic::is_exempt_from_blocking(err.kind))
+        .collect();
+    if !blocking.is_empty() {
+        let code = blocking.iter().find_map(|err| err.kind.stable_code());
+        let stamp = code.map(|c| format!("[{}] ", c)).unwrap_or_default();
+        let lines: Vec<String> = blocking
+            .iter()
+            .map(|err| metalogos::semantic::format_blocking_line(err))
+            .collect();
+        return Err(format!(
+            "{}Compilation error (Naryad #523): semantic findings block execution:\n{}",
+            stamp,
+            lines.join("\n")
+        ));
+    }
     let mut comp = metalogos::compiler::Compiler::with_std_root(base_dir.to_path_buf());
     let program = comp.compile(declarations)?;
     let mut vm = metalogos::vm::Vm::new();
@@ -1573,8 +1606,18 @@ fn n479_stable_codes_carry_across_backends() {
     assert_eq!(err_node(&err), "ident");
 
     // VM: undefined function at compile → [UNDEFINED_FUNCTION].
+    // №617: the run_vm lane now carries the №523 semantic gate (the
+    // production `mlog run --backend vm` order), so a gate-refused program
+    // never reaches the compile — this pin exercises the COMPILE SITE
+    // directly (the `mlog compile` surface, which has no gate), keeping
+    // the site's own stamp pinned.
     let src = "pattern p(x: String) -> String {\n  return no_such_fn(x)\n}\nflow Main {\n  input: String = \"a\" -> p -> output\n}\n";
-    let err = run_vm(src, &repo).expect_err("the VM must refuse the undefined call at compile");
+    let err = {
+        let declarations = metalogos::parser::parse(src).expect("the pin program must parse");
+        let mut comp = metalogos::compiler::Compiler::with_std_root(repo.clone());
+        comp.compile(declarations)
+            .expect_err("the VM must refuse the undefined call at compile")
+    };
     assert!(
         err.starts_with("[UNDEFINED_FUNCTION] "),
         "the VM compile site must stamp the stable code, got: {}",

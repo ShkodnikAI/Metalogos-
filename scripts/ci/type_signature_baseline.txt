@@ -181,6 +181,28 @@
 # (tests/type_signature_metric.rs TYPED_FLOOR) is raised in the SAME PR:
 # 189 → 190. The gate 0.29 goal stays satisfied: 3759 bp ≥ 3500
 # (ADR-0181).
-# typed: 194
+# (superseded) typed: 194 | total: 516 | threshold_bp was 3759
+#
+# 2026-10-06 №613 (gh#1070, волна 32): the precise-movement package — the
+# 0.29 release criterion 1b (№605: goal_precise_share_bp 3000, the
+# owner's «1-Б, 2-3000, 3-отложить и добивай остальное»). 47 rows typed
+# PRECISE against the verified single-shape handler facts (the full
+# verification table in the naryad): String ×26 (__trim/__replace/__join,
+# print/env/env_or/to_string, read_file/write_file/append_file/
+# delete_file/exec/exec_argv/git_push, json_encode/web_search/mcp_call,
+# base64_encode/base64_decode, session_wake/session_interrupt, call_llm/
+# call_claude, whisper_transcribe/tts_generate/tts_send), Float ×12
+# (__abs/__min/__max/__clamp/__round, exp/ln/pow/tanh/sigmoid,
+# has_field, geo_distance), Bool ×5 (file_exists, dict_has,
+# verify_password, session_duty_enter/session_duty_exit), Unit ×4
+# (random_seed, authenticate, require, session_logout). The honest
+# Unknowns keep their Unknown (№560: __first/__last, the telegram trio,
+# poll_wake/take_interrupt, hash_password, query, respond, ...).
+# 194/516 → 241/516; (241*10000)//516 = 4670 bp (+911 bp). The floor
+# rises with the rows that earned it (the №757 procedure); the in-tree
+# lock (tests/type_signature_metric.rs TYPED_FLOOR) is raised in the
+# SAME PR: 190 → 237. The gate 0.29 goals stay satisfied: general
+# 4670 bp ≥ 3500, precise 3042 bp ≥ 3000 (ADR-0181 §3/§3.1).
+# typed: 241
 # total: 516
-# threshold_bp: 3759
+# threshold_bp: 4670

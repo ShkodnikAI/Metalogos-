@@ -4,7 +4,7 @@ The one-page machine verdict over the four unfreeze criteria. The right to lift 
 
 | § | Criterion | Verdict | Evidence |
 |---|-----------|---------|----------|
-| 4.1 | Types — the typed-signature share grows (№467) | **GREEN** | share typed signatures: 194/516 (37.59%); the enforced floor 3759 bp; the latest recorded floor 3759 bp |
+| 4.1 | Types — the typed-signature share grows (№467) | **GREEN** | share typed signatures: 241/516 (46.70%); the enforced floor 4670 bp; the latest recorded floor 4670 bp |
 | 4.2 | Dedup — the TW/VM duplicate names at/below the threshold (№462) | **GREEN** | count 0 (threshold 0); mirrors 6 (threshold 6) |
 | 4.3 | Debt — the ignore/dead_code counters green (№468) | **GREEN** | ignore 17/17; ignore_todo 0/0; dead_code 33/33; example_uncovered 0/0 |
 | 4.4 | Memory — the office E2E dogfood (office#373, FO-056) | **GREEN** | the office record verdict: GREEN (the §4.4 criterion evidence is complete: the in-repo | the in-repo twin (naryad_429_memory_office_path) GREEN on this commit |
@@ -17,9 +17,9 @@ The one-page machine verdict over the four unfreeze criteria. The right to lift 
 
 | § | Goal | Verdict | Evidence |
 |---|------|---------|----------|
-| v2 | The absolute goals: typed share ≥ goal, precise share ≥ goal (№605, X-3), 0 open High (server path), the domain quorum, the serve-e2e inventory | **RED** | typed share 3759 bp vs goal 3500 bp: MET; precise share 2131 bp vs goal 3000 bp: NOT MET; open High (server path) 0 vs goal 0: MET; domain quorum 0/8 vs goal 1/3: MET; the serve-e2e inventory: all state-accumulating declarations done |
+| v2 | The absolute goals: typed share ≥ goal, precise share ≥ goal (№605, X-3), 0 open High (server path), the domain quorum, the serve-e2e inventory | **GREEN** | typed share 4670 bp vs goal 3500 bp: MET; precise share 3042 bp vs goal 3000 bp: MET; open High (server path) 0 vs goal 0: MET; domain quorum 0/8 vs goal 1/3: MET; the serve-e2e inventory: all state-accumulating declarations done |
 
-**Overall (§4 + v2 0.29): RED.**
+**Overall (§4 + v2 0.29): GREEN.**
 The 0.29 release gate: **WIRED** (the DEFAULT gate target — №597, ADR-0181 §6, the owner's authorization 2026-10-05; the strict release-time read, --strict, exits 1 on RED).
 
 <details><summary>the raw gate outputs</summary>
@@ -27,8 +27,8 @@ The 0.29 release gate: **WIRED** (the DEFAULT gate target — №597, ADR-0181 �
 **4.1 (types), gate exit 0:**
 
 ```
-typed signatures: 194/516 (37.59%)
-precise signatures: 110/516 (21.31%) — №560: the two shares side by side
+typed signatures: 241/516 (46.70%)
+precise signatures: 157/516 (30.42%) — №560: the two shares side by side
 ```
 
 **4.2 (dedup), gate exit 0:**

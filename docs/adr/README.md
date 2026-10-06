@@ -225,3 +225,4 @@ real ADRs (№309/№320/№412) before the booking.
 | 0181 | The 0.29 Release Gate — the Absolute-Goals Criteria (owner-fixed 2026-10-04) | Accepted (the parameters fixed by the OWNER, 2026-10-04) |
 | 0182 | The media-handle family and the backend-registry interface — the domain-line reopening contour | Accepted |
 | 0183 | The migration-rollback boundary — schema evolution stays ADDITIVE-ONLY; the rollback path is backup restore, not a language surface | Accepted |
+| 0184 | The fate of the depth-≥2 early answer — `RESPOND_SWALLOWED` stays FOREVER (variant Б); the propagation-to-any-depth is not built | Accepted |

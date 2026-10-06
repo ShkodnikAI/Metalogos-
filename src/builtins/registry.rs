@@ -206,7 +206,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("zip", 2, "list"; builtin_zip, "List"),
     spec!("sort_by", 2, 3, "list"; builtin_sort_by, "List"),
     spec!("filter", 3, "list"; builtin_filter, "List"),
-    spec!("reduce", 3, "list"; builtin_reduce), // №537: Unknown honest — returns the ACCUMULATOR; its type is the caller's choice
+    spec!("reduce", 3, "list"; builtin_reduce, "Float"), // №537: Unknown honest — returns the ACCUMULATOR; its type is the caller's choice
     spec!("dedup", 1, "list"; builtin_dedup, "List"),
     spec!("condense", 1, "list"; builtin_condense, "List"),
     // НАРЯД №118: collection utilities (unique, chunk, sort)
@@ -242,9 +242,9 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // №448 taint-lift surface). The builtin validates loudly at runtime;
     // the semantic arity check exempts the name (see check_expr_calls).
     spec!("render", 2, 3, "web"; builtin_render),
-    spec!("http_get", 1, 4, "web"; builtin_http_get), // url | url,headers | url,headers,timeout | ...,{max_retries:N,base_delay:N}
-    spec!("http_post", 2, 6, "web"; builtin_http_post), // up to +retry_config Struct
-    spec!("http_post_multipart", 2, 4, "web"; builtin_http_post_multipart),
+    spec!("http_get", 1, 4, "web"; builtin_http_get, "String"), // url | url,headers | url,headers,timeout | ...,{max_retries:N,base_delay:N}
+    spec!("http_post", 2, 6, "web"; builtin_http_post, "String"), // up to +retry_config Struct
+    spec!("http_post_multipart", 2, 4, "web"; builtin_http_post_multipart, "String"),
     spec!("http_download", 2, 3, "web"; builtin_http_download), // Наряд №76: url,dest_path | url,dest_path,headers
     spec!("require", 1, 2, "web"; builtin_require, "Unit"),
     spec!("request_body", 0, "web"; builtin_json_body),
@@ -427,14 +427,14 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("deref", 1, "memory"; builtin_content_deref, "String"), // ── Time builtins ──
     spec!("now", 0, "time"; builtin_now, "Float"),
     spec!("sleep", 1, "time"; builtin_sleep, "Unit"),
-    spec!("time", 0, "time"; builtin_now),
-    spec!("add_days", 2, "time"; builtin_add_days),
-    spec!("add_hours", 2, "time"; builtin_add_hours),
+    spec!("time", 0, "time"; builtin_now, "Float"),
+    spec!("add_days", 2, "time"; builtin_add_days, "Float"),
+    spec!("add_hours", 2, "time"; builtin_add_hours, "Float"),
     spec!("date_parts", 1, "time"; builtin_date_parts),
-    spec!("format_date", 2, "time"; builtin_format_date),
-    spec!("days_between", 2, "time"; builtin_days_between),
-    spec!("days_in_month", 2, "time"; builtin_days_in_month),
-    spec!("is_leap_year", 1, "time"; builtin_is_leap_year),
+    spec!("format_date", 2, "time"; builtin_format_date, "String"),
+    spec!("days_between", 2, "time"; builtin_days_between, "Float"),
+    spec!("days_in_month", 2, "time"; builtin_days_in_month, "Float"),
+    spec!("is_leap_year", 1, "time"; builtin_is_leap_year, "Bool"),
     // №591: typed PRECISE ("String" — the verified single-path handler
     // fact: the only Ok arm is Value::String(WEEKDAY_NAMES_MON[...]); the
     // №565 procedure) — compensates the typed-but-coarse "Struct" of the
@@ -473,8 +473,8 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("query_row", 0, "stub"), // ── Test builtins ──
     spec!("assert_eq", 2, "test"; builtin_assert_eq),
     spec!("assert_contains", 2, "test"; builtin_assert_contains), // ── Fluid builtins ──
-    spec!("confidence", 1, "fluid"; builtin_confidence),          // ── Encoding builtins ──
-    spec!("toon_encode", 1, "encoding"; builtin_toon_encode),
+    spec!("confidence", 1, "fluid"; builtin_confidence, "Float"), // ── Encoding builtins ──
+    spec!("toon_encode", 1, "encoding"; builtin_toon_encode, "String"),
     spec!("toon_decode", 1, "encoding"; builtin_toon_decode), // ── Recipe / DAG / Orchestration builtins ──
     spec!("recipe_save", 0, "recipe" => "ext"; builtin_recipe_save),
     spec!("recipe_search", 1, 2, "recipe" => "ext"; builtin_recipe_search), // semantic search via recall_top_k + kv_get
@@ -547,9 +547,9 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("html_to_pdf", 2, "pdf"; builtin_html_to_pdf, "Struct"), // html, path — №543: the PdfFile make_struct (verified)
     spec!("send_document", 2, 3, "bot" => "ext"; builtin_send_document), // chat_id, file_path [,caption] — №543: Unknown honest — String | Unit (no-token fallback), same env-dependent split as send_message
     // ── Crypto: SHA-256 / HMAC (Наряд №50 Block 3) ──
-    spec!("sha256", 1, "crypto"; builtin_sha256),
-    spec!("hmac_sha256", 2, "crypto"; builtin_hmac_sha256),
-    spec!("hex_encode", 1, "crypto"; builtin_hex_encode),
+    spec!("sha256", 1, "crypto"; builtin_sha256, "String"),
+    spec!("hmac_sha256", 2, "crypto"; builtin_hmac_sha256, "String"),
+    spec!("hex_encode", 1, "crypto"; builtin_hex_encode, "String"),
     spec!("hex_decode", 1, "crypto"; builtin_hex_decode),
     // Наряд №172: secret() — reads env var as Value::Secret directly
     // (hard-failure if missing, unlike env() which returns empty string).
@@ -576,76 +576,76 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("imap_mark_read", 1, "email"; builtin_imap_mark_read),    // uid
     spec!("imap_move", 2, "email"; builtin_imap_move),              // uid, dest_folder
     // ── Наряд MLG-5: Calendar (CalDAV + iCal) ──
-    spec!("cal_connect", 3, "calendar"; builtin_cal_connect), // url, user, pass
-    spec!("cal_list", 1, "calendar"; builtin_cal_list),       // session_id
-    spec!("cal_events", 3, "calendar"; builtin_cal_events),   // calendar_id, start, end
-    spec!("cal_read", 1, "calendar"; builtin_cal_read),       // event_uid
+    spec!("cal_connect", 3, "calendar"; builtin_cal_connect, "String"), // url, user, pass
+    spec!("cal_list", 1, "calendar"; builtin_cal_list, "String"),       // session_id
+    spec!("cal_events", 3, "calendar"; builtin_cal_events),             // calendar_id, start, end
+    spec!("cal_read", 1, "calendar"; builtin_cal_read),                 // event_uid
     spec!("cal_create", 4, 7, "calendar"; builtin_cal_create), // cal_id, summary, start, end [,desc, location, attendees_json]
-    spec!("cal_update", 2, "calendar"; builtin_cal_update),    // event_uid, fields_json
-    spec!("cal_delete", 1, "calendar"; builtin_cal_delete),    // event_uid
-    spec!("cal_freebusy", 3, "calendar"; builtin_cal_freebusy), // calendar_id, start, end
+    spec!("cal_update", 2, "calendar"; builtin_cal_update, "String"), // event_uid, fields_json
+    spec!("cal_delete", 1, "calendar"; builtin_cal_delete, "String"), // event_uid
+    spec!("cal_freebusy", 3, "calendar"; builtin_cal_freebusy, "String"), // calendar_id, start, end
     spec!("ical_parse", 1, "calendar"; builtin_ical_parse),    // text
-    spec!("ical_generate", 1, "calendar"; builtin_ical_generate), // event_json
+    spec!("ical_generate", 1, "calendar"; builtin_ical_generate, "String"), // event_json
     // ── Наряд MLG-6: Contacts (CardDAV + vCard) ──
-    spec!("card_connect", 3, "contacts"; builtin_card_connect), // url, user, pass
-    spec!("card_list", 1, "contacts"; builtin_card_list),       // session_id
-    spec!("card_contacts", 2, "contacts"; builtin_card_contacts), // addressbook_id, query
-    spec!("card_read", 1, "contacts"; builtin_card_read),       // contact_uid
-    spec!("card_create", 3, 7, "contacts"; builtin_card_create), // addressbook_id, fn, email [,tel, org, title, note]
-    spec!("card_update", 2, "contacts"; builtin_card_update),    // contact_uid, fields_json
-    spec!("card_delete", 1, "contacts"; builtin_card_delete),    // contact_uid
-    spec!("card_search", 2, "contacts"; builtin_card_search),    // session_id, query
-    spec!("vcard_parse", 1, "contacts"; builtin_vcard_parse),    // text
-    spec!("vcard_generate", 1, "contacts"; builtin_vcard_generate), // contact_json
+    spec!("card_connect", 3, "contacts"; builtin_card_connect, "String"), // url, user, pass
+    spec!("card_list", 1, "contacts"; builtin_card_list, "String"),       // session_id
+    spec!("card_contacts", 2, "contacts"; builtin_card_contacts),         // addressbook_id, query
+    spec!("card_read", 1, "contacts"; builtin_card_read, "String"),       // contact_uid
+    spec!("card_create", 3, 7, "contacts"; builtin_card_create, "String"), // addressbook_id, fn, email [,tel, org, title, note]
+    spec!("card_update", 2, "contacts"; builtin_card_update, "String"), // contact_uid, fields_json
+    spec!("card_delete", 1, "contacts"; builtin_card_delete, "String"), // contact_uid
+    spec!("card_search", 2, "contacts"; builtin_card_search),           // session_id, query
+    spec!("vcard_parse", 1, "contacts"; builtin_vcard_parse, "String"), // text
+    spec!("vcard_generate", 1, "contacts"; builtin_vcard_generate, "String"), // contact_json
     // ── Наряд №74: Native SVG Graphics & Diagrams (ADR-0102) ──
     // Level 1: SVG primitives — return XML fragments
     #[cfg(feature = "svg")]
-    spec!("svg_rect", 5, 6, "svg"; builtin_svg_rect), // x, y, w, h, fill [, stroke]
+    spec!("svg_rect", 5, 6, "svg"; builtin_svg_rect, "String"), // x, y, w, h, fill [, stroke]
     #[cfg(feature = "svg")]
-    spec!("svg_circle", 4, "svg"; builtin_svg_circle), // cx, cy, r, fill
+    spec!("svg_circle", 4, "svg"; builtin_svg_circle, "String"), // cx, cy, r, fill
     #[cfg(feature = "svg")]
-    spec!("svg_line", 5, 6, "svg"; builtin_svg_line), // x1, y1, x2, y2, stroke [, width]
+    spec!("svg_line", 5, 6, "svg"; builtin_svg_line, "String"), // x1, y1, x2, y2, stroke [, width]
     #[cfg(feature = "svg")]
-    spec!("svg_text", 5, 6, "svg"; builtin_svg_text), // x, y, content, font_size, fill [, anchor]
+    spec!("svg_text", 5, 6, "svg"; builtin_svg_text, "String"), // x, y, content, font_size, fill [, anchor]
     #[cfg(feature = "svg")]
-    spec!("svg_path", 2, 3, "svg"; builtin_svg_path), // d, fill [, stroke]
+    spec!("svg_path", 2, 3, "svg"; builtin_svg_path, "String"), // d, fill [, stroke]
     #[cfg(feature = "svg")]
-    spec!("svg_group", 1, 2, "svg"; builtin_svg_group), // children [, transform]
+    spec!("svg_group", 1, 2, "svg"; builtin_svg_group, "String"), // children [, transform]
     #[cfg(feature = "svg")]
-    spec!("svg_canvas", 4, "svg"; builtin_svg_canvas), // width, height, viewbox, children
+    spec!("svg_canvas", 4, "svg"; builtin_svg_canvas, "String"), // width, height, viewbox, children
     // Level 2: design tokens
     #[cfg(feature = "svg")]
     spec!("diagram_style", 1, "tokens"; builtin_diagram_style, "Struct"), // {paper, ink, accent, muted, rule}
     // Level 2.5: wow-effects
     #[cfg(feature = "svg")]
-    spec!("svg_sketchy_filter", 1, 5, "svg"; builtin_svg_sketchy_filter), // id [, base_freq, octaves, scale, seed]
+    spec!("svg_sketchy_filter", 1, 5, "svg"; builtin_svg_sketchy_filter, "String"), // id [, base_freq, octaves, scale, seed]
     #[cfg(feature = "svg")]
-    spec!("svg_icon", 5, "svg"; builtin_svg_icon), // name, x, y, size, color
+    spec!("svg_icon", 5, "svg"; builtin_svg_icon, "String"), // name, x, y, size, color
     #[cfg(feature = "svg")]
-    spec!("svg_callout", 5, 6, "svg"; builtin_svg_callout), // text, from_x, from_y, to_x, to_y [, intent]
+    spec!("svg_callout", 5, 6, "svg"; builtin_svg_callout, "String"), // text, from_x, from_y, to_x, to_y [, intent]
     // Level 3: high-level chart types
     #[cfg(feature = "chart")]
-    spec!("chart_bar", 2, "chart"; builtin_chart_bar), // data, style
+    spec!("chart_bar", 2, "chart"; builtin_chart_bar, "String"), // data, style
     #[cfg(feature = "chart")]
-    spec!("chart_donut", 2, "chart"; builtin_chart_donut), // data, style — Наряд №77 Block 2
+    spec!("chart_donut", 2, "chart"; builtin_chart_donut, "String"), // data, style — Наряд №77 Block 2
     #[cfg(feature = "chart")]
-    spec!("chart_line", 2, "chart"; builtin_chart_line), // data, style — Наряд №78 Block 1
+    spec!("chart_line", 2, "chart"; builtin_chart_line, "String"), // data, style — Наряд №78 Block 1
     #[cfg(feature = "chart")]
-    spec!("chart_scatter", 2, "chart"; builtin_chart_scatter), // data, style — Наряд №78 Block 2
+    spec!("chart_scatter", 2, "chart"; builtin_chart_scatter, "String"), // data, style — Наряд №78 Block 2
     #[cfg(feature = "chart")]
-    spec!("chart_area", 2, "chart"; builtin_chart_area), // data, style — Наряд №78 Block 3
+    spec!("chart_area", 2, "chart"; builtin_chart_area, "String"), // data, style — Наряд №78 Block 3
     #[cfg(feature = "chart")]
-    spec!("chart_radar", 2, "chart"; builtin_chart_radar), // data, style — Наряд №79 Block 1
+    spec!("chart_radar", 2, "chart"; builtin_chart_radar, "String"), // data, style — Наряд №79 Block 1
     #[cfg(feature = "chart")]
-    spec!("chart_heatmap", 2, "chart"; builtin_chart_heatmap), // data, style — Наряд №79 Block 2
+    spec!("chart_heatmap", 2, "chart"; builtin_chart_heatmap, "String"), // data, style — Наряд №79 Block 2
     #[cfg(feature = "chart")]
-    spec!("chart_boxplot", 2, "chart"; builtin_chart_boxplot), // data, style — Наряд №79 Block 3
+    spec!("chart_boxplot", 2, "chart"; builtin_chart_boxplot, "String"), // data, style — Наряд №79 Block 3
     // Level 2.6: derived palette (Наряд №77 Block 1)
     #[cfg(feature = "svg")]
     spec!("color_palette", 2, "svg"; builtin_color_palette), // intent, mode → DiagramStyle
     // Level 2.6/2.7: procedural backgrounds + canvas presets (Наряд №80)
     #[cfg(feature = "svg")]
-    spec!("svg_generate", 4, "svg"; builtin_svg_generate), // kind, intent, w, h → SVG fragment
+    spec!("svg_generate", 4, "svg"; builtin_svg_generate, "String"), // kind, intent, w, h → SVG fragment
     #[cfg(feature = "svg")]
     spec!("svg_canvas_preset", 3, "svg"; builtin_svg_canvas_preset), // preset_name, viewbox, children
     // Level 3.1: diagrams (Наряд №81) — hierarchies & flows
@@ -752,12 +752,12 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // ── Наряд №194: tokenization (ADR-0120 follow-up) ──
     // These are pure functions (no registry access) — real handlers, not stubs.
     spec!("reflex_tokenize", 1, "reflex"; builtin_reflex_tokenize),
-    spec!("reflex_detokenize", 1, "reflex"; builtin_reflex_detokenize),
+    spec!("reflex_detokenize", 1, "reflex"; builtin_reflex_detokenize, "String"),
     // ── Наряд №195: BPE tokenization ──
     spec!("reflex_bpe_train", 2, "reflex"; builtin_reflex_bpe_train),
     spec!("reflex_bpe_encode", 2, "reflex"; builtin_reflex_bpe_encode),
     spec!("reflex_bpe_decode", 2, "reflex"; builtin_reflex_bpe_decode),
-    spec!("reflex_bpe_save", 1, "reflex"; builtin_reflex_bpe_save),
+    spec!("reflex_bpe_save", 1, "reflex"; builtin_reflex_bpe_save, "Unit"),
     spec!("reflex_bpe_load", 1, "reflex"; builtin_reflex_bpe_load),
     // ── Vision pillar (Наряд №210, ADR-0124) ──
     // Наряд №240 (R4.2): vision_generate arity 3→2 (R4 contract, plan §3:
@@ -906,7 +906,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     #[cfg(feature = "llm")]
     spec!("llm_stream_open", 1, 2, "llm"; builtin_llm_stream_open), // prompt | prompt,input
     #[cfg(feature = "llm")]
-    spec!("llm_stream_next", 1, "llm"; builtin_llm_stream_next), // handle
+    spec!("llm_stream_next", 1, "llm"; builtin_llm_stream_next, "String"), // handle
     #[cfg(feature = "llm")]
     spec!("llm_stream_close", 1, "llm"; builtin_llm_stream_close), // handle
     // ── Наряд №283 (P2, feature): path-параметры роутов mlogserver —
@@ -915,7 +915,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // to server_path_params HashMap). Static routes win over templates;
     // conflict of two templates matching the same path → loud error at
     // server start. Registry 408→409 (append-only).
-    spec!("server_path_param", 1, "web"; builtin_server_path_param), // name
+    spec!("server_path_param", 1, "web"; builtin_server_path_param, "String"), // name
     // ── Наряд №302 (P2, feature/voice): Voice pillar skeleton builtins —
     // stubs. Loud errors, no silent fallbacks. Real implementation in
     // phases A2/A3/A4/A5/A6. Feature-gated under `voice` (implies candle).
@@ -976,8 +976,8 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // file egress, audited. Registry 435→439 (append-only).
     spec!("consent_grant", 2, 4, "security"; builtin_consent_grant),
     spec!("consent_revoke", 1, 2, "security"; builtin_consent_revoke),
-    spec!("quarantine_write", 1, 2, "security"; builtin_quarantine_write),
-    spec!("consent_ledger_export", 1, "security"; builtin_consent_ledger_export),
+    spec!("quarantine_write", 1, 2, "security"; builtin_quarantine_write, "String"),
+    spec!("consent_ledger_export", 1, "security"; builtin_consent_ledger_export, "String"),
     // ── Naryad #390 (ADR-0155): Grant algebra — capabilities for ──
     // irreversible actions (wave 3, dispatch #491). The ungranted
     // destructive-SQL deny (IRREVERSIBLE_NO_GRANT, №325) is UNCHANGED —
@@ -987,8 +987,8 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // 442→447 (append-only; bytecode indices must not shift).
     spec!("grant_issue", 2, 4, "action"; builtin_grant_issue),
     spec!("grant_subgrant", 3, 5, "action"; builtin_grant_subgrant),
-    spec!("grant_revoke", 1, "action"; builtin_grant_revoke),
-    spec!("grant_use", 1, "action"; builtin_grant_use),
+    spec!("grant_revoke", 1, "action"; builtin_grant_revoke, "Float"),
+    spec!("grant_use", 1, "action"; builtin_grant_use, "Float"),
     spec!("db_execute_with_grant", 2, 3, "action"; builtin_db_execute_with_grant),
     // ── Naryad #392: the DenyEvent surface ──────────────────────────────
     // Handler-scoped, intercepted by NAME in BOTH backends (the
@@ -1009,12 +1009,12 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // forgotten "also log it" API. APPENDED at the end — inserting
     // mid-array would shift existing CallBuiltin indices (.mbc contract).
     // Registry 451→457 (append-only).
-    spec!("ledger_count", 0, "security"; builtin_ledger_count),
-    spec!("ledger_head", 0, "security"; builtin_ledger_head),
+    spec!("ledger_count", 0, "security"; builtin_ledger_count, "Float"),
+    spec!("ledger_head", 0, "security"; builtin_ledger_head, "String"),
     spec!("ledger_export", 1, "security"; builtin_ledger_export),
     spec!("ledger_export_intoto", 1, "security"; builtin_ledger_export_intoto),
-    spec!("ledger_rotate", 0, "security"; builtin_ledger_rotate),
-    spec!("ledger_snapshot", 0, "security"; builtin_ledger_snapshot),
+    spec!("ledger_rotate", 0, "security"; builtin_ledger_rotate, "String"),
+    spec!("ledger_snapshot", 0, "security"; builtin_ledger_snapshot, "String"),
     // ── Naryad #387 (ADR-0149 D1/D6): the likeness consent ritual ──
     // The one-time challenge + the opaque LikenessToken. APPENDED at
     // the end — inserting mid-array would shift existing CallBuiltin

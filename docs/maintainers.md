@@ -199,6 +199,14 @@ arriving on 03.10 saw an EMPTY pool. The policy:
   back to **8–10 open positions** (the №541 size);
 - **the pool-size counter is part of the wave report** (the dispatch
   summary states the open-pool count next to the wave progress);
+- **the domain-quota line is part of the wave report** (№608, the audit
+  25b375e Y-4): the wave summary states the `naryad_classes.py --line`
+  output — the domain share and the <= 1/3 verdict — beside the
+  pool-size counter; the quota must be externally checkable, never
+  asserted (the counter reads the classes the naryads declare about
+  themselves: the body meta «класс [X]», the `[class: X]` marker, the
+  title field; the composites count via any component in the domain
+  set);
 - the `reserved-for-newcomer` label marks the pool's positions; per
   AGENTS.md §3, agents do NOT take labeled tasks — a recurring upkeep
   task an agent did internally is re-opened as a good-first-issue for

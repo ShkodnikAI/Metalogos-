@@ -48,7 +48,6 @@ fn semantic_check(source: &str) -> AnalysisResult {
 //     через to_string() к downstream-стокам
 
 #[test]
-#[ignore = "Known issue gh#967 §3: opaque type concat constraints not yet implemented in the semantic checker"]
 fn test_z19_concat_opaque_forbidden() {
     let source = r#"
 entity page: Html = escape_html("<b>hi</b>")
@@ -87,7 +86,6 @@ pattern show() -> String {
 // ═══════════════════════════════════════════════════════════════════
 
 #[test]
-#[ignore = "Known issue gh#967 §3: undefined variable detection not yet implemented in the semantic checker"]
 fn test_z20_undefined_variable() {
     let source = r#"
 pattern bad() -> String {
@@ -173,7 +171,6 @@ pattern call_undef() -> String {
 }
 
 #[test]
-#[ignore = "Known issue gh#967 §3: assignment to an undefined variable detection not yet implemented in the semantic checker"]
 fn test_z20_assign_undefined() {
     let source = r#"
 pattern bad_assign() -> String {

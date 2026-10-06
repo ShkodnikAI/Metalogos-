@@ -272,7 +272,9 @@ pub(super) fn parse_db_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError>
 
 // ── Schema (Problem C: schema-as-code) ──────────────────────────────
 
-pub(super) fn parse_schema_decl(pair: Pair<Rule>) -> Declaration {
+// №611 (P0 bugfix): the schema parsers now propagate Result — a malformed
+// references modifier is a LOUD parse error, never a silent drop.
+pub(super) fn parse_schema_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
     let span = Span::from_pest(pair.as_span());
     let mut name = String::new();
     let mut tables = Vec::new();
@@ -281,13 +283,13 @@ pub(super) fn parse_schema_decl(pair: Pair<Rule>) -> Declaration {
         match child.as_rule() {
             Rule::IDENT => name = child.as_str().to_string(),
             Rule::schema_table => {
-                tables.push(parse_schema_table(child));
+                tables.push(parse_schema_table(child)?);
             }
             _ => {}
         }
     }
 
-    Declaration::Schema(SchemaDecl { span, name, tables })
+    Ok(Declaration::Schema(SchemaDecl { span, name, tables }))
 }
 
 // ── Skill Index (Problem A: tiered skill index) ──────────────────────────
@@ -459,7 +461,7 @@ pub(super) fn parse_skill_tier(pair: Pair<Rule>) -> SkillTier {
     }
 }
 
-pub(super) fn parse_schema_table(pair: Pair<Rule>) -> SchemaTable {
+pub(super) fn parse_schema_table(pair: Pair<Rule>) -> Result<SchemaTable, ParseError> {
     let span = Span::from_pest(pair.as_span());
     let mut table_name = String::new();
     let mut columns = Vec::new();
@@ -468,20 +470,20 @@ pub(super) fn parse_schema_table(pair: Pair<Rule>) -> SchemaTable {
         match child.as_rule() {
             Rule::IDENT => table_name = child.as_str().to_string(),
             Rule::schema_column => {
-                columns.push(parse_schema_column(child));
+                columns.push(parse_schema_column(child)?);
             }
             _ => {}
         }
     }
 
-    SchemaTable {
+    Ok(SchemaTable {
         span,
         name: table_name,
         columns,
-    }
+    })
 }
 
-pub(super) fn parse_schema_column(pair: Pair<Rule>) -> SchemaColumn {
+pub(super) fn parse_schema_column(pair: Pair<Rule>) -> Result<SchemaColumn, ParseError> {
     let span = Span::from_pest(pair.as_span());
     let mut col_name = String::new();
     let mut col_type = String::new();
@@ -503,19 +505,39 @@ pub(super) fn parse_schema_column(pair: Pair<Rule>) -> SchemaColumn {
                     } else if mod_str == "nullable" {
                         modifiers.push(ColumnModifier::Nullable);
                     } else if mod_str.starts_with("references") {
-                        // Parse references(table.field)
-                        let inner: Vec<&str> = mod_str
-                            .split(|c: char| !c.is_alphanumeric() && c != '_' && c != '.')
+                        // №611 (P0 bugfix): the qualified name inside
+                        // references(...) — the dot is the TABLE/FIELD
+                        // SEPARATOR, never part of a token. The old split
+                        // kept the dot inside a token (`c != '.'`):
+                        // `parent.id` stayed ONE token → `idents.len() == 1`
+                        // → the modifier was dropped SILENTLY (no REFERENCES
+                        // clause in the applied DDL at all), while
+                        // `parent . id` yielded three tokens →
+                        // `References("parent", ".")` → the broken clause
+                        // `REFERENCES parent(.)` (SQL_ERROR at apply, check
+                        // green). Now every spacing of `t.f` yields exactly
+                        // the pair (t, f); anything else is a LOUD parse
+                        // error — never a silent drop (fail-closed armor in
+                        // case the grammar ever loosens).
+                        let idents: Vec<String> = mod_child
+                            .as_str()
+                            .split(|c: char| !c.is_alphanumeric() && c != '_')
+                            .filter(|s| !s.is_empty() && *s != "references")
+                            .map(|s| s.to_string())
                             .collect();
-                        let idents: Vec<&str> = inner
-                            .iter()
-                            .filter(|s| !s.is_empty() && **s != "references")
-                            .copied()
-                            .collect();
-                        if idents.len() >= 2 {
+                        if idents.len() == 2 {
                             modifiers.push(ColumnModifier::References(
-                                idents[0].to_string(),
-                                idents[1].to_string(),
+                                idents[0].clone(),
+                                idents[1].clone(),
+                            ));
+                        } else {
+                            return Err(pair_error(
+                                &mod_child,
+                                &format!(
+                                    "the references modifier requires exactly (table.field) — got {} identifier(s) in {:?}",
+                                    idents.len(),
+                                    mod_child.as_str()
+                                ),
                             ));
                         }
                     }
@@ -534,16 +556,14 @@ pub(super) fn parse_schema_column(pair: Pair<Rule>) -> SchemaColumn {
         }
     }
 
-    SchemaColumn {
+    Ok(SchemaColumn {
         span,
         name: col_name,
         col_type,
         modifiers,
         default: default_val,
-    }
+    })
 }
-
-// ── Memory Config (Phase 7.6) ──────────────────────────────────────
 
 // ── Memory Config (Phase 7.6) ──────────────────────────────────────
 

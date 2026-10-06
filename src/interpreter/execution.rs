@@ -1206,7 +1206,10 @@ impl Interpreter {
     /// Internal statement evaluator that returns ControlFlow signals.
     /// This allows break/continue to propagate through nested if/match blocks
     /// up to the nearest each/while loop without being swallowed.
-    fn eval_statements_cf(
+    // №612: pub(crate) — the test harness (interpreter/hooks.rs
+    // run_single_test) evaluates test bodies ControlFlow-PRESERVINGLY and
+    // must see the Return signal itself, not the flattened Ok(v).
+    pub(crate) fn eval_statements_cf(
         &self,
         stmts: &[Statement],
         env: &mut HashMap<String, Value>,
@@ -1233,9 +1236,12 @@ impl Interpreter {
                 }
                 // Extract the implicit return value
                 let v = cf.into_value();
-                if !matches!(v, Value::Unit) {
-                    last_expr_value = v;
-                }
+                // №612 (P0 bugfix): the sub-block's tail value REPLACES the
+                // running implicit value UNCONDITIONALLY — a sub-block ending
+                // in a no-value statement (assignment, binding, loop) produces
+                // Unit, and the enclosing value must not leak from before it
+                // (the same staleness class the loop arms absorbed).
+                last_expr_value = v;
             }};
         }
 
@@ -1252,6 +1258,13 @@ impl Interpreter {
                         mutable_vars.insert(name.clone());
                     }
                     env.insert(name.clone(), val);
+                    // №612 (P0 bugfix): a binding statement produces NO value.
+                    // The block's implicit-return value (№13) must not leak
+                    // from a bare call EARLIER in the block — the stale value
+                    // was the poison that turned the first loop iteration
+                    // into the last one (the loop arms read a non-Unit
+                    // ContinueNormal as an early Return).
+                    last_expr_value = Value::Unit;
                 }
                 Statement::Assign { name, value, .. } => {
                     if !mutable_vars.contains(name) {
@@ -1259,6 +1272,12 @@ impl Interpreter {
                     }
                     let val = self.eval_expr_with_env(value, env)?;
                     env.insert(name.clone(), val);
+                    // №612: same poison class — an assignment produces no
+                    // value; the tail position of a block ending in an
+                    // assignment is Unit, never the stale expression value
+                    // from before it (the matrix row «завершающее
+                    // присваивание значение блока не сбрасывает»).
+                    last_expr_value = Value::Unit;
                 }
                 Statement::Each {
                     variable,
@@ -1297,13 +1316,26 @@ impl Interpreter {
                             ControlFlow::Break => break, // absorb Break — loop exits normally
                             ControlFlow::ContinueLoop => continue, // skip to next iteration
                             ControlFlow::Return(v) => return Ok(ControlFlow::Return(v)),
-                            ControlFlow::ContinueNormal(v) => {
-                                if !matches!(v, Value::Unit) {
-                                    return Ok(ControlFlow::Return(v));
-                                }
+                            ControlFlow::ContinueNormal(_) => {
+                                // №612 (P0 bugfix): the body's implicit value is
+                                // DISCARDED — a bare call in the body (the last
+                                // statement of the body block) never terminates
+                                // the loop and never becomes a Return from the
+                                // enclosing function. The pre-№612 behavior
+                                // returned the first body value as an early
+                                // Return: 1 iteration out of 3, the tail after
+                                // the loop silently cut, and — in test bodies —
+                                // a VACUOUS green (the harness accepted the
+                                // fabricated Return as success, asserts never
+                                // ran).
                             }
                         }
                     }
+                    // №612: the loop statement itself produces no value — the
+                    // enclosing block's implicit value is reset (a bare call
+                    // BEFORE the loop must not leak through it as the tail
+                    // value).
+                    last_expr_value = Value::Unit;
                 }
                 // Наряд №17.3: each i, item in list { ... }
                 Statement::EachWithIndex {
@@ -1345,13 +1377,17 @@ impl Interpreter {
                             ControlFlow::Break => break, // absorb Break — loop exits normally
                             ControlFlow::ContinueLoop => continue,
                             ControlFlow::Return(v) => return Ok(ControlFlow::Return(v)),
-                            ControlFlow::ContinueNormal(v) => {
-                                if !matches!(v, Value::Unit) {
-                                    return Ok(ControlFlow::Return(v));
-                                }
+                            ControlFlow::ContinueNormal(_) => {
+                                // №612: the body's implicit value is DISCARDED
+                                // (see the Each arm) — a bare call in the body
+                                // never terminates the loop and never becomes
+                                // an early Return.
                             }
                         }
                     }
+                    // №612: the loop statement produces no value (see the
+                    // Each arm).
+                    last_expr_value = Value::Unit;
                 }
                 Statement::While {
                     condition, body, ..
@@ -1383,14 +1419,18 @@ impl Interpreter {
                                 continue;
                             }
                             ControlFlow::Return(v) => return Ok(ControlFlow::Return(v)),
-                            ControlFlow::ContinueNormal(v) => {
-                                if !matches!(v, Value::Unit) {
-                                    return Ok(ControlFlow::Return(v));
-                                }
+                            ControlFlow::ContinueNormal(_) => {
+                                // №612: the body's implicit value is DISCARDED
+                                // (see the Each arm) — a bare call in the body
+                                // never terminates the loop and never becomes
+                                // an early Return.
                             }
                         }
                         iterations += 1;
                     }
+                    // №612: the loop statement produces no value (see the
+                    // Each arm).
+                    last_expr_value = Value::Unit;
                 }
                 Statement::IfElseBlock {
                     condition,

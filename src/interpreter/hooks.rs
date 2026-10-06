@@ -284,14 +284,40 @@ impl Interpreter {
 
     /// Run a single test block. Assertion errors (from assert_eq / assert_contains)
     /// are caught and reported as test failures. Panics are also caught.
+    ///
+    /// №612 (P0 bugfix): the body is evaluated ControlFlow-PRESERVINGLY —
+    /// a `Return` signal (an explicit `return`, or ANY early-answer
+    /// statement fabricating one) is a LOUD failure, never a silent
+    /// success. The pre-№612 harness flattened `Return(v)` into `Ok(v)`
+    /// via `eval_statements_with_mutability`, so a test whose loop
+    /// fabricated an early Return came back GREEN VACUOUSLY: the tail
+    /// after the loop never executed and the asserts never ran (a
+    /// deliberately false assert stayed green). A test must run to
+    /// completion — a body that returns early has not tested anything.
     fn run_single_test(&self, test_decl: &TestDecl) -> TestResult {
         let mut scope: HashMap<String, Value> = HashMap::new();
-        let result = self.eval_statements(&test_decl.body, &mut scope);
+        let mut mutable_vars: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let result = self.eval_statements_cf(&test_decl.body, &mut scope, &mut mutable_vars);
         match result {
-            Ok(_) => TestResult {
+            Ok(ControlFlow::ContinueNormal(_)) => TestResult {
                 name: test_decl.name.clone(),
                 passed: true,
                 error: None,
+            },
+            Ok(ControlFlow::Return(_)) => TestResult {
+                name: test_decl.name.clone(),
+                passed: false,
+                error: Some(
+                    "the test body terminated early (a return / early-answer statement) — \
+                     the statements after that point never executed, so this test proved \
+                     nothing; a test must run to completion (№612)"
+                        .to_string(),
+                ),
+            },
+            Ok(ControlFlow::Break) | Ok(ControlFlow::ContinueLoop) => TestResult {
+                name: test_decl.name.clone(),
+                passed: false,
+                error: Some("break/continue used outside of a loop".to_string()),
             },
             Err(e) => TestResult {
                 name: test_decl.name.clone(),

@@ -673,6 +673,67 @@ pub struct SchemaDecl {
     pub tables: Vec<SchemaTable>,
 }
 
+/// №611 (P0 bugfix): map Metalogos column types to SQLite column types —
+/// the SINGLE SOURCE OF TRUTH for every DDL renderer. The behavior
+/// standard is the interpreter's apply path (interpreter/db.rs), the
+/// surface a program actually runs on: `Int` → INTEGER, `Float` → REAL,
+/// `String`/`Text`/`DateTime` → TEXT, `Bool` → INTEGER, anything else →
+/// TEXT. A check-time dry-run (semantic.rs) only guarantees what the
+/// apply-time execution will do if both render from this one mapping.
+///
+/// NOTE (№611 observation, not fixed here — out of naryad boundaries):
+/// the VM compiler's own inline renderer (compiler.rs) still maps
+/// `Float` → INTEGER; a follow-up naryad should converge it onto this
+/// SSOT so both backends emit the identical DDL.
+pub fn mlog_type_to_sql(t: &str) -> &'static str {
+    match t {
+        "Int" => "INTEGER",
+        "Float" => "REAL",
+        "String" | "Text" => "TEXT",
+        "Bool" => "INTEGER",
+        "DateTime" => "TEXT",
+        _ => "TEXT",
+    }
+}
+
+/// №611 (P0 bugfix): the SSOT renderer of one schema-as-code table →
+/// the SQLite DDL statement (`CREATE TABLE IF NOT EXISTS …`). Both the
+/// interpreter apply (interpreter/db.rs apply_schema) and the `mlog
+/// check` dry-run (semantic.rs) MUST render from this ONE function —
+/// the check only guarantees the apply when both produce the same
+/// string from the same AST.
+pub fn schema_table_ddl(table: &SchemaTable) -> String {
+    let mut col_defs = Vec::new();
+    for col in &table.columns {
+        let mut def = format!("{} {}", col.name, mlog_type_to_sql(&col.col_type));
+        for modifier in &col.modifiers {
+            match modifier {
+                ColumnModifier::PrimaryKey => def.push_str(" PRIMARY KEY"),
+                ColumnModifier::AutoIncrement => def.push_str(" AUTOINCREMENT"),
+                ColumnModifier::Nullable => def.push_str(" NULL"),
+                ColumnModifier::References(ref_table, ref_field) => {
+                    def.push_str(&format!(" REFERENCES {}({})", ref_table, ref_field));
+                }
+            }
+        }
+        if let Some(default_val) = &col.default {
+            if default_val == "now()" {
+                def.push_str(" DEFAULT (datetime('now'))");
+            } else {
+                // Strip quotes if present
+                let val = default_val.trim_matches('"');
+                def.push_str(&format!(" DEFAULT '{}'", val));
+            }
+        }
+        col_defs.push(def);
+    }
+    format!(
+        "CREATE TABLE IF NOT EXISTS {} ({})",
+        table.name,
+        col_defs.join(", ")
+    )
+}
+
 // ── Memory Config (Phase 7.6) ──────────────────────────────
 
 /// `memory { persist: "./data/memory.db" }`

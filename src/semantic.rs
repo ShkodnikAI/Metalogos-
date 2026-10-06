@@ -5790,6 +5790,55 @@ pub fn integrity_decision_violations(declarations: &[Declaration]) -> Vec<Decisi
     violations
 }
 
+/// №611 (P0 bugfix): the check-time DDL dry-run for schema-as-code
+/// declarations. For every `schema { … }` block, each table's DDL is
+/// rendered by the SSOT renderer (`ast::schema_table_ddl` — the same
+/// function the interpreter apply path executes) and executed on an
+/// in-memory SQLite connection. Any statement SQLite rejects becomes a
+/// LOUD check error carrying the schema/table spans and the rendered
+/// DDL — a broken schema now fails at `mlog check`, never as an
+/// apply-time `SQL_ERROR` surprise (and never as a silent degradation,
+/// the №611 references-loss class). No schema declarations → no
+/// connection is opened at all (the zero-cost path for every program
+/// without schema-as-code).
+fn schema_ddl_dryrun(declarations: &[Declaration], errors: &mut Vec<SpannedError>) {
+    let has_schema = declarations
+        .iter()
+        .any(|d| matches!(d, Declaration::Schema(_)));
+    if !has_schema {
+        return;
+    }
+    let conn = match rusqlite::Connection::open_in_memory() {
+        Ok(c) => c,
+        Err(e) => {
+            errors.push(SpannedError::at_line(
+                format!(
+                    "schema DDL dry-run: cannot open the in-memory SQLite connection: {}",
+                    e
+                ),
+                0,
+            ));
+            return;
+        }
+    };
+    for decl in declarations {
+        if let Declaration::Schema(schema) = decl {
+            for table in &schema.tables {
+                let ddl = crate::ast::schema_table_ddl(table);
+                if let Err(e) = conn.execute_batch(&ddl) {
+                    errors.push(SpannedError::at(
+                        format!(
+                            "schema '{}' — the generated DDL for table '{}' is rejected by SQLite (check dry-run): {} [DDL: {}]",
+                            schema.name, table.name, e, ddl
+                        ),
+                        table.span.clone(),
+                    ));
+                }
+            }
+        }
+    }
+}
+
 /// Perform semantic analysis on a list of declarations (without executing them).
 /// Validates:
 ///   - Entity types referenced in records exist
@@ -5848,6 +5897,18 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
     // every DECLARED trail: factual ⊑ declared, excess = loud error.
     // Patterns without a declared trail are ungated (zero delta).
     check_effect_trails(declarations, &mut result.errors);
+
+    // №611 (P0 bugfix): the check-time DDL dry-run for schema-as-code.
+    // `mlog check` previously did not validate the generated DDL at all —
+    // a schema SQLite rejects (the №611 broken `REFERENCES parent(.)`
+    // clause, reserved-word identifiers, …) came back green on check and
+    // exploded only at apply time (or was silently degraded — the
+    // №611 references loss itself). The dry-run renders each table
+    // through the SAME SSOT renderer the interpreter apply uses
+    // (ast::schema_table_ddl) and executes it on an in-memory SQLite
+    // connection: DDL rejected by SQLite = a check error, never an
+    // apply-time surprise.
+    schema_ddl_dryrun(declarations, &mut result.errors);
 
     // Наряд №331 (ADR-0162 §2.5): media handles are opaque — any field
     // access on a media-typed expression is a COMPILE error; bytes are

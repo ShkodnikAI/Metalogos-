@@ -69,7 +69,7 @@ fn parse_inner(source: &str) -> Result<Vec<Declaration>, ParseError> {
                     declarations.push(parse_template_decl_with_body(inner_pair, &template_bodies))
                 }
                 Rule::db_decl => declarations.push(parse_db_decl(inner_pair)?),
-                Rule::schema_decl => declarations.push(parse_schema_decl(inner_pair)),
+                Rule::schema_decl => declarations.push(parse_schema_decl(inner_pair)?),
                 Rule::skill_index_decl => declarations.push(parse_skill_index_decl(inner_pair)),
                 Rule::memory_decl => declarations.push(parse_memory_decl(inner_pair)?),
                 Rule::import_decl => declarations.push(parse_import_decl(inner_pair)),

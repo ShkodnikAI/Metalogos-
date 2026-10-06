@@ -44,18 +44,6 @@ pub(crate) fn convert_params(items: &[Value]) -> Result<Vec<rusqlite::types::Val
 }
 
 impl Interpreter {
-    /// Map Metalogos type names to SQLite column types (Problem C).
-    pub(super) fn mlog_type_to_sql(t: &str) -> &'static str {
-        match t {
-            "Int" => "INTEGER",
-            "Float" => "REAL",
-            "String" | "Text" => "TEXT",
-            "Bool" => "INTEGER",
-            "DateTime" => "TEXT",
-            _ => "TEXT",
-        }
-    }
-
     /// Problem C: Apply schema declaration — CREATE TABLE IF NOT EXISTS for each table.
     /// №426 (ADR-0175 §3.4): store a schema-as-code declaration for
     /// later replay (order-independent DDL — a `schema {}` decl may
@@ -104,35 +92,11 @@ impl Interpreter {
         })?;
 
         for table in &schema.tables {
-            let mut col_defs = Vec::new();
-            for col in &table.columns {
-                let mut def = format!("{} {}", col.name, Self::mlog_type_to_sql(&col.col_type));
-                for modi in &col.modifiers {
-                    match modi {
-                        ColumnModifier::PrimaryKey => def.push_str(" PRIMARY KEY"),
-                        ColumnModifier::AutoIncrement => def.push_str(" AUTOINCREMENT"),
-                        ColumnModifier::Nullable => def.push_str(" NULL"),
-                        ColumnModifier::References(ref_table, ref_field) => {
-                            def.push_str(&format!(" REFERENCES {}({})", ref_table, ref_field));
-                        }
-                    }
-                }
-                if let Some(ref default_val) = col.default {
-                    if default_val == "now()" {
-                        def.push_str(" DEFAULT (datetime('now'))");
-                    } else {
-                        // Strip quotes if present
-                        let val = default_val.trim_matches('\"');
-                        def.push_str(&format!(" DEFAULT '{}'", val));
-                    }
-                }
-                col_defs.push(def);
-            }
-            let sql = format!(
-                "CREATE TABLE IF NOT EXISTS {} ({})",
-                table.name,
-                col_defs.join(", ")
-            );
+            // №611 (P0 bugfix): the DDL string comes from the SSOT renderer
+            // (ast::schema_table_ddl) — the same function the `mlog check`
+            // dry-run executes. The check only guarantees the apply when
+            // both produce the identical string from the same AST.
+            let sql = crate::ast::schema_table_ddl(table);
             conn.execute(&sql, []).map_err(|e| {
                 sql_err(
                     &format!("schema migration error for table '{}'", table.name),

@@ -227,3 +227,5 @@ real ADRs (№309/№320/№412) before the booking.
 | 0183 | The migration-rollback boundary — schema evolution stays ADDITIVE-ONLY; the rollback path is backup restore, not a language surface | Accepted |
 | 0184 | The fate of the depth-≥2 early answer — `RESPOND_SWALLOWED` stays FOREVER (variant Б); the propagation-to-any-depth is not built | Accepted |
 | 0185 | The container form of `memory_forget` — DEFERRED to the memory-phase planning (not rejected); the managed by-query forgetting is the accepted surface | Accepted |
+| 0186 | The 0.30 Release Gate — the draft criteria (the fixation is the owner's gate; the В34 addendum shape accepted 2026-10-07) | Proposed |
+| 0187 | The memory-phase plan — the Phase-4 slot (the KNN recall reference), the ADR-0185 container-form decision slot, the parity posture | Proposed |

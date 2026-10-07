@@ -8,7 +8,6 @@
 // a .mlog source file by piping it through stdin.
 
 use std::fs;
-use std::io::Write;
 use std::process::{Command, Stdio};
 
 /// Find the mlog binary relative to the test workspace.

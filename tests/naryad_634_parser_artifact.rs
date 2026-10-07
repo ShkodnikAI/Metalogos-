@@ -19,8 +19,6 @@
 // artifact shape (the exemption holds). If the parser one day refuses
 // stray keywords loudly, this test must flip red — consciously.
 
-use metalogos::ast::{Declaration, Expr, Statement};
-
 const WHILE_IF_SNIPPET: &str = r#"
 pattern P(c: Float) -> Float {
   let mut p = 0.0
@@ -28,100 +26,6 @@ pattern P(c: Float) -> Float {
   return p
 }
 "#;
-
-fn collect_keyword_idents(expr: &Expr, out: &mut Vec<String>) {
-    match expr {
-        Expr::Ident { name, .. } => {
-            if matches!(
-                name.as_str(),
-                "if" | "then"
-                    | "else"
-                    | "while"
-                    | "each"
-                    | "in"
-                    | "match"
-                    | "return"
-                    | "let"
-                    | "mut"
-                    | "break"
-                    | "continue"
-                    | "true"
-                    | "false"
-                    | "and"
-                    | "or"
-                    | "not"
-                    | "try"
-            ) {
-                out.push(name.clone());
-            }
-        }
-        Expr::BinaryOp { left, right, .. } => {
-            collect_keyword_idents(left, out);
-            collect_keyword_idents(right, out);
-        }
-        Expr::FnCall { args, .. } => {
-            for a in args {
-                collect_keyword_idents(a, out);
-            }
-        }
-        Expr::FieldAccess { object, .. } => collect_keyword_idents(object, out),
-        Expr::IndexAccess { object, index, .. } => {
-            collect_keyword_idents(object, out);
-            collect_keyword_idents(index, out);
-        }
-        Expr::List { items, .. } => {
-            for i in items {
-                collect_keyword_idents(i, out);
-            }
-        }
-        Expr::IfElse {
-            condition,
-            then_branch,
-            else_branch,
-            ..
-        } => {
-            collect_keyword_idents(condition, out);
-            collect_keyword_idents(then_branch, out);
-            collect_keyword_idents(else_branch, out);
-        }
-        _ => {}
-    }
-}
-
-fn walk_stmts(stmts: &[Statement], out: &mut Vec<String>) {
-    for s in stmts {
-        match s {
-            Statement::ExprStmt { expr, .. } | Statement::Return { value: expr, .. } => {
-                collect_keyword_idents(expr, out)
-            }
-            Statement::Assign { value, .. } => collect_keyword_idents(value, out),
-            Statement::LetBinding { value, .. } => collect_keyword_idents(value, out),
-            Statement::While {
-                condition, body, ..
-            } => {
-                collect_keyword_idents(condition, out);
-                walk_stmts(body, out);
-            }
-            Statement::IfElseBlock {
-                condition,
-                then_body,
-                else_ifs,
-                else_body,
-                ..
-            } => {
-                collect_keyword_idents(condition, out);
-                walk_stmts(then_body, out);
-                for (_cond, body) in else_ifs {
-                    walk_stmts(body, out);
-                }
-                if let Some(e) = else_body {
-                    walk_stmts(e, out);
-                }
-            }
-            _ => {}
-        }
-    }
-}
 
 #[test]
 fn stray_keyword_parses_as_bare_ident_and_checker_stays_green() {
@@ -137,8 +41,8 @@ fn stray_keyword_parses_as_bare_ident_and_checker_stays_green() {
     let dump = format!("{:?}", decls);
     let hits: Vec<&str> = ["if", "then"]
         .iter()
+        .copied()
         .filter(|k| dump.contains(&format!("name: \"{}\"", k)))
-        .map(|s| *s)
         .collect();
     assert!(
         hits.contains(&"if") && hits.contains(&"then"),

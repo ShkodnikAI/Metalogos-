@@ -1426,3 +1426,122 @@ forwarding, NLnet M1 03.11.2026. The wave-35 registered candidates:
 
 **The wave report line (№608/№470):**
 `naryad-quota (№470/№608): 11 naryads — domain 1/11 = 9.1% — PASS (the standing limiter <= 1/3)`
+
+### 6.21. Wave 35 post-wave record (naryad №636): the ПСРМ development wave — the 0.30 §5 transition, the parameterized movement №2, the debt/self-host/VM-template hygiene, the field-label stage-2 preparation (main @ `c2b1bb9`, 2026-10-08)
+
+Protocol: №414/№318/№576/№579/№589/№596/№619/№625 — the same machines,
+no hand-written numbers. The honest headline: В35 executed the dispatch
+gh#1105 queue (7 workorders) plus the registered candidate №627 (the
+owner's К-А verdict execution, 2026-10-07) — the §5 MECHANICAL
+TRANSITION of the 0.30 gate landed (the DEFAULT gate target now reads
+0.30), the parameterized share moved 769 → 3736 bp (the second honest
+package), and the debt/self-host/VM-template hygiene lanes all lifted.
+The dated workorder №632 (the plan-relevance audit, release №3) stays
+OPEN by design — its execution date is 2026-11-01 (± 1 day); the wave
+queue treats it as verified-wait, NOT as no-progress:
+
+- №630 (gh#1098) — the §5 MECHANICAL TRANSITION (ADR-0186 §5), one PR:
+  `owner_fixed: true` (the owner's 2026-10-07 verdict recorded verbatim
+  in the gate header by №626), ADR-0186 Proposed → **Accepted**, the
+  DEFAULT gate target of `unfreeze_gate.py` 0.29 → **0.30** (the №597
+  pattern: the parameters first, the CI ratchet after — the
+  precondition gh#1086 (№623, the third-metric checker) merged before
+  this PR, the fail-closed №525 rule honored). The 0.28/0.29 records
+  stay verifiable explicit targets. The machine read on the merged
+  main: the 0.30 ABSOLUTE goals read is RED-loud on the typed parameter
+  (3736 bp live < 5000 bp goal — the movement is the requirement, the
+  strict release-time read exits 1 by design).
+- №631 (gh#1099) — the parameterized movement 0.30 №2: the SECOND
+  honest package of 27 verified rows of the registry-order contour
+  (split/lines/words/kv_list/memory_*/todo_*/goal*/goals_*/get_profile/
+  human_mood → the typed `List<String>`/`Struct<...>` spellings; the
+  honest polymorphic exclusions: push/slice/zip/sort_by/filter/… — the
+  element type is the caller's, the №536/№537 posture). The parameter
+  share 7/91 = 769 bp → **34/91 = 3736 bp**; the floors raised in the
+  SAME PR (№757): the parameterized baseline 769 → 3736, the in-tree
+  PARAM_FLOOR 7 → 31 (the compiled twin 31/87). The 0.30 goal
+  (≥ 5000 bp) still demands movement — №631 is a step, not the wall.
+- №633 (gh#1101) — the dead_code burn: 33 → **15** (18 places removed
+  or justified), the floor re-locked in the same PR.
+- №634 (gh#1102) — the self-host lane (the gh#967 §5): the §5 lexer
+  test lifted GREEN — the FIXTURE had drifted behind the language
+  (let-mut, the no-entry flow, the newline in the quote class, the
+  stale keywords), not the parser; the №617 artifact documented-accepted
+  with the mutation-verified pin; the ignore floor 14 → **13**. The
+  ledger §5 RESOLVED mark + the closing comment landed with the naryad
+  itself (verified 2026-10-08).
+- №635 (gh#1103) — the VM template_render lane (the gh#967 §6): BOTH
+  vm_golden corpus sweeps lifted green (189/189) — the template gap was
+  closed by №250, the harness facts fixed (the env sidecars №385, the
+  candle-gated exclusion mirror, the browser-gated p88); the ignore
+  floor 13 → **11**. The ledger §6 RESOLVED mark + the closing comment
+  landed with the naryad itself (verified 2026-10-08).
+- №627 (gh#1110, the wave-35 registered candidate — the К-А execution)
+  — the field-label METADATA (the stage-2 preparation, ADR-0178): the
+  form `Struct<Name>{field:label,...}` (the label vocabulary = the
+  stage-0 `Label::as_str` tokens; NO spaces, the ASCII field names —
+  the machine-checkable grammar), `BuiltinSpec.field_meta` as the
+  registry SIDE-TABLE (the `Type` enum NOT extended — the stage-2
+  minimality), `from_path` fail-closed (a malformed section is honest
+  `Unknown`), `parse_field_meta` the consumer API. The FIRST honest
+  package of 28 verified field-label rows: GeoLocation 9 (the external
+  ip-api body + the caller-arg echo → untrusted, labels.rs:509),
+  Weather 13 (the ten Open-Meteo wire numbers untrusted; `description`
+  the in-tree WMO table internal; `country` the in-tree constant
+  internal; `city` the user-arg echo untrusted), LlmUsage 6 (the
+  in-process counters internal). The honest exclusions: json_body/
+  form_data (dynamic user shapes — no fixed field vocabulary),
+  Tool/DayForecast (List elements — the section is a Struct form at
+  stage 2). The **FOURTH metric**: the field-label share among the
+  parameterized Struct rows — 3/20 = 1500 bp (the baseline +
+  `FIELDMETA_FLOOR` 3/19 compiled — the two-locks discipline). The
+  honest RED before the movement: the standalone probe 7/7 old-green,
+  both new probes RED (the form did not parse, the parameterized flag
+  was false). The parser mirrors synced in the same PR: gen_metrics
+  (its own typed-regex lacked `{}:,` — the meta rows fell out of the
+  typed count 309 → 306 AND inflated the module count 45 → 48),
+  gen_reference (HANDLER_RE), the two Rust pins (readme_consistency,
+  naryad_566) — the SSOT blocks + REFERENCE.md regenerated by the
+  generator (№613 lesson); the lomb_scargle doc drift (№607) caught up.
+- №636 (gh#1104) — this sync, strictly last.
+
+**The Wave 35 counters (every value from its machine, the command
+reproduces it):**
+
+| Counter | Value | Machine | Movement |
+|---|---|---|---|
+| Typed-signature share (№467) | **309/516 = 5988 bp** | `python3 scripts/ci/type_signature_share.py --gate scripts/ci/type_signature_baseline.txt` | unchanged (the 0.30 movement lives in the parameterized share) |
+| Precise typed share (№560) | **218/516 = 4224 bp** | `… --precise --gate scripts/ci/type_signature_precise_baseline.txt` | unchanged (the Z-2 verdict stands) |
+| Parameterized share (№623) | **34/91 = 3736 bp** | `… --parameterized --gate scripts/ci/type_signature_parameterized_baseline.txt` | **moved** (7/91 = 769 → 34/91 = 3736, №631 — the 27-row package); the 0.30 goal 5000 bp RED-loud — the movement continues |
+| **Field-label share (№627 — the NEW fourth metric)** | **3/20 = 1500 bp** | `… --fieldmeta --gate scripts/ci/type_signature_fieldmeta_baseline.txt` | **new** (0 at the В34 record → 3/20 — the first honest package of 28 field-label rows) |
+| In-tree locks | **TYPED_FLOOR 305, PARAM_FLOOR 31/87, FIELDMETA_FLOOR 3 (3/19 compiled = 15.78%)** | `cargo test --test type_signature_metric` | **moved** (the new field-label lock; the param lock raised by №631) |
+| `#[ignore]` debt (№468) | **11** (TODO: 0) | `python3 scripts/ci/debt_counters.py --gate scripts/ci/debt_baseline.txt` | **moved down** (14 → 13 №634, 13 → 11 №635) |
+| `dead_code` (№468) | **15** | same gate | **moved down** (33 → 15, №633; the floor re-locked in the same PR) |
+| TW/VM duplicated builtin names (№462) | **0** (the quorum 0/8 groups) | `python3 scripts/ci/count_duplicated_names.py --quorum` | unchanged |
+| Registered mirrors (№502/№564) | **6** | `python3 scripts/ci/mirror_counter.py --gate scripts/ci/src_mirror_baseline.txt` | unchanged |
+| ADR count | **179** (the generated README row) | `python3 scripts/gen_metrics.py --check` | unchanged (ADR-0186 Accepted in place — no new file; ADR-0187 landed in В34) |
+| Blocking-checks cells | **31** | `python3 scripts/ci/blocking_checks_sync.py --count` | unchanged |
+| The 0.30 gate posture | **owner_fixed: true; the DEFAULT target 0.30; the typed parameter RED-loud (3736 < 5000 bp)** | `python3 scripts/ci/unfreeze_gate.py` (the plain read reports loudly; the strict release-time read exits 1) | **the §5 transition landed** (№630) |
+| The release state | **0.29.0 PUBLISHED** (the Security ADVISORY carried, №620) | the release API | unchanged |
+
+**The owner gates remaining after В35:** gh#1000 (the branch
+protection — the §5-adjacent branch-protection criterion of the 0.30
+gate stays a draft line without a checker, №525), the parameterized
+movement to the 0.30 goal (≥ 5000 bp — the next typing packages), the
+stage-2 enforcement verdict (К-Б — not filed; №627 prepared the
+metadata surface), the ledger gh#967 §4/§7 (the revision 2026-10-15;
+the lanes осознанно not filed — the dispatch flag), the Камертон
+forwarding, the NLnet submissions before 20.10 (the package delivered
+05.10, №577; M1 Restack-ready closed 6/6), №632 (gh#1100 — the
+plan-relevance audit release №3, the execution date 2026-11-01 ± 1
+day). The В34 dispatch gh#1089 remains open as of this record — the
+housekeeping observation for the coordinator (all its workorders
+merged and the docs synced).
+
+**The wave report line (№608/№470):** the wave-scoped surface (the 8
+workorder issues gh#1101/#1102/#1103/#1100/#1098/#1099/#1104/#1110 via
+`--issues`):
+`naryad-quota (№470/№608): 8 naryads — domain 2/8 = 25.0% — PASS (the standing limiter <= 1/3)`
+(the whole-dispatch surface gh#1105 reads 16 naryads — domain 2/16 =
+12.5% PASS — the same verdict; the count surface includes the
+carry-over refs the dispatch body cites).

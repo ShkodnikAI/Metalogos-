@@ -4,6 +4,44 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- **№630 (gh#1098) — the 0.30 release-gate §5 mechanical transition
+  (process, the owner-fixed merge):** `owner_fixed: true` in
+  `gate_030_goals.txt` (ADR-0186), ADR-0186 Proposed → Accepted, the
+  DEFAULT gate target of `unfreeze_gate.py` 0.29 → **0.30**; the 0.28
+  and 0.29 records stay verifiable explicit targets (`--gate-target`).
+  The typed parameter of the 0.30 gate = the parameterized share
+  (≥ 5000 bp, the owner's 2026-10-07 verdict); the machine read is
+  RED-loud until the movement completes — by design.
+- **№631 (gh#1099) — the parameterized movement 0.30 №2 (internal):**
+  the second honest package of 27 verified rows — the registry-order
+  contour carries `List<T>` / `Struct<Name>` spellings now (the
+  memory/todo/goal/profile/mood families; the polymorphic list ops stay
+  honestly coarse — the element type is the caller's). The parameter
+  share 7/91 = 769 bp → **34/91 = 3736 bp**; the floors raised in the
+  same PR (the parameterized baseline 3736, the in-tree PARAM_FLOOR 31).
+- **№627 (gh#1110) — the field-label metadata (internal, the stage-2
+  preparation per ADR-0178):** the registry specs may carry the
+  `Struct<Name>{field:label,...}` form; the labels live in the registry
+  side-table (`BuiltinSpec.field_meta`), the `Type` enum stays erased;
+  a malformed section is a loud `Unknown` (fail-closed). The FOURTH
+  metric — the field-label share among the parameterized Struct rows
+  (3/20 = 1500 bp, the first honest package of 28 verified rows:
+  GeoLocation 9, Weather 13, LlmUsage 6) with the checked-in floor +
+  the in-tree lock. The parser mirrors (gen_metrics, gen_reference, the
+  two Rust pins) synced — the generated blocks regenerated.
+- **№633 (gh#1101) — the dead_code burn (internal):** 33 → 15 (18
+  places removed or justified), the floor re-locked in the same PR.
+- **№634 (gh#1102) — the self-host lexer lane lifted green
+  (internal):** the §5 test fixture had drifted behind the language
+  (let-mut, the no-entry flow, the newline in the quote class, the
+  stale keywords) — repaired; the №617 artifact documented-accepted
+  with the mutation-verified pin; the ignore floor 14 → 13.
+- **№635 (gh#1103) — the VM template_render lane lifted green
+  (internal):** both vm_golden corpus sweeps 189/189 (the template gap
+  was closed by №250; the harness facts fixed — the env sidecars №385,
+  the candle-gated exclusion mirror, the browser-gated p88); the ignore
+  floor 13 → 11.
+
 - **№629 (gh#1096) — the VM comparison parity (the behavior change,
   fail-closed):** the VM's `==`/`!=`/`>`/`<`/`>=`/`<=` now mirror the
   TW matrix 1:1 — the heterogeneous equality (`"abc" == 5.0`,

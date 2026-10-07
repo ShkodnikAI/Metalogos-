@@ -20,11 +20,34 @@
 # The X-3 rule: the floors sit strictly above the live facts.
 #
 # History (the machine tells the raise, the naryad orders it):
-# threshold_bp: 769 — №623: parameterized 7 | List/Struct rows: 91
+# (superseded) threshold_bp was 769 — №623: parameterized 7 | List/Struct rows: 91
 #   (the first honest package: mcp_list_tools List<Tool>, form_data
 #   Struct<FormData>, json_body Struct<JsonBody>, geo_ip
 #   Struct<GeoLocation>, weather Struct<Weather>, weather_forecast
 #   List<DayForecast>, llm_usage Struct<LlmUsage>; the honest
 #   exclusions: respond/respond_html — the opaque HttpResponse;
 #   query — the opaque Query wrapper, №538)
-# threshold_bp: 769
+# (superseded) threshold_bp was 769
+# (superseded) threshold_bp was 3736 — №631 (gh#1099, wave 35): parameterized 34 | List/Struct rows: 91
+#   (the second honest package — 27 verified rows of the registry-order
+#   contour 1..human_mood; the handler-read verification table in the
+#   naryad gh#1099: split/lines/words/kv_list/memory_keys/
+#   memory_provenance/memory_retained → List<String>; embed →
+#   List<Float>; vec_search → List<VecSearchHit>; vec_store →
+#   Struct<VecStoreResult>; memory_cascade_preview →
+#   Struct<MemoryCascadePlan>; memory_forget_cascade/forget →
+#   Struct<MemoryForgetResult>; memory_decay/boost/prune/revise →
+#   Struct<DecayResult|BoostResult|PruneResult|ReviseResult>;
+#   memory_score → Struct<MemoryScore>; todo_add/todo_list →
+#   Struct<Todo>/List<Todo>; todo_update → Struct<TodoUpdate>;
+#   goal_get/goal_set → Struct<ThreadGoal>; goals_add/goals_list →
+#   Struct<Goal>/List<Goal>; get_profile → List<Preference>;
+#   human_mood → Struct<Mood>. The honest exclusions in the contour:
+#   respond_html_status/respond_html_doc — the opaque HttpResponse (the
+#   №623 respond posture); push/slice/zip/sort_by/filter/dedup/condense/
+#   unique/chunk/sort/make_list — polymorphic over the INPUT element
+#   type (the №536/№537 honest-Unknown posture: the element is the
+#   caller's, not the handler's). The compiled twin locks 31/87 — the
+#   3 cfg(vec) rows (embed/vec_store/vec_search) ride only the source
+#   metric, the same by-design gap the TYPED_FLOOR comment documents.
+# threshold_bp: 3736

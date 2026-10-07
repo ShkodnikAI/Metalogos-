@@ -103,7 +103,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("ends_with", 2, "string"; builtin_ends_with, "Bool"),
     spec!("trim", 1, "string"; builtin_trim, "String"),
     spec!("replace", 3, "string"; builtin_replace, "String"),
-    spec!("split", 2, "string"; builtin_split, "List"),
+    spec!("split", 2, "string"; builtin_split, "List<String>"), // №631: the String parts (string.rs: Value::String elements)
     spec!("join", 2, "string"; builtin_join, "String"),
     spec!("length", 1, "string"; builtin_length, "Float"),
     spec!("reverse", 1, "string"; builtin_reverse), // №536: Unknown honest — polymorphic (String → String, List → List); the flat vocabulary has no union
@@ -120,8 +120,8 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("repeat", 2, "string"; builtin_repeat, "String"),
     spec!("pad_left", 3, "string"; builtin_pad_left, "String"),
     spec!("pad_right", 3, "string"; builtin_pad_right, "String"),
-    spec!("lines", 1, "string"; builtin_lines, "List"),
-    spec!("words", 1, "string"; builtin_words, "List"),
+    spec!("lines", 1, "string"; builtin_lines, "List<String>"), // №631: the String lines (string.rs: Value::String elements)
+    spec!("words", 1, "string"; builtin_words, "List<String>"), // №631: the String words (string.rs: Value::String elements)
     spec!("token_count", 1, "string"; builtin_token_count, "Float"),
     spec!("type_of", 1, "string"; builtin_type_of, "String"),
     spec!("format", 0, "string"; builtin_format, "String"), // variadic: 1 template + N fill args
@@ -308,7 +308,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("kv_get", 1, "memory"; builtin_kv_get, "String"),
     spec!("kv_delete", 1, "memory"; builtin_kv_delete, "Unit"),
     spec!("kv_exists", 1, "memory"; builtin_kv_exists, "Bool"),
-    spec!("kv_list", 0, "memory"; builtin_kv_list, "List"),
+    spec!("kv_list", 0, "memory"; builtin_kv_list, "List<String>"), // №631: the String keys (memory.rs: Value::String map)
     // №539: the mem_* twins RETURN the value (String) — the honest
     // asymmetry vs kv_set/kv_delete (Unit), verified in the handlers.
     spec!("mem_set", 2, "memory"; builtin_mem_set, "String"),
@@ -337,11 +337,11 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // Наряд №272 (ADR-0134): векторный контур поверх sqlite-vec — KNN
     // (distance_metric=cosine), песочница через sandbox_path_ex, dim-гейт.
     #[cfg(feature = "vec")]
-    spec!("embed", 1, "memory"; builtin_embed, "List"), // №539: the Float embedding vector
+    spec!("embed", 1, "memory"; builtin_embed, "List<Float>"), // №539: the Float embedding vector; №631: the Float element read off the handler (Value::Float map)
     #[cfg(feature = "vec")]
-    spec!("vec_store", 4, 5, "memory"; builtin_vec_store, "Struct"), // db_path,table,id,embedding | +text|opts{text,scope} (№281) — №539: the VecStoreResult
+    spec!("vec_store", 4, 5, "memory"; builtin_vec_store, "Struct<VecStoreResult>"), // db_path,table,id,embedding | +text|opts{text,scope} (№281) — №539: the VecStoreResult; №631: the name read off make_struct
     #[cfg(feature = "vec")]
-    spec!("vec_search", 4, 5, "memory"; builtin_vec_search, "List"), // db_path,table,query,k | +include_forgotten (№280, дефолт false) — №539: the hit structs (the post-filter may shrink below k)
+    spec!("vec_search", 4, 5, "memory"; builtin_vec_search, "List<VecSearchHit>"), // db_path,table,query,k | +include_forgotten (№280, дефолт false) — №539: the hit structs (the post-filter may shrink below k); №631: the VecSearchHit element read off make_struct (all three arms)
     // Наряд №442: the registry-level recall row (see the №442 comment at
     // the memory block head) — a REAL handler over the typed lane; the
     // stub-spec row is gone. forget/find/inspect remain the planned
@@ -354,18 +354,18 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("memory_open", 2, "memory"; builtin_memory_open), // №539: Unknown honest — the opaque Value::Memory handle; the flat vocabulary has no Memory spelling (the №538 Query posture)
     spec!("memory_put", 3, 5, "memory"; builtin_memory_put, "Unit"),
     spec!("memory_read", 2, "memory"; builtin_memory_read), // №539: Unknown honest — String|Secret by the container label (public → String, private → the gated Secret); typing String would false-warn the private lane
-    spec!("memory_keys", 1, "memory"; builtin_memory_keys, "List"),
-    spec!("memory_provenance", 2, "memory"; builtin_memory_provenance, "List"),
+    spec!("memory_keys", 1, "memory"; builtin_memory_keys, "List<String>"), // №631: the String keys (memory_typed.rs)
+    spec!("memory_provenance", 2, "memory"; builtin_memory_provenance, "List<String>"), // №631: the String parents (memory_typed.rs)
     spec!("memory_export", 3, "memory"; builtin_memory_export, "String"), // №539: the exported path
     // №351 (ADR-0173): the derived-graph surfaces — the cascade preview
     // (the №280 dry-run discipline), the retain pins, and the grant-gated
     // cascading forget (the ADR-0155 linear action, `irreversible.
     // memory_forget` ledger record; scope `memory:forget:<container>`).
-    spec!("memory_cascade_preview", 2, "memory"; builtin_memory_cascade_preview, "Struct"), // №539: the MemoryCascadePlan
+    spec!("memory_cascade_preview", 2, "memory"; builtin_memory_cascade_preview, "Struct<MemoryCascadePlan>"), // №539: the MemoryCascadePlan; №631: the name read off make_struct
     spec!("memory_retain", 2, "memory"; builtin_memory_retain, "Unit"),
     spec!("memory_release", 2, "memory"; builtin_memory_release, "Unit"),
-    spec!("memory_retained", 1, "memory"; builtin_memory_retained, "List"),
-    spec!("memory_forget_cascade", 3, "memory"; builtin_memory_forget_cascade, "Struct"), // №539: the MemoryForgetResult
+    spec!("memory_retained", 1, "memory"; builtin_memory_retained, "List<String>"), // №631: the String keys (memory_typed.rs)
+    spec!("memory_forget_cascade", 3, "memory"; builtin_memory_forget_cascade, "Struct<MemoryForgetResult>"), // №539: the MemoryForgetResult; №631: the name read off forget_outcome_value
     // №352 (ADR-0174): the duplex channel — barge-in over the №348
     // session priority ladder. NOT feature-gated: the CI contour
     // exercises the same state machine as the serve contour. The
@@ -403,7 +403,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // irreversible.memory_forget. The legacy 1..2-argument
     // forget(query, days?) surface (№72) is intact — the TW/VM
     // intercepts keep it; 3..4 arguments fall through to the handler.
-    spec!("forget", 3, 4, "memory"; builtin_forget, "Struct"), // №539: the 3..4-argument typed front door (MemoryForgetResult); the legacy 1..2-argument forget(query, days?) intercepts first and returns Unit — a different arity surface
+    spec!("forget", 3, 4, "memory"; builtin_forget, "Struct<MemoryForgetResult>"), // №539: the 3..4-argument typed front door (MemoryForgetResult); №631: the name read off make_struct — the legacy 1..2-argument forget(query, days?) intercepts first and returns Unit — a different arity surface
     spec!("find", 4, "stub"),
     spec!("inspect", 1, "stub"),
     // conv_start/add/history/context/end: conversation lifecycle management; not yet implemented
@@ -443,16 +443,16 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("graph_query", 1, 3, "graph"; builtin_graph_query), // query | query,limit | query,limit,level
     spec!("graph_path", 2, "graph"; builtin_graph_path),      // from_id,to_id
     spec!("graph_neighbors", 0, "graph"; builtin_graph_neighbors),
-    spec!("memory_decay", 0, "memory"; builtin_memory_decay, "Struct"), // №539: the DecayResult
-    spec!("memory_boost", 0, "memory"; builtin_memory_boost, "Struct"), // №539: the BoostResult
-    spec!("memory_prune", 0, "memory"; builtin_memory_prune, "Struct"), // №539: the PruneResult
-    spec!("memory_revise", 0, "memory"; builtin_memory_revise, "Struct"), // №539: the ReviseResult
+    spec!("memory_decay", 0, "memory"; builtin_memory_decay, "Struct<DecayResult>"), // №539: the DecayResult; №631: the name read off make_date_struct
+    spec!("memory_boost", 0, "memory"; builtin_memory_boost, "Struct<BoostResult>"), // №539: the BoostResult; №631: the name read off make_date_struct
+    spec!("memory_prune", 0, "memory"; builtin_memory_prune, "Struct<PruneResult>"), // №539: the PruneResult; №631: the name read off make_date_struct
+    spec!("memory_revise", 0, "memory"; builtin_memory_revise, "Struct<ReviseResult>"), // №539: the ReviseResult; №631: the name read off make_date_struct
     spec!("subgraph_extract", 0, "graph"; builtin_subgraph_extract),
     spec!("subgraph_nodes", 0, "graph"; builtin_subgraph_nodes),
     spec!("subgraph_json", 0, "graph"; builtin_subgraph_json),
     spec!("trace_start", 0, "graph"; builtin_trace_start),
     spec!("trace_end", 0, "graph"; builtin_trace_end),
-    spec!("memory_score", 1, "bot" => "ext"; builtin_memory_score, "Struct"), // №543: the MemoryScore make_date_struct (verified office/text.rs)
+    spec!("memory_score", 1, "bot" => "ext"; builtin_memory_score, "Struct<MemoryScore>"), // №543: the MemoryScore make_date_struct (verified office/text.rs); №631: the name read off the handler
     spec!("mtree_summarize", 0, "mtree"; builtin_mtree_summarize),
     spec!("mtree_retrieve", 1, 2, "mtree"; builtin_mtree_retrieve), // query | query,limit
     spec!("mtree_store", 2, "mtree"; builtin_mtree_store),
@@ -496,16 +496,16 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("config_load", 1, "vault" => "ext"; builtin_config_load),
     spec!("vault_validate", 2, "vault" => "ext"; builtin_vault_validate),
     // ── Bot — Telegram ──
-    spec!("todo_add", 2, "bot" => "ext"; builtin_todo_add, "Struct"), // №543: the Todo make_date_struct (verified goals.rs)
-    spec!("todo_list", 0, "bot" => "ext"; builtin_todo_list, "List"), // №543: the todo rows vector (verified goals.rs)
-    spec!("todo_update", 2, "bot" => "ext"; builtin_todo_update, "Struct"), // №543: the TodoUpdate make_date_struct (verified goals.rs)
-    spec!("goal_get", 0, "bot" => "ext"; builtin_goal_get, "Struct"), // №543: the ThreadGoal make_date_struct (verified goals.rs)
-    spec!("goal_set", 2, "bot" => "ext"; builtin_goal_set, "Struct"), // №543: the ThreadGoal make_date_struct (verified goals.rs)
-    spec!("goals_add", 1, "bot" => "ext"; builtin_goals_add, "Struct"), // №543: the Goal make_date_struct (verified goals.rs)
-    spec!("goals_list", 0, "bot" => "ext"; builtin_goals_list, "List"), // №543: the goal rows vector (verified goals.rs)
+    spec!("todo_add", 2, "bot" => "ext"; builtin_todo_add, "Struct<Todo>"), // №543: the Todo make_date_struct (verified goals.rs); №631: the name read off the handler
+    spec!("todo_list", 0, "bot" => "ext"; builtin_todo_list, "List<Todo>"), // №543: the todo rows vector (verified goals.rs); №631: the Todo element read off the handler
+    spec!("todo_update", 2, "bot" => "ext"; builtin_todo_update, "Struct<TodoUpdate>"), // №543: the TodoUpdate make_date_struct (verified goals.rs); №631: the name read off the handler
+    spec!("goal_get", 0, "bot" => "ext"; builtin_goal_get, "Struct<ThreadGoal>"), // №543: the ThreadGoal make_date_struct (verified goals.rs); №631: the name read off the handler (both paths)
+    spec!("goal_set", 2, "bot" => "ext"; builtin_goal_set, "Struct<ThreadGoal>"), // №543: the ThreadGoal make_date_struct (verified goals.rs); №631: the name read off the handler
+    spec!("goals_add", 1, "bot" => "ext"; builtin_goals_add, "Struct<Goal>"), // №543: the Goal make_date_struct (verified goals.rs); №631: the name read off the handler
+    spec!("goals_list", 0, "bot" => "ext"; builtin_goals_list, "List<Goal>"), // №543: the goal rows vector (verified goals.rs); №631: the Goal element read off the handler
     spec!("remind", 3, "bot"; builtin_remind_stamped, "String"), // №543: the reminder id (verified cron.rs builtin_remind; the stamped wrapper is pass-through)
-    spec!("get_profile", 0, "bot" => "ext"; builtin_get_profile, "List"), // №543: the profile rows vector (verified)
-    spec!("human_mood", 3, "bot"; builtin_human_mood, "Struct"), // №543: the Mood make_date_struct (verified server.rs)
+    spec!("get_profile", 0, "bot" => "ext"; builtin_get_profile, "List<Preference>"), // №543: the profile rows vector (verified); №631: the Preference element read off the handler
+    spec!("human_mood", 3, "bot"; builtin_human_mood, "Struct<Mood>"), // №543: the Mood make_date_struct (verified server.rs); №631: the name read off the handler
     spec!("ask_approval", 1, "bot" => "ext"; builtin_ask_approval, "Struct"), // №543: the Approval make_date_struct (verified config.rs)
     spec!("goal_complete", 0, "bot" => "ext"; builtin_goal_complete, "Struct"), // №543: the GoalComplete make_date_struct (verified goals.rs)
     spec!("goals_reflect", 0, "bot" => "ext"; builtin_goals_reflect, "Struct"), // №543: the GoalsReflection make_date_struct (verified goals.rs)

@@ -104,13 +104,8 @@ impl Interpreter {
                     self.handle_import(&sub_import)?;
                 }
                 Declaration::EntityType(e) => {
-                    self.struct_types.insert(
-                        e.name.clone(),
-                        StructType {
-                            name: e.name.clone(),
-                            fields: e.fields,
-                        },
-                    );
+                    self.struct_types
+                        .insert(e.name.clone(), StructType { fields: e.fields });
                 }
                 Declaration::EntityRecord(e) => {
                     let value = self.instantiate_struct(&e.type_name, &e.fields)?;

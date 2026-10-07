@@ -40,11 +40,6 @@ fn eval_expr_err(src: &str) -> String {
     }
 }
 
-#[allow(dead_code)]
-fn eval_program(src: &str) -> Result<String, String> {
-    metalogos::run_program(src).map(|v| v.unwrap_or_default())
-}
-
 // ── exec() hardening (Блок 1) ─────────────────────────────────────────
 
 #[test]

@@ -46,7 +46,7 @@
 use std::process::Command;
 use std::sync::OnceLock;
 
-use metalogos::ast::{Declaration, Expr, FluidDecl, Param, PatternDecl, Statement, TypeAliasDecl};
+use metalogos::ast::{Declaration, Expr, Param, PatternDecl, Statement};
 
 static MLOG_BIN: OnceLock<String> = OnceLock::new();
 
@@ -505,21 +505,4 @@ fn naryad_197_parser_matches_rust_parser() {
             );
         }
     }
-}
-
-// ── Used imports (avoid clippy warning) ─────────────────────────────
-#[allow(dead_code)]
-fn _unused_imports() {
-    let _ = (
-        TypeAliasDecl {
-            span: metalogos::ast::Span::unknown(),
-            alias: String::new(),
-            target: String::new(),
-        },
-        FluidDecl {
-            span: metalogos::ast::Span::unknown(),
-            name: String::new(),
-            variants: vec![],
-        },
-    );
 }

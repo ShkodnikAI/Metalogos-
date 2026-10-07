@@ -231,18 +231,3 @@ fn contract_session_no_persistence() {
     metalogos::builtins::reset_session_store();
     assert_eq!(metalogos::builtins::session_key_count("persist-test"), 0);
 }
-
-/// Direct session_set via builtins API for test isolation (no parse needed).
-#[allow(dead_code)]
-fn session_set_direct(session_id: &str, key: &str, value: &str) {
-    let args = vec![
-        metalogos::interpreter::Value::String(session_id.to_string()),
-        metalogos::interpreter::Value::String(key.to_string()),
-        metalogos::interpreter::Value::String(value.to_string()),
-    ];
-    // Call the builtin directly through the builtins registry
-    let builtins = metalogos::builtins::Builtins::new();
-    if let Some(func) = builtins.get("session_set") {
-        let _ = func(&args);
-    }
-}

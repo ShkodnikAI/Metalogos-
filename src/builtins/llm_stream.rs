@@ -14,7 +14,7 @@
 // backends (TW / VM) — parity by construction (ADR-0137 §D9).
 
 use crate::interpreter::Value;
-use crate::llm::{self, LlmStreamId, LLM_STREAM_END_MARKER};
+use crate::llm::{self, LlmStreamId};
 
 use super::core::expect_string_arg;
 
@@ -138,14 +138,6 @@ pub(crate) fn builtin_llm_stream_close(args: &[Value]) -> Result<Value, String> 
         type_name: "LlmStreamFinal".to_string(),
         fields,
     })
-}
-
-/// `llm_stream_end_marker()` — return the end-of-stream sentinel constant.
-/// Not strictly necessary (callers can compare to `"__end__"`), but this
-/// gives a stable source of truth if the marker changes shape later.
-#[allow(dead_code)]
-pub(crate) fn builtin_llm_stream_end_marker(_args: &[Value]) -> Result<Value, String> {
-    Ok(Value::String(LLM_STREAM_END_MARKER.to_string()))
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────

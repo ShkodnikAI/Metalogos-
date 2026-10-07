@@ -78,15 +78,6 @@ fn get_compiled(pattern: &str) -> Option<regex::Regex> {
     cache.get_or_compile(pattern)
 }
 
-/// Clear the regex cache (useful for tests).
-#[allow(dead_code)]
-pub(crate) fn clear_regex_cache() {
-    if let Ok(mut cache) = REGEX_CACHE.lock() {
-        cache.entries.clear();
-        cache.order.clear();
-    }
-}
-
 // ── Builtin implementations ──────────────────────────────────────────────
 
 /// `regex_match(pattern, text)` → Bool

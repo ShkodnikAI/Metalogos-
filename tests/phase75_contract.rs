@@ -70,34 +70,6 @@ fn make_adapt_decl(pattern_name: &str, input: &str, output: &str) -> Declaration
     })
 }
 
-/// Helper: create a pattern with a while(true) loop body.
-#[allow(dead_code)]
-fn make_while_true_pattern() -> Declaration {
-    Declaration::Pattern(PatternDecl {
-        span: metalogos::ast::Span::unknown(),
-        name: "infinite_loop".to_string(),
-        params: vec![],
-        return_type: "Unit".to_string(),
-        effects: None,
-        body: vec![Statement::While {
-            condition: Expr::BoolLit {
-                value: true,
-                span: metalogos::ast::Span::unknown(),
-            },
-            body: vec![Statement::LetBinding {
-                name: "_x".to_string(),
-                value: Expr::FloatLit {
-                    value: 1.0,
-                    span: metalogos::ast::Span::unknown(),
-                },
-                mutable: false,
-                span: metalogos::ast::Span::unknown(),
-            }],
-            span: metalogos::ast::Span::unknown(),
-        }],
-    })
-}
-
 /// Helper: create a pattern with a while(true) loop body that increments a counter.
 fn make_counting_while_pattern() -> Declaration {
     Declaration::Pattern(PatternDecl {

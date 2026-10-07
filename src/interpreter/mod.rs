@@ -91,10 +91,12 @@ struct CheckpointData {
 }
 
 /// A registered struct type.
+///
+/// №633: the `name` field is deleted — it was written at both
+/// construction sites and never read (the map key carries the name;
+/// the write-only field was the dead_code floor's finding).
 #[derive(Clone)]
 struct StructType {
-    #[allow(dead_code)]
-    name: String,
     fields: Vec<FieldDecl>,
 }
 
@@ -141,9 +143,6 @@ pub struct Interpreter {
     pub templates: HashMap<String, TemplateDecl>,
     /// DB config (Phase 6.3)
     db_config: Option<DbDecl>,
-    /// Mock DB store (Phase 6.3)
-    #[allow(dead_code)]
-    db_store: Vec<HashMap<String, Value>>,
     /// SQLite connection for db {} block (Наряд №7).
     /// Opened when db { url: "sqlite::memory:" } or similar is declared.
     db_conn: std::sync::Arc<std::sync::Mutex<Option<rusqlite::Connection>>>,
@@ -340,7 +339,6 @@ impl Interpreter {
             base_dir: std::path::PathBuf::from("."),
             templates: HashMap::new(),
             db_config: None,
-            db_store: Vec::new(),
             db_conn: std::sync::Arc::new(std::sync::Mutex::new(None)),
             db_url: None,
             schemas: Vec::new(),

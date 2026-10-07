@@ -100,7 +100,7 @@
 dup_baseline: scripts/ci/tw_vm_dup_names_baseline.txt
 ignore: 14
 ignore_todo: 0
-dead_code: 33
+dead_code: 15
 example_uncovered: 0
 # №531 (issue #840): the read_file soft-missing TRANSITION marker count —
 # the stderr warning site(s) in src/ + the tests pinning the transition
@@ -108,3 +108,9 @@ example_uncovered: 0
 # loud [IO_ERROR] refusal deletes the sites, the counter reaches 0, the
 # threshold follows it down and the №514 softness class closes.
 read_file_soft_missing: 0
+# №633 (gh#1101, wave 35): the dead_code floor 33 → 15 — the first burn of
+# the floor since В23. 18 places deleted or de-allowed (the disposition
+# table in the naryad gh#1101 PR); the remaining 15 are the justified
+# reservations (video/posture modules, the SVG chart_* helpers, the
+# ADR-0052 parity slot, the Send probe, the test-only HMAC generator,
+# the unwired debug verifier) — each documented with its revisit date.

@@ -19,7 +19,7 @@ mod tests {
     fn f(n: f64) -> Value {
         Value::Float(n)
     }
-    #[allow(dead_code)]
+    #[test]
     fn svg_rect_basic() {
         let out = builtin_svg_rect(&[f(10.0), f(10.0), f(100.0), f(50.0), s("#eb6c36"), s("none")])
             .unwrap();

@@ -1297,3 +1297,28 @@ reproduces it):**
   before 0.29.0; the VM not affected), the user action — restart your
   tests on ≥ 0.29.0. The tag and the assets are NOT re-created (the fix
   is IN 0.29.0 — the communication warns, the binaries do not change).
+- **2026-10-07 (wave 34):** the implicit-block-value class scan issued by
+  naryad №622 (gh#1085) — the №612 etalon applied to the consumers
+  OUTSIDE the loops; the verdict table (consumer × semantics × file
+  fact): `Statement::Match` arms/else — DISCARDED (the `eval_block!`
+  replaces the running implicit value unconditionally, propagates only
+  the explicit Return); `Statement::IfThen` (if WITHOUT else) and
+  `Statement::IfElseBlock` branches — DISCARDED (the same macro path);
+  `Expr::MatchExpr` arm blocks — DESIGNATED (the block's tail value IS
+  the match expression's result; the expression channel cannot carry a
+  control signal); `Declaration::Sandbox` — **N/A** (the grammar has NO
+  sandbox body: `SandboxDecl { span, name, allowed, forbidden, timeout }`
+  is a policy declaration, nothing executes a statement block);
+  `Declaration::Flow` — **N/A** (the flow body is a pipeline of pattern
+  invocations, no statement block exists in `FlowDecl`). The scan FOUND
+  one parity gap and it was FIXED in the same honest class: `return`
+  inside a value-channel arm body was captured as the block value by
+  the TW (the documented flatten) while the VM emitted the
+  function-level `Instruction::Return` and terminated the pattern — the
+  VM capture landed (`Instruction::SetValueReg`, the UNCONDITIONAL
+  register store — the TW `eval_statements` flatten contract, Unit
+  included; the №622 pins: `let v = match x { "a" then { return 5.0 } }`
+  answers "v=5:tail" on BOTH backends). The regression pins per
+  consumer (the bare non-Unit call as the construct's last statement +
+  the code after the construct) run the production order of BOTH
+  backends — 6/6 green; the full suite green.

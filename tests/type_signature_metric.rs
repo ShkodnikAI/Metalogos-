@@ -76,21 +76,24 @@ fn every_typed_signature_is_the_honest_parse_of_its_path() {
     );
 }
 
-// ── №623 (gh#1086): the third metric — the parameterized share ──────
+// ── №623 (gh#1086) + №631 (gh#1099): the third metric — the
+// parameterized share ────────────────────────────────────────────────
 //
 // The in-tree twin of `scripts/ci/type_signature_parameterized_baseline.txt`
-// (`# threshold_bp: 769`): the share of the PARAMETERIZED rows
+// (`# threshold_bp: 3736` since №631): the share of the PARAMETERIZED rows
 // (`List<T>` / `Struct<Name>`) among the typed List/Struct rows. The
 // same two-locks discipline: the script counts the SOURCE rows, this
 // test counts the COMPILED specs — the locks cannot drift. Only-up, in
-// the same PR that parameterizes more rows (the №757 procedure).
-const PARAM_FLOOR: usize = 7;
+// the same PR that parameterizes more rows (the №757 procedure). The
+// №631 second honest package: 27 verified rows of the registry-order
+// contour (the handler-read table in gh#1099) — the floor 7 → 31.
+const PARAM_FLOOR: usize = 31;
 /// The compiled denominator: 91 SOURCE List/Struct rows − the 4 gated
 /// vec/store rows (the same by-design source/compiled gap the TYPED_FLOOR
 /// comment documents — the gated rows are BARE List/Struct, so the
-/// compiled share (7/87 = 804 bp) reads HIGHER than the source share
-/// (7/91 = 769 bp); the baseline file locks the source number, this test
-/// the compiled one.
+/// compiled share reads HIGHER than the source share: 7/87 = 804 bp at
+/// №623, 31/87 = 3563 bp at №631 — the baseline file locks the source
+/// number, this test the compiled one).
 const PARAM_LS_DENOM: usize = 87;
 
 #[test]

@@ -141,7 +141,7 @@ fn parameterized_signature_share_never_falls_below_the_floor() {
 // ── №627 (gh#1110): the FOURTH metric — the field-label share ───────
 //
 // The in-tree twin of `scripts/ci/type_signature_fieldmeta_baseline.txt`
-// (`# threshold_bp: 5750` since №637): the share of the rows carrying the
+// (`# threshold_bp: 9500` since №638): the share of the rows carrying the
 // field-meta section (`Struct<Name>{field:label,...}`) among the
 // parameterized Struct rows. The same two-locks discipline: the script
 // counts the SOURCE rows (40 Struct-param rows — the llm_usage cfg(llm)
@@ -152,11 +152,16 @@ fn parameterized_signature_share_never_falls_below_the_floor() {
 // handler-read table in the naryad gh#1110); the floor 0 → 3 compiled
 // rows. The №637 package: the 20 PDF Struct rows arrive WITH their
 // field_meta sections in the same PR (the anti-dilution rule — no
-// parameterized Struct row lands bare), the floor 3 → 23.
+// parameterized Struct row lands bare), the floor 3 → 23. The №638
+// second honest package: the 15 EXISTING parameterized Struct rows of
+// the memory/goal/todo/vec/human contours (52 field-label entries; the
+// classification per the №627 table read off the handlers — the table
+// in gh#1121), the floor 23 → 37 (38/40 = 9500 bp source; the cfg(vec)
+// vec_store row rides only the source metric — 37/39 compiled).
 //
 // BuiltinSpec.field_meta is the registry SIDE-TABLE (the enum is NOT
 // extended — stage-2 minimality); parse_field_meta is the consumer API.
-const FIELDMETA_FLOOR: usize = 23;
+const FIELDMETA_FLOOR: usize = 37;
 
 #[test]
 fn field_label_share_never_falls_below_the_floor() {

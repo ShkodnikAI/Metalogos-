@@ -198,7 +198,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // Наряд №268 (ADR-0132): MCP stdio-клиент — stateless, exec-гейт +
     // METALOGOS_MCP_ALLOWLIST + taint UserInput на выводе mcp_call.
     spec!("mcp_call", 4, "io"; builtin_mcp_call, "String"),
-    spec!("mcp_list_tools", 2, "io"; builtin_mcp_list_tools),
+    spec!("mcp_list_tools", 2, "io"; builtin_mcp_list_tools, "List<Tool>"),
     // ── List builtins ──
     spec!("get", 2, "list"; builtin_get), // №537: Unknown honest — returns the ELEMENT; a heterogeneous list has no fixed element type
     spec!("push", 2, "list"; builtin_push, "List"),
@@ -234,8 +234,8 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("respond_html", 1, 2, "web"; builtin_respond_html), // №565: the 2-arg form is DEPRECATED (the sense-by-content hazard) — migrate to respond_html_status/respond_html_doc; the 1-arg form is the gh#899 SSOT
     spec!("respond_html_status", 2, 2, "web"; builtin_respond_html_status, "Struct"), // №565: the explicit (status, body) form — the HttpResponse struct shape; the HTML egress gates treat it like respond_html
     spec!("respond_html_doc", 2, 2, "web"; builtin_respond_html_doc, "Struct"), // №565: the explicit (title, body) form — the title is never a status
-    spec!("form_data", 1, "web"; builtin_form_data),
-    spec!("json_body", 0, "web"; builtin_json_body),
+    spec!("form_data", 1, "web"; builtin_form_data, "Struct<FormData>"),
+    spec!("json_body", 0, "web"; builtin_json_body, "Struct<JsonBody>"),
     spec!("query_param", 1, "web"; builtin_query_param, "String"), // №565 top-up (the №543 line): both paths verified — the handler stub and the db_ops::query_param dispatch return Value::String
     // №523: the 2..3 range is NOMINAL — render's real contract is dynamic
     // (the template's parameter list is data, №115; the 1-arg form is the
@@ -249,10 +249,10 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("require", 1, 2, "web"; builtin_require, "Unit"),
     spec!("request_body", 0, "web"; builtin_json_body),
     spec!("web_search", 1, 2, "web"; builtin_web_search, "String"), // query | query,num
-    spec!("geo_ip", 0, 1, "web"; builtin_geo_ip), // ip? (omit = caller IP; builtin_geo_ip)
-    spec!("weather", 2, "web"; builtin_weather),
+    spec!("geo_ip", 0, 1, "web"; builtin_geo_ip, "Struct<GeoLocation>"), // ip? (omit = caller IP; builtin_geo_ip)
+    spec!("weather", 2, "web"; builtin_weather, "Struct<Weather>"),
     spec!("geo_distance", 2, 5, "web"; builtin_geo_distance, "Float"),
-    spec!("weather_forecast", 1, 3, "web"; builtin_weather_forecast), // city | lat,lon | lat,lon,days
+    spec!("weather_forecast", 1, 3, "web"; builtin_weather_forecast, "List<DayForecast>"), // city | lat,lon | lat,lon,days
     // ── Crypto builtins ──
     spec!("hash_password", 1, "crypto"; builtin_hash_password),
     spec!("verify_password", 2, "crypto"; builtin_verify_password, "Bool"),
@@ -300,7 +300,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     #[cfg(feature = "llm")]
     spec!("call_claude", 4, "llm"; builtin_call_claude, "String"), // api_key,model,system,user
     #[cfg(feature = "llm")]
-    spec!("llm_usage", 0, "llm"; builtin_llm_usage),
+    spec!("llm_usage", 0, "llm"; builtin_llm_usage, "Struct<LlmUsage>"),
     #[cfg(feature = "llm")]
     spec!("call_llm_schema", 2, 3, "llm"; builtin_call_llm_schema), // prompt,schema | prompt,input,schema (Наряд №269, ADR-0133)
     // ── Memory builtins ──

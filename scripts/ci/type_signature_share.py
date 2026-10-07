@@ -50,19 +50,37 @@ def rows():
 
 
 def compute():
-    """(total, typed, typed_bp, precise, precise_bp) — integer-exact bp."""
+    """(total, typed, typed_bp, precise, precise_bp, ls_total, param, param_bp)
+    — integer-exact bp."""
     total, typed_types = rows()
     n_total = len(total)
     n_typed = len(typed_types)
     n_precise = sum(1 for t in typed_types.values() if t in PRECISE_TYPES)
+    # №623 (gh#1086): the THIRD metric — the parameterized share among the
+    # List/Struct rows. The denominator: every typed row whose base type
+    # (before `<`) is List or Struct (the audit t94 base: 84 bare); the
+    # numerator: the rows carrying the parameterized spelling
+    # (`List<T>` / `Struct<Name>`). Only-up; the Z-2 verdict (gh#1077
+    # superseded) stopped the precise-share movement by scalars — THIS
+    # metric is where the typed movement of the 0.30 cycle lives.
+    ls_types = {
+        n: t
+        for n, t in typed_types.items()
+        if t.split('<', 1)[0] in ('List', 'Struct')
+    }
+    n_ls = len(ls_types)
+    n_param = sum(1 for t in ls_types.values() if '<' in t)
     typed_bp = (n_typed * 10000) // n_total if n_total else 0
     precise_bp = (n_precise * 10000) // n_total if n_total else 0
-    return n_total, n_typed, typed_bp, n_precise, precise_bp
+    param_bp = (n_param * 10000) // n_ls if n_ls else 0
+    return n_total, n_typed, typed_bp, n_precise, precise_bp, n_ls, n_param, param_bp
 
 
 def main():
     total, typed_types = rows()
-    n_total, n_typed, typed_bp, n_precise, precise_bp = compute()
+    n_total, n_typed, typed_bp, n_precise, precise_bp, n_ls, n_param, param_bp = (
+        compute()
+    )
     args = sys.argv[1:]
     if '--list' in args:
         for name in sorted(total):
@@ -74,6 +92,7 @@ def main():
     # decides which floor is checked (the precise baseline carries the
     # precise floor; the general baseline the general one).
     precise = '--precise' in args
+    parameterized = '--parameterized' in args
     if precise:
         n, bp = n_precise, precise_bp
         print(f'precise signatures: {n}/{n_total} ({bp / 100:.2f}%)')
@@ -82,14 +101,34 @@ def main():
             'typed-but-coarse \u2014 the audit 02.10 M-4: the general share is '
             'reachable by coarse types, the precise one is the honest 0.29 target)'
         )
+    elif parameterized:
+        n, bp = n_param, param_bp
+        print(
+            f'parameterized signatures: {n}/{n_ls} ({bp / 100:.2f}%) '
+            f'— №623: the share among the List/Struct rows'
+        )
+        print(
+            '  (the parameterized spelling: List<T> / Struct<Name>; the '
+            'stage-0 enum erases the parameter — the metric is where the '
+            'typed movement of the 0.30 cycle lives, the Z-2 verdict)'
+        )
     else:
         print(f'typed signatures: {n_typed}/{n_total} ({typed_bp / 100:.2f}%)')
         print(
             f'precise signatures: {n_precise}/{n_total} '
             f'({precise_bp / 100:.2f}%) \u2014 №560: the two shares side by side'
         )
+        print(
+            f'parameterized signatures: {n_param}/{n_ls} '
+            f'({param_bp / 100:.2f}%) — №623: the third share (among List/Struct)'
+        )
     # basis points keep the comparison integer-exact
-    share_bp = precise_bp if precise else typed_bp
+    share_bp = param_bp if parameterized else (precise_bp if precise else typed_bp)
+    kind = (
+        'parameterized'
+        if parameterized
+        else ('precise' if precise else 'general')
+    )
     if '--gate' in args:
         baseline = args[args.index('--gate') + 1]
         floor = None
@@ -102,20 +141,23 @@ def main():
             print('::error::baseline fixture has no "# threshold_bp: N" line')
             sys.exit(2)
         if share_bp < floor:
-            kind = 'precise typed-signature' if precise else 'typed-signature'
+            kind_name = (
+                'parameterized-share'
+                if parameterized
+                else ('precise typed-signature' if precise else 'typed-signature')
+            )
             print(
-                f'::error::the {kind} share regressed: {share_bp} bp < '
-                f'{floor} bp floor (№467/№560: the metric rises every release; '
-                f'a typed row lost its type or an untyped row was added — '
-                f'type the new rows or restore the lost paths).'
+                f'::error::the {kind_name} share regressed: {share_bp} bp < '
+                f'{floor} bp floor (№467/№560/№623: the metric rises every '
+                f'release; a typed row lost its type or an untyped row was '
+                f'added — type the new rows or restore the lost paths).'
             )
             sys.exit(1)
         if share_bp > floor:
-            kind = 'precise' if precise else 'general'
             print(
                 f'note: the {kind} share rose above the floor ({floor} bp) — '
-                f'№467/№560 should raise the baseline floor to {share_bp} bp in '
-                f'a follow-up naryad.'
+                f'№467/№560/№623 should raise the baseline floor to {share_bp} '
+                f'bp in a follow-up naryad.'
             )
 
 

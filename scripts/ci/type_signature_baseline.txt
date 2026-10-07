@@ -208,6 +208,11 @@
 # share counts them too). 241/516 → 302/516. (302*10000)//516 = 5852 bp.
 # (superseded) typed: 241 | total: 516 | threshold_bp was 4670
 
-# typed: 302
+# (superseded) typed: 302 | total: 516 | threshold_bp was 5852 — №616 (the 61 PRECISE rows)
+
+# typed: 309
 # total: 516
-# threshold_bp: 5852
+# threshold_bp: 5988 — №623 (gh#1086): the 7 parameterized rows (List<Tool>,
+# Struct<FormData>, Struct<JsonBody>, Struct<GeoLocation>, Struct<Weather>,
+# List<DayForecast>, Struct<LlmUsage> — the handler-read verification table
+# in the naryad); (309*10000)//516 = 5988 bp.

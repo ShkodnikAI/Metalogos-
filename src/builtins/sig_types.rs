@@ -169,6 +169,11 @@ impl Type {
     ///   `SeriesHandle`, `Media`, `Embodied`;
     /// - `List<...>` (any inner) erases to `List` — the stage-0 taxonomy
     ///   is parametric-free;
+    /// - `Struct<...>` (any inner) erases to `Struct` — the SAME stage-0
+    ///   erasure, symmetric to the List one (№623: the parameter lives in
+    ///   the spec! string and in the third metric — the parameterized
+    ///   share among the List/Struct rows — not in the enum; the enum
+    ///   stays minimal, stage-0);
     /// - anything else — including labeled strings, which the const
     ///   parser cannot lift to `Labeled(Box)` on stable — is honestly
     ///   `Unknown`.
@@ -183,6 +188,9 @@ impl Type {
         }
         if bytes_starts_with(b, b"List<") && bytes_ends_with(b, b">") {
             return Type::List;
+        }
+        if bytes_starts_with(b, b"Struct<") && bytes_ends_with(b, b">") {
+            return Type::Struct;
         }
         Type::Unknown
     }
@@ -249,6 +257,24 @@ const fn bytes_ends_with(b: &[u8], suffix: &[u8]) -> bool {
         i += 1;
     }
     true
+}
+
+/// №623: is this spec! type string the PARAMETERIZED spelling
+/// (`List<...>` / `Struct<...>` whose inner is NOT the stage-0 label
+/// suffix — `X<private>`/`<internal>`/`<untrusted>` are the №577 label
+/// vocabulary, not a parameter)? Const-evaluable, same style as
+/// `from_path`; the enum stays erased (stage-0 minimality) — this bool
+/// is the in-tree fact the third metric's lock reads.
+pub const fn path_is_parameterized(s: &str) -> bool {
+    let b = s.as_bytes();
+    let starts_list = bytes_starts_with(b, b"List<") && bytes_ends_with(b, b">");
+    let starts_struct = bytes_starts_with(b, b"Struct<") && bytes_ends_with(b, b">");
+    if !(starts_list || starts_struct) {
+        return false;
+    }
+    !(bytes_ends_with(b, b"<private>")
+        || bytes_ends_with(b, b"<internal>")
+        || bytes_ends_with(b, b"<untrusted>"))
 }
 
 /// The FULL string-path parser (non-const): the flat vocabulary of

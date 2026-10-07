@@ -98,7 +98,7 @@
 # follows the MACHINE fact, never the naryad's stale number.)
 
 dup_baseline: scripts/ci/tw_vm_dup_names_baseline.txt
-ignore: 13
+ignore: 11
 ignore_todo: 0
 dead_code: 15
 example_uncovered: 0
@@ -119,3 +119,10 @@ read_file_soft_missing: 0
 # FIXTURE drifted (let-mut discipline, no entry flow, newline in the
 # quote class, the stale keyword list) — fixed in the fixture, the
 # language was never wrong. The §5 RESOLVED label lands with №636.
+# №635 (gh#1103, wave 35): the ignore floor 13 → 11 — the two vm_golden
+# corpus sweeps lifted green: the template gap they recorded was closed
+# by №250 (compile-time GLOBAL_TEMPLATES registration), what remained
+# were harness facts — the per-example env sidecars (the №385 pattern),
+# the candle-gated exclusion list (the crosscheck mirror), the
+# browser-gated p88 (Chromium), the reflex_persist artifact dir. The
+# ledger gh#967 §6 gets its RESOLVED label with №636.

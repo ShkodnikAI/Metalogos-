@@ -126,11 +126,26 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
             if let Some(ext) = path.extension() {
                 if ext == "mlog" {
                     let stem = path.file_stem().unwrap().to_string_lossy().to_string();
+                    let file_name = path.file_name().unwrap().to_str().unwrap_or("");
+                    if CANDLE_GATED_EXAMPLES.contains(&file_name) {
+                        // №635: the candle-feature gate (fail-closed by
+                        // design) — see the list comment.
+                        continue;
+                    }
                     if stem.starts_with("p7_") {
                         continue; // Tracked separately in golden.rs::p7_contract_visibility
                     }
                     if stem.contains("unknown_fn") || stem.starts_with("wrong_") {
                         continue; // Negative-test contract, designed to fail compilation
+                    }
+                    if stem.starts_with("p88_html_render") {
+                        // №635: browser-gated — the example itself documents
+                        // that it requires a real Chromium binary
+                        // (METALOGOS_BROWSER_BIN), unavailable in CI; the
+                        // dedicated html_render_contract test tracks it
+                        // (ignored there by design). The .expected 4/4 is
+                        // only achievable with the browser present.
+                        continue;
                     }
                     let expected = path.with_extension("expected");
                     if expected.exists() {
@@ -149,6 +164,56 @@ fn trim_opt(s: &Option<String>) -> String {
     s.as_deref().map(|v| v.trim_end()).unwrap_or("").to_string()
 }
 
+/// №634/№635: the per-example env sidecar (examples/*.env) — the same
+/// mechanism crosscheck_backends.rs applies (each tests/*.rs compiles as
+/// its own crate, so the small helper is duplicated, not shared).
+/// l1_dogfood.env (METALOGOS_MOCK_LLM=true) and friends make the corpus
+/// runs deterministic without external services.
+fn sidecar_env(mlog_path: &Path) -> Vec<(String, String)> {
+    let sidecar = mlog_path.with_extension("env");
+    if !sidecar.exists() {
+        return Vec::new();
+    }
+    fs::read_to_string(&sidecar)
+        .unwrap_or_else(|e| panic!("cannot read env sidecar {:?}: {}", sidecar, e))
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#') && !l.trim().is_empty())
+        .map(|l| {
+            let (k, v) = l
+                .split_once('=')
+                .unwrap_or_else(|| panic!("bad env sidecar line in {:?}: {}", sidecar, l));
+            (k.trim().to_string(), v.trim().to_string())
+        })
+        .collect()
+}
+
+/// №635: the candle-feature-gated examples (reflex_seq/reflex_gen
+/// declarations refuse loudly without candle — fail-closed by design,
+/// execution.rs). The crosscheck job (and this sweep) run without
+/// candle; the candle-tests job (№200) covers them under candle. The
+/// frozen list mirrors crosscheck_backends.rs — keep the two in sync
+/// (the drift is caught by this sweep failing on the next gated
+/// example).
+const CANDLE_GATED_EXAMPLES: &[&str] = &[
+    "reflex_seq_declare.mlog",
+    "reflex_seq_mixed_error.mlog",
+    "reflex_seq_missing_labels_error.mlog",
+    "reflex_seq_train_predict.mlog",
+    "reflex_seq_transformer_block.mlog",
+    "reflex_seq_gqa.mlog",
+    "reflex_seq_stacked.mlog",
+    "reflex_seq_gqa_stack.mlog",
+    "reflex_gen_declare.mlog",
+    "reflex_gen_from_text.mlog",
+    "reflex_batch_train.mlog",
+    // №201 golden error contract: declares reflex_gen StoryModel (the
+    // candle-gated declaration) and pins the REFUSAL contract — both
+    // backends refuse without candle (with different messages), so the
+    // output-comparison sweeps skip it; the dedicated
+    // p201_reflex_generate_html_injection test tracks the contract.
+    "p201_reflex_generate_html_injection.mlog",
+];
+
 #[test]
 fn p4_vm_hello_matches_tw() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
@@ -166,13 +231,23 @@ fn p4_vm_hello_matches_tw() {
 
 /// Phase 4.2 strict test: all golden examples must produce identical
 /// output when run via tree-walking interpreter vs bytecode VM.
-/// Наряд №206: some examples (p115_render_basic) fail on VM due to
-/// template registration not being wired in the VM path. This is a
-/// known VM gap — template rendering is interpreter-only (Phase 6.2).
-/// Ignored until VM template support is added (separate naryad).
-#[ignore = "Known issue gh#967 §6: the VM backend lacks template_render — p115_render_basic fails; the VM template support is separate work"]
+/// №634/№635: the ignore is LIFTED. The template gap it recorded was
+/// closed by №250 (compile-time registration into GLOBAL_TEMPLATES —
+/// p115_render_basic passes the VM path); what remained were harness
+/// facts, not backend gaps: the per-example env sidecars (now applied,
+/// the crosscheck pattern) and the candle-gated examples (now skipped —
+/// the frozen list below, the candle-tests job covers them).
 #[test]
 fn all_vm_examples_match_tree_walking() {
+    // №253-А: p100_mcp_echo spawns the fixture MCP server (python3) —
+    // the exec gate must be open for the corpus sweep (the crosscheck
+    // precedent: tests/crosscheck_backends.rs sets the same var).
+    std::env::set_var("METALOGOS_ALLOW_EXEC", "1");
+    // №635: reflex_persist.mlog writes target/test_artifacts/reflex_persist.db
+    // relative to the process CWD (the repo root under cargo test) — the
+    // directory must exist in a fresh checkout.
+    let _ = fs::create_dir_all("target/test_artifacts");
+
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
     let examples_dir = Path::new(&manifest_dir).join("examples");
 
@@ -225,10 +300,16 @@ fn all_vm_examples_match_tree_walking() {
 }
 
 /// Legacy test (kept for CI compatibility): all VM outputs match .expected files.
-/// Наряд №206: same VM template gap as all_vm_examples_match_tree_walking.
-#[ignore = "Known issue gh#967 §6: the VM backend lacks template_render — same as all_vm_examples_match_tree_walking"]
+/// №634/№635: the ignore is LIFTED with the same reasoning as
+/// all_vm_examples_match_tree_walking (the №250 registration closed the
+/// template gap; the sidecar env + the candle-gated skip list cover the
+/// harness facts).
 #[test]
 fn all_vm_golden_tests_pass() {
+    std::env::set_var("METALOGOS_ALLOW_EXEC", "1");
+    // №635: the reflex_persist artifact directory (see the sweep comment).
+    let _ = fs::create_dir_all("target/test_artifacts");
+
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
     let examples_dir = Path::new(&manifest_dir).join("examples");
 
@@ -247,7 +328,16 @@ fn all_vm_golden_tests_pass() {
         let expected = fs::read_to_string(expected_path)
             .unwrap_or_else(|e| panic!("cannot read {:?}: {}", expected_path, e));
 
+        // №385: the sidecar env before the run (deterministic corpus
+        // modes — the mock LLM etc.).
+        let env_vars = sidecar_env(mlog_path);
+        for (k, v) in &env_vars {
+            std::env::set_var(k, v);
+        }
         let vm_result = run_vm(&source, base_dir).expect("VM execution failed");
+        for (k, _) in &env_vars {
+            std::env::remove_var(k);
+        }
         let vm_trimmed = trim_opt(&vm_result);
         let expected_trimmed = expected.trim_end();
 

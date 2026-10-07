@@ -27,6 +27,22 @@
 //      backend divergence cannot land silently). Known divergences are
 //      reported honestly — the corpus is NOT tuned to green.
 //
+// ── №621 (gh#1084): the generator produces the №612 class ──────────
+//
+// The unified audit of e40ce8e (Z-1) finding: the generator produced
+// loops ONLY as the fixed let-bodies (and the each string carried
+// doubled braces — the branch never parsed, inert), so the №612 class
+// (a loop-body call with a non-Unit result read as an early Return)
+// was INVISIBLE to the diff harness — the defect was found by the
+// Камертон matrix, not by the fuzzer. The repair: the loop bodies now
+// generate the bare calls (`len`, `to_string`, the user pattern ph
+// with the non-Unit return), the «call; assignment» mixtures, the
+// code after the loop, and the nested shapes (loops inside if/else
+// branches, a while containing an each). The mutation probe (the
+// №503/№618 procedure): on the REVERTED №612 fix the new forms MUST
+// diverge (the run goes red); on the fixed main — green. The probe
+// table lives in the №621 PR report.
+//
 // The generator choice is deliberate (the naryad allows either):
 // proptest-over-AST was rejected because the minimization and the
 // reproducibility we need are simpler over the checked-in template
@@ -127,28 +143,63 @@ fn gen_expr(rng: &mut Rng, vars: &[String], depth: u32) -> String {
                 .last()
                 .cloned()
                 .unwrap_or_else(|| "\"seed\"".to_string()),
-            _ => rng.pick(WORDS).to_string(),
+            // №621 repair: the bare GREEK ident (undefined — never
+            // declared) made the №617 static undefined-variable scan
+            // refuse EVERY program carrying it (the sweep ran vacuously
+            // green — comparing refusals, not executions). A declared
+            // local is picked when one exists; every 8th pick stays the
+            // undefined ident so the [UNDEFINED_VARIABLE] error-class
+            // lane keeps its coverage (deterministic per seed).
+            _ => {
+                if !vars.is_empty() && rng.below(8) != 0 {
+                    vars[rng.below(vars.len() as u64) as usize].clone()
+                } else {
+                    rng.pick(WORDS).to_string()
+                }
+            }
         };
     }
     match rng.below(8) {
-        0 => format!(
-            "{} + {}",
-            gen_expr(rng, vars, depth - 1),
-            gen_expr(rng, vars, depth - 1)
-        ),
+        // №621 repair: the additions are TYPE-SAFE — the String lane
+        // concats through to_string() (the №479 heterogeneous-'+' refusal
+        // made every mixed-operand program a same-class refusal, the
+        // vacuous-sweep contributor); the numeric lane adds the len()
+        // counts (Float + Float). The equality conditions compare
+        // to_string()-wrapped operands (the String == String form; the
+        // heterogeneous Eq is the №629 refusal class — both backends
+        // refuse it, the program never executes).
+        0 => {
+            if rng.below(2) == 0 {
+                format!(
+                    "to_string({}) + to_string({})",
+                    gen_expr(rng, vars, depth - 1),
+                    gen_expr(rng, vars, depth - 1)
+                )
+            } else {
+                format!(
+                    "len([{}]) + len([{}])",
+                    gen_expr(rng, vars, depth - 1),
+                    gen_expr(rng, vars, depth - 1)
+                )
+            }
+        }
         1 => format!(
-            "if {} == {} then {} else {}",
+            "if to_string({}) == to_string({}) then to_string({}) else to_string({})",
             gen_expr(rng, vars, depth - 1),
             gen_expr(rng, vars, depth - 1),
             gen_expr(rng, vars, depth - 1),
             gen_expr(rng, vars, depth - 1)
         ),
+        // №621 repair: the string ops take the to_string()-wrapped
+        // argument (the bare Float argument was a same-class refusal —
+        // the vacuous-sweep contributor); len() measures the to_string()
+        // form (the List form lives in the 5 arm).
         2 => format!(
-            "{}({})",
+            "{}(to_string({}))",
             rng.pick(BUILTIN_STRING_OPS),
             gen_expr(rng, vars, depth - 1)
         ),
-        3 => format!("len({})", gen_expr(rng, vars, depth - 1)),
+        3 => format!("len(to_string({}))", gen_expr(rng, vars, depth - 1)),
         4 => format!("to_string({})", gen_expr(rng, vars, depth - 1)),
         5 => {
             let n = 2 + rng.below(3);
@@ -156,7 +207,7 @@ fn gen_expr(rng: &mut Rng, vars: &[String], depth: u32) -> String {
             format!("len([{}])", items.join(", "))
         }
         6 => format!(
-            "{}({})",
+            "{}(to_string({}))",
             rng.pick(BUILTIN_STRING_OPS),
             gen_expr(rng, vars, depth - 1)
         ),
@@ -172,38 +223,108 @@ fn gen_stmts(rng: &mut Rng, vars: &mut Vec<String>, _depth: u32, budget: &mut u3
             break;
         }
         *budget -= 1;
-        match rng.below(6) {
+        match rng.below(8) {
             0 => {
                 let v = format!("v{}", rng.alnum(3));
                 out.push(format!("let {} = {}", v, gen_expr(rng, vars, 2)));
                 vars.push(v);
             }
-            1 => out.push(format!(
-                "if {} == {} {{\n  {}let m = \"eq\"\n}} else {{\n  {}let m = \"ne\"\n}}",
-                gen_expr(rng, vars, 1),
-                gen_expr(rng, vars, 1),
-                "",
-                ""
-            )),
-            2 => {
-                out.push(
-                    "each item in [\"a\", \"b\", \"c\"] {{\n  let acc = len(item)\n}}".to_string(),
+            1 => {
+                // №621: the if/else branch bodies are not only flat lets —
+                // the loop shapes (the №612 class) also generate NESTED in
+                // a block form, not only at the top statement level.
+                let cond = format!(
+                    "to_string({}) == to_string({})",
+                    gen_expr(rng, vars, 1),
+                    gen_expr(rng, vars, 1)
                 );
+                match rng.below(3) {
+                    0 => out.push(format!(
+                        "if {cond} {{\n  let m = \"eq\"\n}} else {{\n  let m = \"ne\"\n}}"
+                    )),
+                    1 => out.push(format!(
+                        "if {cond} {{\n  each item in [\"a\", \"b\"] {{\n    len(item)\n  }}\n  let m = \"eq\"\n}} else {{\n  let m = \"ne\"\n}}"
+                    )),
+                    _ => out.push(format!(
+                        "if {cond} {{\n  let m = \"eq\"\n}} else {{\n  let g = 0\n  while g < 2 {{\n    let g = g + 1\n  }}\n  let m = \"ne\"\n}}"
+                    )),
+                }
+            }
+            2 => {
+                // №621: the each family is LIVE now — the historical string
+                // carried DOUBLED braces (`{{` via .to_string()) and the
+                // each never parsed (the branch was inert: every program
+                // carrying it was refused by BOTH backends with the same
+                // parse error, zero diff coverage). Three bodies: the
+                // historical let body; the BARE CALL last (the №612
+                // trigger shape — a non-Unit call result as the body's
+                // last statement); the user-pattern call with the
+                // non-Unit return (ph is defined before pa in
+                // gen_program, so the call resolves).
+                match rng.below(3) {
+                    0 => out.push(
+                        "each item in [\"a\", \"b\", \"c\"] {\n  let acc = len(item)\n}"
+                            .to_string(),
+                    ),
+                    1 => {
+                        out.push("each item in [\"a\", \"b\", \"c\"] {\n  len(item)\n}".to_string())
+                    }
+                    _ => {
+                        out.push("each item in [\"a\", \"b\", \"c\"] {\n  ph(item)\n}".to_string())
+                    }
+                }
             }
             3 => {
+                // №621: the while family — the historical let body; the
+                // body with a BARE CALL after the progression (still
+                // terminating); the CODE AFTER THE LOOP (a bare call / an
+                // assignment following the while in the same pushed
+                // block — the tail the №612 defect used to cut).
                 let var = format!("w{}", rng.alnum(2));
                 vars.push(var.clone());
-                out.push(format!(
-                    "let {var} = \"\"\nlet guard = 0\nwhile guard < 3 {{\n  let guard = guard + 1\n}}"
-                ));
+                match rng.below(3) {
+                    0 => out.push(format!(
+                        "let {var} = \"\"\nlet guard = 0\nwhile guard < 3 {{\n  let guard = guard + 1\n}}"
+                    )),
+                    1 => out.push(format!(
+                        "let {var} = \"\"\nlet guard = 0\nwhile guard < 3 {{\n  let guard = guard + 1\n  to_string(guard)\n}}\nto_string(guard)"
+                    )),
+                    _ => out.push(format!(
+                        "let mut {var} = \"\"\nlet guard = 0\nwhile guard < 3 {{\n  let guard = guard + 1\n  len(\"xy\")\n}}\n{var} = to_string(guard)"
+                    )),
+                }
             }
             4 => {
                 let name = rng.alnum(2);
                 out.push(format!("let s{name} = {}", gen_expr(rng, vars, 2)));
             }
-            _ => {
+            5 => {
                 let name = rng.alnum(2);
                 out.push(format!("let t{name} = {}", gen_expr(rng, vars, 1)));
+            }
+            6 => {
+                // №621: the «call; assignment» mixture inside the loop
+                // body — acc is declared BEFORE the loop and ASSIGNED
+                // inside it (the assignment resets the implicit value —
+                // the №612 etalon; `let mut` — the language's assignment
+                // contract), the bare call sits between the statements as
+                // the trigger; the code AFTER the loop reads the
+                // accumulator, so the loop's completion is observable in
+                // the diffed output.
+                out.push(
+                    "let mut acc = 0\neach item in [\"a\", \"bc\", \"def\"] {\n  len(item)\n  acc = len(item)\n}\nto_string(acc)"
+                        .to_string(),
+                );
+            }
+            _ => {
+                // №621: the nested loop — a bounded while containing an
+                // each whose body ENDS with the bare call (the №612 class
+                // at the nesting depth 2 — inside a loop, inside a
+                // pattern body; not only at the top statement level).
+                out.push(
+                    "let outer = 0\nwhile outer < 2 {\n  each item in [\"a\", \"b\"] {\n    len(item)\n  }\n  let outer = outer + 1\n}\nto_string(outer)"
+                        .to_string(),
+                );
             }
         }
     }
@@ -255,6 +376,12 @@ fn gen_program(seed: u64) -> String {
         rule_op, rule_threshold
     ));
 
+    // №621: the helper pattern with the NON-UNIT return — the generated
+    // loop bodies call it (the «user pattern with a non-Unit return»
+    // shape of the №612 class). Defined BEFORE pa so the call resolves
+    // on both backends.
+    src.push_str("\npattern ph(q: String) -> String { return \"h:\" + q }\n");
+
     // Pattern A: pure transformation (calls the string/math ops).
     // №510: pfzf heads the pipeline — it renders the rule-written flag
     // (flow-input binding reads fzr.flag AFTER the rules execute) so the
@@ -265,7 +392,13 @@ fn gen_program(seed: u64) -> String {
     for st in gen_stmts(&mut rng, &mut vars, 2, &mut budget) {
         src.push_str(&format!("  {}\n", st.replace('\n', "\n  ")));
     }
-    src.push_str(&format!("  return {}\n}}\n", gen_expr(&mut rng, &vars, 2)));
+    // №621 repair: the return is to_string()-wrapped — the pattern's
+    // declared result is String, a bare numeric expr was a same-class
+    // refusal (the vacuous-sweep contributor).
+    src.push_str(&format!(
+        "  return to_string({})\n}}\n",
+        gen_expr(&mut rng, &vars, 2)
+    ));
 
     // Pattern B: the STATEFUL group — memory ops (the transfer-priority
     // group the report proposes from the №462 artifact data).
@@ -282,14 +415,21 @@ fn gen_program(seed: u64) -> String {
     ));
     src.push_str("  let r1 = memory_read(mem, \"k1\")\n");
     src.push_str("  let n1 = len(memory_keys(mem))\n");
-    src.push_str("  memory_forget(mem, \"k2\")\n");
+    // №621 repair: the group called the LEGACY 2-arg memory_forget — the
+    // surface №280 re-locked to (db_path, table, query, threshold,
+    // max_forget[, dry_run[, ids]]), so EVERY generated program has been
+    // refused identically by the №523 gate since then (the fuzzer ran
+    // vacuously green — comparing refusals, not executions; the liveness
+    // ratchet below pins this shut). The consent-free 2-arg single-key
+    // forget on the container surface is memory_release (Unit).
+    src.push_str("  memory_release(mem, \"k2\")\n");
     src.push_str("  let n2 = len(memory_keys(mem))\n");
     let mut vars = vec!["y".to_string(), "r1".to_string()];
     for st in gen_stmts(&mut rng, &mut vars, 1, &mut budget) {
         src.push_str(&format!("  {}\n", st.replace('\n', "\n  ")));
     }
     src.push_str(&format!(
-        "  return r1 + \":\" + to_string(n1) + \":\" + to_string(n2) + \":\" + {}\n}}\n",
+        "  return r1 + \":\" + to_string(n1) + \":\" + to_string(n2) + \":\" + to_string({})\n}}\n",
         gen_expr(&mut rng, &vars, 1)
     ));
 
@@ -1694,4 +1834,52 @@ fn n479_node_map_is_pinned() {
         "binary_op"
     );
     assert_eq!(err_node("smtp_send: SMTP_HOST env not set"), "other");
+}
+
+// ── №621: the LIVENESS ratchet ──────────────────────────────────────
+//
+// The unified audit of e40ce8e + the №621 execution finding: a diff
+// fuzzer whose programs are ALL refused identically compares REFUSALS,
+// not executions — the harness is vacuous by construction (the №612
+// harness lesson, the fuzzer twin). The sweep went vacuously green at
+// least twice (the legacy 2-arg memory_forget call since the №280
+// surface re-lock; the bare greek idents since the №617 static scan)
+// and NOTHING noticed — the divergence classes were invisible to CI.
+// The ratchet: a healthy fraction of the generated programs must
+// EXECUTE on BOTH backends. The floor is conservative and only-up
+// (the ratchet discipline: never lowered; raised by a PR that grows
+// the executable coverage).
+#[test]
+fn n621_sweep_liveness_ratchet() {
+    let _env = lock_env();
+    std::env::remove_var("SMTP_HOST");
+    std::env::remove_var("SMTP_USER");
+    std::env::remove_var("SMTP_PASS");
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
+    std::env::remove_var("METALOGOS_MOCK_LLM_FAULT");
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let iters = iterations().min(150);
+    let mut both_ok = 0u32;
+    for i in 0..iters as u64 {
+        let src = gen_program(0x4e34_6546_0000_0000u64 + i);
+        let tw = run_tw(&src, &repo);
+        let vm = run_vm(&src, &repo);
+        if tw.is_ok() && vm.is_ok() {
+            both_ok += 1;
+        }
+    }
+    // The measured post-repair floor: 60% of the sweep executes. A drop
+    // below it means the generator started producing refusals again —
+    // fix the generator, never lower this floor.
+    let floor = (iters * 60) / 100;
+    assert!(
+        both_ok >= floor,
+        "the sweep executes only {} of {} programs (the floor {}) — \
+         the generator produces refusals, not programs; the diff harness \
+         is vacuous (the №621 lesson). Repair the generator's ops against \
+         the CURRENT builtin surfaces, never lower this floor.",
+        both_ok,
+        iters,
+        floor
+    );
 }

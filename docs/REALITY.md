@@ -1322,3 +1322,107 @@ reproduces it):**
   consumer (the bare non-Unit call as the construct's last statement +
   the code after the construct) run the production order of BOTH
   backends — 6/6 green; the full suite green.
+
+### 6.20. Wave 34 post-wave record (naryad №625): the verdict-execution wave after the В34 dispatch (main @ `2b6dec96`, 2026-10-07)
+
+Protocol: №414/№318/№576/№579/№589/№596 — the same machines, no
+hand-written numbers. The honest headline: В34 executed the OWNER's
+2026-10-07 verdict («принимаю форму довеска В34 как основу, значение
+доли параметризованных фиксирую X%…» — the "X%" resolved to the
+addendum's draft benchmark ≥ 50% of 84, recorded verbatim in the gate
+file) and the dispatch gh#1089 queue — and the wave's two testing
+naryads (№621/№622) each surfaced a REAL latent defect that a repair
+naryad fixed in the same wave (№629, №622's own finding):
+
+- №626 (gh#1093) — the 0.30 gate draft synced with the В34 addendum: the
+  typed parameter = the parameterized share among List/Struct (the draft
+  benchmark ≥ 50% of 84), the typed/precise goals demoted to the
+  ratchet-records (Z-2), the branch-protection-audit GREEN draft
+  criterion, the X-3 start anchor rebound to gh#1086; the owner's
+  verdict recorded VERBATIM; owner_fixed stays false (the §5 transition
+  = №628, gh#1111, blocked by gh#1000 — the OWNER's admin gate).
+- №620 (gh#1083) — the Security addendum to the PUBLISHED 0.29.0: the
+  `### Security (ADVISORY — restart your tests)` section in the
+  CHANGELOG `[0.29.0]` and the SAME block appended verbatim to the
+  GitHub release body (the script-verified identity, the idempotent
+  re-run); the tag and the assets NOT re-created. The №604 dictionary
+  class: a return INVENTED by the implicit block value — the mirror of
+  «a respond*/deny*/return being IGNORED».
+- №621 (gh#1084) — the diff fuzzer produces the №612 class AND the
+  honest finding: **the sweep was VACUOUSLY GREEN — 0 of 150 programs
+  executed** (the legacy 2-arg `memory_forget` against the №280
+  surface; the bare greek idents against the №617 static scan; the
+  heterogeneous `+`/`==`; the each branch dead since birth — the `{{`
+  string never parsed). Repaired: the typed-safe generator, the live
+  each family, the №612-class shapes (the bare-call loop bodies, the
+  call-assignment mixtures, the code after the loop, the nested forms),
+  and the **permanent LIVENESS ratchet** (`n621_sweep_liveness_ratchet`:
+  ≥ 60% of the sweep must execute on BOTH backends, the floor only-up).
+  The mutation probe (№503/№618 procedure): the reverted №612 → RED
+  (the direct probe: `bare_each`/`nested` tw=`"1"` vs vm=`"tail"`; the
+  full sweep — the un-pinnable outcome divergences), the fixed main →
+  GREEN.
+- №629 (gh#1096, the repair naryad born from the №621 un-vacuumed sweep)
+  — the VM comparison parity: `eval_cmp` mirrors the TW matrix 1:1 (the
+  heterogeneous Eq and the non-Float ordering REFUSE on the VM now — the
+  legacy silent `false` and the numeric-string coercion closed in the
+  fail-closed direction, the №479 `+` precedent; `Unit == Unit` → true
+  on both). The `Instruction` set unchanged for this fix.
+- №622 (gh#1085) — the implicit-block-value class scan OUTSIDE the
+  loops: the verdict table (match arms / if-without-else / if-else —
+  DISCARDED via `eval_block!`; `Expr::MatchExpr` — DESIGNATED;
+  `Sandbox`/`Flow` — **N/A**: no statement body exists in the grammar).
+  The scan FOUND the parity gap: `return` inside a value-channel arm
+  body was captured by the TW but TERMINATED the pattern on the VM —
+  fixed in the same honest class (`Instruction::SetValueReg` — the
+  UNCONDITIONAL value-register store, the `eval_statements` flatten
+  contract, Unit included; appended at the enum end — the wire format
+  stable).
+- №623 (gh#1086) — the parameterized signatures stage-0: `Struct<...>`
+  erasure in `from_path` (symmetric to List), the FIRST HONEST PACKAGE
+  of 7 verified rows (weather `Struct<Weather>`, weather_forecast
+  `List<DayForecast>`, geo_ip `Struct<GeoLocation>`, form_data
+  `Struct<FormData>`, json_body `Struct<JsonBody>`, llm_usage
+  `Struct<LlmUsage>`, mcp_list_tools `List<Tool>` — the handler-read
+  table; the honest exclusions: respond/respond_html/query — opaque),
+  and the **THIRD metric**: the parameterized share among the List/Struct
+  rows (7/91 = 769 bp — the baseline + the in-tree lock through
+  `BuiltinSpec::parameterized` + `path_is_parameterized`, the enum stays
+  erased). The floors raised in the same PR (№757): the general 5852 →
+  5988 bp, TYPED_FLOOR 298 → 305; the precise share UNTOUCHED (Z-2).
+- №624 (gh#1087) — ADR-0187 (Proposed): the memory-phase plan (D1 the
+  KNN recall reference over the #272 infra, D2 the forget↔recall
+  consistency invariant, D3 the ADR-0185 container-form decision slot,
+  D4 the consent-propagation design, D5 the memory e2e inventory; the
+  §13 parity posture: TW+VM, JIT out per ADR-0073; owner_fixed: false).
+  The rider: the ADR-0186 index row (the №615 gap).
+- №625 (gh#1088) — this sync, strictly last.
+
+**The Wave 34 counters (every value from its machine, the command
+reproduces it):**
+
+| Counter | Value | Machine | Movement |
+|---|---|---|---|
+| Typed-signature share (№467) | **309/516 = 5988 bp** | `python3 scripts/ci/type_signature_share.py --gate scripts/ci/type_signature_baseline.txt` | **moved** (302/516 = 5852 → 309/516 = 5988, №623 — the 7 parameterized rows) |
+| Precise typed share (№560) | **218/516 = 4224 bp** | `… --gate scripts/ci/type_signature_precise_baseline.txt --precise` | unchanged (the Z-2 verdict: the scalar movement STOPPED — gh#1077 superseded) |
+| **Parameterized share (№623 — the NEW third metric)** | **7/91 = 769 bp** | `… --parameterized --gate scripts/ci/type_signature_parameterized_baseline.txt` | **new** (0/84 at the audit t94 → 7/91 — the first honest package) |
+| In-tree locks | **TYPED_FLOOR 305, PARAM_FLOOR 7/87** | `cargo test --test type_signature_metric` | **moved** (+7 compiled typed; the new parameterized lock) |
+| `#[ignore]` debt (№468) | **14** (TODO: 0) | `python3 scripts/ci/debt_counters.py --gate scripts/ci/debt_baseline.txt` | unchanged |
+| `dead_code` (№468) | **33** | same gate | unchanged |
+| TW/VM duplicated builtin names (№462) | **0** (the quorum 0/8 groups) | `python3 scripts/ci/count_duplicated_names.py --quorum` | unchanged |
+| Registered mirrors (№502/№564) | **6** | `python3 scripts/ci/mirror_counter.py` | unchanged |
+| ADR count | **179** (the generated README row) | `python3 scripts/gen_metrics.py --check` | **moved** (+1: ADR-0187) |
+| Blocking-checks cells | **31** | `python3 scripts/ci/blocking_checks_sync.py --count` | unchanged |
+| The fuzzer liveness (№621 — the NEW ratchet) | **≥ 60% of the sweep executes on BOTH backends** (the floor) | `cargo test --test naryad_465_diff_fuzzer` | **new** (the vacuous-sweep lesson — the harness that refuses everything compares nothing) |
+| The release state | **0.29.0 PUBLISHED** — the Security ADVISORY appended to the release body (№620), the tag/assets unchanged | the API + `python3 /home/z/my-project/scripts/n620_release_body.py` (the idempotency check) | unchanged |
+
+**The owner gates remaining after В34:** gh#1000 (the branch protection —
+blocks №628, the §5 fixation), the parameterized-share value if ≠ ≥ 50%
+of 84 (the §5 path), the stage-2 enforcement verdict (К-Б — not filed),
+the ledger gh#967 §4–§7 (the revision 2026-10-15), the Камертон
+forwarding, NLnet M1 03.11.2026. The wave-35 registered candidates:
+№627 (gh#1110, the field-label metadata — the stage-2 prep), №628
+(gh#1111, the §5 fixation).
+
+**The wave report line (№608/№470):**
+`naryad-quota (№470/№608): 11 naryads — domain 1/11 = 9.1% — PASS (the standing limiter <= 1/3)`

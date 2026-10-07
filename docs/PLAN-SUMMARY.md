@@ -73,7 +73,35 @@ they reside in the canon held by the coordinator (§16.0-7).
 - C2PA mini-slice: manifest read/write, Art 50 labeling — a narrow slice (#320).
 - Completion-audits of Wave 0 — accepted (gh#404–#406).
 
-## Current wave — Wave 33 (the ПСРМ development after the 0.29.0 release, the dispatch gh#1080, 2026-10-06)
+## Current wave — Wave 34 (the verdict-execution wave, the dispatch gh#1089, 2026-10-07)
+
+The OWNER's 2026-10-07 verdict executed («принимаю форму довеска В34
+как основу…» — the verbatim record in the 0.30 gate file) plus the
+dispatch queue. Executed: №626 (gh#1093) — the 0.30 gate draft synced
+with the В34 addendum (the typed parameter = the parameterized share
+among List/Struct, the benchmark ≥ 50% of 84; the Z-2 ratchet demotion;
+the owner's verdict verbatim); №620 (gh#1083) — the Security ADVISORY
+appended to the published 0.29.0 (the CHANGELOG + the release body
+verbatim; the tag/assets untouched); №621 (gh#1084) — the fuzzer
+produces the №612 class AND the honest finding: the sweep was vacuously
+green (0/150 executed) — repaired + the permanent LIVENESS ratchet (≥
+60% both-backend); №629 (gh#1096) — the repair born from that finding:
+the VM comparison parity (the heterogeneous Eq and the non-Float
+ordering refuse on the VM — the silent `false` closed fail-closed);
+№622 (gh#1085) — the implicit-block-value class scan (sandbox/flow —
+N/A: no statement body in the grammar) + the parity fix: `return`
+inside a value-channel arm is CAPTURED on the VM now
+(`Instruction::SetValueReg`); №623 (gh#1086) — the parameterized
+signatures stage-0 (`List<T>`/`Struct<Name>`; the 7 verified rows; the
+THIRD metric 7/91 = 769 bp; the floors raised: general 5988, precise
+untouched per Z-2); №624 (gh#1087) — ADR-0187 (Proposed): the
+memory-phase plan; №625 (gh#1088) — this sync, strictly last. The owner
+gates remaining: gh#1000 (branch protection — blocks №628, the §5
+fixation), the stage-2 enforcement (ADR-0178), the ledger gh#967
+§4–§7, the Камертон forwarding, NLnet M1 03.11.2026. The wave-35
+registered candidates: №627 (gh#1110), №628 (gh#1111).
+
+## Executed — Wave 33 (the ПСРМ development after the 0.29.0 release, the dispatch gh#1080, 2026-10-06)
 
 The first DEVELOPMENT wave after the В31 corrective + В32 release line
 (the owner's trigger: «Возвращаемся к Металогос, пиши следующую волну

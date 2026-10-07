@@ -9,6 +9,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 /// Instructions that are intentionally ONLY handled by `run()` and NOT by
 /// `execute_code()`. These represent top-level program constructs that
@@ -187,6 +188,13 @@ fn sidecar_env(mlog_path: &Path) -> Vec<(String, String)> {
         .collect()
 }
 
+/// №635: the two corpus sweeps mutate the PROCESS env (the sidecar
+/// set/remove cycles) — cargo test runs the file's tests on parallel
+/// threads sharing the process, so the sweeps serialize on this lock
+/// (the mutation-verified flake: two concurrent sweeps raced the
+/// sidecar vars).
+static ENV_LOCK: Mutex<()> = Mutex::new(());
+
 /// №635: the candle-feature-gated examples (reflex_seq/reflex_gen
 /// declarations refuse loudly without candle — fail-closed by design,
 /// execution.rs). The crosscheck job (and this sweep) run without
@@ -239,6 +247,7 @@ fn p4_vm_hello_matches_tw() {
 /// the frozen list below, the candle-tests job covers them).
 #[test]
 fn all_vm_examples_match_tree_walking() {
+    let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     // №253-А: p100_mcp_echo spawns the fixture MCP server (python3) —
     // the exec gate must be open for the corpus sweep (the crosscheck
     // precedent: tests/crosscheck_backends.rs sets the same var).
@@ -266,12 +275,21 @@ fn all_vm_examples_match_tree_walking() {
         let _expected = fs::read_to_string(expected_path)
             .unwrap_or_else(|e| panic!("cannot read {:?}: {}", expected_path, e));
 
+        // №385: the same sidecar env on BOTH backends — parity of the
+        // environment is part of the parity contract.
+        let env_vars = sidecar_env(mlog_path);
+        for (k, v) in &env_vars {
+            std::env::set_var(k, v);
+        }
         let vm_result = run_vm(&source, base_dir).unwrap_or_else(|e| {
             panic!("VM execution failed for {:?}: {}", mlog_path.file_name(), e)
         });
         let tw_result = run_tw(&source, base_dir).unwrap_or_else(|e| {
             panic!("TW execution failed for {:?}: {}", mlog_path.file_name(), e)
         });
+        for (k, _) in &env_vars {
+            std::env::remove_var(k);
+        }
 
         let vm_trimmed = trim_opt(&vm_result);
         let tw_trimmed = trim_opt(&tw_result);
@@ -306,6 +324,7 @@ fn all_vm_examples_match_tree_walking() {
 /// harness facts).
 #[test]
 fn all_vm_golden_tests_pass() {
+    let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     std::env::set_var("METALOGOS_ALLOW_EXEC", "1");
     // №635: the reflex_persist artifact directory (see the sweep comment).
     let _ = fs::create_dir_all("target/test_artifacts");

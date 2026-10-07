@@ -34,4 +34,12 @@
 #   (the first honest package: GeoLocation 9 fields, Weather 13,
 #   LlmUsage 6 — 28 verified field-label rows; the file facts in the
 #   registry comments + the naryad table)
-# threshold_bp: 1500
+# threshold_bp was 1500 — №637 (gh#1120, wave 36): field-label 23 | Struct rows: 40
+#   (the anti-dilution package: the 20 NEW parameterized Struct rows of
+#   the PDF contour arrive WITH well-formed field_meta in the same PR —
+#   the share RISES 1500 → 5750 bp, no dilution of the fourth metric;
+#   the classification per the №627 table: in-tree computation → internal
+#   (ok/id/page/counters), user-argument echo → untrusted (path fields),
+#   external PDF body → untrusted (PdfMetadata all 8); the compiled twin
+#   locks 23/39 — FIELDMETA_FLOOR 3 → 23 in the same PR)
+# threshold_bp: 5750

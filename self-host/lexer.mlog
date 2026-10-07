@@ -4,23 +4,23 @@ pattern Tokenize(src: String) -> String {
   let abc = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
   let d09 = "0123456789"
   let ops = ":=+-*/!(){}[],<>"
-  let kws = "entity,pattern,flow,let,return,if,then,else,while,each,in,import,rule"
+  let kws = "entity,pattern,flow,let,return,if,then,else,while,each,in,import,rule,input,output"
 
-  let r = ""
+  let mut r = ""
   let sl = len(src)
-  let i = 0.0
+  let mut i = 0.0
 
   while i < sl {
     let ch = char_at(src, i)
-    let sp = if ch == " " then 1.0 else 0.0
+    let sp = if ch == " " then 1.0 else if ch == nl then 1.0 else 0.0
     let lt = if index_of(abc, ch) > -1.0 then 1.0 else 0.0
     let dg = if index_of(d09, ch) > -1.0 then 1.0 else 0.0
     let in_ops = if index_of(ops, ch) > -1.0 then 1.0 else 0.0
     let is_qt = if sp == 0.0 then if lt == 0.0 then if dg == 0.0 then if in_ops == 0.0 then 1.0 else 0.0 else 0.0 else 0.0 else 0.0
 
-    let j = i
-    let tok = ""
-    let kind = ""
+    let mut j = i
+    let mut tok = ""
+    let mut kind = ""
 
     while if sp == 0.0 then if lt == 1.0 then if j < sl then if index_of(abc, char_at(src, j)) > -1.0 then 1.0 else 0.0 else 0.0 else 0.0 else 0.0 {
       j = j + 1.0
@@ -53,4 +53,16 @@ pattern Tokenize(src: String) -> String {
   }
 
   return substring(r, 0.0, len(r) - 1.0)
+}
+
+// ── Bootstrap entry point (№634) ───────────────────────────────────
+// The №455 sensitive-path deny-list refuses .mlog reads by default;
+// the self-host lexer is a legitimate, explicitly named reader — the
+// documented escape crane (Naryad #455 layer 3) allows the target
+// explicitly via METALOGOS_SENSITIVE_PATH_ALLOWLIST (the №197
+// parser.mlog pattern: the test sets both env vars).
+flow Main {
+  input: String = read_file(env("MLOG_LEXER_TARGET"))
+  -> Tokenize
+  -> output
 }

@@ -19,7 +19,14 @@ fn mlog_bin() -> String {
 }
 
 #[test]
-#[ignore = "Known issue gh#967 §5: the self-hosted lexer produces no output — needs investigation"]
+// №634 (gh#1102): the ignore is LIFTED — the diagnosis found the FIXTURE
+// drifted (not the language): (1) `let` without `mut` against the current
+// mutability discipline, (2) no entry-point flow (the stdin piping was
+// never a mechanism — `mlog run` prints the FLOW output), (3) the newline
+// fell into the quote-class (spurious STRING tokens on empty lines),
+// (4) the keyword list missed `input`/`output`. The fixture now follows
+// the №197 parser.mlog pattern (env target + read_file) and reproduces
+// examples/p4_self_host_lexer.expected byte-for-byte.
 fn self_host_lexer_tokenizes_m1_hello() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
     let project_dir = PathBuf::from(&manifest_dir);
@@ -45,29 +52,24 @@ fn self_host_lexer_tokenizes_m1_hello() {
         expected_path
     );
 
-    let input_content = fs::read_to_string(&input_path)
-        .unwrap_or_else(|e| panic!("cannot read {:?}: {}", input_path, e));
     let expected = fs::read_to_string(&expected_path)
         .unwrap_or_else(|e| panic!("cannot read {:?}: {}", expected_path, e));
 
-    // Run: mlog run self-host/lexer.mlog < input.mlog
-    let mut output = Command::new(mlog_bin())
+    // №634: the №197 parser.mlog invocation pattern — the target file
+    // rides the env var (stdin was never wired into `mlog run`); the
+    // №455 sensitive-path deny-list needs the explicit allowlist crane
+    // for the .mlog read.
+    let output_result = Command::new(mlog_bin())
         .arg("run")
         .arg(&lexer_path)
-        .stdin(Stdio::piped())
+        // №634: the RELATIVE target path — the file-I/O sandbox refuses
+        // absolute paths (the same shape the №197 test uses).
+        .env("MLOG_LEXER_TARGET", "examples/m1_hello.mlog")
+        .env("METALOGOS_SENSITIVE_PATH_ALLOWLIST", "m1_hello.mlog")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .spawn()
+        .output()
         .expect("failed to spawn mlog process");
-
-    // Write input to stdin
-    if let Some(stdin) = output.stdin.as_mut() {
-        stdin
-            .write_all(input_content.as_bytes())
-            .expect("failed to write to stdin");
-    }
-
-    let output_result = output.wait_with_output().expect("failed to wait for mlog");
 
     let stdout = String::from_utf8_lossy(&output_result.stdout);
     let stderr = String::from_utf8_lossy(&output_result.stderr);

@@ -98,7 +98,7 @@
 # follows the MACHINE fact, never the naryad's stale number.)
 
 dup_baseline: scripts/ci/tw_vm_dup_names_baseline.txt
-ignore: 14
+ignore: 13
 ignore_todo: 0
 dead_code: 15
 example_uncovered: 0
@@ -114,3 +114,8 @@ read_file_soft_missing: 0
 # reservations (video/posture modules, the SVG chart_* helpers, the
 # ADR-0052 parity slot, the Send probe, the test-only HMAC generator,
 # the unwired debug verifier) — each documented with its revisit date.
+# №634 (gh#1102, wave 35): the ignore floor 14 → 13 — the self-host
+# lexer test (ledger gh#967 §5) LIFTED green: the diagnosis found the
+# FIXTURE drifted (let-mut discipline, no entry flow, newline in the
+# quote class, the stale keyword list) — fixed in the fixture, the
+# language was never wrong. The §5 RESOLVED label lands with №636.

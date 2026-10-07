@@ -80,20 +80,24 @@ fn every_typed_signature_is_the_honest_parse_of_its_path() {
 // parameterized share ────────────────────────────────────────────────
 //
 // The in-tree twin of `scripts/ci/type_signature_parameterized_baseline.txt`
-// (`# threshold_bp: 3736` since №631): the share of the PARAMETERIZED rows
+// (`# threshold_bp: 6043` since №637): the share of the PARAMETERIZED rows
 // (`List<T>` / `Struct<Name>`) among the typed List/Struct rows. The
 // same two-locks discipline: the script counts the SOURCE rows, this
 // test counts the COMPILED specs — the locks cannot drift. Only-up, in
 // the same PR that parameterizes more rows (the №757 procedure). The
 // №631 second honest package: 27 verified rows of the registry-order
-// contour (the handler-read table in gh#1099) — the floor 7 → 31.
-const PARAM_FLOOR: usize = 31;
+// contour (the handler-read table in gh#1099) — the floor 7 → 31. The
+// №637 third honest package: the PDF contour — 20 verified Struct rows
+// (with field_meta, the anti-dilution rule) + pdf_extract_images
+// List<String> (the handler-read table in gh#1120) — 52/87 = 5977 bp
+// compiled, the floor 31 → 52 — the 0.30 gate goal ≥ 5000 bp reached.
+const PARAM_FLOOR: usize = 52;
 /// The compiled denominator: 91 SOURCE List/Struct rows − the 4 gated
 /// vec/store rows (the same by-design source/compiled gap the TYPED_FLOOR
 /// comment documents — the gated rows are BARE List/Struct, so the
 /// compiled share reads HIGHER than the source share: 7/87 = 804 bp at
-/// №623, 31/87 = 3563 bp at №631 — the baseline file locks the source
-/// number, this test the compiled one).
+/// №623, 31/87 = 3563 bp at №631, 52/87 = 5977 bp at №637 — the baseline
+/// file locks the source number, this test the compiled one).
 const PARAM_LS_DENOM: usize = 87;
 
 #[test]
@@ -137,19 +141,22 @@ fn parameterized_signature_share_never_falls_below_the_floor() {
 // ── №627 (gh#1110): the FOURTH metric — the field-label share ───────
 //
 // The in-tree twin of `scripts/ci/type_signature_fieldmeta_baseline.txt`
-// (`# threshold_bp: 1500`): the share of the rows carrying the field-meta
-// section (`Struct<Name>{field:label,...}`) among the parameterized
-// Struct rows. The same two-locks discipline: the script counts the
-// SOURCE rows (20 Struct-param rows — the llm_usage cfg(llm) row rides
-// only there when the feature is on), this test counts the COMPILED
-// default-feature specs. Only-up, in the same PR that labels more fields
-// (the №757 procedure). The first honest package: GeoLocation/Weather/
-// LlmUsage — 28 verified field-label rows (the handler-read table in the
-// naryad gh#1110); the floor 0 → 3 compiled rows.
+// (`# threshold_bp: 5750` since №637): the share of the rows carrying the
+// field-meta section (`Struct<Name>{field:label,...}`) among the
+// parameterized Struct rows. The same two-locks discipline: the script
+// counts the SOURCE rows (40 Struct-param rows — the llm_usage cfg(llm)
+// row rides only there when the feature is on), this test counts the
+// COMPILED default-feature specs. Only-up, in the same PR that labels
+// more fields (the №757 procedure). The first honest package:
+// GeoLocation/Weather/LlmUsage — 28 verified field-label rows (the
+// handler-read table in the naryad gh#1110); the floor 0 → 3 compiled
+// rows. The №637 package: the 20 PDF Struct rows arrive WITH their
+// field_meta sections in the same PR (the anti-dilution rule — no
+// parameterized Struct row lands bare), the floor 3 → 23.
 //
 // BuiltinSpec.field_meta is the registry SIDE-TABLE (the enum is NOT
 // extended — stage-2 minimality); parse_field_meta is the consumer API.
-const FIELDMETA_FLOOR: usize = 3;
+const FIELDMETA_FLOOR: usize = 23;
 
 #[test]
 fn field_label_share_never_falls_below_the_floor() {
@@ -178,10 +185,11 @@ fn field_label_share_never_falls_below_the_floor() {
     );
     // The denominator lock: the parameterized-Struct base must not shrink
     // (the same №623 discipline — a coarse row typed away is a fact
-    // change; record it in the naryad, then move this const).
+    // change; record it in the naryad, then move this const). The №637
+    // fact: 39 compiled Struct-param rows (40 source − llm_usage cfg(llm)).
     assert!(
-        structs >= 19,
-        "the parameterized-Struct denominator shrank: {} < 19 (№627: the \
+        structs >= 39,
+        "the parameterized-Struct denominator shrank: {} < 39 (№627: the \
          base the field-label share is computed over must not shrink)",
         structs
     );

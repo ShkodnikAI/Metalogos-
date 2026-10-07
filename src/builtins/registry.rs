@@ -544,21 +544,21 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("squeeze", 2, "string"; builtin_squeeze, "String"),
     spec!("to_int", 1, "string"; builtin_to_int, "Float"), // parse string/float to integer
     // ── PDF processing (Наряд №48) ──
-    spec!("pdf_classify", 1, "pdf"; builtin_pdf_classify, "List"), // №543: the pdf.rs make_dict — a List of String keys/values (verified pdf.rs:363-371)
-    spec!("pdf_to_markdown", 1, "pdf"; builtin_pdf_to_markdown, "List"), // №543: the same make_dict shape (verified)
-    spec!("pdf_extract_regions", 2, "pdf"; builtin_pdf_extract_regions, "List"), // №543: the region structs vector (verified)
-    spec!("pdf_ocr", 1, "pdf"; builtin_pdf_ocr, "List"), // №543: the make_dict shape (verified) // ── PDF creation & manipulation (Наряд MLG-1; builtin_pdf_ocr) ──
-    spec!("pdf_create", 0, "pdf"; builtin_pdf_create, "Struct"), // → { id } — №543: the PdfDocId make_struct (verified)
-    spec!("pdf_add_page", 3, "pdf"; builtin_pdf_add_page, "Struct"), // id, width, height — №543: the PdfPage make_struct (verified)
-    spec!("pdf_write_text", 4, 6, "pdf"; builtin_pdf_write_text, "Struct"), // id, x, y, text [,font, size] — №543: the PdfResult make_struct (verified)
-    spec!("pdf_draw_line", 5, 6, "pdf"; builtin_pdf_draw_line, "Struct"), // id, x1, y1, x2, y2 [,width] — №543: the PdfResult make_struct (verified)
-    spec!("pdf_draw_rect", 5, 7, "pdf"; builtin_pdf_draw_rect, "Struct"), // id, x, y, w, h [,stroke, fill] — №543: the PdfResult make_struct (verified)
-    spec!("pdf_save", 2, "pdf"; builtin_pdf_save, "Struct"), // id, path — №543: the PdfFile make_struct (verified)
-    spec!("pdf_merge", 2, "pdf"; builtin_pdf_merge, "Struct"), // paths_json, output — №543: the PdfMerge make_struct (verified)
-    spec!("pdf_split", 3, "pdf"; builtin_pdf_split, "Struct"), // path, ranges_json, output_dir — №543: the PdfSplit make_struct (verified)
-    spec!("pdf_metadata", 1, "pdf"; builtin_pdf_metadata, "Struct"), // path — №543: the PdfMetadata make_struct (verified)
-    spec!("pdf_set_metadata", 3, "pdf"; builtin_pdf_set_metadata, "Struct"), // path, key, value — №543: the PdfResult make_struct (verified)
-    spec!("html_to_pdf", 2, "pdf"; builtin_html_to_pdf, "Struct"), // html, path — №543: the PdfFile make_struct (verified)
+    spec!("pdf_classify", 1, "pdf"; builtin_pdf_classify, "List"), // №543: the pdf.rs make_dict — a List of String keys/values (verified pdf.rs:363-371); №637: stays bare — the flat [String,Float,List,Float] is heterogeneous, no honest element type (№616 honest Unknown)
+    spec!("pdf_to_markdown", 1, "pdf"; builtin_pdf_to_markdown, "List"), // №543: the same make_dict shape (verified); №637: stays bare — the flat mixed-type pairs, no honest element type (№616)
+    spec!("pdf_extract_regions", 2, "pdf"; builtin_pdf_extract_regions, "List"), // №543: the region structs vector (verified); №637: stays bare — a List of flat pseudo-dict lists (heterogeneous key/value pairs), no honest element type (№616)
+    spec!("pdf_ocr", 1, "pdf"; builtin_pdf_ocr, "List"), // №543: the make_dict shape (verified); №637: stays bare — the flat mixed-type pairs, no honest element type (№616) // ── PDF creation & manipulation (Наряд MLG-1; builtin_pdf_ocr) ──
+    spec!("pdf_create", 0, "pdf"; builtin_pdf_create, "Struct<PdfDocId>{id:internal}"), // → { id } — №543: the PdfDocId make_struct (verified); №637: PdfDocId{ id } (pdf.rs:591) — the id computed in-tree (uuid v4) → internal
+    spec!("pdf_add_page", 3, "pdf"; builtin_pdf_add_page, "Struct<PdfPage>{page:internal}"), // id, width, height — №543: the PdfPage make_struct (verified); №637: PdfPage{ page } (pdf.rs:629-632) — the 1-based page count computed in-tree → internal
+    spec!("pdf_write_text", 4, 6, "pdf"; builtin_pdf_write_text, "Struct<PdfResult>{ok:internal}"), // id, x, y, text [,font, size] — №543: the PdfResult make_struct (verified); №637: PdfResult{ ok } (pdf.rs:687) — the constant true → internal
+    spec!("pdf_draw_line", 5, 6, "pdf"; builtin_pdf_draw_line, "Struct<PdfResult>{ok:internal}"), // id, x1, y1, x2, y2 [,width] — №543: the PdfResult make_struct (verified); №637: PdfResult{ ok } (pdf.rs:730)
+    spec!("pdf_draw_rect", 5, 7, "pdf"; builtin_pdf_draw_rect, "Struct<PdfResult>{ok:internal}"), // id, x, y, w, h [,stroke, fill] — №543: the PdfResult make_struct (verified); №637: PdfResult{ ok } (pdf.rs:780)
+    spec!("pdf_save", 2, "pdf"; builtin_pdf_save, "Struct<PdfFile>{path:untrusted,size:internal}"), // id, path — №543: the PdfFile make_struct (verified); №637: PdfFile{ path, size } (pdf.rs:818-821) — path echoes the user argument → untrusted, size computed in-tree → internal
+    spec!("pdf_merge", 2, "pdf"; builtin_pdf_merge, "Struct<PdfMerge>{path:untrusted,pages:internal,size:internal}"), // paths_json, output — №543: the PdfMerge make_struct (verified); №637: PdfMerge{ path, pages, size } both arms (pdf.rs:1989-1994, 2164-2170) — path echoes the output argument, pages/size computed
+    spec!("pdf_split", 3, "pdf"; builtin_pdf_split, "Struct<PdfSplit>{files:untrusted,pages:internal}"), // path, ranges_json, output_dir — №543: the PdfSplit make_struct (verified); №637: PdfSplit{ files, pages } (pdf.rs:2261-2264) — the file paths embed the user-supplied output_dir → untrusted, pages computed
+    spec!("pdf_metadata", 1, "pdf"; builtin_pdf_metadata, "Struct<PdfMetadata>{title:untrusted,author:untrusted,subject:untrusted,creator:untrusted,producer:untrusted,pages:untrusted,created:untrusted,modified:untrusted}"), // path — №543: the PdfMetadata make_struct (verified); №637: PdfMetadata{ 8 fields } (pdf.rs:2345-2356) — every field read off the EXTERNAL PDF body → untrusted
+    spec!("pdf_set_metadata", 3, "pdf"; builtin_pdf_set_metadata, "Struct<PdfResult>{ok:internal}"), // path, key, value — №543: the PdfResult make_struct (verified); №637: PdfResult{ ok } (pdf.rs:2431)
+    spec!("html_to_pdf", 2, "pdf"; builtin_html_to_pdf, "Struct<PdfFile>{path:untrusted,size:internal}"), // html, path — №543: the PdfFile make_struct (verified); №637: PdfFile{ path, size } both arms (pdf.rs:2458-2468) — path echoes the user argument, size computed
     spec!("send_document", 2, 3, "bot" => "ext"; builtin_send_document), // chat_id, file_path [,caption] — №543: Unknown honest — String | Unit (no-token fallback), same env-dependent split as send_message
     // ── Crypto: SHA-256 / HMAC (Наряд №50 Block 3) ──
     spec!("sha256", 1, "crypto"; builtin_sha256, "String"),
@@ -571,16 +571,16 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("regex_match", 2, "string"; builtin_regex_match, "Bool"),
     spec!("regex_captures", 2, "string"; builtin_regex_captures, "List"),
     spec!("regex_replace", 3, "string"; builtin_regex_replace, "String"), // ── PDF office automation (Наряд MLG-3; builtin_regex_replace) ──
-    spec!("pdf_draw_table", 5, 6, "pdf"; builtin_pdf_draw_table, "Struct"), // id, x, y, col_widths_json, rows_json [,style_json] — №543: the PdfResult make_struct (verified)
-    spec!("pdf_add_image", 4, 6, "pdf"; builtin_pdf_add_image, "Struct"), // id, x, y, image_path [,width, height] — №543: the PdfResult make_struct (verified)
-    spec!("pdf_set_page_header", 2, 4, "pdf"; builtin_pdf_set_page_header, "Struct"), // id, text [,font, size] — №543: the PdfResult make_struct (verified)
-    spec!("pdf_set_page_footer", 2, 4, "pdf"; builtin_pdf_set_page_footer, "Struct"), // id, text [,font, size] — №543: the PdfResult make_struct (verified)
-    spec!("pdf_page_numbers", 1, 4, "pdf"; builtin_pdf_page_numbers, "Struct"), // id [,format, x, y] — №543: the PdfResult make_struct (verified)
-    spec!("pdf_watermark", 2, 5, "pdf"; builtin_pdf_watermark, "Struct"), // id, text [,font, size, opacity] — №543: the PdfResult make_struct (verified)
-    spec!("pdf_fill_form", 3, "pdf"; builtin_pdf_fill_form, "Struct"), // path, fields_json, output_path — №543: the PdfFillForm make_struct (verified)
-    spec!("pdf_rotate_page", 4, "pdf"; builtin_pdf_rotate_page, "Struct"), // path, page_number, degrees, output_path — №543: the PdfResult make_struct (verified)
-    spec!("pdf_delete_pages", 3, "pdf"; builtin_pdf_delete_pages, "Struct"), // path, pages_json, output_path — №543: the PdfDeletePages make_struct (verified)
-    spec!("pdf_extract_images", 1, 2, "pdf"; builtin_pdf_extract_images, "List"), // path [,output_dir] — №543: the extracted paths vector (verified)
+    spec!("pdf_draw_table", 5, 6, "pdf"; builtin_pdf_draw_table, "Struct<PdfResult>{ok:internal}"), // id, x, y, col_widths_json, rows_json [,style_json] — №543: the PdfResult make_struct (verified); №637: PdfResult{ ok } (pdf.rs:1385)
+    spec!("pdf_add_image", 4, 6, "pdf"; builtin_pdf_add_image, "Struct<PdfResult>{ok:internal}"), // id, x, y, image_path [,width, height] — №543: the PdfResult make_struct (verified); №637: PdfResult{ ok } (pdf.rs:1442)
+    spec!("pdf_set_page_header", 2, 4, "pdf"; builtin_pdf_set_page_header, "Struct<PdfResult>{ok:internal}"), // id, text [,font, size] — №543: the PdfResult make_struct (verified); №637: PdfResult{ ok } (pdf.rs:1516)
+    spec!("pdf_set_page_footer", 2, 4, "pdf"; builtin_pdf_set_page_footer, "Struct<PdfResult>{ok:internal}"), // id, text [,font, size] — №543: the PdfResult make_struct (verified); №637: PdfResult{ ok } (pdf.rs:1558)
+    spec!("pdf_page_numbers", 1, 4, "pdf"; builtin_pdf_page_numbers, "Struct<PdfResult>{ok:internal}"), // id [,format, x, y] — №543: the PdfResult make_struct (verified); №637: PdfResult{ ok } (pdf.rs:1595)
+    spec!("pdf_watermark", 2, 5, "pdf"; builtin_pdf_watermark, "Struct<PdfResult>{ok:internal}"), // id, text [,font, size, opacity] — №543: the PdfResult make_struct (verified); №637: PdfResult{ ok } (pdf.rs:1645)
+    spec!("pdf_fill_form", 3, "pdf"; builtin_pdf_fill_form, "Struct<PdfFillForm>{path:untrusted,fields_filled:internal}"), // path, fields_json, output_path — №543: the PdfFillForm make_struct (verified); №637: PdfFillForm{ path, fields_filled } (pdf.rs:1737-1744) — path echoes output_path → untrusted, the count computed
+    spec!("pdf_rotate_page", 4, "pdf"; builtin_pdf_rotate_page, "Struct<PdfResult>{ok:internal}"), // path, page_number, degrees, output_path — №543: the PdfResult make_struct (verified); №637: PdfResult{ ok } (pdf.rs:1799)
+    spec!("pdf_delete_pages", 3, "pdf"; builtin_pdf_delete_pages, "Struct<PdfDeletePages>{ok:internal,pages_remaining:internal}"), // path, pages_json, output_path — №543: the PdfDeletePages make_struct (verified); №637: PdfDeletePages{ ok, pages_remaining } (pdf.rs:1852-1855) — both computed in-tree
+    spec!("pdf_extract_images", 1, 2, "pdf"; builtin_pdf_extract_images, "List<String>"), // path [,output_dir] — №543: the extracted paths vector (verified); №637: the String path element read off the handler (extracted_paths.push(Value::String(out_path)), pdf.rs:1938)
     // ── Email: SMTP + IMAP (Наряд MLG-4) ──
     spec!("smtp_send", 3, 6, "email"; builtin_smtp_send), // to, subject, body [,attachments_json, from, reply_to]
     spec!("smtp_send_html", 3, 4, "email"; builtin_smtp_send_html), // to, subject, html [,attachments_json]

@@ -50,4 +50,13 @@
 #   caller's, not the handler's). The compiled twin locks 31/87 — the
 #   3 cfg(vec) rows (embed/vec_store/vec_search) ride only the source
 #   metric, the same by-design gap the TYPED_FLOOR comment documents.
-# threshold_bp: 3736
+# threshold_bp was 3736 — №637 (gh#1120, wave 36): parameterized 34 | LS rows: 91
+#   (the third honest package — the PDF contour, 21 verified rows: the 20
+#   Struct rows arrive WITH field_meta (the anti-dilution rule), plus
+#   pdf_extract_images List<String>; the honest exceptions recorded:
+#   pdf_classify/pdf_to_markdown/pdf_extract_regions/pdf_ocr stay bare —
+#   the make_dict flat key/value lists are heterogeneous, no honest
+#   element type (№616 honest Unknown). The gate 0.30 goal ≥ 5000 bp
+#   (owner_fixed, №630) reached: 55/91 = 6043 bp. The compiled twin
+#   locks 52/87 — PARAM_FLOOR 31 → 52 in the same PR.)
+# threshold_bp: 6043

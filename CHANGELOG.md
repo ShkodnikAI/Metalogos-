@@ -4,6 +4,36 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- **№629 (gh#1096) — the VM comparison parity (the behavior change,
+  fail-closed):** the VM's `==`/`!=`/`>`/`<`/`>=`/`<=` now mirror the
+  TW matrix 1:1 — the heterogeneous equality (`"abc" == 5.0`,
+  `"5" == 5.0`), the ordering on non-Float pairs (`"b" > "a"`,
+  `true > false`) and the incomparable types (Struct/List/Html) REFUSE
+  with the stable `[TYPE_MISMATCH]` code on BOTH backends; the legacy VM
+  answered a silent `false` (and `true` for numeric strings) — the
+  silently-wrong class; `Unit == Unit` is `true` on both now. Found by
+  the №621 fuzzer sweep the day it stopped being vacuous; the №479 `+`
+  precedent.
+- **№622 (gh#1085) — `return` inside a `match`/`if` EXPRESSION arm is
+  captured as the arm's value on BOTH backends:** the TW documented
+  contract (the expression channel carries values, not control signals)
+  now holds on the VM — `let v = match x { "a" then { return 5.0 } }`
+  binds `5` and runs the tail instead of terminating the pattern with
+  `"5"`. The consumer scan (match arms / if-without-else / if-else /
+  MatchExpr — the implicit block value never becomes an early return;
+  sandbox/flow have no statement bodies in the grammar).
+- **№623 (gh#1086) — the parameterized signature vocabulary stage-0
+  (internal):** the registry specs carry `List<T>` / `Struct<Name>`
+  spellings (the enum erases the parameter); the THIRD metric — the
+  parameterized share among the List/Struct rows (7/91 = 769 bp, the
+  first honest package of 7 verified rows; the general typed share 5988
+  bp, the precise share 4224 bp untouched per the Z-2 verdict).
+- **№621 (gh#1084) — the differential fuzzer executes again (internal):
+**  the sweep was vacuously green (0/150 programs ran — the stale
+  builtin call, the undefined idents, the heterogeneous arithmetic); the
+  generator produces the №612 loop class (the bare-call bodies, the
+  mixtures, the tails, the nested shapes) and the permanent LIVENESS
+  ratchet pins the executability (≥ 60% of the sweep on both backends).
 - **№617 (gh#1075) — the semantic checker grows three compile-time
   refusals (the gh#967 §3 lane):** the variable-scope walk (the TW env
   model verbatim — flat, never popped, the entities as globals, the

@@ -93,9 +93,7 @@ enum PdfElement {
 }
 
 /// A PDF document being constructed.
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 struct PdfDocument {
     title: String,
     author: String,

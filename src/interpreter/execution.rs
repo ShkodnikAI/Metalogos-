@@ -60,13 +60,8 @@ impl Interpreter {
                     self.handle_import(&import)?;
                 }
                 Declaration::EntityType(e) => {
-                    self.struct_types.insert(
-                        e.name.clone(),
-                        StructType {
-                            name: e.name.clone(),
-                            fields: e.fields,
-                        },
-                    );
+                    self.struct_types
+                        .insert(e.name.clone(), StructType { fields: e.fields });
                 }
                 Declaration::EntityRecord(e) => {
                     let resolved_type = type_alias_map

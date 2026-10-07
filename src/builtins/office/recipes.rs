@@ -7,9 +7,6 @@ use crate::interpreter::Value;
 
 /// KV key prefix for recipe storage.
 const RECIPE_PREFIX: &str = "__recipe:";
-/// KV key for recipe index (JSON array of recipe names).
-#[allow(dead_code)]
-const RECIPE_INDEX_KEY: &str = "__recipe_index";
 
 /// `recipe_save(name, description, skills, plan)` — persist a recipe.
 /// args: [name: String, description: String, skills: List, plan: Struct/any]

@@ -150,36 +150,6 @@ pub(super) fn preprocess_templates(source: &str) -> (String, HashMap<String, Str
     (result, bodies)
 }
 
-/// Extract content between balanced braces from a string like "{ content } }".
-/// Handles nested braces by counting depth.
-#[allow(dead_code)]
-pub(super) fn extract_balanced_braces(s: &str) -> String {
-    let chars: Vec<char> = s.chars().collect();
-    if chars.is_empty() || chars[0] != '{' {
-        return String::new();
-    }
-    let mut depth = 0;
-    let mut end = 0;
-    for (i, &ch) in chars.iter().enumerate() {
-        match ch {
-            '{' => depth += 1,
-            '}' => {
-                depth -= 1;
-                if depth == 0 {
-                    end = i;
-                    break;
-                }
-            }
-            _ => {}
-        }
-    }
-    if end > 0 {
-        chars[1..end].iter().collect()
-    } else {
-        String::new()
-    }
-}
-
 // ── DB (Phase 6.3) ─────────────────────────────────────
 
 /// Process escape sequences in a string literal.

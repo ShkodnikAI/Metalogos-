@@ -142,24 +142,6 @@ fn reminder_sqlite_upsert(entry: &ReminderEntry) {
     }
 }
 
-#[allow(dead_code)]
-fn reminder_sqlite_delete(id: &str) {
-    if let Ok(guard) = reminders_sqlite().lock() {
-        if let Some(ref conn) = *guard {
-            let _ = conn.execute("DELETE FROM reminders WHERE id = ?1", rusqlite::params![id]);
-        }
-    }
-}
-
-#[allow(dead_code)]
-fn reminder_sqlite_delete_all_for_persona() {
-    if let Ok(guard) = reminders_sqlite().lock() {
-        if let Some(ref conn) = *guard {
-            let _ = conn.execute("DELETE FROM reminders", []);
-        }
-    }
-}
-
 /// `remind(message, timestamp, data?)` — one-time reminder. Returns ID.
 pub(crate) fn builtin_remind(args: &[Value]) -> Result<Value, String> {
     let message = expect_string_arg("remind", args, 0)?;

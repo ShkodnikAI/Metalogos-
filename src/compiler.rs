@@ -3072,39 +3072,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compile a flow source expression into a FlowExpr.
-    #[allow(dead_code)]
-    fn compile_flow_expr(&self, expr: &Expr) -> FlowExpr {
-        match expr {
-            Expr::Ident { name, .. } => {
-                if let Some(&slot) = self.global_slots.get(name) {
-                    FlowExpr::GlobalSlot(slot)
-                } else {
-                    FlowExpr::Ident(name.clone())
-                }
-            }
-            Expr::StringLit { value: s, .. } => FlowExpr::Const(Value::String(s.clone())),
-            Expr::FloatLit { value: f, .. } => FlowExpr::Const(Value::Float(*f)),
-            // №510: explicit fall-through — non-constant flow expressions
-            // keep their debug-render identity; a new Expr variant must be
-            // consciously reviewed.
-            Expr::BoolLit { .. }
-            | Expr::FieldAccess { .. }
-            | Expr::FnCall { .. }
-            | Expr::QualifiedCall { .. }
-            | Expr::BinaryOp { .. }
-            | Expr::IfElse { .. }
-            | Expr::List { .. }
-            | Expr::IndexAccess { .. }
-            | Expr::StructLit { .. }
-            | Expr::BlockIfElse { .. }
-            | Expr::MatchExpr { .. }
-            | Expr::Try { .. }
-            | Expr::HandleSource { .. }
-            | Expr::ProvBind { .. } => FlowExpr::Ident(format!("{:?}", expr)),
-        }
-    }
-
     /// Try to evaluate an expression to a constant Value.
     fn eval_const_expr(&self, expr: &Expr) -> Value {
         match expr {

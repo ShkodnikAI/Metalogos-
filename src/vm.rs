@@ -1576,6 +1576,16 @@ impl Vm {
                     stack.push(reg);
                     ip += 1;
                 }
+                Instruction::SetValueReg => {
+                    // №622: the UNCONDITIONAL capture — a `return` inside a
+                    // value-channel arm body replaces the block value (even
+                    // with Unit), the TW eval_statements flatten contract.
+                    let val = stack.pop().unwrap_or(Value::Unit);
+                    if let Some(reg) = self.value_registers.last_mut() {
+                        *reg = val;
+                    }
+                    ip += 1;
+                }
             }
         }
 
@@ -2066,6 +2076,16 @@ impl Vm {
                 Instruction::EndValueExpr => {
                     let reg = self.value_registers.pop().unwrap_or(Value::Unit);
                     stack.push(reg);
+                    ip += 1;
+                }
+                Instruction::SetValueReg => {
+                    // №622: the UNCONDITIONAL capture — a `return` inside a
+                    // value-channel arm body replaces the block value (even
+                    // with Unit), the TW eval_statements flatten contract.
+                    let val = stack.pop().unwrap_or(Value::Unit);
+                    if let Some(reg) = self.value_registers.last_mut() {
+                        *reg = val;
+                    }
                     ip += 1;
                 }
                 Instruction::MakeStruct(ms) => {

@@ -252,6 +252,16 @@ pub enum Instruction {
     /// enum.
     EndValueExpr,
 
+    /// №622 (gh#1085): pop the top value; store it into the topmost
+    /// value register UNCONDITIONALLY (Unit included). The capture
+    /// semantics of a `return` inside a value-channel arm body — the TW
+    /// `eval_statements_with_mutability` flatten (`ControlFlow::Return(v)
+    /// => Ok(v)`): the return's value REPLACES the block value, even
+    /// Unit — unlike the conditional KeepLastValue tail contract.
+    /// Appended at the END of the enum (the opcode order is the wire
+    /// format — no renumbering).
+    SetValueReg,
+
     // ── Naryad №415: retained-representation compaction ────────────
     /// Register the pattern whose body lives at `index` in the
     /// `Program::patterns` TABLE. The compiler emits this instead of the

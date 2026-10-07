@@ -2254,7 +2254,44 @@ impl Compiler {
         mutable: &mut HashSet<String>,
     ) -> Result<(), String> {
         for s in body {
-            self.compile_value_stmt(s, code, locals, next_slot, loop_stack, mutable)?;
+            match s {
+                // №622 (gh#1085): a `return` inside a value-channel arm
+                // body is CAPTURED as the block value — the TW contract
+                // (eval_statements flattens ControlFlow::Return(v) into
+                // Ok(v); the expression channel cannot carry a control
+                // signal — the documented BlockIfElse / MatchExpr
+                // semantics). The legacy fallthrough emitted the
+                // function-level Instruction::Return: the VM terminated
+                // the pattern where the TW continued (the parity gap the
+                // №622 scan pinned: `let v = match x { "a" then { return
+                // 5.0 } }` answered "5" on the VM while the TW answered
+                // the captured "5" and ran the tail).
+                Statement::Return { value, .. } => {
+                    self.compile_expr_with_locals(
+                        value, code, locals, next_slot, loop_stack, mutable,
+                    )?;
+                    code.push(Instruction::SetValueReg);
+                }
+                // №510 posture: no wildcard — every remaining statement
+                // form is named, a new variant forces this list to grow
+                // consciously.
+                other @ Statement::LetBinding { .. }
+                | other @ Statement::Assign { .. }
+                | other @ Statement::Each { .. }
+                | other @ Statement::EachWithIndex { .. }
+                | other @ Statement::While { .. }
+                | other @ Statement::IfElseBlock { .. }
+                | other @ Statement::IfThen { .. }
+                | other @ Statement::ExprStmt { .. }
+                | other @ Statement::Match { .. }
+                | other @ Statement::Break
+                | other @ Statement::Continue
+                | other @ Statement::Memorize(_)
+                | other @ Statement::Forget(_)
+                | other @ Statement::Relate(_) => {
+                    self.compile_value_stmt(other, code, locals, next_slot, loop_stack, mutable)?;
+                }
+            }
         }
         Ok(())
     }
@@ -3218,7 +3255,8 @@ impl Compiler {
                 // instruction is named, so adding a new Instruction variant
                 // is a compile error here and forces a purity review
                 // (deny wildcard_enum_match_arm).
-                Instruction::LabelJoin(_)
+                Instruction::SetValueReg
+                | Instruction::LabelJoin(_)
                 | Instruction::SinkCheck(_)
                 | Instruction::LoadGlobal(_)
                 | Instruction::LoadGlobalByName(_)

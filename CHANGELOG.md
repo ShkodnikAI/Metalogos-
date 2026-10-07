@@ -40,6 +40,46 @@ All notable changes to the Metalogos project.
 
 ## [0.29.0] - 2026-10-06
 
+### Security (ADVISORY — restart your tests)
+
+**0.28.x and earlier are affected on the TW interpreter — the fix ships IN
+0.29.0; users of earlier versions should re-run their existing tests on
+≥ 0.29.0.** The Камертон matrix finding (the unified audit of `e40ce8e` /
+v0.29.0, the dispatch gh#1089) traced the №612 loop defect to its
+user-facing consequences: until 0.29.0, a call with a non-Unit result at
+the END of a loop body was read as an early `Return` of the ENCLOSING
+function — the loop ran exactly ONE iteration, the tail after the loop
+was silently cut, and in `mlog test` bodies the harness flattened the
+fabricated `Return` into `Ok` — a GREEN run that never executed the
+checks. The `return` here was FABRICATED by the implicit block-value
+mechanics, not written by the author — the dictionary class «a
+respond*/deny*/return being IGNORED» (№604), mirrored: a return being
+INVENTED.
+
+> `each row in rows { db_execute("INSERT …", row) }` — with the INSERT
+> call last in the body, the first iteration returned from the function:
+> one row inserted, the rest skipped, exit code 0.
+
+- **The guard patterns with an audit loop:** a loop that re-checks a
+  condition (audit/retry/scan) stopped after the first iteration — the
+  code after the loop, the second half of the guard, never ran.
+- **The batch inserts/updates:** a loop over rows executed exactly ONE
+  element — the remaining rows were silently skipped (no error, no
+  warning, exit code 0).
+- **The false confidence of vacuous green runs:** in `mlog test`, a test
+  whose body tripped the shape reported GREEN while its asserts never
+  executed. The harness reads ControlFlow NOW (№612): an early
+  termination is a LOUD failure — a green run on ≥ 0.29.0 means the body
+  ran to completion.
+
+- **Affected:** `mlog run`, `mlog test`, and `mlog serve` with
+  `METALOGOS_SERVE_BACKEND=interpreter` (the fallback backend; the serve
+  DEFAULT is the VM) — on every published release BEFORE 0.29.0. The VM
+  backend is NOT affected. The fix landed in 0.29.0 (№612, PR #1068).
+- **The user action:** restart your existing tests on ≥ 0.29.0; re-check
+  the batch insert/update loops and the guard patterns with audit loops
+  written before 0.29.0. The fix/audit date: **2026-10-06/07**.
+
 ### Fixed
 
 - **№612 (gh#1061, PR #1068) — the loop semantics: a bare call in the

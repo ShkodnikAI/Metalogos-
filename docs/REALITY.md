@@ -1285,3 +1285,15 @@ reproduces it):**
   (the №616 ada4010 case — the retrigger with an explicit commit);
   the git remote's embedded token can fail fetches while the PAT works
   (fetch with the PAT explicitly).
+- **2026-10-07 (wave 34, addendum):** the Security addendum to the
+  published 0.29.0 issued by naryad №620 (gh#1083) — the `### Security
+  (ADVISORY — restart your tests)` section in the CHANGELOG `[0.29.0]`
+  and the same block appended verbatim to the GitHub release body (the
+  existing sections untouched): the №612 defect's user-facing
+  consequences (the guard patterns with an audit loop stop after one
+  iteration; the batch inserts/updates execute one element; the vacuous
+  green runs), the affected surface (`mlog run` / `mlog test` /
+  `mlog serve` with `METALOGOS_SERVE_BACKEND=interpreter`, every release
+  before 0.29.0; the VM not affected), the user action — restart your
+  tests on ≥ 0.29.0. The tag and the assets are NOT re-created (the fix
+  is IN 0.29.0 — the communication warns, the binaries do not change).

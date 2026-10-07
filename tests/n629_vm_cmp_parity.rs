@@ -7,13 +7,13 @@
 // stay green (the non-regress arms).
 #![allow(clippy::disallowed_methods)]
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-fn run_tw(source: &str, base_dir: &PathBuf) -> Result<Option<String>, String> {
-    metalogos::run_program_with_dir(source, base_dir.clone())
+fn run_tw(source: &str, base_dir: &Path) -> Result<Option<String>, String> {
+    metalogos::run_program_with_dir(source, base_dir.to_path_buf())
 }
 
-fn run_vm(source: &str, base_dir: &PathBuf) -> Result<Option<String>, String> {
+fn run_vm(source: &str, base_dir: &Path) -> Result<Option<String>, String> {
     let declarations =
         metalogos::parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
     // №523 parity: the production `mlog run --backend vm` applies the
@@ -41,7 +41,7 @@ fn run_vm(source: &str, base_dir: &PathBuf) -> Result<Option<String>, String> {
             lines.join("\n")
         ));
     }
-    let mut comp = metalogos::compiler::Compiler::with_std_root(base_dir.clone());
+    let mut comp = metalogos::compiler::Compiler::with_std_root(base_dir.to_path_buf());
     let program = comp
         .compile(merged_decls)
         .map_err(|e| format!("compile error: {}", e))?;
@@ -75,8 +75,8 @@ fn assert_both_refuse(name: &str, body: &str) {
 fn assert_both_ok(name: &str, body: &str, expected: &str) {
     let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let src = program_of(body);
-    let tw = run_tw(&src, &repo).expect(format!("{}: TW must run", name).as_str());
-    let vm = run_vm(&src, &repo).expect(format!("{}: VM must run", name).as_str());
+    let tw = run_tw(&src, &repo).unwrap_or_else(|e| panic!("{}: TW must run: {}", name, e));
+    let vm = run_vm(&src, &repo).unwrap_or_else(|e| panic!("{}: VM must run: {}", name, e));
     assert_eq!(
         tw.as_deref(),
         Some(expected),

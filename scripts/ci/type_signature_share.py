@@ -26,7 +26,7 @@ REGISTRY = ROOT + '/src/builtins/registry.rs'
 
 SPEC_RE = re.compile(r'spec!\("([a-z_0-9]+)"')
 TYPED_RE = re.compile(
-    r'spec!\("([a-z_0-9]+)",[^\n;]*;\s*[A-Za-z_0-9]+\s*,\s*"([A-Za-z][A-Za-z0-9<>]*)"\s*\)'
+    r'spec!\("([a-z_0-9]+)",[^\n;]*;\s*[A-Za-z_0-9]+\s*,\s*"([A-Za-z][A-Za-z0-9<>{}:,_]*)"\s*\)'
 )
 
 # №560 (gh#921; the audit 02.10 M-4): the PRECISE type set — a typed row
@@ -40,6 +40,70 @@ TYPED_RE = re.compile(
 # loosening this definition.
 PRECISE_TYPES = {'String', 'Float', 'Bool', 'Unit'}
 
+# №627 (gh#1110): the field-label stage-0 vocabulary — the byte-exact
+# mirror of the Rust `Label::as_str` tokens and the №627 grammar checkers
+# in `src/builtins/sig_types.rs` (`split_field_meta`,
+# `path_is_parameterized`, `field_meta_well_formed`). The two locks
+# cannot drift: this script counts the SOURCE rows, the in-tree test
+# counts the COMPILED specs.
+FIELD_LABELS = {'internal', 'private', 'untrusted'}
+FIELD_NAME_RE = re.compile(r'[A-Za-z0-9_]+')
+
+
+def split_field_meta(s):
+    """Mirror of the Rust const fn split_field_meta (№627): (head, meta) —
+    the section exists when the string ends with `}` and there is a `{`
+    whose preceding byte is `>`; meta "" = absent."""
+    if len(s) < 2 or not s.endswith('}'):
+        return s, ''
+    o = s.rfind('{')
+    if o >= 1 and s[o - 1] == '>':
+        return s[:o], s[o + 1:-1]
+    return s, ''
+
+
+def path_is_parameterized(s):
+    """Mirror of the Rust const fn (№623 + the №627 brace extension):
+    the ORIGINAL rule runs on the head verbatim."""
+    head, _ = split_field_meta(s)
+    if not head.endswith('>'):
+        return False
+    if not (head.startswith('List<') or head.startswith('Struct<')):
+        return False
+    return not (
+        head.endswith('<private>')
+        or head.endswith('<internal>')
+        or head.endswith('<untrusted>')
+    )
+
+
+def field_meta_well_formed(meta):
+    """Mirror of the Rust const fn field_meta_well_formed (№627):
+    entry (',' entry)*, entry = name:label, the name [A-Za-z0-9_]+ (ASCII,
+    non-empty), the label in the stage-0 vocabulary, NO spaces, at least
+    one entry, no trailing comma."""
+    if not meta:
+        return False
+    for entry in meta.split(','):
+        if ':' not in entry:
+            return False
+        name, _, label = entry.partition(':')
+        if not name or not FIELD_NAME_RE.fullmatch(name):
+            return False
+        if label not in FIELD_LABELS:
+            return False
+    return True
+
+
+def field_meta_of(s):
+    """Mirror of the Rust fill-site extractor: the section inner when the
+    head is the Struct< spelling, else "" (shape-only — the well-formedness
+    armor lives in from_path and the in-tree grammar test)."""
+    head, meta = split_field_meta(s)
+    if head.startswith('Struct<') and head.endswith('>'):
+        return meta
+    return ''
+
 
 def rows():
     text = open(REGISTRY, encoding='utf-8').read()
@@ -50,8 +114,8 @@ def rows():
 
 
 def compute():
-    """(total, typed, typed_bp, precise, precise_bp, ls_total, param, param_bp)
-    — integer-exact bp."""
+    """(total, typed, typed_bp, precise, precise_bp, ls_total, param,
+    param_bp, struct_total, fieldmeta, fieldmeta_bp) — integer-exact bp."""
     total, typed_types = rows()
     n_total = len(total)
     n_typed = len(typed_types)
@@ -70,17 +134,56 @@ def compute():
     }
     n_ls = len(ls_types)
     n_param = sum(1 for t in ls_types.values() if '<' in t)
+    # №627 (gh#1110): the FOURTH metric — the field-label share among the
+    # parameterized Struct rows. The denominator: every typed row whose
+    # spelling is the parameterized Struct form (Struct<Name>, with or
+    # without the field-meta section — the path_is_parameterized mirror);
+    # the numerator: the rows carrying a well-formed non-empty field-meta
+    # section (the №627 grammar mirror — the same checker the Rust fill
+    # site + from_path enforce). Only-up; the №757 floor procedure.
+    n_struct = 0
+    n_fieldmeta = 0
+    for t in typed_types.values():
+        if not t.startswith('Struct<') or not path_is_parameterized(t):
+            continue
+        n_struct += 1
+        meta = field_meta_of(t)
+        if meta and field_meta_well_formed(meta):
+            n_fieldmeta += 1
     typed_bp = (n_typed * 10000) // n_total if n_total else 0
     precise_bp = (n_precise * 10000) // n_total if n_total else 0
     param_bp = (n_param * 10000) // n_ls if n_ls else 0
-    return n_total, n_typed, typed_bp, n_precise, precise_bp, n_ls, n_param, param_bp
+    fieldmeta_bp = (n_fieldmeta * 10000) // n_struct if n_struct else 0
+    return (
+        n_total,
+        n_typed,
+        typed_bp,
+        n_precise,
+        precise_bp,
+        n_ls,
+        n_param,
+        param_bp,
+        n_struct,
+        n_fieldmeta,
+        fieldmeta_bp,
+    )
 
 
 def main():
     total, typed_types = rows()
-    n_total, n_typed, typed_bp, n_precise, precise_bp, n_ls, n_param, param_bp = (
-        compute()
-    )
+    (
+        n_total,
+        n_typed,
+        typed_bp,
+        n_precise,
+        precise_bp,
+        n_ls,
+        n_param,
+        param_bp,
+        n_struct,
+        n_fieldmeta,
+        fieldmeta_bp,
+    ) = compute()
     args = sys.argv[1:]
     if '--list' in args:
         for name in sorted(total):
@@ -93,6 +196,7 @@ def main():
     # precise floor; the general baseline the general one).
     precise = '--precise' in args
     parameterized = '--parameterized' in args
+    fieldmeta = '--fieldmeta' in args
     if precise:
         n, bp = n_precise, precise_bp
         print(f'precise signatures: {n}/{n_total} ({bp / 100:.2f}%)')
@@ -112,6 +216,18 @@ def main():
             'stage-0 enum erases the parameter — the metric is where the '
             'typed movement of the 0.30 cycle lives, the Z-2 verdict)'
         )
+    elif fieldmeta:
+        n, bp = n_fieldmeta, fieldmeta_bp
+        print(
+            f'field-label signatures: {n}/{n_struct} ({bp / 100:.2f}%) '
+            f'— №627: the share among the parameterized Struct rows'
+        )
+        print(
+            '  (the field-meta form: Struct<Name>{field:label,...}; the '
+            'stage-0 enum erases the metadata — it lives in the registry '
+            'side-table BuiltinSpec.field_meta, the well-formedness is '
+            'fail-closed via from_path + the in-tree grammar test)'
+        )
     else:
         print(f'typed signatures: {n_typed}/{n_total} ({typed_bp / 100:.2f}%)')
         print(
@@ -122,12 +238,23 @@ def main():
             f'parameterized signatures: {n_param}/{n_ls} '
             f'({param_bp / 100:.2f}%) — №623: the third share (among List/Struct)'
         )
+        print(
+            f'field-label signatures: {n_fieldmeta}/{n_struct} '
+            f'({fieldmeta_bp / 100:.2f}%) — №627: the fourth share (among '
+            f'the parameterized Struct rows)'
+        )
     # basis points keep the comparison integer-exact
     share_bp = param_bp if parameterized else (precise_bp if precise else typed_bp)
+    if fieldmeta:
+        share_bp = fieldmeta_bp
     kind = (
-        'parameterized'
-        if parameterized
-        else ('precise' if precise else 'general')
+        'fieldmeta'
+        if fieldmeta
+        else (
+            'parameterized'
+            if parameterized
+            else ('precise' if precise else 'general')
+        )
     )
     if '--gate' in args:
         baseline = args[args.index('--gate') + 1]
@@ -142,13 +269,17 @@ def main():
             sys.exit(2)
         if share_bp < floor:
             kind_name = (
-                'parameterized-share'
-                if parameterized
-                else ('precise typed-signature' if precise else 'typed-signature')
+                'field-label share'
+                if fieldmeta
+                else (
+                    'parameterized-share'
+                    if parameterized
+                    else ('precise typed-signature' if precise else 'typed-signature')
+                )
             )
             print(
                 f'::error::the {kind_name} share regressed: {share_bp} bp < '
-                f'{floor} bp floor (№467/№560/№623: the metric rises every '
+                f'{floor} bp floor (№467/№560/№623/№627: the metric rises every '
                 f'release; a typed row lost its type or an untyped row was '
                 f'added — type the new rows or restore the lost paths).'
             )
@@ -156,7 +287,7 @@ def main():
         if share_bp > floor:
             print(
                 f'note: the {kind} share rose above the floor ({floor} bp) — '
-                f'№467/№560/№623 should raise the baseline floor to {share_bp} '
+                f'№467/№560/№623/№627 should raise the baseline floor to {share_bp} '
                 f'bp in a follow-up naryad.'
             )
 

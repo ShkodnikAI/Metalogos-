@@ -73,7 +73,41 @@ they reside in the canon held by the coordinator (§16.0-7).
 - C2PA mini-slice: manifest read/write, Art 50 labeling — a narrow slice (#320).
 - Completion-audits of Wave 0 — accepted (gh#404–#406).
 
-## Current wave — Wave 34 (the verdict-execution wave, the dispatch gh#1089, 2026-10-07)
+## Current wave — Wave 35 (the ПСРМ development after В34, the dispatch gh#1105, 2026-10-07)
+
+The dispatch gh#1105 queue (7 workorders) plus the registered
+candidate №627 (the owner's К-А verdict execution, 2026-10-07).
+Executed: №630 (gh#1098) — the §5 MECHANICAL TRANSITION of the 0.30
+gate in one PR: `owner_fixed: true`, ADR-0186 Accepted, the DEFAULT
+gate target 0.29 → 0.30 (the №597 pattern; the typed parameter = the
+parameterized share ≥ 5000 bp — the machine read on the merged main is
+RED-loud, the movement is the requirement); №631 (gh#1099) — the
+parameterized movement №2: the second honest package of 27 verified
+rows, the share 7/91 = 769 bp → 34/91 = 3736 bp, the floors raised in
+the same PR (PARAM_FLOOR 7 → 31); №633 (gh#1101) — the dead_code burn
+33 → 15, the floor re-locked; №634 (gh#1102) — the self-host lane
+(the gh#967 §5) lifted green: the FIXTURE had drifted, not the parser;
+the ignore floor 14 → 13; №635 (gh#1103) — the VM template_render lane
+(the gh#967 §6): both vm_golden sweeps 189/189 green, the ignore floor
+13 → 11; №627 (gh#1110) — the field-label METADATA (the stage-2 prep,
+ADR-0178): the form `Struct<Name>{field:label,...}`, the registry
+side-table `BuiltinSpec.field_meta` (the enum NOT extended), the
+fail-closed parser armor, the FOURTH metric — the field-label share
+3/20 = 1500 bp (the first honest package of 28 verified rows:
+GeoLocation 9, Weather 13, LlmUsage 6; the parser mirrors synced in
+the same PR — the gen_metrics regex drift caught); №636 (gh#1104) —
+this sync, strictly last. The dated workorder №632 (gh#1100, the
+plan-relevance audit release №3) — the execution date 2026-11-01
+(± 1 day), verified-wait. The counters: ignore debt 11, dead_code 15,
+typed 5988 bp / precise 4224 bp unchanged, parameterized 3736 bp
+(moved), field-label 1500 bp (new), ADR 179, mirrors 6, dups 0,
+blocking cells 31. The owner gates remaining: gh#1000 (the branch
+protection), the parameterized movement to ≥ 5000 bp, the stage-2
+enforcement (К-Б — not filed), the ledger gh#967 §4/§7 (the revision
+2026-10-15), the Камертон forwarding, the NLnet submissions before
+20.10.
+
+## Executed — Wave 34 (the verdict-execution wave, the dispatch gh#1089, 2026-10-07)
 
 The OWNER's 2026-10-07 verdict executed («принимаю форму довеска В34
 как основу…» — the verbatim record in the 0.30 gate file) plus the

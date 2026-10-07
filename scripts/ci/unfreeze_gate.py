@@ -11,11 +11,14 @@ published while any §4 criterion is red" — ADR-0177 §6); a RED verdict
 anywhere fails the job (blocking) so the gate cannot be missed.
 
 №597 (ADR-0181 §6, the owner's authorization 2026-10-05): the DEFAULT
-gate target is 0.29 — a bare run reads the 0.29 ABSOLUTE goals
+gate target became 0.29 — a bare run read the 0.29 ABSOLUTE goals
 (owner-fixed 2026-10-04); --gate-target 0.28 and legacy stay explicit.
-The verdict behavior is unchanged (№580: a RED is loud — ::error:: +
-the artifact — and the blocking exit belongs to the release-time
---strict read).
+№630 (ADR-0186 §5, the owner's verdict 2026-10-07 — the В34 addendum
+form fixed): the DEFAULT gate target is 0.30 — the switch happened in
+the owner_fixed merge (the №597 pattern again); the 0.28/0.29/legacy
+targets stay available explicitly. The verdict behavior is unchanged
+(№580: a RED is loud — ::error:: + the artifact — and the blocking exit
+belongs to the release-time --strict read).
 
 The four criteria (ADR-0177 §4) and their machinery:
   1. Types   — the typed-signature share (№467) may only grow:
@@ -70,10 +73,12 @@ GOALS_028 = os.path.join(HERE, 'gate_028_goals.txt')
 # target — the wiring into the blocking CI (the №550 pattern: the
 # parameters first, the CI ratchet after; ADR-0181 §6).
 GOALS_029 = os.path.join(HERE, 'gate_029_goals.txt')
-# №615 (gh#1078, ADR-0186): the 0.30 DRAFT record — the successor shape
-# of the №570/ADR-0181 path. The draft is NEVER the default gate target
-# (the №597 wiring stays 0.29 until the owner fixes the 0.30 parameters
-# — the switch happens ONLY in the merge where owner_fixed flips true).
+# №615 (gh#1078, ADR-0186): the 0.30 ABSOLUTE goals record. The draft era
+# ended in the №630 §5 transition (gh#1098, wave 35): owner_fixed: true,
+# the typed parameter is the PARAMETERIZED share (the Z-2 ratchet
+# demotion removed the typed/precise scalar parameters — the 0.30 read
+# is the parameterized-mode v2 core), and the DEFAULT gate target
+# switched 0.29 → 0.30 in THIS merge (the №597 pattern).
 GOALS_030 = os.path.join(HERE, 'gate_030_goals.txt')
 SERVE_E2E = os.path.join(HERE, 'serve_e2e_inventory.txt')
 ADR = 'docs/adr/0177-domain-freeze-until-027.md'
@@ -171,7 +176,8 @@ def criterion_memory(baseline_dir, office_tests):
     return rc, ' | '.join(notes[:2]), rec, '\n'.join('- ' + n for n in notes[2:])
 
 
-def criterion_goals_028(baseline_dir, goals_path=GOALS_028, precise=False):
+def criterion_goals_028(baseline_dir, goals_path=GOALS_028, precise=False,
+                        parameterized=False):
     """№509 (gh#792, ADR-0179): the 0.28 ABSOLUTE goals — the v2 gate.
 
     Reads the owner-fixed parameters and the live facts from
@@ -185,7 +191,15 @@ def criterion_goals_028(baseline_dir, goals_path=GOALS_028, precise=False):
     25b375e §3 X-3, ADR-0181 §3.1): the 0.29 read adds the PRECISE
     typed-share goal criterion (precise=True) — the 0.28 record predates
     the parameter and carries no precise record, so the criterion reads
-    the 0.29 record only."""
+    the 0.29 record only. №630 (ADR-0186 §5): the 0.30 record's shape is
+    parameterized=True — the Z-2 verdict demoted the typed/precise
+    scalar parameters to ratchet-records (NOT goals), so the typed
+    parameter of the 0.30 gate is the PARAMETERIZED share (the №623
+    third metric) against goal_parameterized_share_bp; the scalar
+    typed/precise goal checks are skipped in this mode (the records are
+    noted in the goals file, never re-read as absolute goals — the
+    fail-closed philosophy is preserved: the parameterized goal key
+    itself is fail-closed REQUIRED here)."""
     notes = []
     rc = 0
     details = []
@@ -200,21 +214,45 @@ def criterion_goals_028(baseline_dir, goals_path=GOALS_028, precise=False):
                 return m.group(1)
         return None
 
-    # (1) the typed-signature share reaches the GOAL (bp).
-    share_rc, share_out = run([TYPES_SCRIPT, '--gate',
-                               os.path.join(baseline_dir, 'type_signature_baseline.txt')])
-    m = re.search(r'typed signatures:\s*\d+/\d+\s*\(([\d.]+)%\)', share_out)
-    goal_bp = goal_fact('goal_typed_share_bp')
-    if m and goal_bp is not None:
-        bp = int(round(float(m.group(1)) * 100))
-        ok = bp >= int(goal_bp)
-        details.append('typed share %s bp vs goal %s bp: %s'
-                       % (bp, goal_bp, 'MET' if ok else 'NOT MET'))
-        if not ok:
+    # (1) the typed parameter reaches the GOAL (bp). The 0.28/0.29 shape:
+    # the general typed share vs goal_typed_share_bp. The 0.30 shape
+    # (parameterized=True, №630 — the Z-2 demotion): the PARAMETERIZED
+    # share (the №623 third metric) vs goal_parameterized_share_bp.
+    if parameterized:
+        par_rc, par_out = run([TYPES_SCRIPT, '--gate',
+                               os.path.join(baseline_dir,
+                                            'type_signature_parameterized_baseline.txt'),
+                               '--parameterized'])
+        pam = re.search(r'parameterized signatures:\s*\d+/\d+\s*\(([\d.]+)%\)',
+                        par_out)
+        par_goal = goal_fact('goal_parameterized_share_bp')
+        if pam and par_goal is not None:
+            par_bp = int(round(float(pam.group(1)) * 100))
+            pok = par_bp >= int(par_goal)
+            details.append('parameterized share %s bp vs goal %s bp: %s'
+                           % (par_bp, par_goal, 'MET' if pok else 'NOT MET'))
+            if not pok:
+                rc = 1
+        else:
+            details.append('the parameterized-share fact or the goal is '
+                           'unparsable/missing (fail-closed)')
             rc = 1
     else:
-        details.append('the typed-share fact or the goal is unparsable/missing (fail-closed)')
-        rc = 1
+        share_rc, share_out = run([TYPES_SCRIPT, '--gate',
+                                   os.path.join(baseline_dir,
+                                                'type_signature_baseline.txt')])
+        m = re.search(r'typed signatures:\s*\d+/\d+\s*\(([\d.]+)%\)', share_out)
+        goal_bp = goal_fact('goal_typed_share_bp')
+        if m and goal_bp is not None:
+            bp = int(round(float(m.group(1)) * 100))
+            ok = bp >= int(goal_bp)
+            details.append('typed share %s bp vs goal %s bp: %s'
+                           % (bp, goal_bp, 'MET' if ok else 'NOT MET'))
+            if not ok:
+                rc = 1
+        else:
+            details.append('the typed-share fact or the goal is unparsable/missing (fail-closed)')
+            rc = 1
 
     # (1b) the PRECISE typed-signature share reaches the 0.29 release
     # GOAL (bp) — the audit 25b375e §3 X-3 owner decision (ADR-0181
@@ -224,8 +262,11 @@ def criterion_goals_028(baseline_dir, goals_path=GOALS_028, precise=False):
     # precise gate script; the between-releases enforcement stays the
     # precise-baseline ratchet (only up). The CI run without --strict
     # stays loud-not-exiting (the №580 posture); the strict release-time
-    # read exits 1 while NOT MET.
-    if precise:
+    # read exits 1 while NOT MET. The 0.30 record (parameterized=True)
+    # carries NO precise goal — the Z-2 demotion made the precise share
+    # a ratchet-record; the check is skipped there (the goals file
+    # documents the demotion).
+    if precise and not parameterized:
         prec_rc, prec_out = run([TYPES_SCRIPT, '--gate',
                                  os.path.join(baseline_dir, 'type_signature_precise_baseline.txt'),
                                  '--precise'])
@@ -318,15 +359,22 @@ def criterion_goals_029(baseline_dir):
 
 
 def criterion_goals_030(baseline_dir):
-    """№615 (gh#1078, ADR-0186): the 0.30 ABSOLUTE goals — the DRAFT read.
+    """№615 (gh#1078, ADR-0186) + №630 (gh#1098, the §5 transition): the
+    0.30 ABSOLUTE goals — OWNER-FIXED.
 
     The OWNER-FIXATION gate first (the same shape as criterion_goals_029's
-    draft era): while the record carries `owner_fixed: false`, the verdict
-    is RED with the honest reason — the parameters are the owner's to fix
-    (ADR-0186 §3). This run blocks nothing: the 0.30 target is available
-    explicitly (--gate-target 0.30) and is NEVER the default until the
-    owner fixes the parameters (the №597 wiring stays 0.29). After the
-    fixation the same v2 core reads the 0.30 record verbatim."""
+    draft era): while the record carried `owner_fixed: false`, the verdict
+    was RED with the honest reason. The fixation happened 2026-10-07 (the
+    owner's verdict — the В34 addendum form, the parameterized share ≥ 50%:
+    goal_parameterized_share_bp 5000), and №630 switched the DEFAULT gate
+    target 0.29 → 0.30 in the same merge (the №597 pattern; ADR-0186 §5):
+    after the fixation the v2 core reads the 0.30 record in the
+    parameterized mode (the Z-2 demotion — the typed/precise scalar
+    parameters are ratchet-records, the gate's typed parameter is the
+    №623 third metric against goal_parameterized_share_bp). The
+    branch-protection criterion is NOT a machine goal yet (gh#1000 was
+    open at the fixation — no checker, no fact key, №525; the summary
+    notes it)."""
     marker = None
     if os.path.isfile(GOALS_030):
         for line in open(GOALS_030, encoding='utf-8'):
@@ -335,12 +383,13 @@ def criterion_goals_030(baseline_dir):
                 marker = m.group(1)
                 break
     if marker != 'true':
-        detail = ('the 0.30 parameters are NOT owner-fixed (the ADR-0186 DRAFT, '
+        detail = ('the 0.30 parameters are NOT owner-fixed (ADR-0186, '
                   'owner_fixed: %s) — the gate reports the honest RED until the owner '
                   'fixes them; the draft demands no movement of anyone and blocks nothing '
-                  '(the default gate target stays 0.29, the №597 wiring)' % (marker or 'absent'))
+                  '(the default gate target stays on the last FIXED record)' % (marker or 'absent'))
         return 1, detail, detail, ''
-    return criterion_goals_028(baseline_dir, goals_path=GOALS_030, precise=True)
+    return criterion_goals_028(baseline_dir, goals_path=GOALS_030,
+                               parameterized=True)
 
 
 def main():
@@ -366,11 +415,13 @@ def main():
     # DEFAULT gate target was 0.28 — a bare run checked the 0.28
     # ABSOLUTE goals (ADR-0179 §5, the v2 gate), not the legacy 0.27.x
     # reading. №597 (ADR-0181 §6, the owner's authorization 2026-10-05):
-    # the DEFAULT is 0.29 — the 0.29 goals are owner-fixed and the read
-    # is wired into the blocking CI; the 0.28 and the legacy readings
-    # stay available explicitly (--gate-target 0.28 / --gate-target
-    # legacy).
-    gate_target = args[args.index('--gate-target') + 1] if '--gate-target' in args else '0.29'
+    # the DEFAULT became 0.29 — the 0.29 goals are owner-fixed and the
+    # read is wired into the blocking CI. №630 (ADR-0186 §5, the owner's
+    # verdict 2026-10-07): the DEFAULT is 0.30 — the 0.30 goals are
+    # owner-fixed (the В34 addendum form) and the parameterized-mode read
+    # is wired; the 0.28, 0.29 and the legacy readings stay available
+    # explicitly (--gate-target 0.28 / 0.29 / legacy) — no record deleted.
+    gate_target = args[args.index('--gate-target') + 1] if '--gate-target' in args else '0.30'
     # №570 (gh#934): --dry — compute and PRINT the summary, write NO file
     # (no out_path, no GITHUB_STEP_SUMMARY) — the draft-read primitive.
     dry = '--dry' in args
@@ -444,25 +495,27 @@ def main():
         v_rc, v_detail, v_raw, v_note = c5
         v_verdict = 'GREEN' if v_rc == 0 else 'RED'
         lines.append('')
-        lines.append('## The v2 gate — the 0.30 ABSOLUTE goals (№615, ADR-0186 — the DRAFT, owner_fixed: false)')
+        lines.append('## The v2 gate — the 0.30 ABSOLUTE goals (№615/№626/№630, ADR-0186 — OWNER-FIXED 2026-10-07, wired by №630)')
         lines.append('')
         lines.append('| § | Goal | Verdict | Evidence |')
         lines.append('|---|------|---------|----------|')
-        lines.append('| v2 | The absolute goals: typed share ≥ draft goal, precise share ≥ draft goal (the X-3 successor), 0 open High (server path), the domain quorum, the serve-e2e inventory | **%s** | %s |'
+        lines.append('| v2 | The absolute goals: parameterized share ≥ goal (the №623 third metric — the Z-2 successor of the scalar typed/precise parameters), 0 open High (server path), the domain quorum, the serve-e2e inventory | **%s** | %s |'
                      % (v_verdict, v_detail))
         overall = 'GREEN' if (overall == 'GREEN' and v_rc == 0) else 'RED'
         lines.append('')
-        lines.append('**Overall (§4 + v2 0.30 draft): %s.**' % overall)
-        lines.append('The 0.30 release gate: **PROPOSED, NOT WIRED** (ADR-0186 — the draft record, '
-                     'owner_fixed: false; the default gate target stays 0.29, the №597 wiring, '
-                     'until the owner fixes the parameters — the switch lands ONLY in the '
-                     'owner_fixed merge).')
+        lines.append('**Overall (§4 + v2 0.30): %s.**' % overall)
+        lines.append('The 0.30 release gate: **WIRED** (the DEFAULT gate target — №630, '
+                     'ADR-0186 §5, the owner\'s verdict 2026-10-07; the strict '
+                     'release-time read, --strict, exits 1 on RED). The '
+                     'branch-protection criterion stays a DRAFT line — gh#1000 was '
+                     'open at the fixation, the fact key lands via a micro-PR '
+                     'after its closure (№525: no checker, no fact).')
     if gate_target == '0.28':
         pass  # the v2 verdict above is the release read for 0.28
     elif gate_target == '0.29':
         pass  # the 0.29 read above is the wired gate report
     elif gate_target == '0.30':
-        pass  # the 0.30 DRAFT read above — the proposed, unwired record
+        pass  # the 0.30 read above is the wired gate report (№630)
     elif overall == 'GREEN':
         lines.append('The 0.27.0 release gate: **SATISFIED** (release-blocking '
                      'label — a RED anywhere in this summary blocks the release '
@@ -502,6 +555,8 @@ def main():
     if overall != 'GREEN':
         if gate_target == '0.29':
             print('::error::the 0.29 ABSOLUTE goals read is RED — the failed goal is named in the summary (ADR-0181 §3/§5; the strict release-time read exits 1)')
+        elif gate_target == '0.30':
+            print('::error::the 0.30 ABSOLUTE goals read is RED — the failed goal is named in the summary (ADR-0186 §3/§5, the №630 wiring; the strict release-time read exits 1)')
         else:
             print('::error::the unfreeze summary is RED — the 0.27.0 release gate reads this verdict (ADR-0177 §6)')
         # №580 (gh#994, the wave-29 dispatch gh#1004): the release-block fact

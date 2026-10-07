@@ -125,10 +125,12 @@ fact_blocking_check_cells: 31
 fact_precise_share_bp: 4224
 # The live PARAMETERIZED-share fact (the third metric — the machine twin
 # of goal_parameterized_share_bp above; introduced WITH its checker in
-# this §5 fixation PR, №630 — never before, №525). Machine:
+# the §5 fixation PR, №630 — never before, №525). Machine:
 # python3 scripts/ci/type_signature_share.py --parameterized --gate
 # scripts/ci/type_signature_parameterized_baseline.txt — verified by
-# sync_gate_facts.py. The fact follows the movement naryads: 769
-# (7/91 — №623, gh#1086, the first honest package; the live fact at the
-# fixation anchor). The counter is machine-read, never hand-zeroed.
-fact_parameterized_share_bp: 769
+# sync_gate_facts.py. The fact follows the movement naryads (the same-PR
+# rule — the №613/№616 pattern of the precise twin): 769 (7/91 — №623,
+# gh#1086, the first honest package; the live fact at the fixation
+# anchor) → 3736 (34/91 — №631, gh#1099, the second honest package: 27
+# verified rows). The counter is machine-read, never hand-zeroed.
+fact_parameterized_share_bp: 3736

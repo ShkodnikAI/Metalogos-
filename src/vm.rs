@@ -1092,37 +1092,37 @@ impl Vm {
                 Instruction::CmpGt => {
                     let right = stack.pop().unwrap_or(Value::Unit);
                     let left = stack.pop().unwrap_or(Value::Unit);
-                    stack.push(self.eval_cmp(left, right, AstCompareOp::Gt));
+                    stack.push(self.eval_cmp(left, right, AstCompareOp::Gt)?);
                     ip += 1;
                 }
                 Instruction::CmpLt => {
                     let right = stack.pop().unwrap_or(Value::Unit);
                     let left = stack.pop().unwrap_or(Value::Unit);
-                    stack.push(self.eval_cmp(left, right, AstCompareOp::Lt));
+                    stack.push(self.eval_cmp(left, right, AstCompareOp::Lt)?);
                     ip += 1;
                 }
                 Instruction::CmpGe => {
                     let right = stack.pop().unwrap_or(Value::Unit);
                     let left = stack.pop().unwrap_or(Value::Unit);
-                    stack.push(self.eval_cmp(left, right, AstCompareOp::Ge));
+                    stack.push(self.eval_cmp(left, right, AstCompareOp::Ge)?);
                     ip += 1;
                 }
                 Instruction::CmpLe => {
                     let right = stack.pop().unwrap_or(Value::Unit);
                     let left = stack.pop().unwrap_or(Value::Unit);
-                    stack.push(self.eval_cmp(left, right, AstCompareOp::Le));
+                    stack.push(self.eval_cmp(left, right, AstCompareOp::Le)?);
                     ip += 1;
                 }
                 Instruction::CmpEq => {
                     let right = stack.pop().unwrap_or(Value::Unit);
                     let left = stack.pop().unwrap_or(Value::Unit);
-                    stack.push(self.eval_cmp(left, right, AstCompareOp::Eq));
+                    stack.push(self.eval_cmp(left, right, AstCompareOp::Eq)?);
                     ip += 1;
                 }
                 Instruction::CmpNe => {
                     let right = stack.pop().unwrap_or(Value::Unit);
                     let left = stack.pop().unwrap_or(Value::Unit);
-                    let eq_result = self.eval_cmp(left, right, AstCompareOp::Eq);
+                    let eq_result = self.eval_cmp(left, right, AstCompareOp::Eq)?;
                     match eq_result {
                         // №372: Bool encoding (TW parity) — invert the Bool.
                         Value::Bool(b) => stack.push(Value::Bool(!b)),
@@ -1810,37 +1810,37 @@ impl Vm {
                 Instruction::CmpGt => {
                     let right = stack.pop().unwrap_or(Value::Unit);
                     let left = stack.pop().unwrap_or(Value::Unit);
-                    stack.push(self.eval_cmp(left, right, AstCompareOp::Gt));
+                    stack.push(self.eval_cmp(left, right, AstCompareOp::Gt)?);
                     ip += 1;
                 }
                 Instruction::CmpLt => {
                     let right = stack.pop().unwrap_or(Value::Unit);
                     let left = stack.pop().unwrap_or(Value::Unit);
-                    stack.push(self.eval_cmp(left, right, AstCompareOp::Lt));
+                    stack.push(self.eval_cmp(left, right, AstCompareOp::Lt)?);
                     ip += 1;
                 }
                 Instruction::CmpGe => {
                     let right = stack.pop().unwrap_or(Value::Unit);
                     let left = stack.pop().unwrap_or(Value::Unit);
-                    stack.push(self.eval_cmp(left, right, AstCompareOp::Ge));
+                    stack.push(self.eval_cmp(left, right, AstCompareOp::Ge)?);
                     ip += 1;
                 }
                 Instruction::CmpLe => {
                     let right = stack.pop().unwrap_or(Value::Unit);
                     let left = stack.pop().unwrap_or(Value::Unit);
-                    stack.push(self.eval_cmp(left, right, AstCompareOp::Le));
+                    stack.push(self.eval_cmp(left, right, AstCompareOp::Le)?);
                     ip += 1;
                 }
                 Instruction::CmpEq => {
                     let right = stack.pop().unwrap_or(Value::Unit);
                     let left = stack.pop().unwrap_or(Value::Unit);
-                    stack.push(self.eval_cmp(left, right, AstCompareOp::Eq));
+                    stack.push(self.eval_cmp(left, right, AstCompareOp::Eq)?);
                     ip += 1;
                 }
                 Instruction::CmpNe => {
                     let right = stack.pop().unwrap_or(Value::Unit);
                     let left = stack.pop().unwrap_or(Value::Unit);
-                    let eq_result = self.eval_cmp(left, right, AstCompareOp::Eq);
+                    let eq_result = self.eval_cmp(left, right, AstCompareOp::Eq)?;
                     match eq_result {
                         // №372: Bool encoding (TW parity) — invert the Bool.
                         Value::Bool(b) => stack.push(Value::Bool(!b)),
@@ -4008,32 +4008,48 @@ impl Vm {
     /// old Float 1.0/0.0 encoding made `to_string(a == b)` print "1" on the VM
     /// where TW prints "true"). Truthiness (JumpIfNot) is unchanged — Bool and
     /// Float 0.0/1.0 are truthy-equivalent.
-    fn eval_cmp(&self, left: Value, right: Value, op: AstCompareOp) -> Value {
-        // String-string comparisons (Eq, Ne, contains-like)
-        match (&left, &right) {
-            (Value::String(a), Value::String(b)) => match op {
-                AstCompareOp::Eq => Value::Bool(a == b),
-                AstCompareOp::Ne => Value::Bool(a != b),
-                AstCompareOp::Gt => Value::Bool(a > b),
-                AstCompareOp::Lt => Value::Bool(a < b),
-                AstCompareOp::Ge => Value::Bool(a >= b),
-                AstCompareOp::Le => Value::Bool(a <= b),
-            },
-            _ => {
-                // Numeric comparisons (Float/Bool via as_float)
-                let result = match (left.as_float(), right.as_float()) {
-                    (Ok(lf), Ok(rf)) => match op {
-                        AstCompareOp::Gt => lf > rf,
-                        AstCompareOp::Lt => lf < rf,
-                        AstCompareOp::Ge => lf >= rf,
-                        AstCompareOp::Le => lf <= rf,
-                        AstCompareOp::Eq => lf == rf,
-                        AstCompareOp::Ne => lf != rf,
-                    },
-                    _ => false,
-                };
-                Value::Bool(result)
+    /// №629 (gh#1096): the comparison parity — the VM matrix mirrors the
+    /// TW's eval_binop (the SSOT, src/interpreter/execution.rs) 1:1:
+    /// Eq/Ne on the Float/String/Bool pairs + the Unit semantics, the
+    /// ordering ops on Float/Float ONLY, and a LOUD coded refusal
+    /// everywhere else (the №479 '+' precedent). The legacy fallthrough
+    /// coerced anything numeric-parseable and answered a SILENT `false`
+    /// on the incomparable types — the silently-wrong class: `String Eq
+    /// Float` ran `false` while the TW refused, `"5" Eq 5.0` ran `true`
+    /// while the TW refused, `Bool Gt Bool` / `String Gt String` compared
+    /// while the TW refused, `Unit Eq Unit` answered `false` while the TW
+    /// answers `true`. Surfaced by the №621 un-vacuumed fuzzer sweep (the
+    /// №503 outcome classes are un-pinnable — the repair naryad is the
+    /// only honest green).
+    fn eval_cmp(&self, left: Value, right: Value, op: AstCompareOp) -> Result<Value, String> {
+        match (op, left, right) {
+            (AstCompareOp::Eq, Value::Float(a), Value::Float(b)) => Ok(Value::Bool(a == b)),
+            (AstCompareOp::Eq, Value::String(a), Value::String(b)) => Ok(Value::Bool(a == b)),
+            (AstCompareOp::Eq, Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(a == b)),
+            (AstCompareOp::Eq, Value::Unit, Value::Unit) => Ok(Value::Bool(true)),
+            (AstCompareOp::Eq, Value::Unit, _) | (AstCompareOp::Eq, _, Value::Unit) => {
+                Ok(Value::Bool(false))
             }
+            (AstCompareOp::Ne, Value::String(a), Value::String(b)) => Ok(Value::Bool(a != b)),
+            (AstCompareOp::Ne, Value::Float(a), Value::Float(b)) => Ok(Value::Bool(a != b)),
+            (AstCompareOp::Ne, Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(a != b)),
+            (AstCompareOp::Ne, Value::Unit, Value::Unit) => Ok(Value::Bool(false)),
+            (AstCompareOp::Ne, Value::Unit, _) | (AstCompareOp::Ne, _, Value::Unit) => {
+                Ok(Value::Bool(true))
+            }
+            (AstCompareOp::Gt, Value::Float(a), Value::Float(b)) => Ok(Value::Bool(a > b)),
+            (AstCompareOp::Lt, Value::Float(a), Value::Float(b)) => Ok(Value::Bool(a < b)),
+            (AstCompareOp::Ge, Value::Float(a), Value::Float(b)) => Ok(Value::Bool(a >= b)),
+            (AstCompareOp::Le, Value::Float(a), Value::Float(b)) => Ok(Value::Bool(a <= b)),
+            (_, l, r) => Err(crate::interpreter::values::coded_error(
+                crate::interpreter::values::CODE_TYPE_MISMATCH,
+                format!(
+                    "type mismatch in binary operation: {} {:?} {}",
+                    l.type_name(),
+                    op,
+                    r.type_name()
+                ),
+            )),
         }
     }
 }

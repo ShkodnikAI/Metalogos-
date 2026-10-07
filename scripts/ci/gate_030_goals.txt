@@ -1,11 +1,12 @@
-# The 0.30 release-gate ABSOLUTE goals (№615 + №626, ADR-0186) — the record
-# the v2 gate reads. STATUS: **DRAFT — owner_fixed: false.** The executor
-# drafted the parameters (the №570 precedent: the draft is the executor's
-# work); the FIXATION is the OWNER's gate (ADR-0186 §3): until the §5
-# transition PR lands, this record stays a draft, the gate reports the
-# honest RED on exactly this fact, and the DEFAULT gate target of
-# unfreeze_gate.py remains 0.29 (the №597 wiring; the draft is NEVER the
-# default — the blocking CI does not read a draft).
+# The 0.30 release-gate ABSOLUTE goals (№615 + №626 + №630, ADR-0186) —
+# the record the v2 gate reads. STATUS: **OWNER-FIXED — owner_fixed: true.**
+# The §5 MECHANICAL TRANSITION (ADR-0186 §5) landed in the №630 PR
+# (gh#1098, wave 35, 2026-10-07, one PR by the rule): the parameters
+# bind, and the DEFAULT gate target of unfreeze_gate.py reads 0.30 —
+# the switch happened in THIS owner_fixed merge (the №597 pattern:
+# the parameters first, the CI ratchet after). The 0.28 and 0.29
+# records are NOT deleted — they stay verifiable explicit targets
+# (--gate-target 0.28 / 0.29); nothing historical was removed.
 #
 # THE OWNER'S VERDICT (2026-10-07, VERBATIM — recorded by №626, gh#1093):
 # «принимаю форму довеска В34 как основу, значение доли параметризованных
@@ -15,10 +16,11 @@
 # dispatch gh#1089 owner-gate 2). Any different number = the ADR-0186 §5
 # owner-only change path (one PR, the value recorded in this header).
 # The §5 MECHANICAL TRANSITION (owner_fixed: true + ADR-0186
-# Proposed → Accepted + the DEFAULT target switch 0.29 → 0.30) lands in
-# ONE PR AFTER gh#1086 (№623) merges the third-metric checker — the
+# Proposed → Accepted + the DEFAULT target switch 0.29 → 0.30) landed in
+# ONE PR AFTER gh#1086 (№623) merged the third-metric checker — the
 # fail-closed №525 rule forbids a fact without a machine source, and the
-# new typed parameter below is verifiable only through that checker.
+# typed parameter below was verifiable only through that checker
+# (gh#1086 merged as 2b6dec96 BEFORE this PR — the precondition held).
 #
 # THE X-3 RULE (the audit 25b375e §3, the ADR-0186 §2 honesty): goals
 # already achieved by the live fact measure NOTHING. Every parameter
@@ -34,27 +36,37 @@
 # them; no new fact_* key is introduced without a checker — the
 # fail-closed №525 rule).
 
-owner_fixed: false
+owner_fixed: true
 
-# ── The DRAFT parameters (the В34 addendum shape — the owner accepted the form as the basis, 2026-10-07) ─────────
+# ── The OWNER-FIXED parameter (the В34 addendum shape — the verdict 2026-10-07) ─────────
 # THE TYPED PARAMETER of the 0.30 gate: the parameterized share among the
-# coarse bare List/Struct signature rows. Live base at the addendum: 0 of
-# 84 (Struct 49, List 35 — the audit t94). Draft benchmark (the audit's,
-# accepted as the basis by the verdict above): ≥ 50% of 84 (≥ 42 rows
-# carry a VERIFIED parameter — the name of the struct / the element type
-# read off the handler, the №565/№757/№613 procedure). NO fact_* key yet:
-# the checker is the №623 third metric (type_signature_share.py — the
-# parameterized-share counter with its own only-up baseline); the fact
-# key is introduced in the §5 fixation PR, never before (№525).
-# draft_parameterized_share: >= 50% of 84 (the checker lands with gh#1086)
+# List/Struct signature rows. The verdict's «X%» resolves to the В34
+# addendum's benchmark — ≥ 50% — fixed here as 5000 basis points. The
+# «of 84» arithmetic (≥ 42 verified rows) was the audit-t94 SNAPSHOT of
+# the bare base; the machine parameter is the SHARE — the live
+# denominator is the third metric's List/Struct base (91 rows at the
+# fixation anchor: 84 bare + the 7 parameterized by №623), so 50%
+# binds as ≥ 46 verified rows there. A different number = the ADR-0186
+# §5 owner-only change path (one PR, the value recorded in this header).
+# Machine source (the checker, №623): the THIRD METRIC —
+#   python3 scripts/ci/type_signature_share.py --parameterized --gate
+#     scripts/ci/type_signature_parameterized_baseline.txt
+# verified by scripts/ci/sync_gate_facts.py through the fact twin below
+# (the fact follows the movement naryads — the №613/№616 pattern of the
+# precise twin: each honest package raises the fact AND the
+# parameterized baseline floor in the SAME PR, never by loosening the
+# spelling; №565/№757/№613 procedure).
+goal_parameterized_share_bp: 5000
 #
-# The NEW draft criterion (the В34 addendum, Z-3): the LAST
+# The branch-protection criterion (the В34 addendum, Z-3): the LAST
 # branch-protection-audit run is GREEN. The context: v0.28.2 and v0.29.0
 # published while the branch protection was RED (the switches unapplied —
-# gh#1000, the owner's gate). NO fact_* key yet: the checker (the audit
-# job's conclusion read) lands with the gh#1000 closure; introduced in
-# the §5 fixation PR, never before (№525).
-# draft_branch_protection_audit: GREEN (the checker lands with gh#1000)
+# gh#1000, the owner's gate). gh#1000 was OPEN at the §5 fixation
+# (2026-10-07) — NO fact_* key exists (fail-closed №525: the checker —
+# the audit job's conclusion read — lands with the gh#1000 closure via a
+# micro-PR). The criterion stays a DRAFT line and is NOT in the fixed
+# set yet:
+# draft_branch_protection_audit: GREEN (the checker lands after gh#1000)
 #
 # Zero open High findings in the server path — the unchanged ratchet
 # (the release-block label discipline; no regression is possible).
@@ -85,7 +97,7 @@ goal_quorum_den: 3
 # class re-opening, fail-closed №525). The current floors: ignore 14,
 # ignore_todo 0, dead_code 33 — each only-down.
 
-# ── The live facts (the SAME checker set as the 0.28/0.29 records; the new facts arrive in the §5 fixation PR) ──
+# ── The live facts (the SAME checker set as the 0.28/0.29 records; the parameterized twin arrived WITH its checker in the §5 fixation PR) ──
 # The open High findings in the server path: the count of the open
 # GitHub issues labeled `release-block`. Machine-verified by
 # scripts/ci/sync_gate_facts.py. The В31 corrective trajectory closed at
@@ -111,3 +123,12 @@ fact_blocking_check_cells: 31
 # package; the further scalar movement stopped, Z-2). The counter is
 # machine-read, never hand-zeroed.
 fact_precise_share_bp: 4224
+# The live PARAMETERIZED-share fact (the third metric — the machine twin
+# of goal_parameterized_share_bp above; introduced WITH its checker in
+# this §5 fixation PR, №630 — never before, №525). Machine:
+# python3 scripts/ci/type_signature_share.py --parameterized --gate
+# scripts/ci/type_signature_parameterized_baseline.txt — verified by
+# sync_gate_facts.py. The fact follows the movement naryads: 769
+# (7/91 — №623, gh#1086, the first honest package; the live fact at the
+# fixation anchor). The counter is machine-read, never hand-zeroed.
+fact_parameterized_share_bp: 769

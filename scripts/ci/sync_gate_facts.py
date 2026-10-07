@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """№525: machine-sync of every fact_* record in the goal records —
-gate_028_goals.txt AND gate_029_goals.txt (№605: the 0.29 record is
+gate_028_goals.txt, gate_029_goals.txt (№605: the 0.29 record is
 verified too — it carries the X-3 precise-share fact; the 0.28 record
-predates that parameter and carries no precise record).
+predates that parameter and carries no precise record) AND
+gate_030_goals.txt (№630: the §5 fixation record — it carries the
+parameterized-share fact, the machine twin of goal_parameterized_share_bp,
+beside the precise-share twin it inherited from the draft era; the
+branch-protection criterion has NO fact key until gh#1000 closes,
+№525).
 
 The class this closes (the audit 30.09, Д-2): the fact lines in the
 goals file are hand-edited and nothing verified them against their
@@ -25,6 +30,13 @@ The facts and their machine sources:
                        type_signature_precise_baseline.txt --precise
                        (№560/№605; the 0.29 record only — the machine
                        twin of goal_precise_share_bp, ADR-0181 §3.1).
+  fact_parameterized_share_bp
+                       type_signature_share.py --parameterized --gate
+                       type_signature_parameterized_baseline.txt
+                       (№623/№630; the 0.30 record only — the machine
+                       twin of goal_parameterized_share_bp, ADR-0186 §3:
+                       the third metric, the Z-2 successor of the scalar
+                       typed/precise parameters).
 
 Fail-closed rules:
   - a fact line whose value disagrees with its source → exit 1;
@@ -52,11 +64,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 COUNTER = os.path.join(HERE, 'count_duplicated_names.py')
 SHARE_PRECISE = os.path.join(HERE, 'type_signature_share.py')
 PRECISE_BASELINE = os.path.join(HERE, 'type_signature_precise_baseline.txt')
+PARAM_BASELINE = os.path.join(HERE, 'type_signature_parameterized_baseline.txt')
 REPO = 'ShkodnikAI/Metalogos-'
 
 # The goal records the sync verifies, each with its own expected fact set
-# (№605: the 0.29 record carries the X-3 precise-share fact; the 0.28
-# record predates the parameter).
+# (№605: the 0.29 record carries the X-3 precise-share fact; №630: the
+# 0.30 record carries the parameterized-share fact — the §5 fixation
+# introduced the key WITH this checker in the same PR).
 RECORDS = (
     (os.path.join(HERE, 'gate_028_goals.txt'),
      ('fact_open_high_server', 'fact_quorum_num', 'fact_quorum_den',
@@ -64,6 +78,10 @@ RECORDS = (
     (os.path.join(HERE, 'gate_029_goals.txt'),
      ('fact_open_high_server', 'fact_quorum_num', 'fact_quorum_den',
       'fact_blocking_check_cells', 'fact_precise_share_bp')),
+    (os.path.join(HERE, 'gate_030_goals.txt'),
+     ('fact_open_high_server', 'fact_quorum_num', 'fact_quorum_den',
+      'fact_blocking_check_cells', 'fact_precise_share_bp',
+      'fact_parameterized_share_bp')),
 )
 
 
@@ -129,6 +147,29 @@ def precise_share_observed() -> dict:
         sys.exit(2)
     bp = int(round(float(m.group(1)) * 100))
     return {'fact_precise_share_bp': str(bp)}
+
+
+def parameterized_share_observed() -> dict:
+    """№630 (gh#1098; ADR-0186 §3/§5): the live PARAMETERIZED-share fact —
+    the machine twin of goal_parameterized_share_bp in the 0.30 record.
+    The №623 third metric (type_signature_share.py --parameterized); the
+    percentage → basis-point rounding mirrors the v2 gate reader exactly
+    (the same shape as precise_share_observed)."""
+    out = subprocess.run([sys.executable, SHARE_PRECISE, '--parameterized',
+                          '--gate', PARAM_BASELINE],
+                         capture_output=True, text=True)
+    if out.returncode != 0:
+        print(out.stdout + out.stderr)
+        print('::error::the parameterized-share source script failed (exit %d)'
+              % out.returncode)
+        sys.exit(2)
+    m = re.search(r'parameterized signatures:\s*\d+/\d+\s*\(([\d.]+)%\)',
+                  out.stdout)
+    if not m:
+        print('::error::the parameterized-share source printed no parsable record')
+        sys.exit(2)
+    bp = int(round(float(m.group(1)) * 100))
+    return {'fact_parameterized_share_bp': str(bp)}
 
 
 def open_high_observed(token: str) -> str:
@@ -213,20 +254,27 @@ def main() -> None:
                      '(the ADR-0179 §6 step-1 sync stays a release-time human step; '
                      'CI always runs this check with the token)')
     errors = []
-    # №605: both records verify — the 0.28 record against the common
-    # observed set, the 0.29 record with the precise-share machine twin.
-    (goals_028, expected_028), (goals_029, expected_029) = RECORDS
-    errors += verify(goals_028, observed_common, expected_028)
-    observed_029 = dict(observed_common)
-    observed_029.update(precise_share_observed())
-    errors += verify(goals_029, observed_029, expected_029)
+    # №605: the 0.28 record verifies against the common observed set, the
+    # 0.29 record with the precise-share machine twin; №630: the 0.30
+    # record with the parameterized-share machine twin. A fact key is
+    # added to a record's observed set exactly when the record expects it
+    # (a source reporting a key the record does not carry is itself a
+    # verify() error — the per-record sets stay exact).
+    for goals_path, expected in RECORDS:
+        observed = dict(observed_common)
+        if 'fact_precise_share_bp' in expected:
+            observed.update(precise_share_observed())
+        if 'fact_parameterized_share_bp' in expected:
+            observed.update(parameterized_share_observed())
+        errors += verify(goals_path, observed, expected)
     report(errors, skips)
     sys.exit(1 if errors else 0)
 
 
 def tamper_test() -> None:
     """The negative test (№525 task 3): a tampered fact value must fail —
-    for BOTH goal records (№605: the 0.29 record is tamper-tested too)."""
+    for ALL goal records (№605: the 0.29 record; №630: the 0.30 record
+    too)."""
     token = os.environ.get('GH_TOKEN') or os.environ.get('GITHUB_TOKEN')
     observed_common = quorum_observed()
     observed_common.update(cells_observed())
@@ -240,6 +288,8 @@ def tamper_test() -> None:
         observed = dict(observed_common)
         if 'fact_precise_share_bp' in expected:
             observed.update(precise_share_observed())
+        if 'fact_parameterized_share_bp' in expected:
+            observed.update(parameterized_share_observed())
         cases = []
         for key in sorted(observed):
             tampered = str(int(observed[key]) + 1)

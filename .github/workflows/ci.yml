@@ -584,7 +584,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: "Gate — every fact_* in the 0.28 + 0.29 goal records matches its machine source (№525, №605)"
+      - name: "Gate — every fact_* in the 0.28 + 0.29 + 0.30 goal records matches its machine source (№525, №605, №630)"
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -747,7 +747,7 @@ jobs:
         run: |
           if [ "${{ steps.office_tests.outcome }}" = "success" ]; then OT=pass; else OT=fail; fi
           python3 scripts/ci/unfreeze_gate.py --office-tests "$OT"
-      - name: Upload the unfreeze summary artifact (the gate read — the 0.29 default since №597)
+      - name: Upload the unfreeze summary artifact (the gate read — the 0.30 default since №630)
         if: always()
         uses: actions/upload-artifact@v7
         with:

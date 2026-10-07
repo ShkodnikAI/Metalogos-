@@ -53,7 +53,7 @@ def count_builtin_modules() -> int:
     # №467: the typed rows end with the signature string —
     # `spec!(..., handler, "Type")` — strip it so the last remaining
     # string is the category again (the type is not a module).
-    type_re = re.compile(r'(;\s*[A-Za-z_0-9]+),\s*"[A-Za-z][A-Za-z0-9<>]*"\s*\)')
+    type_re = re.compile(r'(;\s*[A-Za-z_0-9]+),\s*"[A-Za-z][A-Za-z0-9<>{}:,_]*"\s*\)')
     categories = set()
     for line in content.splitlines():
         if "spec!(" not in line:
@@ -75,7 +75,7 @@ def count_typed_signatures() -> tuple[int, int, int]:
     content = (REPO / "src" / "builtins" / "registry.rs").read_text(encoding="utf-8")
     spec_re = re.compile(r'spec!\("([a-z_0-9]+)"')
     typed_re = re.compile(
-        r'spec!\("([a-z_0-9]+)",[^\n;]*;\s*[A-Za-z_0-9]+\s*,\s*"([A-Za-z][A-Za-z0-9<>]*)"\s*\)'
+        r'spec!\("([a-z_0-9]+)",[^\n;]*;\s*[A-Za-z_0-9]+\s*,\s*"([A-Za-z][A-Za-z0-9<>{}:,_]*)"\s*\)'
     )
     precise_types = {"String", "Float", "Bool", "Unit"}
     total = spec_re.findall(content)

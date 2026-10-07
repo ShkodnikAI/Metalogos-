@@ -42,7 +42,7 @@ fn recompute_floor() -> (usize, usize, usize, usize, usize) {
 
     let spec_re = Regex::new(r#"spec!\("([a-z_0-9]+)""#).unwrap();
     let typed_re = Regex::new(
-        r#"spec!\("([a-z_0-9]+)",[^\n;]*;\s*[A-Za-z_0-9]+\s*,\s*"([A-Za-z][A-Za-z0-9<>]*)"\s*\)"#,
+        r#"spec!\("([a-z_0-9]+)",[^\n;]*;\s*[A-Za-z_0-9]+\s*,\s*"([A-Za-z][A-Za-z0-9<>{}:,_]*)"\s*\)"#,
     )
     .unwrap();
 

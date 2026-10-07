@@ -249,8 +249,22 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("require", 1, 2, "web"; builtin_require, "Unit"),
     spec!("request_body", 0, "web"; builtin_json_body),
     spec!("web_search", 1, 2, "web"; builtin_web_search, "String"), // query | query,num
-    spec!("geo_ip", 0, 1, "web"; builtin_geo_ip, "Struct<GeoLocation>"), // ip? (omit = caller IP; builtin_geo_ip)
-    spec!("weather", 2, "web"; builtin_weather, "Struct<Weather>"),
+    // №627 (gh#1110): the field-label tables — the FIRST honest package
+    // (the handler-read verification table in the naryad thread; the file
+    // facts: geo_ip — every field parsed from the external ip-api.com
+    // body (the g() closure, http.rs), the ip field additionally the echo
+    // of the caller's argument; weather — the ten wire numbers from the
+    // Open-Meteo body (serde parse), city the echo of the user's argument
+    // (expect_string_arg → resolved_city), description the in-tree WMO
+    // table (wmo_description, &'static str) and country the in-tree
+    // constant ""; the UserInput-sourced echo is untrusted per
+    // labels.rs:509); llm_usage — the in-process Rust counters
+    // (LlmUsageReport, llm.rs), no wire, no user input → internal.
+    // The honest exclusions: json_body/form_data (dynamic user shapes —
+    // no fixed field vocabulary exists), Tool/DayForecast (List elements —
+    // the section is a Struct form at stage 2).
+    spec!("geo_ip", 0, 1, "web"; builtin_geo_ip, "Struct<GeoLocation>{ip:untrusted,city:untrusted,region:untrusted,country:untrusted,country_code:untrusted,lat:untrusted,lon:untrusted,isp:untrusted,timezone:untrusted}"), // ip? (omit = caller IP; builtin_geo_ip)
+    spec!("weather", 2, "web"; builtin_weather, "Struct<Weather>{temp:untrusted,feels_like:untrusted,temp_min:untrusted,temp_max:untrusted,humidity:untrusted,description:internal,wind_speed:untrusted,wind_direction:untrusted,pressure:untrusted,cloud_cover:untrusted,is_day:untrusted,city:untrusted,country:internal}"),
     spec!("geo_distance", 2, 5, "web"; builtin_geo_distance, "Float"),
     spec!("weather_forecast", 1, 3, "web"; builtin_weather_forecast, "List<DayForecast>"), // city | lat,lon | lat,lon,days
     // ── Crypto builtins ──
@@ -300,7 +314,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     #[cfg(feature = "llm")]
     spec!("call_claude", 4, "llm"; builtin_call_claude, "String"), // api_key,model,system,user
     #[cfg(feature = "llm")]
-    spec!("llm_usage", 0, "llm"; builtin_llm_usage, "Struct<LlmUsage>"),
+    spec!("llm_usage", 0, "llm"; builtin_llm_usage, "Struct<LlmUsage>{total_calls:internal,total_tokens:internal,total_errors:internal,cache_hits_semantic:internal,canary_leaks:internal,providers:internal}"),
     #[cfg(feature = "llm")]
     spec!("call_llm_schema", 2, 3, "llm"; builtin_call_llm_schema), // prompt,schema | prompt,input,schema (Наряд №269, ADR-0133)
     // ── Memory builtins ──

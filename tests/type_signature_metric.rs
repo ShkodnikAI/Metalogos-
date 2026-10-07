@@ -133,3 +133,100 @@ fn parameterized_signature_share_never_falls_below_the_floor() {
         PARAM_LS_DENOM
     );
 }
+
+// ── №627 (gh#1110): the FOURTH metric — the field-label share ───────
+//
+// The in-tree twin of `scripts/ci/type_signature_fieldmeta_baseline.txt`
+// (`# threshold_bp: 1500`): the share of the rows carrying the field-meta
+// section (`Struct<Name>{field:label,...}`) among the parameterized
+// Struct rows. The same two-locks discipline: the script counts the
+// SOURCE rows (20 Struct-param rows — the llm_usage cfg(llm) row rides
+// only there when the feature is on), this test counts the COMPILED
+// default-feature specs. Only-up, in the same PR that labels more fields
+// (the №757 procedure). The first honest package: GeoLocation/Weather/
+// LlmUsage — 28 verified field-label rows (the handler-read table in the
+// naryad gh#1110); the floor 0 → 3 compiled rows.
+//
+// BuiltinSpec.field_meta is the registry SIDE-TABLE (the enum is NOT
+// extended — stage-2 minimality); parse_field_meta is the consumer API.
+const FIELDMETA_FLOOR: usize = 3;
+
+#[test]
+fn field_label_share_never_falls_below_the_floor() {
+    let labeled = BUILTIN_REGISTRY
+        .iter()
+        .filter(|spec| !spec.field_meta.is_empty())
+        .count();
+    let structs = BUILTIN_REGISTRY
+        .iter()
+        .filter(|spec| spec.parameterized && spec.return_type == Type::Struct)
+        .count();
+    println!(
+        "field-label signatures: {}/{} ({}.{:02}%)",
+        labeled,
+        structs,
+        (labeled * 10000) / structs.max(1) / 100,
+        (labeled * 10000) / structs.max(1) % 100
+    );
+    assert!(
+        labeled >= FIELDMETA_FLOOR,
+        "field-label signatures regressed: {} < {} (№627: the share rises \
+         every release; a field-meta row lost its section or the floor \
+         fell)",
+        labeled,
+        FIELDMETA_FLOOR
+    );
+    // The denominator lock: the parameterized-Struct base must not shrink
+    // (the same №623 discipline — a coarse row typed away is a fact
+    // change; record it in the naryad, then move this const).
+    assert!(
+        structs >= 19,
+        "the parameterized-Struct denominator shrank: {} < 19 (№627: the \
+         base the field-label share is computed over must not shrink)",
+        structs
+    );
+}
+
+#[test]
+fn every_field_meta_is_the_well_formed_grammar() {
+    // The fail-closed armor (the in-tree twin of from_path's Unknown
+    // erasure): a non-empty field_meta MUST parse under the №627 grammar
+    // (parse_field_meta is fail-closed — None on malformed), the row must
+    // be Struct-typed, and every (field, label) entry must carry a
+    // non-empty name and a stage-0 Label. A malformed section attached at
+    // the fill site fails HERE and drops the row to Unknown (the general
+    // typed floor catches it independently).
+    for spec in BUILTIN_REGISTRY.iter() {
+        if spec.field_meta.is_empty() {
+            continue;
+        }
+        let parsed = metalogos::builtins::sig_types::parse_field_meta(spec.field_meta)
+            .unwrap_or_else(|| {
+                panic!(
+                    "the malformed field_meta on '{}' — a typo must not ride the registry side-table (№627 fail-closed)",
+                    spec.name
+                )
+            });
+        assert!(
+            !parsed.is_empty(),
+            "the empty field-meta section on '{}' (№627: {} = absent)",
+            spec.name,
+            "\"\""
+        );
+        assert_eq!(
+            spec.return_type,
+            Type::Struct,
+            "the field-meta row '{}' must erase to Struct (the section \
+             belongs to structs — a List head with a brace tail is honest \
+             Unknown)",
+            spec.name
+        );
+        for (field, _label) in &parsed {
+            assert!(
+                !field.is_empty(),
+                "the empty field name in the '{}' table",
+                spec.name
+            );
+        }
+    }
+}

@@ -27,6 +27,14 @@ pub struct Builtins {
 /// - `return_type`: the stage-0 typed signature (№467): `Type::from_path`
 ///   of the documented string path at the fill site; `Unknown` = the
 ///   honest "not typed yet" (the CI share metric counts non-Unknown)
+/// - `parameterized`: №623 — the spec string carries `List<T>`/`Struct<Name>`
+///   (the third metric's in-tree fact; the enum stays erased)
+/// - `field_meta`: №627 — the raw field-label section inner of the spec
+///   string (`"f1:label,f2:label"` — the `Struct<Name>{...}` form), `""` =
+///   no metadata. The SIDE-TABLE of the stage-2 preparation (ADR-0178):
+///   the label metadata lives in the registry, NOT in the `Type` enum.
+///   Parse with `sig_types::parse_field_meta` (fail-closed); the in-tree
+///   armor test pins every non-empty value to the №627 grammar.
 /// - `handler`: the Rust function that implements this builtin.
 ///   `None` = осознанная заглушка (stub — no runtime handler, e.g.
 ///   historical placeholders kept for bytecode index stability).
@@ -39,6 +47,7 @@ pub struct BuiltinSpec {
     pub layer: &'static str, // "core" | "platform" | "ext"; default "core"
     pub return_type: Type,   // №467 stage 0: the typed signature (Unknown = not typed yet)
     pub parameterized: bool, // №623: the spec string carries List<T>/Struct<Name> (the third metric's in-tree fact; the enum stays erased)
+    pub field_meta: &'static str, // №627: the raw field-label section inner ("f:label,...") or "" — the registry side-table, the enum NOT extended
     pub handler: Option<BuiltinFn>, // None = stub (intentionally no handler)
 }
 
@@ -67,6 +76,7 @@ macro_rules! spec {
             layer: $layer,
             return_type: $crate::builtins::sig_types::Type::Unknown,
             parameterized: false,
+            field_meta: "",
             handler: Some($handler as $crate::builtins::BuiltinFn),
         }
     };
@@ -79,6 +89,7 @@ macro_rules! spec {
             layer: $layer,
             return_type: $crate::builtins::sig_types::Type::Unknown,
             parameterized: false,
+            field_meta: "",
             handler: Some($handler as $crate::builtins::BuiltinFn),
         }
     };
@@ -91,6 +102,7 @@ macro_rules! spec {
             layer: "core",
             return_type: $crate::builtins::sig_types::Type::Unknown,
             parameterized: false,
+            field_meta: "",
             handler: Some($handler as $crate::builtins::BuiltinFn),
         }
     };
@@ -103,6 +115,7 @@ macro_rules! spec {
             layer: "core",
             return_type: $crate::builtins::sig_types::Type::Unknown,
             parameterized: false,
+            field_meta: "",
             handler: Some($handler as $crate::builtins::BuiltinFn),
         }
     };
@@ -116,6 +129,7 @@ macro_rules! spec {
             layer: $layer,
             return_type: $crate::builtins::sig_types::Type::Unknown,
             parameterized: false,
+            field_meta: "",
             handler: None,
         }
     };
@@ -128,6 +142,7 @@ macro_rules! spec {
             layer: $layer,
             return_type: $crate::builtins::sig_types::Type::Unknown,
             parameterized: false,
+            field_meta: "",
             handler: None,
         }
     };
@@ -140,6 +155,7 @@ macro_rules! spec {
             layer: "core",
             return_type: $crate::builtins::sig_types::Type::Unknown,
             parameterized: false,
+            field_meta: "",
             handler: None,
         }
     };
@@ -152,6 +168,7 @@ macro_rules! spec {
             layer: "core",
             return_type: $crate::builtins::sig_types::Type::Unknown,
             parameterized: false,
+            field_meta: "",
             handler: None,
         }
     };
@@ -171,6 +188,7 @@ macro_rules! spec {
             layer: "core",
             return_type: $crate::builtins::sig_types::Type::from_path($rt),
             parameterized: $crate::builtins::sig_types::path_is_parameterized($rt),
+            field_meta: $crate::builtins::sig_types::field_meta_of($rt),
             handler: Some($handler as $crate::builtins::BuiltinFn),
         }
     };
@@ -183,6 +201,7 @@ macro_rules! spec {
             layer: "core",
             return_type: $crate::builtins::sig_types::Type::from_path($rt),
             parameterized: $crate::builtins::sig_types::path_is_parameterized($rt),
+            field_meta: $crate::builtins::sig_types::field_meta_of($rt),
             handler: Some($handler as $crate::builtins::BuiltinFn),
         }
     };
@@ -195,6 +214,7 @@ macro_rules! spec {
             layer: $layer,
             return_type: $crate::builtins::sig_types::Type::from_path($rt),
             parameterized: $crate::builtins::sig_types::path_is_parameterized($rt),
+            field_meta: $crate::builtins::sig_types::field_meta_of($rt),
             handler: Some($handler as $crate::builtins::BuiltinFn),
         }
     };
@@ -207,6 +227,7 @@ macro_rules! spec {
             layer: $layer,
             return_type: $crate::builtins::sig_types::Type::from_path($rt),
             parameterized: $crate::builtins::sig_types::path_is_parameterized($rt),
+            field_meta: $crate::builtins::sig_types::field_meta_of($rt),
             handler: Some($handler as $crate::builtins::BuiltinFn),
         }
     };

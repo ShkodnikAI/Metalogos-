@@ -353,7 +353,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     #[cfg(feature = "vec")]
     spec!("embed", 1, "memory"; builtin_embed, "List<Float>"), // №539: the Float embedding vector; №631: the Float element read off the handler (Value::Float map)
     #[cfg(feature = "vec")]
-    spec!("vec_store", 4, 5, "memory"; builtin_vec_store, "Struct<VecStoreResult>"), // db_path,table,id,embedding | +text|opts{text,scope} (№281) — №539: the VecStoreResult; №631: the name read off make_struct
+    spec!("vec_store", 4, 5, "memory"; builtin_vec_store, "Struct<VecStoreResult>{stored:internal,table:untrusted,id:untrusted,dim:internal,rowid:internal}"), // db_path,table,id,embedding | +text|opts{text,scope} (№281) — №539: the VecStoreResult; №631: the name read off make_struct; №638: the fields read off make_struct (vector.rs:360-368) — table/id echo the caller's arguments → untrusted, stored/dim/rowid computed in-tree → internal
     #[cfg(feature = "vec")]
     spec!("vec_search", 4, 5, "memory"; builtin_vec_search, "List<VecSearchHit>"), // db_path,table,query,k | +include_forgotten (№280, дефолт false) — №539: the hit structs (the post-filter may shrink below k); №631: the VecSearchHit element read off make_struct (all three arms)
     // Наряд №442: the registry-level recall row (see the №442 comment at
@@ -375,11 +375,11 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // (the №280 dry-run discipline), the retain pins, and the grant-gated
     // cascading forget (the ADR-0155 linear action, `irreversible.
     // memory_forget` ledger record; scope `memory:forget:<container>`).
-    spec!("memory_cascade_preview", 2, "memory"; builtin_memory_cascade_preview, "Struct<MemoryCascadePlan>"), // №539: the MemoryCascadePlan; №631: the name read off make_struct
+    spec!("memory_cascade_preview", 2, "memory"; builtin_memory_cascade_preview, "Struct<MemoryCascadePlan>{closure:internal,blocked_by:internal}"), // №539: the MemoryCascadePlan; №631: the name read off make_struct; №638: both fields are the in-tree graph computation (memory_typed.rs:286-294) → internal
     spec!("memory_retain", 2, "memory"; builtin_memory_retain, "Unit"),
     spec!("memory_release", 2, "memory"; builtin_memory_release, "Unit"),
     spec!("memory_retained", 1, "memory"; builtin_memory_retained, "List<String>"), // №631: the String keys (memory_typed.rs)
-    spec!("memory_forget_cascade", 3, "memory"; builtin_memory_forget_cascade, "Struct<MemoryForgetResult>"), // №539: the MemoryForgetResult; №631: the name read off forget_outcome_value
+    spec!("memory_forget_cascade", 3, "memory"; builtin_memory_forget_cascade, "Struct<MemoryForgetResult>{root:untrusted,deleted:internal,batch_id:internal}"), // №539: the MemoryForgetResult; №631: the name read off forget_outcome_value; №638: the fields read off forget_outcome_value (memory_typed.rs:249-268) — root echoes the caller's key → untrusted, deleted/batch_id computed → internal (NOTE: the SAME type_name carries a DIFFERENT field set on the forget row — the two-shapes observation recorded in the PR)
     // №352 (ADR-0174): the duplex channel — barge-in over the №348
     // session priority ladder. NOT feature-gated: the CI contour
     // exercises the same state machine as the serve contour. The
@@ -417,7 +417,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // irreversible.memory_forget. The legacy 1..2-argument
     // forget(query, days?) surface (№72) is intact — the TW/VM
     // intercepts keep it; 3..4 arguments fall through to the handler.
-    spec!("forget", 3, 4, "memory"; builtin_forget, "Struct<MemoryForgetResult>"), // №539: the 3..4-argument typed front door (MemoryForgetResult); №631: the name read off make_struct — the legacy 1..2-argument forget(query, days?) intercepts first and returns Unit — a different arity surface
+    spec!("forget", 3, 4, "memory"; builtin_forget, "Struct<MemoryForgetResult>{candidates:internal,applied:internal,batch_id:internal}"), // №539: the 3..4-argument typed front door (MemoryForgetResult); №631: the name read off make_struct — the legacy 1..2-argument forget(query, days?) intercepts first and returns Unit — a different arity surface; №638: the fields read off struct_value BOTH arms (memory_forget.rs:464, 538) — candidates/applied/batch_id computed in-tree → internal (NOTE: the type_name collides with the cascade row's shape — see the PR)
     spec!("find", 4, "stub"),
     spec!("inspect", 1, "stub"),
     // conv_start/add/history/context/end: conversation lifecycle management; not yet implemented
@@ -457,16 +457,16 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("graph_query", 1, 3, "graph"; builtin_graph_query), // query | query,limit | query,limit,level
     spec!("graph_path", 2, "graph"; builtin_graph_path),      // from_id,to_id
     spec!("graph_neighbors", 0, "graph"; builtin_graph_neighbors),
-    spec!("memory_decay", 0, "memory"; builtin_memory_decay, "Struct<DecayResult>"), // №539: the DecayResult; №631: the name read off make_date_struct
-    spec!("memory_boost", 0, "memory"; builtin_memory_boost, "Struct<BoostResult>"), // №539: the BoostResult; №631: the name read off make_date_struct
-    spec!("memory_prune", 0, "memory"; builtin_memory_prune, "Struct<PruneResult>"), // №539: the PruneResult; №631: the name read off make_date_struct
-    spec!("memory_revise", 0, "memory"; builtin_memory_revise, "Struct<ReviseResult>"), // №539: the ReviseResult; №631: the name read off make_date_struct
+    spec!("memory_decay", 0, "memory"; builtin_memory_decay, "Struct<DecayResult>{decayed:internal,nodes:internal,edges:internal,components:internal}"), // №539: the DecayResult; №631: the name read off make_date_struct; №638: all four fields are the in-tree graph computation (memory.rs:865-871) → internal
+    spec!("memory_boost", 0, "memory"; builtin_memory_boost, "Struct<BoostResult>{id:untrusted,new_score:internal,access_count:internal}"), // №539: the BoostResult; №631: the name read off make_date_struct; №638: the fields read off make_date_struct (memory.rs:893-902) — id echoes the caller's argument → untrusted, the metrics computed → internal
+    spec!("memory_prune", 0, "memory"; builtin_memory_prune, "Struct<PruneResult>{pruned:internal,remaining:internal}"), // №539: the PruneResult; №631: the name read off make_date_struct; №638: both fields computed in-tree (memory.rs:924-929) → internal
+    spec!("memory_revise", 0, "memory"; builtin_memory_revise, "Struct<ReviseResult>{action:internal,winner_id:internal,superseded_id:internal}"), // №539: the ReviseResult; №631: the name read off make_date_struct; №638: the fields read off make_date_struct (memory.rs:957-964) — all computed in-tree; superseded_id is OPTIONAL (present only when a contradiction resolved) → internal
     spec!("subgraph_extract", 0, "graph"; builtin_subgraph_extract),
     spec!("subgraph_nodes", 0, "graph"; builtin_subgraph_nodes),
     spec!("subgraph_json", 0, "graph"; builtin_subgraph_json),
     spec!("trace_start", 0, "graph"; builtin_trace_start),
     spec!("trace_end", 0, "graph"; builtin_trace_end),
-    spec!("memory_score", 1, "bot" => "ext"; builtin_memory_score, "Struct<MemoryScore>"), // №543: the MemoryScore make_date_struct (verified office/text.rs); №631: the name read off the handler
+    spec!("memory_score", 1, "bot" => "ext"; builtin_memory_score, "Struct<MemoryScore>{score:internal,admitted:internal,token_count:internal,unique_words:internal,entity_density:internal}"), // №543: the MemoryScore make_date_struct (verified office/text.rs); №631: the name read off the handler; №638: all five fields are the in-tree weighted computation (office/text.rs:424-441) → internal
     spec!("mtree_summarize", 0, "mtree"; builtin_mtree_summarize),
     spec!("mtree_retrieve", 1, 2, "mtree"; builtin_mtree_retrieve), // query | query,limit
     spec!("mtree_store", 2, "mtree"; builtin_mtree_store),
@@ -510,16 +510,16 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("config_load", 1, "vault" => "ext"; builtin_config_load),
     spec!("vault_validate", 2, "vault" => "ext"; builtin_vault_validate),
     // ── Bot — Telegram ──
-    spec!("todo_add", 2, "bot" => "ext"; builtin_todo_add, "Struct<Todo>"), // №543: the Todo make_date_struct (verified goals.rs); №631: the name read off the handler
+    spec!("todo_add", 2, "bot" => "ext"; builtin_todo_add, "Struct<Todo>{id:internal,title:untrusted,status:untrusted}"), // №543: the Todo make_date_struct (verified goals.rs); №631: the name read off the handler; №638: the fields read off make_date_struct (goals.rs:265-270) — id computed → internal; title echoes the argument, status echoes the optional argument (default const) → untrusted
     spec!("todo_list", 0, "bot" => "ext"; builtin_todo_list, "List<Todo>"), // №543: the todo rows vector (verified goals.rs); №631: the Todo element read off the handler
-    spec!("todo_update", 2, "bot" => "ext"; builtin_todo_update, "Struct<TodoUpdate>"), // №543: the TodoUpdate make_date_struct (verified goals.rs); №631: the name read off the handler
-    spec!("goal_get", 0, "bot" => "ext"; builtin_goal_get, "Struct<ThreadGoal>"), // №543: the ThreadGoal make_date_struct (verified goals.rs); №631: the name read off the handler (both paths)
-    spec!("goal_set", 2, "bot" => "ext"; builtin_goal_set, "Struct<ThreadGoal>"), // №543: the ThreadGoal make_date_struct (verified goals.rs); №631: the name read off the handler
-    spec!("goals_add", 1, "bot" => "ext"; builtin_goals_add, "Struct<Goal>"), // №543: the Goal make_date_struct (verified goals.rs); №631: the name read off the handler
+    spec!("todo_update", 2, "bot" => "ext"; builtin_todo_update, "Struct<TodoUpdate>{id:untrusted,old_status:internal,new_status:untrusted,updated:internal}"), // №543: the TodoUpdate make_date_struct (verified goals.rs); №631: the name read off the handler; №638: the fields read off make_date_struct (goals.rs:308-315) — id/new_status echo the arguments → untrusted; old_status read from the in-tree store, updated computed → internal
+    spec!("goal_get", 0, "bot" => "ext"; builtin_goal_get, "Struct<ThreadGoal>{objective:internal,status:internal,budget:internal,spent:internal}"), // №543: the ThreadGoal make_date_struct (verified goals.rs); №631: the name read off the handler (both paths); №638: the fields read off make_date_struct ALL 3 arms (goals.rs:38-43, 56-62, 76-81) — reads from the in-tree kv store, no call-argument echo (0-arg row) → internal
+    spec!("goal_set", 2, "bot" => "ext"; builtin_goal_set, "Struct<ThreadGoal>{objective:untrusted,status:internal,budget:untrusted,spent:internal}"), // №543: the ThreadGoal make_date_struct (verified goals.rs); №631: the name read off the handler; №638: the fields read off make_date_struct (goals.rs:38-43) — objective/budget echo the arguments → untrusted (the geo_ip ip-field precedent); status const, spent const → internal
+    spec!("goals_add", 1, "bot" => "ext"; builtin_goals_add, "Struct<Goal>{id:internal,text:untrusted,status:internal}"), // №543: the Goal make_date_struct (verified goals.rs); №631: the name read off the handler; №638: the fields read off make_date_struct (goals.rs:172-180) — id computed (g{n}) → internal; text echoes the argument → untrusted; status const → internal
     spec!("goals_list", 0, "bot" => "ext"; builtin_goals_list, "List<Goal>"), // №543: the goal rows vector (verified goals.rs); №631: the Goal element read off the handler
     spec!("remind", 3, "bot"; builtin_remind_stamped, "String"), // №543: the reminder id (verified cron.rs builtin_remind; the stamped wrapper is pass-through)
     spec!("get_profile", 0, "bot" => "ext"; builtin_get_profile, "List<Preference>"), // №543: the profile rows vector (verified); №631: the Preference element read off the handler
-    spec!("human_mood", 3, "bot"; builtin_human_mood, "Struct<Mood>"), // №543: the Mood make_date_struct (verified server.rs); №631: the name read off the handler
+    spec!("human_mood", 3, "bot"; builtin_human_mood, "Struct<Mood>{persona:untrusted,mood:internal,intensity:internal,updated_at:internal}"), // №543: the Mood make_date_struct (verified server.rs); №631: the name read off the handler; №638: the fields read off make_date_struct (server.rs:654-663) — persona echoes the caller's argument → untrusted; mood/intensity/updated_at read from the in-tree persona store → internal
     spec!("ask_approval", 1, "bot" => "ext"; builtin_ask_approval, "Struct"), // №543: the Approval make_date_struct (verified config.rs)
     spec!("goal_complete", 0, "bot" => "ext"; builtin_goal_complete, "Struct"), // №543: the GoalComplete make_date_struct (verified goals.rs)
     spec!("goals_reflect", 0, "bot" => "ext"; builtin_goals_reflect, "Struct"), // №543: the GoalsReflection make_date_struct (verified goals.rs)

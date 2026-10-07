@@ -42,4 +42,19 @@
 #   (ok/id/page/counters), user-argument echo → untrusted (path fields),
 #   external PDF body → untrusted (PdfMetadata all 8); the compiled twin
 #   locks 23/39 — FIELDMETA_FLOOR 3 → 23 in the same PR)
-# threshold_bp: 5750
+# threshold_bp was 5750 — №638 (gh#1121, wave 36): field-label 38 | Struct rows: 40
+#   (the second honest package — the 15 EXISTING parameterized Struct
+#   rows of the memory/goal/todo/vec/human contours labeled per the
+#   №627 classification table read off the handlers: in-tree
+#   computation/store reads → internal, call-argument echoes →
+#   untrusted (the geo_ip ip-field precedent); 52 field-label entries;
+#   the honest exceptions preserved: json_body/form_data — the dynamic
+#   user forms without a fixed field vocabulary; the two-shapes
+#   observation recorded: MemoryForgetResult carries {candidates,
+#   applied, batch_id} on the forget row (memory_forget.rs:464/538) and
+#   {root, deleted, batch_id} on the memory_forget_cascade row
+#   (memory_typed.rs:249-268) — per-row side-tables, the collision is
+#   a future-naryad candidate. 38/40 = 9500 bp. The compiled twin locks
+#   37/39 — FIELDMETA_FLOOR 23 → 37 in the same PR; the cfg(vec)
+#   vec_store row rides only the source metric.)
+# threshold_bp: 9500

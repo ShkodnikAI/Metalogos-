@@ -6072,23 +6072,6 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                     }
                 }
             }
-            Declaration::Template(t) => {
-                // №662: the template name collected — the №250 registration
-                // set (the unknown-template refusal reads it). NOTE: the
-                // DUPLICATE-template refusal is NOT added here — the
-                // runtime registration is overwrite-idempotent (the №250
-                // comment) and a duplicate error would be an unmandated
-                // behavior change beyond the (б) letter.
-                template_names.insert(t.name.clone());
-                // Templates are also callable as render targets
-                pattern_names.insert(t.name.clone());
-                if is_opaque_type(&t.return_type) && t.return_type != "Html" {
-                    result.errors.push(with_line_prefix(decl, format!(
-                        "template '{}' returns opaque type '{}' — only Html is supported as template return type",
-                        t.name, t.return_type
-                    )));
-                }
-            }
             Declaration::Pattern(p) => {
                 if !pattern_names.insert(p.name.clone()) {
                     result.errors.push(with_line_prefix(
@@ -6149,6 +6132,23 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                         decl,
                         format!("duplicate vision declaration: {}", v.name),
                     ));
+                }
+            }
+            Declaration::Template(t) => {
+                // №662: the template name collected — the №250 registration
+                // set (the unknown-template refusal reads it). NOTE: the
+                // DUPLICATE-template refusal is NOT added here — the
+                // runtime registration is overwrite-idempotent (the №250
+                // comment) and a duplicate error would be an unmandated
+                // behavior change beyond the (б) letter.
+                template_names.insert(t.name.clone());
+                // Templates are also callable as render targets
+                pattern_names.insert(t.name.clone());
+                if is_opaque_type(&t.return_type) && t.return_type != "Html" {
+                    result.errors.push(with_line_prefix(decl, format!(
+                        "template '{}' returns opaque type '{}' — only Html is supported as template return type",
+                        t.name, t.return_type
+                    )));
                 }
             }
             _ => {}
@@ -9289,6 +9289,7 @@ struct VarScope {
 /// Entry point for PATTERN bodies: params pre-bound, ALL entities as
 /// globals (both kinds — the runtime resolves any entity name), the
 /// opaque map carries only the opaque-typed subset.
+#[allow(clippy::too_many_arguments)]
 fn check_pattern_variables(
     body: &[Statement],
     params: &[crate::ast::Param],
@@ -9354,13 +9355,30 @@ fn check_body_variables(
 /// deeper inference (an Ident of a String-typed binding, a call's return
 /// type) stays out — the same depth limit the №617 walk documents.
 fn expr_is_string_shaped(expr: &Expr) -> bool {
+    // №510 posture: no wildcard — every Expr variant is named, a new
+    // variant forces this list to grow consciously.
     match expr {
         Expr::StringLit { .. } => true,
         Expr::BinaryOp {
             op: crate::ast::BinOp::Add,
             ..
         } => true,
-        _ => false,
+        Expr::FloatLit { .. }
+        | Expr::BoolLit { .. }
+        | Expr::Ident { .. }
+        | Expr::FieldAccess { .. }
+        | Expr::FnCall { .. }
+        | Expr::QualifiedCall { .. }
+        | Expr::BinaryOp { .. }
+        | Expr::IfElse { .. }
+        | Expr::List { .. }
+        | Expr::IndexAccess { .. }
+        | Expr::StructLit { .. }
+        | Expr::BlockIfElse { .. }
+        | Expr::MatchExpr { .. }
+        | Expr::Try { .. }
+        | Expr::HandleSource { .. }
+        | Expr::ProvBind { .. } => false,
     }
 }
 
@@ -9581,10 +9599,26 @@ fn check_expr_vars(expr: &Expr, scope: &mut VarScope, errors: &mut Vec<SpannedEr
             // a dynamic expr name stays the runtime's backstop.
             if name == "render" {
                 if let Some(first) = args.first() {
+                    // №510 posture: no wildcard — every Expr variant is
+                    // named; a dynamic name expr stays the runtime backstop.
                     let wanted = match first {
                         Expr::StringLit { value, .. } => Some(value.clone()),
                         Expr::Ident { name: n, .. } => Some(n.clone()),
-                        _ => None,
+                        Expr::FloatLit { .. }
+                        | Expr::BoolLit { .. }
+                        | Expr::FieldAccess { .. }
+                        | Expr::FnCall { .. }
+                        | Expr::QualifiedCall { .. }
+                        | Expr::BinaryOp { .. }
+                        | Expr::IfElse { .. }
+                        | Expr::List { .. }
+                        | Expr::IndexAccess { .. }
+                        | Expr::StructLit { .. }
+                        | Expr::BlockIfElse { .. }
+                        | Expr::MatchExpr { .. }
+                        | Expr::Try { .. }
+                        | Expr::HandleSource { .. }
+                        | Expr::ProvBind { .. } => None,
                     };
                     if let Some(wanted) = wanted {
                         if !scope.templates.contains(&wanted) {

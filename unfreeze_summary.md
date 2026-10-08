@@ -17,10 +17,17 @@ The one-page machine verdict over the four unfreeze criteria. The right to lift 
 
 | § | Goal | Verdict | Evidence |
 |---|------|---------|----------|
+<<<<<<< Updated upstream
 | v2 | The absolute goals: parameterized share ≥ goal (the №623 third metric — the Z-2 successor of the scalar typed/precise parameters), 0 open High (server path), the domain quorum, the serve-e2e inventory | **GREEN** | parameterized share 6043 bp vs goal 5000 bp: MET; open High (server path) 0 vs goal 0: MET; domain quorum 0/8 vs goal 1/3: MET; the serve-e2e inventory: all state-accumulating declarations done |
 
 **Overall (§4 + v2 0.30): GREEN.**
 The 0.30 release gate: **WIRED** (the DEFAULT gate target — №630, ADR-0186 §5, the owner's verdict 2026-10-07; the strict release-time read, --strict, exits 1 on RED). The branch-protection criterion stays a DRAFT line — gh#1000 was open at the fixation, the fact key lands via a micro-PR after its closure (№525: no checker, no fact).
+=======
+| v2 | The absolute goals: typed share ≥ goal, precise share ≥ goal (№605, X-3), 0 open High (server path), the domain quorum, the serve-e2e inventory | **RED** | typed share 3759 bp vs goal 3500 bp: MET; precise share 2131 bp vs goal 3000 bp: NOT MET; open High (server path) 0 vs goal 0: MET; domain quorum 0/8 vs goal 1/3: MET; the serve-e2e inventory: all state-accumulating declarations done |
+
+**Overall (§4 + v2 0.29): RED.**
+The 0.29 release gate: **WIRED** (the DEFAULT gate target — №597, ADR-0181 §6, the owner's authorization 2026-10-05; the strict release-time read, --strict, exits 1 on RED).
+>>>>>>> Stashed changes
 
 <details><summary>the raw gate outputs</summary>
 

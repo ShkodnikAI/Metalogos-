@@ -1601,7 +1601,9 @@ impl Compiler {
                     // (the TW ControlFlow::Break shape), continue → the
                     // condition re-evaluation (ControlFlow::ContinueLoop).
                     let (_, break_fixups, continue_fixups) =
-                        loop_stack.pop().unwrap_or((loop_start, Vec::new(), Vec::new()));
+                        loop_stack
+                            .pop()
+                            .unwrap_or((loop_start, Vec::new(), Vec::new()));
 
                     // Jump back to loop start
                     code.push(Instruction::Jump(loop_start));
@@ -1694,7 +1696,9 @@ impl Compiler {
                     // INCREMENT section (the next item, the TW
                     // ControlFlow::ContinueLoop shape), break → after_loop.
                     let (_, break_fixups, continue_fixups) =
-                        loop_stack.pop().unwrap_or((loop_start, Vec::new(), Vec::new()));
+                        loop_stack
+                            .pop()
+                            .unwrap_or((loop_start, Vec::new(), Vec::new()));
                     let continue_target = code.len();
 
                     // Increment index
@@ -1789,7 +1793,9 @@ impl Compiler {
                     // №658: patch from the POPPED entry — continue targets the
                     // INCREMENT section (the next item), break → after_loop.
                     let (_, break_fixups, continue_fixups) =
-                        loop_stack.pop().unwrap_or((loop_start, Vec::new(), Vec::new()));
+                        loop_stack
+                            .pop()
+                            .unwrap_or((loop_start, Vec::new(), Vec::new()));
                     let continue_target = code.len();
 
                     code.push(Instruction::LoadLocal(idx_slot));
@@ -2870,9 +2876,7 @@ impl Compiler {
                 loop_stack.push((loop_start, Vec::new(), Vec::new()));
                 let saved = *next_slot;
                 for s in body {
-                    self.compile_stmt_with_locals(
-                        s, code, locals, next_slot, loop_stack, mutable,
-                    )?;
+                    self.compile_stmt_with_locals(s, code, locals, next_slot, loop_stack, mutable)?;
                 }
                 *next_slot = saved;
 
@@ -2880,7 +2884,9 @@ impl Compiler {
                 // TW ControlFlow::Break shape), continue → the condition
                 // re-evaluation (ControlFlow::ContinueLoop).
                 let (_, break_fixups, continue_fixups) =
-                    loop_stack.pop().unwrap_or((loop_start, Vec::new(), Vec::new()));
+                    loop_stack
+                        .pop()
+                        .unwrap_or((loop_start, Vec::new(), Vec::new()));
 
                 code.push(Instruction::Jump(loop_start));
                 let after_loop = code.len();

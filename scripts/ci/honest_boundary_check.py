@@ -771,12 +771,12 @@ def self_test() -> int:
         "+  (18 places removed or justified), the floor re-locked in the same PR.\n",
         lambda n: set(),
     )
-    # the honest measured boundary: the LITERAL №629 text is NOT in the
-    # current dictionary vocabulary — the entry outside Security passes
-    # the MACHINE gate (the vocabulary calibration is a separate PR)
+    # the №653 fixture: the LITERAL №629 text matches the class-4
+    # vocabulary now — OUTSIDE ### Security it is caught (exit 1); the
+    # №643 measured boundary is closed, the evidence-backed way
     cl_case(
-        "the measured boundary: the literal №629 text is NOT dictionary-caught",
-        0,
+        "the №629 fixture (class-4) OUTSIDE ### Security — caught (№653)",
+        1,
         "diff --git a/CHANGELOG.md b/CHANGELOG.md\n"
         "--- a/CHANGELOG.md\n"
         "+++ b/CHANGELOG.md\n"
@@ -786,6 +786,39 @@ def self_test() -> int:
         "+- **№629 (gh#1096) — the VM comparison parity:** the legacy VM\n"
         "+  answered a silent `false` (and `true` for numeric strings) — the\n"
         "+  silently-wrong class; the fix landed on main 2026-10-07.\n",
+        lambda n: set(),
+    )
+    # the same fixture UNDER ### Security — PASS by the section (№643)
+    cl_case(
+        "the №629 fixture UNDER ### Security — PASS by the section",
+        0,
+        "diff --git a/CHANGELOG.md b/CHANGELOG.md\n"
+        "--- a/CHANGELOG.md\n"
+        "+++ b/CHANGELOG.md\n"
+        "@@ -10,6 +10,14 @@\n"
+        " ## [Unreleased]\n"
+        " \n"
+        "+### Security\n"
+        "+\n"
+        "+- **№629 (gh#1096) — the VM comparison parity:** the legacy VM\n"
+        "+  answered a silent `false` (and `true` for numeric strings) — the\n"
+        "+  silently-wrong class; the fix landed on main 2026-10-07.\n",
+        lambda n: set(),
+    )
+    # the class-4 window is bounded: the silent word and the wrong word
+    # FURTHER than 120 chars apart do NOT match (no over-blocking)
+    cl_case(
+        "the class-4 window: silent and wrong far apart — no match",
+        0,
+        "diff --git a/CHANGELOG.md b/CHANGELOG.md\n"
+        "--- a/CHANGELOG.md\n"
+        "+++ b/CHANGELOG.md\n"
+        "@@ -10,6 +10,9 @@\n"
+        " ## [Unreleased]\n"
+        " \n"
+        "+- **the changelog notes (internal):** the run stayed silent\n"
+        f"+{'the log wire details follow here. ' * 5}"
+        "+  and the legacy arithmetic was wrong in the third decimal only.\n",
         lambda n: set(),
     )
 

@@ -1,0 +1,13 @@
+// S-BLK-011 (№658): a break inside an each body exits the loop at once;
+// the items after the guard are never visited.
+pattern p(x: String) -> String {
+  let mut acc = ""
+  each it in ["a", "b", "c"] {
+    if it == "b" { break }
+    acc = acc + it
+  }
+  return acc
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

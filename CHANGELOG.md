@@ -6,6 +6,30 @@ All notable changes to the Metalogos project.
 
 ### Security
 
+- **№658 (gh#1159) — the VM break/continue parity (the behavior change,
+  fail-closed; AFFECTS 0.30.0 AND EARLIER on the VM backend; the audit
+  guard scenario: a `break`/`continue` inside a loop body — top-level,
+  inside an `if` guard, inside a match arm, in a nested loop — was
+  silently IGNORED by the VM: the body ran to the condition cap as if
+  the statement were absent, and a top-level form kept an unresolved
+  `Jump(0)` placeholder that tripped the infinite-loop guard, while the
+  tree-walking backend honored both statements; the X-1/Y-1/Q-1
+  silently-wrong control-flow class, the №652-a finding):** the VM loop
+  path mirrors the TW `ControlFlow` contract 1:1 — every
+  `break`/`continue` reaches its NEAREST enclosing loop on BOTH backends
+  (`break` exits the loop; `continue` starts the next iteration — the
+  condition re-test for `while`, the next item for
+  `each`/`each_with_index`). The compiler now resolves every loop jump
+  from the loop-stack entry: the shared statement compiler registers a
+  `Jump(0)` placeholder in the NEAREST entry at any nesting depth and
+  the loop compiler patches it from the POPPED entry (the stale-local
+  patch loops — the pre-№658 root cause — are gone). The norms
+  S-BLK-011/012 + five conformance pairs pin the record; the TW is
+  unchanged. Found by №652 (the spec topic 2 probe); the repair follows
+  the №651/№629 precedent. The fix lands 2026-10-09 (this PR; after the
+  v0.30.0 tag b4b9abb lineage — the published tag is affected on the VM
+  backend; no re-tag — the №620 precedent).
+
 - **№651 (gh#1145) — the TW/VM condition parity (the behavior change,
   fail-closed; AFFECTS 0.30.0 AND EARLIER on the VM backend; the audit
   guard scenario: a composite or an opaque value in a condition — e.g.

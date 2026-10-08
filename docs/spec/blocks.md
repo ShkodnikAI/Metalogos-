@@ -114,21 +114,66 @@ compilation comment («an else-if condition is only evaluated when
 reached», src/compiler.rs) over the same `JumpIfNotCond` structure.
 **Conformance:** `tests/conformance/sblk_010_lazy_elseif.mlog`.
 
+### S-BLK-011 — `break` exits the nearest enclosing loop
+
+A `break` inside a loop body (a `while`, an `each`, an `each_with_index`)
+exits the NEAREST enclosing loop — at any nesting depth (through `if`
+branches, match arm bodies, nested loops) the signal reaches the nearest
+loop edge, the statements after that loop run next, and the outer loops
+keep iterating. TW and VM behave identically.
+**Anchors:** TW the `ControlFlow::Break` propagation — `eval_block!`
+forwards the signal out of every nested block and the `While`/`Each` arms
+absorb it (src/interpreter/execution.rs); VM the №658 loop-stack fixups —
+the shared statement compiler registers a `Jump(0)` placeholder in the
+NEAREST loop-stack entry and the loop compiler patches it to `after_loop`
+from the POPPED entry (src/compiler.rs).
+**Conformance:** `tests/conformance/sblk_011_break_while_if.mlog`,
+`sblk_011_break_each_if.mlog`, `sblk_011_break_nearest_loop.mlog`.
+
+### S-BLK-012 — `continue` starts the next iteration
+
+A `continue` inside a loop body skips the REST of the body and proceeds
+with the next iteration — the condition re-test for `while`, the next
+item for `each`/`each_with_index`; at any nesting depth the signal
+reaches the nearest loop. TW and VM behave identically.
+**Anchors:** TW the `ControlFlow::ContinueLoop` propagation absorbed by
+the loop arms (src/interpreter/execution.rs); VM the №658 loop-stack
+fixups patched to the condition re-evaluation (`while`) or to the
+increment section (`each`/`each_with_index`) — src/compiler.rs.
+**Conformance:** `tests/conformance/sblk_012_continue_while_if.mlog`,
+`sblk_012_continue_each_if.mlog`.
+
 ## Honest limits (the probe findings this topic records WITHOUT norms)
 
-The №645 probe for this topic made THREE cross-backend findings — each
-needs its own repair naryad (the owner's semantics gate; the №645 → №651
-lineage is the precedent). The norms above exist only where the probe
-agreed.
+The №645 probe for this topic made THREE cross-backend findings (the
+№645 → №651 lineage is the precedent). The norms above exist only where
+the probes agreed; the findings live below — №652-a is REPAIRED (№658:
+the norms S-BLK-011/012 record the agreed semantics), №652-b/№652-c
+await their repair naryads, and the №658 probe added two edges of its
+own.
 
 - **№652-a — `break`/`continue` inside a while body are ignored on the
-  VM.** The TW interpreter honors both (a probe program with a
-  break-on-4 / continue-on-2 guard records two body effects); the VM
-  runs the body to the condition cap as if both statements were absent.
-  The candidate repair: the loop-stack fixups the compiler emits for
-  TW-shaped break/continue need the VM `Jump` resolution pass — the
-  same shape as the №264 loud-backstop. A candidate naryad should also
-  probe `break`/`continue` inside the Phase-5.1 pattern bodies.
+  VM. REPAIRED by №658 (gh#1159):** the loop-stack fixups now resolve on
+  BOTH backends — every break/continue (top-level of a loop body or
+  nested through if/match/loop) reaches its nearest loop edge on the VM;
+  the pre-№658 compiler patched the fixups from stale local vecs (a
+  top-level break kept its `Jump(0)` placeholder — the infinite-loop
+  guard class) and dropped the nested forms (the body ran to the
+  condition cap as if the statements were absent). The norms
+  S-BLK-011/012 + five conformance pairs pin the record; the TW is
+  unchanged. The №658 probe also recorded TWO remaining edges (each
+  needs its own repair line):
+  - **№658-a — a break/continue crossing the VALUE channel.** A
+    break/continue inside a match-EXPRESSION arm body (any
+    expression-position body) is REFUSED by the TW at runtime
+    («break/continue used outside of a loop» — the `eval_statements`
+    boundary cannot carry a control signal) and is silently ABSORBED by
+    the VM (the arm's value machinery stays balanced; the loop runs to
+    its condition). The loud runtime mirror needs a refusal mechanism of
+    its own — a separate repair naryad.
+  - **№658-b — a bare break/continue OUTSIDE any loop.** The TW refuses
+    at runtime with the same message; the VM compiles the statement to
+    NOTHING and continues. Same repair line as №658-a.
 - **№652-b — a trailing `let` in a value-channel arm diverges.** The
   arm `{ "first" ; let s = "y" }` evaluates to `"first"` on the VM (the
   №370 `KeepLastValue` contract: a trailing Unit-valued statement does

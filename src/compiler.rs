@@ -1554,8 +1554,6 @@ impl Compiler {
                     condition, body, ..
                 } => {
                     let loop_start = code.len();
-                    let break_fixups: Vec<usize> = Vec::new();
-                    let continue_fixups: Vec<usize> = Vec::new();
 
                     // Evaluate condition
                     self.compile_expr_with_locals(
@@ -1571,55 +1569,39 @@ impl Compiler {
                     let jmp_not_idx = code.len();
                     code.push(Instruction::JumpIfNotCond(0));
 
-                    // Compile body with loop context
-                    loop_stack.push((loop_start, break_fixups.clone(), continue_fixups.clone()));
+                    // №658 (the №652-a repair): the loop-stack entry is the
+                    // SINGLE source of truth for break/continue fixups. Every
+                    // break/continue — top-level of the body or nested through
+                    // if/match/loop (the TW eval_block! propagation shape) —
+                    // registers a Jump(0) placeholder in the NEAREST entry via
+                    // the shared statement compiler; the entry is patched from
+                    // the POPPED value below. The pre-№658 code patched from
+                    // stale LOCAL vecs (always empty): a top-level break kept
+                    // its Jump(0) placeholder (→ instruction 0, the
+                    // infinite-loop guard class) and a nested break/continue
+                    // inside if/match was DROPPED by the shared compiler — the
+                    // VM ran the body to the condition cap as if the operators
+                    // were not there (the silent wrong control flow, №652-a).
+                    loop_stack.push((loop_start, Vec::new(), Vec::new()));
                     let saved_next_slot = next_slot;
                     for s in body {
-                        match s {
-                            Statement::Break => {
-                                let fixup = code.len();
-                                code.push(Instruction::Jump(0)); // placeholder
-                                if let Some(entry) = loop_stack.last_mut() {
-                                    entry.1.push(fixup);
-                                }
-                            }
-                            Statement::Continue => {
-                                let fixup = code.len();
-                                code.push(Instruction::Jump(loop_start)); // back to start
-                                if let Some(entry) = loop_stack.last_mut() {
-                                    entry.2.push(fixup);
-                                }
-                            }
-                            Statement::LetBinding { .. }
-                            | Statement::Assign { .. }
-                            | Statement::Each { .. }
-                            | Statement::EachWithIndex { .. }
-                            | Statement::While { .. }
-                            | Statement::IfElseBlock { .. }
-                            | Statement::IfThen { .. }
-                            | Statement::Return { .. }
-                            | Statement::ExprStmt { .. }
-                            | Statement::Match { .. }
-                            | Statement::Memorize(_)
-                            | Statement::Forget(_)
-                            | Statement::Relate(_) => {
-                                // Recursively compile nested statements
-                                // We need to compile them inline, so we use a helper
-                                self.compile_stmt_with_locals(
-                                    s,
-                                    &mut code,
-                                    locals,
-                                    &mut next_slot,
-                                    &mut loop_stack,
-                                    mutable,
-                                )?;
-                            }
-                        }
+                        self.compile_stmt_with_locals(
+                            s,
+                            &mut code,
+                            locals,
+                            &mut next_slot,
+                            &mut loop_stack,
+                            mutable,
+                        )?;
                     }
                     // Restore next_slot after loop body (nested lets inside loop are scoped)
                     next_slot = saved_next_slot;
 
-                    loop_stack.pop();
+                    // №658: patch from the POPPED entry — break → after_loop
+                    // (the TW ControlFlow::Break shape), continue → the
+                    // condition re-evaluation (ControlFlow::ContinueLoop).
+                    let (_, break_fixups, continue_fixups) =
+                        loop_stack.pop().unwrap_or((loop_start, Vec::new(), Vec::new()));
 
                     // Jump back to loop start
                     code.push(Instruction::Jump(loop_start));
@@ -1628,9 +1610,11 @@ impl Compiler {
                     let after_loop = code.len();
                     code[jmp_not_idx] = Instruction::JumpIfNotCond(after_loop);
 
-                    // Patch break fixups
                     for fixup_idx in &break_fixups {
                         code[*fixup_idx] = Instruction::Jump(after_loop);
+                    }
+                    for fixup_idx in &continue_fixups {
+                        code[*fixup_idx] = Instruction::Jump(loop_start);
                     }
                 }
                 Statement::Each {
@@ -1664,7 +1648,6 @@ impl Compiler {
                     code.push(Instruction::StoreLocal(idx_slot));
 
                     let loop_start = code.len();
-                    let break_fixups: Vec<usize> = Vec::new();
 
                     // Check: idx < len? → JumpIfNot after_loop
                     // Stack: [..., len, idx] — we need to duplicate both or use CmpLt
@@ -1685,54 +1668,34 @@ impl Compiler {
                     // Bind variable name to item_slot
                     let old = locals.insert(variable.clone(), item_slot);
 
-                    // Compile body
+                    // №658 (the №652-a repair): the loop-stack entry is the
+                    // SINGLE source of truth for break/continue fixups — every
+                    // break/continue (top-level or nested through if/match/loop)
+                    // registers a Jump(0) placeholder in the NEAREST entry via
+                    // the shared statement compiler; the pre-№658 code patched
+                    // from a stale LOCAL vec (always empty), so a top-level
+                    // break/continue kept its Jump(0) placeholder (→
+                    // instruction 0, the infinite-loop guard class) and a
+                    // nested one was DROPPED entirely.
+                    loop_stack.push((loop_start, Vec::new(), Vec::new()));
                     let saved_next_slot = next_slot;
-                    loop_stack.push((loop_start, break_fixups.clone(), vec![]));
                     for s in body {
-                        match s {
-                            Statement::Break => {
-                                let fixup = code.len();
-                                code.push(Instruction::Jump(0));
-                                if let Some(entry) = loop_stack.last_mut() {
-                                    entry.1.push(fixup);
-                                }
-                            }
-                            Statement::Continue => {
-                                // Skip rest of body, jump to increment
-                                code.push(Instruction::Jump(0)); // placeholder, patch later
-                                if let Some(entry) = loop_stack.last_mut() {
-                                    entry.2.push(code.len() - 1);
-                                }
-                            }
-                            // №510: explicit fall-through — the loop compiler
-                            // special-cases break/continue only; every other
-                            // statement goes to the generic compiler.
-                            Statement::LetBinding { .. }
-                            | Statement::Assign { .. }
-                            | Statement::Each { .. }
-                            | Statement::EachWithIndex { .. }
-                            | Statement::While { .. }
-                            | Statement::IfElseBlock { .. }
-                            | Statement::IfThen { .. }
-                            | Statement::Return { .. }
-                            | Statement::ExprStmt { .. }
-                            | Statement::Match { .. }
-                            | Statement::Memorize(_)
-                            | Statement::Forget(_)
-                            | Statement::Relate(_) => {
-                                self.compile_stmt_with_locals(
-                                    s,
-                                    &mut code,
-                                    locals,
-                                    &mut next_slot,
-                                    &mut loop_stack,
-                                    mutable,
-                                )?;
-                            }
-                        }
+                        self.compile_stmt_with_locals(
+                            s,
+                            &mut code,
+                            locals,
+                            &mut next_slot,
+                            &mut loop_stack,
+                            mutable,
+                        )?;
                     }
                     next_slot = saved_next_slot;
-                    loop_stack.pop();
+                    // №658: patch from the POPPED entry — continue targets the
+                    // INCREMENT section (the next item, the TW
+                    // ControlFlow::ContinueLoop shape), break → after_loop.
+                    let (_, break_fixups, continue_fixups) =
+                        loop_stack.pop().unwrap_or((loop_start, Vec::new(), Vec::new()));
+                    let continue_target = code.len();
 
                     // Increment index
                     code.push(Instruction::LoadLocal(idx_slot));
@@ -1747,9 +1710,11 @@ impl Compiler {
                     let after_loop = code.len();
                     code[jmp_not_idx] = Instruction::JumpIfNot(after_loop);
 
-                    // Patch break fixups
                     for fixup_idx in &break_fixups {
                         code[*fixup_idx] = Instruction::Jump(after_loop);
+                    }
+                    for fixup_idx in &continue_fixups {
+                        code[*fixup_idx] = Instruction::Jump(continue_target);
                     }
 
                     // Restore old binding for variable
@@ -1788,7 +1753,6 @@ impl Compiler {
                     code.push(Instruction::StoreLocal(idx_slot));
 
                     let loop_start = code.len();
-                    let break_fixups: Vec<usize> = Vec::new();
 
                     code.push(Instruction::LoadLocal(idx_slot));
                     code.push(Instruction::LoadLocal(list_slot));
@@ -1806,52 +1770,27 @@ impl Compiler {
                     let old_item = locals.insert(item_var.clone(), item_slot);
                     let old_idx = locals.insert(index_var.clone(), idx_slot);
 
+                    // №658 (the №652-a repair): the loop-stack entry is the
+                    // SINGLE source of truth for break/continue fixups — same
+                    // shape as Each/While above.
+                    loop_stack.push((loop_start, Vec::new(), Vec::new()));
                     let saved_next_slot = next_slot;
-                    loop_stack.push((loop_start, break_fixups.clone(), vec![]));
                     for s in body {
-                        match s {
-                            Statement::Break => {
-                                let fixup = code.len();
-                                code.push(Instruction::Jump(0));
-                                if let Some(entry) = loop_stack.last_mut() {
-                                    entry.1.push(fixup);
-                                }
-                            }
-                            Statement::Continue => {
-                                code.push(Instruction::Jump(0));
-                                if let Some(entry) = loop_stack.last_mut() {
-                                    entry.2.push(code.len() - 1);
-                                }
-                            }
-                            // №510: explicit fall-through — the loop compiler
-                            // special-cases break/continue only; every other
-                            // statement goes to the generic compiler.
-                            Statement::LetBinding { .. }
-                            | Statement::Assign { .. }
-                            | Statement::Each { .. }
-                            | Statement::EachWithIndex { .. }
-                            | Statement::While { .. }
-                            | Statement::IfElseBlock { .. }
-                            | Statement::IfThen { .. }
-                            | Statement::Return { .. }
-                            | Statement::ExprStmt { .. }
-                            | Statement::Match { .. }
-                            | Statement::Memorize(_)
-                            | Statement::Forget(_)
-                            | Statement::Relate(_) => {
-                                self.compile_stmt_with_locals(
-                                    s,
-                                    &mut code,
-                                    locals,
-                                    &mut next_slot,
-                                    &mut loop_stack,
-                                    mutable,
-                                )?;
-                            }
-                        }
+                        self.compile_stmt_with_locals(
+                            s,
+                            &mut code,
+                            locals,
+                            &mut next_slot,
+                            &mut loop_stack,
+                            mutable,
+                        )?;
                     }
                     next_slot = saved_next_slot;
-                    loop_stack.pop();
+                    // №658: patch from the POPPED entry — continue targets the
+                    // INCREMENT section (the next item), break → after_loop.
+                    let (_, break_fixups, continue_fixups) =
+                        loop_stack.pop().unwrap_or((loop_start, Vec::new(), Vec::new()));
+                    let continue_target = code.len();
 
                     code.push(Instruction::LoadLocal(idx_slot));
                     code.push(Instruction::const_(Value::Float(1.0)));
@@ -1865,6 +1804,9 @@ impl Compiler {
 
                     for fixup_idx in &break_fixups {
                         code[*fixup_idx] = Instruction::Jump(after_loop);
+                    }
+                    for fixup_idx in &continue_fixups {
+                        code[*fixup_idx] = Instruction::Jump(continue_target);
                     }
 
                     // Restore bindings
@@ -2230,13 +2172,21 @@ impl Compiler {
             | other @ Statement::EachWithIndex { .. }
             | other @ Statement::While { .. }
             | other @ Statement::Return { .. }
-            | other @ Statement::Break
-            | other @ Statement::Continue
             | other @ Statement::Memorize(_)
             | other @ Statement::Forget(_)
             | other @ Statement::Relate(_) => {
                 self.compile_stmt_with_locals(other, code, locals, next_slot, loop_stack, mutable)?;
             }
+            // №658: the VALUE channel cannot carry a control signal — a
+            // break/continue reaching this boundary is absorbed (the arm's
+            // value machinery stays balanced; the loop runs to its
+            // condition). The TW refuses such a crossing at RUNTIME
+            // ("break/continue used outside of a loop", the eval_statements
+            // flattening — the №622 value-channel shape); the loud runtime
+            // mirror needs the refusal mechanism of its own — the recorded
+            // №658 probe finding, a separate repair line. Never a silent
+            // jump out of the value machinery (the register would leak).
+            Statement::Break | Statement::Continue => {}
         }
         Ok(())
     }
@@ -2897,7 +2847,6 @@ impl Compiler {
                 condition, body, ..
             } => {
                 let loop_start = code.len();
-                let break_fixups: Vec<usize> = Vec::new();
 
                 self.compile_expr_with_locals(
                     condition, code, locals, next_slot, loop_stack, mutable,
@@ -2906,50 +2855,41 @@ impl Compiler {
                 let jmp_not_idx = code.len();
                 code.push(Instruction::JumpIfNotCond(0));
 
-                loop_stack.push((loop_start, vec![], vec![]));
+                // №658 (the №652-a repair): the loop-stack entry is the SINGLE
+                // source of truth for break/continue fixups — every
+                // break/continue (top-level of the body or nested through
+                // if/match/loop, the TW eval_block! propagation shape)
+                // registers a Jump(0) placeholder in the NEAREST entry via the
+                // shared compiler; the entry is patched from the POPPED value
+                // below. The pre-№658 code patched from a stale LOCAL vec
+                // (always empty): a top-level break kept its Jump(0)
+                // placeholder (→ instruction 0, the infinite-loop guard
+                // class) and a nested break/continue was DROPPED — the VM ran
+                // the body to the condition cap as if the operators were not
+                // there (the silent wrong control flow, №652-a).
+                loop_stack.push((loop_start, Vec::new(), Vec::new()));
                 let saved = *next_slot;
                 for s in body {
-                    match s {
-                        Statement::Break => {
-                            let fixup = code.len();
-                            code.push(Instruction::Jump(0));
-                            if let Some(entry) = loop_stack.last_mut() {
-                                entry.1.push(fixup);
-                            }
-                        }
-                        Statement::Continue => {
-                            code.push(Instruction::Jump(loop_start));
-                        }
-                        // №510: explicit fall-through — the loop compiler
-                        // special-cases break/continue only; every other
-                        // statement goes to the generic compiler.
-                        Statement::LetBinding { .. }
-                        | Statement::Assign { .. }
-                        | Statement::Each { .. }
-                        | Statement::EachWithIndex { .. }
-                        | Statement::While { .. }
-                        | Statement::IfElseBlock { .. }
-                        | Statement::IfThen { .. }
-                        | Statement::Return { .. }
-                        | Statement::ExprStmt { .. }
-                        | Statement::Match { .. }
-                        | Statement::Memorize(_)
-                        | Statement::Forget(_)
-                        | Statement::Relate(_) => {
-                            self.compile_stmt_with_locals(
-                                s, code, locals, next_slot, loop_stack, mutable,
-                            )?;
-                        }
-                    }
+                    self.compile_stmt_with_locals(
+                        s, code, locals, next_slot, loop_stack, mutable,
+                    )?;
                 }
                 *next_slot = saved;
-                loop_stack.pop();
+
+                // №658: patch from the POPPED entry — break → after_loop (the
+                // TW ControlFlow::Break shape), continue → the condition
+                // re-evaluation (ControlFlow::ContinueLoop).
+                let (_, break_fixups, continue_fixups) =
+                    loop_stack.pop().unwrap_or((loop_start, Vec::new(), Vec::new()));
 
                 code.push(Instruction::Jump(loop_start));
                 let after_loop = code.len();
                 code[jmp_not_idx] = Instruction::JumpIfNotCond(after_loop);
                 for f in &break_fixups {
                     code[*f] = Instruction::Jump(after_loop);
+                }
+                for f in &continue_fixups {
+                    code[*f] = Instruction::Jump(loop_start);
                 }
             }
             Statement::IfThen {
@@ -3074,12 +3014,33 @@ impl Compiler {
                 )?;
             }
             // №510: explicit no-op set — the shared statement compiler only
-            // handles value-carrying statements; loop-control and iteration
-            // belong to their own compilers.
-            Statement::Each { .. }
-            | Statement::EachWithIndex { .. }
-            | Statement::Break
-            | Statement::Continue => {}
+            // handles value-carrying statements; the Each iteration forms
+            // belong to their own compilers (the pattern-body compiler; the
+            // recorded nested-Each posture — the №658 probe finding).
+            Statement::Each { .. } | Statement::EachWithIndex { .. } => {}
+            // №658 (the №652-a repair): break/continue INSIDE a loop body —
+            // at ANY nesting depth (the TW eval_block! propagation shape) —
+            // emit a resolve-able Jump registered in the NEAREST loop-stack
+            // entry; the enclosing loop compiler patches it (the
+            // ControlFlow::Break → after_loop, the ControlFlow::ContinueLoop →
+            // the next iteration). With NO enclosing loop the recorded
+            // posture stays (the TW runtime refusal vs the VM no-op — the
+            // №658 probe finding, a separate repair line): never a wrong
+            // silent jump.
+            Statement::Break => {
+                if let Some(entry) = loop_stack.last_mut() {
+                    let fixup = code.len();
+                    code.push(Instruction::Jump(0));
+                    entry.1.push(fixup);
+                }
+            }
+            Statement::Continue => {
+                if let Some(entry) = loop_stack.last_mut() {
+                    let fixup = code.len();
+                    code.push(Instruction::Jump(0));
+                    entry.2.push(fixup);
+                }
+            }
         }
         Ok(())
     }

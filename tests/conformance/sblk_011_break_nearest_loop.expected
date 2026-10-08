@@ -1,0 +1,3 @@
+# S-BLK-011 (№658) — one inner effect per outer pass, both passes run.
+STATUS: ok
+OUT: x;|x;|

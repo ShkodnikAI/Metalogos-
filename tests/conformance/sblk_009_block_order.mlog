@@ -1,0 +1,12 @@
+// S-BLK-009 (№652): the statements of a block evaluate ONE AFTER ANOTHER,
+// in the order they are written — the accumulator records the sequence.
+pattern p(x: String) -> String {
+  let mut acc = ""
+  acc = acc + "1"
+  acc = acc + "2"
+  acc = acc + "3"
+  return acc
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

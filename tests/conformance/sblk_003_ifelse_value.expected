@@ -1,0 +1,3 @@
+# S-BLK-003 (№652) — the selected branch value IS the value of the if/else expression.
+STATUS: ok
+OUT: yes|no

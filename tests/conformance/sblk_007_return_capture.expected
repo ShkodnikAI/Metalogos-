@@ -1,0 +1,3 @@
+# S-BLK-007 (№652) — the return value replaces the arm value; the pattern continues to its own return.
+STATUS: ok
+OUT: early!

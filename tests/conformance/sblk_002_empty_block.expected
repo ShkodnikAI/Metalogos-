@@ -1,0 +1,3 @@
+# S-BLK-002 (№652) — the empty then-arm is Unit; Unit is falsy → the else branch answers.
+STATUS: ok
+OUT: else

@@ -1,0 +1,10 @@
+// S-BLK-002 (№652): an empty block evaluates to Unit — which is FALSY in
+// a condition (the S-VAL-013 set; Unit does not refuse).
+pattern p(x: String) -> String {
+  let b = if x == "go" { } else { "no" }
+  let branch = if b { "then" } else { "else" }
+  return branch
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

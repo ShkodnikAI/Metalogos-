@@ -52,7 +52,12 @@ Each norm's test is a pair `<id>.mlog` + `<id>.expected` in
 
 | Topic | File | Norms |
 |---|---|---|
-| 1. Comparisons and truthiness | [values.md](values.md) | S-VAL-001 … S-VAL-012 |
-| 2. Blocks and control flow | (a following wave — §6.2) | — |
+| 1. Comparisons and truthiness | [values.md](values.md) | S-VAL-001 … S-VAL-013 |
+| 2. Blocks and control flow | [blocks.md](blocks.md) | S-BLK-001 … S-BLK-010 |
 | 3. Errors and the try result | (a following wave — §6.2) | — |
 | 4. State and memory | (a following wave — §6.2) | — |
+
+**The normative core: 23 norms** (13 value-semantics + 10 blocks/control
+flow), every one probed on both backends per the №645 protocol; the
+probe of topic 2 made three honest findings recorded in its «Honest
+limits» (№652-a/№652-b/№652-c — the candidate repair naryads).

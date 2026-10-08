@@ -28,6 +28,40 @@ what each step closes.
 5. **The owner's read.** The OWNER reads the summary and decides the
    publication. The machine never lifts a gate and never publishes.
 
+## The train (ADR-0189, Accepted 2026-10-08 — gh#1148)
+
+The release rhythm: MONDAYS. **Activated: the first window is
+2026-10-12 — train №1** (the owner's verdict verbatim in the ADR
+header). The window is a working block of the day, not a minute-exact
+schedule; the executor prepares everything machine-side, the owner
+publishes when satisfied.
+
+1. **Check [Unreleased]** — is there content? An empty `[Unreleased]`
+   means the window is SKIPPED without blame (the honest-content rule:
+   a train without content does not depart — never a version bump with
+   no user-visible change).
+2. **Class the version number** — Security/Fixed only → a PATCH cut
+   (`0.30.x`); Added/Changed present → a MINOR cut (`0.31.0`).
+3. **The gate read** — `unfreeze_gate.py --gate-target <target>
+   --strict` must exit 0 for the record the number class names.
+4. **No open release-block** (ADR-0179 §4) against the target — an open
+   one holds the train; the hold is recorded in the owning wave's
+   dispatch thread.
+5. **The lockstep PR** (the №646 shape: version + `Cargo.lock` ×5 +
+   badge sync + the generated Version line + the CHANGELOG date-stamp),
+   CI green, squash-merge.
+6. **The tag** on the merge commit; **the build** (release.yml — the
+   assets, the SBOM, the attestations).
+7. **The publication** — the OWNER's act, always (ADR-0186 §4.5/§6.5;
+   the machine never publishes).
+8. **The post-release sync** — the CHANGELOG links, the REALITY line
+   STAGED→PUBLISHED (the №646 form).
+
+An unscheduled security cut (the 0.28.1 shape) stays a PERMITTED
+exception when a defect cannot wait for the next Monday window — with
+the reason recorded in the release notes (the №620/№629 ADVISORY
+precedent).
+
 ## After the owner publishes
 
 6. **The assets.** Publication fires `.github/workflows/release.yml`

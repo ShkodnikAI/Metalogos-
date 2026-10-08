@@ -177,11 +177,10 @@ fact_branch_protection_audit: GREEN
 # the blocking CI status is NOT introduced in №644 (the №535 rule — the
 # CI wiring is the advisory report step beside type_signature_share).
 record_sensitive_surface_bp: 3840
-# The 0.31 DRAFT benchmark — NOT FIXED (№525: a parameter without the
-# owner's verdict does not exist; the fixation goes through the owner's
-# §5 path, ADR-0186 §5, WITH its checker in the fixation PR). The draft
-# shape: the first audit-order packages (§6.3: db/query*, mail/imap*,
-# contacts/calendar, request_body) covered — 57/138 = 4130 bp at the
-# record's anchor; the owner may fix any value, including one that
-# demands MORE movement (the honest-direction bias).
-draft_sensitive_surface_goal: 4130 bp (the first audit-order packages covered) — DRAFT, the owner fixes
+# The 0.31 DRAFT benchmark RETIRED (№660): the draft lived here until the
+# owner's verdict 08.10 (gh#1144, гейты-0810 п.2) fixed 4130 bp — and the
+# №650 divergence opened (4 eternal honest refusals make 57/138
+# unreachable in the stage-0 dictionary). The 0.31 record now lives in
+# gate_031_goals.txt (the DRAFT, owner_fixed: false, BOTH OD variants) —
+# ADR-0191 §3/§4 carries the divergence and the OD question. Nothing reads
+# the retired line (machine-verified: no reader in scripts/ci/*.py).

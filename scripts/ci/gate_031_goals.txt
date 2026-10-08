@@ -1,0 +1,41 @@
+# gate_031_goals.txt — the 0.31 release-gate record (the DRAFT)
+# =============================================================================
+# Naryad №660 (gh#1161, Волна 39): the 0.31 gate skeleton — the machine
+# record by the №615/ADR-0186 shape. Status: DRAFT (owner_fixed: false) —
+# the record binds NOBODY until the §5 mechanical transition (the №630
+# precedent): the fix + the default-target switch + the fact key WITH its
+# checker (№525: a fact without a machine source is itself a failure — the
+# №644 machine is in the tree; the 0.31 fact key lands in the §5 PR).
+#
+# The owner's verdict 08.10 (gh#1144, the canonical гейты-0810 п.2) named
+# 4130 bp (57/138 — the §6.3 package fully covered). The divergence: №650
+# closed the package 7/11 with FOUR ETERNAL honest refusals (query —
+# opaque; query_row/query_scalar — heterogeneous; request_body — dynamic
+# JsonBody), so 57/138 is unreachable in the stage-0 dictionary (the
+# ceiling IS the live fact 53/138 = 3840; the X-3 class — a permanently
+# unreachable goal is a dishonest RED). ADR-0191 §3 records the
+# divergence; §4 carries the OD re-fixation question.
+#
+# The blocking CI does NOT read this record (the default target stays
+# 0.30, the №597 wiring; №580: the blocking CI never reads a draft).
+# =============================================================================
+owner_fixed: false
+
+# The OD variant (а) — the re-fixation onto the next package: the live
+# fact AFTER the «memory → recognition» movement lands. The probe (№660,
+# the live --list + the registry/handler tails): 8 verified-closeable
+# rows (mtree_retrieve — List<MTreeEntry>; mtree_stats — Struct<MTreeStats>;
+# mtree_summarize — the summary Struct; human_personas / human_recall /
+# check_reminders / list_reminders — the verified №543 List rows;
+# semantic_search — the doc-match List) + 1 row to verify at the movement
+# (world_state) + 11 honest refusals with recorded causes (the opaques:
+# memory_open/goal_make; the heterogeneous: memory_read; the handlerless
+# stubs: recall_top_k/conv_context/conv_history/event_count/event_sum/
+# events_since/inspect/find). The arithmetic: 53 + 8..9 = 61..62/138.
+draft_sensitive_surface_goal_variant_a: 4420..4493 bp (61..62/138 — the live fact after the next-package movement; the §5 PR reads the reached number) — DRAFT, the owner picks
+
+# The OD variant (б) — the verdict's number kept: reachable ONLY after
+# the dictionary-expansion naryad builds the honest forms for the 4
+# eternal refusals (the №650 causes); RED until then — an honest RED of
+# the §5 read, never a merge blocker (the blocking CI reads 0.30).
+draft_sensitive_surface_goal_variant_b: 4130 bp (57/138 — the verdict's number; reachable only after the honest forms for the 4 eternal refusals land) — DRAFT, the owner picks

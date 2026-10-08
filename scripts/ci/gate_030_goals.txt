@@ -148,7 +148,7 @@ fact_precise_share_bp: 4302
 # surface imap rows, all with the field-meta in the same spelling; the
 # LS denominator 91 → 94). The counter is machine-read, never
 # hand-zeroed.
-fact_parameterized_share_bp: 6170
+fact_parameterized_share_bp: 6210
 # The branch-protection audit VERDICT fact (the В34 addendum Z-3 — the
 # LAST branch-protection-audit run is GREEN; ADR-0186 §5). The key
 # landed WITH its checker in the gh#1000-closure PR (№525 fail-closed:

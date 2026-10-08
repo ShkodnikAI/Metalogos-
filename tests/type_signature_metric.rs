@@ -96,7 +96,7 @@ fn every_typed_signature_is_the_honest_parse_of_its_path() {
 // imap_list/imap_search List<ImapMessage> + imap_read Struct<ImapEmail>
 // (with field_meta) — 55/90 compiled = 6111 bp;
 // the floor 52 → 55.
-const PARAM_FLOOR: usize = 55;
+const PARAM_FLOOR: usize = 56;
 /// The compiled denominator: 91 SOURCE List/Struct rows − the 4 gated
 /// vec/store rows (the same by-design source/compiled gap the TYPED_FLOOR
 /// comment documents — the gated rows are BARE List/Struct, so the

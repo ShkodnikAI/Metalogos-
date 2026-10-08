@@ -78,6 +78,14 @@ pub struct Compiler {
     std_root: PathBuf,
     /// Already-imported modules.
     imported_modules: HashSet<String>,
+    /// №659 (the №652-b/c repair): inside a value-channel arm body the TW
+    /// clones the env (№14 P0-3 — "lets do not leak"), so a `let` ALWAYS
+    /// makes a fresh binding there and the outer slot is never written.
+    /// This flag marks the arm-body compilation; the statement-channel
+    /// LetBinding consults it for the DEEP cases (a loop body nested
+    /// inside an arm — the direct and value-nested lets compile through
+    /// the value-channel arm, which is always fresh).
+    arm_let_fresh: std::cell::Cell<bool>,
     /// Import alias → module path mapping (e.g., "str" → "std/string").
     import_aliases: HashMap<String, String>,
     /// Collections loaded flag.
@@ -286,6 +294,7 @@ impl Compiler {
             schema_ddl: Vec::new(),
             std_root,
             imported_modules: HashSet::new(),
+            arm_let_fresh: std::cell::Cell::new(false),
             import_aliases: HashMap::new(),
             collections_loaded: false,
             sandboxes: HashMap::new(),
@@ -2172,8 +2181,41 @@ impl Compiler {
             }
             // №510: explicit fall-through — pattern-body scope handles the
             // value-carrying statements above; the rest compile generically.
-            other @ Statement::LetBinding { .. }
-            | other @ Statement::Assign { .. }
+            Statement::LetBinding {
+                name,
+                value,
+                mutable: is_mut,
+                ..
+            } => {
+                // №659 (the №652-b/c repair): the VALUE-channel let. The TW
+                // №14 P0-3 env-clone contract: the binding is ALWAYS fresh
+                // (the outer slot is never written), and a binding statement
+                // produces NO value (the №612 mirror) — the value register
+                // is RESET to Unit, so a trailing let answers Unit on BOTH
+                // backends (the pre-№659 register kept the pre-let value —
+                // the №652-b divergence).
+                if *is_mut {
+                    mutable.insert(name.clone());
+                }
+                let slot = *next_slot;
+                *next_slot += 1;
+                locals.insert(name.clone(), slot);
+                self.compile_expr_with_locals(value, code, locals, next_slot, loop_stack, mutable)?;
+                code.push(Instruction::StoreLocal(slot));
+                // №328: seed the runtime label env for source-backed lets.
+                if let crate::ast::Expr::FnCall { name: src, .. } = value {
+                    if is_source_call(src) {
+                        code.push(Instruction::LabelJoin(Box::new(LabelJoinData {
+                            dst: name.clone(),
+                            src: format!("@{src}"),
+                        })));
+                    }
+                }
+                // The №612 reset: a binding statement produces NO value.
+                code.push(Instruction::PushUnit);
+                code.push(Instruction::SetValueReg);
+            }
+            other @ Statement::Assign { .. }
             | other @ Statement::Each { .. }
             | other @ Statement::EachWithIndex { .. }
             | other @ Statement::While { .. }
@@ -2216,6 +2258,18 @@ impl Compiler {
         loop_stack: &mut Vec<(usize, Vec<usize>, Vec<usize>)>,
         mutable: &mut HashSet<String>,
     ) -> Result<(), String> {
+        // №659 (the №652-b/c repair): the TW evaluates a value-channel arm
+        // body against a CLONED env with a FRESH mutability set (№14 P0-3 —
+        // "the value context does not leak lets"). The compile-time mirror:
+        // the flag forces every `let` inside the body subtree onto the
+        // fresh-slot path (the outer slot is never written), and the
+        // locals/mutable maps are restored at the boundary — the arm's
+        // bindings (and mutability) vanish after the arm, exactly like the
+        // clone. (An error aborts the whole compile, so an early return
+        // never observes the stale maps.)
+        let saved_locals = locals.clone();
+        let saved_mutable = mutable.clone();
+        let saved_flag = self.arm_let_fresh.replace(true);
         for s in body {
             match s {
                 // №622 (gh#1085): a `return` inside a value-channel arm
@@ -2256,6 +2310,9 @@ impl Compiler {
                 }
             }
         }
+        *locals = saved_locals;
+        *mutable = saved_mutable;
+        self.arm_let_fresh.set(saved_flag);
         Ok(())
     }
 
@@ -2791,10 +2848,19 @@ impl Compiler {
                 ..
             } => {
                 // Function-level scoping: reuse existing slot if name exists.
+                // №659: inside a value-channel arm body the TW clones the
+                // env — a let ALWAYS makes a fresh binding there (the outer
+                // slot is never written; the shadow does not survive the
+                // arm), so the reuse branch is skipped under the flag.
                 if *is_mut {
                     mutable.insert(name.clone());
                 }
-                let slot = if let Some(&existing_slot) = locals.get(name) {
+                let existing_slot = if self.arm_let_fresh.get() {
+                    None
+                } else {
+                    locals.get(name).copied()
+                };
+                let slot = if let Some(existing_slot) = existing_slot {
                     self.compile_expr_with_locals(
                         value, code, locals, next_slot, loop_stack, mutable,
                     )?;

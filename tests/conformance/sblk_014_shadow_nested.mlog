@@ -1,0 +1,18 @@
+// S-BLK-014 (№659): the no-leak rule holds at ANY depth inside the arm —
+// a shadow let in a nested block (and in a loop body nested in the arm)
+// never overwrites the outer slot.
+pattern p(x: String) -> String {
+  let v = "outer"
+  let r = match x {
+    "go" then {
+      if x == "go" {
+        let v = "deep"
+      }
+      v
+    }
+  }
+  return r + "|" + v
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

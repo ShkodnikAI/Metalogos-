@@ -1,0 +1,16 @@
+// S-BLK-013 (№659): a trailing let in a value-channel arm produces NO
+// value — the arm's value is Unit (the №612 binding contract), not the
+// pre-let expression. Read through the falsy check: "empty".
+pattern p(x: String) -> String {
+  let v = match x {
+    "go" then {
+      "first"
+      let s = "y"
+    }
+  }
+  let out = if v { "set" } else { "empty" }
+  return out
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

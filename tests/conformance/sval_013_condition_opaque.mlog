@@ -1,0 +1,12 @@
+// S-VAL-013 (№651): an opaque handle (Hash) in a condition refuses —
+// the loud [TYPE_MISMATCH] refusal on BOTH backends (the TW as_bool
+// contract; the VM used to answer falsy and silently take the ELSE
+// branch — the №645-a finding, repaired fail-closed).
+pattern p(x: String) -> String {
+  let h = hash_password(x)
+  let branch = if h { "then" } else { "else" }
+  return branch
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

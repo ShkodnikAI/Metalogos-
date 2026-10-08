@@ -1228,6 +1228,20 @@ impl Vm {
                         ip += 1;
                     }
                 }
+                Instruction::JumpIfNotCond(target) => {
+                    // №651 (S-VAL-013): the CONDITION path — the exact TW
+                    // `Value::as_bool` mirror: {true Bool, Float ≠ 0.0,
+                    // non-empty String} truthy, Unit falsy, every composite /
+                    // opaque / Fluid — a LOUD coded refusal, never a silent
+                    // branch (the №629 loud-refusal class). The soft
+                    // `is_truthy` (JumpIfNot) stays for &&/|| only (№532).
+                    let val = stack.pop().unwrap_or(Value::Unit);
+                    if !val.as_bool()? {
+                        ip = *target;
+                    } else {
+                        ip += 1;
+                    }
+                }
                 Instruction::JumpIfLow(threshold, target) => {
                     let val = stack.pop().unwrap_or(Value::Unit);
                     let below = match &val {
@@ -1811,6 +1825,16 @@ impl Vm {
                 Instruction::JumpIfNot(target) => {
                     let val = stack.pop().unwrap_or(Value::Unit);
                     if !is_truthy(&val) {
+                        ip = *target;
+                    } else {
+                        ip += 1;
+                    }
+                }
+                Instruction::JumpIfNotCond(target) => {
+                    // №651 (S-VAL-013): the condition path in pattern bodies —
+                    // the same TW `as_bool` mirror as the main loop's arm.
+                    let val = stack.pop().unwrap_or(Value::Unit);
+                    if !val.as_bool()? {
                         ip = *target;
                     } else {
                         ip += 1;
@@ -4075,6 +4099,13 @@ impl Vm {
 }
 
 /// Truthiness check (matches interpreter).
+///
+/// №651 (S-VAL-013): SOFT truthiness — used ONLY by the logical operators
+/// (&&/||, compiled to `JumpIfNot`) and the pre-№651 bytecode shape. The
+/// LANGUAGE condition paths (if / else-if / while / match guards) emit
+/// `JumpIfNotCond`, whose truthy set is the TW `Value::as_bool` mirror:
+/// {true Bool, Float ≠ 0.0, non-empty String}, Unit falsy, composites /
+/// opaques / Fluid refuse LOUDLY instead of silently branching.
 fn is_truthy(value: &Value) -> bool {
     // №532: EXPLICIT arms over every Value variant — byte-preserved
     // semantics with the TW twin (the №503 outcome-parity suite pins it).

@@ -278,6 +278,31 @@ pub enum Instruction {
     /// (bytecode produced past the compiler check) fails LOUDLY, the same
     /// backstop contract as №264's StoreAssignLocal.
     RegisterPatternRef(u32),
+
+    /// №651 (gh#1145): the CONDITIONAL-BRANCH test — pop the top value and
+    /// branch on the TW `Value::as_bool` semantics: {true Bool, Float ≠ 0.0,
+    /// non-empty String} are truthy, Unit is falsy, and every composite /
+    /// opaque / Fluid value is a LOUD coded refusal ([TYPE_MISMATCH]
+    /// "cannot convert X to Bool") — never a silent branch (the №629
+    /// loud-refusal class; the S-VAL-013 norm). This is the instruction the
+    /// compiler emits for the LANGUAGE condition paths (if / else-if /
+    /// while / match guards), so the VM condition path mirrors the TW
+    /// `as_bool` 1:1 — the №645-a divergence (VM answered is_truthy and
+    /// silently chose a branch on a composite) is structurally impossible
+    /// here: both backends call the SAME `Value::as_bool`.
+    ///
+    /// The LOGICAL operators (&&/||) and the compiler-internal each-loop
+    /// test KEEP `JumpIfNot`: their soft truthiness is the №532 backend-
+    /// twin pair (pinned by the №503 outcome-parity suite), and the each
+    /// test is always Bool by construction (CmpLt of two Floats).
+    ///
+    /// Appended at the END of the enum (bincode positional-index
+    /// compatibility — see StoreAssignLocal's note): old .mbc files
+    /// deserialize and run identically (their condition jumps stay on the
+    /// legacy soft `JumpIfNot` — the pre-№651 shape); old binaries reading
+    /// new bytecode fail loudly at deserialize time (unknown variant
+    /// index), never silently.
+    JumpIfNotCond(usize),
 }
 
 /// №369: the pattern side of one match arm — the payload of

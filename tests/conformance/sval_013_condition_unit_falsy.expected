@@ -1,0 +1,3 @@
+# S-VAL-013 (№651) — Unit in a condition is falsy: OUT: else on both backends.
+STATUS: ok
+OUT: else

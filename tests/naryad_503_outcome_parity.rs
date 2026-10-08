@@ -101,3 +101,123 @@ flow Main {
         tw
     );
 }
+
+// ── №651 (gh#1145, S-VAL-013): the CONDITION outcome-parity class ──────
+//
+// The condition path (if / else-if / while / match guards) must give ONE
+// outcome per value class on BOTH backends: the same branch value, or the
+// same stable [TYPE_MISMATCH] refusal. The TW side IS `Value::as_bool`;
+// the VM side is `Instruction::JumpIfNotCond` calling the SAME method —
+// the divergence №645-a (VM answered soft `is_truthy` and silently chose
+// a branch on a composite) is structurally impossible after the repair.
+// The soft truthiness of &&/|| (the №532 twin) is NOT covered here — it
+// is a different surface, pinned elsewhere.
+
+/// A condition program over one expression: `if <expr> { "then" } else { "else" }`.
+fn cond_program(expr: &str) -> String {
+    format!(
+        r#"pattern p(x: String) -> String {{
+  let branch = if {expr} {{ "then" }} else {{ "else" }}
+  return branch
+}}
+flow Main {{
+  input: String = "go" -> p -> output
+}}
+"#
+    )
+}
+
+fn stable_code(err: &str) -> String {
+    let start = err.find('[').unwrap_or(usize::MAX);
+    if start == usize::MAX {
+        return String::new();
+    }
+    let rest = &err[start + 1..];
+    let end_rel = rest.find(']').unwrap_or(0);
+    rest[..end_rel].to_string()
+}
+
+/// The FULL truthy set of a condition: THEN on both backends.
+#[test]
+fn n651_condition_truthy_set_then_on_both() {
+    for expr in ["true", "1.0", "\"a\""] {
+        let src = cond_program(expr);
+        let tw = run_tw(&src).expect("TW must answer the truthy condition");
+        let vm = run_vm(&src).expect("VM must answer the truthy condition");
+        assert_eq!(
+            tw.unwrap_or_default().trim(),
+            vm.unwrap_or_default().trim(),
+            "backends diverge on truthy expr {expr}"
+        );
+    }
+}
+
+/// The falsy scalars: ELSE on both backends (Unit included — S-VAL-013
+/// keeps Unit falsy, it does not refuse).
+#[test]
+fn n651_condition_falsy_set_else_on_both() {
+    for expr in ["false", "0.0", "\"\""] {
+        let src = cond_program(expr);
+        let tw = run_tw(&src).expect("TW must answer the falsy scalar condition");
+        let vm = run_vm(&src).expect("VM must answer the falsy scalar condition");
+        assert_eq!(
+            tw.unwrap_or_default().trim(),
+            vm.unwrap_or_default().trim(),
+            "backends diverge on falsy expr {expr}"
+        );
+    }
+    // Unit: the block-if without an else arm IS the Unit value.
+    let unit_src = r#"pattern p(x: String) -> String {
+  let u = if false { 1.0 }
+  let branch = if u { "then" } else { "else" }
+  return branch
+}
+flow Main {
+  input: String = "go" -> p -> output
+}
+"#;
+    let tw = run_tw(unit_src).expect("TW must answer the Unit condition");
+    let vm = run_vm(unit_src).expect("VM must answer the Unit condition");
+    assert_eq!(
+        tw.unwrap_or_default().trim(),
+        vm.unwrap_or_default().trim(),
+        "backends diverge on the Unit condition"
+    );
+}
+
+/// The refusal class: EVERY composite / opaque value in a condition
+/// refuses with the SAME stable [TYPE_MISMATCH] code on both backends
+/// (the loud refusal replaces the №645-a silent branch).
+///
+/// Fluid is deliberately NOT in this list: a fluid global read inside a
+/// pattern body never reaches the condition path — the №523 semantic
+/// gate refuses the program first (UNDEFINED_VARIABLE, the same code on
+/// both backends through the FULL pipeline). The runtime Fluid arm of
+/// `as_bool` is still the shared method — no drift is possible.
+#[test]
+fn n651_condition_composites_refuse_with_one_code() {
+    let cases: Vec<(&str, String)> = vec![
+        ("List", cond_program("[x]")),
+        ("empty List", cond_program("[]")),
+        ("Struct", cond_program("{ k: 1.0 }")),
+        ("Hash (opaque)", cond_program("hash_password(x)")),
+    ];
+    for (name, src) in cases {
+        let tw = run_tw(&src);
+        let vm = run_vm(&src);
+        let (tw_code, vm_code) = match (tw, vm) {
+            (Err(t), Err(v)) => (stable_code(&t), stable_code(&v)),
+            (tw_res, vm_res) => panic!(
+                "backends diverge on {name}: tw={tw_res:?} vm={vm_res:?} — the S-VAL-013 parity pin"
+            ),
+        };
+        assert_eq!(
+            tw_code, "TYPE_MISMATCH",
+            "TW must refuse {name} with [TYPE_MISMATCH]"
+        );
+        assert_eq!(
+            vm_code, "TYPE_MISMATCH",
+            "VM must refuse {name} with [TYPE_MISMATCH]"
+        );
+    }
+}

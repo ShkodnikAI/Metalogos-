@@ -1,0 +1,12 @@
+// S-VAL-013 (№651): Unit in a condition is FALSY on both backends — the
+// else branch answers. The truthy set of a condition is exactly {true
+// Bool, Float ≠ 0.0, non-empty String}; Unit is not in it and does NOT
+// refuse (the S-VAL-013 norm pins the whole set).
+pattern p(x: String) -> String {
+  let u = if false { 1.0 }
+  let branch = if u { "then" } else { "else" }
+  return branch
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

@@ -1184,9 +1184,11 @@ impl Compiler {
                 // Compile condition
                 self.compile_expr_with_locals(cond, code, locals, next_slot, loop_stack, mutable)?;
                 // Jump to else branch if falsy
+                // №651: if-condition = the CONDITION path → JumpIfNotCond
+                // (the TW as_bool mirror; loud refusal on composites/opaques).
                 let jump_to_else = code.len();
-                code.push(Instruction::JumpIfNot(0)); // placeholder
-                                                      // Compile then branch
+                code.push(Instruction::JumpIfNotCond(0)); // placeholder
+                                                          // Compile then branch
                 self.compile_expr_with_locals(
                     then_expr, code, locals, next_slot, loop_stack, mutable,
                 )?;
@@ -1195,7 +1197,8 @@ impl Compiler {
                 code.push(Instruction::Jump(0)); // placeholder
                                                  // Patch: else branch starts here
                 let else_start = code.len();
-                if let Some(Instruction::JumpIfNot(ref mut target)) = code.get_mut(jump_to_else) {
+                if let Some(Instruction::JumpIfNotCond(ref mut target)) = code.get_mut(jump_to_else)
+                {
                     *target = else_start;
                 }
                 // Compile else branch
@@ -1299,7 +1302,8 @@ impl Compiler {
                 self.compile_expr_with_locals(
                     condition, code, locals, next_slot, loop_stack, mutable,
                 )?;
-                code.push(Instruction::JumpIfNot(0));
+                // №651: condition path → JumpIfNotCond (TW as_bool mirror).
+                code.push(Instruction::JumpIfNotCond(0));
                 let mut jmp_idx = code.len() - 1;
                 let saved = *next_slot;
                 self.compile_match_expr_arm_body(
@@ -1308,7 +1312,7 @@ impl Compiler {
                 *next_slot = saved;
                 code.push(Instruction::Jump(0));
                 end_fixups.push(code.len() - 1);
-                code[jmp_idx] = Instruction::JumpIfNot(code.len());
+                code[jmp_idx] = Instruction::JumpIfNotCond(code.len());
                 // else-if chain (same lazy per-branch condition evaluation
                 // as TW: an else-if condition is only evaluated when
                 // reached).
@@ -1316,7 +1320,7 @@ impl Compiler {
                     self.compile_expr_with_locals(
                         ei_cond, code, locals, next_slot, loop_stack, mutable,
                     )?;
-                    code.push(Instruction::JumpIfNot(0));
+                    code.push(Instruction::JumpIfNotCond(0));
                     jmp_idx = code.len() - 1;
                     let saved = *next_slot;
                     self.compile_match_expr_arm_body(
@@ -1325,7 +1329,7 @@ impl Compiler {
                     *next_slot = saved;
                     code.push(Instruction::Jump(0));
                     end_fixups.push(code.len() - 1);
-                    code[jmp_idx] = Instruction::JumpIfNot(code.len());
+                    code[jmp_idx] = Instruction::JumpIfNotCond(code.len());
                 }
                 // else branch (or stay Unit)
                 if let Some(eb) = else_body {
@@ -1562,9 +1566,10 @@ impl Compiler {
                         &mut loop_stack,
                         mutable,
                     )?;
-                    // JumpIfNot → after loop (placeholder)
+                    // №651: while-condition = the CONDITION path → JumpIfNotCond
+                    // (the TW as_bool mirror; loud refusal on composites/opaques).
                     let jmp_not_idx = code.len();
-                    code.push(Instruction::JumpIfNot(0));
+                    code.push(Instruction::JumpIfNotCond(0));
 
                     // Compile body with loop context
                     loop_stack.push((loop_start, break_fixups.clone(), continue_fixups.clone()));
@@ -1621,7 +1626,7 @@ impl Compiler {
 
                     // Patch: after_loop starts here
                     let after_loop = code.len();
-                    code[jmp_not_idx] = Instruction::JumpIfNot(after_loop);
+                    code[jmp_not_idx] = Instruction::JumpIfNotCond(after_loop);
 
                     // Patch break fixups
                     for fixup_idx in &break_fixups {
@@ -2107,14 +2112,15 @@ impl Compiler {
                 ..
             } => {
                 self.compile_expr_with_locals(cond, code, locals, next_slot, loop_stack, mutable)?;
-                code.push(Instruction::JumpIfNot(0));
+                // №651: condition path → JumpIfNotCond (TW as_bool mirror).
+                code.push(Instruction::JumpIfNotCond(0));
                 let jmp_idx = code.len() - 1;
                 let saved = *next_slot;
                 for s in then_body {
                     self.compile_value_stmt(s, code, locals, next_slot, loop_stack, mutable)?;
                 }
                 *next_slot = saved;
-                code[jmp_idx] = Instruction::JumpIfNot(code.len());
+                code[jmp_idx] = Instruction::JumpIfNotCond(code.len());
             }
             Statement::IfElseBlock {
                 condition,
@@ -2127,7 +2133,8 @@ impl Compiler {
                 self.compile_expr_with_locals(
                     condition, code, locals, next_slot, loop_stack, mutable,
                 )?;
-                code.push(Instruction::JumpIfNot(0));
+                // №651: condition path → JumpIfNotCond (TW as_bool mirror).
+                code.push(Instruction::JumpIfNotCond(0));
                 let mut jmp_idx = code.len() - 1;
                 let saved = *next_slot;
                 for s in then_body {
@@ -2136,12 +2143,12 @@ impl Compiler {
                 *next_slot = saved;
                 code.push(Instruction::Jump(0));
                 end_fixups.push(code.len() - 1);
-                code[jmp_idx] = Instruction::JumpIfNot(code.len());
+                code[jmp_idx] = Instruction::JumpIfNotCond(code.len());
                 for (ei_cond, ei_body) in else_ifs {
                     self.compile_expr_with_locals(
                         ei_cond, code, locals, next_slot, loop_stack, mutable,
                     )?;
-                    code.push(Instruction::JumpIfNot(0));
+                    code.push(Instruction::JumpIfNotCond(0));
                     jmp_idx = code.len() - 1;
                     let saved = *next_slot;
                     for s in ei_body {
@@ -2150,7 +2157,7 @@ impl Compiler {
                     *next_slot = saved;
                     code.push(Instruction::Jump(0));
                     end_fixups.push(code.len() - 1);
-                    code[jmp_idx] = Instruction::JumpIfNot(code.len());
+                    code[jmp_idx] = Instruction::JumpIfNotCond(code.len());
                 }
                 if let Some(eb) = else_body {
                     for s in eb {
@@ -2527,9 +2534,10 @@ impl Compiler {
         mutable: &mut HashSet<String>,
     ) -> Result<(), String> {
         if !is_else_block {
-            // IfThen: cond → JumpIfNot(else) → branch → end.
+            // IfThen: cond → JumpIfNotCond(else) → branch → end.
+            // №651: the condition path uses the TW as_bool mirror.
             self.compile_expr_with_locals(condition, code, locals, next_slot, loop_stack, mutable)?;
-            code.push(Instruction::JumpIfNot(0)); // placeholder
+            code.push(Instruction::JumpIfNotCond(0)); // placeholder
             let jmp_idx = code.len() - 1;
 
             let saved_next_slot = *next_slot;
@@ -2550,13 +2558,13 @@ impl Compiler {
                 // Nested position: the general statement compiler keeps the
                 // stack balanced around the whole if — the pre-№574 shape.
                 let after = code.len();
-                code[jmp_idx] = Instruction::JumpIfNot(after);
+                code[jmp_idx] = Instruction::JumpIfNotCond(after);
             } else if then_final_is_terminator {
                 // The taken path EXITS the body (return/break/continue) —
                 // only the cond=false path reaches the end; give it the
                 // epilogue value directly.
                 let else_start = code.len();
-                code[jmp_idx] = Instruction::JumpIfNot(else_start);
+                code[jmp_idx] = Instruction::JumpIfNotCond(else_start);
                 code.push(Instruction::PushUnit);
             } else {
                 // The taken path leaves a value — skip the synthesized
@@ -2564,7 +2572,7 @@ impl Compiler {
                 code.push(Instruction::Jump(0)); // skip the synthesized else
                 let jump_end = code.len() - 1;
                 let else_start = code.len();
-                code[jmp_idx] = Instruction::JumpIfNot(else_start);
+                code[jmp_idx] = Instruction::JumpIfNotCond(else_start);
                 code.push(Instruction::PushUnit);
                 let end = code.len();
                 code[jump_end] = Instruction::Jump(end);
@@ -2577,7 +2585,8 @@ impl Compiler {
 
         // if condition
         self.compile_expr_with_locals(condition, code, locals, next_slot, loop_stack, mutable)?;
-        code.push(Instruction::JumpIfNot(0));
+        // №651: condition path → JumpIfNotCond (TW as_bool mirror).
+        code.push(Instruction::JumpIfNotCond(0));
         let jmp_idx = code.len() - 1;
 
         let saved_next_slot = *next_slot;
@@ -2591,12 +2600,12 @@ impl Compiler {
         jump_to_end_fixups.push(then_end);
 
         let then_else_start = code.len();
-        code[jmp_idx] = Instruction::JumpIfNot(then_else_start);
+        code[jmp_idx] = Instruction::JumpIfNotCond(then_else_start);
 
         // else if chain
         for (ei_cond, ei_body) in else_ifs {
             self.compile_expr_with_locals(ei_cond, code, locals, next_slot, loop_stack, mutable)?;
-            code.push(Instruction::JumpIfNot(0));
+            code.push(Instruction::JumpIfNotCond(0));
             let ei_jmp = code.len() - 1;
 
             let saved_ns = *next_slot;
@@ -2610,7 +2619,7 @@ impl Compiler {
             jump_to_end_fixups.push(ei_end);
 
             let ei_else_start = code.len();
-            code[ei_jmp] = Instruction::JumpIfNot(ei_else_start);
+            code[ei_jmp] = Instruction::JumpIfNotCond(ei_else_start);
         }
 
         // else body
@@ -2893,8 +2902,9 @@ impl Compiler {
                 self.compile_expr_with_locals(
                     condition, code, locals, next_slot, loop_stack, mutable,
                 )?;
+                // №651: while-condition = the CONDITION path → JumpIfNotCond.
                 let jmp_not_idx = code.len();
-                code.push(Instruction::JumpIfNot(0));
+                code.push(Instruction::JumpIfNotCond(0));
 
                 loop_stack.push((loop_start, vec![], vec![]));
                 let saved = *next_slot;
@@ -2937,7 +2947,7 @@ impl Compiler {
 
                 code.push(Instruction::Jump(loop_start));
                 let after_loop = code.len();
-                code[jmp_not_idx] = Instruction::JumpIfNot(after_loop);
+                code[jmp_not_idx] = Instruction::JumpIfNotCond(after_loop);
                 for f in &break_fixups {
                     code[*f] = Instruction::Jump(after_loop);
                 }
@@ -2948,14 +2958,15 @@ impl Compiler {
                 ..
             } => {
                 self.compile_expr_with_locals(cond, code, locals, next_slot, loop_stack, mutable)?;
-                code.push(Instruction::JumpIfNot(0));
+                // №651: condition path → JumpIfNotCond (TW as_bool mirror).
+                code.push(Instruction::JumpIfNotCond(0));
                 let jmp_idx = code.len() - 1;
                 let saved = *next_slot;
                 for s in then_body {
                     self.compile_stmt_with_locals(s, code, locals, next_slot, loop_stack, mutable)?;
                 }
                 *next_slot = saved;
-                code[jmp_idx] = Instruction::JumpIfNot(code.len());
+                code[jmp_idx] = Instruction::JumpIfNotCond(code.len());
             }
             Statement::IfElseBlock {
                 condition,
@@ -2968,7 +2979,8 @@ impl Compiler {
                 self.compile_expr_with_locals(
                     condition, code, locals, next_slot, loop_stack, mutable,
                 )?;
-                code.push(Instruction::JumpIfNot(0));
+                // №651: condition path → JumpIfNotCond (TW as_bool mirror).
+                code.push(Instruction::JumpIfNotCond(0));
                 let jmp_idx = code.len() - 1;
                 let saved = *next_slot;
                 for s in then_body {
@@ -2977,13 +2989,13 @@ impl Compiler {
                 *next_slot = saved;
                 code.push(Instruction::Jump(0));
                 end_fixups.push(code.len() - 1);
-                code[jmp_idx] = Instruction::JumpIfNot(code.len());
+                code[jmp_idx] = Instruction::JumpIfNotCond(code.len());
 
                 for (ei_cond, ei_body) in else_ifs {
                     self.compile_expr_with_locals(
                         ei_cond, code, locals, next_slot, loop_stack, mutable,
                     )?;
-                    code.push(Instruction::JumpIfNot(0));
+                    code.push(Instruction::JumpIfNotCond(0));
                     let ei_jmp = code.len() - 1;
                     let saved2 = *next_slot;
                     for s in ei_body {
@@ -2994,7 +3006,7 @@ impl Compiler {
                     *next_slot = saved2;
                     code.push(Instruction::Jump(0));
                     end_fixups.push(code.len() - 1);
-                    code[ei_jmp] = Instruction::JumpIfNot(code.len());
+                    code[ei_jmp] = Instruction::JumpIfNotCond(code.len());
                 }
 
                 if let Some(eb) = else_body {
@@ -3245,6 +3257,7 @@ impl Compiler {
                 | Instruction::MakeFluid(_)
                 | Instruction::Jump(_)
                 | Instruction::JumpIfNot(_)
+                | Instruction::JumpIfNotCond(_)
                 | Instruction::JumpIfLow(..)
                 | Instruction::Collapse(_)
                 | Instruction::Memorize(_)

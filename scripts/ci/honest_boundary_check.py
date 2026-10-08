@@ -52,6 +52,24 @@ dictionary-matching row must carry its release-block evidence (the
 №604 DoD: zero false positives on the existing rows, the synthetic
 Y-1 sample caught).
 
+THE CHANGELOG SURFACE (№643, the unified audit 48301708 §3 Q-1 "Что
+не так" п.2): the SAME dictionary class extends to CHANGELOG.md — a
+security-relevant defect entry that matches the dictionary must lie in
+the `### Security` section of its version (the section heading is the
+evidence — the section is the release-block carrier for the released
+fixes) or carry the release-block evidence like a limitations row
+(the same pair of paths: the forward diff mode + the --retrospective
+whole-file mode). A dictionary-matching added CHANGELOG entry outside
+`### Security` without the evidence = exit 1 (the PR is red). The
+`### Security (ADVISORY …)` released form (№620/№629) matches the
+section rule too. The live measured boundary (the honest fact the
+naryad's claim is corrected by): the LITERAL №629 entry text does NOT
+match the current dictionary — its class words ("silent `false`",
+"silently-wrong") are not in the machine vocabulary; the mechanism is
+built for the dictionary classes as written, and a vocabulary
+calibration for that class is a separate evidence-backed PR (the
+false-positive budget gh#1002 governs — never extended blindly).
+
 Usage:
     python3 scripts/ci/honest_boundary_check.py --diff <file|-> [--changed <file> ...]
     python3 scripts/ci/honest_boundary_check.py --diff /tmp/pr.diff --pr-number 123
@@ -136,6 +154,122 @@ def added_lines_with_files(diff: str) -> list[tuple[str, str]]:
     return pairs
 
 
+# The CHANGELOG heading flow (№643): a `## [` version heading or a
+# `### ` section heading; the `### Security` section is the evidence
+# carrier (the released-fix section, the №620/№629 ADVISORY form included).
+CHANGELOG_HEADING_RE = re.compile(r"^#{2,3}\s+\S", re.UNICODE)
+SECURITY_SECTION_RE = re.compile(r"^###\s+Security\b", re.IGNORECASE)
+CHANGELOG_VERSION_RE = re.compile(r"^##\s+\[([^\]]+)\]", re.UNICODE)
+CHANGELOG_BULLET_RE = re.compile(r"^-\s", re.UNICODE)
+UNRELEASED = "Unreleased"
+
+
+def _changelog_flow(lines, entries):
+    """The shared heading/bullet state machine: consumes (kind, text)
+    pairs — kind is '+' (added) or ' ' (context) — and fills `entries`
+    as (joined-entry-text, under_security, in_unreleased). Added lines
+    form entries; context lines advance ONLY the heading state (the
+    section an added bullet lands in may be unchanged, hence outside the
+    + lines)."""
+    state = {"sec": False, "ver": "", "entry": None}
+
+    def flush():
+        if state["entry"] is not None:
+            entries.append(
+                (
+                    " ".join(s.strip() for s in state["entry"]),
+                    state["sec"],
+                    state["ver"] == UNRELEASED,
+                )
+            )
+            state["entry"] = None
+
+    for kind, text in lines:
+        ver = CHANGELOG_VERSION_RE.match(text)
+        if ver:
+            flush()
+            state["ver"] = ver.group(1)
+            state["sec"] = False
+            continue
+        heading = CHANGELOG_HEADING_RE.match(text)
+        if heading:
+            flush()
+            state["sec"] = bool(SECURITY_SECTION_RE.match(text))
+            continue
+        if kind == "+" and CHANGELOG_BULLET_RE.match(text):
+            flush()
+            state["entry"] = [text]
+            continue
+        if state["entry"] is not None:
+            if not text.strip():
+                flush()
+            else:
+                state["entry"].append(text)
+    flush()
+
+
+def added_changelog_entries(diff: str) -> list[tuple[str, bool, bool]]:
+    """(joined-entry-text, under_###_Security, in_[Unreleased]) for the ADDED
+    CHANGELOG.md bullet entries. The section attribution follows the
+    post-image heading flow: added AND context heading lines both advance
+    it, so an entry added UNDER an unchanged `### Security` heading is
+    attributed correctly (the №642-class diff). The version scope tracks
+    the `## [` heading: only the [Unreleased] entries are the M-3 limbo
+    the gate blocks on (a RELEASED section's fix lives IN a release — the
+    №562 class does not apply to history; the post-release amendments are
+    routed to [Unreleased] by the №620 protocol)."""
+    entries: list[tuple[str, bool, bool]] = []
+    current_file = "<unknown>"
+    in_changelog = False
+    flow: list[tuple[str, str]] = []
+    for line in diff.splitlines():
+        header = FILE_HEADER_RE.match(line)
+        if header:
+            if in_changelog:
+                _changelog_flow(flow, entries)
+            flow = []
+            current_file = header.group(1)
+            in_changelog = current_file.endswith("CHANGELOG.md")
+            continue
+        if line.startswith(("diff ", "index ", "new file mode", "deleted file mode", "--- ")):
+            continue
+        if line.startswith("@@"):
+            # a hunk boundary inside one file: flush the open entry; the
+            # heading state carries over (the best available attribution;
+            # the retro mode is the exact one)
+            if in_changelog:
+                _changelog_flow(flow, entries)
+            flow = []
+            continue
+        if not in_changelog:
+            continue
+        if line.startswith("+") and not line.startswith("+++"):
+            flow.append(("+", line[1:]))
+        elif line.startswith(" "):
+            flow.append((" ", line[1:]))
+    if in_changelog:
+        _changelog_flow(flow, entries)
+    return entries
+
+
+def changelog_retro_entries() -> list[tuple[str, bool, bool]]:
+    """(joined-entry-text, under_###_Security, in_[Unreleased]) for EVERY
+    bullet entry of the whole CHANGELOG.md — the retro mode's exact
+    post-image read."""
+    root = os.path.dirname(os.path.dirname(HERE))  # scripts/ci → scripts → repo root
+    path = os.path.join(root, "CHANGELOG.md")
+    entries: list[tuple[str, bool, bool]] = []
+    flow: list[tuple[str, str]] = []
+    for raw in open(path, encoding="utf-8"):
+        line = raw.rstrip("\n")
+        if not line.strip():
+            flow.append((" ", line))
+        else:
+            flow.append(("+", line))
+    _changelog_flow(flow, entries)
+    return entries
+
+
 def added_limitations_rows(diff: str) -> list[str]:
     """The ADDED rows (joined line-runs) of docs/limitations.md."""
     rows: list[str] = []
@@ -166,13 +300,29 @@ def github_api(path: str, token: str) -> object:
     return json.load(urllib.request.urlopen(req, timeout=30))
 
 
+class GithubApiError(RuntimeError):
+    """The API broke mid-check — the caller converts it to exit 2
+    (infra, loud — never silently OK; the docstring contract)."""
+
+
 def fetch_issue_labels(issue: int, token: str) -> set[str]:
-    data = github_api(f"issues/{issue}", token)
+    try:
+        data = github_api(f"issues/{issue}", token)
+    except GithubApiError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — the boundary converts ALL
+        # API failures (HTTP, JSON, timeouts) into the loud exit-2 class
+        raise GithubApiError(f"issues/{issue}: {exc}") from exc
     return {l["name"] for l in data.get("labels", [])}
 
 
 def fetch_pr_labels(pr: int, token: str) -> set[str]:
-    data = github_api(f"pulls/{pr}", token)
+    try:
+        data = github_api(f"pulls/{pr}", token)
+    except GithubApiError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — see fetch_issue_labels
+        raise GithubApiError(f"pulls/{pr}: {exc}") from exc
     return {l["name"] for l in data.get("labels", [])}
 
 
@@ -246,7 +396,6 @@ def check_security_rows(
             pr_ok = LABEL in (label_lookup(-pr_number) or set())
         else:
             pr_ok = LABEL in fetch_pr_labels(pr_number, token)
-
     skipped_api = False
     for row in rows:
         matched = dictionary_match(row, patterns)
@@ -299,19 +448,102 @@ def check_security_rows(
     return 0, reports
 
 
+def check_changelog_security(
+    diff: str,
+    patterns: list[re.Pattern[str]],
+    token: str | None,
+    pr_number: int | None,
+    label_lookup=None,
+) -> tuple[int, list[str], int, int]:
+    """The №643 CHANGELOG class — the SAME blocking machinery.
+
+    The blocking scope (the fact-backed calibration, the M-3/№562
+    definition: the limbo is "a fix lives outside a RELEASE"): an added
+    dictionary-matching entry in [Unreleased] OUTSIDE `### Security`
+    without the release-block evidence = exit 1. The entries UNDER
+    `### Security` (of any version, the №620 ADVISORY form included)
+    pass by the section itself; the entries in RELEASED sections pass
+    by the release (the history is verbatim, №620; the post-release
+    amendments are routed to [Unreleased] by the protocol).
+
+    Returns (exit_code, the report lines, the total added entries, the
+    under-Security added entries)."""
+    entries = added_changelog_entries(diff)
+    pending_outside = [
+        text
+        for text, sec, unreleased in entries
+        if unreleased and not sec
+    ]
+    under = sum(1 for _, sec, _u in entries if sec)
+    released = sum(1 for _, sec, u in entries if not sec and not u)
+    reports: list[str] = []
+    if under:
+        reports.append(
+            f"changelog: {under} added entr(y|ies) under `### Security` — "
+            "PASS by the section (№643)"
+        )
+    if released:
+        reports.append(
+            f"changelog: {released} added entr(y|ies) in released sections — "
+            "PASS by the release (the M-3 limbo is closed; the №620 protocol "
+            "routes the post-release amendments to [Unreleased])"
+        )
+    code, sec_reports = check_security_rows(
+        pending_outside, patterns, token, pr_number, label_lookup
+    )
+    reports.extend(sec_reports)
+    return code, reports, len(entries), under
+
+
 def retrospective(token: str | None, label_lookup=None) -> int:
     """The №604 DoD run: the WHOLE docs/limitations.md through the gate."""
     root = os.path.dirname(os.path.dirname(HERE))  # scripts/ci → scripts → repo root
     limits = os.path.join(root, "docs", "limitations.md")
     rows = [l.rstrip("\n") for l in open(limits, encoding="utf-8") if l.startswith("| ")]
     patterns = load_dictionary()
-    code, reports = check_security_rows(rows, patterns, token, None, label_lookup)
+    try:
+        code, reports = check_security_rows(rows, patterns, token, None, label_lookup)
+    except GithubApiError as exc:
+        print(f"::error::the GitHub API broke — exit 2 (infra, loud): {exc}")
+        return 2
     for line in reports:
         print(f"  {line}")
     matches = sum(1 for r in rows if dictionary_match(r, patterns))
     print(f"retrospective: {len(rows)} rows scanned, {matches} security-dictionary matches")
     print(f"retrospective: {'IN SYNC' if code == 0 else 'VIOLATIONS — exit 1'}")
-    return code
+
+    # ── the №643 CHANGELOG retro: every dictionary-matching entry in
+    #    [Unreleased] must lie in a `### Security` section (the M-3
+    #    scope: the released sections pass by the release; the full
+    #    outside-Security inventory is printed for transparency) ──
+    cl_entries = changelog_retro_entries()
+    cl_matches = sum(1 for t, _s, _u in cl_entries if dictionary_match(t, patterns))
+    cl_under = sum(
+        1 for t, s, _u in cl_entries if s and dictionary_match(t, patterns)
+    )
+    cl_pending = [
+        t
+        for t, s, u in cl_entries
+        if u and not s and dictionary_match(t, patterns)
+    ]
+    cl_outside = [
+        t for t, s, u in cl_entries if not s and dictionary_match(t, patterns)
+    ]
+    print(
+        f"changelog retrospective: {len(cl_entries)} entries scanned, "
+        f"{cl_matches} security-dictionary matches ({cl_under} under "
+        f"`### Security`, {len(cl_outside)} outside — all in released "
+        f"sections except {len(cl_pending)} in [Unreleased])"
+    )
+    for t in cl_pending:
+        print(f"  changelog dictionary match OUTSIDE ### Security in [Unreleased]: {t[:160]}")
+    print(
+        "changelog retrospective: "
+        + ("IN SYNC" if not cl_pending else "VIOLATIONS — exit 1")
+    )
+    if code != 0 or cl_pending:
+        return 1
+    return 0
 
 
 def self_test() -> int:
@@ -439,6 +671,124 @@ def self_test() -> int:
         failed += 1
     print(f"  self-test [{status}] code={code}/0: the PR-level release-block evidence")
 
+    # ── the №643 CHANGELOG cases (the injected label states — offline) ──
+    y1_entry = (
+        "- **the Y-1 class (gh#1041):** a bare `respond*` NESTED under a "
+        "top-level block-form if/else does NOT stop the route on either "
+        "backend — the blocking RESPOND_SWALLOWED refusal"
+    )
+
+    def cl_case(name, want_code, diff_text, lookup=None):
+        nonlocal failed
+        c, _r, _n, _u = check_changelog_security(
+            diff_text, patterns, "fake-token", None, lookup
+        )
+        st = "ok" if c == want_code else "FAIL"
+        if st == "FAIL":
+            failed += 1
+        print(f"  self-test [{st}] code={c}/{want_code}: {name}")
+
+    # the synthetic №629-class line OUTSIDE ### Security — caught (exit 1)
+    cl_case(
+        "the dictionary-class CHANGELOG entry OUTSIDE ### Security — caught",
+        1,
+        "diff --git a/CHANGELOG.md b/CHANGELOG.md\n"
+        "--- a/CHANGELOG.md\n"
+        "+++ b/CHANGELOG.md\n"
+        "@@ -10,6 +10,9 @@\n"
+        " ## [Unreleased]\n"
+        " \n"
+        f"+{y1_entry}\n",
+        lambda n: set(),
+    )
+    # the same entry UNDER ### Security — PASS by the section
+    cl_case(
+        "the same entry UNDER ### Security — PASS by the section",
+        0,
+        "diff --git a/CHANGELOG.md b/CHANGELOG.md\n"
+        "--- a/CHANGELOG.md\n"
+        "+++ b/CHANGELOG.md\n"
+        "@@ -10,6 +10,10 @@\n"
+        " ## [Unreleased]\n"
+        " \n"
+        "+### Security\n"
+        "+\n"
+        f"+{y1_entry}\n",
+        lambda n: set(),
+    )
+    # the released ADVISORY form (№620) — PASS by the section rule
+    cl_case(
+        "the entry under the released ADVISORY ### Security form — PASS",
+        0,
+        "diff --git a/CHANGELOG.md b/CHANGELOG.md\n"
+        "--- a/CHANGELOG.md\n"
+        "+++ b/CHANGELOG.md\n"
+        "@@ -10,6 +10,10 @@\n"
+        " ## [0.29.0] - 2026-10-06\n"
+        " \n"
+        "+### Security (ADVISORY — restart your tests)\n"
+        "+\n"
+        f"+{y1_entry}\n",
+        lambda n: set(),
+    )
+    # an entry added under an UNCHANGED (context) ### Security heading
+    cl_case(
+        "the entry under the unchanged context ### Security — attributed right",
+        0,
+        "diff --git a/CHANGELOG.md b/CHANGELOG.md\n"
+        "--- a/CHANGELOG.md\n"
+        "+++ b/CHANGELOG.md\n"
+        "@@ -10,6 +10,9 @@\n"
+        " ### Security\n"
+        " \n"
+        f"+{y1_entry}\n",
+        lambda n: set(),
+    )
+    # the release-block evidence still rescues an outside-Security entry
+    cl_case(
+        "the outside-Security entry WITH the release-block carrier — PASS",
+        0,
+        "diff --git a/CHANGELOG.md b/CHANGELOG.md\n"
+        "--- a/CHANGELOG.md\n"
+        "+++ b/CHANGELOG.md\n"
+        "@@ -10,6 +10,9 @@\n"
+        " ## [Unreleased]\n"
+        " \n"
+        f"+{y1_entry}\n",
+        lambda n: {LABEL} if n == 1041 else set(),
+    )
+    # the benign entry (no dictionary words) — zero false positives
+    cl_case(
+        "the benign CHANGELOG entry — zero false positives",
+        0,
+        "diff --git a/CHANGELOG.md b/CHANGELOG.md\n"
+        "--- a/CHANGELOG.md\n"
+        "+++ b/CHANGELOG.md\n"
+        "@@ -10,6 +10,9 @@\n"
+        " ## [Unreleased]\n"
+        " \n"
+        "+- **№633 (gh#1101) — the dead_code burn (internal):** 33 → 15\n"
+        "+  (18 places removed or justified), the floor re-locked in the same PR.\n",
+        lambda n: set(),
+    )
+    # the honest measured boundary: the LITERAL №629 text is NOT in the
+    # current dictionary vocabulary — the entry outside Security passes
+    # the MACHINE gate (the vocabulary calibration is a separate PR)
+    cl_case(
+        "the measured boundary: the literal №629 text is NOT dictionary-caught",
+        0,
+        "diff --git a/CHANGELOG.md b/CHANGELOG.md\n"
+        "--- a/CHANGELOG.md\n"
+        "+++ b/CHANGELOG.md\n"
+        "@@ -10,6 +10,12 @@\n"
+        " ## [Unreleased]\n"
+        " \n"
+        "+- **№629 (gh#1096) — the VM comparison parity:** the legacy VM\n"
+        "+  answered a silent `false` (and `true` for numeric strings) — the\n"
+        "+  silently-wrong class; the fix landed on main 2026-10-07.\n",
+        lambda n: set(),
+    )
+
     print(f"self-test: {'ALL PASS' if failed == 0 else f'{failed} FAILED'}")
     return 1 if failed else 0
 
@@ -482,15 +832,36 @@ def main() -> int:
     # the №604 dictionary class — blocking on the added limitations rows
     patterns = load_dictionary()
     sec_rows = added_limitations_rows(diff)
-    sec_code, reports = check_security_rows(
-        sec_rows, patterns, os.environ.get("GH_TOKEN"), args.pr_number,
-    )
+    try:
+        sec_code, reports = check_security_rows(
+            sec_rows, patterns, os.environ.get("GH_TOKEN"), args.pr_number,
+        )
+    except GithubApiError as exc:
+        print(f"::error::the GitHub API broke — exit 2 (infra, loud): {exc}")
+        return 2
     for line in reports:
         print(line)
     if sec_code != 0:
         for line in reports:
             print(f"::error::{line}" if not line.startswith("  ") else line)
         return sec_code
+
+    # the №643 CHANGELOG class — the SAME dictionary, the ### Security
+    # section as the section-evidence (the CI call site is unchanged: the
+    # class runs INSIDE this script, the №643 boundary)
+    try:
+        cl_code, cl_reports, _n, _under = check_changelog_security(
+            diff, patterns, os.environ.get("GH_TOKEN"), args.pr_number,
+        )
+    except GithubApiError as exc:
+        print(f"::error::the GitHub API broke — exit 2 (infra, loud): {exc}")
+        return 2
+    for line in cl_reports:
+        print(line)
+    if cl_code != 0:
+        for line in cl_reports:
+            print(f"::error::{line}" if not line.startswith("  ") else line)
+        return cl_code
     return code
 
 

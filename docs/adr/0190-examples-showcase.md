@@ -1,8 +1,19 @@
 # ADR-0190: metalogos-examples — the showcase charter (three apps with e2e, for the language consumer)
 
-**Status:** Proposed — the §-answers are the OWNER's (the executor drafts; the owner fixes; the creation of the repository/directory is the OWNER's act)
+**Status:** Accepted — the owner's §-answers, 2026-10-08 (the verbatim
+answer map: «1 — отдельный публичный репозиторий; 2 —
+metalogos-examples; 3 — как в основном репо; 4 — в NLnet-заявке»; the
+FULL verdict text lives at the source — gh#1149, comment
+2026-10-08T08:03:43Z, and the canonical «гейты-0810» record п.5 — the
+docs-language lint №383 keeps the .md form English-only, the ADR-0181
+§1 authorization-record shape). The placement option **(а)** (a
+separate public repository) is FIXED by the answer (1) — the owner
+creates the repository (the OWNER's act, the boundary §4 keeps); the
+executor's (б) recommendation is superseded, and the showcase
+implementation rides a wave AFTER the repository exists.
+
 **Date:** 2026-10-08
-**Naryad:** №655 (issue #1149, Волна 38)
+**Naryad:** №655 (issue #1149, Волна 38); the acceptance landed by №663 (issue #1164, Волна 39)
 **Depends on:** ADR-0182 (the docs-only contour precedent — contour + §-answers → Accepted → the implementation wave), the serve-e2e contour (`scripts/ci/serve_e2e_inventory.txt` + run_test_server, both-backend), mlogpkg (the №567 workspace member), the LLM mock contour (`METALOGOS_LLM_MOCK` — the штатный test circuit), the Камертон-class consumer (the В30 external contour; the Charter §1 directive: web, bots, agents)
 **Blocks:** the showcase implementation wave (after the §-answers)
 

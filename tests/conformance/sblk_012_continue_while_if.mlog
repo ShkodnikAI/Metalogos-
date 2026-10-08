@@ -1,0 +1,15 @@
+// S-BLK-012 (№658): a continue inside a while body skips the REST of the
+// body and proceeds with the next condition re-test (i == 2 is skipped).
+pattern p(x: String) -> String {
+  let mut acc = ""
+  let mut i = 0.0
+  while i < 5.0 {
+    i = i + 1.0
+    if i == 2.0 { continue }
+    acc = acc + "x;"
+  }
+  return acc
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

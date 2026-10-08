@@ -1,0 +1,3 @@
+# S-BLK-012 (№658) — four effects; the i == 2 pass is skipped.
+STATUS: ok
+OUT: x;x;x;x;

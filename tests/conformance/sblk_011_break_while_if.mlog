@@ -1,0 +1,16 @@
+// S-BLK-011 (№658): a break inside a while body (here, inside an if
+// guard) exits the loop AT ONCE — the body does not run to the
+// condition cap. TW and VM behave identically.
+pattern p(x: String) -> String {
+  let mut acc = ""
+  let mut i = 0.0
+  while i < 5.0 {
+    if i == 2.0 { break }
+    acc = acc + "x;"
+    i = i + 1.0
+  }
+  return acc
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

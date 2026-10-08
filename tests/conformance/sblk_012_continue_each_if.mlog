@@ -1,0 +1,13 @@
+// S-BLK-012 (№658): a continue inside an each body skips to the NEXT
+// item — the "b" pass contributes nothing, "c" is still visited.
+pattern p(x: String) -> String {
+  let mut acc = ""
+  each it in ["a", "b", "c"] {
+    if it == "b" { continue }
+    acc = acc + it
+  }
+  return acc
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

@@ -1,0 +1,3 @@
+# S-BLK-011 (№658) — the break fires on "b": only "a" lands.
+STATUS: ok
+OUT: a

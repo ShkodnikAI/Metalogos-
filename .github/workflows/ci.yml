@@ -675,6 +675,14 @@ jobs:
       - name: Gate — the precise typed-signature share vs the checked-in floor (№560; movement only up)
         run: |
           python3 scripts/ci/type_signature_share.py --precise --gate scripts/ci/type_signature_precise_baseline.txt
+      # №661 (issue #1162; the К-Б stage-2 verdict gh#1144): the BLOCKING
+      # field-meta coverage rule — every parameterized Struct row carries a
+      # well-formed field_meta, the dynamic forms (JsonBody/FormData) are
+      # carved out ONLY by the named exceptions list in the script. The
+      # №535 cell does NOT grow: the rule rides this existing job.
+      - name: Gate — the field-meta enforcement on the parameterized Struct rows (№661; the named carve-outs only)
+        run: |
+          python3 scripts/ci/type_signature_share.py --enforce-fieldmeta
       - name: Artifact — the share report + the untyped inventory (the stage-1 base)
         run: |
           python3 scripts/ci/type_signature_share.py

@@ -148,7 +148,7 @@ fact_precise_share_bp: 4302
 # surface imap rows, all with the field-meta in the same spelling; the
 # LS denominator 91 → 94). The counter is machine-read, never
 # hand-zeroed.
-fact_parameterized_share_bp: 6170
+fact_parameterized_share_bp: 6210
 # The branch-protection audit VERDICT fact (the В34 addendum Z-3 — the
 # LAST branch-protection-audit run is GREEN; ADR-0186 §5). The key
 # landed WITH its checker in the gh#1000-closure PR (№525 fail-closed:
@@ -176,7 +176,10 @@ fact_branch_protection_audit: GREEN
 # The floor (sensitive_surface_baseline.txt) is only-up (№757/№613);
 # the blocking CI status is NOT introduced in №644 (the №535 rule — the
 # CI wiring is the advisory report step beside type_signature_share).
-record_sensitive_surface_bp: 3840
+# №661 (2026-10-09): the record moved 3840 → 3913 in the same PR that
+# typed canary_check with the full field-meta (the FIRST private label,
+# the К-Б stage-2 verdict gh#1144) — the only-up floor procedure №757.
+record_sensitive_surface_bp: 3913
 # The 0.31 DRAFT benchmark RETIRED (№660): the draft lived here until the
 # owner's verdict 08.10 (gh#1144, гейты-0810 п.2) fixed 4130 bp — and the
 # №650 divergence opened (4 eternal honest refusals make 57/138

@@ -51,4 +51,11 @@
 #   posture); 53*10000//138 = 3840 bp; the draft 0.31 goal (57/138 =
 #   4130) is NOT reachable honestly on this package — the Гудхарт rule
 #   beats the draft arithmetic)
-# threshold_bp: 3840
+# threshold_bp: 3913
+
+# №661 (issue #1162, 2026-10-09; the К-Б stage-2 verdict gh#1144):
+# canary_check (the security-labeled Source, previously untyped) is
+# honestly typed Struct<CanaryCheck> WITH the full field-meta (the first
+# private label id:private) → covered: 53/138 → 54/138 = 3913 bp.
+# Only-up (№757), the same PR (the №660 OD-variant (a) arithmetic starts
+# from this new floor).

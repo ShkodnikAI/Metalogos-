@@ -227,4 +227,8 @@
 #   comment documents).
 # typed: 316
 # total: 516
-# threshold_bp: 6124
+# threshold_bp: 6143
+
+# №661 (issue #1162, 2026-10-09; the К-Б stage-2 verdict gh#1144):
+# canary_check typed Struct<CanaryCheck> (the first private label) —
+# 317/516 = 6143 bp. Only-up (№467/№757), the same PR as the movement.

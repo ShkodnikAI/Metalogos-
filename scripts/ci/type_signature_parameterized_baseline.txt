@@ -66,4 +66,7 @@
 #   denominator 91 → 94 (three new typed List/Struct rows);
 #   58/94 = 6170 bp. The compiled twin locks — PARAM_FLOOR 52 → 55 in
 #   the same PR (the same cfg(vec) gap note).)
-# threshold_bp: 6170
+# threshold_bp: 6210
+
+# №661 (issue #1162, 2026-10-09): canary_check typed Struct<CanaryCheck>
+# (the first private label) — 59/95 = 6210 bp. Only-up (№757), the same PR.

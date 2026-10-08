@@ -1,0 +1,16 @@
+// S-BLK-014 (№659): a let inside a value-channel arm body does NOT leak —
+// the shadow binding lives in the arm's env clone only; the outer name is
+// untouched after the arm (the №14 P0-3 rule on BOTH backends).
+pattern p(x: String) -> String {
+  let v = "outer"
+  let r = match x {
+    "go" then {
+      let v = "inner"
+      v
+    }
+  }
+  return r + "|" + v
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

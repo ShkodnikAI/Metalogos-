@@ -1,0 +1,3 @@
+# S-BLK-014 (№659) — the arm reads "inner", the outer stays "outer".
+STATUS: ok
+OUT: inner|outer

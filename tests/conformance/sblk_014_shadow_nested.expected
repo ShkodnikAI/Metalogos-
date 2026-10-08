@@ -1,0 +1,3 @@
+# S-BLK-014 (№659) — the nested shadow is arm-local: deep|outer.
+STATUS: ok
+OUT: deep|outer

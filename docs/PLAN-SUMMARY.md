@@ -73,7 +73,66 @@ they reside in the canon held by the coordinator (§16.0-7).
 - C2PA mini-slice: manifest read/write, Art 50 labeling — a narrow slice (#320).
 - Completion-audits of Wave 0 — accepted (gh#404–#406).
 
-## Current wave — Wave 35 (the ПСРМ development after В34, the dispatch gh#1105, 2026-10-07)
+## Current wave — Wave 37 (the unified-audit execution, the dispatch gh#1136, 2026-10-08)
+
+The dispatch gh#1136 queue — the unified audit of 48301708 (the sources
+А + К, §6.6) landed as workorders. Executed: №642 (gh#1129, PR #1137 →
+81177c8) — the `### Security` section in [Unreleased]: the №629 entry
+with the AFFECTS-0.29.0-AND-EARLIER stamp and the date stamps, the №562
+gate moved from no-security-part to age-counting; №643 (gh#1130, PR
+#1140 → 55bce5bb) — the №604 security dictionary extends to CHANGELOG.md
+(a dictionary entry in [Unreleased] outside ### Security without the
+release-block evidence = exit 1; the released sections pass by the
+release — the M-3 scope calibrated with the fact; the retro 1237
+entries → IN SYNC; self-test 17/17); №644 (gh#1131, PR #1138 →
+636b3cbb) — the sensitive-surface coverage metric, the fixed
+denominator 138 (Source ∧ ≠ Public), covered 46/138 = 3333 bp, the
+only-up floor, the RECORD line + the 0.31 DRAFT (4130 bp) in the gate
+record — the CI wiring advisory (№535); №645 (gh#1132, PR #1139 →
+8a5d13d5) — the normative spec + the conformance layer: docs/spec/
+(12 norms S-VAL-001..012 with the TW+VM anchors), tests/conformance/
+(12 pairs, the cross-backend agreement as the oracle), the BLOCKING
+conformance CI job, the №535 cell 31 → 32; №646 (gh#1133, PR #1141 →
+6eafee1c) — the release lockstep 0.30.0: the version lockstep in one
+PR, the CHANGELOG cut [0.30.0] - 2026-10-08 with ### Security first,
+release_gap_gate OK (the №629 tag↔main gap closed), the fresh gate read
+GREEN + --strict exit 0, the tag v0.30.0 on 6eafee1c — **THE
+PUBLICATION IS THE OWNER'S ACT (§6.5): the release is STAGED; the
+Z-3 recommendation attached — the branch-protection switches (gh#1000)
+BEFORE publishing**; №647 (gh#1134) — this sync, strictly last. The
+dated workorder №648 (gh#1135, the plan-relevance audit release №4) —
+2026-12-01 (± 1 day), verified-wait. The counters: blocking cells 32,
+sensitive-surface 3333 bp (new), release-gap OK, the 0.30 gate --strict
+exit 0, parameterized 6043 bp / field-label 9500 bp (the 0.30 goal
+MET), typed 5988 bp / precise 4224 bp, ignore 11 / dead_code 15, ADR
+180, dups 0. The owner gates remaining: the 0.30.0 publication, gh#1000
+(the branch protection — then the fact-key micro-PR, №525), the stage-2
+enforcement (К-Б), the Камертон forwarding, the NLnet publications
+before 20.10, the В36 tail (№639 the ledger revision 2026-10-15, №641
+the В36 docs sync), №648 (01.12).
+
+## Executed — Wave 36 (the parameterized movement №3, the dispatch gh#1125, 2026-10-08)
+
+The dispatch gh#1125 queue (the ПСРМ development after В35). Executed:
+№637 (gh#1120, PR #1126 → e7894a1) — the parameterized movement 0.30
+№3: the PDF contour, 21 verified rows (the 20 Struct rows WITH
+field_meta — the anti-dilution rule), the share 34/91 = 3736 bp →
+**55/91 = 6043 bp — THE 0.30 OWNER-FIXED GOAL (≥ 5000 bp) REACHED**
+(the floors raised in the same PR: the parameterized baseline 6043,
+PARAM_FLOOR 52); №638 (gh#1121, PR #1128 → 4830170) — the field-labels
+№2: the 15 existing parameterized Struct rows labeled per the №627
+table read off the handlers, 5750 → **9500 bp (38/40 = 95%)**
+(FIELDMETA_FLOOR 37); №640 (gh#1123, PR #1127 → bddc4cc) — the ADR-0188
+DRAFT (the template-semantics composition, the ledger §7 lane):
+Proposed, owner_fixed: false, no implementations, ADR 179 → 180. The
+dated tail: №639 (gh#1122) — the ledger gh#967 revision, DATED
+2026-10-15 (± 1 day), verified-wait; №641 (gh#1124) — the В36 docs
+sync, strictly last (its PLAN-SUMMARY Wave-36 line landed early by the
+№647 hand — the wave's closing naryad stays open until the №639 date).
+The counters: parameterized 6043 bp (moved), field-label 9500 bp
+(moved), ADR 180, the rest unchanged from В35.
+
+## Executed — Wave 35 (the ПСРМ development after В34, the dispatch gh#1105, 2026-10-07)
 
 The dispatch gh#1105 queue (7 workorders) plus the registered
 candidate №627 (the owner's К-А verdict execution, 2026-10-07).

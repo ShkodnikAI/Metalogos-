@@ -23,12 +23,12 @@ use metalogos::builtins::{sig_types::Type, BUILTIN_REGISTRY};
 /// the naryad gh#1086). The by-design gap continues (see
 /// part 1's comment): the CI script counts SOURCE rows (309 — the same 4
 /// gated vec/store rows ride only there), this test counts the COMPILED
-/// default-feature registry (305). MUST move only up, in the same PR
+/// default-feature registry (312). MUST move only up, in the same PR
 /// that types more rows — AND together with
-/// `scripts/ci/type_signature_baseline.txt` (`# threshold_bp: 5988`).
-/// The general share 5988 bp, the precise share 4224 bp — the 0.29 gate
-/// goals stay exceeded (3500/3000, ADR-0181 §3/§3.1).
-const TYPED_FLOOR: usize = 305;
+/// `scripts/ci/type_signature_baseline.txt` (`# threshold_bp: 6124`).
+/// The general share 6124 bp, the precise share 4302 bp — the gate
+/// records stay exceeded (3500/3000, ADR-0181 §3/§3.1).
+const TYPED_FLOOR: usize = 312;
 
 #[test]
 fn typed_signature_share_never_falls_below_the_floor() {
@@ -91,7 +91,11 @@ fn every_typed_signature_is_the_honest_parse_of_its_path() {
 // (with field_meta, the anti-dilution rule) + pdf_extract_images
 // List<String> (the handler-read table in gh#1120) — 52/87 = 5977 bp
 // compiled, the floor 31 → 52 — the 0.30 gate goal ≥ 5000 bp reached.
-const PARAM_FLOOR: usize = 52;
+// №650 fourth honest package: the sensitive-surface imap rows —
+// imap_list/imap_search List<ImapMessage> + imap_read Struct<ImapEmail>
+// (with field_meta) — 55/90 compiled = 6111 bp;
+// the floor 52 → 55.
+const PARAM_FLOOR: usize = 55;
 /// The compiled denominator: 91 SOURCE List/Struct rows − the 4 gated
 /// vec/store rows (the same by-design source/compiled gap the TYPED_FLOOR
 /// comment documents — the gated rows are BARE List/Struct, so the
@@ -159,9 +163,13 @@ fn parameterized_signature_share_never_falls_below_the_floor() {
 // in gh#1121), the floor 23 → 37 (38/40 = 9500 bp source; the cfg(vec)
 // vec_store row rides only the source metric — 37/39 compiled).
 //
+// №650 (wave 38): imap_read Struct<ImapEmail> ships WITH the 9-entry
+// field_meta (the №627 classification: every field the IMAP server
+// payload or the caller uid echo → untrusted) — 38/40 compiled.
+//
 // BuiltinSpec.field_meta is the registry SIDE-TABLE (the enum is NOT
 // extended — stage-2 minimality); parse_field_meta is the consumer API.
-const FIELDMETA_FLOOR: usize = 37;
+const FIELDMETA_FLOOR: usize = 38;
 
 #[test]
 fn field_label_share_never_falls_below_the_floor() {

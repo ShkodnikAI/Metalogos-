@@ -584,16 +584,16 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // ── Email: SMTP + IMAP (Наряд MLG-4) ──
     spec!("smtp_send", 3, 6, "email"; builtin_smtp_send), // to, subject, body [,attachments_json, from, reply_to]
     spec!("smtp_send_html", 3, 4, "email"; builtin_smtp_send_html), // to, subject, html [,attachments_json]
-    spec!("imap_list", 2, 3, "email"; builtin_imap_list),           // folder, limit [,since_date]
-    spec!("imap_read", 1, "email"; builtin_imap_read),              // uid
-    spec!("imap_search", 2, "email"; builtin_imap_search),          // query, folder
-    spec!("imap_mark_read", 1, "email"; builtin_imap_mark_read),    // uid
-    spec!("imap_move", 2, "email"; builtin_imap_move),              // uid, dest_folder
+    spec!("imap_list", 2, 3, "email"; builtin_imap_list, "List<ImapMessage>"), // folder, limit [,since_date] — №650: the element read off imap_list_impl (make_struct "ImapMessage"); every field arrives from the IMAP server (Network ingress) or echoes the caller uid → untrusted. The element's field-labels stay OFF the spelling at stage 0 (the Tool/DayForecast precedent: the {field:label} section is a Struct form — stage 2), recorded here honestly: uid/from/subject/date/seen/size — all untrusted
+    spec!("imap_read", 1, "email"; builtin_imap_read, "Struct<ImapEmail>{uid:untrusted,from:untrusted,to:untrusted,subject:untrusted,date:untrusted,body_text:untrusted,body_html:untrusted,attachments:untrusted,seen:untrusted}"), // uid — №650: the shape read off imap_read_impl (make_struct "ImapEmail"); all 9 fields are the server payload (headers/body/flags) or the caller uid echo → untrusted
+    spec!("imap_search", 2, "email"; builtin_imap_search, "List<ImapMessage>"), // query, folder — №650: the element read off imap_search_impl (make_struct "ImapMessage", the 4-field arm); all fields from the IMAP server → untrusted (the SAME type_name carries a DIFFERENT field set on the imap_list row — the №638 two-shapes precedent; the element labels — stage 2, the Tool/DayForecast precedent)
+    spec!("imap_mark_read", 1, "email"; builtin_imap_mark_read),                // uid
+    spec!("imap_move", 2, "email"; builtin_imap_move),                          // uid, dest_folder
     // ── Наряд MLG-5: Calendar (CalDAV + iCal) ──
     spec!("cal_connect", 3, "calendar"; builtin_cal_connect, "String"), // url, user, pass
     spec!("cal_list", 1, "calendar"; builtin_cal_list, "String"),       // session_id
-    spec!("cal_events", 3, "calendar"; builtin_cal_events),             // calendar_id, start, end
-    spec!("cal_read", 1, "calendar"; builtin_cal_read),                 // event_uid
+    spec!("cal_events", 3, "calendar"; builtin_cal_events, "String"), // calendar_id, start, end — №650: the live return is Value::String (the JSON array of event structs, calendar.rs) — a scalar stage-0 type
+    spec!("cal_read", 1, "calendar"; builtin_cal_read, "String"), // event_uid — №650: Value::String (the JSON struct, calendar.rs)
     spec!("cal_create", 4, 7, "calendar"; builtin_cal_create), // cal_id, summary, start, end [,desc, location, attendees_json]
     spec!("cal_update", 2, "calendar"; builtin_cal_update, "String"), // event_uid, fields_json
     spec!("cal_delete", 1, "calendar"; builtin_cal_delete, "String"), // event_uid
@@ -603,12 +603,12 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // ── Наряд MLG-6: Contacts (CardDAV + vCard) ──
     spec!("card_connect", 3, "contacts"; builtin_card_connect, "String"), // url, user, pass
     spec!("card_list", 1, "contacts"; builtin_card_list, "String"),       // session_id
-    spec!("card_contacts", 2, "contacts"; builtin_card_contacts),         // addressbook_id, query
-    spec!("card_read", 1, "contacts"; builtin_card_read, "String"),       // contact_uid
+    spec!("card_contacts", 2, "contacts"; builtin_card_contacts, "String"), // addressbook_id, query — №650: Value::String (the JSON array, contacts.rs)
+    spec!("card_read", 1, "contacts"; builtin_card_read, "String"),         // contact_uid
     spec!("card_create", 3, 7, "contacts"; builtin_card_create, "String"), // addressbook_id, fn, email [,tel, org, title, note]
     spec!("card_update", 2, "contacts"; builtin_card_update, "String"), // contact_uid, fields_json
     spec!("card_delete", 1, "contacts"; builtin_card_delete, "String"), // contact_uid
-    spec!("card_search", 2, "contacts"; builtin_card_search),           // session_id, query
+    spec!("card_search", 2, "contacts"; builtin_card_search, "String"), // session_id, query — №650: Value::String (the JSON array, contacts.rs)
     spec!("vcard_parse", 1, "contacts"; builtin_vcard_parse, "String"), // text
     spec!("vcard_generate", 1, "contacts"; builtin_vcard_generate, "String"), // contact_json
     // ── Наряд №74: Native SVG Graphics & Diagrams (ADR-0102) ──

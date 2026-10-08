@@ -36,4 +36,19 @@
 #   private first labels wait for the К-Б owner verdict). The 0.31 goal
 #   is a DRAFT line in gate_030_goals.txt — the fixation is the OWNER's
 #   §5 path (№525/ADR-0186 §5).
-# threshold_bp: 3333
+# threshold_bp was 3840 — №650 (gh#1144, wave 38): covered 53 | sensitive 138
+#   (the FIRST audit-order package per §6.3: 7 of the 11 rows closed
+#   against the verified handler facts — imap_list
+#   List<ImapMessage>{...6 untrusted}, imap_read
+#   Struct<ImapEmail>{...9 untrusted}, imap_search
+#   List<ImapMessage>{...4 untrusted} (the two-shapes precedent), and
+#   cal_events/cal_read/card_contacts/card_search → "String" (the live
+#   returns ARE the JSON-strings); the 4 HONEST refusals recorded in the
+#   naryad: query — the opaque Value::Query (№538 posture),
+#   query_scalar — the heterogeneous scalar {Float|String|Unit},
+#   query_row — the heterogeneous List (no single element type),
+#   request_body — the dynamic JsonBody fields (the №627 honest
+#   posture); 53*10000//138 = 3840 bp; the draft 0.31 goal (57/138 =
+#   4130) is NOT reachable honestly on this package — the Гудхарт rule
+#   beats the draft arithmetic)
+# threshold_bp: 3840

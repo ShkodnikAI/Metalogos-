@@ -57,4 +57,11 @@
 #   a future-naryad candidate. 38/40 = 9500 bp. The compiled twin locks
 #   37/39 — FIELDMETA_FLOOR 23 → 37 in the same PR; the cfg(vec)
 #   vec_store row rides only the source metric.)
-# threshold_bp: 9500
+# threshold_bp was 9512 — №650 (gh#1144, wave 38): field-label 39 | Struct rows: 41
+#   (the third honest package: imap_read Struct<ImapEmail> — 9 verified
+#   field-label entries, ALL untrusted (the IMAP server payload + the
+#   caller uid echo); the two ImapMessage rows are List-element shapes —
+#   the labels ride the registry spelling, the fourth metric counts the
+#   Struct rows only; 39/41 = 9512 bp. The compiled twin locks —
+#   FIELDMETA_FLOOR 37 → 38 in the same PR.)
+# threshold_bp: 9512

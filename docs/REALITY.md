@@ -1687,3 +1687,156 @@ sync + the gh#1089 closure), №648 (2026-12-01).
 
 **The wave report line (№608/№470):** the dispatch surface gh#1136:
 `naryad-quota (№470/№608): 16 naryads — domain 0/16 = 0.0% — PASS (the standing limiter <= 1/3)`
+
+### 6.23. Wave 38 post-wave record (naryad №656): the parity-and-spec wave — the condition parity repaired (S-VAL-013), the sensitive surface moved (3333 → 3840 bp), the spec topic 2 landed (the probe's three honest divergences), the dictionary calibrated (class 4), the train and the showcase charters proposed (main @ `7036e8e5`, 2026-10-08)
+
+Protocol: the same machines, no hand-written numbers. The honest
+headline: В38 executed the ПСРМ development after the 0.30.0
+publication (the dispatch gh#1151) — the №645-a finding (the
+cross-backend condition divergence) is REPAIRED fail-closed (№651: the
+VM condition path mirrors the TW `as_bool` 1:1 through the new
+append-compat `JumpIfNotCond`; the norm S-VAL-013; the ### Security
+entry — the №562 gate counts from the merge), the sensitive surface
+made its first honest movement in the §6.3 audit order (№650: 7 of the
+11 package rows closed against the verified handler facts; 4 rows stay
+uncovered with the recorded reasons — the Гудхарт rule beats the draft
+arithmetic), the spec topic 2 landed with its OWN probe yield (№652:
+10 norms S-BLK-001..010 AND three new cross-backend divergences —
+№652-a/b/c — recorded in the Honest limits, never silently fit), the
+№643 measured gap closed (№653: the class-4 «silently-wrong»
+vocabulary — the literal №629 fixture is caught now), and two charters
+went Proposed for the owner (№654: the Monday release train; №655: the
+examples showcase — three apps, the parity-as-display rule). The
+publication of 0.30.0 happened at 06:55Z 2026-10-08 (the owner's act —
+the §6.5 chain closed; the release-gap gate reads OK on the fresh
+[Unreleased]).
+
+- №651 (gh#1145, PR #1152 → `3ac294a3`) — the TW/VM condition parity
+  (the №645-a repair, the №629 образец): the probe mapped EVERY
+  condition-path use-site on both backends (the TW 8 `as_bool()` sites;
+  the VM `is_truthy` in both `JumpIfNot` loops; the &&/|| already
+  parity-twin — the №532 pair, untouched); the repair: the new
+  `Instruction::JumpIfNotCond` (appended at the END of the enum — the
+  bincode positional-index compatibility, the №264/№415 precedent) for
+  the LANGUAGE condition paths (if / else-if / while / match guards —
+  12 compiler sites + the patches), BOTH VM loops call the SAME
+  `Value::as_bool` — the drift is structurally impossible; the TW
+  `as_bool` refusal stamped `[TYPE_MISMATCH]` (the semantics
+  unchanged — the codeification, not the behavior change). The
+  escape-hatch check: no live dependency on the VM soft truthiness in
+  conditions (the key suites green locally; the full suite — CI) →
+  п.3 not applied, the behavior changed. The norm **S-VAL-013** (the
+  condition truthy set = {true Bool, Float ≠ 0.0, non-empty String};
+  Unit falsy; composites/opaques/Fluid refuse) + 3 conformance pairs
+  (sval_013 composite/opaque/unit-falsy) + the №503 extension (the
+  condition class on every pure value class). The ### Security entry:
+  X-1/Y-1/Q-1, AFFECTS 0.30.0 AND EARLIER (VM backend), the fix
+  2026-10-08 — the №562 gate counts (the №643 dictionary: PASS by the
+  section).
+- №650 (gh#1144, PR #1153 → `a854c2b0`) — the Q-2 movement №1 (the
+  §6.3 audit order: БД → почта → контакты/календарь → request_body):
+  7 of the 11 rows closed against the verified handler facts —
+  imap_list/imap_search → `List<ImapMessage>`, imap_read →
+  `Struct<ImapEmail>` with NINE well-formed field-labels (all
+  untrusted: the IMAP server payload + the caller uid echo; the №627
+  classification), cal_events/cal_read/card_contacts/card_search →
+  `String` (the live returns ARE the JSON strings). The 4 HONEST
+  refusals recorded with the reasons: query (the opaque `Value::Query`,
+  the №538 posture), query_scalar (the heterogeneous scalar
+  {Float|String|Unit}), query_row (the heterogeneous List — no single
+  element type), request_body (the dynamic JsonBody fields — the №627
+  dynamic-form posture). The probe opening: the field-meta section on
+  the List ELEMENT is a stage-2 form (the Tool/DayForecast precedent —
+  `from_path` refuses it at stage 0); the element labels recorded in
+  the registry comments. **46/138 = 3333 bp → 53/138 = 3840 bp** (the
+  floor raised in the SAME PR, №757); the 0.31 DRAFT (57/138 = 4130)
+  is honestly NOT reachable on this package — the draft line NOT
+  touched (№525). The floors that rose with the rows: general
+  5988 → 6124, parameterized 6043 → 6170 (58/94 — the LS denominator
+  91 → 94), fieldmeta 9500 → 9512 (39/41), precise 4224 → 4302
+  (222/516); the in-tree locks TYPED_FLOOR 305 → 312, PARAM_FLOOR
+  52 → 55, FIELDMETA_FLOOR 37 → 38; the fact twins synced across BOTH
+  gate records (0.29 + 0.30 — the sync gate caught the 0.29 lag).
+- №652 (gh#1146, PR #1154 → `a521432d`) — the spec topic 2 «Blocks and
+  control flow» (strictly after №651): **10 norms S-BLK-001..010** —
+  the block value, the empty block → Unit, if/else as an expression,
+  the no-else arm → Unit, the while first test, the while count, the
+  №622 return-capture, the match value (no match and no else → Unit),
+  the sequential order, the lazy else-if (the List-condition detector:
+  an unreached else-if never refuses) — each with the TW+VM anchors
+  and the pair; docs/spec/README.md: the topic 2 row live, the
+  normative core **13 + 10 = 23 norms**. THE PROBE YIELD: three
+  cross-backend divergences found BEFORE writing, recorded in the
+  topic's Honest limits as the candidate repair naryads — **№652-a**
+  (the VM ignores `break`/`continue` inside a while body), **№652-b**
+  (the trailing `let` in a value-channel arm: the VM keeps the last
+  non-Unit value, the TW overwrites with Unit — the №370 vs the
+  eval_statements contract), **№652-c** (the VM arm-let LEAKS into the
+  enclosing scope — the TW clones the env, the №14 P0-3 precedent; the
+  probe: `outer|inner` vs `inner|inner`). The №535 cell stays 32.
+- №653 (gh#1147, PR #1155 → `55b95a6c`) — the №604 dictionary
+  calibration (the №643 obligation): the **class 4** — a
+  silent/quiet event in the ≤120-char neighborhood of a wrong-result
+  word (false/wrong/incorrect/misleading/guard/branch/bypass/accept) —
+  three patterns, the gh#1002 false-positive budget governing. The
+  self-test flipped: the LITERAL №629 fixture outside `### Security`
+  is CAUGHT now (exit 1) — the measured boundary closed; the window
+  bound pinned (the silent/wrong pair further than 120 chars — no
+  match). The retrospective: limitations.md 79 rows (3 class-4
+  matches — all carrying their release-block evidence) + CHANGELOG
+  1238 entries (27 matches: 6 under ### Security, 21 in the released
+  sections, **0 in [Unreleased]**) → **IN SYNC, zero false positives
+  on the clean rows**.
+- №654 (gh#1148, PR #1156 → `9fb190bc`) — **ADR-0189 the release
+  train** (Proposed — the cadence is the OWNER's §-answer): the Monday
+  window (the first candidate 2026-10-12), the nine named window steps
+  (the checklist section «The train»), the honest-content rule — a
+  train without content does not depart (the empty-window skip without
+  blame), the version-number semantics (Security/Fixed → the patch;
+  Added/Changed → the minor), the release-block hold, the unscheduled
+  security cut as the permitted exception (the 0.28.1 shape, the
+  reason recorded).
+- №655 (gh#1149, PR #1157 → `7036e8e5`) — **ADR-0190 the examples
+  showcase charter** (Proposed — the placement and the app list are
+  the OWNER's §-answers; the creation is the OWNER's act): three apps
+  (the stateful serve application; the mlogpkg bot behind the
+  deterministic stub; the small LLM agent on the mock circuit), each
+  with the bounded subset, the e2e oracle and the CI contour; the
+  showcase honesty rule: an app runs on BOTH backends on its subset —
+  the parity as the display requirement (the №629/№651/№652
+  motivation); the placement §-question: in-tree first (the executor's
+  recommendation) vs the separate public repository.
+
+**The Wave 38 counters (every value from its machine, the command
+reproduces it; main @ 7036e8e5):**
+
+| Counter | Value | Machine | Movement |
+|---|---|---|---|
+| Typed-signature share (№467) | **316/516 = 6124 bp** | `python3 scripts/ci/type_signature_share.py --gate scripts/ci/type_signature_baseline.txt` | **moved** (309 → 316, №650) |
+| Precise typed share (№560) | **222/516 = 4302 bp** | `… --precise --gate …` | **moved** (218 → 222, №650 — the four String rows) |
+| Parameterized share (№623) | **58/94 = 6170 bp** (the LS denominator 91 → 94) | `… --parameterized --gate …` | **moved** (55/91 → 58/94, №650) |
+| Field-label share (№627) | **39/41 = 9512 bp** | `… --fieldmeta --gate …` | **moved** (38/40 → 39/41, №650 — ImapEmail) |
+| **Sensitive-surface coverage (№644)** | **53/138 = 3840 bp** (the floor 3840 only-up) | `python3 scripts/ci/sensitive_surface_share.py --gate scripts/ci/sensitive_surface_baseline.txt` | **moved** (46/138 → 53/138 — the №650 package) |
+| The spec normative core (№645/№652) | **23 norms** (S-VAL ×13 + S-BLK ×10) with 45+10 conformance pairs | the pair count in `tests/conformance/`; the Topics table | **moved** (12 → 23 norms; the topic 2 live) |
+| The №604 dictionary | **classes 1–4** (the class 4 added, №653) | `python3 scripts/ci/honest_boundary_check.py --self-test` (ALL PASS) | **moved** (the №643 boundary closed) |
+| `#[ignore]` debt (№468) | **11** (TODO: 0) | `python3 scripts/ci/debt_counters.py --gate scripts/ci/debt_baseline.txt` | unchanged |
+| `dead_code` (№468) | **15** | same gate | unchanged |
+| TW/VM duplicated builtin names (№462) | **0** (the quorum 0/8 groups) | `python3 scripts/ci/count_duplicated_names.py --quorum` | unchanged |
+| Registered mirrors (№502/№564) | **6** | `python3 scripts/ci/mirror_counter.py --gate scripts/ci/src_mirror_baseline.txt` | unchanged |
+| ADR count | **182** (the generated README row; 0189 + 0190 Proposed landed in В38) | `python3 scripts/gen_metrics.py --check` | **moved** (180 → 182) |
+| Blocking-checks cells | **32** | `python3 scripts/ci/blocking_checks_sync.py --count` | unchanged (the №535 rule — no growth without the explicit naryad) |
+| The №562 release-gap gate | **OK** (the fresh [Unreleased] after the 0.30.0 cut) | `python3 scripts/ci/release_gap_gate.py` | unchanged (OK) |
+| The 0.30 gate posture | **owner_fixed: true; the DEFAULT target 0.30; the typed parameter MET (6170 ≥ 5000); the branch-protection verdict fact GREEN** | `python3 scripts/ci/unfreeze_gate.py --office-tests pass --gate-target 0.30 --strict` (exit 0) | unchanged GREEN (the goal_parameterized_share_bp 5000 stays the owner's record) |
+| The release state | **0.30.0 PUBLISHED** 2026-10-08 06:55Z (the owner's act — the §6.5 chain closed) | the release API + the tag | **moved** (STAGED → PUBLISHED at the wave start) |
+
+**The owner gates remaining after В38:** the ADR-0189 §-answer (the
+cadence acceptance), the ADR-0190 §-answers (the placement + the app
+list; then the showcase wave), the К-Б stage-2 verdict (the private
+first labels wait for it — the №650 boundary), the №652-a/b/c repair
+naryads (the semantics — the owner's gate), the Camerton forwarding,
+the NLnet publications before 20.10, the milestone M1 closure after
+20.10, the В36 tail (№639 the ledger revision 2026-10-15, №641 the В36
+docs + the gh#1089 closure), №648 (2026-12-01).
+
+**The wave report line (№608/№470):** the dispatch surface gh#1151:
+`naryad-quota (№470/№608): 21 naryads — domain 0/21 = 0.0% — PASS (the standing limiter <= 1/3)`

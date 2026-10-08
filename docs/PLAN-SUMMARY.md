@@ -73,7 +73,49 @@ they reside in the canon held by the coordinator (§16.0-7).
 - C2PA mini-slice: manifest read/write, Art 50 labeling — a narrow slice (#320).
 - Completion-audits of Wave 0 — accepted (gh#404–#406).
 
-## Current wave — Wave 37 (the unified-audit execution, the dispatch gh#1136, 2026-10-08)
+## Current wave — Wave 38 (the parity-and-spec development, the dispatch gh#1151, 2026-10-08)
+
+The dispatch gh#1151 queue — the ПСРМ development after the 0.30.0
+publication. Executed: №651 (gh#1145, PR #1152 → 3ac294a) — the TW/VM
+condition parity: the №645-a divergence repaired fail-closed (the new
+append-compat JumpIfNotCond; both VM loops call the SAME Value::as_bool;
+the TW refusal stamped [TYPE_MISMATCH]; the escape-hatch not applied —
+no live dependencies found), the norm S-VAL-013 + 3 pairs + the №503
+condition class + the ### Security entry (AFFECTS 0.30.0 AND EARLIER,
+VM — the №562 gate counts); №650 (gh#1144, PR #1153 → a854c2b) — the
+Q-2 movement №1 in the §6.3 audit order: 7 of 11 rows closed against
+the verified handler facts, 4 honest refusals recorded, **the
+sensitive surface 46/138 = 3333 bp → 53/138 = 3840 bp** (the floors
+rose with the rows: general 6124, parameterized 6170 (58/94),
+fieldmeta 9512 (39/41), precise 4302; the locks 312/55/38; the fact
+twins synced across both gate records; the 0.31 DRAFT not touched,
+№525); №652 (gh#1146, PR #1154 → a521432) — the spec topic 2: 10 norms
+S-BLK-001..010 (the normative core 13 + 10 = 23), the probe found
+THREE honest divergences (№652-a the VM ignores break/continue in
+while; №652-b the trailing-let value; №652-c the VM arm-let leak) —
+recorded in the Honest limits as the candidate repair naryads; №653
+(gh#1147, PR #1155 → 55b95a6) — the №604 dictionary calibration: the
+class 4 (silently-wrong) — the literal №629 fixture CAUGHT now, the
+retro IN SYNC (limitations 79 rows, CHANGELOG 1238 entries, 0
+[Unreleased] matches), zero false positives; №654 (gh#1148, PR #1156 →
+9fb190b) — ADR-0189 the release train (Proposed): the Monday cadence
+(the first candidate 2026-10-12), the nine window steps in the
+checklist, the honest-content rule (no empty trains), the
+version-number semantics, the release-block hold; №655 (gh#1149, PR
+#1157 → 7036e8e) — ADR-0190 the examples showcase charter (Proposed):
+three apps with e2e, the parity-as-display rule, the placement
+§-question to the owner. №656 (gh#1150) — this sync, strictly last.
+The counters: sensitive 3840 bp, typed 6124, precise 4302,
+parameterized 6170, fieldmeta 9512, the normative core 23 norms, the
+dictionary classes 1–4, ignore 11 / dead_code 15, ADR 182, dups 0,
+blocking cells 32, release-gap OK, the 0.30 gate --strict exit 0,
+v0.30.0 PUBLISHED. The owner gates remaining: the ADR-0189 §-answer
+(the cadence), the ADR-0190 §-answers (the placement + the app list),
+the К-Б stage-2 verdict, the №652-a/b/c repair naryads (the semantics
+gate), the Камертон forwarding, the NLnet before 20.10, the В36 tail
+(№639 15.10, №641), №648 (01.12).
+
+## Executed — Wave 37 (the unified-audit execution, the dispatch gh#1136, 2026-10-08)
 
 The dispatch gh#1136 queue — the unified audit of 48301708 (the sources
 А + К, §6.6) landed as workorders. Executed: №642 (gh#1129, PR #1137 →

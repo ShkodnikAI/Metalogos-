@@ -137,3 +137,24 @@ fact_precise_share_bp: 4224
 # goal_parameterized_share_bp 5000 is READ, not touched: the owner's
 # parameter stands). The counter is machine-read, never hand-zeroed.
 fact_parameterized_share_bp: 6043
+# ── The SENSITIVE-SURFACE coverage RECORD (№644, gh#1131 — the Q-2 fixed-denominator metric) ─────────
+# The Z-2 record shape: a RECORD, NOT a gate parameter — it is never
+# re-read as an absolute goal. The definition is pinned to the №316
+# classification: sources = Role::Source ∧ default_label ≠ Public (138
+# at the record's anchor); covered = typed ∧ (scalar ∨ parameterized) ∧
+# (¬Struct ∨ all fields labeled). The denominator is never diluted — the
+# definition change is a separate naryad. Machine:
+#   python3 scripts/ci/sensitive_surface_share.py --gate
+#     scripts/ci/sensitive_surface_baseline.txt
+# The floor (sensitive_surface_baseline.txt) is only-up (№757/№613);
+# the blocking CI status is NOT introduced in №644 (the №535 rule — the
+# CI wiring is the advisory report step beside type_signature_share).
+record_sensitive_surface_bp: 3333
+# The 0.31 DRAFT benchmark — NOT FIXED (№525: a parameter without the
+# owner's verdict does not exist; the fixation goes through the owner's
+# §5 path, ADR-0186 §5, WITH its checker in the fixation PR). The draft
+# shape: the first audit-order packages (§6.3: db/query*, mail/imap*,
+# contacts/calendar, request_body) covered — 57/138 = 4130 bp at the
+# record's anchor; the owner may fix any value, including one that
+# demands MORE movement (the honest-direction bias).
+draft_sensitive_surface_goal: 4130 bp (the first audit-order packages covered) — DRAFT, the owner fixes

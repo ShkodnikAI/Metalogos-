@@ -2187,33 +2187,62 @@ impl Compiler {
                 mutable: is_mut,
                 ..
             } => {
-                // №659 (the №652-b/c repair): the VALUE-channel let. The TW
-                // №14 P0-3 env-clone contract: the binding is ALWAYS fresh
-                // (the outer slot is never written), and a binding statement
-                // produces NO value (the №612 mirror) — the value register
-                // is RESET to Unit, so a trailing let answers Unit on BOTH
-                // backends (the pre-№659 register kept the pre-let value —
-                // the №652-b divergence).
-                if *is_mut {
-                    mutable.insert(name.clone());
-                }
-                let slot = *next_slot;
-                *next_slot += 1;
-                locals.insert(name.clone(), slot);
-                self.compile_expr_with_locals(value, code, locals, next_slot, loop_stack, mutable)?;
-                code.push(Instruction::StoreLocal(slot));
-                // №328: seed the runtime label env for source-backed lets.
-                if let crate::ast::Expr::FnCall { name: src, .. } = value {
-                    if is_source_call(src) {
-                        code.push(Instruction::LabelJoin(Box::new(LabelJoinData {
-                            dst: name.clone(),
-                            src: format!("@{src}"),
-                        })));
+                // №369: the match-EXPRESSION value routes to the native
+                // let-match compiler — the SAME guard the statement channel
+                // has (a match expression outside let-binding position is
+                // unsupported, №369; a `let x = match ...` INSIDE a value
+                // arm body reaches this arm, not the statement one).
+                if let crate::ast::Expr::MatchExpr {
+                    scrutinee,
+                    arms,
+                    else_body,
+                    ..
+                } = value
+                {
+                    // №659: the arm-fresh binding — pre-allocate the slot so
+                    // compile_let_match binds THIS slot (never the outer's,
+                    // the same fresh rule as the generic path below).
+                    let slot = *next_slot;
+                    *next_slot += 1;
+                    locals.insert(name.clone(), slot);
+                    self.compile_let_match(
+                        name, *is_mut, scrutinee, arms, else_body, code, locals, next_slot,
+                        loop_stack, mutable,
+                    )?;
+                    // The №612 reset: a binding statement produces NO value.
+                    code.push(Instruction::PushUnit);
+                    code.push(Instruction::SetValueReg);
+                } else {
+                    // №659 (the №652-b/c repair): the VALUE-channel let. The TW
+                    // №14 P0-3 env-clone contract: the binding is ALWAYS fresh
+                    // (the outer slot is never written), and a binding statement
+                    // produces NO value (the №612 mirror) — the value register
+                    // is RESET to Unit, so a trailing let answers Unit on BOTH
+                    // backends (the pre-№659 register kept the pre-let value —
+                    // the №652-b divergence).
+                    if *is_mut {
+                        mutable.insert(name.clone());
                     }
+                    let slot = *next_slot;
+                    *next_slot += 1;
+                    locals.insert(name.clone(), slot);
+                    self.compile_expr_with_locals(
+                        value, code, locals, next_slot, loop_stack, mutable,
+                    )?;
+                    code.push(Instruction::StoreLocal(slot));
+                    // №328: seed the runtime label env for source-backed lets.
+                    if let crate::ast::Expr::FnCall { name: src, .. } = value {
+                        if is_source_call(src) {
+                            code.push(Instruction::LabelJoin(Box::new(LabelJoinData {
+                                dst: name.clone(),
+                                src: format!("@{src}"),
+                            })));
+                        }
+                    }
+                    // The №612 reset: a binding statement produces NO value.
+                    code.push(Instruction::PushUnit);
+                    code.push(Instruction::SetValueReg);
                 }
-                // The №612 reset: a binding statement produces NO value.
-                code.push(Instruction::PushUnit);
-                code.push(Instruction::SetValueReg);
             }
             other @ Statement::Assign { .. }
             | other @ Statement::Each { .. }

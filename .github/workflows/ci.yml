@@ -680,6 +680,19 @@ jobs:
           python3 scripts/ci/type_signature_share.py
           python3 scripts/ci/type_signature_share.py --precise
           python3 scripts/ci/type_signature_share.py --list | head -50
+      # №644 (issue #1131; the audit Q-2): the sensitive-surface coverage
+      # — the fixed-denominator metric over the №316 classification
+      # (Role::Source ∧ label ≠ Public). ADVISORY on purpose: the
+      # blocking status is NOT introduced here (№535 — the blocking
+      # surface grows only explicitly); the only-up floor lives in
+      # sensitive_surface_baseline.txt (the --gate mode), the 0.31 goal
+      # is a DRAFT line in gate_030_goals.txt until the owner fixes it
+      # (№525, ADR-0186 §5).
+      - name: Artifact — the sensitive-surface coverage report (№644; advisory, the №535 rule)
+        run: |
+          python3 scripts/ci/sensitive_surface_share.py
+          python3 scripts/ci/sensitive_surface_share.py --gate scripts/ci/sensitive_surface_baseline.txt
+          python3 scripts/ci/sensitive_surface_share.py --list | head -50
 
   # №562 (issue #923; the audit 02.10 §6.1): the tag↔main gap gate — a
   # pending Security entry in [Unreleased] older than the floor FAILS the

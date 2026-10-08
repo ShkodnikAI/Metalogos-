@@ -4,6 +4,28 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Security
+
+- **№629 (gh#1096) — the VM comparison parity (the behavior change,
+  fail-closed; AFFECTS 0.29.0 AND EARLIER on the VM backend — all six
+  comparison operators, including `!=`; the audit guard scenario
+  `if owner != current_user { … }` with `owner = Unit` PASSED on the
+  VM — the X-1/Y-1/Q-1 silently-wrong-guard class):** the VM's
+  `==`/`!=`/`>`/`<`/`>=`/`<=` now mirror the TW matrix 1:1 — the
+  heterogeneous equality (`"abc" == 5.0`, `"5" == 5.0`), the ordering
+  on non-Float pairs (`"b" > "a"`, `true > false`) and the
+  incomparable types (Struct/List/Html) REFUSE with the stable
+  `[TYPE_MISMATCH]` code on BOTH backends; the legacy VM answered a
+  silent `false` (and `true` for numeric strings) — the
+  silently-wrong class; `Unit == Unit` is `true` on both now. Found by
+  the №621 fuzzer sweep the day it stopped being vacuous; the №479
+  `+` precedent. The fix landed on main 2026-10-07 (22d62fa — after
+  the v0.29.0 tag, 4be0f72: the published tag is affected; no re-tag
+  — the №620 precedent); the affected-release audit 2026-10-08 (the
+  unified audit of 48301708, the dispatch gh#1136, Q-1).
+
+### Changed
+
 - **№630 (gh#1098) — the 0.30 release-gate §5 mechanical transition
   (process, the owner-fixed merge):** `owner_fixed: true` in
   `gate_030_goals.txt` (ADR-0186), ADR-0186 Proposed → Accepted, the
@@ -42,16 +64,6 @@ All notable changes to the Metalogos project.
   the candle-gated exclusion mirror, the browser-gated p88); the ignore
   floor 13 → 11.
 
-- **№629 (gh#1096) — the VM comparison parity (the behavior change,
-  fail-closed):** the VM's `==`/`!=`/`>`/`<`/`>=`/`<=` now mirror the
-  TW matrix 1:1 — the heterogeneous equality (`"abc" == 5.0`,
-  `"5" == 5.0`), the ordering on non-Float pairs (`"b" > "a"`,
-  `true > false`) and the incomparable types (Struct/List/Html) REFUSE
-  with the stable `[TYPE_MISMATCH]` code on BOTH backends; the legacy VM
-  answered a silent `false` (and `true` for numeric strings) — the
-  silently-wrong class; `Unit == Unit` is `true` on both now. Found by
-  the №621 fuzzer sweep the day it stopped being vacuous; the №479 `+`
-  precedent.
 - **№622 (gh#1085) — `return` inside a `match`/`if` EXPRESSION arm is
   captured as the arm's value on BOTH backends:** the TW documented
   contract (the expression channel carries values, not control signals)

@@ -143,14 +143,40 @@ increment section (`each`/`each_with_index`) — src/compiler.rs.
 **Conformance:** `tests/conformance/sblk_012_continue_while_if.mlog`,
 `sblk_012_continue_each_if.mlog`.
 
+### S-BLK-013 — A trailing `let` in a value arm is Unit
+
+A let-binding statement produces NO value (the №612 contract) — in a
+value-channel arm body (a match-expression arm, an if/else expression
+branch) a trailing `let` resets the arm's value to Unit; the pre-let
+expression does not survive it. TW and VM behave identically.
+**Anchors:** TW the `Statement::LetBinding` arm — `last_expr_value =
+Unit` (src/interpreter/execution.rs); VM the value-channel let compiles
+the `PushUnit` + `SetValueReg` register reset (src/compiler.rs — the
+№370 register machinery).
+**Conformance:** `tests/conformance/sblk_013_trailing_let_arm.mlog`.
+
+### S-BLK-014 — A `let` in a value arm does not leak
+
+A let inside a value-channel arm body binds in the arm's env clone (the
+№14 P0-3 rule — "lets do not leak"): a shadow let never overwrites the
+outer slot, the shadow does not survive the arm, and the outer name
+reads unchanged after the arm — at ANY depth inside the arm (nested
+blocks, loop bodies). TW and VM behave identically.
+**Anchors:** TW the `env.clone()` for the value bodies (the
+`Expr::BlockIfElse`/`Expr::MatchExpr` arms — src/interpreter/execution.rs);
+VM the №659 fresh-slot allocation under the arm flag + the
+locals/mutable restore at the arm boundary (src/compiler.rs).
+**Conformance:** `tests/conformance/sblk_014_let_no_leak.mlog`,
+`sblk_014_shadow_nested.mlog`.
+
 ## Honest limits (the probe findings this topic records WITHOUT norms)
 
 The №645 probe for this topic made THREE cross-backend findings (the
 №645 → №651 lineage is the precedent). The norms above exist only where
-the probes agreed; the findings live below — №652-a is REPAIRED (№658:
-the norms S-BLK-011/012 record the agreed semantics), №652-b/№652-c
-await their repair naryads, and the №658 probe added two edges of its
-own.
+the probes agreed; all three findings are REPAIRED now — №652-a by №658
+(the norms S-BLK-011/012), №652-b/№652-c by №659 (the norms
+S-BLK-013/014) — and the №658/№659 probes recorded four deeper edges of
+their own (below).
 
 - **№652-a — `break`/`continue` inside a while body are ignored on the
   VM. REPAIRED by №658 (gh#1159):** the loop-stack fixups now resolve on
@@ -174,20 +200,35 @@ own.
   - **№658-b — a bare break/continue OUTSIDE any loop.** The TW refuses
     at runtime with the same message; the VM compiles the statement to
     NOTHING and continues. Same repair line as №658-a.
-- **№652-b — a trailing `let` in a value-channel arm diverges.** The
-  arm `{ "first" ; let s = "y" }` evaluates to `"first"` on the VM (the
-  №370 `KeepLastValue` contract: a trailing Unit-valued statement does
-  not reset the register) and to `Unit` on the TW (the let-statement
-  overwrites the last-value slot). The repair is a semantics-change
-  naryad: ONE of the two behaviors must be chosen and both backends
-  aligned — until then no norm records the trailing-let case (the
-  S-BLK-001 norm covers only the last-EXPRESSION case).
-- **№652-c — a `let` inside a VM arm leaks into the enclosing scope.**
-  The TW clones the env for the branch bodies (the №14 P0-3 precedent —
-  «lets do not leak»); the VM compiles the arm against the SAME local
-  slots, so `let v = "inner"` overwrites the outer `v` observable after
-  the arm (a probe records `outer|inner` on the TW and `inner|inner` on
-  the VM). The repair is a semantics-change naryad (the slot
-  allocation, or the env clone on the VM side); until then, a let
-  inside an arm whose name shadows an outer binding is an UNDEFINED
-  cross-backend surface — do not rely on it.
+- **№652-b — a trailing `let` in a value-channel arm diverges.
+  REPAIRED by №659 (gh#1160):** the arm `{ "first" ; let s = "y" }`
+  answers `Unit` on BOTH backends now — the value-channel let resets the
+  №370 register (the `PushUnit` + `SetValueReg` emission, the №612
+  mirror: a binding statement produces no value). The TW reading was
+  chosen (the S-BLK-001-consistent «a block ending in a statement yields
+  no value»); the alternative «prev-value» reading (the pre-№659 VM
+  behavior) is reachable ONLY by an owner verdict — the OD note in the
+  №659 naryad. The norm S-BLK-013 + the conformance pair pin the
+  record.
+- **№652-c — a `let` inside a VM arm leaks into the enclosing scope.
+  REPAIRED by №659 (gh#1160):** the VM arm bodies now mirror the TW env
+  clone (the №14 P0-3 rule) at COMPILE time — every let inside a
+  value-channel arm body (at any depth: nested blocks, loop bodies)
+  allocates a FRESH slot under the arm flag, and the locals/mutable maps
+  are restored at the arm boundary — a shadow never overwrites the outer
+  slot and does not survive the arm. The slot allocation was chosen over
+  the runtime env clone (the cheaper shape — no VM-side env copying; the
+  choice is recorded in the №659 report). The norm S-BLK-014 + two
+  conformance pairs pin the record. The №659 probe recorded TWO deeper
+  edges:
+  - **№659-x — an `assign` inside a value arm.** The TW REFUSES at
+    runtime (the arm's fresh mutability set does not carry the outer
+    `let mut`) while the VM writes the outer slot (a probe records
+    `assigned|assigned`). Out of the №659 repair letter (lets only) — a
+    separate repair line.
+  - **№659-y — reading an arm-local name OUTSIDE the arm.** Both
+    backends refuse (the binding does not survive the arm), but with
+    different codes: the TW `[UNDEFINED_VARIABLE]` at runtime, the VM a
+    `[TYPE_MISMATCH]` downstream of the unresolved name — and the
+    semantic checker does not model the value-arm boundary at all (the
+    gh#967 §7 semantic-checker gap lane). A separate repair line.

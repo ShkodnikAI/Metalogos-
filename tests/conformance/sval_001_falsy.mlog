@@ -1,0 +1,16 @@
+// S-VAL-001 (№645): the falsy set in an if-condition — false, 0.0, the
+// empty String and Unit take the ELSE branch on BOTH backends. Unit is
+// sourced from the try-result's error field (Unit on success).
+pattern p(x: String) -> String {
+  let r = try 1.0
+  let u = r.error
+  let mut acc = ""
+  if "" { acc = acc + "estr;" }
+  if 0.0 { acc = acc + "zero;" }
+  if false { acc = acc + "boolf;" }
+  if u { acc = acc + "unit;" }
+  return "all-falsy:" + acc
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

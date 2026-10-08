@@ -1,0 +1,9 @@
+// S-VAL-009 (№645): String != Float refuses — the loud [TYPE_MISMATCH] refusal on
+// BOTH backends (no silent answer, no silent conversion).
+pattern p(x: String) -> String {
+  let a = "abc" != 5.0
+  return to_string(a)
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

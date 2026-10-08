@@ -1,0 +1,19 @@
+// S-VAL-003 (№645): same-type equality answers Bool on BOTH backends —
+// String/String, Float/Float, Bool/Bool; no silent cross-type answers.
+pattern p(x: String) -> String {
+  let mut acc = ""
+  let a = "a" == "a"
+  acc = acc + to_string(a)
+  let b = 2.0 == 2.0
+  acc = acc + ";" + to_string(b)
+  let c = 2.0 == 3.0
+  acc = acc + ";" + to_string(c)
+  let d = true == true
+  acc = acc + ";" + to_string(d)
+  let e = "a" == "b"
+  acc = acc + ";" + to_string(e)
+  return acc
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

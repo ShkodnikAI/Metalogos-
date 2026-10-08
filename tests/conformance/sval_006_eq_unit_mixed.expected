@@ -1,0 +1,3 @@
+# S-VAL-006 (№645) — Unit-mixed Eq/Ne: false;true;false.
+STATUS: ok
+OUT: false;true;false

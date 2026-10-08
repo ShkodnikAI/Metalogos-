@@ -1,0 +1,3 @@
+# S-VAL-005 (№645) — Unit == Unit true; Unit != Unit false.
+STATUS: ok
+OUT: true;false

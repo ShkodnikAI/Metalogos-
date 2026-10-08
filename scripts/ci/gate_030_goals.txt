@@ -114,7 +114,7 @@ fact_quorum_den: 8
 # shape). Machine-verified by scripts/ci/blocking_checks_sync.py --count.
 # The 0.30 draft adds NO new cells — a cell grows only explicitly, with
 # the check that backs it (the №535 discipline).
-fact_blocking_check_cells: 31
+fact_blocking_check_cells: 32
 # The live PRECISE typed-share fact (the ratchet-record's machine twin).
 # Machine: python3 scripts/ci/type_signature_share.py --gate
 # scripts/ci/type_signature_precise_baseline.txt --precise — verified by

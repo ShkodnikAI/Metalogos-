@@ -1,0 +1,18 @@
+// S-VAL-006 (№645): Unit-mixed equality answers Bool — Unit == non-Unit
+// is false, Unit != non-Unit is true, on BOTH backends (the Unit arms
+// are EXPLICIT Eq/Ne answers, never the heterogeneous refusal).
+pattern p(x: String) -> String {
+  let r = try 1.0
+  let u = r.error
+  let mut acc = ""
+  let a = u == 5.0
+  acc = acc + to_string(a)
+  let b = u != 5.0
+  acc = acc + ";" + to_string(b)
+  let c = u == "a"
+  acc = acc + ";" + to_string(c)
+  return acc
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

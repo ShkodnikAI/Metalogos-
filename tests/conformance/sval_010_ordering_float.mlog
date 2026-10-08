@@ -1,0 +1,19 @@
+// S-VAL-010 (№645): ordering is FLOAT-ONLY — Gt/Lt/Ge/Le answer Bool for
+// Float/Float pairs on BOTH backends.
+pattern p(x: String) -> String {
+  let mut acc = ""
+  let a = 2.0 > 1.0
+  acc = acc + to_string(a)
+  let b = 1.0 < 2.0
+  acc = acc + ";" + to_string(b)
+  let c = 1.0 >= 1.0
+  acc = acc + ";" + to_string(c)
+  let d = 1.0 <= 2.0
+  acc = acc + ";" + to_string(d)
+  let e = 1.0 > 2.0
+  acc = acc + ";" + to_string(e)
+  return acc
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

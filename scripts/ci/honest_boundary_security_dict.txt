@@ -29,3 +29,15 @@
 #    the pattern needs BOTH a backend word AND a domain word in one row ──
 \b(TW|VM|tree.?walk\w*|bytecode|interpreter|backend\w*)\b.{0,200}\b(sql|sqlite|file\s?system|filesystem|\bexec\b|\bsecret\w*|\blabel\w*)\b.{0,200}\b(different|divergen\w+|differs?|only\s+on|not\s+on\s+the\s+other|unlike|mismatch|gap|leak\w*|insecure\w*|untrusted)\b
 \b(sql|sqlite|file\s?system|filesystem|\bexec\b|\bsecret\w*|\blabel\w*).{0,200}\b(TW|VM|tree.?walk\w*|bytecode|interpreter)\b.{0,200}\b(different|divergen\w+|differs?|only\s+on|not\s+on\s+the\s+other|unlike|mismatch|gap|leak\w*|insecure\w*|untrusted)\b
+
+# ── Class 4: SILENTLY-WRONG behavior (№653, gh#1147 — the №643 measured
+#    gap CLOSED: the literal №629 entry text ("answered a silent `false`
+#    (and `true` for numeric strings) — the silently-wrong class") matched
+#    nothing in classes 1-3; the class words live here now, one evidence-
+#    backed line at a time, the gh#1002 false-positive budget governs). ──
+#    A SILENT/QUIET event in the neighborhood (≤120 chars) of a
+#    WRONG-RESULT word: the guard/gate/branch answers quietly wrong —
+#    the X-1/Y-1/Q-1 vocabulary.
+\b(silent\w*|quietly)\b.{0,120}\b(false|wrong|incorrect|misleading|guard|branch|bypass\w*|accept\w*)\b
+\b(false|wrong|incorrect|misleading|bypass\w*)\b.{0,120}\b(silent\w*|quietly)\b
+\bwithout\s+(a|any)\s+(error|signal|refusal|warning)\b.{0,120}\b(false|wrong|incorrect|misleading|guard|branch|bypass\w*|accept\w*)\b

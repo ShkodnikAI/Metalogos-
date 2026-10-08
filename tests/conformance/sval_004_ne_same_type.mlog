@@ -1,0 +1,14 @@
+// S-VAL-004 (№645): same-type inequality answers Bool on BOTH backends.
+pattern p(x: String) -> String {
+  let mut acc = ""
+  let a = "a" != "b"
+  acc = acc + to_string(a)
+  let b = 2.0 != 3.0
+  acc = acc + ";" + to_string(b)
+  let c = true != false
+  acc = acc + ";" + to_string(c)
+  return acc
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

@@ -1,0 +1,3 @@
+# S-VAL-011 (№645) — String ordering refuses: the stable refusal code on both backends.
+STATUS: error
+CODE: TYPE_MISMATCH

@@ -1,0 +1,3 @@
+# S-VAL-001 (№645) — the falsy scalar set: false / 0.0 / "" / Unit.
+STATUS: ok
+OUT: all-falsy:

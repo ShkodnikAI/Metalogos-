@@ -1,0 +1,3 @@
+# S-VAL-002 (№645) — the truthy scalar set: "a" / 1.0 / true.
+STATUS: ok
+OUT: str;float;bool;

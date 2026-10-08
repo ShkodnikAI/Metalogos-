@@ -1,0 +1,13 @@
+// S-VAL-002 (№645): the truthy set in an if-condition — a non-empty
+// String, a non-zero Float and true take the THEN branch on BOTH
+// backends (the empty String and 0.0 would not).
+pattern p(x: String) -> String {
+  let mut acc = ""
+  if "a" { acc = acc + "str;" }
+  if 1.0 { acc = acc + "float;" }
+  if true { acc = acc + "bool;" }
+  return acc
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

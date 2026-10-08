@@ -1,0 +1,9 @@
+// S-VAL-011 (№645): String ordering refuses — the loud [TYPE_MISMATCH] refusal on
+// BOTH backends (no silent answer, no silent conversion).
+pattern p(x: String) -> String {
+  let a = "b" > "a"
+  return to_string(a)
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

@@ -1,0 +1,16 @@
+// S-VAL-005 (№645): Unit equality — Unit == Unit is true, Unit != Unit
+// is false, on BOTH backends. Unit is sourced from the try-result's
+// error field (Unit on success).
+pattern p(x: String) -> String {
+  let r = try 1.0
+  let u = r.error
+  let mut acc = ""
+  let a = u == u
+  acc = acc + to_string(a)
+  let b = u != u
+  acc = acc + ";" + to_string(b)
+  return acc
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

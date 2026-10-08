@@ -1,0 +1,9 @@
+// S-VAL-012 (№645): Struct == Struct refuses — the loud [TYPE_MISMATCH] refusal on
+// BOTH backends (no silent answer, no silent conversion).
+pattern p(x: String) -> String {
+  let a = { x: 1.0 } == { x: 1.0 }
+  return to_string(a)
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

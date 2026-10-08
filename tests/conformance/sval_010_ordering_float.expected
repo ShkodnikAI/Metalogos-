@@ -1,0 +1,3 @@
+# S-VAL-010 (№645) — Float ordering: true;true;true;true;false.
+STATUS: ok
+OUT: true;true;true;true;false

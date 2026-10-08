@@ -1,0 +1,3 @@
+# S-VAL-007 (№645) — the numeric-string is NOT silently converted: the stable refusal code on both backends.
+STATUS: error
+CODE: TYPE_MISMATCH

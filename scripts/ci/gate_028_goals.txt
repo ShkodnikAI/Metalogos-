@@ -75,4 +75,4 @@ fact_quorum_den: 8
 # checklist item 3; a behavior change without a table + test update is
 # the blocking blocking-checks-sync CI job's failure.
 # Machine-verified by scripts/ci/blocking_checks_sync.py --count.
-fact_blocking_check_cells: 31
+fact_blocking_check_cells: 32

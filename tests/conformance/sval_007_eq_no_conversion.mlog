@@ -1,0 +1,9 @@
+// S-VAL-007 (№645): the numeric-string is NOT silently converted — the loud [TYPE_MISMATCH] refusal on
+// BOTH backends (no silent answer, no silent conversion).
+pattern p(x: String) -> String {
+  let a = "5" == 5.0
+  return to_string(a)
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

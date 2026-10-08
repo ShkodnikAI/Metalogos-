@@ -697,6 +697,19 @@ jobs:
           python3 scripts/ci/release_gap_gate.py
           python3 scripts/ci/release_gap_gate.py --self-test
 
+  # №645 (issue #1132; the audit §6.2 R1): the conformance suite — the
+  # spec/ pairs run on BOTH backends; the cross-backend agreement is the
+  # oracle. BLOCKING explicitly (the №535 cell +1: the
+  # fact_blocking_check_cells 31 → 32 in gate_030_goals.txt, the same PR).
+  conformance:
+    name: conformance (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run the conformance pairs (S-VAL topic 1, both backends)
+        run: cargo test --test conformance --no-fail-fast
+
   release-bin-guard:
     name: release-bin-guard (blocking)
     runs-on: ubuntu-latest

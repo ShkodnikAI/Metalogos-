@@ -1,0 +1,3 @@
+# S-VAL-004 (№645) — same-type Ne: true;true;true.
+STATUS: ok
+OUT: true;true;true

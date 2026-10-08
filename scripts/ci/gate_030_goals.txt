@@ -60,13 +60,20 @@ goal_parameterized_share_bp: 5000
 #
 # The branch-protection criterion (the В34 addendum, Z-3): the LAST
 # branch-protection-audit run is GREEN. The context: v0.28.2 and v0.29.0
-# published while the branch protection was RED (the switches unapplied —
-# gh#1000, the owner's gate). gh#1000 was OPEN at the §5 fixation
-# (2026-10-07) — NO fact_* key exists (fail-closed №525: the checker —
-# the audit job's conclusion read — lands with the gh#1000 closure via a
-# micro-PR). The criterion stays a DRAFT line and is NOT in the fixed
-# set yet:
-# draft_branch_protection_audit: GREEN (the checker lands after gh#1000)
+# were published while the branch protection was RED (the switches
+# unapplied — gh#1000, the owner's gate). gh#1000 was OPEN at the §5
+# fixation (2026-10-07) — the criterion stayed a DRAFT line, NOT in the
+# fixed set (fail-closed №525: a fact without a checker is forbidden).
+# THE CLOSURE (2026-10-08, the owner's act): the switches applied (25
+# required checks = the maintainers.md checklist verbatim — the names
+# taken by the auditor's own checklist parser; strict; enforce_admins;
+# the PR requirement with approvals 0 — the solo-maintainer lane), the
+# first GREEN run 37736590049 on fc856fb, gh#1000 closed manually — and
+# the fact key below landed WITH its checker in the closure PR, exactly
+# as this §5 note recorded (№646 requested the switches BEFORE the
+# 0.30.0 publication). The value is a STATE requirement, not a number;
+# the machine twin lives in the live-facts section below and a
+# non-green last run makes the gate read RED until a green run.
 #
 # Zero open High findings in the server path — the unchanged ratchet
 # (the release-block label discipline; no regression is possible).
@@ -137,6 +144,21 @@ fact_precise_share_bp: 4224
 # goal_parameterized_share_bp 5000 is READ, not touched: the owner's
 # parameter stands). The counter is machine-read, never hand-zeroed.
 fact_parameterized_share_bp: 6043
+# The branch-protection audit VERDICT fact (the В34 addendum Z-3 — the
+# LAST branch-protection-audit run is GREEN; ADR-0186 §5). The key
+# landed WITH its checker in the gh#1000-closure PR (№525 fail-closed:
+# no fact without a machine source). Machine source: the conclusion of
+# the LAST COMPLETED run of the branch-protection-audit (weekly)
+# workflow — success → GREEN, any other completed conclusion
+# (failure/cancelled/timed out) → RED, an API failure or no completed
+# runs → exit 2 INFRA (an unreadable state is never a pass). Checker:
+# scripts/ci/sync_gate_facts.py (the blocking gate-facts-sync, GH_TOKEN).
+# History: the switches unapplied → the DRAFT line at the §5 fixation
+# (gh#1000 open); the owner applied the protection 2026-10-08 (the
+# checklist verbatim — 25 checks, strict, enforce_admins, approvals 0);
+# the first GREEN run 37736590049 on fc856fb; gh#1000 closed manually
+# 2026-10-08. Machine-read, never hand-zeroed.
+fact_branch_protection_audit: GREEN
 # ── The SENSITIVE-SURFACE coverage RECORD (№644, gh#1131 — the Q-2 fixed-denominator metric) ─────────
 # The Z-2 record shape: a RECORD, NOT a gate parameter — it is never
 # re-read as an absolute goal. The definition is pinned to the №316

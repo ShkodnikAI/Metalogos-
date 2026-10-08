@@ -1,8 +1,17 @@
 # ADR-0189: The release train — the Monday cadence, the window, and the honest-content rule
 
-**Status:** Proposed — the cadence is ACCEPTED by the owner only on the §-answer (the executor drafts; the owner fixes)
+**Status:** Accepted — the owner's verdict, 2026-10-08 (the verbatim
+authorization core: «Каденс поезда принимаю (Proposed → Accepted): окно
+— понедельник»; the FULL verdict text lives at the source — gh#1148,
+comment 2026-10-08T08:03:41Z, and the canonical «гейты-0810» record п.4
+— the docs-language lint №383 keeps the .md form English-only, the
+ADR-0181 §1 authorization-record shape). The window rule, the
+no-empty-train rule, the security-cut exception and the first-window
+candidate (12.10: a `### Security` entry in [Unreleased] → 0.30.1) are
+accepted AS WRITTEN below.
+
 **Date:** 2026-10-08
-**Naryad:** №654 (issue #1148, Волна 38)
+**Naryad:** №654 (issue #1148, Волна 38); the acceptance landed by №663 (issue #1164, Волна 39)
 **Depends on:** ADR-0179 (the release criteria v2, release-block §4), ADR-0186 (the 0.30 gate — §4.5/§6.5: the publication is the OWNER's act), docs/release-checklist.md (№509 — the named steps between the evidence and the decision), №614/№583/№646 (the lockstep release shape), №562/№643 (the release-gap gate and the CHANGELOG dictionary)
 **Blocks:** the first train window (the first candidate: Monday 2026-10-12)
 

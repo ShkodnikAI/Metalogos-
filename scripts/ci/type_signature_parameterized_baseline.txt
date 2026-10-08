@@ -59,4 +59,11 @@
 #   element type (№616 honest Unknown). The gate 0.30 goal ≥ 5000 bp
 #   (owner_fixed, №630) reached: 55/91 = 6043 bp. The compiled twin
 #   locks 52/87 — PARAM_FLOOR 31 → 52 in the same PR.)
-# threshold_bp: 6043
+# threshold_bp was 6170 — №650 (gh#1144, wave 38): parameterized 58 | LS rows: 94
+#   (the fourth honest package: imap_list/imap_search List<ImapMessage>
+#   and imap_read Struct<ImapEmail> — all three WITH well-formed
+#   field_meta in the same spelling (the anti-dilution rule); the LS
+#   denominator 91 → 94 (three new typed List/Struct rows);
+#   58/94 = 6170 bp. The compiled twin locks — PARAM_FLOOR 52 → 55 in
+#   the same PR (the same cfg(vec) gap note).)
+# threshold_bp: 6170

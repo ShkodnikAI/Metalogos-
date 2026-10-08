@@ -210,9 +210,21 @@
 
 # (superseded) typed: 302 | total: 516 | threshold_bp was 5852 — №616 (the 61 PRECISE rows)
 
-# typed: 309
+# (superseded) typed: 309 | total: 516 | threshold_bp was 5988 — №623
+#   (gh#1086): the 7 parameterized rows (List<Tool>, Struct<FormData>,
+#   Struct<JsonBody>, Struct<GeoLocation>, Struct<Weather>,
+#   List<DayForecast>, Struct<LlmUsage> — the handler-read verification
+#   table in the naryad); (309*10000)//516 = 5988 bp.
+#
+# 2026-10-08 №650 (gh#1144, wave 38): the sensitive-surface package —
+#   7 rows typed against the verified handler facts (imap_list/
+#   imap_search List<ImapMessage>, imap_read Struct<ImapEmail>,
+#   cal_events/cal_read/card_contacts/card_search String). 309/516 →
+#   316/516; (316*10000)//516 = 6124 bp. The floor rises in the SAME PR
+#   per the №757 procedure; the in-tree TYPED_FLOOR 305 → 312 rides the
+#   same PR (the compiled default-feature count: the two imap rows ride
+#   the source metric only — the same by-design cfg-gap the lock
+#   comment documents).
+# typed: 316
 # total: 516
-# threshold_bp: 5988 — №623 (gh#1086): the 7 parameterized rows (List<Tool>,
-# Struct<FormData>, Struct<JsonBody>, Struct<GeoLocation>, Struct<Weather>,
-# List<DayForecast>, Struct<LlmUsage> — the handler-read verification table
-# in the naryad); (309*10000)//516 = 5988 bp.
+# threshold_bp: 6124

@@ -127,9 +127,11 @@ fact_blocking_check_cells: 32
 # scripts/ci/type_signature_precise_baseline.txt --precise — verified by
 # sync_gate_facts.py. The fact follows the movement naryads: 2131 (the
 # №605 wiring) → 3042 (№613) → 4224 (№616, gh#1077 — the last scalar
-# package; the further scalar movement stopped, Z-2). The counter is
-# machine-read, never hand-zeroed.
-fact_precise_share_bp: 4224
+# package; the further scalar movement stopped, Z-2) → 4302 (№650,
+# gh#1144: cal_events/cal_read/card_contacts/card_search — the verified
+# single-shape String returns). The counter is machine-read, never
+# hand-zeroed.
+fact_precise_share_bp: 4302
 # The live PARAMETERIZED-share fact (the third metric — the machine twin
 # of goal_parameterized_share_bp above; introduced WITH its checker in
 # the §5 fixation PR, №630 — never before, №525). Machine:
@@ -142,8 +144,11 @@ fact_precise_share_bp: 4224
 # verified rows) → 6043 (55/91 — №637, gh#1120, the third honest
 # package: the PDF contour, 21 verified rows — the goal
 # goal_parameterized_share_bp 5000 is READ, not touched: the owner's
-# parameter stands). The counter is machine-read, never hand-zeroed.
-fact_parameterized_share_bp: 6043
+# parameter stands) → 6170 (58/94 — №650, gh#1144: the sensitive-
+# surface imap rows, all with the field-meta in the same spelling; the
+# LS denominator 91 → 94). The counter is machine-read, never
+# hand-zeroed.
+fact_parameterized_share_bp: 6170
 # The branch-protection audit VERDICT fact (the В34 addendum Z-3 — the
 # LAST branch-protection-audit run is GREEN; ADR-0186 §5). The key
 # landed WITH its checker in the gh#1000-closure PR (№525 fail-closed:
@@ -171,7 +176,7 @@ fact_branch_protection_audit: GREEN
 # The floor (sensitive_surface_baseline.txt) is only-up (№757/№613);
 # the blocking CI status is NOT introduced in №644 (the №535 rule — the
 # CI wiring is the advisory report step beside type_signature_share).
-record_sensitive_surface_bp: 3333
+record_sensitive_surface_bp: 3840
 # The 0.31 DRAFT benchmark — NOT FIXED (№525: a parameter without the
 # owner's verdict does not exist; the fixation goes through the owner's
 # §5 path, ADR-0186 §5, WITH its checker in the fixation PR). The draft

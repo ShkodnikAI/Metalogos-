@@ -93,6 +93,14 @@
 # 237 → 298 (the in-tree TYPED_FLOOR rides the same PR).
 # (superseded) precise: 157 | total: 516 | threshold_bp was 3042
 
-# precise: 218
+# (superseded) precise: 218 | total: 516 | threshold_bp was 4224
+#
+# 2026-10-08 №650 (gh#1144, wave 38): cal_events/cal_read/card_contacts/
+# card_search ship PRECISE ("String" — the verified single-shape handler
+# facts: the only Ok arms are Value::String, calendar.rs/contacts.rs).
+# 218/516 → 222/516; (222*10000)//516 = 4302 bp. The floor rises in the
+# same PR per the №757 procedure; the PRECISE_TYPES definition is
+# untouched.
+# precise: 222
 # total: 516
-# threshold_bp: 4224
+# threshold_bp: 4302

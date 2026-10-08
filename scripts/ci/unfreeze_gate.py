@@ -329,6 +329,26 @@ def criterion_goals_028(baseline_dir, goals_path=GOALS_028, precise=False,
         else:
             details.append('the serve-e2e inventory: all state-accumulating declarations done')
 
+    # (5) the branch-protection verdict (the В34 addendum Z-3, ADR-0186
+    # §5): the LAST branch-protection-audit run is GREEN. The fact key
+    # landed WITH its checker (№525) in the gh#1000-closure PR
+    # (2026-10-08) — the machine source (the audit job's conclusion) is
+    # synced blocking by gate-facts-sync; this read is fail-closed on
+    # the goals-file line: anything but GREEN (RED, or the key
+    # missing/unparsable) is a RED. The 0.30 record only (the
+    # parameterized shape — the 0.28/0.29 records predate the criterion
+    # and carry no such key).
+    if parameterized:
+        bp_fact = goal_fact('fact_branch_protection_audit')
+        if bp_fact == 'GREEN':
+            details.append('branch-protection audit: GREEN (the last run)')
+        elif bp_fact == 'RED':
+            details.append('branch-protection audit: the last run is not GREEN (fail-closed)')
+            rc = 1
+        else:
+            details.append('the branch-protection fact is missing/unparsable (fail-closed)')
+            rc = 1
+
     out = '\n'.join(details)
     return rc, '; '.join(details), out, '\n'.join('- ' + n for n in notes)
 
@@ -374,7 +394,12 @@ def criterion_goals_030(baseline_dir):
     №623 third metric against goal_parameterized_share_bp). The
     branch-protection criterion is NOT a machine goal yet (gh#1000 was
     open at the fixation — no checker, no fact key, №525; the summary
-    notes it)."""
+    notes it). THE CLOSURE (2026-10-08): the switches applied by the
+    owner, the first GREEN audit run 37736590049 on fc856fb, gh#1000
+    closed manually — and the fact key landed WITH its checker in the
+    gh#1000-closure PR (№525): the v2 read below now verifies the
+    branch-protection verdict fail-closed (block (5) — anything but
+    GREEN is a RED), so the 0.30 gate reads the FULL В34 form."""
     marker = None
     if os.path.isfile(GOALS_030):
         for line in open(GOALS_030, encoding='utf-8'):
@@ -507,9 +532,12 @@ def main():
         lines.append('The 0.30 release gate: **WIRED** (the DEFAULT gate target — №630, '
                      'ADR-0186 §5, the owner\'s verdict 2026-10-07; the strict '
                      'release-time read, --strict, exits 1 on RED). The '
-                     'branch-protection criterion stays a DRAFT line — gh#1000 was '
-                     'open at the fixation, the fact key lands via a micro-PR '
-                     'after its closure (№525: no checker, no fact).')
+                     'branch-protection criterion is MACHINE-READ — the fact key '
+                     'landed WITH its checker in the gh#1000-closure PR (2026-10-08, '
+                     '№525: the checker is the audit conclusion read, synced '
+                     'blocking by gate-facts-sync); the switches themselves were '
+                     'applied by the owner before the 0.30.0 publication, as №646 '
+                     'requested.')
     if gate_target == '0.28':
         pass  # the v2 verdict above is the release read for 0.28
     elif gate_target == '0.29':

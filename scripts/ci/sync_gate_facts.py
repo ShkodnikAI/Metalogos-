@@ -6,8 +6,9 @@ predates that parameter and carries no precise record) AND
 gate_030_goals.txt (№630: the §5 fixation record — it carries the
 parameterized-share fact, the machine twin of goal_parameterized_share_bp,
 beside the precise-share twin it inherited from the draft era; the
-branch-protection criterion has NO fact key until gh#1000 closes,
-№525).
+branch-protection VERDICT fact joined in the gh#1000-closure PR
+(2026-10-08) — the checker landed WITH the key, exactly as the §5 note
+recorded, №525).
 
 The class this closes (the audit 30.09, Д-2): the fact lines in the
 goals file are hand-edited and nothing verified them against their
@@ -37,6 +38,16 @@ The facts and their machine sources:
                        twin of goal_parameterized_share_bp, ADR-0186 §3:
                        the third metric, the Z-2 successor of the scalar
                        typed/precise parameters).
+  fact_branch_protection_audit
+                       the conclusion of the LAST COMPLETED run of the
+                       branch-protection-audit (weekly) workflow via
+                       the GitHub API (success → GREEN, any other
+                       completed conclusion → RED; an API failure or
+                       no completed runs → exit 2 — an unreadable
+                       state is never a pass). The gh#1000-closure PR
+                       (2026-10-08) — the 0.30 record only (the В34
+                       addendum Z-3, ADR-0186 §5); a VERDICT fact
+                       (GREEN|RED), not a counter.
 
 Fail-closed rules:
   - a fact line whose value disagrees with its source → exit 1;
@@ -81,8 +92,13 @@ RECORDS = (
     (os.path.join(HERE, 'gate_030_goals.txt'),
      ('fact_open_high_server', 'fact_quorum_num', 'fact_quorum_den',
       'fact_blocking_check_cells', 'fact_precise_share_bp',
-      'fact_parameterized_share_bp')),
+      'fact_parameterized_share_bp', 'fact_branch_protection_audit')),
 )
+
+# The VERDICT-type facts (a state, not a counter): the value domain is
+# GREEN|RED, the tamper flips the verdict, and verify() validates the
+# domain instead of the integer form.
+VERDICT_FACTS = frozenset({'fact_branch_protection_audit'})
 
 
 def read_facts(goals_path: str) -> dict:
@@ -172,6 +188,37 @@ def parameterized_share_observed() -> dict:
     return {'fact_parameterized_share_bp': str(bp)}
 
 
+def branch_protection_audit_observed(token: str) -> dict:
+    """The gh#1000-closure PR (2026-10-08; the В34 addendum Z-3,
+    ADR-0186 §5): the VERDICT of the LAST COMPLETED run of the
+    branch-protection-audit (weekly) workflow. success → GREEN, any
+    other completed conclusion (failure/cancelled/timed out) → RED; an
+    API failure or no completed runs → exit 2 (loud INFRA — the №525
+    rule: an unreadable state is not a pass). Any ref counts: the audit
+    script pins DEFAULT_BRANCH='main' — every run of the workflow reads
+    MAIN's live protection regardless of the ref it was dispatched on,
+    so the last completed run is always a verdict about main."""
+    url = ('https://api.github.com/repos/%s/actions/workflows/'
+           'branch-protection-audit.yml/runs?per_page=1&status=completed'
+           % REPO)
+    req = urllib.request.Request(url, headers={
+        'Authorization': 'Bearer %s' % token,
+        'Accept': 'application/vnd.github+json',
+    })
+    try:
+        data = json.load(urllib.request.urlopen(req))
+    except Exception as e:
+        print('::error::the GitHub API query failed (%s) — fail-closed' % e)
+        sys.exit(2)
+    runs = data.get('workflow_runs') or []
+    if not runs:
+        print('::error::no completed branch-protection-audit runs — the '
+              'verdict is unreadable (fail-closed INFRA)')
+        sys.exit(2)
+    verdict = 'GREEN' if runs[0].get('conclusion') == 'success' else 'RED'
+    return {'fact_branch_protection_audit': verdict}
+
+
 def open_high_observed(token: str) -> str:
     count = 0
     page = 1
@@ -209,6 +256,11 @@ def verify(goals_path: str, observed: dict, expected) -> list:
     for key in expected:
         if key not in facts:
             errors.append('%s is MISSING from the goals file (fail-closed)' % key)
+            continue
+        if key in VERDICT_FACTS:
+            if facts[key] not in ('GREEN', 'RED'):
+                errors.append('%s: value "%s" is not a verdict (GREEN|RED)'
+                              % (key, facts[key]))
             continue
         if not re.match(r'^\d+$', facts[key]):
             errors.append('%s: value "%s" is not a non-negative integer' % (key, facts[key]))
@@ -266,6 +318,14 @@ def main() -> None:
             observed.update(precise_share_observed())
         if 'fact_parameterized_share_bp' in expected:
             observed.update(parameterized_share_observed())
+        if 'fact_branch_protection_audit' in expected:
+            if token:
+                observed.update(branch_protection_audit_observed(token))
+            else:
+                skips.append('GH_TOKEN absent — fact_branch_protection_audit '
+                             'not verified here (the audit-conclusion read '
+                             'needs the API; CI always runs this check with '
+                             'the token)')
         errors += verify(goals_path, observed, expected)
     report(errors, skips)
     sys.exit(1 if errors else 0)
@@ -290,9 +350,19 @@ def tamper_test() -> None:
             observed.update(precise_share_observed())
         if 'fact_parameterized_share_bp' in expected:
             observed.update(parameterized_share_observed())
+        if 'fact_branch_protection_audit' in expected:
+            if token:
+                observed.update(branch_protection_audit_observed(token))
+            else:
+                # the deterministic local fixture for the tamper test
+                observed['fact_branch_protection_audit'] = 'GREEN'
         cases = []
         for key in sorted(observed):
-            tampered = str(int(observed[key]) + 1)
+            if key in VERDICT_FACTS:
+                # the verdict tamper: flip the state, not the counter
+                tampered = 'RED' if observed[key] == 'GREEN' else 'GREEN'
+            else:
+                tampered = str(int(observed[key]) + 1)
             cases.append(('value tamper: %s %s → %s' % (key, observed[key], tampered),
                           key, tampered))
         cases.append(('unknown fact without a machine source', 'fact_bogus_key', '5'))

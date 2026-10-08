@@ -1,0 +1,3 @@
+# S-VAL-013 (№651) — a Secret in a condition refuses: the stable code on both backends.
+STATUS: error
+CODE: TYPE_MISMATCH

@@ -1,0 +1,11 @@
+// S-VAL-013 (№651): a composite (List) in a condition refuses — the loud
+// [TYPE_MISMATCH] refusal on BOTH backends (the TW as_bool contract; no
+// silent branch, no soft truthiness — the №629 loud-refusal class).
+pattern p(x: String) -> String {
+  let words = [x, "b"]
+  let branch = if words { "then" } else { "else" }
+  return branch
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

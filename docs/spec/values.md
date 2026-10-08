@@ -136,14 +136,43 @@ values behave the same via the same fall-through).
 (src/vm.rs:4044).
 **Conformance:** `tests/conformance/sval_012_eq_composites.mlog`.
 
+### S-VAL-013 — The condition truthy set (composites refuse)
+
+The truthy set of a CONDITION — the if / else-if / while / match-guard
+paths — is exactly {true Bool, Float ≠ 0.0, non-empty String}; `Unit`
+is falsy; every composite / opaque / Fluid value in a condition
+position refuses with `[TYPE_MISMATCH]` (`cannot convert X to Bool`)
+on both backends — no silent branch, no soft truthiness (the №651
+repair, fail-closed; the №629 loud-refusal class). The SOFT truthiness
+of `&&`/`||` is a DIFFERENT surface — the №532 twin set (`is_truthy`
+on both backends, a non-empty List is truthy THERE) — and stays
+deliberately unchanged: the logical operators compile to the legacy
+`JumpIfNot`, the language conditions compile to `JumpIfNotCond`.
+**Anchors:** the condition truthy set lives in `Value::as_bool`
+(src/interpreter/values.rs) — the TW condition sites call it directly,
+and the VM condition path (`Instruction::JumpIfNotCond`, src/vm.rs)
+calls the SAME method, so the backends cannot drift; the `&&`/`||`
+soft set lives in the `is_truthy` twins
+(src/interpreter/execution.rs; src/vm.rs).
+**Conformance:**
+`tests/conformance/sval_013_condition_composite.mlog`,
+`tests/conformance/sval_013_condition_opaque.mlog`,
+`tests/conformance/sval_013_condition_unit_falsy.mlog`.
+**Note:** a `Fluid` global read inside a pattern body never reaches the
+condition path — the №523 semantic gate refuses the program first
+(`UNDEFINED_VARIABLE`, identically on both backends through the full
+pipeline).
+
 ## Honest limits (the audit-era findings this topic records WITHOUT norms)
 
-- **Composites in a boolean position are a live cross-backend
-  divergence** — the TW `as_bool` refuses (`cannot convert List to
-  Bool`), the VM `is_truthy` answers (a non-empty List is truthy, a
-  Struct is falsy). No norm records this; the divergence needs its own
-  semantics naryad (the conformance runner would go red on ANY pair
-  trying to pin it — that is the design working).
+- **The condition divergence is REPAIRED, not a limit anymore** — the
+  former live cross-backend divergence (the TW `as_bool` refused, the
+  VM `is_truthy` answered and silently chose a branch) is closed by
+  №651 as the S-VAL-013 norm above; the record stays here for the
+  audit lineage: the finding was №645-a, the repair follows the №629
+  loud-refusal precedent, and the honest note that a Fluid read in a
+  pattern body is stopped by the №523 semantic gate before any
+  condition is evaluated.
 - **The `!=` refusal wording differs** — the VM's fall-through names the
   internal `Eq` instruction for a refused `!=` (the compiler lowers the
   operator), the TW names `Ne`. The stable code `[TYPE_MISMATCH]` is

@@ -418,13 +418,25 @@ impl Value {
     }
 
     /// Convert to bool for condition checking.
+    ///
+    /// S-VAL-013 (№651): the truthy set of a CONDITION is exactly
+    /// {true Bool, Float ≠ 0.0, non-empty String}; Unit is falsy; every
+    /// composite / opaque / Fluid value refuses LOUDLY with the stable
+    /// [TYPE_MISMATCH] code (the №629 loud-refusal class). The stamp was
+    /// added by №651 — the refusal itself is original TW behavior (the VM
+    /// condition path mirrors THIS method 1:1 through JumpIfNotCond, so
+    /// the backends cannot drift; the soft `is_truthy` twins stay the
+    /// №532 pair for &&/|| only).
     pub fn as_bool(&self) -> Result<bool, String> {
         match self {
             Value::Bool(b) => Ok(*b),
             Value::Float(f) => Ok(*f != 0.0),
             Value::String(s) => Ok(!s.is_empty()),
             Value::Unit => Ok(false),
-            _ => Err(format!("cannot convert {} to Bool", self.type_name())),
+            _ => Err(coded_error(
+                CODE_TYPE_MISMATCH,
+                format!("cannot convert {} to Bool", self.type_name()),
+            )),
         }
     }
 

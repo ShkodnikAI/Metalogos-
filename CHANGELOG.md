@@ -4,6 +4,28 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Security
+
+- **№651 (gh#1145) — the TW/VM condition parity (the behavior change,
+  fail-closed; AFFECTS 0.30.0 AND EARLIER on the VM backend; the audit
+  guard scenario: a composite or an opaque value in a condition — e.g.
+  `if [items] { … }` or `if hash_password(pw) { … }` — silently chose a
+  branch on the VM (a non-empty List took THEN, an opaque handle took
+  ELSE) while the tree-walking backend refused; the X-1/Y-1/Q-1
+  silently-wrong-guard class):** the VM condition path (the new
+  `Instruction::JumpIfNotCond`, emitted for if / else-if / while / the
+  match guards) mirrors the TW `Value::as_bool` 1:1 — the truthy set of
+  a condition is exactly {true Bool, Float ≠ 0.0, non-empty String},
+  Unit is falsy, and every composite / opaque / Fluid value refuses
+  with the stable `[TYPE_MISMATCH]` code on BOTH backends (the norm
+  S-VAL-013; the №629 loud-refusal class). The soft truthiness of
+  `&&`/`||` (the №532 twin, compiled to the legacy `JumpIfNot`) is
+  unchanged and stays pinned. Found by №645 (the spec-carcase
+  conformance build, the finding №645-a); the repair follows the №629
+  precedent. The fix lands 2026-10-08 (this PR; after the v0.30.0 tag
+  6eafee1 — the published tag is affected on the VM backend; no re-tag
+  — the №620 precedent).
+
 ## [0.30.0] - 2026-10-08
 
 ### Security

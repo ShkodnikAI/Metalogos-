@@ -863,7 +863,13 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // (без интерсепшена) — execution.rs не требуется. Registry 399→401;
     // новая категория "security" (37→38 модулей).
     spec!("canary_insert", 1, 2, "security"; builtin_canary_insert),
-    spec!("canary_check", 2, 3, "security"; builtin_canary_check),
+    // №661 (Волна 39, the К-Б stage-2 verdict gh#1144): the FIRST private
+    // field label — the canary surface IS the credential-trap surface; the
+    // signature mirrors the real handler form (the CanaryCheck struct:
+    // leaked Bool / id String / position Float — the canary.rs tail).
+    // `id` = the canary-credential reference — private (the gated egress
+    // class); leaked/position = the check outcome — internal.
+    spec!("canary_check", 2, 3, "security"; builtin_canary_check, "Struct<CanaryCheck>{leaked:internal,id:private,position:internal}"),
     // ── Наряд №286 (P2, M1): json_validate — валидатор ADR-0133 как
     // standalone builtin («shape-before-use»). ОДИН И ТОТ ЖЕ валидатор, что
     // у call_llm_schema — извлечён в src/schema/validate.rs, ни одного

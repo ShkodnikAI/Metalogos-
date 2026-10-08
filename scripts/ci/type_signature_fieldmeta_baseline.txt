@@ -64,4 +64,11 @@
 #   the labels ride the registry spelling, the fourth metric counts the
 #   Struct rows only; 39/41 = 9512 bp. The compiled twin locks —
 #   FIELDMETA_FLOOR 37 → 38 in the same PR.)
-# threshold_bp: 9512
+# threshold_bp: 9523
+
+# №661 (issue #1162, 2026-10-09; the К-Б stage-2 verdict gh#1144):
+# canary_check ships WITH the 3-entry field_meta — the FIRST PRIVATE
+# label (id:private — the canary-credential reference; leaked/position —
+# internal, the check outcome). 40/42 = 9523 bp. Only-up (№757), raised
+# in the same PR as the enforcement rule + the in-tree twin floor
+# (FIELDMETA_FLOOR 38 → 39).

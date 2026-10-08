@@ -113,6 +113,21 @@ def rows():
     return total, typed_types
 
 
+# №661 (issue #1162; the К-Б stage-2 verdict gh#1144): the ENFORCEMENT —
+# every parameterized Struct row of the registry MUST carry a well-formed
+# field-meta section. The carve-out is a NAMED list — the dynamic forms
+# whose fields are whatever the user sent (limitations.md: outside the
+# per-field tables BY CONSTRUCTION). Growing this list = an explicit,
+# reviewed edit in a PR — never a default, never a silent skip (the
+# anti-Goodhart posture).
+FIELD_META_ENFORCE_EXCEPTIONS = {
+    'json_body': 'JsonBody is dynamic — the fields are whatever the user sent '
+    '(limitations.md): outside the per-field tables BY CONSTRUCTION',
+    'form_data': 'FormData is dynamic — the fields are whatever the user sent '
+    '(limitations.md): outside the per-field tables BY CONSTRUCTION',
+}
+
+
 def compute():
     """(total, typed, typed_bp, precise, precise_bp, ls_total, param,
     param_bp, struct_total, fieldmeta, fieldmeta_bp) — integer-exact bp."""
@@ -189,6 +204,45 @@ def main():
         for name in sorted(total):
             if name not in typed_types:
                 print(name)
+        return
+    if '--enforce-fieldmeta' in args:
+        # №661: the BLOCKING coverage rule — embedded in the existing
+        # type-signatures (blocking) job (the №535 cell does not grow).
+        # A new parameterized Struct row without a well-formed field_meta
+        # (and without a named exception) fails the CI here.
+        violations = []
+        for name, t in typed_types.items():
+            if not t.startswith('Struct<') or not path_is_parameterized(t):
+                continue
+            meta = field_meta_of(t)
+            if meta and field_meta_well_formed(meta):
+                continue
+            if name in FIELD_META_ENFORCE_EXCEPTIONS:
+                continue
+            violations.append((name, t))
+        if violations:
+            print(
+                '::error::№661 field-meta enforcement — parameterized Struct '
+                'rows WITHOUT a well-formed field_meta (and not in the named '
+                'exceptions):'
+            )
+            for name, t in sorted(violations):
+                print(f'  {name}: {t}')
+            print(
+                '  The rule (№661, the К-Б verdict gh#1144): every '
+                'parameterized Struct row carries the honest per-field '
+                'labels (the №650 mirror rule — the signature mirrors the '
+                'real handler form). The dynamic forms are carved out ONLY '
+                'by a named entry in FIELD_META_ENFORCE_EXCEPTIONS '
+                '(type_signature_share.py) — the growth is an explicit PR '
+                'decision.'
+            )
+            sys.exit(1)
+        print(
+            f'field-meta enforcement: OK — every parameterized Struct row '
+            f'carries a well-formed field_meta ({n_fieldmeta}/{n_struct}); '
+            f'the named exceptions: {sorted(FIELD_META_ENFORCE_EXCEPTIONS)}'
+        )
         return
     # №560: --precise switches the METRIC (the report and the --gate value)
     # from the general typed share to the precise one. The baseline file

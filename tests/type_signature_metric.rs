@@ -27,8 +27,9 @@ use metalogos::builtins::{sig_types::Type, BUILTIN_REGISTRY};
 /// that types more rows — AND together with
 /// `scripts/ci/type_signature_baseline.txt` (`# threshold_bp: 6124`).
 /// The general share 6124 bp, the precise share 4302 bp — the gate
-/// records stay exceeded (3500/3000, ADR-0181 §3/§3.1).
-const TYPED_FLOOR: usize = 312;
+/// records stay exceeded (3500/3000, ADR-0181 §3/§3.1). №661 (2026-10-09):
+/// canary_check typed → 313/516 compiled (317/516 source = 6143 bp).
+const TYPED_FLOOR: usize = 313;
 
 #[test]
 fn typed_signature_share_never_falls_below_the_floor() {
@@ -167,9 +168,16 @@ fn parameterized_signature_share_never_falls_below_the_floor() {
 // field_meta (the №627 classification: every field the IMAP server
 // payload or the caller uid echo → untrusted) — 38/40 compiled.
 //
+// №661 (wave 39; the К-Б stage-2 verdict gh#1144): canary_check ships
+// WITH the 3-entry field_meta — the FIRST PRIVATE label (id:private — the
+// canary-credential reference; leaked/position — the check outcome,
+// internal) — 39/41 compiled (40/42 source = 9523 bp). The BLOCKING
+// enforcement lives in the type-signatures job
+// (--enforce-fieldmeta) + the in-tree twin below.
+//
 // BuiltinSpec.field_meta is the registry SIDE-TABLE (the enum is NOT
 // extended — stage-2 minimality); parse_field_meta is the consumer API.
-const FIELDMETA_FLOOR: usize = 38;
+const FIELDMETA_FLOOR: usize = 39;
 
 #[test]
 fn field_label_share_never_falls_below_the_floor() {
@@ -199,12 +207,48 @@ fn field_label_share_never_falls_below_the_floor() {
     // The denominator lock: the parameterized-Struct base must not shrink
     // (the same №623 discipline — a coarse row typed away is a fact
     // change; record it in the naryad, then move this const). The №637
-    // fact: 39 compiled Struct-param rows (40 source − llm_usage cfg(llm)).
+    // fact: 39 compiled Struct-param rows (40 source − llm_usage cfg(llm));
+    // №661: + canary_check → 40 compiled (42 source).
     assert!(
-        structs >= 39,
-        "the parameterized-Struct denominator shrank: {} < 39 (№627: the \
+        structs >= 40,
+        "the parameterized-Struct denominator shrank: {} < 40 (№627: the \
          base the field-label share is computed over must not shrink)",
         structs
+    );
+}
+
+#[test]
+fn n661_every_parameterized_struct_row_carries_field_meta() {
+    // The IN-TREE twin of the blocking `--enforce-fieldmeta` step (the
+    // type-signatures job, №661): every parameterized Struct row of the
+    // registry carries a well-formed field_meta, EXCEPT the named
+    // dynamic-form carve-outs. The carve-out list is DUPLICATED on both
+    // sides DELIBERATELY (the Rust test + the Python
+    // FIELD_META_ENFORCE_EXCEPTIONS) — growing either side is an explicit,
+    // reviewed PR decision (the anti-Goodhart posture: never a silent
+    // default). A NEW parameterized Struct row that lands bare reddens
+    // THIS test and the CI step at once — the red-proof the naryad pins.
+    const DYNAMIC_CARVE_OUTS: &[&str] = &["form_data", "json_body"];
+    let mut violations: Vec<String> = Vec::new();
+    for spec in BUILTIN_REGISTRY.iter() {
+        if !(spec.parameterized && spec.return_type == Type::Struct) {
+            continue;
+        }
+        // The non-empty sections are already grammar-proven by
+        // every_field_meta_is_the_well_formed_grammar — the enforcement
+        // asks only: is the section THERE (or the row named as dynamic).
+        if spec.field_meta.is_empty() && !DYNAMIC_CARVE_OUTS.contains(&spec.name) {
+            violations.push(spec.name.to_string());
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "№661: parameterized Struct rows without field_meta (and not in \
+         the named carve-outs): {:?} — label the fields honestly (the №650 \
+         mirror rule: the signature mirrors the real handler form) or name \
+         the dynamic form explicitly on BOTH sides (this test's \
+         DYNAMIC_CARVE_OUTS + the Python FIELD_META_ENFORCE_EXCEPTIONS)",
+        violations
     );
 }
 

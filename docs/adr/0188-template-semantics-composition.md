@@ -1,12 +1,19 @@
 # ADR-0188: The Template Semantics Composition — the §7 lane plan: the compile-time port re-priced, the phased recommendation (the OWNER's choice slot)
 
-- Status: **Proposed** (the executor's draft plan; `owner_fixed: false` —
-  the plan binds nobody until the OWNER fixes it; no implementation may
-  start on this ADR alone)
+- Status: **Accepted — option (б)** (the owner's verdict, 2026-10-08;
+  the verbatim authorization core: «ADR-0188 принимаю по варианту (б)»;
+  the FULL verdict text: gh#1123, the owner's comment, and the canonical
+  «гейты-0810» record — the docs-language lint №383 keeps this .md
+  English-only, the ADR-0181 §1 authorization-record shape. The
+  implementation: the (б) rules — the compile-time refusal of the
+  implicit String→Html coercion (the assignment/argument positions) and
+  of the unknown template names — landed by №662 (gh#1163, Волна 39,
+  the SHARED semantic checker: TW/VM identically, the parity postulate);
+  the pipe stays runtime-absent (№115 open); the FULL port (а) — later)
 - Date: 2026-10-08
-- Deciders: the executor (the draft); the OWNER fixes the plan (the gate
-  — open)
-- Naryad: №640 (gh#1123, Wave 36)
+- Deciders: the executor (the draft); the OWNER fixes the plan (the
+  verdict — 2026-10-08, gh#1123)
+- Naryad: №640 (gh#1123, Wave 36); the (б) implementation: №662 (gh#1163, Волна 39)
 - Predecessors: [ADR-0187 — the memory-phase plan (the draft-first form)](0187-memory-phase-plan.md),
   ADR-0073 (the JIT/parity discipline — the parity-postulate shape),
   ADR-0122 #208 / №250 (the compile-time template registration),

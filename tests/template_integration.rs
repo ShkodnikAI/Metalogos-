@@ -76,7 +76,10 @@ template Layout(content: Html) -> Html {
 
 /// Compile-time opaque Html check not implemented — runtime only (naryad 114/115).
 #[test]
-#[ignore = "Known issue gh#967 §7: opaque Html is enforced at runtime (cannot concatenate), not in the semantic checker — the compile-time check is separate work (№114 coerce)"]
+/// №662 (ADR-0188 option (б), the owner's verdict gh#1123): the IMPLICIT
+/// String→Html coercion refuses at CHECK time now — the assignment-position
+/// rule (a String-shaped initializer into an opaque-typed entity); the
+/// gh#967 §7 ignore is resolved. The runtime keeps the backstop.
 fn check_html_from_string_error() {
     let source = r#"entity page: Html = "<div>" + "hello" + "</div>""#;
     let result = metalogos::check_program(source).unwrap();
@@ -95,8 +98,10 @@ fn check_template_render_valid() {
 }
 
 /// Unknown template in server route — semantic checker still does not catch it.
+/// №662 (ADR-0188 option (б)): the unknown-template refusal is a CHECK-time
+/// fact now — render("Unknown") against the collected template declarations
+/// refuses in check_program; the runtime stays the backstop for dynamic names.
 #[test]
-#[ignore = "Known issue gh#967 §7: unknown template detection is a runtime error via builtin_render, not a semantic-checker refusal (№115)"]
 fn check_server_render_unknown_template() {
     let source = r#"server { port: 8080  route "/" method=GET { render("Unknown", "x") } }"#;
     let result = metalogos::check_program(source).unwrap();

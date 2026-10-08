@@ -103,6 +103,24 @@ pub enum SemanticErrorKind {
     OpaqueConcat,
     /// Every other semantic finding — blocks run/serve unconditionally.
     Other,
+    /// №662 (ADR-0188 option (б), the owner's verdict gh#1123): the
+    /// IMPLICIT String→opaque coercion at an assignment/argument position —
+    /// a String-shaped value (a literal, a `+` chain) flows into a target
+    /// declared with an opaque type (Html/…) where the runtime coercion
+    /// used to be silent (№114). The late failure was the SECURITY
+    /// exposure (an injection-shaped value reaches the page); the explicit
+    /// path (an Html producer — render()) stays legal. No stable code: the
+    /// runtime origin has none (the honest-gap rule, the OpaqueConcat
+    /// posture).
+    ImplicitOpaqueCoercion,
+    /// №662 (ADR-0188 option (б), the owner's verdict gh#1123): a
+    /// `render("Name", …)` whose statically-resolvable name is absent
+    /// from the program's template declarations (the №250 registration
+    /// set — the same names the compiler registers). The late failure was
+    /// the request-time 500; the static refusal shifts it left. Dynamic
+    /// (non-literal, non-ident) names stay the runtime's backstop. No
+    /// stable code (the runtime origin has none).
+    UnknownTemplate,
 }
 
 impl SemanticErrorKind {
@@ -123,6 +141,8 @@ impl SemanticErrorKind {
                 Some(crate::interpreter::values::CODE_UNDEFINED_VARIABLE)
             }
             SemanticErrorKind::OpaqueConcat => None,
+            SemanticErrorKind::ImplicitOpaqueCoercion => None,
+            SemanticErrorKind::UnknownTemplate => None,
             SemanticErrorKind::Other => None,
         }
     }
@@ -5897,6 +5917,14 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
     // so the map is built over the WHOLE declaration list regardless of
     // source order — same lookup semantics the runtime Ident read has.
     let mut entity_opaque: HashMap<String, String> = HashMap::new();
+    // №662 (ADR-0188 option (б), the owner's verdict gh#1123): the
+    // template names (the №250 registration set — the same declarations
+    // the compiler registers) and the pattern param types (RESOLVED
+    // through the №119 alias map) — the two facts the (б) checker rules
+    // read: the unknown-template refusal and the argument-position
+    // coercion refusal.
+    let mut template_names: HashSet<String> = HashSet::new();
+    let mut pattern_param_types_resolved: HashMap<String, Vec<String>> = HashMap::new();
     // Наряд №181 (ADR-0117): reflex declarations — name → labels set.
     // Used to validate distill_to references and labels-non-empty rule.
     let mut reflex_decls: HashMap<String, Vec<String>> = HashMap::new();
@@ -6023,6 +6051,42 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                     .unwrap_or(&e.type_name);
                 if crate::ast::is_opaque_type(resolved) {
                     entity_opaque.insert(e.name.clone(), resolved.to_string());
+                    // №662 (ADR-0188 option (б), rule 1, the ASSIGNMENT
+                    // position): a String-shaped initializer flowing into an
+                    // opaque-typed entity is the IMPLICIT coercion the
+                    // runtime accepted silently (№114) — the injection
+                    // shape reaches the page. The explicit path (an Html
+                    // producer — render()) stays legal; the runtime keeps
+                    // the backstop for the conditionally-bound cases.
+                    if expr_is_string_shaped(&e.value) {
+                        result.errors.push(
+                            SpannedError::at(
+                                format!(
+                                    "implicit String→{} coercion in the initializer of entity '{}' — build the value with an explicit {} producer (render)",
+                                    resolved, e.name, resolved
+                                ),
+                                e.span.clone(),
+                            )
+                            .with_kind(SemanticErrorKind::ImplicitOpaqueCoercion),
+                        );
+                    }
+                }
+            }
+            Declaration::Template(t) => {
+                // №662: the template name collected — the №250 registration
+                // set (the unknown-template refusal reads it). NOTE: the
+                // DUPLICATE-template refusal is NOT added here — the
+                // runtime registration is overwrite-idempotent (the №250
+                // comment) and a duplicate error would be an unmandated
+                // behavior change beyond the (б) letter.
+                template_names.insert(t.name.clone());
+                // Templates are also callable as render targets
+                pattern_names.insert(t.name.clone());
+                if is_opaque_type(&t.return_type) && t.return_type != "Html" {
+                    result.errors.push(with_line_prefix(decl, format!(
+                        "template '{}' returns opaque type '{}' — only Html is supported as template return type",
+                        t.name, t.return_type
+                    )));
                 }
             }
             Declaration::Pattern(p) => {
@@ -6033,6 +6097,20 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                     ));
                 }
                 pattern_param_counts.insert((p.name.clone(), p.params.len()));
+                // №662: the param types RESOLVED through the alias map —
+                // the argument-position coercion rule reads them.
+                pattern_param_types_resolved.insert(
+                    p.name.clone(),
+                    p.params
+                        .iter()
+                        .map(|pp| {
+                            type_alias_map
+                                .get(&pp.type_name)
+                                .cloned()
+                                .unwrap_or_else(|| pp.type_name.clone())
+                        })
+                        .collect(),
+                );
             }
             Declaration::LearnablePattern(lp) => {
                 if !learnable_names.insert(lp.name.clone()) {
@@ -6071,16 +6149,6 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                         decl,
                         format!("duplicate vision declaration: {}", v.name),
                     ));
-                }
-            }
-            Declaration::Template(t) => {
-                // Templates are also callable as render targets
-                pattern_names.insert(t.name.clone());
-                if is_opaque_type(&t.return_type) && t.return_type != "Html" {
-                    result.errors.push(with_line_prefix(decl, format!(
-                        "template '{}' returns opaque type '{}' — only Html is supported as template return type",
-                        t.name, t.return_type
-                    )));
                 }
             }
             _ => {}
@@ -6288,6 +6356,8 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                     &type_alias_map,
                     &entity_opaque,
                     &entity_names,
+                    &template_names,
+                    &pattern_param_types_resolved,
                     &mut result.errors,
                 );
             }
@@ -6369,6 +6439,8 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                         &route.body,
                         &entity_opaque,
                         &entity_names,
+                        &template_names,
+                        &pattern_param_types_resolved,
                         &mut result.errors,
                     );
                 }
@@ -9203,6 +9275,15 @@ struct VarScope {
     /// №617: name → the DECLARED opaque type name (Html/Secret/…) — the
     /// static fact the opaque-concat check refuses on.
     opaque: HashMap<String, String>,
+    /// №662 (ADR-0188 (б)): the program's template names (the №250
+    /// registration set, collected from the checked AST declarations) —
+    /// the unknown-template refusal reads it. Cloned at the body entry
+    /// (once per body — the sets are small); no lifetime threading
+    /// through the 55-site walk.
+    templates: HashSet<String>,
+    /// №662 (ADR-0188 (б)): pattern name → the RESOLVED param type names
+    /// (the argument-position coercion rule reads it).
+    pattern_param_types: HashMap<String, Vec<String>>,
 }
 
 /// Entry point for PATTERN bodies: params pre-bound, ALL entities as
@@ -9214,11 +9295,15 @@ fn check_pattern_variables(
     type_alias_map: &HashMap<String, String>,
     entity_opaque: &HashMap<String, String>,
     entity_names: &HashSet<String>,
+    templates: &HashSet<String>,
+    pattern_param_types: &HashMap<String, Vec<String>>,
     errors: &mut Vec<SpannedError>,
 ) {
     let mut scope = VarScope {
         bound: HashSet::new(),
         opaque: HashMap::new(),
+        templates: templates.clone(),
+        pattern_param_types: pattern_param_types.clone(),
     };
     for p in params {
         scope.bound.insert(p.name.clone());
@@ -9245,11 +9330,15 @@ fn check_body_variables(
     body: &[Statement],
     entity_opaque: &HashMap<String, String>,
     entity_names: &HashSet<String>,
+    templates: &HashSet<String>,
+    pattern_param_types: &HashMap<String, Vec<String>>,
     errors: &mut Vec<SpannedError>,
 ) {
     let mut scope = VarScope {
         bound: HashSet::new(),
         opaque: HashMap::new(),
+        templates: templates.clone(),
+        pattern_param_types: pattern_param_types.clone(),
     };
     for name in entity_names {
         scope.bound.insert(name.clone());
@@ -9258,6 +9347,21 @@ fn check_body_variables(
         scope.opaque.insert(name.clone(), ty.clone());
     }
     check_stmts_vars(body, &mut scope, errors);
+}
+
+/// №662 (ADR-0188 option (б), rule 1): the String-SHAPED value — a
+/// literal or a `+` chain (the concat shape the injection rides). The
+/// deeper inference (an Ident of a String-typed binding, a call's return
+/// type) stays out — the same depth limit the №617 walk documents.
+fn expr_is_string_shaped(expr: &Expr) -> bool {
+    match expr {
+        Expr::StringLit { .. } => true,
+        Expr::BinaryOp {
+            op: crate::ast::BinOp::Add,
+            ..
+        } => true,
+        _ => false,
+    }
 }
 
 fn check_stmts_vars(stmts: &[Statement], scope: &mut VarScope, errors: &mut Vec<SpannedError>) {
@@ -9468,7 +9572,61 @@ fn check_expr_vars(expr: &Expr, scope: &mut VarScope, errors: &mut Vec<SpannedEr
             }
         }
         Expr::FieldAccess { object, .. } => check_expr_vars(object, scope, errors),
-        Expr::FnCall { name, args, .. } => {
+        Expr::FnCall { name, args, span } => {
+            // №662 (ADR-0188 option (б), rule 2): the unknown-template
+            // refusal — a `render("Name", …)` whose statically-resolvable
+            // name (a literal, or a bare Ident — the name-reference slot)
+            // is absent from the collected template declarations. The
+            // runtime message is mirrored verbatim (http.rs builtin_render);
+            // a dynamic expr name stays the runtime's backstop.
+            if name == "render" {
+                if let Some(first) = args.first() {
+                    let wanted = match first {
+                        Expr::StringLit { value, .. } => Some(value.clone()),
+                        Expr::Ident { name: n, .. } => Some(n.clone()),
+                        _ => None,
+                    };
+                    if let Some(wanted) = wanted {
+                        if !scope.templates.contains(&wanted) {
+                            errors.push(
+                                SpannedError::at(
+                                    format!(
+                                        "render(): unknown template '{}' — declare it with `template {}(...) -> Html {{ ... }}`",
+                                        wanted, wanted
+                                    ),
+                                    span.clone(),
+                                )
+                                .with_kind(SemanticErrorKind::UnknownTemplate),
+                            );
+                        }
+                    }
+                }
+            }
+            // №662 (ADR-0188 option (б), rule 1, the ARGUMENT position):
+            // a String-shaped argument flowing into a pattern param
+            // declared with an opaque type — the implicit coercion the
+            // runtime accepted silently (№114).
+            if let Some(param_types) = scope.pattern_param_types.get(name) {
+                for (i, arg) in args.iter().enumerate() {
+                    if let Some(pt) = param_types.get(i) {
+                        if crate::ast::is_opaque_type(pt) && expr_is_string_shaped(arg) {
+                            errors.push(
+                                SpannedError::at(
+                                    format!(
+                                        "implicit String→{} coercion in argument {} of {} — build the value with an explicit {} producer (render)",
+                                        pt,
+                                        i + 1,
+                                        name,
+                                        pt
+                                    ),
+                                    arg.span().clone(),
+                                )
+                                .with_kind(SemanticErrorKind::ImplicitOpaqueCoercion),
+                            );
+                        }
+                    }
+                }
+            }
             for (i, arg) in args.iter().enumerate() {
                 // №617: the name-reference slots (render/reflex_*) — a bare
                 // Ident there is a declaration reference, not a variable.

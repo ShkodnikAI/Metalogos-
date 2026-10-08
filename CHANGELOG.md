@@ -4,6 +4,26 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Changed
+
+- **№662 (gh#1163) — the ADR-0188 option (б) compile-time port (the
+  behavior change, fail-closed; lands in the 0.31.0 semantics — NOT in
+  the 0.30.1 train):** the SHARED semantic checker refuses two
+  late-failure classes at CHECK time on BOTH backends (the owner's
+  verdict gh#1123, 2026-10-08; the parity postulate — the checker is the
+  backend-neutral front door): (1) the IMPLICIT String→opaque coercion —
+  a String-shaped value (a literal or a `+` chain) flowing into a
+  target declared with an opaque type (Html/…) at an assignment
+  (entity initializer) or an argument position; the explicit path (an
+  Html producer — `render()`) stays legal (№114 resolved); (2) the
+  unknown template names — a `render("Name", …)` whose
+  statically-resolvable name is absent from the program's template
+  declarations (the №250 registration set; the request-time 500 moves
+  left to check time; dynamic names stay the runtime's backstop). The
+  corpus is clean (the dry-run inventory: 246 examples, 0 refusals);
+  the diagnostics move left for NEW code only. The pipe syntax stays
+  runtime-absent (№115 — the documented gap, option (а) is later).
+
 ### Security
 
 - **№658 (gh#1159) — the VM break/continue parity (the behavior change,

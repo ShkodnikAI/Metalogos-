@@ -4,6 +4,8 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-10-08
+
 ### Security
 
 - **№629 (gh#1096) — the VM comparison parity (the behavior change,

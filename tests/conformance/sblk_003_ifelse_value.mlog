@@ -1,0 +1,10 @@
+// S-BLK-003 (№652): if/else is an EXPRESSION — its value is the value of
+// the branch the condition selected.
+pattern p(x: String) -> String {
+  let a = if 1.0 == 1.0 { "yes" } else { "no" }
+  let b = if 1.0 == 2.0 { "yes" } else { "no" }
+  return a + "|" + b
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

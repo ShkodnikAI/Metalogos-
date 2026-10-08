@@ -1,0 +1,3 @@
+# S-BLK-005 (№652) — the first test is false: zero iterations, the body never ran.
+STATUS: ok
+OUT: end

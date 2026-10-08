@@ -1,0 +1,11 @@
+// S-BLK-004 (№652): a branch that leaves no value — and a block-if with
+// a false condition and NO else arm — evaluates to Unit (falsy, the
+// S-VAL-013 set).
+pattern p(x: String) -> String {
+  let b = if false { "yes" }
+  let branch = if b { "then" } else { "else" }
+  return branch
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

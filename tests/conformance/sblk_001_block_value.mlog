@@ -1,0 +1,12 @@
+// S-BLK-001 (№652): the value of a block is its LAST EXPRESSION statement
+// — the let-bindings of the preamble do not contribute.
+pattern p(x: String) -> String {
+  let branch = if x == "go" {
+    let tail = "first"
+    tail
+  } else { "no" }
+  return branch
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

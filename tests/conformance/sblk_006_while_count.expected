@@ -1,0 +1,3 @@
+# S-BLK-006 (№652) — exactly three iterations, in order.
+STATUS: ok
+OUT: x;x;x;

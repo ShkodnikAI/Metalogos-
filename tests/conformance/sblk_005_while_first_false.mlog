@@ -1,0 +1,15 @@
+// S-BLK-005 (№652): the while condition is tested BEFORE every iteration;
+// a falsy first condition runs the body ZERO times (the condition
+// truthy-set is the S-VAL-013 set — the same refusal discipline).
+pattern p(x: String) -> String {
+  let mut acc = "end"
+  let mut i = 0.0
+  while i < 0.0 {
+    acc = "never"
+    i = i + 1.0
+  }
+  return acc
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

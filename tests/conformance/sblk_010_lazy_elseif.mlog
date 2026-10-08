@@ -1,0 +1,11 @@
+// S-BLK-010 (№652): an else-if condition is evaluated ONLY when reached —
+// the else-if arm below carries a LIST condition which would refuse with
+// [TYPE_MISMATCH] (S-VAL-013) if it were ever evaluated; the selected
+// then-arm answers instead.
+pattern p(x: String) -> String {
+  let branch = if x == "go" { "t" } else if [x] { "never" } else { "el" }
+  return branch
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

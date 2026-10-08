@@ -1,0 +1,15 @@
+// S-BLK-006 (№652): the loop re-tests the condition before EVERY
+// iteration and runs the body exactly as many times as the condition
+// holds (3 here, in the recorded order).
+pattern p(x: String) -> String {
+  let mut acc = ""
+  let mut i = 0.0
+  while i < 3.0 {
+    acc = acc + "x;"
+    i = i + 1.0
+  }
+  return acc
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

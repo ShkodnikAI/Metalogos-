@@ -1,0 +1,3 @@
+# S-BLK-004 (№652) — no else and a false condition: the if value is Unit → falsy → else.
+STATUS: ok
+OUT: else

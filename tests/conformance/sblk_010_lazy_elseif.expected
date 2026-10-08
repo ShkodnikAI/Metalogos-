@@ -1,0 +1,3 @@
+# S-BLK-010 (№652) — the unreached else-if condition is never evaluated (no refusal).
+STATUS: ok
+OUT: t

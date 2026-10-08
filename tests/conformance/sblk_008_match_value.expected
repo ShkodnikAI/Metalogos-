@@ -1,0 +1,3 @@
+# S-BLK-008 (№652) — no arm matched and no else: Unit → falsy → else.
+STATUS: ok
+OUT: else

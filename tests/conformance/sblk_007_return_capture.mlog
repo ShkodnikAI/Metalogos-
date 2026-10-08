@@ -1,0 +1,11 @@
+// S-BLK-007 (№652): a `return v` inside a value-channel arm body does NOT
+// abort the enclosing block — its value is CAPTURED as the block's value
+// (even Unit) and execution continues (№622; the TW flatten
+// ControlFlow::Return(v) => Ok(v), the VM SetValueReg).
+pattern p(x: String) -> String {
+  let branch = if x == "go" { return "early" } else { "b" }
+  return branch + "!"
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

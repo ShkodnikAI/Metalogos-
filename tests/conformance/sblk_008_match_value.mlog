@@ -1,0 +1,11 @@
+// S-BLK-008 (№652): match is an expression — the value is the selected
+// arm's last non-Unit expression; with NO match and NO else the value is
+// Unit (falsy in a condition, the S-VAL-013 set).
+pattern p(x: String) -> String {
+  let v = match x { "nope" then { "n" } }
+  let branch = if v { "then" } else { "else" }
+  return branch
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

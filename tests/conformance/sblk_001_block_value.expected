@@ -1,0 +1,3 @@
+# S-BLK-001 (№652) — the last non-Unit expression wins; the trailing let does not reset it.
+STATUS: ok
+OUT: first

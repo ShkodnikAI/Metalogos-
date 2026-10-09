@@ -64,7 +64,21 @@
 #   the labels ride the registry spelling, the fourth metric counts the
 #   Struct rows only; 39/41 = 9512 bp. The compiled twin locks —
 #   FIELDMETA_FLOOR 37 → 38 in the same PR.)
-# threshold_bp: 9523
+# threshold_bp was 9523 — №661: canary_check Struct<CanaryCheck> ships
+# WITH the 3-entry field-meta (the first private label id:private) —
+# 40/42 = 9523 bp.
+
+# №668 (gh#1183, wave 40): the «memory → recognition» package — the two
+#   new parameterized Struct rows land WITH their field-meta (the
+#   anti-dilution rule — no parameterized Struct row lands bare):
+#   mtree_stats Struct<MTreeStats>{7 internal}, mtree_summarize
+#   Struct<MTreeSummarize>{7 internal} — every field is the in-tree
+#   graph computation (memory.rs) → internal; 42/44 = 9545 bp.
+#   Only-up (№757), the same PR (the compiled twin FIELDMETA_FLOOR rides
+#   the same PR).
+# field-label: 42
+# Struct rows: 44
+# threshold_bp: 9545
 
 # №661 (issue #1162, 2026-10-09; the К-Б stage-2 verdict gh#1144):
 # canary_check ships WITH the 3-entry field_meta — the FIRST PRIVATE

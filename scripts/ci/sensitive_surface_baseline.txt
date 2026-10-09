@@ -51,7 +51,6 @@
 #   posture); 53*10000//138 = 3840 bp; the draft 0.31 goal (57/138 =
 #   4130) is NOT reachable honestly on this package — the Гудхарт rule
 #   beats the draft arithmetic)
-# threshold_bp: 3913
 
 # №661 (issue #1162, 2026-10-09; the К-Б stage-2 verdict gh#1144):
 # canary_check (the security-labeled Source, previously untyped) is
@@ -59,3 +58,20 @@
 # private label id:private) → covered: 53/138 → 54/138 = 3913 bp.
 # Only-up (№757), the same PR (the №660 OD-variant (a) arithmetic starts
 # from this new floor).
+
+# threshold_bp was 3913 — №668 (gh#1183, wave 40): covered 62 | sensitive 138
+#   (the SECOND audit-order package per §6.3 — «memory → recognition»:
+#   8 of the 9 rows closed against the verified handler facts —
+#   human_personas List<PersonaSummary>, human_recall List<Memory>,
+#   check_reminders List<DueReminder>, list_reminders List<Reminder>
+#   (the four №543 typed-coarse List rows parameterized),
+#   semantic_search List<SearchResult>, mtree_retrieve
+#   List<MTreeEntry>, mtree_stats Struct<MTreeStats>{7 internal},
+#   mtree_summarize Struct<MTreeSummarize>{7 internal}; the 9th row
+#   world_state — the HONEST refusal: the value IS the opaque
+#   WorldState handle (embodied.rs world_value, №355/ADR-0159), the
+#   handle is neither scalar nor a parameterized List/Struct — the row
+#   moves untyped → typed-coarse (typed "Embodied" honestly) and stays
+#   uncovered; closing it needs the dictionary/vocabulary decision that
+#   is OUTSIDE the naryad; 62*10000//138 = 4492 bp)
+# threshold_bp: 4492

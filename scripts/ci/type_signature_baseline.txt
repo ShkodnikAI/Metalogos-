@@ -227,8 +227,18 @@
 #   comment documents).
 # typed: 316
 # total: 516
-# threshold_bp: 6143
+# threshold_bp was 6143 — №661: canary_check typed (317/516 = 6143 bp).
 
-# №661 (issue #1162, 2026-10-09; the К-Б stage-2 verdict gh#1144):
-# canary_check typed Struct<CanaryCheck> (the first private label) —
-# 317/516 = 6143 bp. Only-up (№467/№757), the same PR as the movement.
+# 2026-10-10 №668 (gh#1183, wave 40): the «memory → recognition»
+#   sensitive package — 5 rows newly TYPED (semantic_search
+#   List<SearchResult>, mtree_retrieve List<MTreeEntry>, mtree_stats
+#   Struct<MTreeStats>{...}, mtree_summarize Struct<MTreeSummarize>{...},
+#   world_state "Embodied" — the honest opaque WorldState handle) + 4
+#   typed-coarse List rows parameterized (human_personas/human_recall/
+#   check_reminders/list_reminders). 317/516 → 322/516;
+#   (322*10000)//516 = 6240 bp. The floor rises in the SAME PR per the
+#   №757 procedure; the precise share is UNTOUCHED (no scalars typed —
+#   the X-3 rule).
+# typed: 322
+# total: 516
+# threshold_bp: 6240

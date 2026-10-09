@@ -1,0 +1,4 @@
+# S-ERR-003 (№670) — the TryError struct: the origin-stamped code + a
+# present String message (the text itself is deliberately not pinned).
+STATUS: ok
+OUT: code=SANDBOX_VIOLATION msg=true

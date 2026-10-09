@@ -1,0 +1,11 @@
+// S-ERR-004 (№670): the position-0 rule cuts both ways — the origin
+// stamp [IO_ERROR] is NOT on the try-classification whitelist and the
+// [RUNTIME_ERROR]-looking marker MID-message (the echoed path) is
+// content, not a stamp; the classification is the honest fallback.
+pattern p(x: String) -> String {
+  let r = try read_file("[RUNTIME_ERROR] fake")
+  return r.error.code
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

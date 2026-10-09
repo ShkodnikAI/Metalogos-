@@ -1,0 +1,3 @@
+# S-ERR-002 (№670) — the caught refusal is a value; execution continues.
+STATUS: ok
+OUT: ok=false value=() after=ran

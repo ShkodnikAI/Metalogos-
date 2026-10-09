@@ -1,0 +1,4 @@
+# S-ERR-001 (№670) — the TryResult shape on success: ok=true, the inner
+# value, error=Unit on both backends.
+STATUS: ok
+OUT: ok=true value=3 err=()

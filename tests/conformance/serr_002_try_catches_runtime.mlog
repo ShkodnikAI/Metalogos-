@@ -1,0 +1,10 @@
+// S-ERR-002 (№670): a runtime refusal (division by zero) inside try is
+// caught — ok=false, value=Unit — and the statements after the try run.
+pattern p(x: String) -> String {
+  let r = try(0.0 / 0.0)
+  let after = "ran"
+  return "ok=" + str(r.ok) + " value=" + str(r.value) + " after=" + after
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

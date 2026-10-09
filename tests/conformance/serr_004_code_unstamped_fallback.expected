@@ -1,0 +1,3 @@
+# S-ERR-004 (№670) — the honest fallback for an unstamped refusal.
+STATUS: ok
+OUT: RUNTIME_ERROR

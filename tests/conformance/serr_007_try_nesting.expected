@@ -1,0 +1,3 @@
+# S-ERR-006 (№670) — the inner TryResult rides as the outer value.
+STATUS: ok
+OUT: outer=true inner=false code=RUNTIME_ERROR

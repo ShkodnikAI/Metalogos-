@@ -952,12 +952,19 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
     if state.backend == ServeBackend::Vm {
         let start = std::time::Instant::now();
         let mut compiler = Compiler::new();
-        let program = compiler
+        let mut program = compiler
             .compile(declarations.clone())
             .map_err(|e| format!("VM compile error: {}", e))?;
         let compiled_routes = compiler
             .compile_routes(&config.routes)
             .map_err(|e| format!("VM route compile error: {}", e))?;
+        // Issues #1169/#1170: the VM boot resolves the db url source ONCE
+        // (the Process context — the interpreter-parity bootstrap) and
+        // replays the schema DDL eagerly — no env() reads left in route
+        // handlers, a fresh DB carries the schema BEFORE the first request,
+        // an unserviceable db config is a LOUD boot error.
+        metalogos::vm::boot_resolve_db_url(&mut program)
+            .map_err(|e| format!("VM db bootstrap error: {}", e))?;
         let elapsed = start.elapsed();
         eprintln!(
             "[server] VM compilation: {} routes in {:.1} µs ({} instructions total)",
@@ -1212,12 +1219,16 @@ async fn run_test_server_in_dir_impl(
     if state.backend == ServeBackend::Vm {
         // НАРЯД #207: use caller-supplied base_dir as std_root (not Compiler::new())
         let mut compiler = Compiler::with_std_root(base_dir.clone());
-        let program = compiler
+        let mut program = compiler
             .compile(declarations)
             .map_err(|e| format!("VM compile error: {}", e))?;
         let compiled_routes = compiler
             .compile_routes(&server_config.routes)
             .map_err(|e| format!("VM route compile error: {}", e))?;
+        // Issues #1169/#1170: same boot bootstrap as run_server — the test
+        // harness must exercise the SAME boot path production serves with.
+        metalogos::vm::boot_resolve_db_url(&mut program)
+            .map_err(|e| format!("VM db bootstrap error: {}", e))?;
         let program = Arc::new(program);
         state.vm_program = Some(program.clone());
         state.vm_routes = compiled_routes;

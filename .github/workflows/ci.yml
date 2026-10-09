@@ -353,7 +353,7 @@ jobs:
       RUSTUP_TOOLCHAIN: "1.93.1"
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.93.1
+      - uses: dtolnay/rust-toolchain@1.120.0
       # №445 wave-infra: the cache step is a performance aid, never a
       # correctness signal — non-fatal, own prefix so the floor job's
       # artifacts never alias the stable toolchain's cache partition.

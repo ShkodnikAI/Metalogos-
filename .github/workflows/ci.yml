@@ -783,7 +783,7 @@ jobs:
           python3 scripts/ci/unfreeze_gate.py --office-tests "$OT"
       - name: Upload the unfreeze summary artifact (the gate read — the 0.30 default since №630)
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v6
         with:
           name: unfreeze-summary
           path: unfreeze_summary.md
@@ -1082,7 +1082,7 @@ jobs:
           set -o pipefail
           cargo llvm-cov --workspace --all-targets --summary-only | tee coverage-summary.txt
       - name: Upload coverage summary artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v6
         with:
           name: coverage-summary
           path: coverage-summary.txt

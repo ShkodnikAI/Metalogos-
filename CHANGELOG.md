@@ -19,10 +19,14 @@ All notable changes to the Metalogos project.
   unknown template names — a `render("Name", …)` whose
   statically-resolvable name is absent from the program's template
   declarations (the №250 registration set; the request-time 500 moves
-  left to check time; dynamic names stay the runtime's backstop). The
-  corpus is clean (the dry-run inventory: 246 examples, 0 refusals);
-  the diagnostics move left for NEW code only. The pipe syntax stays
-  runtime-absent (№115 — the documented gap, option (а) is later).
+  left to check time; ONLY a string-literal name is statically
+  resolvable — a bare Ident is a runtime-evaluated name (the CI-verified
+  ok_448 leak-flow shape: render(raw) passes the variable holding the
+  name) and every non-literal form stays the runtime's backstop). The
+  corpus is clean (the recursive dry-run inventory: 370 .mlog files
+  across examples/compat/tests, 0 refusals); the diagnostics move left
+  for NEW code only. The pipe syntax stays runtime-absent (№115 — the
+  documented gap, option (а) is later).
 
 ### Security
 

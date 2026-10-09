@@ -9600,10 +9600,17 @@ fn check_expr_vars(expr: &Expr, scope: &mut VarScope, errors: &mut Vec<SpannedEr
             if name == "render" {
                 if let Some(first) = args.first() {
                     // №510 posture: no wildcard — every Expr variant is
-                    // named; a dynamic name expr stays the runtime backstop.
+                    // named. ONLY a String literal is statically resolvable:
+                    // a bare Ident is a RUNTIME-evaluated name (the leak
+                    // suite's render(raw) passes the variable holding the
+                    // name — the CI-verified false positive №662 fixed) —
+                    // every non-literal form stays the runtime's backstop.
                     let wanted = match first {
                         Expr::StringLit { value, .. } => Some(value.clone()),
-                        Expr::Ident { name: n, .. } => Some(n.clone()),
+                        // a bare Ident = a RUNTIME-evaluated name (the
+                        // ok_448 leak-flow shape) — the backstop, never a
+                        // static refusal
+                        Expr::Ident { .. } => None,
                         Expr::FloatLit { .. }
                         | Expr::BoolLit { .. }
                         | Expr::FieldAccess { .. }

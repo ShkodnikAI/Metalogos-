@@ -68,7 +68,7 @@ jobs:
           PY
       - name: Upload mutants.out artifact
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v6
         with:
           name: mutants-out-json
           path: |

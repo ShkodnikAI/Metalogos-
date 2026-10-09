@@ -54,7 +54,7 @@ jobs:
         run: cat branch-protection-report/branch_protection_report.txt >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "the report file was not produced" >> "$GITHUB_STEP_SUMMARY"
       - name: The report artifact (the state-on-date record, even on RED/INFRA)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: branch-protection-report
           path: branch-protection-report/

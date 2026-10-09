@@ -177,7 +177,7 @@ jobs:
           sbom-path: dist/mlog-linux-x86_64.cdx.json
 
       - name: Keep the assets for inspection (7 days)
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v6
         with:
           name: release-dist
           path: dist/*

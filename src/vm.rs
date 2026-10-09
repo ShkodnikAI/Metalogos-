@@ -268,6 +268,70 @@ fn open_db_connection(
     Ok(conn)
 }
 
+/// Issues #1169/#1170 — the VM serve-boot db bootstrap (the
+/// interpreter-parity boot path).
+///
+/// The TW serves a `db { }` program by resolving the url expression at
+/// BOOT (`init_db_connection` — the Process context, ungated) and
+/// replaying the schema DDL immediately (`replay_schemas`). The VM lane
+/// deferred BOTH to the first db access INSIDE a route handler — which
+/// made the request path resolve `env("NAME")` through the №259
+/// serve-route gate (a per-request 500 ENV_NOT_PERMITTED without
+/// `METALOGOS_ENV_ALLOWLIST`, #1170) and left a fresh DB at 0 tables
+/// until some request touched the db (the office's #1169 state, the
+/// first request dying with an unrelated arity 500 instead of an honest
+/// bootstrap diagnostic).
+///
+/// Called ONCE at VM serve boot (run_server and the test harness), on
+/// the compiled Program BEFORE it is shared as Arc:
+///   * `db { url: env("NAME") }` resolves NAME HERE — the boot runs in
+///     the Process context (the same ungated read the TW's boot
+///     eval_expr performs); the resolved literal replaces `db_url_env`,
+///     so the request path performs NO env() reads at all;
+///   * an unset variable is a LOUD BOOT error naming the variable and
+///     the remedy (the #1170 variant (б) diagnostics — never a
+///     per-request 500);
+///   * the schema DDL replays eagerly on a boot connection (the same
+///     open + WAL + DDL-tolerance steps as the lazy open) — a fresh DB
+///     carries the schema BEFORE the first request (the #1169 parity);
+///   * a non-sqlite URL is a LOUD BOOT error naming the interpreter
+///     escape hatch (the №758 text, moved to boot time).
+pub fn boot_resolve_db_url(program: &mut crate::bytecode::Program) -> Result<(), String> {
+    if let Some(name) = program.db_url_env.clone() {
+        let url = std::env::var(&name).map_err(|_| {
+            format!(
+                "db {{ url: env(\"{}\") }} — the variable is not set in the process environment; \
+                 set it before `mlog serve` boots (the VM boot resolves the db URL once, \
+                 the interpreter-parity bootstrap; issues #1169/#1170)",
+                name
+            )
+        })?;
+        program.db_url = Some(url);
+        program.db_url_env = None;
+    }
+    if let Some(url) = program.db_url.clone() {
+        bootstrap_db_connection(&url, &program.schema_ddl_shared())?;
+    }
+    Ok(())
+}
+
+/// The eager boot twin of the lazy `ensure_db_open` steps — same pragmas,
+/// same DDL tolerance, same sqlite-only surface. Errors are LOUD boot
+/// errors (the caller refuses the serve boot), never silent no-ops.
+pub fn bootstrap_db_connection(url: &str, schema_ddl: &[String]) -> Result<(), String> {
+    if !(url == "sqlite::memory:" || url.starts_with("sqlite:")) {
+        return Err(format!(
+            "unsupported DB URL scheme '{}' — the VM opens only sqlite: \
+             (sqlite::memory: or sqlite:path); use the interpreter backend \
+             (METALOGOS_SERVE_BACKEND=interpreter) for other providers",
+            url
+        ));
+    }
+    open_db_connection(url, schema_ddl)
+        .map(|_| ())
+        .map_err(|e| format!("Failed to connect to '{}': {}", url, e))
+}
+
 impl Default for Vm {
     fn default() -> Self {
         Self::new()

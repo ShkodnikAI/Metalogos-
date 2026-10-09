@@ -4,6 +4,53 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Fixed
+
+- **#1169/#1170 (the office VM-pilot staging, FO-050; PR — this fix) —
+  the VM serve-boot db bootstrap (the interpreter-parity boot path; the
+  behavior change, fail-closed at boot; Fixed-class → rides the
+  0.30.1 train):** `db { url: env("NAME") }` on the VM serve lane
+  resolved the URL inside EVERY route handler (the №758 lazy
+  first-db-access semantics), so the same read went through the №259
+  serve-route gate — without `METALOGOS_ENV_ALLOWLIST` every request
+  500'd with ENV_NOT_PERMITTED (the interpreter resolves the url
+  expression at BOOT in the Process context and serves the same file +
+  env with 200), and the schema-DDL bootstrap only ran when a request
+  first touched the db — on the office's real corpus (30 routes) a
+  fresh DB stayed at 0 tables and the first request died with an
+  unrelated arity 500 instead of an honest bootstrap diagnostic
+  (`[vm/db] Connected` was already on the boot log — the TW
+  registration lane opened the file — while the VM request lane kept
+  re-resolving and re-refusing per request). The fix: at VM serve boot
+  (`run_server` + the test harness, on the compiled Program BEFORE it
+  is shared) `boot_resolve_db_url` resolves the env name ONCE in the
+  Process (boot) context — the resolved literal replaces `db_url_env`,
+  so the request path performs NO env() reads at all — and replays the
+  schema DDL eagerly on a boot connection (same open + WAL +
+  DDL-tolerance steps as the lazy open), so a fresh DB carries the
+  schema BEFORE the first request (the #1169 interpreter parity); an
+  unset variable is a LOUD BOOT error naming the variable and the
+  remedy (was: a silent OK boot — the TW registration error line was
+  swallowed by the merge, then per-request 500s); a non-sqlite URL is
+  the same LOUD boot error it used to be at the first access (№758
+  text moved to boot time). The №259 serve-route env gate is
+  UNCHANGED for program-level `env()` calls — the boot read is the
+  Process-context class (the №259 contract, the №457 registration
+  zone). The lazy per-request connection open stays for requests that
+  never touch the db (№409 cost contract); `reset_for_reuse` semantics
+  unchanged (№403 4/4). Contract tests
+  `metalogos-server/tests/issue_1169_1170_vm_boot_db.rs` (T1: the
+  db-touching route serves WITHOUT the allowlist — was 500
+  ENV_NOT_PERMITTED per request; T2: the fresh DB carries the schema
+  table immediately after boot; T3: the unset variable fails the BOOT
+  loudly naming the variable — was a silent OK boot; T4: the
+  literal-URL twin — no regression on the №758 surface); №758 5/5, №259
+  7/7, №160 23/23 (1 ignored), №403 4/4, №457 5/5, №399 4/4 GREEN.
+  The `TeamSkillWired expects 2 args` first-request symptom of #1169
+  (the office corpus) is NOT reproduced minimally and is NOT claimed
+  fixed — it is expected to disappear with the empty-schema state gone;
+  the minimal-repro ask stands in the issue thread.
+
 ### Changed
 
 - **№662 (gh#1163) — the ADR-0188 option (б) compile-time port (the

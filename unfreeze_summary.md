@@ -4,9 +4,9 @@ The one-page machine verdict over the four unfreeze criteria. The right to lift 
 
 | § | Criterion | Verdict | Evidence |
 |---|-----------|---------|----------|
-| 4.1 | Types — the typed-signature share grows (№467) | **GREEN** | share typed signatures: 309/516 (59.88%); the enforced floor 5988 — №623 (gh#1086): the 7 parameterized rows (List<Tool>, bp; the latest recorded floor 5988 — №623 (gh#1086): the 7 parameterized rows (List<Tool>, bp |
+| 4.1 | Types — the typed-signature share grows (№467) | **GREEN** | share typed signatures: 317/516 (61.43%); the enforced floor 6143 bp; the latest recorded floor 6143 bp |
 | 4.2 | Dedup — the TW/VM duplicate names at/below the threshold (№462) | **GREEN** | count 0 (threshold 0); mirrors 6 (threshold 6) |
-| 4.3 | Debt — the ignore/dead_code counters green (№468) | **GREEN** | ignore 11/11; ignore_todo 0/0; dead_code 15/15; example_uncovered 0/0 |
+| 4.3 | Debt — the ignore/dead_code counters green (№468) | **GREEN** | ignore 9/11; ignore_todo 0/0; dead_code 15/15; example_uncovered 0/0 |
 | 4.4 | Memory — the office E2E dogfood (office#373, FO-056) | **GREEN** | the office record verdict: GREEN (the §4.4 criterion evidence is complete: the in-repo | the in-repo twin (naryad_429_memory_office_path) GREEN on this commit |
 
 > 4.4 (Memory): - the office repo is private — the live office CI status is not queryable from the Metalogos CI (no cross-repo token); the checked-in record is the machine-readable evidence, refreshed by the office-side naryads
@@ -17,27 +17,20 @@ The one-page machine verdict over the four unfreeze criteria. The right to lift 
 
 | § | Goal | Verdict | Evidence |
 |---|------|---------|----------|
-<<<<<<< Updated upstream
-| v2 | The absolute goals: parameterized share ≥ goal (the №623 third metric — the Z-2 successor of the scalar typed/precise parameters), 0 open High (server path), the domain quorum, the serve-e2e inventory | **GREEN** | parameterized share 6043 bp vs goal 5000 bp: MET; open High (server path) 0 vs goal 0: MET; domain quorum 0/8 vs goal 1/3: MET; the serve-e2e inventory: all state-accumulating declarations done |
+| v2 | The absolute goals: parameterized share ≥ goal (the №623 third metric — the Z-2 successor of the scalar typed/precise parameters), 0 open High (server path), the domain quorum, the serve-e2e inventory | **GREEN** | parameterized share 6210 bp vs goal 5000 bp: MET; open High (server path) 0 vs goal 0: MET; domain quorum 0/8 vs goal 1/3: MET; the serve-e2e inventory: all state-accumulating declarations done; branch-protection audit: GREEN (the last run) |
 
 **Overall (§4 + v2 0.30): GREEN.**
-The 0.30 release gate: **WIRED** (the DEFAULT gate target — №630, ADR-0186 §5, the owner's verdict 2026-10-07; the strict release-time read, --strict, exits 1 on RED). The branch-protection criterion stays a DRAFT line — gh#1000 was open at the fixation, the fact key lands via a micro-PR after its closure (№525: no checker, no fact).
-=======
-| v2 | The absolute goals: typed share ≥ goal, precise share ≥ goal (№605, X-3), 0 open High (server path), the domain quorum, the serve-e2e inventory | **RED** | typed share 3759 bp vs goal 3500 bp: MET; precise share 2131 bp vs goal 3000 bp: NOT MET; open High (server path) 0 vs goal 0: MET; domain quorum 0/8 vs goal 1/3: MET; the serve-e2e inventory: all state-accumulating declarations done |
-
-**Overall (§4 + v2 0.29): RED.**
-The 0.29 release gate: **WIRED** (the DEFAULT gate target — №597, ADR-0181 §6, the owner's authorization 2026-10-05; the strict release-time read, --strict, exits 1 on RED).
->>>>>>> Stashed changes
+The 0.30 release gate: **WIRED** (the DEFAULT gate target — №630, ADR-0186 §5, the owner's verdict 2026-10-07; the strict release-time read, --strict, exits 1 on RED). The branch-protection criterion is MACHINE-READ — the fact key landed WITH its checker in the gh#1000-closure PR (2026-10-08, №525: the checker is the audit conclusion read, synced blocking by gate-facts-sync); the switches themselves were applied by the owner before the 0.30.0 publication, as №646 requested.
 
 <details><summary>the raw gate outputs</summary>
 
 **4.1 (types), gate exit 0:**
 
 ```
-typed signatures: 309/516 (59.88%)
-precise signatures: 218/516 (42.24%) — №560: the two shares side by side
-parameterized signatures: 55/91 (60.43%) — №623: the third share (among List/Struct)
-field-label signatures: 38/40 (95.00%) — №627: the fourth share (among the parameterized Struct rows)
+typed signatures: 317/516 (61.43%)
+precise signatures: 222/516 (43.02%) — №560: the two shares side by side
+parameterized signatures: 59/95 (62.10%) — №623: the third share (among List/Struct)
+field-label signatures: 40/42 (95.23%) — №627: the fourth share (among the parameterized Struct rows)
 ```
 
 **4.2 (dedup), gate exit 0:**
@@ -51,7 +44,7 @@ src/ mirror mentions: 6 (threshold 6)
 **4.3 (debt), gate exit 0:**
 
 ```
-ignore: 11 (threshold 11) OK
+ignore: 9 (threshold 11) OK
 ignore_todo: 0 (threshold 0) OK
 dead_code: 15 (threshold 15) OK
 example_uncovered: 0 (threshold 0) OK

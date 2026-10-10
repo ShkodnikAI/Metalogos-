@@ -49,8 +49,7 @@ thread_local! {
 struct EgressSandbox;
 impl EgressSandbox {
     fn enter() -> Self {
-        let dir =
-            std::env::temp_dir().join(format!("mlog_n387_egress_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("mlog_n387_egress_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let prev = std::env::current_dir().unwrap();
@@ -66,8 +65,7 @@ impl Drop for EgressSandbox {
                 let _ = std::env::set_current_dir(prev);
             }
         });
-        let dir =
-            std::env::temp_dir().join(format!("mlog_n387_egress_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("mlog_n387_egress_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

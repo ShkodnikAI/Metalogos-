@@ -20,7 +20,7 @@
 // instead of silently regressing coverage.
 //
 // Аудит-инвариант: до №270 REFERENCE documented ~59% of the registry —
-// for a grant reviewer (NLnet/Restack) an incomplete reference reads as
+// for an external reviewer an incomplete reference reads as
 // project immaturity, and nothing failed CI when builtins were added.
 
 use regex::Regex;

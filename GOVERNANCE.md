@@ -11,7 +11,7 @@ Metalogos is an open-source project created and primarily maintained by a solo d
 ### Benevolent Dictator for Life (BDFL)
 
 - **ShkodnikAI** — Project founder, lead developer, and final decision-maker
-- Responsible for: architecture decisions, release management, security policy, grant applications
+- Responsible for: architecture decisions, release management, security policy, funding
 
 ### Rationale
 
@@ -29,7 +29,7 @@ During the early stages of the project (pre-1.0), a BDFL model ensures:
 |------|-------------|----------------|
 | **Technical** | Language design, compiler architecture, API changes | BDFL (with community input) |
 | **Security** | Security policy, vulnerability handling, CVEs | BDFL |
-| **Financial** | Grant applications, sponsorship, budget | BDFL |
+| **Financial** | Funding, sponsorship, budget | BDFL |
 | **Community** | Code of Conduct enforcement, contributor recognition | BDFL + Community moderators |
 | **Release** | Versioning, release schedule, feature freeze | BDFL |
 
@@ -93,7 +93,6 @@ We will initiate Phase 2 when:
 All financial activities are publicly documented:
 - GitHub Sponsors dashboard (public)
 - Open Collective budget (public)
-- Grant applications and reports (public, where permitted by funders)
 
 ## License
 

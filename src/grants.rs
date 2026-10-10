@@ -1,3 +1,10 @@
+//! Capability grants (authorization), not funding.
+//!
+//! This module is the algebra of ACCESS: the opaque `Value::Grant` handles
+//! that authorize irreversible operations inside a scope/TTL/quota
+//! (ADR-0155). Nothing financial lives here — no donations, no funding
+//! flows, no money movement (the project's funding surfaces are
+//! Open Collective / FUNDING.yml and are unrelated to this code).
 // ── Naryad #390 (P0, security/action): Grant value — ADR-0155 §3 ──────
 //
 // The language-level Grant capability: opaque `Value::Grant` handles over

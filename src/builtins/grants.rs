@@ -1,3 +1,10 @@
+//! Capability grants (authorization), not funding — the DSL surface.
+//!
+//! This module is the algebra of ACCESS: the opaque `Value::Grant` handles
+//! that authorize irreversible operations inside a scope/TTL/quota
+//! (ADR-0155). Nothing financial lives here — no donations, no funding
+//! flows, no money movement (the project's funding surfaces are
+//! Open Collective / FUNDING.yml and are unrelated to this code).
 // ── Naryad #390 (P0, security/action): Grant algebra builtins ──────────
 //
 // The DSL surface of ADR-0155 (лecало: src/builtins/consent.rs — builtins,

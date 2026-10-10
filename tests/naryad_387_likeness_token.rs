@@ -33,6 +33,44 @@ use metalogos::audit::{audit_category_a, Severity};
 use metalogos::interpreter::values::Value;
 use metalogos::parser;
 use metalogos::semantic;
+use serial_test::serial;
+use std::cell::RefCell;
+
+thread_local! {
+    static PREV_CWD: RefCell<Option<std::path::PathBuf>> = const { RefCell::new(None) };
+}
+
+/// A temp sandbox as the process cwd (the same posture the №507/№563
+/// suites use — a chdir is not thread-scoped, so the writer test is
+/// `#[serial]`). The egress save must land in a THROWAWAY directory,
+/// never in the repo root: a test writing into cwd is how
+/// `w387_e2e_saved.jpg` (+ the manifest sidecar) once leaked into the
+/// tracked tree. Restored even on panic.
+struct EgressSandbox;
+impl EgressSandbox {
+    fn enter() -> Self {
+        let dir =
+            std::env::temp_dir().join(format!("mlog_n387_egress_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let prev = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&dir).unwrap();
+        PREV_CWD.with(|p| *p.borrow_mut() = Some(prev));
+        EgressSandbox
+    }
+}
+impl Drop for EgressSandbox {
+    fn drop(&mut self) {
+        PREV_CWD.with(|p| {
+            if let Some(prev) = p.borrow_mut().take() {
+                let _ = std::env::set_current_dir(prev);
+            }
+        });
+        let dir =
+            std::env::temp_dir().join(format!("mlog_n387_egress_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
 
 fn audit_errors(src: &str) -> Vec<String> {
     let declarations = parser::parse(src).expect("parse");
@@ -325,7 +363,9 @@ fn n387_kitchen_camera_stays_red() {
 // ── 6. E2E: the ritual at runtime ────────────────────────────────────
 
 #[test]
+#[serial]
 fn n387_runtime_ritual_unseals_egress() {
+    let _sb = EgressSandbox::enter();
     let src = r#"
 origin portrait { kind: likeness, media: image, label: private }
 pattern Token(_tick: String) -> String {
@@ -341,6 +381,16 @@ flow Main { input: String = "tick" -> Token -> output }
         .expect("the ritual e2e runs")
         .unwrap_or_default();
     assert!(out.contains("w387_e2e_saved.jpg"), "output: {out:?}");
+    // The file and its manifest sidecar land in the SANDBOX, not in the
+    // caller's cwd — the repo root stays clean by construction.
+    assert!(
+        std::path::Path::new("w387_e2e_saved.jpg").exists(),
+        "the saved image lands inside the sandbox"
+    );
+    assert!(
+        std::path::Path::new("w387_e2e_saved.jpg.manifest.json").exists(),
+        "the manifest sidecar lands next to the file"
+    );
 }
 
 #[test]

@@ -31,4 +31,14 @@ docs/book/book/
 # Naryad #387: golden-example runtime artifacts (the token-egress e2e)
 /w387_portrait_saved.jpg
 /w387_portrait_saved.jpg.manifest.json
+# Repo-hygiene naryad: stray root artifacts that once leaked into the
+# tracked tree — the №387 runtime e2e leftovers (now sandboxed in the
+# test), the root app.mlog test-denial leftover, and the GENERATED
+# unfreeze-gate summary (scripts/ci/unfreeze_gate.py default --out;
+# CI uploads it as the unfreeze-summary artifact, docs/release-checklist.md
+# attaches it at release time — it is never a tracked source file).
+/w387_e2e_saved.jpg
+/w387_e2e_saved.jpg.manifest.json
+/app.mlog
+/unfreeze_summary.md
 __pycache__/

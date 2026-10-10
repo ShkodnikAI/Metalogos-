@@ -239,8 +239,8 @@ keep their names):
 | `db_execute` | arg 0 — SQL | public | trusted | confidentiality = clearance (`private-db`); integrity = `SQL_DYNAMIC` (non-literal SQL is refused before the bridge can see it) |
 
 Every deny names the argument, its label and the failed threshold
-(explainable refusal — consumed by №392 DenyEvent). Grants (№390) are
-orthogonal: the grant authorizes the ACTION (scope/TTL/quota, runtime),
+(explainable refusal — consumed by №392 DenyEvent). Capability grants (№390) are
+orthogonal: the capability grant authorizes the ACTION (scope/TTL/quota, runtime),
 the bridge gates the DATA that feeds it (labels, compile time);
 `db_execute_with_grant` is not a №325 sink.
 
@@ -381,7 +381,7 @@ fourth ad-hoc style (audit 2026-09-19 P2-1).
 |---|---|---|---|---|
 | Consent scope (`consent(scope, …)` label component, ADR-0154; sources №335) | media/voice egress gating — the consent scopes a value may flow under | carried on the LABEL lattice (a scope set on the value's label, never a runtime string); for a media handle the granted scope is mirrored ON THE STORE ENTRY (№397) so the `media_save` backstop honors what the static gate accepted | not linear — a scope is a property, not a consumable | `consent_ledger` records (№335; `src/consent.rs`) |
 | LikenessToken (`likeness_challenge` / `likeness_verify`, №387, ADR-0149 D5/D6) | likeness/deepfake gate — the RUNTIME credential that unseals `media_save` for camera/likeness origins | yes — `Value::LikenessChallenge` / `Value::Likeness` (a String can never occupy a token position; serde emits a dead marker) | yes — one-time challenge consumed linearly by the ritual; branch/loop-bound tokens do not escape their fork (fail-closed) | consent-ledger grant trace recorded by `likeness_verify` + Action Ledger side effects |
-| Grant (`grant_issue` / `grant_subgrant` / `grant_revoke` / `grant_use`, №390, ADR-0155) | authorizes irreversible operations (destructive SQL) inside a scope, TTL and quota | yes — `Value::Grant` (an opaque `GrantHandle`, non-printable, non-serializable; REFERENCE §4.15.1) | policy-dependent — `"once"` (linear), `"n"` (metered uses) or `"unlimited"`; subgrants are attenuation-only | Action Ledger v1 — signed Ed25519 chain (№393, ADR-0167); every granted use journals itself |
+| Capability grant (`grant_issue` / `grant_subgrant` / `grant_revoke` / `grant_use`, №390, ADR-0155) | authorizes irreversible operations (destructive SQL) inside a scope, TTL and quota | yes — `Value::Grant` (an opaque `GrantHandle`, non-printable, non-serializable; REFERENCE §4.15.1) | policy-dependent — `"once"` (linear), `"n"` (metered uses) or `"unlimited"`; subgrants are attenuation-only | Action Ledger v1 — signed Ed25519 chain (№393, ADR-0167); every granted use journals itself |
 
 The credentials compose with the label lattice (§2.1) and the sink
 clearance (§2.4): the static gates check the LABEL, the runtime gates check

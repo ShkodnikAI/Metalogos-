@@ -73,7 +73,44 @@ they reside in the canon held by the coordinator (§16.0-7).
 - C2PA mini-slice: manifest read/write, Art 50 labeling — a narrow slice (#320).
 - Completion-audits of Wave 0 — accepted (gh#404–#406).
 
-## Current wave — Wave 39 (the verdict-execution + repair, the dispatch gh#1167, 2026-10-09)
+## Current wave — Wave 40 (the FO-050 parity wave, the dispatch gh#1187, 2026-10-09)
+
+The dispatch gh#1187 queue — the owner's FO-050 bug reports + the Q-2
+movement №2 + the types 0.31 №1 + the spec topic 3. Executed: №666
+(gh#1181) + №667 (gh#1182) — the completion audits of the #1188
+repairs (the VM fresh-DB bootstrap + the db_url boot resolution; T1–T4
+4/4, the regressions 7/7·5/5·4/4·5/5·4/4, vm:: 14/14; the
+classification ### Fixed; closed 2026-10-12 with the audit reports);
+№668 (gh#1183, PR #1194 → 1640984) — the Q-2 movement №2 «memory →
+recognition»: 8 of 9 rows closed against the verified handler facts +
+the honest OPAQUE ninth (world_state), sensitive 54/138 = 3913 →
+62/138 = 4492 bp on its merge; №669 (gh#1184, PR #1195 → b6300f8) —
+the typing movement 0.31 №1: the forecast/graph package, 4 of 6 rows
+typed + 2 honest refusals (forecast_next — no Forecast kind in the
+stage-0 OpaqueKind; graph_path — the heterogeneous List), the
+SEQUENTIAL RECOUNT on the merged base: sensitive 66/138 = 4782 bp,
+typed 326/516 = 6317, parameterized 71/103 = 6893, fieldmeta 44/46 =
+9565 (the compiled pins 322/68/99/43; the fact twin 6893); №670
+(gh#1185, PR #1196 → 9f5cee7) — the spec topic 3 «Errors and the try
+result»: 6 norms S-ERR-001..006 + 7 conformance pairs + the Topics
+sync (the normative core 27 → 33); NO cross-backend divergence found.
+The window's headline (№664, §6.24): the 0.30.1 lockstep → 27877b8,
+the tag v0.30.1 — **the publication is the OWNER's act, §6.5,
+PENDING**. The wave tail: №671 (this section; REALITY §6.25; the
+quota line 0/20 PASS; the dispatch gh#1187 closes). The counters at
+9f5cee7: typed 326/516 = 6317 bp, precise 4302, parameterized 71/103
+= 6893, fieldmeta 44/46 = 9565, sensitive 66/138 = 4782, norms 33
+(13+14+6) with 40 pairs, ignore 9 / dead_code 15, ADR 183, dups 0,
+blocking cells 32, release-gap OK, the 0.30 gate --strict exit 0. The
+owner gates remaining: **the v0.30.1 publication (§6.5)**, the
+ADR-0191 §-answers (the OD variants), the train №2 candidate (19.10 —
+the honest-content rule), NLnet до 20.10 (owner), the showcase repo
+(NOT created — the owner's act), №639 (15.10) / №648 (01.12) outside
+the wave.
+
+## Executed — Wave 39 (the verdict-execution + repair, the dispatch gh#1167, 2026-10-09)
+
+**Executed and accepted** (the post-wave sync №665 → `dcb9324`; the wave record: REALITY §6.24; 7/7 naryads incl. the train №1 at the window). The dispatch gh#1167 queue —
 
 The dispatch gh#1167 queue — the owner's verdict session 08.10 as
 workorders + the №652-a/b/c repair line + the train №1. Executed:

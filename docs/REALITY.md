@@ -1975,3 +1975,128 @@ creation (owner — then the showcase wave).
 
 **The wave report line (№608/№470):** the dispatch surface gh#1167:
 `naryad-quota (№470/№608): 24 naryads — domain 0/24 = 0.0% — PASS (the standing limiter <= 1/3)`
+
+### 6.25. Wave 40 post-wave record (naryad №671): the FO-050 parity wave — the completion audits №666/№667, the Q-2 movement №2 «memory → recognition», the typing movement 0.31 №1 (forecast/graph) with the sequential recount, the spec topic 3 «Errors and the try result» (S-ERR-001..006), and the window: the 0.30.1 cut TAGGED (main @ `9f5cee7`, 2026-10-12)
+
+Protocol: the same machines, no hand-written numbers. The honest
+headline: В40 executed the owner's FO-050 bug-report line and the
+types movement at the window (the dispatch gh#1187). The repairs'
+content had landed BEFORE the wave (the owner's verbatim directive
+«Выполни #1169 и #1170» — PR #1188, 2026-10-09); the wave verified and
+closed it: **№666/№667 (gh#1181/gh#1182)** — the completion audits at
+the window: the repair suite `issue_1169_1170_vm_boot_db` T1–T4 4/4
+(the VM fresh-DB bootstrap replays the schema DDL eagerly at boot; the
+db_url resolves ONCE in the Process context — no per-handler env()
+reads), the regressions №259 7/7 · №758 5/5 · №403 4/4 · №457 5/5 ·
+№399 4/4, `vm::` 14/14 — 0 failed; the classification `### Fixed`
+(honest probe: availability/parity, not the vulnerability class); the
+issues closed with the audit reports. **№668 (gh#1183, PR #1194 →
+`1640984`)** — the Q-2 movement №2 «memory → recognition»: 8 of 9
+gate_031 rows closed against the verified handler facts (the four
+typed-coarse human_* rows parameterized; semantic_search/
+mtree_retrieve typed; mtree_stats/mtree_summarize Structs WITH the
+field-meta — the anti-dilution rule), the ninth (world_state) — the
+honest OPAQUE WorldState handle (№355/ADR-0159; not a scalar, not a
+parameterized List/Struct — the dictionary line is a separate owner
+decision); sensitive 54/138 = 3913 → 62/138 = 4492 bp on its merge.
+**№669 (gh#1184, PR #1195 → `b6300f8`)** — the typing movement 0.31
+№1: the forecast/graph untyped package, 4 of 6 rows typed
+(forecast_state Struct<ForecastState>{10 fields — the prov-block
+metadata}, forecast_points Struct<ForecastPoints>{4 internal},
+graph_neighbors List<Neighbor>, graph_query List<GraphEntry>), **2
+honest refusals** (the №650 form): forecast_next — the opaque
+ForecastHandle (the stage-0 OpaqueKind {Secret,Reflex,Grant,Series,
+Media,Embodied} has NO Forecast kind; a fictitious spelling is
+forbidden) and graph_path — the heterogeneous List (PathNode vs the
+PathError singleton); **the sequential recount on the merged base**
+(the branch sat on the pre-№668 main per the staging directive): the
+machines re-read the live fact — sensitive 62+4 = **66/138 = 4782 bp**
+(the phase-0 prediction held), typed 322+4 = **326/516 = 6317 bp**,
+parameterized 67+4 = **71/103 = 6893 bp**, field-label 42+2 = **44/46
+= 9565 bp**; the compiled pins TYPED_FLOOR 318 → 322, PARAM_FLOOR
+64 → 68, PARAM_LS_DENOM 95 → 99, FIELDMETA_FLOOR 41 → 43; the
+fact_parameterized_share_bp → 6893 (the gate-facts-sync twin). **№670
+(gh#1185, PR #1196 → `9f5cee7`)** — the spec topic 3 «Errors and the
+try result»: 6 norms S-ERR-001..006 pin the EXISTING try machinery on
+BOTH backends per the №645 protocol (the TryResult shape, the caught
+runtime refusal with the execution continuing, the TryError{code,
+message}, the №385 classification contract — the whitelisted
+position-0 origin stamp else the honest RUNTIME_ERROR, the
+semantic-blocking boundary — try does NOT catch check-time refusals,
+the first-class nested try); 7 conformance pairs ride the existing
+`conformance (blocking)` job (the №535 rule); the probe found NO
+cross-backend divergence (the shared-code parity by construction);
+the Topics sync (the normative core 27 → 33). The window's headline
+(the В39 naryad №664, cross-ref §6.24): the 0.30.1 lockstep PR #1193 →
+`27877b8`, the tag **v0.30.1** ON THE MERGE COMMIT — the publication
+is the OWNER's act, §6.5, PENDING. This naryad (№671) is the wave
+tail — the dispatch gh#1187 closes with it.
+
+- №666 (gh#1181, PR #1188 → `7874a28`) — the gh#1169 repair (the VM
+  fresh-DB bootstrap): the schema DDL replays eagerly at boot (the
+  fresh DB carries the schema BEFORE the first request — the
+  interpreter parity); the unset variable is a LOUD BOOT error naming
+  the variable and the remedy (was: a silent OK boot then per-request
+  500s). Closed 2026-10-12 with the completion-audit report.
+- №667 (gh#1182, PR #1188 → `7874a28`) — the gh#1170 repair (the
+  db_url boot resolution): the URL resolves ONCE in the Process
+  (boot) context on BOTH backends; the VM injects NO per-handler env()
+  re-reads; the №259 serve-route env gate UNCHANGED (deny by default;
+  ENV_NOT_PERMITTED — the frozen contract). Closed 2026-10-12 with
+  the completion-audit report.
+- №668 (gh#1183, PR #1194 → `1640984`) — the Q-2 movement №2 (the
+  §6.3 audit order): 8 of 9 rows + the honest OPAQUE ninth; the
+  floors in the same PR (typed 317 → 322 compiled 318, sensitive 54 →
+  62/138, parameterized 59/95 → 67/99, fieldmeta 40/42 → 42/44); the
+  test `naryad_668_memory_recognition` 5/5.
+- №669 (gh#1184, PR #1195 → `b6300f8`) — the typing movement 0.31 №1:
+  4 of 6 rows + 2 honest refusals; the sequential recount on the
+  post-№668 base (66/138 = 4782 bp; 326/516; 71/103; 44/46); the
+  test `naryad_669_forecast_graph` 6/6 (including the refusal pins).
+- №670 (gh#1185, PR #1196 → `9f5cee7`) — the spec topic 3: 6 norms +
+  7 pairs + the Topics sync (27 → 33); NO behavior change.
+- №671 (gh#1186, PR #1198 → this merge) — the wave tail: §6.25 +
+  PLAN-SUMMARY Wave 40 + the [Unreleased] Changed entries for the
+  movement lanes; the dispatch gh#1187 closes.
+
+**The FO-050 pilot status (honest):** the two VM serve-boot repairs
+(#1169/#1170) are on main and ride the 0.30.1 tag; the office re-verify
+waits the 0.30.1 artifact (the publication — the owner's act). The
+pilot's `TeamSkillWired expects 2 args, got 0` first-request symptom
+is NOT reproduced minimally and is NOT claimed fixed — it is expected
+to disappear with the empty-schema state gone; the minimal-repro ask
+stands in the gh#1169 thread.
+
+**The Wave 40 counters (every value from its machine, the command
+reproduces it; main @ 9f5cee7):**
+
+| Counter | Value | Machine | Movement |
+|---|---|---|---|
+| Typed-signature share (№467) | **326/516 = 6317 bp** | `python3 scripts/ci/type_signature_share.py --gate scripts/ci/type_signature_baseline.txt` | **moved** (317 → 326: №668 +5 — incl. the world_state OPAQUE handle typed, №669 +4) |
+| Precise typed share (№560) | **222/516 = 4302 bp** | `… --precise --gate …` | unchanged (the X-3 rule — no scalars in the packages) |
+| Parameterized share (№623) | **71/103 = 6893 bp** (the LS denominator 95 → 103) | `… --parameterized --gate …` | **moved** (59/95 → 71/103: №668 +8/95→99 — the four typed-coarse reparameterized + four new, №669 +4/99→103; the goal 5000 stays the owner's record) |
+| Field-label share (№627) | **44/46 = 9565 bp** | `… --parameterized --fieldmeta --gate …` | **moved** (40/42 → 44/46: №668 mtree_stats/mtree_summarize, №669 forecast_state/forecast_points — all WITH the field-meta, the anti-dilution rule) |
+| **Sensitive-surface coverage (№644)** | **66/138 = 4782 bp** (the floor 4782 only-up) | `python3 scripts/ci/sensitive_surface_share.py --gate scripts/ci/sensitive_surface_baseline.txt` | **moved** (54/138 → 66/138: №668 +8, №669 +4; the uncovered by reason: struct-no-meta 2, typed-coarse 3, untyped 67) |
+| The spec normative core (№645/№652/№670) | **33 norms** (S-VAL ×13 + S-BLK ×14 + S-ERR ×6) with 40 conformance pairs | the pair count in `tests/conformance/`; the Topics table | **moved** (27 → 33: №670 the topic 3 live — the first spec topic recorded WITHOUT a divergence yield) |
+| The №604 dictionary | **classes 1–4** | `python3 scripts/ci/honest_boundary_check.py --self-test` (ALL PASS) | unchanged |
+| `#[ignore]` debt (№468) | **9** (TODO: 0) | `python3 scripts/ci/debt_counters.py --gate scripts/ci/debt_baseline.txt` | unchanged (the 11 → 9 drop was В39's №662 — §6.24) |
+| `dead_code` (№468) | **15** | same gate | unchanged |
+| TW/VM duplicated builtin names (№462) | **0** (the quorum 0/8 groups) | `python3 scripts/ci/count_duplicated_names.py --quorum` | unchanged |
+| Registered mirrors (№502/№564) | **6** | `python3 scripts/ci/mirror_counter.py --gate scripts/ci/src_mirror_baseline.txt` | unchanged |
+| ADR count | **183** | `python3 scripts/gen_metrics.py --check` | unchanged |
+| Blocking-checks cells | **32** | `python3 scripts/ci/blocking_checks_sync.py --count` | unchanged (the №535 rule) |
+| The №562 release-gap gate | **OK** | `python3 scripts/ci/release_gap_gate.py` | unchanged (OK) |
+| The 0.30 gate posture | **owner_fixed: true; the DEFAULT target 0.30; the parameterized fact MET (6893 ≥ 5000); the branch-protection verdict fact GREEN** | `python3 scripts/ci/unfreeze_gate.py --office-tests pass --gate-target 0.30 --strict` (exit 0) | unchanged GREEN |
+| The release state | **0.30.1 TAGGED (`27877b8`) — NOT published; the owner's act pending** | the tag + the release API | unchanged from the window (§6.24) |
+
+**The owner gates remaining after В40:** the **v0.30.1 publication**
+(§6.5 — the train №1 completes with it), the ADR-0191 §-answers (the
+OD variants — the 0.31 direction; gh#1161), the train №2 candidate
+(the Monday window 2026-10-19 — no empty trains, the ADR-0189 honest-
+content rule), NLnet до 20.10 (owner), the examples showcase — the
+repository is NOT created (the owner's act; the showcase is not
+referenced as existing), the В36 tail (№639 the ledger revision
+2026-10-15, №641) and №648 (2026-12-01) — outside В40, untouched.
+
+**The wave report line (№608/№470):** the dispatch surface gh#1187:
+`naryad-quota (№470/№608): 20 naryads — domain 0/20 = 0.0% — PASS (the standing limiter <= 1/3)`

@@ -996,3 +996,87 @@ fn diagram_high_level_script_in_node_label_warns() {
         warnings(&r)
     );
 }
+
+// ── N0 (gh#1209, PE-1): the onX word boundary — the false positive ───
+//
+// detect_xss_payload used to treat ANY `on` prefix as an event handler:
+// `content=` in `<meta content=...>` matched (no word boundary), while
+// `onLoad = "x"` (spaces around `=`) did NOT match (the `=` was required
+// immediately after the letters). The contract per the owner's dispatch:
+//
+//   1. `<meta content="x">` — PASSES (no onX finding);
+//   2. `<a onclick="x">`    — blocked;
+//   3. `<img onerror=x>`    — blocked;
+//   4. `<div onLoad = "x">` (spaces around `=`) — blocked.
+//
+// The boundary rule: the byte BEFORE `on` must not be
+// [A-Za-z0-9_-]; optional spaces/tabs are allowed between the
+// handler name and `=`.
+
+#[test]
+fn n0_meta_content_attribute_is_not_an_event_handler() {
+    let src = "pattern P(input: String) -> String {\n    return svg_text(10.0, 10.0, \"<meta content=\\\"x\\\">\", 14.0, \"#000\")\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    assert!(
+        !errors(&r).iter().any(|e| e.contains("onX")),
+        "<meta content=\"x\"> must NOT error as an onX handler, errors: {:?}",
+        errors(&r)
+    );
+    assert!(
+        !warnings(&r)
+            .iter()
+            .any(|w| w.contains("onX") || w.contains("event handler")),
+        "<meta content=\"x\"> must NOT warn as an onX handler (the false positive), warnings: {:?}",
+        warnings(&r)
+    );
+}
+
+#[test]
+fn n0_content_prefix_word_is_clean_everywhere() {
+    // The same false-positive class: button=, sponse=, reason=, portion= —
+    // any word where `on` sits mid-word followed by letters then `=`.
+    for word in ["content=", "button=", "sponse=", "portion=", "person="] {
+        let src = format!("pattern P(input: String) -> String {{\n    return svg_text(10.0, 10.0, \"<meta {}\\\"x\\\">\", 14.0, \"#000\")\n}}\nflow Main {{ input: String = \"x\" -> P -> output }}", word);
+        let r = check_program(&src).unwrap();
+        assert!(
+            !warnings(&r)
+                .iter()
+                .any(|w| w.contains("onX") || w.contains("event handler")),
+            "`{}` must NOT be treated as an onX handler, warnings: {:?}",
+            word,
+            warnings(&r)
+        );
+    }
+}
+
+#[test]
+fn n0_onclick_and_onerror_still_blocked() {
+    // Regression guard: the boundary fix must not weaken the real cases.
+    for payload in ["<a onclick=\\\"x\\\">", "<img onerror=x>"] {
+        let src = format!("pattern P(input: String) -> String {{\n    return svg_path(\"M 10 10 {}\", \"none\", \"black\")\n}}\nflow Main {{ input: String = \"x\" -> P -> output }}", payload);
+        let r = check_program(&src).unwrap();
+        assert!(
+            errors(&r)
+                .iter()
+                .any(|e| e.contains("onX") || e.contains("event handler")),
+            "{} in svg_path must still ERROR, errors: {:?}",
+            payload,
+            errors(&r)
+        );
+    }
+}
+
+#[test]
+fn n0_onload_with_spaces_around_eq_still_blocked() {
+    // `onLoad = "x"` — spaces around `=` are still an event handler in
+    // HTML; the lint must catch it (it did not before the fix).
+    let src = "pattern P(input: String) -> String {\n    return svg_path(\"M 10 10 <div onLoad = x>\", \"none\", \"black\")\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    assert!(
+        errors(&r)
+            .iter()
+            .any(|e| e.contains("onX") || e.contains("event handler")),
+        "<div onLoad = x> must ERROR, errors: {:?}",
+        errors(&r)
+    );
+}

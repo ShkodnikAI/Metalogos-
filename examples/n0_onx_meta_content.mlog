@@ -1,0 +1,9 @@
+// N0 (gh#1209, PE-1): the onX word-boundary lint fix — the POSITIVE
+// contract. `<meta content="x">` is a normal attribute, NOT an onX
+// event handler; the program compiles and runs cleanly (svg_text
+// auto-escapes the content). Before the fix the lint warned on the
+// `content=` false positive.
+pattern P(input: String) -> String {
+  return svg_text(10.0, 10.0, "<meta content=\"x\">", 14.0, "#000")
+}
+flow Main { input: String = "x" -> P -> output }

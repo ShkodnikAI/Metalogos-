@@ -4,7 +4,83 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Changed
+
+- **№662 (gh#1163) — the ADR-0188 option (б) compile-time port (the
+  behavior change, fail-closed; lands in the 0.31.0 semantics — NOT in
+  the 0.30.1 train):** the SHARED semantic checker refuses two
+  late-failure classes at CHECK time on BOTH backends (the owner's
+  verdict gh#1123, 2026-10-08; the parity postulate — the checker is the
+  backend-neutral front door): (1) the IMPLICIT String→opaque coercion —
+  a String-shaped value (a literal or a `+` chain) flowing into a
+  target declared with an opaque type (Html/…) at an assignment
+  (entity initializer) or an argument position; the explicit path (an
+  Html producer — `render()`) stays legal (№114 resolved); (2) the
+  unknown template names — a `render("Name", …)` whose
+  statically-resolvable name is absent from the program's template
+  declarations (the №250 registration set; the request-time 500 moves
+  left to check time; ONLY a string-literal name is statically
+  resolvable — a bare Ident is a runtime-evaluated name (the CI-verified
+  ok_448 leak-flow shape: render(raw) passes the variable holding the
+  name) and every non-literal form stays the runtime's backstop). The
+  corpus is clean (the recursive dry-run inventory: 370 .mlog files
+  across examples/compat/tests, 0 refusals); the diagnostics move left
+  for NEW code only. The pipe syntax stays runtime-absent (№115 — the
+  documented gap, option (а) is later).
+
+
+## [0.30.1] - 2026-10-12
+
+### Security
+
+
+- **№658 (gh#1159) — the VM break/continue parity (the behavior change,
+  fail-closed; AFFECTS 0.30.0 AND EARLIER on the VM backend; the audit
+  guard scenario: a `break`/`continue` inside a loop body — top-level,
+  inside an `if` guard, inside a match arm, in a nested loop — was
+  silently IGNORED by the VM: the body ran to the condition cap as if
+  the statement were absent, and a top-level form kept an unresolved
+  `Jump(0)` placeholder that tripped the infinite-loop guard, while the
+  tree-walking backend honored both statements; the X-1/Y-1/Q-1
+  silently-wrong control-flow class, the №652-a finding):** the VM loop
+  path mirrors the TW `ControlFlow` contract 1:1 — every
+  `break`/`continue` reaches its NEAREST enclosing loop on BOTH backends
+  (`break` exits the loop; `continue` starts the next iteration — the
+  condition re-test for `while`, the next item for
+  `each`/`each_with_index`). The compiler now resolves every loop jump
+  from the loop-stack entry: the shared statement compiler registers a
+  `Jump(0)` placeholder in the NEAREST entry at any nesting depth and
+  the loop compiler patches it from the POPPED entry (the stale-local
+  patch loops — the pre-№658 root cause — are gone). The norms
+  S-BLK-011/012 + five conformance pairs pin the record; the TW is
+  unchanged. Found by №652 (the spec topic 2 probe); the repair follows
+  the №651/№629 precedent. The fix lands 2026-10-09 (this PR; after the
+  v0.30.0 tag b4b9abb lineage — the published tag is affected on the VM
+  backend; no re-tag — the №620 precedent).
+
+- **№651 (gh#1145) — the TW/VM condition parity (the behavior change,
+  fail-closed; AFFECTS 0.30.0 AND EARLIER on the VM backend; the audit
+  guard scenario: a composite or an opaque value in a condition — e.g.
+  `if [items] { … }` or `if hash_password(pw) { … }` — silently chose a
+  branch on the VM (a non-empty List took THEN, an opaque handle took
+  ELSE) while the tree-walking backend refused; the X-1/Y-1/Q-1
+  silently-wrong-guard class):** the VM condition path (the new
+  `Instruction::JumpIfNotCond`, emitted for if / else-if / while / the
+  match guards) mirrors the TW `Value::as_bool` 1:1 — the truthy set of
+  a condition is exactly {true Bool, Float ≠ 0.0, non-empty String},
+  Unit is falsy, and every composite / opaque / Fluid value refuses
+  with the stable `[TYPE_MISMATCH]` code on BOTH backends (the norm
+  S-VAL-013; the №629 loud-refusal class). The soft truthiness of
+  `&&`/`||` (the №532 twin, compiled to the legacy `JumpIfNot`) is
+  unchanged and stays pinned. Found by №645 (the spec-carcase
+  conformance build, the finding №645-a); the repair follows the №629
+  precedent. The fix lands 2026-10-08 (this PR; after the v0.30.0 tag
+  6eafee1 — the published tag is affected on the VM backend; no re-tag
+  — the №620 precedent).
+
+
 ### Fixed
+
 
 - **#1169/#1170 (the office VM-pilot staging, FO-050; PR — this fix) —
   the VM serve-boot db bootstrap (the interpreter-parity boot path; the
@@ -51,75 +127,6 @@ All notable changes to the Metalogos project.
   fixed — it is expected to disappear with the empty-schema state gone;
   the minimal-repro ask stands in the issue thread.
 
-### Changed
-
-- **№662 (gh#1163) — the ADR-0188 option (б) compile-time port (the
-  behavior change, fail-closed; lands in the 0.31.0 semantics — NOT in
-  the 0.30.1 train):** the SHARED semantic checker refuses two
-  late-failure classes at CHECK time on BOTH backends (the owner's
-  verdict gh#1123, 2026-10-08; the parity postulate — the checker is the
-  backend-neutral front door): (1) the IMPLICIT String→opaque coercion —
-  a String-shaped value (a literal or a `+` chain) flowing into a
-  target declared with an opaque type (Html/…) at an assignment
-  (entity initializer) or an argument position; the explicit path (an
-  Html producer — `render()`) stays legal (№114 resolved); (2) the
-  unknown template names — a `render("Name", …)` whose
-  statically-resolvable name is absent from the program's template
-  declarations (the №250 registration set; the request-time 500 moves
-  left to check time; ONLY a string-literal name is statically
-  resolvable — a bare Ident is a runtime-evaluated name (the CI-verified
-  ok_448 leak-flow shape: render(raw) passes the variable holding the
-  name) and every non-literal form stays the runtime's backstop). The
-  corpus is clean (the recursive dry-run inventory: 370 .mlog files
-  across examples/compat/tests, 0 refusals); the diagnostics move left
-  for NEW code only. The pipe syntax stays runtime-absent (№115 — the
-  documented gap, option (а) is later).
-
-### Security
-
-- **№658 (gh#1159) — the VM break/continue parity (the behavior change,
-  fail-closed; AFFECTS 0.30.0 AND EARLIER on the VM backend; the audit
-  guard scenario: a `break`/`continue` inside a loop body — top-level,
-  inside an `if` guard, inside a match arm, in a nested loop — was
-  silently IGNORED by the VM: the body ran to the condition cap as if
-  the statement were absent, and a top-level form kept an unresolved
-  `Jump(0)` placeholder that tripped the infinite-loop guard, while the
-  tree-walking backend honored both statements; the X-1/Y-1/Q-1
-  silently-wrong control-flow class, the №652-a finding):** the VM loop
-  path mirrors the TW `ControlFlow` contract 1:1 — every
-  `break`/`continue` reaches its NEAREST enclosing loop on BOTH backends
-  (`break` exits the loop; `continue` starts the next iteration — the
-  condition re-test for `while`, the next item for
-  `each`/`each_with_index`). The compiler now resolves every loop jump
-  from the loop-stack entry: the shared statement compiler registers a
-  `Jump(0)` placeholder in the NEAREST entry at any nesting depth and
-  the loop compiler patches it from the POPPED entry (the stale-local
-  patch loops — the pre-№658 root cause — are gone). The norms
-  S-BLK-011/012 + five conformance pairs pin the record; the TW is
-  unchanged. Found by №652 (the spec topic 2 probe); the repair follows
-  the №651/№629 precedent. The fix lands 2026-10-09 (this PR; after the
-  v0.30.0 tag b4b9abb lineage — the published tag is affected on the VM
-  backend; no re-tag — the №620 precedent).
-
-- **№651 (gh#1145) — the TW/VM condition parity (the behavior change,
-  fail-closed; AFFECTS 0.30.0 AND EARLIER on the VM backend; the audit
-  guard scenario: a composite or an opaque value in a condition — e.g.
-  `if [items] { … }` or `if hash_password(pw) { … }` — silently chose a
-  branch on the VM (a non-empty List took THEN, an opaque handle took
-  ELSE) while the tree-walking backend refused; the X-1/Y-1/Q-1
-  silently-wrong-guard class):** the VM condition path (the new
-  `Instruction::JumpIfNotCond`, emitted for if / else-if / while / the
-  match guards) mirrors the TW `Value::as_bool` 1:1 — the truthy set of
-  a condition is exactly {true Bool, Float ≠ 0.0, non-empty String},
-  Unit is falsy, and every composite / opaque / Fluid value refuses
-  with the stable `[TYPE_MISMATCH]` code on BOTH backends (the norm
-  S-VAL-013; the №629 loud-refusal class). The soft truthiness of
-  `&&`/`||` (the №532 twin, compiled to the legacy `JumpIfNot`) is
-  unchanged and stays pinned. Found by №645 (the spec-carcase
-  conformance build, the finding №645-a); the repair follows the №629
-  precedent. The fix lands 2026-10-08 (this PR; after the v0.30.0 tag
-  6eafee1 — the published tag is affected on the VM backend; no re-tag
-  — the №620 precedent).
 
 ## [0.30.0] - 2026-10-08
 

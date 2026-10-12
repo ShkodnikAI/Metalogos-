@@ -150,8 +150,57 @@ pub(crate) fn builtin_truncate(args: &[Value]) -> Result<Value, String> {
     Ok(Value::String(format!("{}\u{2026}", truncated)))
 }
 
+/// The N1 (gh#1210) deterministic Cyrillic transliteration table used by
+/// `slugify`: one Cyrillic character -> 1-3 ASCII characters (all lowercase).
+/// ъ and ь map to NOTHING (dropped), the apostrophe is dropped too.
+/// Belarusian additions: і->i, ў->u, ґ->g. Every OTHER non-ASCII character
+/// is still dropped (the same deterministic-drop decision as before, the
+/// table is the contract, not a locale).
+const CYRILLIC_TRANSLIT: &[(char, &str)] = &[
+    ('а', "a"),
+    ('б', "b"),
+    ('в', "v"),
+    ('г', "g"),
+    ('д', "d"),
+    ('е', "e"),
+    ('ё', "e"),
+    ('ж', "zh"),
+    ('з', "z"),
+    ('и', "i"),
+    ('й', "y"),
+    ('к', "k"),
+    ('л', "l"),
+    ('м', "m"),
+    ('н', "n"),
+    ('о', "o"),
+    ('п', "p"),
+    ('р', "r"),
+    ('с', "s"),
+    ('т', "t"),
+    ('у', "u"),
+    ('ф', "f"),
+    ('х', "kh"),
+    ('ц', "ts"),
+    ('ч', "ch"),
+    ('ш', "sh"),
+    ('щ', "shch"),
+    ('ъ', ""),
+    ('ы', "y"),
+    ('ь', ""),
+    ('э', "e"),
+    ('ю', "yu"),
+    ('я', "ya"),
+    // Belarusian additions (the owner's dispatch N1).
+    ('і', "i"),
+    ('ў', "u"),
+    ('ґ', "g"),
+];
+
 /// `slugify(s)` — URL-safe slug: lowercase, non-alphanumerics collapsed to
-/// single hyphens, leading/trailing hyphens trimmed.
+/// single hyphens, leading/trailing hyphens trimmed. Cyrillic (Russian and
+/// Belarusian letters) is transliterated through the deterministic
+/// per-character table (N1, gh#1210): `slugify("Привет мир")` = `privet-mir`,
+/// `slugify("Щётка")` = `shchetka`. Other non-ASCII characters are dropped.
 pub(crate) fn builtin_slugify(args: &[Value]) -> Result<Value, String> {
     let s = expect_string_arg("slugify", args, 0)?;
     let mut result = String::with_capacity(s.len());
@@ -160,13 +209,35 @@ pub(crate) fn builtin_slugify(args: &[Value]) -> Result<Value, String> {
         if ch.is_ascii_alphanumeric() {
             result.push(ch.to_ascii_lowercase());
             prev_was_dash = false;
-        } else if (ch == '-' || ch == '_' || ch.is_whitespace()) && !prev_was_dash {
+            continue;
+        }
+        if ch == '\'' || ch == '\u{2019}' {
+            // The apostrophe (ASCII and the typographic right quote) is
+            // dropped entirely — no separator (п'ять -> pyat).
+            // prev_was_dash unchanged.
+            continue;
+        }
+        // The table keys are lowercase; fold the character first so the
+        // UPPERCASE Cyrillic forms (Р, Щ, Ў, Ґ, ...) map too. A
+        // multi-char fold (e.g. İ) never matches — falls through.
+        let folded: Vec<char> = ch.to_lowercase().collect();
+        let folded = if folded.len() == 1 { folded[0] } else { ch };
+        if let Some((_, mapped)) = CYRILLIC_TRANSLIT.iter().find(|(c, _)| *c == folded) {
+            if !mapped.is_empty() {
+                result.push_str(mapped);
+                prev_was_dash = false;
+            }
+            // An empty mapping (ъ, ь) contributes nothing at all — not
+            // even a separator; prev_was_dash stays as it was.
+            continue;
+        }
+        if (ch == '-' || ch == '_' || ch.is_whitespace()) && !prev_was_dash {
             result.push('-');
             prev_was_dash = true;
         }
-        // Non-ASCII letters (Cyrillic, CJK, accented Latin) are dropped.
-        // Decision: transliteration is locale-dependent and error-prone;
-        // dropping is deterministic and documented.
+        // Other non-ASCII (CJK, Greek, accented Latin, ...) are dropped.
+        // The Cyrillic part is no longer among them: the deterministic
+        // table above is the contract (N1, gh#1210) — locale-free.
     }
     // Trim trailing dash if present
     let trimmed = result.trim_end_matches('-');

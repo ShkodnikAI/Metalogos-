@@ -36,7 +36,7 @@ pattern TTruncZero() -> String {
   return truncate("hello", 0)
 }
 
-// ── 3. slugify: empty string + non-ASCII (Cyrillic dropped) ──
+// ── 3. slugify: empty string + Cyrillic transliterated (N1) ──
 pattern TSlugEmpty() -> String {
   return slugify("")
 }

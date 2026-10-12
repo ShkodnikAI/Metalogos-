@@ -2681,7 +2681,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `repeat(...)` | 2 | — | `repeat(s, n)` -- repeat string n times. |
 | `replace(...)` | 3 | `String, String, String -> String` | Replaces all occurrences of `old` with `new`. Unicode-aware, works with Cyrillic and emoji |
 | `reverse(...)` | 1 | `String -> String` | Reverses the string (per character) |
-| `slugify(...)` | 1 | — | `slugify(s)` — URL-safe slug: lowercase, non-alphanumerics collapsed to single hyphens, leading/trailing hyphens trimmed. |
+| `slugify(...)` | 1 | — | `slugify(s)` — URL-safe slug: lowercase, non-alphanumerics collapsed to single hyphens, leading/trailing hyphens trimmed. Cyrillic (Russian and Belarusian letters) is transliterated through the deterministic per-character table (N1, gh#1210): `slugify("Привет мир")` = `privet-mir`, `slugify("Щётка")` = `shchetka`. Other non-ASCII characters are dropped. |
 | `split(...)` | 2 | `String, String -> List` | Splits a string by a separator. An empty separator splits per character |
 | `squeeze(...)` | 2 | — | `squeeze(s, chars)` -- collapse consecutive identical characters from `chars`. |
 | `starts_with(...)` | 2 | `String, String -> Bool` | Checks whether the string starts with a prefix |

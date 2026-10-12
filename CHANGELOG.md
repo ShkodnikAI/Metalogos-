@@ -130,6 +130,24 @@ All notable changes to the Metalogos project.
   6eafee1 — the published tag is affected on the VM backend; no re-tag
   — the №620 precedent).
 
+### Changed
+
+- **N1 (gh#1210, PE-1) — `slugify`: the deterministic Russian/Belarusian
+  transliteration (the behavior change per the owner's dispatch):**
+  Cyrillic letters no longer drop — a per-character table maps them to
+  ASCII (а-a … ж-zh, х-kh, ц-ts, ш-sh, щ-shch, ъ/ь contribute nothing,
+  ы-y, э-e, ю-yu, я-ya; Belarusian і-i, ў-u, ґ-g; the apostrophe drops
+  with no separator). The output stays lowercase; ASCII unchanged;
+  OTHER non-ASCII (CJK, Greek, accented Latin) still drop — the table
+  is the contract, locale-free. The owner's four contract cases:
+  `slugify("Ремонт офисов")` = `remont-ofisov`, `slugify("Привет мир")`
+  = `privet-mir`, `slugify("Шамякина Мінск")` = `shamyakina-minsk`,
+  `slugify("Щётка")` = `shchetka`. The p117 golden `slug_cyr` case
+  (was `""`) now carries `privet-mir`; REFERENCE's `slugify` entry
+  regenerated. Four tests in `tests/n1_slugify_translit.rs` (RED
+  first). Size: S; risks: low — a pure builtin behavior change, no
+  other builtin shares the code path.
+
 
 ### Fixed
 

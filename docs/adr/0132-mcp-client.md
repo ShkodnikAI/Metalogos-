@@ -7,7 +7,7 @@
 
 ## Context
 
-Metalogos is cut off from the main integration standard of AI agents: MCP is entirely absent from the code base, while the `tool` construct (ADR-0054) is implemented, the LLM loop (`call_llm` → SmartRouter) and outbound HTTP (SSRF batch #261) exist, and the exec-gates #253-A give language-level control over process spawning. ADR-0054 §Future Directions records only the reverse bridge (expose tools AS an MCP server); the forward bridge (a Metalogos program **calls** tools of external MCP servers) is not designed. Grant context: the Proposal_Restack section "MCP with language-level security control" — a unique edge: no mainstream MCP client has taint statics and language-level exec-gates.
+Metalogos is cut off from the main integration standard of AI agents: MCP is entirely absent from the code base, while the `tool` construct (ADR-0054) is implemented, the LLM loop (`call_llm` → SmartRouter) and outbound HTTP (SSRF batch #261) exist, and the exec-gates #253-A give language-level control over process spawning. ADR-0054 §Future Directions records only the reverse bridge (expose tools AS an MCP server); the forward bridge (a Metalogos program **calls** tools of external MCP servers) is not designed. The unique edge of that direction: no mainstream MCP client has taint statics and language-level exec-gates.
 
 The current specification revision — **2026-07-28** — split the protocol into modern (per-request `_meta`, no `initialize`) and legacy (handshake, ≤ 2025-11-25). The official Rust SDK `rmcp` exists, is active and mature (3.3.0, Apache-2.0).
 

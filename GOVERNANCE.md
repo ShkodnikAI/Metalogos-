@@ -71,7 +71,7 @@ As the project matures and gains active contributors, we will transition to a **
 We will initiate Phase 2 when:
 - 5+ active contributors with sustained contributions (6+ months)
 - 3+ external maintainers with deep codebase knowledge
-- Stable funding (grants or sponsorship covering >50% of development time)
+- Stable funding (sponsorship covering >50% of development time)
 - Community vote in favor (simple majority)
 
 ## Communication Channels

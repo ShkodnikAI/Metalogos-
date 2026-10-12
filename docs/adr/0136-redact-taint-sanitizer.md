@@ -7,7 +7,7 @@
 
 ## Context
 
-The Metalogos taint system today can DENY (sink rejections `SECRET_LEAK`, `HTML_INJECTION`, `UNTRUSTED_TRAINING_DATA`) but cannot TRANSFORM: there is no language mechanism to mask a secret/PII before use. `TaintKind::Sanitized` is assigned only by `render`/`escape_html` (`src/audit.rs`, `binding_taint()`) and only for the HTML class. GDPR argument for NLnet: "PII masking at the compiler level, not the prompt level". Stop-gate SG-2 (dispatch #316): taint-removal semantics is an owner decision, not an implementer one.
+The Metalogos taint system today can DENY (sink rejections `SECRET_LEAK`, `HTML_INJECTION`, `UNTRUSTED_TRAINING_DATA`) but cannot TRANSFORM: there is no language mechanism to mask a secret/PII before use. `TaintKind::Sanitized` is assigned only by `render`/`escape_html` (`src/audit.rs`, `binding_taint()`) and only for the HTML class. GDPR argument: "PII masking at the compiler level, not the prompt level". Stop-gate SG-2 (dispatch #316): taint-removal semantics is an owner decision, not an implementer one.
 
 ## Decision
 

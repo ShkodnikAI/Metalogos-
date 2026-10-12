@@ -81,6 +81,25 @@ All notable changes to the Metalogos project.
   documented gap, option (а) is later).
 
 
+### Fixed
+
+
+- **N0 (gh#1209, PE-1) — the onX lint word boundary (the
+  `detect_xss_payload` false positive, `svg_security_lint`):** the
+  `on` prefix now must sit at a WORD BOUNDARY (the previous byte is
+  not [A-Za-z0-9_-]) — `<meta content="x">` no longer matches as an
+  `onX=` event handler (the false positive that flagged every page
+  carrying a meta/content attribute). Symmetrically, optional
+  spaces/tabs between the handler name and `=` are now allowed by the
+  matcher: `<div onLoad = "x">` IS still blocked (before the fix the
+  `=` was required immediately after the letters and this slipped
+  through). The real cases stay blocked (`<a onclick="x">`,
+  `<img onerror=x>`). Four tests in `tests/svg_security_lint.rs` +
+  two golden pairs (`examples/n0_onx_meta_content` .expected — the
+  clean pass, `examples/n0_onx_space_eq_error` .error — the block).
+  Size: S; risks: low (the leak-suite regression set stays green).
+
+
 ## [0.30.1] - 2026-10-12
 
 ### Security

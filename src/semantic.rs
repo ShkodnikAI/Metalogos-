@@ -6788,19 +6788,38 @@ fn detect_xss_payload(s: &str) -> Option<&'static str> {
     }
     // on<event>= attributes: onclick=, onload=, onerror=, etc.
     // Match `on` followed by 2+ letters followed by `=`
+    //
+    // N0 (gh#1209, PE-1): the `on` prefix must sit at a WORD BOUNDARY —
+    // the byte before it must not be [A-Za-z0-9_-]. Without the boundary
+    // `content=` in `<meta content=...>` matched (the `on` inside the
+    // word) — the false positive that flagged every page carrying a
+    // meta/content attribute. Optional spaces/tabs are allowed between
+    // the handler name and `=`: `<div onLoad = "x">` is still an event
+    // handler in HTML (before the fix the `=` was required immediately
+    // after the letters and this slipped through).
     let bytes = s.as_bytes();
+    let is_word_byte = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'-';
     let mut i = 0;
-    while i + 4 < bytes.len() {
+    while i + 2 < bytes.len() {
         if bytes[i] == b'o' && bytes[i + 1] == b'n' {
-            // Check that what follows is letters then '='
-            let mut j = i + 2;
-            let mut letter_count = 0;
-            while j < bytes.len() && bytes[j].is_ascii_alphabetic() {
-                letter_count += 1;
-                j += 1;
-            }
-            if letter_count >= 2 && j < bytes.len() && bytes[j] == b'=' {
-                return Some("contains onX event handler attribute");
+            let at_boundary = i == 0 || !is_word_byte(bytes[i - 1]);
+            if at_boundary {
+                // Check that what follows is letters then (optional
+                // spaces then) '='
+                let mut j = i + 2;
+                let mut letter_count = 0;
+                while j < bytes.len() && bytes[j].is_ascii_alphabetic() {
+                    letter_count += 1;
+                    j += 1;
+                }
+                if letter_count >= 2 {
+                    while j < bytes.len() && (bytes[j] == b' ' || bytes[j] == b'\t') {
+                        j += 1;
+                    }
+                    if j < bytes.len() && bytes[j] == b'=' {
+                        return Some("contains onX event handler attribute");
+                    }
+                }
             }
         }
         i += 1;

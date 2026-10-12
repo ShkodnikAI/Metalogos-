@@ -1,0 +1,10 @@
+// S-ERR-003 (№670): on a caught refusal error is TryError{code, message}
+// — the whitelisted origin stamp classifies (SANDBOX_VIOLATION), the
+// message exists and is a String (the wording is never pinned).
+pattern p(x: String) -> String {
+  let r = try write_file("/etc/metalogos-n670.txt", "nope")
+  return "code=" + r.error.code + " msg=" + str(len(r.error.message) >= 1.0)
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

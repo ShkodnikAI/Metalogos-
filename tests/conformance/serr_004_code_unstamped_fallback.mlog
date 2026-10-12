@@ -1,0 +1,10 @@
+// S-ERR-004 (№670): an unstamped refusal (read_file's argument type
+// failure originates outside every whitelisted subsystem) is honestly
+// RUNTIME_ERROR — never classified by message prose.
+pattern p(x: String) -> String {
+  let r = try read_file(123.0)
+  return r.error.code
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

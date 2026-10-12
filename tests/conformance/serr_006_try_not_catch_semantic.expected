@@ -1,0 +1,3 @@
+# S-ERR-005 (№670) — the semantic gate refuses regardless of try.
+STATUS: error
+CODE: UNDEFINED_VARIABLE

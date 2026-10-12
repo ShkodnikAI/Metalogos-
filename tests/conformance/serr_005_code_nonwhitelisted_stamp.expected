@@ -1,0 +1,4 @@
+# S-ERR-004 (№670) — a non-whitelisted origin stamp and a mid-message
+# marker both fall back honestly; no forgery, no prose classification.
+STATUS: ok
+OUT: RUNTIME_ERROR

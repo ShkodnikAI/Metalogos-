@@ -1,0 +1,10 @@
+// S-ERR-005 (№670): an undefined name inside try is a SEMANTIC-blocking
+// finding — the program refuses at the shared check gate BEFORE
+// execution on both backends; try never relaxes the compile contract.
+pattern p(x: String) -> String {
+  let r = try(undefined_var)
+  return "never"
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

@@ -1,0 +1,9 @@
+// S-ERR-001 (№670): try on the success path — ok=true, value is the
+// inner value exactly, error is Unit ("()").
+pattern p(x: String) -> String {
+  let r = try(1.0 + 2.0)
+  return "ok=" + str(r.ok) + " value=" + str(r.value) + " err=" + str(r.error)
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

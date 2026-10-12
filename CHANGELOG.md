@@ -4,6 +4,28 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added
+
+- **№670 (gh#1185) — the specification topic 3 «Errors and the try
+  result» (docs/spec/errors.md — docs-only, the behavior is RECORDED,
+  not changed):** six norms S-ERR-001…006 pin the existing try machinery
+  on BOTH backends per the №645 protocol — the TryResult shape
+  {ok, value, error} (the shared `try_result_struct`), the caught
+  runtime refusal (ok=false, value=Unit, execution continues), the
+  TryError{code, message} struct, the №385 classification contract (the
+  whitelisted position-0 origin stamp, else the honest RUNTIME_ERROR —
+  mid-message markers are content, not stamps), the semantic-blocking
+  boundary (an undefined name refuses BEFORE execution regardless of
+  try), and the first-class inner-try value (nesting). Seven conformance
+  pairs (`tests/conformance/serr_*`) ride the existing
+  `conformance (blocking)` job (the №535 rule — the cage does not grow);
+  the runner demands the cross-backend agreement first. The README
+  Topics table is synced with the actual fact (topic 2 → S-BLK-001…014 —
+  the №658/№659 norms; the normative core 23 → 33). The topic-3 probe
+  found NO cross-backend divergence (the shape and the classification
+  are shared-code parity by construction); the stable refusal codes are
+  referenced, never redefined (№385/ADR-0169).
+
 ### Changed
 
 - **№662 (gh#1163) — the ADR-0188 option (б) compile-time port (the

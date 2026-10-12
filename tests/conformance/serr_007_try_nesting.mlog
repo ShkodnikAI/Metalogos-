@@ -1,0 +1,10 @@
+// S-ERR-006 (№670): an inner try result is a first-class value — the
+// outer try SUCCEEDS carrying the inner TryResult; the caught inner
+// refusal is data (branchable), not a re-raised signal.
+pattern p(x: String) -> String {
+  let outer = try(try(0.0 / 0.0))
+  return "outer=" + str(outer.ok) + " inner=" + str(outer.value.ok) + " code=" + outer.value.error.code
+}
+flow Main {
+  input: String = "go" -> p -> output
+}

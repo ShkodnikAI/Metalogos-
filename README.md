@@ -129,7 +129,7 @@ Key files at the repo root:
 | ------ | ------------------------------------- |
 | Version | 0.30.1 |
 | Built-in Functions | 516 functions across 45 modules |
-| Typed Signatures | 322/516 (62.40%) — precise 222/516 (43.02%) (№467/№560) |
+| Typed Signatures | 326/516 (63.17%) — precise 222/516 (43.02%) (№467/№560) |
 | SVG/Graphics | 44 builtins, hand-rolled in pure Rust |
 | Grammar | 339 rules |
 | Architecture Decisions | 183 ADRs |

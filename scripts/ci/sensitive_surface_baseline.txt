@@ -51,6 +51,22 @@
 #   posture); 53*10000//138 = 3840 bp; the draft 0.31 goal (57/138 =
 #   4130) is NOT reachable honestly on this package — the Гудхарт rule
 #   beats the draft arithmetic)
+# threshold_bp was 3913 — №669 (gh#1184, wave 40): covered 66 | sensitive 138
+#   (the typing movement 0.31 №1 — the forecast/graph untyped package:
+#   4 rows closed against the verified handler facts — forecast_state
+#   Struct<ForecastState>{10 fields: the prov-block metadata, the
+#   device_state precedent}, forecast_points
+#   Struct<ForecastPoints>{points,p10,p50,p90 — all internal, the
+#   taint gate UNCHANGED}, graph_neighbors List<Neighbor>, graph_query
+#   List<GraphEntry>; 2 HONEST refusals recorded in the naryad:
+#   forecast_next — the opaque ForecastHandle (the stage-0 OpaqueKind
+#   set has NO Forecast kind; a fictitious spelling is forbidden),
+#   graph_path — the heterogeneous List (PathNode on the found arm vs
+#   the PathError singleton on the no-path arm, memory.rs); the lane
+#   sits on the PRE-№668 main — the sequential merge at the window
+#   re-reads the live fact (the prediction held: 62+4 = 66/138 — the recount on the post-№668 main); 66*10000//138 = 4782 bp)
+# threshold_bp: 4782
+
 
 # №661 (issue #1162, 2026-10-09; the К-Б stage-2 verdict gh#1144):
 # canary_check (the security-labeled Source, previously untyped) is

@@ -69,6 +69,21 @@
 # threshold_bp was 6210 — №661: canary_check typed Struct<CanaryCheck>
 # (the first private label) — 59/95 = 6210 bp.
 
+# №669 (gh#1184, wave 40): the forecast/graph package — 4 rows
+#   parameterized (forecast_state Struct<ForecastState>{10 fields},
+#   forecast_points Struct<ForecastPoints>{4 fields} — both WITH the
+#   field-meta in the same spelling, the anti-dilution rule;
+#   graph_neighbors List<Neighbor>, graph_query List<GraphEntry>); the
+#   LS denominator 99 → 103 (the four new typed List/Struct rows on
+#   the post-№668 base);
+#   71/103 = 6893 bp — the sequential recount on the post-№668 main. Only-up (№757), the same PR. The lane sits on the
+#   PRE-№668 main — the sequential merge at the window re-reads the
+#   live fact.
+# parameterized: 71
+# LS rows: 103
+# threshold_bp: 6893
+
+
 # №668 (gh#1183, wave 40): the «memory → recognition» package — 8 rows
 #   parameterized: the four №543 typed-coarse List rows get their
 #   element spellings (human_personas List<PersonaSummary>, human_recall

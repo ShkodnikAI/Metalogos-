@@ -68,6 +68,15 @@
 # WITH the 3-entry field-meta (the first private label id:private) —
 # 40/42 = 9523 bp.
 
+# №669 (gh#1184, wave 40): the forecast/graph package — the two new
+#   parameterized Struct rows land WITH their field-meta (the
+#   anti-dilution rule): forecast_state Struct<ForecastState>{10
+#   fields — the prov-block metadata, 8 internal + horizon/label
+#   untrusted (the caller echoes)}, forecast_points
+#   Struct<ForecastPoints>{4 internal}; 44/46 = 9565 bp (the sequential recount on the post-№668 main). Only-up
+#   (№757), the same PR (the compiled twin FIELDMETA_FLOOR rides the
+#   same PR). The lane sits on the PRE-№668 main — the sequential merge
+#   at the window re-reads the live fact.
 # №668 (gh#1183, wave 40): the «memory → recognition» package — the two
 #   new parameterized Struct rows land WITH their field-meta (the
 #   anti-dilution rule — no parameterized Struct row lands bare):
@@ -78,7 +87,7 @@
 #   the same PR).
 # field-label: 42
 # Struct rows: 44
-# threshold_bp: 9545
+# threshold_bp: 9565
 
 # №661 (issue #1162, 2026-10-09; the К-Б stage-2 verdict gh#1144):
 # canary_check ships WITH the 3-entry field_meta — the FIRST PRIVATE

@@ -37,7 +37,13 @@ use metalogos::builtins::{sig_types::Type, BUILTIN_REGISTRY};
 /// typed-coarse List rows parameterized (human_personas/human_recall/
 /// check_reminders/list_reminders). 313 → 318 compiled (322/516 source
 /// = 6240 bp; the same 4 gated rows ride the source metric only).
-const TYPED_FLOOR: usize = 318;
+/// №669 (2026-10-12, gh#1184, wave 40): the typing movement 0.31 №1 — the
+/// forecast/graph untyped package: 4 rows newly TYPED (forecast_state,
+/// forecast_points, graph_neighbors, graph_query); forecast_next (the
+/// opaque ForecastHandle) and graph_path (the heterogeneous List) — the 2
+/// HONEST refusals, the rows stay untyped. The sequential recount on the
+/// post-№668 main: 318 → 322 compiled (326/516 source = 6317 bp).
+const TYPED_FLOOR: usize = 322;
 
 #[test]
 fn typed_signature_share_never_falls_below_the_floor() {
@@ -111,7 +117,13 @@ fn every_typed_signature_is_the_honest_parse_of_its_path() {
 // parameterized (the four №543 typed-coarse List rows + semantic_search
 // + mtree_retrieve + mtree_stats/mtree_summarize WITH field_meta, the
 // anti-dilution rule) — 64/95 compiled = 6736 bp; the floor 56 → 64.
-const PARAM_FLOOR: usize = 64;
+// №669 (wave 40, gh#1184): the forecast/graph package — 4 rows
+// parameterized (forecast_state Struct<ForecastState>{10 fields} +
+// forecast_points Struct<ForecastPoints>{4 fields} — both WITH the
+// field-meta, the anti-dilution rule; graph_neighbors List<Neighbor>,
+// graph_query List<GraphEntry>) — 68/99 compiled = 6868 bp (the
+// sequential recount on the post-№668 main); the floor 64 → 68.
+const PARAM_FLOOR: usize = 68;
 /// The compiled denominator: 91 SOURCE List/Struct rows − the 4 gated
 /// vec/store rows (the same by-design source/compiled gap the TYPED_FLOOR
 /// comment documents — the gated rows are BARE List/Struct, so the
@@ -122,7 +134,10 @@ const PARAM_FLOOR: usize = 64;
 /// mtree_retrieve, mtree_stats, mtree_summarize) — the compiled
 /// denominator 91 → 95; the floor follows the live fact (the base must
 /// not shrink).
-const PARAM_LS_DENOM: usize = 95;
+/// №669 (wave 40): four new typed List/Struct rows (the forecast/graph
+/// package) — the compiled denominator 95 → 99 (the base must not
+/// shrink).
+const PARAM_LS_DENOM: usize = 99;
 
 #[test]
 fn parameterized_signature_share_never_falls_below_the_floor() {
@@ -201,7 +216,12 @@ fn parameterized_signature_share_never_falls_below_the_floor() {
 // their field_meta (every field is the in-tree graph computation,
 // memory.rs → internal) — 41/43 compiled (42/44 source = 9545 bp); the
 // floor 39 → 41.
-const FIELDMETA_FLOOR: usize = 41;
+// №669 (wave 40, gh#1184): the two new parameterized Struct rows land
+// WITH their field-meta (the anti-dilution rule): forecast_state{10
+// fields — the prov-block metadata}, forecast_points{4 internal} —
+// 43/45 compiled = 9555 bp (the sequential recount on the post-№668
+// main); the floor 41 → 43.
+const FIELDMETA_FLOOR: usize = 43;
 
 #[test]
 fn field_label_share_never_falls_below_the_floor() {

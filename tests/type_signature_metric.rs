@@ -29,7 +29,15 @@ use metalogos::builtins::{sig_types::Type, BUILTIN_REGISTRY};
 /// The general share 6124 bp, the precise share 4302 bp — the gate
 /// records stay exceeded (3500/3000, ADR-0181 §3/§3.1). №661 (2026-10-09):
 /// canary_check typed → 313/516 compiled (317/516 source = 6143 bp).
-const TYPED_FLOOR: usize = 313;
+/// №668 (2026-10-10, gh#1183, wave 40 staging): the «memory → recognition»
+/// sensitive package — 5 rows newly TYPED (semantic_search
+/// List<SearchResult>, mtree_retrieve List<MTreeEntry>, mtree_stats
+/// Struct<MTreeStats>{...}, mtree_summarize Struct<MTreeSummarize>{...},
+/// world_state "Embodied" — the honest opaque WorldState handle) + 4
+/// typed-coarse List rows parameterized (human_personas/human_recall/
+/// check_reminders/list_reminders). 313 → 318 compiled (322/516 source
+/// = 6240 bp; the same 4 gated rows ride the source metric only).
+const TYPED_FLOOR: usize = 318;
 
 #[test]
 fn typed_signature_share_never_falls_below_the_floor() {
@@ -96,14 +104,25 @@ fn every_typed_signature_is_the_honest_parse_of_its_path() {
 // imap_list/imap_search List<ImapMessage> + imap_read Struct<ImapEmail>
 // (with field_meta) — 55/90 compiled = 6111 bp;
 // the floor 52 → 55.
-const PARAM_FLOOR: usize = 56;
+// №661 (wave 39; the К-Б stage-2 verdict gh#1144): canary_check typed
+// Struct<CanaryCheck> (the first private label) — 56/91 compiled.
+//
+// №668 (wave 40, gh#1183): the «memory → recognition» package — 8 rows
+// parameterized (the four №543 typed-coarse List rows + semantic_search
+// + mtree_retrieve + mtree_stats/mtree_summarize WITH field_meta, the
+// anti-dilution rule) — 64/95 compiled = 6736 bp; the floor 56 → 64.
+const PARAM_FLOOR: usize = 64;
 /// The compiled denominator: 91 SOURCE List/Struct rows − the 4 gated
 /// vec/store rows (the same by-design source/compiled gap the TYPED_FLOOR
 /// comment documents — the gated rows are BARE List/Struct, so the
 /// compiled share reads HIGHER than the source share: 7/87 = 804 bp at
 /// №623, 31/87 = 3563 bp at №631, 52/87 = 5977 bp at №637 — the baseline
-/// file locks the source number, this test the compiled one).
-const PARAM_LS_DENOM: usize = 87;
+/// file locks the source number, this test the compiled one). №668
+/// (wave 40): four new typed List/Struct rows (semantic_search,
+/// mtree_retrieve, mtree_stats, mtree_summarize) — the compiled
+/// denominator 91 → 95; the floor follows the live fact (the base must
+/// not shrink).
+const PARAM_LS_DENOM: usize = 95;
 
 #[test]
 fn parameterized_signature_share_never_falls_below_the_floor() {
@@ -177,7 +196,12 @@ fn parameterized_signature_share_never_falls_below_the_floor() {
 //
 // BuiltinSpec.field_meta is the registry SIDE-TABLE (the enum is NOT
 // extended — stage-2 minimality); parse_field_meta is the consumer API.
-const FIELDMETA_FLOOR: usize = 39;
+// №668 (wave 40, gh#1183): mtree_stats Struct<MTreeStats>{7 internal}
+// and mtree_summarize Struct<MTreeSummarize>{7 internal} land WITH
+// their field_meta (every field is the in-tree graph computation,
+// memory.rs → internal) — 41/43 compiled (42/44 source = 9545 bp); the
+// floor 39 → 41.
+const FIELDMETA_FLOOR: usize = 41;
 
 #[test]
 fn field_label_share_never_falls_below_the_floor() {

@@ -399,7 +399,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("device_open", 1, 2, "embodied"; builtin_device_open),
     spec!("bounds_attach", 2, "embodied"; builtin_bounds_attach),
     spec!("device_state", 1, "embodied"; builtin_device_state),
-    spec!("world_state", 1, "embodied"; builtin_world_state),
+    spec!("world_state", 1, "embodied"; builtin_world_state, "Embodied"), // №668: the OPAQUE WorldState handle (embodied.rs:489-497 world_value → Value::WorldState; the embodied contour №355/ADR-0159; the audit's own opaque grouping). The honest cause why the SENSITIVE row does NOT close on this package: the handle is neither scalar nor a parameterized List/Struct (typed-coarse stays uncovered) and every materialization surface refuses it (WORLD_STATE_PRIVATE + audit, private-by-default №349/№355) — closing it would need a dictionary/vocabulary decision that is OUTSIDE this naryad (the №604-dictionary lane is the separate owner decision)
     spec!("pose_make", 4, "embodied"; builtin_pose_make),
     spec!("trajectory_make", 1, "embodied"; builtin_trajectory_make),
     spec!("goal_make", 1, "embodied"; builtin_goal_make),
@@ -467,10 +467,10 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("trace_start", 0, "graph"; builtin_trace_start),
     spec!("trace_end", 0, "graph"; builtin_trace_end),
     spec!("memory_score", 1, "bot" => "ext"; builtin_memory_score, "Struct<MemoryScore>{score:internal,admitted:internal,token_count:internal,unique_words:internal,entity_density:internal}"), // №543: the MemoryScore make_date_struct (verified office/text.rs); №631: the name read off the handler; №638: all five fields are the in-tree weighted computation (office/text.rs:424-441) → internal
-    spec!("mtree_summarize", 0, "mtree"; builtin_mtree_summarize),
-    spec!("mtree_retrieve", 1, 2, "mtree"; builtin_mtree_retrieve), // query | query,limit
+    spec!("mtree_summarize", 0, "mtree"; builtin_mtree_summarize, "Struct<MTreeSummarize>{l0_promoted:internal,l1_count:internal,l2_created:internal,status:internal,graph_nodes:internal,graph_edges:internal,components:internal}"), // №668: the shape read off builtin_mtree_summarize (memory.rs:690-701, make_date_struct "MTreeSummarize", the SINGLE arm); all 7 fields are the in-tree graph computation (the promotion counters, the recount, graph.stats()) → internal
+    spec!("mtree_retrieve", 1, 2, "mtree"; builtin_mtree_retrieve, "List<MTreeEntry>"), // query | query,limit — №668: the element read off builtin_mtree_retrieve (memory.rs:535-545, make_date_struct "MTreeEntry", the SINGLE arm); id/text/level are the memory-graph node payload (untrusted), score/relevance are the in-tree graph_search scoring (internal); the element's field-labels stay OFF the spelling at stage 0 (the Tool/DayForecast precedent)
     spec!("mtree_store", 2, "mtree"; builtin_mtree_store),
-    spec!("mtree_stats", 0, "mtree"; builtin_mtree_stats),
+    spec!("mtree_stats", 0, "mtree"; builtin_mtree_stats, "Struct<MTreeStats>{l0:internal,l1:internal,l2:internal,total:internal,total_chars:internal,graph_edges:internal,components:internal}"), // №668: the shape read off builtin_mtree_stats (memory.rs:716-727, make_date_struct "MTreeStats", the SINGLE arm); all 7 fields are the in-tree graph diagnostics (count_by_level/total_chars/stats) → internal
     spec!("mtree_forget", 1, "mtree"; builtin_mtree_forget), // ── Cron builtins ──
     spec!("cron_mark_fired", 1, "cron"; builtin_cron_mark_fired_stamped),
     // №418: 2..5 — the optional tz / catch_up / payload extensions
@@ -506,7 +506,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("budget_check", 2, "fluid"; builtin_budget_check),
     spec!("replay_snapshot", 1, "system"; builtin_replay_snapshot),
     spec!("policy_check", 1, "system"; builtin_policy_check), // ── obsidian-mind: Vault / semantic search ──
-    spec!("semantic_search", 3, "vault" => "ext"; builtin_semantic_search),
+    spec!("semantic_search", 3, "vault" => "ext"; builtin_semantic_search, "List<SearchResult>"), // №668: the element read off builtin_semantic_search (office/text.rs:738-745, make_struct "SearchResult", the SINGLE arm — the empty-documents early return IS the empty List of the same shape); text echoes the caller's documents (untrusted), index/score are the in-tree embedding/similarity computation (internal); the element's field-labels — stage 2 (the Tool/DayForecast precedent)
     spec!("config_load", 1, "vault" => "ext"; builtin_config_load),
     spec!("vault_validate", 2, "vault" => "ext"; builtin_vault_validate),
     // ── Bot — Telegram ──
@@ -524,14 +524,14 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("goal_complete", 0, "bot" => "ext"; builtin_goal_complete, "Struct"), // №543: the GoalComplete make_date_struct (verified goals.rs)
     spec!("goals_reflect", 0, "bot" => "ext"; builtin_goals_reflect, "Struct"), // №543: the GoalsReflection make_date_struct (verified goals.rs)
     spec!("cancel_remind", 1, "bot"; builtin_cancel_remind_stamped, "String"), // №543: the literal "ok"/"not_found" (verified cron.rs)
-    spec!("check_reminders", 0, "bot"; builtin_check_reminders_stamped, "List"), // №543: the DueReminder rows vector (verified cron.rs)
-    spec!("list_reminders", 0, "bot"; builtin_list_reminders_stamped, "List"), // №543: the Reminder rows vector (verified cron.rs)
+    spec!("check_reminders", 0, "bot"; builtin_check_reminders_stamped, "List<DueReminder>"), // №543: the DueReminder rows vector (verified cron.rs); №668: the element read off builtin_check_reminders (cron.rs:284-297, make_date_struct "DueReminder", the SINGLE arm); id is the in-tree uuid (internal), message/data are the caller-set reminder payload (untrusted), type/next_fire/overdue_seconds are the in-tree scheduler computation (internal); the element's field-labels — stage 2 (the Tool/DayForecast precedent)
+    spec!("list_reminders", 0, "bot"; builtin_list_reminders_stamped, "List<Reminder>"), // №543: the Reminder rows vector (verified cron.rs); №668: the element read off builtin_list_reminders (cron.rs:242-256, make_date_struct "Reminder", the SINGLE arm); id is the in-tree uuid (internal), message/data/fire_at/interval/created_at echo the caller's reminder payload and schedule (untrusted), next_fire/type are the in-tree scheduler computation (internal); the element's field-labels — stage 2 (the Tool/DayForecast precedent)
     spec!("remind_recurring", 2, "bot"; builtin_remind_recurring_stamped, "String"), // №543: the reminder id (verified cron.rs)
     spec!("human_create", 2, "bot"; builtin_human_create, "Struct"), // №543: the Persona make_date_struct (verified server.rs)
     spec!("human_delete", 1, "bot" => "ext"; builtin_human_delete, "Struct"), // №543: the DeleteResult make_date_struct (verified office/human.rs)
     spec!("human_forget", 2, "bot"; builtin_human_forget), // №543: Unknown honest — Float (deleted count, 1-arg all-persona path) | String ("ok"/"not_found", 2-arg path); arity-dependent union
-    spec!("human_personas", 0, "bot" => "ext"; builtin_human_personas, "List"), // №543: the persona rows vector (verified)
-    spec!("human_recall", 3, "bot"; builtin_human_recall, "List"), // №543: the matched memory rows vector (verified server.rs)
+    spec!("human_personas", 0, "bot" => "ext"; builtin_human_personas, "List<PersonaSummary>"), // №543: the persona rows vector (verified); №668: the element read off builtin_human_personas (office/human.rs:210-220, make_date_struct "PersonaSummary", the SINGLE arm); name/traits/mood/created_at are the persisted persona data (untrusted), memory_count is the in-tree KV count (internal); the element's field-labels — stage 2 (the Tool/DayForecast precedent)
+    spec!("human_recall", 3, "bot"; builtin_human_recall, "List<Memory>"), // №543: the matched memory rows vector (verified server.rs); №668: the element read off builtin_human_recall (server.rs:825-840, make_date_struct "Memory", the SINGLE arm); key/content/importance/created_at/access_count are the persisted memory rows (untrusted), relevance/score are the in-tree scoring (internal); the element's field-labels — stage 2 (the Tool/DayForecast precedent)
     spec!("human_remember", 4, "bot"; builtin_human_remember, "String"), // №543: the literal "ok" (verified server.rs)
     spec!("human_respond", 2, "bot" => "ext"; builtin_human_respond, "String"), // №543: the reply text (delegates to human_recall; verified)
     spec!("compress_html", 1, "bot" => "ext"; builtin_compress_html, "String"), // №543: the compressed HTML (verified)

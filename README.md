@@ -133,7 +133,7 @@ Key files at the repo root:
 | SVG/Graphics | 44 builtins, hand-rolled in pure Rust |
 | Grammar | 339 rules |
 | Architecture Decisions | 183 ADRs |
-| Example Programs | 246 .mlog programs |
+| Example Programs | 248 .mlog programs |
 | Reference | REFERENCE.md (~303 KB) — 100% registry coverage |
 | Changelog | CHANGELOG.md (~696 KB) — every wave documented |
 <!-- END GENERATED METRICS -->

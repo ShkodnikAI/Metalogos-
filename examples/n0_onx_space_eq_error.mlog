@@ -1,0 +1,9 @@
+// N0 (gh#1209, PE-1): the onX word-boundary lint fix — the ERROR
+// contract. `<div onLoad = "x">` (spaces around `=`) IS an event
+// handler attribute; svg_path does NOT auto-escape its d argument, so
+// the lint must block the program. Before the fix the `=` was required
+// immediately after the handler letters and this slipped through.
+pattern P(input: String) -> String {
+  return svg_path("M 10 10 <div onLoad = x>", "none", "black")
+}
+flow Main { input: String = "x" -> P -> output }

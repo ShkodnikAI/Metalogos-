@@ -1,41 +1,103 @@
-# gate_031_goals.txt — the 0.31 release-gate record (the DRAFT)
+# gate_031_goals.txt — the 0.31 release-gate record (OWNER-FIXED)
 # =============================================================================
 # Naryad №660 (gh#1161, Волна 39): the 0.31 gate skeleton — the machine
-# record by the №615/ADR-0186 shape. Status: DRAFT (owner_fixed: false) —
-# the record binds NOBODY until the §5 mechanical transition (the №630
-# precedent): the fix + the default-target switch + the fact key WITH its
-# checker (№525: a fact without a machine source is itself a failure — the
-# №644 machine is in the tree; the 0.31 fact key lands in the §5 PR).
+# record by the №615/ADR-0186 shape. STATUS: **OWNER-FIXED —
+# owner_fixed: true.**
 #
-# The owner's verdict 08.10 (gh#1144, the canonical гейты-0810 п.2) named
-# 4130 bp (57/138 — the §6.3 package fully covered). The divergence: №650
-# closed the package 7/11 with FOUR ETERNAL honest refusals (query —
-# opaque; query_row/query_scalar — heterogeneous; request_body — dynamic
-# JsonBody), so 57/138 is unreachable in the stage-0 dictionary (the
-# ceiling IS the live fact 53/138 = 3840; the X-3 class — a permanently
-# unreachable goal is a dishonest RED). ADR-0191 §3 records the
-# divergence; §4 carries the OD re-fixation question.
+# The §5 MECHANICAL TRANSITION (ADR-0191 §5) landed in THIS owner_fixed
+# merge (one PR by the rule, the №630 precedent): the fix + the
+# default-target switch of unfreeze_gate.py (0.30 → 0.31, the №597/№630
+# pattern) + the fact key WITH its checker (№525: a fact without a
+# machine source is itself a failure — the №644 machine is in the tree;
+# the checker is scripts/ci/sensitive_surface_share.py, synced blocking
+# by sync_gate_facts.py through the fact twin below).
 #
-# The blocking CI does NOT read this record (the default target stays
-# 0.30, the №597 wiring; №580: the blocking CI never reads a draft).
+# THE OWNER'S VERDICT (2026-10-13, the OD answer to ADR-0191 §4 —
+# VERBATIM, the authorization core; the docs-language lint №383 keeps
+# this record's .txt comments English-only, the verbatim stays verbatim):
+# «OD №660 (gh#1161): вариант (а). Фиксирую по живому факту main после
+# движения №668/№669: 66/138 = 4782 bp.»
+#
+# The variant (а) — the re-fixation onto the next package: the live fact
+# AFTER the movement lands. The movement (№668 gh#1183 — «memory →
+# recognition», 8 of 9 rows; №669 gh#1184 — the forecast/graph package,
+# 4 of 6 rows) landed BEFORE the fixation, so this §5 PR reads the
+# REACHED number — exactly what the draft line below promised. The
+# machine read on the fixation anchor (34a6370d87d8f59ebfd6b24ba3f4ead3c6438757,
+# the post-№1207 main): sensitive-surface coverage 66/138 = 4782 bp,
+# the --gate read exit 0 AT the 4782 floor — the verdict's arithmetic
+# and the machine AGREE exactly; no divergence to record.
+#
+# The X-3 note (the ADR-0186 §2 honesty, recorded — not hidden): at the
+# fixation anchor the goal EQUALS the live fact, because the movement
+# landed first. The gate therefore starts MET by the reached number and
+# exists as the ONLY-UP ratchet: the floor
+# (sensitive_surface_baseline.txt, 4782 — №669) makes any regression a
+# RED (a run below the floor exits 1), and the next honest movement
+# (the next audit-order package) raises the fact AND the floor in the
+# SAME PR (the №757/№613 procedure). The GOAL line moves only by the
+# owner's later §5 decision (one PR, the value recorded in this header).
+#
+# The divergence ADR-0191 §3 is CLOSED by this fixation: the 4130 draft
+# (the verdict 08.10, gh#1144 — «57/138, the §6.3 package fully») and
+# the 4420..4493 draft range (the variant (а) probe) are RETIRED. The 4
+# eternal honest refusals (query — opaque; query_row/query_scalar —
+# heterogeneous; request_body — dynamic JsonBody) stay recorded in
+# ADR-0191 §3 and the №650 report (gh#1151); the honest forms for them
+# (the dictionary EXPANSION) remain a separate owner-decided naryad
+# line, NOT this record's scope.
 # =============================================================================
-owner_fixed: false
+owner_fixed: true
 
-# The OD variant (а) — the re-fixation onto the next package: the live
-# fact AFTER the «memory → recognition» movement lands. The probe (№660,
-# the live --list + the registry/handler tails): 8 verified-closeable
-# rows (mtree_retrieve — List<MTreeEntry>; mtree_stats — Struct<MTreeStats>;
-# mtree_summarize — the summary Struct; human_personas / human_recall /
-# check_reminders / list_reminders — the verified №543 List rows;
-# semantic_search — the doc-match List) + 1 row to verify at the movement
-# (world_state) + 11 honest refusals with recorded causes (the opaques:
-# memory_open/goal_make; the heterogeneous: memory_read; the handlerless
-# stubs: recall_top_k/conv_context/conv_history/event_count/event_sum/
-# events_since/inspect/find). The arithmetic: 53 + 8..9 = 61..62/138.
-draft_sensitive_surface_goal_variant_a: 4420..4493 bp (61..62/138 — the live fact after the next-package movement; the §5 PR reads the reached number) — DRAFT, the owner picks
+# ── The OWNER-FIXED parameter (the variant (а) — the verdict 2026-10-13) ─────────
+# THE TYPED PARAMETER of the 0.31 gate: the SENSITIVE-SURFACE coverage
+# (№644 — the fixed-denominator metric, the Q-2 answer: sources =
+# Role::Source ∧ default_label ≠ Public (the FIXED denominator 138 —
+# Internal 102 / Network 31 / Secret 5; the Public sources 5 excluded);
+# covered = typed ∧ (scalar ∨ parameterized) ∧ (¬Struct ∨ all fields
+# labeled); the definition change is a separate naryad — the denominator
+# is never diluted).
+# Machine source (the checker, №644):
+#   python3 scripts/ci/sensitive_surface_share.py
+#     --gate scripts/ci/sensitive_surface_baseline.txt
+# verified by scripts/ci/sync_gate_facts.py through the fact twin below.
+# The floor (sensitive_surface_baseline.txt) is only-up (№757/№613): a
+# raise lands in the SAME PR that covers more sources; a run BELOW the
+# floor exits 1. A different goal number = the ADR-0191 §5 owner-only
+# change path (one PR, the value recorded in this header).
+goal_sensitive_surface_bp: 4782
 
-# The OD variant (б) — the verdict's number kept: reachable ONLY after
-# the dictionary-expansion naryad builds the honest forms for the 4
-# eternal refusals (the №650 causes); RED until then — an honest RED of
-# the §5 read, never a merge blocker (the blocking CI reads 0.30).
-draft_sensitive_surface_goal_variant_b: 4130 bp (57/138 — the verdict's number; reachable only after the honest forms for the 4 eternal refusals land) — DRAFT, the owner picks
+# ── The RETIRED draft lines (the §4 OD variants — kept as the divergence history) ─────────
+# RETIRED by the owner's fixation 2026-10-13 (the variant (а), the
+# reached number 4782). Nothing reads these lines (machine-verified: no
+# reader in scripts/ci/*.py — the same guarantee the 0.30 record's
+# retired 0.31 draft line carries).
+#
+# draft_sensitive_surface_goal_variant_a was: 4420..4493 bp (61..62/138 —
+#   the live fact after the next-package movement; the §5 PR reads the
+#   reached number) — DRAFT, the owner picks. The probe's candidates:
+#   8 verified-closeable rows (mtree_retrieve/mtree_stats/mtree_summarize;
+#   human_personas/human_recall/check_reminders/list_reminders;
+#   semantic_search) + world_state (1 row to verify at the movement) +
+#   11 honest refusals with recorded causes. REALITY: world_state — the
+#   honest refusal (the opaque WorldState handle, №668); the movement
+#   reached 66/138 (62 after №668, +4 after №669) — above the probe's
+#   upper edge, exactly as the №669 sequential recount recorded.
+# draft_sensitive_surface_goal_variant_b was: 4130 bp (57/138 — the
+#   verdict's number; reachable only after the honest forms for the 4
+#   eternal refusals land) — DRAFT, the owner picks. Not picked: the
+#   dictionary-expansion line stays a separate owner-decided naryad.
+
+# ── The live fact (the key landed WITH its checker in the §5 fixation PR, №525) ─────────
+# The live SENSITIVE-SURFACE coverage fact — the machine twin of
+# goal_sensitive_surface_bp above. Machine:
+#   python3 scripts/ci/sensitive_surface_share.py
+# (the report mode: «sensitive-surface coverage: X/138 (B bp)») —
+# verified by sync_gate_facts.py. The fact follows the movement naryads
+# (the №613/№616 pattern of the precise/parameterized twins — the fact
+# moves in the SAME PR that covers more sources, never by loosening the
+# spelling): 3840 (53/138 — №650, gh#1144) → 3913 (54/138 — №661,
+# canary_check) → 4492 (62/138 — №668, gh#1183) → 4782 (66/138 — №669,
+# gh#1184, the fixation anchor). The counter is machine-read, never
+# hand-zeroed.
+fact_sensitive_surface_bp: 4782

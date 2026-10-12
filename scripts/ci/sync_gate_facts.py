@@ -2,13 +2,16 @@
 """№525: machine-sync of every fact_* record in the goal records —
 gate_028_goals.txt, gate_029_goals.txt (№605: the 0.29 record is
 verified too — it carries the X-3 precise-share fact; the 0.28 record
-predates that parameter and carries no precise record) AND
+predates that parameter and carries no precise record),
 gate_030_goals.txt (№630: the §5 fixation record — it carries the
 parameterized-share fact, the machine twin of goal_parameterized_share_bp,
 beside the precise-share twin it inherited from the draft era; the
 branch-protection VERDICT fact joined in the gh#1000-closure PR
 (2026-10-08) — the checker landed WITH the key, exactly as the §5 note
-recorded, №525).
+recorded, №525) AND gate_031_goals.txt (the §5 fixation, 2026-10-13 —
+it carries the sensitive-surface fact, the machine twin of
+goal_sensitive_surface_bp, ADR-0191 §5; the key landed WITH its
+checker in the §5 fixation PR, the same №525 rule).
 
 The class this closes (the audit 30.09, Д-2): the fact lines in the
 goals file are hand-edited and nothing verified them against their
@@ -48,6 +51,15 @@ The facts and their machine sources:
                        (2026-10-08) — the 0.30 record only (the В34
                        addendum Z-3, ADR-0186 §5); a VERDICT fact
                        (GREEN|RED), not a counter.
+  fact_sensitive_surface_bp
+                       sensitive_surface_share.py (the report mode —
+                       №644; the 0.31 record only — the machine twin
+                       of goal_sensitive_surface_bp, ADR-0191 §5: the
+                       Q-2 fixed-denominator coverage over the №316
+                       classification). The key landed WITH this
+                       checker in the §5 fixation PR (2026-10-13,
+                       №525). The counter is machine-read, never
+                       hand-zeroed.
 
 Fail-closed rules:
   - a fact line whose value disagrees with its source → exit 1;
@@ -74,6 +86,7 @@ import urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 COUNTER = os.path.join(HERE, 'count_duplicated_names.py')
 SHARE_PRECISE = os.path.join(HERE, 'type_signature_share.py')
+SENS_SCRIPT = os.path.join(HERE, 'sensitive_surface_share.py')
 PRECISE_BASELINE = os.path.join(HERE, 'type_signature_precise_baseline.txt')
 PARAM_BASELINE = os.path.join(HERE, 'type_signature_parameterized_baseline.txt')
 REPO = 'ShkodnikAI/Metalogos-'
@@ -93,6 +106,8 @@ RECORDS = (
      ('fact_open_high_server', 'fact_quorum_num', 'fact_quorum_den',
       'fact_blocking_check_cells', 'fact_precise_share_bp',
       'fact_parameterized_share_bp', 'fact_branch_protection_audit')),
+    (os.path.join(HERE, 'gate_031_goals.txt'),
+     ('fact_sensitive_surface_bp',)),
 )
 
 # The VERDICT-type facts (a state, not a counter): the value domain is
@@ -186,6 +201,27 @@ def parameterized_share_observed() -> dict:
         sys.exit(2)
     bp = int(round(float(m.group(1)) * 100))
     return {'fact_parameterized_share_bp': str(bp)}
+
+
+def sensitive_surface_observed() -> dict:
+    """The §5 fixation PR (2026-10-13; ADR-0191 §5): the live
+    SENSITIVE-SURFACE coverage fact — the machine twin of
+    goal_sensitive_surface_bp in the 0.31 record. The №644 machine
+    (sensitive_surface_share.py, the report mode); the «X/N (B bp)»
+    parse mirrors the criterion_goals_031 read exactly."""
+    out = subprocess.run([sys.executable, SENS_SCRIPT],
+                         capture_output=True, text=True)
+    if out.returncode != 0:
+        print(out.stdout + out.stderr)
+        print('::error::the sensitive-surface source script failed (exit %d)'
+              % out.returncode)
+        sys.exit(2)
+    m = re.search(r'sensitive-surface coverage:\s*\d+/\d+\s*\((\d+) bp\)',
+                  out.stdout)
+    if not m:
+        print('::error::the sensitive-surface source printed no parsable record')
+        sys.exit(2)
+    return {'fact_sensitive_surface_bp': m.group(1)}
 
 
 def branch_protection_audit_observed(token: str) -> dict:
@@ -313,11 +349,19 @@ def main() -> None:
     # (a source reporting a key the record does not carry is itself a
     # verify() error — the per-record sets stay exact).
     for goals_path, expected in RECORDS:
-        observed = dict(observed_common)
+        # The per-record sets stay EXACT (№605): the common observed set
+        # joins a record's observed ONLY when the record expects the key.
+        # The 0.31 record (the §5 fixation, 2026-10-13) carries ONLY the
+        # sensitive-surface fact — the v2-common facts live in and verify
+        # against the 0.28/0.29/0.30 records (no duplication — the Д-2
+        # drift class stays closed).
+        observed = {k: v for k, v in observed_common.items() if k in expected}
         if 'fact_precise_share_bp' in expected:
             observed.update(precise_share_observed())
         if 'fact_parameterized_share_bp' in expected:
             observed.update(parameterized_share_observed())
+        if 'fact_sensitive_surface_bp' in expected:
+            observed.update(sensitive_surface_observed())
         if 'fact_branch_protection_audit' in expected:
             if token:
                 observed.update(branch_protection_audit_observed(token))
@@ -345,11 +389,19 @@ def tamper_test() -> None:
         observed_common['fact_open_high_server'] = '0'
     failed = []
     for goals_path, expected in RECORDS:
-        observed = dict(observed_common)
+        # The per-record sets stay EXACT (№605): the common observed set
+        # joins a record's observed ONLY when the record expects the key.
+        # The 0.31 record (the §5 fixation, 2026-10-13) carries ONLY the
+        # sensitive-surface fact — the v2-common facts live in and verify
+        # against the 0.28/0.29/0.30 records (no duplication — the Д-2
+        # drift class stays closed).
+        observed = {k: v for k, v in observed_common.items() if k in expected}
         if 'fact_precise_share_bp' in expected:
             observed.update(precise_share_observed())
         if 'fact_parameterized_share_bp' in expected:
             observed.update(parameterized_share_observed())
+        if 'fact_sensitive_surface_bp' in expected:
+            observed.update(sensitive_surface_observed())
         if 'fact_branch_protection_audit' in expected:
             if token:
                 observed.update(branch_protection_audit_observed(token))

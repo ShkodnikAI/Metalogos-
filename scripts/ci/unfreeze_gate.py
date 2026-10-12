@@ -20,6 +20,15 @@ targets stay available explicitly. The verdict behavior is unchanged
 (№580: a RED is loud — ::error:: + the artifact — and the blocking exit
 belongs to the release-time --strict read).
 
+№660 (ADR-0191 §5, the owner's verdict 2026-10-13 — the variant (а)
+live-fact fixation, 66/138 = 4782 bp): the DEFAULT gate target is 0.31 —
+the switch happened in the owner_fixed merge (the №597/№630 pattern
+again); the 0.28/0.29/0.30/legacy targets stay available explicitly.
+The 0.31 read = the 0.30 v2 form VERBATIM (the records are never
+deleted — no strictness regression) PLUS the 0.31 parameter: the
+sensitive-surface coverage (№644) against goal_sensitive_surface_bp,
+fail-closed. The verdict behavior is unchanged (№580).
+
 The four criteria (ADR-0177 §4) and their machinery:
   1. Types   — the typed-signature share (№467) may only grow:
                scripts/ci/type_signature_share.py --gate
@@ -80,6 +89,19 @@ GOALS_029 = os.path.join(HERE, 'gate_029_goals.txt')
 # is the parameterized-mode v2 core), and the DEFAULT gate target
 # switched 0.29 → 0.30 in THIS merge (the №597 pattern).
 GOALS_030 = os.path.join(HERE, 'gate_030_goals.txt')
+# №660 (gh#1161, ADR-0191): the 0.31 ABSOLUTE goals record. The draft era
+# ended in the §5 transition (the owner's verdict 2026-10-13 — the
+# variant (а) live-fact fixation, 4782 bp): owner_fixed: true, the typed
+# parameter is the SENSITIVE-SURFACE coverage (№644 — the Q-2
+# fixed-denominator metric), and the DEFAULT gate target switched
+# 0.30 → 0.31 in THIS merge (the №597/№630 pattern). The 0.31 read = the
+# 0.30 v2 form verbatim + the sensitive-surface goal (records never
+# deleted).
+GOALS_031 = os.path.join(HERE, 'gate_031_goals.txt')
+# №644 (gh#1131): the sensitive-surface machine — the 0.31 gate's fact
+# checker (the goal/fact twins live in GOALS_031, synced blocking by
+# sync_gate_facts.py).
+SENS_SCRIPT = os.path.join(HERE, 'sensitive_surface_share.py')
 SERVE_E2E = os.path.join(HERE, 'serve_e2e_inventory.txt')
 ADR = 'docs/adr/0177-domain-freeze-until-027.md'
 ADR_V2 = 'docs/adr/0179-release-gate-028-criteria-v2.md'
@@ -417,6 +439,66 @@ def criterion_goals_030(baseline_dir):
                                parameterized=True)
 
 
+def criterion_goals_031(baseline_dir):
+    """№660 (gh#1161, ADR-0191 §5) + the §5 transition: the 0.31 ABSOLUTE
+    goals — OWNER-FIXED.
+
+    The OWNER-FIXATION gate first (the criterion_goals_029/030 shape):
+    while the record carried `owner_fixed: false`, the verdict was RED
+    with the honest reason. The fixation happened 2026-10-13 (the
+    owner's verdict — the variant (а) live-fact fixation: the reached
+    66/138 = 4782 bp after the №668/№669 movement landed first), and the
+    §5 PR switched the DEFAULT gate target 0.30 → 0.31 in the same merge
+    (the №597/№630 pattern; ADR-0191 §5). The shape: the 0.30 v2 form is
+    read VERBATIM (criterion_goals_030 — the records are never deleted,
+    no strictness regression), PLUS the 0.31 parameter — the
+    sensitive-surface coverage (the №644 machine, the report mode)
+    against goal_sensitive_surface_bp from the 0.31 record; both reads
+    are fail-closed (a missing key, an unparsable read, or a live fact
+    BELOW the goal is a RED). The X-3 posture (the goal equals the live
+    fact at the fixation anchor) is recorded in the goals file's header:
+    the gate starts MET by the reached number and exists as the ONLY-UP
+    ratchet (the floor sensitive_surface_baseline.txt — a run below it
+    exits 1)."""
+    marker = None
+    if os.path.isfile(GOALS_031):
+        for line in open(GOALS_031, encoding='utf-8'):
+            m = re.match(r'^owner_fixed:\s*(\w+)\s*$', line)
+            if m:
+                marker = m.group(1)
+                break
+    if marker != 'true':
+        detail = ('the 0.31 parameters are NOT owner-fixed (ADR-0191, '
+                  'owner_fixed: %s) — the gate reports the honest RED until the owner '
+                  'fixes them; the draft demands no movement of anyone and blocks nothing '
+                  '(the default gate target stays on the last FIXED record)' % (marker or 'absent'))
+        return 1, detail, detail, ''
+    rc, detail, raw, note = criterion_goals_030(baseline_dir)
+    details = [detail] if detail else []
+    ss_rc, ss_out = run([SENS_SCRIPT])
+    sm = re.search(r'sensitive-surface coverage:\s*(\d+)/(\d+)\s*\((\d+) bp\)', ss_out)
+    ss_goal = None
+    if os.path.isfile(GOALS_031):
+        for line in open(GOALS_031, encoding='utf-8'):
+            m = re.match(r'^goal_sensitive_surface_bp:\s*(.+?)\s*$', line)
+            if m:
+                ss_goal = m.group(1)
+                break
+    if sm and ss_goal is not None:
+        ss_bp = int(sm.group(3))
+        ok = ss_bp >= int(ss_goal)
+        details.append('sensitive-surface coverage %s/%s = %s bp vs goal %s bp: %s'
+                       % (sm.group(1), sm.group(2), ss_bp, ss_goal,
+                          'MET' if ok else 'NOT MET'))
+        if not ok:
+            rc = 1
+    else:
+        details.append('the sensitive-surface fact or the goal is unparsable/missing (fail-closed)')
+        rc = 1
+    out = raw + '\n' + ss_out
+    return rc, '; '.join(details), out, note
+
+
 def main():
     args = sys.argv[1:]
     baseline_dir = args[args.index('--baseline-dir') + 1] if '--baseline-dir' in args else os.path.join(ROOT, 'scripts', 'ci')
@@ -444,9 +526,13 @@ def main():
     # read is wired into the blocking CI. №630 (ADR-0186 §5, the owner's
     # verdict 2026-10-07): the DEFAULT is 0.30 — the 0.30 goals are
     # owner-fixed (the В34 addendum form) and the parameterized-mode read
-    # is wired; the 0.28, 0.29 and the legacy readings stay available
-    # explicitly (--gate-target 0.28 / 0.29 / legacy) — no record deleted.
-    gate_target = args[args.index('--gate-target') + 1] if '--gate-target' in args else '0.30'
+    # is wired. №660 (ADR-0191 §5, the owner's verdict 2026-10-13): the
+    # DEFAULT is 0.31 — the 0.31 goals are owner-fixed (the variant (а)
+    # live-fact fixation, 4782 bp) and the sensitive-surface read is
+    # wired on top of the 0.30 form; the 0.28, 0.29, 0.30 and the legacy
+    # readings stay available explicitly (--gate-target 0.28 / 0.29 /
+    # 0.30 / legacy) — no record deleted.
+    gate_target = args[args.index('--gate-target') + 1] if '--gate-target' in args else '0.31'
     # №570 (gh#934): --dry — compute and PRINT the summary, write NO file
     # (no out_path, no GITHUB_STEP_SUMMARY) — the draft-read primitive.
     dry = '--dry' in args
@@ -455,6 +541,8 @@ def main():
         c5 = criterion_goals_029(baseline_dir)
     if gate_target == '0.30':
         c5 = criterion_goals_030(baseline_dir)
+    if gate_target == '0.31':
+        c5 = criterion_goals_031(baseline_dir)
 
     rows = []
     lines = []
@@ -538,12 +626,31 @@ def main():
                      'blocking by gate-facts-sync); the switches themselves were '
                      'applied by the owner before the 0.30.0 publication, as №646 '
                      'requested.')
+    if gate_target == '0.31':
+        v_rc, v_detail, v_raw, v_note = c5
+        v_verdict = 'GREEN' if v_rc == 0 else 'RED'
+        lines.append('')
+        lines.append('## The v2 gate — the 0.31 ABSOLUTE goals (№660, ADR-0191 — OWNER-FIXED 2026-10-13, the §5 wiring)')
+        lines.append('')
+        lines.append('| § | Goal | Verdict | Evidence |')
+        lines.append('|---|------|---------|----------|')
+        lines.append('| v2 | The absolute goals: the 0.30 form verbatim (the parameterized share ≥ goal — the №623 third metric, 0 open High, the domain quorum, the serve-e2e inventory, the branch-protection verdict) + the 0.31 parameter: the sensitive-surface coverage ≥ goal (№644) | **%s** | %s |'
+                     % (v_verdict, v_detail))
+        overall = 'GREEN' if (overall == 'GREEN' and v_rc == 0) else 'RED'
+        lines.append('')
+        lines.append('**Overall (§4 + v2 0.31): %s.**' % overall)
+        lines.append('The 0.31 release gate: **WIRED** (the DEFAULT gate target — №660, '
+                     'ADR-0191 §5, the owner\'s verdict 2026-10-13: the variant (а) '
+                     'live-fact fixation, 66/138 = 4782 bp; the strict '
+                     'release-time read, --strict, exits 1 on RED).')
     if gate_target == '0.28':
         pass  # the v2 verdict above is the release read for 0.28
     elif gate_target == '0.29':
         pass  # the 0.29 read above is the wired gate report
     elif gate_target == '0.30':
         pass  # the 0.30 read above is the wired gate report (№630)
+    elif gate_target == '0.31':
+        pass  # the 0.31 read above is the wired gate report (№660 §5)
     elif overall == 'GREEN':
         lines.append('The 0.27.0 release gate: **SATISFIED** (release-blocking '
                      'label — a RED anywhere in this summary blocks the release '
@@ -585,6 +692,8 @@ def main():
             print('::error::the 0.29 ABSOLUTE goals read is RED — the failed goal is named in the summary (ADR-0181 §3/§5; the strict release-time read exits 1)')
         elif gate_target == '0.30':
             print('::error::the 0.30 ABSOLUTE goals read is RED — the failed goal is named in the summary (ADR-0186 §3/§5, the №630 wiring; the strict release-time read exits 1)')
+        elif gate_target == '0.31':
+            print('::error::the 0.31 ABSOLUTE goals read is RED — the failed goal is named in the summary (ADR-0191 §5, the №660 wiring; the strict release-time read exits 1)')
         else:
             print('::error::the unfreeze summary is RED — the 0.27.0 release gate reads this verdict (ADR-0177 §6)')
         # №580 (gh#994, the wave-29 dispatch gh#1004): the release-block fact

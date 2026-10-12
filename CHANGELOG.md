@@ -28,6 +28,36 @@ All notable changes to the Metalogos project.
 
 ### Changed
 
+- **№669 (gh#1184) — the typing movement 0.31 №1 (docs-adjacent,
+  registry-locked; the behavior unchanged):** the forecast/graph
+  untyped package — 4 of 6 registry rows get honest signatures against
+  the verified handler facts (forecast_state Struct<ForecastState>{10
+  fields — the prov-block metadata, 8 internal + horizon/label
+  untrusted}, forecast_points Struct<ForecastPoints>{4 internal},
+  graph_neighbors List<Neighbor>, graph_query List<GraphEntry>); **2
+  honest refusals** (the №650 form): forecast_next — the opaque
+  ForecastHandle (the stage-0 OpaqueKind has NO Forecast kind; a
+  fictitious spelling is forbidden — the dictionary line is a separate
+  owner decision), graph_path — the heterogeneous List (PathNode vs
+  the PathError singleton). The sequential recount on the post-№668
+  base: typed 326/516 = 6317 bp, parameterized 71/103 = 6893 bp,
+  field-label 44/46 = 9565 bp, sensitive 66/138 = 4782 bp (only-up,
+  №757); the compiled pins 322/68/99/43; the
+  fact_parameterized_share_bp twin 6893 (the gate-facts-sync).
+- **№668 (gh#1183) — the Q-2 movement №2 «memory → recognition»
+  (docs-adjacent, registry-locked; the behavior unchanged):** 8 of 9
+  gate_031 rows closed against the verified handler facts — the four
+  typed-coarse rows parameterized (human_personas List<PersonaSummary>,
+  human_recall List<Memory>, check_reminders List<DueReminder>,
+  list_reminders List<Reminder>), semantic_search List<SearchResult>,
+  mtree_retrieve List<MTreeEntry>, mtree_stats
+  Struct<MTreeStats>{7 internal} + mtree_summarize
+  Struct<MTreeSummarize>{7 internal} (both WITH the field-meta — the
+  anti-dilution rule); the ninth row (world_state) is the honest
+  OPAQUE WorldState handle (№355/ADR-0159 — not a scalar, not a
+  parameterized List/Struct; the dictionary line is a separate owner
+  decision). Sensitive 54/138 = 3913 → 62/138 = 4492 bp (only-up);
+  the floors in the same PR.
 - **№662 (gh#1163) — the ADR-0188 option (б) compile-time port (the
   behavior change, fail-closed; lands in the 0.31.0 semantics — NOT in
   the 0.30.1 train):** the SHARED semantic checker refuses two

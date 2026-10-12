@@ -73,7 +73,43 @@ they reside in the canon held by the coordinator (§16.0-7).
 - C2PA mini-slice: manifest read/write, Art 50 labeling — a narrow slice (#320).
 - Completion-audits of Wave 0 — accepted (gh#404–#406).
 
-## Current wave — Wave 38 (the parity-and-spec development, the dispatch gh#1151, 2026-10-08)
+## Current wave — Wave 39 (the verdict-execution + repair, the dispatch gh#1167, 2026-10-09)
+
+The dispatch gh#1167 queue — the owner's verdict session 08.10 as
+workorders + the №652-a/b/c repair line + the train №1. Executed:
+№658 (gh#1159, PR #1168 → 3f9fee3) — the №652-a repair: the VM
+break/continue parity (the loop-stack fixups on BOTH backends; the
+norms S-BLK-011/012 + five pairs; the ### Security entry rides the
+0.30.1 cut); №659 (gh#1160, PR #1171 → 5c5a1a1) — the №652-b/c
+repairs: the trailing let in a value arm is Unit, the arm lets do not
+leak (S-BLK-013/014); №660 (gh#1161, PR #1173 → aea5cc5) — ADR-0191
+the 0.31 gate skeleton (Proposed; gate_031_goals.txt DRAFT, both OD
+variants); №661 (gh#1162, PR #1174 → 2da1e50) — the К-Б enforcement
+stage-2: the blocking field-meta rule + the FIRST PRIVATE label
+(canary_check) + the floors in the same PR; №662 (gh#1163, PR #1175 →
+ddca7ca) — ADR-0188 option (b): the SHARED compile-time checker (the
+implicit String→opaque coercion + the unknown template names) —
+UNRELEASED, the 0.31.0 material (the [Unreleased] Changed; the
+#[ignore] debt 11 → 9); №663 (gh#1164, PR #1172 → c1b1a72) —
+ADR-0189/0190 → Accepted, the The-train checklist section, the train
+№1 activation; №664 (gh#1165, PR #1193 → 27877b8) — **the train №1 at
+the window 2026-10-12: the 0.30.1 cut ([0.30.1] - 2026-10-12 —
+### Security №658+№651, ### Fixed #1169/#1170; the lockstep ×5; the
+gate --strict exit 0; CI 48/48), the tag v0.30.1 ON THE MERGE COMMIT —
+the publication is the OWNER's act, §6.5, PENDING**. The post-wave
+docs sync: №665 (this section; REALITY §6.24; the quota line 0/24
+PASS). The counters at 9f5cee7: typed 326/516 = 6317 bp, precise 4302,
+parameterized 71/103 = 6893, fieldmeta 44/46 = 9565, sensitive
+66/138 = 4782, norms 33 (13+14+6) with 40 pairs, ignore 9 / dead_code
+15, ADR 183, dups 0, blocking cells 32, release-gap OK, the 0.30 gate
+--strict exit 0. The owner gates remaining: **the v0.30.1 publication
+(§6.5)**, the ADR-0191 §-answers (the OD variants), the В36 tail
+(№639 15.10, №641), №648 (01.12), NLnet до 20.10 (owner), the showcase
+repository creation (owner).
+
+## Executed — Wave 38 (the parity-and-spec development, the dispatch gh#1151, 2026-10-08)
+
+**Executed and accepted** (the post-wave sync №656 → `b4b9abb`; the wave record: REALITY §6.23; the window carried the №652-a/b/c repair naryads — see Wave 39). The dispatch gh#1151 queue —
 
 The dispatch gh#1151 queue — the ПСРМ development after the 0.30.0
 publication. Executed: №651 (gh#1145, PR #1152 → 3ac294a) — the TW/VM

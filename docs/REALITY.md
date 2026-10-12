@@ -1837,3 +1837,141 @@ docs + the gh#1089 closure), №648 (2026-12-01).
 
 **The wave report line (№608/№470):** the dispatch surface gh#1151:
 `naryad-quota (№470/№608): 21 naryads — domain 0/21 = 0.0% — PASS (the standing limiter <= 1/3)`
+
+### 6.24. Wave 39 post-wave record (naryad №665): the verdict-execution + repair wave — the №652-a/b/c repairs landed (S-BLK-011..014), the 0.31 gate skeleton (ADR-0191), the К-Б stage-2 enforcement (the first private label), the ADR-0188 option (b) checker unreleased, the verdicts → Accepted, and the train №1 executed at the window — the 0.30.1 cut TAGGED, the publication pending (main @ `9f5cee7`, 2026-10-12)
+
+Protocol: the same machines, no hand-written numbers. The honest
+headline: В39 executed the owner's verdict session 08.10 (the dispatch
+gh#1167) — the №652-a/b/c repair line from the В38 probe landed
+fail-closed (№658: the VM break/continue parity — every loop jump
+resolves from the loop-stack entry on BOTH backends, the stale-local
+patch loops gone; №659: the trailing let in a value arm is Unit and
+the arm lets do not leak — the S-BLK-011..014 norms ride with the
+pairs), the 0.31 gate skeleton stood up (№660: ADR-0191 Proposed —
+the verdict 08.10 verbatim core with the recorded divergence;
+`gate_031_goals.txt` DRAFT carrying both OD variants; the 030 DRAFT
+line retired — №525 discipline), the К-Б enforcement reached stage-2
+(№661: the blocking field-meta rule — a parameterized Struct row
+without a well-formed field-meta section fails CI; the FIRST PRIVATE
+label — canary_check Struct<CanaryCheck>; the floors in the same PR),
+the ADR-0188 option (b) compile-time checker landed as UNRELEASED
+material (№662: the implicit String→opaque coercion and the unknown
+template names refuse at CHECK time on the SHARED checker — both
+backends, one diagnostics front door; the recursive dry-run inventory
+370 .mlog files, 0 refusals; the [Unreleased] `### Changed` entry
+rides to the 0.31.0 semantics — NOT in the 0.30.1 train), the
+verdicts landed in the tree (№663: ADR-0189/0190 → Accepted; the
+The-train checklist section + the train №1 activation), and the train
+№1 was executed AT THE WINDOW 2026-10-12 (№664: the 0.30.1 lockstep —
+the cut `[0.30.1] - 2026-10-12` with `### Security` №658+№651 (both
+AFFECTS 0.30.0 AND EARLIER on the VM backend; no re-tag — the №620
+precedent) then `### Fixed` #1169/#1170; the PR #1193 → `27877b8`; the
+tag **v0.30.1** ON THE MERGE COMMIT — the tag push triggers nothing;
+**the publication is the OWNER's act, §6.5 — PENDING**). The window
+also executed В40's Фаза 0/1 (the completion audits №666/№667; the
+merges №668/№669/№670 — the sensitive surface 54 → 66/138, the spec
+topic 3 «Errors and the try result») — the full В40 record is §6.25
+(naryad №671, strictly last); this section fixes the В39 story and
+the window outcome that touches it (the train).
+
+- №658 (gh#1159, PR #1168 → `3f9fee3`) — the №652-a repair (the
+  №651/№629 образец): the VM loop path mirrors the TW `ControlFlow`
+  contract 1:1 — every `break`/`continue` reaches its NEAREST
+  enclosing loop on BOTH backends at any nesting depth; the shared
+  statement compiler registers a `Jump(0)` placeholder in the NEAREST
+  loop-stack entry and the loop compiler patches it from the POPPED
+  entry (the pre-№658 root cause — the stale-local patch loops —
+  gone). The X-1/Y-1/Q-1 silently-wrong control-flow class closes
+  fail-closed; the TW unchanged; the norms S-BLK-011/012 + five
+  conformance pairs pin the record; the ### Security entry rides the
+  0.30.1 cut (the fix landed after the v0.30.0 tag `b4b9abb` — the
+  published tag is affected on the VM backend).
+- №659 (gh#1160, PR #1171 → `5c5a1a1`) — the №652-b/c repairs: the
+  trailing `let` in a value arm evaluates to Unit (not the let-bound
+  value) and the arm lets do not leak into the enclosing scope — both
+  backends agree; the norms S-BLK-013/014 + the pairs; the
+  docs/spec/blocks.md synced (the topic 2 counter 10 → 14 in the same
+  lane with №658's norms — the spec README header 23 → 27 before the
+  window's №670 moved it to 33).
+- №660 (gh#1161, PR #1173 → `aea5cc5`) — **ADR-0191 the 0.31 gate
+  skeleton** (Proposed): the verdict 08.10 verbatim core + the
+  recorded divergence; `gate_031_goals.txt` DRAFT carrying BOTH
+  OD variants (the owner's §-answers pending); the 030 DRAFT line
+  retired (the 0.30 gate went owner_fixed at В34 — the DRAFT surface
+  would be a shadow record).
+- №661 (gh#1162, PR #1174 → `2da1e50`) — **the К-Б enforcement
+  stage-2**: the field-meta rule is BLOCKING (the №637 anti-dilution
+  grammar becomes a CI gate — a parameterized Struct row lands bare →
+  red); the FIRST PRIVATE label: canary_check Struct<CanaryCheck> —
+  the private-surface precedent the №650 boundary asked for; the
+  floors in the same PR (typed 316 → 317, parameterized 58/94 → 59/95,
+  fieldmeta 39/41 → 40/42, sensitive 53/138 → 54/138).
+- №662 (gh#1163, PR #1175 → `ddca7ca`) — **ADR-0188 option (b)**: the
+  compile-time port — the SHARED semantic checker refuses two
+  late-failure classes at CHECK time on BOTH backends: (1) the
+  IMPLICIT String→opaque coercion (a literal or a `+` chain flowing
+  into an opaque-typed target — the explicit producer path stays
+  legal, №114); (2) the unknown template names (a `render("Name", …)`
+  whose statically-resolvable name is absent from the program's
+  template declarations — only a string-literal name is statically
+  resolvable, every non-literal form stays the runtime's backstop).
+  The corpus is clean (370 .mlog files, 0 refusals); the diagnostics
+  move left for NEW code only. **UNRELEASED** — the [Unreleased]
+  `### Changed` entry; the 0.31.0 semantics carrier. The `#[ignore]`
+  debt 11 → 9 rode this PR (the two runtime-500 waits retired by the
+  check-time refusals).
+- №663 (gh#1164, PR #1172 → `c1b1a72`) — the verdicts land in the
+  tree: ADR-0189 (the release train) and ADR-0190 (the examples
+  showcase) → **Accepted** (the owner's session 08.10); the
+  release-checklist gains the The-train section; the train №1
+  activation (the Monday window 2026-10-12).
+- №664 (gh#1165, PR #1193 → `27877b8`) — **the train №1, executed at
+  the window**: the 0.30.1 lockstep (one PR — the №646/№614 образец):
+  workspace Cargo.toml 0.30.0 → 0.30.1, Cargo.lock ×5 members, the
+  README badge + the generated Version row (gen_metrics --check OK);
+  the cut `[0.30.1] - 2026-10-12`: `### Security` FIRST (№658 + №651)
+  then `### Fixed` (#1169/#1170 — «rides the 0.30.1 train»); the
+  [Unreleased] keeps `### Changed` (№662). The «only what landed»
+  recheck on the window: the CHANGELOG delta a13e81c..bf65207 EMPTY
+  (the hygiene/docs PRs added no [Unreleased] entries); the rebase
+  onto the owner's grants-removal main (`e3acc04`) clean. The
+  unfreeze gate `--strict` exit 0 (§4.1–4.4 GREEN; v2: parameterized
+  6210 bp ≥ 5000 MET at the cut fact); the release-gap gate OK; CI
+  48/48. **The tag v0.30.1 on the squash commit `27877b8`; the
+  publication — the OWNER's act, §6.5, PENDING** (release_notes.py
+  drafts from the [0.30.1] section; the v0.30.0 release shape is what
+  release.yml builds).
+
+**The Wave 39 counters (every value from its machine, the command
+reproduces it; main @ 9f5cee7):**
+
+| Counter | Value | Machine | Movement |
+|---|---|---|---|
+| Typed-signature share (№467) | **326/516 = 6317 bp** | `python3 scripts/ci/type_signature_share.py --gate scripts/ci/type_signature_baseline.txt` | **moved** (316 → 317 №661 canary_check; the window merges №668 +5, №669 +4 — the В40 record §6.25) |
+| Precise typed share (№560) | **222/516 = 4302 bp** | `… --precise --gate …` | unchanged (the X-3 rule — no scalars in the packages) |
+| Parameterized share (№623) | **71/103 = 6893 bp** (the LS denominator 94 → 103) | `… --parameterized --gate …` | **moved** (58/94 → 59/95 №661; the window №668 → 67/99, №669 → 71/103 — §6.25; the goal 5000 stays the owner's record) |
+| Field-label share (№627) | **44/46 = 9565 bp** | `… --parameterized --fieldmeta --gate …` | **moved** (39/41 → 40/42 №661 canary; the window №668 +2, №669 +2 — every parameterized Struct row WITH the field-meta, the anti-dilution rule) |
+| **Sensitive-surface coverage (№644)** | **66/138 = 4782 bp** (the floor 4782 only-up) | `python3 scripts/ci/sensitive_surface_share.py --gate scripts/ci/sensitive_surface_baseline.txt` | **moved** (53/138 → 54/138 №661 canary; the window №668 +8, №669 +4 — §6.25) |
+| The spec normative core (№645/№652) | **33 norms** (S-VAL ×13 + S-BLK ×14 + S-ERR ×6) with 40 conformance pairs | the pair count in `tests/conformance/`; the Topics table | **moved** (23 → 27 №658/№659 S-BLK-011..014; 27 → 33 the window №670 S-ERR-001..006 — §6.25) |
+| The №604 dictionary | **classes 1–4** | `python3 scripts/ci/honest_boundary_check.py --self-test` (ALL PASS) | unchanged |
+| `#[ignore]` debt (№468) | **9** (TODO: 0) | `python3 scripts/ci/debt_counters.py --gate scripts/ci/debt_baseline.txt` | **moved** (11 → 9 — №662: the two runtime-500 waits retired by the check-time refusals; the threshold 11 stands) |
+| `dead_code` (№468) | **15** | same gate | unchanged |
+| TW/VM duplicated builtin names (№462) | **0** (the quorum 0/8 groups) | `python3 scripts/ci/count_duplicated_names.py --quorum` | unchanged |
+| Registered mirrors (№502/№564) | **6** | `python3 scripts/ci/mirror_counter.py --gate scripts/ci/src_mirror_baseline.txt` | unchanged |
+| ADR count | **183** (the generated README row; ADR-0191 Proposed landed in В39) | `python3 scripts/gen_metrics.py --check` | **moved** (182 → 183) |
+| Blocking-checks cells | **32** | `python3 scripts/ci/blocking_checks_sync.py --count` | unchanged (the №535 rule — no growth without the explicit naryad) |
+| The №562 release-gap gate | **OK** (the fresh [Unreleased] carries only №662's Changed) | `python3 scripts/ci/release_gap_gate.py` | unchanged (OK) |
+| The 0.30 gate posture | **owner_fixed: true; the DEFAULT target 0.30; the parameterized fact MET (6893 ≥ 5000); the branch-protection verdict fact GREEN** | `python3 scripts/ci/unfreeze_gate.py --office-tests pass --gate-target 0.30 --strict` (exit 0) | unchanged GREEN |
+| The release state | **0.30.1 TAGGED (`27877b8`) — NOT published; the owner's act pending** | the tag + the release API | **moved** (0.30.0 PUBLISHED → the train №1 cut tagged at the window) |
+
+**The owner gates remaining after В39:** the **v0.30.1 publication**
+(§6.5 — the train №1 completes with it; release_notes.py drafts from
+the [0.30.1] section), the ADR-0191 §-answers (the OD variants — the
+0.31 direction), the В40 tail (№671 the В40 docs record — strictly
+last, after this section), the В36 tail (№639 the ledger revision
+2026-10-15, №641 the В36 docs + the gh#1089 closure), №648
+(2026-12-01), NLnet до 20.10 (owner), the showcase repository
+creation (owner — then the showcase wave).
+
+**The wave report line (№608/№470):** the dispatch surface gh#1167:
+`naryad-quota (№470/№608): 24 naryads — domain 0/24 = 0.0% — PASS (the standing limiter <= 1/3)`

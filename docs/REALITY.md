@@ -1971,7 +1971,7 @@ row), the ADR-0191 §-answers (the OD variants — the
 0.31 direction), the В40 tail (№671 the В40 docs record — strictly
 last, after this section), the В36 tail (№639 the ledger revision
 2026-10-15, №641 the В36 docs + the gh#1089 closure), №648
-(2026-12-01), NLnet до 20.10 (owner), the showcase repository
+(2026-12-01), the showcase repository
 creation (owner — then the showcase wave).
 
 **The wave report line (№608/№470):** the dispatch surface gh#1167:
@@ -2095,7 +2095,7 @@ publication**~~ — **closed 2026-10-12** (the release 410516037, the
 train №1 completed), the ADR-0191 §-answers (the
 OD variants — the 0.31 direction; gh#1161), the train №2 candidate
 (the Monday window 2026-10-19 — no empty trains, the ADR-0189 honest-
-content rule), NLnet до 20.10 (owner), the examples showcase — the
+content rule), the examples showcase — the
 repository is NOT created (the owner's act; the showcase is not
 referenced as existing), the В36 tail (№639 the ledger revision
 2026-10-15, №641) and №648 (2026-12-01) — outside В40, untouched.

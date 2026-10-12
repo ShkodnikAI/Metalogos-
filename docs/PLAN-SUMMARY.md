@@ -104,7 +104,7 @@ quota line 0/20 PASS; the dispatch gh#1187 closes). The counters at
 blocking cells 32, release-gap OK, the 0.30 gate --strict exit 0. The
 owner gates remaining: **the v0.30.1 publication (§6.5)**, the
 ADR-0191 §-answers (the OD variants), the train №2 candidate (19.10 —
-the honest-content rule), NLnet до 20.10 (owner), the showcase repo
+the honest-content rule), the showcase repo
 (NOT created — the owner's act), №639 (15.10) / №648 (01.12) outside
 the wave.
 
@@ -141,7 +141,7 @@ parameterized 71/103 = 6893, fieldmeta 44/46 = 9565, sensitive
 15, ADR 183, dups 0, blocking cells 32, release-gap OK, the 0.30 gate
 --strict exit 0. The owner gates remaining: **the v0.30.1 publication
 (§6.5)**, the ADR-0191 §-answers (the OD variants), the В36 tail
-(№639 15.10, №641), №648 (01.12), NLnet до 20.10 (owner), the showcase
+(№639 15.10, №641), №648 (01.12), the showcase
 repository creation (owner).
 
 ## Executed — Wave 38 (the parity-and-spec development, the dispatch gh#1151, 2026-10-08)

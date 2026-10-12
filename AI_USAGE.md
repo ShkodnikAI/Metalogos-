@@ -2,8 +2,7 @@
 
 This document describes, in general terms, how generative AI (GenAI) tools have
 been used in the development of Metalogos, in accordance with our commitment to
-transparency and with NLnet's Policy on the use of Generative Artificial
-Intelligence (https://nlnet.nl/foundation/policies/generativeAI/).
+transparency.
 
 ## Summary
 
@@ -54,7 +53,7 @@ the AI's own claim of correctness.
 
 For work carried out after this disclosure is published, commits that
 substantially consist of AI-generated code will identify the model used in
-the commit message, following the pattern recommended by NLnet's policy.
+the commit message.
 
 ## Licensing
 

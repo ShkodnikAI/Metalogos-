@@ -1,5 +1,2 @@
 blank_issues_enabled: false
-contact_links:
-  - name: Грантовые заявки (metalogos-grants)
-    url: https://github.com/ShkodnikAI/metalogos-grants/issues
-    about: Заявки на гранты ведутся в отдельном приватном репозитории
+contact_links: []

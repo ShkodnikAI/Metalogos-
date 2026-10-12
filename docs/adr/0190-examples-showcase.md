@@ -2,7 +2,7 @@
 
 **Status:** Accepted — the owner's §-answers, 2026-10-08 (the verbatim
 answer map: «1 — отдельный публичный репозиторий; 2 —
-metalogos-examples; 3 — как в основном репо; 4 — в NLnet-заявке»; the
+metalogos-examples; 3 — как в основном репо; 4 — external materials»; the
 FULL verdict text lives at the source — gh#1149, comment
 2026-10-08T08:03:43Z, and the canonical «гейты-0810» record п.5 — the
 docs-language lint №383 keeps the .md form English-only, the ADR-0181

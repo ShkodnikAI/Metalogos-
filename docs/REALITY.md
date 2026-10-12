@@ -882,11 +882,11 @@ reproduces it — all unchanged from §6.13):**
 
 **The Wave 28 facts (the wave's own work, not counters):**
 
-- The pre-M1 delivery (№577, gh#983): the NLnet/Restack grants sync
-  landed 15 days before the 2026-10-20 deadline — the metrics one-pager
+- The pre-M1 delivery (№577, gh#983): the external-reporting sync
+  landed — the metrics one-pager
   (the fresh snapshot, every number generator-read on the day), the CBM
   pilot extract (the 2026-10-03 measurement), the M1 checklist. The
-  publication stays with the owner (M1 2026-11-03).
+  publication stays with the owner.
 - The domain line reopened BY CONTOUR (№578, gh#991): ADR-0182
   (`docs/adr/0182-media-handles-backend-registry.md`, **Proposed**) —
   the honest stock-taking (the unified media layer №331, the backend
@@ -1420,7 +1420,7 @@ reproduces it):**
 blocks №628, the §5 fixation), the parameterized-share value if ≠ ≥ 50%
 of 84 (the §5 path), the stage-2 enforcement verdict (К-Б — not filed),
 the ledger gh#967 §4–§7 (the revision 2026-10-15), the Камертон
-forwarding, NLnet M1 03.11.2026. The wave-35 registered candidates:
+forwarding. The wave-35 registered candidates:
 №627 (gh#1110, the field-label metadata — the stage-2 prep), №628
 (gh#1111, the §5 fixation).
 
@@ -1531,8 +1531,7 @@ movement to the 0.30 goal (≥ 5000 bp — the next typing packages), the
 stage-2 enforcement verdict (К-Б — not filed; №627 prepared the
 metadata surface), the ledger gh#967 §4/§7 (the revision 2026-10-15;
 the lanes осознанно not filed — the dispatch flag), the Камертон
-forwarding, the NLnet submissions before 20.10 (the package delivered
-05.10, №577; M1 Restack-ready closed 6/6), №632 (gh#1100 — the
+forwarding, №632 (gh#1100 — the
 plan-relevance audit release №3, the execution date 2026-11-01 ± 1
 day). The В34 dispatch gh#1089 remains open as of this record — the
 housekeeping observation for the coordinator (all its workorders
@@ -1681,7 +1680,6 @@ owner's act — the Z-3 recommendation attached: the branch-protection
 switches gh#1000 BEFORE publishing), the branch-protection closure
 itself (then the fact-key micro-PR — №525), the К-Б stage-2 verdict
 (the private first labels wait for it), the Камертон forwarding, the
-NLnet publications before 20.10, the milestone M1 closure after 20.10,
 the В36 tail (№639 the ledger revision 2026-10-15, №641 the В36 docs
 sync + the gh#1089 closure), №648 (2026-12-01).
 
@@ -1834,8 +1832,7 @@ cadence acceptance), the ADR-0190 §-answers (the placement + the app
 list; then the showcase wave), the К-Б stage-2 verdict (the private
 first labels wait for it — the №650 boundary), the №652-a/b/c repair
 naryads (the semantics — the owner's gate), the Camerton forwarding,
-the NLnet publications before 20.10, the milestone M1 closure after
-20.10, the В36 tail (№639 the ledger revision 2026-10-15, №641 the В36
+the В36 tail (№639 the ledger revision 2026-10-15, №641 the В36
 docs + the gh#1089 closure), №648 (2026-12-01).
 
 **The wave report line (№608/№470):** the dispatch surface gh#1151:

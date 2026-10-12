@@ -35,11 +35,11 @@
 | Wave 21 (dispatch #804) | The consolidated audit over four independent runs (А/Б/В/Г): the `!=`→`==` compiler defect, the Dockerfile repair, the voice honesty, the soft-fail inventory, the registry isolation, cargo-deny, privacy.md | Executed (naryads №510–№519, PRs #824–#831, 2026-09-28–30) |
 | Wave 22 (dispatch #845) | The consolidated audit А+Д 30.09 (v0.27.1) — corrective: semantic findings block run/serve (P0 №523), the voiceprint erasure path (GDPR Art. 17), the AAD binding, the LRU registry eviction, MSRV, the wildcard lint, the blocking-checks table | Executed (naryads №520–№535, PRs #853–#866, 2026-09-30) |
 | Wave 23 (dispatch #852) | The typing wave to the 0.28 gate: the string/list/db/memory packages leave stage 0 (floor 998→2110 bp), the first two ops pairs collapse over DbAccess, the second-maintainer lane goes operational | Executed (naryads №536–№541, PRs #867–#871, #876, 2026-09-30) |
-| Wave 24 (dispatch #888) | Development per ПСРМ after В22/В23: the cycle sync + the actuality audit №2, the typing top-up to the 3000 bp gate, the typed-stage 2 strictly behind the gate, the crate split, the 0.28 window prep, the NLnet traction | Executed (naryads №542–№549, PRs #889–#902, 2026-10-01; the 0.28 gate floor reached — 3195 bp) |
+| Wave 24 (dispatch #888) | Development per ПСРМ after В22/В23: the cycle sync + the actuality audit №2, the typing top-up to the 3000 bp gate, the typed-stage 2 strictly behind the gate, the crate split, the 0.28 window prep | Executed (naryads №542–№549, PRs #889–#902, 2026-10-01; the 0.28 gate floor reached — 3195 bp) |
 | Wave 25 (gh#911–928) | The 0.28.0 release prep: the CHANGELOG sectioning, the audit 02.10 reaction (the explicit respond_html forms, the registry-vs-corpus validator, the precise-share second floor, the tag↔main gap gate, the read_file loud refusal, the mirror widening, the generated grantors' digest, the GFI pool policy), the release cut | Executed (17 naryads, PRs #937–#963; tag v0.28.0, 2026-10-03) |
 | Wave 26 (gh#931–936) | The post-0.28.0 development: the crate split stage 2 (metalogos-server lands — the transport contour + the mlog bin leave the language crate), the html_label walks unify (stage 3), the debt-honesty classification (the counter strictified, the ledger gh#967), the 0.29 gate draft + the OWNER FIXATION (ADR-0181, 2026-10-04), the coverage floor 76% line, the limitations archive fold | Executed (5 naryads, PRs #968–#982, 2026-10-03–04) |
 | Wave 27 (dispatch gh#978) | Development per ПСРМ after В25+В26: the release-pipeline repair (P0 — the release workflows follow the bin, the release-bin-guard), the typing step 0.29 №1, the VM json_body serve contract, the recall lane ranking, the post-wave docs | Executed (5 naryads, PRs #984–#988, 2026-10-04; the 0.29 draft goal 3500 bp overdelivered — 3654 bp) |
-| Wave 28 (dispatch gh#993) | The pre-M1 line + the domain-line reopening: the pre-M1 NLnet/Restack grants sync (№577 — the delivery 15 days before the 2026-10-20 deadline, M1 2026-11-03), ADR-0182 — the media-handle family + the backend-registry interface contour (№578, docs-only; the owner's §7 answers are the Wave-29 gate), the post-wave docs (№579, strictly last) | Executed (3 naryads, PRs #1006/#1012, 2026-10-05; the counters unchanged — the honest wave fact) |
+| Wave 28 (dispatch gh#993) | The pre-M1 line + the domain-line reopening: the pre-M1 external-reporting sync (№577), ADR-0182 — the media-handle family + the backend-registry interface contour (№578, docs-only; the owner's §7 answers are the Wave-29 gate), the post-wave docs (№579, strictly last) | Executed (3 naryads, PRs #1006/#1012, 2026-10-05; the counters unchanged — the honest wave fact) |
 | Wave 29 (dispatch gh#1004) | The security wave per the audit d63cc1d + the release line: the 0.28.1 preparation and the post-publication contour (№580–№583), the VM respond-terminality + the gate retired to advisory (№584), the route-body differential fuzzer (№585), the squash-body rule X-5 (№587), the honest-boundary protocol (№588), the post-wave docs (№589 — this row); the owner package rode in the wave's frame: v0.28.1 PUBLISHED, the 0.29 gate wired into blocking CI (№597), the ADR-0182 §7 answers (№598, the ADR → Accepted), the Image bridge (№599, the step 1 of 3); №586 stays blocked by the owner's repo secret | Executed (№580–№585, №587–№589 merged; №586 blocked — the owner's secret; the counters unchanged, the release state: v0.28.1 live) |
 | Wave 30 (dispatch gh#1022) | The language enrichment for the Камертон consumer: the spectral contour (№591), the per-call HTTP deadline taxonomy (№592), the migration-rollback boundary ADR-0183 — the OWNER GATE resolved by delegation, variant B (№593), the UTC calendar arithmetic (№595), the Box–Muller normal sampler (№590, merged last — the merge-order rebase with the cumulative baselines), the tick↔route parity — the third diff axis, tests-only (№594), the post-wave docs (№596 — this row) | Executed (№590–№595 merged, PRs #1034–#1039; the registry 509→516, ALL seven new rows typed; typed 3654 → 3759 bp, precise 2043 → 2131 bp; the classification generator's OVERRIDES drift repaired) |
 
@@ -112,7 +112,7 @@ blocking cells 32, release-gap OK, the 0.30 gate --strict exit 0,
 v0.30.0 PUBLISHED. The owner gates remaining: the ADR-0189 §-answer
 (the cadence), the ADR-0190 §-answers (the placement + the app list),
 the К-Б stage-2 verdict, the №652-a/b/c repair naryads (the semantics
-gate), the Камертон forwarding, the NLnet before 20.10, the В36 tail
+gate), the Камертон forwarding, the В36 tail
 (№639 15.10, №641), №648 (01.12).
 
 ## Executed — Wave 37 (the unified-audit execution, the dispatch gh#1136, 2026-10-08)
@@ -149,8 +149,7 @@ exit 0, parameterized 6043 bp / field-label 9500 bp (the 0.30 goal
 MET), typed 5988 bp / precise 4224 bp, ignore 11 / dead_code 15, ADR
 180, dups 0. The owner gates remaining: the 0.30.0 publication, gh#1000
 (the branch protection — then the fact-key micro-PR, №525), the stage-2
-enforcement (К-Б), the Камертон forwarding, the NLnet publications
-before 20.10, the В36 tail (№639 the ledger revision 2026-10-15, №641
+enforcement (К-Б), the Камертон forwarding, the В36 tail (№639 the ledger revision 2026-10-15, №641
 the В36 docs sync), №648 (01.12).
 
 ## Executed — Wave 36 (the parameterized movement №3, the dispatch gh#1125, 2026-10-08)
@@ -205,8 +204,7 @@ typed 5988 bp / precise 4224 bp unchanged, parameterized 3736 bp
 blocking cells 31. The owner gates remaining: gh#1000 (the branch
 protection), the parameterized movement to ≥ 5000 bp, the stage-2
 enforcement (К-Б — not filed), the ledger gh#967 §4/§7 (the revision
-2026-10-15), the Камертон forwarding, the NLnet submissions before
-20.10.
+2026-10-15), the Камертон forwarding.
 
 ## Executed — Wave 34 (the verdict-execution wave, the dispatch gh#1089, 2026-10-07)
 
@@ -233,7 +231,7 @@ untouched per Z-2); №624 (gh#1087) — ADR-0187 (Proposed): the
 memory-phase plan; №625 (gh#1088) — this sync, strictly last. The owner
 gates remaining: gh#1000 (branch protection — blocks №628, the §5
 fixation), the stage-2 enforcement (ADR-0178), the ledger gh#967
-§4–§7, the Камертон forwarding, NLnet M1 03.11.2026. The wave-35
+§4–§7, the Камертон forwarding. The wave-35
 registered candidates: №627 (gh#1110), №628 (gh#1111).
 
 ## Executed — Wave 33 (the ПСРМ development after the 0.29.0 release, the dispatch gh#1080, 2026-10-06)
@@ -255,8 +253,7 @@ the live facts; the default gate target stays 0.29) + ADR-0186
 (Proposed); №619 (gh#1079) — this sync, strictly last. The owner gates
 remaining: the 0.30 parameter fixation (№615/ADR-0186 — owner_fixed:
 false → true), the Камертон report forwarding (№618), the type stage 2
-(ADR-0178), branch protection (gh#1000), the Phase-2 domain lines,
-NLnet M1 03.11.2026.
+(ADR-0178), branch protection (gh#1000), the Phase-2 domain lines.
 
 ## Executed — Wave 32 (the 0.29.0 release, the owner's verdict 2026-10-06)
 

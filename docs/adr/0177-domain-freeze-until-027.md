@@ -138,7 +138,7 @@ violation — the verifier rejects the dispatch, not the naryad text.
 
 - The September pattern (~30k domain lines / cycle) stops; the next
   cycle's capacity lands in types, dedup, debt and the core stitches.
-- Demo/grant-facing feature velocity dips for one cycle — the accepted
+- Demo-facing feature velocity dips for one cycle — the accepted
   price of the decision (the owner chose 1-A over the soft quota 1-B).
 - The frozen domains keep their shipped guarantees: the freeze stops
   NEW surface, not the maintenance of what exists (§5).

@@ -772,17 +772,15 @@ release naryad №602's closure on the tag).
   classes. The X-2 limitations row removed in the same PR; both closed
   rows archived verbatim (the №524/№571 rule).
 
-- Naryad №577 (issue #983; Wave 28 P2, [process]/[grants], the pre-M1
-  line): the pre-M1 NLnet/Restack grants sync — the grants package
-  (`metalogos-grants/nlnet-traction/`) refreshed for the 2026-10-20
-  delivery, 15 days ahead: the metrics one-pager re-snapshotted
+- Naryad №577 (issue #983; Wave 28 P2, [process], the pre-M1
+  line): the pre-M1 external-reporting sync — the traction package
+  (since moved out of this repository) refreshed: the metrics one-pager re-snapshotted
   (2026-10-05 — every number generator-read on the day: the typed
   share 3654 bp / precise 2043 bp, the debt 17/0/33, the mirrors 6,
   the 31 blocking cells; the release-day snapshot preserved below the
   fresh one), the CBM pilot extract landed as
-  `03-code-intelligence-cbm.md` (the 2026-10-03 measurement), the M1
-  checklist drawn. The publication stays with the owner (M1
-  2026-11-03).
+  the code-intelligence pilot extract (the 2026-10-03 measurement), the
+  milestone checklist drawn. The publication stays with the owner.
 - Naryad №578 (issue #991; Wave 28 P1, [process]/[arch], the domain
   line's first naryad after the lift — the owner's decision 3Б,
   machine-recorded in `gate_029_goals.txt`): **ADR-0182 — the
@@ -1606,26 +1604,23 @@ mandatory.**
   10 (the reflex crate's own moved unit tests) + 906 (portable); the
   №183/№184×3/№185/№193/№195×4/№179 seam suites and the №210/№211/№212
   vision suites all green; the №463 gate and the core→media gate green.
-- Naryad №549 (issue #887; Wave 24, P2; the NLnet/Restack traction
-  lane, M1 2026-11-03): the draft traction package lands in
-  `metalogos-grants/` — the owner-gated surface (nothing here is
-  published by an executor; the №541 postulate). The one-command demo
-  script (`scripts/demo_traction.sh`, three legs over the public
+- Naryad №549 (issue #887; Wave 24, P2; the external traction lane): the
+  draft traction package landed — since moved out of this repository, as
+  was the one-command demo script (three legs over the public
   examples VERBATIM: the static taint refusal — the private camera
   frame denied at compile time with the exact class/rule/node; the
   live serve loop; the action-ledger chain — grant → allow → exhaust
   → deny → key rotation → export → `mlog ledger verify`, the Ed25519
   chain verified WITHOUT the Metalogos runtime; exit 0 = every leg
-  reproduced, cleanup after itself). The metrics one-pager
-  (`metalogos-grants/nlnet-traction/01-metrics-one-pager.md`):
+  reproduced, cleanup after itself). The metrics one-pager:
   repository facts with dates, machine-generated where a generator
   exists — no market analysis (the §16.0-7 sanitization). The demo
-  narrative (`02-demo.md`) frames the arc honestly: the three legs
+  narrative frames the arc honestly: the three legs
   are the design center — authorization as dataflow, refusals that
   explain themselves, irreversible actions that leave evidence.
   Transmission to the owner: this PR + the naryad report; the
   external wordings and any publication stay the owner's.
-fe6d21a (Naryad 549 (issue #887): the draft NLnet/Restack traction package lands in metalogos-grants - the one-command demo script (three legs over the public examples verbatim: static taint refusal, live serve, the signed ledger chain verified without the runtime), the metrics one-pager (repo facts with dates, no market analysis), the demo narrative; transmission to the owner, publication stays the owner's gate)
+fe6d21a (Naryad 549 (issue #887): the draft traction package (since moved out of this repository) - the one-command demo script (three legs over the public examples verbatim: static taint refusal, live serve, the signed ledger chain verified without the runtime), the metrics one-pager (repo facts with dates, no market analysis), the demo narrative; transmission to the owner)
 - Naryad №546 (issue #884; Wave 24, P2; ADR-0178 §5 preconditions 4–5):
   the generative contour's embedding seam becomes a NAMED, fail-closed
   boundary instead of an accident of the String argument contract.
@@ -1795,9 +1790,8 @@ fe6d21a (Naryad 549 (issue #887): the draft NLnet/Restack traction package lands
   done IN THE SAME PR; the security gates (№335 consent, №442 ledger)
   are NOT re-tested here — their own suites pin them.
 - Naryad №541 (issue #851; the wave-23 line 6-A, P1): the
-  second-maintainer lane goes operational for the NLnet/Restack
-  milestone (03.11.2026) — the pool, the onboarding package and the
-  grant wording, finalized. The good-first-issue pool grows from five
+  second-maintainer lane goes operational — the pool and the
+  onboarding package, finalized. The good-first-issue pool grows from five
   to NINE self-contained tasks: four new guides with the full format
   (the what / the why / the reproducible check / the expected scope /
   the acceptance criteria / the honest boundary) — the book examples
@@ -1811,10 +1805,7 @@ fe6d21a (Naryad 549 (issue #887): the draft NLnet/Restack traction package lands
   newcomer in the wave reports), and docs/maintainers.md syncs its
   pool section to the full nine with the issue numbers (the in-tree
   list had drifted to three) and cross-references the first-PR path.
-  The NLnet application wording is finalized in-tree (the owner's
-  draft, updated to the current honest fact: "nine documented
-  good-first-issue tasks with reproducible checks and acceptance
-  criteria"). The channel-search options and the access/publishing
+  The channel-search options and the access/publishing
   decisions remain the OWNER's gate (№541 §3) — the materials are
   prepared in the M2 report, nothing external is opened by the naryad.
 - Naryad №540 (issue #850; the wave-23 line 4-A, P1): the FIRST two
@@ -2559,7 +2550,7 @@ fe6d21a (Naryad 549 (issue #887): the draft NLnet/Restack traction package lands
   while the code XORs the bytes with a key derived from the PUBLIC
   voiceprint name — reversible by anyone who reads the table; a
   voiceprint is biometric data (GDPR Art. 9 special category) and a fake
-  crypto label misleads auditors, users and grant reviewers. Now: every
+  crypto label misleads auditors, users and external reviewers. Now: every
   false crypto mention is gone from src/voice/ (the six store.rs sites +
   the encoder.rs contract line — the №480 class rule: fix at the common
   point, close the class); `encrypt_placeholder` is renamed
@@ -3429,7 +3420,7 @@ the debt 85/49/37; the gate inventory with statuses), PLAN-SUMMARY synced
 
 - **The media isolation lands (naryad #472, issue #693, Wave 17 — the decision 2-B, the first step of the crate split)** (naryad #472, issue #693, Wave 17 — the decision 2-B, the first step of the crate split)**: the physical core→media ban becomes a checked-in CI fact — `scripts/ci/core_media_gate.py` (the new `core-media-gate (blocking)` job) scans the core files (parser, ast, compiler, bytecode, the interpreter tree, the VM, the pool, audit, semantic) for references to the media modules and enforces the handle/registry-tier allowlist only (`MediaStore`/`MediaHandle`/`MediaKind`, `VisionRegistry`/`SharedVisionRegistry`/`VisionId`/`VisionDecl`/`KNOWN_VISION_MODELS`, `VideoId`, `VoiceId`/`AudioId`/`VoiceRegistry`, `parse_sensitivity` — the surface the compiler and the semantic lane need for the compile-time validation of the media DECLS); everything else (the encoders, VAEs, samplers, pipelines, weights machinery, and any direct candle/tokenizers/image reference in core) fails CI. The gate's negative test (a fake `crate::vision::Dit` in core) fails it correctly. The core builds without media: `cargo build --no-default-features` is green and enforced as the new `no-default-features (blocking)` CI job. The feature table lands in README (the generative pillars `vision`/`voice`/`video`/`candle` off by default — the full-boundary audit confirmed the heavy trees already sit behind their features; the badge catch-up: the blocking-jobs count is corrected 19 → 27, the waves-13–17 gates had not been reflected). The split roadmap is fixed in `docs/refactoring-split-plan.md`: 0.27 — `metalogos-core` + `metalogos-reflex` (the generative contour's physical home, the №464 ADR-0178 boundary made real), lockstep versioning (one version, one CHANGELOG); 0.27+ — server/memory/media/domain by type stability. The boundaries hold: no crates cut, the media-handle semantics unchanged, the release number untouched, no media tree deleted.
 
-- **The second maintainer's written authority lands (naryad #471, issue #692, Wave 17 — the decision 6-A)**: the supply-chain perimeter is written down from day one — `.github/CODEOWNERS` puts the CI surface (`.github/**`), the secret-scanner config (`.gitleaks.toml`), the cargo-audit overrides, the dependency lock (`Cargo.lock`) and the CI threshold gates (`scripts/ci/**` — the №462/№463/№467/№468/№469 family) under code-owner review; the perimeter is deliberately NARROW (never "the core as a whole") and frozen at this list. `docs/maintainers.md` is the authority document: the veto mechanics (a written reason on every block, no self-merge lane for the perimeter), the expectations (2–4 hours a week, no core duty, no on-call), the escalation path (unresolvable disagreements and any perimeter change are the owner's call), the onboarding steps (the gates walkthrough first; the single `Require review from Code Owners` toggle the owner flips on the join day — the veto becomes machine-enforced then). Three `good-first-issue` onboarding tasks are published inside the perimeter (gh#716 — the №468 debt-gate upkeep, gh#717 — the №463 stop-list upkeep, gh#718 — the №462/№467 threshold floors), each with the onboarding note. The honest NLnet application wording (the second maintainer with the supply-chain veto; the core-reviewer search continues) is posted on the issue for the owner — the NLnet/Restack deadline is 03-11-2026.
+- **The second maintainer's written authority lands (naryad #471, issue #692, Wave 17 — the decision 6-A)**: the supply-chain perimeter is written down from day one — `.github/CODEOWNERS` puts the CI surface (`.github/**`), the secret-scanner config (`.gitleaks.toml`), the cargo-audit overrides, the dependency lock (`Cargo.lock`) and the CI threshold gates (`scripts/ci/**` — the №462/№463/№467/№468/№469 family) under code-owner review; the perimeter is deliberately NARROW (never "the core as a whole") and frozen at this list. `docs/maintainers.md` is the authority document: the veto mechanics (a written reason on every block, no self-merge lane for the perimeter), the expectations (2–4 hours a week, no core duty, no on-call), the escalation path (unresolvable disagreements and any perimeter change are the owner's call), the onboarding steps (the gates walkthrough first; the single `Require review from Code Owners` toggle the owner flips on the join day — the veto becomes machine-enforced then). Three `good-first-issue` onboarding tasks are published inside the perimeter (gh#716 — the №468 debt-gate upkeep, gh#717 — the №463 stop-list upkeep, gh#718 — the №462/№467 threshold floors), each with the onboarding note.
 
 - **The naryad classes and the automatic domain-quota counter land (naryad #470, issue #691, Wave 17 — the decision 7-A.3)**: the naryads are divided into classes — `[domain]` / `[core]` / `[std]` / `[process]` / `[docs]` / `[bugfix]` / `[security]` — with the tag carried in the meta line (`Класс: [X]`) through the new required dropdown in the naryad issue template, and the domain quota enforced AUTOMATICALLY: `scripts/ci/naryad_classes.py` is run by the dispatcher at wave composition, reads the dispatch's naryad references, collects the classes (the meta line first, the retrospective `[class: X]` comments second), prints the composition table and the domain share, and applies the rule fixed in the issue — while the ADR-0177 freeze is active (`--freeze`) the domain quota is ZERO (any domain-classed naryad fails the run); after the freeze is lifted the standing limiter is a share <= 1/3 (the red verdict above it). The W17 retrospective is stamped: all thirteen wave naryads carry their class comments (6 process, 5 core, 1 security, 1 docs — zero domain), the counter ran on the W17 dispatch (gh#695) and its output is published there: **PASS — 0 domain naryads of 14, share 0.0% at the active freeze**. The classes add no acceptance criteria — a tag and a counter, one tag per naryad, no bureaucracy; М1–М3 are untouched (the methodology edits stay the dispatcher-branch lane, canon §21).
 
@@ -4223,9 +4214,9 @@ type preserved.
 
 ### Added — testing: property-based tests (proptest) + cargo-mutants smoke + Testing Evidence (Naryad #277)
 
-- testing: the language had a fuzz contour (№256) but ZERO property-based tests and no mutational data (grep proptest/cargo-mutants — 0) — for grant applications (NLnet/Restack Testing Evidence) property-properties and mut-score are strong, easily verifiable quality proof. Four deterministic proptest suites in blocking CI: (1) `tests/property_builtin_nopanic.rs` — the registry (`BUILTIN_REGISTRY`) is enumerated AT RUNTIME and every PURE builtin is called with random/boundary `Value` arguments (unicode, deep nesting, float edges): value or loud error, NEVER a panic — 162 pure builtins covered directly (stubs counted-and-skipped honestly; side-effectful categories bot/web/io/email/llm/db/voice/... excluded with the full list printed by the test); (2) `tests/property_json_roundtrip.rs` — json_encode validity + canonical stability + json_get path navigation returning exactly the placed leaves (256 cases × 3 properties); (3) `tests/property_string_invariants.rs` — reverse∘reverse=id on arbitrary unicode, len==chars-count, substring/char_at as char slices at every boundary, escape_html without raw angle brackets (512 cases × 4 properties); (4) `tests/property_tw_vm_parity.rs` — programs GENERATED from a conservative grammar subset (literals/arithmetic/concat/lets/builtins/pattern-calls) execute IDENTICALLY on TW and VM, with the ADR-0105 exclusions (`match`, `BlockIfElse`-as-value, memory/server/IO) listed explicitly — parity is not claimed where the ADR documents divergence. Every crash the properties found was fixed (`strip`, see Fixed above) — nothing silenced.
+- testing: the language had a fuzz contour (№256) but ZERO property-based tests and no mutational data (grep proptest/cargo-mutants — 0) — for external quality evidence (the Testing Evidence page) property-properties and mut-score are strong, easily verifiable quality proof. Four deterministic proptest suites in blocking CI: (1) `tests/property_builtin_nopanic.rs` — the registry (`BUILTIN_REGISTRY`) is enumerated AT RUNTIME and every PURE builtin is called with random/boundary `Value` arguments (unicode, deep nesting, float edges): value or loud error, NEVER a panic — 162 pure builtins covered directly (stubs counted-and-skipped honestly; side-effectful categories bot/web/io/email/llm/db/voice/... excluded with the full list printed by the test); (2) `tests/property_json_roundtrip.rs` — json_encode validity + canonical stability + json_get path navigation returning exactly the placed leaves (256 cases × 3 properties); (3) `tests/property_string_invariants.rs` — reverse∘reverse=id on arbitrary unicode, len==chars-count, substring/char_at as char slices at every boundary, escape_html without raw angle brackets (512 cases × 4 properties); (4) `tests/property_tw_vm_parity.rs` — programs GENERATED from a conservative grammar subset (literals/arithmetic/concat/lets/builtins/pattern-calls) execute IDENTICALLY on TW and VM, with the ADR-0105 exclusions (`match`, `BlockIfElse`-as-value, memory/server/IO) listed explicitly — parity is not claimed where the ADR documents divergence. Every crash the properties found was fixed (`strip`, see Fixed above) — nothing silenced.
 - ci: new `.github/workflows/mutants.yml` — cargo-mutants smoke over `src/builtins/json.rs` (dense escaping/parsing/navigation logic; killer = the json roundtrip property), weekly schedule + workflow_dispatch, explicitly NON-blocking and NOT in the PR run (scheduled runs create no PR check-runs — the blocking count stays 15, the fuzz-smoke №256 principle); mut-score (killed/(killed+missed+timeouts)) computed and published as an artifact each run for the trend. Documented deviation from the issue's module candidates: `src/audit.rs` (3232 lines) and `src/builtins/string.rs` (905 lines) would make the weekly run multi-hour without adding smoke value — the choice is recorded in the workflow header and docs/testing-evidence.md.
-- docs: new `docs/testing-evidence.md` — the grant-facing numbers page (162 pure builtins no-panic, property counts, mutants smoke design, fuzz contour, blocking CI composition) + the honest boundaries (excluded categories, ADR-0105 subset, the json float 1-ulp printing observation documented as behavior, not changed).
+- docs: new `docs/testing-evidence.md` — the external-facing numbers page (162 pure builtins no-panic, property counts, mutants smoke design, fuzz contour, blocking CI composition) + the honest boundaries (excluded categories, ADR-0105 subset, the json float 1-ulp printing observation documented as behavior, not changed).
 
 ### Added — language: `tts_generate` — speech synthesis without delivery; whisper_transcribe arity fact-check fix (Naryad #279)
 
@@ -4251,11 +4242,11 @@ type preserved.
 
 - ci: `windows-check`/`macos-check` ran `cargo check --workspace --all-features --all-targets`, but the optional `pdf-ocr` feature requires system tesseract-ocr + leptonica C libraries (documented in Cargo.toml), which GitHub-hosted macos/windows runners do not have — the `leptonica-sys` build script panicked on both platforms, so every CI run (main and PRs) showed red X marks even when all 15 blocking checks were green. Replaced with `--features portable`: new Cargo.toml meta-feature `portable = ["full", "candle", "vision"]` — the maximal portable set (everything except the platform-dependent `pdf-ocr`). House rule added next to the feature block: a new feature must join `portable` or document its platform exclusion right there. No code changes; the ubuntu blocking set is unchanged (it never used `--all-features`).
 
-### Added — docs: REFERENCE.md at 100% registry coverage — generated index, hard CI gate, grant-review README (Naryad #270)
+### Added — docs: REFERENCE.md at 100% registry coverage — generated index, hard CI gate, external-review README (Naryad #270)
 
-- docs: `REFERENCE.md` documented ~59% of the builtins registered in `BUILTIN_REGISTRY` (231 of 391 at snapshot; AGENTS.md §5 said so out loud) — for grant reviewers (NLnet/Restack) an incomplete reference reads as project immaturity, and NOTHING failed CI when builtins were added undocumented (the coverage note even drifted: it claimed 230 documented while the count test allowed it). New `scripts/gen_reference.py` regenerates a §6 Builtin Index between explicit markers IN PLACE: one row per `spec!` entry (392 at merge), name/category/arity straight from the registry (ADR-0095 arity convention, `variadic` for the 0-arity form), description imported from the curated §4.x rows when present, otherwise from the handler's `///` doc comment, otherwise an explicit `TODO(doc)` — never silence. Registry entries with no host handler are described from a verified MANUAL_DESCRIPTIONS table in the script: VM-native builtins (recall/forget/find/conv_*/event_*/query_*/resolve_skill_index/fit_to_budget — dispatched inside `src/vm.rs`, registry arity entry kept for bytecode validation) vs true registry-only stubs (newline/stdin/split_tokens/if_eq/is_string_token — no handler anywhere, calling errors; the stale "planned, no handler" comment next to event_* is corrected in place). The generated block is excluded from the curated-row extraction so regeneration cannot feed on itself. 100% at merge: every description exists (curated 210 + handler-doc 137 + manual 21 + 24 handlers gained real `///` docs in source — string/math/crypto/http/svg/chart/diagram handlers, improving the code itself).
+- docs: `REFERENCE.md` documented ~59% of the builtins registered in `BUILTIN_REGISTRY` (231 of 391 at snapshot; AGENTS.md §5 said so out loud) — for external reviewers an incomplete reference reads as project immaturity, and NOTHING failed CI when builtins were added undocumented (the coverage note even drifted: it claimed 230 documented while the count test allowed it). New `scripts/gen_reference.py` regenerates a §6 Builtin Index between explicit markers IN PLACE: one row per `spec!` entry (392 at merge), name/category/arity straight from the registry (ADR-0095 arity convention, `variadic` for the 0-arity form), description imported from the curated §4.x rows when present, otherwise from the handler's `///` doc comment, otherwise an explicit `TODO(doc)` — never silence. Registry entries with no host handler are described from a verified MANUAL_DESCRIPTIONS table in the script: VM-native builtins (recall/forget/find/conv_*/event_*/query_*/resolve_skill_index/fit_to_budget — dispatched inside `src/vm.rs`, registry arity entry kept for bytecode validation) vs true registry-only stubs (newline/stdin/split_tokens/if_eq/is_string_token — no handler anywhere, calling errors; the stale "planned, no handler" comment next to event_* is corrected in place). The generated block is excluded from the curated-row extraction so regeneration cannot feed on itself. 100% at merge: every description exists (curated 210 + handler-doc 137 + manual 21 + 24 handlers gained real `///` docs in source — string/math/crypto/http/svg/chart/diagram handlers, improving the code itself).
 - tests: new `tests/reference_consistency.rs` (3 tests) — the hard gate: every registered builtin must appear in REFERENCE.md as `` `name(` `` (mention-style, the `gen_reference_check.py` rule made blocking); the §6 generated block markers must exist and the headline must match the registry size exactly; zero `TODO(doc)` rows may remain in the block. Adding an undocumented builtin now fails CI instead of silently rotting the docs.
-- README (grant-review pass, honest-claims discipline): new "Why Metalogos" section — a 30-second pair of live-verified probes (`call_llm_schema` → `json_get` Struct access; `env()` → `respond()` refused with the exact `mlog check` output and exit 1 — both run against the built binary before being pasted), then three pillars: Security by design (taint/sandbox/gates with a pointer to the honest "what static analysis does NOT catch" table), AI-native (eight semantic primitives), MCP-native (honest status: ADR-0132 design under owner review, client lands in №268, reverse bridge per ADR-0054 — no overclaiming). Stale numbers fixed against reality: "373 Built-in Functions" heading → 392, VM "46 instructions" → 47 (counted from `Instruction` enum), REFERENCE size ~84 KB → ~152 KB (with the §6 index note). No crates.io badge added — the crate is not published; a badge would be a lie.
+- README (external-review pass, honest-claims discipline): new "Why Metalogos" section — a 30-second pair of live-verified probes (`call_llm_schema` → `json_get` Struct access; `env()` → `respond()` refused with the exact `mlog check` output and exit 1 — both run against the built binary before being pasted), then three pillars: Security by design (taint/sandbox/gates with a pointer to the honest "what static analysis does NOT catch" table), AI-native (eight semantic primitives), MCP-native (honest status: ADR-0132 design under owner review, client lands in №268, reverse bridge per ADR-0054 — no overclaiming). Stale numbers fixed against reality: "373 Built-in Functions" heading → 392, VM "46 instructions" → 47 (counted from `Instruction` enum), REFERENCE size ~84 KB → ~152 KB (with the §6 index note). No crates.io badge added — the crate is not published; a badge would be a lie.
 - docs: `scripts/gen_reference.py --check` mode (exit 1 on staleness) is available for local/CI use; the Rust gate is the blocking enforcement.
 
 ### Added — language: `call_llm_schema` — structured LLM output with a schema validator, retries, and loud diagnostics (Naryad #269, ADR-0133)

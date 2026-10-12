@@ -120,7 +120,7 @@ The honest price of the choice (recorded in ADR-0132 as consequences): protocol 
 
 ---
 
-## Block 3 — Security design (the main part — the unique Restack edge)
+## Block 3 — Security design (the main part — the unique edge)
 
 ### 3.1 (a) Spawning an MCP server = exec → inherits gates #253-A
 
@@ -230,4 +230,4 @@ No blockers found. The only owner decision before the start of #268 is approval 
 
 - **ADR-0054** (`tool`, Future Directions — the reverse bridge after #268), **ADR-0096** (blocking/spawn_blocking — the argument against an async SDK), **ADR-0131** (the `MCP_NOT_ALLOWLISTED` code convention), **ADR-0125** (the allowlist precedent).
 - **Naryad #253-A** (exec gates — reuse), **#259** (ENV_ALLOWLIST — the format convention), **#261** (SSRF — the boundary with the Future HTTP transport), **#252** (the audit log).
-- Dispatch #267–279: grant context C3 (the Proposal_Restack section "MCP with language-level security control"); idea A1. Blocks **#268** (issue #304).
+- Dispatch #267–279: external-context C3 ("MCP with language-level security control"); idea A1. Blocks **#268** (issue #304).

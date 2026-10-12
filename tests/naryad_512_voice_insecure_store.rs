@@ -4,7 +4,7 @@
 // while the code XORs with a key derived from the PUBLIC name — reversible
 // by anyone who reads the table. A voiceprint is biometric data (GDPR
 // Art. 9 special category): a fake crypto label misleads auditors, users
-// and grant reviewers alike. This naryad makes the surface HONEST:
+// and external reviewers alike. This naryad makes the surface HONEST:
 //   T1: real runtime (no METALOGOS_MOCK_LLM) — a keyless save_voiceprint
 //       REFUSES LOUDLY with the [VOICE_INSECURE_STORE] class (the
 //       coded_error stamp, №413/ADR-0169 convention); NOTHING is

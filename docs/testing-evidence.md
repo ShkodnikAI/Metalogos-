@@ -1,6 +1,6 @@
 # Testing Evidence — Metalogos
 
-Material for grant applications (NLnet/Restack — the Testing Evidence section):
+Testing evidence for external reviewers:
 how many and which properties are verified automatically, with numbers. Everything below
 is run by CI on every PR (blocking) or on a schedule (trends).
 

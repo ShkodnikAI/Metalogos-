@@ -239,6 +239,9 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("json_body", 0, "web"; builtin_json_body, "Struct<JsonBody>"),
     spec!("query_param", 1, "web"; builtin_query_param, "String"), // №565 top-up (the №543 line): both paths verified — the handler stub and the db_ops::query_param dispatch return Value::String
     spec!("request_header", 1, "web"; builtin_request_header, "String"), // N2 (gh#1211): the per-request header lookup — the handler stub; the real dispatch lives in the TW FnCall intercepts and the VM (the injected per-request HeaderMap)
+    spec!("html_select", 2, "web"; builtin_html_select, "List<HtmlMatch>"), // N5 (gh#1215, ADR-0192): the DOM extraction — every element matching the comma-separated selector group
+    spec!("html_text", 1, 2, "web"; builtin_html_text, "String"), // N5 (gh#1215, ADR-0192): the normalized text — script/style never contribute; the optional selector narrows the scope
+    spec!("html_links", 2, "web"; builtin_html_links, "List<HtmlLink>"), // N5 (gh#1215, ADR-0192): the absolute http/https links — javascript: and every other scheme is DROPPED by contract
     // №523: the 2..3 range is NOMINAL — render's real contract is dynamic
     // (the template's parameter list is data, №115; the 1-arg form is the
     // №448 taint-lift surface). The builtin validates loudly at runtime;

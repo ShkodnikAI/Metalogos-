@@ -196,7 +196,10 @@ hashline_read|1|1
 hex_decode|1|1
 hex_encode|1|1
 hmac_sha256|2|2
+html_links|2|2
 html_render|3|3
+html_select|2|2
+html_text|1|2
 html_to_pdf|2|2
 http_download|2|3
 http_get|1|4

@@ -398,7 +398,8 @@ round|1|1
 secret|1|1
 semantic_search|3|3
 send_document|2|3
-send_message|2|3
+send_message|2|4
+send_photo|2|4
 series_make|1|2
 series_pull|2|2
 server_path_param|1|1

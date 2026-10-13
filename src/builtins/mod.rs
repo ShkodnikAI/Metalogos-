@@ -299,6 +299,9 @@ pub use http::{check_url_ssrf, is_blocked_address};
 // + the env-driven gate, the robots.txt ruleset/TTL (the contract tests
 // pin the matching table, the longest-match verdict and the 24 h TTL).
 pub use http::{check_url_host_allowed, host_allowed, RobotsRules, ROBOTS_TTL};
+// N3 (gh#1212): the Telegram send-family retry helper — the pure delay
+// computation is exported so the 30 s ceiling is pinned without sleeping.
+pub use server::{telegram_retry_delay_ms, TgRetryCause, TELEGRAM_RETRY_CAP_MS};
 // Наряд №268: MCP stdio-клиент (ADR-0132, Accepted) — модуль pub(crate),
 // контрактная поверхность — два билтина в реестре.
 pub(crate) mod mcp;

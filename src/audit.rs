@@ -1281,6 +1281,255 @@ fn check_html_injection(
     }
 }
 
+// ── Check: TELEGRAM_HTML_INJECTION — untrusted text into the Telegram
+//    HTML render (Naryad N3, gh#1212) ─────────────────────────────────
+//
+// send_message/send_photo with the literal opts `parse_mode: "HTML"`
+// make the text/caption position an HTML-INTERPRETATION egress: Telegram
+// renders the entities, so an untrusted string is an injection vector
+// exactly like respond() — the HTML_INJECTION analogy the naryad pins.
+// The question is the UNION of both lanes the audit carries: the
+// UserInput taint tracker (query_param / request_header / json_body /
+// form_data / http_get / mcp_call) and the typed LLM-label lane
+// (call_llm / call_claude / reflex_generate + learnable patterns); the
+// sanitizers (escape_html / render) return clean in BOTH — the
+// sanctioned path. The general №325 lattice already refuses untrusted
+// data into every network sink (UNTRUSTED_EGRESS_NETWORK); this check
+// runs BEFORE it in audit_category_a so the shared site names the
+// SCENARIO (the Telegram HTML render) and the FIX (escape_html), not
+// just the generic gate. parse_mode "MarkdownV2" and opts-less calls
+// stay the lattice's business (no new class fires there).
+//
+// The opts detection is the LITERAL contract: the LAST argument is a
+// StructLit carrying parse_mode: "HTML" — the runtime accepts the same
+// two literal values only (N3), so a non-literal opts cannot smuggle an
+// HTML mode past this gate at compile time.
+
+fn check_telegram_html_injection(
+    declarations: &[Declaration],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    let learnable_names: std::collections::HashSet<String> = declarations
+        .iter()
+        .filter_map(|d| match d {
+            Declaration::LearnablePattern(lp) => Some(lp.name.clone()),
+            _ => None,
+        })
+        .collect();
+
+    /// The literal opts detection: the LAST argument is a StructLit with
+    /// parse_mode: "HTML" (the exact literal the runtime validates).
+    fn opts_say_html(args: &[Expr]) -> bool {
+        match args.last() {
+            Some(Expr::StructLit { fields, .. }) => matches!(
+                fields.get("parse_mode"),
+                Some(Expr::StringLit { value, .. }) if value == "HTML"
+            ),
+            _ => false,
+        }
+    }
+
+    fn check_call_for_telegram_html(
+        expr: &Expr,
+        html_vars: &std::collections::HashMap<String, Type>,
+        tracker: &TaintTracker,
+        learnable_names: &std::collections::HashSet<String>,
+        source: &str,
+        findings: &mut Vec<AuditFinding>,
+    ) {
+        if let Expr::FnCall {
+            name: fn_name,
+            args,
+            ..
+        } = expr
+        {
+            if !matches!(fn_name.as_str(), "send_message" | "send_photo") {
+                return;
+            }
+            // The text position: send_message arg 1; the caption
+            // position: send_photo arg 2 (present in the 3/4-argument
+            // forms only — a captionless photo has nothing to render).
+            let target = match fn_name.as_str() {
+                "send_message" => args.get(1),
+                "send_photo" if args.len() >= 3 => args.get(2),
+                _ => None,
+            };
+            let Some(target) = target else { return };
+            if !opts_say_html(args) {
+                return;
+            }
+            // The union of both lanes; the sanitizers lift both.
+            if expr_is_user_input_tainted(target, tracker)
+                || crate::html_label::sink_arg_is_untrusted(target, html_vars, learnable_names)
+            {
+                let line = find_line(source, fn_name);
+                findings.push(AuditFinding {
+                    severity: Severity::Warning,
+                    check_id: "TELEGRAM_HTML_INJECTION",
+                    line,
+                    message: format!(
+                        "untrusted text passed to {fn_name}() with parse_mode \"HTML\" — Telegram renders the entities, so the text must pass through escape_html() first (or drop parse_mode / use a trusted literal)"
+                    ),
+                });
+            }
+        }
+    }
+
+    fn analyze_scope(
+        stmts: &[Statement],
+        learnable_names: &std::collections::HashSet<String>,
+        source: &str,
+        findings: &mut Vec<AuditFinding>,
+    ) {
+        // The combined label environment: the typed LLM lane (the
+        // html_vars env the check_html_injection walker keeps) AND the
+        // UserInput taint tracker (the same question the tracker-lane
+        // checks ask).
+        let mut html_vars: std::collections::HashMap<String, Type> =
+            std::collections::HashMap::new();
+        let mut tracker = TaintTracker::new();
+
+        fn process_stmt(
+            stmt: &Statement,
+            html_vars: &mut std::collections::HashMap<String, Type>,
+            tracker: &mut TaintTracker,
+            learnable_names: &std::collections::HashSet<String>,
+            source: &str,
+            findings: &mut Vec<AuditFinding>,
+        ) {
+            match stmt {
+                Statement::LetBinding { name, value, .. } => {
+                    check_call_for_telegram_html(
+                        value,
+                        html_vars,
+                        tracker,
+                        learnable_names,
+                        source,
+                        findings,
+                    );
+                    // The label follows the binding in BOTH lanes (or is
+                    // dropped when the initializer proves nothing).
+                    match crate::html_label::binding_label(value, html_vars, learnable_names) {
+                        Some(ty) => {
+                            html_vars.insert(name.clone(), ty);
+                        }
+                        None => {
+                            html_vars.remove(name);
+                        }
+                    }
+                    if let Some(taint) = binding_taint(value, tracker) {
+                        tracker.taint(name, taint);
+                    } else {
+                        tracker.untaint(name);
+                    }
+                }
+                Statement::Assign { name, value, .. } => {
+                    match crate::html_label::binding_label(value, html_vars, learnable_names) {
+                        Some(ty) => {
+                            html_vars.insert(name.clone(), ty);
+                        }
+                        None => {
+                            html_vars.remove(name);
+                        }
+                    }
+                    if let Some(taint) = binding_taint(value, tracker) {
+                        tracker.taint(name, taint);
+                    } else {
+                        tracker.untaint(name);
+                    }
+                }
+                Statement::ExprStmt { expr, .. } => {
+                    check_call_for_telegram_html(
+                        expr,
+                        html_vars,
+                        tracker,
+                        learnable_names,
+                        source,
+                        findings,
+                    );
+                }
+                Statement::Return { value: expr, .. } => {
+                    check_call_for_telegram_html(
+                        expr,
+                        html_vars,
+                        tracker,
+                        learnable_names,
+                        source,
+                        findings,
+                    );
+                }
+                Statement::Each { body, .. } => {
+                    for s in body {
+                        process_stmt(s, html_vars, tracker, learnable_names, source, findings);
+                    }
+                }
+                Statement::While { body, .. } => {
+                    for s in body {
+                        process_stmt(s, html_vars, tracker, learnable_names, source, findings);
+                    }
+                }
+                Statement::IfElseBlock {
+                    then_body,
+                    else_ifs,
+                    else_body,
+                    ..
+                } => {
+                    for s in then_body {
+                        process_stmt(s, html_vars, tracker, learnable_names, source, findings);
+                    }
+                    for (_, body) in else_ifs {
+                        for s in body {
+                            process_stmt(s, html_vars, tracker, learnable_names, source, findings);
+                        }
+                    }
+                    if let Some(body) = else_body {
+                        for s in body {
+                            process_stmt(s, html_vars, tracker, learnable_names, source, findings);
+                        }
+                    }
+                }
+                Statement::IfThen { body, .. } => {
+                    for s in body {
+                        process_stmt(s, html_vars, tracker, learnable_names, source, findings);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        for stmt in stmts {
+            process_stmt(
+                stmt,
+                &mut html_vars,
+                &mut tracker,
+                learnable_names,
+                source,
+                findings,
+            );
+        }
+    }
+
+    for decl in declarations {
+        match decl {
+            Declaration::MlogServer(srv) => {
+                for route in &srv.routes {
+                    analyze_scope(&route.body, &learnable_names, source, findings);
+                }
+            }
+            Declaration::Pattern(p) => analyze_scope(&p.body, &learnable_names, source, findings),
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    analyze_scope(&m.body, &learnable_names, source, findings);
+                }
+            }
+            Declaration::Hook(h) => analyze_scope(&h.body, &learnable_names, source, findings),
+            Declaration::Test(_) => {}
+            _ => {}
+        }
+    }
+}
+
 // ── Check: SECRET_LEAK — env() result passed to respond/write_file sinks;
 //   http_post: positional — url (arg 0) is a leak, body (arg 1) is a leak,
 //   headers (arg 3) is normal auth (Bearer tokens etc.)
@@ -6413,6 +6662,10 @@ pub fn audit_category_a(declarations: &[Declaration], source: &str) -> Vec<Audit
     // the generic patterns stay warning-level in `mlog audit` (check_secrets).
     check_hardcoded_secrets(declarations, source, &mut findings);
     check_html_injection(declarations, source, &mut findings);
+    // Naryad N3 (gh#1212): the Telegram HTML-render gate — BEFORE the
+    // №325 sink clearance so the shared site names the scenario and the
+    // fix, not just the generic UNTRUSTED_EGRESS_NETWORK.
+    check_telegram_html_injection(declarations, source, &mut findings);
     check_taint_persistence(declarations, source, &mut findings);
     // Наряд №386: the cross-module half — memory-key summaries + the
     // fingerprint registry (see check_taint_persistence_cross_module).
@@ -6504,6 +6757,9 @@ pub fn audit_program(source: &str) -> Result<AuditResult, String> {
     check_rate_limit(&declarations, source, &mut findings);
     check_csrf(&declarations, source, &mut findings);
     check_html_injection(&declarations, source, &mut findings);
+    // Naryad N3 (gh#1212): the Telegram HTML-render gate (advisory in
+    // `mlog audit`, promoted to a compile error on the compile path).
+    check_telegram_html_injection(&declarations, source, &mut findings);
     check_secret_leak(&declarations, source, &mut findings);
     check_open_redirect(&declarations, source, &mut findings);
     check_taint_persistence(&declarations, source, &mut findings);

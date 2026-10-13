@@ -295,6 +295,10 @@ pub use json_validate::{json_validate_core, JsonValidateResult};
 pub(crate) mod http;
 use http::*;
 pub use http::{check_url_ssrf, is_blocked_address};
+// N4 (gh#1213): the egress-hardening surface — the pure allowlist matcher
+// + the env-driven gate, the robots.txt ruleset/TTL (the contract tests
+// pin the matching table, the longest-match verdict and the 24 h TTL).
+pub use http::{check_url_host_allowed, host_allowed, RobotsRules, ROBOTS_TTL};
 // Наряд №268: MCP stdio-клиент (ADR-0132, Accepted) — модуль pub(crate),
 // контрактная поверхность — два билтина в реестре.
 pub(crate) mod mcp;

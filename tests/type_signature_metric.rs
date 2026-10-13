@@ -43,7 +43,16 @@ use metalogos::builtins::{sig_types::Type, BUILTIN_REGISTRY};
 /// opaque ForecastHandle) and graph_path (the heterogeneous List) — the 2
 /// HONEST refusals, the rows stay untyped. The sequential recount on the
 /// post-№668 main: 318 → 322 compiled (326/516 source = 6317 bp).
-const TYPED_FLOOR: usize = 322;
+// N6 (2026-10-13, gh#1216, wave #1222 PE-2): the xml package — 3 rows
+// newly TYPED (feed_parse List<FeedItem>, sitemap_parse
+// List<SitemapEntry>, xml_parse Struct<XmlNode>{4 untrusted}) + the №757
+// precise compensation types 2 Unknown rows (decrypt, reflex_bpe_decode
+// — the verified single-shape String facts). The SOURCE count is
+// 336/525 (the baseline file); the COMPILED default-feature count is
+// 332 — the six capability-gated rows (the three html + the three xml)
+// ride only the source metric (the documented source/compiled gap).
+// The floor 322 → 332 compiled.
+const TYPED_FLOOR: usize = 332;
 
 #[test]
 fn typed_signature_share_never_falls_below_the_floor() {
@@ -123,7 +132,13 @@ fn every_typed_signature_is_the_honest_parse_of_its_path() {
 // field-meta, the anti-dilution rule; graph_neighbors List<Neighbor>,
 // graph_query List<GraphEntry>) — 68/99 compiled = 6868 bp (the
 // sequential recount on the post-№668 main); the floor 64 → 68.
-const PARAM_FLOOR: usize = 68;
+// N6 (wave #1222, gh#1216): feed_parse List<FeedItem>, sitemap_parse
+// List<SitemapEntry>, xml_parse Struct<XmlNode>{... WITH the field-meta
+// in the same spelling, the anti-dilution rule} — the SOURCE count is
+// 76/108 (the baseline file); the COMPILED default-feature count is
+// 73 — the three gated xml rows ride only the source metric (the
+// documented gap). The floor 68 → 73 compiled.
+const PARAM_FLOOR: usize = 73;
 /// The compiled denominator: 91 SOURCE List/Struct rows − the 4 gated
 /// vec/store rows (the same by-design source/compiled gap the TYPED_FLOOR
 /// comment documents — the gated rows are BARE List/Struct, so the
@@ -221,7 +236,12 @@ fn parameterized_signature_share_never_falls_below_the_floor() {
 // fields — the prov-block metadata}, forecast_points{4 internal} —
 // 43/45 compiled = 9555 bp (the sequential recount on the post-№668
 // main); the floor 41 → 43.
-const FIELDMETA_FLOOR: usize = 43;
+// N6 (wave #1222, gh#1216): xml_parse Struct<XmlNode> ships WITH the
+// 4-entry field_meta (all untrusted — every field derives from the
+// untrusted document) — the SOURCE count is 45/47 (the baseline file);
+// the COMPILED default-feature count is 44 (the gated row rides only
+// the source metric). The floor 43 → 44 compiled.
+const FIELDMETA_FLOOR: usize = 44;
 
 #[test]
 fn field_label_share_never_falls_below_the_floor() {

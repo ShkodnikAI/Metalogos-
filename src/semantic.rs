@@ -946,7 +946,8 @@ fn label_source(fn_name: &str, args: &[Expr], env: &BTreeMap<String, Label>) -> 
         // N5 (gh#1215, ADR-0192): the html extraction family — scraped
         // content is untrusted input, same lane.
         "form_data" | "json_body" | "query_param" | "request_header" | "mcp_call"
-        | "html_select" | "html_text" | "html_links" => Some(kind_label("UserInput")),
+        | "html_select" | "html_text" | "html_links" | "feed_parse" | "sitemap_parse"
+        | "xml_parse" => Some(kind_label("UserInput")),
         // №325: network ingress and file ingress are untrusted sources —
         // the sink-clearance gate needs their labels to attribute
         // UNTRUSTED_EGRESS_* classes (ADR-0161 §3).

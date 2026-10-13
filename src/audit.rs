@@ -282,7 +282,8 @@ fn binding_taint(value: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
             // result string (tag/text/attrs/html/href) is scraped content:
             // untrusted by contract, never a silent trust lift.
             "form_data" | "json_body" | "query_param" | "request_header" | "mcp_call"
-            | "html_select" | "html_text" | "html_links" => return Some(TaintKind::UserInput),
+            | "html_select" | "html_text" | "html_links" | "feed_parse" | "sitemap_parse"
+            | "xml_parse" => return Some(TaintKind::UserInput),
             _ => {}
         }
     }

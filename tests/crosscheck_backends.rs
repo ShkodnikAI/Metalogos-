@@ -150,6 +150,11 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
                     // n5_golden_pair_tw_and_vm_identical leg asserts the
                     // TW/VM byte-identity of this very pair.
                     || name == "n5_html_tender.mlog"
+                    // ADR-0192 (N6, gh#1216): n6_feed_parse.mlog is
+                    // xml-feature-gated — same sanctioned class as the
+                    // candle list and the html pair; the feature-on lane
+                    // is the xml-tests CI job (the n6 contract test, H8).
+                    || name == "n6_feed_parse.mlog"
                     // №513 (issue #797): p71_retry_demo declared
                     // call_proxy_with_retry referencing `env_get` — a
                     // function that existed in NEITHER backend. The TW

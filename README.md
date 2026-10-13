@@ -128,13 +128,13 @@ Key files at the repo root:
 | Metric | Value (generated — do not hand-edit) |
 | ------ | ------------------------------------- |
 | Version | 0.30.1 |
-| Built-in Functions | 519 functions across 45 modules |
-| Typed Signatures | 328/519 (63.19%) — precise 224/519 (43.15%) (№467/№560) |
+| Built-in Functions | 522 functions across 45 modules |
+| Typed Signatures | 331/522 (63.40%) — precise 225/522 (43.10%) (№467/№560) |
 | SVG/Graphics | 44 builtins, hand-rolled in pure Rust |
 | Grammar | 339 rules |
 | Architecture Decisions | 184 ADRs |
 | Example Programs | 252 .mlog programs |
-| Reference | REFERENCE.md (~308 KB) — 100% registry coverage |
+| Reference | REFERENCE.md (~310 KB) — 100% registry coverage |
 | Changelog | CHANGELOG.md (~708 KB) — every wave documented |
 <!-- END GENERATED METRICS -->
 

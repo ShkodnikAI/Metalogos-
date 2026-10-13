@@ -133,6 +133,12 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
                         // design) — see the list comment.
                         continue;
                     }
+                    if HTML_GATED_EXAMPLES.contains(&file_name) {
+                        // ADR-0192 (N5): the html-feature gate — see the
+                        // list comment; the feature-on lane is the
+                        // html-tests CI job + the dedicated contract test.
+                        continue;
+                    }
                     if stem.starts_with("p7_") {
                         continue; // Tracked separately in golden.rs::p7_contract_visibility
                     }
@@ -221,6 +227,14 @@ const CANDLE_GATED_EXAMPLES: &[&str] = &[
     // p201_reflex_generate_html_injection test tracks the contract.
     "p201_reflex_generate_html_injection.mlog",
 ];
+
+/// ADR-0192 (N5, gh#1215): the html-feature golden pair. The default
+/// (feature-off) sweeps skip it — `html_select` refuses loudly without
+/// the `html` feature; the feature-on contract test
+/// tests/naryad_n5_html_builtins.rs::n5_golden_pair_tw_and_vm_identical
+/// runs the pair on BOTH backends and pins the byte-identity (the
+/// naryad's DOD). The html-tests CI job is the feature-on lane.
+const HTML_GATED_EXAMPLES: &[&str] = &["n5_html_tender.mlog"];
 
 #[test]
 fn p4_vm_hello_matches_tw() {

@@ -376,8 +376,8 @@ owner's ADR gate.
 <!-- BEGIN GENERATED NUMBERS (scripts/gen_metrics.py — do not edit inside) -->
 | Machine fact (generated — do not hand-edit) | Value |
 | --- | --- |
-| Typed-signature floor — the 0.28-gate line (ADR-0179) | 6319 bp — 328/519 = 63.19% (precise 224/519 = 43.15%, №560) |
-| BUILTIN_REGISTRY rows | 519 |
+| Typed-signature floor — the 0.28-gate line (ADR-0179) | 6340 bp — 331/522 = 63.40% (precise 225/522 = 43.10%, №560) |
+| BUILTIN_REGISTRY rows | 522 |
 <!-- END GENERATED NUMBERS -->
 
 ## Acceptance criteria (public part of the methodology)

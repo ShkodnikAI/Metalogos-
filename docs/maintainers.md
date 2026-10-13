@@ -242,6 +242,7 @@ document records the checklist; the executor cannot apply it. Settings
       `release-gap (blocking)`,
       `ADR numbering (blocking)`, `branch-freshness (blocking)`,
       `candle-tests (blocking)`, `doc-tests (blocking)`,
+      `html-tests (blocking)`,
       `ledger-golden (blocking)`, `minimal-build (blocking)`,
       `module-size-guard (blocking)`,
       `test-llm-cache-contract (blocking)`,

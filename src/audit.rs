@@ -183,8 +183,11 @@ fn get_expr_taint(expr: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
             args,
             ..
         } => {
-            // Sanitizers override argument taint
-            if fn_name == "render" || fn_name == "escape_html" {
+            // Sanitizers override argument taint. N2 (gh#1211): ct_eq —
+            // the comparison verdict never carries the untrusted taint
+            // (it IS the validation step; the label engine carries the
+            // conf nuance).
+            if fn_name == "render" || fn_name == "escape_html" || fn_name == "ct_eq" {
                 return Some(TaintKind::Sanitized);
             }
             // Наряд №274 (ADR-0136): redact — taint-санитайзер для Secret.
@@ -264,7 +267,9 @@ fn binding_taint(value: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
             }
             // №544 step 1: env()/secret() left the taint lane — the
             // secret sources are typed (semantic_types::binding_label).
-            "render" | "escape_html" => return Some(TaintKind::Sanitized),
+            // N2 (gh#1211): ct_eq — the comparison verdict never carries
+            // the untrusted taint (it IS the validation step).
+            "render" | "escape_html" | "ct_eq" => return Some(TaintKind::Sanitized),
             // Наряд №274 (ADR-0136): redact — taint-санитайзер для Secret
             // («mask before sink»). Семантика снятия — redact_result_taint.
             "redact" => return redact_result_taint(args, tracker),
@@ -272,7 +277,8 @@ fn binding_taint(value: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
             // MCP-инструмента — недоверенные данные. Reuse `UserInput`
             // (ToolOutput — Future, заводится только с первой политикой,
             // различающей роды). mcp_list_tools НЕ tainted: метаданные, не вывод.
-            "form_data" | "json_body" | "query_param" | "mcp_call" => {
+            // N2 (gh#1211): request_header — the same untrusted request lane.
+            "form_data" | "json_body" | "query_param" | "request_header" | "mcp_call" => {
                 return Some(TaintKind::UserInput)
             }
             _ => {}
@@ -293,7 +299,13 @@ fn is_untrusted_frame_expr(expr: &Expr, tracker: &TaintTracker) -> bool {
     if let Expr::FnCall { name, .. } = expr {
         if matches!(
             name.as_str(),
-            "http_get" | "read_file" | "form_data" | "json_body" | "query_param" | "mcp_call"
+            "http_get"
+                | "read_file"
+                | "form_data"
+                | "json_body"
+                | "query_param"
+                | "request_header"
+                | "mcp_call"
         ) {
             return true;
         }
@@ -337,7 +349,10 @@ fn expr_is_user_input_tainted(expr: &Expr, tracker: &TaintTracker) -> bool {
 
 /// Returns true if the function name is a known user-input source.
 fn is_user_input_source(name: &str) -> bool {
-    matches!(name, "query_param" | "form_data" | "json_body")
+    matches!(
+        name,
+        "query_param" | "form_data" | "json_body" | "request_header"
+    )
 }
 
 /// Наряд №274 (ADR-0136, стоп-гейт СГ-2 решён владельцем 2026-09-12):

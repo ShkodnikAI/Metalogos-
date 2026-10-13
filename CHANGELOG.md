@@ -6,6 +6,80 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **N4 (gh#1213, PE-1) — the outgoing-HTTP hardening: the host
+  allowlist, the User-Agent identity, the per-host pacing, the robots
+  politeness gate.** All four egress builtins (`http_get`,
+  `http_post`, `http_download`, `http_post_multipart`) now sit behind
+  the env-driven gate stack, read at CALL time (the №130
+  `ssrf_guard_enabled()` convention). `METALOGOS_HTTP_ALLOW_HOSTS`
+  (comma list, `*.example.by` wildcards anchored at the dot,
+  case-insensitive, whitespace-tolerant) refuses any non-listed host
+  with the typed `[HTTP_HOST_NOT_ALLOWED]` BEFORE any DNS lookup or
+  connect; per redirect hop by construction — №261's `Policy::none`
+  means every hop is a new program-level builtin call, so the gate
+  re-runs on each hop (the №261 SSRF-pin-per-hop argument replayed for
+  the allowlist; unset/empty = gate off, backward compatible).
+  `METALOGOS_HTTP_USER_AGENT` overrides the new default identity
+  `Metalogos/<version>`; an explicit caller `User-Agent` header wins
+  over both (any-case compare). `METALOGOS_HTTP_MIN_INTERVAL_MS` paces
+  the requests per host:port bucket (different endpoints never wait on
+  each other; retries are paced too). The `{robots: true}` call option
+  (http_get / http_download — retrieval is crawl semantics, a POST is
+  an action) fetches robots.txt once per host over the same gate
+  stack, caches the parsed rules for exactly 24 h
+  (`metalogos::builtins::ROBOTS_TTL`), enforces the minimal
+  `User-agent: *` ruleset with the RFC 9309 longest-match verdict (a
+  tie goes to Allow; the empty `Disallow:` allows everything; no
+  `*`/`$` inside rule paths — the documented minimal scope) and
+  refuses a denied path with the typed `[HTTP_ROBOTS_DENIED]`; a
+  missing (4xx) or unreachable robots file fails OPEN and the empty
+  ruleset is cached the same way (an unreachable host is not
+  re-probed on every call). Two new whitelisted origin-stamped codes
+  (`HTTP_HOST_NOT_ALLOWED`, `HTTP_ROBOTS_DENIED`) join the №592/№385
+  `try{}`-branchable taxonomy. 18 tests:
+  `tests/naryad_n4_http_hardening.rs` — the matching table, the
+  typed-before-connect refusals on all four builtins, the TW↔VM
+  refusal parity, the UA default/override/caller-wins over a live
+  mock, the per-host pacing (and its absence across hosts), the
+  robots allow/deny/cache-24h/fail-open/longest-match pack. RED
+  first (the refusal tests observed the request GO THROUGH on main).
+  No golden pair: the surface is env-driven — a `.expected` would
+  pin nothing off-server («где применимо» per the DOD). Size: M;
+  risks: medium-low — no existing shape changed (the gates are no-ops
+  with the env unset, verified by the №130/№261/№71/№592/№76/№260
+  regression pack green), the visible deltas are the new UA header on
+  every request and the pacing sleeps when the interval is configured.
+
+- **N2 (gh#1211, PE-1) — `request_header(name)` + `ct_eq(a, b)`: the
+  webhook-secret builtins:** `request_header` reads a request header
+  from the current route body by a case-insensitive name (the server
+  injects the per-request `HeaderMap` with lowercased names on BOTH
+  backends; multi-value headers join with `", "`); an absent header or
+  a missing route context answers the empty string — the query_param
+  №40 parity contract, so a secret check fails CLOSED off the server
+  instead of erroring. The result carries `UserInput` taint (the
+  semantic/audit/html-label source lists). `ct_eq` is the
+  constant-time string equality for secret comparisons: the XOR/OR
+  accumulator never short-circuits on a differing byte (no `==`
+  prefix-timing leak; the length check leaves only public metadata out
+  of the accumulator path). The verdict restores INTEGRITY for
+  decisions (comparing an untrusted token against the expected secret
+  IS the validate-before-decide step the №327 gate asks for) while its
+  CONFIDENTIALITY follows the compared values (a verdict over private
+  material stays private for egress). The canonical example
+  `examples/telegram_webhook_secret.mlog` pins the Telegram
+  `X-Telegram-Bot-Api-Secret-Token` check shape. REFERENCE regenerated
+  (curated §4 crypto/web rows + the generated index, 516 → 518).
+  16 tests: `tests/n2_request_header_ct_eq.rs` (10 — the off-server
+  shape, the ct_eq correctness table, the loud arg errors, TW↔VM
+  parity) and `metalogos-server/tests/naryad_n2_request_header.rs`
+  (6 — the live-header route surface on both backends with the strict
+  TW↔VM cross-check). RED first. Size: M; risks: low-medium — two new
+  builtins (no existing surface touched), the taint-lane additions
+  mirror the query_param source treatment verbatim, and the ct_eq
+  sanitizer semantics are the verify_password mirror (integrity
+  restored, confidentiality preserved).
+
 - **№670 (gh#1185) — the specification topic 3 «Errors and the try
   result» (docs/spec/errors.md — docs-only, the behavior is RECORDED,
   not changed):** six norms S-ERR-001…006 pin the existing try machinery
@@ -98,6 +172,25 @@ All notable changes to the Metalogos project.
   across examples/compat/tests, 0 refusals); the diagnostics move left
   for NEW code only. The pipe syntax stays runtime-absent (№115 — the
   documented gap, option (а) is later).
+
+
+### Fixed
+
+
+- **N0 (gh#1209, PE-1) — the onX lint word boundary (the
+  `detect_xss_payload` false positive, `svg_security_lint`):** the
+  `on` prefix now must sit at a WORD BOUNDARY (the previous byte is
+  not [A-Za-z0-9_-]) — `<meta content="x">` no longer matches as an
+  `onX=` event handler (the false positive that flagged every page
+  carrying a meta/content attribute). Symmetrically, optional
+  spaces/tabs between the handler name and `=` are now allowed by the
+  matcher: `<div onLoad = "x">` IS still blocked (before the fix the
+  `=` was required immediately after the letters and this slipped
+  through). The real cases stay blocked (`<a onclick="x">`,
+  `<img onerror=x>`). Four tests in `tests/svg_security_lint.rs` +
+  two golden pairs (`examples/n0_onx_meta_content` .expected — the
+  clean pass, `examples/n0_onx_space_eq_error` .error — the block).
+  Size: S; risks: low (the leak-suite regression set stays green).
 
 
 ## [0.30.1] - 2026-10-12

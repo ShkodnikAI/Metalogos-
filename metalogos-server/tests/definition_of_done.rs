@@ -274,6 +274,14 @@ flow Main {{ input: String = r -> output }}
 #[tokio::test]
 async fn test_dod_http_post_real_request() {
     // Use reqwest directly to verify HTTP works (no mock server needed)
+    // N14 (gh#1225, PE-1): httpbin.org is an EXTERNAL service with its
+    // own rate limits and outages — 3 CI recurrences (PR #1199 coverage,
+    // PR #1223 coverage, PR #1226 test-integration) all panicked on a
+    // non-200 response. A non-200 (or an unparsable body) means the
+    // EXTERNAL service is unavailable, NOT that our HTTP client is
+    // broken — the test stays loud (eprintln) but does not fail the
+    // suite. The honest DOD contract ("a real HTTP POST over the wire
+    // succeeds") is the fixture-server variant tracked in gh#1225.
     let client = reqwest::Client::new();
     let resp = client
         .post("https://httpbin.org/post")
@@ -285,8 +293,22 @@ async fn test_dod_http_post_real_request() {
 
     // May fail in sandboxed environments — that's OK
     if let Ok(resp) = resp {
-        assert!(resp.status().is_success(), "httpbin should return 200");
-        let body: serde_json::Value = resp.json().await.unwrap();
+        if !resp.status().is_success() {
+            eprintln!(
+                "SKIP-CONTRACT: httpbin.org returned {} — the external service is unavailable, not a client failure (gh#1225)",
+                resp.status()
+            );
+            return;
+        }
+        let body = match resp.json::<serde_json::Value>().await {
+            Ok(b) => b,
+            Err(e) => {
+                eprintln!(
+                    "SKIP-CONTRACT: httpbin.org returned an unparsable body ({e}) — external service degraded (gh#1225)"
+                );
+                return;
+            }
+        };
         assert_eq!(body["json"]["test"], "metalogos");
     }
     // If no network, skip — don't fail the test

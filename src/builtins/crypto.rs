@@ -68,6 +68,39 @@ pub(crate) fn builtin_verify_password(args: &[Value]) -> Result<Value, String> {
     }
 }
 
+/// `ct_eq(a, b)` — constant-time string equality (N2, gh#1211).
+///
+/// The secret-comparison builtin: comparing an attacker-controlled
+/// token against a stored secret with `==` leaks the common-prefix
+/// length through timing; `ct_eq` accumulates the byte difference and
+/// answers once — no byte ever short-circuits the loop. The length
+/// check returns early: ONLY the lengths (public metadata of any
+/// header) leave the accumulator path — the same trade the argon2
+/// verifier in `verify_password` makes.
+///
+/// Both arguments are Strings (loud on anything else — the №514
+/// loud-conversion convention; a secret comparator must not guess).
+pub(crate) fn builtin_ct_eq(args: &[Value]) -> Result<Value, String> {
+    let a = expect_string_arg("ct_eq", args, 0)?;
+    let b = expect_string_arg("ct_eq", args, 1)?;
+    Ok(Value::Bool(ct_eq_str(&a, &b)))
+}
+
+/// The constant-time body: the running XOR/OR accumulator absorbs every
+/// byte pair (never branches on a difference); the answer is whether
+/// the accumulator stayed zero.
+fn ct_eq_str(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff: u8 = 0;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
 pub(crate) fn builtin_encrypt(args: &[Value]) -> Result<Value, String> {
     let data = expect_string_arg("encrypt", args, 0)?;
     let key_str = match args.get(1) {

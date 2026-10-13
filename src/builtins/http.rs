@@ -314,6 +314,32 @@ pub(crate) fn builtin_query_param(args: &[Value]) -> Result<Value, String> {
     Ok(Value::String(String::new()))
 }
 
+/// `request_header(name)` — stub that returns empty string (N2, gh#1211).
+/// Real implementation is special-cased in the TW FnCall dispatch and the
+/// VM (needs the per-request HeaderMap — same pattern as `query_param`).
+/// The stub answers the empty string: on any lane that reaches the
+/// registry directly the per-request context is absent, and the lookup
+/// degrades to "" (the query_param №40 parity contract — a webhook
+/// secret check fails closed off the server).
+pub(crate) fn builtin_request_header(args: &[Value]) -> Result<Value, String> {
+    let _name = if args.is_empty() {
+        return Err("request_header() requires 1 argument (header name)".to_string());
+    } else {
+        match &args[0] {
+            Value::String(s) => s.clone(),
+            other => {
+                return Err(format!(
+                    "request_header() expected String, got {}",
+                    other.type_name()
+                ))
+            }
+        }
+    };
+    // Stub — real implementation is special-cased in the FnCall dispatch
+    // (both backends) and reads the injected per-request HeaderMap.
+    Ok(Value::String(String::new()))
+}
+
 /// `server_path_param(name)` — stub that returns empty string (Наряд №283).
 /// Real implementation is handled in interpreter.rs and vm.rs FnCall
 /// dispatch (needs access to server_path_params HashMap on the runtime
@@ -618,6 +644,376 @@ fn apply_ssrf_resolves(
     Ok(builder)
 }
 
+// ── Наряд N4 (gh#1213, PE-1): the outgoing-HTTP hardening ────────────────
+//
+// Four knobs, read at CALL time (the ssrf_guard_enabled() convention —
+// an env var is process-global, tests set/remove under the env mutex):
+//
+//   METALOGOS_HTTP_ALLOW_HOSTS   — the egress host allowlist (comma list,
+//                                  `*.sub.tld` wildcards, case-insensitive,
+//                                  whitespace-tolerant). UNSET/empty = the
+//                                  gate is off (backward compatible — the
+//                                  SSRF guard still covers private ranges).
+//                                  Refused BEFORE any DNS/connect, typed
+//                                  [HTTP_HOST_NOT_ALLOWED].
+//   METALOGOS_HTTP_USER_AGENT    — the UA override; the default is
+//                                  `Metalogos/<version>`. An explicit
+//                                  caller `User-Agent` header (any case)
+//                                  wins over both.
+//   METALOGOS_HTTP_MIN_INTERVAL_MS — the minimal interval between
+//                                  requests to the SAME host (per-host
+//                                  bookkeeping; different hosts never
+//                                  wait on each other). Default 0.
+//   the `{robots: true}` option  — fetch robots.txt once per host, cache
+//                                  24 h, enforce the Disallow rules
+//                                  (longest-match). Wired into the FETCH
+//                                  builtins (http_get / http_download):
+//                                  robots.txt governs retrieval; a POST
+//                                  is an action, not a crawl.
+//
+// THE REDIRECT STORY: №261 pins `Policy::none()` on all four egress
+// builtins — reqwest never auto-follows a 3xx, the body comes back and
+// the decision is the program's. Each hop a program chooses to make is a
+// NEW builtin call, so the allowlist gate below runs on EVERY redirect
+// hop by construction (the №261 SSRF-pin-per-hop argument, replayed for
+// the allowlist). If auto-following is ever introduced, the gate MUST
+// move into the redirect policy closure — the per-hop contract is the
+// invariant, not the call-top placement.
+
+/// N4: the pure allowlist matcher — `true` when `host` is covered by the
+/// comma-separated `allowlist`. Exposed for the contract tests (the env
+/// layer on top reads the variable and calls this).
+///
+/// Matching rules:
+///   * entries are trimmed, lowercased, empty tokens skipped;
+///   * `example.by` matches the host `example.by` exactly (never
+///     `notexample.by` — the dot anchors the suffix);
+///   * `*.example.by` covers subdomains — one label or more
+///     (`a.example.by`, `a.b.example.by`), NOT the apex `example.by`
+///     itself, NOT a lookalike `notexample.by`;
+///   * the comparison is case-insensitive (DNS names are).
+pub fn host_allowed(host: &str, allowlist: &str) -> bool {
+    let host = host.to_ascii_lowercase();
+    allowlist.split(',').any(|entry| {
+        let entry = entry.trim().to_ascii_lowercase();
+        if entry.is_empty() {
+            return false;
+        }
+        if let Some(suffix) = entry.strip_prefix("*.") {
+            // `*.example.by`: the host must end with `.example.by` —
+            // the dot anchor refuses both the apex and the lookalike.
+            host.ends_with(&format!(".{suffix}"))
+        } else {
+            host == entry
+        }
+    })
+}
+
+/// N4: the env-driven allowlist gate over [`host_allowed`]. Returns a
+/// typed [HTTP_HOST_NOT_ALLOWED] refusal naming the host and the knob.
+/// Placement: the TOP of every egress builtin, BEFORE the SSRF resolve —
+/// a disallowed request must not even pay for a DNS lookup.
+pub fn check_url_host_allowed(url: &str, fn_name: &str) -> Result<(), String> {
+    let allowlist = match std::env::var("METALOGOS_HTTP_ALLOW_HOSTS") {
+        Ok(v) if !v.trim().is_empty() => v,
+        // Unset/empty = the gate is off.
+        _ => return Ok(()),
+    };
+    let host = reqwest::Url::parse(url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_string()))
+        // A URL without a parseable host is not an allowlist concern —
+        // the downstream URL handling / SSRF guard own that refusal.
+        .unwrap_or_default();
+    if host.is_empty() || host_allowed(&host, &allowlist) {
+        return Ok(());
+    }
+    Err(crate::interpreter::values::coded_error(
+        crate::interpreter::values::CODE_HTTP_HOST_NOT_ALLOWED,
+        format!(
+            "{}: host '{}' is not in METALOGOS_HTTP_ALLOW_HOSTS — the request was refused \
+             before any DNS lookup or connection",
+            fn_name, host
+        ),
+    ))
+}
+
+/// N4: the pacing bucket — the URL authority WITHOUT the scheme
+/// (`host:port`, the effective port when absent). Two ports on one
+/// machine are two endpoints with their own politeness debt; one origin
+/// (http and https alike count by their effective port) shares it.
+fn url_pace_key(url: &str) -> String {
+    match reqwest::Url::parse(url) {
+        Ok(u) => {
+            let host = u.host_str().unwrap_or_default().to_ascii_lowercase();
+            if host.is_empty() {
+                return String::new();
+            }
+            format!("{}:{}", host, u.port_or_known_default().unwrap_or(80))
+        }
+        Err(_) => String::new(),
+    }
+}
+
+/// N4: the effective User-Agent — `METALOGOS_HTTP_USER_AGENT` when set
+/// (non-empty), else the default `Metalogos/<version>`.
+fn http_user_agent() -> String {
+    if let Ok(v) = std::env::var("METALOGOS_HTTP_USER_AGENT") {
+        if !v.trim().is_empty() {
+            return v;
+        }
+    }
+    format!("Metalogos/{}", env!("CARGO_PKG_VERSION"))
+}
+
+/// N4: inject the effective User-Agent unless the caller already set one
+/// (any-case compare — HTTP header names are case-insensitive).
+fn apply_user_agent(
+    extra_headers: &[(String, String)],
+    req: reqwest::blocking::RequestBuilder,
+) -> reqwest::blocking::RequestBuilder {
+    let caller_set = extra_headers
+        .iter()
+        .any(|(k, _)| k.eq_ignore_ascii_case("user-agent"));
+    if !caller_set {
+        return req.header("User-Agent", http_user_agent());
+    }
+    req
+}
+
+/// N4: the per-host last-request bookkeeping (shared by TW and VM — both
+/// lanes call the same builtin bodies, so one static serves both).
+fn last_request_per_host(
+) -> &'static std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>> {
+    static MAP: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>,
+    > = std::sync::OnceLock::new();
+    MAP.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// N4: `METALOGOS_HTTP_MIN_INTERVAL_MS` — 0/unset/invalid means no delay.
+fn min_interval() -> std::time::Duration {
+    std::env::var("METALOGOS_HTTP_MIN_INTERVAL_MS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .map(std::time::Duration::from_millis)
+        .unwrap_or_default()
+}
+
+/// N4: the per-host pacing gate — blocks (sleeps) until the minimal
+/// interval since the LAST request to this host has elapsed, then stamps
+/// `now`. Call it immediately before `send()` so the bookkeeping covers
+/// the whole request, not its construction.
+fn respect_min_interval(pace_key: &str) {
+    let interval = min_interval();
+    if interval.is_zero() || pace_key.is_empty() {
+        return;
+    }
+    let key = pace_key.to_ascii_lowercase();
+    let mut map = last_request_per_host()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let wait_until = map
+        .get(&key)
+        .map(|last| *last + interval)
+        .unwrap_or_else(std::time::Instant::now);
+    let now = std::time::Instant::now();
+    if wait_until > now {
+        std::thread::sleep(wait_until - now);
+    }
+    map.insert(key, std::time::Instant::now());
+}
+
+// ── N4: robots.txt — the crawl-politeness gate ────────────────────────
+
+/// N4: the robots cache TTL — 24 hours, the issue's number, pinned by
+/// the contract test.
+pub static ROBOTS_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
+/// N4: the minimal robots.txt ruleset — the `User-agent: *` group with
+/// its `Allow:`/`Disallow:` prefix rules. Deliberately minimal (the
+/// issue's scope): no `*`/`$` inside rule paths, no per-agent matching,
+/// no Crawl-delay. The evaluation is the RFC 9309 longest-match: the
+/// longest matching prefix wins; a tie goes to Allow; no match allows.
+/// A MISSING robots file (404 / unreachable) fails OPEN — no file, no
+/// crawl ban (the standard crawler posture).
+pub struct RobotsRules {
+    rules: Vec<(bool /* allow */, String /* prefix */)>,
+}
+
+impl RobotsRules {
+    /// Parse the robots.txt text. Only the `User-agent: *` group is
+    /// considered (Metalogos is a generic agent); keys are
+    /// case-insensitive; `#` comments are stripped; an empty `Disallow:`
+    /// value is the explicit allow-all and contributes no rule.
+    pub fn parse(text: &str) -> RobotsRules {
+        let mut rules: Vec<(bool, String)> = Vec::new();
+        let mut in_star_group = false;
+        let mut saw_star_group = false;
+        for raw in text.lines() {
+            let line = raw.split('#').next().unwrap_or("").trim();
+            if line.is_empty() {
+                continue;
+            }
+            let Some((key, value)) = line.split_once(':') else {
+                continue;
+            };
+            let key = key.trim().to_ascii_lowercase();
+            let value = value.trim();
+            match key.as_str() {
+                "user-agent" => {
+                    // A new group starts at every user-agent line; only
+                    // the `*` group's rules are kept.
+                    if in_star_group {
+                        in_star_group = false;
+                    }
+                    if value == "*" && !saw_star_group {
+                        in_star_group = true;
+                        saw_star_group = true;
+                    }
+                }
+                "allow" | "disallow" if in_star_group => {
+                    if value.is_empty() {
+                        // Empty Disallow = allow-all (RFC 9309 §2.3.3);
+                        // no rule to record either way.
+                        continue;
+                    }
+                    rules.push((key == "allow", value.to_string()));
+                }
+                _ => {}
+            }
+        }
+        RobotsRules { rules }
+    }
+
+    /// The longest-match verdict for a request path (the URL path +
+    /// query, as robots rules match against it).
+    pub fn allows(&self, path: &str) -> bool {
+        let mut best: Option<(usize, bool)> = None;
+        for (allow, prefix) in &self.rules {
+            if path.starts_with(prefix.as_str()) {
+                let len = prefix.len();
+                match best {
+                    // A tie goes to Allow (RFC 9309 §2.3.4).
+                    Some((blen, _)) if blen > len => {}
+                    _ => best = Some((len, *allow)),
+                }
+            }
+        }
+        match best {
+            Some((_, allow)) => allow,
+            None => true,
+        }
+    }
+}
+
+/// N4: the robots cache — one fetch per host serves 24 h of calls.
+fn robots_cache(
+) -> &'static std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, RobotsRules)>>
+{
+    static CACHE: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, RobotsRules)>>,
+    > = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// N4: the `{robots: true}` option flag — any Struct argument carrying a
+/// Bool `robots` field turns it on (the same additive-Struct convention
+/// the №71 retry_config parse follows; the headers loop only forwards
+/// String fields, so the flag never leaks into a header).
+fn parse_robots_flag(args: &[Value]) -> bool {
+    args.iter().any(|a| match a {
+        Value::Struct { fields, .. } => fields
+            .iter()
+            .any(|(k, v)| k == "robots" && matches!(v, Value::Bool(true))),
+        _ => false,
+    })
+}
+
+/// N4: the robots gate for a GET-shaped fetch. Fetches (or reuses from
+/// the 24 h cache) the host's robots.txt over the SAME gate stack (the
+/// SSRF resolve pins the DNS; the allowlist already passed for the
+/// target URL — the robots URL is the same host, so it passes the same
+/// check; the min-interval paces the robots probe like any other
+/// request), evaluates the rules for the target path, and answers the
+/// typed [HTTP_ROBOTS_DENIED] refusal when the rules deny it. A
+/// robots.txt that is missing (4xx) or unreachable fails OPEN — the
+/// empty ruleset, cached the same way so an unreachable host is not
+/// re-probed on every call.
+fn enforce_robots(url: &str, fn_name: &str) -> Result<(), String> {
+    let parsed = reqwest::Url::parse(url)
+        .map_err(|e| format!("{}: invalid URL '{}': {}", fn_name, url, e))?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| format!("{}: URL '{}' has no host", fn_name, url))?
+        .to_ascii_lowercase();
+    let port = parsed.port_or_known_default().unwrap_or(80);
+    let path_with_query = match parsed.query() {
+        Some(q) => format!("{}?{}", parsed.path(), q),
+        None => parsed.path().to_string(),
+    };
+
+    let cache_key = format!("{}://{}:{}", parsed.scheme(), host, port);
+
+    // Fast path: a fresh cached ruleset answers without any I/O.
+    {
+        let cache = robots_cache().lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((fetched_at, rules)) = cache.get(&cache_key) {
+            if fetched_at.elapsed() < ROBOTS_TTL {
+                return robots_verdict(fn_name, &path_with_query, rules.allows(&path_with_query));
+            }
+        }
+    }
+
+    // Slow path: one polite probe per TTL. The fetch does NOT hold the
+    // cache lock (two concurrent first-calls may both probe — benign).
+    respect_min_interval(&format!("{}:{}", host, port));
+    let robots_url = format!("{}://{}:{}/robots.txt", parsed.scheme(), host, port);
+    let rules =
+        fetch_robots_rules(&robots_url).unwrap_or_else(|| RobotsRules { rules: Vec::new() });
+    let verdict = rules.allows(&path_with_query);
+    robots_cache()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(cache_key, (std::time::Instant::now(), rules));
+    robots_verdict(fn_name, &path_with_query, verdict)
+}
+
+/// N4: the robots fetch — 10 s deadline, the №261 no-follow policy, the
+/// SSRF pin. `None` on ANY failure (transport / non-2xx): the caller
+/// treats it as the empty ruleset (fail-open, RFC 9309 posture).
+fn fetch_robots_rules(robots_url: &str) -> Option<RobotsRules> {
+    let client = apply_ssrf_resolves(
+        reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .redirect(reqwest::redirect::Policy::none()),
+        robots_url,
+    )
+    .ok()?
+    .build()
+    .ok()?;
+    let resp = client.get(robots_url).send().ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    Some(RobotsRules::parse(&resp.text().ok()?))
+}
+
+/// N4: the typed verdict — the refusal names the denied path so a
+/// program (and the ledger) can see WHAT was denied by WHOSE rule.
+fn robots_verdict(fn_name: &str, path: &str, allowed: bool) -> Result<(), String> {
+    if allowed {
+        return Ok(());
+    }
+    Err(crate::interpreter::values::coded_error(
+        crate::interpreter::values::CODE_HTTP_ROBOTS_DENIED,
+        format!(
+            "{}: the path '{}' is denied by the host's robots.txt (the {{robots: true}} option)",
+            fn_name, path
+        ),
+    ))
+}
+
 /// Send an HTTP POST request. Returns the response body as String.
 /// Usage: http_post(url, body, content_type)
 /// Usage: http_post(url, body, content_type, auth_token)        — sets Authorization: Bearer <auth_token>
@@ -660,6 +1056,11 @@ pub(crate) fn builtin_http_post(args: &[Value]) -> Result<Value, String> {
         }
         None => return Err("http_post() requires at least 1 argument (url)".to_string()),
     };
+
+    // N4 (gh#1213): the egress allowlist gate — BEFORE any DNS/connect.
+    // Per-hop by construction: №261 never auto-follows a 3xx, every hop
+    // a program makes is a new builtin call with the gate on top.
+    check_url_host_allowed(&url, "http_post")?;
 
     let body = match effective_args.get(1) {
         Some(Value::String(s)) => s.clone(),
@@ -751,6 +1152,10 @@ pub(crate) fn builtin_http_post(args: &[Value]) -> Result<Value, String> {
         for (k, v) in &extra_headers {
             req = req.header(k.as_str(), v.as_str());
         }
+        // N4: the UA identity (the caller's explicit header wins) and
+        // the per-host pacing — every send, retries included.
+        req = apply_user_agent(&extra_headers, req);
+        respect_min_interval(&url_pace_key(&url));
 
         // №592: the transport outcome is TYPED (timeout vs connection),
         // not a string sniff
@@ -876,6 +1281,14 @@ pub(crate) fn builtin_http_get(args: &[Value]) -> Result<Value, String> {
         None => return Err("http_get() requires 1 argument (url)".to_string()),
     };
 
+    // N4 (gh#1213): the egress hardening — the allowlist gate FIRST (a
+    // refused host pays no DNS lookup), then the robots.txt
+    // crawl-politeness gate (GET-shaped fetch = crawl semantics).
+    check_url_host_allowed(&url, "http_get")?;
+    if parse_robots_flag(args) {
+        enforce_robots(&url, "http_get")?;
+    }
+
     // Наряда-26 P0-1: configurable timeout
     // http_get(url) | http_get(url, timeout) | http_get(url, headers) | http_get(url, headers, timeout)
     let (headers_arg, timeout_secs) = match effective_args.len() {
@@ -951,6 +1364,10 @@ pub(crate) fn builtin_http_get(args: &[Value]) -> Result<Value, String> {
         for (k, v) in &extra_headers {
             req = req.header(k.as_str(), v.as_str());
         }
+        // N4: the UA identity (the caller's explicit header wins) and
+        // the per-host pacing — every send, retries included.
+        req = apply_user_agent(&extra_headers, req);
+        respect_min_interval(&url_pace_key(&url));
 
         // №592: the transport outcome is TYPED (timeout vs connection),
         // not a string sniff
@@ -1035,6 +1452,18 @@ pub(crate) fn builtin_http_download(args: &[Value]) -> Result<Value, String> {
     let url = expect_string_arg("http_download", args, 0)?;
     let dest = expect_string_arg("http_download", args, 1)?;
 
+    // N4 (gh#1213): the egress hardening — the allowlist gate FIRST (a
+    // refused host pays no DNS lookup), then the robots.txt
+    // crawl-politeness gate (a download is a GET-shaped fetch). Both
+    // refusals are LOUD — the policy-refusal parity with the №261 SSRF
+    // gate below: a policy refusal is a signal, not an environmental
+    // miss (the soft Ok(false) contract stays with the network/write
+    // failures only).
+    check_url_host_allowed(&url, "http_download")?;
+    if parse_robots_flag(args) {
+        enforce_robots(&url, "http_download")?;
+    }
+
     // №475 (issue #723): the destination is resolved and gated at WRITE
     // time (fs_gate::open_write below) — the policy refusals (sandbox,
     // deny-list, serve containment) are LOUD; the network/OS failures
@@ -1097,6 +1526,10 @@ pub(crate) fn builtin_http_download(args: &[Value]) -> Result<Value, String> {
     for (k, v) in &extra_headers {
         req = req.header(k.as_str(), v.as_str());
     }
+    // N4: the UA identity (the caller's explicit header wins) and the
+    // per-host pacing.
+    req = apply_user_agent(&extra_headers, req);
+    respect_min_interval(&url_pace_key(&url));
 
     let resp = match req.send() {
         Ok(r) => r,
@@ -1210,6 +1643,10 @@ pub(crate) fn builtin_http_post_multipart(args: &[Value]) -> Result<Value, Strin
         }
     };
 
+    // N4 (gh#1213): the egress allowlist gate — the №261 four-egress
+    // parity (all four egress builtins behind the same gate stack).
+    check_url_host_allowed(&url, "http_post_multipart")?;
+
     // ── Наряд №260: файловые поля — через песочницу ─────────────────────
     // Раньше каждое файловое поле читалось `std::fs::read(path)` по СЫРОМУ
     // пути из аргумента программы — единственное файловое чтение билтинов
@@ -1279,8 +1716,11 @@ pub(crate) fn builtin_http_post_multipart(args: &[Value]) -> Result<Value, Strin
         form = form.part(key.clone(), part);
     }
 
+    // N4: the per-host pacing before the single multipart send.
+    respect_min_interval(&url_pace_key(&url));
     let resp = client
         .post(&url)
+        .header("User-Agent", http_user_agent())
         .multipart(form)
         .send()
         .map_err(|e| format!("http_post_multipart(): request failed: {}", e))?;

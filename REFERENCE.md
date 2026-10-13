@@ -655,7 +655,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 516 registered builtins (516 of 516): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 518 registered builtins (518 of 518): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -1057,6 +1057,7 @@ Temporary in-memory storage scoped to a session_id. Not persistent — it resets
 | `decrypt(encrypted, key)` | `Encrypted, Secret -> String` | String | Decrypts AES-256-GCM. Errors on a wrong key |
 | `hash_password(password)` | `String -> Hash` | Hash | Hashes a password (Argon2id with a random salt) |
 | `verify_password(password, hash)` | `String, Hash -> Bool` | Bool | Verifies a password (constant-time comparison) |
+| `ct_eq(a, b)` | `String, String -> Bool` | Bool | Constant-time string equality — compare secrets without the `==` prefix-timing leak. The verdict is trusted for decisions (comparing an untrusted token against the expected secret IS the validation); its confidentiality follows the compared values |
 | `sha256(text)` | `String -> String` | String | The SHA-256 hash, hex representation (64 characters). Unicode-aware: hashes the UTF-8 bytes |
 | `hmac_sha256(key, message)` | `String, String -> String` | String | HMAC-SHA256 with a key, hex representation (64 characters) |
 | `hex_encode(text)` | `String -> String` | String | Encodes a string to hex (UTF-8 bytes to hex characters) |
@@ -1110,6 +1111,7 @@ Functions for use inside route handlers of `mlogserver`/`server` blocks.
 | `form_data()` | `-> Struct {FormData}` | Struct | Parses data from an `application/x-www-form-urlencoded` request body |
 | `json_body()` | `-> Struct {JsonBody}` | Struct | Parses JSON from the request body |
 | `query_param(name)` | `String -> String` | String | Gets a query parameter from the URL. `curl "localhost:8080/search?q=hello" -> query_param("q") == "hello"`. An empty string if the parameter is absent. Percent-decoding: RFC 3986 bytes reassembled as UTF-8 (`%D0%B6` → `"ж"`), `+` → space (form-urlencoded convention), invalid escapes pass through literally, invalid UTF-8 is lossy — see the §4.13 note (Naryad #257) |
+| `request_header(name)` | `String -> String` | String | Gets a request header from the current route request by a case-insensitive name. The empty string when the header is absent or no route context is set (fails closed — see `examples/telegram_webhook_secret.mlog`). The result carries `UserInput` taint — validate before deciding; compare secrets with `ct_eq` (N2) |
 
 **Example:**
 ```mlog
@@ -2139,7 +2141,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 516 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 518 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2255,10 +2257,11 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `cron_remove(...)` | 1 | `String -> Float` | Deletes a job by ID. Returns `1.0` if deleted, `0.0` if not found |
 | `cron_run(...)` | 1 | `String -> Float` | Forces a job to run outside its schedule (sets `force_run=true`; the fire stamps the current window, so the scheduled tick in the same window will not re-fire). Returns `1.0` if found, `0.0` if not |
 
-### `crypto` — 10 builtin(s)
+### `crypto` — 11 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
+| `ct_eq(...)` | 2 | `String, String -> Bool` | Constant-time string equality — compare secrets without the `==` prefix-timing leak. The verdict is trusted for decisions (comparing an untrusted token against the expected secret IS the validation); its confidentiality follows the compared values |
 | `decrypt(...)` | 2 | `Encrypted, Secret -> String` | Decrypts AES-256-GCM. Errors on a wrong key |
 | `encrypt(...)` | 2 | `String, Secret -> Encrypted` | Encrypts with AES-256-GCM using a random 96-bit nonce. The key is 64 hex characters |
 | `generate_key(...)` | variadic | `-> Secret` | Generates a 256-bit random key (64 hex characters) |
@@ -2858,7 +2861,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `voice_save(...)` | 2 | — | `voice_save(handle, name)` stub — ADR-0143 (persistence). |
 | `whisper_transcribe(...)` | 3..4 | `String, String, String[, String] -> String` | Downloads a voice message from Telegram by `file_id`, sends it for transcription to the Whisper API. `provider`: `"openai"` (default) or `"groq"`. `METALOGOS_STT_BASE_URL` overrides the transcription API base (mock servers / self-host proxies) — `/audio/transcriptions` is appended. Returns the recognized text. Arity 3..4 — the registry used to declare min 1 while the runtime always required 3 (Naryad #279 fact-check fix; a 1-arg call now fails `mlog check` on statics instead of exploding at runtime) |
 
-### `web` — 21 builtin(s)
+### `web` — 22 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
@@ -2874,6 +2877,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `query_param(...)` | 1 | `String -> String` | Gets a query parameter from the URL. `curl "localhost:8080/search?q=hello" -> query_param("q") == "hello"`. An empty string if the parameter is absent. Percent-decoding: RFC 3986 bytes reassembled as UTF-8 (`%D0%B6` → `"ж"`), `+` → space (form-urlencoded convention), invalid escapes pass through literally, invalid UTF-8 is lossy — see the §4.13 note (Naryad #257) |
 | `render(...)` | 2..3 | `String, String, Any, ... -> Html` | Renders a template, substituting `{{ var }}` variables. The number of arguments after the template name must be even (key/value pairs) |
 | `request_body(...)` | variadic | — | `json_body()` / `request_body()` — raw body of the current route request, parsed as JSON into a `Dict` Struct; `request_body` is the explicit-name alias. Result carries `UserInput` taint (untrusted request data). |
+| `request_header(...)` | 1 | `String -> String` | Gets a request header from the current route request by a case-insensitive name. The empty string when the header is absent or no route context is set (fails closed — see `examples/telegram_webhook_secret.mlog`). The result carries `UserInput` taint — validate before deciding; compare secrets with `ct_eq` (N2) |
 | `require(...)` | 1..2 | `Bool -> Unit` | A runtime assertion. Errors if `false` |
 | `respond(...)` | 1..2 | `String -> HttpResponse` | Builds an HTTP response. Format: `"200 OK"`, `"404 Not Found"`, etc. |
 | `respond_html(...)` | 1..2 | `String -> HttpResponse`; `String, String -> HttpResponse` | Three forms (#892). **1-arg:** the whole argument is the HTML body, status 200. **2-arg, first arg is a status** (opens with "200", "404 Not Found", …): the legacy documented form — the second argument is the body VERBATIM. **2-arg, first arg is not a status:** the (title, body) form — a full HTML document is built (the title renders at the top of `<body>` verbatim and tag-stripped into `<head><title>`). All three serve `Content-Type: text/html; charset=utf-8`. **The 2-arg form is DEPRECATED (№565)** — the sense is read from the first argument's CONTENT (a number-like string becomes a status, anything else a title); a semantic warning fires when the first argument is not a string literal; migrate to `respond_html_status` / `respond_html_doc` (removal no earlier than one release with the warning) |
@@ -3010,6 +3014,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `form_data` | source | internal | pure | ingests untrusted user form input — UserInput taint (№201 vocabulary) |
 | `json_body` | source | internal | pure | ingests untrusted request body — UserInput taint |
 | `query_param` | source | internal | pure | ingests untrusted request query parameter — UserInput taint |
+| `request_header` | source | internal | pure | ingests the untrusted request header (N2, gh#1211) — UserInput taint |
 | `render` | lift | public | pure | taint-sanitizing template render — output is public-safe (audit.rs sanitizer) |
 | `http_get` | source | network | pure | ingests external network data (SSRF-guarded, №130) |
 | `http_post` | sink | network | irreversible | transmits program data to an external endpoint — cannot be unsent (issue minimum list) |
@@ -3024,6 +3029,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `weather_forecast` | source | network | pure | ingests external forecast data |
 | `hash_password` | lift | public | pure | one-way de-identification of a password — output is safe for storage (argon2) |
 | `verify_password` | pure | secret | pure | — |
+| `ct_eq` | pure | internal | pure | — |
 | `encrypt` | lift | public | pure | ciphertext is safe for untrusted channels — sensitivity lifted (AES-GCM) |
 | `decrypt` | pure | secret | pure | — |
 | `generate_key` | source | secret | pure | materializes a fresh Secret from CSPRNG entropy |
@@ -3412,6 +3418,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `normal_sample` | pure | public | pure | — |
 
 <!-- END GENERATED BUILTIN CLASSIFICATION -->
+
 
 
 

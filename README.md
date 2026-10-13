@@ -128,14 +128,14 @@ Key files at the repo root:
 | Metric | Value (generated — do not hand-edit) |
 | ------ | ------------------------------------- |
 | Version | 0.30.1 |
-| Built-in Functions | 516 functions across 45 modules |
-| Typed Signatures | 326/516 (63.17%) — precise 222/516 (43.02%) (№467/№560) |
+| Built-in Functions | 518 functions across 45 modules |
+| Typed Signatures | 328/518 (63.32%) — precise 224/518 (43.24%) (№467/№560) |
 | SVG/Graphics | 44 builtins, hand-rolled in pure Rust |
 | Grammar | 339 rules |
 | Architecture Decisions | 183 ADRs |
-| Example Programs | 246 .mlog programs |
-| Reference | REFERENCE.md (~303 KB) — 100% registry coverage |
-| Changelog | CHANGELOG.md (~696 KB) — every wave documented |
+| Example Programs | 249 .mlog programs |
+| Reference | REFERENCE.md (~305 KB) — 100% registry coverage |
+| Changelog | CHANGELOG.md (~701 KB) — every wave documented |
 <!-- END GENERATED METRICS -->
 
 Validated on every CI run: `scripts/gen_metrics.py --check` plus the independent recomputation in `tests/readme_consistency.rs`.

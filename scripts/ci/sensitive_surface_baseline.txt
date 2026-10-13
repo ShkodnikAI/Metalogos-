@@ -65,7 +65,25 @@
 #   the PathError singleton on the no-path arm, memory.rs); the lane
 #   sits on the PRE-№668 main — the sequential merge at the window
 #   re-reads the live fact (the prediction held: 62+4 = 66/138 — the recount on the post-№668 main); 66*10000//138 = 4782 bp)
-# threshold_bp: 4782
+# threshold_bp was 4782 — the №660-§5 LANDING RE-BLESS (PR #1208,
+#   2026-10-14): covered 73 | sensitive 145
+#   (the §5 PR's landing merge brought the platform-enabler PE-2 wave
+#   onto the same tree — n5 html_select/html_text/html_links, n6
+#   feed_parse/sitemap_parse/xml_parse, n7 set_header + the headers
+#   field on HttpResponse, n8 the security_headers middleware, n9
+#   render()/| safe — plus the В43 nuclear №684 tool-method compile
+#   surface; every new sensitive source landed FULLY covered, so the
+#   share rose 66/138 → 73/145 (the denominator: Internal 109 /
+#   Network 31 / Secret 5; the Public sources 5 excluded — the
+#   definition unchanged, the denominator MOVED by new sources only,
+#   never diluted); the machine read on the landing tree:
+#   73*10000//145 = 5034 bp; the fact twin and the floor raised in the
+#   SAME PR (the №757/№613 procedure — the machine's own note «the
+#   coverage rose above the floor — raise the baseline floor to 5034 in
+#   the same-PR move»), the owner-fixed GOAL line stays 4782 until the
+#   owner's later §5 decision — the X-3 posture (goal == fact) no
+#   longer holds BY DESIGN, the ratchet holds)
+# threshold_bp: 5034
 
 
 # №661 (issue #1162, 2026-10-09; the К-Б stage-2 verdict gh#1144):

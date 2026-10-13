@@ -341,7 +341,15 @@ All notable changes to the Metalogos project.
   (§7). The 4130 / 4420–4493 draft variants retired (the history kept
   verbatim in the record); the 4 eternal honest refusals (query /
   query_row / query_scalar / request_body) remain the separate
-  owner-decided dictionary-expansion line.
+  owner-decided dictionary-expansion line. **The landing re-bless
+  (№757/№613):** the §5 merge brought the PE-2 platform-enabler wave
+  (n5–n9) and the В43 nuclear №684 onto the same tree — every new
+  sensitive source landed fully covered, the machine read rose
+  66/138 = 4782 bp → **73/145 = 5034 bp** (the denominator moved by new
+  sources only — Internal 102 → 109, the definition unchanged); the
+  fact twin and the floor raised in the SAME PR (5034), the
+  OWNER-FIXED goal line stays 4782 until the owner's later §5
+  decision — the ratchet reads 5034 ≥ 4782: MET.
 
 - **N13 (gh#1221, platform-enabler) — reasoning_content: the thinking
   block never leaves the contour, the usage does.** GLM reasoning

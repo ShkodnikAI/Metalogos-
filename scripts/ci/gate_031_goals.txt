@@ -38,6 +38,18 @@
 # SAME PR (the №757/№613 procedure). The GOAL line moves only by the
 # owner's later §5 decision (one PR, the value recorded in this header).
 #
+# THE LANDING RE-BLESS (PR #1208, 2026-10-14 — the §5 merge itself):
+# the landing merge brought the platform-enabler PE-2 wave (n5–n9) and
+# the В43 nuclear №684 onto the same tree; every new sensitive source
+# landed FULLY covered, so the machine read rose 66/138 = 4782 bp →
+# 73/145 = 5034 bp (the denominator moved by new sources only —
+# Internal 102 → 109, the definition unchanged, never diluted). Per the
+# №757/№613 procedure recorded above, the fact twin AND the floor
+# raised in THIS SAME PR (5034 — the machine's own same-PR note); the
+# OWNER-FIXED goal line stays 4782 (the owner's later §5 decision — the
+# ratchet reads fact 5034 ≥ goal 4782: MET; the fixation anchor and its
+# 4782 arithmetic below stay verbatim as the history).
+#
 # The divergence ADR-0191 §3 is CLOSED by this fixation: the 4130 draft
 # (the verdict 08.10, gh#1144 — «57/138, the §6.3 package fully») and
 # the 4420..4493 draft range (the variant (а) probe) are RETIRED. The 4
@@ -98,6 +110,8 @@ goal_sensitive_surface_bp: 4782
 # moves in the SAME PR that covers more sources, never by loosening the
 # spelling): 3840 (53/138 — №650, gh#1144) → 3913 (54/138 — №661,
 # canary_check) → 4492 (62/138 — №668, gh#1183) → 4782 (66/138 — №669,
-# gh#1184, the fixation anchor). The counter is machine-read, never
+# gh#1184, the fixation anchor) → 5034 (73/145 — the §5 landing
+# re-bless, PR #1208: the PE-2 wave n5–n9 + №684 landed fully covered;
+# 73*10000//145 = 5034). The counter is machine-read, never
 # hand-zeroed.
-fact_sensitive_surface_bp: 4782
+fact_sensitive_surface_bp: 5034

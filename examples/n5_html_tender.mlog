@@ -1,0 +1,39 @@
+// Naryad N5 (gh#1215, ADR-0192): the `html` feature — the tender-page
+// extraction family. The synthetic Cyrillic tender page (the naryad's
+// fixture contract) is parsed by all three builtins:
+//   html_select — the lot titles with their attributes (the Dict keys
+//                 are read through json_get — the battle-tested surface);
+//   html_text   — the normalized text, script/style never contribute;
+//   html_links  — the absolute http/https links, javascript: dropped.
+// The golden contract: TW and VM produce the IDENTICAL output
+// (tests/naryad_n5_html_builtins.rs::n5_golden_pair_tw_and_vm_identical
+// pins both). The example runs ONLY with the html feature on
+// (`cargo test --features html`); the default golden suites skip it
+// (the reflex_seq_* precedent).
+
+pattern ExtractTender(page: String) -> String {
+  // 1. html_select: the lot headers — the count, then the FIRST match's
+  //    fields (tag / text / the serialized html) and the deadline attr.
+  let titles = html_select(page, "div.lot h2")
+  let first = titles[0]
+  let featured = html_select(page, "div.featured")
+  let deadline = json_get(featured[0].attrs, "data-deadline")
+
+  // 2. html_text: the second lot's text — script/style excluded.
+  let lots = html_select(page, "div.lot")
+  let lot2_text = lots[1].text
+
+  // 3. html_links: the absolute links; the javascript: link is dropped,
+  //    the relative and the protocol-relative resolve against the base.
+  let links = html_links(page, "https://tender.example.by/lots")
+
+  return to_string(length(titles)) + " lots | t1=" + first.text
+    + " | deadline=" + deadline
+    + " | lot2=" + lot2_text
+    + " | links=" + to_string(length(links))
+    + " | l1=" + links[0].href + " | l4=" + links[3].href
+}
+
+flow Main {
+  input: String = "<html><head><title>Закупки</title><style>.h { color: red; }</style><script>var x = \"noise\";</script></head><body><div class=\"lot featured\" id=\"lot-1\" data-deadline=\"2026-11-01\"><h2>Поставка канцелярии</h2><p>Цена: 12 500 BYN</p><a href=\"/lots/1\">Лот 1</a><a href=\"https://tender.example.by/docs/rules.pdf\">Правила</a></div><div class=\"lot\" id=\"lot-2\"><h2>Ремонт фасада</h2><p>Цена: 98 000 BYN</p><a href=\"javascript:bad()\">Зловредная</a><a href=\"//mirror.example.by/lots/2\">Зеркало</a><a href=\"#anchor\">Якорь</a></div></body></html>" -> ExtractTender -> output
+}

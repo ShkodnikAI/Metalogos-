@@ -28,6 +28,44 @@ All notable changes to the Metalogos project.
   program-built fragment rides raw (`{{{ content }}}`); the empty
   .expected (the pin of the silent empty render) is replaced by the
   real output. REFERENCE §4.14 documents the raw form and the refusal.
+- **N5 (gh#1215, PE-2, ADR-0192) — the `html` capability feature:
+  `html_select` / `html_text` / `html_links`, the DOM extraction family
+  the tender agent needs.** Off-by-default behind `html` (html5ever 0.27
+  + markup5ever_rcdom 0.3 + url 2 — MIT/Apache-2.0/Unicode-3.0 only, the
+  №518 license gate verified by the N5-pre probe; the MPL-2.0 `scraper`
+  stack rejected). The registry surface is feature-INDEPENDENT (the N559
+  rhythm): without the feature the three handlers refuse LOUDLY naming
+  ADR-0192, never silently. `html_select(html, css)` returns
+  `List<HtmlMatch>{tag, text, attrs, html}` — the selector subset is
+  tag/`*`/`.class`/`#id`/`[attr]`/`[attr=value]`/descendant/direct-child/
+  comma (anything else a loud parse error naming the subset and the
+  position); document order; attrs is a Dict. `html_text(html, css?)`
+  returns the whitespace-normalized text — script/style subtrees NEVER
+  contribute. `html_links(html, base_url)` returns
+  `List<HtmlLink>{href, text}` — hrefs are ABSOLUTE (the WHATWG
+  resolution via the url crate), only http/https survive, `javascript:`
+  and every other scheme is DROPPED by contract, never an error. The
+  loud limits (fail-loud discipline): input ≤ 5 MiB
+  (`HTML_INPUT_TOO_LARGE` shape — the error names the limit), result ≤
+  10 000 nodes (never a silent truncate). Broken-HTML tolerance is
+  html5ever's spec error-recovery. EVERY result string carries the
+  untrusted taint — the audit/semantic/html-label source lists mirror
+  `request_header` (N2): scraped HTML/text must not reach `respond_html`
+  without the escape/validate step. The golden pair
+  `examples/n5_html_tender.mlog(+.expected)` (the synthetic Cyrillic
+  tender page) is byte-identical on TW and VM (the feature-on contract
+  test H8); the default golden sweeps skip it (the html-gate list, the
+  №373 parity gate re-justified: three sanctioned exclusion classes).
+  New blocking CI job `html-tests` (the off-by-default guard + the
+  feature-on suite + clippy); the feature rides `portable` per the
+  Cargo.toml feature-block rule. REFERENCE + the classification
+  regenerated (519 → 522 builtins); the precise-share fact 4315 → 4310
+  bp (html_text ships precise String; the two coarse `List<...>` rows
+  dilute — the floor raise is the №757 follow-up), the parameterized
+  fact 6893 → 6952 bp. 15 tests (14 feature-on + 1 off-feature
+  refusal), RED first. Size: L. Risks: the minimal selector engine is
+  deliberately NOT a CSS engine (the unsupported syntax is loud);
+  fuzzing on broken HTML rides the existing fuzz-smoke lane.
 
 - **N8 (gh#1218, PE-2, serve/bug) — the `security_headers` middleware
   actually applies the protective headers.** The owner's finding: the

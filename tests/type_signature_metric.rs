@@ -43,7 +43,11 @@ use metalogos::builtins::{sig_types::Type, BUILTIN_REGISTRY};
 /// opaque ForecastHandle) and graph_path (the heterogeneous List) — the 2
 /// HONEST refusals, the rows stay untyped. The sequential recount on the
 /// post-№668 main: 318 → 322 compiled (326/516 source = 6317 bp).
-const TYPED_FLOOR: usize = 322;
+// N7 (2026-10-13, gh#1217, wave #1222 PE-2): set_header ships TYPED
+// (Struct<HttpResponse>{...} — the parameterized spelling WITH the
+// field-meta). 324 → 325 compiled (the №669 floor 322 + the N12/N13
+// typed rows riding main since).
+const TYPED_FLOOR: usize = 325;
 
 #[test]
 fn typed_signature_share_never_falls_below_the_floor() {
@@ -123,7 +127,10 @@ fn every_typed_signature_is_the_honest_parse_of_its_path() {
 // field-meta, the anti-dilution rule; graph_neighbors List<Neighbor>,
 // graph_query List<GraphEntry>) — 68/99 compiled = 6868 bp (the
 // sequential recount on the post-№668 main); the floor 64 → 68.
-const PARAM_FLOOR: usize = 68;
+// N7 (wave #1222, gh#1217): set_header ships
+// Struct<HttpResponse>{4 internal} WITH the field-meta in the same
+// spelling — 68 → 69 compiled.
+const PARAM_FLOOR: usize = 69;
 /// The compiled denominator: 91 SOURCE List/Struct rows − the 4 gated
 /// vec/store rows (the same by-design source/compiled gap the TYPED_FLOOR
 /// comment documents — the gated rows are BARE List/Struct, so the
@@ -221,7 +228,10 @@ fn parameterized_signature_share_never_falls_below_the_floor() {
 // fields — the prov-block metadata}, forecast_points{4 internal} —
 // 43/45 compiled = 9555 bp (the sequential recount on the post-№668
 // main); the floor 41 → 43.
-const FIELDMETA_FLOOR: usize = 43;
+// N7 (wave #1222, gh#1217): set_header ships Struct<HttpResponse> WITH
+// the 4-entry field_meta (all internal — the program-computed response
+// shape) — 43 → 44 compiled.
+const FIELDMETA_FLOOR: usize = 44;
 
 #[test]
 fn field_label_share_never_falls_below_the_floor() {

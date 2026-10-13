@@ -367,6 +367,7 @@ OVERRIDES = {
     # found by №590 when regenerating for normal_sample).
     "respond_html_status": ("Sink", "Public", "Irreversible", "№565: the explicit (status, body) HTML response — the same public-channel sink as respond_html (the explicit name is not a bypass)"),
     "respond_html_doc": ("Sink", "Public", "Irreversible", "№565: the explicit (title, body) HTML document response — the same public-channel sink as respond_html (the explicit name is not a bypass)"),
+    "set_header": ("Pure", "Internal", "Pure", "the application response headers (N7, gh#1217) — a pure value transform on the HttpResponse: the allowlist (Cache-Control/ETag/Content-Type/Location/Content-Disposition), the CR/LF refusal and the static tainted-value lane are the gates; the protective headers stay the middleware's duty (N8)"),
     "form_data": ("Source", "Internal", "Pure", "ingests untrusted user form input — UserInput taint (№201 vocabulary)"),
     "json_body": ("Source", "Internal", "Pure", "ingests untrusted request body — UserInput taint"),
     "query_param": ("Source", "Internal", "Pure", "ingests untrusted request query parameter — UserInput taint"),

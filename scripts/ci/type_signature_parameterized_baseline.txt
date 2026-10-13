@@ -97,3 +97,11 @@
 # parameterized: 67
 # LS rows: 99
 # threshold_bp: 6767
+
+# 2026-10-13 N7 (gh#1217, волна #1222 PE-2): set_header ships
+# Struct<HttpResponse>{4 internal} WITH the field-meta in the same
+# spelling (every field is program-computed at construction). 71/103 →
+# 72/104 = 6923 bp. Only-up (№757), raised in the same PR.
+# parameterized: 72
+# LS rows: 104
+# threshold_bp: 6923

@@ -104,3 +104,13 @@
 # precise: 222
 # total: 516
 # threshold_bp: 4302
+
+# 2026-10-13 N7 (gh#1217, волна #1222 PE-2): set_header ships
+# parameterized-coarse (the HttpResponse Struct has no precise scalar
+# shape) — the total grows 519 → 520 and the precise share dilutes
+# 4315 → 4307 bp. The gate holds (4307 ≥ 4302); the floor stays 4302 —
+# the dilution absorbs within the existing floor, the raise is the
+# №757 follow-up (227/525 = 4323 rides the N6 PR).
+# precise: 224
+# total: 520
+# threshold_bp: 4302

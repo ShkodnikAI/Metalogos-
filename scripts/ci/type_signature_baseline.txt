@@ -258,3 +258,11 @@
 # typed: 322
 # total: 516
 # threshold_bp: 6240
+
+# 2026-10-13 N7 (gh#1217, волна #1222 PE-2): set_header ships TYPED
+# (Struct<HttpResponse>{...} — the parameterized spelling WITH the
+# field-meta, the anti-dilution rule). 328/519 → 329/520 = 6326 bp.
+# Only-up (№757), raised in the same PR.
+# typed: 329
+# total: 520
+# threshold_bp: 6326

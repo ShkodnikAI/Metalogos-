@@ -3005,9 +3005,15 @@ async fn execute_route_body_vm(
                 status,
                 body,
                 content_type,
+                headers,
             } = val
             {
-                return Ok(http_response_into_response(status, body, content_type));
+                return Ok(http_response_into_response(
+                    status,
+                    body,
+                    content_type,
+                    &headers,
+                ));
             }
             // №582 (the audit d63cc1d X-2): the FALL-THROUGH parity — a body
             // that ends without an HttpResponse (a let/assign tail, a loop
@@ -3110,6 +3116,7 @@ fn http_response_into_response(
     status: u16,
     body: String,
     content_type: Option<String>,
+    headers: &[(String, String)],
 ) -> Response {
     let code = StatusCode::from_u16(status).unwrap_or(StatusCode::OK);
     let mut resp = (code, body).into_response();
@@ -3118,6 +3125,25 @@ fn http_response_into_response(
         // rather than failing the request.
         if let Ok(v) = header::HeaderValue::from_str(&ct) {
             resp.headers_mut().insert(header::CONTENT_TYPE, v);
+        }
+    }
+    // N7 (gh#1217): the application headers set by `set_header` — the
+    // allowlist and the CR/LF ban were enforced at the builtin, so a
+    // HeaderValue can only fail here on a non-ASCII value; that is a
+    // LOUD warn + skip (the defensive backstop, never a silent drop of
+    // a VALID header).
+    for (name, value) in headers {
+        match header::HeaderValue::from_str(value) {
+            Ok(v) => {
+                if let Ok(hn) = header::HeaderName::from_bytes(name.as_bytes()) {
+                    resp.headers_mut().insert(hn, v);
+                }
+            }
+            Err(_) => {
+                eprintln!(
+                    "WARNING: set_header value for {name} is not a valid HeaderValue — skipped"
+                );
+            }
         }
     }
     resp
@@ -3129,7 +3155,8 @@ fn value_to_response(val: Value) -> Response {
             status,
             body,
             content_type,
-        } => http_response_into_response(status, body, content_type),
+            headers,
+        } => http_response_into_response(status, body, content_type, &headers),
         Value::Html(html) => AxumHtml(html).into_response(),
         Value::String(s) => (StatusCode::OK, s).into_response(),
         Value::Unit => StatusCode::OK.into_response(),
@@ -3347,6 +3374,7 @@ mod tests {
             status: 200,
             body: "<p>Тело</p>".to_string(),
             content_type: Some("text/html; charset=utf-8".to_string()),
+            headers: Vec::new(),
         });
         let ct = resp
             .headers()
@@ -3360,6 +3388,61 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
     }
 
+    // ── N7 (gh#1217): set_header headers reach the real response ──
+
+    #[test]
+    fn n7_value_to_response_applies_set_headers() {
+        // The curl -i equivalent: the route's set_header chain reaches
+        // the axum Response. The allowlist + the CR/LF ban were enforced
+        // at the builtin; the boundary applies what survived.
+        let resp = value_to_response(Value::HttpResponse {
+            status: 200,
+            body: "ok".to_string(),
+            content_type: None,
+            headers: vec![
+                ("Cache-Control".to_string(), "no-store".to_string()),
+                (
+                    "Content-Disposition".to_string(),
+                    "attachment; filename=\"report.csv\"".to_string(),
+                ),
+            ],
+        });
+        let cc = resp
+            .headers()
+            .get("Cache-Control")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert_eq!(
+            cc, "no-store",
+            "the application header must reach the response"
+        );
+        let cd = resp
+            .headers()
+            .get("Content-Disposition")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert_eq!(cd, "attachment; filename=\"report.csv\"");
+    }
+
+    #[test]
+    fn n7_content_type_header_overrides_the_default() {
+        // set_header("Content-Type", ...) rides the headers list, which
+        // is applied AFTER the content_type field — the explicit set
+        // wins (the same contract as any header map insert).
+        let resp = value_to_response(Value::HttpResponse {
+            status: 200,
+            body: "{}".to_string(),
+            content_type: Some("text/plain; charset=utf-8".to_string()),
+            headers: vec![("Content-Type".to_string(), "application/json".to_string())],
+        });
+        let ct = resp
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert_eq!(ct, "application/json", "the explicit set_header wins");
+    }
+
     #[test]
     fn n892_value_to_response_default_stays_text_plain() {
         // respond() carries content_type: None — the historical default
@@ -3368,6 +3451,7 @@ mod tests {
             status: 200,
             body: "plain".to_string(),
             content_type: None,
+            headers: Vec::new(),
         });
         let ct = resp
             .headers()
@@ -3383,6 +3467,7 @@ mod tests {
             404,
             "<p>missing</p>".to_string(),
             Some("text/html; charset=utf-8".to_string()),
+            &[],
         );
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
         let ct = resp
@@ -4519,9 +4604,15 @@ mlogserver {
                         status,
                         body,
                         content_type,
+                        headers,
                     } = val
                     {
-                        Ok(http_response_into_response(status, body, content_type))
+                        Ok(http_response_into_response(
+                            status,
+                            body,
+                            content_type,
+                            &headers,
+                        ))
                     } else {
                         Ok(value_to_response(val))
                     }
@@ -4703,9 +4794,15 @@ mlogserver {
                     status,
                     body,
                     content_type,
+                    headers,
                 } = val
                 {
-                    Ok(http_response_into_response(status, body, content_type))
+                    Ok(http_response_into_response(
+                        status,
+                        body,
+                        content_type,
+                        &headers,
+                    ))
                 } else {
                     Ok(value_to_response(val))
                 }

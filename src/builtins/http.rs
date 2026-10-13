@@ -71,6 +71,7 @@ pub(crate) fn builtin_respond(args: &[Value]) -> Result<Value, String> {
         status,
         body,
         content_type: None,
+        headers: Vec::new(),
     })
 }
 
@@ -166,6 +167,7 @@ pub(crate) fn builtin_respond_html(args: &[Value]) -> Result<Value, String> {
                 status: 200,
                 body: html,
                 content_type: Some(RESPOND_HTML_CT.to_string()),
+                headers: Vec::new(),
             })
         }
         _ => {
@@ -183,6 +185,7 @@ pub(crate) fn builtin_respond_html(args: &[Value]) -> Result<Value, String> {
                     status,
                     body: html,
                     content_type: Some(RESPOND_HTML_CT.to_string()),
+                    headers: Vec::new(),
                 })
             } else {
                 // Form 3: the office (title, body) — full HTML document.
@@ -191,6 +194,7 @@ pub(crate) fn builtin_respond_html(args: &[Value]) -> Result<Value, String> {
                     status: 200,
                     body: build_html_document(&first, &html),
                     content_type: Some(RESPOND_HTML_CT.to_string()),
+                    headers: Vec::new(),
                 })
             }
         }
@@ -245,6 +249,7 @@ pub(crate) fn builtin_respond_html_status(args: &[Value]) -> Result<Value, Strin
         status,
         body,
         content_type: Some(RESPOND_HTML_CT.to_string()),
+        headers: Vec::new(),
     })
 }
 
@@ -269,6 +274,115 @@ pub(crate) fn builtin_respond_html_doc(args: &[Value]) -> Result<Value, String> 
         status: 200,
         body: build_html_document(&title, &body),
         content_type: Some(RESPOND_HTML_CT.to_string()),
+        headers: Vec::new(),
+    })
+}
+
+// ── N7 (gh#1217): the application response headers ─────────────────────
+
+/// The set_header allowlist (the naryad's contract): the five APPLICATION
+/// headers a route may set. The protective headers (CSP, XCTO, HSTS) are
+/// the `security_headers` middleware's duty (N8) — they cannot be
+/// overridden from the route, and no other name passes. The names are
+/// matched case-INSENSITIVELY and stored in the canonical spelling.
+pub(crate) const SET_HEADER_ALLOWLIST: &[&str] = &[
+    "Cache-Control",
+    "ETag",
+    "Content-Type",
+    "Location",
+    "Content-Disposition",
+];
+
+/// The canonical spelling for an allowlisted header name (case-insensitive).
+pub(crate) fn canonical_header_name(name: &str) -> Option<&'static str> {
+    SET_HEADER_ALLOWLIST
+        .iter()
+        .find(|c| c.eq_ignore_ascii_case(name))
+        .copied()
+}
+
+/// The CR/LF (and NUL) injection check: a header name or value carrying
+/// any of them can split/smuggle response headers — refused LOUDLY with
+/// the typed stamp, on both backends.
+pub(crate) fn header_value_is_injection(s: &str) -> bool {
+    s.bytes().any(|b| b == b'\r' || b == b'\n' || b == 0)
+}
+
+/// `set_header(resp, name, value) -> HttpResponse` (N7, gh#1217) — the
+/// APPLICATION response headers. The pure value transform: it takes the
+/// response value, attaches the allowlisted header and returns the new
+/// response (the route returns it; the server applies the set at the
+/// conversion boundary). `set` semantics: the same name (case-insensitive)
+/// is REPLACED, the other headers keep their order.
+///
+/// The gates (both backends, both layers):
+///   - the name must be allowlisted (case-insensitive) — else the typed
+///     [HTTP_HEADER_NOT_ALLOWED] refusal;
+///   - the name and the value must be CR/LF/NUL-free — else the typed
+///     [HTTP_HEADER_INJECTION] refusal;
+///   - the VALUE must not carry UserInput taint — the static Category-A
+///     lane (audit.rs::check_set_header) refuses it at compile time; the
+///     taint never reaches the runtime channel.
+pub(crate) fn builtin_set_header(args: &[Value]) -> Result<Value, String> {
+    if args.len() != 3 {
+        return Err(format!(
+            "set_header() requires exactly 3 arguments (response, name, value), got {}",
+            args.len()
+        ));
+    }
+    let (status, body, content_type, mut headers) = match &args[0] {
+        Value::HttpResponse {
+            status,
+            body,
+            content_type,
+            headers,
+        } => (*status, body.clone(), content_type.clone(), headers.clone()),
+        other => {
+            return Err(format!(
+                "set_header() expected an HttpResponse as the first argument, got {}",
+                other.type_name()
+            ))
+        }
+    };
+    let name = expect_string_arg("set_header", args, 1)?;
+    let value = expect_string_arg("set_header", args, 2)?;
+
+    // The injection gate FIRST (a smuggled name must not leak the
+    // allowlist's verdict wording).
+    if header_value_is_injection(&name) || header_value_is_injection(&value) {
+        return Err(format!(
+            "[{}] set_header(): the header name or value carries CR/LF/NUL — \
+             the response-splitting vector is refused loudly",
+            crate::interpreter::values::CODE_HTTP_HEADER_INJECTION
+        ));
+    }
+    // The allowlist gate.
+    let Some(canonical) = canonical_header_name(&name) else {
+        return Err(format!(
+            "[{}] set_header(): {:?} is not an application header — the \
+             allowlist is {:?}; the protective headers (CSP, XCTO, HSTS) \
+             are the middleware's duty (N8)",
+            crate::interpreter::values::CODE_HTTP_HEADER_NOT_ALLOWED,
+            name,
+            SET_HEADER_ALLOWLIST
+        ));
+    };
+
+    // `set` semantics: replace the same name case-insensitively, keep
+    // the order of the others.
+    if let Some(slot) = headers
+        .iter_mut()
+        .find(|(k, _)| k.eq_ignore_ascii_case(canonical))
+    {
+        slot.1 = value;
+    } else {
+        headers.push((canonical.to_string(), value));
+    }
+    Ok(Value::HttpResponse {
+        status,
+        body,
+        content_type,
+        headers,
     })
 }
 

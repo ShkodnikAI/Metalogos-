@@ -2552,6 +2552,179 @@ fn check_open_redirect(
     }
 }
 
+// ── Check: SET_HEADER gates (N7, gh#1217) — Category A ──────────────────
+// The application response headers are a defensive lane: the route may
+// set ONLY the five allowlisted application headers, with CR/LF-free
+// values, and the VALUE must not carry UserInput taint (a tainted
+// Cache-Control/Location/Content-Disposition is the response-poisoning
+// class — the header channel is the server's own voice, not the
+// client's echo). The runtime gates live in the builtin (http.rs); this
+// static lane catches the literal names, the literal injection payloads
+// and the tainted value expressions at compile time.
+
+/// Check every `set_header(resp, name, value)` call:
+///   1. a LITERAL name outside the allowlist → [HTTP_HEADER_NOT_ALLOWED] Error;
+///   2. a LITERAL name or value carrying CR/LF/NUL → [HTTP_HEADER_INJECTION] Error;
+///   3. a tainted value argument (the UserInput lane) → [HTTP_HEADER_TAINTED] Error.
+fn check_set_header(declarations: &[Declaration], source: &str, findings: &mut Vec<AuditFinding>) {
+    fn check_expr_for_set_header(
+        expr: &Expr,
+        tracker: &TaintTracker,
+        source: &str,
+        findings: &mut Vec<AuditFinding>,
+    ) {
+        if let Expr::FnCall {
+            name: fn_name,
+            args,
+            ..
+        } = expr
+        {
+            if fn_name != "set_header" || args.len() != 3 {
+                return;
+            }
+            // 1 + 2: the literal name gate (allowlist + injection).
+            if let Expr::StringLit { value: name, .. } = &args[1] {
+                if crate::builtins::http::header_value_is_injection(name) {
+                    let line = find_line(source, "set_header");
+                    findings.push(AuditFinding {
+                        severity: Severity::Error,
+                        check_id: "HTTP_HEADER_INJECTION",
+                        line,
+                        message: "set_header(): the header NAME carries CR/LF/NUL — the response-splitting vector is refused at compile time".to_string(),
+                    });
+                } else if crate::builtins::http::canonical_header_name(name).is_none() {
+                    let line = find_line(source, "set_header");
+                    findings.push(AuditFinding {
+                        severity: Severity::Error,
+                        check_id: "HTTP_HEADER_NOT_ALLOWED",
+                        line,
+                        message: format!(
+                            "set_header(): {name:?} is not an application header — the allowlist is Cache-Control, ETag, Content-Type, Location, Content-Disposition (the protective headers are the middleware's duty, N8)"
+                        ),
+                    });
+                }
+            }
+            // 2 (the value half) + 3: the value gate.
+            if let Expr::StringLit { value: lit, .. } = &args[2] {
+                if crate::builtins::http::header_value_is_injection(lit) {
+                    let line = find_line(source, "set_header");
+                    findings.push(AuditFinding {
+                        severity: Severity::Error,
+                        check_id: "HTTP_HEADER_INJECTION",
+                        line,
+                        message: "set_header(): the header VALUE carries CR/LF/NUL — the response-splitting vector is refused at compile time".to_string(),
+                    });
+                }
+            } else if expr_is_user_input_tainted(&args[2], tracker) {
+                // №140: both the variable references (the tracker) and
+                // the direct nested user-input calls.
+                let line = find_line(source, "set_header");
+                findings.push(AuditFinding {
+                    severity: Severity::Error,
+                    check_id: "HTTP_HEADER_TAINTED",
+                    line,
+                    message: "set_header(): the header value carries UserInput taint — the header channel is the server's own voice; echo the client's input into the body (escaped), never into a response header".to_string(),
+                });
+            }
+        }
+    }
+
+    fn analyze_scope(stmts: &[Statement], source: &str, findings: &mut Vec<AuditFinding>) {
+        let mut tracker = TaintTracker::new();
+
+        fn process_stmt(
+            stmt: &Statement,
+            tracker: &mut TaintTracker,
+            source: &str,
+            findings: &mut Vec<AuditFinding>,
+        ) {
+            match stmt {
+                Statement::LetBinding { name, value, .. } => {
+                    check_expr_for_set_header(value, tracker, source, findings);
+                    if let Some(taint) = binding_taint(value, tracker) {
+                        tracker.taint(name, taint);
+                    } else {
+                        tracker.untaint(name);
+                    }
+                }
+                Statement::Assign { name, value, .. } => {
+                    check_expr_for_set_header(value, tracker, source, findings);
+                    if let Some(taint) = binding_taint(value, tracker) {
+                        tracker.taint(name, taint);
+                    } else {
+                        tracker.untaint(name);
+                    }
+                }
+                Statement::ExprStmt { expr, .. } => {
+                    check_expr_for_set_header(expr, tracker, source, findings);
+                }
+                Statement::Return { value: expr, .. } => {
+                    check_expr_for_set_header(expr, tracker, source, findings);
+                }
+                Statement::Each { body, .. } => {
+                    for s in body {
+                        process_stmt(s, tracker, source, findings);
+                    }
+                }
+                Statement::While { body, .. } => {
+                    for s in body {
+                        process_stmt(s, tracker, source, findings);
+                    }
+                }
+                Statement::IfElseBlock {
+                    then_body,
+                    else_ifs,
+                    else_body,
+                    ..
+                } => {
+                    for s in then_body {
+                        process_stmt(s, tracker, source, findings);
+                    }
+                    for (_, body) in else_ifs {
+                        for s in body {
+                            process_stmt(s, tracker, source, findings);
+                        }
+                    }
+                    if let Some(body) = else_body {
+                        for s in body {
+                            process_stmt(s, tracker, source, findings);
+                        }
+                    }
+                }
+                Statement::IfThen { body, .. } => {
+                    for s in body {
+                        process_stmt(s, tracker, source, findings);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        for stmt in stmts {
+            process_stmt(stmt, &mut tracker, source, findings);
+        }
+    }
+
+    for decl in declarations {
+        match decl {
+            Declaration::MlogServer(srv) => {
+                for route in &srv.routes {
+                    analyze_scope(&route.body, source, findings);
+                }
+            }
+            Declaration::Pattern(p) => analyze_scope(&p.body, source, findings),
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    analyze_scope(&m.body, source, findings);
+                }
+            }
+            Declaration::Hook(h) => analyze_scope(&h.body, source, findings),
+            Declaration::Test(_) => {}
+            _ => {}
+        }
+    }
+}
+
 // ── Check: TAINT_PERSISTENCE — memorize(LLM-source) + recall in respond() ──
 // Наряд #141: file-level heuristic — if a file both stores LLM output via
 // `memorize` and passes `recall()` results to `respond`/`respond_html`,
@@ -6662,6 +6835,10 @@ pub fn audit_category_a(declarations: &[Declaration], source: &str) -> Vec<Audit
     // the generic patterns stay warning-level in `mlog audit` (check_secrets).
     check_hardcoded_secrets(declarations, source, &mut findings);
     check_html_injection(declarations, source, &mut findings);
+    // N7 (gh#1217): the set_header gates — the allowlist, the CR/LF
+    // injection and the tainted-value refusal are Category A (blocking
+    // on run/compile/serve).
+    check_set_header(declarations, source, &mut findings);
     // Naryad N3 (gh#1212): the Telegram HTML-render gate — BEFORE the
     // №325 sink clearance so the shared site names the scenario and the
     // fix, not just the generic UNTRUSTED_EGRESS_NETWORK.
@@ -6757,6 +6934,9 @@ pub fn audit_program(source: &str) -> Result<AuditResult, String> {
     check_rate_limit(&declarations, source, &mut findings);
     check_csrf(&declarations, source, &mut findings);
     check_html_injection(&declarations, source, &mut findings);
+    // N7 (gh#1217): the set_header gates (the audit CLI visibility —
+    // the same three refusals, Category A severity).
+    check_set_header(&declarations, source, &mut findings);
     // Naryad N3 (gh#1212): the Telegram HTML-render gate (advisory in
     // `mlog audit`, promoted to a compile error on the compile path).
     check_telegram_html_injection(&declarations, source, &mut findings);

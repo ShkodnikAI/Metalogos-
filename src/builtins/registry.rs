@@ -234,6 +234,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("respond_html", 1, 2, "web"; builtin_respond_html), // №565: the 2-arg form is DEPRECATED (the sense-by-content hazard) — migrate to respond_html_status/respond_html_doc; the 1-arg form is the gh#899 SSOT
     spec!("respond_html_status", 2, 2, "web"; builtin_respond_html_status, "Struct"), // №565: the explicit (status, body) form — the HttpResponse struct shape; the HTML egress gates treat it like respond_html
     spec!("respond_html_doc", 2, 2, "web"; builtin_respond_html_doc, "Struct"), // №565: the explicit (title, body) form — the title is never a status
+    spec!("set_header", 3, "web"; builtin_set_header, "Struct<HttpResponse>{status:internal,body:internal,content_type:internal,headers:internal}"), // N7 (gh#1217): the application response headers — the allowlist (Cache-Control/ETag/Content-Type/Location/Content-Disposition) + the CR/LF refusal + the static taint lane; `set` semantics replace the same name; the field-meta: every field is program-computed at construction (internal) — the egress clearance is the respond/audit lane's duty
     spec!("form_data", 1, "web"; builtin_form_data, "Struct<FormData>"),
     spec!("json_body", 0, "web"; builtin_json_body, "Struct<JsonBody>"),
     spec!("query_param", 1, "web"; builtin_query_param, "String"), // №565 top-up (the №543 line): both paths verified — the handler stub and the db_ops::query_param dispatch return Value::String

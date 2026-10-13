@@ -2145,7 +2145,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 519 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 520 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2436,7 +2436,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
 | `call_claude(...)` | 4 | `String, String, String, String -> String` | A direct call to the Anthropic Claude Messages API (v1/messages). Returns `content[0].text` |
-| `call_llm(...)` | 1..3 | `String, String -> String` | Calls the LLM backend. Returns the deterministic mock `"[MOCK: prompt \ |
+| `call_llm(...)` | 1..3 | `String, String[, String] -> String` | Calls the LLM backend. The optional third argument names the model for THIS call — a direct provider name (`"glm-5.3"`) or a named profile alias resolved via `METALOGOS_LLM_MODEL_{ALIAS}` (N12: both `glm-5.3-flash` and `glm-5.3` work in one process). Two-argument calls keep the configured `METALOGOS_LLM_MODEL` default unchanged. Reasoning models (N13): a `reasoning_content` block (GLM thinking mode) NEVER reaches the output — only the final `content` flows out, on all three paths (non-stream legacy, SmartRouter, streaming deltas); the trace line carries the token usage the provider reported (completion_tokens includes the reasoning tokens); a reasoning-only response with `content: null` fails LOUD (never a silent empty string). Returns the deterministic mock `"[MOCK: prompt \ |
 | `call_llm_schema(...)` | 2..3 | `String, String[, String] -> Struct` | Calls the LLM backend and requires the answer to be a single JSON value conforming to the schema. Supported schema subset (ADR-0133): `type`, `properties`, `required`, `items`, `enum`; annotation keywords (`title`, `description`, `$schema`, ...) are ignored; any other keyword is a loud `LLM_SCHEMA_UNSUPPORTED_FEATURE`. Answer fields beyond `properties` are rejected (strict-by-default). The result is a `Dict` Struct usable with `json_get`/`has_field`/`dict_*`. Parse/validation failures (including max_tokens truncation) are loud `LLM_SCHEMA_MISMATCH` and retry up to `METALOGOS_LLM_SCHEMA_RETRIES` (default 2, cap 10) with the validator report fed back into the prompt. Mock tier returns a deterministic minimal instance derived from the schema (only when `METALOGOS_MOCK_LLM=1 |
 | `json_validate(...)` | 2..3 | `String, String[, Bool] -> Struct` | Validates a JSON string against the ADR-0133 schema subset WITHOUT calling an LLM («shape-before-use», №286): the SAME validator as `call_llm_schema` (extracted to a shared module, zero new rules — differential corpus green in both paths). Returns `{valid, errors}` where `errors` is a list of violation reports with paths (`value.age: expected type integer, got string "33"`). `strict` (default `true`) = fields beyond `properties` are violations (as in `call_llm_schema`); `strict=false` permits undeclared fields — every other rule (type/required/items/enum, the subset, the root-object contract) is unchanged. Invalid `schema_json`/unsupported keyword — loud `LLM_SCHEMA_UNSUPPORTED_FEATURE` (the SAME code as `call_llm_schema`); invalid `value_json` is a loud parse error, NOT `valid=false` (the validator judges structure, the parser judges bytes) |
 | `llm_last_finish_reason(...)` | variadic | — | №757: `llm_last_finish_reason()` — the mlog-visible truncation probe. Returns the finish_reason/stop_reason/done_reason of the LAST completed LLM call or stream ("stop", "length", "max_tokens", "end_turn", ...). `""` means no completed call ever reported a reason (honest absence — the mock and error paths never invent one). The truncation check from mlog is `llm_last_finish_reason() == "length"` (OpenAI-compatible) or `== "max_tokens"` (Anthropic); both spellings also raise the stderr warning at the moment of the call itself. |
@@ -2866,7 +2866,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `voice_save(...)` | 2 | — | `voice_save(handle, name)` stub — ADR-0143 (persistence). |
 | `whisper_transcribe(...)` | 3..4 | `String, String, String[, String] -> String` | Downloads a voice message from Telegram by `file_id`, sends it for transcription to the Whisper API. `provider`: `"openai"` (default) or `"groq"`. `METALOGOS_STT_BASE_URL` overrides the transcription API base (mock servers / self-host proxies) — `/audio/transcriptions` is appended. Returns the recognized text. Arity 3..4 — the registry used to declare min 1 while the runtime always required 3 (Naryad #279 fact-check fix; a 1-arg call now fails `mlog check` on statics instead of exploding at runtime) |
 
-### `web` — 22 builtin(s)
+### `web` — 23 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
@@ -2889,6 +2889,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `respond_html_doc(...)` | 2 | `String, String -> HttpResponse` | The EXPLICIT document form (№565): the first argument is a TITLE — never read as a status, never dropped. Full HTML document (the title renders at the top of `<body>` verbatim and tag-stripped into `<head><title>`), status 200. `Content-Type: text/html; charset=utf-8`; the HTML egress gates treat it exactly like `respond_html` |
 | `respond_html_status(...)` | 2 | `String \ | HttpResponse |
 | `server_path_param(...)` | 1 | — | `server_path_param(name)` — stub that returns empty string (Наряд №283). Real implementation is handled in interpreter.rs and vm.rs FnCall dispatch (needs access to server_path_params HashMap on the runtime context — same pattern as `query_param`). Returns empty string when no templated route matched (static route, or no server context). |
+| `set_header(...)` | 3 | — | `set_header(resp, name, value) -> HttpResponse` (N7, gh#1217) — the APPLICATION response headers. The pure value transform: it takes the response value, attaches the allowlisted header and returns the new response (the route returns it; the server applies the set at the conversion boundary). `set` semantics: the same name (case-insensitive) is REPLACED, the other headers keep their order. |
 | `weather(...)` | 2 | — | `weather(city_or_lat, lon?)` — current weather via Open-Meteo (FREE, no API key). `weather("Minsk")` or `weather(53.9, 27.57)`. Returns Struct {temp, feels_like, temp_min, temp_max, humidity, description, wind_speed, wind_direction, pressure, cloud_cover, is_day, city, country}. |
 | `weather_forecast(...)` | 1..3 | — | `weather_forecast(city_or_lat, lon?, days?)` — multi-day forecast via Open-Meteo (FREE, no API key). `weather_forecast("Minsk", 7)` or `weather_forecast(53.9, 27.57, 3)`. Default: 7 days. Max: 16 days. Returns List of DayForecast structs. |
 | `web_search(...)` | 1..2 | — | `web_search(query, num_results?) -> String` — search via SerpAPI. Uses SERPAPI_KEY env var. Returns raw JSON string. Usage: web_search("query") -> JSON string Usage: web_search("query", 5) -> JSON string with 5 results |
@@ -3016,6 +3017,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `respond_html` | sink | public | irreversible | writes the HTTP response as HTML — public channel (escaping contract) |
 | `respond_html_status` | sink | public | irreversible | №565: the explicit (status, body) HTML response — the same public-channel sink as respond_html (the explicit name is not a bypass) |
 | `respond_html_doc` | sink | public | irreversible | №565: the explicit (title, body) HTML document response — the same public-channel sink as respond_html (the explicit name is not a bypass) |
+| `set_header` | pure | internal | pure | — |
 | `form_data` | source | internal | pure | ingests untrusted user form input — UserInput taint (№201 vocabulary) |
 | `json_body` | source | internal | pure | ingests untrusted request body — UserInput taint |
 | `query_param` | source | internal | pure | ingests untrusted request query parameter — UserInput taint |
@@ -3424,6 +3426,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `normal_sample` | pure | public | pure | — |
 
 <!-- END GENERATED BUILTIN CLASSIFICATION -->
+
 
 
 

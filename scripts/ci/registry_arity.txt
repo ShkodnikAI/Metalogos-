@@ -414,6 +414,7 @@ session_poll_wake|1|1
 session_set|3|3
 session_take_interrupt|1|1
 session_wake|2|3
+set_header|3|3
 sha256|1|1
 sigmoid|1|1
 sleep|1|1

@@ -658,7 +658,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 525 registered builtins (525 of 525): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 526 registered builtins (526 of 526): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -2147,7 +2147,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 525 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 526 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2868,7 +2868,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `voice_save(...)` | 2 | — | `voice_save(handle, name)` stub — ADR-0143 (persistence). |
 | `whisper_transcribe(...)` | 3..4 | `String, String, String[, String] -> String` | Downloads a voice message from Telegram by `file_id`, sends it for transcription to the Whisper API. `provider`: `"openai"` (default) or `"groq"`. `METALOGOS_STT_BASE_URL` overrides the transcription API base (mock servers / self-host proxies) — `/audio/transcriptions` is appended. Returns the recognized text. Arity 3..4 — the registry used to declare min 1 while the runtime always required 3 (Naryad #279 fact-check fix; a 1-arg call now fails `mlog check` on statics instead of exploding at runtime) |
 
-### `web` — 28 builtin(s)
+### `web` — 29 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
@@ -2895,6 +2895,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `respond_html_doc(...)` | 2 | `String, String -> HttpResponse` | The EXPLICIT document form (№565): the first argument is a TITLE — never read as a status, never dropped. Full HTML document (the title renders at the top of `<body>` verbatim and tag-stripped into `<head><title>`), status 200. `Content-Type: text/html; charset=utf-8`; the HTML egress gates treat it exactly like `respond_html` |
 | `respond_html_status(...)` | 2 | `String \ | HttpResponse |
 | `server_path_param(...)` | 1 | — | `server_path_param(name)` — stub that returns empty string (Наряд №283). Real implementation is handled in interpreter.rs and vm.rs FnCall dispatch (needs access to server_path_params HashMap on the runtime context — same pattern as `query_param`). Returns empty string when no templated route matched (static route, or no server context). |
+| `set_header(...)` | 3 | — | `set_header(resp, name, value) -> HttpResponse` (N7, gh#1217) — the APPLICATION response headers. The pure value transform: it takes the response value, attaches the allowlisted header and returns the new response (the route returns it; the server applies the set at the conversion boundary). `set` semantics: the same name (case-insensitive) is REPLACED, the other headers keep their order. |
 | `sitemap_parse(...)` | 1 | — | `sitemap_parse(xml) -> List<Struct<SitemapEntry>{loc, lastmod}>` — the `urlset > url` and `sitemapindex > sitemap` shapes uniformly: every `url`/`sitemap` element carrying a `loc` child becomes an entry (lastmod often absent → ""). |
 | `weather(...)` | 2 | — | `weather(city_or_lat, lon?)` — current weather via Open-Meteo (FREE, no API key). `weather("Minsk")` or `weather(53.9, 27.57)`. Returns Struct {temp, feels_like, temp_min, temp_max, humidity, description, wind_speed, wind_direction, pressure, cloud_cover, is_day, city, country}. |
 | `weather_forecast(...)` | 1..3 | — | `weather_forecast(city_or_lat, lon?, days?)` — multi-day forecast via Open-Meteo (FREE, no API key). `weather_forecast("Minsk", 7)` or `weather_forecast(53.9, 27.57, 3)`. Default: 7 days. Max: 16 days. Returns List of DayForecast structs. |
@@ -3024,6 +3025,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `respond_html` | sink | public | irreversible | writes the HTTP response as HTML — public channel (escaping contract) |
 | `respond_html_status` | sink | public | irreversible | №565: the explicit (status, body) HTML response — the same public-channel sink as respond_html (the explicit name is not a bypass) |
 | `respond_html_doc` | sink | public | irreversible | №565: the explicit (title, body) HTML document response — the same public-channel sink as respond_html (the explicit name is not a bypass) |
+| `set_header` | pure | internal | pure | — |
 | `form_data` | source | internal | pure | ingests untrusted user form input — UserInput taint (№201 vocabulary) |
 | `json_body` | source | internal | pure | ingests untrusted request body — UserInput taint |
 | `query_param` | source | internal | pure | ingests untrusted request query parameter — UserInput taint |
@@ -3438,6 +3440,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `normal_sample` | pure | public | pure | — |
 
 <!-- END GENERATED BUILTIN CLASSIFICATION -->
+
 
 
 

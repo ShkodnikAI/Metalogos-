@@ -38,6 +38,7 @@ fn as_http_response(v: Value) -> (u16, String, Option<String>) {
             status,
             body,
             content_type,
+            headers: _,
         } => (status, body, content_type),
         other => panic!("expected HttpResponse, got {}", other.type_name()),
     }

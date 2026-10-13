@@ -6,6 +6,41 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **N7 (gh#1217, PE-2, serve) — the application response headers:
+  `headers` on `HttpResponse` + `set_header(resp, name, value)`.**
+  The pure value transform: it takes the response value, attaches the
+  allowlisted header and returns the new response; the route returns it
+  and the server applies the set at the conversion boundary (the
+  `curl -i`-visible result). **The allowlist** (case-insensitive, the
+  canonical spelling stored): Cache-Control, ETag, Content-Type,
+  Location, Content-Disposition — the PROTECTIVE headers (CSP, XCTO,
+  HSTS) are the `security_headers` middleware's duty (N8) and cannot be
+  overridden from the route. **The injection gate**: CR, LF or NUL in
+  the name or the value → the typed `[HTTP_HEADER_INJECTION]` refusal
+  (the response-splitting vector) — the runtime gate on both backends
+  AND the static Category-A compile lane on the literals (the injection
+  verdict comes before the allowlist's, so a smuggled name never leaks
+  the allowlist's wording). **The allowlist gate**: any other name →
+  the typed `[HTTP_HEADER_NOT_ALLOWED]` refusal naming the offender and
+  the allowlist. **The taint gate**: a UserInput-tainted VALUE →
+  `[HTTP_HEADER_TAINTED]` at COMPILE time (the Category-A lane; the
+  header channel is the server's own voice — echo the client into the
+  escaped body, never into a response header); clean computed values
+  (an in-program ETag) pass. `set` semantics: the same name
+  (case-insensitive) REPLACES, the others keep their order; a
+  `set_header("Content-Type", ...)` overrides the response's
+  content_type field at the boundary (the map-insert contract). The
+  signature ships parameterized-coarse
+  `Struct<HttpResponse>{4 internal}` WITH the field-meta (the №661
+  anti-dilution rule; every field is program-computed at construction).
+  The floors raised in the same PR (№757): general 6317 → 6326 bp,
+  parameterized 6893 → 6923 bp, fieldmeta 9565 → 9574 bp; precise
+  4307 bp (the dilution absorbs within the 4302 floor on this branch).
+  REFERENCE + the classification regenerated (519 → 520 builtins);
+  registry_arity re-blessed; the gate facts updated. 11 tests (9
+  integration + 2 server-boundary), RED first. Size: M. Risks: the
+  allowlist is deliberately narrow (a need outside the five names is an
+  explicit ADR conversation, not a silent widen).
 - **N9 (gh#1219, PE-2, compiler/bug) — `render()` and `| safe`: no more
   silent escaping.** The owner's finding: `render()` always escaped,
   the Jinja-style `{{ var | safe }}` was NEVER implemented (the №115
@@ -107,7 +142,6 @@ All notable changes to the Metalogos project.
   refusal), RED first. Size: L. Risks: the minimal selector engine is
   deliberately NOT a CSS engine (the unsupported syntax is loud);
   fuzzing on broken HTML rides the existing fuzz-smoke lane.
-
 - **N8 (gh#1218, PE-2, serve/bug) — the `security_headers` middleware
   actually applies the protective headers.** The owner's finding: the
   declaration was VALIDATED (the semantic name check + the "no

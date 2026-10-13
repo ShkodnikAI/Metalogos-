@@ -2705,7 +2705,13 @@ pub fn builtin_send_document(args: &[Value]) -> Result<Value, String> {
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(120))
         .build()
-        .map_err(|e| format!("send_document(): client error: {}", e))?;
+        // N3: the token never enters diagnostics (the send-family discipline).
+        .map_err(|e| {
+            crate::builtins::server::tg_redact(
+                format!("send_document(): client error: {}", e),
+                &bot_token,
+            )
+        })?;
 
     // №475 (issue #723, audit group B): send_document reads ANY path
     // and exfiltrates by design (Telegram) — the same class as the smtp
@@ -2734,15 +2740,20 @@ pub fn builtin_send_document(args: &[Value]) -> Result<Value, String> {
         ))
         .multipart(form)
         .send()
-        .map_err(|e| format!("send_document(): request failed: {}", e))?;
+        .map_err(|e| {
+            crate::builtins::server::tg_redact(
+                format!("send_document(): request failed: {}", e),
+                &bot_token,
+            )
+        })?;
 
     let status = resp.status().as_u16();
     let resp_body = resp.text().unwrap_or_default();
 
     if status >= 400 {
-        return Err(format!(
-            "send_document(): Telegram status {}: {}",
-            status, resp_body
+        return Err(crate::builtins::server::tg_redact(
+            format!("send_document(): Telegram status {}: {}", status, resp_body),
+            &bot_token,
         ));
     }
 

@@ -108,6 +108,51 @@ the honest-content rule), the showcase repo
 (NOT created — the owner's act), №639 (15.10) / №648 (01.12) outside
 the wave.
 
+## Executed — Wave 42 (the showcase wave, the dispatch gh#1235, 2026-10-13)
+
+The dispatch gh#1235 queue — the showcase charter (ADR-0190) executed
+in the OWNER's separate public repository `ShkodnikAI/metalogos-examples`
+(the cross-repo lane, parallel to the PE line; the core untouched
+except this docs sync, the №683 exception). Executed: №679 (gh#1230,
+showcase PR #1 → `fcd369a`) — the scaffold: the charter README (the
+three apps, the honesty rule §2.4, the pin policy §3(а) «pin +
+scheduled drift-check», the boundary with the core's `examples/` and
+GFI #951), the licenses verbatim from the pin v0.30.1, the
+loudly-empty layout, the blocking both-backend CI + the weekly
+drift-check (the write-grant refusal was flagged no-progress per the
+naryad's premise, then the owner unlocked Contents: R&W — the same
+commit pushed unchanged); №680 (gh#1231, showcase PR #2 → `e9155a3`)
+— App A the stateful serve application: 62 lines, the typed-memory
+arc, **the restart arc persist → query → restart → query green on
+BOTH backends** (the fresh-process persistence through
+`METALOGOS_MEMORY_DB` + `METALOGOS_MEMORY_MASTER`), the transcripts
+byte-identical TW == VM, the blocking CI + the nightly stress leg
+(5 notes × 3 restarts × both backends); №681 (gh#1232, showcase PR
+#3 → `bef13e6`) — App B the bot on mlogpkg: the mlogpkg package
+(manifest + `src/main.mlog`), the HOOK + POLL intake over the
+per-chat dialog state machine, the outbound behind the deterministic
+`[AUDIT]` stub, the hook+poll transcripts identical TW == VM; the
+mlogpkg binary is not among the pinned release assets — the leg
+exercises the surface the pin carries (the manifest shape + `mlog
+check`, the documented boundary). **The deviation:** №682 App C —
+**STOPPED no-progress** (the flag gh#1233): the VM compiler cannot
+resolve tool-method qualified calls (the compile-time divergence: TW
+runs `42`, `mlog compile` fails `qualified call 'calc.double()' —
+not found`; the compiler skips `Declaration::Tool`, the QualifiedCall
+resolution has no tool branch, the tool contract tests are TW-only).
+Per the parity rule §2.4 — STOP, the oracle not adjusted, the
+divergent code did not enter the showcase; the unlock is the
+conveyor's decision (the core naryad for the VM tool resolution, or
+the charter amendment for the App C subset). №683 (gh#1234, PR → this
+merge) — the wave tail: REALITY §6.27 + this section + the core
+README's showcase link (the №676-D2 line-budget protocol in the
+naryad report). The counters: the core machines on the base `d403832`
+— typed 328/519, precise 224/519, parameterized 71/103, fieldmeta
+44/46, sensitive 67/139 (the movements by the parallel PE line are
+attributed to it, never to В42); ADR 183, dups 0, mirrors 6, blocking
+cells 32, release-gap OK. The owner gates remaining: the №682 unlock
+decision, the ADR-0191 §-answers, the train №2 (19.10).
+
 ## Executed — Wave 39 (the verdict-execution + repair, the dispatch gh#1167, 2026-10-09)
 
 **Executed and accepted** (the post-wave sync №665 → `dcb9324`; the wave record: REALITY §6.24; 7/7 naryads incl. the train №1 at the window). The dispatch gh#1167 queue —
@@ -376,8 +421,8 @@ owner's ADR gate.
 <!-- BEGIN GENERATED NUMBERS (scripts/gen_metrics.py — do not edit inside) -->
 | Machine fact (generated — do not hand-edit) | Value |
 | --- | --- |
-| Typed-signature floor — the 0.28-gate line (ADR-0179) | 6332 bp — 328/518 = 63.32% (precise 224/518 = 43.24%, №560) |
-| BUILTIN_REGISTRY rows | 518 |
+| Typed-signature floor — the 0.28-gate line (ADR-0179) | 6406 bp — 337/526 = 64.06% (precise 227/526 = 43.15%, №560) |
+| BUILTIN_REGISTRY rows | 526 |
 <!-- END GENERATED NUMBERS -->
 
 ## Acceptance criteria (public part of the methodology)

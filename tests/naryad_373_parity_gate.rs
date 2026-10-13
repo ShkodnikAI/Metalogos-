@@ -15,6 +15,11 @@
 //!      fail on BOTH backends identically without the `candle` feature ("the
 //!      'candle' feature is not enabled"); verified under the candle-tests CI
 //!      job (№200). A feature gate, not a VM-uncovered construct.
+//!   3. The html-feature-gated golden pair (n5_html_tender.mlog, 1 file,
+//!      ADR-0192/N5 gh#1215) — `html_select` refuses loudly without the
+//!      `html` feature; the pair's TW/VM byte-identity is asserted under
+//!      the html-tests CI job (tests/naryad_n5_html_builtins.rs, H8 leg).
+//!      A feature gate, same class as (2).
 //!
 //! If parity ever regresses (someone adds a new `continue;` exclusion), this
 //! test FAILS LOUDLY and наряд-style re-justification is forced.
@@ -38,13 +43,24 @@ const CANDLE_GATED: &[&str] = &[
     "reflex_batch_train.mlog",
 ];
 
+/// The frozen list of html-feature-gated examples excluded from the
+/// no-html crosscheck (ADR-0192, N5 gh#1215) — same sanctioned class as
+/// the candle list: a capability feature gate, never a VM gap.
+const HTML_GATED: &[&str] = &["n5_html_tender.mlog"];
+
+/// The frozen list of xml-feature-gated examples excluded from the
+/// no-xml crosscheck (ADR-0192, N6 gh#1216) — same sanctioned class.
+const XML_GATED: &[&str] = &["n6_feed_parse.mlog"];
+
 /// Negative-test contract name patterns (designed-to-fail programs).
 fn is_negative_contract(name: &str) -> bool {
     name.contains("unknown_fn") || name.contains("wrong_")
 }
 
 /// The crosscheck source must contain EXACTLY two `continue;` exclusion
-/// sites: the negative-contract filter and the candle-gated block.
+/// sites: the negative-contract filter and the capability-feature-gated
+/// block (the candle list + the html pair — ADR-0192, N5; one site, two
+/// frozen lists, both re-asserted below).
 #[test]
 fn naryad_373_crosscheck_has_only_sanctioned_exclusion_sites() {
     let src = fs::read_to_string("tests/crosscheck_backends.rs").expect("crosscheck source exists");
@@ -53,21 +69,24 @@ fn naryad_373_crosscheck_has_only_sanctioned_exclusion_sites() {
         count, 2,
         "crosscheck_backends.rs now has {} `continue;` sites — a NEW exclusion was added. \
          VM-uncovered exclusions are forbidden at Stage 2 (ADR-0141 §D3): parity must be 100% \
-         modulo designed-to-fail contracts and candle feature gates. \
+         modulo designed-to-fail contracts and capability feature gates (candle, html). \
          Re-justify loudly or close the gap in the VM instead.",
         count
     );
 }
 
 /// Every .mlog example with a .expected file is either crosschecked, a
-/// negative contract, or in the frozen candle list — nothing else may be
-/// silently skipped, and the candle list must not rot (files must exist).
+/// negative contract, or in a frozen feature-gate list (candle, html) —
+/// nothing else may be silently skipped, and the frozen lists must not
+/// rot (files must exist).
 #[test]
 fn naryad_373_every_golden_example_is_classified() {
     let examples = Path::new("examples");
     let mut crosschecked = 0usize;
     let mut negatives = 0usize;
     let mut candle_gated = 0usize;
+    let mut html_gated = 0usize;
+    let mut xml_gated = 0usize;
     let mut unclassified: Vec<String> = Vec::new();
 
     let mut entries: Vec<_> = fs::read_dir(examples)
@@ -84,6 +103,10 @@ fn naryad_373_every_golden_example_is_classified() {
             negatives += 1;
         } else if CANDLE_GATED.contains(&name.as_str()) {
             candle_gated += 1;
+        } else if HTML_GATED.contains(&name.as_str()) {
+            html_gated += 1;
+        } else if XML_GATED.contains(&name.as_str()) {
+            xml_gated += 1;
         } else if path.with_extension("expected").exists() {
             crosschecked += 1;
         } else {
@@ -102,6 +125,20 @@ fn naryad_373_every_golden_example_is_classified() {
         candle_gated
     );
     assert!(
+        html_gated == HTML_GATED.len(),
+        "expected {} html-gated examples, matched {} — the frozen list in \
+         naryad_373_parity_gate.rs rotted (file renamed/removed?; ADR-0192)",
+        HTML_GATED.len(),
+        html_gated
+    );
+    assert!(
+        xml_gated == XML_GATED.len(),
+        "expected {} xml-gated examples, matched {} — the frozen list in \
+         naryad_373_parity_gate.rs rotted (file renamed/removed?; ADR-0192)",
+        XML_GATED.len(),
+        xml_gated
+    );
+    assert!(
         negatives > 0,
         "negative-contract examples disappeared — the designed-to-fail class is empty"
     );
@@ -111,10 +148,12 @@ fn naryad_373_every_golden_example_is_classified() {
         crosschecked
     );
     eprintln!(
-        "№373 parity classification: crosschecked={} negatives={} candle_gated={} non_golden={}",
+        "№373 parity classification: crosschecked={} negatives={} candle_gated={} html_gated={} xml_gated={} non_golden={}",
         crosschecked,
         negatives,
         candle_gated,
+        html_gated,
+        xml_gated,
         unclassified.len()
     );
 }

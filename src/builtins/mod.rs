@@ -299,6 +299,9 @@ pub use http::{check_url_ssrf, is_blocked_address};
 // + the env-driven gate, the robots.txt ruleset/TTL (the contract tests
 // pin the matching table, the longest-match verdict and the 24 h TTL).
 pub use http::{check_url_host_allowed, host_allowed, RobotsRules, ROBOTS_TTL};
+// N3 (gh#1212): the Telegram send-family retry helper — the pure delay
+// computation is exported so the 30 s ceiling is pinned without sleeping.
+pub use server::{telegram_retry_delay_ms, TgRetryCause, TELEGRAM_RETRY_CAP_MS};
 // Наряд №268: MCP stdio-клиент (ADR-0132, Accepted) — модуль pub(crate),
 // контрактная поверхность — два билтина в реестре.
 pub(crate) mod mcp;
@@ -523,6 +526,20 @@ pub(crate) mod calendar;
 use calendar::*;
 pub(crate) mod contacts;
 use contacts::*;
+// ADR-0192 (N5, gh#1215): the `html` capability feature — the DOM
+// extraction family (html_select / html_text / html_links) on the
+// html5ever stack. The module is cfg-neutral: the registry surface is
+// ALWAYS present (the N559 arity export moves with the registry, the
+// vision/voice rhythm), the handlers refuse LOUDLY without the feature
+// (naming ADR-0192), never silently.
+pub(crate) mod html_dom;
+use html_dom::*;
+// ADR-0192 (N6, gh#1216): the `xml` capability feature — the feed/XML
+// family (feed_parse / sitemap_parse / xml_parse) on the xml5ever stack.
+// The module is cfg-neutral like html_dom: the registry surface is
+// ALWAYS present, the handlers refuse LOUDLY without the feature.
+pub(crate) mod xml_ops;
+use xml_ops::*;
 
 // Наряд №74 / №111: SVG Graphics & Diagrams (feature-gated)
 #[cfg(any(feature = "svg", feature = "chart", feature = "diagram"))]

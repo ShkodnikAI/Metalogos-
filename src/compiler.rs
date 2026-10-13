@@ -29,6 +29,13 @@ pub struct Compiler {
     pattern_bodies: Vec<CompiledFn>,
     /// Pattern name -> index in program.patterns.
     pattern_indices: HashMap<String, usize>,
+    /// №684 (В43): declared tool names — the gate for the QualifiedCall
+    /// tool-namespace branch. A known tool resolves ONLY through its
+    /// qualified methods (ADR-0054, mirroring the interpreter's is_tool
+    /// lookup); an unknown method is a loud compile error, never a
+    /// fallthrough to flat patterns / global builtins (the interpreter
+    /// would not reach those either — no new backend divergence).
+    tool_names: HashSet<String>,
     /// Learnable pattern name -> index in program.learnables.
     learnable_indices: HashMap<String, usize>,
     /// Builtin name -> index in builtin table.
@@ -275,6 +282,7 @@ impl Compiler {
             next_global: 0,
             pattern_bodies: Vec::new(),
             pattern_indices: HashMap::new(),
+            tool_names: HashSet::new(),
             learnable_indices: HashMap::new(),
             builtin_indices,
             struct_fields: HashMap::new(),
@@ -526,6 +534,26 @@ impl Compiler {
                 | Declaration::Forget(_) => {
                     // Handled in pass2
                 }
+                // №684 (В43): ADR-0054 Implementation Strategy on the VM
+                // lane — tool methods compile as REGULAR PATTERNS under
+                // qualified keys ("tool.method"). Pass1 registers the
+                // qualified keys in pattern_indices (the same table as
+                // ordinary patterns — positional CallPattern indices) at
+                // the tool's declaration position; pass2 compiles the
+                // bodies at the same walk position (№415 collector
+                // contract: both passes walk all_decls top-to-bottom,
+                // methods in declaration order), so the two indices stay
+                // in lockstep. No new opcode, no Program/.mbc schema
+                // change (old .mbc files are unaffected — a tool call
+                // never compiled before this fix).
+                Declaration::Tool(t) => {
+                    for method in &t.methods {
+                        let qualified = format!("{}.{}", t.name, method.name);
+                        let idx = self.pattern_indices.len();
+                        self.pattern_indices.insert(qualified, idx);
+                    }
+                    self.tool_names.insert(t.name.clone());
+                }
                 Declaration::MlogServer(_)
                 | Declaration::Template(_)
                 // №521: Conversation is NOT in this bucket anymore — the
@@ -534,7 +562,6 @@ impl Compiler {
                 // the defaults unconditionally).
                 | Declaration::ContextBudget(_)
                 | Declaration::TypeAlias(_)
-                | Declaration::Tool(_)
                 | Declaration::LlmConfig(_) => {
                     // Phase 6+: handled elsewhere
                 }
@@ -941,7 +968,52 @@ impl Compiler {
                     // with a bytecode schema change if a real use case asks.
                     let param_names: Vec<String> =
                         t.params.iter().map(|p| p.name.clone()).collect();
-                    crate::builtins::http::register_template(&t.name, &t.body, param_names);
+                    // N9 (gh#1219): the filter-pipe refusal is a COMPILE
+                    // error (the loud option 2 of the naryad's menu).
+                    crate::builtins::http::register_template(&t.name, &t.body, param_names)?;
+                }
+                // №684 (В43): compile each tool method body exactly like a
+                // pattern body (compile_pattern_body_with_locals →
+                // CompiledFn, name = the qualified "tool.method" key) into
+                // the same Program::patterns table (№415). The emission
+                // order mirrors pass1's registration (methods in
+                // declaration order, the tool at its declaration position),
+                // so pattern_indices and pattern_bodies stay positionally
+                // in sync — the CallPattern indices emitted by the
+                // QualifiedCall tool-branch resolve to these bodies.
+                // Params are NOT mutable (№264 mirror; TW: mutable_vars
+                // starts empty per pattern invocation).
+                Declaration::Tool(t) => {
+                    for method in &t.methods {
+                        let qualified = format!("{}.{}", t.name, method.name);
+                        let mut locals: HashMap<String, usize> = method
+                            .params
+                            .iter()
+                            .enumerate()
+                            .map(|(i, param)| (param.name.clone(), i))
+                            .collect();
+                        let mut mutable: HashSet<String> = HashSet::new();
+                        let fn_code = self.compile_pattern_body_with_locals(
+                            &method.body,
+                            &mut locals,
+                            &mut mutable,
+                        )?;
+                        let is_pure = Self::analyze_purity(&fn_code, &method.params);
+                        let compiled = CompiledFn {
+                            name: qualified,
+                            param_count: method.params.len(),
+                            param_types: method
+                                .params
+                                .iter()
+                                .map(|param| param.type_name.clone())
+                                .collect(),
+                            code: fn_code,
+                            is_pure,
+                        };
+                        let idx = self.pattern_bodies.len();
+                        self.pattern_bodies.push(compiled);
+                        code.push(Instruction::RegisterPatternRef(idx as u32));
+                    }
                 }
                 Declaration::MlogServer(_)
                 | Declaration::Db(_)
@@ -954,7 +1026,6 @@ impl Compiler {
                 | Declaration::Conversation(_)
                 | Declaration::ContextBudget(_)
                 | Declaration::TypeAlias(_)
-                | Declaration::Tool(_)
                 | Declaration::LlmConfig(_)
                 | Declaration::Reflex(_)
                 | Declaration::ReflexSeq(_)
@@ -1238,13 +1309,60 @@ impl Compiler {
                 args,
                 ..
             } => {
+                // №684 (В43): compile the ARGUMENTS first — CallBuiltin and
+                // CallPattern both pop their args off the stack (the same
+                // discipline as the FnCall arm above). This arm never
+                // emitted them (a latent hole: examples/ holds no
+                // qualified calls inside pattern/flow bodies, so the gap
+                // was never exercised before the tool branch made
+                // qualified calls reachable — the В42 flag repro passes a
+                // literal 21.0 arg and exposed it on the first run).
+                for arg in args {
+                    self.compile_expr_with_locals(
+                        arg, code, locals, next_slot, loop_stack, mutable,
+                    )?;
+                }
                 // Resolve the qualified call:
                 // Priority 1: builtin "module.function" (e.g., "std/math.abs" if registered)
+                // Priority 1.5 (№684 В43): tool method "module.function" —
+                // ADR-0054: the interpreter resolves a tool namespace ONLY
+                // through its qualified methods (execution.rs is_tool
+                // lookup); an unknown method is a loud error — never a
+                // fallthrough to flat patterns / global builtins (TW would
+                // not reach those either — no new backend divergence).
                 // Priority 2: imported pattern "function" (e.g., abs from std/math)
                 // Priority 3: builtin "function" (global fallback)
                 let qualified_name = format!("{}.{}", module, function);
                 if let Some(&idx) = self.builtin_indices.get(&qualified_name) {
                     code.push(Instruction::CallBuiltin(idx, args.len()));
+                } else if self.tool_names.contains(module) {
+                    // №684 (В43): mirror the interpreter's QualifiedCall
+                    // dispatch order for a tool namespace EXACTLY
+                    // (execution.rs: runtime-op intercepts by function
+                    // name (query/db_execute/db_execute_with_grant/
+                    // deny_event/deny_reason/inspect) → the plain builtin
+                    // table by function name → the is_tool pattern lookup
+                    // → loud "undefined method"). Plain builtins SHADOW
+                    // tool methods on TW (probe: calc.len(Float) runs the
+                    // builtin and errors TYPE_MISMATCH — the tool body is
+                    // unreachable), and all intercepted names live in
+                    // builtin_indices, so one builtin_indices.get(function)
+                    // check reproduces the intercepts AND the shadowing;
+                    // the VM's call_builtin then dispatches db/audit ops
+                    // by name exactly like the interpreter. Unknown method
+                    // → loud compile error — never a fallthrough to flat
+                    // patterns / the global-builtin fallback (TW would not
+                    // reach those either — no new backend divergence).
+                    if let Some(&idx) = self.builtin_indices.get(function) {
+                        code.push(Instruction::CallBuiltin(idx, args.len()));
+                    } else if let Some(&idx) = self.pattern_indices.get(&qualified_name) {
+                        code.push(Instruction::CallPattern(idx, args.len()));
+                    } else {
+                        return Err(format!(
+                            "compile: undefined method '{}' in tool '{}'",
+                            function, module
+                        ));
+                    }
                 } else if let Some(&idx) = self.pattern_indices.get(function) {
                     code.push(Instruction::CallPattern(idx, args.len()));
                 } else if let Some(&idx) = self.builtin_indices.get(function) {

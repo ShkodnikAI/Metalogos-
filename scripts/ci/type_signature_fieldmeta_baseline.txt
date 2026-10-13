@@ -95,3 +95,20 @@
 # internal, the check outcome). 40/42 = 9523 bp. Only-up (№757), raised
 # in the same PR as the enforcement rule + the in-tree twin floor
 # (FIELDMETA_FLOOR 38 → 39).
+
+# 2026-10-13 N7 (gh#1217, волна #1222 PE-2): set_header ships
+# Struct<HttpResponse> WITH the 4-entry field_meta (all internal — the
+# program-computed response shape). 44/46 → 45/47 = 9574 bp. Only-up
+# (№757), raised in the same PR.
+# 2026-10-13 N6 (gh#1216, волна #1222 PE-2): xml_parse ships
+# Struct<XmlNode> WITH the field-meta in the same spelling (all four
+# fields untrusted — the honest all-derived-from-input call). 44/46 →
+# 45/47 = 9574 bp. Only-up (№757), raised in the same PR.
+
+# field-label: 45
+# Struct rows: 47
+# threshold_bp: 9574
+
+# 2026-10-13 N7-merge (gh#1217): the merged tree — set_header ships the
+# 4-entry field_meta (all internal) — 46/48, the floor 9574 → 9583.
+# threshold_bp: 9583

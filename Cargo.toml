@@ -65,6 +65,26 @@ urlencoding = "2.1"
 bytes = "1"
 reqwest = { version = "0.12", features = ["blocking", "json", "rustls-tls", "multipart"], default-features = false }
 
+# ADR-0192 (N5, gh#1215): the `html` capability feature — the DOM
+# extraction family on the html5ever stack. Off-by-default: the default
+# build links NO html code and NO url crate (the №518 license gate
+# verified the stack in the N5-pre probe, issue #1214 — MIT /
+# Apache-2.0 / Unicode-3.0 only, zero copyleft; the `scraper` stack was
+# rejected for its MPL-2.0 transitive deps).
+html5ever = { version = "0.27", optional = true }
+markup5ever_rcdom = { version = "0.3", optional = true }
+# The WHATWG URL parser (servo lineage) for html_links relative→absolute
+# resolution — hand-rolling RFC 3986 resolution is high-risk for zero
+# benefit (ADR-0192 §2.3).
+url = { version = "2", optional = true }
+# N6 (gh#1216, ADR-0192): the `xml` feature rides the SAME vendors —
+# xml5ever 0.18 (MIT/Apache-2.0) is already in the tree as the transitive
+# dep of markup5ever_rcdom; the direct optional declaration makes the
+# `xml` feature honest (dep:xml5ever). DTD/external entities are NEVER
+# expanded — the XML5 grammar has no custom-entity mechanism (XXE-safe
+# by construction, pinned by the negative tests).
+xml5ever = { version = "0.18", optional = true }
+
 # Phase 7.3: Real encryption
 argon2 = "0.6"
 zeroize = "1"
@@ -226,7 +246,25 @@ video = ["candle"]
 # `vec` (№272/ADR-0134): C-компиляция через cc на всех трёх ОС
 # (доказано спайком №271: macos/windows-check на ветке-спайке) —
 # системных зависимостей не требует, в отличие от pdf-ocr.
-portable = ["full", "candle", "vision", "vec"]
+# `html` (N5/ADR-0192): html5ever + url — pure Rust, portable на всех
+# трёх ОС; off-by-default в default/full (джоба html-tests сторожит
+# запрет промоушена), в portable — по правилу этого блока.
+portable = ["full", "candle", "vision", "vec", "html", "xml"]
+
+# ADR-0192 (N5, gh#1215): the `html` capability feature — the DOM
+# extraction family (html_select / html_text / html_links) on the
+# html5ever stack. Off-by-default (the ADR-0122 capability-gate rhythm;
+# the html-tests CI job guards the off-by-default contract and runs the
+# feature-on suite). The registry surface is feature-INDEPENDENT (the
+# N559 arity export moves with the registry): without the feature the
+# handlers refuse LOUDLY naming ADR-0192, never silently.
+html = ["dep:html5ever", "dep:markup5ever_rcdom", "dep:url"]
+
+# ADR-0192 (N6, gh#1216): the `xml` capability feature — feed_parse
+# (RSS 2.0 / Atom 1.0), sitemap_parse, xml_parse on the xml5ever stack.
+# Implies `html` (the shared text/limit helpers, ADR-0192 §2.2);
+# off-by-default like html — the xml-tests CI job guards the contract.
+xml = ["dep:xml5ever", "html"]
 
 [dev-dependencies]
 tempfile = "3"

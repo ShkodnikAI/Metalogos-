@@ -41,6 +41,16 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
                         .unwrap_or_default();
                     if stem.starts_with("p7_")
                         || stem == "p88_html_render_success"
+                        // ADR-0192 (N5, gh#1215): n5_html_tender requires the
+                        // `html` feature (off by default) — the pair is run on
+                        // BOTH backends by
+                        // tests/naryad_n5_html_builtins.rs::n5_golden_pair_tw_and_vm_identical
+                        // under the html-tests CI job instead.
+                        || stem == "n5_html_tender"
+                        // ADR-0192 (N6, gh#1216): n6_feed_parse requires
+                        // the `xml` feature — the pair runs on BOTH
+                        // backends under the xml-tests CI job instead.
+                        || stem == "n6_feed_parse"
                         || stem == "reflex_seq_declare"
                         || stem == "reflex_seq_transformer_block"
                         || stem == "reflex_seq_train_predict"

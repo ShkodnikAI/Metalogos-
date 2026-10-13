@@ -258,3 +258,22 @@
 # typed: 322
 # total: 516
 # threshold_bp: 6240
+
+# 2026-10-13 N7 (gh#1217, волна #1222 PE-2): set_header ships TYPED
+# (Struct<HttpResponse>{...} — the parameterized spelling WITH the
+# field-meta, the anti-dilution rule). 328/519 → 329/520 = 6326 bp.
+# Only-up (№757), raised in the same PR.
+# 2026-10-13 N6 (gh#1216, волна #1222 PE-2): the xml rows (3 typed
+# List/Struct) + the №757 precise compensation (decrypt, reflex_bpe_decode
+# — the verified single-shape String facts). 331/522 → 336/525;
+# (336*10000)//525 = 6400 bp. Only-up (№757), raised in the same PR.
+# typed: 336
+# total: 525
+# threshold_bp: 6400
+
+# 2026-10-13 N7-merge (gh#1217, волна #1222 PE-2): the merged tree —
+# N6's xml rows AND set_header both present — typed 336/525 → 337/526
+# (the №757 raise rides the same PR: 6400 → 6406).
+# typed: 337
+# total: 526
+# threshold_bp: 6406

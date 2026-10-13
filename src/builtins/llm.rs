@@ -112,7 +112,13 @@ fn call_claude_impl(
     Ok((content, usage, stop_reason.map(|s| s.to_string())))
 }
 
-/// `call_llm(prompt, input)` — call the LLM backend with a prompt and input.
+/// `call_llm(prompt, input, model?)` — call the LLM backend with a prompt
+/// and input. N12 (gh#1220): the OPTIONAL third String argument names the
+/// model for THIS call — either a direct provider model name ("glm-5.3")
+/// or a named profile alias resolved via `METALOGOS_LLM_MODEL_{ALIAS}`
+/// (crate::llm::resolve_model). Two-argument calls keep the configured
+/// `METALOGOS_LLM_MODEL` default unchanged; both glm-5.3-flash and
+/// glm-5.3 can work in one process.
 /// Наряд №4: tries GLOBAL_SMART_ROUTER first; falls back to legacy create_llm_backend().
 /// When no SmartRouter is installed: the mock answers ONLY when
 /// METALOGOS_MOCK_LLM=1|true is set explicitly (№454/№478); the default is
@@ -133,10 +139,26 @@ pub(crate) fn builtin_call_llm(args: &[Value]) -> Result<Value, String> {
         Some(other) => format!("{}", other),
         None => String::new(),
     };
+    // N12 (gh#1220): the optional per-call model — a direct name or a
+    // named profile alias resolved through METALOGOS_LLM_MODEL_{alias}
+    // (resolve_model passes direct names through unchanged). A non-String
+    // argument is a LOUD argument-type error, never a silent ignore.
+    let model_override = match args.get(2) {
+        Some(Value::String(s)) => Some(crate::llm::resolve_model(s)),
+        Some(other) => {
+            return Err(format!(
+                "call_llm() expected String as model, got {}",
+                other.type_name()
+            ))
+        }
+        None => None,
+    };
 
     // Наряд №4: try SmartRouter first
     // Наряд #156: no sandbox timeout for builtin call_llm — None
-    if let Some(result) = crate::llm::call_via_smart_router(&prompt, &input, None, None) {
+    if let Some(result) =
+        crate::llm::call_via_smart_router(&prompt, &input, model_override.as_deref(), None)
+    {
         return result.map(Value::String).map_err(|e| {
             crate::interpreter::values::wrap_error_preserving_code("call_llm() failed", &e)
         });
@@ -209,22 +231,30 @@ pub(crate) fn builtin_call_llm(args: &[Value]) -> Result<Value, String> {
         });
         result
     } else {
-        // Real LLM call
+        // Real LLM call. N12: the per-call override rides
+        // call_with_model (ADR-0048) — the legacy backend swaps the model
+        // for THIS call only; the env default stays untouched.
         let backend = crate::llm::create_llm_backend();
         let result = backend
-            .call(&prompt, &input)
+            .call_with_model(&prompt, &input, model_override.as_deref())
             .map(Value::String)
             .map_err(|e| {
                 // №385: an inner origin stamp (provider timeout / connect
                 // failure) stays at the FRONT of the wrapped message.
                 crate::interpreter::values::wrap_error_preserving_code("call_llm() failed", &e)
             });
-        let model_env = std::env::var("METALOGOS_LLM_MODEL").ok();
+        // The honest trace names the model THIS call actually asked for
+        // (override first, env default second) and carries the usage the
+        // provider reported for THIS call (N13: the legacy chain returns
+        // only the text, the usage rides the thread-local; None stays
+        // absent — honest data, never invented).
+        let legacy_usage = crate::llm::take_last_legacy_usage();
+        let model_env = model_override.or_else(|| std::env::var("METALOGOS_LLM_MODEL").ok());
         crate::llm::trace_llm_call(&crate::llm::LlmTraceEvent {
             provider_name: Some(crate::llm::provider_env_name()),
             model: model_env.as_deref(),
-            input_tokens: None,
-            output_tokens: None,
+            input_tokens: legacy_usage.map(|(i, _)| i),
+            output_tokens: legacy_usage.map(|(_, o)| o),
             latency_ms: t0.elapsed().as_millis() as u64,
             status: if result.is_ok() { "ok" } else { "error" },
             cache: "miss",

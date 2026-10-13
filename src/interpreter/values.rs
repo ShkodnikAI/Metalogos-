@@ -82,6 +82,12 @@ pub enum Value {
         status: u16,
         body: String,
         content_type: Option<String>,
+        /// N7 (gh#1217): the application-defined response headers — the
+        /// allowlisted set only (set_header's contract), ordered, the
+        /// CR/LF-free values already validated at the builtin. The
+        /// protective headers (CSP/HSTS/XCTO) stay the middleware's
+        /// duty (N8) — these are the APPLICATION headers.
+        headers: Vec<(String, String)>,
     },
     /// Graph subgraph — opaque first-class graph value (V3).
     /// Contains a serializable GraphSnapshot that can be passed between functions.
@@ -694,6 +700,17 @@ pub const CODE_HTTP_HOST_NOT_ALLOWED: &str = "HTTP_HOST_NOT_ALLOWED";
 /// OPEN). Typed so a program can branch «denied by robots → skip» against
 /// transport failures.
 pub const CODE_HTTP_ROBOTS_DENIED: &str = "HTTP_ROBOTS_DENIED";
+/// N7 (gh#1217): the response-header allowlist gate — `set_header` is
+/// given a name outside the five allowed application headers
+/// (Cache-Control, ETag, Content-Type, Location, Content-Disposition).
+/// The protective headers (CSP, XCTO, HSTS) are the middleware's duty
+/// (N8) and cannot be overridden from the route. Typed so a program can
+/// branch «header not allowed → drop it» against transport failures.
+pub const CODE_HTTP_HEADER_NOT_ALLOWED: &str = "HTTP_HEADER_NOT_ALLOWED";
+/// N7 (gh#1217): the header-injection gate — `set_header` is given a
+/// name or a value carrying CR, LF or NUL (the response-splitting
+/// vector). Typed, branchable on both backends.
+pub const CODE_HTTP_HEADER_INJECTION: &str = "HTTP_HEADER_INJECTION";
 
 /// №595 (Волна 30, Камертон Н1-05/Н1-07): the UTC calendar surface's
 /// domain error — an invalid ISO-8601/RFC 3339 string, a non-finite
@@ -784,6 +801,10 @@ const ORIGIN_STAMPED_CODES: &[&str] = &[
     // refusal, both branchable on both backends.
     CODE_HTTP_HOST_NOT_ALLOWED,
     CODE_HTTP_ROBOTS_DENIED,
+    // N7 (gh#1217): the response-header gates — the allowlist refusal
+    // and the CR/LF injection refusal, both branchable on both backends.
+    CODE_HTTP_HEADER_NOT_ALLOWED,
+    CODE_HTTP_HEADER_INJECTION,
     // №595 (Волна 30): the UTC calendar surface's input gate — an invalid
     // ISO datetime string or a non-finite timestamp is a loud typed
     // refusal, branchable on both backends (never a zero date).

@@ -1,6 +1,22 @@
-template Layout(title: String, content: Html) -> Html {
+// Naryad №86/№115 + N9 (gh#1219): template composition — the ESCAPED
+// default ({{ title }}) for the data, the RAW triple-brace form
+// ({{{ content }}}) for the trusted program-built fragment. The
+// Jinja-style `{{ var | safe }}` is NOT supported (the loud refusal,
+// N9) — the raw insert is the triple-brace form.
+template Layout(title: String, content: String) -> Html {
 <html>
 <head><title>{{ title }}</title></head>
-<body>{{ content | safe }}</body>
+<body>{{{ content }}}</body>
 </html>
+}
+
+pattern Compose(title: String) -> Html {
+  // The trusted fragment is program-built (the taint gates still apply
+  // downstream); the title rides the ESCAPED default — an attacker
+  // string in the title never becomes markup.
+  return render("Layout", title, "<p class=\"body\">Содержимое: раздел 1</p>")
+}
+
+flow Main {
+  input: String = "Отчёт <script>alert(1)</script>" -> Compose -> output
 }

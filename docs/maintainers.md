@@ -242,11 +242,13 @@ document records the checklist; the executor cannot apply it. Settings
       `release-gap (blocking)`,
       `ADR numbering (blocking)`, `branch-freshness (blocking)`,
       `candle-tests (blocking)`, `doc-tests (blocking)`,
+      `html-tests (blocking)`,
       `ledger-golden (blocking)`, `minimal-build (blocking)`,
       `module-size-guard (blocking)`,
       `test-llm-cache-contract (blocking)`,
       `video-tests (blocking)`, `vision-tests (blocking)`,
-      `voice-tests (blocking)`, `vscode-extension (blocking)`;
+      `voice-tests (blocking)`, `vscode-extension (blocking)`,
+      `xml-tests (blocking)`;
 - [ ] **Require branches to be up to date before merging** (no merge
       over a stale base);
 - [ ] **Do not allow bypassing the above settings** — including

@@ -101,7 +101,14 @@ fact_blocking_check_cells: 32
 # PRECISE rows; the floors raised in the same PR per the №757
 # procedure: precise 4224 / general 5852 / TYPED_FLOOR 298) → 4302
 # (№650, gh#1144, волна 38: cal_events/cal_read/card_contacts/
-# card_search — the verified single-shape String returns). The goal
+# card_search — the verified single-shape String returns) → 4310
+# (N5, gh#1215: 225/522 — html_text ships the precise String, the two
+# coarse List<...> rows dilute the bp figure) → 4323 (N6, gh#1216:
+# 227/525 — the №757 compensation IN THE SAME PR: decrypt +
+# reflex_bpe_decode ship the verified precise String facts; the floor
+# raised 4302 → 4323) → 4315 (N7, gh#1217: set_header ships
+# parameterized-coarse — the total grows to 526, 227/526; the dilution
+# absorbs, the floor follows). The goal
 # (3000, OWNER-FIXED) stays MET; the counter is machine-read, never
 # hand-zeroed.
-fact_precise_share_bp: 4324
+fact_precise_share_bp: 4315

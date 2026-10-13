@@ -173,6 +173,64 @@ jobs:
       - name: Clippy on vision-gated code
         run: cargo clippy --workspace --features vision --all-targets -- -D warnings
 
+  html-tests:
+    name: html-tests (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      # The №445 wave-infra note (see vision-tests): the cache restore
+      # failure is a performance loss, never a correctness signal.
+      - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          prefix-key: v2
+          key: html-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+      # ADR-0192 (N5, gh#1215): the off-by-default contract — the
+      # capability feature must NOT ride the default/full lists (the
+      # ADR-0122 rhythm; the promotion is a separate owner decision).
+      - name: Guard — html must NOT be in default/full features
+        run: |
+          if grep -E '^(default|full) = ' Cargo.toml | grep -q 'html'; then
+            echo "::error::html feature must stay off-by-default (ADR-0192, gh#1215)"; exit 1; fi
+      - name: Build with html feature
+        run: cargo build --workspace --features html
+      - name: Library tests (the html_dom unit legs + the whole lib under the feature)
+        run: cargo test --workspace --lib --features html --no-fail-fast
+      - name: N5 html builtins — the feature-on contract (H1–H8, the golden pair TW/VM)
+        run: cargo test --workspace --features html --no-fail-fast --test naryad_n5_html_builtins
+      - name: Clippy on html-gated code
+        run: cargo clippy --workspace --features html --all-targets -- -D warnings
+
+  xml-tests:
+    name: xml-tests (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      # The №445 wave-infra note (see vision-tests): the cache restore
+      # failure is a performance loss, never a correctness signal.
+      - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          prefix-key: v2
+          key: xml-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+      # ADR-0192 (N6, gh#1216): the off-by-default contract — same guard
+      # shape as html-tests. The xml feature implies html, so the build
+      # covers both gated surfaces.
+      - name: Guard — xml must NOT be in default/full features
+        run: |
+          if grep -E '^(default|full) = ' Cargo.toml | grep -q 'xml'; then
+            echo "::error::xml feature must stay off-by-default (ADR-0192, gh#1216)"; exit 1; fi
+      - name: Build with xml feature (implies html)
+        run: cargo build --workspace --features xml
+      - name: Library tests (the xml_ops unit legs + the whole lib under the feature)
+        run: cargo test --workspace --lib --features xml --no-fail-fast
+      - name: N6 xml builtins — the feature-on contract (X1–X8, the golden pair TW/VM)
+        run: cargo test --workspace --features xml --no-fail-fast --test naryad_n6_xml_builtins
+      - name: Clippy on xml-gated code
+        run: cargo clippy --workspace --features xml --all-targets -- -D warnings
+
   voice-tests:
     name: voice-tests (blocking)
     runs-on: ubuntu-latest

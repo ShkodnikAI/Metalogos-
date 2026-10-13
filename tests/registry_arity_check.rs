@@ -137,7 +137,8 @@ fn registry_arity_exhaustive() {
         ("session_login", 2, 2),
         ("session_logout", 1, 1),
         // ── Bot stubs ──
-        ("send_message", 2, 3),
+        ("send_message", 2, 4), // N3: the 4th argument is opts
+        ("send_photo", 2, 4),   // N3: chat_id, photo [, caption] [, opts]
         ("answer_callback_query", 1, 3),
         ("edit_message_text", 3, 4),
         ("whisper_transcribe", 3, 4),
@@ -159,7 +160,7 @@ fn registry_arity_exhaustive() {
         ("query", 1, 2),
         ("db_execute", 1, 2), // ADR-0068: optional params list
         // ── LLM builtins ──
-        ("call_llm", 1, 2),
+        ("call_llm", 1, 3), // N12 gh#1220: the optional per-call model — prompt | prompt,input | prompt,input,model
         ("call_llm_schema", 2, 3), // Наряд №269
         ("call_claude", 4, 4),
         // ── Memory builtins ──

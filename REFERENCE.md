@@ -77,6 +77,9 @@ The `mlog` binary supports the following commands:
 |------------|----------|
 | `METALOGOS_MOCK_LLM` | `1`/`true` (explicit) — mocked LLM responses (deterministic); unset/`0` — the real path, which fails LOUD without keys (№454/№478) |
 | `METALOGOS_MOCK_LLM_FAULT` | deterministic fault injection for the `call_llm` mock path (Naryad #385, ADR-0169 §3.4): `timeout` → the call fails with the stamped `LLM_TIMEOUT` error; `unavailable` → fails with `LLM_PROVIDER_UNAVAILABLE`; any other value fails CLOSED with a loud error naming the variable (never a silent green mock answer). Unset (default) = no fault. Test seam for try-code contracts and office branching scenarios — golden examples declare it via an `examples/X.env` sidecar |
+| `METALOGOS_LLM_PROVIDER` | LLM provider for the legacy (no-`llm config`) path: `anthropic` \| `openai` \| `ollama` (default `anthropic`). The OpenAI-compatible branch covers GLM via `METALOGOS_OPENAI_BASE_URL=https://api.z.ai/api/paas/v4` (N12) |
+| `METALOGOS_LLM_MODEL` | the default model name sent on every LLM call without an explicit model (e.g. `glm-5.3-flash` — the owner's primary per the platform decision). Falls back to the provider's built-in default when unset |
+| `METALOGOS_LLM_MODEL_{ALIAS}` | named model profiles for the `call_llm(prompt, input, alias)` third argument (N12): `METALOGOS_LLM_MODEL_flash=glm-5.3-flash` makes `call_llm(p, i, "flash")` resolve to `glm-5.3-flash` on the wire; an alias without a matching env passes through as a direct model name |
 | `METALOGOS_LLM_TRACE` | path to a JSONL file — every LLM call (`call_llm`, `call_claude`, `call_llm_schema`, learnables, conversation summaries, `human_respond`) appends one line with OpenTelemetry GenAI semconv fields (`gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`/`output_tokens` when the provider reported them) plus `status`, `cache` (`exact`\|`semantic`\|`miss`), `backend` (`tw`\|`vm`), `provider_alias`, `latency_ms`; unset (default) = tracing off. Trace write errors never fail the call (one warning). No rotation — the operator rotates the file (ADR-0138) |
 | `METALOGOS_TTS_API_KEY` | API key for speech synthesis (`tts_generate`/`tts_send`); falls back to `OPENAI_API_KEY` when unset |
 | `METALOGOS_TTS_BASE_URL` | base URL override for speech synthesis (default `https://api.openai.com/v1`; `/audio/speech` appended) — mock servers / self-host proxies (Naryad #279) |
@@ -655,7 +658,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 518 registered builtins (518 of 518): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 526 registered builtins (526 of 526): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -829,7 +832,7 @@ let ranked = sort_by(paired, "b", 1.0)
 
 | Function | Signature | Return | Description |
 |---------|-----------|---------|----------|
-| `call_llm(prompt, input)` | `String, String -> String` | String | Calls the LLM backend. Returns the deterministic mock `"[MOCK: prompt \| input]"` ONLY when `METALOGOS_MOCK_LLM=1|true` is set explicitly; otherwise the real path runs and fails LOUD without keys (never a silent stub) |
+| `call_llm(prompt, input)` / `call_llm(prompt, input, model)` | `String, String[, String] -> String` | String | Calls the LLM backend. The optional third argument names the model for THIS call — a direct provider name (`"glm-5.3"`) or a named profile alias resolved via `METALOGOS_LLM_MODEL_{ALIAS}` (N12: both `glm-5.3-flash` and `glm-5.3` work in one process). Two-argument calls keep the configured `METALOGOS_LLM_MODEL` default unchanged. Reasoning models (N13): a `reasoning_content` block (GLM thinking mode) NEVER reaches the output — only the final `content` flows out, on all three paths (non-stream legacy, SmartRouter, streaming deltas); the trace line carries the token usage the provider reported (completion_tokens includes the reasoning tokens); a reasoning-only response with `content: null` fails LOUD (never a silent empty string). Returns the deterministic mock `"[MOCK: prompt \| input]"` ONLY when `METALOGOS_MOCK_LLM=1|true` is set explicitly; otherwise the real path runs and fails LOUD without keys (never a silent stub) |
 | `call_claude(api_key, model, system_prompt, user_message)` | `String, String, String, String -> String` | String | A direct call to the Anthropic Claude Messages API (v1/messages). Returns `content[0].text` |
 | `llm_usage()` | `-> Struct` | Struct `{LlmUsage}` | LLM usage statistics: `total_calls`, `total_tokens`, `total_errors`, `cache_hits_semantic` (№273/ADR-0135), `canary_leaks` (№284 — confirmed canary leaks), `providers` (a list of `{alias, calls, tokens, errors, avg_latency_ms, health_score}`) |
 | `call_llm_schema(prompt, schema_json)` / `call_llm_schema(prompt, input, schema_json)` | `String, String[, String] -> Struct` | Struct `{Dict}` | Calls the LLM backend and requires the answer to be a single JSON value conforming to the schema. Supported schema subset (ADR-0133): `type`, `properties`, `required`, `items`, `enum`; annotation keywords (`title`, `description`, `$schema`, ...) are ignored; any other keyword is a loud `LLM_SCHEMA_UNSUPPORTED_FEATURE`. Answer fields beyond `properties` are rejected (strict-by-default). The result is a `Dict` Struct usable with `json_get`/`has_field`/`dict_*`. Parse/validation failures (including max_tokens truncation) are loud `LLM_SCHEMA_MISMATCH` and retry up to `METALOGOS_LLM_SCHEMA_RETRIES` (default 2, cap 10) with the validator report fed back into the prompt. Mock tier returns a deterministic minimal instance derived from the schema (only when `METALOGOS_MOCK_LLM=1|true` is set explicitly — №454/№478; the default is the real path) |
@@ -1137,7 +1140,7 @@ mlogserver {
 
 | Function | Signature | Return | Description |
 |---------|-----------|---------|----------|
-| `render(template_name, key1, val1, key2, val2, ...)` | `String, String, Any, ... -> Html` | Html | Renders a template, substituting `{{ var }}` variables. The number of arguments after the template name must be even (key/value pairs) |
+| `render(template_name, key1, val1, key2, val2, ...)` | `String, String, Any, ... -> Html` | Html | Renders a template, substituting `{{ var }}` variables (HTML-escaped) and `{{{ var }}}` variables (RAW — the trusted, program-built fragments; the same contract as `template_render`). A Jinja-style filter pipe (`{{ var \| safe }}`) is a LOUD compile-time refusal that names the triple-brace alternative — the silent verbatim/empty render is forbidden (gh#1219). The number of arguments after the template name must be even (key/value pairs) |
 
 **Example:**
 ```mlog
@@ -1203,7 +1206,8 @@ let left = grant_use(g)
 
 | Function | Signature | Return | Description |
 |---------|-----------|---------|----------|
-| `send_message(chat_id, text)` | `String\|Float, String -> Unit` | Unit | Sends a message to a chat (Telegram/Discord). In interpreter mode — logs to `[AUDIT]` |
+| `send_message(chat_id, text, reply_markup?, opts?)` | `String\|Float, String, any?, Struct? -> String\|Unit` | String\|Unit | Sends a message to a chat (Telegram/Discord). N3 opts: `parse_mode` ("HTML"\|"MarkdownV2"), `bot` (the token comes from `TELEGRAM_BOT_TOKEN_<NAME>`, the name uppercased — an explicitly named bot with no token env is a loud error naming the env var), `disable_preview`, `chunk` (default true — the text routes through text_chunk, the "paragraph" strategy, budget 4000, overlap 0; `reply_markup` rides ONLY the last chunk), `retry` `{max_retries, base_delay}` (base_delay in ms; 429 honors retry_after, 5xx backs off base_delay·2^attempt; both capped at 30 s; up to max_retries (default 3) retries; other 4xx are loud immediately). The token never enters logs/errors (every diagnostic is redacted). A 3-argument Struct without any known opts key stays the legacy `reply_markup`. In interpreter mode (no token) — logs to `[AUDIT]`, returns Unit |
+| `send_photo(chat_id, photo, caption?, opts?)` | `String\|Float, String, String?, Struct? -> String\|Unit` | String\|Unit | Sends a photo (an HTTPS URL or a file_id — the API passthrough). The caption is refused loud beyond 1024 characters BEFORE any wire traffic. `parse_mode` / `retry` / `bot` apply; `chunk` and `disable_preview` are documented no-ops for a photo (one caption ≤1024 — nothing to chunk, no link preview). In interpreter mode (no token) — logs to `[AUDIT]`, returns Unit |
 
 ### 4.17. Miscellaneous
 
@@ -1832,6 +1836,8 @@ Available middleware: `session`, `csrf`, `security_headers`.
 
 The `csrf` middleware enforces the double-submit pattern STRICTLY (naryad #262): a mutating request (POST/PUT/DELETE) must carry the `_mlog_csrf` cookie AND the matching `X-CSRF-Token` header, and the token must have been ISSUED by this server process (GET responses set the cookie; the token store is process-local, so a restart invalidates outstanding tokens — the request gets 403 «CSRF token validation failed» and a page reload re-issues a fresh token). The token is bound to the session it was issued for: a session-bound token presented with a foreign or missing session is rejected with 403 «CSRF session binding mismatch» (an audit entry is written); a token issued without a session is valid only for sessionless requests. The token TTL is 15 minutes (expired → 403, re-issued on the next GET).
 
+The `security_headers` middleware applies the three PROTECTIVE headers to EVERY response — the route responses, the fall-through 404 and the direct-dispatch 404 (the OWASP every-response shape; Naryad N8, gh#1218): `Content-Security-Policy: default-src 'self'`, `X-Content-Type-Options: nosniff`, `Strict-Transport-Security: max-age=31536000; includeSubDomains`. The middleware OWNS this set: the values are unconditional inserts, and the `set_header` builtin (N7) does not carry these names — a route cannot override the protective set, only the middleware can (the N7 allowlist marks the boundary: the application headers belong to the route, the protective headers belong to the middleware).
+
 ### 5.7. Template (an HTML template)
 
 ```mlog
@@ -2141,7 +2147,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 518 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 526 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2155,7 +2161,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `grant_subgrant(...)` | 3..5 | `Grant, String, Number[, ...] -> Grant` | Attenuation-only derivation: narrower scope, shorter TTL, lower class power; a Once parent is consumed by the split |
 | `grant_use(...)` | 1 | `Grant -> Number` | Consumes one use; returns the remaining count (-1 = unlimited) |
 
-### `bot` — 35 builtin(s)
+### `bot` — 36 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
@@ -2190,7 +2196,8 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `remind(...)` | 3 | — | `remind(message, timestamp, data?)` — one-time reminder. Returns ID. |
 | `remind_recurring(...)` | 2 | — | `remind_recurring(message, interval_seconds, data?)` — recurring reminder. Returns ID. |
 | `send_document(...)` | 2..3 | — | `send_document(chat_id, file_path, caption) → { ok }` |
-| `send_message(...)` | 2..3 | `String\ | Unit |
+| `send_message(...)` | 2..4 | `String\ | Unit` |
+| `send_photo(...)` | 2..4 | `String\ | Unit` |
 | `todo_add(...)` | 2 | — | `todo_add(title, status?)` — add a todo card. Default status: "todo". Returns Struct { id, title, status, created_at }. |
 | `todo_list(...)` | variadic | — | `todo_list()` — list all todos. Returns List of Struct { id, title, status, created_at }. |
 | `todo_update(...)` | 2 | — | `todo_update(id, new_status)` — update a todo's status. Returns Struct { id, old_status, new_status, updated }. |
@@ -2431,7 +2438,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
 | `call_claude(...)` | 4 | `String, String, String, String -> String` | A direct call to the Anthropic Claude Messages API (v1/messages). Returns `content[0].text` |
-| `call_llm(...)` | 1..2 | `String, String -> String` | Calls the LLM backend. Returns the deterministic mock `"[MOCK: prompt \ |
+| `call_llm(...)` | 1..3 | `String, String[, String] -> String` | Calls the LLM backend. The optional third argument names the model for THIS call — a direct provider name (`"glm-5.3"`) or a named profile alias resolved via `METALOGOS_LLM_MODEL_{ALIAS}` (N12: both `glm-5.3-flash` and `glm-5.3` work in one process). Two-argument calls keep the configured `METALOGOS_LLM_MODEL` default unchanged. Reasoning models (N13): a `reasoning_content` block (GLM thinking mode) NEVER reaches the output — only the final `content` flows out, on all three paths (non-stream legacy, SmartRouter, streaming deltas); the trace line carries the token usage the provider reported (completion_tokens includes the reasoning tokens); a reasoning-only response with `content: null` fails LOUD (never a silent empty string). Returns the deterministic mock `"[MOCK: prompt \ |
 | `call_llm_schema(...)` | 2..3 | `String, String[, String] -> Struct` | Calls the LLM backend and requires the answer to be a single JSON value conforming to the schema. Supported schema subset (ADR-0133): `type`, `properties`, `required`, `items`, `enum`; annotation keywords (`title`, `description`, `$schema`, ...) are ignored; any other keyword is a loud `LLM_SCHEMA_UNSUPPORTED_FEATURE`. Answer fields beyond `properties` are rejected (strict-by-default). The result is a `Dict` Struct usable with `json_get`/`has_field`/`dict_*`. Parse/validation failures (including max_tokens truncation) are loud `LLM_SCHEMA_MISMATCH` and retry up to `METALOGOS_LLM_SCHEMA_RETRIES` (default 2, cap 10) with the validator report fed back into the prompt. Mock tier returns a deterministic minimal instance derived from the schema (only when `METALOGOS_MOCK_LLM=1 |
 | `json_validate(...)` | 2..3 | `String, String[, Bool] -> Struct` | Validates a JSON string against the ADR-0133 schema subset WITHOUT calling an LLM («shape-before-use», №286): the SAME validator as `call_llm_schema` (extracted to a shared module, zero new rules — differential corpus green in both paths). Returns `{valid, errors}` where `errors` is a list of violation reports with paths (`value.age: expected type integer, got string "33"`). `strict` (default `true`) = fields beyond `properties` are violations (as in `call_llm_schema`); `strict=false` permits undeclared fields — every other rule (type/required/items/enum, the subset, the root-object contract) is unchanged. Invalid `schema_json`/unsupported keyword — loud `LLM_SCHEMA_UNSUPPORTED_FEATURE` (the SAME code as `call_llm_schema`); invalid `value_json` is a loud parse error, NOT `valid=false` (the validator judges structure, the parser judges bytes) |
 | `llm_last_finish_reason(...)` | variadic | — | №757: `llm_last_finish_reason()` — the mlog-visible truncation probe. Returns the finish_reason/stop_reason/done_reason of the LAST completed LLM call or stream ("stop", "length", "max_tokens", "end_turn", ...). `""` means no completed call ever reported a reason (honest absence — the mock and error paths never invent one). The truncation check from mlog is `llm_last_finish_reason() == "length"` (OpenAI-compatible) or `== "max_tokens"` (Anthropic); both spellings also raise the stderr warning at the moment of the call itself. |
@@ -2861,21 +2868,25 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `voice_save(...)` | 2 | — | `voice_save(handle, name)` stub — ADR-0143 (persistence). |
 | `whisper_transcribe(...)` | 3..4 | `String, String, String[, String] -> String` | Downloads a voice message from Telegram by `file_id`, sends it for transcription to the Whisper API. `provider`: `"openai"` (default) or `"groq"`. `METALOGOS_STT_BASE_URL` overrides the transcription API base (mock servers / self-host proxies) — `/audio/transcriptions` is appended. Returns the recognized text. Arity 3..4 — the registry used to declare min 1 while the runtime always required 3 (Naryad #279 fact-check fix; a 1-arg call now fails `mlog check` on statics instead of exploding at runtime) |
 
-### `web` — 22 builtin(s)
+### `web` — 29 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
+| `feed_parse(...)` | 1 | — | `feed_parse(xml) -> List<Struct<FeedItem>{title, link, published, summary, id}>` — RSS 2.0 and Atom 1.0 detected by the root element; neither → a loud error naming the two supported shapes. |
 | `form_data(...)` | 1 | `-> Struct {FormData}` | Parses data from an `application/x-www-form-urlencoded` request body |
 | `geo_distance(...)` | 2..5 | — | `geo_distance(lat1, lon1, lat2, lon2, unit?)` — haversine distance. unit: "km"(default), "mi", "nm", "m". |
 | `geo_ip(...)` | 0..1 | — | `geo_ip(ip?)` — geolocate by IP. Uses ip-api.com (free, no key). Returns Struct {ip, city, region, country, country_code, lat, lon, isp, timezone}. |
+| `html_links(...)` | 2 | — | `html_links(html, base_url) -> List<Struct<HtmlLink>{href, text}>` — every <a> with a resolvable href; the hrefs are ABSOLUTE (resolved against base_url), only http/https survive — `javascript:` (and any other scheme) is DROPPED by contract. The base_url must itself be an http/https URL (loud otherwise). |
 | `html_render(...)` | 3 | `String, Float×2 -> String` | A screenshot via a headless browser (`METALOGOS_BROWSER_BIN`, no default path). The only function in this family that spawns an external process — via `exec_restricted` (argv, not a shell). Network isolation is not guaranteed at the OS level — the input must be self-contained HTML |
+| `html_select(...)` | 2 | — | `html_select(html, css) -> List<Struct<HtmlMatch>{tag, text, attrs, html}>` — every element matching ANY comma-separated selector (document order). The loud limits: the 5 MiB input, the 10 000-node result. |
+| `html_text(...)` | 1..2 | — | `html_text(html, css?) -> String` — the normalized concatenated text of the matched elements (no selector = the whole document). The script/style subtrees NEVER contribute; whitespace runs collapse. |
 | `http_download(...)` | 2..3 | `String, String -> Bool` | Downloads `url` into `dest_path` (the path must be inside the write sandbox). Returns `true` on success, `false` on any failure (network error, HTTP 4xx/5xx, sandbox violation, write error — the soft-failure contract). The URL is SSRF-gated like the other egress builtins: a blocked address is a LOUD `SSRF guard` error, not a silent `false` (naryad №261). 30s timeout |
 | `http_get(...)` | 1..4 | `String -> String` | A GET request. 30s default timeout. Errors on status >= 400. №592 outcome taxonomy (branchable via `try{}`): `[HTTP_TIMEOUT]` the per-call deadline expired, `[HTTP_CONNECT]` the transport failed (DNS/refused/reset/mid-response break), `[HTTP_STATUS]` the server answered >= 400 |
 | `http_post(...)` | 2..6 | `String, String -> String` | A POST request. Content-Type defaults to `application/json`. 30s timeout. Errors on status >= 400 |
 | `http_post_multipart(...)` | 2..4 | `String, Struct, Struct -> String` | A multipart POST. `fields` are text fields (a Struct), `files` are file fields (a Struct, whose values are file paths). File paths must be inside the read sandbox (relative paths); absolute paths, `..` and sandbox escapes are a loud `[SANDBOX_VIOLATION]` error. 120s timeout |
 | `json_body(...)` | variadic | `-> Struct {JsonBody}` | Parses JSON from the request body |
 | `query_param(...)` | 1 | `String -> String` | Gets a query parameter from the URL. `curl "localhost:8080/search?q=hello" -> query_param("q") == "hello"`. An empty string if the parameter is absent. Percent-decoding: RFC 3986 bytes reassembled as UTF-8 (`%D0%B6` → `"ж"`), `+` → space (form-urlencoded convention), invalid escapes pass through literally, invalid UTF-8 is lossy — see the §4.13 note (Naryad #257) |
-| `render(...)` | 2..3 | `String, String, Any, ... -> Html` | Renders a template, substituting `{{ var }}` variables. The number of arguments after the template name must be even (key/value pairs) |
+| `render(...)` | 2..3 | `String, String, Any, ... -> Html` | Renders a template, substituting `{{ var }}` variables (HTML-escaped) and `{{{ var }}}` variables (RAW — the trusted, program-built fragments; the same contract as `template_render`). A Jinja-style filter pipe (`{{ var \ |
 | `request_body(...)` | variadic | — | `json_body()` / `request_body()` — raw body of the current route request, parsed as JSON into a `Dict` Struct; `request_body` is the explicit-name alias. Result carries `UserInput` taint (untrusted request data). |
 | `request_header(...)` | 1 | `String -> String` | Gets a request header from the current route request by a case-insensitive name. The empty string when the header is absent or no route context is set (fails closed — see `examples/telegram_webhook_secret.mlog`). The result carries `UserInput` taint — validate before deciding; compare secrets with `ct_eq` (N2) |
 | `require(...)` | 1..2 | `Bool -> Unit` | A runtime assertion. Errors if `false` |
@@ -2884,9 +2895,12 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `respond_html_doc(...)` | 2 | `String, String -> HttpResponse` | The EXPLICIT document form (№565): the first argument is a TITLE — never read as a status, never dropped. Full HTML document (the title renders at the top of `<body>` verbatim and tag-stripped into `<head><title>`), status 200. `Content-Type: text/html; charset=utf-8`; the HTML egress gates treat it exactly like `respond_html` |
 | `respond_html_status(...)` | 2 | `String \ | HttpResponse |
 | `server_path_param(...)` | 1 | — | `server_path_param(name)` — stub that returns empty string (Наряд №283). Real implementation is handled in interpreter.rs and vm.rs FnCall dispatch (needs access to server_path_params HashMap on the runtime context — same pattern as `query_param`). Returns empty string when no templated route matched (static route, or no server context). |
+| `set_header(...)` | 3 | — | `set_header(resp, name, value) -> HttpResponse` (N7, gh#1217) — the APPLICATION response headers. The pure value transform: it takes the response value, attaches the allowlisted header and returns the new response (the route returns it; the server applies the set at the conversion boundary). `set` semantics: the same name (case-insensitive) is REPLACED, the other headers keep their order. |
+| `sitemap_parse(...)` | 1 | — | `sitemap_parse(xml) -> List<Struct<SitemapEntry>{loc, lastmod}>` — the `urlset > url` and `sitemapindex > sitemap` shapes uniformly: every `url`/`sitemap` element carrying a `loc` child becomes an entry (lastmod often absent → ""). |
 | `weather(...)` | 2 | — | `weather(city_or_lat, lon?)` — current weather via Open-Meteo (FREE, no API key). `weather("Minsk")` or `weather(53.9, 27.57)`. Returns Struct {temp, feels_like, temp_min, temp_max, humidity, description, wind_speed, wind_direction, pressure, cloud_cover, is_day, city, country}. |
 | `weather_forecast(...)` | 1..3 | — | `weather_forecast(city_or_lat, lon?, days?)` — multi-day forecast via Open-Meteo (FREE, no API key). `weather_forecast("Minsk", 7)` or `weather_forecast(53.9, 27.57, 3)`. Default: 7 days. Max: 16 days. Returns List of DayForecast structs. |
 | `web_search(...)` | 1..2 | — | `web_search(query, num_results?) -> String` — search via SerpAPI. Uses SERPAPI_KEY env var. Returns raw JSON string. Usage: web_search("query") -> JSON string Usage: web_search("query", 5) -> JSON string with 5 results |
+| `xml_parse(...)` | 1 | — | `xml_parse(xml) -> Struct<XmlNode>{tag, attrs, text, children}` — the general tree. The depth cap (256) and the node cap (10 000) both fail LOUD: the recursive build must not blow the stack on an adversarial chain. |
 
 <!-- END GENERATED BUILTIN INDEX -->
 
@@ -3011,10 +3025,17 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `respond_html` | sink | public | irreversible | writes the HTTP response as HTML — public channel (escaping contract) |
 | `respond_html_status` | sink | public | irreversible | №565: the explicit (status, body) HTML response — the same public-channel sink as respond_html (the explicit name is not a bypass) |
 | `respond_html_doc` | sink | public | irreversible | №565: the explicit (title, body) HTML document response — the same public-channel sink as respond_html (the explicit name is not a bypass) |
+| `set_header` | pure | internal | pure | — |
 | `form_data` | source | internal | pure | ingests untrusted user form input — UserInput taint (№201 vocabulary) |
 | `json_body` | source | internal | pure | ingests untrusted request body — UserInput taint |
 | `query_param` | source | internal | pure | ingests untrusted request query parameter — UserInput taint |
 | `request_header` | source | internal | pure | ingests the untrusted request header (N2, gh#1211) — UserInput taint |
+| `html_select` | source | internal | pure | ingests untrusted HTML, returns the matched elements (N5, gh#1215, ADR-0192) — every result string (tag/text/attrs/html) carries UserInput taint |
+| `html_text` | source | internal | pure | ingests untrusted HTML, returns the normalized text (N5, gh#1215, ADR-0192) — the result carries UserInput taint; script/style never contribute |
+| `html_links` | source | internal | pure | ingests untrusted HTML, returns absolute http/https links (N5, gh#1215, ADR-0192) — the results carry UserInput taint; other schemes are dropped |
+| `feed_parse` | source | internal | pure | ingests untrusted XML (RSS 2.0 / Atom 1.0), returns the feed items (N6, gh#1216, ADR-0192) — every result string carries UserInput taint; DTD/entities are never expanded (XXE-safe by the XML5 grammar) |
+| `sitemap_parse` | source | internal | pure | ingests untrusted XML (the urlset / sitemapindex shapes), returns {loc, lastmod} entries (N6, gh#1216, ADR-0192) — the results carry UserInput taint |
+| `xml_parse` | source | internal | pure | ingests untrusted XML, returns the general XmlNode tree (N6, gh#1216, ADR-0192) — the results carry UserInput taint; DTD/entities never expanded, the depth/node caps are loud |
 | `render` | lift | public | pure | taint-sanitizing template render — output is public-safe (audit.rs sanitizer) |
 | `http_get` | source | network | pure | ingests external network data (SSRF-guarded, №130) |
 | `http_post` | sink | network | irreversible | transmits program data to an external endpoint — cannot be unsent (issue minimum list) |
@@ -3046,6 +3067,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `session_take_interrupt` | source | internal | pure | takes the highest-priority pending interrupt (FIFO within) — the №352 preemption lever; every take is ledger-recorded so preemption loses no audit (№348) |
 | `session_clear` | sink | internal | irreversible | wipes session state — no undo |
 | `send_message` | sink | network | irreversible | delivers a message to an external chat — cannot be unsent (issue minimum list) |
+| `send_photo` | sink | network | irreversible | delivers a photo externally — cannot be unsent (N3) |
 | `answer_callback_query` | sink | network | irreversible | answers an external callback query |
 | `edit_message_text` | sink | network | reversible | edits an already-delivered external message (reversible by further edits) |
 | `whisper_transcribe` | source | network | pure | ingests external transcription of user audio; DUAL: uploads the audio to an external STT provider (№317 corpus) |
@@ -3418,6 +3440,9 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `normal_sample` | pure | public | pure | — |
 
 <!-- END GENERATED BUILTIN CLASSIFICATION -->
+
+
+
 
 
 

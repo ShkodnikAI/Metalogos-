@@ -1,0 +1,25 @@
+// N3 (gh#1212, PE-1): the send_message opts + send_photo — the no-token
+// stub contract pinned off-server.
+//
+// In a real deployment the family delivers through the Telegram Bot API:
+//
+//   send_message(chat, text, {parse_mode: "HTML"})
+//   send_message(chat, text, markup, {retry: {max_retries: 3, base_delay: 1000}})
+//   send_photo(chat, "https://example.org/cat.jpg", "a cat", {bot: "media"})
+//
+// This example runs WITHOUT a token, so every call takes the audit-stub
+// path (№543): the payload is logged to stderr and the result is Unit.
+// The pinned golden is that property: the opts structs are recognized,
+// validated and consumed (an unknown field or a bad parse_mode would be
+// a loud error, not a silent fallback), and the no-token fallback stays
+// the honest Unit — while a caption beyond 1024 characters is refused
+// even off-server (see err_send_photo_caption.mlog).
+pattern RunAll(_input: String) -> String {
+  let a = send_message("chat-1", "plain text")
+  let b = send_message("chat-1", "<b>bold</b>", {parse_mode: "HTML"})
+  let c = send_message("chat-1", "no preview", {disable_preview: true})
+  let d = send_photo("chat-1", "https://example.org/cat.jpg", "a cat")
+  return type_of(a) + "|" + type_of(b) + "|" + type_of(c) + "|" + type_of(d)
+}
+
+flow Main { input: String = "x" -> RunAll -> output }

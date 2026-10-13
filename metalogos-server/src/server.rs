@@ -1484,7 +1484,16 @@ fn build_router(state: ServerState) -> Router {
     // naryad_160 block2_vm_404_unknown_route — status 404, body ""). The
     // fallback is backend-agnostic (shared router: Interpreter AND VM), so
     // TW/VM parity is preserved (block4_tw_vs_vm_404 stays green).
-    app = app.fallback(|| async { (StatusCode::NOT_FOUND, "404 Not Found").into_response() });
+    // N8 (gh#1218): the fallback 404 rides the security_headers
+    // middleware too — the every-response shape (the OWASP baseline is
+    // not just the happy path).
+    app = app.fallback(|State(state): State<ServerState>| async move {
+        let mut response = (StatusCode::NOT_FOUND, "404 Not Found").into_response();
+        if state.middleware.contains(&"security_headers".to_string()) {
+            response = apply_security_headers(response);
+        }
+        response
+    });
 
     app.with_state(state)
 }
@@ -1643,10 +1652,64 @@ async fn route_handler(
             response = apply_canary_middleware(response, &state).await;
         }
 
+        // N8 (gh#1218): the security_headers middleware — the protective
+        // headers on the route responses.
+        if state.middleware.contains(&"security_headers".to_string()) {
+            response = apply_security_headers(response);
+        }
+
         response
     } else {
-        (StatusCode::NOT_FOUND, "404 Not Found").into_response()
+        // N8: the fall-through 404 — the every-response shape.
+        let mut response = (StatusCode::NOT_FOUND, "404 Not Found").into_response();
+        if state.middleware.contains(&"security_headers".to_string()) {
+            response = apply_security_headers(response);
+        }
+        response
     }
+}
+
+// ── N7/N8 (gh#1217/gh#1218): the response-header lanes ───────────────
+//
+// N8: the `security_headers` middleware — the owner's finding (#1218):
+// the declaration was VALIDATED (the semantic name check + the "no
+// security_headers" recommendation warning) but never applied. The fix
+// applies the three protective headers to EVERY response (the route
+// responses AND the fall-through 404 — the OWASP every-response shape):
+//
+//   Content-Security-Policy: default-src 'self'
+//   X-Content-Type-Options: nosniff
+//   Strict-Transport-Security: max-age=31536000; includeSubDomains
+//
+// The middleware OWNS these headers: the insert is unconditional (the
+// N7 `set_header` allowlist does not carry them — the route cannot
+// override the protective set, only the middleware can).
+
+/// The protective header set the `security_headers` middleware applies
+/// to every response (the values are the secure baselines; a tune-down
+/// is an explicit config conversation, not a route escape hatch).
+pub(crate) const SECURITY_HEADERS: &[(&str, &str)] = &[
+    ("Content-Security-Policy", "default-src 'self'"),
+    ("X-Content-Type-Options", "nosniff"),
+    (
+        "Strict-Transport-Security",
+        "max-age=31536000; includeSubDomains",
+    ),
+];
+
+/// Apply the protective headers (the `security_headers` middleware,
+/// N8): unconditional inserts — the middleware owns this set.
+fn apply_security_headers(response: Response) -> Response {
+    let (mut parts, body) = response.into_parts();
+    for (name, value) in SECURITY_HEADERS {
+        if let (Ok(hn), Ok(hv)) = (
+            header::HeaderName::from_bytes(name.as_bytes()),
+            HeaderValue::from_str(value),
+        ) {
+            parts.headers.insert(hn, hv);
+        }
+    }
+    Response::from_parts(parts, body)
 }
 
 // ── Наряд №296: redact/canary opt-in middleware ─────────────────────
@@ -3005,9 +3068,15 @@ async fn execute_route_body_vm(
                 status,
                 body,
                 content_type,
+                headers,
             } = val
             {
-                return Ok(http_response_into_response(status, body, content_type));
+                return Ok(http_response_into_response(
+                    status,
+                    body,
+                    content_type,
+                    &headers,
+                ));
             }
             // №582 (the audit d63cc1d X-2): the FALL-THROUGH parity — a body
             // that ends without an HttpResponse (a let/assign tail, a loop
@@ -3110,6 +3179,7 @@ fn http_response_into_response(
     status: u16,
     body: String,
     content_type: Option<String>,
+    headers: &[(String, String)],
 ) -> Response {
     let code = StatusCode::from_u16(status).unwrap_or(StatusCode::OK);
     let mut resp = (code, body).into_response();
@@ -3118,6 +3188,25 @@ fn http_response_into_response(
         // rather than failing the request.
         if let Ok(v) = header::HeaderValue::from_str(&ct) {
             resp.headers_mut().insert(header::CONTENT_TYPE, v);
+        }
+    }
+    // N7 (gh#1217): the application headers set by `set_header` — the
+    // allowlist and the CR/LF ban were enforced at the builtin, so a
+    // HeaderValue can only fail here on a non-ASCII value; that is a
+    // LOUD warn + skip (the defensive backstop, never a silent drop of
+    // a VALID header).
+    for (name, value) in headers {
+        match header::HeaderValue::from_str(value) {
+            Ok(v) => {
+                if let Ok(hn) = header::HeaderName::from_bytes(name.as_bytes()) {
+                    resp.headers_mut().insert(hn, v);
+                }
+            }
+            Err(_) => {
+                eprintln!(
+                    "WARNING: set_header value for {name} is not a valid HeaderValue — skipped"
+                );
+            }
         }
     }
     resp
@@ -3129,7 +3218,8 @@ fn value_to_response(val: Value) -> Response {
             status,
             body,
             content_type,
-        } => http_response_into_response(status, body, content_type),
+            headers,
+        } => http_response_into_response(status, body, content_type, &headers),
         Value::Html(html) => AxumHtml(html).into_response(),
         Value::String(s) => (StatusCode::OK, s).into_response(),
         Value::Unit => StatusCode::OK.into_response(),
@@ -3347,6 +3437,7 @@ mod tests {
             status: 200,
             body: "<p>Тело</p>".to_string(),
             content_type: Some("text/html; charset=utf-8".to_string()),
+            headers: Vec::new(),
         });
         let ct = resp
             .headers()
@@ -3360,6 +3451,61 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
     }
 
+    // ── N7 (gh#1217): set_header headers reach the real response ──
+
+    #[test]
+    fn n7_value_to_response_applies_set_headers() {
+        // The curl -i equivalent: the route's set_header chain reaches
+        // the axum Response. The allowlist + the CR/LF ban were enforced
+        // at the builtin; the boundary applies what survived.
+        let resp = value_to_response(Value::HttpResponse {
+            status: 200,
+            body: "ok".to_string(),
+            content_type: None,
+            headers: vec![
+                ("Cache-Control".to_string(), "no-store".to_string()),
+                (
+                    "Content-Disposition".to_string(),
+                    "attachment; filename=\"report.csv\"".to_string(),
+                ),
+            ],
+        });
+        let cc = resp
+            .headers()
+            .get("Cache-Control")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert_eq!(
+            cc, "no-store",
+            "the application header must reach the response"
+        );
+        let cd = resp
+            .headers()
+            .get("Content-Disposition")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert_eq!(cd, "attachment; filename=\"report.csv\"");
+    }
+
+    #[test]
+    fn n7_content_type_header_overrides_the_default() {
+        // set_header("Content-Type", ...) rides the headers list, which
+        // is applied AFTER the content_type field — the explicit set
+        // wins (the same contract as any header map insert).
+        let resp = value_to_response(Value::HttpResponse {
+            status: 200,
+            body: "{}".to_string(),
+            content_type: Some("text/plain; charset=utf-8".to_string()),
+            headers: vec![("Content-Type".to_string(), "application/json".to_string())],
+        });
+        let ct = resp
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert_eq!(ct, "application/json", "the explicit set_header wins");
+    }
+
     #[test]
     fn n892_value_to_response_default_stays_text_plain() {
         // respond() carries content_type: None — the historical default
@@ -3368,6 +3514,7 @@ mod tests {
             status: 200,
             body: "plain".to_string(),
             content_type: None,
+            headers: Vec::new(),
         });
         let ct = resp
             .headers()
@@ -3383,6 +3530,7 @@ mod tests {
             404,
             "<p>missing</p>".to_string(),
             Some("text/html; charset=utf-8".to_string()),
+            &[],
         );
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
         let ct = resp
@@ -4519,9 +4667,15 @@ mlogserver {
                         status,
                         body,
                         content_type,
+                        headers,
                     } = val
                     {
-                        Ok(http_response_into_response(status, body, content_type))
+                        Ok(http_response_into_response(
+                            status,
+                            body,
+                            content_type,
+                            &headers,
+                        ))
                     } else {
                         Ok(value_to_response(val))
                     }
@@ -4657,7 +4811,15 @@ mlogserver {
                         .into_response(),
                 }
             }
-            Ok(None) => (StatusCode::NOT_FOUND, "404 Not Found").into_response(),
+            // N8 (gh#1218): this direct-dispatch 404 rides the
+            // security_headers middleware too (the every-response shape).
+            Ok(None) => {
+                let mut response = (StatusCode::NOT_FOUND, "404 Not Found").into_response();
+                if state.middleware.contains(&"security_headers".to_string()) {
+                    response = apply_security_headers(response);
+                }
+                response
+            }
             Err(e) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("route template error: {}", e),
@@ -4703,9 +4865,15 @@ mlogserver {
                     status,
                     body,
                     content_type,
+                    headers,
                 } = val
                 {
-                    Ok(http_response_into_response(status, body, content_type))
+                    Ok(http_response_into_response(
+                        status,
+                        body,
+                        content_type,
+                        &headers,
+                    ))
                 } else {
                     Ok(value_to_response(val))
                 }

@@ -6,6 +6,228 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **N7 (gh#1217, PE-2, serve) — the application response headers:
+  `headers` on `HttpResponse` + `set_header(resp, name, value)`.**
+  The pure value transform: it takes the response value, attaches the
+  allowlisted header and returns the new response; the route returns it
+  and the server applies the set at the conversion boundary (the
+  `curl -i`-visible result). **The allowlist** (case-insensitive, the
+  canonical spelling stored): Cache-Control, ETag, Content-Type,
+  Location, Content-Disposition — the PROTECTIVE headers (CSP, XCTO,
+  HSTS) are the `security_headers` middleware's duty (N8) and cannot be
+  overridden from the route. **The injection gate**: CR, LF or NUL in
+  the name or the value → the typed `[HTTP_HEADER_INJECTION]` refusal
+  (the response-splitting vector) — the runtime gate on both backends
+  AND the static Category-A compile lane on the literals (the injection
+  verdict comes before the allowlist's, so a smuggled name never leaks
+  the allowlist's wording). **The allowlist gate**: any other name →
+  the typed `[HTTP_HEADER_NOT_ALLOWED]` refusal naming the offender and
+  the allowlist. **The taint gate**: a UserInput-tainted VALUE →
+  `[HTTP_HEADER_TAINTED]` at COMPILE time (the Category-A lane; the
+  header channel is the server's own voice — echo the client into the
+  escaped body, never into a response header); clean computed values
+  (an in-program ETag) pass. `set` semantics: the same name
+  (case-insensitive) REPLACES, the others keep their order; a
+  `set_header("Content-Type", ...)` overrides the response's
+  content_type field at the boundary (the map-insert contract). The
+  signature ships parameterized-coarse
+  `Struct<HttpResponse>{4 internal}` WITH the field-meta (the №661
+  anti-dilution rule; every field is program-computed at construction).
+  The floors raised in the same PR (№757): general 6317 → 6326 bp,
+  parameterized 6893 → 6923 bp, fieldmeta 9565 → 9574 bp; precise
+  4307 bp (the dilution absorbs within the 4302 floor on this branch).
+  REFERENCE + the classification regenerated (519 → 520 builtins);
+  registry_arity re-blessed; the gate facts updated. 11 tests (9
+  integration + 2 server-boundary), RED first. Size: M. Risks: the
+  allowlist is deliberately narrow (a need outside the five names is an
+  explicit ADR conversation, not a silent widen).
+- **N9 (gh#1219, PE-2, compiler/bug) — `render()` and `| safe`: no more
+  silent escaping.** The owner's finding: `render()` always escaped,
+  the Jinja-style `{{ var | safe }}` was NEVER implemented (the №115
+  substitution left the placeholder VERBATIM in the output, the №86
+  engine silently rendered it empty), and the composition example
+  pinned the silent mismatch with an EMPTY .expected. The fix combines
+  the naryad's menu options 1+2+3. (1) The filter pipe is a LOUD
+  refusal — a compile error on BOTH backends (the №250 compiler
+  registration gate and the interpreter declaration walk share the
+  failing `register_template`) and a loud parse refusal in
+  `template_render`, each naming the supported raw form; a pipe inside
+  a condition string literal (`{{#if x == "a|b"}}`) stays legal — the
+  construct grammar is not a filter. (2) `render()` gains the RAW
+  insert — the triple-brace form `{{{ var }}}`, the same contract
+  `template_render` already had; safe-by-construction: the parameters
+  are program-provided, the egress gates still apply downstream. (3)
+  The composition example (p6_template_composition) actually renders
+  now — the data rides the ESCAPED default (`{{ title }}`, the
+  script-neutralization is visible in the .expected), the trusted
+  program-built fragment rides raw (`{{{ content }}}`); the empty
+  .expected (the pin of the silent empty render) is replaced by the
+  real output. REFERENCE §4.14 documents the raw form and the refusal.
+- **N6 (gh#1216, PE-2, ADR-0192) — the `xml` capability feature:
+  `feed_parse` / `sitemap_parse` / `xml_parse`, the feed/XML family.**
+  Off-by-default behind `xml` (implies `html` — the shared text/limit
+  helpers; xml5ever 0.18, the same MIT/Apache-2.0 servo stack, promoted
+  from the transitive markup5ever_rcdom dep to a direct optional). The
+  registry surface is feature-INDEPENDENT: without the feature the
+  three handlers refuse LOUDLY naming ADR-0192. `feed_parse(xml)` —
+  RSS 2.0 (`rss > channel > item`) and Atom 1.0 (`feed > entry`) detected
+  by the root element; every item → `List<FeedItem>{title, link,
+  published, summary, id}`; a missing field is the EMPTY string
+  (fail-closed items — one ragged entry never kills the batch): pubDate
+  falls back to dc:date, published to updated, summary to content, guid
+  to link; the Atom link prefers `rel="alternate"`. `sitemap_parse(xml)`
+  — the `urlset > url` and `sitemapindex > sitemap` shapes uniformly →
+  `List<SitemapEntry>{loc, lastmod}` (lastmod often absent → "").
+  `xml_parse(xml)` — the general tree → `Struct<XmlNode>{tag, attrs,
+  text, children}`: the local name is CASE-SENSITIVE (XML is), attrs is
+  a Dict (namespace DECLARATIONS are not attributes — the XML5 grammar
+  carries them out-of-band), text is the DIRECT text (normalized,
+  CDATA contributes), children recurses. **Security: DTD and external
+  entities are NEVER expanded** — the XML5 grammar has no custom-entity
+  mechanism, so XXE degrades to literal text and billion-laughs stays
+  bounded (both pinned by explicit negative tests). The loud limits:
+  input ≤ 5 MiB, result ≤ 10 000 nodes, tree depth ≤ 256 (the recursive
+  build must not blow the stack) — all loud, never a silent truncate.
+  EVERY result string carries the untrusted taint (the N2/N5 source
+  lists). The golden pair `examples/n6_feed_parse.mlog(+.expected)` is
+  byte-identical on TW and VM; the default golden sweeps skip it (the
+  №373 parity gate: the xml-gate list joins the frozen capability
+  classes). New blocking CI job `xml-tests` (the off-by-default guard +
+  the feature-on suite + clippy); the feature rides `portable`. The
+  №757 precise compensation IN THE SAME PR: `decrypt` and
+  `reflex_bpe_decode` ship the verified precise `String` facts (227/525
+  = 4323 bp; the floor 4302 → 4323), the parameterized share 76/108 =
+  7037 bp (floor 6893 → 7037), the general 336/525 = 6400 bp, the
+  field-meta 45/47 with `Struct<XmlNode>` carrying the honest
+  all-untrusted labels. REFERENCE + the classification regenerated (522
+  → 525 builtins). 15 tests (14 feature-on + 1 off-feature refusal),
+  RED first. Size: M. Risks: the RSS/Atom real-world variance is wider
+  than the two fixtures (the fail-closed item shape absorbs the ragged
+  forms); XXE hardening is by-grammar + negative-tested.
+- **N5 (gh#1215, PE-2, ADR-0192) — the `html` capability feature:
+  `html_select` / `html_text` / `html_links`, the DOM extraction family
+  the tender agent needs.** Off-by-default behind `html` (html5ever 0.27
+  + markup5ever_rcdom 0.3 + url 2 — MIT/Apache-2.0/Unicode-3.0 only, the
+  №518 license gate verified by the N5-pre probe; the MPL-2.0 `scraper`
+  stack rejected). The registry surface is feature-INDEPENDENT (the N559
+  rhythm): without the feature the three handlers refuse LOUDLY naming
+  ADR-0192, never silently. `html_select(html, css)` returns
+  `List<HtmlMatch>{tag, text, attrs, html}` — the selector subset is
+  tag/`*`/`.class`/`#id`/`[attr]`/`[attr=value]`/descendant/direct-child/
+  comma (anything else a loud parse error naming the subset and the
+  position); document order; attrs is a Dict. `html_text(html, css?)`
+  returns the whitespace-normalized text — script/style subtrees NEVER
+  contribute. `html_links(html, base_url)` returns
+  `List<HtmlLink>{href, text}` — hrefs are ABSOLUTE (the WHATWG
+  resolution via the url crate), only http/https survive, `javascript:`
+  and every other scheme is DROPPED by contract, never an error. The
+  loud limits (fail-loud discipline): input ≤ 5 MiB
+  (`HTML_INPUT_TOO_LARGE` shape — the error names the limit), result ≤
+  10 000 nodes (never a silent truncate). Broken-HTML tolerance is
+  html5ever's spec error-recovery. EVERY result string carries the
+  untrusted taint — the audit/semantic/html-label source lists mirror
+  `request_header` (N2): scraped HTML/text must not reach `respond_html`
+  without the escape/validate step. The golden pair
+  `examples/n5_html_tender.mlog(+.expected)` (the synthetic Cyrillic
+  tender page) is byte-identical on TW and VM (the feature-on contract
+  test H8); the default golden sweeps skip it (the html-gate list, the
+  №373 parity gate re-justified: three sanctioned exclusion classes).
+  New blocking CI job `html-tests` (the off-by-default guard + the
+  feature-on suite + clippy); the feature rides `portable` per the
+  Cargo.toml feature-block rule. REFERENCE + the classification
+  regenerated (519 → 522 builtins); the precise-share fact 4315 → 4310
+  bp (html_text ships precise String; the two coarse `List<...>` rows
+  dilute — the floor raise is the №757 follow-up), the parameterized
+  fact 6893 → 6952 bp. 15 tests (14 feature-on + 1 off-feature
+  refusal), RED first. Size: L. Risks: the minimal selector engine is
+  deliberately NOT a CSS engine (the unsupported syntax is loud);
+  fuzzing on broken HTML rides the existing fuzz-smoke lane.
+- **N8 (gh#1218, PE-2, serve/bug) — the `security_headers` middleware
+  actually applies the protective headers.** The owner's finding: the
+  declaration was VALIDATED (the semantic name check + the "no
+  security_headers" recommendation warning) but never APPLIED — a plain
+  GET showed no CSP, no XCTO, no HSTS. The fix: the middleware applies
+  the three protective headers to EVERY response — the route responses,
+  the axum fallback 404 and the direct-dispatch 404 (the OWASP
+  every-response shape): `Content-Security-Policy: default-src 'self'`,
+  `X-Content-Type-Options: nosniff`,
+  `Strict-Transport-Security: max-age=31536000; includeSubDomains`. The
+  middleware OWNS the set: unconditional inserts, and the `set_header`
+  builtin (N7) does not carry these names — a route cannot override the
+  protective set (the N7 allowlist is the boundary: application headers
+  belong to the route, protective headers belong to the middleware).
+  The opt-in contract is byte-exact: WITHOUT the middleware in the list
+  the headers are ABSENT (pinned by the negative legs). The wire-level
+  contract (the №892 precedent — the defect lived on the wire, not at
+  the builtin): a REAL `run_test_server_with_backend` HTTP round-trip,
+  BOTH serve backends × with/without the middleware × route/404 = 4
+  tests, RED first (the with-middleware legs failed on the missing
+  headers before the fix). REFERENCE documents the applied set + the
+  ownership boundary. Size: S/M. Risks: the CSP baseline
+  (`default-src 'self'`) is strict by design — a route serving inline
+  scripts/styles needs an explicit config conversation, not a silent
+  exception.
+
+- **N3 (gh#1212, PE-1) — the send_message opts + send_photo: the
+  Telegram delivery family grows up.** `send_message(chat_id, text,
+  reply_markup?, opts?)` — the optional last `opts: Struct` carries
+  `parse_mode` (`"HTML"` | `"MarkdownV2"`, anything else loud), `bot`
+  (the bot NAME — the token comes from `TELEGRAM_BOT_TOKEN_<NAME>`, the
+  name uppercased; an explicitly named bot with no token env is a loud
+  error naming the ENV VAR, never a value; without `bot` the legacy
+  `TELEGRAM_BOT_TOKEN` is read), `disable_preview` (maps to the Telegram
+  `disable_web_page_preview`), `chunk` (default TRUE — the text routes
+  through text_chunk, the "paragraph" strategy, budget 4000, overlap 0;
+  every chunk leaves as its own sendMessage call, `reply_markup` rides
+  ONLY the last chunk, `parse_mode` rides every chunk; a text without
+  paragraph boundaries degrades to the hard 4000-char windows), and
+  `retry` `{max_retries, base_delay}` (base_delay in milliseconds, the
+  METALOGOS_HTTP_MIN_INTERVAL_MS convention; a 429 honors the server's
+  retry_after, a 5xx backs off base_delay·2^attempt, BOTH capped at
+  30 s — `metalogos::builtins::TELEGRAM_RETRY_CAP_MS`; up to
+  max_retries (default 3) retries after the initial call; other 4xx are
+  loud immediately). A 3-argument Struct WITHOUT any known opts key
+  stays the legacy `reply_markup` (backward compat by contract). The
+  new `send_photo(chat_id, photo, caption?, opts?)` — the photo is an
+  HTTPS URL or a file_id (the API passthrough), the caption is refused
+  loud beyond 1024 characters BEFORE any wire traffic, `chunk` /
+  `disable_preview` are documented no-ops for a photo. The secret
+  discipline is family-wide: every diagnostic is token-redacted (the
+  reqwest URL Display and a hostile endpoint's echo body carry no token
+  fragments; send_message / send_photo / answer_callback_query /
+  edit_message_text / send_document all redact). The compile gate
+  `TELEGRAM_HTML_INJECTION` (the HTML_INJECTION analogy the naryad
+  pins): untrusted text into the text/caption position with the literal
+  opts `parse_mode: "HTML"` is a Category-A compile error naming the
+  fix (escape_html) — opts-aware, both taint lanes, ordered BEFORE the
+  №325 sink clearance so the shared site names the scenario; the
+  lattice stays the general gate (`MarkdownV2` / opts-less keep
+  `UNTRUSTED_EGRESS_NETWORK`). `METALOGOS_TELEGRAM_API_BASE` overrides
+  the API origin — the test/proxy seam mirroring
+  METALOGOS_OPENAI_BASE_URL (№12). 30 tests
+  (`tests/naryad_n3_send_opts.rs`) over a canned-response Telegram mock
+  (bind → env-lock → serve, early-exit after the expected request
+  count — the parallel-safe mock discipline): the wire shapes, the
+  chunk boundaries + the last-chunk markup, the 429/5xx retry budgets
+  and the 30 s cap, the never-leaks pack, the bot-name env resolution,
+  the loud opts validation, the caption limit boundary (1024/1025),
+  the TW↔VM parity leg, and the compile-gate pack. RED first (23/30
+  behavioral failures on main; the helper-level test did not compile —
+  no such API). Golden pairs: `telegram_send_opts.mlog` (the no-token
+  Unit stubs with opts accepted) +
+  `err_send_photo_caption.mlog` (the off-server caption refusal).
+  REFERENCE regenerated (518 → 519 builtins), the classification row
+  added, the arity export re-blessed, the gate facts synced
+  (fact_precise_share_bp 4324 → 4315 — the precise share is
+  count-stable over a bigger denominator, the goal ratchet 3000 bp
+  untouched). Size: M/L (the largest naryad of PE-1, per the issue);
+  risks: medium — the chunk=true default is an INTENDED behavior
+  change for >4000-char texts (documented), the opts recognition is
+  key-based in the 3-argument position (a Struct without opts keys is
+  a reply_markup — mixed structs are loud), and chunk boundaries may
+  carry a leading paragraph separator (text_chunk keeps separators for
+  lossless reassembly — delivered as-is, v1-min).
+
 - **N4 (gh#1213, PE-1) — the outgoing-HTTP hardening: the host
   allowlist, the User-Agent identity, the per-host pacing, the robots
   politeness gate.** All four egress builtins (`http_get`,
@@ -121,6 +343,48 @@ All notable changes to the Metalogos project.
   query_row / query_scalar / request_body) remain the separate
   owner-decided dictionary-expansion line.
 
+- **N13 (gh#1221, platform-enabler) — reasoning_content: the thinking
+  block never leaves the contour, the usage does.** GLM reasoning
+  models (thinking enabled) answer with `message.reasoning_content`
+  alongside the final `message.content` on the OpenAI-compatible wire.
+  The purity contract is now pinned on all three paths — the
+  non-stream legacy parse, the SmartRouter parse, and the streaming
+  delta extraction (`delta.reasoning_content` yields NO text, only
+  `delta.content` deltas flow): the user sees ONLY the final content,
+  never a reasoning fragment. The usage accounting gap is CLOSED: the
+  legacy (no-`llm config`) path used to drop the provider's usage
+  block on the floor — the trace line carried no token counts at all.
+  Now the usage the provider reported for THIS call
+  (`prompt_tokens` / `completion_tokens`; per the GLM/OpenAI contract
+  `completion_tokens` INCLUDES the reasoning tokens) rides a
+  thread-local from the provider branch into the caller's
+  `METALOGOS_LLM_TRACE` line (`gen_ai.usage.input_tokens` /
+  `gen_ai.usage.output_tokens`), cleared at every RealLlm entry and
+  consumed once — a stale value can never be attributed to a later
+  call; a response without a usage block stays honestly absent.
+  Verified-loud edge: a reasoning-only response with `content: null`
+  (the answer cut mid-reasoning) fails with the loud
+  `Unexpected OpenAI response format` error — never a silent empty
+  string. A plain response without a reasoning block is unchanged.
+
+- **N12 (gh#1220, platform-enabler) — per-call model choice on
+  `call_llm`:** the builtin grows an optional third String argument —
+  `call_llm(prompt, input, model)` — naming the model for THIS call:
+  a direct provider model name (`"glm-5.3"`) or a named profile alias
+  resolved via `METALOGOS_LLM_MODEL_{ALIAS}` (the ADR-0048
+  `resolve_model` order: env profile first, pass-through second). The
+  override rides BOTH call paths — the SmartRouter `model_override`
+  slot and the legacy backend's `call_with_model` (ADR-0048) — so
+  `glm-5.3-flash` and `glm-5.3` work in ONE process (the owner's
+  platform decision: the primary default is `glm-5.3-flash`). The
+  legacy-path LLM trace names the model THIS call actually asked for
+  (override first, env default second — honest per-call data, №276).
+  Two-argument calls are byte-for-byte unchanged (the default leg is
+  pinned by a test). A non-String third argument is a loud
+  argument-type error, never a silent ignore. Registry arity 1..2 →
+  1..3; REFERENCE §4.5 + the env-var table (METALOGOS_LLM_PROVIDER /
+  METALOGOS_LLM_MODEL / METALOGOS_LLM_MODEL_{ALIAS}) updated.
+
 - **№669 (gh#1184) — the typing movement 0.31 №1 (docs-adjacent,
   registry-locked; the behavior unchanged):** the forecast/graph
   untyped package — 4 of 6 registry rows get honest signatures against
@@ -177,20 +441,46 @@ All notable changes to the Metalogos project.
 ### Fixed
 
 
-- **N0 (gh#1209, PE-1) — the onX lint word boundary (the
-  `detect_xss_payload` false positive, `svg_security_lint`):** the
-  `on` prefix now must sit at a WORD BOUNDARY (the previous byte is
-  not [A-Za-z0-9_-]) — `<meta content="x">` no longer matches as an
-  `onX=` event handler (the false positive that flagged every page
-  carrying a meta/content attribute). Symmetrically, optional
-  spaces/tabs between the handler name and `=` are now allowed by the
-  matcher: `<div onLoad = "x">` IS still blocked (before the fix the
-  `=` was required immediately after the letters and this slipped
-  through). The real cases stay blocked (`<a onclick="x">`,
-  `<img onerror=x>`). Four tests in `tests/svg_security_lint.rs` +
-  two golden pairs (`examples/n0_onx_meta_content` .expected — the
-  clean pass, `examples/n0_onx_space_eq_error` .error — the block).
-  Size: S; risks: low (the leak-suite regression set stays green).
+- **№684 (gh#1244, В43 nuclear — VM tool-method resolution):** a
+  `tool` method call (`calc.double(21.0)`) now COMPILES and RUNS on
+  the VM — before the fix the bytecode pipeline refused every
+  qualified tool call (`error: compile: qualified call
+  'calc.double()' — not found`) while `mlog check` passed and the
+  tree-walking backend returned `42` (the В42 no-progress flag,
+  gh#1233 comment 6146003277). The compiler now follows ADR-0054
+  Implementation Strategy verbatim: tool methods compile as REGULAR
+  patterns under qualified keys (`tool.method`) into the existing
+  `Program::patterns` table (both passes walk `all_decls`
+  top-to-bottom, so the №415 positional contract holds; no new
+  opcode, the .mbc schema is untouched — a tool call never compiled
+  before, so old files are unaffected), and the `Expr::QualifiedCall`
+  resolve gains the tool-namespace branch that mirrors the
+  interpreter's dispatch order EXACTLY (execution.rs): runtime-op
+  intercepts and plain builtins resolve BY FUNCTION NAME first
+  (plain builtins shadow tool methods on TW — pinned by contract),
+  then the qualified method, then a loud
+  `compile: undefined method '<m>' in tool '<t>'` — never a
+  fallthrough to flat patterns / the global-builtin fallback (TW
+  would not reach those either). Two latent compiler holes closed on
+  the way: the QualifiedCall arm never emitted its ARGUMENTS (no
+  example in examples/ used qualified calls, so the gap was
+  unreachable until the tool branch made them reachable — the flag's
+  literal `21.0` arg exposed it on the first run), and the
+  arity/purity metadata now rides the same `CompiledFn` shape as
+  ordinary patterns. 13 both-backend contracts in
+  `tests/tool_abstraction_contract.rs` (the 9 ADR-0054 contracts get
+  their VM leg + the flag's minimal repro as the golden pair
+  `42 == 42` + the shadowing/intercept mirrors); crosscheck,
+  naryad_373_parity_gate, vm_golden, golden, conformance and the
+  866-test lib suite stay green. Known pre-existing residue (out of
+  scope, flagged): the wrong-typed `query()` diagnostic suffix
+  diverges between the TW and VM db-op dispatch paths
+  (db_ops.rs:139 vs :702) — reachable through plain calls long
+  before this fix; behavioral parity is contract-pinned. Size: M;
+  risks: low (the tool branch is gated on declared tool names; the
+  resolution order mirrors the interpreter, so no new backend
+  divergence). Unlocks the showcase App C (№682) after the next
+  pinned release.
 
 
 ## [0.30.1] - 2026-10-12

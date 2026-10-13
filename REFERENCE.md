@@ -1836,6 +1836,8 @@ Available middleware: `session`, `csrf`, `security_headers`.
 
 The `csrf` middleware enforces the double-submit pattern STRICTLY (naryad #262): a mutating request (POST/PUT/DELETE) must carry the `_mlog_csrf` cookie AND the matching `X-CSRF-Token` header, and the token must have been ISSUED by this server process (GET responses set the cookie; the token store is process-local, so a restart invalidates outstanding tokens — the request gets 403 «CSRF token validation failed» and a page reload re-issues a fresh token). The token is bound to the session it was issued for: a session-bound token presented with a foreign or missing session is rejected with 403 «CSRF session binding mismatch» (an audit entry is written); a token issued without a session is valid only for sessionless requests. The token TTL is 15 minutes (expired → 403, re-issued on the next GET).
 
+The `security_headers` middleware applies the three PROTECTIVE headers to EVERY response — the route responses, the fall-through 404 and the direct-dispatch 404 (the OWASP every-response shape; Naryad N8, gh#1218): `Content-Security-Policy: default-src 'self'`, `X-Content-Type-Options: nosniff`, `Strict-Transport-Security: max-age=31536000; includeSubDomains`. The middleware OWNS this set: the values are unconditional inserts, and the `set_header` builtin (N7) does not carry these names — a route cannot override the protective set, only the middleware can (the N7 allowlist marks the boundary: the application headers belong to the route, the protective headers belong to the middleware).
+
 ### 5.7. Template (an HTML template)
 
 ```mlog

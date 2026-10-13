@@ -45,6 +45,32 @@ All notable changes to the Metalogos project.
   deliberately NOT a CSS engine (the unsupported syntax is loud);
   fuzzing on broken HTML rides the existing fuzz-smoke lane.
 
+- **N8 (gh#1218, PE-2, serve/bug) — the `security_headers` middleware
+  actually applies the protective headers.** The owner's finding: the
+  declaration was VALIDATED (the semantic name check + the "no
+  security_headers" recommendation warning) but never APPLIED — a plain
+  GET showed no CSP, no XCTO, no HSTS. The fix: the middleware applies
+  the three protective headers to EVERY response — the route responses,
+  the axum fallback 404 and the direct-dispatch 404 (the OWASP
+  every-response shape): `Content-Security-Policy: default-src 'self'`,
+  `X-Content-Type-Options: nosniff`,
+  `Strict-Transport-Security: max-age=31536000; includeSubDomains`. The
+  middleware OWNS the set: unconditional inserts, and the `set_header`
+  builtin (N7) does not carry these names — a route cannot override the
+  protective set (the N7 allowlist is the boundary: application headers
+  belong to the route, protective headers belong to the middleware).
+  The opt-in contract is byte-exact: WITHOUT the middleware in the list
+  the headers are ABSENT (pinned by the negative legs). The wire-level
+  contract (the №892 precedent — the defect lived on the wire, not at
+  the builtin): a REAL `run_test_server_with_backend` HTTP round-trip,
+  BOTH serve backends × with/without the middleware × route/404 = 4
+  tests, RED first (the with-middleware legs failed on the missing
+  headers before the fix). REFERENCE documents the applied set + the
+  ownership boundary. Size: S/M. Risks: the CSP baseline
+  (`default-src 'self'`) is strict by design — a route serving inline
+  scripts/styles needs an explicit config conversation, not a silent
+  exception.
+
 - **N3 (gh#1212, PE-1) — the send_message opts + send_photo: the
   Telegram delivery family grows up.** `send_message(chat_id, text,
   reply_markup?, opts?)` — the optional last `opts: Struct` carries

@@ -162,7 +162,8 @@ fn walk(
                     // scraped HTML/text must not reach respond_html silent:
                     // the sink gate asks for the escape/validate step.
                     "form_data" | "json_body" | "query_param" | "request_header" | "mcp_call"
-                    | "html_select" | "html_text" | "html_links" => {
+                    | "html_select" | "html_text" | "html_links" | "feed_parse"
+                    | "sitemap_parse" | "xml_parse" => {
                         return Some(user_input_type());
                     }
                     _ => {}

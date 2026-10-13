@@ -104,3 +104,16 @@
 # precise: 222
 # total: 516
 # threshold_bp: 4302
+
+# 2026-10-13 N6 (gh#1216, волна #1222 PE-2): the xml feature ships 3
+# typed-but-coarse List<...> rows (feed_parse, sitemap_parse, xml_parse)
+# — the dilution is compensated IN THE SAME PR per the №591/№757
+# procedure by the verified precise typing of decrypt and
+# reflex_bpe_decode ("String" — the single-shape handler facts: the ONLY
+# Ok arm is Value::String in both; the №616 verification procedure).
+# 225/522 → 227/525; (227*10000)//525 = 4323 bp (+21 bp, and it absorbs
+# the N5-followup 4310 mark). The floor rises in the same PR per the
+# №757 procedure; the PRECISE_TYPES definition is untouched.
+# precise: 227
+# total: 525
+# threshold_bp: 4323

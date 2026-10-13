@@ -241,6 +241,9 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("html_select", 2, "web"; builtin_html_select, "List<HtmlMatch>"), // N5 (gh#1215, ADR-0192): the DOM extraction — every element matching the comma-separated selector group
     spec!("html_text", 1, 2, "web"; builtin_html_text, "String"), // N5 (gh#1215, ADR-0192): the normalized text — script/style never contribute; the optional selector narrows the scope
     spec!("html_links", 2, "web"; builtin_html_links, "List<HtmlLink>"), // N5 (gh#1215, ADR-0192): the absolute http/https links — javascript: and every other scheme is DROPPED by contract
+    spec!("feed_parse", 1, "web"; builtin_feed_parse, "List<FeedItem>"), // N6 (gh#1216, ADR-0192): RSS 2.0 / Atom 1.0 — the missing field is the EMPTY string (fail-closed items), DTD/entities never expanded
+    spec!("sitemap_parse", 1, "web"; builtin_sitemap_parse, "List<SitemapEntry>"), // N6 (gh#1216, ADR-0192): the urlset/sitemapindex shapes uniformly
+    spec!("xml_parse", 1, "web"; builtin_xml_parse, "Struct<XmlNode>{tag:untrusted,attrs:untrusted,text:untrusted,children:untrusted}"), // N6 (gh#1216, ADR-0192): the general XML tree — every field derives from the untrusted document; depth ≤ 256, nodes ≤ 10 000, both loud
     // №523: the 2..3 range is NOMINAL — render's real contract is dynamic
     // (the template's parameter list is data, №115; the 1-arg form is the
     // №448 taint-lift surface). The builtin validates loudly at runtime;
@@ -276,7 +279,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("verify_password", 2, "crypto"; builtin_verify_password, "Bool"),
     spec!("ct_eq", 2, "crypto"; builtin_ct_eq, "Bool"), // N2 (gh#1211): constant-time string equality — the secret-comparison builtin (no `==` timing leak)
     spec!("encrypt", 2, "crypto"; builtin_encrypt),
-    spec!("decrypt", 2, "crypto"; builtin_decrypt),
+    spec!("decrypt", 2, "crypto"; builtin_decrypt, "String"), // №757 precise movement (N6, gh#1216): the compensation package — the verified single-shape handler fact (the ONLY Ok arm is Value::String(s) — the UTF-8 plaintext)
     spec!("generate_key", 0, "crypto"; builtin_generate_key),
     spec!("base64_encode", 1, "encoding"; builtin_base64_encode, "String"),
     spec!("base64_decode", 1, "encoding"; builtin_base64_decode, "String"),
@@ -776,7 +779,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // ── Наряд №195: BPE tokenization ──
     spec!("reflex_bpe_train", 2, "reflex"; builtin_reflex_bpe_train),
     spec!("reflex_bpe_encode", 2, "reflex"; builtin_reflex_bpe_encode),
-    spec!("reflex_bpe_decode", 2, "reflex"; builtin_reflex_bpe_decode),
+    spec!("reflex_bpe_decode", 2, "reflex"; builtin_reflex_bpe_decode, "String"), // №757 precise movement (N6, gh#1216): the compensation package — the verified single-shape handler fact (the ONLY Ok arm is Value::String(text))
     spec!("reflex_bpe_save", 1, "reflex"; builtin_reflex_bpe_save, "Unit"),
     spec!("reflex_bpe_load", 1, "reflex"; builtin_reflex_bpe_load),
     // ── Vision pillar (Наряд №210, ADR-0124) ──

@@ -1,0 +1,42 @@
+// Naryad N6 (gh#1216, ADR-0192): the `xml` feature — the feed parsing
+// family. The synthetic Cyrillic RSS 2.0 feed (CDATA, the ragged item)
+// is parsed by feed_parse; sitemap_parse and xml_parse run on the
+// urlset shape. The golden contract: TW and VM produce the IDENTICAL
+// output (tests/naryad_n6_xml_builtins.rs::n6_golden_pair_tw_and_vm_
+// identical pins both). The example runs ONLY with the xml feature on
+// (`cargo test --features xml`); the default golden suites skip it
+// (the n5_html_tender precedent).
+//
+// DTD and external entities are NEVER expanded (XXE-safe by the XML5
+// grammar) — the negative legs live in the integration test.
+
+pattern Digest(feed: String) -> String {
+  // 1. feed_parse: the items — the count, then the FIRST item's fields
+  //    (the ragged second item answers empty fields, fail-closed).
+  let items = feed_parse(feed)
+  let first = items[0]
+
+  // 2. sitemap_parse: the urlset entries — the count and the first loc.
+  let map = "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\"><url><loc>https://gov.example.by/</loc><lastmod>2026-10-01</lastmod></url><url><loc>https://gov.example.by/lots</loc></url></urlset>"
+  let urls = sitemap_parse(map)
+  let loc0 = urls[0].loc
+
+  // 3. xml_parse: the general tree over the feed — the root tag and
+  //    the version attr (namespace DECLARATIONS are not attributes:
+  //    the XML5 grammar carries them out-of-band, the honest shape).
+  let tree = xml_parse(feed)
+  let ver = json_get(tree.attrs, "version")
+
+  return to_string(length(items)) + " items | t1=" + first.title
+    + " | link=" + first.link
+    + " | pub=" + first.published
+    + " | id=" + first.id
+    + " | urls=" + to_string(length(urls))
+    + " | loc0=" + loc0
+    + " | root=" + tree.tag
+    + " | ver=" + ver
+}
+
+flow Main {
+  input: String = "<rss version=\"2.0\"><channel><item><title><![CDATA[Поставка канцелярии]]></title><link>https://tender.example.by/lots/1</link><pubDate>Mon, 12 Oct 2026 09:00:00 +0300</pubDate><description>Лот №1</description><guid>lot-1</guid></item><item><title>Ремонт фасада</title><link>https://tender.example.by/lots/2</link></item></channel></rss>" -> Digest -> output
+}

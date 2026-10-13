@@ -258,3 +258,11 @@
 # typed: 322
 # total: 516
 # threshold_bp: 6240
+
+# 2026-10-13 N6 (gh#1216, волна #1222 PE-2): the xml rows (3 typed
+# List/Struct) + the №757 precise compensation (decrypt, reflex_bpe_decode
+# — the verified single-shape String facts). 331/522 → 336/525;
+# (336*10000)//525 = 6400 bp. Only-up (№757), raised in the same PR.
+# typed: 336
+# total: 525
+# threshold_bp: 6400

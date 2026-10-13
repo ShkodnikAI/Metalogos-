@@ -139,6 +139,10 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
                         // html-tests CI job + the dedicated contract test.
                         continue;
                     }
+                    if XML_GATED_EXAMPLES.contains(&file_name) {
+                        // ADR-0192 (N6): the xml-feature gate — same lane.
+                        continue;
+                    }
                     if stem.starts_with("p7_") {
                         continue; // Tracked separately in golden.rs::p7_contract_visibility
                     }
@@ -235,6 +239,12 @@ const CANDLE_GATED_EXAMPLES: &[&str] = &[
 /// runs the pair on BOTH backends and pins the byte-identity (the
 /// naryad's DOD). The html-tests CI job is the feature-on lane.
 const HTML_GATED_EXAMPLES: &[&str] = &["n5_html_tender.mlog"];
+
+/// ADR-0192 (N6, gh#1216): the xml-feature golden pair — same lane as
+/// the html pair above; the xml-tests CI job + the n6 contract test
+/// (tests/naryad_n6_xml_builtins.rs::n6_golden_pair_tw_and_vm_identical)
+/// run it on BOTH backends with the feature on.
+const XML_GATED_EXAMPLES: &[&str] = &["n6_feed_parse.mlog"];
 
 #[test]
 fn p4_vm_hello_matches_tw() {

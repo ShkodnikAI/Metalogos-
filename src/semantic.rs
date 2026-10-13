@@ -942,7 +942,10 @@ fn label_source(fn_name: &str, args: &[Expr], env: &BTreeMap<String, Label>) -> 
             Some(kind_label("LlmOutput"))
         }
         // Untrusted-input sources (№268: MCP tool output reuses UserInput).
-        "form_data" | "json_body" | "query_param" | "mcp_call" => Some(kind_label("UserInput")),
+        // N2 (gh#1211): request_header — the same untrusted request lane.
+        "form_data" | "json_body" | "query_param" | "request_header" | "mcp_call" => {
+            Some(kind_label("UserInput"))
+        }
         // №325: network ingress and file ingress are untrusted sources —
         // the sink-clearance gate needs their labels to attribute
         // UNTRUSTED_EGRESS_* classes (ADR-0161 §3).
@@ -981,6 +984,24 @@ fn label_source(fn_name: &str, args: &[Expr], env: &BTreeMap<String, Label>) -> 
         "http_get" | "read_file" => Some(kind_label("UserInput")),
         // Sanitizers restore trust.
         "render" | "escape_html" => Some(kind_label("Sanitized")),
+        // N2 (gh#1211): ct_eq — the constant-time comparison verdict.
+        // The INTEGRITY is restored (the verdict is the "validate before
+        // decide" data the №327 decision gate asks for — comparing an
+        // untrusted token against the expected secret IS the
+        // validation). The CONFIDENTIALITY is the join of the arguments
+        // (the 1-bit answer is still derived from the compared values —
+        // a verdict over private material stays private for egress,
+        // mirroring verify_password's Secret classification).
+        "ct_eq" => {
+            let joined = args
+                .iter()
+                .fold(Label::bottom(), |acc, a| acc.join(&expr_label(a, env)));
+            Some(Label {
+                conf: joined.conf,
+                integrity: crate::labels::Integrity::Trusted,
+                consent: joined.consent,
+            })
+        }
         // №274 (ADR-0136): redact masks secrets — the ONLY downward move
         // for `private` until №326 formalizes redact/declassify. Semantics:
         // mode "secrets"/"all" maps private → public/trusted; every other

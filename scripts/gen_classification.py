@@ -370,6 +370,8 @@ OVERRIDES = {
     "form_data": ("Source", "Internal", "Pure", "ingests untrusted user form input — UserInput taint (№201 vocabulary)"),
     "json_body": ("Source", "Internal", "Pure", "ingests untrusted request body — UserInput taint"),
     "query_param": ("Source", "Internal", "Pure", "ingests untrusted request query parameter — UserInput taint"),
+    "request_header": ("Source", "Internal", "Pure", "ingests the untrusted request header (N2, gh#1211) — UserInput taint"),
+    "ct_eq": ("Pure", "Internal", "Pure", "constant-time string equality (N2, gh#1211) — the accumulator never short-circuits on a differing byte"),
     "request_body": ("Source", "Internal", "Pure", "alias of json_body — untrusted request body ingress"),
     "redact": ("Lift", "Public", "Pure", "taint-sanitizer — removes Secret taint (mask before sink, ADR-0136; audit.rs redact_result_taint)"),
     "escape_html": ("Lift", "Public", "Pure", "HTML-escapes its input — taint-sanitizer per audit.rs (Sanitized)"),

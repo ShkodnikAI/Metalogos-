@@ -6,6 +6,36 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **N2 (gh#1211, PE-1) — `request_header(name)` + `ct_eq(a, b)`: the
+  webhook-secret builtins:** `request_header` reads a request header
+  from the current route body by a case-insensitive name (the server
+  injects the per-request `HeaderMap` with lowercased names on BOTH
+  backends; multi-value headers join with `", "`); an absent header or
+  a missing route context answers the empty string — the query_param
+  №40 parity contract, so a secret check fails CLOSED off the server
+  instead of erroring. The result carries `UserInput` taint (the
+  semantic/audit/html-label source lists). `ct_eq` is the
+  constant-time string equality for secret comparisons: the XOR/OR
+  accumulator never short-circuits on a differing byte (no `==`
+  prefix-timing leak; the length check leaves only public metadata out
+  of the accumulator path). The verdict restores INTEGRITY for
+  decisions (comparing an untrusted token against the expected secret
+  IS the validate-before-decide step the №327 gate asks for) while its
+  CONFIDENTIALITY follows the compared values (a verdict over private
+  material stays private for egress). The canonical example
+  `examples/telegram_webhook_secret.mlog` pins the Telegram
+  `X-Telegram-Bot-Api-Secret-Token` check shape. REFERENCE regenerated
+  (curated §4 crypto/web rows + the generated index, 516 → 518).
+  16 tests: `tests/n2_request_header_ct_eq.rs` (10 — the off-server
+  shape, the ct_eq correctness table, the loud arg errors, TW↔VM
+  parity) and `metalogos-server/tests/naryad_n2_request_header.rs`
+  (6 — the live-header route surface on both backends with the strict
+  TW↔VM cross-check). RED first. Size: M; risks: low-medium — two new
+  builtins (no existing surface touched), the taint-lane additions
+  mirror the query_param source treatment verbatim, and the ct_eq
+  sanitizer semantics are the verify_password mirror (integrity
+  restored, confidentiality preserved).
+
 - **№670 (gh#1185) — the specification topic 3 «Errors and the try
   result» (docs/spec/errors.md — docs-only, the behavior is RECORDED,
   not changed):** six norms S-ERR-001…006 pin the existing try machinery

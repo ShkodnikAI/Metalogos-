@@ -122,6 +122,10 @@ pub struct Vm {
     /// Path parameters extracted from a templated route (Наряд №283).
     /// Parity with server_query_params — `server_path_param(name)` builtin.
     server_path_params: Option<std::collections::HashMap<String, String>>,
+    /// N2 (gh#1211): per-request request headers, names LOWERCASED
+    /// (injected by server before route execution). Parity with
+    /// server_query_params — the `request_header(name)` builtin.
+    server_request_headers: Option<std::collections::HashMap<String, String>>,
     /// User roles for RBAC (injected by server before route execution).
     server_user_roles: Vec<String>,
     /// Наряд №72: Conversations storage (ADR-0053 parity with interpreter).
@@ -367,6 +371,7 @@ impl Vm {
             server_json_body: None,
             server_query_params: None,
             server_path_params: None,
+            server_request_headers: None,
             server_user_roles: Vec::new(),
             conversations: std::sync::Mutex::new(HashMap::new()),
             conversation_config: ConversationConfig::default(),
@@ -2539,6 +2544,14 @@ impl Vm {
             ));
         }
 
+        // N2 (gh#1211): request_header(name) — the per-request header
+        // lookup. The shared body (src/runtime_ops.rs) over the identical
+        // Option<HashMap> state (the server stores LOWERCASED names; an
+        // absent header / missing context → empty string).
+        if name == crate::runtime_ops::NAME_REQUEST_HEADER {
+            return crate::runtime_ops::request_header(self.server_request_headers.as_ref(), args);
+        }
+
         if name == crate::runtime_ops::NAME_JSON_BODY {
             // №466 group 7: the shared body (src/runtime_ops.rs).
             return Ok(crate::runtime_ops::json_body(
@@ -3872,6 +3885,16 @@ impl Vm {
         self.server_path_params = Some(params);
     }
 
+    /// N2 (gh#1211): set the per-request headers (names LOWERCASED by
+    /// the server). Parity with `set_server_query_params` — the
+    /// `request_header(name)` builtin reads from this map.
+    pub fn set_server_request_headers(
+        &mut self,
+        headers: std::collections::HashMap<String, String>,
+    ) {
+        self.server_request_headers = Some(headers);
+    }
+
     /// Set user roles for RBAC (Наряд №40: VM server backend).
     pub fn set_server_user_roles(&mut self, roles: Vec<String>) {
         self.server_user_roles = roles;
@@ -3882,6 +3905,7 @@ impl Vm {
         self.server_json_body = None;
         self.server_query_params = None;
         self.server_path_params = None;
+        self.server_request_headers = None;
         self.server_user_roles = Vec::new();
     }
 
@@ -4341,6 +4365,7 @@ mod n403_reset_tests {
             server_json_body,
             server_query_params,
             server_path_params,
+            server_request_headers,
             server_user_roles,
             conversations,
             conversation_config,
@@ -4388,6 +4413,7 @@ mod n403_reset_tests {
             server_json_body,
             server_query_params,
             server_path_params,
+            server_request_headers,
             server_user_roles,
             conversations,
             conversation_config,

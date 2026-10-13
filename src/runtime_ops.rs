@@ -48,6 +48,7 @@ pub const NAME_FIND: &str = "find";
 pub const NAME_FIT_TO_BUDGET: &str = "fit_to_budget";
 pub const NAME_INSPECT: &str = "inspect";
 pub const NAME_JSON_BODY: &str = "json_body";
+pub const NAME_REQUEST_HEADER: &str = "request_header";
 pub const NAME_REQUIRE: &str = "require";
 pub const NAME_RESOLVE_SKILL_INDEX: &str = "resolve_skill_index";
 pub const NAME_SERVER_PATH_PARAM: &str = "server_path_param";
@@ -63,6 +64,7 @@ pub fn handles(name: &str) -> bool {
             | NAME_FIT_TO_BUDGET
             | NAME_INSPECT
             | NAME_JSON_BODY
+            | NAME_REQUEST_HEADER
             | NAME_REQUIRE
             | NAME_RESOLVE_SKILL_INDEX
             | NAME_SERVER_PATH_PARAM
@@ -114,6 +116,39 @@ pub fn json_body(server_json_body: Option<&Value>) -> Value {
         type_name: "JsonBody".to_string(),
         fields: HashMap::new(),
     }
+}
+
+// ── request_header (N2, gh#1211) ───────────────────────────────────
+
+/// `request_header(name)` — the shared body over the identical
+/// `Option<HashMap>` state (N2, gh#1211). The server injects the
+/// per-request headers with LOWERCASED names, so the lookup lowercases
+/// the argument — the name match is case-insensitive (HTTP header
+/// semantics). An ABSENT header or a MISSING context yields the empty
+/// string (the query_param №40 parity contract — a webhook secret
+/// check fails closed off the server, it does not error). A non-String
+/// first argument is a LOUD error (the №514 loud-conversion convention
+/// — a new builtin has no historical shape to preserve).
+pub fn request_header(
+    headers: Option<&HashMap<String, String>>,
+    args: &[Value],
+) -> Result<Value, String> {
+    let header_name = match args.first() {
+        Some(Value::String(s)) => s.to_ascii_lowercase(),
+        Some(other) => {
+            return Err(format!(
+                "request_header() expected String, got {}",
+                other.type_name()
+            ))
+        }
+        None => return Err("request_header() requires 1 argument (header name)".to_string()),
+    };
+    if let Some(headers) = headers {
+        if let Some(val) = headers.get(&header_name) {
+            return Ok(Value::String(val.clone()));
+        }
+    }
+    Ok(Value::String(String::new()))
 }
 
 // ── server_path_param (№283) ────────────────────────────────────────

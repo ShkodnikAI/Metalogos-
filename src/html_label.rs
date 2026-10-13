@@ -157,7 +157,8 @@ fn walk(
                     // №268 (ADR-0132 D3): the user-form kinds — the
                     // UserInput mirror (Private-labeled: silent here,
                     // distinguishable in propagation).
-                    "form_data" | "json_body" | "query_param" | "mcp_call" => {
+                    // N2 (gh#1211): request_header — the same lane.
+                    "form_data" | "json_body" | "query_param" | "request_header" | "mcp_call" => {
                         return Some(user_input_type());
                     }
                     _ => {}
@@ -187,6 +188,16 @@ fn walk(
                     None
                 } else {
                     Some(Type::String)
+                };
+            }
+            // N2 (gh#1211): ct_eq — the comparison verdict never walks as
+            // untrusted (the integrity is restored; the label engine in
+            // semantic.rs carries the conf nuance). The verdict is a Bool.
+            if name == "ct_eq" {
+                return if mode == WalkMode::Sink {
+                    None
+                } else {
+                    Some(Type::Bool)
                 };
             }
             // №274 (ADR-0136): redact passes the input's state through

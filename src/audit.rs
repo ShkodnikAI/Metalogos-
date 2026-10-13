@@ -1383,8 +1383,9 @@ fn check_telegram_html_injection(
         findings: &mut Vec<AuditFinding>,
     ) {
         // The combined label environment: the typed LLM lane (the
-        // html_vars mirror of check_html_injection) AND the UserInput
-        // taint tracker (the mirror of the tracker-lane checks).
+        // html_vars env the check_html_injection walker keeps) AND the
+        // UserInput taint tracker (the same question the tracker-lane
+        // checks ask).
         let mut html_vars: std::collections::HashMap<String, Type> =
             std::collections::HashMap::new();
         let mut tracker = TaintTracker::new();

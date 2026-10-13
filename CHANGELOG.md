@@ -41,6 +41,31 @@ All notable changes to the Metalogos project.
   integration + 2 server-boundary), RED first. Size: M. Risks: the
   allowlist is deliberately narrow (a need outside the five names is an
   explicit ADR conversation, not a silent widen).
+- **N8 (gh#1218, PE-2, serve/bug) — the `security_headers` middleware
+  actually applies the protective headers.** The owner's finding: the
+  declaration was VALIDATED (the semantic name check + the "no
+  security_headers" recommendation warning) but never APPLIED — a plain
+  GET showed no CSP, no XCTO, no HSTS. The fix: the middleware applies
+  the three protective headers to EVERY response — the route responses,
+  the axum fallback 404 and the direct-dispatch 404 (the OWASP
+  every-response shape): `Content-Security-Policy: default-src 'self'`,
+  `X-Content-Type-Options: nosniff`,
+  `Strict-Transport-Security: max-age=31536000; includeSubDomains`. The
+  middleware OWNS the set: unconditional inserts, and the `set_header`
+  builtin (N7) does not carry these names — a route cannot override the
+  protective set (the N7 allowlist is the boundary: application headers
+  belong to the route, protective headers belong to the middleware).
+  The opt-in contract is byte-exact: WITHOUT the middleware in the list
+  the headers are ABSENT (pinned by the negative legs). The wire-level
+  contract (the №892 precedent — the defect lived on the wire, not at
+  the builtin): a REAL `run_test_server_with_backend` HTTP round-trip,
+  BOTH serve backends × with/without the middleware × route/404 = 4
+  tests, RED first (the with-middleware legs failed on the missing
+  headers before the fix). REFERENCE documents the applied set + the
+  ownership boundary. Size: S/M. Risks: the CSP baseline
+  (`default-src 'self'`) is strict by design — a route serving inline
+  scripts/styles needs an explicit config conversation, not a silent
+  exception.
 
 - **N3 (gh#1212, PE-1) — the send_message opts + send_photo: the
   Telegram delivery family grows up.** `send_message(chat_id, text,
@@ -296,20 +321,46 @@ All notable changes to the Metalogos project.
 ### Fixed
 
 
-- **N0 (gh#1209, PE-1) — the onX lint word boundary (the
-  `detect_xss_payload` false positive, `svg_security_lint`):** the
-  `on` prefix now must sit at a WORD BOUNDARY (the previous byte is
-  not [A-Za-z0-9_-]) — `<meta content="x">` no longer matches as an
-  `onX=` event handler (the false positive that flagged every page
-  carrying a meta/content attribute). Symmetrically, optional
-  spaces/tabs between the handler name and `=` are now allowed by the
-  matcher: `<div onLoad = "x">` IS still blocked (before the fix the
-  `=` was required immediately after the letters and this slipped
-  through). The real cases stay blocked (`<a onclick="x">`,
-  `<img onerror=x>`). Four tests in `tests/svg_security_lint.rs` +
-  two golden pairs (`examples/n0_onx_meta_content` .expected — the
-  clean pass, `examples/n0_onx_space_eq_error` .error — the block).
-  Size: S; risks: low (the leak-suite regression set stays green).
+- **№684 (gh#1244, В43 nuclear — VM tool-method resolution):** a
+  `tool` method call (`calc.double(21.0)`) now COMPILES and RUNS on
+  the VM — before the fix the bytecode pipeline refused every
+  qualified tool call (`error: compile: qualified call
+  'calc.double()' — not found`) while `mlog check` passed and the
+  tree-walking backend returned `42` (the В42 no-progress flag,
+  gh#1233 comment 6146003277). The compiler now follows ADR-0054
+  Implementation Strategy verbatim: tool methods compile as REGULAR
+  patterns under qualified keys (`tool.method`) into the existing
+  `Program::patterns` table (both passes walk `all_decls`
+  top-to-bottom, so the №415 positional contract holds; no new
+  opcode, the .mbc schema is untouched — a tool call never compiled
+  before, so old files are unaffected), and the `Expr::QualifiedCall`
+  resolve gains the tool-namespace branch that mirrors the
+  interpreter's dispatch order EXACTLY (execution.rs): runtime-op
+  intercepts and plain builtins resolve BY FUNCTION NAME first
+  (plain builtins shadow tool methods on TW — pinned by contract),
+  then the qualified method, then a loud
+  `compile: undefined method '<m>' in tool '<t>'` — never a
+  fallthrough to flat patterns / the global-builtin fallback (TW
+  would not reach those either). Two latent compiler holes closed on
+  the way: the QualifiedCall arm never emitted its ARGUMENTS (no
+  example in examples/ used qualified calls, so the gap was
+  unreachable until the tool branch made them reachable — the flag's
+  literal `21.0` arg exposed it on the first run), and the
+  arity/purity metadata now rides the same `CompiledFn` shape as
+  ordinary patterns. 13 both-backend contracts in
+  `tests/tool_abstraction_contract.rs` (the 9 ADR-0054 contracts get
+  their VM leg + the flag's minimal repro as the golden pair
+  `42 == 42` + the shadowing/intercept mirrors); crosscheck,
+  naryad_373_parity_gate, vm_golden, golden, conformance and the
+  866-test lib suite stay green. Known pre-existing residue (out of
+  scope, flagged): the wrong-typed `query()` diagnostic suffix
+  diverges between the TW and VM db-op dispatch paths
+  (db_ops.rs:139 vs :702) — reachable through plain calls long
+  before this fix; behavioral parity is contract-pinned. Size: M;
+  risks: low (the tool branch is gated on declared tool names; the
+  resolution order mirrors the interpreter, so no new backend
+  divergence). Unlocks the showcase App C (№682) after the next
+  pinned release.
 
 
 ## [0.30.1] - 2026-10-12

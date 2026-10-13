@@ -1484,7 +1484,16 @@ fn build_router(state: ServerState) -> Router {
     // naryad_160 block2_vm_404_unknown_route — status 404, body ""). The
     // fallback is backend-agnostic (shared router: Interpreter AND VM), so
     // TW/VM parity is preserved (block4_tw_vs_vm_404 stays green).
-    app = app.fallback(|| async { (StatusCode::NOT_FOUND, "404 Not Found").into_response() });
+    // N8 (gh#1218): the fallback 404 rides the security_headers
+    // middleware too — the every-response shape (the OWASP baseline is
+    // not just the happy path).
+    app = app.fallback(|State(state): State<ServerState>| async move {
+        let mut response = (StatusCode::NOT_FOUND, "404 Not Found").into_response();
+        if state.middleware.contains(&"security_headers".to_string()) {
+            response = apply_security_headers(response);
+        }
+        response
+    });
 
     app.with_state(state)
 }
@@ -1643,10 +1652,64 @@ async fn route_handler(
             response = apply_canary_middleware(response, &state).await;
         }
 
+        // N8 (gh#1218): the security_headers middleware — the protective
+        // headers on the route responses.
+        if state.middleware.contains(&"security_headers".to_string()) {
+            response = apply_security_headers(response);
+        }
+
         response
     } else {
-        (StatusCode::NOT_FOUND, "404 Not Found").into_response()
+        // N8: the fall-through 404 — the every-response shape.
+        let mut response = (StatusCode::NOT_FOUND, "404 Not Found").into_response();
+        if state.middleware.contains(&"security_headers".to_string()) {
+            response = apply_security_headers(response);
+        }
+        response
     }
+}
+
+// ── N7/N8 (gh#1217/gh#1218): the response-header lanes ───────────────
+//
+// N8: the `security_headers` middleware — the owner's finding (#1218):
+// the declaration was VALIDATED (the semantic name check + the "no
+// security_headers" recommendation warning) but never applied. The fix
+// applies the three protective headers to EVERY response (the route
+// responses AND the fall-through 404 — the OWASP every-response shape):
+//
+//   Content-Security-Policy: default-src 'self'
+//   X-Content-Type-Options: nosniff
+//   Strict-Transport-Security: max-age=31536000; includeSubDomains
+//
+// The middleware OWNS these headers: the insert is unconditional (the
+// N7 `set_header` allowlist does not carry them — the route cannot
+// override the protective set, only the middleware can).
+
+/// The protective header set the `security_headers` middleware applies
+/// to every response (the values are the secure baselines; a tune-down
+/// is an explicit config conversation, not a route escape hatch).
+pub(crate) const SECURITY_HEADERS: &[(&str, &str)] = &[
+    ("Content-Security-Policy", "default-src 'self'"),
+    ("X-Content-Type-Options", "nosniff"),
+    (
+        "Strict-Transport-Security",
+        "max-age=31536000; includeSubDomains",
+    ),
+];
+
+/// Apply the protective headers (the `security_headers` middleware,
+/// N8): unconditional inserts — the middleware owns this set.
+fn apply_security_headers(response: Response) -> Response {
+    let (mut parts, body) = response.into_parts();
+    for (name, value) in SECURITY_HEADERS {
+        if let (Ok(hn), Ok(hv)) = (
+            header::HeaderName::from_bytes(name.as_bytes()),
+            HeaderValue::from_str(value),
+        ) {
+            parts.headers.insert(hn, hv);
+        }
+    }
+    Response::from_parts(parts, body)
 }
 
 // ── Наряд №296: redact/canary opt-in middleware ─────────────────────
@@ -4748,7 +4811,15 @@ mlogserver {
                         .into_response(),
                 }
             }
-            Ok(None) => (StatusCode::NOT_FOUND, "404 Not Found").into_response(),
+            // N8 (gh#1218): this direct-dispatch 404 rides the
+            // security_headers middleware too (the every-response shape).
+            Ok(None) => {
+                let mut response = (StatusCode::NOT_FOUND, "404 Not Found").into_response();
+                if state.middleware.contains(&"security_headers".to_string()) {
+                    response = apply_security_headers(response);
+                }
+                response
+            }
             Err(e) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("route template error: {}", e),

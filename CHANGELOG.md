@@ -162,6 +162,30 @@ All notable changes to the Metalogos project.
 
 ### Changed
 
+- **N13 (gh#1221, platform-enabler) — reasoning_content: the thinking
+  block never leaves the contour, the usage does.** GLM reasoning
+  models (thinking enabled) answer with `message.reasoning_content`
+  alongside the final `message.content` on the OpenAI-compatible wire.
+  The purity contract is now pinned on all three paths — the
+  non-stream legacy parse, the SmartRouter parse, and the streaming
+  delta extraction (`delta.reasoning_content` yields NO text, only
+  `delta.content` deltas flow): the user sees ONLY the final content,
+  never a reasoning fragment. The usage accounting gap is CLOSED: the
+  legacy (no-`llm config`) path used to drop the provider's usage
+  block on the floor — the trace line carried no token counts at all.
+  Now the usage the provider reported for THIS call
+  (`prompt_tokens` / `completion_tokens`; per the GLM/OpenAI contract
+  `completion_tokens` INCLUDES the reasoning tokens) rides a
+  thread-local from the provider branch into the caller's
+  `METALOGOS_LLM_TRACE` line (`gen_ai.usage.input_tokens` /
+  `gen_ai.usage.output_tokens`), cleared at every RealLlm entry and
+  consumed once — a stale value can never be attributed to a later
+  call; a response without a usage block stays honestly absent.
+  Verified-loud edge: a reasoning-only response with `content: null`
+  (the answer cut mid-reasoning) fails with the loud
+  `Unexpected OpenAI response format` error — never a silent empty
+  string. A plain response without a reasoning block is unchanged.
+
 - **N12 (gh#1220, platform-enabler) — per-call model choice on
   `call_llm`:** the builtin grows an optional third String argument —
   `call_llm(prompt, input, model)` — naming the model for THIS call:

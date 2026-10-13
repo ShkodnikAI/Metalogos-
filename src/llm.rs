@@ -378,6 +378,9 @@ impl RealLlm {
 
 impl LlmBackend for RealLlm {
     fn call(&self, prompt: &str, input: &str) -> Result<String, String> {
+        // N13: no legacy usage is attributable to THIS call until a
+        // provider branch reports one (the honest default).
+        set_last_legacy_usage(None);
         // Build blocking HTTP client with 120s timeout
         let client = reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(120))
@@ -467,6 +470,9 @@ impl LlmBackend for RealLlm {
             _ => self.clone(),
         };
 
+        // N13: no legacy usage is attributable to THIS call until a
+        // provider branch reports one (the honest default).
+        set_last_legacy_usage(None);
         target.call_provider(&client, prompt, input).map_err(|e| {
             // №385: preserve the inner origin stamp (a stamped provider
             // failure keeps its code at the FRONT); an unstamped inner
@@ -570,6 +576,12 @@ impl RealLlm {
         }
 
         // №757: the finish_reason is read and recorded (visible truncation).
+        // N13: the reported usage rides the thread-local to the caller's
+        // trace line (the legacy chain returns only the text).
+        set_last_legacy_usage(
+            extract_provider_usage("anthropic", &body_text)
+                .map(|u| (u.input_tokens, u.output_tokens)),
+        );
         parse_anthropic_response(&body_text).map(|(text, reason)| {
             record_finish_reason("anthropic", reason.as_deref());
             text
@@ -627,6 +639,11 @@ impl RealLlm {
         }
 
         // №757: the finish_reason is read and recorded (visible truncation).
+        // N13: the reported usage rides the thread-local to the caller's
+        // trace line (the legacy chain returns only the text).
+        set_last_legacy_usage(
+            extract_provider_usage("openai", &body_text).map(|u| (u.input_tokens, u.output_tokens)),
+        );
         parse_openai_response(&body_text).map(|(text, reason)| {
             record_finish_reason("openai", reason.as_deref());
             text
@@ -676,6 +693,11 @@ impl RealLlm {
         }
 
         // №757: the finish_reason is read and recorded (visible truncation).
+        // N13: the reported usage rides the thread-local to the caller's
+        // trace line (the legacy chain returns only the text).
+        set_last_legacy_usage(
+            extract_provider_usage("ollama", &body_text).map(|u| (u.input_tokens, u.output_tokens)),
+        );
         parse_ollama_response(&body_text).map(|(text, reason)| {
             record_finish_reason("ollama", reason.as_deref());
             text
@@ -960,6 +982,32 @@ pub fn call_via_smart_router(
 // the plain comments instead of ///.)
 thread_local! {
     static BACKEND_TAG: std::cell::Cell<&'static str> = const { std::cell::Cell::new("tw") };
+}
+
+// N13 (gh#1221): the token usage the LAST legacy (non-SmartRouter)
+// RealLlm call received from the provider — `(input_tokens,
+// output_tokens)`, None when the response carried no usage block.
+// The legacy call chain returns only the text String, so the
+// per-call usage rides this thread-local from the provider branch
+// into the caller's trace line (№276 honest per-call data). Cleared
+// at every RealLlm entry point, consumed by take_last_legacy_usage —
+// a stale value can never be attributed to a later call.
+// (thread_local! — rustdoc does not render docs on macro invocations,
+// hence the plain comments instead of ///.)
+thread_local! {
+    static LAST_LEGACY_USAGE: std::cell::Cell<Option<(u64, u64)>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// Consume the usage of the immediately preceding legacy RealLlm call
+/// on this thread (None = the provider did not report usage, or no
+/// legacy call happened).
+pub fn take_last_legacy_usage() -> Option<(u64, u64)> {
+    LAST_LEGACY_USAGE.with(|c| c.replace(None))
+}
+
+fn set_last_legacy_usage(usage: Option<(u64, u64)>) {
+    LAST_LEGACY_USAGE.with(|c| c.set(usage));
 }
 
 /// Set the backend tag for LLM traces on the current thread ("tw" | "vm").
@@ -2923,6 +2971,43 @@ mod tests {
         assert_eq!(
             Provider::Ollama.endpoint(),
             "http://localhost:11434/api/generate"
+        );
+    }
+
+    // ── N13 (gh#1221): reasoning_content never streams out ────────────
+
+    #[test]
+    fn test_n13_reasoning_delta_yields_no_text() {
+        // A GLM reasoning delta carries `delta.reasoning_content` (and
+        // often a null/absent `delta.content`) — it must yield NO text.
+        let reasoning_only = serde_json::json!({
+            "choices": [{"index": 0, "delta": {
+                "reasoning_content": "thinking step one..."
+            }}]
+        });
+        assert_eq!(extract_delta_text("openai", &reasoning_only), None);
+
+        let reasoning_with_null_content = serde_json::json!({
+            "choices": [{"index": 0, "delta": {
+                "reasoning_content": "thinking step two...",
+                "content": null
+            }}]
+        });
+        assert_eq!(
+            extract_delta_text("openai", &reasoning_with_null_content),
+            None
+        );
+    }
+
+    #[test]
+    fn test_n13_content_delta_still_flows() {
+        // The final-answer deltas keep flowing unchanged (pin).
+        let content_delta = serde_json::json!({
+            "choices": [{"index": 0, "delta": {"content": "final "}}]
+        });
+        assert_eq!(
+            extract_delta_text("openai", &content_delta),
+            Some("final ".to_string())
         );
     }
 

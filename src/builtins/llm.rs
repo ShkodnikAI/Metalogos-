@@ -244,13 +244,17 @@ pub(crate) fn builtin_call_llm(args: &[Value]) -> Result<Value, String> {
                 crate::interpreter::values::wrap_error_preserving_code("call_llm() failed", &e)
             });
         // The honest trace names the model THIS call actually asked for
-        // (override first, env default second).
+        // (override first, env default second) and carries the usage the
+        // provider reported for THIS call (N13: the legacy chain returns
+        // only the text, the usage rides the thread-local; None stays
+        // absent — honest data, never invented).
+        let legacy_usage = crate::llm::take_last_legacy_usage();
         let model_env = model_override.or_else(|| std::env::var("METALOGOS_LLM_MODEL").ok());
         crate::llm::trace_llm_call(&crate::llm::LlmTraceEvent {
             provider_name: Some(crate::llm::provider_env_name()),
             model: model_env.as_deref(),
-            input_tokens: None,
-            output_tokens: None,
+            input_tokens: legacy_usage.map(|(i, _)| i),
+            output_tokens: legacy_usage.map(|(_, o)| o),
             latency_ms: t0.elapsed().as_millis() as u64,
             status: if result.is_ok() { "ok" } else { "error" },
             cache: "miss",

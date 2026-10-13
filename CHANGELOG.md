@@ -41,6 +41,28 @@ All notable changes to the Metalogos project.
   integration + 2 server-boundary), RED first. Size: M. Risks: the
   allowlist is deliberately narrow (a need outside the five names is an
   explicit ADR conversation, not a silent widen).
+- **N9 (gh#1219, PE-2, compiler/bug) — `render()` and `| safe`: no more
+  silent escaping.** The owner's finding: `render()` always escaped,
+  the Jinja-style `{{ var | safe }}` was NEVER implemented (the №115
+  substitution left the placeholder VERBATIM in the output, the №86
+  engine silently rendered it empty), and the composition example
+  pinned the silent mismatch with an EMPTY .expected. The fix combines
+  the naryad's menu options 1+2+3. (1) The filter pipe is a LOUD
+  refusal — a compile error on BOTH backends (the №250 compiler
+  registration gate and the interpreter declaration walk share the
+  failing `register_template`) and a loud parse refusal in
+  `template_render`, each naming the supported raw form; a pipe inside
+  a condition string literal (`{{#if x == "a|b"}}`) stays legal — the
+  construct grammar is not a filter. (2) `render()` gains the RAW
+  insert — the triple-brace form `{{{ var }}}`, the same contract
+  `template_render` already had; safe-by-construction: the parameters
+  are program-provided, the egress gates still apply downstream. (3)
+  The composition example (p6_template_composition) actually renders
+  now — the data rides the ESCAPED default (`{{ title }}`, the
+  script-neutralization is visible in the .expected), the trusted
+  program-built fragment rides raw (`{{{ content }}}`); the empty
+  .expected (the pin of the silent empty render) is replaced by the
+  real output. REFERENCE §4.14 documents the raw form and the refusal.
 - **N6 (gh#1216, PE-2, ADR-0192) — the `xml` capability feature:
   `feed_parse` / `sitemap_parse` / `xml_parse`, the feed/XML family.**
   Off-by-default behind `xml` (implies `html` — the shared text/limit

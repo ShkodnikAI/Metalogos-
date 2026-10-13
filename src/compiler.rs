@@ -968,7 +968,9 @@ impl Compiler {
                     // with a bytecode schema change if a real use case asks.
                     let param_names: Vec<String> =
                         t.params.iter().map(|p| p.name.clone()).collect();
-                    crate::builtins::http::register_template(&t.name, &t.body, param_names);
+                    // N9 (gh#1219): the filter-pipe refusal is a COMPILE
+                    // error (the loud option 2 of the naryad's menu).
+                    crate::builtins::http::register_template(&t.name, &t.body, param_names)?;
                 }
                 // №684 (В43): compile each tool method body exactly like a
                 // pattern body (compile_pattern_body_with_locals →

@@ -313,7 +313,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("db_execute", 1, 2, "db"; builtin_db_execute, "Unit"), // ADR-0068: optional params list — the interpreter path returns Unit; the executed surface is the Query pipeline (№484 DbAccess)
     // ── LLM builtins ──
     #[cfg(feature = "llm")]
-    spec!("call_llm", 1, 2, "llm"; builtin_call_llm, "String"), // prompt | prompt,input
+    spec!("call_llm", 1, 3, "llm"; builtin_call_llm, "String"), // prompt | prompt,input | prompt,input,model (N12 gh#1220)
     #[cfg(feature = "llm")]
     spec!("call_claude", 4, "llm"; builtin_call_claude, "String"), // api_key,model,system,user
     #[cfg(feature = "llm")]

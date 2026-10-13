@@ -162,6 +162,24 @@ All notable changes to the Metalogos project.
 
 ### Changed
 
+- **N12 (gh#1220, platform-enabler) — per-call model choice on
+  `call_llm`:** the builtin grows an optional third String argument —
+  `call_llm(prompt, input, model)` — naming the model for THIS call:
+  a direct provider model name (`"glm-5.3"`) or a named profile alias
+  resolved via `METALOGOS_LLM_MODEL_{ALIAS}` (the ADR-0048
+  `resolve_model` order: env profile first, pass-through second). The
+  override rides BOTH call paths — the SmartRouter `model_override`
+  slot and the legacy backend's `call_with_model` (ADR-0048) — so
+  `glm-5.3-flash` and `glm-5.3` work in ONE process (the owner's
+  platform decision: the primary default is `glm-5.3-flash`). The
+  legacy-path LLM trace names the model THIS call actually asked for
+  (override first, env default second — honest per-call data, №276).
+  Two-argument calls are byte-for-byte unchanged (the default leg is
+  pinned by a test). A non-String third argument is a loud
+  argument-type error, never a silent ignore. Registry arity 1..2 →
+  1..3; REFERENCE §4.5 + the env-var table (METALOGOS_LLM_PROVIDER /
+  METALOGOS_LLM_MODEL / METALOGOS_LLM_MODEL_{ALIAS}) updated.
+
 - **№669 (gh#1184) — the typing movement 0.31 №1 (docs-adjacent,
   registry-locked; the behavior unchanged):** the forecast/graph
   untyped package — 4 of 6 registry rows get honest signatures against

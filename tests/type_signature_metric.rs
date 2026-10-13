@@ -240,7 +240,6 @@ fn parameterized_signature_share_never_falls_below_the_floor() {
 // the 4-entry field_meta (all internal — the program-computed response
 // shape) — NOT gated, the compiled floor grows 44 → 45.
 const FIELDMETA_FLOOR: usize = 45;
-const FIELDMETA_FLOOR: usize = 44;
 
 #[test]
 fn field_label_share_never_falls_below_the_floor() {

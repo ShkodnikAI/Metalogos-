@@ -135,7 +135,7 @@ Key files at the repo root:
 | Architecture Decisions | 184 ADRs |
 | Example Programs | 253 .mlog programs |
 | Reference | REFERENCE.md (~313 KB) — 100% registry coverage |
-| Changelog | CHANGELOG.md (~720 KB) — every wave documented |
+| Changelog | CHANGELOG.md (~722 KB) — every wave documented |
 <!-- END GENERATED METRICS -->
 
 Validated on every CI run: `scripts/gen_metrics.py --check` plus the independent recomputation in `tests/readme_consistency.rs`.

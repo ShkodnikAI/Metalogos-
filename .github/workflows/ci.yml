@@ -642,7 +642,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: "Gate — every fact_* in the 0.28 + 0.29 + 0.30 goal records matches its machine source (№525, №605, №630)"
+      - name: "Gate — every fact_* in the 0.28 + 0.29 + 0.30 + 0.31 goal records matches its machine source (№525, №605, №630, the §5 fixation 2026-10-13)"
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -751,9 +751,10 @@ jobs:
       # (Role::Source ∧ label ≠ Public). ADVISORY on purpose: the
       # blocking status is NOT introduced here (№535 — the blocking
       # surface grows only explicitly); the only-up floor lives in
-      # sensitive_surface_baseline.txt (the --gate mode), the 0.31 goal
-      # is a DRAFT line in gate_030_goals.txt until the owner fixes it
-      # (№525, ADR-0186 §5).
+      # sensitive_surface_baseline.txt (the --gate mode); the 0.31 goal
+      # is OWNER-FIXED in gate_031_goals.txt (4782 bp — the §5 fixation,
+      # 2026-10-13, ADR-0191 §5) and read blocking as the DEFAULT gate
+      # target of unfreeze_gate.py (the №660 wiring).
       - name: Artifact — the sensitive-surface coverage report (№644; advisory, the №535 rule)
         run: |
           python3 scripts/ci/sensitive_surface_share.py
@@ -839,7 +840,7 @@ jobs:
         run: |
           if [ "${{ steps.office_tests.outcome }}" = "success" ]; then OT=pass; else OT=fail; fi
           python3 scripts/ci/unfreeze_gate.py --office-tests "$OT"
-      - name: Upload the unfreeze summary artifact (the gate read — the 0.30 default since №630)
+      - name: Upload the unfreeze summary artifact (the gate read — the 0.31 default since №660 §5)
         if: always()
         uses: actions/upload-artifact@v6
         with:

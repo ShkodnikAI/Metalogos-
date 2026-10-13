@@ -324,6 +324,33 @@ All notable changes to the Metalogos project.
 
 ### Changed
 
+- **№660 §5 (gh#1161 — the owner's verdict 2026-10-13) — the 0.31
+  release gate OWNER-FIXED (the §5 mechanical transition, the №630
+  shape):** the OD divergence (ADR-0191 §3/§4) closed by the variant
+  (а) — the live-fact fixation **66/138 = 4782 bp** (the №644 machine
+  read on the fixation anchor 34a6370 agrees exactly; the movement
+  №668/№669 landed before the fixation, so the §5 read starts MET by
+  the reached number and the gate holds as the ONLY-UP ratchet — the
+  X-3 posture recorded, not hidden). ONE PR: gate_031_goals.txt
+  `owner_fixed: true` + `goal_sensitive_surface_bp: 4782`, the fact key
+  `fact_sensitive_surface_bp` landed WITH its checker (№525 — synced
+  blocking by sync_gate_facts.py), the DEFAULT unfreeze target switched
+  0.30 → 0.31 (the 0.31 read = the 0.30 v2 form verbatim + the
+  sensitive-surface goal, fail-closed; the 0.28/0.29/0.30/legacy
+  targets stay explicit — no record deleted), ADR-0191 → Accepted
+  (§7). The 4130 / 4420–4493 draft variants retired (the history kept
+  verbatim in the record); the 4 eternal honest refusals (query /
+  query_row / query_scalar / request_body) remain the separate
+  owner-decided dictionary-expansion line. **The landing re-bless
+  (№757/№613):** the §5 merge brought the PE-2 platform-enabler wave
+  (n5–n9) and the В43 nuclear №684 onto the same tree — every new
+  sensitive source landed fully covered, the machine read rose
+  66/138 = 4782 bp → **73/145 = 5034 bp** (the denominator moved by new
+  sources only — Internal 102 → 109, the definition unchanged); the
+  fact twin and the floor raised in the SAME PR (5034), the
+  OWNER-FIXED goal line stays 4782 until the owner's later §5
+  decision — the ratchet reads 5034 ≥ 4782: MET.
+
 - **N13 (gh#1221, platform-enabler) — reasoning_content: the thinking
   block never leaves the contour, the usage does.** GLM reasoning
   models (thinking enabled) answer with `message.reasoning_content`

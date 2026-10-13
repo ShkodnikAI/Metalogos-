@@ -2147,7 +2147,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 522 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 525 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2868,10 +2868,11 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `voice_save(...)` | 2 | — | `voice_save(handle, name)` stub — ADR-0143 (persistence). |
 | `whisper_transcribe(...)` | 3..4 | `String, String, String[, String] -> String` | Downloads a voice message from Telegram by `file_id`, sends it for transcription to the Whisper API. `provider`: `"openai"` (default) or `"groq"`. `METALOGOS_STT_BASE_URL` overrides the transcription API base (mock servers / self-host proxies) — `/audio/transcriptions` is appended. Returns the recognized text. Arity 3..4 — the registry used to declare min 1 while the runtime always required 3 (Naryad #279 fact-check fix; a 1-arg call now fails `mlog check` on statics instead of exploding at runtime) |
 
-### `web` — 25 builtin(s)
+### `web` — 28 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
+| `feed_parse(...)` | 1 | — | `feed_parse(xml) -> List<Struct<FeedItem>{title, link, published, summary, id}>` — RSS 2.0 and Atom 1.0 detected by the root element; neither → a loud error naming the two supported shapes. |
 | `form_data(...)` | 1 | `-> Struct {FormData}` | Parses data from an `application/x-www-form-urlencoded` request body |
 | `geo_distance(...)` | 2..5 | — | `geo_distance(lat1, lon1, lat2, lon2, unit?)` — haversine distance. unit: "km"(default), "mi", "nm", "m". |
 | `geo_ip(...)` | 0..1 | — | `geo_ip(ip?)` — geolocate by IP. Uses ip-api.com (free, no key). Returns Struct {ip, city, region, country, country_code, lat, lon, isp, timezone}. |
@@ -2894,9 +2895,11 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `respond_html_doc(...)` | 2 | `String, String -> HttpResponse` | The EXPLICIT document form (№565): the first argument is a TITLE — never read as a status, never dropped. Full HTML document (the title renders at the top of `<body>` verbatim and tag-stripped into `<head><title>`), status 200. `Content-Type: text/html; charset=utf-8`; the HTML egress gates treat it exactly like `respond_html` |
 | `respond_html_status(...)` | 2 | `String \ | HttpResponse |
 | `server_path_param(...)` | 1 | — | `server_path_param(name)` — stub that returns empty string (Наряд №283). Real implementation is handled in interpreter.rs and vm.rs FnCall dispatch (needs access to server_path_params HashMap on the runtime context — same pattern as `query_param`). Returns empty string when no templated route matched (static route, or no server context). |
+| `sitemap_parse(...)` | 1 | — | `sitemap_parse(xml) -> List<Struct<SitemapEntry>{loc, lastmod}>` — the `urlset > url` and `sitemapindex > sitemap` shapes uniformly: every `url`/`sitemap` element carrying a `loc` child becomes an entry (lastmod often absent → ""). |
 | `weather(...)` | 2 | — | `weather(city_or_lat, lon?)` — current weather via Open-Meteo (FREE, no API key). `weather("Minsk")` or `weather(53.9, 27.57)`. Returns Struct {temp, feels_like, temp_min, temp_max, humidity, description, wind_speed, wind_direction, pressure, cloud_cover, is_day, city, country}. |
 | `weather_forecast(...)` | 1..3 | — | `weather_forecast(city_or_lat, lon?, days?)` — multi-day forecast via Open-Meteo (FREE, no API key). `weather_forecast("Minsk", 7)` or `weather_forecast(53.9, 27.57, 3)`. Default: 7 days. Max: 16 days. Returns List of DayForecast structs. |
 | `web_search(...)` | 1..2 | — | `web_search(query, num_results?) -> String` — search via SerpAPI. Uses SERPAPI_KEY env var. Returns raw JSON string. Usage: web_search("query") -> JSON string Usage: web_search("query", 5) -> JSON string with 5 results |
+| `xml_parse(...)` | 1 | — | `xml_parse(xml) -> Struct<XmlNode>{tag, attrs, text, children}` — the general tree. The depth cap (256) and the node cap (10 000) both fail LOUD: the recursive build must not blow the stack on an adversarial chain. |
 
 <!-- END GENERATED BUILTIN INDEX -->
 
@@ -3028,6 +3031,9 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `html_select` | source | internal | pure | ingests untrusted HTML, returns the matched elements (N5, gh#1215, ADR-0192) — every result string (tag/text/attrs/html) carries UserInput taint |
 | `html_text` | source | internal | pure | ingests untrusted HTML, returns the normalized text (N5, gh#1215, ADR-0192) — the result carries UserInput taint; script/style never contribute |
 | `html_links` | source | internal | pure | ingests untrusted HTML, returns absolute http/https links (N5, gh#1215, ADR-0192) — the results carry UserInput taint; other schemes are dropped |
+| `feed_parse` | source | internal | pure | ingests untrusted XML (RSS 2.0 / Atom 1.0), returns the feed items (N6, gh#1216, ADR-0192) — every result string carries UserInput taint; DTD/entities are never expanded (XXE-safe by the XML5 grammar) |
+| `sitemap_parse` | source | internal | pure | ingests untrusted XML (the urlset / sitemapindex shapes), returns {loc, lastmod} entries (N6, gh#1216, ADR-0192) — the results carry UserInput taint |
+| `xml_parse` | source | internal | pure | ingests untrusted XML, returns the general XmlNode tree (N6, gh#1216, ADR-0192) — the results carry UserInput taint; DTD/entities never expanded, the depth/node caps are loud |
 | `render` | lift | public | pure | taint-sanitizing template render — output is public-safe (audit.rs sanitizer) |
 | `http_get` | source | network | pure | ingests external network data (SSRF-guarded, №130) |
 | `http_post` | sink | network | irreversible | transmits program data to an external endpoint — cannot be unsent (issue minimum list) |
@@ -3432,6 +3438,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `normal_sample` | pure | public | pure | — |
 
 <!-- END GENERATED BUILTIN CLASSIFICATION -->
+
 
 
 

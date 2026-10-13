@@ -21,9 +21,11 @@ pattern Digest(feed: String) -> String {
   let urls = sitemap_parse(map)
   let loc0 = urls[0].loc
 
-  // 3. xml_parse: the general tree — the root tag and the xmlns attr.
-  let tree = xml_parse(map)
-  let ns = json_get(tree.attrs, "xmlns")
+  // 3. xml_parse: the general tree over the feed — the root tag and
+  //    the version attr (namespace DECLARATIONS are not attributes:
+  //    the XML5 grammar carries them out-of-band, the honest shape).
+  let tree = xml_parse(feed)
+  let ver = json_get(tree.attrs, "version")
 
   return to_string(length(items)) + " items | t1=" + first.title
     + " | link=" + first.link
@@ -32,7 +34,7 @@ pattern Digest(feed: String) -> String {
     + " | urls=" + to_string(length(urls))
     + " | loc0=" + loc0
     + " | root=" + tree.tag
-    + " | ns=" + ns
+    + " | ver=" + ver
 }
 
 flow Main {

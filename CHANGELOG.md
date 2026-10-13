@@ -6,6 +6,48 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **N6 (gh#1216, PE-2, ADR-0192) — the `xml` capability feature:
+  `feed_parse` / `sitemap_parse` / `xml_parse`, the feed/XML family.**
+  Off-by-default behind `xml` (implies `html` — the shared text/limit
+  helpers; xml5ever 0.18, the same MIT/Apache-2.0 servo stack, promoted
+  from the transitive markup5ever_rcdom dep to a direct optional). The
+  registry surface is feature-INDEPENDENT: without the feature the
+  three handlers refuse LOUDLY naming ADR-0192. `feed_parse(xml)` —
+  RSS 2.0 (`rss > channel > item`) and Atom 1.0 (`feed > entry`) detected
+  by the root element; every item → `List<FeedItem>{title, link,
+  published, summary, id}`; a missing field is the EMPTY string
+  (fail-closed items — one ragged entry never kills the batch): pubDate
+  falls back to dc:date, published to updated, summary to content, guid
+  to link; the Atom link prefers `rel="alternate"`. `sitemap_parse(xml)`
+  — the `urlset > url` and `sitemapindex > sitemap` shapes uniformly →
+  `List<SitemapEntry>{loc, lastmod}` (lastmod often absent → "").
+  `xml_parse(xml)` — the general tree → `Struct<XmlNode>{tag, attrs,
+  text, children}`: the local name is CASE-SENSITIVE (XML is), attrs is
+  a Dict (namespace DECLARATIONS are not attributes — the XML5 grammar
+  carries them out-of-band), text is the DIRECT text (normalized,
+  CDATA contributes), children recurses. **Security: DTD and external
+  entities are NEVER expanded** — the XML5 grammar has no custom-entity
+  mechanism, so XXE degrades to literal text and billion-laughs stays
+  bounded (both pinned by explicit negative tests). The loud limits:
+  input ≤ 5 MiB, result ≤ 10 000 nodes, tree depth ≤ 256 (the recursive
+  build must not blow the stack) — all loud, never a silent truncate.
+  EVERY result string carries the untrusted taint (the N2/N5 source
+  lists). The golden pair `examples/n6_feed_parse.mlog(+.expected)` is
+  byte-identical on TW and VM; the default golden sweeps skip it (the
+  №373 parity gate: the xml-gate list joins the frozen capability
+  classes). New blocking CI job `xml-tests` (the off-by-default guard +
+  the feature-on suite + clippy); the feature rides `portable`. The
+  №757 precise compensation IN THE SAME PR: `decrypt` and
+  `reflex_bpe_decode` ship the verified precise `String` facts (227/525
+  = 4323 bp; the floor 4302 → 4323), the parameterized share 76/108 =
+  7037 bp (floor 6893 → 7037), the general 336/525 = 6400 bp, the
+  field-meta 45/47 with `Struct<XmlNode>` carrying the honest
+  all-untrusted labels. REFERENCE + the classification regenerated (522
+  → 525 builtins). 15 tests (14 feature-on + 1 off-feature refusal),
+  RED first. Size: M. Risks: the RSS/Atom real-world variance is wider
+  than the two fixtures (the fail-closed item shape absorbs the ragged
+  forms); XXE hardening is by-grammar + negative-tested.
+
 - **N5 (gh#1215, PE-2, ADR-0192) — the `html` capability feature:
   `html_select` / `html_text` / `html_links`, the DOM extraction family
   the tender agent needs.** Off-by-default behind `html` (html5ever 0.27

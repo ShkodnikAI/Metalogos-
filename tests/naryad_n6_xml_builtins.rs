@@ -257,13 +257,13 @@ mod feature_on {
     #[test]
     fn n6_xml_parse_tree_shape() {
         let src = format!(
-            "let n = xml_parse({})\n         let c0 = n.children[0]\n         return n.tag + \"|\" + json_get(n.attrs, \"version\") + \"|\" + c0.tag + \"|\" + json_get(c0.attrs, \"id\") + \"|\" + c0.text",
-            mlog_str(r#"<lot version="2.0" id="a1">Стол <b>офисный</b></lot>"#)
+            "let n = xml_parse({})\n         let c0 = n.children[0]\n         return n.tag + \"|\" + json_get(n.attrs, \"version\") + \"|\" + c0.tag + \"|\" + json_get(c0.attrs, \"class\") + \"|\" + c0.text",
+            mlog_str(r#"<lot version="2.0" id="a1">Стол <b class="hi">офисный</b></lot>"#)
         );
         let out = eval_expr(&src).expect("xml_parse tree");
         assert_eq!(
             out.trim_end(),
-            "lot|2.0|b||офисный",
+            "lot|2.0|b|hi|офисный",
             "the local name is case-sensitive, attrs is a Dict, text is DIRECT: {out}"
         );
     }

@@ -97,3 +97,12 @@
 # parameterized: 67
 # LS rows: 99
 # threshold_bp: 6767
+
+# 2026-10-13 N6 (gh#1216, волна #1222 PE-2): feed_parse List<FeedItem>,
+# sitemap_parse List<SitemapEntry>, xml_parse Struct<XmlNode>{...} (the
+# field-meta in the honest all-untrusted spelling — every field derives
+# from the untrusted document). 73/105 → 76/108; (76*10000)//108 = 7037
+# bp. Only-up (№757), raised in the same PR.
+# parameterized: 76
+# LS rows: 108
+# threshold_bp: 7037

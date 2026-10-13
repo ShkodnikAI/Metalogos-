@@ -314,6 +314,32 @@ pub(crate) fn builtin_query_param(args: &[Value]) -> Result<Value, String> {
     Ok(Value::String(String::new()))
 }
 
+/// `request_header(name)` — stub that returns empty string (N2, gh#1211).
+/// Real implementation is special-cased in the TW FnCall dispatch and the
+/// VM (needs the per-request HeaderMap — same pattern as `query_param`).
+/// The stub answers the empty string: on any lane that reaches the
+/// registry directly the per-request context is absent, and the lookup
+/// degrades to "" (the query_param №40 parity contract — a webhook
+/// secret check fails closed off the server).
+pub(crate) fn builtin_request_header(args: &[Value]) -> Result<Value, String> {
+    let _name = if args.is_empty() {
+        return Err("request_header() requires 1 argument (header name)".to_string());
+    } else {
+        match &args[0] {
+            Value::String(s) => s.clone(),
+            other => {
+                return Err(format!(
+                    "request_header() expected String, got {}",
+                    other.type_name()
+                ))
+            }
+        }
+    };
+    // Stub — real implementation is special-cased in the FnCall dispatch
+    // (both backends) and reads the injected per-request HeaderMap.
+    Ok(Value::String(String::new()))
+}
+
 /// `server_path_param(name)` — stub that returns empty string (Наряд №283).
 /// Real implementation is handled in interpreter.rs and vm.rs FnCall
 /// dispatch (needs access to server_path_params HashMap on the runtime

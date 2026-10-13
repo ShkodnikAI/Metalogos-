@@ -859,6 +859,14 @@ impl Interpreter {
             return crate::db_ops::query_param(&args, |p| self.get_server_query_param(p));
         }
 
+        // N2 (gh#1211): request_header(name) — the per-request header
+        // lookup. The shared body (src/runtime_ops.rs) over the
+        // identical Option<HashMap> state (the server stores LOWERCASED
+        // names; an absent header / missing context → empty string).
+        if name == crate::runtime_ops::NAME_REQUEST_HEADER {
+            return crate::runtime_ops::request_header(self.server_request_headers.as_ref(), &args);
+        }
+
         // Наряд №283: server_path_param(name) — path parameter from a
         // templated route. Parity with query_param: empty string when no
         // templated route matched / no server context.
@@ -2375,6 +2383,17 @@ impl Interpreter {
                     return crate::db_ops::query_param(&eval_args, |p| {
                         self.get_server_query_param(p)
                     });
+                }
+
+                // N2 (gh#1211): request_header(name) — the per-request
+                // header lookup (pattern-body eval path; the flow-step
+                // dispatch twin lives above). Same shared body, same
+                // Option<HashMap> state.
+                if name == crate::runtime_ops::NAME_REQUEST_HEADER {
+                    return crate::runtime_ops::request_header(
+                        self.server_request_headers.as_ref(),
+                        &eval_args,
+                    );
                 }
 
                 // Наряд №283: server_path_param(name) — path parameter from

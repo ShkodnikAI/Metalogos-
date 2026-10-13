@@ -2517,7 +2517,7 @@ pub async fn test_tick_self_call(
 pub(crate) async fn execute_route_body(
     state: &ServerState,
     body_stmts: &[Statement],
-    _headers: &HeaderMap,
+    headers: &HeaderMap,
     raw_body: &bytes::Bytes,
     query_params: &std::collections::HashMap<String, String>,
     path_params: &std::collections::HashMap<String, String>,
@@ -2551,9 +2551,30 @@ pub(crate) async fn execute_route_body(
         interp.set_server_path_params(path_params.clone());
     }
 
+    // N2 (gh#1211): inject the per-request headers (names LOWERCASED —
+    // HeaderName::as_str is already lowercase, the explicit fold keeps
+    // the contract local) so request_header() works. Multi-value
+    // headers join with ", " (the HTTP list convention). The query_param
+    // parity: injected unconditionally, the absent header / missing
+    // context reads as the empty string inside the builtin.
+    let mut request_headers: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    for (name, value) in headers.iter() {
+        let key = name.as_str().to_ascii_lowercase();
+        let val = String::from_utf8_lossy(value.as_bytes()).into_owned();
+        request_headers
+            .entry(key)
+            .and_modify(|existing| {
+                existing.push_str(", ");
+                existing.push_str(&val);
+            })
+            .or_insert(val);
+    }
+    interp.set_server_request_headers(request_headers);
+
     // Наряд №14 P2-6: inject user roles for require() builtin
     if state.middleware.contains(&"session".to_string()) {
-        if let Some(session_id) = extract_session_cookie(_headers) {
+        if let Some(session_id) = extract_session_cookie(headers) {
             if let Some(raw_id) = verify_cookie(&session_id, &state.hmac_key) {
                 if let Some(entry) = state.sessions.get(&raw_id) {
                     interp.set_server_user_roles(entry.value().roles.clone());
@@ -2885,6 +2906,9 @@ async fn execute_route_body_vm(
     // Наряд №283: clone path_params for the spawn_blocking closure
     // (parity with query_params — same lifetime requirement).
     let path_params = path_params.clone();
+    // N2 (gh#1211): clone the per-request HeaderMap for the closure
+    // (parity with query_params — same lifetime requirement).
+    let request_headers = headers.clone();
     // Наряд №403: warm VM pool handle for the closure (None = disabled,
     // the exact pre-№403 per-request path).
     let pool = state.vm_pool.clone();
@@ -2934,6 +2958,23 @@ async fn execute_route_body_vm(
         if !path_params.is_empty() {
             vm.set_server_path_params(path_params.clone());
         }
+        // N2 (gh#1211): headers parity — the LOWERCASED-name map built
+        // over the identical shape the TW lane injects (multi-value
+        // headers join with ", ").
+        let mut header_map: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        for (name, value) in request_headers.iter() {
+            let key = name.as_str().to_ascii_lowercase();
+            let val = String::from_utf8_lossy(value.as_bytes()).into_owned();
+            header_map
+                .entry(key)
+                .and_modify(|existing| {
+                    existing.push_str(", ");
+                    existing.push_str(&val);
+                })
+                .or_insert(val);
+        }
+        vm.set_server_request_headers(header_map);
         if !user_roles.is_empty() {
             vm.set_server_user_roles(user_roles);
         }

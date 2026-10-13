@@ -176,6 +176,11 @@ pub struct Interpreter {
     /// when the matched route is a template, returned by the
     /// `server_path_param(name)` builtin. Parity with server_query_params.
     server_path_params: Option<std::collections::HashMap<String, String>>,
+    /// N2 (gh#1211): per-request request headers, names LOWERCASED.
+    /// Set by execute_route_body, returned by the `request_header(name)`
+    /// builtin (case-insensitive name lookup). Parity with
+    /// server_query_params.
+    server_request_headers: Option<std::collections::HashMap<String, String>>,
     /// Server context: user roles for RBAC (Наряд №14 P2-6).
     /// Set by execute_route_body, checked by require() builtin.
     server_user_roles: Vec<String>,
@@ -348,6 +353,7 @@ impl Interpreter {
             server_json_body: None,
             server_query_params: None,
             server_path_params: None,
+            server_request_headers: None,
             server_user_roles: Vec::new(),
             llm_cache: std::sync::Mutex::new(HashMap::new()),
             hooks_before: Vec::new(),
@@ -398,6 +404,26 @@ impl Interpreter {
     /// Used by execute_route_body; returned by json_body() builtin.
     pub fn set_server_json_body(&mut self, val: Value) {
         self.server_json_body = Some(val);
+    }
+
+    /// N2 (gh#1211): inject the per-request headers (names LOWERCASED by
+    /// the server) — the `request_header(name)` state. Parity with
+    /// `set_server_query_params`.
+    pub fn set_server_request_headers(
+        &mut self,
+        headers: std::collections::HashMap<String, String>,
+    ) {
+        self.server_request_headers = Some(headers);
+    }
+
+    /// N2 (gh#1211): the case-insensitive header-name lookup (the
+    /// server stores LOWERCASED names, the lookup lowercases the
+    /// argument). `None` when no server context is set.
+    pub fn get_server_request_header(&self, name: &str) -> Option<String> {
+        self.server_request_headers
+            .as_ref()?
+            .get(&name.to_ascii_lowercase())
+            .cloned()
     }
 
     /// Get the parsed JSON body in server context.

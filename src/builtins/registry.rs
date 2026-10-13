@@ -237,6 +237,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("form_data", 1, "web"; builtin_form_data, "Struct<FormData>"),
     spec!("json_body", 0, "web"; builtin_json_body, "Struct<JsonBody>"),
     spec!("query_param", 1, "web"; builtin_query_param, "String"), // №565 top-up (the №543 line): both paths verified — the handler stub and the db_ops::query_param dispatch return Value::String
+    spec!("request_header", 1, "web"; builtin_request_header, "String"), // N2 (gh#1211): the per-request header lookup — the handler stub; the real dispatch lives in the TW FnCall intercepts and the VM (the injected per-request HeaderMap)
     // №523: the 2..3 range is NOMINAL — render's real contract is dynamic
     // (the template's parameter list is data, №115; the 1-arg form is the
     // №448 taint-lift surface). The builtin validates loudly at runtime;
@@ -270,6 +271,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // ── Crypto builtins ──
     spec!("hash_password", 1, "crypto"; builtin_hash_password),
     spec!("verify_password", 2, "crypto"; builtin_verify_password, "Bool"),
+    spec!("ct_eq", 2, "crypto"; builtin_ct_eq, "Bool"), // N2 (gh#1211): constant-time string equality — the secret-comparison builtin (no `==` timing leak)
     spec!("encrypt", 2, "crypto"; builtin_encrypt),
     spec!("decrypt", 2, "crypto"; builtin_decrypt),
     spec!("generate_key", 0, "crypto"; builtin_generate_key),

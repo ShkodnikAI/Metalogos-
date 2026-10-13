@@ -135,8 +135,8 @@ Key files at the repo root:
 | Grammar | 339 rules |
 | Architecture Decisions | 183 ADRs |
 | Example Programs | 251 .mlog programs |
-| Reference | REFERENCE.md (~308 KB) — 100% registry coverage |
-| Changelog | CHANGELOG.md (~709 KB) — every wave documented |
+| Reference | REFERENCE.md (~309 KB) — 100% registry coverage |
+| Changelog | CHANGELOG.md (~711 KB) — every wave documented |
 <!-- END GENERATED METRICS -->
 
 Validated on every CI run: `scripts/gen_metrics.py --check` plus the independent recomputation in `tests/readme_consistency.rs`.

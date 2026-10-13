@@ -6,6 +6,50 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **N4 (gh#1213, PE-1) — the outgoing-HTTP hardening: the host
+  allowlist, the User-Agent identity, the per-host pacing, the robots
+  politeness gate.** All four egress builtins (`http_get`,
+  `http_post`, `http_download`, `http_post_multipart`) now sit behind
+  the env-driven gate stack, read at CALL time (the №130
+  `ssrf_guard_enabled()` convention). `METALOGOS_HTTP_ALLOW_HOSTS`
+  (comma list, `*.example.by` wildcards anchored at the dot,
+  case-insensitive, whitespace-tolerant) refuses any non-listed host
+  with the typed `[HTTP_HOST_NOT_ALLOWED]` BEFORE any DNS lookup or
+  connect; per redirect hop by construction — №261's `Policy::none`
+  means every hop is a new program-level builtin call, so the gate
+  re-runs on each hop (the №261 SSRF-pin-per-hop argument replayed for
+  the allowlist; unset/empty = gate off, backward compatible).
+  `METALOGOS_HTTP_USER_AGENT` overrides the new default identity
+  `Metalogos/<version>`; an explicit caller `User-Agent` header wins
+  over both (any-case compare). `METALOGOS_HTTP_MIN_INTERVAL_MS` paces
+  the requests per host:port bucket (different endpoints never wait on
+  each other; retries are paced too). The `{robots: true}` call option
+  (http_get / http_download — retrieval is crawl semantics, a POST is
+  an action) fetches robots.txt once per host over the same gate
+  stack, caches the parsed rules for exactly 24 h
+  (`metalogos::builtins::ROBOTS_TTL`), enforces the minimal
+  `User-agent: *` ruleset with the RFC 9309 longest-match verdict (a
+  tie goes to Allow; the empty `Disallow:` allows everything; no
+  `*`/`$` inside rule paths — the documented minimal scope) and
+  refuses a denied path with the typed `[HTTP_ROBOTS_DENIED]`; a
+  missing (4xx) or unreachable robots file fails OPEN and the empty
+  ruleset is cached the same way (an unreachable host is not
+  re-probed on every call). Two new whitelisted origin-stamped codes
+  (`HTTP_HOST_NOT_ALLOWED`, `HTTP_ROBOTS_DENIED`) join the №592/№385
+  `try{}`-branchable taxonomy. 18 tests:
+  `tests/naryad_n4_http_hardening.rs` — the matching table, the
+  typed-before-connect refusals on all four builtins, the TW↔VM
+  refusal parity, the UA default/override/caller-wins over a live
+  mock, the per-host pacing (and its absence across hosts), the
+  robots allow/deny/cache-24h/fail-open/longest-match pack. RED
+  first (the refusal tests observed the request GO THROUGH on main).
+  No golden pair: the surface is env-driven — a `.expected` would
+  pin nothing off-server («где применимо» per the DOD). Size: M;
+  risks: medium-low — no existing shape changed (the gates are no-ops
+  with the env unset, verified by the №130/№261/№71/№592/№76/№260
+  regression pack green), the visible deltas are the new UA header on
+  every request and the pacing sleeps when the interval is configured.
+
 - **N2 (gh#1211, PE-1) — `request_header(name)` + `ct_eq(a, b)`: the
   webhook-secret builtins:** `request_header` reads a request header
   from the current route body by a case-insensitive name (the server

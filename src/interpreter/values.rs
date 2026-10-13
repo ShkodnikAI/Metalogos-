@@ -682,6 +682,18 @@ pub const CODE_HTTP_STATUS: &str = "HTTP_STATUS";
 /// LOUD replacement of the previous silent clamp (№261's `clamp(1.0,
 /// 300.0)` printed nothing and proceeded).
 pub const CODE_HTTP_TIMEOUT_RANGE: &str = "HTTP_TIMEOUT_RANGE";
+/// N4 (gh#1213, PE-1): the egress allowlist gate — the target host (or a
+/// redirect hop's host: with №261's `Policy::none` every hop is a new
+/// program-level builtin call, so the check runs per hop by construction)
+/// is not covered by `METALOGOS_HTTP_ALLOW_HOSTS`. A typed, branchable
+/// refusal — the request never leaves the process (no DNS, no connect).
+pub const CODE_HTTP_HOST_NOT_ALLOWED: &str = "HTTP_HOST_NOT_ALLOWED";
+/// N4 (gh#1213, PE-1): the `{robots: true}` crawl-politeness gate — the
+/// request path is refused by the host's cached robots.txt rules
+/// (longest-match, the RFC 9309 reading; a missing robots file fails
+/// OPEN). Typed so a program can branch «denied by robots → skip» against
+/// transport failures.
+pub const CODE_HTTP_ROBOTS_DENIED: &str = "HTTP_ROBOTS_DENIED";
 
 /// №595 (Волна 30, Камертон Н1-05/Н1-07): the UTC calendar surface's
 /// domain error — an invalid ISO-8601/RFC 3339 string, a non-finite
@@ -767,6 +779,11 @@ const ORIGIN_STAMPED_CODES: &[&str] = &[
     CODE_HTTP_CONNECT,
     CODE_HTTP_STATUS,
     CODE_HTTP_TIMEOUT_RANGE,
+    // N4 (gh#1213, PE-1): the egress hardening — the host-allowlist
+    // refusal (before any DNS/connect) and the robots.txt crawl-politeness
+    // refusal, both branchable on both backends.
+    CODE_HTTP_HOST_NOT_ALLOWED,
+    CODE_HTTP_ROBOTS_DENIED,
     // №595 (Волна 30): the UTC calendar surface's input gate — an invalid
     // ISO datetime string or a non-finite timestamp is a loud typed
     // refusal, branchable on both backends (never a zero date).

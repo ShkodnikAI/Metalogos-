@@ -115,10 +115,7 @@ pub struct BuiltClassEntry {
 /// Classification lookup — linear scan over a small static array; the map
 /// is compile-time data, uniqueness is test-enforced.
 pub fn classify(name: &str) -> Option<&'static BuiltClass> {
-    BUILTIN_CLASSES
-        .iter()
-        .find(|e| e.name == name)
-        .map(|e| &e.class)
+    BUILTIN_CLASSES.iter().find(|e| e.name == name).map(|e| &e.class)
 }
 
 /// SSOT map: имя → BuiltClass for EVERY registered builtin (№316).
@@ -244,6 +241,9 @@ pub static BUILTIN_CLASSES: &[BuiltClassEntry] = &[
     BuiltClassEntry { name: "html_select", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "ingests untrusted HTML, returns the matched elements (N5, gh#1215, ADR-0192) — every result string (tag/text/attrs/html) carries UserInput taint" } },
     BuiltClassEntry { name: "html_text", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "ingests untrusted HTML, returns the normalized text (N5, gh#1215, ADR-0192) — the result carries UserInput taint; script/style never contribute" } },
     BuiltClassEntry { name: "html_links", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "ingests untrusted HTML, returns absolute http/https links (N5, gh#1215, ADR-0192) — the results carry UserInput taint; other schemes are dropped" } },
+    BuiltClassEntry { name: "feed_parse", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "ingests untrusted XML (RSS 2.0 / Atom 1.0), returns the feed items (N6, gh#1216, ADR-0192) — every result string carries UserInput taint; DTD/entities are never expanded (XXE-safe by the XML5 grammar)" } },
+    BuiltClassEntry { name: "sitemap_parse", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "ingests untrusted XML (the urlset / sitemapindex shapes), returns {loc, lastmod} entries (N6, gh#1216, ADR-0192) — the results carry UserInput taint" } },
+    BuiltClassEntry { name: "xml_parse", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "ingests untrusted XML, returns the general XmlNode tree (N6, gh#1216, ADR-0192) — the results carry UserInput taint; DTD/entities never expanded, the depth/node caps are loud" } },
     BuiltClassEntry { name: "render", class: BuiltClass { role: Role::Lift, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "taint-sanitizing template render — output is public-safe (audit.rs sanitizer)" } },
     BuiltClassEntry { name: "http_get", class: BuiltClass { role: Role::Source, default_label: Label::Network, reversibility: Reversibility::Pure, rationale: "ingests external network data (SSRF-guarded, №130)" } },
     BuiltClassEntry { name: "http_post", class: BuiltClass { role: Role::Sink, default_label: Label::Network, reversibility: Reversibility::Irreversible, rationale: "transmits program data to an external endpoint — cannot be unsent (issue minimum list)" } },
@@ -710,11 +710,7 @@ mod tests {
             .map(|e| e.name)
             .filter(|n| !registry.contains(*n))
             .collect();
-        assert!(
-            extras.is_empty(),
-            "classified names not in registry: {:?}",
-            extras
-        );
+        assert!(extras.is_empty(), "classified names not in registry: {:?}", extras);
     }
 
     /// №316 «Сделано, когда» (а): rationale on every non-Pure entry.
@@ -744,12 +740,7 @@ mod tests {
     #[test]
     fn issue_minimum_classes() {
         let expect_sink = [
-            "http_post",
-            "write_file",
-            "send_message",
-            "print",
-            "db_execute",
-            "tts_send",
+            "http_post", "write_file", "send_message", "print", "db_execute", "tts_send",
         ];
         for n in expect_sink {
             let c = classify(n).unwrap_or_else(|| panic!("{}", n));
@@ -765,11 +756,7 @@ mod tests {
             assert_eq!(c.reversibility, Reversibility::Irreversible, "{}", n);
         }
         let redact = classify("redact").unwrap();
-        assert_eq!(
-            redact.role,
-            Role::Lift,
-            "redact — taint-sanitizer lift (ADR-0136)"
-        );
+        assert_eq!(redact.role, Role::Lift, "redact — taint-sanitizer lift (ADR-0136)");
     }
 
     /// №316: Sink/Source/Lift/Pure distribution is sane (sanity counts,
@@ -796,13 +783,11 @@ mod tests {
             (Some(b), Some(e)) if b < e => (&reference[b..e], true),
             _ => ("", false),
         };
-        assert!(
-            found,
-            "REFERENCE.md must contain the classification block markers"
-        );
+        assert!(found, "REFERENCE.md must contain the classification block markers");
 
-        let mut expected =
-            String::from("| Builtin | Role | Default label | Reversibility |\n|---|---|---|---|\n");
+        let mut expected = String::from(
+            "| Builtin | Role | Default label | Reversibility |\n|---|---|---|---|\n",
+        );
         for e in BUILTIN_CLASSES {
             let role = e.class.role.as_str();
             let label = e.class.default_label.as_str();

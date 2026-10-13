@@ -534,6 +534,12 @@ use contacts::*;
 // (naming ADR-0192), never silently.
 pub(crate) mod html_dom;
 use html_dom::*;
+// ADR-0192 (N6, gh#1216): the `xml` capability feature — the feed/XML
+// family (feed_parse / sitemap_parse / xml_parse) on the xml5ever stack.
+// The module is cfg-neutral like html_dom: the registry surface is
+// ALWAYS present, the handlers refuse LOUDLY without the feature.
+pub(crate) mod xml_ops;
+use xml_ops::*;
 
 // Наряд №74 / №111: SVG Graphics & Diagrams (feature-gated)
 #[cfg(any(feature = "svg", feature = "chart", feature = "diagram"))]

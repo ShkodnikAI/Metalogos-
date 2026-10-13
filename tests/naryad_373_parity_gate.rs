@@ -48,6 +48,10 @@ const CANDLE_GATED: &[&str] = &[
 /// the candle list: a capability feature gate, never a VM gap.
 const HTML_GATED: &[&str] = &["n5_html_tender.mlog"];
 
+/// The frozen list of xml-feature-gated examples excluded from the
+/// no-xml crosscheck (ADR-0192, N6 gh#1216) — same sanctioned class.
+const XML_GATED: &[&str] = &["n6_feed_parse.mlog"];
+
 /// Negative-test contract name patterns (designed-to-fail programs).
 fn is_negative_contract(name: &str) -> bool {
     name.contains("unknown_fn") || name.contains("wrong_")
@@ -82,6 +86,7 @@ fn naryad_373_every_golden_example_is_classified() {
     let mut negatives = 0usize;
     let mut candle_gated = 0usize;
     let mut html_gated = 0usize;
+    let mut xml_gated = 0usize;
     let mut unclassified: Vec<String> = Vec::new();
 
     let mut entries: Vec<_> = fs::read_dir(examples)
@@ -100,6 +105,8 @@ fn naryad_373_every_golden_example_is_classified() {
             candle_gated += 1;
         } else if HTML_GATED.contains(&name.as_str()) {
             html_gated += 1;
+        } else if XML_GATED.contains(&name.as_str()) {
+            xml_gated += 1;
         } else if path.with_extension("expected").exists() {
             crosschecked += 1;
         } else {
@@ -125,6 +132,13 @@ fn naryad_373_every_golden_example_is_classified() {
         html_gated
     );
     assert!(
+        xml_gated == XML_GATED.len(),
+        "expected {} xml-gated examples, matched {} — the frozen list in \
+         naryad_373_parity_gate.rs rotted (file renamed/removed?; ADR-0192)",
+        XML_GATED.len(),
+        xml_gated
+    );
+    assert!(
         negatives > 0,
         "negative-contract examples disappeared — the designed-to-fail class is empty"
     );
@@ -134,11 +148,12 @@ fn naryad_373_every_golden_example_is_classified() {
         crosschecked
     );
     eprintln!(
-        "№373 parity classification: crosschecked={} negatives={} candle_gated={} html_gated={} non_golden={}",
+        "№373 parity classification: crosschecked={} negatives={} candle_gated={} html_gated={} xml_gated={} non_golden={}",
         crosschecked,
         negatives,
         candle_gated,
         html_gated,
+        xml_gated,
         unclassified.len()
     );
 }

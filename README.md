@@ -112,7 +112,6 @@ The [deep dive behind this table](docs/newcomer-contract.md) holds the security 
 | [CHANGELOG.md](CHANGELOG.md) | Every wave, every change |
 | [SECURITY.md](SECURITY.md) | How to report vulnerabilities |
 | [AI_USAGE.md](AI_USAGE.md) | How generative AI is used in this project's development |
-| [metalogos-examples](https://github.com/ShkodnikAI/metalogos-examples) | The consumer showcase — runnable app examples with the both-backend (TW/VM) e2e proof, on a pinned core release (ADR-0190) |
 
 Key files at the repo root:
 
@@ -129,14 +128,14 @@ Key files at the repo root:
 | Metric | Value (generated — do not hand-edit) |
 | ------ | ------------------------------------- |
 | Version | 0.30.1 |
-| Built-in Functions | 523 functions across 45 modules |
-| Typed Signatures | 332/523 (63.47%) — precise 225/523 (43.02%) (№467/№560) |
+| Built-in Functions | 526 functions across 45 modules |
+| Typed Signatures | 337/526 (64.06%) — precise 227/526 (43.15%) (№467/№560) |
 | SVG/Graphics | 44 builtins, hand-rolled in pure Rust |
 | Grammar | 339 rules |
 | Architecture Decisions | 184 ADRs |
-| Example Programs | 252 .mlog programs |
-| Reference | REFERENCE.md (~311 KB) — 100% registry coverage |
-| Changelog | CHANGELOG.md (~716 KB) — every wave documented |
+| Example Programs | 253 .mlog programs |
+| Reference | REFERENCE.md (~312 KB) — 100% registry coverage |
+| Changelog | CHANGELOG.md (~718 KB) — every wave documented |
 <!-- END GENERATED METRICS -->
 
 Validated on every CI run: `scripts/gen_metrics.py --check` plus the independent recomputation in `tests/readme_consistency.rs`.

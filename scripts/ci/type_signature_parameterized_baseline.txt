@@ -102,6 +102,18 @@
 # Struct<HttpResponse>{4 internal} WITH the field-meta in the same
 # spelling (every field is program-computed at construction). 71/103 →
 # 72/104 = 6923 bp. Only-up (№757), raised in the same PR.
-# parameterized: 72
 # LS rows: 104
-# threshold_bp: 6923
+# 2026-10-13 N6 (gh#1216, волна #1222 PE-2): feed_parse List<FeedItem>,
+# sitemap_parse List<SitemapEntry>, xml_parse Struct<XmlNode>{...} (the
+# field-meta in the honest all-untrusted spelling — every field derives
+# from the untrusted document). 73/105 → 76/108; (76*10000)//108 = 7037
+# bp. Only-up (№757), raised in the same PR.
+# LS rows: 108
+# parameterized: 76
+# threshold_bp: 7037
+
+# 2026-10-13 N7-merge (gh#1217): the merged tree — set_header ships
+# parameterized-coarse (76 → 77, the List/Struct denominator grows to
+# 109 with N6's xml rows) — the floor 7037 → 7064 per №757.
+# parameterized: 77
+# threshold_bp: 7064

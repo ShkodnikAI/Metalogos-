@@ -30,7 +30,387 @@ pub(crate) fn builtin_db_execute(args: &[Value]) -> Result<Value, String> {
 
 // ── Phase 6.6 — Bot stubs ───────────────────────────
 
+// ── Naryad N3 (gh#1212, PE-1) — the send_message opts family ────────
+//
+// The delivery family grows the optional LAST `opts: Struct` argument:
+//
+//   parse_mode      "HTML" | "MarkdownV2" — Telegram message parsing;
+//                     anything else is a loud error.
+//   bot             the bot NAME — its token comes from the
+//                     TELEGRAM_BOT_TOKEN_<NAME> env var (the name
+//                     uppercased); without `bot` the legacy
+//                     TELEGRAM_BOT_TOKEN is read. An explicitly named
+//                     bot with no token env is a LOUD error naming the
+//                     env var (never a value); the token itself never
+//                     enters logs, ledger entries, or error strings.
+//   disable_preview sendMessage-only — maps to the Telegram
+//                     `disable_web_page_preview` field.
+//   chunk           default TRUE — the text routes through text_chunk
+//                     (the "paragraph" strategy, budget 4000, overlap 0)
+//                     and every chunk leaves as its own sendMessage call;
+//                     reply_markup rides ONLY the last chunk, parse_mode
+//                     rides every chunk. A text without paragraph
+//                     boundaries degrades to the hard 4000-char windows
+//                     (the documented text_chunk cascade).
+//   retry           {max_retries, base_delay} — base_delay in
+//                     MILLISECONDS (the METALOGOS_HTTP_MIN_INTERVAL_MS
+//                     convention). A 429 honors the server's
+//                     retry_after; a 5xx backs off base_delay * 2^attempt;
+//                     BOTH are capped at 30 s (TELEGRAM_RETRY_CAP_MS);
+//                     up to max_retries (default 3) RETRIES after the
+//                     initial call; other 4xx are loud immediately.
+//
+// METALOGOS_TELEGRAM_API_BASE overrides the API origin (the test/proxy
+// seam mirroring METALOGOS_OPENAI_BASE_URL, №12) — the default is the
+// official https://api.telegram.org.
+
+/// The retry-cause vocabulary of the Telegram send family (N3).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TgRetryCause {
+    /// HTTP 429 — the server-suggested retry_after (seconds) wins.
+    RateLimit { retry_after_secs: Option<f64> },
+    /// HTTP 5xx — the exponential backoff from base_delay.
+    ServerError,
+}
+
+/// The hard ceiling of ANY retry delay — the naryad's «потолок 30 с».
+pub const TELEGRAM_RETRY_CAP_MS: u64 = 30_000;
+
+/// The delay before the NEXT retry attempt (N3, pure — pinned by tests):
+/// a 429 honors the server's retry_after (converted to ms, capped); a
+/// 5xx backs off base_delay * 2^attempt (capped the same way). The cap
+/// wins over both — a hostile/huge retry_after can never stall the
+/// program for more than 30 s per attempt.
+pub fn telegram_retry_delay_ms(cause: &TgRetryCause, attempt: u32, base_delay_ms: u64) -> u64 {
+    let cap = |ms: u64| ms.min(TELEGRAM_RETRY_CAP_MS);
+    match cause {
+        TgRetryCause::RateLimit {
+            retry_after_secs: Some(secs),
+        } => cap(((secs.max(0.0)) * 1000.0).ceil() as u64),
+        // An unparseable 429 body falls back to the same exponential
+        // backoff as a 5xx — the retry BUDGET is still honored.
+        TgRetryCause::RateLimit {
+            retry_after_secs: None,
+        }
+        | TgRetryCause::ServerError => cap(base_delay_ms.saturating_mul(1u64 << attempt.min(16))),
+    }
+}
+
+/// The default retry budget: 3 retries after the initial call, 1 s base.
+const TG_RETRY_MAX_DEFAULT: u32 = 3;
+const TG_RETRY_BASE_DELAY_MS_DEFAULT: u64 = 1_000;
+
+/// The chunk budget of the message family — Telegram refuses texts
+/// beyond 4096 chars; the naryad pins the 4000-char paragraph budget.
+const TG_CHUNK_BUDGET: f64 = 4000.0;
+
+pub(crate) struct TgSendOpts {
+    /// "HTML" | "MarkdownV2" — validated at parse time; `None` = plain text.
+    parse_mode: Option<&'static str>,
+    /// The bot NAME (the token env is TELEGRAM_BOT_TOKEN_<NAME> uppercased).
+    bot: Option<String>,
+    /// sendMessage-only: the Telegram `disable_web_page_preview` field.
+    disable_preview: bool,
+    /// Default TRUE — the text_chunk paragraph routing (the N3 contract).
+    chunk: bool,
+    retry_max: u32,
+    retry_base_delay_ms: u64,
+}
+
+impl Default for TgSendOpts {
+    fn default() -> Self {
+        TgSendOpts {
+            parse_mode: None,
+            bot: None,
+            disable_preview: false,
+            chunk: true,
+            retry_max: TG_RETRY_MAX_DEFAULT,
+            retry_base_delay_ms: TG_RETRY_BASE_DELAY_MS_DEFAULT,
+        }
+    }
+}
+
+/// The opts-key vocabulary — a trailing Struct carrying ANY of these is
+/// the opts argument (everything else in the 3-argument position stays
+/// the legacy reply_markup).
+const TG_OPTS_KEYS: &[&str] = &["parse_mode", "bot", "disable_preview", "chunk", "retry"];
+
+fn tg_opts_recognized(v: &Value) -> bool {
+    match v {
+        Value::Struct { fields, .. } => fields.keys().any(|k| TG_OPTS_KEYS.contains(&k.as_str())),
+        _ => false,
+    }
+}
+
+fn tg_expect_bool(builtin: &str, key: &str, v: &Value) -> Result<bool, String> {
+    match v {
+        Value::Bool(b) => Ok(*b),
+        other => Err(format!(
+            "{builtin}(): opts.{key} must be a Bool, got {}",
+            other.type_name()
+        )),
+    }
+}
+
+fn tg_expect_nonneg_float(builtin: &str, key: &str, v: &Value) -> Result<f64, String> {
+    match v {
+        Value::Float(f) if *f >= 0.0 => Ok(*f),
+        Value::Float(f) => Err(format!("{builtin}(): opts.{key} must be >= 0, got {f}")),
+        other => Err(format!(
+            "{builtin}(): opts.{key} must be a Number, got {}",
+            other.type_name()
+        )),
+    }
+}
+
+fn parse_tg_opts(builtin: &str, v: &Value) -> Result<TgSendOpts, String> {
+    let fields = match v {
+        Value::Struct { fields, .. } => fields,
+        other => {
+            return Err(format!(
+                "{builtin}(): opts must be a Struct, got {}",
+                other.type_name()
+            ))
+        }
+    };
+    let mut o = TgSendOpts::default();
+    for (k, val) in fields {
+        match k.as_str() {
+            "parse_mode" => {
+                let s = match val {
+                    Value::String(s) => s.clone(),
+                    other => {
+                        return Err(format!(
+                            "{builtin}(): opts.parse_mode must be a String, got {}",
+                            other.type_name()
+                        ))
+                    }
+                };
+                o.parse_mode = match s.as_str() {
+                    "HTML" => Some("HTML"),
+                    "MarkdownV2" => Some("MarkdownV2"),
+                    other => {
+                        return Err(format!(
+                            "{builtin}(): opts.parse_mode must be \"HTML\" or \"MarkdownV2\", got \"{other}\""
+                        ))
+                    }
+                };
+            }
+            "bot" => {
+                let s = match val {
+                    Value::String(s) => s.clone(),
+                    other => {
+                        return Err(format!(
+                            "{builtin}(): opts.bot must be a String, got {}",
+                            other.type_name()
+                        ))
+                    }
+                };
+                o.bot = Some(s);
+            }
+            "disable_preview" => o.disable_preview = tg_expect_bool(builtin, k, val)?,
+            "chunk" => o.chunk = tg_expect_bool(builtin, k, val)?,
+            "retry" => {
+                let retry_fields = match val {
+                    Value::Struct { fields, .. } => fields,
+                    other => {
+                        return Err(format!(
+                            "{builtin}(): opts.retry must be a Struct {{max_retries, base_delay}}, got {}",
+                            other.type_name()
+                        ))
+                    }
+                };
+                for (rk, rv) in retry_fields {
+                    match rk.as_str() {
+                        "max_retries" => {
+                            let f = tg_expect_nonneg_float(builtin, &format!("retry.{rk}"), rv)?;
+                            if f.fract() != 0.0 {
+                                return Err(format!(
+                                    "{builtin}(): opts.retry.max_retries must be a whole number, got {f}"
+                                ));
+                            }
+                            o.retry_max = f as u32;
+                        }
+                        "base_delay" => {
+                            // Milliseconds — the METALOGOS_HTTP_MIN_INTERVAL_MS convention.
+                            o.retry_base_delay_ms =
+                                tg_expect_nonneg_float(builtin, &format!("retry.{rk}"), rv)? as u64;
+                        }
+                        other => {
+                            return Err(format!(
+                                "{builtin}(): unknown opts.retry field '{other}' (allowed: max_retries, base_delay)"
+                            ))
+                        }
+                    }
+                }
+            }
+            other => {
+                return Err(format!(
+                    "{builtin}(): unknown opts field '{other}' (allowed: parse_mode, bot, disable_preview, chunk, retry)"
+                ))
+            }
+        }
+    }
+    Ok(o)
+}
+
+/// The token NEVER enters diagnostics: every error string that could
+/// carry request context goes through this redaction (the reqwest URL,
+/// a hostile endpoint's echo body).
+pub fn tg_redact(s: String, token: &str) -> String {
+    if token.is_empty() {
+        s
+    } else {
+        s.replace(token, "[redacted]")
+    }
+}
+
+/// The token resolution (N3): an explicit `bot` name reads
+/// TELEGRAM_BOT_TOKEN_<NAME> (uppercased) and FAILS LOUD naming the env
+/// var when absent — an explicitly named bot never degrades to the
+/// silent audit stub; the legacy no-bot path reads TELEGRAM_BOT_TOKEN
+/// and answers the empty string when unset (the №543 stub contract).
+fn tg_resolve_token(builtin: &str, opts: &TgSendOpts) -> Result<String, String> {
+    match &opts.bot {
+        Some(name) => {
+            let env_name = format!("TELEGRAM_BOT_TOKEN_{}", name.to_uppercase());
+            match std::env::var(&env_name) {
+                Ok(t) if !t.is_empty() => Ok(t),
+                _ => Err(format!(
+                    "{builtin}(): no token for bot '{name}' — set the {env_name} environment variable (the token value itself is never printed)"
+                )),
+            }
+        }
+        None => Ok(std::env::var("TELEGRAM_BOT_TOKEN").unwrap_or_default()),
+    }
+}
+
+/// One delivery attempt loop (N3): 2xx returns the body; a 429 honors
+/// retry_after and a 5xx backs off (both capped at 30 s) up to
+/// `opts.retry_max` RETRIES; any other 4xx and the exhausted budget are
+/// loud. Network-level failures are NOT retried (the typed loud error).
+fn tg_post_with_retry(
+    builtin: &str,
+    method: &str,
+    body: &serde_json::Value,
+    opts: &TgSendOpts,
+    token: &str,
+) -> Result<String, String> {
+    // The API-origin seam (N3): METALOGOS_TELEGRAM_API_BASE overrides
+    // the official origin — the test/proxy seam mirroring
+    // METALOGOS_OPENAI_BASE_URL (№12). Empty/unset = the official API.
+    let base = std::env::var("METALOGOS_TELEGRAM_API_BASE")
+        .ok()
+        .map(|s| s.trim().trim_end_matches('/').to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "https://api.telegram.org".to_string());
+    let url = format!("{base}/bot{token}/{method}");
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| tg_redact(format!("{builtin}(): client error: {e}"), token))?;
+    let mut attempt: u32 = 0;
+    loop {
+        let resp = client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .body(body.to_string())
+            .send();
+        let resp = match resp {
+            Ok(r) => r,
+            Err(e) => {
+                return Err(tg_redact(
+                    format!("{builtin}(): request failed: {e}"),
+                    token,
+                ))
+            }
+        };
+        let status = resp.status().as_u16();
+        let resp_body = resp.text().unwrap_or_default();
+        if (200..300).contains(&status) {
+            return Ok(resp_body);
+        }
+        let retryable = status == 429 || (500..600).contains(&status);
+        if retryable && attempt < opts.retry_max {
+            let cause = if status == 429 {
+                let retry_after = serde_json::from_str::<serde_json::Value>(&resp_body)
+                    .ok()
+                    .and_then(|v| {
+                        v.get("parameters")
+                            .and_then(|p| p.get("retry_after"))
+                            .and_then(|r| r.as_f64())
+                    });
+                TgRetryCause::RateLimit {
+                    retry_after_secs: retry_after,
+                }
+            } else {
+                TgRetryCause::ServerError
+            };
+            let delay = telegram_retry_delay_ms(&cause, attempt, opts.retry_base_delay_ms);
+            std::thread::sleep(std::time::Duration::from_millis(delay));
+            attempt += 1;
+            continue;
+        }
+        return Err(tg_redact(
+            format!("{builtin}(): Telegram status {status}: {resp_body}"),
+            token,
+        ));
+    }
+}
+
+/// The N3 chunk routing: the text goes through the text_chunk builtin
+/// (the "paragraph" strategy, budget 4000, overlap 0 — the naryad's
+/// «по границам абзацев до 4000 символов через text_chunk»). A text
+/// without paragraph boundaries degrades to the hard windows (the
+/// documented cascade); a short text round-trips as ONE chunk.
+fn tg_chunk_text(text: &str) -> Result<Vec<String>, String> {
+    let budget = Value::Struct {
+        type_name: "TextChunkOpts".to_string(),
+        fields: [
+            ("max_chars", Value::Float(TG_CHUNK_BUDGET)),
+            ("overlap", Value::Float(0.0)),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect(),
+    };
+    let out = super::text_chunk::builtin_text_chunk(&[
+        Value::String(text.to_string()),
+        Value::String("paragraph".to_string()),
+        budget,
+    ])?;
+    match out {
+        Value::List(items) => items
+            .iter()
+            .map(|it| match it {
+                Value::Struct { fields, .. } => match fields.get("text") {
+                    Some(Value::String(s)) => Ok(s.clone()),
+                    _ => Err(
+                        "send_message(): text_chunk returned a chunk without a text field"
+                            .to_string(),
+                    ),
+                },
+                other => Err(format!(
+                    "send_message(): text_chunk returned {}, expected Struct",
+                    other.type_name()
+                )),
+            })
+            .collect(),
+        other => Err(format!(
+            "send_message(): text_chunk returned {}, expected List",
+            other.type_name()
+        )),
+    }
+}
+
 pub(crate) fn builtin_send_message(args: &[Value]) -> Result<Value, String> {
+    const BUILTIN: &str = "send_message";
+    if args.len() < 2 || args.len() > 4 {
+        return Err(format!(
+            "{BUILTIN}() requires 2 to 4 arguments (chat_id, text, reply_markup?, opts?), got {}",
+            args.len()
+        ));
+    }
     // Extract and format chat_id — supports negative channel IDs (Наряд №24 B5)
     let chat_id_value: serde_json::Value = match args.first() {
         Some(Value::String(s)) => serde_json::Value::String(s.clone()),
@@ -43,71 +423,204 @@ pub(crate) fn builtin_send_message(args: &[Value]) -> Result<Value, String> {
         }
         Some(other) => {
             return Err(format!(
-                "send_message() expected String or Float as chat_id, got {}",
+                "{BUILTIN}() expected String or Float as chat_id, got {}",
                 other.type_name()
             ))
         }
         None => {
-            return Err("send_message() requires at least 2 arguments (chat_id, text)".to_string())
+            return Err(format!(
+                "{BUILTIN}() requires at least 2 arguments (chat_id, text)"
+            ))
         }
     };
     let text = match args.get(1) {
         Some(Value::String(s)) => s.clone(),
         Some(other) => {
             return Err(format!(
-                "send_message() expected String as text, got {}",
+                "{BUILTIN}() expected String as text, got {}",
                 other.type_name()
             ))
         }
         None => {
-            return Err("send_message() requires at least 2 arguments (chat_id, text)".to_string())
+            return Err(format!(
+                "{BUILTIN}() requires at least 2 arguments (chat_id, text)"
+            ))
         }
     };
 
-    // Try to send via Telegram API if BOT_TOKEN env var is set
-    let bot_token = std::env::var("TELEGRAM_BOT_TOKEN").unwrap_or_default();
-    if bot_token.is_empty() {
-        // No token — fall back to audit stub
-        eprintln!("[AUDIT] send_message to {:?}: {}", chat_id_value, text);
+    // N3: the 3-argument position stays the legacy reply_markup UNLESS
+    // the Struct carries a known opts key; the 4-argument form is
+    // unambiguous (markup + opts).
+    let (markup, opts) = match args.len() {
+        2 => (None, TgSendOpts::default()),
+        3 => {
+            if tg_opts_recognized(&args[2]) {
+                (None, parse_tg_opts(BUILTIN, &args[2])?)
+            } else {
+                (Some(args[2].clone()), TgSendOpts::default())
+            }
+        }
+        _ => (Some(args[2].clone()), parse_tg_opts(BUILTIN, &args[3])?),
+    };
+    let markup_json = match &markup {
+        Some(m) => Some(value_to_json(m)?),
+        None => None,
+    };
+
+    // N3: chunk=true (the default) routes the text through text_chunk;
+    // reply_markup rides ONLY the last chunk, parse_mode rides every one.
+    let chunks: Vec<String> = if opts.chunk {
+        tg_chunk_text(&text)?
+    } else {
+        vec![text]
+    };
+    let last = chunks.len().saturating_sub(1);
+
+    // Try to send via the Telegram API; the no-token legacy path stays
+    // the audit stub (№543) — an explicitly named bot already failed
+    // loud above if its env is missing.
+    let token = tg_resolve_token(BUILTIN, &opts)?;
+    if token.is_empty() {
+        for (i, chunk) in chunks.iter().enumerate() {
+            if chunks.len() > 1 {
+                eprintln!(
+                    "[AUDIT] send_message to {:?} (chunk {}/{}): {}",
+                    chat_id_value,
+                    i + 1,
+                    chunks.len(),
+                    chunk
+                );
+            } else {
+                // The legacy single-chunk audit line — byte-identical.
+                eprintln!("[AUDIT] send_message to {:?}: {}", chat_id_value, chunk);
+            }
+        }
         return Ok(Value::Unit);
     }
 
-    // Build JSON body with optional reply_markup (3rd arg: Struct)
-    let mut body = serde_json::json!({
-        "chat_id": chat_id_value,
-        "text": text,
-    });
-    if let Some(markup) = args.get(2) {
-        let markup_json = value_to_json(markup)?;
-        body["reply_markup"] = markup_json;
+    let mut last_body = String::new();
+    for (i, chunk) in chunks.iter().enumerate() {
+        let mut body = serde_json::json!({
+            "chat_id": chat_id_value,
+            "text": chunk,
+        });
+        if let Some(pm) = opts.parse_mode {
+            body["parse_mode"] = serde_json::json!(pm);
+        }
+        if opts.disable_preview {
+            body["disable_web_page_preview"] = serde_json::json!(true);
+        }
+        if i == last {
+            if let Some(mj) = &markup_json {
+                body["reply_markup"] = mj.clone();
+            }
+        }
+        last_body = tg_post_with_retry(BUILTIN, "sendMessage", &body, &opts, &token)?;
     }
+    Ok(Value::String(last_body))
+}
 
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(|e| format!("send_message(): client error: {}", e))?;
-
-    let resp = client
-        .post(format!(
-            "https://api.telegram.org/bot{}/sendMessage",
-            bot_token
-        ))
-        .header("Content-Type", "application/json")
-        .body(body.to_string())
-        .send()
-        .map_err(|e| format!("send_message(): request failed: {}", e))?;
-
-    let status = resp.status().as_u16();
-    let resp_body = resp.text().unwrap_or_default();
-
-    if status >= 400 {
+/// `send_photo(chat_id, photo, caption?, opts?)` — the N3 photo delivery.
+/// `photo` is a Telegram-passable string (an HTTPS URL or a file_id —
+/// the API passthrough; multipart upload is not in the v1 minimum).
+/// The caption is refused LOUD beyond 1024 characters BEFORE any wire
+/// traffic (the Telegram contract the naryad pins). `parse_mode` /
+/// `retry` / `bot` apply; `chunk` and `disable_preview` are documented
+/// no-ops for a photo (ONE caption ≤1024 — nothing to chunk, no link
+/// preview to disable). Returns the API response body (String) or the
+/// audit-stub Unit when no token is configured (the №543 convention).
+pub(crate) fn builtin_send_photo(args: &[Value]) -> Result<Value, String> {
+    const BUILTIN: &str = "send_photo";
+    if args.len() < 2 || args.len() > 4 {
         return Err(format!(
-            "send_message(): Telegram status {}: {}",
-            status, resp_body
+            "{BUILTIN}() requires 2 to 4 arguments (chat_id, photo, caption?, opts?), got {}",
+            args.len()
         ));
     }
-
-    Ok(Value::String(resp_body))
+    let chat_id_value: serde_json::Value = match args.first() {
+        Some(Value::String(s)) => serde_json::Value::String(s.clone()),
+        Some(Value::Float(f)) => {
+            if *f == (*f as i64) as f64 {
+                serde_json::json!(*f as i64)
+            } else {
+                serde_json::json!(*f)
+            }
+        }
+        Some(other) => {
+            return Err(format!(
+                "{BUILTIN}() expected String or Float as chat_id, got {}",
+                other.type_name()
+            ))
+        }
+        None => {
+            return Err(format!(
+                "{BUILTIN}() requires at least 2 arguments (chat_id, photo)"
+            ))
+        }
+    };
+    let photo = match args.get(1) {
+        Some(Value::String(s)) => s.clone(),
+        Some(other) => {
+            return Err(format!(
+                "{BUILTIN}() expected String as photo (an HTTPS URL or a file_id), got {}",
+                other.type_name()
+            ))
+        }
+        None => {
+            return Err(format!(
+                "{BUILTIN}() requires at least 2 arguments (chat_id, photo)"
+            ))
+        }
+    };
+    // The 3-argument position is the caption (String) or the opts
+    // (a Struct — the types are disjoint, no ambiguity); the 4-argument
+    // form is caption + opts.
+    let (caption, opts) = match args.len() {
+        2 => (None, TgSendOpts::default()),
+        3 => match &args[2] {
+            Value::String(c) => (Some(c.clone()), TgSendOpts::default()),
+            other => (None, parse_tg_opts(BUILTIN, other)?),
+        },
+        _ => {
+            let caption = match &args[2] {
+                Value::String(c) => Some(c.clone()),
+                other => {
+                    return Err(format!(
+                        "{BUILTIN}() expected String as caption, got {}",
+                        other.type_name()
+                    ))
+                }
+            };
+            (caption, parse_tg_opts(BUILTIN, &args[3])?)
+        }
+    };
+    // The caption contract BEFORE the token resolution and any wire
+    // traffic — the refusal is observable off-server (the golden pins it).
+    if let Some(c) = &caption {
+        let n = c.chars().count();
+        if n > 1024 {
+            return Err(format!(
+                "{BUILTIN}(): caption is {n} characters — Telegram refuses captions beyond 1024"
+            ));
+        }
+    }
+    let token = tg_resolve_token(BUILTIN, &opts)?;
+    if token.is_empty() {
+        eprintln!("[AUDIT] send_photo to {:?}: {}", chat_id_value, photo);
+        return Ok(Value::Unit);
+    }
+    let mut body = serde_json::json!({
+        "chat_id": chat_id_value,
+        "photo": photo,
+    });
+    if let Some(c) = &caption {
+        body["caption"] = serde_json::json!(c);
+    }
+    if let Some(pm) = opts.parse_mode {
+        body["parse_mode"] = serde_json::json!(pm);
+    }
+    let resp = tg_post_with_retry(BUILTIN, "sendPhoto", &body, &opts, &token)?;
+    Ok(Value::String(resp))
 }
 
 /// `answer_callback_query(callback_query_id, text?, show_alert?)` — respond to Telegram inline keyboard callback.
@@ -133,10 +646,18 @@ pub(crate) fn builtin_answer_callback_query(args: &[Value]) -> Result<Value, Str
         "text": text,
         "show_alert": show_alert,
     });
+    // N3: the token never enters diagnostics — every error string is
+    // redacted (the family-wide secret discipline; the URL and a hostile
+    // echo body carry no token fragments).
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
-        .map_err(|e| format!("answer_callback_query(): client error: {}", e))?;
+        .map_err(|e| {
+            tg_redact(
+                format!("answer_callback_query(): client error: {}", e),
+                &bot_token,
+            )
+        })?;
     let resp = client
         .post(format!(
             "https://api.telegram.org/bot{}/answerCallbackQuery",
@@ -145,13 +666,21 @@ pub(crate) fn builtin_answer_callback_query(args: &[Value]) -> Result<Value, Str
         .header("Content-Type", "application/json")
         .body(body.to_string())
         .send()
-        .map_err(|e| format!("answer_callback_query(): request failed: {}", e))?;
+        .map_err(|e| {
+            tg_redact(
+                format!("answer_callback_query(): request failed: {}", e),
+                &bot_token,
+            )
+        })?;
     let status = resp.status().as_u16();
     let resp_body = resp.text().unwrap_or_default();
     if status >= 400 {
-        return Err(format!(
-            "answer_callback_query(): Telegram status {}: {}",
-            status, resp_body
+        return Err(tg_redact(
+            format!(
+                "answer_callback_query(): Telegram status {}: {}",
+                status, resp_body
+            ),
+            &bot_token,
         ));
     }
     Ok(Value::String(resp_body))
@@ -187,10 +716,17 @@ pub(crate) fn builtin_edit_message_text(args: &[Value]) -> Result<Value, String>
         let markup_json = value_to_json(markup)?;
         body["reply_markup"] = markup_json;
     }
+    // N3: the token never enters diagnostics — the same redaction the
+    // send_message family carries.
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
-        .map_err(|e| format!("edit_message_text(): client error: {}", e))?;
+        .map_err(|e| {
+            tg_redact(
+                format!("edit_message_text(): client error: {}", e),
+                &bot_token,
+            )
+        })?;
     let resp = client
         .post(format!(
             "https://api.telegram.org/bot{}/editMessageText",
@@ -199,13 +735,21 @@ pub(crate) fn builtin_edit_message_text(args: &[Value]) -> Result<Value, String>
         .header("Content-Type", "application/json")
         .body(body.to_string())
         .send()
-        .map_err(|e| format!("edit_message_text(): request failed: {}", e))?;
+        .map_err(|e| {
+            tg_redact(
+                format!("edit_message_text(): request failed: {}", e),
+                &bot_token,
+            )
+        })?;
     let status = resp.status().as_u16();
     let resp_body = resp.text().unwrap_or_default();
     if status >= 400 {
-        return Err(format!(
-            "edit_message_text(): Telegram status {}: {}",
-            status, resp_body
+        return Err(tg_redact(
+            format!(
+                "edit_message_text(): Telegram status {}: {}",
+                status, resp_body
+            ),
+            &bot_token,
         ));
     }
     Ok(Value::String(resp_body))

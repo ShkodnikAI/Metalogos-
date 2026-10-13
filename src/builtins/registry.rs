@@ -293,7 +293,8 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("session_take_interrupt", 1, "session"; builtin_session_take_interrupt),
     // №539: String — the literal "ok" return (verified handler; not Unit).
     spec!("session_clear", 1, "memory"; builtin_session_clear, "String"), // ── Bot — Telegram messaging ──
-    spec!("send_message", 2, 3, "bot"; builtin_send_message), // №543: Unknown honest — String (delivered) | Unit (no TELEGRAM_BOT_TOKEN fallback); the flat vocabulary has no env-dependent union
+    spec!("send_message", 2, 4, "bot"; builtin_send_message), // №543: Unknown honest — String (delivered) | Unit (no TELEGRAM_BOT_TOKEN fallback); the flat vocabulary has no env-dependent union. N3: the 4th argument is opts (parse_mode/bot/disable_preview/chunk/retry)
+    spec!("send_photo", 2, 4, "bot"; builtin_send_photo), // N3: chat_id, photo [, caption ≤1024] [, opts]; Unknown honest — String | Unit (no-token fallback), same env-dependent split as send_message
     spec!("answer_callback_query", 1, 3, "bot"; builtin_answer_callback_query), // №543: Unknown honest — String | Unit (no-token fallback), same env-dependent split as send_message
     spec!("edit_message_text", 3, 4, "bot"; builtin_edit_message_text), // №543: Unknown honest — String | Unit (no-token fallback), same env-dependent split as send_message
     // ── Voice / transcription ──

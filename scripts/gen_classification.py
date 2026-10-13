@@ -532,6 +532,7 @@ OVERRIDES = {
     "vault_validate": ("Pure", "Public", "Pure", "deterministic validation of a loaded config"),
     # ── bot (assistant persistence / human channels) ──
     "send_message": ("Sink", "Network", "Irreversible", "delivers a message to an external chat — cannot be unsent (issue minimum list)"),
+    "send_photo": ("Sink", "Network", "Irreversible", "delivers a photo externally — cannot be unsent (N3)"),
     "send_document": ("Sink", "Network", "Irreversible", "delivers a document externally — cannot be unsent"),
     "edit_message_text": ("Sink", "Network", "Reversible", "edits an already-delivered external message (reversible by further edits)"),
     "answer_callback_query": ("Sink", "Network", "Irreversible", "answers an external callback query"),

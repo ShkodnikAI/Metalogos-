@@ -6,6 +6,66 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **N3 (gh#1212, PE-1) — the send_message opts + send_photo: the
+  Telegram delivery family grows up.** `send_message(chat_id, text,
+  reply_markup?, opts?)` — the optional last `opts: Struct` carries
+  `parse_mode` (`"HTML"` | `"MarkdownV2"`, anything else loud), `bot`
+  (the bot NAME — the token comes from `TELEGRAM_BOT_TOKEN_<NAME>`, the
+  name uppercased; an explicitly named bot with no token env is a loud
+  error naming the ENV VAR, never a value; without `bot` the legacy
+  `TELEGRAM_BOT_TOKEN` is read), `disable_preview` (maps to the Telegram
+  `disable_web_page_preview`), `chunk` (default TRUE — the text routes
+  through text_chunk, the "paragraph" strategy, budget 4000, overlap 0;
+  every chunk leaves as its own sendMessage call, `reply_markup` rides
+  ONLY the last chunk, `parse_mode` rides every chunk; a text without
+  paragraph boundaries degrades to the hard 4000-char windows), and
+  `retry` `{max_retries, base_delay}` (base_delay in milliseconds, the
+  METALOGOS_HTTP_MIN_INTERVAL_MS convention; a 429 honors the server's
+  retry_after, a 5xx backs off base_delay·2^attempt, BOTH capped at
+  30 s — `metalogos::builtins::TELEGRAM_RETRY_CAP_MS`; up to
+  max_retries (default 3) retries after the initial call; other 4xx are
+  loud immediately). A 3-argument Struct WITHOUT any known opts key
+  stays the legacy `reply_markup` (backward compat by contract). The
+  new `send_photo(chat_id, photo, caption?, opts?)` — the photo is an
+  HTTPS URL or a file_id (the API passthrough), the caption is refused
+  loud beyond 1024 characters BEFORE any wire traffic, `chunk` /
+  `disable_preview` are documented no-ops for a photo. The secret
+  discipline is family-wide: every diagnostic is token-redacted (the
+  reqwest URL Display and a hostile endpoint's echo body carry no token
+  fragments; send_message / send_photo / answer_callback_query /
+  edit_message_text / send_document all redact). The compile gate
+  `TELEGRAM_HTML_INJECTION` (the HTML_INJECTION analogy the naryad
+  pins): untrusted text into the text/caption position with the literal
+  opts `parse_mode: "HTML"` is a Category-A compile error naming the
+  fix (escape_html) — opts-aware, both taint lanes, ordered BEFORE the
+  №325 sink clearance so the shared site names the scenario; the
+  lattice stays the general gate (`MarkdownV2` / opts-less keep
+  `UNTRUSTED_EGRESS_NETWORK`). `METALOGOS_TELEGRAM_API_BASE` overrides
+  the API origin — the test/proxy seam mirroring
+  METALOGOS_OPENAI_BASE_URL (№12). 30 tests
+  (`tests/naryad_n3_send_opts.rs`) over a canned-response Telegram mock
+  (bind → env-lock → serve, early-exit after the expected request
+  count — the parallel-safe mock discipline): the wire shapes, the
+  chunk boundaries + the last-chunk markup, the 429/5xx retry budgets
+  and the 30 s cap, the never-leaks pack, the bot-name env resolution,
+  the loud opts validation, the caption limit boundary (1024/1025),
+  the TW↔VM parity leg, and the compile-gate pack. RED first (23/30
+  behavioral failures on main; the helper-level test did not compile —
+  no such API). Golden pairs: `telegram_send_opts.mlog` (the no-token
+  Unit stubs with opts accepted) +
+  `err_send_photo_caption.mlog` (the off-server caption refusal).
+  REFERENCE regenerated (518 → 519 builtins), the classification row
+  added, the arity export re-blessed, the gate facts synced
+  (fact_precise_share_bp 4324 → 4315 — the precise share is
+  count-stable over a bigger denominator, the goal ratchet 3000 bp
+  untouched). Size: M/L (the largest naryad of PE-1, per the issue);
+  risks: medium — the chunk=true default is an INTENDED behavior
+  change for >4000-char texts (documented), the opts recognition is
+  key-based in the 3-argument position (a Struct without opts keys is
+  a reply_markup — mixed structs are loud), and chunk boundaries may
+  carry a leading paragraph separator (text_chunk keeps separators for
+  lossless reassembly — delivered as-is, v1-min).
+
 - **N4 (gh#1213, PE-1) — the outgoing-HTTP hardening: the host
   allowlist, the User-Agent identity, the per-host pacing, the robots
   politeness gate.** All four egress builtins (`http_get`,

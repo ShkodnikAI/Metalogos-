@@ -655,7 +655,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 518 registered builtins (518 of 518): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 519 registered builtins (519 of 519): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -1203,7 +1203,8 @@ let left = grant_use(g)
 
 | Function | Signature | Return | Description |
 |---------|-----------|---------|----------|
-| `send_message(chat_id, text)` | `String\|Float, String -> Unit` | Unit | Sends a message to a chat (Telegram/Discord). In interpreter mode — logs to `[AUDIT]` |
+| `send_message(chat_id, text, reply_markup?, opts?)` | `String\|Float, String, any?, Struct? -> String\|Unit` | String\|Unit | Sends a message to a chat (Telegram/Discord). N3 opts: `parse_mode` ("HTML"\|"MarkdownV2"), `bot` (the token comes from `TELEGRAM_BOT_TOKEN_<NAME>`, the name uppercased — an explicitly named bot with no token env is a loud error naming the env var), `disable_preview`, `chunk` (default true — the text routes through text_chunk, the "paragraph" strategy, budget 4000, overlap 0; `reply_markup` rides ONLY the last chunk), `retry` `{max_retries, base_delay}` (base_delay in ms; 429 honors retry_after, 5xx backs off base_delay·2^attempt; both capped at 30 s; up to max_retries (default 3) retries; other 4xx are loud immediately). The token never enters logs/errors (every diagnostic is redacted). A 3-argument Struct without any known opts key stays the legacy `reply_markup`. In interpreter mode (no token) — logs to `[AUDIT]`, returns Unit |
+| `send_photo(chat_id, photo, caption?, opts?)` | `String\|Float, String, String?, Struct? -> String\|Unit` | String\|Unit | Sends a photo (an HTTPS URL or a file_id — the API passthrough). The caption is refused loud beyond 1024 characters BEFORE any wire traffic. `parse_mode` / `retry` / `bot` apply; `chunk` and `disable_preview` are documented no-ops for a photo (one caption ≤1024 — nothing to chunk, no link preview). In interpreter mode (no token) — logs to `[AUDIT]`, returns Unit |
 
 ### 4.17. Miscellaneous
 
@@ -2141,7 +2142,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 518 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 519 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2155,7 +2156,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `grant_subgrant(...)` | 3..5 | `Grant, String, Number[, ...] -> Grant` | Attenuation-only derivation: narrower scope, shorter TTL, lower class power; a Once parent is consumed by the split |
 | `grant_use(...)` | 1 | `Grant -> Number` | Consumes one use; returns the remaining count (-1 = unlimited) |
 
-### `bot` — 35 builtin(s)
+### `bot` — 36 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
@@ -2190,7 +2191,8 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `remind(...)` | 3 | — | `remind(message, timestamp, data?)` — one-time reminder. Returns ID. |
 | `remind_recurring(...)` | 2 | — | `remind_recurring(message, interval_seconds, data?)` — recurring reminder. Returns ID. |
 | `send_document(...)` | 2..3 | — | `send_document(chat_id, file_path, caption) → { ok }` |
-| `send_message(...)` | 2..3 | `String\ | Unit |
+| `send_message(...)` | 2..4 | `String\ | Unit` |
+| `send_photo(...)` | 2..4 | `String\ | Unit` |
 | `todo_add(...)` | 2 | — | `todo_add(title, status?)` — add a todo card. Default status: "todo". Returns Struct { id, title, status, created_at }. |
 | `todo_list(...)` | variadic | — | `todo_list()` — list all todos. Returns List of Struct { id, title, status, created_at }. |
 | `todo_update(...)` | 2 | — | `todo_update(id, new_status)` — update a todo's status. Returns Struct { id, old_status, new_status, updated }. |
@@ -3046,6 +3048,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `session_take_interrupt` | source | internal | pure | takes the highest-priority pending interrupt (FIFO within) — the №352 preemption lever; every take is ledger-recorded so preemption loses no audit (№348) |
 | `session_clear` | sink | internal | irreversible | wipes session state — no undo |
 | `send_message` | sink | network | irreversible | delivers a message to an external chat — cannot be unsent (issue minimum list) |
+| `send_photo` | sink | network | irreversible | delivers a photo externally — cannot be unsent (N3) |
 | `answer_callback_query` | sink | network | irreversible | answers an external callback query |
 | `edit_message_text` | sink | network | reversible | edits an already-delivered external message (reversible by further edits) |
 | `whisper_transcribe` | source | network | pure | ingests external transcription of user audio; DUAL: uploads the audio to an external STT provider (№317 corpus) |

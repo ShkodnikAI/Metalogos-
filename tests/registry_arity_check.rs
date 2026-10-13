@@ -137,7 +137,8 @@ fn registry_arity_exhaustive() {
         ("session_login", 2, 2),
         ("session_logout", 1, 1),
         // ── Bot stubs ──
-        ("send_message", 2, 3),
+        ("send_message", 2, 4), // N3: the 4th argument is opts
+        ("send_photo", 2, 4),   // N3: chat_id, photo [, caption] [, opts]
         ("answer_callback_query", 1, 3),
         ("edit_message_text", 3, 4),
         ("whisper_transcribe", 3, 4),

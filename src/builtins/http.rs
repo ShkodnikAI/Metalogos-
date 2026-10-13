@@ -26,8 +26,63 @@ pub(crate) struct TemplateEntry {
 pub(crate) static GLOBAL_TEMPLATES: Lazy<Mutex<HashMap<String, TemplateEntry>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
-/// Register a template body + param names (called from interpreter on Declaration::Template).
-pub(crate) fn register_template(name: &str, body: &str, params: Vec<String>) {
+/// The N9 (gh#1219) registration gate: the Jinja-style filter pipe
+/// (`{{ var | safe }}`) was NEVER implemented — `render()` left the
+/// placeholder verbatim in the output, `template_render` silently
+/// rendered it empty. The silent mismatch between the example syntax
+/// and the runtime is exactly what the naryad forbids. The refusal is
+/// LOUD at registration (compile-time on both backends — the №250
+/// compiler registration + the interpreter declaration walk) and names
+/// the supported raw-insert form.
+pub(crate) fn template_body_has_filter_pipe(body: &str) -> bool {
+    let b = body.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'{' && i + 1 < b.len() && b[i + 1] == b'{' {
+            // Triple-brace open `{{{` (the raw form) vs double `{{`.
+            let open: usize = if i + 2 < b.len() && b[i + 2] == b'{' {
+                3
+            } else {
+                2
+            };
+            // Find the matching closing run.
+            let close: &[u8] = if open == 3 { b"}}}" } else { b"}}" };
+            let close_str = std::str::from_utf8(close).unwrap_or("}}");
+            let rest = &body[i + open..];
+            match rest.find(close_str) {
+                Some(end) => {
+                    let inner = rest[..end].trim();
+                    // The construct forms (#if / #each / /close / else)
+                    // are NOT var placeholders — their grammar may carry
+                    // a pipe inside a string literal ({{#if x == "a|b"}}).
+                    let is_construct =
+                        inner.starts_with('#') || inner.starts_with('/') || inner == "else";
+                    if !is_construct && inner.contains('|') {
+                        return true;
+                    }
+                    i = i + open + end + close.len();
+                }
+                None => return false, // unbalanced — not this check's problem
+            }
+        } else {
+            i += 1;
+        }
+    }
+    false
+}
+
+/// Register a template body + param names (called from interpreter on
+/// Declaration::Template and from the compiler at compile time, №250).
+/// Fails LOUD on the unsupported filter-pipe syntax (N9, gh#1219).
+pub(crate) fn register_template(name: &str, body: &str, params: Vec<String>) -> Result<(), String> {
+    if template_body_has_filter_pipe(body) {
+        return Err(format!(
+            "template '{}': the Jinja-style filter pipe '{{{{ var | safe }}}}' is NOT supported \
+             — the template parameters are ALWAYS escaped (the XSS-safe-by-construction contract); \
+             the raw insert is the triple-brace form '{{{{{{ var }}}}}}' (N9, gh#1219)",
+            name
+        ));
+    }
     if let Ok(mut g) = GLOBAL_TEMPLATES.lock() {
         g.insert(
             name.to_string(),
@@ -37,12 +92,21 @@ pub(crate) fn register_template(name: &str, body: &str, params: Vec<String>) {
             },
         );
     }
+    Ok(())
 }
 
 /// Substitute `{{ key }}` with HTML-escaped values. Shared with server path.
 pub(crate) fn render_template_body(body: &str, vars: &HashMap<String, String>) -> String {
     let mut result = body.to_string();
     for (key, val) in vars {
+        // N9 (gh#1219): the RAW insert — the triple-brace form
+        // `{{{ key }}}` (the template_render contract, mirrored here so
+        // BOTH engines share one raw mechanism). The raw is
+        // safe-by-construction: the parameter values are
+        // program-provided (the Html-typed composition or trusted
+        // literals), the egress gates still apply downstream.
+        result = result.replace(&format!("{{{{{{ {} }}}}}}", key), val);
+        result = result.replace(&format!("{{{{{{{}}}}}}}", key), val);
         let escaped = escape_html_chars(val);
         // Support both {{key}} and {{ key }} (with spaces)
         result = result.replace(&format!("{{{{{}}}}}", key), &escaped);

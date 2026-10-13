@@ -2102,3 +2102,115 @@ referenced as existing), the В36 tail (№639 the ledger revision
 
 **The wave report line (№608/№470):** the dispatch surface gh#1187:
 `naryad-quota (№470/№608): 20 naryads — domain 0/20 = 0.0% — PASS (the standing limiter <= 1/3)`
+
+### 6.27. Wave 42 post-wave record (naryad №683): the showcase wave — metalogos-examples in the separate public repository, the cross-repo lane parallel to the PE line (main @ `d403832`, 2026-10-13)
+
+Protocol: the same machines, no hand-written numbers. The honest
+headline: В42 executed the showcase charter (ADR-0190) in the OWNER's
+separate public repository `ShkodnikAI/metalogos-examples` (created by
+the owner; the wave's trigger 2026-10-13, the trace
+1a1330e6f7a80a99: «metalogos-examples создал — сними блок лейна, волна
+в реализацию»; the canon registration §16.9-тригесимус-секундус,
+FOSVED-office-v2 `31e71ea`). The wave ran PARALLEL to the PE line
+(the dispatch gh#1235 housekeeping: PE keeps the core-CI priority; В42
+is the cross-repo lane) — the core source is untouched except this
+docs record (the №683 exception), and the core counters below moved
+only by the PE line, never by В42.
+
+**What actually works on the showcase (the pinned core v0.30.1,
+`27877b8` — the release binary, SHA256 + BUILD-INFO verified by the
+showcase harness before every leg):**
+
+- **№679 the scaffold** (gh#1230, showcase PR #1 → `fcd369a`) — the
+  charter README (the three apps, the honesty rule §2.4, the pin
+  policy §3(а) «pin + scheduled drift-check», the boundary with the
+  core's developer-facing `examples/` and GFI #951), the verbatim
+  licenses from the pin, the loudly-empty layout, the blocking
+  both-backend CI + the weekly drift-check. The live premise held:
+  the token's write grant was refused at first (403) — the no-progress
+  flag was issued per the naryad's premise (no circumvention), the
+  owner unlocked Contents: R&W, the same commit was pushed unchanged.
+- **№680 App A — the stateful serve application** (gh#1231, showcase
+  PR #2 → `e9155a3`) — `serve.mlog` 62 lines (the ≤120 budget checked
+  in CI), the typed-memory arc (`memory_open`/`put`/`read`/`keys`);
+  the restart arc **persist → query → restart → query is green on
+  BOTH backends** (each a genuinely fresh process — the state
+  survives through `METALOGOS_MEMORY_DB` + `METALOGOS_MEMORY_MASTER`,
+  the load-on-open posture №351/ADR-0173 §3.5); the transcripts are
+  byte-identical TW == VM (§2.4, `assert_identical`); the blocking CI
+  + the nightly stress leg (5 notes × 3 restarts × both backends,
+  parity diffed). The showcase's security-by-design lesson recorded:
+  the first draft branched on a read value in a route — the boot
+  audit refused it loudly (`UNTRUSTED_DECISION`, Category A); the
+  shipped program branches nowhere on untrusted data.
+- **№681 App B — the bot on mlogpkg** (gh#1232, showcase PR #3 →
+  `bef13e6`) — an mlogpkg package (`mlog.toml`, `src/main.mlog` 117
+  lines): the HOOK intake (`POST /hook`) + the POLL intake
+  (`POST /enqueue` + `POST /poll` — the external world replaced by
+  the deterministic queue), the per-chat dialog state machine
+  (`new → greeted → helped`) over the typed-memory registry, the
+  outbound `send_message` behind the deterministic `[AUDIT]` stub
+  (offline); the hook+poll transcripts are byte-identical TW == VM;
+  the honest boundary documented: the mlogpkg BINARY is not among the
+  pinned release assets, so the leg exercises the surface the pin
+  carries (the manifest shape + `mlog check` — the same
+  `check_program` family `mlogpkg build` runs).
+
+**The deviation from the registration (the loudest finding of the
+wave):** **№682 App C — STOPPED no-progress** (the flag gh#1233,
+comment 6146003277). The agent was built and runs green on the TW
+(the model call under `METALOGOS_MOCK_LLM=1` — the CODE spelling,
+`llm.rs`; the docs write `METALOGOS_LLM_MOCK` — the name divergence
+is recorded — + the tool call + the visible trace through
+`escape_html`, the §391 sanitizer), but the VM leg fails at COMPILE
+time: **the VM compiler cannot resolve tool-method qualified calls**.
+The minimal repro on the pinned binary: `mlog check` OK → TW run `42`
+→ `mlog compile` fails `qualified call 'calc.double()' — not found`.
+The localization: `src/compiler.rs` skips `Declaration::Tool(_)`
+entirely (both arms), the `Expr::QualifiedCall` resolution has NO
+tool-namespace branch (builtin.module → pattern → builtin only);
+`src/interpreter/execution.rs` registers the tool namespaces
+(ADR-0054) — that is why the TW works; the tool contract tests
+(`tests/tool_abstraction_contract.rs`) are TW-only — the VM path was
+never covered. Per the parity rule §2.4 (a divergence found in a
+showcase app is the loudest possible finding — STOP, never adjust the
+oracle): no pattern-call substitute, no TW-only demo, no VM-skip —
+the divergent code did NOT enter the showcase; App C remains a loud
+stub. The unlock paths (the conveyor's/owner's call): (a) a core
+naryad — the VM compiler learns the tool-method resolution (register
+`Declaration::Tool`, add the tool branch to the QualifiedCall
+resolution, the VM leg in the tool contract suite), then App C lands
+on the bumped pin; (b) a charter amendment for the App C bounded
+subset (§2.3). №682 stays OPEN.
+
+**The showcase gates after В42:** the pin bump carries the
+both-backend proof (the core-pin.txt rule); the drift-check stays
+non-blocking weekly; the showcase is NOT a GFI (№561) and adds no
+language constructs (§4).
+
+**The Wave 42 counters (the core machines on the base `d403832` —
+the values moved by the parallel PE line are attributed to it, NOT to
+В42; В42 moved nothing in the core except this docs record):**
+
+| Counter | Value (the base `d403832`) | Machine | Movement vs §6.25 |
+|---|---|---|---|
+| Typed-signature share (№467) | **328/519 = 6319 bp** | `python3 scripts/ci/type_signature_share.py` | moved by the PE line (326/516 → 328/519) |
+| Precise typed share (№560) | **224/519 = 4315 bp** | `… --precise` | moved by the PE line (222/516 → 224/519) |
+| Parameterized share (№623) | **71/103 = 6893 bp** | `… --parameterized` | unchanged |
+| Field-label share (№627) | **44/46 = 9565 bp** | `… --parameterized --fieldmeta` | unchanged |
+| **Sensitive-surface coverage (№644)** | **67/139 = 4820 bp** | `python3 scripts/ci/sensitive_surface_share.py` | moved by the PE line (66/138 → 67/139; the floor raise note printed) |
+| `#[ignore]` debt (№468) | **at or below the threshold** (the gate OK) | `python3 scripts/ci/debt_counters.py --gate …` | unchanged OK |
+| TW/VM duplicated builtin names (№462) | **0** (0/8 groups) | `python3 scripts/ci/count_duplicated_names.py --quorum` | unchanged |
+| Registered mirrors (№502/№564) | **6** | `python3 scripts/ci/mirror_counter.py --gate …` | unchanged |
+| ADR count | **183** (the generated block up to date) | `python3 scripts/gen_metrics.py --check` | unchanged |
+| Blocking-checks cells | **32** | `python3 scripts/ci/blocking_checks_sync.py --count` | unchanged (the №535 rule) |
+| The №562 release-gap gate | **OK** | `python3 scripts/ci/release_gap_gate.py` | unchanged (OK) |
+| The showcase state | **2 of 3 apps green + the finding** (App A, App B closed; App C the loud stub on the №682 flag) | the showcase CI runs on every PR/push | **moved** (the repository did not exist at §6.25) |
+
+**The owner gates remaining after В42:** the №682 unlock decision
+(the core naryad (a) or the charter amendment (b)), the ADR-0191
+§-answers, the train №2 (the Monday window 2026-10-19), the В36 tail
+(№639 15.10, №641), №648 (01.12) — outside В42, untouched.
+
+**The wave report line (№608/№470):** the dispatch surface gh#1235:
+`naryad-quota (№470/№608): 5 naryads — domain 0/5 = 0.0% — PASS (the standing limiter <= 1/3)`

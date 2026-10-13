@@ -112,6 +112,7 @@ The [deep dive behind this table](docs/newcomer-contract.md) holds the security 
 | [CHANGELOG.md](CHANGELOG.md) | Every wave, every change |
 | [SECURITY.md](SECURITY.md) | How to report vulnerabilities |
 | [AI_USAGE.md](AI_USAGE.md) | How generative AI is used in this project's development |
+| [metalogos-examples](https://github.com/ShkodnikAI/metalogos-examples) | The consumer showcase — runnable app examples with the both-backend (TW/VM) e2e proof, on a pinned core release (ADR-0190) |
 
 Key files at the repo root:
 

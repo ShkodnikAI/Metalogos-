@@ -129,9 +129,12 @@ fact_blocking_check_cells: 32
 # №605 wiring) → 3042 (№613) → 4224 (№616, gh#1077 — the last scalar
 # package; the further scalar movement stopped, Z-2) → 4302 (№650,
 # gh#1144: cal_events/cal_read/card_contacts/card_search — the verified
-# single-shape String returns). The counter is machine-read, never
-# hand-zeroed.
-fact_precise_share_bp: 4315
+# single-shape String returns) → 4315 (the N12/N13 llm rows) → 4310
+# (N5, gh#1215: html_text ships the precise String — 225/522; the two
+# coarse List<HtmlMatch>/List<HtmlLink> rows dilute the bp figure; the
+# floor-raise stays the №757 follow-up procedure). The counter is
+# machine-read, never hand-zeroed.
+fact_precise_share_bp: 4310
 # The live PARAMETERIZED-share fact (the third metric — the machine twin
 # of goal_parameterized_share_bp above; introduced WITH its checker in
 # the §5 fixation PR, №630 — never before, №525). Machine:
@@ -146,9 +149,11 @@ fact_precise_share_bp: 4315
 # goal_parameterized_share_bp 5000 is READ, not touched: the owner's
 # parameter stands) → 6170 (58/94 — №650, gh#1144: the sensitive-
 # surface imap rows, all with the field-meta in the same spelling; the
-# LS denominator 91 → 94). The counter is machine-read, never
+# LS denominator 91 → 94) → 6952 (73/105 — N5, gh#1215:
+# html_select/html_links ride the List<...> spelling; html_text is
+# precise-String and joins the OTHER counter). The counter is machine-read, never
 # hand-zeroed.
-fact_parameterized_share_bp: 6893
+fact_parameterized_share_bp: 6952
 # The branch-protection audit VERDICT fact (the В34 addendum Z-3 — the
 # LAST branch-protection-audit run is GREEN; ADR-0186 §5). The key
 # landed WITH its checker in the gh#1000-closure PR (№525 fail-closed:

@@ -278,9 +278,11 @@ fn binding_taint(value: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
             // (ToolOutput — Future, заводится только с первой политикой,
             // различающей роды). mcp_list_tools НЕ tainted: метаданные, не вывод.
             // N2 (gh#1211): request_header — the same untrusted request lane.
-            "form_data" | "json_body" | "query_param" | "request_header" | "mcp_call" => {
-                return Some(TaintKind::UserInput)
-            }
+            // N5 (gh#1215, ADR-0192): the html extraction family — every
+            // result string (tag/text/attrs/html/href) is scraped content:
+            // untrusted by contract, never a silent trust lift.
+            "form_data" | "json_body" | "query_param" | "request_header" | "mcp_call"
+            | "html_select" | "html_text" | "html_links" => return Some(TaintKind::UserInput),
             _ => {}
         }
     }
@@ -351,7 +353,13 @@ fn expr_is_user_input_tainted(expr: &Expr, tracker: &TaintTracker) -> bool {
 fn is_user_input_source(name: &str) -> bool {
     matches!(
         name,
-        "query_param" | "form_data" | "json_body" | "request_header"
+        "query_param"
+            | "form_data"
+            | "json_body"
+            | "request_header"
+            | "html_select"
+            | "html_text"
+            | "html_links" // N5 (gh#1215, ADR-0192)
     )
 }
 

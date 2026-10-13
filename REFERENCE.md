@@ -658,7 +658,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 519 registered builtins (519 of 519): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 522 registered builtins (522 of 522): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -2147,7 +2147,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 519 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 522 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2868,14 +2868,17 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `voice_save(...)` | 2 | — | `voice_save(handle, name)` stub — ADR-0143 (persistence). |
 | `whisper_transcribe(...)` | 3..4 | `String, String, String[, String] -> String` | Downloads a voice message from Telegram by `file_id`, sends it for transcription to the Whisper API. `provider`: `"openai"` (default) or `"groq"`. `METALOGOS_STT_BASE_URL` overrides the transcription API base (mock servers / self-host proxies) — `/audio/transcriptions` is appended. Returns the recognized text. Arity 3..4 — the registry used to declare min 1 while the runtime always required 3 (Naryad #279 fact-check fix; a 1-arg call now fails `mlog check` on statics instead of exploding at runtime) |
 
-### `web` — 22 builtin(s)
+### `web` — 25 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
 | `form_data(...)` | 1 | `-> Struct {FormData}` | Parses data from an `application/x-www-form-urlencoded` request body |
 | `geo_distance(...)` | 2..5 | — | `geo_distance(lat1, lon1, lat2, lon2, unit?)` — haversine distance. unit: "km"(default), "mi", "nm", "m". |
 | `geo_ip(...)` | 0..1 | — | `geo_ip(ip?)` — geolocate by IP. Uses ip-api.com (free, no key). Returns Struct {ip, city, region, country, country_code, lat, lon, isp, timezone}. |
+| `html_links(...)` | 2 | — | `html_links(html, base_url) -> List<Struct<HtmlLink>{href, text}>` — every <a> with a resolvable href; the hrefs are ABSOLUTE (resolved against base_url), only http/https survive — `javascript:` (and any other scheme) is DROPPED by contract. The base_url must itself be an http/https URL (loud otherwise). |
 | `html_render(...)` | 3 | `String, Float×2 -> String` | A screenshot via a headless browser (`METALOGOS_BROWSER_BIN`, no default path). The only function in this family that spawns an external process — via `exec_restricted` (argv, not a shell). Network isolation is not guaranteed at the OS level — the input must be self-contained HTML |
+| `html_select(...)` | 2 | — | `html_select(html, css) -> List<Struct<HtmlMatch>{tag, text, attrs, html}>` — every element matching ANY comma-separated selector (document order). The loud limits: the 5 MiB input, the 10 000-node result. |
+| `html_text(...)` | 1..2 | — | `html_text(html, css?) -> String` — the normalized concatenated text of the matched elements (no selector = the whole document). The script/style subtrees NEVER contribute; whitespace runs collapse. |
 | `http_download(...)` | 2..3 | `String, String -> Bool` | Downloads `url` into `dest_path` (the path must be inside the write sandbox). Returns `true` on success, `false` on any failure (network error, HTTP 4xx/5xx, sandbox violation, write error — the soft-failure contract). The URL is SSRF-gated like the other egress builtins: a blocked address is a LOUD `SSRF guard` error, not a silent `false` (naryad №261). 30s timeout |
 | `http_get(...)` | 1..4 | `String -> String` | A GET request. 30s default timeout. Errors on status >= 400. №592 outcome taxonomy (branchable via `try{}`): `[HTTP_TIMEOUT]` the per-call deadline expired, `[HTTP_CONNECT]` the transport failed (DNS/refused/reset/mid-response break), `[HTTP_STATUS]` the server answered >= 400 |
 | `http_post(...)` | 2..6 | `String, String -> String` | A POST request. Content-Type defaults to `application/json`. 30s timeout. Errors on status >= 400 |
@@ -3022,6 +3025,9 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `json_body` | source | internal | pure | ingests untrusted request body — UserInput taint |
 | `query_param` | source | internal | pure | ingests untrusted request query parameter — UserInput taint |
 | `request_header` | source | internal | pure | ingests the untrusted request header (N2, gh#1211) — UserInput taint |
+| `html_select` | source | internal | pure | ingests untrusted HTML, returns the matched elements (N5, gh#1215, ADR-0192) — every result string (tag/text/attrs/html) carries UserInput taint |
+| `html_text` | source | internal | pure | ingests untrusted HTML, returns the normalized text (N5, gh#1215, ADR-0192) — the result carries UserInput taint; script/style never contribute |
+| `html_links` | source | internal | pure | ingests untrusted HTML, returns absolute http/https links (N5, gh#1215, ADR-0192) — the results carry UserInput taint; other schemes are dropped |
 | `render` | lift | public | pure | taint-sanitizing template render — output is public-safe (audit.rs sanitizer) |
 | `http_get` | source | network | pure | ingests external network data (SSRF-guarded, №130) |
 | `http_post` | sink | network | irreversible | transmits program data to an external endpoint — cannot be unsent (issue minimum list) |
@@ -3426,6 +3432,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `normal_sample` | pure | public | pure | — |
 
 <!-- END GENERATED BUILTIN CLASSIFICATION -->
+
 
 
 

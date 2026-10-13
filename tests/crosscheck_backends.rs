@@ -139,6 +139,17 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
                         || name == "reflex_gen_declare.mlog"
                         || name == "reflex_gen_from_text.mlog"
                         || name == "reflex_batch_train.mlog"
+                    // ADR-0192 (N5, gh#1215): n5_html_tender.mlog is
+                    // html-feature-gated (off by default). Without the
+                    // feature `html_select` refuses LOUDLY on BOTH backends
+                    // (the refusal wording is a registry constant, so the
+                    // messages match — but the example is a positive
+                    // contract, not a refusal one, so the crosscheck skips
+                    // it). The feature-on lane: the html-tests CI job runs
+                    // tests/naryad_n5_html_builtins.rs — its
+                    // n5_golden_pair_tw_and_vm_identical leg asserts the
+                    // TW/VM byte-identity of this very pair.
+                    || name == "n5_html_tender.mlog"
                     // №513 (issue #797): p71_retry_demo declared
                     // call_proxy_with_retry referencing `env_get` — a
                     // function that existed in NEITHER backend. The TW

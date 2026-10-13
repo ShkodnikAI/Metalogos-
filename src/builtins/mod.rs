@@ -526,6 +526,14 @@ pub(crate) mod calendar;
 use calendar::*;
 pub(crate) mod contacts;
 use contacts::*;
+// ADR-0192 (N5, gh#1215): the `html` capability feature — the DOM
+// extraction family (html_select / html_text / html_links) on the
+// html5ever stack. The module is cfg-neutral: the registry surface is
+// ALWAYS present (the N559 arity export moves with the registry, the
+// vision/voice rhythm), the handlers refuse LOUDLY without the feature
+// (naming ADR-0192), never silently.
+pub(crate) mod html_dom;
+use html_dom::*;
 
 // Наряд №74 / №111: SVG Graphics & Diagrams (feature-gated)
 #[cfg(any(feature = "svg", feature = "chart", feature = "diagram"))]

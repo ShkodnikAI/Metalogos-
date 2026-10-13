@@ -132,8 +132,8 @@ Key files at the repo root:
 | Typed Signatures | 328/519 (63.19%) — precise 224/519 (43.15%) (№467/№560) |
 | SVG/Graphics | 44 builtins, hand-rolled in pure Rust |
 | Grammar | 339 rules |
-| Architecture Decisions | 183 ADRs |
-| Example Programs | 251 .mlog programs |
+| Architecture Decisions | 184 ADRs |
+| Example Programs | 252 .mlog programs |
 | Reference | REFERENCE.md (~308 KB) — 100% registry coverage |
 | Changelog | CHANGELOG.md (~708 KB) — every wave documented |
 <!-- END GENERATED METRICS -->

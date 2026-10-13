@@ -261,6 +261,17 @@ fn parse_nodes(
                         "template_render: unexpected {{{{{}}}}} — no matching opening block",
                         content
                     ));
+                } else if content.contains('|') {
+                    // N9 (gh#1219): the Jinja-style filter pipe is NOT
+                    // supported — the LOUD refusal (never a silent empty
+                    // render, never a silent escape). The raw insert is
+                    // the triple-brace form `{{{ var }}}`.
+                    return Err(format!(
+                        "template_render: the filter pipe '{{{{ {} }}}}' is NOT supported — \
+                         the substitution is ALWAYS escaped; the raw insert is the \
+                         triple-brace form '{{{{{{ var }}}}}}' (N9, gh#1219)",
+                        content
+                    ));
                 } else {
                     // Plain variable: `var` or `obj.field`
                     *pos += 1;

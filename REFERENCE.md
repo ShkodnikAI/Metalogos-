@@ -1140,7 +1140,7 @@ mlogserver {
 
 | Function | Signature | Return | Description |
 |---------|-----------|---------|----------|
-| `render(template_name, key1, val1, key2, val2, ...)` | `String, String, Any, ... -> Html` | Html | Renders a template, substituting `{{ var }}` variables. The number of arguments after the template name must be even (key/value pairs) |
+| `render(template_name, key1, val1, key2, val2, ...)` | `String, String, Any, ... -> Html` | Html | Renders a template, substituting `{{ var }}` variables (HTML-escaped) and `{{{ var }}}` variables (RAW — the trusted, program-built fragments; the same contract as `template_render`). A Jinja-style filter pipe (`{{ var \| safe }}`) is a LOUD compile-time refusal that names the triple-brace alternative — the silent verbatim/empty render is forbidden (gh#1219). The number of arguments after the template name must be even (key/value pairs) |
 
 **Example:**
 ```mlog
@@ -2882,7 +2882,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `http_post_multipart(...)` | 2..4 | `String, Struct, Struct -> String` | A multipart POST. `fields` are text fields (a Struct), `files` are file fields (a Struct, whose values are file paths). File paths must be inside the read sandbox (relative paths); absolute paths, `..` and sandbox escapes are a loud `[SANDBOX_VIOLATION]` error. 120s timeout |
 | `json_body(...)` | variadic | `-> Struct {JsonBody}` | Parses JSON from the request body |
 | `query_param(...)` | 1 | `String -> String` | Gets a query parameter from the URL. `curl "localhost:8080/search?q=hello" -> query_param("q") == "hello"`. An empty string if the parameter is absent. Percent-decoding: RFC 3986 bytes reassembled as UTF-8 (`%D0%B6` → `"ж"`), `+` → space (form-urlencoded convention), invalid escapes pass through literally, invalid UTF-8 is lossy — see the §4.13 note (Naryad #257) |
-| `render(...)` | 2..3 | `String, String, Any, ... -> Html` | Renders a template, substituting `{{ var }}` variables. The number of arguments after the template name must be even (key/value pairs) |
+| `render(...)` | 2..3 | `String, String, Any, ... -> Html` | Renders a template, substituting `{{ var }}` variables (HTML-escaped) and `{{{ var }}}` variables (RAW — the trusted, program-built fragments; the same contract as `template_render`). A Jinja-style filter pipe (`{{ var \ |
 | `request_body(...)` | variadic | — | `json_body()` / `request_body()` — raw body of the current route request, parsed as JSON into a `Dict` Struct; `request_body` is the explicit-name alias. Result carries `UserInput` taint (untrusted request data). |
 | `request_header(...)` | 1 | `String -> String` | Gets a request header from the current route request by a case-insensitive name. The empty string when the header is absent or no route context is set (fails closed — see `examples/telegram_webhook_secret.mlog`). The result carries `UserInput` taint — validate before deciding; compare secrets with `ct_eq` (N2) |
 | `require(...)` | 1..2 | `Bool -> Unit` | A runtime assertion. Errors if `false` |

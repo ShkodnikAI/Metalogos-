@@ -253,7 +253,9 @@ impl Interpreter {
                     // Наряд №115: also register in global map for builtin_render (TW/VM parity)
                     let param_names: Vec<String> =
                         t.params.iter().map(|p| p.name.clone()).collect();
-                    crate::builtins::http::register_template(&t.name, &t.body, param_names);
+                    // N9 (gh#1219): the filter-pipe refusal — loud on
+                    // the interpreter declaration walk too.
+                    crate::builtins::http::register_template(&t.name, &t.body, param_names)?;
                     self.templates.insert(t.name.clone(), t);
                 }
                 Declaration::Memory(m) => {

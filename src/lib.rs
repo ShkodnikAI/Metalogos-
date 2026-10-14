@@ -377,6 +377,27 @@ pub fn compile_program(source: &str) -> Result<bytecode::Program, String> {
         }
     }
 
+    // №685 (gh#1252, В44): RAW_INSERT_NOT_HTML — the VM compile gate, the
+    // №673 shape: the S-1 fail-closed gate must refuse BEFORE execution on
+    // BOTH backends, and the compile→run .mbc path had no semantic gate
+    // beyond the №673 class. The SAME shared walker the TW gate uses
+    // refuses here, BEFORE the bytecode exists — a raw-insert parameter
+    // that is not Html cannot reach the VM.
+    {
+        let violations = semantic::raw_insert_not_html_violations(&declarations);
+        if !violations.is_empty() {
+            let lines: Vec<String> = violations
+                .iter()
+                .map(semantic::format_blocking_line)
+                .collect();
+            return Err(format!(
+                "[{}] Compilation error (Naryad #685): raw-insert findings block compilation:\n{}",
+                semantic::CODE_RAW_INSERT_NOT_HTML,
+                lines.join("\n")
+            ));
+        }
+    }
+
     let mut compiler = compiler::Compiler::new();
     compiler.compile(declarations)
 }

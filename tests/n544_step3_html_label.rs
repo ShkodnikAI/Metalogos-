@@ -180,8 +180,15 @@ fn inline_chains_flag_within_the_depth_bound() {
 fn sanitizers_lift_at_any_depth_and_learnables_flag_direct() {
     let vars: HashMap<String, Type> = HashMap::new();
     let learnable = learnable(&["Classify"]);
-    // render/escape_html inside the chain lift the label (№295 в).
-    assert!(!sink_arg_is_untrusted(
+    // №685 (gh#1252, В44 — the S-1 audit): the №295-в pin SPLIT by the
+    // raw-insert contract. escape_html keeps the UNCONDITIONAL lift.
+    // render() at the SINK question is raw-position-aware now: WITHOUT
+    // the seeded template facts (this unit harness carries no
+    // declarations) the walk FAILS CLOSED — every argument walks, so
+    // the LLM output in a potentially-raw position flags. The seeded
+    // all-escaped template stays a lift (the audit-level suites pin
+    // that half: n685_llm_into_escaped_position_stays_silent).
+    assert!(sink_arg_is_untrusted(
         &call(
             "upper",
             vec![call(

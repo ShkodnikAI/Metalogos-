@@ -1,0 +1,4 @@
+# №685 (gh#1252) — the S-1 fail-closed gate: the raw parameter must be
+# Html; the String-typed raw insert refuses BEFORE execution.
+STATUS: error
+CODE: RAW_INSERT_NOT_HTML

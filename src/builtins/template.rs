@@ -72,7 +72,7 @@ fn parse_template(src: &str) -> Result<Vec<TemplateNode>, String> {
 }
 
 #[derive(Debug, Clone)]
-enum Token {
+pub(crate) enum Token {
     Text(String),
     /// `{{ ... }}` — content already trimmed. `raw=true` for `{{{ ... }}}`.
     Tag {
@@ -83,7 +83,13 @@ enum Token {
 
 /// Split the source into Text and Tag tokens.
 /// `{{{`/`}}}` (triple) take priority over `{{`/`}}` (double).
-fn tokenize(src: &str) -> Vec<Token> {
+///
+/// №685 (gh#1252, В44): pub(crate) — the ONE tokenizer every raw-insert
+/// consumer shares. The semantic gate (RAW_INSERT_NOT_HTML), the taint
+/// layer and the HTML-label sink walk read the raw positions through
+/// [`raw_param_positions`] — a SECOND parser would drift from the
+/// render-time behavior, and the drift is exactly how S-1 happened.
+pub(crate) fn tokenize(src: &str) -> Vec<Token> {
     let bytes: Vec<char> = src.chars().collect();
     let n = bytes.len();
     let mut i = 0;
@@ -145,6 +151,45 @@ fn tokenize(src: &str) -> Vec<Token> {
     }
     if !buf.is_empty() {
         out.push(Token::Text(buf));
+    }
+    out
+}
+
+/// №685 (gh#1252, В44): the shared raw-insert scan — the param INDICES
+/// whose names appear in `{{{ ... }}}` (triple-brace) positions of the
+/// template body. The construct forms (`{{#if}}` / `{{else}}` /
+/// `{{/if}}`) are NOT var placeholders (the same guard
+/// `template_body_has_filter_pipe` applies); a raw reference that is not
+/// a declared param name is not a param use (render() can never
+/// substitute it — the flat key replace — and template_render's path
+/// behavior is its own contract).
+///
+/// Consumers: `semantic::raw_insert_not_html_violations` (the
+/// declaration gate), the audit taint layer (render() = sanitizer for
+/// escaped positions / conductor for raw positions) and the html_label
+/// sink walk. ONE scan, THREE consumers — the mirror discipline of
+/// html_label (№568) applied to the tokenizer.
+pub(crate) fn raw_param_positions(body: &str, params: &[String]) -> Vec<usize> {
+    let mut out: Vec<usize> = Vec::new();
+    for tok in tokenize(body) {
+        let Token::Tag { content, raw } = tok else {
+            continue;
+        };
+        if !raw {
+            continue;
+        }
+        let inner = content.trim();
+        // The construct forms are NOT var placeholders (their grammar
+        // may carry '#', '/' or the else word — see
+        // template_body_has_filter_pipe).
+        if inner.starts_with('#') || inner.starts_with('/') || inner == "else" {
+            continue;
+        }
+        if let Some(idx) = params.iter().position(|p| p == inner) {
+            if !out.contains(&idx) {
+                out.push(idx);
+            }
+        }
     }
     out
 }

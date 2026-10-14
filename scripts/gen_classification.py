@@ -384,7 +384,7 @@ OVERRIDES = {
     "escape_html": ("Lift", "Public", "Pure", "HTML-escapes its input — taint-sanitizer per audit.rs (Sanitized)"),
     "escape_js": ("Lift", "Public", "Pure", "JS-escapes its input — sanitizer family of escape_html"),
     "escape_json": ("Lift", "Public", "Pure", "JSON-escapes its input — sanitizer family of escape_html"),
-    "render": ("Lift", "Public", "Pure", "taint-sanitizing template render — output is public-safe (audit.rs sanitizer)"),
+    "render": ("Lift", "Public", "Pure", "template render — sanitizer for the escaped positions, conductor for the raw ones ({{{ }}} requires an Html-typed parameter, №685)"),
     "html_render": ("Lift", "Public", "Pure", "sanitizing HTML render — output is public-safe"),
     "template_render": ("Lift", "Public", "Pure", "auto-escaped template rendering — output is public-safe"),
     "http_get": ("Source", "Network", "Pure", "ingests external network data (SSRF-guarded, №130)"),

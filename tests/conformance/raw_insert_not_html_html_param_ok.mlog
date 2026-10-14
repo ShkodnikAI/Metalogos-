@@ -1,0 +1,19 @@
+// №685 (gh#1252): the HONEST raw insert — the raw parameter is typed
+// Html and the value comes from an explicit Html producer (the render
+// composition). The escaped positions keep escaping; the raw position
+// inserts the produced fragment verbatim. Both backends must agree.
+template Inner(x: String) -> Html {
+  <em>{{ x }}</em>
+}
+
+template Outer(frag: Html) -> Html {
+  <div>{{{ frag }}}</div>
+}
+
+pattern Compose(s: String) -> String {
+  return render("Outer", render("Inner", s))
+}
+
+flow Main {
+  input: String = "hello" -> Compose -> output
+}

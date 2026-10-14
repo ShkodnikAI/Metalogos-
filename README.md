@@ -102,9 +102,7 @@ An AI-native "hello": a learnable pattern with a fallback, run in a flow — all
 | [docs/feature-gates.md](docs/feature-gates.md) | The feature-flag surface and the heavy tier per gate |
 | [docs/AI_USAGE.md](docs/AI_USAGE.md) | How generative AI is used in this project's development |
 
-Repo-root map: `REFERENCE.md` (builtins), `CHANGELOG.md` (history), `SECURITY.md` (disclosure), `docs/` (book, adr, limitations, threat-model, privacy).
-
-## Metrics (generated)
+## Metrics (generated; validated by `scripts/gen_metrics.py --check` + `tests/readme_consistency.rs`)
 
 <!-- BEGIN GENERATED METRICS (scripts/gen_metrics.py — do not edit inside) -->
 | Metric | Value (generated — do not hand-edit) |
@@ -120,15 +118,17 @@ Repo-root map: `REFERENCE.md` (builtins), `CHANGELOG.md` (history), `SECURITY.md
 | Changelog | CHANGELOG.md (~57 KB) — every wave documented |
 <!-- END GENERATED METRICS -->
 
-Validated on every CI run: `scripts/gen_metrics.py --check` plus the independent recomputation in `tests/readme_consistency.rs`.
-
-## Feature Gates
-
-The full gate table (defaults, what each gate opens, the heavy tier) and the core-media invariant live in [docs/feature-gates.md](docs/feature-gates.md). Headline: the core language builds with `cargo build --no-default-features` — a blocking CI job (`core-media-gate`).
-
 ## The Newcomer Contract (2-minute read)
 
-The compressed contract moved to its home (the README links, it does not duplicate): **[docs/newcomer-contract.md](docs/newcomer-contract.md)** holds the six-claim walkthrough — AI as language, security by design, the dual backend, typed semantic memory, self-modification with rollback, the one-binary toolchain — with the gate semantics and the exact boundaries of every claim.
+The full six-claim walkthrough lives in **[docs/newcomer-contract.md](docs/newcomer-contract.md)** — the gate semantics and the exact boundaries of every claim. The two machine-pinned claims stay here:
+
+### 3. Dual Execution Backend
+
+Tree-walking interpreter (full language) + bytecode VM. All VM Stage 1 gaps are **CLOSED** ([ADR-0141](docs/adr/0141-vm-production-readiness.md) Stage 1; the maintained truth in [docs/limitations.md](docs/limitations.md)); programs both backends can run are checked by `crosscheck_backends` for TW↔VM output parity. `mlog serve` ships **the VM by default** ([ADR-0171](docs/adr/0171-serve-default-flip-vm.md)); the tree-walking interpreter remains the guaranteed full-language opt-out via `METALOGOS_SERVE_BACKEND=interpreter`.
+
+### 5. Self-Modification with Sandbox and Rollback
+
+The `adapt` statement modifies its own patterns at runtime — sandboxed, with automatic rollback driven by measured accuracy; the quality metric is **REAL in real mode**. The 0.95 stub remains ONLY in mock mode (`METALOGOS_MOCK_LLM=1|true`) — it exercises the rollback mechanism, it is not a quality signal. Details: [the deep dive](docs/newcomer-contract.md) and [docs/limitations.md](docs/limitations.md).
 
 ## Project Links
 

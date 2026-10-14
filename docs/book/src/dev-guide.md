@@ -34,7 +34,7 @@ Release builds run on push to main — produces `mlog-linux-x86_64` binary artif
 
 | Category | Technologies |
 |---|---|
-| Language | Rust 1.85+ (edition 2021) |
+| Language | Rust 1.93.1+ (edition 2021) — the workspace MSRV declared by `rust-version` in Cargo.toml (№676 C1: the claim synced to the floor) |
 | Parser | Pest 2.7 PEG grammar |
 | CLI | clap 4.5 (derive) |
 | REPL | rustyline 14 |

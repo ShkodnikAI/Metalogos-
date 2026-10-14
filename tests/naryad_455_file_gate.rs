@@ -34,8 +34,7 @@ use serial_test::serial;
 struct EgressSandbox;
 impl EgressSandbox {
     fn enter() -> Self {
-        let dir =
-            std::env::temp_dir().join(format!("mlog_n455_egress_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("mlog_n455_egress_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let prev = std::env::current_dir().unwrap();
@@ -51,8 +50,7 @@ impl Drop for EgressSandbox {
                 let _ = std::env::set_current_dir(prev);
             }
         });
-        let dir =
-            std::env::temp_dir().join(format!("mlog_n455_egress_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("mlog_n455_egress_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
@@ -144,7 +142,7 @@ flow Main { input: String = "n455_definitely_missing_normal.txt" -> read_file ->
 #[test]
 #[serial]
 fn n455_allowlist_lets_an_explicitly_named_file_through() {
-    let _sb = EgressSandbox;
+    let _sb = EgressSandbox::enter();
     std::env::set_var("METALOGOS_SENSITIVE_PATH_ALLOWLIST", ".env");
     // №563: the file EXISTS in this fixture — the flip of the missing-file
     // contract must not confound the deny-list assertion (the allowlist's

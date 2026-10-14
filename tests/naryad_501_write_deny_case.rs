@@ -95,7 +95,7 @@ flow Main { input: String = "x" -> W -> output }
 #[test]
 #[serial]
 fn n501_read_env_uppercase_refused() {
-    let _sb = EgressSandbox;
+    let _sb = EgressSandbox::enter();
     std::env::remove_var("METALOGOS_SENSITIVE_PATH_ALLOWLIST");
     std::fs::write(".ENV", "N501_ENV_MARKER_SECRET=1").expect("write the .ENV fixture");
     let result = metalogos::run_program(
@@ -122,7 +122,7 @@ flow Main { input: String = ".ENV" -> read_file -> output }
 #[test]
 #[serial]
 fn n501_read_app_db_wal_mixedcase_refused() {
-    let _sb = EgressSandbox;
+    let _sb = EgressSandbox::enter();
     std::env::remove_var("METALOGOS_SENSITIVE_PATH_ALLOWLIST");
     std::fs::write("App.DB-WAL", "N501_DB_WAL_MARKER=1").expect("write the fixture");
     let result = metalogos::run_program(
@@ -168,7 +168,6 @@ flow Main { input: String = "x" -> W -> output }
 
 // ── (3) The boundaries: legitimate paths and the exact-name crane ─────
 
-
 // ── №676 (A2, the audit 7c3456b §4): the temp-cwd sandbox — the same
 // posture the №387/№563 suites use. The fixture writes of this suite
 // (.ENV, App.DB, App.DB-WAL, n501_notes.txt) must land in a THROWAWAY
@@ -179,8 +178,7 @@ flow Main { input: String = "x" -> W -> output }
 struct EgressSandbox;
 impl EgressSandbox {
     fn enter() -> Self {
-        let dir =
-            std::env::temp_dir().join(format!("mlog_n501_egress_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("mlog_n501_egress_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let prev = std::env::current_dir().unwrap();
@@ -196,8 +194,7 @@ impl Drop for EgressSandbox {
                 let _ = std::env::set_current_dir(prev);
             }
         });
-        let dir =
-            std::env::temp_dir().join(format!("mlog_n501_egress_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("mlog_n501_egress_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
@@ -211,7 +208,7 @@ thread_local! {
 #[test]
 #[serial]
 fn n501_legitimate_write_still_works() {
-    let _sb = EgressSandbox;
+    let _sb = EgressSandbox::enter();
     std::env::remove_var("METALOGOS_SENSITIVE_PATH_ALLOWLIST");
     let source = r#"
 pattern W(_x: String) -> String {
@@ -238,7 +235,7 @@ flow Main { input: String = "x" -> W -> output }
 #[test]
 #[serial]
 fn n501_allowlist_crane_still_works_for_exact_db_name() {
-    let _sb = EgressSandbox;
+    let _sb = EgressSandbox::enter();
     std::fs::write("App.DB", "N501_ALLOWLISTED_CONTENT=1").expect("write the fixture");
     std::env::set_var("METALOGOS_SENSITIVE_PATH_ALLOWLIST", "App.DB");
     let result = metalogos::run_program(

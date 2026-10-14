@@ -549,9 +549,10 @@ pub fn break_outside_loop_violations(declarations: &[Declaration]) -> Vec<Spanne
 /// The ONE shared implementation: called by `check_program` (the TW
 /// run/serve gate) and by `compile_program` (the VM compile gate — the
 /// №673 contour shape). The scan reuses THE tokenizer that renders
-/// (`builtins::template::raw_param_positions`) — a second parser would
-/// drift from the render-time behavior, and the drift is exactly how
-/// S-1 happened. Alias-resolved parameter types (the №119 map) — a
+/// (`template_scan::raw_param_positions`, the UNGATED home — render()
+/// is an ungated builtin) — a second parser would drift from the
+/// render-time behavior, and the drift is exactly how S-1 happened.
+/// Alias-resolved parameter types (the №119 map) — a
 /// `type Body = Html` alias is honest Html.
 pub fn raw_insert_not_html_violations(declarations: &[Declaration]) -> Vec<SpannedError> {
     let mut errors: Vec<SpannedError> = Vec::new();
@@ -564,7 +565,7 @@ pub fn raw_insert_not_html_violations(declarations: &[Declaration]) -> Vec<Spann
         // appear many times in the body — ONE refusal names it once.
         let mut seen: HashSet<usize> = HashSet::new();
         let param_names: Vec<String> = t.params.iter().map(|p| p.name.clone()).collect();
-        for idx in crate::builtins::template::raw_param_positions(&t.body, &param_names) {
+        for idx in crate::template_scan::raw_param_positions(&t.body, &param_names) {
             if !seen.insert(idx) {
                 continue;
             }

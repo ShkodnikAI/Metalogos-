@@ -63,8 +63,9 @@ use crate::builtins::sig_types::{Label, Type};
 /// render() call) that land in RAW (`{{{ }}}`) positions — the shared
 /// fact the sink walk and the audit taint layer both read. Built from
 /// the program's template declarations through
-/// `builtins::template::raw_param_positions` (the ONE tokenizer — no
-/// second parser, the S-1 lesson).
+/// `template_scan::raw_param_positions` (the ONE tokenizer — no
+/// second parser, the S-1 lesson; the UNGATED home — render() is an
+/// ungated builtin).
 pub(crate) type RenderRawMap = HashMap<String, Vec<usize>>;
 
 thread_local! {
@@ -80,7 +81,7 @@ pub(crate) fn seed_render_raw(declarations: &[crate::ast::Declaration]) {
     for decl in declarations {
         if let crate::ast::Declaration::Template(t) = decl {
             let param_names: Vec<String> = t.params.iter().map(|p| p.name.clone()).collect();
-            let positions = crate::builtins::template::raw_param_positions(&t.body, &param_names);
+            let positions = crate::template_scan::raw_param_positions(&t.body, &param_names);
             // EVERY declared template is recorded — a template with NO
             // raw positions is precisely KNOWN all-escaped (the walk
             // sanitizes it); only a name ABSENT from the map is the

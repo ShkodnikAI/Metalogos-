@@ -63,6 +63,11 @@ pub mod error;
 pub mod interpreter;
 pub mod labels;
 pub mod llm;
+/// №685 (gh#1252, В44): the shared template tokenizer + the raw-insert
+/// scan — the UNGATED home (render() is ungated, the raw-insert gates
+/// must hold on every configuration; the gated template_render engine
+/// imports the same source — no second parser, no drift).
+pub(crate) mod template_scan;
 // №567 (gh#931; the crate-split stage 2): the transport modules
 // (`mcp_policy`, `mcp_server`, `server`) MOVED to the metalogos-server
 // crate (metalogos-server/src/lib.rs) together with the `mlog` bin and

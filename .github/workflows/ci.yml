@@ -59,6 +59,21 @@ jobs:
           prefix-key: v2
       - name: Library tests
         run: cargo test --workspace --lib --no-fail-fast
+      # №676 (A3, the audit 7c3456b §4): the repo-tree cleanliness gate —
+      # after the test step the working tree must be EXACTLY as checked
+      # out. A test that wrote into the repo catalog (a fixture, a db, an
+      # image, a log) is the defect class that leaked frames/ and
+      # w387_* into the tracked tree before: without this gate the
+      # artifacts silently return on the next run and can land in a
+      # commit. Blocking, no new job (the cell does not grow — №535).
+      - name: Repo tree is clean after tests (№676 A3)
+        run: |
+          dirty="$(git status --porcelain)"
+          if [ -n "$dirty" ]; then
+            echo "::error::The test suite left artifacts in the repo tree — a test writes into the repo catalog. Fix the test to use a temp sandbox (the naryad_387 EgressSandbox form)."
+            echo "$dirty"
+            exit 1
+          fi
 
   crosscheck:
     name: crosscheck (blocking)

@@ -8,7 +8,7 @@ All notable changes to the Metalogos project.
 
 
 - **№673 (gh#1200, В41 — BREAK_OUTSIDE_LOOP, the R-2 audit's two
-  «молча неверные» break/continue edges):** a `break`/`continue` (а)
+  «молча неверные» break/continue edges; fix date 2026-10-14):** a `break`/`continue` (а)
   OUTSIDE any loop (№658-b) or (б) crossing the VALUE channel — an arm
   body of a match/if-as-value (№658-a) — now refuses as a SEMANTIC error
   BEFORE execution on BOTH backends, with the stable

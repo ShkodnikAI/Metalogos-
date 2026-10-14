@@ -111,7 +111,7 @@ Repo-root map: `REFERENCE.md` (builtins), `CHANGELOG.md` (history), `SECURITY.md
 | ------ | ------------------------------------- |
 | Version | 0.30.1 |
 | Built-in Functions | 526 functions across 45 modules |
-| Typed Signatures | 337/526 (64.06%) — precise 227/526 (43.15%) (№467/№560) |
+| Typed Signatures | 337/526 (64.06%) — precise 227/526 (43.15%) |
 | SVG/Graphics | 44 builtins, hand-rolled in pure Rust |
 | Grammar | 339 rules |
 | Architecture Decisions | 184 ADRs |
@@ -128,7 +128,7 @@ The full gate table (defaults, what each gate opens, the heavy tier) and the cor
 
 ## The Newcomer Contract (2-minute read)
 
-The compressed contract moved to its home by Naryad №676 (D3 — the README links, it does not duplicate): **[docs/newcomer-contract.md](docs/newcomer-contract.md)** holds the six-claim walkthrough — AI as language, security by design, the dual backend, typed semantic memory, self-modification with rollback, the one-binary toolchain — with the gate semantics and the exact boundaries of every claim.
+The compressed contract moved to its home (the README links, it does not duplicate): **[docs/newcomer-contract.md](docs/newcomer-contract.md)** holds the six-claim walkthrough — AI as language, security by design, the dual backend, typed semantic memory, self-modification with rollback, the one-binary toolchain — with the gate semantics and the exact boundaries of every claim.
 
 ## Project Links
 

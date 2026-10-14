@@ -551,6 +551,19 @@ jobs:
       - uses: actions/checkout@v7
       - name: The README Version badge must equal the Cargo.toml version
         run: python3 scripts/ci/badge_sync.py --check
+      # №676 (D1, the audit 7c3456b §4): the README is the external front
+      # door — it carries no generated naryad numbers (the generated
+      # metrics line once shipped stamped «(№467/№560)»; the generator no
+      # longer stamps them). Grep-able floor: the generated-stamp pattern
+      # must never return to the README. Existing job — the cell does
+      # not grow (№535).
+      - name: README carries no generated naryad numbers (№676 D1)
+        run: |
+          if grep -nP '\(№[0-9]+(/№[0-9]+)?\)' README.md; then
+            echo "::error::README carries generated naryad numbers — the metrics generator must not stamp them (scripts/gen_metrics.py renders the block)."
+            exit 1
+          fi
+          echo "README front door: no generated naryad numbers."
 
   naryad-number-check:
     name: Naryad numbering (blocking)

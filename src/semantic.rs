@@ -131,6 +131,16 @@ pub enum SemanticErrorKind {
     /// runtime mirrors stay untouched as backstops. The stable code is
     /// CODE_BREAK_OUTSIDE_LOOP (the №523 first-stamp shape).
     BreakOutsideLoop,
+    /// №685 (gh#1252, В44 — the S-1 audit): RAW_INSERT_NOT_HTML — a
+    /// template parameter used in the RAW insert `{{{ param }}}` is
+    /// declared with a non-Html type. The N9 raw form (gh#1219) landed
+    /// the value VERBATIM in the page while every layer answered
+    /// «sanitized» — the XSS scenario passed check/run/serve silently.
+    /// The gate refuses at START on BOTH backends (check_program +
+    /// compile_program, the №673 contour shape); the stable code is
+    /// CODE_RAW_INSERT_NOT_HTML (the №523 stamp, the №385/ADR-0169
+    /// classification — added, nothing renamed).
+    RawInsertNotHtml,
 }
 
 impl SemanticErrorKind {
@@ -154,6 +164,7 @@ impl SemanticErrorKind {
             SemanticErrorKind::ImplicitOpaqueCoercion => None,
             SemanticErrorKind::UnknownTemplate => None,
             SemanticErrorKind::BreakOutsideLoop => Some(CODE_BREAK_OUTSIDE_LOOP),
+            SemanticErrorKind::RawInsertNotHtml => Some(CODE_RAW_INSERT_NOT_HTML),
             SemanticErrorKind::Other => None,
         }
     }
@@ -521,6 +532,73 @@ pub fn break_outside_loop_violations(declarations: &[Declaration]) -> Vec<Spanne
     errors
 }
 
+/// №685 (gh#1252, В44 — the S-1 audit): the RAW_INSERT_NOT_HTML
+/// violations over the whole program — every template declaration whose
+/// body uses a parameter in the RAW insert `{{{ param }}}` while the
+/// parameter is NOT declared `Html`.
+///
+/// THE WHY: the N9 raw form (gh#1219) lands the value VERBATIM in the
+/// page. The «safe-by-construction» claim assumed Html-typed raw
+/// parameters, but nothing ENFORCED it — the audit's XSS scenario
+/// (`template Comment(author: String, text: String) { … {{{ text }}} … }`
+/// fed from `json_body()`) passed check/run/serve silently, because
+/// every static layer answered «sanitized» at the render boundary. The
+/// gate makes the assumption a FACT: after it, a raw value can only
+/// come from an explicit Html producer — already escaped (ADR-0188 (б)).
+///
+/// The ONE shared implementation: called by `check_program` (the TW
+/// run/serve gate) and by `compile_program` (the VM compile gate — the
+/// №673 contour shape). The scan reuses THE tokenizer that renders
+/// (`template_scan::raw_param_positions`, the UNGATED home — render()
+/// is an ungated builtin) — a second parser would drift from the
+/// render-time behavior, and the drift is exactly how S-1 happened.
+/// Alias-resolved parameter types (the №119 map) — a
+/// `type Body = Html` alias is honest Html.
+pub fn raw_insert_not_html_violations(declarations: &[Declaration]) -> Vec<SpannedError> {
+    let mut errors: Vec<SpannedError> = Vec::new();
+    let (type_alias_map, _) = build_type_alias_map(declarations);
+    for decl in declarations {
+        let Declaration::Template(t) = decl else {
+            continue;
+        };
+        // The per-(template, param) dedup: the same raw parameter may
+        // appear many times in the body — ONE refusal names it once.
+        let mut seen: HashSet<usize> = HashSet::new();
+        let param_names: Vec<String> = t.params.iter().map(|p| p.name.clone()).collect();
+        for idx in crate::template_scan::raw_param_positions(&t.body, &param_names) {
+            if !seen.insert(idx) {
+                continue;
+            }
+            let prm = &t.params[idx];
+            let resolved = type_alias_map
+                .get(&prm.type_name)
+                .map(|s| s.as_str())
+                .unwrap_or(&prm.type_name);
+            if resolved != "Html" {
+                // The literal brace forms are built by repetition — the
+                // format! escaping of nested braces is exactly the kind
+                // of noise a security message does not need.
+                let raw_form = format!("{} {} {}", "{".repeat(3), prm.name, "}".repeat(3));
+                let esc_form = format!("{} {} {}", "{".repeat(2), prm.name, "}".repeat(2));
+                errors.push(
+                    SpannedError::at(
+                        format!(
+                            "template '{}': parameter '{}' is used in the raw insert {} but is declared '{}' — \
+                             raw-insert parameters must be Html (declare the parameter Html and build the value \
+                             with an explicit Html producer, or use the escaped '{}' form) \
+                             (S-1, REPAIRED by №685)",
+                            t.name, prm.name, raw_form, prm.type_name, esc_form
+                        ),
+                        t.span.clone(),
+                    )
+                    .with_kind(SemanticErrorKind::RawInsertNotHtml),
+                );
+            }
+        }
+    }
+    errors
+}
+
 /// Наряд №523: statically resolve a program's import tree so the
 /// semantic pass sees every symbol the interpreter will have at runtime.
 ///
@@ -734,6 +812,15 @@ pub const CODE_RESPOND_SWALLOWED: &str = "RESPOND_SWALLOWED";
 /// AND compile_program; the runtime mirrors stay untouched as backstops).
 /// The gate stamps this code first (the №523 shape).
 pub const CODE_BREAK_OUTSIDE_LOOP: &str = "BREAK_OUTSIDE_LOOP";
+
+/// №685 (gh#1252, В44 — the S-1 audit): the stable code of the
+/// RAW_INSERT_NOT_HTML gate — a template parameter used in the RAW
+/// insert `{{{ param }}}` must be declared `Html`; anything else refuses
+/// BEFORE execution on BOTH backends (check_program AND compile_program,
+/// the №673 contour shape; the runtime mirrors stay untouched as
+/// backstops). The №385/ADR-0169 classification: the code is ADDED,
+/// nothing renamed. The gate stamps this code first (the №523 shape).
+pub const CODE_RAW_INSERT_NOT_HTML: &str = "RAW_INSERT_NOT_HTML";
 
 /// №600 (the audit 25b375e Y-1): the SSOT POSITION PREDICATE of the №584
 /// early-answer surface — ONE enumeration consumed by BOTH the semantic
@@ -6307,6 +6394,12 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
     // read: the unknown-template refusal and the argument-position
     // coercion refusal.
     let mut template_names: HashSet<String> = HashSet::new();
+    // №685 (gh#1252, В44): template name → the RESOLVED param type names
+    // (positional, the render() argument order) — the argument-position
+    // coercion rule for render() reads it (the №662 rule-1 twin for
+    // templates: a String-shaped argument into an Html-typed parameter is
+    // the implicit coercion the runtime accepts silently).
+    let mut template_param_types_resolved: HashMap<String, Vec<String>> = HashMap::new();
     let mut pattern_param_types_resolved: HashMap<String, Vec<String>> = HashMap::new();
     // Наряд №181 (ADR-0117): reflex declarations — name → labels set.
     // Used to validate distill_to references and labels-non-empty rule.
@@ -6351,6 +6444,17 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
     result
         .errors
         .extend(break_outside_loop_violations(declarations));
+
+    // №685 (gh#1252, В44): RAW_INSERT_NOT_HTML — the S-1 fail-closed gate:
+    // a template parameter used in the raw insert `{{{ param }}}` must be
+    // declared Html. The N9 raw form landed the value VERBATIM while every
+    // layer answered «sanitized» — the audit's XSS scenario passed
+    // check/run/serve silently. The refusal shifts left to the semantic
+    // gate — BEFORE execution, on BOTH backends (compile_program calls the
+    // same shared walker, the №673 contour shape).
+    result
+        .errors
+        .extend(raw_insert_not_html_violations(declarations));
 
     // №611 (P0 bugfix): the check-time DDL dry-run for schema-as-code.
     // `mlog check` previously did not validate the generated DDL at all —
@@ -6537,6 +6641,21 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                 // comment) and a duplicate error would be an unmandated
                 // behavior change beyond the (б) letter.
                 template_names.insert(t.name.clone());
+                // №685: the positional param types (alias-resolved — the
+                // same resolution pattern_param_types gets) — the render()
+                // argument-position coercion rule reads it.
+                template_param_types_resolved.insert(
+                    t.name.clone(),
+                    t.params
+                        .iter()
+                        .map(|p| {
+                            type_alias_map
+                                .get(&p.type_name)
+                                .cloned()
+                                .unwrap_or_else(|| p.type_name.clone())
+                        })
+                        .collect(),
+                );
                 // Templates are also callable as render targets
                 pattern_names.insert(t.name.clone());
                 if is_opaque_type(&t.return_type) && t.return_type != "Html" {
@@ -6752,6 +6871,7 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                     &entity_opaque,
                     &entity_names,
                     &template_names,
+                    &template_param_types_resolved,
                     &pattern_param_types_resolved,
                     &mut result.errors,
                 );
@@ -6835,6 +6955,7 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                         &entity_opaque,
                         &entity_names,
                         &template_names,
+                        &template_param_types_resolved,
                         &pattern_param_types_resolved,
                         &mut result.errors,
                     );
@@ -9698,6 +9819,10 @@ struct VarScope {
     /// №662 (ADR-0188 (б)): pattern name → the RESOLVED param type names
     /// (the argument-position coercion rule reads it).
     pattern_param_types: HashMap<String, Vec<String>>,
+    /// №685 (gh#1252, В44): template name → the RESOLVED positional param
+    /// type names — the render() argument-position coercion rule (the
+    /// №662 rule-1 twin for templates) reads it.
+    template_param_types: HashMap<String, Vec<String>>,
 }
 
 /// Entry point for PATTERN bodies: params pre-bound, ALL entities as
@@ -9711,6 +9836,7 @@ fn check_pattern_variables(
     entity_opaque: &HashMap<String, String>,
     entity_names: &HashSet<String>,
     templates: &HashSet<String>,
+    template_param_types: &HashMap<String, Vec<String>>,
     pattern_param_types: &HashMap<String, Vec<String>>,
     errors: &mut Vec<SpannedError>,
 ) {
@@ -9718,6 +9844,7 @@ fn check_pattern_variables(
         bound: HashSet::new(),
         opaque: HashMap::new(),
         templates: templates.clone(),
+        template_param_types: template_param_types.clone(),
         pattern_param_types: pattern_param_types.clone(),
     };
     for p in params {
@@ -9746,6 +9873,7 @@ fn check_body_variables(
     entity_opaque: &HashMap<String, String>,
     entity_names: &HashSet<String>,
     templates: &HashSet<String>,
+    template_param_types: &HashMap<String, Vec<String>>,
     pattern_param_types: &HashMap<String, Vec<String>>,
     errors: &mut Vec<SpannedError>,
 ) {
@@ -9753,6 +9881,7 @@ fn check_body_variables(
         bound: HashSet::new(),
         opaque: HashMap::new(),
         templates: templates.clone(),
+        template_param_types: template_param_types.clone(),
         pattern_param_types: pattern_param_types.clone(),
     };
     for name in entity_names {
@@ -10053,6 +10182,35 @@ fn check_expr_vars(expr: &Expr, scope: &mut VarScope, errors: &mut Vec<SpannedEr
                                 )
                                 .with_kind(SemanticErrorKind::UnknownTemplate),
                             );
+                        }
+                        // №685 (gh#1252, В44): the argument-position
+                        // coercion rule for render() — the №662 rule-1
+                        // twin for templates. A String-SHAPED argument
+                        // flowing into an Html-typed parameter (positional,
+                        // args[1..] ↔ params) is the implicit coercion the
+                        // runtime accepts silently (builtin_render takes
+                        // Value::String for any param) — the exact hole the
+                        // S-1 scenario rode for a raw parameter. The static
+                        // refusal names the explicit producer; the runtime
+                        // stays the backstop.
+                        if let Some(param_types) = scope.template_param_types.get(&wanted) {
+                            for (i, arg) in args.iter().skip(1).enumerate() {
+                                if let Some(pt) = param_types.get(i) {
+                                    if pt == "Html" && expr_is_string_shaped(arg) {
+                                        errors.push(
+                                            SpannedError::at(
+                                                format!(
+                                                    "implicit String→Html coercion in argument {} of render('{}') — build the value with an explicit Html producer (render)",
+                                                    i + 1,
+                                                    wanted
+                                                ),
+                                                arg.span().clone(),
+                                            )
+                                            .with_kind(SemanticErrorKind::ImplicitOpaqueCoercion),
+                                        );
+                                    }
+                                }
+                            }
                         }
                     }
                 }

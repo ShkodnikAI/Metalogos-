@@ -1,9 +1,17 @@
-// Naryad №86/№115 + N9 (gh#1219): template composition — the ESCAPED
-// default ({{ title }}) for the data, the RAW triple-brace form
-// ({{{ content }}}) for the trusted program-built fragment. The
+// Naryad №86/№115 + N9 (gh#1219) + №685 (gh#1252): template composition —
+// the ESCAPED default ({{ title }}) for the data, the RAW triple-brace
+// form ({{{ content }}}) for the trusted program-built fragment. The
 // Jinja-style `{{ var | safe }}` is NOT supported (the loud refusal,
 // N9) — the raw insert is the triple-brace form.
-template Layout(title: String, content: String) -> Html {
+// №685 (the S-1 audit): a raw-insert parameter must be declared Html —
+// the trusted fragment is built by an explicit Html producer
+// (render("Body")), the static gates refuse anything else
+// (RAW_INSERT_NOT_HTML / the implicit String→Html coercion).
+template Body() -> Html {
+<p class="body">Содержимое: раздел 1</p>
+}
+
+template Layout(title: String, content: Html) -> Html {
 <html>
 <head><title>{{ title }}</title></head>
 <body>{{{ content }}}</body>
@@ -11,10 +19,10 @@ template Layout(title: String, content: String) -> Html {
 }
 
 pattern Compose(title: String) -> Html {
-  // The trusted fragment is program-built (the taint gates still apply
-  // downstream); the title rides the ESCAPED default — an attacker
-  // string in the title never becomes markup.
-  return render("Layout", title, "<p class=\"body\">Содержимое: раздел 1</p>")
+  // The trusted fragment comes from an explicit Html producer (the
+  // №685 contract for the raw position); the title rides the ESCAPED
+  // default — an attacker string in the title never becomes markup.
+  return render("Layout", title, render("Body"))
 }
 
 flow Main {

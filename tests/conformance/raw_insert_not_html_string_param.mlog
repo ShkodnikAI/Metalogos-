@@ -1,0 +1,16 @@
+// №685 (gh#1252, the S-1 audit): the raw insert {{{ text }}} on a
+// String-typed parameter is the XSS shape — the declaration gate
+// refuses at START on BOTH backends (the conformance runner is the
+// both-backends oracle; the pre-fix VM answer was Ok with the payload
+// in the page).
+template Comment(author: String, text: String) -> Html {
+  <div class="c"><b>{{ author }}</b><p>{{{ text }}}</p></div>
+}
+
+pattern Preview(body: String) -> String {
+  return render("Comment", "author", body, "text", body)
+}
+
+flow Main {
+  input: String = "<img src=x onerror=alert(1)>" -> Preview -> output
+}

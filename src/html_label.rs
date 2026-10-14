@@ -53,10 +53,51 @@
 //!   CANARY_LEAK, TAINT_INTERP, the UserInput machinery) stay on the
 //!   taint tracker — their migration is not in №544's scope.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 
 use crate::ast::Expr;
 use crate::builtins::sig_types::{Label, Type};
+
+/// №685 (gh#1252, В44): template name → the ARG indices (args[1..] of a
+/// render() call) that land in RAW (`{{{ }}}`) positions — the shared
+/// fact the sink walk and the audit taint layer both read. Built from
+/// the program's template declarations through
+/// `template_scan::raw_param_positions` (the ONE tokenizer — no
+/// second parser, the S-1 lesson; the UNGATED home — render() is an
+/// ungated builtin).
+pub(crate) type RenderRawMap = HashMap<String, Vec<usize>>;
+
+thread_local! {
+    static RENDER_RAW: RefCell<Option<RenderRawMap>> = const { RefCell::new(None) };
+}
+
+/// №685: seed the raw-position map from the program's declarations —
+/// called by the audit entries (`audit_program`, `audit_category_a`)
+/// BEFORE the checks run; every walk inside the audit reads the seeded
+/// fact. Re-seeding overwrites (each audit invocation is self-contained).
+pub(crate) fn seed_render_raw(declarations: &[crate::ast::Declaration]) {
+    let mut map: RenderRawMap = HashMap::new();
+    for decl in declarations {
+        if let crate::ast::Declaration::Template(t) = decl {
+            let param_names: Vec<String> = t.params.iter().map(|p| p.name.clone()).collect();
+            let positions = crate::template_scan::raw_param_positions(&t.body, &param_names);
+            // EVERY declared template is recorded — a template with NO
+            // raw positions is precisely KNOWN all-escaped (the walk
+            // sanitizes it); only a name ABSENT from the map is the
+            // conservative unknown. Conflating the two would make fully
+            // escaped templates fail closed (a false positive).
+            map.insert(t.name.clone(), positions);
+        }
+    }
+    RENDER_RAW.with(|cell| *cell.borrow_mut() = Some(map));
+}
+
+/// №685: the seeded snapshot (None = not seeded — the caller treats the
+/// template as UNKNOWN, the conservative posture).
+pub(crate) fn render_raw_snapshot() -> Option<RenderRawMap> {
+    RENDER_RAW.with(|cell| cell.borrow().clone())
+}
 
 /// The depth bound of the sink walk — the №295 contract (the mirror of
 /// the audit's `TAINT_NESTING_MAX_DEPTH`): at depth 4+ the walk cannot
@@ -188,12 +229,52 @@ fn walk(
             // Sanitizers override argument states (the Sanitized
             // semantics): an unlabeled String in the binding walks;
             // never untrusted at the sink.
-            if name == "render" || name == "escape_html" {
+            //
+            // №685 (gh#1252, В44): the SINK walk no longer treats
+            // render() as an UNCONDITIONAL lifter — the raw-insert split
+            // (the S-1 audit): a raw position (`{{{ }}}`) CONDUCTS the
+            // untrusted state of its argument. A statically-known
+            // template resolves its raw positions from the seeded map;
+            // a dynamic/unknown name walks every argument conservatively
+            // (fail-closed). The BINDING walks keep the pinned
+            // `Some(Type::String)` — the binding question is what the
+            // variable HOLDS (Html), the sink question is what reaches
+            // the page THROUGH the raw form.
+            if name == "escape_html" {
                 return if mode == WalkMode::Sink {
                     None
                 } else {
                     Some(Type::String)
                 };
+            }
+            if name == "render" {
+                if mode != WalkMode::Sink {
+                    return Some(Type::String);
+                }
+                let snapshot = render_raw_snapshot();
+                let raw_positions: Option<&Vec<usize>> = match (&snapshot, args.first()) {
+                    (Some(map), Some(Expr::StringLit { value, .. })) => map.get(value),
+                    _ => None,
+                };
+                // The escape positions are skipped either way; the raw
+                // positions conduct. Unknown template (no seeded fact
+                // for the name — including a literal name that maps to
+                // no declared template) → the conservative walk of ALL
+                // arguments.
+                let skip = |idx: usize| -> bool {
+                    raw_positions
+                        .map(|pos| !pos.contains(&idx))
+                        .unwrap_or(false)
+                };
+                for (idx, arg) in args.iter().skip(1).enumerate() {
+                    if skip(idx) {
+                        continue;
+                    }
+                    if let Some(ty) = walk(arg, vars, learnable, mode, depth + 1) {
+                        return Some(ty);
+                    }
+                }
+                return None;
             }
             // N2 (gh#1211): ct_eq — the comparison verdict never walks as
             // untrusted (the integrity is restored; the label engine in

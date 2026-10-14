@@ -62,6 +62,11 @@ enum Cond {
 }
 
 // ── Tokenizer + parser ────────────────────────────────────────────────
+// №685 (gh#1252, В44): `Token` and `tokenize` live in the UNGATED
+// `crate::template_scan` — render() is an ungated builtin and the
+// raw-insert gates must hold on every configuration. This gated engine
+// imports the SAME source (no second parser, no drift).
+use crate::template_scan::{tokenize, Token};
 
 /// Parse a template string into a Vec<TemplateNode>.
 /// Errors on unmatched `{{#if}}`/`{{#each}}` (missing close tag).
@@ -69,84 +74,6 @@ fn parse_template(src: &str) -> Result<Vec<TemplateNode>, String> {
     let tokens = tokenize(src);
     let mut pos = 0;
     parse_nodes(&tokens, &mut pos, None)
-}
-
-#[derive(Debug, Clone)]
-enum Token {
-    Text(String),
-    /// `{{ ... }}` — content already trimmed. `raw=true` for `{{{ ... }}}`.
-    Tag {
-        content: String,
-        raw: bool,
-    },
-}
-
-/// Split the source into Text and Tag tokens.
-/// `{{{`/`}}}` (triple) take priority over `{{`/`}}` (double).
-fn tokenize(src: &str) -> Vec<Token> {
-    let bytes: Vec<char> = src.chars().collect();
-    let n = bytes.len();
-    let mut i = 0;
-    let mut out = Vec::new();
-    let mut buf = String::new();
-
-    while i < n {
-        if i + 2 < n && bytes[i] == '{' && bytes[i + 1] == '{' && bytes[i + 2] == '{' {
-            // Triple-brace open — find matching `}}}`
-            if !buf.is_empty() {
-                out.push(Token::Text(std::mem::take(&mut buf)));
-            }
-            let start = i + 3;
-            let mut j = start;
-            while j + 2 < n {
-                if bytes[j] == '}' && bytes[j + 1] == '}' && bytes[j + 2] == '}' {
-                    break;
-                }
-                j += 1;
-            }
-            if j + 2 >= n {
-                // No closing `}}}` — treat the rest as literal text.
-                buf.push_str(&src[i..]);
-                break;
-            }
-            let content: String = bytes[start..j].iter().collect();
-            out.push(Token::Tag {
-                content: content.trim().to_string(),
-                raw: true,
-            });
-            i = j + 3;
-        } else if i + 1 < n && bytes[i] == '{' && bytes[i + 1] == '{' {
-            // Double-brace open — find matching `}}`
-            if !buf.is_empty() {
-                out.push(Token::Text(std::mem::take(&mut buf)));
-            }
-            let start = i + 2;
-            let mut j = start;
-            while j + 1 < n {
-                if bytes[j] == '}' && bytes[j + 1] == '}' {
-                    break;
-                }
-                j += 1;
-            }
-            if j + 1 >= n {
-                buf.push_str(&src[i..]);
-                break;
-            }
-            let content: String = bytes[start..j].iter().collect();
-            out.push(Token::Tag {
-                content: content.trim().to_string(),
-                raw: false,
-            });
-            i = j + 2;
-        } else {
-            buf.push(bytes[i]);
-            i += 1;
-        }
-    }
-    if !buf.is_empty() {
-        out.push(Token::Text(buf));
-    }
-    out
 }
 
 /// Parse a sequence of nodes until either end-of-tokens or a closing tag

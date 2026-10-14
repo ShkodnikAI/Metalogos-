@@ -16,17 +16,22 @@
 //     grammar has no filters;
 //   - the RAW insert is the triple-brace form `{{{ var }}}` — now
 //     implemented in render() TOO (the template_render contract
-//     mirrored), safe-by-construction: the parameters are
-//     program-provided, the egress gates still apply downstream;
+//     mirrored). №685 (gh#1252, the S-1 audit): the raw form is
+//     FAIL-CLOSED — a raw-insert parameter must be declared Html
+//     (RAW_INSERT_NOT_HTML refuses at start on both backends) and the
+//     value must come from an explicit Html producer (the implicit
+//     String→Html coercion refuses at the call site); the taint/label
+//     layers conduct the raw positions instead of lifting them;
 //   - the example (p6_template_composition) uses the raw form and
 //     actually renders: the title rides the ESCAPED default (the
 //     script-neutralization is visible in the .expected), the trusted
-//     fragment rides raw.
+//     fragment rides raw (built by the render("Body") producer).
 //
 //   N9-1: render() with `{{ var | safe }}` → the compile-time refusal
 //         naming the triple-brace alternative.
 //   N9-2: template_render with the pipe → the loud parse refusal.
-//   N9-3: render() `{{{ var }}}` renders RAW; `{{ var }}` escapes.
+//   N9-3: render() `{{{ var }}}` renders RAW (an Html-typed parameter
+//         built by an explicit producer); `{{ var }}` escapes.
 //   N9-4: template_render `{{{ var }}}` raw (the pre-existing form).
 //   N9-5: the pipe inside a CONDITION literal is legal
 //         ({{#if x == "a|b"}} — the construct grammar, not a filter).
@@ -34,6 +39,8 @@
 //         identically.
 //   N9-7: the golden pair p6_template_composition (the .expected pins
 //         the escaped title + the raw body).
+//   №685-1: a String raw parameter refuses (RAW_INSERT_NOT_HTML) —
+//         the actualization of N9-3 under the fail-closed contract.
 
 // The test harness reads the golden example pair from examples/ — the
 // sanctioned test-harness exemption (the golden.rs / vm_golden.rs
@@ -84,11 +91,12 @@ fn n9_template_render_pipe_is_loud() {
     );
 }
 
-// ── N9-3: render() — the raw triple-brace + the escaped default ──────
+// ── N9-3: render() — the raw triple-brace (an Html-typed parameter,
+//       built by an explicit producer) + the escaped default ──────────
 
 #[test]
 fn n9_render_raw_and_escaped_forms() {
-    let src = "template T(a: String, b: String) -> Html {\n  <p data-a=\"{{ a }}\">{{{ b }}}</p>\n}\npattern P(i: String) -> String {\n  return render(\"T\", \"<b>&t</b>\", \"<i>raw</i>\")\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let src = "template Frag(b: String) -> Html {\n  <i>{{ b }}</i>\n}\ntemplate T(a: String, h: Html) -> Html {\n  <p data-a=\"{{ a }}\">{{{ h }}}</p>\n}\npattern P(i: String) -> String {\n  return render(\"T\", \"<b>&t</b>\", render(\"Frag\", i))\n}\nflow Main { input: String = \"raw\" -> P -> output }";
     let out = metalogos::run_program(src)
         .expect("render must succeed")
         .unwrap_or_default();
@@ -103,6 +111,39 @@ fn n9_render_raw_and_escaped_forms() {
     assert!(
         !out.contains("{{{") && !out.contains("}}}"),
         "no placeholder markup leaks into the output: {out}"
+    );
+}
+
+// ── №685-1: a String raw parameter refuses — the fail-closed contract
+
+#[test]
+fn n685_raw_insert_string_param_refuses() {
+    // The audit's S-1 scenario shape: the raw parameter typed String.
+    let src = "template T(a: String, b: String) -> Html {\n  <p data-a=\"{{ a }}\">{{{ b }}}</p>\n}\npattern P(i: String) -> String {\n  return render(\"T\", \"x\", \"<i>raw</i>\")\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let err = metalogos::run_program(src).expect_err("a String raw parameter must refuse");
+    assert!(
+        err.contains("RAW_INSERT_NOT_HTML"),
+        "the stable code stamps the refusal first: {err}"
+    );
+    assert!(
+        err.contains("'b'") && err.contains("Html"),
+        "the refusal names the parameter and the requirement: {err}"
+    );
+}
+
+// ── №685-2: a String-SHAPED argument into an Html parameter refuses —
+//       the implicit coercion the №662 rule-1 twin catches
+
+#[test]
+fn n685_implicit_string_to_html_coercion_refuses() {
+    // The template is HONEST (h: Html raw), but the caller passes a
+    // string literal — the implicit String→Html coercion refuses at the
+    // call site (the №662 rule-1 shape).
+    let src = "template T(a: String, h: Html) -> Html {\n  <p>{{ a }}{{{ h }}}</p>\n}\npattern P(i: String) -> String {\n  return render(\"T\", i, \"<i>not a producer</i>\")\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let err = metalogos::run_program(src).expect_err("a string literal must not coerce to Html");
+    assert!(
+        err.contains("implicit String→Html coercion"),
+        "the coercion refusal names the rule: {err}"
     );
 }
 
@@ -132,7 +173,7 @@ fn n9_pipe_in_condition_literal_is_legal() {
 
 #[test]
 fn n9_vm_parity_raw_and_escaped() {
-    let src = "template T(a: String, b: String) -> Html {\n  <p data-a=\"{{ a }}\">{{{ b }}}</p>\n}\npattern P(i: String) -> String {\n  return render(\"T\", \"<b>&t</b>\", \"<i>raw</i>\")\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let src = "template Frag(b: String) -> Html {\n  <i>{{ b }}</i>\n}\ntemplate T(a: String, h: Html) -> Html {\n  <p data-a=\"{{ a }}\">{{{ h }}}</p>\n}\npattern P(i: String) -> String {\n  return render(\"T\", \"<b>&t</b>\", render(\"Frag\", i))\n}\nflow Main { input: String = \"raw\" -> P -> output }";
     let tw = metalogos::run_program(src).expect("TW render");
     let declarations = metalogos::parser::parse(src).expect("parse");
     let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));

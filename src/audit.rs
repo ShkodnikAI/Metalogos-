@@ -171,7 +171,11 @@ impl TaintTracker {
 ///
 /// Propagation rules:
 /// - `Expr::Ident { name: var, span: Span::unknown() }` → returns var's taint
-/// - `Expr::FnCall { name: "render"| "escape_html", span: Span::unknown() }` → Sanitized (overrides args)
+/// - `Expr::FnCall { name: "render", span: Span::unknown() }` → the №685 split:
+///   sanitizer for the ESCAPED positions, CONDUCTOR for the RAW (`{{{ }}}`)
+///   positions (the template body decides; an unknown/dynamic name is a
+///   conservative conductor) — see `render_call_taint`
+/// - `Expr::FnCall { name: "escape_html" | "ct_eq", span: Span::unknown() }` → Sanitized (overrides args)
 /// - `Expr::FnCall { args: args, span: Span::unknown() }` → propagate first non-Sanitized arg taint
 /// - `Expr::BinaryOp { op: left, right: right, span: Span::unknown() }` → propagate from either side
 /// - Literals → None (clean)
@@ -183,11 +187,23 @@ fn get_expr_taint(expr: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
             args,
             ..
         } => {
+            // №685 (gh#1252, В44 — the S-1 audit): render() is NOT an
+            // unconditional sanitizer anymore. The N9 raw insert
+            // (`{{{ var }}}`, gh#1219) lands the argument VERBATIM in the
+            // page while this layer answered Sanitized — the audit's XSS
+            // scenario passed every gate. The split: the template body
+            // (statically known from the program's declarations) decides
+            // which argument positions are raw; a raw position conducts
+            // its argument's taint; an unknown/dynamic name is a
+            // conservative conductor (fail-closed).
+            if fn_name == "render" {
+                return render_call_taint(args, tracker);
+            }
             // Sanitizers override argument taint. N2 (gh#1211): ct_eq —
             // the comparison verdict never carries the untrusted taint
             // (it IS the validation step; the label engine carries the
             // conf nuance).
-            if fn_name == "render" || fn_name == "escape_html" || fn_name == "ct_eq" {
+            if fn_name == "escape_html" || fn_name == "ct_eq" {
                 return Some(TaintKind::Sanitized);
             }
             // Наряд №274 (ADR-0136): redact — taint-санитайзер для Secret.
@@ -249,6 +265,60 @@ fn get_expr_taint(expr: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
     }
 }
 
+/// №685 (gh#1252, В44): the ONE render() taint verdict for both taint
+/// sites (`get_expr_taint`, `binding_taint`) — the sanitizer/conductor
+/// split of the S-1 audit:
+///
+/// - the template name resolves statically (a string literal) AND the
+///   template's raw positions are seeded → only the RAW (`{{{ }}}`)
+///   positions conduct their argument's taint; the escaped positions
+///   sanitize;
+/// - the name does not resolve (dynamic, or no seeded fact) → a
+///   CONSERVATIVE conductor over every argument (fail-closed: the
+///   layer cannot claim a lift it cannot prove);
+/// - nothing conducts → `Sanitized` (today's green paths — render of
+///   clean/escaped-only content — keep their answers).
+fn render_call_taint(args: &[Expr], tracker: &TaintTracker) -> Option<TaintKind> {
+    let snapshot = crate::html_label::render_raw_snapshot();
+    let raw_positions: Option<&Vec<usize>> = match (&snapshot, args.first()) {
+        (Some(map), Some(Expr::StringLit { value, .. })) => map.get(value),
+        _ => None,
+    };
+    let skip = |idx: usize| -> bool {
+        raw_positions
+            .map(|pos| !pos.contains(&idx))
+            .unwrap_or(false)
+    };
+    for (idx, arg) in args.iter().skip(1).enumerate() {
+        if skip(idx) {
+            continue;
+        }
+        if let Some(taint) = conductor_arg_taint(arg, tracker) {
+            if taint != TaintKind::Sanitized {
+                return Some(taint);
+            }
+        }
+    }
+    Some(TaintKind::Sanitized)
+}
+
+/// №685: the taint of ONE render() argument as the conductor sees it —
+/// BOTH taint layers. `get_expr_taint` alone misses the DIRECT source
+/// calls (query_param("q") is clean by its arguments — the sources live
+/// in the binding layer); the №140 gate solved that with the shallow
+/// name check, and the conductor inherits the same two-layer question
+/// (a raw position that receives a direct user-input source call IS
+/// user-controlled — the audit's scenario verbatim).
+fn conductor_arg_taint(arg: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
+    if let Some(taint) = get_expr_taint(arg, tracker) {
+        return Some(taint);
+    }
+    if expr_is_user_input_tainted(arg, tracker) {
+        return Some(TaintKind::UserInput);
+    }
+    None
+}
+
 /// Determine the taint kind for a binding's RHS expression.
 /// Checks direct function call sources first, then falls back to
 /// expression-level taint propagation.
@@ -269,7 +339,13 @@ fn binding_taint(value: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
             // secret sources are typed (semantic_types::binding_label).
             // N2 (gh#1211): ct_eq — the comparison verdict never carries
             // the untrusted taint (it IS the validation step).
-            "render" | "escape_html" | "ct_eq" => return Some(TaintKind::Sanitized),
+            // №685 (gh#1252, В44): render — the SAME sanitizer/conductor
+            // split as the expression layer (render_call_taint): the raw
+            // positions conduct, the unknown name is a conservative
+            // conductor. The binding layer previously answered Sanitized
+            // unconditionally — the second half of the S-1 hole.
+            "render" => return render_call_taint(args, tracker),
+            "escape_html" | "ct_eq" => return Some(TaintKind::Sanitized),
             // Наряд №274 (ADR-0136): redact — taint-санитайзер для Secret
             // («mask before sink»). Семантика снятия — redact_result_taint.
             "redact" => return redact_result_taint(args, tracker),
@@ -345,7 +421,20 @@ fn is_llm_source(name: &str) -> bool {
 fn expr_is_user_input_tainted(expr: &Expr, tracker: &TaintTracker) -> bool {
     match expr {
         Expr::Ident { name, .. } => tracker.get_taint(name) == Some(TaintKind::UserInput),
-        Expr::FnCall { name, .. } => is_user_input_source(name),
+        Expr::FnCall { name, args, .. } => {
+            if is_user_input_source(name) {
+                return true;
+            }
+            // №685 (gh#1252, В44): the raw-insert conductor — a render()
+            // whose RAW position receives a user-input call is
+            // user-controlled at this egress (the escaped positions keep
+            // sanitizing; the conductor answers for them). The direct
+            // source calls keep their pinned shallow answers.
+            if name == "render" {
+                return matches!(render_call_taint(args, tracker), Some(TaintKind::UserInput));
+            }
+            false
+        }
         _ => false,
     }
 }
@@ -6836,6 +6925,10 @@ fn check_grant_linearity(
 
 pub fn audit_category_a(declarations: &[Declaration], source: &str) -> Vec<AuditFinding> {
     let mut findings: Vec<AuditFinding> = Vec::new();
+    // №685 (gh#1252, В44): the compile-path entry seeds the SAME map
+    // (audit_program seeds its own) — the compile-blocking checks read
+    // the raw positions of the program's templates.
+    crate::html_label::seed_render_raw(declarations);
     check_sql_dynamic(declarations, source, &mut findings);
     check_secret_leak(declarations, source, &mut findings);
     // Наряд №458: provider-format secret literals refuse at compile time —
@@ -6933,6 +7026,11 @@ pub fn audit_category_a(declarations: &[Declaration], source: &str) -> Vec<Audit
 /// Returns an AuditResult with findings, or an error if parsing fails.
 pub fn audit_program(source: &str) -> Result<AuditResult, String> {
     let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
+
+    // №685 (gh#1252, В44): seed the raw-insert map — the taint layer and
+    // the html_label sink walk read the program's template declarations
+    // through it (the sanitizer/conductor split of the S-1 audit).
+    crate::html_label::seed_render_raw(&declarations);
 
     let mut findings: Vec<AuditFinding> = Vec::new();
 

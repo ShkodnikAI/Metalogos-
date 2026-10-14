@@ -1,0 +1,4 @@
+# №685 (gh#1252) — the honest composition: the Html-typed raw parameter
+# from an explicit producer renders verbatim; nothing leaks.
+STATUS: ok
+OUT: <div><em>hello</em></div>

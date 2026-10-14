@@ -6,6 +6,37 @@ All notable changes to the Metalogos project.
 
 ### Security
 
+- **№685 (gh#1252, В44 — the S-1 audit's High finding; fix date 2026-10-15):**
+  the RAW template insert `{{{ var }}}` in `render()` is FAIL-CLOSED now.
+  Before the fix the N9 raw form (gh#1219) landed its argument VERBATIM in
+  the page while every static layer answered «sanitized» at the render
+  boundary — `render("Comment", "author", body.author, "text", body.text)`
+  with `{{{ text }}}` in a `text: String` template passed `mlog check`,
+  `run` and `serve` with zero findings: the XSS the audit demonstrated,
+  invisible to the HTML_INJECTION category. The repair is the audit's
+  prescription, three gates deep: (1) the DECLARATION gate — a template
+  parameter used in `{{{ }}}` must be declared `Html`, anything else is
+  the `RAW_INSERT_NOT_HTML` stable-code refusal BEFORE execution on BOTH
+  backends (check_program + the compile_program gate block, the №673
+  contour shape; the code joins the №385/ADR-0169 classification, nothing
+  renamed); (2) the CALL-SITE coercion — a String-shaped argument into an
+  Html-typed parameter of a statically-known template refuses (the №662
+  rule-1 twin, the implicit String→Html the runtime accepted silently);
+  (3) the TAINT/LABEL layers — `render()` is now a sanitizer for the
+  ESCAPED positions and a CONDUCTOR for the RAW ones (the template body
+  decides from the program's declarations; a dynamic/unknown name is a
+  conservative conductor; the UserInput/LLM egress gates
+  OPEN_REDIRECT/HTML_INJECTION/TELEGRAM_HTML_INJECTION read the conducted
+  taint instead of a fake lift). The honest path is unchanged: an
+  Html-typed parameter built by an explicit Html producer
+  (`render("Outer", render("Inner", s))`) renders verbatim on both
+  backends. Affected: programs that fed String values into raw
+  `{{{ }}}` positions — they now refuse at start with the parameter and
+  the fix named in the message (the class-4 dictionary entry, the guard
+  scenario per the №653 form; the audit's «do not cut 0.31.0 before S-1»
+  is satisfied). `template_render`'s raw=true trusted-author contract is
+  unchanged (the limitations row now tells the two contracts apart).
+
 
 - **№673 (gh#1200, В41 — BREAK_OUTSIDE_LOOP, the R-2 audit's two
   «молча неверные» break/continue edges; fix date 2026-10-14):** a `break`/`continue` (а)

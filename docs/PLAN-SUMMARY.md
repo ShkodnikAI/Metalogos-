@@ -73,40 +73,54 @@ they reside in the canon held by the coordinator (§16.0-7).
 - C2PA mini-slice: manifest read/write, Art 50 labeling — a narrow slice (#320).
 - Completion-audits of Wave 0 — accepted (gh#404–#406).
 
-## Current wave — Wave 40 (the FO-050 parity wave, the dispatch gh#1187, 2026-10-09)
+## Executed — Wave 41 (the honest-boundaries-machine wave, the dispatch gh#1205, 2026-10-14)
 
-The dispatch gh#1187 queue — the owner's FO-050 bug reports + the Q-2
-movement №2 + the types 0.31 №1 + the spec topic 3. Executed: №666
-(gh#1181) + №667 (gh#1182) — the completion audits of the #1188
-repairs (the VM fresh-DB bootstrap + the db_url boot resolution; T1–T4
-4/4, the regressions 7/7·5/5·4/4·5/5·4/4, vm:: 14/14; the
-classification ### Fixed; closed 2026-10-12 with the audit reports);
-№668 (gh#1183, PR #1194 → 1640984) — the Q-2 movement №2 «memory →
-recognition»: 8 of 9 rows closed against the verified handler facts +
-the honest OPAQUE ninth (world_state), sensitive 54/138 = 3913 →
-62/138 = 4492 bp on its merge; №669 (gh#1184, PR #1195 → b6300f8) —
-the typing movement 0.31 №1: the forecast/graph package, 4 of 6 rows
-typed + 2 honest refusals (forecast_next — no Forecast kind in the
-stage-0 OpaqueKind; graph_path — the heterogeneous List), the
-SEQUENTIAL RECOUNT on the merged base: sensitive 66/138 = 4782 bp,
-typed 326/516 = 6317, parameterized 71/103 = 6893, fieldmeta 44/46 =
-9565 (the compiled pins 322/68/99/43; the fact twin 6893); №670
-(gh#1185, PR #1196 → 9f5cee7) — the spec topic 3 «Errors and the try
-result»: 6 norms S-ERR-001..006 + 7 conformance pairs + the Topics
-sync (the normative core 27 → 33); NO cross-backend divergence found.
-The window's headline (№664, §6.24): the 0.30.1 lockstep → 27877b8,
-the tag v0.30.1 — **the publication is the OWNER's act, §6.5,
-PENDING**. The wave tail: №671 (this section; REALITY §6.25; the
-quota line 0/20 PASS; the dispatch gh#1187 closes). The counters at
-9f5cee7: typed 326/516 = 6317 bp, precise 4302, parameterized 71/103
-= 6893, fieldmeta 44/46 = 9565, sensitive 66/138 = 4782, norms 33
-(13+14+6) with 40 pairs, ignore 9 / dead_code 15, ADR 183, dups 0,
-blocking cells 32, release-gap OK, the 0.30 gate --strict exit 0. The
-owner gates remaining: **the v0.30.1 publication (§6.5)**, the
-ADR-0191 §-answers (the OD variants), the train №2 candidate (19.10 —
-the honest-content rule), the showcase repo
-(NOT created — the owner's act), №639 (15.10) / №648 (01.12) outside
-the wave.
+The dispatch gh#1205 queue — the honest boundary line as one wave.
+Executed: №673 (gh#1200, PR #1247 → 9b8cdc5) — the BREAK_OUTSIDE_LOOP
+semantic gate: the two silent-wrong edges of the №658 probe refuse
+BEFORE execution on both backends (BREAK_OUTSIDE_LOOP /
+CONTINUE_OUTSIDE_LOOP; the value channel included), the №658-a/№658-b
+spec records REPAIRED with the anchors; №674 (gh#1201, PR #1248 →
+250ef31) — the Honest-limits spec scan rides the SAME blocking job
+(retrospective mode): every ACTIVE record must have a limitations.md
+mirror by id — 7 records, 2 active (№659-x/№659-y), IN SYNC; the
+659-x/659-y mirrors are the №588-form rows (the repairs stay outside
+the wave); №675 (gh#1202, PR #1249 → 8912c9d) — the ignore floor 11 →
+9 (the machine fact) PLUS the below-floor rule in the debt gate (a
+fact below the floor = exit 1 naming the old/new floors, the floor
+lowered in the same PR); №676 (gh#1203, PR #1250 → b072748) — the
+audit 7c3456b §4 hygiene checklist, all 11 rows (A3 the porcelain
+gates in test-lib AND test-integration; D2 the README front-door 149
+lines, Quick Start at line 29; A7 the CHANGELOG archive 727 → 57 KB,
+42 sections byte-exact, the Security records of the live releases
+stay; A1 frames/ + the two committed data/ leaks out; A6 the root at 8
+.md; A5 the GEMINI byte-duplicate deduped; D3 the link-not-duplicate
+with the §3/§5 machine-pinned claims kept; D1 the generated-stamp off
++ the grep floor; A2 the repo-writing tests on the №387 sandbox form;
+C1 the MSRV claims synced; D5 the CI badge rendered from ci.yml 28 →
+44) — and the gate caught two real writers ON ITS FIRST FULL SUITE
+(the №402 ledger export re-committed weekly; the masked №394 file);
+№677 (this record; REALITY §6.26; the quota line 0/15 PASS; the
+dispatch gh#1205 closes). The counters at b072748: typed 337/526 =
+6406 bp, precise 227/526 = 4315, parameterized 77/109 = 7064,
+fieldmeta 46/48 = 9583, sensitive 73/145 = 5034 (the §6.25 → b072748
+deltas belong to the PE-1/PE-2 lanes), norms 33 (13+14+6) with 40
+pairs, the Honest-limits scan NEW (7 records, 2 active, IN SYNC),
+ignore 9 AT the floor 9 / dead_code 15, ADR 184, dups 0, blocking
+cells 32, release-gap OK, the 0.30 gate --strict exit 0. The owner
+gates remaining: the ADR-0191 §-answers (the OD variants), the train
+№2 candidate (19.10 — the [Unreleased] classification = the 0.31.0
+MINOR), №639 (15.10) / №648 (01.12) outside the wave.
+
+## Current wave — the open machine tail (2026-10-14)
+
+The in-flight machine surface after В41 closed: **№682 (gh#1233)** —
+verified-wait (the App C leg is proven on the fixed core; the landing
+gates on the owner's release act → the pin bump; see the issue's
+machine trail); **№639 (gh#1122)** — the dated ledger revision
+(2026-10-15); **№648 (gh#1135)** — the dated plan audit (2026-12-01).
+The showcase wave's record: the «Executed — Wave 42» section below and
+REALITY §6.27.
 
 ## Executed — Wave 42 (the showcase wave, the dispatch gh#1235, 2026-10-13)
 

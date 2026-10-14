@@ -393,6 +393,29 @@ All notable changes to the Metalogos project.
 
 ### Changed
 
+- **№676 (gh#1203, В41, docs/hygiene — the audit 7c3456b §4 checklist,
+  all 11 rows):** the repo-tree cleanliness is now machine-enforced — a
+  blocking `git status --porcelain` step after the Library tests AND the
+  Integration tests (no new job; on its first full-suite run it caught
+  two committed repo-tree writers, both lanes moved to throwaway
+  `METALOGOS_DATA_DIR` roots); the CHANGELOG archive — the releases
+  0.5.0→0.28.2 moved byte-exact into `docs/changelog/
+  CHANGELOG-2025-06_2026-10.md` (42 sections, no record lost; the live
+  root keeps [Unreleased] + 0.29.0/0.30.0/0.30.1 with their Security
+  records; 727 KB → 57 KB); the README front-door reworked (Quick Start
+  into the first 60 lines, 149 lines total, the feature-gate table →
+  docs/feature-gates.md, the Newcomer Contract deep-dive → the link with
+  the machine-pinned §3/§5 claims kept); the repo root is 8 .md files
+  (AI_USAGE/MEMORY_ROADMAP/FEATURE_INTAKE/GOVERNANCE → docs/, the
+  byte-identical GEMINI.md duplicate deduped); the generated
+  naryad-number stamp left the README (the generator no longer stamps
+  it, badge-sync greps it); the CI badge is RENDERED from ci.yml
+  (28 → 44 — the static badge had drifted); the MSRV claims synced
+  (1.93.1 everywhere); `frames/` and the leaked data/ fixtures left the
+  tracked tree; the repo-writing test suites run in the №387 sandbox
+  form (the №402 ledger export and the №394 tool write now land under
+  throwaway `METALOGOS_DATA_DIR` roots; the №337 GENERATE leg's latent
+  shared-scratch race with the CAPTURE leg separated).
 - **№660 §5 (gh#1161 — the owner's verdict 2026-10-13) — the 0.31
   release gate OWNER-FIXED (the §5 mechanical transition, the №630
   shape):** the OD divergence (ADR-0191 §3/§4) closed by the variant

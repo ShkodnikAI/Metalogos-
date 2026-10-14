@@ -2103,6 +2103,100 @@ referenced as existing), the В36 tail (№639 the ledger revision
 **The wave report line (№608/№470):** the dispatch surface gh#1187:
 `naryad-quota (№470/№608): 20 naryads — domain 0/20 = 0.0% — PASS (the standing limiter <= 1/3)`
 
+### 6.26. Wave 41 post-wave record (naryad №677): the honest-boundaries-machine wave — BREAK_OUTSIDE_LOOP refuses on both backends (the №658-a/b REPAIRED), the Honest-limits spec scan mirrors the 659-x/y rows, the ignore floor 9 with the below-floor rule, and the §4 hygiene checklist with the porcelain gates that caught two real writers (main @ `b072748`, 2026-10-14)
+
+Protocol: the same machines, no hand-written numbers. The honest
+headline: В41 executed the owner's honest-boundary line (the dispatch
+gh#1205) as ONE wave across four lanes plus the wave tail, and the
+hygiene lane's new gate proved itself ON THE WAVE ITSELF — the first
+full-suite porcelain run caught two committed repo-tree writers that
+had sat in the tree for weeks. **№673 (gh#1200, PR #1247 →
+`9b8cdc5`)** — the BREAK_OUTSIDE_LOOP semantic gate: the two
+silent-wrong edges of the №658 probe (a bare break/continue OUTSIDE any
+loop; a break/continue crossing the VALUE channel) now refuse BEFORE
+execution on BOTH backends (the static codes
+`BREAK_OUTSIDE_LOOP`/`CONTINUE_OUTSIDE_LOOP`, the traversal is
+loop-stack-based: Each/EachWithIndex/While, transparent through
+statement-if/match, the value channel = the Expr::BlockIfElse/Expr::MatchExpr
+branches); the spec Honest-limits records №658-a/№658-b carry the
+REPAIRED-by-№673 markers with the anchors. **№674 (gh#1201, PR #1248 →
+`250ef31`)** — the honest-boundary machine sees the spec: the
+Honest-limits mirror scan over `docs/spec/*.md` (every ACTIVE record
+must have a limitations.md row by id, REPAIRED records are exempt; the
+scan rides the retrospective mode of the SAME blocking job — the cell
+does not grow), and the two still-open value-arm divergences
+**№659-x/№659-y** land their №588-form limitation mirrors (the guard
+scenarios named; the repairs stay a separate lane OUTSIDE В41). **№675
+(gh#1202, PR #1249 → `8912c9d`)** — the ignore floor 11 → 9 (the
+machine fact: the debt counter reads 9, the committed floor said 11)
+PLUS the below-floor rule in the debt gate: a fact BELOW the floor is
+now exit 1 naming the old/new floors and demanding the floor be lowered
+in the same PR (the №662/№668 lecalo generalized). **№676 (gh#1203, PR
+#1250 → `b072748`)** — the audit 7c3456b §4 hygiene checklist, all 11
+rows: A3 the blocking `git status --porcelain` gates in test-lib AND
+test-integration (no new job), D2 the README front-door (149 lines,
+Quick Start at line 29, feature-gates → docs/), A7 the CHANGELOG
+archive (727 KB → 57 KB; the releases 0.5.0→0.28.2 moved BYTE-EXACT to
+docs/changelog/, 42 sections, machine-verified 46=46, the №588
+Security records of the live releases stay in the root file), A1 the
+frames/ leak class out of the tree (+ the two committed data/
+artifacts), A6 the root at 8 .md files, A5 the GEMINI.md byte-duplicate
+deduped, D3 the Newcomer Contract link-not-duplicate (the §3/§5 claims
+stay README-pinned by the docs_consistency machine), D1 the generated
+naryad-number stamp off + the grep floor in badge-sync, A2 the repo-
+writing tests on the №387 sandbox form, C1 the MSRV claims synced
+(1.93.1 everywhere), D5 the CI badge rendered from ci.yml (28 → 44,
+the drift is now machine-caught). The gate's own harvest ON THE WAVE:
+the full-suite porcelain caught `data/n402_ledger.jsonl` (the №402
+route's ledger export — re-committed leak) and the masked
+`data/n394_mcp_test_out.txt` (the tracked content equaled the write;
+exposed the moment the leak was deleted) — both lanes now export into
+throwaway `METALOGOS_DATA_DIR` roots, and the №337 GENERATE leg's
+latent shared-scratch race with the CAPTURE leg was found and separated
+(the №332 lesson applied). **№677 (gh#1204, this merge)** — the wave
+tail: §6.26 + PLAN-SUMMARY Wave 41 + the [Unreleased] entries; the
+dispatch gh#1205 closes.
+
+**The debt-gate posture (the №675 fact):** the ignore counter reads 9
+AT the floor 9 (the floor was lowered from 11 in the same PR that
+proved the fact; the below-floor rule would refuse any future drop
+without a same-PR floor edit); `dead_code` 15 unchanged.
+
+**The Wave 41 counters (every value from its machine, the command
+reproduces it; main @ `b072748`):**
+
+| Counter | Value | Machine | Movement |
+|---|---|---|---|
+| Typed-signature share (№467) | **337/526 = 6406 bp** (the gate notes the floor 6317 should rise) | `python3 scripts/ci/type_signature_share.py --gate scripts/ci/type_signature_baseline.txt` | unchanged BY В41 (the §6.25 → b072748 delta 326/516 → 337/526 belongs to the PE-1/PE-2 lanes, merged between the snapshots) |
+| Precise typed share (№560) | **227/526 = 4315 bp** | `… --precise --gate …` | unchanged BY В41 (the delta is the PE lanes') |
+| Parameterized share (№623) | **77/109 = 7064 bp** | `… --parameterized --gate …` | unchanged BY В41 (the PE lanes' rows) |
+| Field-label share (№627) | **46/48 = 9583 bp** | `… --parameterized --fieldmeta --gate …` | unchanged BY В41 (the PE lanes' rows) |
+| **Sensitive-surface coverage (№644)** | **73/145 = 5034 bp** (only-up) | `python3 scripts/ci/sensitive_surface_share.py --gate scripts/ci/sensitive_surface_baseline.txt` | unchanged BY В41 (the PE lanes' surface) |
+| The spec normative core (№645/№652/№670) | **33 norms** (S-VAL ×13 + S-BLK ×14 + S-ERR ×6) with 40 conformance pairs | the pair count in `tests/conformance/`; the Topics table | unchanged (В41 touched no norms) |
+| The Honest-limits spec scan (№674) | **7 records (2 active, 5 REPAIRED-exempt) — IN SYNC** (every active record mirrored) | `python3 scripts/ci/honest_boundary_check.py --retrospective` | **NEW machine on В41** (the №674 scan rides the retrospective mode; the 659-x/y rows are the 2 active) |
+| The semantic loop gates (№673) | **BREAK_OUTSIDE_LOOP / CONTINUE_OUTSIDE_LOOP** refuse before execution on both backends | the static codes + `tests/naryad_673_break_outside_loop.rs` (9 pins) | **NEW on В41** (the №658-a/b REPAIRED) |
+| The №604 dictionary | **classes 1–4** | `python3 scripts/ci/honest_boundary_check.py --self-test` (ALL PASS) | unchanged |
+| `#[ignore]` debt (№468) | **9 AT the floor 9** (TODO: 0) | `python3 scripts/ci/debt_counters.py --gate scripts/ci/debt_baseline.txt` → DEBT GATE OK | **moved** (the floor 11 → 9 with the below-floor rule — №675; the counter value itself unchanged since №662) |
+| `dead_code` (№468) | **15** | same gate | unchanged |
+| TW/VM duplicated builtin names (№462) | **0** (the quorum 0/8 groups) | `python3 scripts/ci/count_duplicated_names.py --quorum` | unchanged |
+| Registered mirrors (№502/№564) | **6** | `python3 scripts/ci/mirror_counter.py --gate scripts/ci/src_mirror_baseline.txt` | unchanged |
+| ADR count | **184** | `python3 scripts/gen_metrics.py --check` | unchanged BY В41 (+1 ADR-0192 — the PE-2 lane) |
+| Blocking-checks cells | **32** | `python3 scripts/ci/blocking_checks_sync.py --count` | unchanged (the №535 rule; the №676 gates are STEPS in existing jobs) |
+| The №562 release-gap gate | **OK** | `python3 scripts/ci/release_gap_gate.py` | unchanged (OK) |
+| The 0.30 gate posture | **owner_fixed: true; the DEFAULT target 0.30; --strict exit 0 GREEN** | `python3 scripts/ci/unfreeze_gate.py --office-tests pass --gate-target 0.30 --strict` | unchanged GREEN |
+| The release state | **0.30.1 PUBLISHED** (2026-10-12 11:08Z, the release 410516037 on `27877b8`); the next window is the train №2 (Monday 2026-10-19): the [Unreleased] carries Added (the PE lanes, №674) + Fixed (№673, №684) → the §2.4 ADR-0189 classification = the 0.31.0 MINOR cut | the release API + the tag | unchanged (PUBLISHED; the train №2 is the owner's act) |
+
+**The owner gates remaining after В41:** the ADR-0191 §-answers (the
+OD variants — the 0.31 direction; gh#1161), the train №2 candidate (the
+Monday window 2026-10-19 — no empty trains, the ADR-0189 honest-content
+rule; the Security-факт: the live CHANGELOG root carries the
+0.29.0/0.30.0/0.30.1 Security records, the archive preserved them
+byte-exact), the В36 tail (№639 the ledger revision 2026-10-15, №641)
+and №648 (2026-12-01) — outside В41, untouched.
+
+**The wave report line (№608/№470):** the dispatch surface gh#1205:
+`naryad-quota (№470/№608): 15 naryads — domain 0/15 = 0.0% — PASS (the standing limiter <= 1/3)`
+
 ### 6.27. Wave 42 post-wave record (naryad №683): the showcase wave — metalogos-examples in the separate public repository, the cross-repo lane parallel to the PE line (main @ `d403832`, 2026-10-13)
 
 Protocol: the same machines, no hand-written numbers. The honest

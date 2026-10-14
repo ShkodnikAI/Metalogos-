@@ -457,6 +457,18 @@ jobs:
           prefix-key: v2
       - name: Integration tests (excluding blocking tests)
         run: cargo test --workspace --tests --no-fail-fast -- --skip crosscheck --skip registry_arity_check --skip llm_cache_contract
+      # №676 (A3): the same repo-tree cleanliness gate as test-lib — with
+      # the A2 sandbox conversion every integration fixture write lands in
+      # a temp dir, so the tree must remain EXACTLY as checked out after
+      # the suite. Blocking, no new job (the cell does not grow — №535).
+      - name: Repo tree is clean after integration tests (№676 A3)
+        run: |
+          dirty="$(git status --porcelain)"
+          if [ -n "$dirty" ]; then
+            echo "::error::The integration suite left artifacts in the repo tree — a test writes into the repo catalog. Fix the test to use a temp sandbox (the naryad_387 EgressSandbox form)."
+            echo "$dirty"
+            exit 1
+          fi
       - name: "Artifact — the №486 declared-type warn count on examples/ (informational, NOT a ratchet — the corpus test prints the line)"
         run: cargo test --test naryad_486_declared_types -- --nocapture corpus_declared
 

@@ -351,6 +351,32 @@ pub fn compile_program(source: &str) -> Result<bytecode::Program, String> {
             eprintln!("warning: import '{}' cannot be resolved in compile mode (use `mlog serve` instead)", import.path);
         }
     }
+
+    // №673 (gh#1200, В41): BREAK_OUTSIDE_LOOP — the VM compile gate. The
+    // run/serve path blocks on the finding through check_program (№523);
+    // the compile→run .mbc path had NO semantic gate, so the «молча
+    // неверные» break/continue edges (№658-a value-channel crossing,
+    // №658-b outside any loop) compiled and silently misbehaved on the
+    // VM. The SAME shared walker the TW gate uses refuses here, BEFORE
+    // the bytecode exists — the refusal is backend-independent by
+    // construction. Only THIS class is wired (not the whole check_program):
+    // widening the compile gate to every semantic finding is a separate
+    // conversation; the break/continue class is the audit's P1.
+    {
+        let violations = semantic::break_outside_loop_violations(&declarations);
+        if !violations.is_empty() {
+            let lines: Vec<String> = violations
+                .iter()
+                .map(semantic::format_blocking_line)
+                .collect();
+            return Err(format!(
+                "[{}] Compilation error (Naryad #673): break/continue findings block compilation:\n{}",
+                semantic::CODE_BREAK_OUTSIDE_LOOP,
+                lines.join("\n")
+            ));
+        }
+    }
+
     let mut compiler = compiler::Compiler::new();
     compiler.compile(declarations)
 }
@@ -438,5 +464,98 @@ pub fn resume_program_with_dir(
             }
             None => Ok(Some(mutate_log.join("\n"))),
         }
+    }
+}
+
+#[cfg(test)]
+mod n673_break_outside_loop_gate {
+    use super::{compile_program, run_program_with_dir};
+
+    // №673 (gh#1200, В41): the BREAK_OUTSIDE_LOOP semantic gate — the
+    // «молча неверные» №658-a/№658-b shapes refuse with the stable code on
+    // BOTH production paths (the run/serve gate via check_program, the
+    // VM compile gate via compile_program), and the legal №658 surface
+    // (break nested through if/match INSIDE a loop) keeps working.
+
+    const OUTSIDE_LOOP: &str = r#"
+pattern import_batch(x: String) -> String {
+  if x == "bad" { break }
+  return "published"
+}
+flow Main { input: String = "bad" -> import_batch -> output }
+"#;
+
+    const VALUE_ARM_BREAK: &str = r#"
+pattern p(x: String) -> String {
+  let mut i = 0.0
+  while i < 3.0 {
+    let kind = match x {
+      "go" then {
+        break
+        "matched"
+      }
+      else { "other" }
+    }
+    i = i + 1.0
+  }
+  return "done"
+}
+flow Main { input: String = "go" -> p -> output }
+"#;
+
+    const LEGAL_NESTED_BREAK: &str = r#"
+pattern p(x: String) -> String {
+  let mut acc = ""
+  let mut i = 0.0
+  while i < 5.0 {
+    if x == "stop" { break }
+    acc = acc + "x;"
+    i = i + 1.0
+  }
+  return acc
+}
+flow Main { input: String = "go" -> p -> output }
+"#;
+
+    #[test]
+    fn compile_program_refuses_break_outside_loop_with_the_stable_code() {
+        let err =
+            compile_program(OUTSIDE_LOOP).expect_err("the VM compile gate must refuse №658-b");
+        assert!(
+            err.starts_with("[BREAK_OUTSIDE_LOOP]"),
+            "the stable code must be stamped first, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn compile_program_refuses_value_channel_break_with_the_stable_code() {
+        let err =
+            compile_program(VALUE_ARM_BREAK).expect_err("the VM compile gate must refuse №658-a");
+        assert!(
+            err.starts_with("[BREAK_OUTSIDE_LOOP]"),
+            "the stable code must be stamped first, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn compile_program_keeps_the_legal_nested_break_surface() {
+        compile_program(LEGAL_NESTED_BREAK)
+            .expect("the №658 legal surface (break nested through if inside a loop) must compile");
+    }
+
+    #[test]
+    fn run_path_refuses_break_outside_loop_with_the_stable_code() {
+        // The TW run/serve path: the №523 gate stamps the FIRST blocking
+        // finding's stable code — the №673 check runs early in
+        // check_program, so the stamp is ours.
+        let err = run_program_with_dir(OUTSIDE_LOOP, std::path::PathBuf::from("."))
+            .expect_err("the run gate must refuse №658-b");
+        assert!(
+            err.starts_with("[BREAK_OUTSIDE_LOOP]"),
+            "the stable code must be stamped first, got: {}",
+            err
+        );
     }
 }

@@ -121,6 +121,16 @@ pub enum SemanticErrorKind {
     /// (non-literal, non-ident) names stay the runtime's backstop. No
     /// stable code (the runtime origin has none).
     UnknownTemplate,
+    /// №673 (gh#1200, В41): BREAK_OUTSIDE_LOOP — a break/continue (а)
+    /// outside any loop (№658-b) or (б) crossing a value-channel boundary
+    /// (an arm body of a match/if-as-value, №658-a). Both were the
+    /// «молча неверные» class-4 entries (№653): the TW refused at RUNTIME,
+    /// the VM silently absorbed the signal (or compiled the statement to
+    /// nothing). №673 refuses BEFORE execution on BOTH backends through
+    /// the shared semantic contour (check_program + compile_program); the
+    /// runtime mirrors stay untouched as backstops. The stable code is
+    /// CODE_BREAK_OUTSIDE_LOOP (the №523 first-stamp shape).
+    BreakOutsideLoop,
 }
 
 impl SemanticErrorKind {
@@ -143,6 +153,7 @@ impl SemanticErrorKind {
             SemanticErrorKind::OpaqueConcat => None,
             SemanticErrorKind::ImplicitOpaqueCoercion => None,
             SemanticErrorKind::UnknownTemplate => None,
+            SemanticErrorKind::BreakOutsideLoop => Some(CODE_BREAK_OUTSIDE_LOOP),
             SemanticErrorKind::Other => None,
         }
     }
@@ -174,6 +185,340 @@ pub fn format_blocking_line(err: &SpannedError) -> String {
     } else {
         err.message.clone()
     }
+}
+
+// ── №673 (gh#1200, В41): BREAK_OUTSIDE_LOOP — the semantic gate ─────────
+//
+// The R-2 audit of the revision `7c3456b` (v0.30.1) recorded TWO «молча
+// неверные» break/continue edges (the class-4 dictionary №653):
+//
+//   • №658-b — a bare break/continue OUTSIDE any loop: the TW refused at
+//     RUNTIME («break/continue used outside of a loop»), the VM compiled
+//     the statement to NOTHING and continued (the audit's import_batch
+//     shape: `break` on the error path instead of `return`, and the code
+//     after it ran);
+//   • №658-a — a break/continue crossing the VALUE channel (an arm body
+//     of a match/if-as-value): the TW refused at RUNTIME (the
+//     eval_statements boundary cannot carry a control signal), the VM
+//     silently ABSORBED the signal and ran the loop to its condition.
+//
+// №673 repairs both at the SEMANTIC level (the audit's recommendation —
+// not a runtime mechanism): the refusal fires BEFORE execution on BOTH
+// backends. The walker below is the ONE shared implementation, wired into
+// BOTH production gates — `check_program` (the TW run/serve path) and
+// `compile_program` (the VM compile→run path). The loop-context model:
+//
+//   • loop bodies (each/each-with-index/while) OPEN the loop context;
+//   • statement-position branches (if/else-if/else, if-then, match arms)
+//     PRESERVE it — a break nested through if/match stays legal (the
+//     №658 contract the norms S-BLK-011/012 pin, unchanged);
+//   • VALUE-CHANNEL bodies (BlockIfElse / MatchExpr arm statements — any
+//     expression-position body) FORBID break/continue outright: the
+//     control signal cannot cross the value channel (the TW's own
+//     runtime rule, now static);
+//   • a loop inside a value-channel arm re-opens the legal loop context
+//     for its own body (the boundary the signal must reach is that loop).
+//
+// `Statement::Break/Continue` carry no span (the AST unit variants), so
+// the finding names the PLACE the honest way — the enclosing declaration
+// (pattern/tool/route/hook/on_deny/test) — and the line stays the
+// unknown-span fallback (format_blocking_line omits it; the CODE is what
+// machine consumers read, №479).
+
+/// The №673 context walk over one statement list. `in_loop` — a loop body
+/// encloses this position; `in_value` — a value-channel arm body encloses
+/// it. `place` — the human-readable enclosing-declaration name for the
+/// message.
+fn break_walk_stmts(
+    stmts: &[Statement],
+    in_loop: bool,
+    in_value: bool,
+    place: &str,
+    errors: &mut Vec<SpannedError>,
+) {
+    for stmt in stmts {
+        match stmt {
+            Statement::Break | Statement::Continue => {
+                let word = if matches!(stmt, Statement::Break) {
+                    "break"
+                } else {
+                    "continue"
+                };
+                if in_value {
+                    // №658-a: the signal crosses the value channel.
+                    errors.push(
+                        SpannedError::at_line(
+                            format!(
+                                "{} crosses the value channel (an arm body of a match/if-as-value) in {}: \
+                                 control signals cannot leave the value channel — keep the break/continue \
+                                 in the loop body (№658-a, REPAIRED by №673)",
+                                word, place
+                            ),
+                            0,
+                        )
+                        .with_kind(SemanticErrorKind::BreakOutsideLoop),
+                    );
+                } else if !in_loop {
+                    // №658-b: no enclosing loop to exit or skip.
+                    errors.push(
+                        SpannedError::at_line(
+                            format!(
+                                "{} outside any loop in {}: there is no enclosing each/while to exit \
+                                 or skip — use return (№658-b, REPAIRED by №673)",
+                                word, place
+                            ),
+                            0,
+                        )
+                        .with_kind(SemanticErrorKind::BreakOutsideLoop),
+                    );
+                }
+            }
+            Statement::Each { iterable, body, .. } => {
+                break_walk_expr(iterable, in_loop, place, errors);
+                break_walk_stmts(body, true, false, place, errors);
+            }
+            Statement::EachWithIndex { iterable, body, .. } => {
+                break_walk_expr(iterable, in_loop, place, errors);
+                break_walk_stmts(body, true, false, place, errors);
+            }
+            Statement::While {
+                condition, body, ..
+            } => {
+                break_walk_expr(condition, in_loop, place, errors);
+                break_walk_stmts(body, true, false, place, errors);
+            }
+            Statement::IfElseBlock {
+                condition,
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                break_walk_expr(condition, in_loop, place, errors);
+                break_walk_stmts(then_body, in_loop, in_value, place, errors);
+                for (cond, body) in else_ifs {
+                    break_walk_expr(cond, in_loop, place, errors);
+                    break_walk_stmts(body, in_loop, in_value, place, errors);
+                }
+                if let Some(eb) = else_body {
+                    break_walk_stmts(eb, in_loop, in_value, place, errors);
+                }
+            }
+            Statement::IfThen {
+                condition, body, ..
+            } => {
+                break_walk_expr(condition, in_loop, place, errors);
+                break_walk_stmts(body, in_loop, in_value, place, errors);
+            }
+            Statement::Match {
+                scrutinee,
+                arms,
+                else_body,
+                ..
+            } => {
+                break_walk_expr(scrutinee, in_loop, place, errors);
+                for arm in arms {
+                    break_walk_stmts(arm.body(), in_loop, in_value, place, errors);
+                }
+                if let Some(eb) = else_body {
+                    break_walk_stmts(eb, in_loop, in_value, place, errors);
+                }
+            }
+            Statement::LetBinding { value, .. } => {
+                break_walk_expr(value, in_loop, place, errors);
+            }
+            Statement::Assign { value, .. } => {
+                break_walk_expr(value, in_loop, place, errors);
+            }
+            Statement::Return { value, .. } => {
+                break_walk_expr(value, in_loop, place, errors);
+            }
+            Statement::ExprStmt { expr, .. } => {
+                break_walk_expr(expr, in_loop, place, errors);
+            }
+            Statement::Memorize(m) => {
+                break_walk_expr(&m.value, in_loop, place, errors);
+            }
+            Statement::Forget(f) => {
+                break_walk_expr(&f.query, in_loop, place, errors);
+            }
+            Statement::Relate(r) => {
+                break_walk_expr(&r.from, in_loop, place, errors);
+                break_walk_expr(&r.to, in_loop, place, errors);
+            }
+        }
+    }
+}
+
+/// The №673 expression walk: value-channel arm bodies (BlockIfElse /
+/// MatchExpr) are entered with `in_value = true`; every other variant
+/// recurses into its sub-expressions with the context unchanged. The
+/// break/continue themselves are STATEMENTS — an expression can carry one
+/// only through a value-channel arm body.
+fn break_walk_expr(expr: &Expr, in_loop: bool, place: &str, errors: &mut Vec<SpannedError>) {
+    match expr {
+        Expr::BlockIfElse {
+            condition,
+            then_body,
+            else_ifs,
+            else_body,
+            ..
+        } => {
+            break_walk_expr(condition, in_loop, place, errors);
+            break_walk_stmts(then_body, in_loop, true, place, errors);
+            for (cond, body) in else_ifs {
+                break_walk_expr(cond, in_loop, place, errors);
+                break_walk_stmts(body, in_loop, true, place, errors);
+            }
+            if let Some(eb) = else_body {
+                break_walk_stmts(eb, in_loop, true, place, errors);
+            }
+        }
+        Expr::MatchExpr {
+            scrutinee,
+            arms,
+            else_body,
+            ..
+        } => {
+            break_walk_expr(scrutinee, in_loop, place, errors);
+            for arm in arms {
+                break_walk_stmts(arm.body(), in_loop, true, place, errors);
+            }
+            if let Some(eb) = else_body {
+                break_walk_stmts(eb, in_loop, true, place, errors);
+            }
+        }
+        Expr::FieldAccess { object, .. } => {
+            break_walk_expr(object, in_loop, place, errors);
+        }
+        Expr::FnCall { args, .. } => {
+            for a in args {
+                break_walk_expr(a, in_loop, place, errors);
+            }
+        }
+        Expr::QualifiedCall { args, .. } => {
+            for a in args {
+                break_walk_expr(a, in_loop, place, errors);
+            }
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            break_walk_expr(left, in_loop, place, errors);
+            break_walk_expr(right, in_loop, place, errors);
+        }
+        Expr::IfElse {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            break_walk_expr(condition, in_loop, place, errors);
+            break_walk_expr(then_branch, in_loop, place, errors);
+            break_walk_expr(else_branch, in_loop, place, errors);
+        }
+        Expr::List { items, .. } => {
+            for it in items {
+                break_walk_expr(it, in_loop, place, errors);
+            }
+        }
+        Expr::IndexAccess { object, index, .. } => {
+            break_walk_expr(object, in_loop, place, errors);
+            break_walk_expr(index, in_loop, place, errors);
+        }
+        Expr::StructLit { fields, .. } => {
+            for v in fields.values() {
+                break_walk_expr(v, in_loop, place, errors);
+            }
+        }
+        Expr::Try { expr, .. } => {
+            break_walk_expr(expr, in_loop, place, errors);
+        }
+        Expr::ProvBind { inner, .. } => {
+            break_walk_expr(inner, in_loop, place, errors);
+        }
+        Expr::StringLit { .. }
+        | Expr::FloatLit { .. }
+        | Expr::BoolLit { .. }
+        | Expr::Ident { .. }
+        | Expr::HandleSource { .. } => {}
+    }
+}
+
+/// №673: the BREAK_OUTSIDE_LOOP violations over the whole program — every
+/// executable statement body of every declaration kind that carries one
+/// (pattern, tool method, server route, hook, on_deny handler, test).
+/// The ONE shared implementation: called by `check_program` (the TW
+/// run/serve gate) and by `compile_program` (the VM compile gate) — the
+/// refusal is backend-independent by construction.
+pub fn break_outside_loop_violations(declarations: &[Declaration]) -> Vec<SpannedError> {
+    let mut errors: Vec<SpannedError> = Vec::new();
+    for decl in declarations {
+        match decl {
+            Declaration::Pattern(p) => {
+                let place = format!("pattern '{}'", p.name);
+                break_walk_stmts(&p.body, false, false, &place, &mut errors);
+            }
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    let place = format!("tool '{}' method '{}'", t.name, m.name);
+                    break_walk_stmts(&m.body, false, false, &place, &mut errors);
+                }
+            }
+            Declaration::MlogServer(s) => {
+                for r in &s.routes {
+                    let place = format!("route '{}'", r.path);
+                    break_walk_stmts(&r.body, false, false, &place, &mut errors);
+                }
+            }
+            Declaration::Hook(h) => {
+                let place = format!("hook '{:?}'", h.phase);
+                break_walk_stmts(&h.body, false, false, &place, &mut errors);
+            }
+            Declaration::OnDeny(d) => {
+                let place = format!("on_deny('{}')", d.class);
+                break_walk_stmts(&d.body, false, false, &place, &mut errors);
+            }
+            Declaration::Test(t) => {
+                let place = format!("test '{}'", t.name);
+                break_walk_stmts(&t.body, false, false, &place, &mut errors);
+            }
+            // №532: no wildcard arms — the declaration kinds WITHOUT an
+            // executable statement body (templates, db/schema, entities,
+            // flows, config declarations, ...) carry nothing to walk. A
+            // NEW declaration kind must be classified here explicitly —
+            // if it gains a statement body, the walker must see it.
+            Declaration::Template(_)
+            | Declaration::Db(_)
+            | Declaration::Schema(_)
+            | Declaration::SkillIndex(_)
+            | Declaration::Memory(_)
+            | Declaration::Import(_)
+            | Declaration::EntityType(_)
+            | Declaration::EntityRecord(_)
+            | Declaration::EntitySimple(_)
+            | Declaration::Rule(_)
+            | Declaration::Memorize(_)
+            | Declaration::Forget(_)
+            | Declaration::Fluid(_)
+            | Declaration::Adapt(_)
+            | Declaration::Relate(_)
+            | Declaration::Sandbox(_)
+            | Declaration::Mutate(_)
+            | Declaration::Eval(_)
+            | Declaration::LearnablePattern(_)
+            | Declaration::Flow(_)
+            | Declaration::Conversation(_)
+            | Declaration::LlmConfig(_)
+            | Declaration::ContextBudget(_)
+            | Declaration::TypeAlias(_)
+            | Declaration::Reflex(_)
+            | Declaration::ReflexSeq(_)
+            | Declaration::ReflexGen(_)
+            | Declaration::Vision(_)
+            | Declaration::Profile(_)
+            | Declaration::Origin(_) => {}
+        }
+    }
+    errors
 }
 
 /// Наряд №523: statically resolve a program's import tree so the
@@ -374,6 +719,21 @@ pub const CODE_RESPOND_NOT_TERMINAL: &str = "RESPOND_NOT_TERMINAL";
 /// the finding blocks run/serve again and the refusal stamps this code
 /// first (the №523 shape), so machine consumers read the CODE.
 pub const CODE_RESPOND_SWALLOWED: &str = "RESPOND_SWALLOWED";
+
+/// №673 (gh#1200, В41): the stable №479 diagnostic code of the
+/// BREAK_OUTSIDE_LOOP refusal — a break/continue (а) outside any loop
+/// (№658-b: the TW refused at runtime, the VM compiled the statement to
+/// NOTHING and continued — the audit's import_batch shape: `break` on the
+/// error path instead of `return`, and the code after it RAN), or (б)
+/// crossing a value-channel boundary — an arm body of a match/if-as-value
+/// (№658-a: the TW refused at runtime, the VM silently ABSORBED the signal
+/// and ran the loop to its condition). Both are the «молча неверные»
+/// class-4 dictionary entries (№653); №673 shifts the refusal to the
+/// semantic gate — a loud refusal BEFORE execution on BOTH backends (the
+/// check lives in the shared semantic contour, wired into check_program
+/// AND compile_program; the runtime mirrors stay untouched as backstops).
+/// The gate stamps this code first (the №523 shape).
+pub const CODE_BREAK_OUTSIDE_LOOP: &str = "BREAK_OUTSIDE_LOOP";
 
 /// №600 (the audit 25b375e Y-1): the SSOT POSITION PREDICATE of the №584
 /// early-answer surface — ONE enumeration consumed by BOTH the semantic
@@ -5979,6 +6339,18 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
     // every DECLARED trail: factual ⊑ declared, excess = loud error.
     // Patterns without a declared trail are ungated (zero delta).
     check_effect_trails(declarations, &mut result.errors);
+
+    // №673 (gh#1200, В41): BREAK_OUTSIDE_LOOP — the break/continue edges
+    // №658-a (crossing the value channel) and №658-b (outside any loop)
+    // were «молча неверные» on the VM (the class-4 dictionary №653): the
+    // TW refused at RUNTIME, the VM absorbed the signal (or compiled the
+    // statement to nothing). The refusal shifts left to the semantic
+    // gate — BEFORE execution, on BOTH backends (compile_program calls
+    // the same shared walker). The runtime mirrors stay untouched as
+    // backstops.
+    result
+        .errors
+        .extend(break_outside_loop_violations(declarations));
 
     // №611 (P0 bugfix): the check-time DDL dry-run for schema-as-code.
     // `mlog check` previously did not validate the generated DDL at all —

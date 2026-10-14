@@ -1,0 +1,5 @@
+# №658-a (REPAIRED by №673) — the break crosses the value channel: the
+# semantic gate refuses BEFORE execution on BOTH backends with the stable
+# code (the class-4 dictionary №653; the wording is not pinned, the code is).
+STATUS: error
+CODE: BREAK_OUTSIDE_LOOP

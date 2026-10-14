@@ -274,17 +274,17 @@ fn break_walk_stmts(
                 }
             }
             Statement::Each { iterable, body, .. } => {
-                break_walk_expr(iterable, in_loop, in_value, place, errors);
+                break_walk_expr(iterable, in_loop, place, errors);
                 break_walk_stmts(body, true, false, place, errors);
             }
             Statement::EachWithIndex { iterable, body, .. } => {
-                break_walk_expr(iterable, in_loop, in_value, place, errors);
+                break_walk_expr(iterable, in_loop, place, errors);
                 break_walk_stmts(body, true, false, place, errors);
             }
             Statement::While {
                 condition, body, ..
             } => {
-                break_walk_expr(condition, in_loop, in_value, place, errors);
+                break_walk_expr(condition, in_loop, place, errors);
                 break_walk_stmts(body, true, false, place, errors);
             }
             Statement::IfElseBlock {
@@ -294,10 +294,10 @@ fn break_walk_stmts(
                 else_body,
                 ..
             } => {
-                break_walk_expr(condition, in_loop, in_value, place, errors);
+                break_walk_expr(condition, in_loop, place, errors);
                 break_walk_stmts(then_body, in_loop, in_value, place, errors);
                 for (cond, body) in else_ifs {
-                    break_walk_expr(cond, in_loop, in_value, place, errors);
+                    break_walk_expr(cond, in_loop, place, errors);
                     break_walk_stmts(body, in_loop, in_value, place, errors);
                 }
                 if let Some(eb) = else_body {
@@ -307,7 +307,7 @@ fn break_walk_stmts(
             Statement::IfThen {
                 condition, body, ..
             } => {
-                break_walk_expr(condition, in_loop, in_value, place, errors);
+                break_walk_expr(condition, in_loop, place, errors);
                 break_walk_stmts(body, in_loop, in_value, place, errors);
             }
             Statement::Match {
@@ -316,7 +316,7 @@ fn break_walk_stmts(
                 else_body,
                 ..
             } => {
-                break_walk_expr(scrutinee, in_loop, in_value, place, errors);
+                break_walk_expr(scrutinee, in_loop, place, errors);
                 for arm in arms {
                     break_walk_stmts(arm.body(), in_loop, in_value, place, errors);
                 }
@@ -325,26 +325,26 @@ fn break_walk_stmts(
                 }
             }
             Statement::LetBinding { value, .. } => {
-                break_walk_expr(value, in_loop, in_value, place, errors);
+                break_walk_expr(value, in_loop, place, errors);
             }
             Statement::Assign { value, .. } => {
-                break_walk_expr(value, in_loop, in_value, place, errors);
+                break_walk_expr(value, in_loop, place, errors);
             }
             Statement::Return { value, .. } => {
-                break_walk_expr(value, in_loop, in_value, place, errors);
+                break_walk_expr(value, in_loop, place, errors);
             }
             Statement::ExprStmt { expr, .. } => {
-                break_walk_expr(expr, in_loop, in_value, place, errors);
+                break_walk_expr(expr, in_loop, place, errors);
             }
             Statement::Memorize(m) => {
-                break_walk_expr(&m.value, in_loop, in_value, place, errors);
+                break_walk_expr(&m.value, in_loop, place, errors);
             }
             Statement::Forget(f) => {
-                break_walk_expr(&f.query, in_loop, in_value, place, errors);
+                break_walk_expr(&f.query, in_loop, place, errors);
             }
             Statement::Relate(r) => {
-                break_walk_expr(&r.from, in_loop, in_value, place, errors);
-                break_walk_expr(&r.to, in_loop, in_value, place, errors);
+                break_walk_expr(&r.from, in_loop, place, errors);
+                break_walk_expr(&r.to, in_loop, place, errors);
             }
         }
     }
@@ -355,13 +355,7 @@ fn break_walk_stmts(
 /// recurses into its sub-expressions with the context unchanged. The
 /// break/continue themselves are STATEMENTS — an expression can carry one
 /// only through a value-channel arm body.
-fn break_walk_expr(
-    expr: &Expr,
-    in_loop: bool,
-    in_value: bool,
-    place: &str,
-    errors: &mut Vec<SpannedError>,
-) {
+fn break_walk_expr(expr: &Expr, in_loop: bool, place: &str, errors: &mut Vec<SpannedError>) {
     match expr {
         Expr::BlockIfElse {
             condition,
@@ -370,10 +364,10 @@ fn break_walk_expr(
             else_body,
             ..
         } => {
-            break_walk_expr(condition, in_loop, in_value, place, errors);
+            break_walk_expr(condition, in_loop, place, errors);
             break_walk_stmts(then_body, in_loop, true, place, errors);
             for (cond, body) in else_ifs {
-                break_walk_expr(cond, in_loop, in_value, place, errors);
+                break_walk_expr(cond, in_loop, place, errors);
                 break_walk_stmts(body, in_loop, true, place, errors);
             }
             if let Some(eb) = else_body {
@@ -386,7 +380,7 @@ fn break_walk_expr(
             else_body,
             ..
         } => {
-            break_walk_expr(scrutinee, in_loop, in_value, place, errors);
+            break_walk_expr(scrutinee, in_loop, place, errors);
             for arm in arms {
                 break_walk_stmts(arm.body(), in_loop, true, place, errors);
             }
@@ -395,21 +389,21 @@ fn break_walk_expr(
             }
         }
         Expr::FieldAccess { object, .. } => {
-            break_walk_expr(object, in_loop, in_value, place, errors);
+            break_walk_expr(object, in_loop, place, errors);
         }
         Expr::FnCall { args, .. } => {
             for a in args {
-                break_walk_expr(a, in_loop, in_value, place, errors);
+                break_walk_expr(a, in_loop, place, errors);
             }
         }
         Expr::QualifiedCall { args, .. } => {
             for a in args {
-                break_walk_expr(a, in_loop, in_value, place, errors);
+                break_walk_expr(a, in_loop, place, errors);
             }
         }
         Expr::BinaryOp { left, right, .. } => {
-            break_walk_expr(left, in_loop, in_value, place, errors);
-            break_walk_expr(right, in_loop, in_value, place, errors);
+            break_walk_expr(left, in_loop, place, errors);
+            break_walk_expr(right, in_loop, place, errors);
         }
         Expr::IfElse {
             condition,
@@ -417,29 +411,29 @@ fn break_walk_expr(
             else_branch,
             ..
         } => {
-            break_walk_expr(condition, in_loop, in_value, place, errors);
-            break_walk_expr(then_branch, in_loop, in_value, place, errors);
-            break_walk_expr(else_branch, in_loop, in_value, place, errors);
+            break_walk_expr(condition, in_loop, place, errors);
+            break_walk_expr(then_branch, in_loop, place, errors);
+            break_walk_expr(else_branch, in_loop, place, errors);
         }
         Expr::List { items, .. } => {
             for it in items {
-                break_walk_expr(it, in_loop, in_value, place, errors);
+                break_walk_expr(it, in_loop, place, errors);
             }
         }
         Expr::IndexAccess { object, index, .. } => {
-            break_walk_expr(object, in_loop, in_value, place, errors);
-            break_walk_expr(index, in_loop, in_value, place, errors);
+            break_walk_expr(object, in_loop, place, errors);
+            break_walk_expr(index, in_loop, place, errors);
         }
         Expr::StructLit { fields, .. } => {
             for v in fields.values() {
-                break_walk_expr(v, in_loop, in_value, place, errors);
+                break_walk_expr(v, in_loop, place, errors);
             }
         }
         Expr::Try { expr, .. } => {
-            break_walk_expr(expr, in_loop, in_value, place, errors);
+            break_walk_expr(expr, in_loop, place, errors);
         }
         Expr::ProvBind { inner, .. } => {
-            break_walk_expr(inner, in_loop, in_value, place, errors);
+            break_walk_expr(inner, in_loop, place, errors);
         }
         Expr::StringLit { .. }
         | Expr::FloatLit { .. }
@@ -487,7 +481,41 @@ pub fn break_outside_loop_violations(declarations: &[Declaration]) -> Vec<Spanne
                 let place = format!("test '{}'", t.name);
                 break_walk_stmts(&t.body, false, false, &place, &mut errors);
             }
-            _ => {}
+            // №532: no wildcard arms — the declaration kinds WITHOUT an
+            // executable statement body (templates, db/schema, entities,
+            // flows, config declarations, ...) carry nothing to walk. A
+            // NEW declaration kind must be classified here explicitly —
+            // if it gains a statement body, the walker must see it.
+            Declaration::Template(_)
+            | Declaration::Db(_)
+            | Declaration::Schema(_)
+            | Declaration::SkillIndex(_)
+            | Declaration::Memory(_)
+            | Declaration::Import(_)
+            | Declaration::EntityType(_)
+            | Declaration::EntityRecord(_)
+            | Declaration::EntitySimple(_)
+            | Declaration::Rule(_)
+            | Declaration::Memorize(_)
+            | Declaration::Forget(_)
+            | Declaration::Fluid(_)
+            | Declaration::Adapt(_)
+            | Declaration::Relate(_)
+            | Declaration::Sandbox(_)
+            | Declaration::Mutate(_)
+            | Declaration::Eval(_)
+            | Declaration::LearnablePattern(_)
+            | Declaration::Flow(_)
+            | Declaration::Conversation(_)
+            | Declaration::LlmConfig(_)
+            | Declaration::ContextBudget(_)
+            | Declaration::TypeAlias(_)
+            | Declaration::Reflex(_)
+            | Declaration::ReflexSeq(_)
+            | Declaration::ReflexGen(_)
+            | Declaration::Vision(_)
+            | Declaration::Profile(_)
+            | Declaration::Origin(_) => {}
         }
     }
     errors

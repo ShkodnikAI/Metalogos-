@@ -367,7 +367,7 @@ pub fn compile_program(source: &str) -> Result<bytecode::Program, String> {
         if !violations.is_empty() {
             let lines: Vec<String> = violations
                 .iter()
-                .map(|err| semantic::format_blocking_line(err))
+                .map(semantic::format_blocking_line)
                 .collect();
             return Err(format!(
                 "[{}] Compilation error (Naryad #673): break/continue findings block compilation:\n{}",

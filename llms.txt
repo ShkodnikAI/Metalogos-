@@ -8,7 +8,7 @@
 
 - [AGENTS.md](AGENTS.md): методология для ИИ-агентов-кодеров — где лежит истина по каждому классу вопросов (источник: код, не проза), каких ошибок избегать, что значит «наряд сделан». Читать первым, до любой задачи.
 - [CLAUDE.md](CLAUDE.md): bridge copy of AGENTS.md for Claude-compatible tools (synced manually — see issue #299).
-- [GEMINI.md](GEMINI.md): bridge copy of AGENTS.md for Gemini-compatible tools (synced manually — see issue #299).
+- GEMINI.md: removed as the byte-identical duplicate of CLAUDE.md (the №676 A5 dedup — the manual double-sync of the AGENTS.md bridge copy ended); Gemini-compatible tools read [AGENTS.md](AGENTS.md) (the content source) or [CLAUDE.md](CLAUDE.md) (the bridge copy).
 
 ## Справочники и формальные спецификации
 
@@ -30,9 +30,9 @@
 
 ## Наряды (work orders)
 
-- [FEATURE_INTAKE.md](FEATURE_INTAKE.md): tracker для запросов новых фич.
-- [AI_USAGE.md](AI_USAGE.md): disclosure — как generative AI используется в разработке проекта.
-- [MEMORY_ROADMAP.md](MEMORY_ROADMAP.md): roadmap для memory-системы.
+- [docs/FEATURE_INTAKE.md](docs/FEATURE_INTAKE.md): tracker для запросов новых фич.
+- [docs/AI_USAGE.md](docs/AI_USAGE.md): disclosure — как generative AI используется в разработке проекта.
+- [docs/MEMORY_ROADMAP.md](docs/MEMORY_ROADMAP.md): roadmap для memory-системы.
 
 ## Quickstart
 

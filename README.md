@@ -100,7 +100,7 @@ An AI-native "hello": a learnable pattern with a fallback, run in a flow — all
 | [CHANGELOG.md](CHANGELOG.md) | Every wave, every change |
 | [SECURITY.md](SECURITY.md) | How to report vulnerabilities |
 | [docs/feature-gates.md](docs/feature-gates.md) | The feature-flag surface and the heavy tier per gate |
-| [AI_USAGE.md](AI_USAGE.md) | How generative AI is used in this project's development |
+| [docs/AI_USAGE.md](docs/AI_USAGE.md) | How generative AI is used in this project's development |
 
 Repo-root map: `REFERENCE.md` (builtins), `CHANGELOG.md` (history), `SECURITY.md` (disclosure), `docs/` (book, adr, limitations, threat-model, privacy).
 

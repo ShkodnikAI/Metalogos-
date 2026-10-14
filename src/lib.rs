@@ -519,8 +519,8 @@ flow Main { input: String = "go" -> p -> output }
 
     #[test]
     fn compile_program_refuses_break_outside_loop_with_the_stable_code() {
-        let err = compile_program(OUTSIDE_LOOP)
-            .expect_err("the VM compile gate must refuse №658-b");
+        let err =
+            compile_program(OUTSIDE_LOOP).expect_err("the VM compile gate must refuse №658-b");
         assert!(
             err.starts_with("[BREAK_OUTSIDE_LOOP]"),
             "the stable code must be stamped first, got: {}",
@@ -530,8 +530,8 @@ flow Main { input: String = "go" -> p -> output }
 
     #[test]
     fn compile_program_refuses_value_channel_break_with_the_stable_code() {
-        let err = compile_program(VALUE_ARM_BREAK)
-            .expect_err("the VM compile gate must refuse №658-a");
+        let err =
+            compile_program(VALUE_ARM_BREAK).expect_err("the VM compile gate must refuse №658-a");
         assert!(
             err.starts_with("[BREAK_OUTSIDE_LOOP]"),
             "the stable code must be stamped first, got: {}",
@@ -541,9 +541,8 @@ flow Main { input: String = "go" -> p -> output }
 
     #[test]
     fn compile_program_keeps_the_legal_nested_break_surface() {
-        compile_program(LEGAL_NESTED_BREAK).expect(
-            "the №658 legal surface (break nested through if inside a loop) must compile",
-        );
+        compile_program(LEGAL_NESTED_BREAK)
+            .expect("the №658 legal surface (break nested through if inside a loop) must compile");
     }
 
     #[test]

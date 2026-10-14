@@ -281,11 +281,19 @@ fn break_walk_stmts(
                 break_walk_expr(iterable, in_loop, in_value, place, errors);
                 break_walk_stmts(body, true, false, place, errors);
             }
-            Statement::While { condition, body, .. } => {
+            Statement::While {
+                condition, body, ..
+            } => {
                 break_walk_expr(condition, in_loop, in_value, place, errors);
                 break_walk_stmts(body, true, false, place, errors);
             }
-            Statement::IfElseBlock { condition, then_body, else_ifs, else_body, .. } => {
+            Statement::IfElseBlock {
+                condition,
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
                 break_walk_expr(condition, in_loop, in_value, place, errors);
                 break_walk_stmts(then_body, in_loop, in_value, place, errors);
                 for (cond, body) in else_ifs {
@@ -296,11 +304,18 @@ fn break_walk_stmts(
                     break_walk_stmts(eb, in_loop, in_value, place, errors);
                 }
             }
-            Statement::IfThen { condition, body, .. } => {
+            Statement::IfThen {
+                condition, body, ..
+            } => {
                 break_walk_expr(condition, in_loop, in_value, place, errors);
                 break_walk_stmts(body, in_loop, in_value, place, errors);
             }
-            Statement::Match { scrutinee, arms, else_body, .. } => {
+            Statement::Match {
+                scrutinee,
+                arms,
+                else_body,
+                ..
+            } => {
                 break_walk_expr(scrutinee, in_loop, in_value, place, errors);
                 for arm in arms {
                     break_walk_stmts(arm.body(), in_loop, in_value, place, errors);
@@ -348,7 +363,13 @@ fn break_walk_expr(
     errors: &mut Vec<SpannedError>,
 ) {
     match expr {
-        Expr::BlockIfElse { condition, then_body, else_ifs, else_body, .. } => {
+        Expr::BlockIfElse {
+            condition,
+            then_body,
+            else_ifs,
+            else_body,
+            ..
+        } => {
             break_walk_expr(condition, in_loop, in_value, place, errors);
             break_walk_stmts(then_body, in_loop, true, place, errors);
             for (cond, body) in else_ifs {
@@ -359,7 +380,12 @@ fn break_walk_expr(
                 break_walk_stmts(eb, in_loop, true, place, errors);
             }
         }
-        Expr::MatchExpr { scrutinee, arms, else_body, .. } => {
+        Expr::MatchExpr {
+            scrutinee,
+            arms,
+            else_body,
+            ..
+        } => {
             break_walk_expr(scrutinee, in_loop, in_value, place, errors);
             for arm in arms {
                 break_walk_stmts(arm.body(), in_loop, true, place, errors);
@@ -385,7 +411,12 @@ fn break_walk_expr(
             break_walk_expr(left, in_loop, in_value, place, errors);
             break_walk_expr(right, in_loop, in_value, place, errors);
         }
-        Expr::IfElse { condition, then_branch, else_branch, .. } => {
+        Expr::IfElse {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
             break_walk_expr(condition, in_loop, in_value, place, errors);
             break_walk_expr(then_branch, in_loop, in_value, place, errors);
             break_walk_expr(else_branch, in_loop, in_value, place, errors);
@@ -410,8 +441,11 @@ fn break_walk_expr(
         Expr::ProvBind { inner, .. } => {
             break_walk_expr(inner, in_loop, in_value, place, errors);
         }
-        Expr::StringLit { .. } | Expr::FloatLit { .. } | Expr::BoolLit { .. }
-        | Expr::Ident { .. } | Expr::HandleSource { .. } => {}
+        Expr::StringLit { .. }
+        | Expr::FloatLit { .. }
+        | Expr::BoolLit { .. }
+        | Expr::Ident { .. }
+        | Expr::HandleSource { .. } => {}
     }
 }
 

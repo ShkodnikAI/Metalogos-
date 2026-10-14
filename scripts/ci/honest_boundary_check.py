@@ -495,6 +495,124 @@ def check_changelog_security(
     return code, reports, len(entries), under
 
 
+# ── №674 (gh#1201, В41): the «Honest limits» spec-section mirror check ──
+#
+# The R-2 (process) audit finding: the spec's Honest limits records
+# (docs/spec/*.md) were invisible to the gates — №659-x/№659-y lived in
+# docs/spec/blocks.md ONLY, limitations.md had no mirror (grep 658|659
+# empty), so the №588 protocol and the №653 class-4 dictionary were blind
+# to the section (the X-1 class: honest knowledge outside the machine's
+# control).
+#
+# The rule: EVERY ACTIVE record of a «Honest limits» section in
+# docs/spec/*.md MUST have its mirror row in docs/limitations.md (the
+# row references the record's ID, e.g. 659-x). A REPAIRED record needs
+# NO mirror (the repair closed the edge — the №652-a sample form). Any
+# unmirrored active record = exit 1 with the exact list of what to
+# mirror. The scan is repo-state based (not diff based), so it runs in
+# the SAME blocking №604 job on PRs and on push/main — no new cell
+# (№535); the --diff marker/dictionary modes stay unchanged.
+
+HONEST_LIMITS_HEADING_RE = re.compile(r"^##\s+Honest\s+limits\b", re.IGNORECASE)
+ANY_H2_HEADING_RE = re.compile(r"^##\s+")
+SPEC_RECORD_BULLET_RE = re.compile(r"^\s*-\s+\*\*№(\d+(?:-[a-z](?:-[a-z])?)?)\s*[—-]")
+REPAIRED_MARKER_RE = re.compile(r"REPAIRED\s+by", re.IGNORECASE)
+
+
+def collect_spec_honest_records(spec_dir: str) -> list[tuple[str, str, bool]]:
+    """(relative file, record id, is_active) for every record of every
+    «Honest limits» section in docs/spec/*.md. A record is ONE bullet
+    (`- **№658-a — …**` plus its continuation lines); a NESTED bullet
+    starts a NEW record of its own (the №652-a parent / №658-a child
+    shape). `is_active` = the record text carries NO «REPAIRED by»
+    marker — repaired edges need no mirror, active ones MUST have one."""
+    records: list[tuple[str, str, bool]] = []
+    for name in sorted(os.listdir(spec_dir)):
+        if not name.endswith(".md"):
+            continue
+        path = os.path.join(spec_dir, name)
+        in_section = False
+        current_id: str | None = None
+        current_active = False
+        current_lines: list[str] = []
+
+        def flush():
+            nonlocal current_id, current_active, current_lines
+            if current_id is not None:
+                records.append((name, current_id, current_active))
+            current_id = None
+            current_active = False
+            current_lines = []
+
+        for raw in open(path, encoding="utf-8"):
+            line = raw.rstrip("\n")
+            if HONEST_LIMITS_HEADING_RE.match(line):
+                flush()
+                in_section = True
+                continue
+            if in_section and ANY_H2_HEADING_RE.match(line):
+                flush()
+                in_section = False
+                continue
+            if not in_section:
+                continue
+            bullet = SPEC_RECORD_BULLET_RE.match(line)
+            if bullet:
+                flush()
+                current_id = bullet.group(1)
+                current_active = not REPAIRED_MARKER_RE.search(line)
+            elif current_id is not None and line.strip():
+                # a continuation line of the current record; a REPAIRED
+                # marker may land on any line of the record
+                if REPAIRED_MARKER_RE.search(line):
+                    current_active = False
+        flush()
+    return records
+
+
+def spec_mirror_violations(spec_dir: str, limits_path: str) -> list[str]:
+    """The human-readable violations: every ACTIVE spec record whose id
+    is NOT referenced anywhere in docs/limitations.md. REPAIRED records
+    are exempt (the №674 rule)."""
+    limits_text = open(limits_path, encoding="utf-8").read()
+    records = collect_spec_honest_records(spec_dir)
+    violations: list[str] = []
+    for rel, record_id, active in records:
+        if not active:
+            continue
+        if record_id in limits_text:
+            continue
+        violations.append(
+            f"docs/spec/{rel}: the ACTIVE Honest-limits record №{record_id} "
+            "has NO mirror row in docs/limitations.md (naryad №674) — add the "
+            "№588-form row (class, STATUS, guard scenario, affected backends) "
+            "in the same PR"
+        )
+    return violations
+
+
+def run_spec_mirror_check() -> int:
+    """The wired check: prints the inventory, returns the exit code."""
+    root = os.path.dirname(os.path.dirname(HERE))  # scripts/ci → scripts → repo root
+    spec_dir = os.path.join(root, "docs", "spec")
+    limits_path = os.path.join(root, "docs", "limitations.md")
+    records = collect_spec_honest_records(spec_dir)
+    active = sum(1 for _, _i, a in records if a)
+    repaired = sum(1 for _, _i, a in records if not a)
+    print(
+        f"spec honest-limits scan: {len(records)} records "
+        f"({active} active, {repaired} REPAIRED-exempt)"
+    )
+    violations = spec_mirror_violations(spec_dir, limits_path)
+    if violations:
+        for v in violations:
+            print(f"::error::{v}")
+        print("spec honest-limits scan: VIOLATIONS — exit 1 (naryad №674)")
+        return 1
+    print("spec honest-limits scan: IN SYNC (every active record is mirrored)")
+    return 0
+
+
 def retrospective(token: str | None, label_lookup=None) -> int:
     """The №604 DoD run: the WHOLE docs/limitations.md through the gate."""
     root = os.path.dirname(os.path.dirname(HERE))  # scripts/ci → scripts → repo root
@@ -822,6 +940,51 @@ def self_test() -> int:
         lambda n: set(),
     )
 
+    # ── №674: the spec «Honest limits» mirror cases (HERMETIC — a
+    #    tempdir spec dir + a synthetic limitations.md; the live-repo
+    #    scan runs in main(), never here) ──
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        spec_dir = os.path.join(td, "spec")
+        os.makedirs(spec_dir)
+        with open(os.path.join(spec_dir, "blocks.md"), "w", encoding="utf-8") as f:
+            f.write(
+                "## A topic\n\n"
+                "## Honest limits\n\n"
+                "- **№652-a — a parent edge. REPAIRED by №658 (gh#1159):** done\n"
+                "  - **№658-a — a child edge. REPAIRED by №673 (gh#1200):** done\n"
+                "  - **№659-x — an active edge.** the TW refuses, the VM writes\n"
+                "    the outer slot — the probe records assigned|assigned\n"
+                "- **№659-y — another active edge.** different refusal codes\n"
+                "\n"
+                "## Next section\n"
+            )
+        recs = collect_spec_honest_records(spec_dir)
+        want = [("blocks.md", "652-a", False), ("blocks.md", "658-a", False),
+                ("blocks.md", "659-x", True), ("blocks.md", "659-y", True)]
+        st = "ok" if recs == want else "FAIL"
+        if st == "FAIL":
+            failed += 1
+        print(f"  self-test [{st}] records={recs}: the №674 collector (parent/nested/active/repaired)")
+
+        limits_path = os.path.join(td, "limitations.md")
+        with open(limits_path, "w", encoding="utf-8") as f:
+            f.write("| rows |\n| №659-x (gh#1160) — mirrored here |\n")
+        vs = spec_mirror_violations(spec_dir, limits_path)
+        st = "ok" if len(vs) == 1 and "659-y" in vs[0] else "FAIL"
+        if st == "FAIL":
+            failed += 1
+        print(f"  self-test [{st}] violations={vs}: the №674 mirror gap (659-y unmirrored → 1 violation; 659-x mirrored; REPAIRED exempt)")
+
+        with open(limits_path, "w", encoding="utf-8") as f:
+            f.write("| rows |\n| №659-x mirrored |\n| №659-y mirrored |\n")
+        vs = spec_mirror_violations(spec_dir, limits_path)
+        st = "ok" if vs == [] else "FAIL"
+        if st == "FAIL":
+            failed += 1
+        print(f"  self-test [{st}] violations={vs}: the №674 in-sync case")
+
     print(f"self-test: {'ALL PASS' if failed == 0 else f'{failed} FAILED'}")
     return 1 if failed else 0
 
@@ -848,7 +1011,11 @@ def main() -> int:
     if args.self_test:
         return self_test()
     if args.retrospective:
-        return retrospective(os.environ.get("GH_TOKEN"))
+        rc = retrospective(os.environ.get("GH_TOKEN"))
+        if rc != 0:
+            return rc
+        # №674: the spec Honest-limits mirror check rides the SAME run
+        return run_spec_mirror_check()
     if not args.diff:
         parser.error("--diff is required (or --self-test/--retrospective)")
     import pathlib
@@ -895,7 +1062,13 @@ def main() -> int:
         for line in cl_reports:
             print(f"::error::{line}" if not line.startswith("  ") else line)
         return cl_code
-    return code
+
+    # №674: the spec «Honest limits» mirror check — the SAME blocking
+    # job (no new cell, №535), repo-state based: every ACTIVE record of
+    # every docs/spec/*.md Honest-limits section MUST have its
+    # limitations.md mirror; REPAIRED records are exempt. The --diff
+    # marker/dictionary modes above stay unchanged.
+    return run_spec_mirror_check()
 
 
 if __name__ == "__main__":

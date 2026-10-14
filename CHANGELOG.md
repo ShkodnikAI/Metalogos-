@@ -4,7 +4,76 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Security
+
+
+- **№673 (gh#1200, В41 — BREAK_OUTSIDE_LOOP, the R-2 audit's two
+  «молча неверные» break/continue edges):** a `break`/`continue` (а)
+  OUTSIDE any loop (№658-b) or (б) crossing the VALUE channel — an arm
+  body of a match/if-as-value (№658-a) — now refuses as a SEMANTIC error
+  BEFORE execution on BOTH backends, with the stable
+  `BREAK_OUTSIDE_LOOP` code stamped first (the №523 shape; the code
+  joins the №385/ADR-0169 classification, no existing code renamed).
+  Before the fix both edges were the class-4 dictionary entries (№653)
+  the honest-limits records pinned: the TW refused at RUNTIME
+  («break/continue used outside of a loop»), while the VM either
+  compiled the bare statement to NOTHING and continued (the audit's
+  import_batch shape — `break` on the error path instead of `return`,
+  and the code after it RAN: the recorded pre-fix VM answer was
+  `Ok("published")`) or silently ABSORBED the signal inside a
+  value-channel arm and ran the loop to its condition (the recorded
+  pre-fix VM answer was `Ok("matched;matched;matched;")` where the TW
+  refused). The repair is the audit's recommendation — a semantic gate,
+  not a runtime mechanism: ONE shared walker
+  (`semantic::break_outside_loop_violations`) walks every executable
+  body (pattern, tool method, server route, hook, on_deny handler,
+  test) with the loop/value-channel context model — loop bodies open
+  the loop context, statement-position branches preserve it (the
+  №658 contract the norms S-BLK-011/012 pin stays UNCHANGED — a break
+  nested through if/match inside a loop keeps working), value-channel
+  arm bodies forbid the signal outright, a loop inside an arm re-opens
+  the legal context for its own body. Wired into BOTH production gates:
+  `check_program` (the TW run/serve path) and — for the first time for
+  a semantic finding class — `compile_program` (the VM compile→run .mbc
+  path, which had no semantic gate; only THIS class is wired there, not
+  the whole check_program — the widening is a separate conversation).
+  The runtime mirrors stay untouched as backstops. Two conformance
+  pairs landed (the sblk_011/012 form): `sblk_015_break_value_arm`
+  (№658-a) and `sblk_016_break_outside_loop` (№658-b), both
+  `STATUS: error, CODE: BREAK_OUTSIDE_LOOP` — RED before the fix on
+  the VM (the silent answers above), green after. Honest limits:
+  the blocks.md №658-a/№658-b records moved to the REPAIRED form
+  (the №652-a sample; the edge history kept). Affected: programs that
+  RELIED on the silent absorption (the №653 class-4 guard scenario) —
+  they now refuse loudly at startup and must use `return`.
+  Size: M; risks: low-medium (any pre-existing program carrying the
+  illegal shapes now blocks at startup — that is the repair's purpose;
+  the legal break/continue surface is contract-pinned unchanged).
+
+
 ### Added
+
+- **№674 (gh#1201, В41, process/ci — the honest-boundary machine sees
+  the spec):** `honest_boundary_check.py` now scans the «Honest limits»
+  sections of `docs/spec/*.md` — every ACTIVE record (the №-id bullets)
+  MUST have its mirror row in `docs/limitations.md`; REPAIRED records
+  are exempt (the repair closed the edge — the №652-a sample). The scan
+  is repo-state based and runs in the SAME blocking №604 job on PRs AND
+  on push/main (the job's push/main branch runs the full retrospective
+  now instead of exiting early — no new CI cell, №535); the `--diff`
+  marker/dictionary modes stay unchanged. The gap it closes: the №659-x
+  /№659-y records lived in `docs/spec/blocks.md` ONLY — limitations.md
+  had no mirror (the X-1 class: honest knowledge outside the machine's
+  control; grep 658|659 was empty). In THIS PR the mirrors landed (the
+  two OPEN rows in the TW/VM Divergences section, the №588 form), the
+  self-test gained the hermetic collector/mirror cases, and the demo
+  probe (a temporary unmirrored record → exit 1 with the exact list;
+  removed → IN SYNC) is recorded in the naryad report. The same run
+  surfaced a REAL classification gap: the №673 CHANGELOG entry (the
+  №653 class-4 repair) sat outside `### Security` — moved
+  there in THIS PR per the №643 machine (the №629 precedent; the №658
+  fix of the same break/continue line landed under `### Security` of
+  0.30.1). Spec counters (the Topics table, 33 norms) verified in sync.
 
 - **N7 (gh#1217, PE-2, serve) — the application response headers:
   `headers` on `HttpResponse` + `set_header(resp, name, value)`.**
@@ -448,49 +517,6 @@ All notable changes to the Metalogos project.
 
 ### Fixed
 
-
-- **№673 (gh#1200, В41 — BREAK_OUTSIDE_LOOP, the R-2 audit's two
-  «молча неверные» break/continue edges):** a `break`/`continue` (а)
-  OUTSIDE any loop (№658-b) or (б) crossing the VALUE channel — an arm
-  body of a match/if-as-value (№658-a) — now refuses as a SEMANTIC error
-  BEFORE execution on BOTH backends, with the stable
-  `BREAK_OUTSIDE_LOOP` code stamped first (the №523 shape; the code
-  joins the №385/ADR-0169 classification, no existing code renamed).
-  Before the fix both edges were the class-4 dictionary entries (№653)
-  the honest-limits records pinned: the TW refused at RUNTIME
-  («break/continue used outside of a loop»), while the VM either
-  compiled the bare statement to NOTHING and continued (the audit's
-  import_batch shape — `break` on the error path instead of `return`,
-  and the code after it RAN: the recorded pre-fix VM answer was
-  `Ok("published")`) or silently ABSORBED the signal inside a
-  value-channel arm and ran the loop to its condition (the recorded
-  pre-fix VM answer was `Ok("matched;matched;matched;")` where the TW
-  refused). The repair is the audit's recommendation — a semantic gate,
-  not a runtime mechanism: ONE shared walker
-  (`semantic::break_outside_loop_violations`) walks every executable
-  body (pattern, tool method, server route, hook, on_deny handler,
-  test) with the loop/value-channel context model — loop bodies open
-  the loop context, statement-position branches preserve it (the
-  №658 contract the norms S-BLK-011/012 pin stays UNCHANGED — a break
-  nested through if/match inside a loop keeps working), value-channel
-  arm bodies forbid the signal outright, a loop inside an arm re-opens
-  the legal context for its own body. Wired into BOTH production gates:
-  `check_program` (the TW run/serve path) and — for the first time for
-  a semantic finding class — `compile_program` (the VM compile→run .mbc
-  path, which had no semantic gate; only THIS class is wired there, not
-  the whole check_program — the widening is a separate conversation).
-  The runtime mirrors stay untouched as backstops. Two conformance
-  pairs landed (the sblk_011/012 form): `sblk_015_break_value_arm`
-  (№658-a) and `sblk_016_break_outside_loop` (№658-b), both
-  `STATUS: error, CODE: BREAK_OUTSIDE_LOOP` — RED before the fix on
-  the VM (the silent answers above), green after. Honest limits:
-  the blocks.md №658-a/№658-b records moved to the REPAIRED form
-  (the №652-a sample; the edge history kept). Affected: programs that
-  RELIED on the silent absorption (the №653 class-4 guard scenario) —
-  they now refuse loudly at startup and must use `return`.
-  Size: M; risks: low-medium (any pre-existing program carrying the
-  illegal shapes now blocks at startup — that is the repair's purpose;
-  the legal break/continue surface is contract-pinned unchanged).
 
 - **№684 (gh#1244, В43 nuclear — VM tool-method resolution):** a
   `tool` method call (`calc.double(21.0)`) now COMPILES and RUNS on

@@ -4,6 +4,7 @@
 metalogos-src/ # residual gitlink (non-remote commit 7a75f89), see dodelka M0-M2
 *.db
 metalogos/target/
+metalogos-server/target/
 
 # Build cache — must never be committed
 off/

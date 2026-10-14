@@ -42,3 +42,6 @@ docs/book/book/
 /app.mlog
 /unfreeze_summary.md
 __pycache__/
+
+# №676 (A1): test/sandbox frame artifacts — the audit 7c3456b §4 leak class (frames/ once landed in the tracked tree)
+frames/

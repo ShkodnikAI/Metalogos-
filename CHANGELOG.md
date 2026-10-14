@@ -449,6 +449,49 @@ All notable changes to the Metalogos project.
 ### Fixed
 
 
+- **№673 (gh#1200, В41 — BREAK_OUTSIDE_LOOP, the R-2 audit's two
+  «молча неверные» break/continue edges):** a `break`/`continue` (а)
+  OUTSIDE any loop (№658-b) or (б) crossing the VALUE channel — an arm
+  body of a match/if-as-value (№658-a) — now refuses as a SEMANTIC error
+  BEFORE execution on BOTH backends, with the stable
+  `BREAK_OUTSIDE_LOOP` code stamped first (the №523 shape; the code
+  joins the №385/ADR-0169 classification, no existing code renamed).
+  Before the fix both edges were the class-4 dictionary entries (№653)
+  the honest-limits records pinned: the TW refused at RUNTIME
+  («break/continue used outside of a loop»), while the VM either
+  compiled the bare statement to NOTHING and continued (the audit's
+  import_batch shape — `break` on the error path instead of `return`,
+  and the code after it RAN: the recorded pre-fix VM answer was
+  `Ok("published")`) or silently ABSORBED the signal inside a
+  value-channel arm and ran the loop to its condition (the recorded
+  pre-fix VM answer was `Ok("matched;matched;matched;")` where the TW
+  refused). The repair is the audit's recommendation — a semantic gate,
+  not a runtime mechanism: ONE shared walker
+  (`semantic::break_outside_loop_violations`) walks every executable
+  body (pattern, tool method, server route, hook, on_deny handler,
+  test) with the loop/value-channel context model — loop bodies open
+  the loop context, statement-position branches preserve it (the
+  №658 contract the norms S-BLK-011/012 pin stays UNCHANGED — a break
+  nested through if/match inside a loop keeps working), value-channel
+  arm bodies forbid the signal outright, a loop inside an arm re-opens
+  the legal context for its own body. Wired into BOTH production gates:
+  `check_program` (the TW run/serve path) and — for the first time for
+  a semantic finding class — `compile_program` (the VM compile→run .mbc
+  path, which had no semantic gate; only THIS class is wired there, not
+  the whole check_program — the widening is a separate conversation).
+  The runtime mirrors stay untouched as backstops. Two conformance
+  pairs landed (the sblk_011/012 form): `sblk_015_break_value_arm`
+  (№658-a) and `sblk_016_break_outside_loop` (№658-b), both
+  `STATUS: error, CODE: BREAK_OUTSIDE_LOOP` — RED before the fix on
+  the VM (the silent answers above), green after. Honest limits:
+  the blocks.md №658-a/№658-b records moved to the REPAIRED form
+  (the №652-a sample; the edge history kept). Affected: programs that
+  RELIED on the silent absorption (the №653 class-4 guard scenario) —
+  they now refuse loudly at startup and must use `return`.
+  Size: M; risks: low-medium (any pre-existing program carrying the
+  illegal shapes now blocks at startup — that is the repair's purpose;
+  the legal break/continue surface is contract-pinned unchanged).
+
 - **№684 (gh#1244, В43 nuclear — VM tool-method resolution):** a
   `tool` method call (`calc.double(21.0)`) now COMPILES and RUNS on
   the VM — before the fix the bytecode pipeline refused every

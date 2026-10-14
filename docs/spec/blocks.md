@@ -187,19 +187,35 @@ their own (below).
   guard class) and dropped the nested forms (the body ran to the
   condition cap as if the statements were absent). The norms
   S-BLK-011/012 + five conformance pairs pin the record; the TW is
-  unchanged. The №658 probe also recorded TWO remaining edges (each
-  needs its own repair line):
-  - **№658-a — a break/continue crossing the VALUE channel.** A
-    break/continue inside a match-EXPRESSION arm body (any
-    expression-position body) is REFUSED by the TW at runtime
-    («break/continue used outside of a loop» — the `eval_statements`
-    boundary cannot carry a control signal) and is silently ABSORBED by
-    the VM (the arm's value machinery stays balanced; the loop runs to
-    its condition). The loud runtime mirror needs a refusal mechanism of
-    its own — a separate repair naryad.
-  - **№658-b — a bare break/continue OUTSIDE any loop.** The TW refuses
-    at runtime with the same message; the VM compiles the statement to
-    NOTHING and continues. Same repair line as №658-a.
+  unchanged. The №658 probe also recorded TWO remaining edges (both
+REPAIRED by №673):
+  - **№658-a — a break/continue crossing the VALUE channel. REPAIRED by
+    №673 (gh#1200):** the refusal is a SEMANTIC error now — BEFORE
+    execution on BOTH backends. The shared
+    `break_outside_loop_violations` walker (semantic.rs) forbids the
+    control signal in every value-channel arm body (match/if-as-value,
+    any expression-position body) and is wired into BOTH production
+    gates — `check_program` (the TW run/serve path) and
+    `compile_program` (the VM compile→run path, which had no semantic
+    gate): the bytecode for a value-channel break cannot exist, the VM
+    has nothing left to absorb. The refusal carries the stable
+    `BREAK_OUTSIDE_LOOP` code (the №523 first stamp; the №653 class-4
+    entries refuse with the code, not the prose). The TW's runtime
+    «break/continue used outside of a loop» stays as the backstop. The
+    conformance pair `sblk_015_break_value_arm` pins the record (the
+    pre-№673 divergence, recorded in the naryad report: the TW refused
+    at runtime, the VM silently absorbed the signal and ran the loop to
+    its condition — `Ok("matched;matched;matched;")`).
+  - **№658-b — a bare break/continue OUTSIDE any loop. REPAIRED by №673
+    (gh#1200):** the same semantic gate, the same walker, the same
+    stable code — a loud refusal BEFORE execution on BOTH backends. The
+    audit's import_batch shape (`break` on the error path instead of
+    `return`, the code after it ran) now refuses at compile/run startup:
+    the pre-№673 VM answered `Ok("published")` where the TW refused at
+    runtime. The conformance pair `sblk_016_break_outside_loop` pins
+    the record. The legal break/continue surface is unchanged — the
+    norms S-BLK-011/012 and their pairs keep their contract (a break
+    nested through if/match inside a loop keeps working).
 - **№652-b — a trailing `let` in a value-channel arm diverges.
   REPAIRED by №659 (gh#1160):** the arm `{ "first" ; let s = "y" }`
   answers `Unit` on BOTH backends now — the value-channel let resets the

@@ -1,0 +1,11 @@
+// №658-b (REPAIRED by №673): a bare break OUTSIDE any loop — the audit's
+// import_batch shape: break on the error path instead of return, with the
+// publish step after it. The TW refused at runtime; the VM compiled the
+// statement to NOTHING and continued (the code after the break ran). №673
+// shifts the refusal to the semantic gate: a loud BREAK_OUTSIDE_LOOP
+// BEFORE execution on BOTH backends.
+pattern import_batch(x: String) -> String {
+  if x == "bad" { break }
+  return "published"
+}
+flow Main { input: String = "bad" -> import_batch -> output }

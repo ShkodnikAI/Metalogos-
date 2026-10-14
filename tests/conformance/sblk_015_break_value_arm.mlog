@@ -1,0 +1,23 @@
+// №658-a (REPAIRED by №673): a break inside a match-EXPRESSION arm body
+// crosses the VALUE channel — the eval_statements boundary cannot carry a
+// control signal. The TW refused at runtime; the VM silently ABSORBED the
+// break and ran the loop to its condition (the audit's exact finding).
+// №673 shifts the refusal to the semantic gate: a loud
+// BREAK_OUTSIDE_LOOP BEFORE execution on BOTH backends.
+pattern p(x: String) -> String {
+  let mut acc = ""
+  let mut i = 0.0
+  while i < 3.0 {
+    let kind = match x {
+      "go" then {
+        break
+        "matched"
+      }
+      else { "other" }
+    }
+    acc = acc + kind + ";"
+    i = i + 1.0
+  }
+  return acc
+}
+flow Main { input: String = "go" -> p -> output }

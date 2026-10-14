@@ -22,21 +22,34 @@
 
 </div>
 
----
-
 ## What is Metalogos
 
-Metalogos (mlog) is an open source programming language where AI operations — LLM calls, memory, learning, adaptation — are first-class language constructs, not library integrations. Security constraints (secret opacity, taint tracking, injection prevention) are enforced at the language level, at compile time.
+Metalogos (mlog) is an open source programming language where AI operations — LLM calls, memory, learning, adaptation — are first-class language constructs, not library integrations. Security constraints (secret opacity, taint tracking, injection prevention) are enforced at the language level, at compile time. Built for backend and tooling developers who wire LLMs into real products, researchers who want AI calls as typed constructs, and teams that need provenance for every AI-driven decision.
 
-**Who it is for.** Backend and tooling developers who wire LLMs into real products and want the security checks in the compiler, not in code review; researchers who want AI calls, memory, and self-modification as typed language constructs; teams that need provenance and an audit trail for every AI-driven decision.
+## Quick Start
 
-**Security by design, degraded-loud, provenance-first.** See the [three core ideas](#three-core-ideas) below, then take the [guided tour](docs/book/src/tutorial.md).
+**Try without building.** The [releases](https://github.com/ShkodnikAI/Metalogos-/releases) carry a prebuilt Linux x86_64 `mlog` binary with a `SHA256SUMS` manifest and build info attached:
+
+```bash
+git clone https://github.com/ShkodnikAI/Metalogos-.git && cd Metalogos-
+curl -LO https://github.com/ShkodnikAI/Metalogos-/releases/latest/download/mlog-linux-x86_64
+sha256sum mlog-linux-x86_64        # compare with SHA256SUMS attached to the release
+chmod +x mlog-linux-x86_64 && ./mlog-linux-x86_64 run examples/m1_hello.mlog
+./mlog-linux-x86_64 audit examples/m1_hello.mlog
+```
+
+**Build from source** — Rust **1.93.1+** (the verified MSRV of the locked tree, recorded next to `rust-version` in `Cargo.toml`; an older toolchain refuses with a clear resolver error):
+
+```bash
+cargo build --release
+./target/release/mlog run examples/m1_hello.mlog
+```
+
+Every subcommand: [Quick Start — the Full CLI Tour](docs/book/src/quickstart.md).
 
 ## A Taste
 
 ```text
-// An AI-native "hello": learn a pattern from examples, run it with a
-// fallback, and keep the provenance trail — all in the language itself.
 entity greeting: String = "Hello, Metalogos!"
 
 learnable Greet {
@@ -53,36 +66,13 @@ flow Main {
 }
 ```
 
-The full tour with the VM/TW parity explanation lives in the [tutorial](docs/book/src/tutorial.md).
-
-## Installation
-
-**Try without building.** The [releases](https://github.com/ShkodnikAI/Metalogos-/releases) carry a prebuilt Linux x86_64 `mlog` binary with a `SHA256SUMS` checksum manifest and build info attached — install, verify, run, and audit in five lines:
-
-```bash
-git clone https://github.com/ShkodnikAI/Metalogos-.git && cd Metalogos-
-curl -LO https://github.com/ShkodnikAI/Metalogos-/releases/latest/download/mlog-linux-x86_64
-sha256sum mlog-linux-x86_64        # compare with SHA256SUMS attached to the release
-chmod +x mlog-linux-x86_64 && ./mlog-linux-x86_64 run examples/m1_hello.mlog
-./mlog-linux-x86_64 audit examples/m1_hello.mlog
-```
-
-**Build from source** — Rust **1.93.1+**, the only requirement. The floor is the verified MSRV of the locked dependency tree (each step of the toolchain walk is an evidence-backed dependency requirement recorded next to `rust-version` in `Cargo.toml`, and `rust-toolchain.toml` tracks the stable channel with the clippy/rustfmt components the CI lints require); an older toolchain refuses with a clear resolver error:
-
-```bash
-cargo build --release
-./target/release/mlog run examples/m1_hello.mlog
-```
-
-Every subcommand: [Quick Start — the Full CLI Tour](docs/book/src/quickstart.md).
+An AI-native "hello": a learnable pattern with a fallback, run in a flow — all in the language itself. The full tour with the VM/TW parity explanation lives in the [tutorial](docs/book/src/tutorial.md).
 
 ## Three Core Ideas
 
-**1. Security contexts are strict by default.** In `mlog serve` every unmarked thread runs in the serve-route context: `env()` is denied without an allowlist, `exec()` needs the server flag, file ingest refuses sensitive paths outright — including cron ticks and MCP tools. A forgotten permission at a new launch point is a loud denial, not silent process rights. Escape hatches exist, are explicit, and are printed at startup as danger flags.
-
-**2. Labels and provenance, end to end.** Values carry classification labels (public/internal/private/secret); sources are tainted (`env`, user input, LLM output, MCP tool data); sinks check clearance at compile time and at runtime in the VM. A secret reaching `respond()` is a compile error, not a code-review finding. Provenance is recorded in the ledger, not in comments.
-
-**3. Degraded means loud.** AI subsystems degrade — backends fall down ladders, learnables fall back to patterns, forecast rungs refuse without the feature. Every degradation is a typed, audible event (`Degraded(t)`); silent quality loss is treated as a defect. The honest-boundary discipline (`docs/limitations.md`) is enforced by consistency tests in CI.
+1. **Security contexts are strict by default.** In `mlog serve` every unmarked thread runs in the serve-route context: `env()` denied without an allowlist, `exec()` behind the server flag, sensitive file paths refused outright — a forgotten permission is a loud denial, never silent process rights.
+2. **Labels and provenance, end to end.** Values carry classification labels; sources are tainted (`env`, user input, LLM output, MCP tool data); sinks check clearance at compile time and in the VM. A secret reaching `respond()` is a compile error, not a code-review finding.
+3. **Degraded means loud.** AI subsystems degrade — backends fall down ladders, learnables fall back to patterns — and every degradation is a typed, audible event (`Degraded(t)`). Silent quality loss is treated as a defect.
 
 ## What's Inside
 
@@ -95,9 +85,7 @@ Every subcommand: [Quick Start — the Full CLI Tour](docs/book/src/quickstart.m
 | Self-modification | `adapt` mutates its own patterns under a sandbox, with rollback driven by measured accuracy |
 | One-binary toolchain | run / serve / mcp-serve / compile / repl / check / audit / eval in a single binary |
 
-**Honest status.** The language core — parser, both backends, audit, serve — is the worked, tested surface. The media pillars are not at the same readiness: Vision has never been validated against real model weights (a hardware-bound No-Go; the exercised paths are mock-first), and Voice is a scaffold — its consent/provenance surfaces are real, the generative tier is not. The project has no independent security audit. The maintained, per-feature truth lives in [docs/limitations.md](docs/limitations.md) and [docs/REALITY.md](docs/REALITY.md).
-
-The [deep dive behind this table](docs/newcomer-contract.md) holds the security walkthroughs, the exact static-analysis boundaries, and the check tables.
+**Honest status.** The language core — parser, both backends, audit, serve — is the worked, tested surface; Vision has never been validated against real model weights (a hardware-bound No-Go) and Voice's generative tier is a scaffold; there is no independent security audit. The maintained, per-feature truth lives in [docs/limitations.md](docs/limitations.md) and [docs/REALITY.md](docs/REALITY.md); the deep dive behind the table is [docs/newcomer-contract.md](docs/newcomer-contract.md).
 
 ## Documentation
 
@@ -107,20 +95,14 @@ The [deep dive behind this table](docs/newcomer-contract.md) holds the security 
 | [docs/newcomer-contract.md](docs/newcomer-contract.md) | The deep dive behind "What's Inside" — walkthroughs, check tables, boundaries |
 | [REFERENCE.md](REFERENCE.md) | Full builtin reference — 100% of the registry |
 | [docs/limitations.md](docs/limitations.md) | The honest boundaries — enforced, not aspirational |
-| [docs/privacy.md](docs/privacy.md) | The engineering privacy policy — what is stored, where, how it is deleted (verdict-marked) |
 | [docs/threat-model.md](docs/threat-model.md) | The security model: checks, gates, audit classes |
+| [docs/privacy.md](docs/privacy.md) | The engineering privacy policy — what is stored, where, how it is deleted |
 | [CHANGELOG.md](CHANGELOG.md) | Every wave, every change |
 | [SECURITY.md](SECURITY.md) | How to report vulnerabilities |
+| [docs/feature-gates.md](docs/feature-gates.md) | The feature-flag surface and the heavy tier per gate |
 | [AI_USAGE.md](AI_USAGE.md) | How generative AI is used in this project's development |
 
-Key files at the repo root:
-
-```text
-├── REFERENCE.md                      # Full builtin reference — 100% of the registry
-├── CHANGELOG.md                      # Version history (see metrics above)
-├── SECURITY.md                       # Vulnerability disclosure policy
-└── docs/                             # book/, adr/, limitations, threat-model, privacy
-```
+Repo-root map: `REFERENCE.md` (builtins), `CHANGELOG.md` (history), `SECURITY.md` (disclosure), `docs/` (book, adr, limitations, threat-model, privacy).
 
 ## Metrics (generated)
 
@@ -142,20 +124,7 @@ Validated on every CI run: `scripts/gen_metrics.py --check` plus the independent
 
 ## Feature Gates
 
-| Feature | Default | What it gates | The heavy tier |
-| --- | --- | --- | --- |
-| *(none — core)* | ✓ | the language: parser, compiler, the TW/VM backends, audit, semantic | — |
-| `svg` / `chart` / `diagram` / `template` | on | the document/graphics family (pure Rust) | — |
-| `llm` | on | the LLM client surface (HTTP, no local inference) | — |
-| `server` | off | the HTTP/SSE serve stack (axum/tokio) | — |
-| `candle` | off | the tensor backend for the generative stacks | candle-core/nn |
-| `vision` | off | the image pillar: dit/vae/sampler/encoders (implies `candle`) | tokenizers, image |
-| `voice` | off | the voice pillar: TTS/clone/design (implies `candle`) | — |
-| `video` | off | the video pillar: T2V/I2V/interp/mux (implies `candle`) | — |
-| `vec` | off | the vector contour (sqlite-vec) | — |
-| `timesfm` | off | the off-process timesfm-2.5 rung of the `timeseries` ladder | off-process |
-
-The media-path invariant: **core never imports the media processing** — the interpreter/compiler/VM/audit touch only the handle/registry tier (`MediaStore`, `MediaHandle`, `MediaKind`, `VisionRegistry`, `VisionId`, `VideoId`, `VoiceId`, `AudioId`...), enforced by the `core-media-gate` CI job (`scripts/ci/core_media_gate.py`). The core builds without media: `cargo build --no-default-features` is a blocking CI job.
+The full gate table (defaults, what each gate opens, the heavy tier) and the core-media invariant live in [docs/feature-gates.md](docs/feature-gates.md). Headline: the core language builds with `cargo build --no-default-features` — a blocking CI job (`core-media-gate`).
 
 ## The Newcomer Contract (2-minute read)
 
@@ -185,16 +154,6 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 
 `mlog run`, `mlog serve`, `mlog mcp-serve`, `mlog compile`, `mlog repl`, `mlog check`, `mlog audit`, `mlog eval` — all in a single binary. The LSP server (`mlog-lsp`) and package manager (`mlogpkg`) are separate binaries in the same workspace. A VS Code extension with syntax highlighting is included in the repository.
 
-## Quick Start
-
-```bash
-mlog repl                              # interactive session
-mlog serve app.mlog                    # routes + cron + MCP from one file
-mlogpkg build                          # package a .mlog project
-```
-
-The complete subcommand tour (VM backend selection, MCP transports, eval harness, LSP): [docs/book/src/quickstart.md](docs/book/src/quickstart.md).
-
 ## Project Links
 
 - **Roadmap and status** — [docs/PLAN-SUMMARY.md](docs/PLAN-SUMMARY.md) and [docs/REALITY.md](docs/REALITY.md), plus the ADR index ([docs/adr/](docs/adr/))
@@ -203,34 +162,12 @@ The complete subcommand tour (VM backend selection, MCP transports, eval harness
 
 ## Support the Project
 
-Metalogos is developed by a solo developer. Your support helps keep the project alive and growing.
+Metalogos is developed by a solo developer — your support keeps the project alive and growing. Transparent funding on Open Collective: see exactly where every dollar goes — [opencollective.com/metalogos](https://opencollective.com/metalogos).
 
-### Open Collective (Primary)
-
-Transparent funding for the project. See exactly where every dollar goes.
-
-[![Open Collective](https://img.shields.io/opencollective/all/metalogos?label=Backers&logo=open-collective&color=7fadf2)](https://opencollective.com/metalogos)
-
-[opencollective.com/metalogos](https://opencollective.com/metalogos)
-
-### Cryptocurrency (USDT TRC-20)
-
-Direct support from anywhere in the world, regardless of banking restrictions:
-
-| Scan to donate | Wallet Address |
-|----------------|----------------|
-| <img src="assets/qr_wallet.jpg" width="150"> | `USDT (TRC-20): TU6adaaFxJdmvXRT8fhu9w3NQJeNueUyJk` |
-
-**Network:** TRC-20 (Tron)
-
----
-
----
+Direct cryptocurrency support (from anywhere, regardless of banking restrictions): **USDT (TRC-20, Tron)** — `TU6adaaFxJdmvXRT8fhu9w3NQJeNueUyJk`, QR: <img src="assets/qr_wallet.jpg" width="120">.
 
 ## License
 
 Licensed under either [MIT](LICENSE-MIT) or [Apache 2.0](LICENSE-APACHE) at your option.
-
----
 
 *Built with Rust. Designed by AI. For AI.*

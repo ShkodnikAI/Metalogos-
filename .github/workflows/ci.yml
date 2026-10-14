@@ -569,8 +569,9 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           if [ -z "${{ github.event.pull_request.title }}" ]; then
-            echo "Not a pull_request event — the check runs on PRs only."
-            exit 0
+            echo "Push/main event — the FULL retrospective scan (№604 DoD + the №674 spec Honest-limits mirror check; the same blocking job, no new cell — №535)."
+            python3 scripts/ci/honest_boundary_check.py --retrospective
+            exit $?
           fi
           git diff origin/main...HEAD > /tmp/pr.diff
           python3 scripts/ci/honest_boundary_check.py --diff /tmp/pr.diff --pr-number "$PR_NUMBER"

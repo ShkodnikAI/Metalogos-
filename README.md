@@ -117,7 +117,7 @@ Repo-root map: `REFERENCE.md` (builtins), `CHANGELOG.md` (history), `SECURITY.md
 | Architecture Decisions | 184 ADRs |
 | Example Programs | 253 .mlog programs |
 | Reference | REFERENCE.md (~313 KB) — 100% registry coverage |
-| Changelog | CHANGELOG.md (~726 KB) — every wave documented |
+| Changelog | CHANGELOG.md (~57 KB) — every wave documented |
 <!-- END GENERATED METRICS -->
 
 Validated on every CI run: `scripts/gen_metrics.py --check` plus the independent recomputation in `tests/readme_consistency.rs`.

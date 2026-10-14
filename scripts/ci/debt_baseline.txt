@@ -98,7 +98,7 @@
 # follows the MACHINE fact, never the naryad's stale number.)
 
 dup_baseline: scripts/ci/tw_vm_dup_names_baseline.txt
-ignore: 11
+ignore: 9
 ignore_todo: 0
 dead_code: 15
 example_uncovered: 0
@@ -126,3 +126,9 @@ read_file_soft_missing: 0
 # the candle-gated exclusion list (the crosscheck mirror), the
 # browser-gated p88 (Chromium), the reflex_persist artifact dir. The
 # ledger gh#967 §6 gets its RESOLVED label with №636.
+# №675 (gh#1202, wave 41): the ignore floor 11 -> 9 — the fact reached 9
+# through №634/№635 and later lifts that did not lower the floor in their
+# PRs (the audit 7c3456b R-3, Low): the one-way ratchet allowed a silent
+# 9 -> 11 rollback. THE №675 RULE lands in the same PR: the --gate now
+# FAILS when the ignore fact is BELOW its floor (the floor follows the
+# fact down, the №569 procedure — the message names the old/new floor).

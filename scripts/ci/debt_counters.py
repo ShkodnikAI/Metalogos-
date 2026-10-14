@@ -191,6 +191,7 @@ def main():
         thresholds, dup_baseline = parse_baseline(argv[1])
 
         failures = []
+        below_floor = []
         for key in ('ignore', 'ignore_todo', 'dead_code', 'example_uncovered', 'read_file_soft_missing'):
             # example_uncovered is a №513 counter: a baseline without the key
             # (pre-№513 baselines) cannot gate it — treat as absent.
@@ -200,6 +201,15 @@ def main():
             threshold = thresholds[key]
             if counts[key] > threshold:
                 failures.append((key, counts[key], threshold))
+            elif key == 'ignore' and counts[key] < threshold:
+                # №675 (gh#1202, wave 41; the audit 7c3456b R-3): the debt
+                # ratchet is ONE-WAY DOWN (№468) — a fact BELOW its floor
+                # means earlier lifts did not lower the floor in their PRs
+                # (the №634/№635 class), and a stale-high floor allows a
+                # silent rollback. Fail-closed: the floor follows the fact
+                # down IN THE SAME PR (the №569 procedure), the message
+                # names the old and the new floor.
+                below_floor.append((key, counts[key], threshold))
             else:
                 print(f'{key}: {counts[key]} (threshold {threshold}) OK')
 
@@ -223,6 +233,17 @@ def main():
                 print(f'  {key}: fact {value} > threshold {threshold}')
                 for site in {'ignore': ignores, 'ignore_todo': ignores_todo, 'dead_code': dead_codes, 'example_uncovered': uncovered_examples, 'read_file_soft_missing': read_file_missing}.get(key, []):
                     print(f'    {site}')
+            return 1
+
+        if below_floor:
+            # №675: the floor is stale-HIGH — the ratchet is one-way down,
+            # so the floor must follow the fact down in the same PR.
+            print('DEBT GATE FAILED — the fact is BELOW its floor (the audit 7c3456b R-3; №675):')
+            print('the №468 ratchet moves the floors ONLY DOWN; a stale-high floor')
+            print('allows a silent rollback of the earned lifts. Lower the floor')
+            print('to the fact IN THE SAME PR (the №569 procedure):')
+            for key, value, threshold in below_floor:
+                print(f'  {key}: fact {value} < floor {threshold} — lower the floor {threshold} -> {value} in this PR')
             return 1
         print('DEBT GATE OK — every counter at or below its threshold.')
         return 0

@@ -92,8 +92,8 @@ async fn n402_route_identity_and_per_request_isolation() {
     // The single env consumer in this file — no serial contention.
     std::env::set_var("METALOGOS_DATA_DIR", "target/n402-data");
     let source = SOURCE_N402;
-    let tw_port = start(&source, ServeBackend::Interpreter).await;
-    let vm_port = start(&source, ServeBackend::Vm).await;
+    let tw_port = start(source, ServeBackend::Interpreter).await;
+    let vm_port = start(source, ServeBackend::Vm).await;
 
     // 1) TW/VM parity: the same request, the same observable result — the
     //    Arc-shared program state changes nothing the route can see.
@@ -126,9 +126,12 @@ async fn n402_route_identity_and_per_request_isolation() {
     //    (this test process's records, TW + VM runs included) verifies
     //    externally — the genesis-seq contract holds on the shared-program
     //    runtime too.
-    let report =
-        metalogos::ledger::verify_file(std::path::Path::new("target/n402-data/n402_ledger.jsonl"), None, None)
-            .expect("the exported chain verifies externally");
+    let report = metalogos::ledger::verify_file(
+        std::path::Path::new("target/n402-data/n402_ledger.jsonl"),
+        None,
+        None,
+    )
+    .expect("the exported chain verifies externally");
     assert!(report.records >= 2, "the chain carries the story's events");
     let content =
         std::fs::read_to_string("target/n402-data/n402_ledger.jsonl").expect("export readable");

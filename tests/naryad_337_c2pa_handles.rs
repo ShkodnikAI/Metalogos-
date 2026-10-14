@@ -49,7 +49,9 @@ fn fresh_dir(name: &str) -> PathBuf {
 }
 
 const CAPTURE_PROG: &str = r#"
-origin src_dir { kind: file, media: image, label: public, path: "frames/frame-001.jpg" }
+// №676 (A1): the leaked frames/ fixture left the tracked tree — the capture
+// reads the sanctioned repo asset (logo.jpg, a real image) instead.
+origin src_dir { kind: file, media: image, label: public, path: "logo.jpg" }
 pattern Cap(_t: String) -> String {
   let frame = source src_dir
   let p = media_save(frame, "target/n337-tw/captured.png")
@@ -62,7 +64,10 @@ const GENERATE_PROG: &str = r#"
 origin demo_gen { kind: generation, media: image, label: public }
 pattern Gen(_t: String) -> String {
   let img = from demo_gen media_store_image("gen-bytes-337", "public")
-  let p = media_save(img, "target/n337-tw/generated.png")
+  // №676 (A2): the GENERATE leg owns its OWN target dir — it ran in
+  // parallel with the CAPTURE leg on the shared n337-tw dir and the two
+  // fresh_dir calls raced (the №332 lesson, the same posture).
+  let p = media_save(img, "target/n337-gen/generated.png")
   return p
 }
 flow Main { input: String = "t" -> Gen -> output }
@@ -105,29 +110,29 @@ fn media_save_writes_sidecar_captured_reads_synthetic_false() {
 
 #[test]
 fn generation_bind_forces_synthetic_true_on_the_egress_sidecar() {
-    fresh_dir("target/n337-tw");
+    fresh_dir("target/n337-gen");
     let out = run_tw(GENERATE_PROG).expect("generation runs");
     assert_eq!(
         out.as_deref().unwrap_or_default().trim_end(),
-        "target/n337-tw/generated.png"
+        "target/n337-gen/generated.png"
     );
     let sidecar =
-        std::fs::read_to_string(repo_root().join("target/n337-tw/generated.png.manifest.json"))
+        std::fs::read_to_string(repo_root().join("target/n337-gen/generated.png.manifest.json"))
             .expect("sidecar exists");
     let m: serde_json::Value = serde_json::from_str(&sidecar).expect("valid JSON");
     assert_eq!(m["synthetic"], true, "generation lift is marked (Art. 50)");
     assert_eq!(m["origin"], "demo_gen");
     // VM parity — the same sidecar on the compiled path (separate dir:
     // the two backends run in parallel threads and must not race).
-    let prog = GENERATE_PROG.replace("n337-tw", "n337-vm");
-    fresh_dir("target/n337-vm");
+    let prog = GENERATE_PROG.replace("n337-gen", "n337-gen-vm");
+    fresh_dir("target/n337-gen-vm");
     let out_vm = run_vm(&prog).expect("vm runs");
     assert_eq!(
         out_vm.as_deref().unwrap_or_default().trim_end(),
-        "target/n337-vm/generated.png"
+        "target/n337-gen-vm/generated.png"
     );
     let sidecar_vm =
-        std::fs::read_to_string(repo_root().join("target/n337-vm/generated.png.manifest.json"))
+        std::fs::read_to_string(repo_root().join("target/n337-gen-vm/generated.png.manifest.json"))
             .expect("vm sidecar exists");
     let mv: serde_json::Value = serde_json::from_str(&sidecar_vm).expect("valid JSON");
     assert_eq!(mv["synthetic"], true, "vm generation lift is marked too");
@@ -140,7 +145,9 @@ fn media_manifest_reads_provenance_without_materializing_bytes() {
     // the generation bind marks, the capture does not.
     let src = r#"
 origin demo_gen { kind: generation, media: image, label: public }
-origin src_dir { kind: file, media: image, label: public, path: "frames/frame-001.jpg" }
+// №676 (A1): the leaked frames/ fixture left the tracked tree — the capture
+// reads the sanctioned repo asset (logo.jpg, a real image) instead.
+origin src_dir { kind: file, media: image, label: public, path: "logo.jpg" }
 pattern Probe(_t: String) -> String {
   let img = from demo_gen media_store_image("probe-bytes", "public")
   let live = media_manifest(img)
@@ -260,7 +267,9 @@ fn generation_lift_over_non_construction_does_not_compile() {
     // generation lift without synthetic: true) or falsify it (captured
     // bytes marked synthetic) — BOTH are provenance lies, refused.
     let src = r#"
-origin src_dir { kind: file, media: image, label: public, path: "frames/frame-001.jpg" }
+// №676 (A1): the leaked frames/ fixture left the tracked tree — the capture
+// reads the sanctioned repo asset (logo.jpg, a real image) instead.
+origin src_dir { kind: file, media: image, label: public, path: "logo.jpg" }
 origin demo_gen { kind: generation, media: image, label: public }
 pattern P(_t: String) -> String {
   let h = source src_dir

@@ -43,12 +43,10 @@ Metalogos-/
 ├── README.md                         # This file
 ├── AGENTS.md                         # Canonical methodology file for agent tools (industry-standard AGENTS.md spec — superseded AGENT.md)
 ├── CLAUDE.md                         # Bridge copy of AGENTS.md for Claude-compatible tools (synced manually — see issue #299)
-├── GEMINI.md                         # Bridge copy of AGENTS.md for Gemini-compatible tools (synced manually — see issue #299)
 ├── REFERENCE.md                      # Full builtin reference (~282 KB) — 100% of the registry (§6 index + №316 classification)
 ├── CHANGELOG.md                      # Version history (~451 KB)
-├── AI_USAGE.md                       # Disclosure: how generative AI is used in this project's development
-├── FEATURE_INTAKE.md                 # Feature request tracking
-├── MEMORY_ROADMAP.md                 # Memory system roadmap
+├── docs/                             # book/, adr/, limitations, threat-model, privacy,
+                                    # AI_USAGE, MEMORY_ROADMAP, FEATURE_INTAKE, GOVERNANCE
 ├── Dockerfile                        # Docker build
 ├── index.html                        # Landing page / docs site
 ├── llms.txt                          # LLMs.txt v2 index for agent tools & RAG pipelines (issue #300)

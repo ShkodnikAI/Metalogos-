@@ -97,14 +97,14 @@ fn n566_generated_block_matches_the_independent_recomputation() {
     );
 
     // The floor row: "<typed_bp> bp — <typed>/<total> = <share>% (precise
-    // <precise>/<total> = <precise_share>%, №560)" — every number from
+    // <precise>/<total> = <precise_share>%)" — every number from
     // the independent recomputation.
     let floor_row = block
         .lines()
         .find(|l| l.contains("Typed-signature floor"))
         .expect("the generated block must carry the typed-signature floor row");
     let expected = format!(
-        "| {} bp — {}/{} = {:.2}% (precise {}/{} = {:.2}%, №560) |",
+        "| {} bp — {}/{} = {:.2}% (precise {}/{} = {:.2}%) |",
         typed_bp,
         n_typed,
         n_total,

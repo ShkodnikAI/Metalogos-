@@ -52,7 +52,11 @@ mlogserver {
     let n1 = db_execute_with_grant(g, "DELETE FROM frames WHERE path = $1", [name])
     let refused = db_execute_with_grant(g, "DELETE FROM frames")
     let snap = ledger_snapshot()
-    let trail = ledger_export("data/n402_ledger.jsonl")
+    // №676 (A2): the export path is INJECTED by the test into a THROWAWAY
+    // data root (METALOGOS_DATA_DIR) — the tracked data/n402_ledger.jsonl
+    // was the audit's artifact-leak class (every run re-appended to a
+    // committed file; the A3 porcelain gate caught it on the full suite).
+    let trail = ledger_export("target/n402-data/n402_ledger.jsonl")
     respond("200", "deleted:" + n1 + "|refused:" + type_of(refused) + "|trail:" + type_of(trail) + "|name:" + name)
   }
 }
@@ -77,11 +81,19 @@ async fn get(port: u16, path: &str) -> (u16, String) {
 
 #[tokio::test]
 async fn n402_route_identity_and_per_request_isolation() {
-    // №475: the routes write into the data directory — it must exist
-    // (the containment resolves METALOGOS_DATA_DIR fail-closed).
-    std::fs::create_dir_all("data").expect("create the data dir");
-    let tw_port = start(SOURCE_N402, ServeBackend::Interpreter).await;
-    let vm_port = start(SOURCE_N402, ServeBackend::Vm).await;
+    // №676 (A2): the route writes are CONTAINED to METALOGOS_DATA_DIR
+    // (№475) — the test points it at a THROWAWAY root under target/ so
+    // the ledger export lands OUTSIDE the tracked tree (the audit
+    // 7c3456b §4 A2/A3 posture; the committed data/n402_ledger.jsonl
+    // leak is gone). Route paths must be RELATIVE (absolute paths are
+    // refused in the route context), so the relative form resolves
+    // against the package cwd into the ignored target/ subtree.
+    std::fs::create_dir_all("target/n402-data").expect("create the throwaway data root");
+    // The single env consumer in this file — no serial contention.
+    std::env::set_var("METALOGOS_DATA_DIR", "target/n402-data");
+    let source = SOURCE_N402;
+    let tw_port = start(source, ServeBackend::Interpreter).await;
+    let vm_port = start(source, ServeBackend::Vm).await;
 
     // 1) TW/VM parity: the same request, the same observable result — the
     //    Arc-shared program state changes nothing the route can see.
@@ -114,11 +126,15 @@ async fn n402_route_identity_and_per_request_isolation() {
     //    (this test process's records, TW + VM runs included) verifies
     //    externally — the genesis-seq contract holds on the shared-program
     //    runtime too.
-    let report =
-        metalogos::ledger::verify_file(std::path::Path::new("data/n402_ledger.jsonl"), None, None)
-            .expect("the exported chain verifies externally");
+    let report = metalogos::ledger::verify_file(
+        std::path::Path::new("target/n402-data/n402_ledger.jsonl"),
+        None,
+        None,
+    )
+    .expect("the exported chain verifies externally");
     assert!(report.records >= 2, "the chain carries the story's events");
-    let content = std::fs::read_to_string("data/n402_ledger.jsonl").expect("export readable");
+    let content =
+        std::fs::read_to_string("target/n402-data/n402_ledger.jsonl").expect("export readable");
     assert!(
         content.contains("grant.issued"),
         "grant lifecycle journaled"

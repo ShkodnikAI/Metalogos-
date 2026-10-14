@@ -142,7 +142,7 @@ def block() -> str:
         f"| ------ | ------------------------------------- |\n"
         f"| Version | {version} |\n"
         f"| Built-in Functions | {total} functions across {modules} modules |\n"
-        f"| Typed Signatures | {typed}/{total_fns} ({typed_bp / 100:.2f}%) — precise {precise}/{total_fns} ({precise_bp / 100:.2f}%) (№467/№560) |\n"
+        f"| Typed Signatures | {typed}/{total_fns} ({typed_bp / 100:.2f}%) — precise {precise}/{total_fns} ({precise_bp / 100:.2f}%) |\n"
         f"| SVG/Graphics | {svg} builtins, hand-rolled in pure Rust |\n"
         f"| Grammar | {rules} rules |\n"
         f"| Architecture Decisions | {adrs} ADRs |\n"
@@ -164,7 +164,7 @@ def plan_summary_block() -> str:
         f"| --- | --- |\n"
         f"| Typed-signature floor — the 0.28-gate line (ADR-0179) "
         f"| {typed_bp} bp — {typed}/{total_fns} = {typed_bp / 100:.2f}% "
-        f"(precise {precise}/{total_fns} = {precise_bp / 100:.2f}%, №560) |\n"
+        f"(precise {precise}/{total_fns} = {precise_bp / 100:.2f}%) |\n"
         f"| BUILTIN_REGISTRY rows | {total_fns} |\n"
     )
 

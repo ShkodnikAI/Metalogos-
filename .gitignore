@@ -4,6 +4,7 @@
 metalogos-src/ # residual gitlink (non-remote commit 7a75f89), see dodelka M0-M2
 *.db
 metalogos/target/
+metalogos-server/target/
 
 # Build cache — must never be committed
 off/
@@ -42,3 +43,6 @@ docs/book/book/
 /app.mlog
 /unfreeze_summary.md
 __pycache__/
+
+# №676 (A1): test/sandbox frame artifacts — the audit 7c3456b §4 leak class (frames/ once landed in the tracked tree)
+frames/

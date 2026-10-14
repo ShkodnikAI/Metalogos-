@@ -59,6 +59,21 @@ jobs:
           prefix-key: v2
       - name: Library tests
         run: cargo test --workspace --lib --no-fail-fast
+      # №676 (A3, the audit 7c3456b §4): the repo-tree cleanliness gate —
+      # after the test step the working tree must be EXACTLY as checked
+      # out. A test that wrote into the repo catalog (a fixture, a db, an
+      # image, a log) is the defect class that leaked frames/ and
+      # w387_* into the tracked tree before: without this gate the
+      # artifacts silently return on the next run and can land in a
+      # commit. Blocking, no new job (the cell does not grow — №535).
+      - name: Repo tree is clean after tests (№676 A3)
+        run: |
+          dirty="$(git status --porcelain)"
+          if [ -n "$dirty" ]; then
+            echo "::error::The test suite left artifacts in the repo tree — a test writes into the repo catalog. Fix the test to use a temp sandbox (the naryad_387 EgressSandbox form)."
+            echo "$dirty"
+            exit 1
+          fi
 
   crosscheck:
     name: crosscheck (blocking)
@@ -442,6 +457,18 @@ jobs:
           prefix-key: v2
       - name: Integration tests (excluding blocking tests)
         run: cargo test --workspace --tests --no-fail-fast -- --skip crosscheck --skip registry_arity_check --skip llm_cache_contract
+      # №676 (A3): the same repo-tree cleanliness gate as test-lib — with
+      # the A2 sandbox conversion every integration fixture write lands in
+      # a temp dir, so the tree must remain EXACTLY as checked out after
+      # the suite. Blocking, no new job (the cell does not grow — №535).
+      - name: Repo tree is clean after integration tests (№676 A3)
+        run: |
+          dirty="$(git status --porcelain)"
+          if [ -n "$dirty" ]; then
+            echo "::error::The integration suite left artifacts in the repo tree — a test writes into the repo catalog. Fix the test to use a temp sandbox (the naryad_387 EgressSandbox form)."
+            echo "$dirty"
+            exit 1
+          fi
       - name: "Artifact — the №486 declared-type warn count on examples/ (informational, NOT a ratchet — the corpus test prints the line)"
         run: cargo test --test naryad_486_declared_types -- --nocapture corpus_declared
 
@@ -536,6 +563,19 @@ jobs:
       - uses: actions/checkout@v7
       - name: The README Version badge must equal the Cargo.toml version
         run: python3 scripts/ci/badge_sync.py --check
+      # №676 (D1, the audit 7c3456b §4): the README is the external front
+      # door — it carries no generated naryad numbers (the generated
+      # metrics line once shipped stamped «(№467/№560)»; the generator no
+      # longer stamps them). Grep-able floor: the generated-stamp pattern
+      # must never return to the README. Existing job — the cell does
+      # not grow (№535).
+      - name: README carries no generated naryad numbers (№676 D1)
+        run: |
+          if grep -nP '\(№[0-9]+(/№[0-9]+)?\)' README.md; then
+            echo "::error::README carries generated naryad numbers — the metrics generator must not stamp them (scripts/gen_metrics.py renders the block)."
+            exit 1
+          fi
+          echo "README front door: no generated naryad numbers."
 
   naryad-number-check:
     name: Naryad numbering (blocking)

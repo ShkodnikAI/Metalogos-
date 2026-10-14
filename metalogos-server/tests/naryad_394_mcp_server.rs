@@ -22,7 +22,9 @@ tool notify {
     // №475: MCP tool calls run in the ServeRoute context — the write
     // containment restricts routes to the data directory (the sanctioned
     // shape; "target/…" now refuses by design).
-    write_file("data/n394_mcp_test_out.txt", "to " + channel + ": " + message)
+    // №676 (A2): the write lives inside the THROWAWAY data root the test
+    // points METALOGOS_DATA_DIR at (relative form — absolute is refused).
+    write_file("target/n394-data/n394_mcp_test_out.txt", "to " + channel + ": " + message)
     return "sent:" + message
   }
   stats(rows: Float) -> String {
@@ -252,9 +254,16 @@ mod network {
     #[tokio::test]
     async fn external_client_walks_tools_over_http() {
         // №475: the notify.send tool writes into the data directory.
-        // №500: the test harness prepares its fixture dir.
+        // №676 (A2): the data dir is pointed at a THROWAWAY root under
+        // target/ so the tool's write lands OUTSIDE the tracked tree (the
+        // committed data/n394_mcp_test_out.txt was the audit's leak class;
+        // the A3 porcelain gate caught it on the full suite). The write
+        // resolves the env per call (fs_gate), and this is the only
+        // data-dir consumer among this file's tests.
         #[allow(clippy::disallowed_methods)]
-        std::fs::create_dir_all("data").expect("create the data dir");
+        std::fs::create_dir_all("target/n394-data").expect("create the throwaway data root");
+        #[allow(clippy::disallowed_methods)]
+        std::env::set_var("METALOGOS_DATA_DIR", "target/n394-data");
         let decls = parse(TOOL_SOURCE);
         let (port, handle) = run_test_mcp_server(
             &decls,

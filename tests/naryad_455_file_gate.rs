@@ -28,6 +28,40 @@ use serial_test::serial;
 
 // ── Layer 1: the deny-list refuses in the plain process context ────────
 
+// ── №676 (A2, the audit 7c3456b §4): the temp-cwd sandbox — the .env
+// fixture of the allowlist test lands in a THROWAWAY directory, never in
+// the repo root (the artifact-leak class of the audit); restored on drop.
+struct EgressSandbox;
+impl EgressSandbox {
+    fn enter() -> Self {
+        let dir =
+            std::env::temp_dir().join(format!("mlog_n455_egress_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let prev = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&dir).unwrap();
+        PREV_CWD.with(|p| *p.borrow_mut() = Some(prev));
+        EgressSandbox
+    }
+}
+impl Drop for EgressSandbox {
+    fn drop(&mut self) {
+        PREV_CWD.with(|p| {
+            if let Some(prev) = p.borrow_mut().take() {
+                let _ = std::env::set_current_dir(prev);
+            }
+        });
+        let dir =
+            std::env::temp_dir().join(format!("mlog_n455_egress_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+thread_local! {
+    static PREV_CWD: std::cell::RefCell<Option<std::path::PathBuf>> =
+        const { std::cell::RefCell::new(None) };
+}
+
 #[test]
 #[serial]
 fn n455_run_context_env_read_refused_loudly() {
@@ -110,6 +144,7 @@ flow Main { input: String = "n455_definitely_missing_normal.txt" -> read_file ->
 #[test]
 #[serial]
 fn n455_allowlist_lets_an_explicitly_named_file_through() {
+    let _sb = EgressSandbox;
     std::env::set_var("METALOGOS_SENSITIVE_PATH_ALLOWLIST", ".env");
     // №563: the file EXISTS in this fixture — the flip of the missing-file
     // contract must not confound the deny-list assertion (the allowlist's

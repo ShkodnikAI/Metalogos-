@@ -128,31 +128,7 @@ The full gate table (defaults, what each gate opens, the heavy tier) and the cor
 
 ## The Newcomer Contract (2-minute read)
 
-The compressed contract — the [deep dive](docs/newcomer-contract.md) holds the walkthroughs, the gate semantics, and the exact boundaries for every claim below.
-
-### 1. AI as Language, Not Library
-
-In Python/JS, AI requires SDKs, prompt templates, API clients, and HTTP error handling. In Metalogos, a learnable pattern is a language construct. Calling an LLM is indistinguishable from calling a function. The language handles context, caching, retry, and fallback automatically.
-
-### 2. Security by Design — Zero Configuration
-
-OWASP Top 10 is addressed at the language level through a combination of compiler-enforced checks, opaque types, and static audit heuristics. The headline refusals: non-literal SQL, plaintext secrets reaching sinks, and unsanitized LLM output reaching `respond()` are compile-time errors; `exec()`, `env()` (in serve routes), and MCP tool calls are denied by default behind explicit, banner-printed opt-in flags. The full walkthrough with live transcripts: [the deep dive](docs/newcomer-contract.md).
-
-### 3. Dual Execution Backend
-
-Tree-walking interpreter (full language) + bytecode VM. All VM Stage 1 gaps are **CLOSED** ([ADR-0141](docs/adr/0141-vm-production-readiness.md) Stage 1; the maintained truth in [docs/limitations.md](docs/limitations.md)). Programs both backends can run are checked by `crosscheck_backends` for TW↔VM output parity. `mlog serve` ships **the VM by default** ([ADR-0171](docs/adr/0171-serve-default-flip-vm.md)); the tree-walking interpreter remains the guaranteed full-language opt-out via `METALOGOS_SERVE_BACKEND=interpreter`.
-
-### 4. Typed Semantic Memory with Hybrid Search
-
-More than a key-value store. Hierarchical memory (Memory Tree L0/L1/L2), typed records (persona, episodic, instruction, fact), FTS5 BM25 + cosine similarity, merged via Reciprocal Rank Fusion (k=60). A full retrieval system built into the language.
-
-### 5. Self-Modification with Sandbox and Rollback
-
-The `adapt` statement allows a program to modify its own patterns at runtime — with sandboxing, few-shot mutation, and automatic rollback. The quality metric is **REAL in real mode**: the mutated pattern is measured on a golden-task battery, and keep/rollback responds to measured accuracy. The 0.95 stub remains ONLY in mock mode (`METALOGOS_MOCK_LLM=1|true`) — it exercises the rollback mechanism, it is not a quality signal. Details: [the deep dive](docs/newcomer-contract.md) and [docs/limitations.md](docs/limitations.md).
-
-### 6. Complete Toolchain in One Binary
-
-`mlog run`, `mlog serve`, `mlog mcp-serve`, `mlog compile`, `mlog repl`, `mlog check`, `mlog audit`, `mlog eval` — all in a single binary. The LSP server (`mlog-lsp`) and package manager (`mlogpkg`) are separate binaries in the same workspace. A VS Code extension with syntax highlighting is included in the repository.
+The compressed contract moved to its home by Naryad №676 (D3 — the README links, it does not duplicate): **[docs/newcomer-contract.md](docs/newcomer-contract.md)** holds the six-claim walkthrough — AI as language, security by design, the dual backend, typed semantic memory, self-modification with rollback, the one-binary toolchain — with the gate semantics and the exact boundaries of every claim.
 
 ## Project Links
 

@@ -14,6 +14,16 @@ jobs (names containing "(blocking" at the job level). The static
 hand-edited count can never stay true, so the badge is no longer
 hand-edited.
 
+Naryad №690 (gh#1257, the audit f92c61c D5): the badge itself is now
+the REAL GitHub workflow badge
+(actions/workflows/ci.yml/badge.svg?branch=main — it turns RED when
+CI fails; the static brightgreen shields picture never did). The
+№676 honesty survives intact: the blocking-job COUNT still renders
+from ci.yml into the text beside the badge — the machine renders,
+the human never hand-edits. The old shields CI form is retired; its
+desync proved the point (the static line claimed a stale count
+while the job count had moved).
+
 Usage:
     python3 scripts/ci/badge_sync.py            # render (fix) the badges
     python3 scripts/ci/badge_sync.py --check    # verify only, exit 1 on desync
@@ -35,9 +45,15 @@ BADGE_RE = re.compile(
     r'(\[!\[Version\]\(https://img\.shields\.io/badge/)(v[\w.]+)(-blue\.svg\)\])'
 )
 
-# The CI badge line (№676 D5): the blocking-job count rendered from ci.yml.
+# The CI badge line (№676 D5; №690 moved the badge to the REAL GitHub
+# workflow badge — the count stays RENDERED into the text beside it):
+#   [![CI](https://github.com/.../actions/workflows/ci.yml/badge.svg?branch=main)](...)
+#   — the real workflow status (N blocking jobs on every push and PR; light/dark adaptive)
 CI_BADGE_RE = re.compile(
-    r'(\[!\[CI\]\(https://img\.shields\.io/badge/CI-)(\d+)(%20blocking%20jobs-brightgreen\.svg\)\])'
+    r'(\[!\[CI\]\(https://github\.com/ShkodnikAI/Metalogos-/actions/workflows/'
+    r'ci\.yml/badge\.svg\?branch=main\)\]\(https://github\.com/ShkodnikAI/'
+    r'Metalogos-/actions/workflows/ci\.yml\) — the real workflow status \()(\d+)'
+    r'( blocking jobs on every push and PR; light/dark adaptive\))'
 )
 
 # A job-LEVEL name line: exactly 4 spaces + `name:` (step names carry

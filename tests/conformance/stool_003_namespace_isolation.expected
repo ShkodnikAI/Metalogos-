@@ -1,0 +1,3 @@
+# S-TOOL-003 — the same method name in two tools stays isolated.
+STATUS: ok
+OUT: 4 6

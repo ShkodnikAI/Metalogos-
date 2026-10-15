@@ -1,0 +1,11 @@
+// S-TOOL-006 (№696) — method arguments bind positionally (the arity
+// must match the declaration), on BOTH backends.
+tool math_api {
+  add(a: Float, b: Float) -> Float { return a + b }
+  mul(a: Float, b: Float) -> Float { return a * b }
+}
+pattern Sum(a: Float) -> String {
+  let s = math_api.add(a, 7.0)
+  return to_string(s)
+}
+flow Main { input: Float = 3.0 -> Sum -> output }

@@ -1,0 +1,3 @@
+# S-TOOL-006 — positional binding of the qualified-call arguments.
+STATUS: ok
+OUT: 10

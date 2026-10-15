@@ -4,6 +4,26 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added
+
+- **№695 (gh#1274, Wave 46 — ADR-0188 phase 2):** the template pipe
+  grammar lands — the safe stage `{{ param | safe }}` in template
+  declarations. Without the pipe the placeholder auto-escapes (the
+  contract is unchanged); with the pipe the value rides RAW and the
+  raw landing is honest by construction: the parameter must be
+  declared `Html` (`SAFE_PIPE_NOT_HTML` refuses at check time on BOTH
+  backends — the №685 mirror for the escape-exempt slot), the runtime
+  value must be the opaque `Html` (the `render()` backstop refuses a
+  plain String fail-closed), and the taint layer CONDUCTS through a
+  safe slot (a raw position — it never answers «sanitized»). Every
+  unrecognized pipe form (an unknown stage, multiple pipes, a pipe in
+  the raw triple-brace form, an expression that is not a declared
+  parameter) refuses loudly (`UNSAFE_PIPE_FORM`) — the N9 refusal
+  (gh#1219) narrows to exactly these forms and shifts left to the
+  semantic gate; the registration refusal stays as the runtime
+  backstop. The last Known-Issue lane (gh#967 §7) closes with the
+  lift; №115 closes executed.
+
 ## [0.32.0] - 2026-10-15
 
 ### Security

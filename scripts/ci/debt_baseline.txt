@@ -98,7 +98,12 @@
 # follows the MACHINE fact, never the naryad's stale number.)
 
 dup_baseline: scripts/ci/tw_vm_dup_names_baseline.txt
-ignore: 9
+# №695 (gh#1274, wave 46): the ledger gh#967 §7 lane closes — the last
+# §7 ignore (template_integration.rs, the pipe syntax) lifts GREEN on
+# both backends (the safe stage landed, ADR-0188 phase 2; №115 closes
+# executed). The floor follows the fact down IN THE SAME PR (the №569
+# procedure, the №675 ratchet): ignore 9 -> 8.
+ignore: 8
 ignore_todo: 0
 dead_code: 15
 example_uncovered: 0

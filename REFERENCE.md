@@ -1140,7 +1140,7 @@ mlogserver {
 
 | Function | Signature | Return | Description |
 |---------|-----------|---------|----------|
-| `render(template_name, key1, val1, key2, val2, ...)` | `String, String, Any, ... -> Html` | Html | Renders a template, substituting `{{ var }}` variables (HTML-escaped) and `{{{ var }}}` variables (RAW — №685: the raw parameter must be declared `Html` and the value built by an explicit Html producer, e.g. a nested `render`; anything else refuses at start with `RAW_INSERT_NOT_HTML` on both backends, and the raw positions CONDUCT the taint instead of lifting it). A Jinja-style filter pipe (`{{ var \| safe }}`) is a LOUD compile-time refusal that names the triple-brace alternative — the silent verbatim/empty render is forbidden (gh#1219). The number of arguments after the template name must be even (key/value pairs) |
+| `render(template_name, key1, val1, key2, val2, ...)` | `String, String, Any, ... -> Html` | Html | Renders a template, substituting `{{ var }}` variables (HTML-escaped), `{{{ var }}}` variables (RAW — №685: the raw parameter must be declared `Html` and the value built by an explicit Html producer, e.g. a nested `render`; anything else refuses at start with `RAW_INSERT_NOT_HTML` on both backends, and the raw positions CONDUCT the taint instead of lifting it) and `{{ var \| safe }}` variables (RAW — №695, ADR-0188 phase 2: the safe stage, the escape-exempt; the parameter must be declared `Html` — `SAFE_PIPE_NOT_HTML` on both backends otherwise — and the value must be the opaque `Html`; every unrecognized pipe form refuses loudly). The number of arguments after the template name must be even (key/value pairs) |
 
 **Example:**
 ```mlog
@@ -1419,7 +1419,7 @@ and verified by `crosscheck`. The full decision history is in ADR-0102 and narya
 
 | Function | Signature | Return | Description |
 |---------|-----------|---------|----------|
-| `template_render(template, data)` | `String, Struct -> Html` | Html | A separate engine (not an extension of `render()`): `{{ var }}` (escaped), `{{{ var }}}` (unescaped), `{{#if}}/{{else}}`, `{{#each}}`. Template content is trusted author code, not scanned by the lint |
+| `template_render(template, data)` | `String, Struct -> Html` | Html | A separate engine (not an extension of `render()`): `{{ var }}` (escaped), `{{{ var }}}` (unescaped), `{{#if}}/{{else}}`, `{{#each}}`. The filter pipe refuses loudly in template STRINGS (№695: the safe stage lives in template declarations, where the Html typing can hold). Template content is trusted author code, not scanned by the lint |
 | `infographic_qa(svg)` | `String -> Struct{passed, warnings, checks_run}` | Struct | An advisory check: contrast (WCAG, a threshold of 4.5), saturation discipline (more than 2 colors with S>60% triggers a warning), element density. `passed: false` is advice, not a block |
 | `html_render(html, width, height)` | `String, Float×2 -> String` | String | A screenshot via a headless browser (`METALOGOS_BROWSER_BIN`, no default path). The only function in this family that spawns an external process — via `exec_restricted` (argv, not a shell). Network isolation is not guaranteed at the OS level — the input must be self-contained HTML |
 
@@ -1858,6 +1858,39 @@ template Page(title: String, body: String) -> Html {
 ```
 
 The return type `Html` is opaque, providing automatic XSS escaping.
+
+#### The safe stage `{{ param | safe }}` (№695, ADR-0188 phase 2)
+
+The pipe grammar has ONE stage, `safe`, recognized in the double-brace
+interpolated form. Without the pipe the placeholder auto-escapes (the
+contract above is unchanged). With the pipe the value rides RAW — and
+the raw landing is honest by construction:
+
+- the parameter must be declared `Html` — anything else refuses at
+  check time with `SAFE_PIPE_NOT_HTML` on BOTH backends (the №685
+  mirror for the escape-exempt slot);
+- the runtime value must be the opaque `Html` (an explicit Html
+  producer) — the `render()` backstop refuses a plain String
+  fail-closed;
+- the taint layer CONDUCTS through a safe slot (a raw position — it
+  never answers «sanitized»);
+- every unrecognized pipe form (an unknown stage, multiple pipes, a
+  pipe in the raw triple-brace form, an expression that is not a
+  declared parameter) refuses LOUDLY (`UNSAFE_PIPE_FORM`).
+
+```mlog
+// doc-test: skip
+template Layout(title: String, content: Html) -> Html {
+  <html><head><title>{{ title }}</title></head>
+  <body>{{ content | safe }}</body></html>
+}
+// {{ title }}            — escaped (the attacker string never becomes markup)
+// {{ content | safe }}   — raw: content is Html, built by an explicit producer
+```
+
+The canonical spacing forms are substituted (`{{ x | safe }}` and
+`{{x|safe}}` with their single-space mixes); exotic spacing stays
+verbatim — the same honest contract the plain form has always had.
 
 ### 5.8. Import (modules)
 

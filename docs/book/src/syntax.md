@@ -235,6 +235,22 @@ template Page(title: String) -> Html {
 }
 ```
 
+Placeholders auto-escape (the XSS-safe default). The pipe grammar has
+ONE stage — the safe stage `{{ param | safe }}` (№695, ADR-0188
+phase 2): the value rides RAW, and the raw landing is honest by
+construction — the parameter must be declared `Html`
+(`SAFE_PIPE_NOT_HTML` refuses at check time on both backends) and the
+value must come from an explicit Html producer (the runtime backstop
+refuses a plain String). Every unrecognized pipe form refuses loudly.
+
+```mlog
+// doc-test: skip
+template Layout(title: String, content: Html) -> Html {
+  <html><head><title>{{ title }}</title></head>
+  <body>{{ content | safe }}</body></html>
+}
+```
+
 ### Tool
 
 ```mlog

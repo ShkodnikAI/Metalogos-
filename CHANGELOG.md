@@ -445,6 +445,20 @@ All notable changes to the Metalogos project.
   the scan, the №604-class form; the guard's own check is a fixture
   self-test pinned by the CI-side driver
   `tests/naryad_686_sanitizer_guard.rs`).
+- **№687 (gh#1254, В44 — the audit f92c61c S-2):** the naryad-class
+  counter counts the commits OUTSIDE the naryads — a commit without a
+  recognized naryad number (`Naryad №…`/`Наряд №…`) that touches
+  `src/builtins/registry.rs` or ADDS a `Cargo.toml` feature/dependency
+  key is a red-line finding the counter cannot «not notice»; the window
+  verdict FAILS (the three-line report: the naryad quota, the off-naryad
+  findings with sha + files, the combined verdict — the dispatch `--line`
+  format unchanged). Docs-only and test-only diffs outside naryads stay
+  legal (they grow no surface); a dependency version bump modifies, it
+  does not add. The live S-2 window (the `pe2: n5`/`pe2: n6` HTML/XML
+  PE commits) reproduces the audit's finding verbatim — the registry
+  growth plus the `html`/`xml`/`url` Cargo keys, exit 1. The rule lives
+  in AGENTS.md §8 (the agent entry point); the guard's own check is a
+  fixture self-test pinned by `tests/naryad_687_off_naryad_quota.rs`.
 
 - **№676 (gh#1203, В41, docs/hygiene — the audit 7c3456b §4 checklist,
   all 11 rows):** the repo-tree cleanliness is now machine-enforced — a

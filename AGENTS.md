@@ -165,6 +165,14 @@ on compilation.
    affected `source → sink` path, and the regression pair (or the
    justification of its absence). The risk-review CI job prints the
    mechanical reminder whenever the diff touches a site file (№686).
+6. New subject-matter surfaces — builtin registry rows (`registry.rs`),
+   new `Cargo.toml` features or dependencies — land ONLY through naryads
+   with a class (`[domain]`/`[std]` per the ADR dictionary). A commit
+   outside the naryad numbering that grows the surface is the red line
+   of the wave quota: the №687 counter (`naryad_classes.py --commits
+   BASE HEAD`) reports it and the window verdict FAILS. Docs-only and
+   test-only commits outside naryads do not grow surfaces and stay
+   legal.
 
 ## 9. What is not documented centrally anywhere, but is useful to know
 

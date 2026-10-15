@@ -83,7 +83,32 @@
 #   the same-PR move»), the owner-fixed GOAL line stays 4782 until the
 #   owner's later §5 decision — the X-3 posture (goal == fact) no
 #   longer holds BY DESIGN, the ratchet holds)
-# threshold_bp: 5034
+# threshold_bp was 5034 — №697 (gh#1276, wave 46): covered 82 | sensitive 145
+#   (the 0.32 fixed-list package №1 — NINE honest closures by the №644
+#   criterion over LIVE handlers, each verified by a both-backend test in
+#   tests/naryad_697_type_closures.rs: read_file_or String
+#   (io.rs read_file_impl — both the content and the default arms Ok
+#   String), list_dir List<String> (io.rs — the fs_gate branch and the
+#   smfs virtual branch both list file names as String), voice_list
+#   String (voice/mod.rs — the single Ok site), policy_check
+#   Struct<PolicyResult>{allowed:internal,reason:internal}
+#   (server.rs — all three make_struct sites, the fixed 2-field shape,
+#   program-computed fields → internal), http_download Bool
+#   (http.rs — all eight Ok sites Bool), stt_transcribe / omni_ask /
+#   ocr_extract / vision_understand String (the single Ok site each,
+#   the METALOGOS_MOCK_LLM deterministic path — the live both-backend
+#   tests); the PDn core of the list stayed HONESTLY uncovered —
+#   query (the opaque Query wrapper, the №538 honest Unknown),
+#   query_row/query_scalar/conv_context/conv_history/stdin (stub rows,
+#   no live handler), request_body (the dynamic-shape Struct — the
+#   fields come from the request data, no fixed meta), secret (the
+#   opaque Secret), memory_open (the opaque Memory handle),
+#   memory_read (the data-dependent stored value) — the №650 refusal
+#   forms with the file:line facts are in the naryad's PR; the machine
+#   read: 82*10000//145 = 5655 bp; the fact twin and the floor raised
+#   in the SAME PR (the №757/№613 procedure — the machine's own note
+#   «raise the baseline floor to 5655 in the same-PR move»))
+# threshold_bp: 5655
 
 
 # №661 (issue #1162, 2026-10-09; the К-Б stage-2 verdict gh#1144):

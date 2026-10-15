@@ -1348,6 +1348,49 @@ const VALID_METHODS: &[&str] = &["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"
 // projected onto the lattice via `labels::legacy_taint_label` — the bridge
 // table of ADR-0154 §5. This is the machinery №325's sink-gate reads.
 
+/// №689 (gh#1256, R-1): the registry private-field bridge — the FIRST
+/// flow-path input for the private field marks. Before it, the flow
+/// engine was NAME-based only (`label_source`) and the registry
+/// field-meta never reached it: the audit's words — «the machine does
+/// not check the private → sink flow because there are almost no
+/// marks» (R-1: one private row on 526, the mail ПДн all `untrusted`).
+///
+/// The contract, deliberately NARROW: a registry row whose field-meta
+/// section carries `private` seeds the flow layer with the type-layer
+/// secret projection — conf=private, integrity=trusted (the ADR-0154 §2
+/// form the type-layer `Labeled(String, Private)` carries; the same
+/// projection the `env`/`secret` arm uses). Rows without a private
+/// mark stay on the old argument-propagation path — the INTEGRITY
+/// bridging (untrusted rows) is label_source's kind vocabulary, not
+/// this tranche's. The whole-value posture is the fail-closed
+/// over-approximation: a struct that contains private data flows as
+/// private (`email.uid` inherits the conf the same way
+/// `expr_label(FieldAccess)` inherits the object's label); the per-
+/// field precision needs the type-aware environment — the stage-2
+/// contour. The cure is the existing one: `redact` (the ONLY downward
+/// move, ADR-0136/№326). RED-first proof:
+/// tests/naryad_689_private_field_flow.rs.
+fn registry_private_flow_label(fn_name: &str) -> Option<Label> {
+    let spec = crate::builtins::registry::BUILTIN_REGISTRY
+        .iter()
+        .find(|s| s.name == fn_name)?;
+    if spec.field_meta.is_empty() {
+        return None;
+    }
+    let meta = crate::builtins::sig_types::parse_field_meta(spec.field_meta)?;
+    let carries_private = meta
+        .iter()
+        .any(|(_, l)| *l == crate::builtins::sig_types::Label::Private);
+    if !carries_private {
+        return None;
+    }
+    Some(Label {
+        conf: crate::labels::Conf::Private,
+        integrity: crate::labels::Integrity::Trusted,
+        consent: Default::default(),
+    })
+}
+
 /// Bounded-fixpoint pass cap for `while` bodies. The conf lattice has
 /// height 4 (`public < consented < private < poisoned`); monotone joins
 /// stabilize any var→var loop-carried chain within that many passes —
@@ -1575,6 +1618,16 @@ fn expr_label(expr: &Expr, env: &BTreeMap<String, Label>) -> Label {
         Expr::FieldAccess { object, .. } => expr_label(object, env),
         Expr::FnCall { name, args, .. } => {
             if let Some(l) = label_source(name, args, env) {
+                return l;
+            }
+            // №689: the registry private-field bridge — the field marks
+            // of a Struct-typed return reach the flow layer (the mail
+            // ПДн egress speaks: the PII_EGRESS_* classes on
+            // smtp_send/http_post/respond, the RED-first proof in
+            // tests/naryad_689_private_field_flow.rs). After label_source
+            // (the sanitizers keep precedence — redact cures), before the
+            // argument join (the bottom fallback was the R-1 silence).
+            if let Some(l) = registry_private_flow_label(name) {
                 return l;
             }
             // Data flows through ordinary functions: join of the arguments.

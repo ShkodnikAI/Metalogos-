@@ -230,3 +230,4 @@ real ADRs (№309/№320/№412) before the booking.
 | 0186 | The 0.30 Release Gate — the draft criteria (the fixation is the owner's gate; the В34 addendum shape accepted 2026-10-07) | Proposed |
 | 0187 | The memory-phase plan — the Phase-4 slot (the KNN recall reference), the ADR-0185 container-form decision slot, the parity posture | Proposed |
 | 0188 | The template semantics composition — the §7 lane plan: the compile-time port re-priced (full / partial / status-quo), the phased recommendation (the OWNER's choice slot) | Proposed |
+| 0193 | The 0.32 typed-source goal — the FIXED-LIST closure form (67 untyped @ f92c61c, ≥20, the denominator out) | Proposed |

@@ -112,7 +112,7 @@ An AI-native "hello": a learnable pattern with a fallback, run in a flow — all
 | Typed Signatures | 337/526 (64.06%) — precise 227/526 (43.15%) |
 | SVG/Graphics | 44 builtins, hand-rolled in pure Rust |
 | Grammar | 339 rules |
-| Architecture Decisions | 184 ADRs |
+| Architecture Decisions | 185 ADRs |
 | Example Programs | 253 .mlog programs |
 | Reference | REFERENCE.md (~313 KB) — 100% registry coverage |
 | Changelog | CHANGELOG.md (~66 KB) — every wave documented |

@@ -1148,8 +1148,34 @@ jobs:
   coverage:
     name: coverage (non-blocking)
     runs-on: ubuntu-latest
+    # №693 (issue #1271): the source-based coverage carries its own mapping
+    # (__llvm_covmap/__llvm_covfun) — the DWARF the dev/test profiles emit
+    # by default (debug=2) is dead weight for llvm-cov. Verified locally on
+    # the core subset (the 870-test metalogos --lib): the coverage tables
+    # are bit-identical with debug=0 while the instrumented tree halves
+    # (1.7G → 855M). CARGO_INCREMENTAL=0 — the incremental artifacts double
+    # the default-target mlog build for no benefit in a run-everything job.
+    # No check is weakened: the summary format and the floor check unchanged.
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@v7
+      # №693 (issue #1271): the waves 43-44 grew the suite until the
+      # instrumented --all-targets build stopped fitting the ~14 GB the
+      # runner has left after the toolchain — ld died with SIGBUS (signal 7,
+      # the mmap write against an out-of-space fs) while linking the test
+      # binaries in target/llvm-cov-target, three main push-runs in a row
+      # (9e9f2d6, e5f9f98, 08482d1), always mid-«Coverage baseline summary».
+      # The reclaim: delete the preinstalled SDKs the job never touches
+      # (~25 GB) BEFORE the rust-cache restore. Infrastructure only — no
+      # check weakened, the coverage run itself unchanged.
+      - name: Free runner disk (№693 — the instrumented tree outgrew the runner)
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghc /opt/hostedtoolcache/CodeQL /usr/share/swift /usr/local/share/boost
+          sudo docker image prune -af > /dev/null 2>&1 || true
+          df -h /
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview

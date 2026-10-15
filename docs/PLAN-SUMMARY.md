@@ -122,6 +122,14 @@ is closed (№639 executed 2026-10-15, №641 this sync).
 The showcase wave's record: the «Executed — Wave 42» section below and
 REALITY §6.27.
 
+The 0.32 goal DRAFT (№688, ADR-0193 **Proposed**): the typed-source
+goal moves to the FIXED-LIST closure form — «≥ 20 of the 67 untyped
+sources recorded at `f92c61c`, the denominator out of the goal» — the
+machine list `scripts/ci/gate_032_untyped_sources.txt` + the
+`--goal032` counter (GREEN at the honest 0/20 start). The figure, the
+priority, and the gate wiring await the OWNER's verdict (the №525
+rule — nothing self-captures).
+
 ## Executed — Wave 42 (the showcase wave, the dispatch gh#1235, 2026-10-13)
 
 The dispatch gh#1235 queue — the showcase charter (ADR-0190) executed

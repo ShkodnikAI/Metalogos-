@@ -170,6 +170,65 @@ def inventory():
     report()
 
 
+def goal032(list_path, gate_mode=False, goal_figure=None):
+    """№688 (gh#1255, the S-3 lesson): the FIXED-LIST closure counter —
+    the 0.32 goal counts CLOSURES of the checked-in untyped-source list
+    (the f92c61c anchor), never the denominator (the X-3 fraud shape:
+    the 0.31 goal was met by the denominator growth 66/138 → 73/145
+    while `untyped 67` did not move).
+
+    An id CLOSES ONCE: the row leaves the uncovered set by the №644
+    definition (typed ∧ (scalar ∨ parameterized) ∧ (¬Struct ∨ fields
+    labeled)). NEW sources do NOT count — they are typed at birth (the
+    №687 surface rule keeps them on naryads).
+
+    Report-only at the start (exit 0 at 0/20 — the Proposed posture;
+    the GREEN the naryad asks for). The floor wiring (--gate032 N) is
+    the OWNER's §5 fixation over ADR-0193 — not self-captured: the
+    mode exists mechanically, the figure and the CI wiring land in the
+    owner's one-PR fixation (the gate_031 §5 form).
+    """
+    sensitive, covered, uncovered = compute()
+    ids = []
+    for line in open(list_path, encoding='utf-8'):
+        line = line.rstrip('\n')
+        if not line or line.startswith('#'):
+            continue
+        parts = line.split()
+        if len(parts) >= 2 and ':' in parts[1]:
+            ids.append(parts[0])
+    if not ids:
+        print('::error::the fixed list carries no ids (a parse failure — fail-closed)')
+        return 2
+    closed = sorted(n for n in ids if n in covered)
+    total = len(ids)
+    print(f'goal-032 (№688, ADR-0193 Proposed): closed {len(closed)}/{total} '
+          f'of the FIXED untyped list (the anchor f92c61c)')
+    print('  the closed ids: ' + (', '.join(closed) if closed else 'none'))
+    # The ПДн-class priority (the naryad's «в первую очередь ПДн») — the
+    # §6.3 audit-order groups intersected with the list.
+    for gname, gmatch in DOMAIN_GROUPS:
+        in_list = [n for n in ids if gmatch(n)]
+        if in_list:
+            c = sum(1 for n in in_list if n in covered)
+            print(f'  the {gname} group: {c}/{len(in_list)} closed of the list rows')
+    if gate_mode:
+        figure = goal_figure if goal_figure is not None else 20
+        if len(closed) >= figure:
+            print(f'goal-032 gate: OK — {len(closed)}/{total} >= {figure} '
+                  f'(the owner-fixed figure)')
+            return 0
+        print(f'::error::goal-032: {len(closed)}/{total} < {figure} '
+              f'(the owner-fixed figure) — the fixed-list goal is not reached')
+        return 1
+    print('  the ≥20 figure: the Proposed parameter — the owner\'s verdict '
+          'over ADR-0193 pending (the report-only start; the gate wiring '
+          'lands with the fixation, the gate_031 §5 form)')
+    print('verdict: GREEN at the start (the report-only mode, exit 0 at '
+          f'{len(closed)} closed — the honest 0/20 posture)')
+    return 0
+
+
 def gate(baseline):
     sensitive, covered, _ = compute()
     bp = share_bp(len(covered), len(sensitive))
@@ -207,6 +266,17 @@ def gate(baseline):
 
 
 def main(argv):
+    if '--goal032' in argv:
+        # №688: the report-only start (exit 0 at 0 closed — the Proposed
+        # posture; the GREEN the naryad asks for).
+        return goal032(argv[argv.index('--goal032') + 1])
+    if '--gate032' in argv:
+        # №688: the floor mode — wired ONLY by the owner's §5 fixation
+        # (the figure = the owner's parameter, default 20 = the draft's
+        # own proposal, never self-binding).
+        i = argv.index('--gate032')
+        figure = int(argv[i + 2]) if len(argv) > i + 2 and argv[i + 2].isdigit() else None
+        return goal032(argv[i + 1], gate_mode=True, goal_figure=figure)
     if '--gate' in argv:
         baseline = argv[argv.index('--gate') + 1]
         return gate(baseline)

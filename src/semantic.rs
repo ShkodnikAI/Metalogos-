@@ -141,6 +141,24 @@ pub enum SemanticErrorKind {
     /// CODE_RAW_INSERT_NOT_HTML (the №523 stamp, the №385/ADR-0169
     /// classification — added, nothing renamed).
     RawInsertNotHtml,
+    /// №695 (gh#1274, В46 — ADR-0188 phase 2): SAFE_PIPE_NOT_HTML — a
+    /// template parameter used in the safe stage `{{ param | safe }}` is
+    /// declared with a non-Html type. The safe stage inserts the value
+    /// RAW (the escape-exempt), so the same S-1 logic as №685 applies:
+    /// the raw slot must carry an explicitly produced Html value, and
+    /// the declaration must be honest about the type. The gate refuses
+    /// at START on BOTH backends (check_program + compile_program, the
+    /// №673 contour shape); the stable code is CODE_SAFE_PIPE_NOT_HTML
+    /// (the №385/ADR-0169 classification — added, nothing renamed).
+    SafePipeNotHtml,
+    /// №695: UNSAFE_PIPE_FORM — a pipe tag the v1 grammar does not
+    /// recognize (an unknown stage, multiple pipes, a pipe in the raw
+    /// triple-brace form, an expr that is not a declared param). The N9
+    /// refusal (gh#1219) narrows to exactly these forms and shifts left
+    /// to the semantic gate on BOTH backends (the registration refusal
+    /// stays as the runtime backstop). No stable code — the v1 grammar
+    /// names no origin for the class (the honest gap stays unstamped).
+    UnsafePipeForm,
 }
 
 impl SemanticErrorKind {
@@ -165,6 +183,8 @@ impl SemanticErrorKind {
             SemanticErrorKind::UnknownTemplate => None,
             SemanticErrorKind::BreakOutsideLoop => Some(CODE_BREAK_OUTSIDE_LOOP),
             SemanticErrorKind::RawInsertNotHtml => Some(CODE_RAW_INSERT_NOT_HTML),
+            SemanticErrorKind::SafePipeNotHtml => Some(CODE_SAFE_PIPE_NOT_HTML),
+            SemanticErrorKind::UnsafePipeForm => None,
             SemanticErrorKind::Other => None,
         }
     }
@@ -599,6 +619,93 @@ pub fn raw_insert_not_html_violations(declarations: &[Declaration]) -> Vec<Spann
     errors
 }
 
+/// №695 (gh#1274, В46 — ADR-0188 phase 2): the safe-stage violations
+/// over the whole program, TWO classes in ONE scan (the shared
+/// `template_scan::pipe_scan` — the ONE tokenizer, no second parser):
+///
+///   • SAFE_PIPE_NOT_HTML — a template parameter used in the recognized
+///     safe stage `{{ param | safe }}` is declared with a non-Html
+///     type. The safe stage inserts the value RAW (the escape-exempt),
+///     so the same S-1 logic as №685 applies — the raw slot must carry
+///     an explicitly produced Html value, and the declaration must be
+///     honest about the type.
+///   • UNSAFE_PIPE_FORM — a pipe tag the v1 grammar does not recognize
+///     (an unknown stage, multiple pipes, a pipe in the raw triple-brace
+///     form, an expr that is not a declared param). The N9 refusal
+///     (gh#1219) narrows to exactly these forms and shifts left here;
+///     the registration refusal stays as the runtime backstop.
+///
+/// THE WHY: the safe stage is the escape-exempt — the one form where a
+/// String value would land VERBATIM in the page by design. The check-time
+/// Html typing is what makes that design honest (the ADR-0188 phase-2
+/// verdict): after the gate, a raw landing in a safe slot can only come
+/// from a declared-Html parameter fed by an explicit Html producer.
+///
+/// The ONE shared implementation: called by `check_program` (the TW
+/// run/serve gate) and by `compile_program` (the VM compile gate — the
+/// №673 contour shape). Alias-resolved parameter types (the №119 map) —
+/// a `type Body = Html` alias is honest Html.
+pub fn safe_pipe_violations(declarations: &[Declaration]) -> Vec<SpannedError> {
+    let mut errors: Vec<SpannedError> = Vec::new();
+    let (type_alias_map, _) = build_type_alias_map(declarations);
+    for decl in declarations {
+        let Declaration::Template(t) = decl else {
+            continue;
+        };
+        // The per-(template, param) dedup for the safe class — the same
+        // parameter may appear in several safe slots; ONE refusal names
+        // it once. The unsupported forms name each distinct tag once.
+        let mut seen_safe: HashSet<usize> = HashSet::new();
+        let mut seen_unsupported: HashSet<String> = HashSet::new();
+        let param_names: Vec<String> = t.params.iter().map(|p| p.name.clone()).collect();
+        let (safe_idx, unsupported) = crate::template_scan::pipe_scan(&t.body, &param_names);
+        for idx in safe_idx {
+            if !seen_safe.insert(idx) {
+                continue;
+            }
+            let prm = &t.params[idx];
+            let resolved = type_alias_map
+                .get(&prm.type_name)
+                .map(|s| s.as_str())
+                .unwrap_or(&prm.type_name);
+            if resolved != "Html" {
+                let safe_form = format!("{} {} | safe {}", "{".repeat(2), prm.name, "}".repeat(2));
+                errors.push(
+                    SpannedError::at(
+                        format!(
+                            "template '{}': parameter '{}' is used in the safe insert {} but is declared '{}' — \
+                             safe-insert parameters must be Html (declare the parameter Html and build the value \
+                             with an explicit Html producer, or drop the stage — the escaped default) \
+                             (№695, ADR-0188 phase 2)",
+                            t.name, prm.name, safe_form, prm.type_name
+                        ),
+                        t.span.clone(),
+                    )
+                    .with_kind(SemanticErrorKind::SafePipeNotHtml),
+                );
+            }
+        }
+        for tag in unsupported {
+            if !seen_unsupported.insert(tag.clone()) {
+                continue;
+            }
+            errors.push(
+                SpannedError::at(
+                    format!(
+                        "template '{}': the pipe tag '{{ {} }}' is not part of the v1 pipe grammar — \
+                         the ONLY supported stage is '{{ param | safe }}' with the parameter declared Html \
+                         (№695, ADR-0188 phase 2; the N9 refusal shifted left)",
+                        t.name, tag
+                    ),
+                    t.span.clone(),
+                )
+                .with_kind(SemanticErrorKind::UnsafePipeForm),
+            );
+        }
+    }
+    errors
+}
+
 /// Наряд №523: statically resolve a program's import tree so the
 /// semantic pass sees every symbol the interpreter will have at runtime.
 ///
@@ -821,6 +928,16 @@ pub const CODE_BREAK_OUTSIDE_LOOP: &str = "BREAK_OUTSIDE_LOOP";
 /// backstops). The №385/ADR-0169 classification: the code is ADDED,
 /// nothing renamed. The gate stamps this code first (the №523 shape).
 pub const CODE_RAW_INSERT_NOT_HTML: &str = "RAW_INSERT_NOT_HTML";
+
+/// №695 (gh#1274, В46 — ADR-0188 phase 2): the fail-closed companion of
+/// RAW_INSERT_NOT_HTML for the safe stage — the escape-exempt insert
+/// `{{ param | safe }}` must be declared `Html`; anything else refuses
+/// BEFORE execution on BOTH backends (check_program AND
+/// compile_program, the №673 contour shape; the registration refusal
+/// stays as the runtime backstop). The №385/ADR-0169 classification:
+/// the code is ADDED, nothing renamed. The gate stamps this code first
+/// (the №523 shape).
+pub const CODE_SAFE_PIPE_NOT_HTML: &str = "SAFE_PIPE_NOT_HTML";
 
 /// №600 (the audit 25b375e Y-1): the SSOT POSITION PREDICATE of the №584
 /// early-answer surface — ONE enumeration consumed by BOTH the semantic
@@ -6508,6 +6625,15 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
     result
         .errors
         .extend(raw_insert_not_html_violations(declarations));
+
+    // №695 (gh#1274, В46): SAFE_PIPE_NOT_HTML + UNSAFE_PIPE_FORM — the
+    // ADR-0188 phase-2 gate: the safe stage `{{ param | safe }}` inserts
+    // RAW, so its parameter must be declared Html (the №685 mirror), and
+    // every unrecognized pipe form refuses LOUDLY (the N9 refusal
+    // shifted left). The refusal is BEFORE execution on BOTH backends
+    // (compile_program calls the same shared scan, the №673 contour
+    // shape); the registration refusal stays as the runtime backstop.
+    result.errors.extend(safe_pipe_violations(declarations));
 
     // №611 (P0 bugfix): the check-time DDL dry-run for schema-as-code.
     // `mlog check` previously did not validate the generated DDL at all —

@@ -127,3 +127,108 @@ pub(crate) fn raw_param_positions(body: &str, params: &[String]) -> Vec<usize> {
     }
     out
 }
+
+// ── №695 (ADR-0188 phase 2): the pipe-stage classification ─────────────
+//
+// The v1 pipe grammar is ONE stage, `safe`, in the DOUBLE-brace
+// interpolated form: `{{ param | safe }}`. The classification lives HERE
+// — the ONE tokenizer every template consumer already shares (the №685
+// discipline: a second parser would drift from the render-time behavior,
+// and the drift is exactly how S-1 happened).
+//
+// The pest grammar is NOT touched: template bodies are raw by design
+// (the balanced-brace extraction of grammar.pest:104-105 — HTML/CSS/JS
+// bodies), so the in-body placeholder grammar has always lived in this
+// module (the raw-insert form landed here in №685 the same way).
+
+/// The classification of one tag's content against the v1 pipe grammar.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum PipeForm {
+    /// No pipe in the tag — the plain placeholder (escaped default).
+    Plain,
+    /// The recognized v1 form: `{{ param | safe }}` — a single `|`, the
+    /// stage is exactly `safe`, and `param` names a declared parameter
+    /// (render() substitutes by param name; an expression language is
+    /// NOT part of v1).
+    SafeParam(usize),
+    /// A pipe the v1 grammar does not recognize: an unknown stage
+    /// (`{{ x | upper }}`), multiple pipes, an empty side, a pipe in the
+    /// raw triple-brace form, or an expr that is not a declared param.
+    /// Every consumer must refuse these LOUDLY — the N9 lesson (gh#1219):
+    /// a silent mismatch between the syntax and the runtime is forbidden.
+    Unsupported,
+}
+
+/// №695: classify a tag's content against the v1 pipe grammar.
+/// `content` is the tokenizer's trimmed tag content; `raw` distinguishes
+/// the triple-brace form. Construct tags (`{{#if}}` / `{{else}}` /
+/// `{{/if}}`) are NOT var placeholders — they classify as `Plain` here
+/// (a pipe inside a condition string literal, `{{#if x == "a|b"}}`, is
+/// the N9-5-legal construct grammar, not a filter).
+pub(crate) fn classify_pipe(content: &str, raw: bool, params: &[String]) -> PipeForm {
+    let inner = content.trim();
+    if inner.starts_with('#') || inner.starts_with('/') || inner == "else" {
+        return PipeForm::Plain;
+    }
+    if !inner.contains('|') {
+        return PipeForm::Plain;
+    }
+    // The raw triple-brace form is already the raw insert (№685) — a pipe
+    // there is not the v1 grammar (the raw form needs no stage).
+    if raw {
+        return PipeForm::Unsupported;
+    }
+    let Some((expr, stage)) = inner.split_once('|') else {
+        return PipeForm::Unsupported;
+    };
+    let expr = expr.trim();
+    let stage = stage.trim();
+    if expr.is_empty() || stage.is_empty() || stage.contains('|') || expr.contains('|') {
+        return PipeForm::Unsupported;
+    }
+    if stage != "safe" {
+        return PipeForm::Unsupported;
+    }
+    match params.iter().position(|p| p == expr) {
+        Some(idx) => PipeForm::SafeParam(idx),
+        // The v1 substitution is by param name — an expr that is not a
+        // declared param can never be substituted, so the form is not
+        // part of the grammar (render() would leave it verbatim).
+        None => PipeForm::Unsupported,
+    }
+}
+
+/// №695: the shared pipe scan over a template body — every tag lands in
+/// exactly one bucket: the recognized `{{ param | safe }}` positions
+/// (the param INDICES) and the unsupported pipe forms (the verbatim tag
+/// contents, for the refusal messages).
+///
+/// Consumers (the ONE scan, FOUR consumers — the №685 mirror discipline):
+/// the declaration gate (`semantic::safe_pipe_not_html_violations`),
+/// the registration backstop (`register_template`), the audit taint
+/// layer via `html_label::seed_render_raw` (a safe position is a RAW
+/// position — the taint conducts, never sanitizes) and
+/// `render_template_body` (the substitution contract).
+pub(crate) fn pipe_scan(body: &str, params: &[String]) -> (Vec<usize>, Vec<String>) {
+    let mut safe: Vec<usize> = Vec::new();
+    let mut unsupported: Vec<String> = Vec::new();
+    for tok in tokenize(body) {
+        let Token::Tag { content, raw } = tok else {
+            continue;
+        };
+        match classify_pipe(&content, raw, params) {
+            PipeForm::Plain => {}
+            PipeForm::SafeParam(idx) => {
+                if !safe.contains(&idx) {
+                    safe.push(idx);
+                }
+            }
+            PipeForm::Unsupported => {
+                if !unsupported.contains(&content) {
+                    unsupported.push(content);
+                }
+            }
+        }
+    }
+    (safe, unsupported)
+}

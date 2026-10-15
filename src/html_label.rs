@@ -81,7 +81,19 @@ pub(crate) fn seed_render_raw(declarations: &[crate::ast::Declaration]) {
     for decl in declarations {
         if let crate::ast::Declaration::Template(t) = decl {
             let param_names: Vec<String> = t.params.iter().map(|p| p.name.clone()).collect();
-            let positions = crate::template_scan::raw_param_positions(&t.body, &param_names);
+            // №685: the raw triple-brace positions. №695 (ADR-0188 phase
+            // 2): the safe stage `{{ param | safe }}` is a RAW position
+            // too — the taint CONDUCTS through it (the escape-exempt slot
+            // never sanitizes; answering «sanitized» for a safe slot
+            // would recreate exactly the S-1 silent-mismatch class the
+            // raw gate closed).
+            let mut positions = crate::template_scan::raw_param_positions(&t.body, &param_names);
+            let (safe_idx, _) = crate::template_scan::pipe_scan(&t.body, &param_names);
+            for idx in safe_idx {
+                if !positions.contains(&idx) {
+                    positions.push(idx);
+                }
+            }
             // EVERY declared template is recorded — a template with NO
             // raw positions is precisely KNOWN all-escaped (the walk
             // sanitizes it); only a name ABSENT from the map is the
@@ -393,3 +405,40 @@ pub fn sink_arg_is_untrusted(
 // The HTML-lane value vocabulary (№544 step 3) walks the AST — the
 // algebra and its application live side by side here. №568: the walk is
 // ONE — the modes carry the parity quirks as contracts.
+
+// ── №695 (gh#1274, В46): the safe slot is a RAW position ──────────────
+//
+// The seeded render-raw map must carry the recognized safe stage
+// `{{ param | safe }}` as a RAW (conductor) position — the escape-exempt
+// slot never sanitizes. Answering «sanitized» for a safe slot would
+// recreate exactly the S-1 silent-mismatch class the №685 raw gate
+// closed. The map is pub(crate), so this contract is pinned by a UNIT
+// test here (the integration tests cannot reach the seeder).
+#[cfg(test)]
+mod n695_safe_slot_taint_tests {
+    use super::*;
+
+    #[test]
+    fn safe_slot_is_a_raw_position_in_the_seeded_map() {
+        let src = "template T(h: Html) -> Html {\n  <p>{{ h | safe }}{{ h }}</p>\n}";
+        let declarations = crate::parser::parse(src).expect("parse");
+        seed_render_raw(&declarations);
+        let snap = render_raw_snapshot().expect("seeded");
+        let positions = snap.get("T").expect("the template is in the map");
+        assert!(
+            positions.contains(&0),
+            "the safe slot must conduct (position 0 in the raw map), got: {positions:?}"
+        );
+        // The control: a template with NO raw/safe positions stays in the
+        // map as the KNOWN all-escaped fact (empty vec, not absent).
+        let src2 = "template E(s: String) -> Html {\n  <p>{{ s }}</p>\n}";
+        let declarations2 = crate::parser::parse(src2).expect("parse");
+        seed_render_raw(&declarations2);
+        let snap2 = render_raw_snapshot().expect("seeded");
+        let positions2 = snap2.get("E").expect("the escaped template is recorded");
+        assert!(
+            positions2.is_empty(),
+            "the all-escaped template must record zero raw positions, got: {positions2:?}"
+        );
+    }
+}

@@ -1,35 +1,25 @@
 // ── Naryad N9 (gh#1219, PE-2, compiler): render() and | safe ─────────
 //
-// The owner's finding: `render()` always escapes, `| safe` does not
-// work, and the example used `{{ content | safe }}` — nested HTML
-// escaped (or worse: the №115 substitution left the placeholder
-// VERBATIM in the output; the №86 engine silently rendered it empty).
-// The silent mismatch between the example syntax and the runtime is
-// what the naryad forbids.
-//
-// THE DECISION (the naryad's menu, options 1+2+3 combined, recorded
-// here and in REFERENCE):
-//   - `| safe` is a LOUD refusal at COMPILE time (the registration
-//     gate: the №250 compiler registration + the interpreter
-//     declaration walk) and at template_render parse time — the
-//     Jinja-style filter pipe was never implemented, the placeholder
-//     grammar has no filters;
-//   - the RAW insert is the triple-brace form `{{{ var }}}` — now
-//     implemented in render() TOO (the template_render contract
-//     mirrored). №685 (gh#1252, the S-1 audit): the raw form is
-//     FAIL-CLOSED — a raw-insert parameter must be declared Html
-//     (RAW_INSERT_NOT_HTML refuses at start on both backends) and the
-//     value must come from an explicit Html producer (the implicit
-//     String→Html coercion refuses at the call site); the taint/label
-//     layers conduct the raw positions instead of lifting them;
-//   - the example (p6_template_composition) uses the raw form and
-//     actually renders: the title rides the ESCAPED default (the
-//     script-neutralization is visible in the .expected), the trusted
-//     fragment rides raw (built by the render("Body") producer).
-//
-//   N9-1: render() with `{{ var | safe }}` → the compile-time refusal
-//         naming the triple-brace alternative.
-//   N9-2: template_render with the pipe → the loud parse refusal.
+// THE N9 DECISION (the naryad's menu, options 1+2+3 combined) stood
+// until №695: the pipe was a LOUD refusal at COMPILE time, the raw
+// insert was the triple-brace form, and the example (p6) used the raw
+// form. №695 (gh#1274, В46 — ADR-0188 phase 2) NARROWS the refusal:
+//   - the safe stage `{{ param | safe }}` in template DECLARATIONS now
+//     COMPOSES (the check-time Html typing — SAFE_PIPE_NOT_HTML on a
+//     non-Html param, the №685 mirror; the runtime backstop requires
+//     the opaque Value::Html);
+//   - every UNRECOGNIZED pipe form still refuses LOUDLY — shifted left
+//     to the semantic gate (UNSAFE_PIPE_FORM, both backends);
+//   - template_render STRINGS still refuse every pipe (a runtime string
+//     has no declarations to type against — the honest answer).
+// The N9 tests below are ACTUALIZED to the narrowed contract (the
+// refusal classes moved, the loudness stayed); the new composition
+// contract lives in tests/naryad_695_safe_pipe.rs.
+//   N9-1: render() with the pipe on a NON-Html param → the check-time
+//         refusal (SAFE_PIPE_NOT_HTML, the №695 gate — the run path
+//         blocks through check_program).
+//   N9-2: template_render with the pipe → the loud parse refusal
+//         (the strings have no declarations to type against).
 //   N9-3: render() `{{{ var }}}` renders RAW (an Html-typed parameter
 //         built by an explicit producer); `{{ var }}` escapes.
 //   N9-4: template_render `{{{ var }}}` raw (the pre-existing form).
@@ -67,15 +57,18 @@ fn eval_expr(src: &str) -> Result<String, String> {
     }
 }
 
-// ── N9-1: render() — the pipe is a compile-time refusal ──────────────
+// ── N9-1: render() — the pipe on a non-Html param is a check-time
+//       refusal (№695 narrowed the N9 refusal to the unrecognized
+//       forms; the String param in the safe slot refuses through
+//       SAFE_PIPE_NOT_HTML) ──────────────────────────────────────────
 
 #[test]
 fn n9_render_pipe_is_compile_refusal() {
     let src = "template T(x: String, y: String) -> Html {\n           <p>{{ x | safe }}</p>\n         }\n         pattern P(i: String) -> String {\n           return render(\"T\", i, \"b\")\n         }\n         flow Main { input: String = \"x\" -> P -> output }";
-    let err = metalogos::run_program(src).expect_err("the pipe must refuse");
+    let err = metalogos::run_program(src).expect_err("the pipe on a String param must refuse");
     assert!(
-        err.contains("NOT supported") && err.contains("{{{"),
-        "the refusal must name the unsupported pipe and the raw form: {err}"
+        err.contains("SAFE_PIPE_NOT_HTML") || err.contains("safe insert"),
+        "the refusal must name the safe-insert class: {err}"
     );
 }
 

@@ -508,6 +508,22 @@ All notable changes to the Metalogos project.
   growth plus the `html`/`xml`/`url` Cargo keys, exit 1. The rule lives
   in AGENTS.md §8 (the agent entry point); the guard's own check is a
   fixture self-test pinned by `tests/naryad_687_off_naryad_quota.rs`.
+- **№690 (gh#1257, В44 — the audit f92c61c D5):** the README CI badge
+  is the REAL GitHub workflow badge now
+  (`actions/workflows/ci.yml/badge.svg?branch=main` — it turns RED
+  when CI fails; the static brightgreen shields picture never did, and
+  its count had already drifted from the machine count). The №676 D5
+  honesty survives: the blocking-job count still RENDERS from ci.yml
+  into the text beside the badge (`badge_sync.py` — the machine
+  renders, the human never hand-edits; the SSOT count 44 pinned by the
+  render/verify round-trip). The badge is theme-independent by
+  construction (white text on opaque gradients — legible on both the
+  light and the dark README). The README stays at 149 lines (the D2
+  gate). The live proof of the D5 point: the badge currently shows
+  FAILING on main — the honest-boundary retrospective (the push/main
+  scope that №685 turned on) flags the three boundary rows pending the
+  ADR-0179 §6 release-time label sync — the badge surfaces what the
+  static picture hid.
 
 - **№676 (gh#1203, В41, docs/hygiene — the audit 7c3456b §4 checklist,
   all 11 rows):** the repo-tree cleanliness is now machine-enforced — a

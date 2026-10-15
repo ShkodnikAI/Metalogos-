@@ -9,7 +9,7 @@
 [![Rust](https://img.shields.io/badge/rust-1.93.1-orange.svg)](https://www.rust-lang.org/)
 [![Version](https://img.shields.io/badge/v0.30.1-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/releases)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-green.svg)](#license)
-[![CI](https://img.shields.io/badge/CI-44%20blocking%20jobs-brightgreen.svg)](https://github.com/ShkodnikAI/Metalogos-/actions)
+[![CI](https://github.com/ShkodnikAI/Metalogos-/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ShkodnikAI/Metalogos-/actions/workflows/ci.yml) — the real workflow status (44 blocking jobs on every push and PR; light/dark adaptive)
 [![Open Collective](https://img.shields.io/opencollective/all/metalogos?label=Backers&logo=open-collective&color=7fadf2)](https://opencollective.com/metalogos)
 
 </div>
@@ -115,7 +115,7 @@ An AI-native "hello": a learnable pattern with a fallback, run in a flow — all
 | Architecture Decisions | 185 ADRs |
 | Example Programs | 253 .mlog programs |
 | Reference | REFERENCE.md (~313 KB) — 100% registry coverage |
-| Changelog | CHANGELOG.md (~66 KB) — every wave documented |
+| Changelog | CHANGELOG.md (~67 KB) — every wave documented |
 <!-- END GENERATED METRICS -->
 
 ## The Newcomer Contract (2-minute read)

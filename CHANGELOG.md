@@ -422,6 +422,13 @@ All notable changes to the Metalogos project.
   are shared-code parity by construction); the stable refusal codes are
   referenced, never redefined (№385/ADR-0169).
 
+- **№640 (gh#1123, В36, process/adr) — ADR-0188 «The Template
+  Semantics Composition» (docs-only, the ledger gh#967 §7 lane plan):
+  the compile-time port re-priced, the phased recommendation —
+  Proposed at the merge (`bddc4cc5`, ADR 179 → 180) and
+  **Accepted — option (б)** by the owner's verdict 2026-10-08
+  (gh#1123); the option (б) compile-time checker landed by №662
+  (gh#1163), the pipe syntax stays the documented gap (№115).
 ### Changed
 
 - **№676 (gh#1203, В41, docs/hygiene — the audit 7c3456b §4 checklist,
@@ -568,6 +575,19 @@ All notable changes to the Metalogos project.
   for NEW code only. The pipe syntax stays runtime-absent (№115 — the
   documented gap, option (а) is later).
 
+- **№637 (gh#1120, В36, types) — the parameterized movement 0.30
+  №3 (the registry surface):** the PDF contour, 21 verified rows (the
+  20 Struct rows WITH field_meta — the anti-dilution rule), the
+  parameterized share 34/91 = 3736 bp → **55/91 = 6043 bp — the 0.30
+  owner-fixed goal (≥ 5000 bp) REACHED**; the floors raised in the
+  same PR (the parameterized baseline 6043, PARAM_FLOOR 52).
+  (`e7894a1e`)
+
+- **№638 (gh#1121, В36, types) — the field-labels №2 (the registry
+  surface):** the 15 existing parameterized Struct rows labeled per
+  the №627 table read off the handlers, the field-label metric
+  5750 → **9500 bp (38/40 = 95%)** (FIELDMETA_FLOOR 37).
+  (`48301708`)
 
 ### Fixed
 

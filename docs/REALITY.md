@@ -2308,3 +2308,77 @@ the values moved by the parallel PE line are attributed to it, NOT to
 
 **The wave report line (№608/№470):** the dispatch surface gh#1235:
 `naryad-quota (№470/№608): 5 naryads — domain 0/5 = 0.0% — PASS (the standing limiter <= 1/3)`
+
+### 6.28. Wave 36 post-wave record (naryad №641, the delayed tail): the parameterized movement №3 — the 0.30 owner-fixed goal REACHED, the field-labels №2, the ADR-0188 draft, and the dated ledger revision №639 executed at its window (the wave's merges `e7894a1e`/`48301708`/`bddc4cc5`, 2026-10-08…09; the record written on main @ `3c10534`, 2026-10-15)
+
+Protocol: №414/№318/№576/№579/№589/№596/№619/№625/№636 — the same
+machines, no hand-written numbers. The honest delay note: this record
+is written by the wave's closing naryad №641 (gh#1124) at the №639
+dated window (2026-10-15 ± 1 day), not right after the wave — the
+§6.22–§6.27 slots were taken by В37–В42 in the meantime, so the record
+takes the next free number instead of renumbering history. The
+machine facts are the merge-time facts of the wave's PRs (replayed on
+the execution-date main where the machine exists — the table below).
+
+The honest headline: В36 executed the dispatch gh#1125 queue — the
+parameterized movement 0.30 №3 **REACHED THE 0.30 OWNER-FIXED GOAL**
+(55/91 = 6043 bp ≥ 5000 bp), the field-labels №2 landed (9500 bp =
+95%), the ADR-0188 draft registered and **Accepted — option (б)** by
+the owner's verdict (2026-10-08, gh#1123), and the dated ledger
+revision №639 (gh#1122) executed at its window 2026-10-15: the ledger
+gh#967 book-sync (the §3 RESOLVED mark restored — the findings were
+implemented by №617 while the section lacked the mark; the §2 test
+path fixed — the №567 crate split moved the file; the §4 park verdict
+with the evidence table; the §7 partial resolution — the compile-time
+half by №662), every lane's regression run GREEN, the debt gate OK.
+
+- №637 (gh#1120, PR #1126 → `e7894a1e`) — the parameterized movement
+  0.30 №3: the PDF contour, 21 verified rows (the 20 Struct rows WITH
+  field_meta — the anti-dilution rule), the share 34/91 = 3736 bp →
+  **55/91 = 6043 bp — THE 0.30 OWNER-FIXED GOAL (≥ 5000 bp) REACHED**
+  (the floors raised in the same PR: the parameterized baseline 6043,
+  PARAM_FLOOR 52).
+- №638 (gh#1121, PR #1128 → `48301708`) — the field-labels №2: the 15
+  existing parameterized Struct rows labeled per the №627 table read
+  off the handlers, 5750 → **9500 bp (38/40 = 95%)** (FIELDMETA_FLOOR
+  37).
+- №640 (gh#1123, PR #1127 → `bddc4cc5`) — the ADR-0188 draft (the
+  template-semantics composition, the ledger gh#967 §7 lane):
+  Proposed, owner_fixed: false, no implementations, ADR 179 → 180;
+  the owner's verdict 2026-10-08: **Accepted — option (б)**; the
+  option (б) implementation: №662 (gh#1163, `ddca7ca`, В39).
+- №639 (gh#1122, the dated tail) — EXECUTED 2026-10-15: the ledger
+  gh#967 revision (the §3 book-sync, the §2 path fix, the §4 park,
+  the §7 partial resolution); the regression runs 9/9, 8/8, 20/20,
+  1/1, 4/4 GREEN; the closing act comment carries the marker
+  `<!-- w36: ledger-revision -->`.
+- №641 (gh#1124) — this record: the REALITY §6.28, the PLAN-SUMMARY
+  Wave-36 line finalized (the early hand of №647 pre-landed it), the
+  CHANGELOG Unreleased В36 entries (the registry surfaces moved by
+  №637/№638; the ADR-0188 doc by №640), and the dispatch closures
+  gh#1089 (the В34 housekeeping, the evidence list) + gh#1125 (the
+  В36 dispatch).
+
+| Surface | The value | Machine | Note |
+|---|---|---|---|
+| Parameterized share | **55/91 = 6043 bp — the 0.30 goal REACHED** | PR #1126 (the floors raised in-PR: baseline 6043, PARAM_FLOOR 52); the replay: `python3 scripts/ci/unfreeze_gate.py` | moved (3736 → 6043) |
+| Field-label | **9500 bp (38/40 = 95%)** | PR #1128 (FIELDMETA_FLOOR 37) | moved (5750 → 9500) |
+| ADR count | **180** (at the wave tail; 183 by the §6.27 date) | `python3 scripts/gen_metrics.py --check` | moved (179 → 180) |
+| The debt gate | **GATE OK** (0/15/0/0 vs the live thresholds after №675) | `python3 scripts/ci/debt_counters.py --gate scripts/ci/debt_baseline.txt` | replayed 2026-10-15 |
+| REFERENCE | **526/526 = 100.0%** | `python3 scripts/gen_reference_check.py` | replayed 2026-10-15 — the wave's PRs regenerated it in-lockstep |
+
+**The owner gates remaining after В36 (the status on the record
+date):** gh#1000 (the branch protection), the К-Б stage-2 enforcement
+verdict (not filed), the Камертон forwarding, №632 (gh#1100 — the
+plan-relevance audit release №3, 2026-11-01 ± 1 day), №648 (gh#1135 —
+2026-12-01), №682 (gh#1233 — the App C landing: the owner's release
+act → the pin bump). REMOVED from the gates by this record: the
+NLnet-20.10 line (the grants line closed by the owner's verdict,
+2026-10-12 — §6.24/§6.25), the parameterized movement to 5000 bp
+(REACHED by №637), the В36 tail itself (№639 executed, №641 this
+record).
+
+**The wave report line (№608/№470):** the whole-dispatch surface
+gh#1125 via `python3 scripts/ci/naryad_classes.py 1125 --line`
+(2026-10-15):
+`naryad-quota (№470/№608): 21 naryads — domain 2/21 = 9.5% — PASS (the standing limiter <= 1/3)`

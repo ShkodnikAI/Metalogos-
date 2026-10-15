@@ -1,0 +1,14 @@
+// S-TOOL-003 (№696) — two tools declaring the SAME method name do not
+// cross-talk (the qualified key tool.method), on BOTH backends.
+tool calc_a {
+  compute(x: Float) -> Float { return x + 1.0 }
+}
+tool calc_b {
+  compute(x: Float) -> Float { return x * 2.0 }
+}
+pattern Test(x: Float) -> String {
+  let a = calc_a.compute(x)
+  let b = calc_b.compute(x)
+  return to_string(a) + " " + to_string(b)
+}
+flow Main { input: Float = 3.0 -> Test -> output }

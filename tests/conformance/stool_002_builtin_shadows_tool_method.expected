@@ -1,0 +1,3 @@
+# S-TOOL-002 — the builtin shadows the same-named tool method.
+STATUS: ok
+OUT: x

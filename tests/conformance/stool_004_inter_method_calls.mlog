@@ -1,0 +1,16 @@
+// S-TOOL-004 (№696) — a tool method calls a sibling through the
+// qualified form (ADR-0054), on BOTH backends.
+tool api {
+  base_url() -> String { return "https://example.com" }
+  full_url(path: String) -> String {
+    let base = api.base_url()
+    return base + path
+  }
+  status() -> String { return "ok" }
+}
+pattern Test(path: String) -> String {
+  let url = api.full_url(path)
+  let st = api.status()
+  return url + " " + st
+}
+flow Main { input: String = "/api" -> Test -> output }

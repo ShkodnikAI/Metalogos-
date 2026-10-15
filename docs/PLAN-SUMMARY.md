@@ -112,7 +112,24 @@ gates remaining: the ADR-0191 §-answers (the OD variants), the train
 №2 candidate (19.10 — the [Unreleased] classification = the 0.31.0
 MINOR), №639 (15.10) / №648 (01.12) outside the wave.
 
-## Current wave — the open machine tail (2026-10-15)
+## Current wave — the open machine tail (2026-10-16)
+
+Wave 46 EXECUTED (the owner's direct command; the dispatch gh#1278):
+№694 (the showcase pin v0.32.0 + App C — cross-repo, the showcase PR
+#4), №695 (the ADR-0188 phase 2 — the safe stage `{{ param | safe }}`
+with the check-time Html typing; the ledger gh#967 §7 closed, №115
+executed), №696 (the spec topic 6 «Tools and the abstraction» —
+S-TOOL-001..007, 49 norms / 59 pairs total), №697 (the 0.32
+fixed-list movement №1 — closed 9/67, the sensitive floor 5034 →
+5655 bp). The post-wave sync: №698 (gh#1277) — this record, strictly
+last. The counters: ignore debt 8, sensitive 82/145 = 5655 bp,
+typed 346/526 (65.77%, precise 44.48%), norms 49, pairs 59,
+mirrors 6, dups 0. The in-flight machine tail: №648 (gh#1135, the
+dated plan audit 2026-12-01). The owner gates: the ADR-0193 verdict
+(parameters + the label re-anchor), the coverage threshold (№569),
+the №385 additive lane (the tool refusal codes), the 19.10 train
+window ([Unreleased] carries the №695 Added), NLnet M1 03.11.2026.
+The wave's REALITY record: §6.30.
 
 The in-flight machine surface: **№682 (gh#1233)** — verified-wait
 (the App C leg is proven on the fixed core; the landing gates on the

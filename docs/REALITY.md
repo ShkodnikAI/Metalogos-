@@ -2428,3 +2428,76 @@ enforcement verdict (not filed), the Камертон forwarding, №632 (gh#110
 landing), and the NEW follow-up from this record: the coverage
 runner-disk fix (the honest finding above). REMOVED by this record:
 the 0.32.0 publication itself (executed on the owner's verdict).
+
+
+### 6.30. Wave 46 post-wave record (naryad №698): the safe-pipe + spec-tools + fixed-list wave — the ADR-0188 phase 2 landed (the safe stage `{{ param | safe }}` with the check-time Html typing; the ledger gh#967 §7 closed, №115 executed), the spec topic 6 «Tools and the abstraction» (S-TOOL-001..007), the 0.32 fixed-list movement №1 (9 honest closures; the sensitive floor 5034 → 5655 bp), and the showcase pin v0.32.0 + App C landed cross-repo (main @ `8088962`, 2026-10-16)
+
+The wave executed by the OWNER's direct command («Исполни волну 46» —
+this branch as the executor, the methodologist role §21 kept for the
+acceptance form). The dispatch gh#1278 queue, all four code naryads
+squash-merged with 49/49 blocking checks green EACH:
+
+- **№694 (gh#1273 → showcase PR #4, squash `7b640966`)** — the showcase
+  pin v0.30.1 → v0.32.0 in ONE PR with the both-backend proof of every
+  app (the ADR-0190 §3(а) policy) + App C landed from `n682-app-c`
+  (the honesty-boundary agent, 107/120 lines); the CI of the showcase
+  green (SHA256 + BUILD-INFO + e2e both-backend 3/3); №682 (gh#1233)
+  closed with the completion-audit; the dead branches deleted. ZERO
+  edits to the core src (the naryad boundary).
+- **№695 (gh#1274 → PR gh#1279, squash `40e7da6`)** — the ADR-0188
+  phase 2: the pipe grammar v1 (ONE stage, `safe`) with the check-time
+  Html typing — `SAFE_PIPE_NOT_HTML` refuses on BOTH backends (the
+  №685 mirror for the escape-exempt slot), the runtime backstop
+  requires the opaque `Value::Html`, the taint layer CONDUCTS through
+  a safe slot (the html_label seeded map), the unrecognized forms
+  refuse (`UNSAFE_PIPE_FORM` — the N9 refusal narrowed and shifted
+  left); the classification lives in the ONE tokenizer
+  (`template_scan::classify_pipe`/`pipe_scan` — the №685 discipline;
+  the pest grammar untouched, the template bodies stay raw by design).
+  The ledger gh#967 §7 lifted (the last ignore GREEN both-backend;
+  the body patched to RESOLVED — all three lifts), №115 closes
+  EXECUTED (the lineage: PR gh#74 → №662 → №695), the debt floor
+  9 → 8 re-locked in the same PR (the №569/№675 procedure — the gate
+  itself demanded it). Docs in the same PR: REFERENCE §5.7 + the
+  render/template_render rows, the book syntax page, the CHANGELOG
+  Added entry (NO Security classification — the honest probe: the pipe
+  was a LOUD refusal before, nothing silently exploitable closed).
+- **№696 (gh#1275 → PR gh#1280, squash `81a5cd5`)** — the spec topic 6
+  «Tools and the abstraction»: 7 norms S-TOOL-001..007 over the live
+  №684 contract, each with the per-backend anchors and a conformance
+  pair (`stool_001..007`); the Topics table + the core counter synced
+  (33 → 49 norms). The probe found NO cross-backend divergence; the
+  honest finding (the topic's «Honest limits» + the PR flag): the
+  negative-path tool refusals carry NO `[CODE]` stamps — the refusal
+  norms are NOT recorded (the conformance contract requires a code for
+  an error pair); landing the stamps is the №385 additive lane.
+- **№697 (gh#1276 → PR gh#1281, squash `8088962`)** — the 0.32
+  fixed-list movement №1: NINE honest closures over the frozen list
+  (read_file_or, list_dir, voice_list, policy_check, http_download,
+  stt_transcribe, omni_ask, ocr_extract, vision_understand — every
+  signature from the LIVE handler, every Ok-site inventoried, each
+  verified by a both-backend test `tests/naryad_697_type_closures.rs`);
+  `--goal032` closed 9/67 (the report-only mode — the ADR-0193
+  parameters stay the owner's); the PDn core stayed HONESTLY uncovered
+  (the №650 refusal forms with the file:line facts: the opaque
+  handles, the stub rows, the dynamic-shape Struct, the union return);
+  the goals-facts №525 synced in the same PR.
+
+The counters at the record date (the generators, NOT hands):
+**ignore debt 8** (todo 0, dead_code 15 — the floor 8, №695),
+**sensitive 82/145 = 5655 bp** (the floor 5655 only-up — №697; the
+uncovered by reason: struct-no-meta 2, typed-coarse 3, untyped 58),
+**goal032 closed 9/67** (report-only), **typed signatures 346/526 =
+65.77% (precise 234/526 = 44.48%)** (the README generated block),
+**norms 49** (13+14+6+6+3+7) with **59 conformance pairs**,
+**mirrors 6, dups 0** (no new mirror: the pipe logic is single-home),
+**[Unreleased] carries the №695 Added** — the 19.10 train window can
+cut (the §2.4 ADR-0189 rule; the publication is the owner's act).
+
+The owner gates remaining (unchanged + the wave's flags): the
+ADR-0193 parameters (≥20/67, the PDn priority) + the «0.32 release»
+label RE-ANCHOR (v0.32.0 published 15.10 — the label is dead; the
+next minor window), the coverage threshold decision (№569, ≥76% line),
+the second maintainer, the №385 additive lane for the tool refusal
+codes (the №696 finding), the train window 19.10, NLnet/Restack M1
+(03.11.2026), №648 (01.12.2026).

@@ -1831,6 +1831,12 @@ server {
 
 The `server` keyword is a synonym for `mlogserver`.
 
+The normative contracts of this surface (the route vocabulary, the
+respond-form early-answer and the depth-2 refusal, the raw-insert
+Html-only rule, the protective-header ownership, the respond_html dual
+form) are recorded in [docs/spec/routes.md](spec/routes.md) — the
+specification is the reference; this section stays the prose map.
+
 Keys: `port` (Int, default 8080), `host` (String, optional, default `"0.0.0.0"`), `middleware`, `route`.
 Available middleware: `session`, `csrf`, `security_headers`.
 
@@ -2338,7 +2344,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `proof_seal(...)` | 2..3 | — | `proof_seal(world, chunk, telemetry?) -> Proof` |
 | `proof_verify(...)` | 1 | — | `proof_verify(proof) -> Struct` |
 | `trajectory_make(...)` | 1 | — | `trajectory_make(poses) -> Trajectory` |
-| `world_state(...)` | 1 | — | `world_state(device) -> WorldState` |
+| `world_state(...)` | 1 | — | `world_state(device) -> WorldState` — the normative state contracts (the private-by-default materialization refusals, the typed device chain) live in [docs/spec/state.md](spec/state.md) |
 
 ### `encoding` — 4 builtin(s)
 

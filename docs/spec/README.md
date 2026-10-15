@@ -55,13 +55,16 @@ Each norm's test is a pair `<id>.mlog` + `<id>.expected` in
 | 1. Comparisons and truthiness | [values.md](values.md) | S-VAL-001 … S-VAL-013 |
 | 2. Blocks and control flow | [blocks.md](blocks.md) | S-BLK-001 … S-BLK-014 |
 | 3. Errors and the try result | [errors.md](errors.md) | S-ERR-001 … S-ERR-006 |
-| 4. State and memory | (a following wave — §6.2) | — |
+| 4. Routes and the HTTP egress | [routes.md](routes.md) | S-RT-001 … S-RT-006 |
+| 5. State and memory | [state.md](state.md) | S-ST-001 … S-ST-003 |
 
-**The normative core: 33 norms** (13 value-semantics + 14 blocks/control
-flow + 6 errors/try), every one probed on both backends per the №645
-protocol; the probe of topic 2 made three honest findings recorded in
-its «Honest limits» (№652-a/№652-b/№652-c — the candidate repair
-naryads, all three repaired by №658/№659); the probe of topic 3 found NO
-cross-backend divergence — the try shape and the code classification are
-shared-code parity by construction (the topic's «Honest limits» records
-the scope notes).
+**The normative core: 42 norms** (13 value-semantics + 14 blocks/control
+flow + 6 errors/try + 6 routes/HTTP-egress + 3 state/memory), every one
+probed on both backends per the №645 protocol; the probe of topic 2
+made three honest findings recorded in its «Honest limits»
+(№652-a/№652-b/№652-c — the candidate repair naryads, all three
+repaired by №658/№659); the probes of topics 3, 4 and 5 found NO
+cross-backend divergence — the try shape and the code classification
+are shared-code parity by construction, and the route/state refusals
+are shared-code builtins and semantic checks (the topics' «Honest
+limits» cite the mirrored by-design boundaries).

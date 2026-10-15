@@ -1,0 +1,10 @@
+// S-RT-002 (№691): the route body's DIRECT respond* is the early answer
+// (the №584 contract) — the declaration compiles on BOTH backends.
+server {
+  route "/hello" method=GET {
+    respond("hello")
+  }
+}
+flow Main {
+  input: String = "ok" -> output
+}

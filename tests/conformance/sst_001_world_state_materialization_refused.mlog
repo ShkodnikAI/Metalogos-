@@ -1,0 +1,12 @@
+// S-ST-001 (№691; №355/ADR-0159): world_state is PRIVATE by default —
+// the materialization surfaces (print/to_string/json_encode) refuse the
+// typed WORLD_STATE_PRIVATE refusal at RUNTIME on BOTH backends.
+pattern Snap(x: String) -> String {
+  let d = device_open("embodied-mock-device")
+  let w = world_state(d)
+  print(w)
+  return "unreachable"
+}
+flow Main {
+  input: String = "x" -> Snap -> output
+}

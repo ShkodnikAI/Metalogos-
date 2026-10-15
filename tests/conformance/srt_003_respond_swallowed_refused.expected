@@ -1,0 +1,3 @@
+# S-RT-003 (№691; №600) — the nested respond under a block-form if refuses.
+STATUS: error
+CODE: RESPOND_SWALLOWED

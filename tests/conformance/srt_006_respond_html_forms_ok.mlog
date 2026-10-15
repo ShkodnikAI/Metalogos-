@@ -1,0 +1,12 @@
+// S-RT-006 (№691; №673): the respond_html dual contract — the 1-arg
+// office form and the 2-arg (title, body) full-document form both run
+// on BOTH backends.
+flow Main {
+  input: String = "x" -> output
+}
+pattern Doc() -> String {
+  return respond_html("<h1>Report</h1><p>body text</p>")
+}
+pattern Titled() -> String {
+  return respond_html("Report", "<p>body text</p>")
+}

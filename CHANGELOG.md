@@ -132,6 +132,23 @@ All notable changes to the Metalogos project.
   denominator growth 66/138 → 73/145 while `untyped 67` did not move)
   is closed mechanically: only closing REAL rows of the FROZEN list
   moves the goal.
+- **№691 (gh#1258, В44 — the spec topics):** the specification grew two
+  topics — **routes.md** (Topic 4: S-RT-001 the route declaration
+  vocabulary, S-RT-002 the direct respond* early answer, S-RT-003 the
+  depth-2 RESPOND_SWALLOWED refusal, S-RT-004 the raw-insert Html-only
+  rule, S-RT-005 the protective-header ownership — the middleware's,
+  not set_header's, S-RT-006 the respond_html dual contract) and
+  **state.md** (Topic 5: S-ST-001 the world_state private-by-default
+  materialization refusals, S-ST-002 the private label gates
+  materialization — not the handle flow — plus the typed device chain,
+  S-ST-003 the literal-key memory round-trip). NINE new conformance
+  pairs (both backends, the №645 runner; the №685 raw-insert pairs
+  referenced, not duplicated); the probes found NO cross-backend
+  divergence — the route/state refusals are shared-code builtins and
+  semantic checks. The normative core: 33 → 42 norms. The №674
+  mirror-scan IN SYNC (the №668 typed-coarse honesty got its №588-form
+  limitations row in the same PR); REFERENCE cross-references the
+  topics from the server and the world_state rows.
 
 - **№674 (gh#1201, В41, process/ci — the honest-boundary machine sees
   the spec):** `honest_boundary_check.py` now scans the «Honest limits»

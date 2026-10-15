@@ -1,0 +1,14 @@
+// S-ST-002 (№691): the world_state HANDLE flows as an opaque value —
+// the private label gates the MATERIALIZATION, not the handle passing
+// through patterns; the program runs on BOTH backends.
+pattern Take(w: Fluid) -> String {
+  return "handle accepted"
+}
+pattern Snap(x: String) -> String {
+  let d = device_open("embodied-mock-device")
+  let w = world_state(d)
+  return Take(w)
+}
+flow Main {
+  input: String = "x" -> Snap -> output
+}

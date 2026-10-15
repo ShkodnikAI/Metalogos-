@@ -1,0 +1,19 @@
+// S-RT-001 (№691): the route-declaration vocabulary — the seven HTTP
+// methods, the five middleware names, the requires=[role] guards —
+// compiles and the program still runs its flow on BOTH backends.
+server {
+  port: 8080
+  host: "127.0.0.1"
+  middleware: [session, csrf, security_headers, rate_limit, cors]
+  route "/" method=GET { respond("index") }
+  route "/submit" method=POST { respond("done") }
+  route "/put" method=PUT { respond("put") }
+  route "/del" method=DELETE { respond("del") }
+  route "/patch" method=PATCH { respond("patch") }
+  route "/head" method=HEAD { respond("head") }
+  route "/opts" method=OPTIONS { respond("opts") }
+  route "/admin" method=GET requires=[admin] { respond("admin-area") }
+}
+flow Main {
+  input: String = "spec" -> output
+}

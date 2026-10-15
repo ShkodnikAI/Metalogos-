@@ -112,13 +112,13 @@ gates remaining: the ADR-0191 §-answers (the OD variants), the train
 №2 candidate (19.10 — the [Unreleased] classification = the 0.31.0
 MINOR), №639 (15.10) / №648 (01.12) outside the wave.
 
-## Current wave — the open machine tail (2026-10-14)
+## Current wave — the open machine tail (2026-10-15)
 
-The in-flight machine surface after В41 closed: **№682 (gh#1233)** —
-verified-wait (the App C leg is proven on the fixed core; the landing
-gates on the owner's release act → the pin bump; see the issue's
-machine trail); **№639 (gh#1122)** — the dated ledger revision
-(2026-10-15); **№648 (gh#1135)** — the dated plan audit (2026-12-01).
+The in-flight machine surface: **№682 (gh#1233)** — verified-wait
+(the App C leg is proven on the fixed core; the landing gates on the
+owner's release act → the pin bump; see the issue's machine trail);
+**№648 (gh#1135)** — the dated plan audit (2026-12-01). The В36 tail
+is closed (№639 executed 2026-10-15, №641 this sync).
 The showcase wave's record: the «Executed — Wave 42» section below and
 REALITY §6.27.
 
@@ -298,10 +298,13 @@ table read off the handlers, 5750 → **9500 bp (38/40 = 95%)**
 (FIELDMETA_FLOOR 37); №640 (gh#1123, PR #1127 → bddc4cc) — the ADR-0188
 DRAFT (the template-semantics composition, the ledger §7 lane):
 Proposed, owner_fixed: false, no implementations, ADR 179 → 180. The
-dated tail: №639 (gh#1122) — the ledger gh#967 revision, DATED
-2026-10-15 (± 1 day), verified-wait; №641 (gh#1124) — the В36 docs
-sync, strictly last (its PLAN-SUMMARY Wave-36 line landed early by the
-№647 hand — the wave's closing naryad stays open until the №639 date).
+dated tail EXECUTED: №639 (gh#1122) — the ledger gh#967 revision
+executed at its dated window 2026-10-15 (the §3 book-sync restored,
+the §2 path fixed, the §4 parked with evidence, the §7 partially
+resolved — the closing act carries the marker
+`<!-- w36: ledger-revision -->`); №641 (gh#1124) — the В36 docs sync,
+executed 2026-10-15 (REALITY §6.28; the dispatches gh#1089 and
+gh#1125 closed).
 The counters: parameterized 6043 bp (moved), field-label 9500 bp
 (moved), ADR 180, the rest unchanged from В35.
 

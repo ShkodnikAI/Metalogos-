@@ -431,6 +431,21 @@ All notable changes to the Metalogos project.
   (gh#1163), the pipe syntax stays the documented gap (№115).
 ### Changed
 
+- **№686 (gh#1253, В44 — the audit f92c61c S-1/S-2):** the risk-review
+  checklist grew item 10 — SANITIZERS, SOURCES, AND SINKS. A PR changing
+  the taint/label sites (`audit.rs`, `html_label.rs`, the `semantic.rs`
+  lattice, `builtins_classification.rs`), the sanitize/source/sink name
+  sets in them, or the `render`/`template_render`/`set_header`-class
+  contracts must carry the sanitizer section in the PR description: the
+  touched sites, the before/after for every affected `source → sink`
+  path, and the regression pair (or the justification of its absence).
+  The reminder is mechanical — the risk-review report prints the item-10
+  section whenever the diff touches a site file, and a site hit triggers
+  the report on its own (no new CI job; the existing advisory job grew
+  the scan, the №604-class form; the guard's own check is a fixture
+  self-test pinned by the CI-side driver
+  `tests/naryad_686_sanitizer_guard.rs`).
+
 - **№676 (gh#1203, В41, docs/hygiene — the audit 7c3456b §4 checklist,
   all 11 rows):** the repo-tree cleanliness is now machine-enforced — a
   blocking `git status --porcelain` step after the Library tests AND the

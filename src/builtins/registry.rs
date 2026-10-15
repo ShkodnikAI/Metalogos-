@@ -595,13 +595,30 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("smtp_send", 3, 6, "email"; builtin_smtp_send), // to, subject, body [,attachments_json, from, reply_to]
     spec!("smtp_send_html", 3, 4, "email"; builtin_smtp_send_html), // to, subject, html [,attachments_json]
     spec!("imap_list", 2, 3, "email"; builtin_imap_list, "List<ImapMessage>"), // folder, limit [,since_date] — №650: the element read off imap_list_impl (make_struct "ImapMessage"); every field arrives from the IMAP server (Network ingress) or echoes the caller uid → untrusted. The element's field-labels stay OFF the spelling at stage 0 (the Tool/DayForecast precedent: the {field:label} section is a Struct form — stage 2), recorded here honestly: uid/from/subject/date/seen/size — all untrusted
-    spec!("imap_read", 1, "email"; builtin_imap_read, "Struct<ImapEmail>{uid:untrusted,from:untrusted,to:untrusted,subject:untrusted,date:untrusted,body_text:untrusted,body_html:untrusted,attachments:untrusted,seen:untrusted}"), // uid — №650: the shape read off imap_read_impl (make_struct "ImapEmail"); all 9 fields are the server payload (headers/body/flags) or the caller uid echo → untrusted
+    // №650 (the shape read off imap_read_impl, make_struct "ImapEmail") +
+    // №689 (gh#1256, R-1): the ПДн fields of the mail container are
+    // `private` — from/to/subject are the correspondence participants and
+    // topic, body_text/body_html are the letter bodies, attachments are
+    // the enclosed files; the server metadata (uid = the caller's echo,
+    // date/seen = the envelope flags) stays `untrusted`. The marks are
+    // the FIRST flow-path input: the №689 bridge (semantic.rs) reads them
+    // so imap_read fields into smtp_send/http_post/respond speak the
+    // PII_EGRESS_* classes (the RED-first proof:
+    // tests/naryad_689_private_field_flow.rs).
+    spec!("imap_read", 1, "email"; builtin_imap_read, "Struct<ImapEmail>{uid:untrusted,from:private,to:private,subject:private,date:untrusted,body_text:private,body_html:private,attachments:private,seen:untrusted}"),
     spec!("imap_search", 2, "email"; builtin_imap_search, "List<ImapMessage>"), // query, folder — №650: the element read off imap_search_impl (make_struct "ImapMessage", the 4-field arm); all fields from the IMAP server → untrusted (the SAME type_name carries a DIFFERENT field set on the imap_list row — the №638 two-shapes precedent; the element labels — stage 2, the Tool/DayForecast precedent)
     spec!("imap_mark_read", 1, "email"; builtin_imap_mark_read),                // uid
     spec!("imap_move", 2, "email"; builtin_imap_move),                          // uid, dest_folder
     // ── Наряд MLG-5: Calendar (CalDAV + iCal) ──
     spec!("cal_connect", 3, "calendar"; builtin_cal_connect, "String"), // url, user, pass
     spec!("cal_list", 1, "calendar"; builtin_cal_list, "String"),       // session_id
+    // №689: the live return is the JSON array of event structs
+    // (calendar.rs, Value::String) — the honest unstructured-string
+    // answer with the reason: the CONTENT is ПДн (schedules, attendees,
+    // locations), but the stage-0 scalar vocabulary carries no label
+    // (a `String<private>` row erases to Unknown — the typed floor
+    // regresses), and the structural typing is the stage-2 contour.
+    // Nothing here changed silently; see the card_contacts row twin.
     spec!("cal_events", 3, "calendar"; builtin_cal_events, "String"), // calendar_id, start, end — №650: the live return is Value::String (the JSON array of event structs, calendar.rs) — a scalar stage-0 type
     spec!("cal_read", 1, "calendar"; builtin_cal_read, "String"), // event_uid — №650: Value::String (the JSON struct, calendar.rs)
     spec!("cal_create", 4, 7, "calendar"; builtin_cal_create), // cal_id, summary, start, end [,desc, location, attendees_json]
@@ -613,6 +630,16 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // ── Наряд MLG-6: Contacts (CardDAV + vCard) ──
     spec!("card_connect", 3, "contacts"; builtin_card_connect, "String"), // url, user, pass
     spec!("card_list", 1, "contacts"; builtin_card_list, "String"),       // session_id
+    // №689: the live return is the JSON array of contact structs
+    // (contacts.rs, Value::String) — the honest unstructured-string
+    // answer with the reason: the CONTENT is ПДн (names/emails/phones),
+    // but the stage-0 scalar vocabulary carries no label (from_path
+    // lifts the flat spellings only — a `String<private>` row erases to
+    // Unknown and REGRESSES the typed floor), and the structural typing
+    // means changing the impl to a Value::Struct return — the stage-2
+    // contour, not the first tranche. The ПДн flow check for this row
+    // lands with the structural typing (the №688 list, next tranches);
+    // nothing here changed silently.
     spec!("card_contacts", 2, "contacts"; builtin_card_contacts, "String"), // addressbook_id, query — №650: Value::String (the JSON array, contacts.rs)
     spec!("card_read", 1, "contacts"; builtin_card_read, "String"),         // contact_uid
     spec!("card_create", 3, 7, "contacts"; builtin_card_create, "String"), // addressbook_id, fn, email [,tel, org, title, note]

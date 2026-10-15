@@ -6,6 +6,40 @@ All notable changes to the Metalogos project.
 
 ### Security
 
+- **№689 (gh#1256, В44 — the R-1 audit finding; fix date 2026-10-15):**
+  the mail ПДн (personal data) learned to SPEAK at the flow layer. Before
+  the fix the `private` mark lived on exactly ONE registry row
+  (`canary_check`, №661), `imap_read` carried all 9 fields `untrusted`,
+  and the label engine was NAME-based only — the registry field-meta
+  never reached the №323/№325 flow machinery: a program could send the
+  mail correspondence (from/to/subject/body_text/body_html/attachments)
+  straight into `smtp_send`/`http_post`/`respond` with ZERO findings —
+  the silent ПДн egress the audit's R-1 described («the machine does not
+  check the private → sink flow because there are almost no marks»).
+  The repair, RED-first (tests/naryad_689_private_field_flow.rs): (1)
+  the REGISTRY marks — the ImapEmail ПДн fields are `private` now (the
+  shape read off the impl, №650; uid/date/seen stay `untrusted` — the
+  server metadata); (2) the BRIDGE —
+  `semantic::registry_private_flow_label`: a row whose field-meta
+  carries `private` seeds the flow layer with the type-layer secret
+  projection (conf=private, integrity=trusted, the ADR-0154 §2 form), so
+  the №325 sink gate fires the PII_EGRESS_NETWORK / PII_EGRESS_OUTPUT
+  classes on the let-bound AND the direct-call paths; `redact` stays the
+  only legal downward cure (№326, tested). The honest boundaries: the
+  bridge is deliberately NARROW (rows without a private mark — the
+  untrusted/integrity vocabulary — keep the old path; whole-value
+  fail-closed posture, the per-field precision is the stage-2 contour);
+  `card_contacts`/`cal_events` keep the honest JSON-String spelling with
+  the reason in the row comments (the stage-0 scalar vocabulary carries
+  no label — a `String<private>` row would erase to Unknown and regress
+  the typed floor; the structural typing is the №688-cycle tranche).
+  Metrics (the actual recount): the field-label share 46/48 = 95.83% —
+  unchanged; the sensitive surface 73/145 = 5034 bp — unchanged (the
+  marks changed values, not coverage). Affected: programs egressing the
+  imap_read fields into the egress sinks — they now refuse at compile
+  with the PII class named (advisory under `profile legacy`, the №325
+  posture).
+
 - **№685 (gh#1252, В44 — the S-1 audit's High finding; fix date 2026-10-15):**
   the RAW template insert `{{{ var }}}` in `render()` is FAIL-CLOSED now.
   Before the fix the N9 raw form (gh#1219) landed its argument VERBATIM in

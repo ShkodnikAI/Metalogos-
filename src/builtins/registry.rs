@@ -191,7 +191,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("append_file", 2, "io"; builtin_append_file, "String"),
     spec!("delete_file", 1, "io"; builtin_delete_file, "String"),
     spec!("file_exists", 1, "io"; builtin_file_exists, "Bool"),
-    spec!("list_dir", 1, "io"; builtin_list_dir),
+    spec!("list_dir", 1, "io"; builtin_list_dir, "List<String>"),
     spec!("exec", 1, "io"; builtin_exec, "String"),
     spec!("exec_argv", 1, 2, "io"; builtin_exec_argv, "String"), // binary required, args list optional
     spec!("git_push", 1, "io"; builtin_git_push, "String"),
@@ -253,7 +253,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("http_get", 1, 4, "web"; builtin_http_get, "String"), // url | url,headers | url,headers,timeout | ...,{max_retries:N,base_delay:N}
     spec!("http_post", 2, 6, "web"; builtin_http_post, "String"), // up to +retry_config Struct
     spec!("http_post_multipart", 2, 4, "web"; builtin_http_post_multipart, "String"),
-    spec!("http_download", 2, 3, "web"; builtin_http_download), // Наряд №76: url,dest_path | url,dest_path,headers
+    spec!("http_download", 2, 3, "web"; builtin_http_download, "Bool"), // Наряд №76: url,dest_path | url,dest_path,headers
     spec!("require", 1, 2, "web"; builtin_require, "Unit"),
     spec!("request_body", 0, "web"; builtin_json_body),
     spec!("web_search", 1, 2, "web"; builtin_web_search, "String"), // query | query,num
@@ -515,7 +515,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("compact_list", 3, "list"; builtin_compact_list), // №537: Unknown honest — List | the struct report{compacted, removed_count}
     spec!("budget_check", 2, "fluid"; builtin_budget_check),
     spec!("replay_snapshot", 1, "system"; builtin_replay_snapshot),
-    spec!("policy_check", 1, "system"; builtin_policy_check), // ── obsidian-mind: Vault / semantic search ──
+    spec!("policy_check", 1, "system"; builtin_policy_check, "Struct<PolicyResult>{allowed:internal,reason:internal}"), // ── obsidian-mind: Vault / semantic search ──
     spec!("semantic_search", 3, "vault" => "ext"; builtin_semantic_search, "List<SearchResult>"), // №668: the element read off builtin_semantic_search (office/text.rs:738-745, make_struct "SearchResult", the SINGLE arm — the empty-documents early return IS the empty List of the same shape); text echoes the caller's documents (untrusted), index/score are the in-tree embedding/similarity computation (internal); the element's field-labels — stage 2 (the Tool/DayForecast precedent)
     spec!("config_load", 1, "vault" => "ext"; builtin_config_load),
     spec!("vault_validate", 2, "vault" => "ext"; builtin_vault_validate),
@@ -1020,9 +1020,9 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // SHA-verified weights are on disk (PARKED №294 — no inference is
     // promised). Handlers: voice::backend (stt/omni), vision::understand.
     // Registry 432→435 (append-only, bytecode indices stable).
-    spec!("stt_transcribe", 1, 2, "voice"; builtin_stt_transcribe),
-    spec!("omni_ask", 1, 3, "voice"; builtin_omni_ask),
-    spec!("vision_understand", 1, 3, "vision"; builtin_vision_understand),
+    spec!("stt_transcribe", 1, 2, "voice"; builtin_stt_transcribe, "String"),
+    spec!("omni_ask", 1, 3, "voice"; builtin_omni_ask, "String"),
+    spec!("vision_understand", 1, 3, "vision"; builtin_vision_understand, "String"),
     // ── Наряд №335 (spec §7.2 v2): consent grant/revoke + quarantine ──
     // The consent component's surface (redact precedent: policy as
     // value, builtins not AST). grant/revoke record the ledger and pass
@@ -1084,7 +1084,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // weights artifact — PARKED №294). Handler: vision::ocr. APPENDED
     // at the end — inserting mid-array would shift existing CallBuiltin
     // indices (.mbc contract). Registry 458→459 (append-only).
-    spec!("ocr_extract", 1, 3, "vision"; builtin_ocr_extract),
+    spec!("ocr_extract", 1, 3, "vision"; builtin_ocr_extract, "String"),
     // ── Naryad #415 (P1, security/ledger): the runtime verify hook —
     // read-only structural verification of an exported chain (the audit
     // P2-2 residue). APPENDED at the end — inserting mid-array would
@@ -1125,7 +1125,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // with read_file. The read_file №254 contract is unchanged.
     // APPENDED at the end — inserting mid-array would shift existing
     // CallBuiltin indices (.mbc contract). Registry 501→502 (append-only).
-    spec!("read_file_or", 2, "io"; builtin_read_file_or),
+    spec!("read_file_or", 2, "io"; builtin_read_file_or, "String"),
     // ── №514 (P1, hardening; the audit 28.09 C-10): the EXPLICIT-silence
     // twins of to_float/to_int — the `_or` suffix carries the silent-default
     // semantics IN THE NAME (the №481 env/env_or naming rule, ONE soft-
@@ -1150,7 +1150,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // the end — inserting mid-array would shift existing CallBuiltin
     // indices (.mbc contract). Registry 505→507 (append-only).
     spec!("voice_delete", 1, "voice"; builtin_voice_delete), // voice|audio handle
-    spec!("voice_list", 0, "voice"; builtin_voice_list),
+    spec!("voice_list", 0, "voice"; builtin_voice_list, "String"),
     // ── №591 (Волна 30, Камертон Н1-05/Н1-07, инвариант 3): the spectral
     // contour — the Lomb–Scargle periodogram for unevenly sampled series
     // (gapped observations are the norm; FFT needs a uniform grid) and the

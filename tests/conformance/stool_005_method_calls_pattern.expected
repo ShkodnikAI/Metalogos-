@@ -1,0 +1,3 @@
+# S-TOOL-005 — the pattern call inside a tool method resolves.
+STATUS: ok
+OUT: 51

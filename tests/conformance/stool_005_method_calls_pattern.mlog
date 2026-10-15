@@ -1,0 +1,16 @@
+// S-TOOL-005 (№696) — a tool method may call a regular pattern, on
+// BOTH backends.
+pattern helper(n: Float) -> Float {
+  return n * 10.0
+}
+tool calc {
+  scaled(n: Float) -> Float {
+    let h = helper(n)
+    return h + 1.0
+  }
+}
+pattern Test(n: Float) -> String {
+  let r = calc.scaled(n)
+  return to_string(r)
+}
+flow Main { input: Float = 5.0 -> Test -> output }

@@ -1,0 +1,13 @@
+// S-TOOL-001 (№696) — a tool declaration exposes methods through the
+// qualified call, identically on BOTH backends (the №684 contract).
+tool math_api {
+  double(n: Float) -> Float { return n + n }
+  square(n: Float) -> Float { return n * n }
+}
+entity x: Float = 5.0
+pattern Test(n: Float) -> String {
+  let d = math_api.double(n)
+  let s = math_api.square(n)
+  return to_string(d) + " " + to_string(s)
+}
+flow Main { input: Float = x -> Test -> output }

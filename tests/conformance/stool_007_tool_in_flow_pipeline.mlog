@@ -1,0 +1,12 @@
+// S-TOOL-007 (№696) — a pattern invoking a tool method composes as an
+// intermediate flow step, on BOTH backends.
+tool calc {
+  double(n: Float) -> Float { return n * 2.0 }
+}
+pattern DoubleIt(n: Float) -> Float {
+  return calc.double(n)
+}
+pattern Format(n: Float) -> String {
+  return to_string(n)
+}
+flow Main { input: Float = 4.0 -> DoubleIt -> Format -> output }

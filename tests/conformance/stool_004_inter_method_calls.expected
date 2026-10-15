@@ -1,0 +1,3 @@
+# S-TOOL-004 — the qualified sibling call resolves inside the tool.
+STATUS: ok
+OUT: https://example.com/api ok

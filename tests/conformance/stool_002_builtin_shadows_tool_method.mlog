@@ -1,0 +1,10 @@
+// S-TOOL-002 (№696) — the resolution order tier 2: a plain builtin
+// SHADOWS a tool method of the same name (the tool body is
+// unreachable), identically on BOTH backends (№684).
+tool str_api {
+  trim(s: String) -> String { return "TOOL-BODY-REACHED" }
+}
+pattern Test(i: String) -> String {
+  return str_api.trim("  x  ")
+}
+flow Main { input: String = "i" -> Test -> output }

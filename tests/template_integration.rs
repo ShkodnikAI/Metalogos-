@@ -62,16 +62,35 @@ flow F { input: String = "x" -> Main -> output }
     );
 }
 
-/// Pipe syntax `{{ x | safe }}` not implemented — keep ignored with honest reason.
+/// №695 (gh#1274, В46 — ADR-0188 phase 2): the §7 LIFT — the exact
+/// source this test ignored ("the pipe syntax {{ var | safe }} is not
+/// implemented; composition needs an ADR") now RUNS GREEN: the ADR
+/// exists (ADR-0188, the owner's verdict gh#1123), phase 2 landed, and
+/// the full both-backend composition contract lives in
+/// tests/naryad_695_safe_pipe.rs (the ledger gh#967 §7 closes with
+/// this lift; №115 closes executed).
 #[test]
-#[ignore = "Known issue gh#967 §7: the pipe syntax {{ var | safe }} is not implemented (№115); composition needs an ADR"]
-fn template_safe_pipe_not_implemented() {
+fn template_safe_pipe_composes() {
     let source = r#"
 template Layout(content: Html) -> Html {
 <body>{{ content | safe }}</body>
 }
+template Frag() -> Html {
+<i>ok</i>
+}
+pattern P(i: String) -> String {
+  return render("Layout", render("Frag"))
+}
+flow Main { input: String = "x" -> P -> output }
 "#;
-    let _ = metalogos::run_program(source);
+    let out = metalogos::run_program(source)
+        .expect("the safe pipe composition runs (the §7 lift)")
+        .unwrap_or_default();
+    assert!(
+        out.contains("<i>ok</i>"),
+        "the safe slot must ride raw, got: {}",
+        out
+    );
 }
 
 /// Compile-time opaque Html check not implemented — runtime only (naryad 114/115).

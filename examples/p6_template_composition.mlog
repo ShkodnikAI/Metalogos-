@@ -1,8 +1,10 @@
 // Naryad №86/№115 + N9 (gh#1219) + №685 (gh#1252): template composition —
 // the ESCAPED default ({{ title }}) for the data, the RAW triple-brace
 // form ({{{ content }}}) for the trusted program-built fragment. The
-// Jinja-style `{{ var | safe }}` is NOT supported (the loud refusal,
-// N9) — the raw insert is the triple-brace form.
+// pipe stage `{{ param | safe }}` is ALSO a raw landing now (№695,
+// ADR-0188 phase 2) — this example keeps the triple-brace form; the
+// two are the same contract family (the raw slot is Html-typed and
+// taint-conducting either way).
 // №685 (the S-1 audit): a raw-insert parameter must be declared Html —
 // the trusted fragment is built by an explicit Html producer
 // (render("Body")), the static gates refuse anything else

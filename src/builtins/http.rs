@@ -21,82 +21,78 @@ use std::sync::Mutex;
 pub(crate) struct TemplateEntry {
     pub body: String,
     pub params: Vec<String>,
+    /// №695 (ADR-0188 phase 2): the param NAMES used in the recognized
+    /// safe form `{{ param | safe }}` — computed by the shared
+    /// `template_scan::pipe_scan` at registration. The runtime backstop
+    /// reads it: a safe-slot value must be `Value::Html` (the opaque
+    /// type), never a plain String (SAFE_PIPE_NOT_HTML, fail-closed).
+    pub safe_params: Vec<String>,
 }
 
 pub(crate) static GLOBAL_TEMPLATES: Lazy<Mutex<HashMap<String, TemplateEntry>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
-/// The N9 (gh#1219) registration gate: the Jinja-style filter pipe
-/// (`{{ var | safe }}`) was NEVER implemented — `render()` left the
-/// placeholder verbatim in the output, `template_render` silently
-/// rendered it empty. The silent mismatch between the example syntax
-/// and the runtime is exactly what the naryad forbids. The refusal is
-/// LOUD at registration (compile-time on both backends — the №250
-/// compiler registration + the interpreter declaration walk) and names
-/// the supported raw-insert form.
-pub(crate) fn template_body_has_filter_pipe(body: &str) -> bool {
-    let b = body.as_bytes();
-    let mut i = 0;
-    while i < b.len() {
-        if b[i] == b'{' && i + 1 < b.len() && b[i + 1] == b'{' {
-            // Triple-brace open `{{{` (the raw form) vs double `{{`.
-            let open: usize = if i + 2 < b.len() && b[i + 2] == b'{' {
-                3
-            } else {
-                2
-            };
-            // Find the matching closing run.
-            let close: &[u8] = if open == 3 { b"}}}" } else { b"}}" };
-            let close_str = std::str::from_utf8(close).unwrap_or("}}");
-            let rest = &body[i + open..];
-            match rest.find(close_str) {
-                Some(end) => {
-                    let inner = rest[..end].trim();
-                    // The construct forms (#if / #each / /close / else)
-                    // are NOT var placeholders — their grammar may carry
-                    // a pipe inside a string literal ({{#if x == "a|b"}}).
-                    let is_construct =
-                        inner.starts_with('#') || inner.starts_with('/') || inner == "else";
-                    if !is_construct && inner.contains('|') {
-                        return true;
-                    }
-                    i = i + open + end + close.len();
-                }
-                None => return false, // unbalanced — not this check's problem
-            }
-        } else {
-            i += 1;
-        }
-    }
-    false
+/// №695 (ADR-0188 phase 2, gh#1274): the v1 pipe grammar — the safe
+/// stage `{{ param | safe }}` — is IMPLEMENTED (the check-time Html
+/// typing + the raw insert). What remains forbidden at registration is
+/// every UNRECOGNIZED pipe form (an unknown stage, multiple pipes, a
+/// pipe in the raw triple-brace form, an expr that is not a declared
+/// param): the N9 lesson (gh#1219) — a silent mismatch between the
+/// syntax and the runtime is forbidden — the refusal stays LOUD and
+/// names the supported forms. The check-time gate
+/// (`semantic::safe_pipe_not_html_violations`) refuses EARLIER on both
+/// backends (check_program + compile_program); registration is the
+/// runtime backstop for the ungated paths.
+pub(crate) fn template_pipe_refusal(body: &str, params: &[String]) -> Option<String> {
+    let (_, unsupported) = crate::template_scan::pipe_scan(body, params);
+    let first = unsupported.first()?;
+    Some(format!(
+        "template '{{{{ var | safe }}}}' form is the ONLY supported pipe stage (№695) — \
+         the tag '{{{{ {} }}}}' is NOT supported; the raw insert is the triple-brace form '{{{{{{ var }}}}}}' (N9, gh#1219)",
+        first
+    ))
 }
 
 /// Register a template body + param names (called from interpreter on
 /// Declaration::Template and from the compiler at compile time, №250).
-/// Fails LOUD on the unsupported filter-pipe syntax (N9, gh#1219).
+/// Fails LOUD on the unrecognized pipe forms (N9, gh#1219; №695 narrows
+/// the refusal to them — the safe stage composes now).
 pub(crate) fn register_template(name: &str, body: &str, params: Vec<String>) -> Result<(), String> {
-    if template_body_has_filter_pipe(body) {
-        return Err(format!(
-            "template '{}': the Jinja-style filter pipe '{{{{ var | safe }}}}' is NOT supported \
-             — the template parameters are ALWAYS escaped (the XSS-safe-by-construction contract); \
-             the raw insert is the triple-brace form '{{{{{{ var }}}}}}' (N9, gh#1219)",
-            name
-        ));
+    if let Some(refusal) = template_pipe_refusal(body, &params) {
+        return Err(format!("template '{}': {}", name, refusal));
     }
+    let (safe_idx, _) = crate::template_scan::pipe_scan(body, &params);
+    let safe_params = safe_idx
+        .iter()
+        .filter_map(|&i| params.get(i).cloned())
+        .collect();
     if let Ok(mut g) = GLOBAL_TEMPLATES.lock() {
         g.insert(
             name.to_string(),
             TemplateEntry {
                 body: body.to_string(),
                 params,
+                safe_params,
             },
         );
     }
     Ok(())
 }
 
-/// Substitute `{{ key }}` with HTML-escaped values. Shared with server path.
-pub(crate) fn render_template_body(body: &str, vars: &HashMap<String, String>) -> String {
+/// Substitute `{{ key }}` with HTML-escaped values. №695 (ADR-0188
+/// phase 2): the recognized safe form `{{ key | safe }}` substitutes the
+/// value RAW (no escape) — the check-time gate
+/// (`semantic::safe_pipe_not_html_violations`) guarantees the param is
+/// declared Html and `builtin_render`'s backstop guarantees the VALUE is
+/// `Value::Html`, so the raw slot never carries an untyped String. The
+/// spacing variants mirror the existing flat-replace contract (the
+/// spaced and the compact forms; exotic spacing stays verbatim — the
+/// same honest contract the plain form has always had).
+pub(crate) fn render_template_body(
+    body: &str,
+    vars: &HashMap<String, String>,
+    safe_params: &[String],
+) -> String {
     let mut result = body.to_string();
     for (key, val) in vars {
         // N9 (gh#1219): the RAW insert — the triple-brace form
@@ -107,6 +103,14 @@ pub(crate) fn render_template_body(body: &str, vars: &HashMap<String, String>) -
         // literals), the egress gates still apply downstream.
         result = result.replace(&format!("{{{{{{ {} }}}}}}", key), val);
         result = result.replace(&format!("{{{{{{{}}}}}}}", key), val);
+        // №695: the safe stage — the escape-exempt insert. The gate + the
+        // backstop own the Html guarantee; render only skips the escape.
+        if safe_params.iter().any(|p| p == key) {
+            result = result.replace(&format!("{{{{ {} | safe }}}}", key), val);
+            result = result.replace(&format!("{{{{{}|safe}}}}", key), val);
+            result = result.replace(&format!("{{{{ {}|safe }}}}", key), val);
+            result = result.replace(&format!("{{{{{} | safe}}}}", key), val);
+        }
         let escaped = escape_html_chars(val);
         // Support both {{key}} and {{ key }} (with spaces)
         result = result.replace(&format!("{{{{{}}}}}", key), &escaped);
@@ -576,6 +580,26 @@ pub(crate) fn builtin_render(args: &[Value]) -> Result<Value, String> {
 
     let mut vars = HashMap::new();
     for (param, val) in entry.params.iter().zip(values.iter()) {
+        // №695 (ADR-0188 phase 2): the RUNTIME BACKSTOP for the safe
+        // slots (the dual protection — the static gate is not weakened).
+        // A safe-slot value must be the opaque Html (produced by an
+        // explicit Html producer); a plain String in the safe slot is the
+        // fail-closed refusal — the same posture №685 landed for the
+        // raw-insert form. Unreachable from a checked program (the
+        // implicit String→Html coercion refuses at the call site), so
+        // this guards the ungated dynamics only.
+        if entry.safe_params.iter().any(|p| p == param) && !matches!(val, Value::Html(_)) {
+            return Err(format!(
+                "render('{}'): parameter '{}' is used in the safe insert '{{{{ {} | safe }}}}' \
+                 but the value is not Html ({}: {}) — build it with an explicit Html producer \
+                 (SAFE_PIPE_NOT_HTML, №695)",
+                template_name,
+                param,
+                param,
+                val.type_name(),
+                val
+            ));
+        }
         let s = match val {
             Value::String(s) => s.clone(),
             Value::Html(h) => h.clone(), // allow Html for composition (still escaped unless |safe)
@@ -584,7 +608,7 @@ pub(crate) fn builtin_render(args: &[Value]) -> Result<Value, String> {
         vars.insert(param.clone(), s);
     }
 
-    let html = render_template_body(&entry.body, &vars);
+    let html = render_template_body(&entry.body, &vars, &entry.safe_params);
     // Наряд №173b: trim leading/trailing whitespace from template output.
     // Template bodies in .mlog source start with a newline after the `{`:
     //   template Foo(x: String) -> Html {

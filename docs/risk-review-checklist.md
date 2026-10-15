@@ -16,7 +16,7 @@ checklist; the reviewer (a second agent run, the owner, or the future
 second maintainer — №471) works through the items against the mechanical
 report.
 
-## The nine items
+## The ten items
 
 1. **Execution context.** Does the change touch a serve-route, cron or
    exec path? Every new/changed route and tick runs under its gate
@@ -84,6 +84,27 @@ report.
    block-form if/else — the guard-bypass shape) silently lost its
    fail-closed refusal and became the Y-1 High regression, fixed by
    №600.
+
+10. **Sanitizers, sources, and sinks (№686 — the audit `f92c61c`
+    S-1/S-2 rule).** If the PR changes (a) the taint/label sites —
+    `src/audit.rs` (get_expr_taint/binding_taint + the taint lanes),
+    `src/html_label.rs`, `src/semantic.rs` (the label lattice), `src/
+    builtins_classification.rs` (the classification map), (b) the
+    sanitize/source/sink NAME SETS living in them (render, escape_html,
+    ct_eq, redact; the source vocabulary; the sink wiring), or (c) the
+    `render`/`template_render`/`set_header`-class contracts — the PR
+    description MUST carry the sanitizer section: the touched sites
+    enumerated; for EVERY affected `source → sink` path a before/after
+    (which label/check the path carried before, which it carries after,
+    which gate fires now); and a regression pair (a TW/VM conformance
+    pair or a compile-red test) or the justification why the change
+    cannot produce one. The mechanical reminder is automatic: the
+    risk-review report prints the item-10 section whenever the diff
+    touches a site file. The lesson is the S-1 finding itself — a
+    sanitizer-semantics change (N9 in `render()`) that ships without
+    this section is work outside the machine (the audit's exact words:
+    the change "did not reach the risk-review checklist, the domain
+    quota, or the honest-boundaries protocol").
 
 
 ## The mechanical report

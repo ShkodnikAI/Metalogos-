@@ -15,6 +15,16 @@ the three mechanical lists (raw `std::fs::` calls, stateful-name backend
 parity, ALL-CAPS env literals without the METALOGOS_ prefix) the
 checklist item 8 requires every completion report to close or justify.
 
+№686 (gh#1253, the audit f92c61c S-1/S-2): the checklist grew item 10 —
+SANITIZERS, SOURCES, AND SINKS. A diff touching a taint/label site file
+(audit.rs / html_label.rs / builtins_classification.rs / the semantic.rs
+lattice) carries the item-10 section in the report (the machine
+reminds; the reviewer answers in the PR description), and a sanitizer-
+site hit TRIGGERS the report on its own (a PR that touches only
+html_label.rs must not slip past the reminder silently). The self-test
+feeds synthetic fixture diffs — no git, no network (the guard's own
+check is a test, the merge_ci_audit --self-test form).
+
 This script does the MECHANICAL half only: it maps the changed lines to
 the checklist items (item → file:line → observation). The JUDGMENT half
 belongs to the reviewer working through the checklist against this
@@ -23,6 +33,7 @@ report.
 Usage:
   risk_review.py --changed BASE HEAD   → exit 0 triggered / 1 not
   risk_review.py --report BASE HEAD    → the markdown report (stdout)
+  risk_review.py --self-test           → the fixture self-test (green)
 """
 import re
 import subprocess
@@ -42,6 +53,18 @@ PERIMETER = (
 
 PERIMETER_PREFIXES = (
     "src/llm",  # llm.rs, llm_stream.rs — the llm* family
+)
+
+# №686: the sanitizer/source/sink site files — the checklist item 10
+# trigger set. Basename match (the crate split may move a file; the
+# №567 perimeter-follow precedent). audit.rs and semantic.rs are already
+# in the PERIMETER; html_label.rs and builtins_classification.rs join
+# through this set, and ALL FOUR carry the item-10 section.
+SANITIZER_SITE_FILES = (
+    "audit.rs",
+    "html_label.rs",
+    "builtins_classification.rs",
+    "semantic.rs",
 )
 
 # The checklist items (the mechanical observation patterns per item).
@@ -113,13 +136,16 @@ def run(cmd):
     return subprocess.run(cmd, capture_output=True, text=True).stdout
 
 
-def changed_lines(base, head):
-    """{path: [(lineno, '+'-side text)]} for the changed files."""
-    diff = run(["git", "diff", "--unified=0", f"{base}...{head}"])
+def parse_diff(diff_text):
+    """{path: [(lineno, '+'-side text)]} from a unified-0 diff TEXT.
+
+    №686: split out of changed_lines so the self-test can feed synthetic
+    fixture diffs without git (the guard's own check is a test).
+    """
     files = {}
     path = None
     lineno = 0
-    for line in diff.splitlines():
+    for line in diff_text.splitlines():
         if line.startswith("+++ b/"):
             path = line[6:]
         elif line.startswith("@@"):
@@ -131,6 +157,55 @@ def changed_lines(base, head):
                 files.setdefault(path, []).append((lineno, line[1:]))
                 lineno += 1
     return files
+
+
+def changed_lines(base, head):
+    """{path: [(lineno, '+'-side text)]} for the changed files."""
+    diff = run(["git", "diff", "--unified=0", f"{base}...{head}"])
+    return parse_diff(diff)
+
+
+def sanitizer_site_hits(files):
+    """The №686 site files among the changed paths (basename match)."""
+    hits = []
+    for path in files:
+        base = path.rsplit("/", 1)[-1]
+        if base in SANITIZER_SITE_FILES:
+            hits.append(path)
+    return sorted(hits)
+
+
+def sanitizer_section(hits):
+    """The checklist item 10 block of the report (№686).
+
+    Empty string when the diff touches no site file — the section is a
+    REMINDER, never noise on clean PRs.
+    """
+    if not hits:
+        return ""
+    out = [
+        "## Item 10 — sanitizer / source / sink changes (№686) — REQUIRED",
+        "",
+        "The diff touches a taint/label site file: " + ", ".join(f"`{h}`" for h in hits),
+        "",
+        "Checklist item 10 (`docs/risk-review-checklist.md`) is REQUIRED for",
+        "this PR. The PR description must carry the sanitizer section:",
+        "",
+        "1. the touched sites enumerated (the taint/label lanes, the",
+        "   sanitize/source/sink NAME SETS, or the render/template_render/",
+        "   set_header-class contracts — which of the three);",
+        "2. the before/after for EVERY affected `source → sink` path (which",
+        "   label/check the path carried before, which it carries now, which",
+        "   gate fires);",
+        "3. the regression pair (a TW/VM conformance pair or a compile-red",
+        "   test) — or the justification why the change cannot produce one.",
+        "",
+        "The reviewer closes the item against this reminder; a sanitizer-",
+        "semantics change that ships without it is the S-1 shape (work",
+        "outside the machine — the audit f92c61c finding).",
+        "",
+    ]
+    return "\n".join(out)
 
 
 def in_perimeter(path):
@@ -255,6 +330,7 @@ def main():
 
     files = changed_lines(base, head)
     perimeter_hits = sorted(p for p in files if in_perimeter(p))
+    sanitizer_hits = sanitizer_site_hits(files)
     spawn_hits = sorted(
         (p, n, t)
         for p, lines in files.items()
@@ -262,11 +338,16 @@ def main():
         for n, t in lines
         if ".spawn(" in t
     )
-    triggered = bool(perimeter_hits or spawn_hits)
+    # №686: a sanitizer-site hit triggers the report on its own — a PR
+    # touching only html_label.rs must not slip past the item-10 reminder.
+    triggered = bool(perimeter_hits or spawn_hits or sanitizer_hits)
 
     if mode == "--changed":
         for p in perimeter_hits:
             print(f"perimeter: {p}")
+        for p in sanitizer_hits:
+            if p not in perimeter_hits:
+                print(f"sanitizer-site: {p}")
         for p, n, _ in spawn_hits:
             print(f"spawn-added: {p}:{n}")
         print(f"triggered: {triggered}")
@@ -276,7 +357,7 @@ def main():
     if not triggered:
         print(
             "risk-review: NOT TRIGGERED — the PR touches no high-risk file "
-            "(io/server/audit/semantic/llm*) and adds no spawn."
+            "(io/server/audit/semantic/llm*), no sanitizer site, and adds no spawn."
         )
         return
     rows = []
@@ -308,9 +389,72 @@ def main():
     else:
         print("No checklist-relevant pattern found in the added lines mechanically; the reviewer still walks the checklist for the touched files.")
     print()
+    # №686: the item-10 sanitizer reminder (site-file hits only).
+    sec = sanitizer_section(sanitizer_hits)
+    if sec:
+        print(sec)
     # №480: the same-effect lists close the report — item 8's protocol.
     print(same_effect_section(files))
 
 
+# ── №686: the self-test — the guard's own check is a test ───────────────
+
+def self_test():
+    """Synthetic fixture diffs through parse_diff/sanitizer_site_hits/
+    sanitizer_section — no git, no network (the merge_ci_audit
+    --self-test form). Asserts the guard's two faces: the reminder SPEAKS
+    on a site-file diff and stays SILENT on a clean one, and a site hit
+    triggers --changed on its own.
+    """
+    site_diff = """diff --git a/src/html_label.rs b/src/html_label.rs
+--- a/src/html_label.rs
++++ b/src/html_label.rs
+@@ -190,1 +190,1 @@
+-conducts the taint of the raw position
++conducts the taint of the raw position (N9)
+diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -1,1 +1,1 @@
+-old line
++new line
+"""
+    clean_diff = """diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -1,1 +1,1 @@
+-old line
++new line
+"""
+    # 1. the site diff: html_label.rs is a site hit ...
+    files = parse_diff(site_diff)
+    hits = sanitizer_site_hits(files)
+    assert hits == ["src/html_label.rs"], f"site hit expected, got {hits}"
+    # ... the section SPEAKS ...
+    sec = sanitizer_section(hits)
+    assert "Item 10" in sec and "REQUIRED" in sec, "the item-10 reminder must carry the header"
+    # ... and the triggered fact is true (perimeter empty, site hit alone).
+    assert bool(hits), "a sanitizer-site hit must trigger the report on its own"
+    # 2. the clean diff: no hits, the section stays silent.
+    files = parse_diff(clean_diff)
+    assert sanitizer_site_hits(files) == [], "README diff must not be a site hit"
+    assert sanitizer_section(sanitizer_site_hits(files)) == "", "no reminder on a clean diff"
+    # 3. the label vocabulary of the section is grep-able (the driver
+    #    test pins the same strings).
+    assert "source → sink" in sec and "regression pair" in sec
+    # 4. the site set is exactly the four №686 files (a set drift = a
+    #    checklist drift — both move in one PR).
+    assert SANITIZER_SITE_FILES == (
+        "audit.rs",
+        "html_label.rs",
+        "builtins_classification.rs",
+        "semantic.rs",
+    )
+    print("risk_review --self-test: 4/4 fixture groups green (site hit, clean diff, vocabulary, set pin)")
+
+
 if __name__ == "__main__":
+    if "--self-test" in sys.argv:
+        self_test()
+        sys.exit(0)
     main()

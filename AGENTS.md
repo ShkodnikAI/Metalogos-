@@ -156,6 +156,15 @@ on compilation.
    sharply.
 4. The report names explicit assumptions and what remains unresolved —
    it does not present a partial result as a complete one.
+5. A PR that changes the sanitizer/source/sink layer — the taint/label
+   sites (`src/audit.rs`, `src/html_label.rs`, `src/semantic.rs` label
+   lattice, `src/builtins_classification.rs`), the sanitize/source/sink
+   name sets in them, or the `render`/`template_render`/`set_header`-class
+   contracts — must fill item 10 of `docs/risk-review-checklist.md` in
+   the PR description: the touched sites, the before/after for every
+   affected `source → sink` path, and the regression pair (or the
+   justification of its absence). The risk-review CI job prints the
+   mechanical reminder whenever the diff touches a site file (№686).
 
 ## 9. What is not documented centrally anywhere, but is useful to know
 

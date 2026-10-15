@@ -1,0 +1,14 @@
+// S-RT-005 (№691; N7/N8): the protective header set (CSP/XCTO/HSTS)
+// belongs to the security_headers middleware — a literal protective
+// name through set_header refuses with the stable
+// [HTTP_HEADER_NOT_ALLOWED] on BOTH backends (the TW runtime stamp and
+// the VM static-lane stamp — the code is the pinned fact, the wording
+// is not).
+pattern Guard() -> String {
+  let resp = respond_html_status(200, "body")
+  let _ = set_header(resp, "Content-Security-Policy", "default-src 'self'")
+  return "no"
+}
+flow Main {
+  input: String = "x" -> Guard -> output
+}

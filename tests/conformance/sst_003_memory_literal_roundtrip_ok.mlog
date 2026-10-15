@@ -1,0 +1,10 @@
+// S-ST-003 (№691; №386/№405): the literal-key memory persistence —
+// memorize stores, recall reads the SAME value back, on BOTH backends.
+flow Main {
+  input: String = "x" -> output
+}
+pattern Round() -> String {
+  let _ = memorize("spec:key", "spec-value-42")
+  let got = recall("spec:key")
+  return got
+}

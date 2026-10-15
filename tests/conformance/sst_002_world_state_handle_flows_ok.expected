@@ -1,0 +1,3 @@
+# S-ST-002 (№691) — the private handle flows; only materialization is gated.
+STATUS: ok
+OUT: handle accepted

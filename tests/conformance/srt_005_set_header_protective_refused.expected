@@ -1,0 +1,3 @@
+# S-RT-005 (№691) — a protective header through set_header refuses.
+STATUS: error
+CODE: HTTP_HEADER_NOT_ALLOWED

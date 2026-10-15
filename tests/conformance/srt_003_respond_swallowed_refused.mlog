@@ -1,0 +1,19 @@
+// S-RT-003 (№691; №600): the swallowed shape — a respond* at DEPTH 2
+// (inside an if nested under a top-level block-form if, the audit's
+// guard scenario) refuses the STARTUP on BOTH backends with the stable
+// [RESPOND_SWALLOWED] code (the direct form at depth 0/1 answers early
+// — S-RT-002 — the depth-2 form is the guard-bypass class).
+server {
+  route "/risky" method=GET {
+    let user = "guest"
+    if user != "" {
+      if user != "admin" {
+        respond("403", "forbidden")
+      }
+      respond("200", "purged")
+    }
+  }
+}
+flow Main {
+  input: String = "x" -> output
+}

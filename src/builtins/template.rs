@@ -189,13 +189,20 @@ fn parse_nodes(
                         content
                     ));
                 } else if content.contains('|') {
-                    // N9 (gh#1219): the Jinja-style filter pipe is NOT
-                    // supported — the LOUD refusal (never a silent empty
-                    // render, never a silent escape). The raw insert is
-                    // the triple-brace form `{{{ var }}}`.
+                    // N9 (gh#1219): the filter pipe in template_render
+                    // STRINGS is NOT supported — the LOUD refusal (never a
+                    // silent empty render, never a silent escape). №695
+                    // (ADR-0188 phase 2): the safe stage lives in template
+                    // DECLARATIONS only (`{{ param | safe }}` with an
+                    // Html-typed parameter — the check-time typing is what
+                    // makes the raw landing honest); a runtime string has
+                    // no declarations to type against, so the refusal is
+                    // the honest answer. The raw insert is the triple-brace
+                    // form `{{{ var }}}`.
                     return Err(format!(
                         "template_render: the filter pipe '{{{{ {} }}}}' is NOT supported — \
-                         the substitution is ALWAYS escaped; the raw insert is the \
+                         the safe stage lives in template declarations ('{{{{ param | safe }}}}' with an \
+                         Html-typed parameter, №695); the raw insert is the \
                          triple-brace form '{{{{{{ var }}}}}}' (N9, gh#1219)",
                         content
                     ));

@@ -403,6 +403,33 @@ pub fn compile_program(source: &str) -> Result<bytecode::Program, String> {
         }
     }
 
+    // №695 (gh#1274, В46): SAFE_PIPE_NOT_HTML + UNSAFE_PIPE_FORM — the VM
+    // compile gate, the №685 shape: the safe stage `{{ param | safe }}`
+    // inserts RAW, so its parameter must be declared Html, and every
+    // unrecognized pipe form refuses LOUDLY (the N9 refusal shifted
+    // left). The SAME shared scan the TW gate uses refuses here, BEFORE
+    // the bytecode exists. The prefix is the FIRST finding's stable code
+    // (the №523 shape) — the scan carries two kinds, and the prefix names
+    // the class that actually fired first.
+    {
+        let violations = semantic::safe_pipe_violations(&declarations);
+        if !violations.is_empty() {
+            let prefix = violations
+                .first()
+                .and_then(|v| v.kind.stable_code())
+                .unwrap_or("SEMANTIC");
+            let lines: Vec<String> = violations
+                .iter()
+                .map(semantic::format_blocking_line)
+                .collect();
+            return Err(format!(
+                "[{}] Compilation error (Naryad #695): safe-pipe findings block compilation:\n{}",
+                prefix,
+                lines.join("\n")
+            ));
+        }
+    }
+
     let mut compiler = compiler::Compiler::new();
     compiler.compile(declarations)
 }

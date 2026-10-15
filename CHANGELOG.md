@@ -4,7 +4,10 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-10-15
+
 ### Security
+
 
 - **№689 (gh#1256, В44 — the R-1 audit finding; fix date 2026-10-15):**
   the mail ПДн (personal data) learned to SPEAK at the flow layer. Before
@@ -117,6 +120,7 @@ All notable changes to the Metalogos project.
 
 
 ### Added
+
 
 - **№688 (gh#1255, В44 — the audit f92c61c S-3; the draft, the owner's
   verdict pending):** the 0.32 typed-source goal moves to the
@@ -495,7 +499,10 @@ All notable changes to the Metalogos project.
   **Accepted — option (б)** by the owner's verdict 2026-10-08
   (gh#1123); the option (б) compile-time checker landed by №662
   (gh#1163), the pipe syntax stays the documented gap (№115).
+
+
 ### Changed
+
 
 - **№686 (gh#1253, В44 — the audit f92c61c S-1/S-2):** the risk-review
   checklist grew item 10 — SANITIZERS, SOURCES, AND SINKS. A PR changing
@@ -700,7 +707,9 @@ All notable changes to the Metalogos project.
   5750 → **9500 bp (38/40 = 95%)** (FIELDMETA_FLOOR 37).
   (`48301708`)
 
+
 ### Fixed
+
 
 
 - **№684 (gh#1244, В43 nuclear — VM tool-method resolution):** a
@@ -743,7 +752,6 @@ All notable changes to the Metalogos project.
   resolution order mirrors the interpreter, so no new backend
   divergence). Unlocks the showcase App C (№682) after the next
   pinned release.
-
 
 ## [0.30.1] - 2026-10-12
 

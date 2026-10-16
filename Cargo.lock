@@ -2446,7 +2446,7 @@ dependencies = [
 
 [[package]]
 name = "metalogos"
-version = "0.32.0"
+version = "0.33.0"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -2502,7 +2502,7 @@ dependencies = [
 
 [[package]]
 name = "metalogos-reflex"
-version = "0.32.0"
+version = "0.33.0"
 dependencies = [
  "candle-core",
  "candle-nn",
@@ -2514,7 +2514,7 @@ dependencies = [
 
 [[package]]
 name = "metalogos-server"
-version = "0.32.0"
+version = "0.33.0"
 dependencies = [
  "axum",
  "bytes",
@@ -2587,7 +2587,7 @@ dependencies = [
 
 [[package]]
 name = "mlog-lsp"
-version = "0.32.0"
+version = "0.33.0"
 dependencies = [
  "dashmap 6.2.1",
  "metalogos",
@@ -2599,7 +2599,7 @@ dependencies = [
 
 [[package]]
 name = "mlogpkg"
-version = "0.32.0"
+version = "0.33.0"
 dependencies = [
  "clap",
  "metalogos",

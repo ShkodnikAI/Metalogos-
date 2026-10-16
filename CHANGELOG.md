@@ -4,6 +4,8 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-10-19
+
 ### Added
 
 - **№695 (gh#1274, Wave 46 — ADR-0188 phase 2):** the template pipe

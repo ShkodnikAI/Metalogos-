@@ -35,7 +35,9 @@ fn fresh_date() -> String {
     // the no-change probe branch included — the wave-47 conveyor
     // diagnosis, gh#1299). The fresh path must stay fresh FOREVER —
     // the date is generated, never hardcoded.
-    (chrono::Utc::now().date_naive() - chrono::Duration::days(1)).format("%Y-%m-%d").to_string()
+    (chrono::Utc::now().date_naive() - chrono::Duration::days(1))
+        .format("%Y-%m-%d")
+        .to_string()
 }
 
 #[test]

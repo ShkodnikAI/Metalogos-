@@ -2501,3 +2501,51 @@ next minor window), the coverage threshold decision (№569, ≥76% line),
 the second maintainer, the №385 additive lane for the tool refusal
 codes (the №696 finding), the train window 19.10, NLnet/Restack M1
 (03.11.2026), №648 (01.12.2026).
+
+### 6.31. Wave 47 movement №2 record (naryad №702): the PDn core of the 0.32 fixed list — TWO honest closures (conv_context → String, conv_history → List<Message>), EIGHT anchored refusals — the backend-divergent query contract surfaced (main @ the naryad's PR, 2026-10-16)
+
+The movement №2 over the ADR-0193 frozen list
+(`scripts/ci/gate_032_untyped_sources.txt`, 67 ids) closed the
+conversation core of the PDn set: **conv_context → String** (the
+"{role}: {text}" injection format — deterministic on BOTH backends,
+session_ops.rs) and **conv_history → List<Message>** (the fixed
+Message{role, text, timestamp} shape, session_ops.rs:198-209). Both
+rows carry the fail-closed empty fallbacks for the context-less lanes
+(the authenticate mock-handler form; the query_param №565 value form)
+— the real dispatch stays in session_ops behind the №72 TW/VM
+intercepts. The both-backend proof lives in
+`tests/naryad_702_type_closures.rs` (9 tests, the лекало
+tests/naryad_697_type_closures.rs).
+
+The EIGHT honest refusals — each with its live anchor (the №650 form):
+**query** — the BACKEND-DIVERGENT contract (TW mutations answer the
+affected-row count as a String, db_ops.rs:200-204; the VM builds rows
+unconditionally and a mutation yields the EMPTY list, db_ops.rs:699+ —
+the №538 comment verbatim: "the EXECUTION result type depends on the
+backend"; a unification is a language-design decision, the owner's
+gate), **query_row** — the element type is data-dependent by column
+type (Null→Unit, Integer/Real→Float, Text/Blob→String;
+db_ops.rs:541-557), **query_scalar** — the value type is
+data-dependent (numeric and text columns verified live),
+**stdin** — the true stub (no handler anywhere; UNDEFINED_FUNCTION on
+both backends), **request_body** — the dynamic-shape
+Struct<JsonBody> (http.rs:469-476; the №661 field-meta armor refuses
+the static labeling), **secret** — the opaque Value::Secret behind the
+SECRET_LEAK Category-A contract (to_string renders the masked
+"[Secret]"), **memory_open** — the opaque Memory handle behind the
+consent gate (MEMORY_CONSENT_REQUIRED live on both backends; №539),
+**memory_read** — String|Secret by the container label (typing String
+would false-warn the private lane — the in-tree comment verbatim).
+The frozen list is NOT edited.
+
+The counters at the record date (the generators, NOT hands):
+**sensitive 84/145 = 5793 bp** (the floor 5655 → 5793 in the SAME PR —
+№757/№613; the uncovered by reason: struct-no-meta 2, typed-coarse 3,
+untyped 56), **goal032 closed 11/67** (report-only, GREEN — the
+machine verdict; the ≥20 figure stays the owner's Proposed
+parameter), **typed signatures 348/526 = 66.15% (precise 235/526 =
+44.67%)** (the README generated block), **parameterized share 80/112
+= 7142 bp** (the gate_030 fact twin), **[Unreleased] untouched** (the
+typing is internal — the №697 precedent; the 19.10 window keeps the
+№695 Added). The post-wave wave-record (§6.31 completion) lands with
+naryad №704 (the strictly-last sync).

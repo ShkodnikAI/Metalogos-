@@ -28,6 +28,31 @@ pub(crate) fn builtin_db_execute(args: &[Value]) -> Result<Value, String> {
     Ok(Value::Unit)
 }
 
+// ── №702 (gh#1296, Wave 47): the PDn-core registry typing — the
+// fail-closed fallback contracts ─────────────────────────────────────
+// The REAL conv dispatch lives in session_ops (the №72 TW FnCall
+// intercepts and the VM parity lanes — session_ops::conv_history /
+// conv_context). The registered fallback IS the context-less lane
+// contract (the authenticate mock-handler form; the query_param №565
+// fail-closed value): an off-server lane holds no conversations, so the
+// fallback answers the DECLARED type's empty value — never a wrong-type
+// value.
+
+/// `conv_history(id)` — the declared contract is `List<Message>`
+/// (session_ops.rs builds the fixed Message{role, text, timestamp}
+/// structs). A context-less lane holds no conversations: the empty List
+/// is the fail-closed value.
+pub(crate) fn builtin_conv_history(_args: &[Value]) -> Result<Value, String> {
+    Ok(Value::List(Vec::new()))
+}
+
+/// `conv_context(id)` — the declared contract is `String` (session_ops.rs
+/// formats the "{role}: {text}" injection lines). A context-less lane
+/// holds no conversations: the empty string is the fail-closed value.
+pub(crate) fn builtin_conv_context(_args: &[Value]) -> Result<Value, String> {
+    Ok(Value::String(String::new()))
+}
+
 // ── Phase 6.6 — Bot stubs ───────────────────────────
 
 // ── Naryad N3 (gh#1212, PE-1) — the send_message opts family ────────

@@ -430,11 +430,22 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("forget", 3, 4, "memory"; builtin_forget, "Struct<MemoryForgetResult>{candidates:internal,applied:internal,batch_id:internal}"), // №539: the 3..4-argument typed front door (MemoryForgetResult); №631: the name read off make_struct — the legacy 1..2-argument forget(query, days?) intercepts first and returns Unit — a different arity surface; №638: the fields read off struct_value BOTH arms (memory_forget.rs:464, 538) — candidates/applied/batch_id computed in-tree → internal (NOTE: the type_name collides with the cascade row's shape — see the PR)
     spec!("find", 4, "stub"),
     spec!("inspect", 1, "stub"),
-    // conv_start/add/history/context/end: conversation lifecycle management; not yet implemented
+    // conv_start/add/history/context/end: conversation lifecycle management.
+    // №702 (gh#1296, Wave 47): conv_history/conv_context are TYPED — the
+    // live dispatch lives in session_ops (the №72 TW FnCall intercepts and
+    // the VM parity lanes), and the probe-verified contracts are
+    // List<Message> (the fixed Message{role,text,timestamp} shape,
+    // session_ops.rs:198-209) and String (the "{role}: {text}" injection
+    // format, session_ops.rs:233-235). The registered fallback IS the
+    // context-less lane contract (the authenticate mock-handler form and
+    // the query_param №565 fail-closed value): an off-server lane holds no
+    // conversations, so the fallback answers the declared type's empty
+    // value — never a wrong-type value. conv_start/conv_add/conv_end stay
+    // untyped stubs (the mod.rs:180 doctrine — no documented path yet).
     spec!("conv_start", 1, "stub"),
     spec!("conv_add", 3, "stub"),
-    spec!("conv_history", 1, "stub"),
-    spec!("conv_context", 1, "stub"),
+    spec!("conv_history", 1, "stub"; builtin_conv_history, "List<Message>"),
+    spec!("conv_context", 1, "stub"; builtin_conv_context, "String"),
     spec!("conv_end", 1, "stub"),
     // №523: the spec is 3 — the implementation (builtins/memory.rs
     // builtin_session_set) hard-requires (session_id, key, value) and

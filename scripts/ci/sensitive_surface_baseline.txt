@@ -108,7 +108,30 @@
 #   read: 82*10000//145 = 5655 bp; the fact twin and the floor raised
 #   in the SAME PR (the №757/№613 procedure — the machine's own note
 #   «raise the baseline floor to 5655 in the same-PR move»))
-# threshold_bp: 5655
+# threshold_bp was 5655 — superseded by the №702 move below (the
+# gate parser reads the FIRST "# threshold_bp: N" line — the history
+# blocks stay "was"-prefixed or behind it).
+
+# №702 (gh#1296, wave 47): the fixed-list movement №2 — the PDn core
+# lands TWO more honest closures by the №644 criterion (the live
+# contracts probe-verified on both backends):
+#   conv_context → String         (session_ops.rs — the "{role}: {text}"
+#                                 injection format, deterministic);
+#   conv_history → List<Message>  (session_ops.rs:198-209 — the fixed
+#                                 Message{role, text, timestamp} shape).
+# The EIGHT honest refusals (the anchors in tests/naryad_702_type_closures.rs
+# and the naryad's PR): query (the backend-DIVERGENT mutation contract —
+# db_ops.rs:200-204 vs db_ops.rs:699+), query_row (the data-dependent
+# element types, db_ops.rs:541-557), query_scalar (the data-dependent
+# scalar), stdin (the true stub — no handler), request_body (the
+# dynamic-shape Struct<JsonBody> — the №661 field-meta armor), secret
+# (the opaque Secret + the SECRET_LEAK Category-A contract),
+# memory_open (the opaque Memory handle behind the consent gate, №539),
+# memory_read (String|Secret by the container label). The machine read:
+# 84*10000//145 = 5793 bp; the fact twin (gate_031) raised in the SAME
+# PR (the №757/№613 procedure — the machine's own note «raise the
+# baseline floor to 5793 in the same-PR move»).
+# threshold_bp: 5793
 
 
 # №661 (issue #1162, 2026-10-09; the К-Б stage-2 verdict gh#1144):

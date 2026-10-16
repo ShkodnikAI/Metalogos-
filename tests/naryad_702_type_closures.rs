@@ -153,10 +153,7 @@ flow Main { input: String = "x" -> T -> output }
     // Both lanes refuse — the refusal IS the Err arm of each runner.
     let tw = metalogos::run_program(src);
     assert!(tw.is_err(), "TW: the stub call must be an Err");
-    assert!(tw
-        .err()
-        .unwrap_or_default()
-        .contains("stdin"));
+    assert!(tw.err().unwrap_or_default().contains("stdin"));
     let vm = vm_run(src);
     assert!(vm.is_err(), "VM: the stub call must be an Err");
     let msg = vm.err().unwrap_or_default();
@@ -269,10 +266,7 @@ flow Main { input: String = "x" -> T -> output }
 "#;
     let tw3 = metalogos::run_program(src3);
     assert!(tw3.is_err(), "TW: respond(secret) must refuse");
-    assert!(tw3
-        .err()
-        .unwrap_or_default()
-        .contains("SECRET_LEAK"));
+    assert!(tw3.err().unwrap_or_default().contains("SECRET_LEAK"));
     let vm3 = vm_run(src3);
     assert!(vm3.is_err(), "VM: respond(secret) must refuse");
 

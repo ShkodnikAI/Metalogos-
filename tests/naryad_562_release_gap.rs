@@ -27,6 +27,17 @@ fn write_fixture(name: &str, body: &str) -> std::path::PathBuf {
     path
 }
 
+fn fresh_date() -> String {
+    // The DYNAMIC fresh date (today − 1 day, UTC). The fixture carried a
+    // hardcoded «landed 2026-10-01» — a 14-day-floor TIME BOMB that
+    // detonated at midnight 2026-10-16 UTC (the fixture crossed the
+    // №562 floor: 15 days old; every PR run went red deterministically,
+    // the no-change probe branch included — the wave-47 conveyor
+    // diagnosis, gh#1299). The fresh path must stay fresh FOREVER —
+    // the date is generated, never hardcoded.
+    (chrono::Utc::now().date_naive() - chrono::Duration::days(1)).format("%Y-%m-%d").to_string()
+}
+
 #[test]
 fn n562_self_test_is_green() {
     let out = Command::new("python3")
@@ -78,8 +89,11 @@ fn n562_committed_changelog_passes() {
 fn n562_fresh_security_entry_passes() {
     let p = write_fixture(
         "fresh.mlog",
-        "# Changelog\n\n## [Unreleased]\n\n### Security\n\n\
-         - **the fix (gh#1):** landed 2026-10-01\n\n## [0.28.0] - 2026-09-01\n",
+        &format!(
+            "# Changelog\n\n## [Unreleased]\n\n### Security\n\n\
+             - **the fix (gh#1):** landed {}\n\n## [0.28.0] - 2026-09-01\n",
+            fresh_date()
+        ),
     );
     let out = Command::new("python3")
         .arg(script())

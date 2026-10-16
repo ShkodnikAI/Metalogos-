@@ -114,6 +114,25 @@ MINOR), №639 (15.10) / №648 (01.12) outside the wave.
 
 ## Current wave — the open machine tail (2026-10-16)
 
+Wave 47 EXECUTED (the dispatch gh#1299): №700 (the dependabot sweep
+11/11 — 7 squash merges + the toml 1.1.8+spec patch gh#1303; the two
+parser majors closed with honest reports — no rcdom for markup5ever
+0.40, the migration is a future naryad), №702 (the movement №2 —
+2 honest closures + 8 anchored refusals, the floor 5655 → 5793 bp,
+gh#1300), №703 (the M1 traction-refresh №2 — the grants package v2,
+cross-repo), №701 (the 0.33.0 lockstep prep — gh#1304, the gate read
+EXIT 0; **verified-wait**: the merge and the publication await the
+owner's verdict on the 19.10 window). The post-wave sync: №704
+(gh#1298) — this record, strictly last. The counters: ignore debt 8,
+sensitive 84/145 = 5793 bp, typed 348/526 (66.15%, precise 44.67%),
+parameterized 80/112, norms 49, pairs 59, mirrors 6, dups 0. The
+in-flight machine tail: №648 (gh#1135, the dated plan audit
+2026-12-01). The owner gates: the ADR-0193 verdict (parameters + the
+label re-anchor), the coverage threshold (№569), the 19.10 train
+verdict (gh#1304), NLnet M1 03.11.2026, the parser-migration naryad
+candidate. The wave's REALITY record: §6.32.
+
+
 Wave 46 EXECUTED (the owner's direct command; the dispatch gh#1278):
 №694 (the showcase pin v0.32.0 + App C — cross-repo, the showcase PR
 #4), №695 (the ADR-0188 phase 2 — the safe stage `{{ param | safe }}`

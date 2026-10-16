@@ -2549,3 +2549,57 @@ parameter), **typed signatures 348/526 = 66.15% (precise 235/526 =
 typing is internal — the №697 precedent; the 19.10 window keeps the
 №695 Added). The post-wave wave-record (§6.31 completion) lands with
 naryad №704 (the strictly-last sync).
+
+### 6.32. Wave 47 post-wave record (naryad №704): the hygiene-and-prep wave — the dependabot sweep 11/11, the movement №2 merged, the M1 traction-refresh v2, the 0.33.0 lockstep in verified-wait (main @ the naryad's PR, 2026-10-16)
+
+The wave 47 (dispatch gh#1299) landed the hygiene and the prep:
+
+- **№700** (gh#1294): the dependabot sweep **11/11** — 7 squash merges
+  (upload-artifact 6→7, hyper 1.11.1→1.12.0, proptest 1.11→1.12,
+  zeroize 1.9.0→1.9.1, serde_json 1.0.151→1.0.154, sha2 0.11.0→0.11.1,
+  pest_derive 2.9.2→2.9.3), the toml 1.1.6+spec→1.1.8+spec patch landed
+  by **gh#1303** (`30ae37e9d` — the gh#1289 content; dependabot closed
+  its PR as obsolete and did not honor the recreate), and the two
+  parser majors **closed with honest reports** (gh#1286 xml5ever 0.40,
+  gh#1288 html5ever 0.40.1: the build breaks on the markup5ever
+  0.12.1/0.40 ecosystem split — `RcDom` implements the old `TreeSink`;
+  crates.io has no rcdom release for markup5ever 0.40, the latest is
+  `0.39.0+unofficial` pinned to `^0.39` — the migration is a future
+  dedicated naryad, the owner's flag). pest rides 2.9.4 via the caret
+  spec. The ratchet: the cell №535 does not grow, the debt 8/0/15 does
+  not grow, the sensitive floor never dipped.
+- **№702** (gh#1296, **gh#1300** `da03a2a85`): the movement №2 over
+  the frozen list — the §6.31 record (2 honest closures, 8 anchored
+  refusals, the floor 5655 → 5793 bp in the same PR).
+- **№703** (gh#1297, closed 16.10): the M1 traction-refresh №2 — the
+  package v2 landed in `ShkodnikAI/metalogos-grants` (the cross-repo
+  home; the generator numbers on the fresh main; honest claims; the
+  publications stay the owner's).
+- **№701** (gh#1295, **gh#1304**): the 19.10 train prep — the
+  `[0.33.0] - 2026-10-19` cut (the single №695 Added), the version
+  lockstep ×5, the badge + the generated row; the fresh gate read
+  `--gate-target 0.33.0 --strict` **EXIT 0** (4.1–4.4 GREEN; the twin
+  4/4), `release_gap_gate` EXIT 0. **Verified-wait**: the merge and
+  the publication await the owner's go/no-go verdict (§6.5/ADR-0186
+  §4.5) — no tag exists at the record date; the record does NOT count
+  a release.
+
+The counters at the record date (the generators, NOT hands):
+**ignore debt 8** (todo 0, dead_code 15), **sensitive 84/145 =
+5793 bp** (the floor 5793 only-up; the uncovered by reason:
+struct-no-meta 2, typed-coarse 3, untyped 56), **goal032 closed
+11/67** (report-only; the ≥20 figure stays the owner's Proposed
+parameter), **typed signatures 348/526 = 66.15% (precise 235/526 =
+44.67%)** (the README generated block), **parameterized share 80/112
+= 7142 bp**, **norms 49 with 59 conformance pairs**, **mirrors 6,
+dups 0**, **[Unreleased] on main carries the №695 Added** — the open
+lockstep PR gh#1304 cuts it to `[0.33.0] - 2026-10-19` pending the
+owner's verdict.
+
+The owner gates remaining (unchanged + the wave's flags): the
+ADR-0193 parameters (≥20/67, the PDn priority) + the «0.32 release»
+label RE-ANCHOR, the coverage threshold (№569), the second maintainer,
+the 19.10 train verdict (gh#1304), NLnet/Restack M1 (03.11.2026),
+№648 (01.12.2026), and the wave's new flag: the **parser-migration
+naryad candidate** (html5ever/xml5ever → the 0.39+unofficial pin
+line, or the rcdom 0.40 wait — the №700 audit).

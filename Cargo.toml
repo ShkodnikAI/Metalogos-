@@ -83,7 +83,7 @@ url = { version = "2", optional = true }
 # `xml` feature honest (dep:xml5ever). DTD/external entities are NEVER
 # expanded — the XML5 grammar has no custom-entity mechanism (XXE-safe
 # by construction, pinned by the negative tests).
-xml5ever = { version = "0.18", optional = true }
+xml5ever = { version = "0.40", optional = true }
 
 # Phase 7.3: Real encryption
 argon2 = "0.6"

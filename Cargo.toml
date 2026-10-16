@@ -71,7 +71,7 @@ reqwest = { version = "0.12", features = ["blocking", "json", "rustls-tls", "mul
 # verified the stack in the N5-pre probe, issue #1214 — MIT /
 # Apache-2.0 / Unicode-3.0 only, zero copyleft; the `scraper` stack was
 # rejected for its MPL-2.0 transitive deps).
-html5ever = { version = "0.27", optional = true }
+html5ever = { version = "0.40", optional = true }
 markup5ever_rcdom = { version = "0.3", optional = true }
 # The WHATWG URL parser (servo lineage) for html_links relative→absolute
 # resolution — hand-rolling RFC 3986 resolution is high-risk for zero

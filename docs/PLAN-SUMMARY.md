@@ -114,6 +114,30 @@ MINOR), №639 (15.10) / №648 (01.12) outside the wave.
 
 ## Current wave — the open machine tail (2026-10-17)
 
+Wave 49 EXECUTED (the dispatch gh#1322): №716 (the supplement, FIRST —
+the gh#1317 resolution: the honest probe REFUTED the inbound-path
+hypothesis; the alterer = the program's own redact("all") entropy net
+(string.rs:1373-1398); the gh#1317 table 7/7 golden-locked; the
+hash_only-BOTH-sides recipe verified live + named in the
+UNTRUSTED_DECISION refusal; AFFECTS none — 0.33.0 NOT affected, gh#1324),
+№712 (the movement №4 — THREE honest closures: duplex_state — the
+FROZEN-LIST closure goal032 19 → 20/67, the ≥20 figure of ADR-0193
+REACHED as a machine fact; read_file_tokens FileInfo; user_profile
+UserProfile; the floor 6344 → 6551 bp in the same PR; the ПДн refusals
+re-verified with fresh anchors; + the CI-infra guards — the temp-sandbox
+fixture per №676 A3 and the runner ENOSPC guard per the №445 posture,
+gh#1325), №711 (the query-parity decision package — the live probe:
+the mutation divergence TW n=3 / VM n=[] LIVE, the error paths
+practically unreachable; ADR-0194 Proposed with the packages A (the
+error-path direction) and B (the result contract); the candidate pinned
+db_ops.rs:690-698; zero behavior change, gh#1326), №713 (the 26.10
+train prep — the notes draft checked in with the regenerate-at-the-
+window rule; unfreeze --gate-target 0.33.1 + the twin 4/4 EXIT 0;
+release_gap_gate EXIT 0; the prep contour verified; GO 26.10 filed with
+the §2.5 preview — the №716 row's ride is the owner's call, gh#1327).
+The post-wave sync: №714 (REALITY §6.34, the generator numbers;
+strictly last).
+
 Wave 48 EXECUTED (the dispatch gh#1310): №706 (the movement №3 —
 EIGHT honest closures: recall_top_k String, video_understand String +
 the six parameterized Struct rows; the floor 5793 → 6344 bp, gh#1313),

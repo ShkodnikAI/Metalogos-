@@ -2686,3 +2686,109 @@ the query-divergence language-design gate (the owner's), NLnet/Restack
 M1 (03.11.2026), №648 (01.12.2026), and the infra flag: the executor
 PAT carries NO git-push transport (the API-write path works — the
 publish lane runs through the git-data API).
+
+### 6.34. Wave 49 post-wave record (naryad №714): the serve secret-comparison contract resolved — the gh#1317 refutation + the loud recipe, the movement №4 — goal032 19 → 20/67 (the ≥20 figure REACHED as a machine fact), the floor 6344 → 6551 bp, the query-parity ADR-0194 Proposed, the 26.10 train prep in verified-wait (main @ the naryad's PR, 2026-10-17)
+
+The wave 49 (dispatch gh#1322) landed the development — the supplement
+first (the production bug), then the parallel pair, the prep, the sync:
+
+- **№716** (gh#1323, **gh#1324** squash `86d7d0b`; the ДОВЕСОК of the
+  wave, the В40 form — the owner's bug report gh#1317 turned into the
+  наряд by the §16.0-1 canon edit): the honest probe on the release
+  binary v0.32.0 (sha `dd8164b7…` verified) **REFUTED the inbound-path
+  hypothesis** — serve delivers header/query bytes UNCHANGED (the
+  raw-decision block is the intended Category-A `UNTRUSTED_DECISION`
+  integrity gate); the alterer is the program's own `redact(x, "all")`
+  — its entropy net (`src/builtins/string.rs:1373-1398` +
+  `re_b64_run` `:1239-1242`, the ≥24 base64-class runs with a digit ∧
+  a hex letter) masks token-like values into
+  `[REDACTED:entropy…last4]`; the gh#1317 table is explained **7/7**
+  and golden-locked (`tests/n716_serve_secret_compare.rs` 9/9 both
+  backends — the table, the sanctioned `hash_only`-BOTH-sides recipe
+  comparability, the trap shape); the `UNTRUSTED_DECISION` refusal
+  now NAMES the recipe (the №327 substring locks green); the contract
+  documented (`limitations.md` § Serve Secret Comparison); the
+  `[Unreleased]` Changed row with the honest AFFECTS. **AFFECTS:
+  none — no language bug; 0.33.0 NOT affected** (the owner's
+  remaining verdicts: gh#1317 (open), the office #536 fix (the
+  hash_only recipe, the office-side change), the §2.5 ride of the
+  `[Unreleased]` row at the 19.10/26.10 windows).
+- **№712** (gh#1319, **gh#1325** squash `1ad8772`): the movement №4 —
+  **THREE honest closures** by the №644 criterion:
+  `duplex_state → Struct<DuplexState>` (6 fields; id → untrusted, the
+  stream projections → internal; the OPTIONAL Struct|Unit slots —
+  the memory_revise precedent) — **the FROZEN-LIST closure:
+  goal032 19 → 20/67, the ≥20 figure of ADR-0193 REACHED as a
+  machine fact** (the parameter stays the owner's verdict —
+  report-only, no self-capture), `read_file_tokens →
+  Struct<FileInfo>` (content/chars/tokens all untrusted — the
+  length-oracle conservatism, the gh#1317 class), `user_profile →
+  Struct<UserProfile>` (container untrusted, count internal, the
+  KV content private — the №689 form). The ratchet: the floor
+  **6344 → 6551 bp** in the same PR (95/145; the machine's own note
+  honored), the twins gate_030 **7288 → 7478** (89/119) / gate_031
+  **6551**, precise **unchanged 237/526** (no scalar closures —
+  gate_029 untouched); the ПДн refusals re-verified with FRESH
+  anchors (query → the №711 ADR-0194 pin; secret/generate_key — the
+  no-Secret-spelling dictionary lane; request_body — the dynamic
+  JsonBody fields; stdin — the true stub; session_poll_wake /
+  session_take_interrupt — the №543 unions; recipe_list /
+  recipe_search — the always-empty List; query_row/query_scalar —
+  the data-dependent stubs; memory_open/memory_read — the №539
+  anchors hold). The CI-infra guards landed with the PR (zero check
+  weakened — the №445 posture): the kv fixture moved to the temp
+  sandbox (the №676 A3 rule) and the runner **ENOSPC guard** in
+  test-integration (the hosted runner disk stopped fitting the
+  workspace build — two deterministic `os error 28` runs at the
+  libmetalogos rlib archive; the preinstalled toolchain junk freed
+  before the build).
+- **№711** (gh#1318, **gh#1326** squash `16562e5`): the query-parity
+  decision package — the live probe record (the mutation divergence
+  LIVE: TW `n=3` / VM `n=[]`; the SELECT parity and the
+  duplicate-column probes identical; the error paths verified
+  practically unreachable — `get_ref` errs only on
+  `InvalidColumnIndex`, in-bounds by construction, the TW closure
+  cannot fail, the row-step errors need OS/IO faults — **the STOP
+  trigger did NOT fire**); **ADR-0194 (Proposed)** with the two
+  decision packages (A — the error-path direction, the
+  recommendation (c) the loud-fail contract on BOTH lanes; B — the
+  query result contract, the recommendation (i) String-count on
+  both, the №474 mirror); the honest-limits row in the TW/VM
+  Divergences section; the candidate comment db_ops.rs:690-698
+  **PINNED** (the line count preserved — the anchors hold); NO
+  divergence-pinning test (the №476 rule); **zero behavior change**
+  — the OWNER's verbatim on the packages A/B is the gate.
+- **№713** (gh#1320, **gh#1327**): the 26.10 train prep — the notes
+  draft checked in (`docs/release-notes-0.33.1-draft.md`, the №497
+  verbatim construction + the regenerate-at-the-window rule — a
+  stale draft is a lie), the gates **GREEN** (`unfreeze
+  --gate-target 0.33.1 --office-tests pass` — the twin 4/4, the
+  №701 discipline → Overall GREEN EXIT 0; `release_gap_gate`
+  EXIT 0), the prep contour verified (the triggers / the runner
+  `ubuntu-24.04` / BUILD-INFO = the checkout ref = the future tag
+  commit); the go/no-go filed: **GO 26.10** with the §2.5 preview
+  (the №716 `[Unreleased]` row's ride — the owner's call). The tag
+  `v0.33.1` + the publication await the owner's train-day act.
+
+The counters at the record date (the generators, NOT hands):
+**ignore debt 8** (todo 0, dead_code 15), **sensitive 95/145 = 6551
+bp** (the floor 6551 only-up; the uncovered by reason:
+struct-no-meta 2, typed-coarse 1, untyped 47), **goal032 closed
+20/67** (report-only; the ≥20 figure reached — the owner's verdict
+prepares), **typed signatures 357/526 = 67.87% (precise 237/526 =
+45.05%)**, the **parameterized share 89/119 = 7478 bp**, the
+**field-label share 56/58**, **mirrors 0 mentions, dups 0**,
+**[Unreleased] on main carries the №716 Changed row** (the merged
+naryads only — the №687 rule; the ride is the owner's §2.5 call).
+
+The owner gates remaining (unchanged + the wave's flags): the
+19.10 publish verdict (the 0.33.0 draft id 415523172) + the gh#1317
+resolution verdict + the office #536 fix decision; the ADR-0193
+parameters (≥20/67 reached — the verdict fixes the figure and the
+gate wiring); the **ADR-0194 verbatim** (the packages A/B — the
+query error paths + the result contract); the 26.10 train verdict
+(gh#1327); the zip-ignore review (2026-11-17 or the first candle
+zip-^9 release); the coverage threshold (№569); the second
+maintainer; NLnet/Restack M1 (03.11.2026); №648 (01.12.2026); the
+PAT rotation (the exposed-token discipline); the draft v0.4.0
+cleanup (the owner's act).

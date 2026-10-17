@@ -2377,7 +2377,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `proof_seal(...)` | 2..3 | — | `proof_seal(world, chunk, telemetry?) -> Proof` |
 | `proof_verify(...)` | 1 | — | `proof_verify(proof) -> Struct` |
 | `trajectory_make(...)` | 1 | — | `trajectory_make(poses) -> Trajectory` |
-| `world_state(...)` | 1 | — | `world_state(device) -> WorldState` — the normative state contracts (the private-by-default materialization refusals, the typed device chain) live in [docs/spec/state.md](spec/state.md) |
+| `world_state(...)` | 1 | — | `world_state(device) -> WorldState` |
 
 ### `encoding` — 4 builtin(s)
 
@@ -2811,7 +2811,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
-| `template_render(...)` | 2 | `String, Struct -> Html` | A separate engine (not an extension of `render()`): `{{ var }}` (escaped), `{{{ var }}}` (unescaped), `{{#if}}/{{else}}`, `{{#each}}`. Template content is trusted author code, not scanned by the lint |
+| `template_render(...)` | 2 | `String, Struct -> Html` | A separate engine (not an extension of `render()`): `{{ var }}` (escaped), `{{{ var }}}` (unescaped), `{{#if}}/{{else}}`, `{{#each}}`. The filter pipe refuses loudly in template STRINGS (№695: the safe stage lives in template declarations, where the Html typing can hold). Template content is trusted author code, not scanned by the lint |
 
 ### `test` — 2 builtin(s)
 
@@ -2925,7 +2925,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `http_post_multipart(...)` | 2..4 | `String, Struct, Struct -> String` | A multipart POST. `fields` are text fields (a Struct), `files` are file fields (a Struct, whose values are file paths). File paths must be inside the read sandbox (relative paths); absolute paths, `..` and sandbox escapes are a loud `[SANDBOX_VIOLATION]` error. 120s timeout |
 | `json_body(...)` | variadic | `-> Struct {JsonBody}` | Parses JSON from the request body |
 | `query_param(...)` | 1 | `String -> String` | Gets a query parameter from the URL. `curl "localhost:8080/search?q=hello" -> query_param("q") == "hello"`. An empty string if the parameter is absent. Percent-decoding: RFC 3986 bytes reassembled as UTF-8 (`%D0%B6` → `"ж"`), `+` → space (form-urlencoded convention), invalid escapes pass through literally, invalid UTF-8 is lossy — see the §4.13 note (Naryad #257) |
-| `render(...)` | 2..3 | `String, String, Any, ... -> Html` | Renders a template, substituting `{{ var }}` variables (HTML-escaped) and `{{{ var }}}` variables (RAW — №685: the raw parameter must be declared `Html` and the value built by an explicit Html producer, e.g. a nested `render`; anything else refuses at start with `RAW_INSERT_NOT_HTML` on both backends, and the raw positions CONDUCT the taint instead of lifting it). A Jinja-style filter pipe (`{{ var \ |
+| `render(...)` | 2..3 | `String, String, Any, ... -> Html` | Renders a template, substituting `{{ var }}` variables (HTML-escaped), `{{{ var }}}` variables (RAW — №685: the raw parameter must be declared `Html` and the value built by an explicit Html producer, e.g. a nested `render`; anything else refuses at start with `RAW_INSERT_NOT_HTML` on both backends, and the raw positions CONDUCT the taint instead of lifting it) and `{{ var \ |
 | `request_body(...)` | variadic | — | `json_body()` / `request_body()` — raw body of the current route request, parsed as JSON into a `Dict` Struct; `request_body` is the explicit-name alias. Result carries `UserInput` taint (untrusted request data). |
 | `request_header(...)` | 1 | `String -> String` | Gets a request header from the current route request by a case-insensitive name. The empty string when the header is absent or no route context is set (fails closed — see `examples/telegram_webhook_secret.mlog`). The result carries `UserInput` taint — validate before deciding; compare secrets with `ct_eq` (N2) |
 | `require(...)` | 1..2 | `Bool -> Unit` | A runtime assertion. Errors if `false` |

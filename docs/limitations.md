@@ -124,6 +124,12 @@
 |---|---|---|
 | The case-insensitivity is verified at the COMPARISON level, not by a dedicated macOS/Windows CI job: the fix makes the deny compare equal to the case-insensitive filesystem's identity map for these names (lowercase is the FS-side canonical spelling), and the register-variant tests pin the policy — but no GitHub-hosted macOS runner is part of the blocking matrix | №501; [tests/naryad_501_write_deny_case.rs](../tests/naryad_501_write_deny_case.rs) | **Open (infra, non-blocking)** — a macOS case-insensitive-FS job may land as its own infra naryad; until then the comparison-level equivalence + the pinning tests are the verification |
 
+## Serve Secret Comparison (№716, gh#1317)
+
+| Limitation | Primary source | Status / condition for removal |
+|---|---|---|
+| There is NO lossless decision on raw inbound header/query values (by design — the Category-A `UNTRUSTED_DECISION` anti-injection invariant), and the one-way masking policies are NOT equality-preserving: `redact(x, "all")` runs the entropy net (ADR-0136), which masks token-like runs (≥24 base64-class chars containing a digit AND a hex letter) into `[REDACTED:entropy…last4]` — comparing a secret AFTER `redact(x, "all")` silently fails on such values (the office #536 401/403 class; the gh#1317 table explains 7/7 by the filter). The sanctioned recipe: `redact(x, "hash_only")` on BOTH sides — the SHA-256 fingerprint destroys the data, keeps comparability, declassifies to public; verified live on the v0.32.0 release binary (25/32/41-char tokens compare `eq`) | [src/builtins/string.rs](../src/builtins/string.rs) (`redact_entropy_net`, `re_b64_run`, `redact_hash_only`); [src/audit.rs](../src/audit.rs) (`check_integrity_decisions` — the refusal names the recipe); [tests/n716_serve_secret_compare.rs](../tests/n716_serve_secret_compare.rs) (the golden table 7/7 + the recipe/trap parity) | Documented contract (the gh#1317 resolution): the golden table + the recipe tests pin the behavior, the refusal message carries the recipe. Removal condition: none — this is the intended fail-closed design; a dedicated serve-secret comparison builtin would be a NEW owner decision (ADR) |
+
 ## Voice Pillar (ADR-0143–0146)
 
 | Limitation | Primary source | Status / condition for removal |

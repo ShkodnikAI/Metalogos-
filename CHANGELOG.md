@@ -4,6 +4,26 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Changed
+
+- **№716 (gh#1323, Wave 49 — the gh#1317 resolution):** the
+  `UNTRUSTED_DECISION` anti-injection refusal now names the sanctioned
+  secret-comparison recipe — `redact(x, "hash_only")` on BOTH sides.
+  The honest probe on the release binary v0.32.0 REFUTED the
+  inbound-path hypothesis: serve delivers header/query bytes UNCHANGED
+  (the raw-value decision block is the intended Category-A integrity
+  gate). The production 401/403 (FOSVED-office-v2 #536) came from
+  `redact(x, "all")`: its entropy net (ADR-0136) masks token-like runs
+  (≥24 base64-class chars with a digit AND a hex letter) into
+  `[REDACTED:entropy…last4]`, silently breaking the comparison — the
+  gh#1317 table is explained 7/7 by that filter and is now
+  golden-locked (`tests/n716_serve_secret_compare.rs`: the table, the
+  recipe's comparability on both backends, the trap shape). The
+  contract lives in `docs/limitations.md` (§ Serve Secret Comparison).
+  No runtime semantics changed — the masking stays, the guidance gets
+  loud. AFFECTS: none (no language bug); the office-side program fix is
+  the hash_only recipe.
+
 ## [0.33.1] - 2026-10-26
 
 ### Changed

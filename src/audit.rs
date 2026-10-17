@@ -6596,7 +6596,7 @@ fn check_integrity_decisions(
             check_id: "UNTRUSTED_DECISION",
             line: v.span.start_line as usize,
             message: format!(
-                "anti-injection: untrusted data (label '{}' from source '{}') decides a '{}' in {} — validate/one-way-redact it before deciding",
+                "anti-injection: untrusted data (label '{}' from source '{}') decides a '{}' in {} — validate/one-way-redact it before deciding (secret comparison: redact(x, \"hash_only\") on BOTH sides; masking policies like \"all\" break equality on token-like values — gh#1317)",
                 v.label, v.source_name, v.kind, v.container
             ),
         });

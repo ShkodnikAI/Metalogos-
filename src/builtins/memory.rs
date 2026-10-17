@@ -40,6 +40,19 @@ fn bump_kv_writes() {
     KV_WRITES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 }
 
+// ── №706 (gh#1306, Wave 48): the recall_top_k fail-closed fallback ──
+// The REAL recall_top_k dispatch is intercepted by name on BOTH backends
+// (memory_ops::dispatch_tw → recall_top_k_tw; the VM state-carrying block
+// → recall_top_k_vm) — both end in the serialized JSON hit array AS A
+// String. The registered fallback IS the no-memory lane contract (the
+// №702 fail-closed form — the authenticate mock-handler shape): a lane
+// without a memory store holds no hits, so it answers the declared
+// type's empty value — the zero-hit serialization "[]", exactly what the
+// real lanes answer on an empty store — never a wrong-type value.
+pub(crate) fn builtin_recall_top_k(_args: &[Value]) -> Result<Value, String> {
+    Ok(Value::String("[]".to_string()))
+}
+
 /// Global SQLite KV persistence backend.
 /// Initialized by init_kv_persist() when memory { persist: "..." } is configured.
 /// Uses std::sync::Mutex (same thread model as KV_STORE).
@@ -1158,4 +1171,17 @@ pub(crate) fn token_count_estimate(s: &str) -> f64 {
 pub(crate) fn builtin_token_count(args: &[Value]) -> Result<Value, String> {
     let s = expect_string_arg("token_count", args, 0)?;
     Ok(Value::Float(token_count_estimate(&s)))
+}
+
+#[cfg(test)]
+mod n706_recall_fallback_tests {
+    use super::*;
+
+    #[test]
+    fn n706_fallback_answers_the_zero_hit_serialization() {
+        // The no-memory lane contract: the declared type's empty value —
+        // the zero-hit JSON serialization "[]", never a wrong-type value.
+        let v = builtin_recall_top_k(&[]).expect("the fallback never errors");
+        assert!(matches!(v, Value::String(ref s) if s == "[]"));
+    }
 }

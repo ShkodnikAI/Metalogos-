@@ -130,6 +130,15 @@ goal_sensitive_surface_bp: 4782
 # request_body → the dynamic-fields form, stdin → the true stub,
 # session_poll_wake/session_take_interrupt → the №543 unions,
 # recipe_list/recipe_search → the always-empty List);
-# 95*10000//145 = 6551). The counter is machine-read, never
+# 95*10000//145 = 6551) → 6758 (98/145 — №717, gh#1329: the movement №5
+# package — THREE honest closures: listen_start Struct<DuplexFlow> (the
+# FROZEN-LIST closure), llm_stream_open Struct<LlmStream>,
+# vision_fetch_weights String; goal032 20 → 23/67 report-only; the
+# movement refusals carry fresh anchors (backend_select → the
+# heterogeneous Ok union, call_llm_schema/config_load → the
+# data-dependent shapes, the opaque Device/Duplex/Pose/Trajectory/
+# GoalPredicate/SeriesHandle/Subgraph handles, the loud-Err stubs, the
+# state-carrying interceptions);
+# 98*10000//145 = 6758). The counter is machine-read, never
 # hand-zeroed.
-fact_sensitive_surface_bp: 6551
+fact_sensitive_surface_bp: 6758

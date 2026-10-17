@@ -326,7 +326,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     #[cfg(feature = "llm")]
     spec!("llm_usage", 0, "llm"; builtin_llm_usage, "Struct<LlmUsage>{total_calls:internal,total_tokens:internal,total_errors:internal,cache_hits_semantic:internal,canary_leaks:internal,providers:internal}"),
     #[cfg(feature = "llm")]
-    spec!("call_llm_schema", 2, 3, "llm"; builtin_call_llm_schema), // prompt,schema | prompt,input,schema (Наряд №269, ADR-0133)
+    spec!("call_llm_schema", 2, 3, "llm"; builtin_call_llm_schema), // prompt,schema | prompt,input,schema (Наряд №269, ADR-0133) — №717 re-refusal: the DATA-DEPENDENT return — Ok(json_to_mlog(&parsed)) (llm_schema.rs:162); json_to_mlog maps the LLM payload by shape (llm_schema.rs:287-303: object→Struct, array→List, string→String, bool→Bool, number→Float, null→Unit) — the flat vocabulary has no schema-dependent union; typing one arm would lie about the others (the query_row/query_scalar data-dependent form)
     // ── Memory builtins ──
     spec!("kv_set", 2, "memory"; builtin_kv_set, "Unit"),
     spec!("kv_get", 1, "memory"; builtin_kv_get, "String"),
@@ -405,9 +405,9 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // exercises the same state machine as the serve contour. The
     // direction is STATIC (separate *_start/*_stop surfaces) so the
     // №324 effect trail can type it (speak_start → ⟨speak⟩ etc.).
-    spec!("duplex_open", 1, 2, "voice"; builtin_duplex_open),
+    spec!("duplex_open", 1, 2, "voice"; builtin_duplex_open), // №717 re-refusal: the OPAQUE Value::Duplex handle (duplex.rs:213 via channel_value duplex.rs:172-177) — no Duplex spelling in the stage-0 vocabulary (the №538 posture); the introspection duplex_state and the flow projections speak/listen ARE typed (№712/№717 listen_start)
     spec!("speak_start", 2, 3, "voice"; builtin_speak_start),
-    spec!("listen_start", 1, 2, "voice"; builtin_listen_start),
+    spec!("listen_start", 1, 2, "voice"; builtin_listen_start, "Struct<DuplexFlow>{stream_id:internal,direction:internal,priority:untrusted,preempted:internal}"), // №717 (gh#1329, Wave 50): the FIXED 4-field flow projection (duplex.rs start_result_value "DuplexFlow", the SINGLE Ok arm — duplex.rs:122); stream_id is the FRESH registry-generated stream id → internal (the cron_list generated-count form); direction is the fixed speak|listen word → internal; priority echoes the caller's ladder word (or the session default) → untrusted (the №706 device_state echo form); preempted is the registry-generated List of preempted stream ids → internal
     spec!("speak_stop", 1, "voice"; builtin_speak_stop),
     spec!("listen_stop", 1, "voice"; builtin_listen_stop),
     spec!("duplex_state", 1, "voice"; builtin_duplex_state, "Struct<DuplexState>{id:untrusted,session:internal,speak:internal,listen:internal,speak_last:internal,listen_last:internal}"), // №712 (gh#1319, Wave 49): the FIXED 6-field introspection projection (duplex.rs state → struct_of "DuplexState", the SINGLE Ok arm — unlike the heterogeneous backend_select); id echoes the caller's channel handle → untrusted (the №706 device_state form); session and the four stream projections read off the in-tree duplex registry → internal (the goal_get store-read form); speak/listen/speak_last/listen_last are the OPTIONAL Struct<DuplexStream>|Unit slots (the memory_revise precedent — the inner DuplexStream carries stream_id/direction/priority/outcome [+interrupted_by/interrupted_priority] metadata, no content payload)
@@ -416,13 +416,13 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // contour is sim-only (in-tree deterministic records — no hardware,
     // no GPU, no weights); the monitor/state evolution lands with №356
     // BEHIND the GPU-budget gate, the TYPES are live now.
-    spec!("device_open", 1, 2, "embodied"; builtin_device_open),
+    spec!("device_open", 1, 2, "embodied"; builtin_device_open), // №717 re-refusal: the OPAQUE Value::Device handle (embodied.rs:351 via device_value embodied.rs:412-417) — the stage-0 vocabulary has no Device spelling (the №538 Query posture; the №669 forecast_next form); the introspection projection device_state IS typed (№706)
     spec!("bounds_attach", 2, "embodied"; builtin_bounds_attach),
     spec!("device_state", 1, "embodied"; builtin_device_state, "Struct<EmbodiedDeviceState>{id:untrusted,backend:internal,bounds_present:internal,bounds_digest:internal}"), // №706 (gh#1306, Wave 48): the FIXED introspection shape (embodied.rs device_state → make_struct "EmbodiedDeviceState", the SINGLE Ok arm); id echoes the caller's handle → untrusted (the boost/todo form); backend/bounds_present/bounds_digest read off the in-tree device registry → internal; bounds_digest is the OPTIONAL field (Unit when bounds are absent — the memory_revise optional-field precedent)
     spec!("world_state", 1, "embodied"; builtin_world_state, "Embodied"), // №668: the OPAQUE WorldState handle (embodied.rs:489-497 world_value → Value::WorldState; the embodied contour №355/ADR-0159; the audit's own opaque grouping). The honest cause why the SENSITIVE row does NOT close on this package: the handle is neither scalar nor a parameterized List/Struct (typed-coarse stays uncovered) and every materialization surface refuses it (WORLD_STATE_PRIVATE + audit, private-by-default №349/№355) — closing it would need a dictionary/vocabulary decision that is OUTSIDE this naryad (the №604-dictionary lane is the separate owner decision)
-    spec!("pose_make", 4, "embodied"; builtin_pose_make),
-    spec!("trajectory_make", 1, "embodied"; builtin_trajectory_make),
-    spec!("goal_make", 1, "embodied"; builtin_goal_make),
+    spec!("pose_make", 4, "embodied"; builtin_pose_make), // №717 re-refusal: the OPAQUE Value::Pose handle (embodied.rs:576) — no Pose spelling in the stage-0 vocabulary (the №538 posture; the №669 forecast_next form)
+    spec!("trajectory_make", 1, "embodied"; builtin_trajectory_make), // №717 re-refusal: the OPAQUE Value::Trajectory handle (embodied.rs:627) — no Trajectory spelling in the stage-0 vocabulary (the №538 posture; the №669 forecast_next form)
+    spec!("goal_make", 1, "embodied"; builtin_goal_make), // №717 re-refusal: the OPAQUE Value::GoalPredicate handle (embodied.rs:676) — no GoalPredicate spelling in the stage-0 vocabulary (the №538 posture; the №669 forecast_next form); the goal_get store-read projection IS typed (№706)
     spec!("chunk_make", 2, 3, "embodied"; builtin_chunk_make),
     spec!("proof_seal", 2, 3, "embodied"; builtin_proof_seal),
     spec!("proof_verify", 1, "embodied"; builtin_proof_verify, "Struct<EmbodiedProofReport>{valid:internal,proof_id:untrusted,verdict:internal,world_hash:internal,chunk_id:internal,bounds_id:internal,backend:internal,reasons:internal}"), // №706 (gh#1306, Wave 48): the FIXED report shape (embodied.rs proof_verify → make_struct "EmbodiedProofReport", the SINGLE Ok arm); proof_id echoes the caller's handle → untrusted (the boost/todo form); valid/verdict/world_hash/chunk_id/bounds_id/backend/reasons read off the in-tree proof record → internal
@@ -438,8 +438,8 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // forget(query, days?) surface (№72) is intact — the TW/VM
     // intercepts keep it; 3..4 arguments fall through to the handler.
     spec!("forget", 3, 4, "memory"; builtin_forget, "Struct<MemoryForgetResult>{candidates:internal,applied:internal,batch_id:internal}"), // №539: the 3..4-argument typed front door (MemoryForgetResult); №631: the name read off make_struct — the legacy 1..2-argument forget(query, days?) intercepts first and returns Unit — a different arity surface; №638: the fields read off struct_value BOTH arms (memory_forget.rs:464, 538) — candidates/applied/batch_id computed in-tree → internal (NOTE: the type_name collides with the cascade row's shape — see the PR)
-    spec!("find", 4, "stub"),
-    spec!("inspect", 1, "stub"),
+    spec!("find", 4, "stub"), // №717: planned find convenience wrapper; no handler — typing a stub shape would be fictitious (the №706 posture)
+    spec!("inspect", 1, "stub"), // №717: planned inspect convenience wrapper; no handler — typing a stub shape would be fictitious (the №706 posture)
     // conv_start/add/history/context/end: conversation lifecycle management.
     // №702 (gh#1296, Wave 47): conv_history/conv_context are TYPED — the
     // live dispatch lives in session_ops (the №72 TW FnCall intercepts and
@@ -492,7 +492,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("memory_boost", 0, "memory"; builtin_memory_boost, "Struct<BoostResult>{id:untrusted,new_score:internal,access_count:internal}"), // №539: the BoostResult; №631: the name read off make_date_struct; №638: the fields read off make_date_struct (memory.rs:893-902) — id echoes the caller's argument → untrusted, the metrics computed → internal
     spec!("memory_prune", 0, "memory"; builtin_memory_prune, "Struct<PruneResult>{pruned:internal,remaining:internal}"), // №539: the PruneResult; №631: the name read off make_date_struct; №638: both fields computed in-tree (memory.rs:924-929) → internal
     spec!("memory_revise", 0, "memory"; builtin_memory_revise, "Struct<ReviseResult>{action:internal,winner_id:internal,superseded_id:internal}"), // №539: the ReviseResult; №631: the name read off make_date_struct; №638: the fields read off make_date_struct (memory.rs:957-964) — all computed in-tree; superseded_id is OPTIONAL (present only when a contradiction resolved) → internal
-    spec!("subgraph_extract", 0, "graph"; builtin_subgraph_extract),
+    spec!("subgraph_extract", 0, "graph"; builtin_subgraph_extract), // №717 re-refusal: the OPAQUE Value::Subgraph snapshot handle (memory.rs:1010) — no Subgraph spelling in the stage-0 vocabulary (the №538 posture); the projections subgraph_nodes/subgraph_json carry their own contracts
     spec!("subgraph_nodes", 0, "graph"; builtin_subgraph_nodes),
     spec!("subgraph_json", 0, "graph"; builtin_subgraph_json),
     spec!("trace_start", 0, "graph"; builtin_trace_start),
@@ -511,9 +511,9 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("cron_remove", 1, "cron"; builtin_cron_remove_stamped),
     spec!("cron_run", 1, "cron"; builtin_cron_run_stamped), // ── Event / query analytics stubs ──
     // event_count/events_since/event_sum: planned event analytics; no handler (use query with SQL instead)
-    spec!("event_count", 0, "stub"),
-    spec!("events_since", 1, "stub"),
-    spec!("event_sum", 2, "stub"), // query_scalar/query_row: planned convenience wrappers; no handler (use query + json_get instead)
+    spec!("event_count", 0, "stub"), // №717: planned events convenience wrapper; no handler — the count value would be data-dependent by the event ledger (the №712 query_row posture); typing a stub shape would be fictitious
+    spec!("events_since", 1, "stub"), // №717: planned events convenience wrapper; no handler — the row-list element shape would be data-dependent (the №712 query_row posture); typing a stub shape would be fictitious
+    spec!("event_sum", 2, "stub"), // query_scalar/query_row: planned convenience wrappers; no handler (use query + json_get instead) — №717 refresh: the sum value would be data-dependent by the event ledger (the №712 query_scalar posture); the row comment cited the WRONG twins (query_scalar/query_row, not the events family) — the anchor is refreshed, the Unknown ground unchanged
     spec!("query_scalar", 0, "stub"), // №712 re-refusal: planned convenience wrapper, no handler — the value type is data-dependent by column type (db_ops.rs:535-557); typing a stub shape would be fictitious (the №706 posture)
     spec!("query_row", 0, "stub"), // №712 re-refusal: planned convenience wrapper, no handler — the element type is data-dependent by column type: Null→Unit, Integer/Real→Float, Text/Blob→String (db_ops.rs:535-557); typing a stub shape would be fictitious (the №706 posture) // ── Test builtins ──
     spec!("assert_eq", 2, "test"; builtin_assert_eq),
@@ -522,11 +522,11 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("toon_encode", 1, "encoding"; builtin_toon_encode, "String"),
     spec!("toon_decode", 1, "encoding"; builtin_toon_decode), // ── Recipe / DAG / Orchestration builtins ──
     spec!("recipe_save", 0, "recipe" => "ext"; builtin_recipe_save),
-    spec!("recipe_search", 1, 2, "recipe" => "ext"; builtin_recipe_search), // semantic search via recall_top_k + kv_get
+    spec!("recipe_search", 1, 2, "recipe" => "ext"; builtin_recipe_search), // semantic search via recall_top_k + kv_get — №717 re-refusal: the always-empty List handler (recipes.rs:75 — the same placeholder ground as recipe_list recipes.rs:86) — a List<X> spelling would be fictitious (the №712 recipe_list form; the №669 graph_path form)
     spec!("recipe_list", 0, "recipe" => "ext"; builtin_recipe_list), // №712: Unknown honest — the handler answers the always-empty List (recipes.rs:86; no live element instance exists on any lane) — spelling List<X> would be fictitious (the graph_path №669 form)
     spec!("dag_phases", 1, "orchestration" => "ext"; builtin_dag_phases),
     spec!("topo_sort", 1, "orchestration" => "ext"; builtin_topo_sort),
-    spec!("resolve_skill_index", 1, "stub"), // planned skill resolution; no handler
+    spec!("resolve_skill_index", 1, "stub"), // planned skill resolution; no handler — №717: the anchor is refreshed (the row itself, registry.rs — the true-stub posture); typing a stub shape would be fictitious (the №706 posture)
     spec!("fit_to_budget", 0, "stub"),       // planned budget planner; no handler
     spec!("map", 0, "stub"), // planned list mapper; no handler (use filter+reduce instead)
     // ── OpenPlanter-inspired: fuzzy / safe editing / agent utilities ──
@@ -538,7 +538,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("replay_snapshot", 1, "system"; builtin_replay_snapshot, "Struct<ReplaySnapshot>{seq:internal,count:internal,snapshot:untrusted}"), // №706 (gh#1306, Wave 48): the FIXED snapshot shape (server.rs → make_struct "ReplaySnapshot", the SINGLE Ok arm); seq is the constant 0.0 and count the argument length → internal; snapshot serializes the caller's argument — the echo form → untrusted (the boost/todo echo form)
     spec!("policy_check", 1, "system"; builtin_policy_check, "Struct<PolicyResult>{allowed:internal,reason:internal}"), // ── obsidian-mind: Vault / semantic search ──
     spec!("semantic_search", 3, "vault" => "ext"; builtin_semantic_search, "List<SearchResult>"), // №668: the element read off builtin_semantic_search (office/text.rs:738-745, make_struct "SearchResult", the SINGLE arm — the empty-documents early return IS the empty List of the same shape); text echoes the caller's documents (untrusted), index/score are the in-tree embedding/similarity computation (internal); the element's field-labels — stage 2 (the Tool/DayForecast precedent)
-    spec!("config_load", 1, "vault" => "ext"; builtin_config_load),
+    spec!("config_load", 1, "vault" => "ext"; builtin_config_load), // №717 re-refusal: the DATA-DEPENDENT return — the shape follows the vault document (config.rs:130 → json_value_to_mlog_value_with_type, json.rs:321-341: the mapping mirrors the JSON shape: object→Struct, array→List, scalar→the scalar); the flat vocabulary has no document-dependent union (the №717 call_llm_schema form)
     spec!("vault_validate", 2, "vault" => "ext"; builtin_vault_validate),
     // ── Bot — Telegram ──
     spec!("todo_add", 2, "bot" => "ext"; builtin_todo_add, "Struct<Todo>{id:internal,title:untrusted,status:untrusted}"), // №543: the Todo make_date_struct (verified goals.rs); №631: the name read off the handler; №638: the fields read off make_date_struct (goals.rs:265-270) — id computed → internal; title echoes the argument, status echoes the optional argument (default const) → untrusted
@@ -813,14 +813,14 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // reflex_save/reflex_load need access to both the ReflexRegistry
     // and the SQLite persist path (set by `memory { persist: "..." }`).
     spec!("reflex_save", 1, "reflex"; builtin_reflex_save_stub),
-    spec!("reflex_load", 1, "reflex"; builtin_reflex_load_stub),
+    spec!("reflex_load", 1, "reflex"; builtin_reflex_load_stub), // №717: the loud Err stub (reflex.rs:94-99) — typing a stub shape would be fictitious (the №706 posture)
     // ── Наряд №187: Reflex introspection (read-only, ADR-0114) ──
     // Same stub pattern. reflex_metrics returns metadata (no weights);
     // reflex_list returns names of all declared reflex/reflex_seq models.
     spec!("reflex_metrics", 1, "reflex"; builtin_reflex_metrics_stub),
-    spec!("reflex_list", 0, "reflex"; builtin_reflex_list_stub),
+    spec!("reflex_list", 0, "reflex"; builtin_reflex_list_stub), // №717: the loud Err stub (reflex.rs:112-117) — typing a stub shape would be fictitious (the №706 posture)
     // ── Наряд №193: text generation (ADR-0120) ──
-    spec!("reflex_generate", 4, "reflex"; builtin_reflex_generate_stub),
+    spec!("reflex_generate", 4, "reflex"; builtin_reflex_generate_stub), // №717: the loud Err stub (reflex.rs:121-126) — typing a stub shape would be fictitious (the №706 posture)
     // ── Наряд №194: tokenization (ADR-0120 follow-up) ──
     // These are pure functions (no registry access) — real handlers, not stubs.
     spec!("reflex_tokenize", 1, "reflex"; builtin_reflex_tokenize),
@@ -830,7 +830,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("reflex_bpe_encode", 2, "reflex"; builtin_reflex_bpe_encode),
     spec!("reflex_bpe_decode", 2, "reflex"; builtin_reflex_bpe_decode, "String"), // №757 precise movement (N6, gh#1216): the compensation package — the verified single-shape handler fact (the ONLY Ok arm is Value::String(text))
     spec!("reflex_bpe_save", 1, "reflex"; builtin_reflex_bpe_save, "Unit"),
-    spec!("reflex_bpe_load", 1, "reflex"; builtin_reflex_bpe_load),
+    spec!("reflex_bpe_load", 1, "reflex"; builtin_reflex_bpe_load), // №717: the handler NEVER returns Ok — the loud Err on every lane (reflex.rs:1529-1531, the №195 contract 4 note); typing an unreachable Ok shape would be fictitious (the stdin true-stub posture, the louder form)
     // ── Vision pillar (Наряд №210, ADR-0124) ──
     // Наряд №240 (R4.2): vision_generate arity 3→2 (R4 contract, plan §3:
     // `vision_generate("decl_name", "prompt")` — model/steps/size/seed come
@@ -851,8 +851,8 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // SSRF-guarded (check_url_ssrf, лекало №130), allowlist default-deny
     // (MLOG_VISION_WEIGHTS_ALLOWLIST), manifest.json-class only, SHA-256
     // pinned via reused WeightsManifest. Registry 388→389.
-    spec!("vision_fetch_weights", 2, "vision"; builtin_vision_fetch_weights),
-    spec!("vision_list", 0, "vision"; builtin_vision_list_stub),
+    spec!("vision_fetch_weights", 2, "vision"; builtin_vision_fetch_weights, "String"), // №717 (gh#1329, Wave 50): the SINGLE Ok arm returns the caller's dest_dir echo (vision.rs:1524, the vision-gated arm; the non-vision arm is the loud refusal) — the verified single-shape String fact (the №757 decrypt form); the allowlist default-deny + SSRF guard + pickle-extension refusals all stay in the error channel (loud, unchanged)
+    spec!("vision_list", 0, "vision"; builtin_vision_list_stub), // №717: the state-carrying vision builtin — the registry fallback is the LOUD Err (vision.rs:1707-1712, the №240 dispatch note); the real path is the interpreter/VM vision registry — typing the unreachable fallback would be fictitious (the №706 fail-closed fallback form)
     // Наряд №242 (R6.1): vision_save/vision_load — real SQLite persistence
     // (crate::vision::store), intercepted like the rest of the vision
     // family (state-carrying PLUS the program's db connection). These
@@ -860,7 +860,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // count UNCHANGED (389): both builtins existed here since №210 — this
     // naryad replaces their stub bodies with real dispatch paths.
     spec!("vision_save", 2, "vision"; builtin_vision_save_stub),
-    spec!("vision_load", 1, "vision"; builtin_vision_load_stub),
+    spec!("vision_load", 1, "vision"; builtin_vision_load_stub), // №717: the state-carrying vision builtin — the registry fallback is the LOUD Err (vision.rs:1756-1763, the №242 dispatch note); typing the unreachable fallback would be fictitious (the №706 fail-closed fallback form)
     // Наряд №244 (R6.3): LoRA adapters — SQLite BLOB persistence
     // (ADR-0124 §6) + application to the DiT attention projections.
     // Intercepted like the rest of the vision family (state-carrying: the
@@ -869,7 +869,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // 389→391: the vision family reaches its ADR-0124 §3 ceiling of
     // ~10 (8→10) — the NEXT vision builtin requires an ADR-0124 edit
     // (loudly noted in CHANGELOG).
-    spec!("vision_lora_load", 2, "vision"; builtin_vision_lora_load_stub),
+    spec!("vision_lora_load", 2, "vision"; builtin_vision_lora_load_stub), // №717: the state-carrying vision builtin — the registry fallback is the LOUD Err (vision.rs:1784-1791, the №244 dispatch note); typing the unreachable fallback would be fictitious (the №706 fail-closed fallback form)
     spec!("vision_lora_generate", 3, "vision"; builtin_vision_lora_generate_stub),
     // ── Наряд №331 (ADR-0162): unified media layer (category "media") ──
     // Four per-type store builtins (opaque handles — bytes never enter
@@ -893,7 +893,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // intercepted like the media family; the compiler lowers
     // `source <origin>` / `from <origin> <construction>` to these calls.
     // Registry 430→432.
-    spec!("media_source_capture", 1, "media"; builtin_media_source_capture_stub),
+    spec!("media_source_capture", 1, "media"; builtin_media_source_capture_stub), // №717: the state-carrying media builtin — the registry fallback is the LOUD Err (media.rs:635-637, ADR-0164); the real path is the interpreter/VM dispatch contour — typing the unreachable fallback shape would be fictitious (the №706 fail-closed fallback form)
     spec!("media_bind_origin", 2, "media"; builtin_media_bind_origin_stub),
     // ── Наряд №333 (ADR-0163): backend registry — read-only metadata ──
     // The SSOT table lives in src/backends.rs; this builtin is the
@@ -904,7 +904,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // Priority ladder over the №333 registry SSOT; exhaustion →
     // Degraded(t), the typed degradation result (never a panic, never a
     // silent mock). Registry 439→440; category "registry".
-    spec!("backend_select", 2, "registry"; builtin_backend_select),
+    spec!("backend_select", 2, "registry"; builtin_backend_select), // №717 re-refusal: the HETEROGENEOUS Ok union — the selected arm Struct "BackendSelected" (backends.rs:225) vs the exhaustion arm Struct "Degraded" (backends.rs:262); no single return spelling exists (the №543 send_message form); the typed Degraded error record is the semantics lane, OUTSIDE the types movement
     // ── Наряд №337 (ADR-0166): the C2PA contour of media handles ──
     // media_manifest is STATE-CARRYING (store read) — intercepted by
     // interpreter/VM before the generic fallback; media_manifest_read is
@@ -982,7 +982,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // одна строка на завершённый стрим (ADR-0138 §D4). Mock / non-SSE →
     // loud STREAM_UNSUPPORTED. Registry 405→408 (append-only).
     #[cfg(feature = "llm")]
-    spec!("llm_stream_open", 1, 2, "llm"; builtin_llm_stream_open), // prompt | prompt,input
+    spec!("llm_stream_open", 1, 2, "llm"; builtin_llm_stream_open, "Struct<LlmStream>{handle:internal,model:internal,provider:internal}"), // prompt | prompt,input — №717 (gh#1329, Wave 50): the FIXED 3-field open-projection (llm_stream.rs:59, the SINGLE Ok arm); handle carries the in-tree LlmStream id → internal; model/provider peek the CONFIGURED provider registry (llm_stream.rs:52-53, the "unknown" fallback) → internal; the stream CONTENT is not in the projection — next/close read the handle
     #[cfg(feature = "llm")]
     spec!("llm_stream_next", 1, "llm"; builtin_llm_stream_next, "String"), // handle
     #[cfg(feature = "llm")]
@@ -1009,7 +1009,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     #[cfg(feature = "voice")]
     spec!("voice_save", 2, "voice"; builtin_voice_save_stub), // handle, name
     #[cfg(feature = "voice")]
-    spec!("voice_load", 1, "voice"; builtin_voice_load_stub), // name
+    spec!("voice_load", 1, "voice"; builtin_voice_load_stub), // name — №717: not implemented — the loud Err (voice/mod.rs:409-410, phase A5 / ADR-0143); typing a refused shape would be fictitious (the №706 posture)
     // ── Наряд №307/№309 (P2, feature/video): Video pillar builtins.
     // №309 (ADR-0151): real implementations on the tiny seeded pipeline —
     // I2V first/last anchors, RIFE-class interp, extension, AV sidecar mux,
@@ -1028,7 +1028,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     #[cfg(feature = "video")]
     spec!("video_extend", 2, "video"; builtin_video_extend),
     #[cfg(feature = "video")]
-    spec!("video_fetch_weights", 2, "video"; builtin_video_fetch_weights_stub),
+    spec!("video_fetch_weights", 2, "video"; builtin_video_fetch_weights_stub), // №717: the formal No-Go loud Err (video/mod.rs:692-697, the №294 class / ADR-0151 D7 — production video weights parked in this environment); typing a refused shape would be fictitious (the №706 posture)
     // №408 (wave 4.5): the comprehension side of the video pillar —
     // mock-first backend call (the understanding twin of №309's
     // generation pipeline), behind the same feature gate.
@@ -1076,8 +1076,8 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // usage outside an on_deny handler at compile time; the runtime
     // refuses when no event is live. APPENDED at the end — inserting
     // mid-array would shift existing CallBuiltin indices (.mbc contract).
-    spec!("deny_event", 0, "stub"),
-    spec!("deny_reason", 0, "stub"),
+    spec!("deny_event", 0, "stub"), // №717: planned deny-ledger convenience wrapper; no handler on any lane — typing a stub shape would be fictitious (the №706 posture)
+    spec!("deny_reason", 0, "stub"), // №717: planned deny-ledger convenience wrapper; no handler on any lane — typing a stub shape would be fictitious (the №706 posture)
     // ── Naryad #393 (ADR-0167): Action Ledger v1 surface ────────────────
     // Introspection reads (count/head — not egress) and the two FILE
     // EGRESS exports (classified Sink, the consent_ledger_export
@@ -1118,8 +1118,8 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // transfer + the gated export live in src/forecast.rs. APPENDED at
     // the end — inserting mid-array would shift existing CallBuiltin
     // indices (.mbc contract). Registry 460→465 (append-only).
-    spec!("series_make", 1, 2, "forecast"; builtin_series_make),
-    spec!("series_pull", 2, "forecast"; builtin_series_pull),
+    spec!("series_make", 1, 2, "forecast"; builtin_series_make), // №717 re-refusal: the OPAQUE Value::SeriesHandle (forecast.rs:402) — no Series spelling in the stage-0 vocabulary (the №669 forecast_next form: the OpaqueKind set has no Series KIND in the signature vocabulary either)
+    spec!("series_pull", 2, "forecast"; builtin_series_pull), // №717: the handler NEVER returns Ok — the grant verifies, then the LOUD Err (forecast.rs:451-457, the documented dispatcher gap: no external series backend in-tree, Устав §11 Шаг 3); typing an unreachable Ok shape would be fictitious (the №717 reflex_bpe_load form)
     spec!("forecast_next", 2, "forecast"; builtin_forecast_next), // handle,horizon — №669: the HONEST refusal (the №650 form): the value IS the opaque ForecastHandle (src/forecast.rs:736-743, Ok(Value::ForecastHandle(forecast))); the stage-0 OpaqueKind set {Secret, Reflex, Grant, Series, Media, Embodied} has NO Forecast kind, and spelling it Series/Embodied would be a fictitious type (the sig_types discipline: Unknown is the honest answer) — the row stays untyped; a Forecast opaque kind is the dictionary/vocabulary lane (the separate owner decision)
     spec!("forecast_state", 1, "forecast"; builtin_forecast_state, "Struct<ForecastState>{id:internal,series_id:internal,horizon:untrusted,rung:internal,pin:internal,degraded:internal,window_hash:internal,label:untrusted,rung_note:internal,skipped:internal}"), // handle — №669: the shape read off forecast_state (src/forecast.rs:777-802, the SINGLE arm, Value::Struct "ForecastState"); the prov block is metadata (the device_state precedent — digests and words, no data): id/series_id are the in-tree fresh_id (internal), rung/pin/degraded/window_hash/rung_note/skipped are the in-tree run audit (internal), horizon and label echo the caller's forecast/series arguments (untrusted)
     spec!("forecast_points", 1, "forecast"; builtin_forecast_points, "Struct<ForecastPoints>{points:internal,p10:internal,p50:internal,p90:internal}"), // handle — №669: the shape read off forecast_points (src/forecast.rs:869-880, the SINGLE arm, Value::Struct "ForecastPoints"); all four fields are the forecast record's quantile vectors (the List<Float> lists) — the in-tree ladder computation → internal; the taint gate (FORECAST_TAINTED, the export check) is UNCHANGED — the labels describe the field origin, not the egress posture

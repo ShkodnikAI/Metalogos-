@@ -4,6 +4,8 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+## [0.33.1] - 2026-10-26
+
 ### Changed
 
 - **№707 (gh#1307, Wave 48 — the №700 candidate-наряд):** the extraction

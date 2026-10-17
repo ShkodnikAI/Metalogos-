@@ -32,9 +32,23 @@ unmaintained = "none"
 # Yanked releases surface as warnings so a lockfile refresh is visible
 # without breaking CI on a stale-but-working pin.
 yanked = "warn"
-# No ignores. If an advisory ever needs an ignore, it lands here WITH the
+# No ignores — EXCEPT the conveyor exception below: it lands here WITH the
 # RUSTSEC id, the reason, and the expiry review date — never silently.
-ignore = []
+# №707 (wave 48, the conveyor-enablement fix 2026-10-17): the THREE zip
+# criticals (RUSTSEC-2026-0367/0368/0369, the advisory set dated
+# 2026-10-10) ride candle-core 0.11.0's `zip ^8.6.0` pin. THE FIX IS
+# UPSTREAM-BLOCKED as of 2026-10-17: no candle-core release carries
+# zip ^9 (crates.io checked — the max is 0.11.0 = ^8.6.0) and no zip 8.x
+# patch release exists (the fix is 9.0.0+ only). The vulnerable path is
+# NOT reachable in the default build: candle is a NON-default feature
+# (the CI candle job only). THE REMOVAL TRIGGER (the expiry review):
+# the first candle-core release whose zip req accepts ^9 — the ignore
+# dies in the same PR that bumps candle (the №459 removal form).
+ignore = [
+    { id = "RUSTSEC-2026-0367", reason = "zip SUID/SGID extraction — candle-core 0.11.0 pins zip ^8.6.0, no upstream zip-9 release path exists (review 2026-11-17 or at the first candle-core zip-^9 release)" },
+    { id = "RUSTSEC-2026-0368", reason = "zip symlink escape on extract — candle-core 0.11.0 pins zip ^8.6.0, no upstream zip-9 release path exists (review 2026-11-17 or at the first candle-core zip-^9 release)" },
+    { id = "RUSTSEC-2026-0369", reason = "zip symlink unix-permissions — candle-core 0.11.0 pins zip ^8.6.0, no upstream zip-9 release path exists (review 2026-11-17 or at the first candle-core zip-^9 release)" },
+]
 
 [licenses]
 version = 2

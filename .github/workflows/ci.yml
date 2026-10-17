@@ -442,6 +442,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # №712 (gh#1319, the movement №4 PR): the hosted runner's disk no
+      # longer fits the full workspace test build + the restored cache +
+      # the artifact step's feature-unified rebuild — the ENOSPC
+      # (os error 28) at the libmetalogos rlib archive, two runs in a
+      # row, deterministic (the libmetalogos-7ed5e5b0 archive both
+      # times). The preinstalled toolchain junk (the Android SDK, .NET,
+      # GHC, CodeTracking, Ruby, boost, swift) is not needed by any
+      # Metalogos job — freeing it is the honest guard; zero check is
+      # weakened (the same steps run after; the №445 posture: the infra
+      # failure is handled in-repo, never by weakening a check).
+      - name: Free runner disk (the №712 ENOSPC guard)
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeTracking /opt/hostedtoolcache/Ruby /usr/local/share/boost /usr/local/swift
+          df -h /
       - uses: dtolnay/rust-toolchain@stable
       # №445 wave-infra: the rust-cache restore for the heavy jobs
       # (clippy + the feature-gated test jobs) died deterministically in

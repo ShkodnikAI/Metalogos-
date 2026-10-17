@@ -71,19 +71,24 @@ reqwest = { version = "0.12", features = ["blocking", "json", "rustls-tls", "mul
 # verified the stack in the N5-pre probe, issue #1214 — MIT /
 # Apache-2.0 / Unicode-3.0 only, zero copyleft; the `scraper` stack was
 # rejected for its MPL-2.0 transitive deps).
-html5ever = { version = "0.27", optional = true }
-markup5ever_rcdom = { version = "0.3", optional = true }
+html5ever = { version = "0.39", optional = true }
+markup5ever_rcdom = { version = "0.39.0+unofficial", optional = true }
 # The WHATWG URL parser (servo lineage) for html_links relative→absolute
 # resolution — hand-rolling RFC 3986 resolution is high-risk for zero
 # benefit (ADR-0192 §2.3).
 url = { version = "2", optional = true }
 # N6 (gh#1216, ADR-0192): the `xml` feature rides the SAME vendors —
-# xml5ever 0.18 (MIT/Apache-2.0) is already in the tree as the transitive
-# dep of markup5ever_rcdom; the direct optional declaration makes the
+# xml5ever is declared optional (the direct declaration makes the
 # `xml` feature honest (dep:xml5ever). DTD/external entities are NEVER
 # expanded — the XML5 grammar has no custom-entity mechanism (XXE-safe
 # by construction, pinned by the negative tests).
-xml5ever = { version = "0.18", optional = true }
+# №707 (gh#1307, wave 48): the extraction family moved 0.27/0.18/0.3 →
+# the 0.39 line (html5ever 0.39 + xml5ever 0.39 + markup5ever_rcdom
+# 0.39.0+unofficial — the newest COMPILABLE pair: no rcdom release
+# exists under markup5ever 0.40, the №700 reports gh#1286/gh#1288;
+# the 0.39 line unifies on ONE markup5ever 0.39 graph, verified by
+# cargo tree).
+xml5ever = { version = "0.39", optional = true }
 
 # Phase 7.3: Real encryption
 argon2 = "0.6"

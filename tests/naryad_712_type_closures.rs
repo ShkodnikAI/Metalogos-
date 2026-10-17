@@ -242,10 +242,13 @@ flow Main { input: String = "t" -> M -> output }
 
 #[test]
 fn n712_user_profile_live_shape_both_backends() {
-    // The kv_store fixture lives in a sandboxed file db: one static
-    // record; the profile projects the SAME constructed value on both
-    // the fresh-build and the cache-hit paths (the mtime generation
+    // The kv_store fixture lives in a sandboxed FILE db inside a TEMP
+    // root (the №676 A3 rule: a fixture write never lands in the repo
+    // tree — the naryad_387 EgressSandbox form): one static record; the
+    // profile projects the SAME constructed value on both the
+    // fresh-build and the cache-hit paths (the mtime generation
     // invalidates between the lanes — the profile.rs contract).
+    let tmp = tempfile::TempDir::new().expect("temp sandbox root");
     let src = r#"
 db { url: "sqlite:n712_profile_fixture.db" }
 pattern M(_t: String) -> String {
@@ -257,7 +260,30 @@ pattern M(_t: String) -> String {
 }
 flow Main { input: String = "t" -> M -> output }
 "#;
-    assert_both(src, "Struct/String/Float/List");
+    let root = tmp.path().to_path_buf();
+    let tw = metalogos::run_program_with_dir(src.trim(), root.clone())
+        .unwrap_or_else(|e| panic!("TW run failed: {e}\n{src}"))
+        .unwrap_or_default();
+    assert_eq!(
+        tw.trim_end(),
+        "Struct/String/Float/List",
+        "TW output mismatch\n{src}"
+    );
+    let declarations = metalogos::parser::parse(src.trim()).map_err(|e| panic!("parse error: {e}"));
+    let mut comp = metalogos::compiler::Compiler::with_std_root(root);
+    let program = comp
+        .compile(declarations.unwrap())
+        .unwrap_or_else(|e| panic!("VM compile failed: {e}"));
+    let mut vm = metalogos::vm::Vm::new();
+    let vm_out = vm
+        .run(program)
+        .unwrap_or_else(|e| panic!("VM run failed: {e}"))
+        .unwrap_or_default();
+    assert_eq!(
+        vm_out.trim_end(),
+        "Struct/String/Float/List",
+        "VM output mismatch\n{src}"
+    );
 }
 
 // ── The refusal re-verification: the Unknown ground holds ──────────────

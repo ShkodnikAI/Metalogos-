@@ -131,7 +131,51 @@
 # 84*10000//145 = 5793 bp; the fact twin (gate_031) raised in the SAME
 # PR (the №757/№613 procedure — the machine's own note «raise the
 # baseline floor to 5793 in the same-PR move»).
-# threshold_bp: 5793
+# threshold_bp was 5793 — superseded by the №706 move below (the
+# gate parser reads the FIRST "# threshold_bp: N" line — the history
+# blocks stay "was"-prefixed or behind it).
+
+# №706 (gh#1306, wave 48): the fixed-list movement №3 — EIGHT more
+# honest closures by the №644 criterion (the live contracts
+# probe-verified on both backends in tests/naryad_706_type_closures.rs):
+#   recall_top_k → String        (memory_ops.rs — BOTH backend intercepts
+#                                end in the serialized JSON hit array as
+#                                a String; the registered fallback IS the
+#                                no-memory lane contract — the zero-hit
+#                                "[]", the №702 fail-closed form);
+#   video_understand → String    (understand.rs — the success-path mock
+#                                golden; the omni_ask №697 posture);
+#   media_manifest_read → Struct<MediaManifest>{6 fields, all untrusted}
+#                                (the sidecar fields read verbatim off the
+#                                user document — the xml_parse form);
+#   cron_list → Struct<CronJob>{15 fields}  (prompt/payload private —
+#                                the №689 mail form; the scheduling
+#                                metadata internal — the goal_get
+#                                store-read form; the optional
+#                                Float|Unit fields — the memory_revise
+#                                precedent);
+#   ledger_verify → Struct<LedgerVerdict>{7 fields, all internal}
+#                                (verdict_to_value — BOTH arms, one shape);
+#   proof_verify → Struct<EmbodiedProofReport>{8 fields}
+#                                (the SINGLE Ok arm; proof_id echoes the
+#                                caller's handle → untrusted);
+#   device_state → Struct<EmbodiedDeviceState>{4 fields}
+#                                (id echoes → untrusted; the optional
+#                                bounds_digest — the memory_revise form);
+#   replay_snapshot → Struct<ReplaySnapshot>{seq/count internal,
+#                                snapshot untrusted} (the echo form).
+# The PDn-core refusals RE-VERIFIED live (the movement №3 obligation —
+# the anchors hold on 474ff7ae7): query (the backend-DIVERGENT contract
+# is ALIVE — db_ops.rs:133/202-205 vs db_ops.rs:699+; the "ONE contract"
+# comments belong to db_execute), query_row, query_scalar, stdin,
+# request_body, secret, memory_open, memory_read (+ this movement's
+# re-reads: generate_key — the opaque Secret; backend_select — the
+# heterogeneous BackendSelected|degraded arms; config_load — the
+# dynamic-shape parse). The machine read: 92*10000//145 = 6344 bp; the
+# fact twin (gate_031) raised in the SAME PR (the №757/№613 procedure —
+# the machine's own note «raise the baseline floor to 6344 in the
+# same-PR move»).
+# threshold_bp: 6344
 
 
 # №661 (issue #1162, 2026-10-09; the К-Б stage-2 verdict gh#1144):

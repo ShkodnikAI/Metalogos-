@@ -979,7 +979,22 @@ jobs:
           # direct lopdf runs 0.45.0 — the advisory no longer fires and the
           # --ignore is gone (verified by a clean audit run, 2026-09-26).
           # Unmaintained-crate WARNINGS stay advisory and allowed.
-          cargo audit
+          #
+          # №707 (wave 48, the conveyor-enablement fix 2026-10-17): the
+          # THREE zip criticals (RUSTSEC-2026-0367/0368/0369, advisory set
+          # dated 2026-10-10) ride candle-core 0.11.0's `zip ^8.6.0` pin.
+          # UPSTREAM-BLOCKED: no candle-core release accepts zip ^9 and no
+          # zip 8.x patch exists (crates.io checked 2026-10-17); the
+          # vulnerable path is NOT reachable in the default build (candle
+          # is a non-default feature). The --ignore mirrors the deny.toml
+          # [advisories] entries (the same reason + the expiry review
+          # 2026-11-17); the removal trigger: the first candle-core
+          # release with zip ^9 — the ignore dies in the same PR (the
+          # №459 removal form).
+          cargo audit \
+            --ignore RUSTSEC-2026-0367 \
+            --ignore RUSTSEC-2026-0368 \
+            --ignore RUSTSEC-2026-0369
 
   cargo-deny:
     name: cargo-deny (blocking)

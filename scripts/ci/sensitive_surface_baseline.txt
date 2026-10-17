@@ -219,7 +219,51 @@
 # the fact twin (gate_031) raised in the SAME PR (the №757/№613
 # procedure — the machine's own note «raise the baseline floor to 6551
 # in the same-PR move»).
-# threshold_bp: 6551
+# threshold_bp was 6551 — superseded by the №717 move below (the
+# gate parser reads the FIRST "# threshold_bp: N" line — the history
+# blocks stay "was"-prefixed or behind it).
+
+# №717 (gh#1329, wave 50): the fixed-list movement №5 — THREE more
+# honest closures by the №644 criterion (the live contracts
+# probe-verified on both backends in tests/naryad_717_type_closures.rs):
+#   listen_start → Struct<DuplexFlow>{stream_id:internal,
+#       direction:internal,priority:untrusted,preempted:internal}
+#       (duplex.rs start_result_value — the SINGLE Ok arm duplex.rs:122;
+#       the FROZEN-LIST closure — goal032 20 → 23/67);
+#   llm_stream_open → Struct<LlmStream>{handle:internal,model:internal,
+#       provider:internal} (llm_stream.rs — the SINGLE Ok arm llm_stream.rs:59;
+#       the provenance peek reads the CONFIGURED provider registry);
+#   vision_fetch_weights → String (vision.rs:1524 — the SINGLE Ok arm,
+#       the caller's dest_dir echo; the allowlist default-deny + SSRF +
+#       pickle-extension refusals stay loud in the error channel).
+# The movement refusals (30 fresh anchors in registry.rs): backend_select
+# (the heterogeneous Ok union — BackendSelected backends.rs:225 vs
+# Degraded backends.rs:262), call_llm_schema (the data-dependent
+# json_to_mlog shape — llm_schema.rs:162/287-303), config_load (the
+# data-dependent vault-document shape — config.rs:130 → json.rs:321-341),
+# series_make/series_pull (the opaque SeriesHandle forecast.rs:402 / the
+# loud no-backend Err forecast.rs:451-457), subgraph_extract (the opaque
+# Subgraph snapshot memory.rs:1010), device_open/duplex_open/pose_make/
+# trajectory_make/goal_make (the opaque Device/Duplex/Pose/Trajectory/
+# GoalPredicate handles — no stage-0 spellings), recipe_search (the
+# always-empty List recipes.rs:75), reflex_bpe_load/reflex_load/
+# reflex_list/reflex_generate (the loud-Err handlers), media_source_
+# capture/vision_list/vision_load/vision_lora_load (the state-carrying
+# interception — the loud-Err fallbacks), video_fetch_weights (the
+# formal No-Go), voice_load (not implemented), deny_event/deny_reason/
+# event_count/events_since/event_sum/find/inspect/resolve_skill_index
+# (the planned stubs, no handler). The №712/№669 refusal anchors
+# RE-VERIFIED fresh (query → the №711 ADR-0194 pin, db_ops.rs:200-204 vs
+# 699+; query_row/query_scalar → db_ops.rs:535-557; request_body →
+# http.rs:469-476; secret/generate_key → crypto.rs:322-328/206-216;
+# session_poll_wake/session_take_interrupt → session.rs:149-156/199-206;
+# recipe_list → recipes.rs:86; memory_open/memory_read →
+# memory_typed.rs:28-44/137+; forecast_next → forecast.rs:736-743;
+# graph_path → memory.rs:786-805; stdin → the true stub).
+# The machine read: 98*10000//145 = 6758 bp; the fact twin (gate_031)
+# raised in the SAME PR (the №757/№613 procedure — the machine's own
+# note «raise the baseline floor to 6758 in the same-PR move»).
+# threshold_bp: 6758
 
 
 # №661 (issue #1162, 2026-10-09; the К-Б stage-2 verdict gh#1144):

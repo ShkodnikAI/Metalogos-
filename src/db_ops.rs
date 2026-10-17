@@ -695,7 +695,7 @@ pub fn query_param_vm(vm: &impl DbAccess, args: &[Value]) -> Result<Value, Strin
 /// The paths are practically unreachable over embedded sqlite (the
 /// ValueRef conversions are infallible for the mapped columns), yet
 /// they are semantically different — a parity-fix candidate (the №474
-/// class), not pinned here.
+/// class), PINNED by №711 → ADR-0194 (Proposed; the owner's verbatim pending).
 pub fn query_vm(vm: &mut impl DbAccess, args: &[Value]) -> Result<Value, String> {
     let sql = match args.first() {
         Some(Value::String(s)) => s.clone(),

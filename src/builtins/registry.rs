@@ -177,7 +177,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // DO NOT remove without .mbc format version bump.
     // See ADR-0023 (naряд №73 re-measurement) for full history.
     spec!("newline", 0, "stub"),
-    spec!("stdin", 0, "stub"),
+    spec!("stdin", 0, "stub"), // №712 re-refusal: the true stub — no handler on any lane (registry.rs:180); the closure would either invent the no-stdin fallback contract or type a non-existent shape — both are semantics decisions outside the types movement
     spec!("split_tokens", 0, "stub"),
     spec!("if_eq", 3, "stub"),
     spec!("is_string_token", 1, "stub"), // db_insert: planned convenience wrapper for INSERT; no handler (use db_execute instead)
@@ -255,7 +255,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("http_post_multipart", 2, 4, "web"; builtin_http_post_multipart, "String"),
     spec!("http_download", 2, 3, "web"; builtin_http_download, "Bool"), // Наряд №76: url,dest_path | url,dest_path,headers
     spec!("require", 1, 2, "web"; builtin_require, "Unit"),
-    spec!("request_body", 0, "web"; builtin_json_body),
+    spec!("request_body", 0, "web"; builtin_json_body), // №712 re-refusal: the dynamic-shape Struct<JsonBody> (http.rs:469-476 — the registered fallback fields={}, the per-request keys parsed dynamically in the TW/VM dispatch); the №661 field-meta armor refuses the static labeling — the dynamic-fields meta form is the dictionary lane
     spec!("web_search", 1, 2, "web"; builtin_web_search, "String"), // query | query,num
     // №627 (gh#1110): the field-label tables — the FIRST honest package
     // (the handler-read verification table in the naryad thread; the file
@@ -281,7 +281,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("ct_eq", 2, "crypto"; builtin_ct_eq, "Bool"), // N2 (gh#1211): constant-time string equality — the secret-comparison builtin (no `==` timing leak)
     spec!("encrypt", 2, "crypto"; builtin_encrypt),
     spec!("decrypt", 2, "crypto"; builtin_decrypt, "String"), // №757 precise movement (N6, gh#1216): the compensation package — the verified single-shape handler fact (the ONLY Ok arm is Value::String(s) — the UTF-8 plaintext)
-    spec!("generate_key", 0, "crypto"; builtin_generate_key),
+    spec!("generate_key", 0, "crypto"; builtin_generate_key), // №712 re-refusal: the REAL 256-bit random key returns Value::Secret (crypto.rs:206-216) — the opaque-Secret ground (the secret() form; no Secret spelling in the vocabulary)
     spec!("base64_encode", 1, "encoding"; builtin_base64_encode, "String"),
     spec!("base64_decode", 1, "encoding"; builtin_base64_decode, "String"),
     // ── Auth stubs (interpreter-mode mocks; real auth requires server mode; builtin_base64_decode) ──
@@ -295,9 +295,9 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("session_duty_enter", 1, "session"; builtin_session_duty_enter, "Bool"),
     spec!("session_duty_exit", 1, "session"; builtin_session_duty_exit, "Bool"),
     spec!("session_wake", 2, 3, "session"; builtin_session_wake, "String"), // №613: returns the delivered source (String) so programs can branch
-    spec!("session_poll_wake", 1, "session"; builtin_session_poll_wake),
+    spec!("session_poll_wake", 1, "session"; builtin_session_poll_wake), // №712: Unknown honest — Struct "Wake"{source,payload} when a wake is pending | Unit when none (session.rs:149-156) — the state-dependent union (the №543 send_message form: the flat vocabulary has no state-dependent union)
     spec!("session_interrupt", 2, 3, "session"; builtin_session_interrupt, "String"), // №613: returns the accepted priority (String)
-    spec!("session_take_interrupt", 1, "session"; builtin_session_take_interrupt),
+    spec!("session_take_interrupt", 1, "session"; builtin_session_take_interrupt), // №712: Unknown honest — Struct "Interrupt"{priority,reason} when an interrupt is queued | Unit when none (session.rs:199-206) — the same state-dependent union (the №543 form)
     // №539: String — the literal "ok" return (verified handler; not Unit).
     spec!("session_clear", 1, "memory"; builtin_session_clear, "String"), // ── Bot — Telegram messaging ──
     spec!("send_message", 2, 4, "bot"; builtin_send_message), // №543: Unknown honest — String (delivered) | Unit (no TELEGRAM_BOT_TOKEN fallback); the flat vocabulary has no env-dependent union. N3: the 4th argument is opts (parse_mode/bot/disable_preview/chunk/retry)
@@ -316,7 +316,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // №481: the EXPLICIT-silence twin of env — the `_or` suffix carries the
     // silent-default semantics in the name (audit 25.09 §3.9 naming rule).
     spec!("env_or", 2, "system"; builtin_env_or, "String"), // ── DB builtins ──
-    spec!("query", 1, 2, "db"; builtin_query), // №538: Unknown honest — returns the opaque Query wrapper (Value::Query); the flat vocabulary has no Query entry, and the EXECUTION result type depends on the backend
+    spec!("query", 1, 2, "db"; builtin_query), // №538: Unknown honest — returns the opaque Query wrapper (Value::Query); the flat vocabulary has no Query entry, and the EXECUTION result type depends on the backend — PINNED by №711: the decision package (the error paths + the result contract, the live probe TW n=3 vs VM n=[]) is ADR-0194 (Proposed; the owner's verbatim pending — the №712 re-refusal, the mutation shapes are db_ops.rs:200-204 vs 699+)
     spec!("db_execute", 1, 2, "db"; builtin_db_execute, "Unit"), // ADR-0068: optional params list — the interpreter path returns Unit; the executed surface is the Query pipeline (№484 DbAccess)
     // ── LLM builtins ──
     #[cfg(feature = "llm")]
@@ -410,7 +410,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("listen_start", 1, 2, "voice"; builtin_listen_start),
     spec!("speak_stop", 1, "voice"; builtin_speak_stop),
     spec!("listen_stop", 1, "voice"; builtin_listen_stop),
-    spec!("duplex_state", 1, "voice"; builtin_duplex_state),
+    spec!("duplex_state", 1, "voice"; builtin_duplex_state, "Struct<DuplexState>{id:untrusted,session:internal,speak:internal,listen:internal,speak_last:internal,listen_last:internal}"), // №712 (gh#1319, Wave 49): the FIXED 6-field introspection projection (duplex.rs state → struct_of "DuplexState", the SINGLE Ok arm — unlike the heterogeneous backend_select); id echoes the caller's channel handle → untrusted (the №706 device_state form); session and the four stream projections read off the in-tree duplex registry → internal (the goal_get store-read form); speak/listen/speak_last/listen_last are the OPTIONAL Struct<DuplexStream>|Unit slots (the memory_revise precedent — the inner DuplexStream carries stream_id/direction/priority/outcome [+interrupted_by/interrupted_priority] metadata, no content payload)
     // №355 (registry В5 — Phase 5 «Embodied, sim-only», ADR-0159): the
     // embodied surface over the sim contour. NOT feature-gated: the
     // contour is sim-only (in-tree deterministic records — no hardware,
@@ -514,8 +514,8 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("event_count", 0, "stub"),
     spec!("events_since", 1, "stub"),
     spec!("event_sum", 2, "stub"), // query_scalar/query_row: planned convenience wrappers; no handler (use query + json_get instead)
-    spec!("query_scalar", 0, "stub"),
-    spec!("query_row", 0, "stub"), // ── Test builtins ──
+    spec!("query_scalar", 0, "stub"), // №712 re-refusal: planned convenience wrapper, no handler — the value type is data-dependent by column type (db_ops.rs:535-557); typing a stub shape would be fictitious (the №706 posture)
+    spec!("query_row", 0, "stub"), // №712 re-refusal: planned convenience wrapper, no handler — the element type is data-dependent by column type: Null→Unit, Integer/Real→Float, Text/Blob→String (db_ops.rs:535-557); typing a stub shape would be fictitious (the №706 posture) // ── Test builtins ──
     spec!("assert_eq", 2, "test"; builtin_assert_eq),
     spec!("assert_contains", 2, "test"; builtin_assert_contains), // ── Fluid builtins ──
     spec!("confidence", 1, "fluid"; builtin_confidence, "Float"), // ── Encoding builtins ──
@@ -523,7 +523,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("toon_decode", 1, "encoding"; builtin_toon_decode), // ── Recipe / DAG / Orchestration builtins ──
     spec!("recipe_save", 0, "recipe" => "ext"; builtin_recipe_save),
     spec!("recipe_search", 1, 2, "recipe" => "ext"; builtin_recipe_search), // semantic search via recall_top_k + kv_get
-    spec!("recipe_list", 0, "recipe" => "ext"; builtin_recipe_list),
+    spec!("recipe_list", 0, "recipe" => "ext"; builtin_recipe_list), // №712: Unknown honest — the handler answers the always-empty List (recipes.rs:86; no live element instance exists on any lane) — spelling List<X> would be fictitious (the graph_path №669 form)
     spec!("dag_phases", 1, "orchestration" => "ext"; builtin_dag_phases),
     spec!("topo_sort", 1, "orchestration" => "ext"; builtin_topo_sort),
     spec!("resolve_skill_index", 1, "stub"), // planned skill resolution; no handler
@@ -570,7 +570,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("extract_entities", 1, "bot" => "ext"; builtin_extract_entities, "List"), // №543: the entity rows vector (verified)
     spec!("extract_param", 2, "bot" => "ext"; builtin_extract_param, "String"), // text,index — №543: the extracted substring (verified)
     spec!("learn_preference", 3, "bot" => "ext"; builtin_learn_preference, "Struct"), // №543: the Preference make_date_struct (verified office/human.rs)
-    spec!("read_file_tokens", 1, "bot" => "ext"; builtin_read_file_tokens, "Struct"), // №543: the token-accounting struct (verified)
+    spec!("read_file_tokens", 1, "bot" => "ext"; builtin_read_file_tokens, "Struct<FileInfo>{content:untrusted,chars:untrusted,tokens:untrusted}"), // №712 (gh#1319, Wave 49): the FIXED 3-field token-accounting shape (text.rs builtin_read_file_tokens → Struct "FileInfo", the SINGLE Ok arm — the bare №543 "Struct" spelling upgraded to the full meta); content is the file body read through the sandbox gate → untrusted (the read_file family ground); chars/tokens are the numeric DERIVATIONS of the untrusted content → untrusted (the №623 label-flow: derivation conducts; the length-oracle conservatism — a length of secret content is itself a side channel, gh#1317 class)
     // ── sqz-inspired: string/list utilities ──
     spec!("squeeze", 2, "string"; builtin_squeeze, "String"),
     spec!("to_int", 1, "string"; builtin_to_int, "Float"), // parse string/float to integer
@@ -598,7 +598,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("hex_decode", 1, "crypto"; builtin_hex_decode),
     // Наряд №172: secret() — reads env var as Value::Secret directly
     // (hard-failure if missing, unlike env() which returns empty string).
-    spec!("secret", 1, "crypto"; builtin_secret), // ── Regex (Наряд №54; builtin_hex_decode) ──
+    spec!("secret", 1, "crypto"; builtin_secret), // №712 re-refusal: the opaque Value::Secret (crypto.rs:322-328 — SecretString wrap); the flat vocabulary has no Secret spelling (the №538 Query posture) and typing String would breach the SECRET_LEAK Category-A contract — the Secret spelling is the dictionary lane (the owner decision) // ── Regex (Наряд №54; builtin_hex_decode) ──
     spec!("regex_match", 2, "string"; builtin_regex_match, "Bool"),
     spec!("regex_captures", 2, "string"; builtin_regex_captures, "List"),
     spec!("regex_replace", 3, "string"; builtin_regex_replace, "String"), // ── PDF office automation (Наряд MLG-3; builtin_regex_replace) ──
@@ -965,7 +965,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // Контейнер-префикс — жёсткая изоляция (cross-container физически
     // не виден); scope-параметр — на vec_store/vec_search. Не
     // feature-гейт: kv-контур ядровой. Registry 403→404 (append-only).
-    spec!("user_profile", 2, "memory"; builtin_user_profile, "Struct"), // №539: the UserProfile (both the fresh-build and the cache-hit path)
+    spec!("user_profile", 2, "memory"; builtin_user_profile, "Struct<UserProfile>{container:untrusted,count:internal,static:private,dynamic:private,buckets:private}"), // №712 (gh#1319, Wave 49): the FIXED 5-field profile shape (profile.rs user_profile_core → struct_value "UserProfile", the SINGLE Ok arm — the fresh-build and cache-hit paths return the SAME constructed value; the bare №539 "Struct" spelling upgraded to the full meta); container echoes the caller's container name → untrusted (the №706 echo form); count is the derived record count → internal (the cron_list run_count form); static/dynamic/buckets carry the user-authored KV profile content → private (the №689 mail form — the fail-closed egress posture; the nested ProfileRecord/ProfileBuckets shapes are the comment-level detail, the slots are what the meta labels)
     // ── Наряд №285 (P2, feature/memory): text_chunk — структура-осознанное
     // чанкование для RAG-пайплайна (первая стадия поверх №272 vec-контур):
     // strategies markdown|paragraph|fixed; opts{max_chars, overlap,

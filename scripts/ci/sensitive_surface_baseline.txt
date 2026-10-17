@@ -175,7 +175,51 @@
 # fact twin (gate_031) raised in the SAME PR (the №757/№613 procedure —
 # the machine's own note «raise the baseline floor to 6344 in the
 # same-PR move»).
-# threshold_bp: 6344
+# threshold_bp was 6344 — superseded by the №712 move below (the
+# gate parser reads the FIRST "# threshold_bp: N" line — the history
+# blocks stay "was"-prefixed or behind it).
+
+# №712 (gh#1319, wave 49): the fixed-list movement №4 — THREE honest
+# closures by the №644 criterion (the live contracts verified on both
+# backends in tests/naryad_712_type_closures.rs):
+#   duplex_state     → Struct<DuplexState>{6 fields} (duplex.rs state —
+#                   the SINGLE Ok arm; id echoes the caller's channel
+#                   handle → untrusted; session + the four stream
+#                   projections → internal; the OPTIONAL
+#                   Struct<DuplexStream>|Unit slots — the memory_revise
+#                   precedent) — the FROZEN-LIST closure (goal032
+#                   19 → 20/67: the ≥20 figure of ADR-0193 is reached
+#                   as a machine FACT, the parameter stays the OWNER's
+#                   verdict — report-only, no self-capture);
+#   read_file_tokens → Struct<FileInfo>{content/chars/tokens, all
+#                   untrusted} (text.rs — the SINGLE Ok arm; the bare
+#                   №543 "Struct" upgraded to the full meta; the numeric
+#                   derivations conduct the untrusted label — the
+#                   length-oracle conservatism, the gh#1317 class);
+#   user_profile     → Struct<UserProfile>{container:untrusted,
+#                   count:internal,static:private,dynamic:private,
+#                   buckets:private} (profile.rs — the SINGLE Ok arm,
+#                   the fresh-build and cache-hit paths construct the
+#                   same value; the user-authored KV content → private,
+#                   the №689 mail form). NOT on the frozen 67 list
+#                   (typed-coarse at the anchor) — the bp move, not a
+#                   goal032 closure.
+# The ПДн refusals RE-VERIFIED with the fresh anchors (the movement №4
+# obligation — each was read, not skipped): query (the backend-divergent
+# contract pinned by №711 → ADR-0194 Proposed), query_row/query_scalar
+# (the data-dependent stub shapes, db_ops.rs:535-557), stdin (the true
+# stub — no handler on any lane), request_body (the dynamic JsonBody
+# fields, http.rs:469-476), secret + generate_key (the opaque
+# Value::Secret — no Secret spelling in the vocabulary, the №538
+# posture), session_poll_wake / session_take_interrupt (the
+# state-dependent Struct|Unit unions, the №543 send_message form),
+# recipe_list / recipe_search (the always-empty List — a fictitious
+# element spelling, the №669 graph_path form), memory_open/memory_read
+# (the №539 anchors hold). The machine read: 95*10000//145 = 6551 bp;
+# the fact twin (gate_031) raised in the SAME PR (the №757/№613
+# procedure — the machine's own note «raise the baseline floor to 6551
+# in the same-PR move»).
+# threshold_bp: 6551
 
 
 # №661 (issue #1162, 2026-10-09; the К-Б stage-2 verdict gh#1144):

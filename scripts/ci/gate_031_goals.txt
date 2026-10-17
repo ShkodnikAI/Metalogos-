@@ -120,6 +120,16 @@ goal_sensitive_surface_bp: 4782
 # and the six parameterized Struct rows media_manifest_read/cron_list/
 # ledger_verify/proof_verify/device_state/replay_snapshot; the PDn-core
 # refusals re-verified live — the divergence holds;
-# 92*10000//145 = 6344). The counter is machine-read, never
+# 92*10000//145 = 6344) → 6551 (95/145 — №712, gh#1319: the movement №4
+# package — THREE honest closures: duplex_state Struct<DuplexState> (the
+# FROZEN-LIST closure — goal032 19 → 20/67, the ≥20 figure reached as a
+# machine fact, the parameter stays the OWNER's verdict), read_file_tokens
+# Struct<FileInfo>, user_profile Struct<UserProfile>; the ПДн refusals
+# re-verified with fresh anchors (query → the №711 ADR-0194 pin,
+# secret/generate_key → the no-Secret-spelling dictionary lane,
+# request_body → the dynamic-fields form, stdin → the true stub,
+# session_poll_wake/session_take_interrupt → the №543 unions,
+# recipe_list/recipe_search → the always-empty List);
+# 95*10000//145 = 6551). The counter is machine-read, never
 # hand-zeroed.
-fact_sensitive_surface_bp: 6344
+fact_sensitive_surface_bp: 6551

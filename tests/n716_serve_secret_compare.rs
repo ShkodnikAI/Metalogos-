@@ -70,8 +70,7 @@ fn compile_errs(source: &str) -> Vec<String> {
 }
 
 fn redact_ok(text: &str, mode: &str) -> String {
-    redact_string(text, mode)
-        .unwrap_or_else(|e| panic!("redact({:?}) failed: {}", mode, e))
+    redact_string(text, mode).unwrap_or_else(|e| panic!("redact({:?}) failed: {}", mode, e))
 }
 
 /// The gh#1317 table verbatim: (sent value, the exact redact("all") outcome).
@@ -104,7 +103,8 @@ fn n716_gh1317_table_redact_all_golden_7_of_7() {
     for (input, expected) in GH1317_TABLE {
         let out = redact_ok(input, "all");
         assert_eq!(
-            &out, expected,
+            &out,
+            expected,
             "gh#1317 table row drifted for len={}",
             input.len()
         );
@@ -133,7 +133,12 @@ fn n716_hash_only_digest_deterministic_and_comparable() {
     for (input, _) in GH1317_TABLE {
         let a = redact_ok(input, "hash_only");
         let b = redact_ok(input, "hash_only");
-        assert_eq!(a, b, "hash_only must be deterministic for len={}", input.len());
+        assert_eq!(
+            a,
+            b,
+            "hash_only must be deterministic for len={}",
+            input.len()
+        );
         assert_ne!(a, *input, "hash_only must destroy the data");
         assert!(
             a.starts_with("[HASH:") && a.ends_with("] hex"),
@@ -198,8 +203,16 @@ fn n716_trap_mask_vs_raw_literal_false_both_backends() {
     // The gh#1317 FAIL row: redact("all") vs the raw literal — the silent
     // failure the production auth hit. Pinned as the documented trap.
     let src = trap_src("abcdefgh1369abcdefghi13ab");
-    assert_eq!(tw_out(&src), "false", "TW: the mask never equals the raw token");
-    assert_eq!(vm_out(&src), "false", "VM: the mask never equals the raw token");
+    assert_eq!(
+        tw_out(&src),
+        "false",
+        "TW: the mask never equals the raw token"
+    );
+    assert_eq!(
+        vm_out(&src),
+        "false",
+        "VM: the mask never equals the raw token"
+    );
 }
 
 #[test]
@@ -210,8 +223,16 @@ fn n716_identity_rows_still_compare_true_under_all() {
     for (input, expected) in GH1317_TABLE {
         if input == expected {
             let src = trap_src(input);
-            assert_eq!(tw_out(&src), "true", "TW: identity row must survive: {input}");
-            assert_eq!(vm_out(&src), "true", "VM: identity row must survive: {input}");
+            assert_eq!(
+                tw_out(&src),
+                "true",
+                "TW: identity row must survive: {input}"
+            );
+            assert_eq!(
+                vm_out(&src),
+                "true",
+                "VM: identity row must survive: {input}"
+            );
         }
     }
 }

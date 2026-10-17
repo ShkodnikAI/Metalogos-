@@ -2603,3 +2603,86 @@ the 19.10 train verdict (gh#1304), NLnet/Restack M1 (03.11.2026),
 №648 (01.12.2026), and the wave's new flag: the **parser-migration
 naryad candidate** (html5ever/xml5ever → the 0.39+unofficial pin
 line, or the rcdom 0.40 wait — the №700 audit).
+
+### 6.33. Wave 48 post-wave record (naryad №709): the movement №3 merged — EIGHT honest closures, the floor 5793 → 6344 bp, the extraction family on the markup5ever 0.39 line, the conveyor zip-audit enablement, the 0.33.1 lockstep in verified-wait (main @ the naryad's PR, 2026-10-17)
+
+The wave 48 (dispatch gh#1310) landed the development:
+
+- **№706** (gh#1306, **gh#1313** squash `79901442`; the successor of
+  gh#1311 after the conveyor rebase): the movement №3 over the frozen
+  list — **EIGHT honest closures** by the №644 criterion:
+  `recall_top_k → String` (BOTH backend intercepts serialize the JSON
+  hit array; the fail-closed no-memory fallback `[]`, the №702 form),
+  `video_understand → String` (the mock-golden success path, the
+  omni_ask №697 posture), and the six parameterized Struct rows WITH
+  the well-formed field-meta — `media_manifest_read`
+  (6 provenance fields, all untrusted), `cron_list` (15 fields;
+  prompt/payload **private** per the №689 mail form, the scheduling
+  metadata internal per the goal_get store-read form, the optional
+  Float|Unit fields per the memory_revise precedent), `ledger_verify`
+  (7 verdict fields — BOTH arms one shape), `proof_verify` (8 report
+  fields), `device_state` (4 fields, the optional bounds_digest),
+  `replay_snapshot` (the snapshot echo → untrusted). The movement №3
+  obligation: the PDn core re-verified LIVE — the backend-divergent
+  query contract is ALIVE (TW db_ops.rs:133/202-205 vs VM
+  db_ops.rs:699+; the `ONE contract` comments belong to db_execute),
+  the 8 refusals of №702 hold, +3 fresh re-reads refused
+  (generate_key — the opaque Secret; backend_select — the
+  heterogeneous arms; config_load — the dynamic shape). The ratchet:
+  the floor **5793 → 6344 bp** in the same PR (92/145; the machine's
+  own note honored), the twins gate_029 **4505** / gate_030 **4505 +
+  7288** / gate_031 **6344**; goal032 **11 → 19/67** (report-only; the
+  ≥20 figure stays the owner's Proposed parameter — ONE closure away).
+- **№707** (gh#1307, **gh#1314** squash `81edb389`): the extraction
+  family moved to the **markup5ever 0.39 line** — html5ever
+  0.27 → 0.39, xml5ever 0.18 → 0.39, markup5ever_rcdom
+  0.3 → 0.39.0+unofficial (the newest COMPILABLE pair: no rcdom
+  release under markup5ever 0.40 — the №700 reports re-verified;
+  the 0.39 members unify on ONE markup5ever 0.39 graph — `cargo tree`).
+  The RcDom/TreeSink integration needed NO rework (the surface is
+  stable); the features stay off-by-default, DTD NEVER; n5 14/14 +
+  n6 14/14 both backends, the smoke, the conformance, the leak-suite,
+  the №465 diff-fuzzer, the crosscheck — green. The CHANGELOG
+  `[Unreleased]` **Changed** entry landed (the wave's single row).
+- **The conveyor enablement** (PR **gh#1312** squash `f3c3c288`, the
+  PR#1301 form): the fresh RustSec advisory set (2026-10-10) fired
+  THREE criticals on the transitive zip 8.6.0 — the fix is
+  upstream-blocked (candle-core 0.11.0 pins `zip ^8.6.0`, no zip 8.x
+  patch exists, the path unreachable in the default build); the
+  documented `--ignore` trio landed in deny.toml + ci.yml WITH the
+  reason and the removal trigger (the first candle-core zip-^9
+  release; the review 2026-11-17) — the №459 removal form.
+- **№708** (gh#1308, **gh#1315**): the 26.10 train prep — the
+  classification §2.5 (the single №707 Changed → the PATCH proposal
+  **0.33.1**), the lockstep ×5, the badge + the generated row, the
+  `[0.33.1] - 2026-10-26` cut; the gates: `--gate-target 0.33.1
+  --strict` **EXIT 0** (the twin 4/4 — the №701 discipline),
+  `release_gap_gate` EXIT 0. **The owner merged the lockstep** (the
+  owner's account, 2026-10-17T05:44Z, `e526a8bb`) — the `[0.33.1]`
+  cut is ON MAIN; the tag `v0.33.1` + the publication await the
+  owner's train-day act (the 26.10 window). The 0.33.0 publish
+  itself waits in the owner's 19.10 window (the draft id 415523172,
+  the 4 verified assets — the delegated mechanics trace
+  `1a1478a417b8b165`).
+
+The counters at the record date (the generators, NOT hands):
+**ignore debt 8** (todo 0, dead_code 15), **sensitive 92/145 = 6344
+bp** (the floor 6344 only-up; the uncovered by reason: struct-no-meta
+2, typed-coarse 3, untyped 48), **goal032 closed 19/67** (report-only),
+**typed signatures 356/526 = 67.68% (precise 237/526 = 45.05%)**, the
+**parameterized share 86/118 = 7288 bp**, the **field-label share
+53/55**, **mirrors 0 mentions, dups 0**, **[Unreleased] on main is EMPTY** (the
+№708 lockstep `e526a8bb` cut the №707 Changed to
+`[0.33.1] - 2026-10-26`; the next content comes only from the merged
+naryads).
+
+The owner gates remaining (unchanged + the wave's flags): the
+ADR-0193 parameters (≥20/67 — the movement №3 delivered 19, the
+figure is ONE honest closure away; the PDn priority), the coverage
+threshold (№569), the second maintainer, the 19.10 publish verdict
+(the 0.33.0 draft) + the 26.10 train verdict (gh#1315), the
+zip-ignore review (2026-11-17 or the first candle zip-^9 release),
+the query-divergence language-design gate (the owner's), NLnet/Restack
+M1 (03.11.2026), №648 (01.12.2026), and the infra flag: the executor
+PAT carries NO git-push transport (the API-write path works — the
+publish lane runs through the git-data API).

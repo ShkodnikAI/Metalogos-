@@ -112,7 +112,20 @@ gates remaining: the ADR-0191 §-answers (the OD variants), the train
 №2 candidate (19.10 — the [Unreleased] classification = the 0.31.0
 MINOR), №639 (15.10) / №648 (01.12) outside the wave.
 
-## Current wave — the open machine tail (2026-10-16)
+## Current wave — the open machine tail (2026-10-17)
+
+Wave 48 EXECUTED (the dispatch gh#1310): №706 (the movement №3 —
+EIGHT honest closures: recall_top_k String, video_understand String +
+the six parameterized Struct rows; the floor 5793 → 6344 bp, gh#1313),
+№707 (the extraction family → the markup5ever 0.39 line — one graph,
+no integration rework, gh#1314), the conveyor zip-audit enablement
+(the documented --ignore with the removal trigger, gh#1312), №708
+(the 0.33.1 lockstep prep — gh#1315, the gates EXIT 0; **the owner
+merged the lockstep** 2026-10-17T05:44Z, `e526a8bb` — the
+`[0.33.1] - 2026-10-26` cut is ON MAIN, the tag + the publication
+await the owner's 26.10 train-day act; the 0.33.0 publish waits in
+the 19.10 window). The post-wave sync: №709 (REALITY §6.33, the
+generator numbers; strictly last).
 
 Wave 47 EXECUTED (the dispatch gh#1299): №700 (the dependabot sweep
 11/11 — 7 squash merges + the toml 1.1.8+spec patch gh#1303; the two

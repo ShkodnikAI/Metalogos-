@@ -115,6 +115,11 @@ goal_sensitive_surface_bp: 4782
 # 73*10000//145 = 5034) → 5655 (82/145 — №697, gh#1276: the fixed-list
 # movement №1, nine honest closures) → 5793 (84/145 — №702, gh#1296:
 # the movement №2, conv_context String + conv_history List<Message;
-# 84*10000//145 = 5793). The counter is machine-read, never
+# 84*10000//145 = 5793) → 6344 (92/145 — №706, gh#1306: the movement №3,
+# eight honest closures — recall_top_k String, video_understand String,
+# and the six parameterized Struct rows media_manifest_read/cron_list/
+# ledger_verify/proof_verify/device_state/replay_snapshot; the PDn-core
+# refusals re-verified live — the divergence holds;
+# 92*10000//145 = 6344). The counter is machine-read, never
 # hand-zeroed.
-fact_sensitive_surface_bp: 5793
+fact_sensitive_surface_bp: 6344

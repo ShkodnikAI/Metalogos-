@@ -355,9 +355,19 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // the TW ran it — a TW/VM registry disagreement. The name is now
     // registered (compile parity); the VM dispatches it through its own
     // state-carrying block (vm.rs call_builtin) against the VM's memory —
-    // handler stays None here because both backends intercept by name before
-    // the generic fallback (the media_store_* stub pattern).
-    spec!("recall_top_k", 1, 3, "memory"), // №539: handlerless row — the spec! macro keeps it untyped (no honest fill-site type for a no-handler row); the verified intercept fact for stage 1: BOTH backends return the serialized JSON hit array as a String (memory_ops recall_top_k_tw / recall_top_k_vm)
+    // both backends intercept by name BEFORE the generic fallback (the
+    // media_store_* stub pattern); the registered fallback fires only on
+    // the no-memory lanes.
+    // №706 (gh#1306, Wave 48): the row is TYPED — the both-backend
+    // intercept contracts are the serialized JSON hit array AS A String
+    // (memory_ops recall_top_k_tw / recall_top_k_vm both end in
+    // Value::String(serde_json::to_string(...))). The registered fallback
+    // IS the no-memory lane contract (the №702 fail-closed form): a lane
+    // without a memory store holds no hits, so the fallback answers the
+    // declared type's empty value — the zero-hit serialization "[]",
+    // exactly what the real lanes answer on an empty store — never a
+    // wrong-type value.
+    spec!("recall_top_k", 1, 3, "memory"; builtin_recall_top_k, "String"),
     // Наряд №272 (ADR-0134): векторный контур поверх sqlite-vec — KNN
     // (distance_metric=cosine), песочница через sandbox_path_ex, dim-гейт.
     #[cfg(feature = "vec")]
@@ -408,14 +418,14 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // BEHIND the GPU-budget gate, the TYPES are live now.
     spec!("device_open", 1, 2, "embodied"; builtin_device_open),
     spec!("bounds_attach", 2, "embodied"; builtin_bounds_attach),
-    spec!("device_state", 1, "embodied"; builtin_device_state),
+    spec!("device_state", 1, "embodied"; builtin_device_state, "Struct<EmbodiedDeviceState>{id:untrusted,backend:internal,bounds_present:internal,bounds_digest:internal}"), // №706 (gh#1306, Wave 48): the FIXED introspection shape (embodied.rs device_state → make_struct "EmbodiedDeviceState", the SINGLE Ok arm); id echoes the caller's handle → untrusted (the boost/todo form); backend/bounds_present/bounds_digest read off the in-tree device registry → internal; bounds_digest is the OPTIONAL field (Unit when bounds are absent — the memory_revise optional-field precedent)
     spec!("world_state", 1, "embodied"; builtin_world_state, "Embodied"), // №668: the OPAQUE WorldState handle (embodied.rs:489-497 world_value → Value::WorldState; the embodied contour №355/ADR-0159; the audit's own opaque grouping). The honest cause why the SENSITIVE row does NOT close on this package: the handle is neither scalar nor a parameterized List/Struct (typed-coarse stays uncovered) and every materialization surface refuses it (WORLD_STATE_PRIVATE + audit, private-by-default №349/№355) — closing it would need a dictionary/vocabulary decision that is OUTSIDE this naryad (the №604-dictionary lane is the separate owner decision)
     spec!("pose_make", 4, "embodied"; builtin_pose_make),
     spec!("trajectory_make", 1, "embodied"; builtin_trajectory_make),
     spec!("goal_make", 1, "embodied"; builtin_goal_make),
     spec!("chunk_make", 2, 3, "embodied"; builtin_chunk_make),
     spec!("proof_seal", 2, 3, "embodied"; builtin_proof_seal),
-    spec!("proof_verify", 1, "embodied"; builtin_proof_verify),
+    spec!("proof_verify", 1, "embodied"; builtin_proof_verify, "Struct<EmbodiedProofReport>{valid:internal,proof_id:untrusted,verdict:internal,world_hash:internal,chunk_id:internal,bounds_id:internal,backend:internal,reasons:internal}"), // №706 (gh#1306, Wave 48): the FIXED report shape (embodied.rs proof_verify → make_struct "EmbodiedProofReport", the SINGLE Ok arm); proof_id echoes the caller's handle → untrusted (the boost/todo form); valid/verdict/world_hash/chunk_id/bounds_id/backend/reasons read off the in-tree proof record → internal
     // ── Naryad #445 (P1, feature/memory): the forgetting memory — the
     // canon §10.3 front door on the name forget (the stub-spec row is
     // GONE; the row keeps its position — bytecode indices stable).
@@ -497,7 +507,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // №418: 2..5 — the optional tz / catch_up / payload extensions
     // (additive arity widening; the 2-arg 0.20.x call shape is unchanged).
     spec!("cron_add", 2, 5, "cron"; builtin_cron_add_stamped), // cron_expr, prompt, tz?, catch_up?, payload?
-    spec!("cron_list", 0, "cron"; builtin_cron_list_stamped),
+    spec!("cron_list", 0, "cron"; builtin_cron_list_stamped, "Struct<CronJob>{id:internal,cron_expr:internal,prompt:private,enabled:internal,run_count:internal,force_run:internal,created_at:internal,last_run:internal,last_run_tz:internal,last_window:internal,tz:internal,catch_up:internal,payload:private,next_run:internal,next_run_tz:internal}"), // №706 (gh#1306, Wave 48): the FIXED job shape (cron.rs builtin_cron_list → make_date_struct "CronJob", 15 fields, the SINGLE Ok arm); prompt/payload are the user-authored job content → private (the №689 mail form — the registry private-flow bridge seeds the fail-closed egress posture); the scheduling metadata reads off the in-tree store → internal (the goal_get store-read form); last_run/last_window/next_run are the OPTIONAL Float|Unit fields (the memory_revise precedent)
     spec!("cron_remove", 1, "cron"; builtin_cron_remove_stamped),
     spec!("cron_run", 1, "cron"; builtin_cron_run_stamped), // ── Event / query analytics stubs ──
     // event_count/events_since/event_sum: planned event analytics; no handler (use query with SQL instead)
@@ -525,7 +535,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("hashline_edit", 2, "string"; builtin_hashline_edit, "String"),
     spec!("compact_list", 3, "list"; builtin_compact_list), // №537: Unknown honest — List | the struct report{compacted, removed_count}
     spec!("budget_check", 2, "fluid"; builtin_budget_check),
-    spec!("replay_snapshot", 1, "system"; builtin_replay_snapshot),
+    spec!("replay_snapshot", 1, "system"; builtin_replay_snapshot, "Struct<ReplaySnapshot>{seq:internal,count:internal,snapshot:untrusted}"), // №706 (gh#1306, Wave 48): the FIXED snapshot shape (server.rs → make_struct "ReplaySnapshot", the SINGLE Ok arm); seq is the constant 0.0 and count the argument length → internal; snapshot serializes the caller's argument — the echo form → untrusted (the boost/todo echo form)
     spec!("policy_check", 1, "system"; builtin_policy_check, "Struct<PolicyResult>{allowed:internal,reason:internal}"), // ── obsidian-mind: Vault / semantic search ──
     spec!("semantic_search", 3, "vault" => "ext"; builtin_semantic_search, "List<SearchResult>"), // №668: the element read off builtin_semantic_search (office/text.rs:738-745, make_struct "SearchResult", the SINGLE arm — the empty-documents early return IS the empty List of the same shape); text echoes the caller's documents (untrusted), index/score are the in-tree embedding/similarity computation (internal); the element's field-labels — stage 2 (the Tool/DayForecast precedent)
     spec!("config_load", 1, "vault" => "ext"; builtin_config_load),
@@ -900,7 +910,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // interpreter/VM before the generic fallback; media_manifest_read is
     // stateless (sandboxed sidecar read). Registry 440→442.
     spec!("media_manifest", 1, "media"; builtin_media_manifest_stub),
-    spec!("media_manifest_read", 1, "media"; builtin_media_manifest_read),
+    spec!("media_manifest_read", 1, "media"; builtin_media_manifest_read, "Struct<MediaManifest>{kind:untrusted,origin:untrusted,conf:untrusted,synthetic:untrusted,bytes_sha256:untrusted,timestamp:untrusted}"), // №706 (gh#1306, Wave 48): the FIXED sidecar shape (media.rs → Value::Struct type_name "MediaManifest", the 6 provenance fields, the SINGLE Ok arm); every field reads verbatim off the user-sidecar document → untrusted (the xml_parse document-derivation form); missing/corrupt sidecars stay LOUD errors (№320), never defaults
     // ── Наряд №284 (P1, M1): canary-токены недоверенного текста ──
     // Runtime-детектор утечки недоверенного контента через LLM-канал
     // (паттерн rebuff/Spotlighting). Связан с taint-моделью: утечка →
@@ -1023,7 +1033,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // mock-first backend call (the understanding twin of №309's
     // generation pipeline), behind the same feature gate.
     #[cfg(feature = "video")]
-    spec!("video_understand", 1, 3, "video"; builtin_video_understand),
+    spec!("video_understand", 1, 3, "video"; builtin_video_understand, "String"), // №706 (gh#1306, Wave 48): the success-path answer is a String (understand.rs — the deterministic mock golden "[MOCK: video_understand | ...]"; the omni_ask №697 posture: the real path without weights is a LOUD Err, never a wrong type — PARKED №294)
     // ── Наряд №334 (P0, feature/backends): real STT/omni/vision-
     // understanding backends — the SHA-pin path. Mock-first call surface
     // over the №333 registry: METALOGOS_MOCK_LLM opt-in = deterministic
@@ -1101,7 +1111,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // P2-2 residue). APPENDED at the end — inserting mid-array would
     // shift existing CallBuiltin indices (.mbc contract).
     // Registry 459→460 (append-only).
-    spec!("ledger_verify", 1, "security"; builtin_ledger_verify),
+    spec!("ledger_verify", 1, "security"; builtin_ledger_verify, "Struct<LedgerVerdict>{ok:internal,records:internal,head_hash:internal,distinct_keys:internal,anchored_start:internal,error_record:internal,error_reason:internal}"), // №706 (gh#1306, Wave 48): the FIXED verdict shape (ledger.rs verdict_to_value — BOTH arms, the soft-missing read and the file verify, carry the same 7 fields); every field is the in-tree verdict computation → internal; error_record is the OPTIONAL Float|Unit field (the memory_revise precedent)
     // ── Naryad #440 (P1, feature/forecast): the forecasting domain ──
     // series_make/series_pull/forecast_next/forecast_state/
     // forecast_points over the `timeseries` registry class; the taint

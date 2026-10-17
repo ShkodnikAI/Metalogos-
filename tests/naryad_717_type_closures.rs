@@ -128,11 +128,13 @@ fn assert_both(src: &str, expected: &str) {
 }
 
 fn assert_both_loud_err(src: &str, needle: &str) {
-    let tw = run_tw(src)
-        .expect_err("TW must refuse loudly");
+    let tw = run_tw(src).expect_err("TW must refuse loudly");
     assert!(tw.contains(needle), "TW refusal must carry {needle}: {tw}");
     let vm_err = run_vm(src).expect_err("VM must refuse loudly");
-    assert!(vm_err.contains(needle), "VM refusal must carry {needle}: {vm_err}");
+    assert!(
+        vm_err.contains(needle),
+        "VM refusal must carry {needle}: {vm_err}"
+    );
 }
 
 fn spec_of(name: &str) -> &'static metalogos::builtins::BuiltinSpec {
@@ -199,9 +201,13 @@ fn n717_listen_start_live_shape_both_backends() {
     // The fresh channel: the flow projection is the Struct with the
     // generated stream id (String), the fixed direction word (String),
     // the echoed ladder word (String), and the (empty) preempted List.
+    // The listen flow sits behind the №428 consent gate (audio.listen,
+    // fail-closed) — the probe grants the scope up front (the n352
+    // harness form; no revoke in this file — parallel-safe).
     let src = r#"
 pattern M(_t: String) -> String {
   let sess = session_login("n717-user", "pw-not-checked-by-design")
+  let _ = consent_grant("n717-listen-probe", "audio.listen", "naryad-717")
   let ch = duplex_open(sess)
   let fl = listen_start(ch)
   return type_of(fl) + "/" + type_of(json_get(fl, "stream_id")) + "/"
@@ -217,10 +223,12 @@ flow Main { input: String = "t" -> M -> output }
 #[test]
 fn n717_listen_start_direction_word_both_backends() {
     // The direction is the fixed LISTEN word — the flow projection
-    // pins the semantic, not just the type.
+    // pins the semantic, not just the type. The №428 consent grant
+    // arms the audio.listen scope for the probe (see the shape test).
     let src = r#"
 pattern M(_t: String) -> String {
   let sess = session_login("n717-user2", "pw-not-checked-by-design")
+  let _ = consent_grant("n717-listen-probe2", "audio.listen", "naryad-717")
   let ch = duplex_open(sess)
   let fl = listen_start(ch)
   return json_get(fl, "direction")
@@ -250,12 +258,13 @@ flow Main { input: String = "t" -> M -> output }
 
 #[test]
 fn n717_movement_refusals_stay_unknown_in_registry() {
-    // Each refusal was READ, not skipped (the №706 rule): the 44 rows
-    // keep the honest Unknown return type — no fictitious spellings
-    // landed. The list: 30 fresh №717 anchors + 14 re-verified
-    // №712/№669 anchors.
+    // Each refusal was READ, not skipped (the №706 rule): the 42
+    // default-build rows keep the honest Unknown return type (plus the
+    // two feature-gated rows asserted under their gates below) — no
+    // fictitious spellings landed. The list: 28 fresh №717 anchors +
+    // 14 re-verified №712/№669 anchors.
     for name in [
-        // fresh №717 (30)
+        // fresh №717 (28 in the default build; +2 feature-gated below)
         "backend_select",
         "call_llm_schema",
         "config_load",
@@ -281,11 +290,9 @@ fn n717_movement_refusals_stay_unknown_in_registry() {
         "series_pull",
         "subgraph_extract",
         "trajectory_make",
-        "video_fetch_weights",
         "vision_list",
         "vision_load",
         "vision_lora_load",
-        "voice_load",
         // re-verified №712/№669 (14)
         "forecast_next",
         "generate_key",
@@ -309,6 +316,22 @@ fn n717_movement_refusals_stay_unknown_in_registry() {
             "the refusal {name} must stay Unknown honest"
         );
     }
+    // The feature-gated rows (the video/voice model lanes — NOT default
+    // features): the registry TEXT carries the refusal (the №644
+    // machine reads the text rows), the runtime row exists only under
+    // its feature — asserted under the same gate.
+    #[cfg(feature = "video")]
+    assert_eq!(
+        spec_of("video_fetch_weights").return_type,
+        Type::Unknown,
+        "the refusal video_fetch_weights must stay Unknown honest"
+    );
+    #[cfg(feature = "voice")]
+    assert_eq!(
+        spec_of("voice_load").return_type,
+        Type::Unknown,
+        "the refusal voice_load must stay Unknown honest"
+    );
 }
 
 #[test]

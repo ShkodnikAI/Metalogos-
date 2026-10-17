@@ -4,6 +4,23 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Changed
+
+- **№707 (gh#1307, Wave 48 — the №700 candidate-наряд):** the extraction
+  family moved to the markup5ever 0.39 line — html5ever 0.27 → 0.39,
+  xml5ever 0.18 → 0.39, markup5ever_rcdom 0.3 → 0.39.0+unofficial.
+  The 0.39 line is the newest COMPILABLE pair: no rcdom release exists
+  under markup5ever 0.40 (the №700 reports gh#1286/gh#1288), and the
+  0.39 members unify on ONE markup5ever 0.39 graph (verified by
+  `cargo tree -e features`) — the double-graph mismatch that broke the
+  0.40 attempt disappears by construction. The RcDom/TreeSink
+  integration needed NO rework (the surface — parse_document +
+  Handle/NodeData walking — is stable across the line). The `html`/`xml`
+  features stay off-by-default; DTD/external entities NEVER (XXE-safe by
+  construction); the n5/n6 both-backend suites (14+14), the
+  rss_decomposition smoke, the conformance goldens, the leak-suite, the
+  №465 diff-fuzzer, and the crosscheck are green under the features.
+
 ## [0.33.0] - 2026-10-19
 
 ### Added

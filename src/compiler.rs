@@ -1752,108 +1752,23 @@ impl Compiler {
                     body,
                     ..
                 } => {
-                    // Compile: iterable → load → iterate with index
-                    // Alloc local slots for: _list (hidden), _index (hidden), item (visible)
-                    let list_slot = next_slot;
-                    next_slot += 1;
-                    let idx_slot = next_slot;
-                    next_slot += 1;
-                    let item_slot = next_slot;
-                    next_slot += 1;
-
-                    // Compile iterable expression, store in list_slot
-                    self.compile_expr_with_locals(
+                    // gh#1336: ONE shared lowering with the nested-statement
+                    // compiler (compile_stmt_with_locals) — the loop compiles
+                    // in EVERY context now. The pre-fix shape kept the code
+                    // only HERE and left the shared compiler a silent no-op
+                    // for the forms (an each nested in an if/while/match body
+                    // compiled to NOTHING on the VM — the gh#1336 class).
+                    self.compile_each_stmt_with_locals(
+                        None,
+                        variable,
                         iterable,
+                        body,
                         &mut code,
                         locals,
                         &mut next_slot,
                         &mut loop_stack,
                         mutable,
                     )?;
-                    code.push(Instruction::StoreLocal(list_slot));
-
-                    // Initialize index = 0
-                    code.push(Instruction::const_(Value::Float(0.0)));
-                    code.push(Instruction::StoreLocal(idx_slot));
-
-                    let loop_start = code.len();
-
-                    // Check: idx < len? → JumpIfNot after_loop
-                    // Stack: [..., len, idx] — we need to duplicate both or use CmpLt
-                    // Simpler: load idx, load len_len_from_list, CmpLt
-                    code.push(Instruction::LoadLocal(idx_slot));
-                    code.push(Instruction::LoadLocal(list_slot));
-                    code.push(Instruction::ListLen);
-                    code.push(Instruction::CmpLt);
-                    code.push(Instruction::JumpIfNot(0)); // placeholder
-                    let jmp_not_idx = code.len() - 1;
-
-                    // Get item: list[idx]
-                    code.push(Instruction::LoadLocal(list_slot));
-                    code.push(Instruction::LoadLocal(idx_slot));
-                    code.push(Instruction::IndexAccess);
-                    code.push(Instruction::StoreLocal(item_slot));
-
-                    // Bind variable name to item_slot
-                    let old = locals.insert(variable.clone(), item_slot);
-
-                    // №658 (the №652-a repair): the loop-stack entry is the
-                    // SINGLE source of truth for break/continue fixups — every
-                    // break/continue (top-level or nested through if/match/loop)
-                    // registers a Jump(0) placeholder in the NEAREST entry via
-                    // the shared statement compiler; the pre-№658 code patched
-                    // from a stale LOCAL vec (always empty), so a top-level
-                    // break/continue kept its Jump(0) placeholder (→
-                    // instruction 0, the infinite-loop guard class) and a
-                    // nested one was DROPPED entirely.
-                    loop_stack.push((loop_start, Vec::new(), Vec::new()));
-                    let saved_next_slot = next_slot;
-                    for s in body {
-                        self.compile_stmt_with_locals(
-                            s,
-                            &mut code,
-                            locals,
-                            &mut next_slot,
-                            &mut loop_stack,
-                            mutable,
-                        )?;
-                    }
-                    next_slot = saved_next_slot;
-                    // №658: patch from the POPPED entry — continue targets the
-                    // INCREMENT section (the next item, the TW
-                    // ControlFlow::ContinueLoop shape), break → after_loop.
-                    let (_, break_fixups, continue_fixups) =
-                        loop_stack
-                            .pop()
-                            .unwrap_or((loop_start, Vec::new(), Vec::new()));
-                    let continue_target = code.len();
-
-                    // Increment index
-                    code.push(Instruction::LoadLocal(idx_slot));
-                    code.push(Instruction::const_(Value::Float(1.0)));
-                    code.push(Instruction::Add);
-                    code.push(Instruction::StoreLocal(idx_slot));
-
-                    // Jump back to loop start
-                    code.push(Instruction::Jump(loop_start));
-
-                    // Patch after_loop
-                    let after_loop = code.len();
-                    code[jmp_not_idx] = Instruction::JumpIfNot(after_loop);
-
-                    for fixup_idx in &break_fixups {
-                        code[*fixup_idx] = Instruction::Jump(after_loop);
-                    }
-                    for fixup_idx in &continue_fixups {
-                        code[*fixup_idx] = Instruction::Jump(continue_target);
-                    }
-
-                    // Restore old binding for variable
-                    if let Some(old_val) = old {
-                        locals.insert(variable.clone(), old_val);
-                    } else {
-                        locals.remove(variable);
-                    }
                 }
                 Statement::EachWithIndex {
                     index_var,
@@ -1862,97 +1777,18 @@ impl Compiler {
                     body,
                     ..
                 } => {
-                    // Same as Each but also binds index_var
-                    let list_slot = next_slot;
-                    next_slot += 1;
-                    let idx_slot = next_slot;
-                    next_slot += 1;
-                    let item_slot = next_slot;
-                    next_slot += 1;
-
-                    self.compile_expr_with_locals(
+                    // gh#1336: the same shared lowering, the index-binding form.
+                    self.compile_each_stmt_with_locals(
+                        Some(index_var),
+                        item_var,
                         iterable,
+                        body,
                         &mut code,
                         locals,
                         &mut next_slot,
                         &mut loop_stack,
                         mutable,
                     )?;
-                    code.push(Instruction::StoreLocal(list_slot));
-
-                    code.push(Instruction::const_(Value::Float(0.0)));
-                    code.push(Instruction::StoreLocal(idx_slot));
-
-                    let loop_start = code.len();
-
-                    code.push(Instruction::LoadLocal(idx_slot));
-                    code.push(Instruction::LoadLocal(list_slot));
-                    code.push(Instruction::ListLen);
-                    code.push(Instruction::CmpLt);
-                    code.push(Instruction::JumpIfNot(0));
-                    let jmp_not_idx = code.len() - 1;
-
-                    code.push(Instruction::LoadLocal(list_slot));
-                    code.push(Instruction::LoadLocal(idx_slot));
-                    code.push(Instruction::IndexAccess);
-                    code.push(Instruction::StoreLocal(item_slot));
-
-                    // Bind both vars
-                    let old_item = locals.insert(item_var.clone(), item_slot);
-                    let old_idx = locals.insert(index_var.clone(), idx_slot);
-
-                    // №658 (the №652-a repair): the loop-stack entry is the
-                    // SINGLE source of truth for break/continue fixups — same
-                    // shape as Each/While above.
-                    loop_stack.push((loop_start, Vec::new(), Vec::new()));
-                    let saved_next_slot = next_slot;
-                    for s in body {
-                        self.compile_stmt_with_locals(
-                            s,
-                            &mut code,
-                            locals,
-                            &mut next_slot,
-                            &mut loop_stack,
-                            mutable,
-                        )?;
-                    }
-                    next_slot = saved_next_slot;
-                    // №658: patch from the POPPED entry — continue targets the
-                    // INCREMENT section (the next item), break → after_loop.
-                    let (_, break_fixups, continue_fixups) =
-                        loop_stack
-                            .pop()
-                            .unwrap_or((loop_start, Vec::new(), Vec::new()));
-                    let continue_target = code.len();
-
-                    code.push(Instruction::LoadLocal(idx_slot));
-                    code.push(Instruction::const_(Value::Float(1.0)));
-                    code.push(Instruction::Add);
-                    code.push(Instruction::StoreLocal(idx_slot));
-
-                    code.push(Instruction::Jump(loop_start));
-
-                    let after_loop = code.len();
-                    code[jmp_not_idx] = Instruction::JumpIfNot(after_loop);
-
-                    for fixup_idx in &break_fixups {
-                        code[*fixup_idx] = Instruction::Jump(after_loop);
-                    }
-                    for fixup_idx in &continue_fixups {
-                        code[*fixup_idx] = Instruction::Jump(continue_target);
-                    }
-
-                    // Restore bindings
-                    if let Some(v) = old_item {
-                        locals.insert(item_var.clone(), v);
-                    } else {
-                        locals.remove(item_var);
-                    }
-                    if let Some(v) = old_idx {
-                        locals.insert(index_var.clone(), v);
-                    } else {
-                        locals.remove(index_var);
-                    }
                 }
                 Statement::IfThen {
                     condition: cond,
@@ -2956,6 +2792,144 @@ impl Compiler {
         Ok(())
     }
 
+    /// gh#1336 (fosved-acc АСС-1.3/1.6): the ONE lowering of the Each
+    /// iteration forms — shared by the pattern/route-body TOP-LEVEL
+    /// compiler AND the shared nested-statement compiler
+    /// (`compile_stmt_with_locals`). The pre-fix shape compiled the loop
+    /// ONLY at pattern/route-body top level; the shared statement
+    /// compiler had an explicit NO-OP for `Statement::Each` /
+    /// `EachWithIndex` ("№510: explicit no-op set"), so an each nested in
+    /// an if/else branch, a while body, another each, or a match arm
+    /// compiled to NOTHING on the VM — 0 iterations, no error, no
+    /// warning — while the TW executed it everywhere. The silent
+    /// control-flow divergence gh#1336 reports (in the consumer the
+    /// shape guards `db_execute`/`http_get` → the №476 blocking class).
+    /// `index_var` = Some for `each i, item in …` (EachWithIndex), None
+    /// for the plain form.
+    ///
+    /// Mechanics (unchanged from the pre-fix pattern-body lowering):
+    /// three slots (hidden list, hidden index, item), the iterable
+    /// evaluated ONCE, the jump-based condition (ListLen/CmpLt →
+    /// JumpIfNot), the №658 loop-stack entry as the SINGLE source of
+    /// truth for break/continue fixups (continue → the increment
+    /// section), and the flat-model binding restore after the loop.
+    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::type_complexity)]
+    fn compile_each_stmt_with_locals(
+        &self,
+        index_var: Option<&str>,
+        item_var: &str,
+        iterable: &Expr,
+        body: &[Statement],
+        code: &mut Vec<Instruction>,
+        locals: &mut HashMap<String, usize>,
+        next_slot: &mut usize,
+        loop_stack: &mut Vec<(usize, Vec<usize>, Vec<usize>)>,
+        mutable: &mut HashSet<String>,
+    ) -> Result<(), String> {
+        // Alloc local slots for: _list (hidden), _index (hidden), item (visible)
+        let list_slot = *next_slot;
+        *next_slot += 1;
+        let idx_slot = *next_slot;
+        *next_slot += 1;
+        let item_slot = *next_slot;
+        *next_slot += 1;
+
+        // Compile iterable expression, store in list_slot
+        self.compile_expr_with_locals(iterable, code, locals, next_slot, loop_stack, mutable)?;
+        code.push(Instruction::StoreLocal(list_slot));
+
+        // Initialize index = 0
+        code.push(Instruction::const_(Value::Float(0.0)));
+        code.push(Instruction::StoreLocal(idx_slot));
+
+        let loop_start = code.len();
+
+        // Condition: idx < len? → JumpIfNot after_loop
+        code.push(Instruction::LoadLocal(idx_slot));
+        code.push(Instruction::LoadLocal(list_slot));
+        code.push(Instruction::ListLen);
+        code.push(Instruction::CmpLt);
+        code.push(Instruction::JumpIfNot(0)); // placeholder
+        let jmp_not_idx = code.len() - 1;
+
+        // Get item: list[idx]
+        code.push(Instruction::LoadLocal(list_slot));
+        code.push(Instruction::LoadLocal(idx_slot));
+        code.push(Instruction::IndexAccess);
+        code.push(Instruction::StoreLocal(item_slot));
+
+        // Bind the item (and the index for the EachWithIndex form)
+        let old_item = locals.insert(item_var.to_string(), item_slot);
+        let old_idx = match index_var {
+            Some(iv) => locals.insert(iv.to_string(), idx_slot),
+            None => None,
+        };
+
+        // №658 (the №652-a repair): the loop-stack entry is the SINGLE
+        // source of truth for break/continue fixups — every break/continue
+        // (top-level or nested through if/match/loop) registers a Jump(0)
+        // placeholder in the NEAREST entry via the shared statement
+        // compiler; the entry is patched from the POPPED value below.
+        loop_stack.push((loop_start, Vec::new(), Vec::new()));
+        let saved_next_slot = *next_slot;
+        for s in body {
+            self.compile_stmt_with_locals(s, code, locals, next_slot, loop_stack, mutable)?;
+        }
+        *next_slot = saved_next_slot;
+
+        // №658: patch from the POPPED entry — continue targets the
+        // INCREMENT section (the next item, the TW
+        // ControlFlow::ContinueLoop shape), break → after_loop.
+        let (_, break_fixups, continue_fixups) =
+            loop_stack
+                .pop()
+                .unwrap_or((loop_start, Vec::new(), Vec::new()));
+        let continue_target = code.len();
+
+        // Increment index
+        code.push(Instruction::LoadLocal(idx_slot));
+        code.push(Instruction::const_(Value::Float(1.0)));
+        code.push(Instruction::Add);
+        code.push(Instruction::StoreLocal(idx_slot));
+
+        // Jump back to loop start
+        code.push(Instruction::Jump(loop_start));
+
+        // Patch after_loop
+        let after_loop = code.len();
+        code[jmp_not_idx] = Instruction::JumpIfNot(after_loop);
+
+        for fixup_idx in &break_fixups {
+            code[*fixup_idx] = Instruction::Jump(after_loop);
+        }
+        for fixup_idx in &continue_fixups {
+            code[*fixup_idx] = Instruction::Jump(continue_target);
+        }
+
+        // Restore the pre-loop bindings (the flat function-level model —
+        // the same restore the pre-fix pattern-body lowering performed).
+        match old_item {
+            Some(v) => {
+                locals.insert(item_var.to_string(), v);
+            }
+            None => {
+                locals.remove(item_var);
+            }
+        }
+        if let Some(iv) = index_var {
+            match old_idx {
+                Some(v) => {
+                    locals.insert(iv.to_string(), v);
+                }
+                None => {
+                    locals.remove(iv);
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn compile_stmt_with_locals(
         &self,
         stmt: &Statement,
@@ -3232,11 +3206,47 @@ impl Compiler {
                     scrutinee, arms, else_body, code, locals, next_slot, loop_stack, mutable, false,
                 )?;
             }
-            // №510: explicit no-op set — the shared statement compiler only
-            // handles value-carrying statements; the Each iteration forms
-            // belong to their own compilers (the pattern-body compiler; the
-            // recorded nested-Each posture — the №658 probe finding).
-            Statement::Each { .. } | Statement::EachWithIndex { .. } => {}
+            // gh#1336 (the repair): the Each iteration forms compile HERE —
+            // this compiler is the path of every NESTED context (if/else
+            // branches, while bodies, each bodies, match statement arms).
+            // The pre-fix no-op ("№510: explicit no-op set", the "recorded
+            // nested-Each posture" of the №658 probe) silently DROPPED the
+            // loop on the VM — 0 iterations, no error, no warning — while
+            // the TW executed it everywhere (the gh#1336 silent
+            // control-flow divergence; in the consumer the shape guards
+            // db_execute/http_get → the №476 blocking class). ONE shared
+            // lowering with the pattern-body compiler now; the №582
+            // kept-branch epilogue is unaffected — a loop still leaves NO
+            // value, so compile_stmt_keeping_value adds its PushUnit.
+            Statement::Each {
+                variable,
+                iterable,
+                body,
+                ..
+            } => {
+                self.compile_each_stmt_with_locals(
+                    None, variable, iterable, body, code, locals, next_slot, loop_stack, mutable,
+                )?;
+            }
+            Statement::EachWithIndex {
+                index_var,
+                item_var,
+                iterable,
+                body,
+                ..
+            } => {
+                self.compile_each_stmt_with_locals(
+                    Some(index_var),
+                    item_var,
+                    iterable,
+                    body,
+                    code,
+                    locals,
+                    next_slot,
+                    loop_stack,
+                    mutable,
+                )?;
+            }
             // №658 (the №652-a repair): break/continue INSIDE a loop body —
             // at ANY nesting depth (the TW eval_block! propagation shape) —
             // emit a resolve-able Jump registered in the NEAREST loop-stack

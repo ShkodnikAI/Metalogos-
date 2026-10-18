@@ -242,8 +242,16 @@ fn gen_stmts(rng: &mut Rng, vars: &mut Vec<String>, _depth: u32, budget: &mut u3
                     0 => out.push(format!(
                         "if {cond} {{\n  let m = \"eq\"\n}} else {{\n  let m = \"ne\"\n}}"
                     )),
+                    // gh#1336: the each-in-if shape must be OBSERVABLE — the
+                    // pre-fix body (`len(item)` discarded) could NOT catch the
+                    // silent VM drop of the nested loop (0 iterations, the
+                    // outputs still matched — the class escaped the run for
+                    // months). The accumulator assigned INSIDE the loop and
+                    // read AFTER the if makes the drop a TW/VM divergence
+                    // again; the float seed keeps the Add Float+Float (the
+                    // same proven arithmetic the №621 shape 6 uses).
                     1 => out.push(format!(
-                        "if {cond} {{\n  each item in [\"a\", \"b\"] {{\n    len(item)\n  }}\n  let m = \"eq\"\n}} else {{\n  let m = \"ne\"\n}}"
+                        "let mut eacc = 0.0\nif {cond} {{\n  each item in [\"a\", \"b\"] {{\n    eacc = eacc + len(item)\n  }}\n  let m = \"eq\"\n}} else {{\n  let m = \"ne\"\n}}\nto_string(eacc)"
                     )),
                     _ => out.push(format!(
                         "if {cond} {{\n  let m = \"eq\"\n}} else {{\n  let g = 0\n  while g < 2 {{\n    let g = g + 1\n  }}\n  let m = \"ne\"\n}}"
@@ -321,8 +329,12 @@ fn gen_stmts(rng: &mut Rng, vars: &mut Vec<String>, _depth: u32, budget: &mut u3
                 // each whose body ENDS with the bare call (the №612 class
                 // at the nesting depth 2 — inside a loop, inside a
                 // pattern body; not only at the top statement level).
+                // gh#1336: the each-in-while shape is OBSERVABLE now — the
+                // accumulator rides the loop and lands in the diffed
+                // output (the pre-fix `len(item)` body could not see the
+                // silent VM drop of the nested each).
                 out.push(
-                    "let outer = 0\nwhile outer < 2 {\n  each item in [\"a\", \"b\"] {\n    len(item)\n  }\n  let outer = outer + 1\n}\nto_string(outer)"
+                    "let outer = 0\nlet mut wacc = 0.0\nwhile outer < 2 {\n  each item in [\"a\", \"b\"] {\n    wacc = wacc + len(item)\n  }\n  let outer = outer + 1\n}\nto_string(outer) + \":\" + to_string(wacc)"
                         .to_string(),
                 );
             }
@@ -1693,6 +1705,96 @@ fn n479_stateful_generation_is_alive() {
             seed
         );
     }
+}
+
+#[test]
+fn n1336_nested_each_shapes_are_observable() {
+    // gh#1336: the nested-loop shapes are OBSERVABLE now — the class
+    // escaped the pre-fix run because the each bodies discarded their
+    // values (`len(item)`), so the silent VM drop of the nested each
+    // produced IDENTICAL outputs on both backends for months. The
+    // ratchet: (a) the generator produces the accumulator shapes across
+    // the seed sweep; (b) the two canonical shapes EXECUTE on BOTH
+    // backends with the accumulator riding the diffed output — a
+    // regression to the silent drop (either backend) fails the equality
+    // or the liveness value.
+    let mut saw_branch_each = false;
+    let mut saw_nested_each = false;
+    for seed in 0..200u64 {
+        let src = gen_program(0x4e34_6546_0000_0000u64 + seed);
+        if src.contains("eacc = eacc + len(item)") {
+            saw_branch_each = true;
+        }
+        if src.contains("wacc = wacc + len(item)") {
+            saw_nested_each = true;
+        }
+    }
+    assert!(
+        saw_branch_each,
+        "the generator must produce the observable each-in-if shape (gh#1336)"
+    );
+    assert!(
+        saw_nested_each,
+        "the generator must produce the observable each-in-while shape (gh#1336)"
+    );
+
+    // (b) liveness + parity: the canonical shapes execute on BOTH
+    // backends — the accumulator lands in the output (len("a") + len("b")
+    // = 2.0; to_string(2.0) = "2").
+    fn out(r: &Result<Option<String>, String>) -> String {
+        match r {
+            Ok(v) => norm_ok(v),
+            Err(e) => format!("ERR: {e}"),
+        }
+    }
+    let base = std::path::Path::new(".");
+    let branch_shape = "\
+pattern pb2(x: String) -> String {
+  let mut eacc = 0.0
+  if x != \"\" {
+    each item in [\"a\", \"b\"] {
+      eacc = eacc + len(item)
+    }
+  }
+  return to_string(eacc)
+}
+flow Main { input: String = \"a|b|c\" -> pb2 -> output }
+";
+    assert_eq!(
+        out(&run_tw(branch_shape, base)),
+        "2",
+        "the each-in-if shape must EXECUTE on the TW (liveness)"
+    );
+    assert_eq!(
+        out(&run_tw(branch_shape, base)),
+        out(&run_vm(branch_shape, base)),
+        "the each-in-if shape must match on BOTH backends (the gh#1336 class)"
+    );
+
+    let nested_shape = "\
+pattern pb3(x: String) -> String {
+  let outer = 0
+  let mut wacc = 0.0
+  while outer < 2 {
+    each item in [\"a\", \"b\"] {
+      wacc = wacc + len(item)
+    }
+    let outer = outer + 1
+  }
+  return to_string(outer) + \":\" + to_string(wacc)
+}
+flow Main { input: String = \"x\" -> pb3 -> output }
+";
+    assert_eq!(
+        out(&run_tw(nested_shape, base)),
+        "2:4",
+        "the each-in-while shape must EXECUTE on the TW (liveness; 2 while iterations x 2 items)"
+    );
+    assert_eq!(
+        out(&run_tw(nested_shape, base)),
+        out(&run_vm(nested_shape, base)),
+        "the each-in-while shape must match on BOTH backends (the gh#1336 class)"
+    );
 }
 
 #[test]

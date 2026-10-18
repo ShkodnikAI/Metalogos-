@@ -24,6 +24,33 @@ All notable changes to the Metalogos project.
   loud. AFFECTS: none (no language bug); the office-side program fix is
   the hash_only recipe.
 
+### Fixed
+
+- **gh#1336 (the fosved-acc serve report, АСС-1.3/1.6):** the VM
+  silently DROPPED an `each`/`each_with_index` nested in an `if`/`else`
+  branch, a `while` body, another `each`, or a match arm — 0 iterations,
+  no error, no warning — while the tree-walking interpreter executed the
+  same program. Root cause: the loop lowering lived ONLY in the
+  pattern/route-body TOP-LEVEL compiler; the SHARED statement compiler
+  (the path of every nested context) carried an explicit NO-OP for the
+  forms (the №510 "explicit no-op set"; a wildcard `_ => {}` before it —
+  the posture is older than the report, present at least since v0.28.0;
+  the exact first-bad release not bisected). In the consumer the shape
+  guards `db_execute`/`http_get` (the incident-confirmation monitor
+  stayed silent on an outage) — the №476 blocking class. The lowering is
+  ONE shared helper now (`compile_each_stmt_with_locals` in
+  `src/compiler.rs`); the №658 break/continue fixups resolve to the
+  NEAREST loop (break/continue inside the nested each pinned). Tests:
+  `tests/n1336_vm_each_in_if.rs` (7 shapes, both backends, liveness
+  pinned) and the serve-lane route parity
+  (`test_n1336_each_inside_if_body_vm_parity` — the issue's program
+  verbatim). The differential fuzzer's nested-loop shapes carry
+  observable accumulators now (the pre-fix `len(item)` bodies could not
+  see the drop — the class escaped the run). AFFECTS: the serve VM lane
+  (the ADR-0171 default) on the affected releases — consumer mitigation
+  `METALOGOS_SERVE_BACKEND=interpreter` (АСС-1.7) until the release
+  trains.
+
 ## [0.33.1] - 2026-10-26
 
 ### Changed

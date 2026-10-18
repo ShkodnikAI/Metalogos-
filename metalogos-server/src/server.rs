@@ -4720,6 +4720,105 @@ mlogserver {
         );
     }
 
+    // ── gh#1336: `each` inside an `if` body on the serve lane ──────────
+    //
+    // The fosved-acc report (v0.32.0, mlog-linux-x86_64): under `mlog
+    // serve` with the DEFAULT vm backend (ADR-0171), an `each` nested in
+    // an `if` body silently ran 0 times — no error, no warning — while
+    // the interpreter backend executed it. In the consumer the shape
+    // guards `db_execute`/`http_get` (incident confirmation in a site
+    // monitor): the dropped loop kept the monitor silent on an outage —
+    // the №476 blocking class on the serve lane.
+    //
+    // Root cause (the language-level fix lives in src/compiler.rs —
+    // `compile_each_stmt_with_locals`): the SHARED statement compiler
+    // had an explicit NO-OP for `Statement::Each`/`EachWithIndex`, so
+    // every NESTED context (if/else branches, while bodies, each
+    // bodies, match arms) compiled the loop to NOTHING; only the
+    // pattern/route-body TOP level lowered it. `if` inside `each`
+    // worked (the top-level each lowers its body through the shared
+    // compiler where if is implemented) — exactly the reported
+    // asymmetry (`if_each=0 each_if=3` on the VM).
+    //
+    // This test pins the issue's EXACT program shape on BOTH lanes: the
+    // counters ride the respond body — a dropped loop is a LOUD body
+    // mismatch, not a silent pass.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_n1336_each_inside_if_body_vm_parity() {
+        use metalogos::compiler::Compiler;
+
+        // The issue's program (port 0 for the test harness; the counters
+        // and the split iterables verbatim).
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/t" method=GET {
+        let mut n = 0.0
+        let s = "a|b|c"
+        if s != "" {
+          each x in split(s, "|") {
+            n = n + 1.0
+          }
+        }
+        let mut m = 0.0
+        each y in split(s, "|") {
+          if y != "" { m = m + 1.0 }
+        }
+        return respond("200 if_each=" + to_string(n) + " each_if=" + to_string(m))
+    }
+}
+"#;
+        let state = build_test_server_state(source).await;
+
+        // The TW lane (the guaranteed full-language backend, ADR-0141 D7).
+        let tw_resp = call_route(&state, "GET", "/t", "", "").await;
+        assert_eq!(tw_resp.status(), 200, "TW lane must answer 200");
+        let tw_body = body_to_string(tw_resp).await;
+        assert_eq!(
+            tw_body, "if_each=3 each_if=3",
+            "TW lane must EXECUTE the nested each (the issue's interpreter row; \"200 \" is the respond status, not body text)"
+        );
+
+        // The VM lane — the default backend since ADR-0171, the lane the
+        // bug lived on. Compiled routes exactly as run_server does.
+        let mut compiler = Compiler::new();
+        let declarations = metalogos::parser::parse(source).unwrap();
+        let config = declarations
+            .iter()
+            .find_map(|d| match d {
+                Declaration::MlogServer(s) => Some(s.clone()),
+                _ => None,
+            })
+            .unwrap();
+        let compiled_routes = compiler.compile_routes(&config.routes).unwrap();
+        let program = compiler.compile(declarations).unwrap();
+        let compiled = &compiled_routes[0];
+
+        let program = program.clone();
+        let compiled = compiled.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            let mut vm = Vm::new();
+            vm.load_program(&program)
+                .map_err(|e| format!("VM route init: {}", e))?;
+            vm.clear_server_context();
+            vm.execute_route_code(&compiled, &program)
+        })
+        .await
+        .map_err(|e| format!("blocking task panicked: {}", e))
+        .unwrap();
+
+        let vm_val = result.expect("VM lane must answer without error");
+        let vm_body = match vm_val {
+            metalogos::interpreter::Value::HttpResponse { body, .. } => body,
+            other => panic!("VM lane must return an HttpResponse, got {other:?}"),
+        };
+        assert_eq!(
+            vm_body, "if_each=3 each_if=3",
+            "VM lane must EXECUTE the nested each (the gh#1336 fix — pre-fix it answered if_each=0)"
+        );
+    }
+
     // ── Наряд №283: path-параметры роутов mlogserver ──────────────────
     //
     // Template matcher (`{name}` / `{*path}`) as a fallback after static

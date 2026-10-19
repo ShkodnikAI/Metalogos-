@@ -1,18 +1,19 @@
 # ADR-0194: The query-parity decision package — the db_ops error paths and the query result contract (ACCEPTED 2026-10-20; the owner's verbatim — packages A(c)+B(i))
 
-- Status: **Accepted** (2026-10-20 — the owner's live verbatim «ADR-0194
-  вербатим (пакеты A/B) давай сделаем с твоей рекомендацией и ссылкой
-  что куда вносить» with the package-choice DELEGATION to the executor
-  (the В49-final lekalo «по твоей рекомендации. Продолжай»); the
-  packages fixed per the §4/§5 recommendations: **A = (c)** — the
-  loud-fail contract on BOTH lanes (the wording of (c), the mechanics
-  of (a)); **B = (i)** — the String-count mutation parity (the №474
-  ONE contract); the landing — №734, issue gh#1364; the §8
-  ratification record)
-- Date: 2026-10-17 (the draft, №711, Волна 49); 2026-10-20 (the
-  ratification, №734, Волна 51 tail)
+- Status: **Accepted** (2026-10-20 — the owner's live verbatim (the
+  Russian original quoted verbatim in §8): the ADR-0194 verbatim
+  decision on the A/B packages — «make it with your recommendation
+  and the reference of what goes where» — with the package-choice
+  DELEGATION to the executor (the В49-final lekalo — the Russian
+  original in §8); the packages fixed per the §4/§5
+  recommendations: **A = (c)** — the loud-fail contract on BOTH lanes
+  (the wording of (c), the mechanics of (a)); **B = (i)** — the
+  String-count mutation parity (the №474 ONE contract); the landing —
+  №734, issue gh#1364; the §8 ratification record)
+- Date: 2026-10-17 (the draft, №711, wave 49); 2026-10-20 (the
+  ratification, №734, wave 51 tail)
 - Deciders: the executor (the draft); the OWNER fixes the direction
-- Naryad: №711 (issue #1318, Волна 49)
+- Naryad: №711 (issue #1318, wave 49)
 - Predecessor: [ADR-0171 — the VM production readiness](0171-vm-production-readiness.md)
   (the serve lane is the VM by default); the №474 class (issue #722)
 - The finding source: gh#1300 (№702 — the verbatim refusal table: «the
@@ -77,7 +78,7 @@ live program input over embedded sqlite):
   hex encode) — the SELECT control confirms the shapes.
 
 **VERDICT:** the "practically unreachable" claim (`db_ops.rs:695`) is
-CONFIRMED — the наряд's refutation trigger (a reachable error path →
+CONFIRMED — the naryad's refutation trigger (a reachable error path →
 STOP verified-wait) did NOT fire. The error-path fork is a dead-code
 semantic fork; the result-contract fork is LIVE and observable.
 
@@ -94,7 +95,7 @@ semantic fork; the result-contract fork is LIVE and observable.
 - The fuzzer/golden corpus: the SQL state domain is REFUSED at pin
   time (№476 — SQL classes are never pinnable as known) — this ADR §2
   carries the probe record instead.
-- The Fosved-контур (№329/№345): the office programs consume `query()`
+- The Fosved contour (№329/№345): the office programs consume `query()`
   SELECT lists; the office mutation pattern rides `db_execute`.
 
 ## §4. Decision package A — the error-path direction (the owner picks one)
@@ -106,7 +107,7 @@ semantic fork; the result-contract fork is LIVE and observable.
   silent `Unit` lie.
 - **(b) drop VM to TW-skip**: the VM catches row/column errors and
   skips silently — a SILENT skip on a fault class; NOT recommended
-  (the №604 class-4 «тихо-неверное поведение» shape; the fail-closed
+  (the №604 class-4 silently-wrong-behavior shape; the fail-closed
   posture №523/№531 points the other way).
 - **(c) pin loud-fail on BOTH lanes by contract**: today equivalent to
   (a) (the VM is already loud) — the wording makes the fail-closed
@@ -128,7 +129,7 @@ semantic fork; the result-contract fork is LIVE and observable.
   recommended.
 - **(iii) tagged result** (`Struct {kind: "rows"|"count", …}`): the
   honest-but-breaking option — every consumer changes, a MINOR+ (the
-  borderline MAJOR) semantic needing its own migration наряд.
+  borderline MAJOR) semantic needing its own migration naryad.
 
 **Recommendation: (i).**
 
@@ -147,17 +148,21 @@ semantic fork; the result-contract fork is LIVE and observable.
 - The candidate comment (`db_ops.rs:712-720` — the №690-698 anchor
   shifted by the landing edits) → **PINNED**: the tail now names №711
   + this ADR (Proposed; the owner's verbatim pending).
-- The limitations row (the honest-limits entry — the №651 лекало).
+- The limitations row (the honest-limits entry — the №651 lekalo).
 - No divergence-pinning test (the №476 rule) — §2 is the record.
 
 ## §8. The ratification — 2026-10-20 (the owner's verbatim; the landing №734)
 
-**The verbatim (дословно, 2026-10-20):** «ADR-0194 вербатим (пакеты
-A/B) давай сделаем с твоей рекомендацией и ссылкой что куда вносить».
+**The verbatim (the Russian original, word-for-word, 2026-10-20 —
+kept verbatim; the working translation above in the Status block):**
+
+> «ADR-0194 вербатим (пакеты A/B) давай сделаем с твоей рекомендацией
+> и ссылкой что куда вносить».
 
 **The delegation:** the package choice is delegated to the executor
-(лекало В49-финал «по твоей рекомендации. Продолжай»); the executor
-fixed the packages per the §4/§5 recommendations of this ADR:
+(the В49-final lekalo — «по твоей рекомендации. Продолжай»); the
+executor fixed the packages per the §4/§5 recommendations of this
+ADR:
 
 - **Package A = (c)** — pin loud-fail on BOTH lanes by contract: the
   TW cell error is the loud `Err` naming the column (the
@@ -177,10 +182,10 @@ fixed the packages per the §4/§5 recommendations of this ADR:
 
 - **(ii) rows on both** — invents a rows contract for statements that
   produce no rows; the TW's String-count shape IS the least-surprise
-  reading standing since Наряд №7.
+  reading standing since Naryad №7.
 - **(iii) tagged result** — honest, but breaks every consumer (a
   MINOR+/borderline MAJOR semantic); possible as a SEPARATE future
-  ADR with its own migration наряд — NOT here.
+  ADR with its own migration naryad — NOT here.
 
 **The §6 ratchets — lifted by this ratification:** no behavior changes
 until the owner's verbatim — LIFTED: the packages landed (№734, the

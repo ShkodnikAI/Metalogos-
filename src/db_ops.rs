@@ -180,7 +180,10 @@ pub fn query_tw(db: &Mutex<Option<rusqlite::Connection>>, args: &[Value]) -> Res
             .query(rusqlite::params_from_iter(params.iter()))
             .map_err(|e| sql_err("query() execution error", e))?;
         let mut results = Vec::new();
-        while let Some(row) = rows_iter.next().map_err(|e| sql_err("query() row error", e))? {
+        while let Some(row) = rows_iter
+            .next()
+            .map_err(|e| sql_err("query() row error", e))?
+        {
             let mut fields = std::collections::HashMap::new();
             for (i, col) in col_names.iter().enumerate() {
                 let val: rusqlite::types::ValueRef = row

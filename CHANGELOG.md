@@ -17,6 +17,15 @@ All notable changes to the Metalogos project.
   WITH its checker. The §535 blocking surface grows by the owner's
   explicit verbatim — no product behavior changed.
 
+### Fixed
+
+- **№724 (gh#1344, Wave 50 — the №722 tail):** the `markup5ever_rcdom`
+  version requirement carries no semver metadata (`"0.39.0+unofficial"`
+  → `"0.39.0"`) — the only build warning is gone. The resolver
+  compatibility and the dependency graph are unchanged (the metadata is
+  ignored by cargo); Cargo.lock is untouched (the package version stays
+  `0.39.0+unofficial` — the real published tag). The №707 line hygiene.
+
 ## [0.33.1] - 2026-10-19
 
 ### Changed

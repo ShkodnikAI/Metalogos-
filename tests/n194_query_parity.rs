@@ -166,9 +166,5 @@ pattern ParityProbe(_x: String) -> String {
 }
 flow Main { input: String = "x" -> ParityProbe -> output }
 "#;
-    assert_parity(
-        src,
-        "String/3",
-        "the №474 ONE contract must stay untouched",
-    );
+    assert_parity(src, "String/3", "the №474 ONE contract must stay untouched");
 }

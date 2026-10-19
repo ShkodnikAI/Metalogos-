@@ -112,11 +112,13 @@ fn spec_of(name: &str) -> &'static metalogos::builtins::BuiltinSpec {
 
 #[test]
 fn n730_open_fixed_list_ground_stays_unknown_in_registry() {
-    // The movement №6 closes ZERO rows — the full open ground (44) is
-    // re-pinned as the interlock with naryad_717_type_closures.rs: any
-    // future PR that types one of these rows WITHOUT the honest handler
-    // fact breaks THIS pin first (the №688 rule: an id closes once, by
-    // the №644 predicate, in its own naryad).
+    // The movement №6 closes ZERO rows — the full open ground (44 =
+    // 42 default-build rows + the two feature-gated video/voice rows
+    // asserted under their gates below) is re-pinned as the interlock
+    // with naryad_717_type_closures.rs: any future PR that types one
+    // of these rows WITHOUT the honest handler fact breaks THIS pin
+    // first (the №688 rule: an id closes once, by the №644 predicate,
+    // in its own naryad).
     for name in [
         // the ПДн residue (13) — the movement №6 package, refusals fresh
         "generate_key",
@@ -159,11 +161,9 @@ fn n730_open_fixed_list_ground_stays_unknown_in_registry() {
         "series_pull",
         "subgraph_extract",
         "trajectory_make",
-        "video_fetch_weights",
         "vision_list",
         "vision_load",
         "vision_lora_load",
-        "voice_load",
     ] {
         let s = spec_of(name);
         assert_eq!(
@@ -172,6 +172,22 @@ fn n730_open_fixed_list_ground_stays_unknown_in_registry() {
             "the refusal {name} must stay Unknown honest (the movement №6 closed nothing)"
         );
     }
+    // The feature-gated rows (the video/voice model lanes — NOT default
+    // features): the registry TEXT carries the refusal (the №644
+    // machine reads the text rows), the runtime row exists only under
+    // its feature — asserted under the same gate (the №717 form).
+    #[cfg(feature = "video")]
+    assert_eq!(
+        spec_of("video_fetch_weights").return_type,
+        Type::Unknown,
+        "the refusal video_fetch_weights must stay Unknown honest"
+    );
+    #[cfg(feature = "voice")]
+    assert_eq!(
+        spec_of("voice_load").return_type,
+        Type::Unknown,
+        "the refusal voice_load must stay Unknown honest"
+    );
 }
 
 // ── The live both-backend probes of the ПДн-residue refusal shapes ──────

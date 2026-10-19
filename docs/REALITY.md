@@ -2661,9 +2661,13 @@ The wave 48 (dispatch gh#1310) landed the development:
   owner's account, 2026-10-17T05:44Z, `e526a8bb`) — the `[0.33.1]`
   cut is ON MAIN; the tag `v0.33.1` + the publication await the
   owner's train-day act (the 26.10 window). The 0.33.0 publish
-  itself waits in the owner's 19.10 window (the draft id 415523172,
-  the 4 verified assets — the delegated mechanics trace
-  `1a1478a417b8b165`).
+  itself LANDED — **PUBLISHED 2026-10-19T03:39:46Z** (the owner's
+  explicit in-chat delegation trace `1a1523c80479edcd`: the draft id
+  415523172 → the release event; the run #18 `39195749095` success —
+  the 4 assets rebuilt + re-attested from the tag `474ff7ae7`, the
+  binary sha256 `d1be65b6…` unchanged, the SHA256SUMS / SBOM /
+  attestations re-verified ALL GREEN; the post-release sync, the
+  №646 form).
 
 The counters at the record date (the generators, NOT hands):
 **ignore debt 8** (todo 0, dead_code 15), **sensitive 92/145 = 6344
@@ -2679,8 +2683,9 @@ naryads).
 The owner gates remaining (unchanged + the wave's flags): the
 ADR-0193 parameters (≥20/67 — the movement №3 delivered 19, the
 figure is ONE honest closure away; the PDn priority), the coverage
-threshold (№569), the second maintainer, the 19.10 publish verdict
-(the 0.33.0 draft) + the 26.10 train verdict (gh#1315), the
+threshold (№569), the second maintainer, the 19.10 publish verdict RESOLVED
+(0.33.0 PUBLISHED 2026-10-19T03:39:46Z) + the 26.10 train verdict
+(gh#1315), the
 zip-ignore review (2026-11-17 or the first candle zip-^9 release),
 the query-divergence language-design gate (the owner's), NLnet/Restack
 M1 (03.11.2026), №648 (01.12.2026), and the infra flag: the executor
@@ -2782,8 +2787,9 @@ prepares), **typed signatures 357/526 = 67.87% (precise 237/526 =
 naryads only — the №687 rule; the ride is the owner's §2.5 call).
 
 The owner gates remaining (unchanged + the wave's flags): the
-19.10 publish verdict (the 0.33.0 draft id 415523172) + the gh#1317
-resolution verdict + the office #536 fix decision; the ADR-0193
+gh#1317
+resolution verdict + the office #536 fix decision; the 19.10 publish
+verdict RESOLVED (0.33.0 PUBLISHED 2026-10-19T03:39:46Z); the ADR-0193
 parameters (≥20/67 reached — the verdict fixes the figure and the
 gate wiring); the **ADR-0194 verbatim** (the packages A/B — the
 query error paths + the result contract); the 26.10 train verdict

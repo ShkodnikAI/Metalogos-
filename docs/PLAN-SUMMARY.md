@@ -112,7 +112,28 @@ gates remaining: the ADR-0191 §-answers (the OD variants), the train
 №2 candidate (19.10 — the [Unreleased] classification = the 0.31.0
 MINOR), №639 (15.10) / №648 (01.12) outside the wave.
 
-## Current wave — the open machine tail (2026-10-17)
+## Current wave — the open machine tail (2026-10-19)
+
+Wave 50 EXECUTED (the dispatch gh#1333): №717 (the movement №5 —
+THREE honest closures: listen_start DuplexFlow, llm_stream_open
+LlmStream, vision_fetch_weights String; goal032 20 → 23/67
+report-only; the floor 6551 → 6758 bp in the same PR; the twins
+precise 4524 / parameterized 7520; typed 360/526 = 68.44%, gh#1329),
+№718 (the ADR-0193 verdict package — the four parameters + the
+endgame, zero self-capture, gh#1330), №719 (the release line — the
+0.33.0 verification RESOLVED; the §2.5 ride = (б) the full train ride,
+the owner's call; closed by the completion audit), №721 (the 0.33.1
+PUBLICATION — the train ride №707 + №716 + gh#1336, the date-stamp,
+the notes regen; PUBLISHED 2026-10-19T08:33Z Latest; 4/4 assets
+verified twice, gh#1340), №722 (the soak ENOSPC guard — the В48 class
+root-caused, the Free-runner-disk step; verified by the dispatch run
+SUCCESS, +24G, gh#1342), №723 (ADR-0193 RATIFIED — the owner's
+verbatim «вербатим принят»; the goal032 gate WIRED BLOCKING, the floor
+23/67 only-up, gh#1345), №724 (the rcdom req metadata hygiene,
+gh#1346), #956 (the good-first pool executed one — the risk-review
+perimeter follows the files, gh#1347). The post-wave sync: №720
+(REALITY §6.35, the generator numbers; strictly last). The machine
+tail: №725 (the typed-floor raise to 6844 bp, the №467 procedure).
 
 Wave 49 EXECUTED (the dispatch gh#1322): №716 (the supplement, FIRST —
 the gh#1317 resolution: the honest probe REFUTED the inbound-path

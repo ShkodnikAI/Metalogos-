@@ -182,11 +182,11 @@ def goal032(list_path, gate_mode=False, goal_figure=None):
     labeled)). NEW sources do NOT count — they are typed at birth (the
     №687 surface rule keeps them on naryads).
 
-    Report-only at the start (exit 0 at 0/20 — the Proposed posture;
-    the GREEN the naryad asks for). The floor wiring (--gate032 N) is
-    the OWNER's §5 fixation over ADR-0193 — not self-captured: the
-    mode exists mechanically, the figure and the CI wiring land in the
-    owner's one-PR fixation (the gate_031 §5 form).
+    Report-only mode (exit 0 — the honest posture; the BLOCKING
+    floor rides --gate032, ratified by the owner's verbatim
+    2026-10-19 — ADR-0193 Accepted, the gate_031 §5 one-PR form: the
+    fact key WITH its checker; the floor = the live counter at the
+    wiring, only-up).
     """
     sensitive, covered, uncovered = compute()
     ids = []
@@ -202,7 +202,7 @@ def goal032(list_path, gate_mode=False, goal_figure=None):
         return 2
     closed = sorted(n for n in ids if n in covered)
     total = len(ids)
-    print(f'goal-032 (№688, ADR-0193 Proposed): closed {len(closed)}/{total} '
+    print(f'goal-032 (№688, ADR-0193 Accepted): closed {len(closed)}/{total} '
           f'of the FIXED untyped list (the anchor f92c61c)')
     print('  the closed ids: ' + (', '.join(closed) if closed else 'none'))
     # The ПДн-class priority (the naryad's «в первую очередь ПДн») — the
@@ -221,9 +221,9 @@ def goal032(list_path, gate_mode=False, goal_figure=None):
         print(f'::error::goal-032: {len(closed)}/{total} < {figure} '
               f'(the owner-fixed figure) — the fixed-list goal is not reached')
         return 1
-    print('  the ≥20 figure: the Proposed parameter — the owner\'s verdict '
-          'over ADR-0193 pending (the report-only start; the gate wiring '
-          'lands with the fixation, the gate_031 §5 form)')
+    print('  the ≥20 figure: RATIFIED — the owner\'s verbatim '
+          '«вербатим принят» (2026-10-19, ADR-0193 Accepted; the gate '
+          'wired BLOCKING — the gate_031 §5 form, the floor only-up)')
     print('verdict: GREEN at the start (the report-only mode, exit 0 at '
           f'{len(closed)} closed — the honest 0/20 posture)')
     return 0
@@ -267,8 +267,8 @@ def gate(baseline):
 
 def main(argv):
     if '--goal032' in argv:
-        # №688: the report-only start (exit 0 at 0 closed — the Proposed
-        # posture; the GREEN the naryad asks for).
+        # №688: the report-only mode (exit 0 — the honest posture; the
+        # BLOCKING floor rides --gate032, ratified 2026-10-19).
         return goal032(argv[argv.index('--goal032') + 1])
     if '--gate032' in argv:
         # №688: the floor mode — wired ONLY by the owner's §5 fixation

@@ -2798,3 +2798,110 @@ zip-^9 release); the coverage threshold (№569); the second
 maintainer; NLnet/Restack M1 (03.11.2026); №648 (01.12.2026); the
 PAT rotation (the exposed-token discipline); the draft v0.4.0
 cleanup (the owner's act).
+
+### 6.35. Wave 50 post-wave record (naryad №720): the 0.33.1 publication — the full train ride, the soak ENOSPC guard (the В48 lesson), the fixed-list movement №5 — goal032 20 → 23/67 with the gate WIRED BLOCKING (ADR-0193 Accepted by the owner's live verbatim), the floor 6551 → 6758 bp, the rcdom metadata line hygiene, the good-first pool executed one — #956 (main @ the naryad's PR, 2026-10-19)
+
+The wave 50 (dispatch gh#1333) landed the development — the movement,
+the verdict package, the publication, the infra guard, the wiring, the
+hygiene, the pool execution, the sync:
+
+- **№717** (gh#1329, squash `58cecc8`): the movement №5 — THREE honest
+  closures: `listen_start → Struct<DuplexFlow>` (stream_id/direction/
+  preempted internal, priority untrusted — duplex.rs:122 the SINGLE Ok
+  arm), `llm_stream_open → Struct<LlmStream>` (handle/model/provider
+  internal — llm_stream.rs:59 the SINGLE Ok arm), `vision_fetch_weights
+  → String` (the dest_dir echo, the allowlist default-deny + SSRF +
+  pickle refusals stay loud) — **the FROZEN-LIST closure: goal032 20 →
+  23/67** (report-only at the merge; the wiring is №723); the floor
+  **6551 → 6758 bp** (98/145) in the SAME PR (the №757/№613 procedure),
+  the fact twins in the same PR (precise 4505 → 4524 = 238/526;
+  parameterized 7478 → 7520 = 91/121; gate_031 6758); the general typed
+  share 357 → **360/526 = 68.44%**; the 30 fresh anchors + 14
+  re-verified refusals (the movement's honesty map);
+  `tests/naryad_717_type_closures.rs` — the registry meta facts + the
+  live both-backend probes (the №428 consent grant arms the listen
+  flow; the vision default-deny loud refusal). Zero semantic edits;
+  the list NOT edited (the id closes once).
+- **№718** (gh#1330, squash `99dfded`): the ADR-0193 verdict package —
+  the fact map, the FOUR parameters (the figure ≥20/67; the deadline;
+  the ПДн-first record; the wiring form), the endgame rule — packaged
+  to the owner's verbatim with ZERO self-capture (the report-only
+  posture held; the gate stayed outside the workflows until the word).
+- **№719** (gh#1331, closed by the completion audit — no PR): the
+  release line of the two windows — the 0.33.0 verified-wait RESOLVED
+  (the publication verified: the tag == `474ff7ae7`, 4/4 assets, the
+  SHA256 cross OK, BUILD-INFO == the tag commit); the §2.5 ride
+  resolved by the owner's choice **(б)** — the full train ride; the
+  notes-regen rule executed in №721. The draft v0.4.0 (id 333311937)
+  flagged — the owner's act by one word.
+- **№721** (gh#1339, **gh#1340** squash `268cdde`): the **0.33.1
+  PUBLICATION** — the full train ride (№707 + №716 + the gh#1336
+  nested-bodies fix) by the owner's live directive («б»); the
+  date-stamp 2026-10-26 → 2026-10-19; the notes regen by №497 (the
+  №713 draft superseded — the regenerate-at-the-window rule held);
+  the tag `v0.33.1` on 268cdde; **PUBLISHED 2026-10-19T08:33:38Z —
+  Latest**; 4/4 assets verified TWICE (draft + post-publish runs; the
+  SHA256 cross OK; BUILD-INFO == 268cdde; rustc 1.99.1 58cf8f9c3). The
+  intermediate "checksum mismatch" — the verification artifact of the
+  office (the dispatch-epoch SUMS vs the final files), not a defect.
+- **№722** (gh#1341, **gh#1342** squash `160a6ee`): the soak-parity
+  ENOSPC guard — the 19.10 nightly failure (run 39215565228)
+  root-caused to the runner disk (`os error 28` at the doc-test build
+  phase AFTER three green test phases; the В48 class, NOT a product
+  regression); the "Free runner disk" step lands before the build
+  phases (dotnet/android/ghc/ghcup/CodeQL + docker prune; df-h
+  before/after); verified by the dispatch run **39231764238 SUCCESS**
+  (both jobs; df 86G → 110G, +24G).
+- **№723** (gh#1343, **gh#1345** squash `657a0db`): **ADR-0193
+  RATIFIED** — the owner's live verbatim «вербатим принят»
+  (2026-10-19); Status → Accepted; §7 the ratification record; §6.7
+  SUPERSEDED (the gate is wired); **the goal032 gate WIRED BLOCKING**
+  in ci.yml — the gate_031 §5 one-PR form: the fact key
+  (`gate_032_untyped_sources.txt`, FROZEN) WITH its checker; the
+  operational floor = the live counter at the wiring **23/67,
+  only-up**; the lift rides the closure PR (the №757/№613 form). The
+  live verification on main: `--gate032 … 23` → OK (the owner-fixed
+  figure), exit 0. The MARKED tail: the `--goal032` report strings
+  still cited the Proposed phase — fixed in №720 (this record).
+- **№724** (gh#1344, **gh#1346** squash `24d2823`): the rcdom req line
+  hygiene — `markup5ever_rcdom = "0.39.0+unofficial"` → `"0.39.0"`
+  (the №707 tail; the only build warning gone); the resolver
+  compatibility unchanged (the semver metadata is ignored by cargo);
+  Cargo.lock untouched (the package version stays the real published
+  tag).
+- **#956** (the good-first pool, **gh#1347** squash `d990531`):
+  the risk-review perimeter follows the files — the checklist's
+  `src/io.rs` entry was a DEAD trigger (the file never existed in this
+  history); the perimeter now names `src/builtins/io.rs` +
+  `src/fs_gate.rs` (the №567 form); the pool refill rides the policy
+  mechanics (the office note to the owner).
+- **№720** (this record; gh#1332): the post-wave sync — REALITY §6.35
+  + the PLAN-SUMMARY Wave 50 row + the REFERENCE check (fresh, 526/526
+  = 100.0%, no diff) + the **MARKED deviation**: the `--goal032`
+  report strings cite the ADR phase — Proposed → Accepted (the
+  report-text-only fix, zero semantics; announced in the №723
+  completion audit; the CHANGELOG untouched — №687).
+
+The counters at the record date (the generators, NOT hands):
+**ignore debt 8** (todo 0, dead_code 15), **sensitive 98/145 = 6758
+bp** (the floor 6758 only-up; the uncovered by reason: struct-no-meta
+2, typed-coarse 1, untyped 44), **goal032 closed 23/67** (the gate
+BLOCKING — ADR-0193 Accepted; the floor 23 only-up), **typed
+signatures 360/526 = 68.44% (precise 238/526 = 45.24%)**, the
+**parameterized share 91/121 = 75.20%** (twins 7520 bp), the
+**field-label share 58/60 = 96.66%**, **mirrors 6/6 (the threshold 6 —
+no excess), dups 0**, **REFERENCE 526/526 = 100.0%, Missing 0**,
+**[Unreleased] on main carries the №723 Changed row + the №724 Fixed
+row** (the merged naryads only — the №687 rule).
+
+The owner gates remaining (accumulated): the gh#1317 resolution
+verdict + the office #536 fix decision; the **ADR-0194 verbatim** (the
+packages A/B — the query error paths + the result contract); the
+good-first pool refill mechanics (the office note after the #956
+execution); the zip-ignore review (2026-11-17 or the first candle
+zip-^9 release); the coverage threshold (№569); the second maintainer;
+NLnet/Restack M1 (03.11.2026); №648 (01.12.2026); the PAT rotation
+(the exposed-token discipline); the draft v0.4.0 cleanup (the owner's
+act). The machine tail: **№725** (gh#1348) — the typed-floor raise to
+6844 bp (the №467 procedure; the unfreeze-gate advisory convergence),
+P3, the next нарядный PR.

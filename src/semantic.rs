@@ -4656,6 +4656,11 @@ struct FlowCtx {
     /// №349: `profile duty { surfaces: local_only }` resolved — network
     /// sinks (the №316 Network label class) are compile errors.
     duty_surfaces_local_only: bool,
+    /// №729: var name → the read-back domain the value carries ("cron" |
+    /// "mtree") — populated from the paired Sources (direct call,
+    /// let-chain, field read, `to_string`), dropped on any foreign
+    /// binding (fail-closed, the №387 alias posture).
+    readback_domains: BTreeMap<String, String>,
 }
 
 /// Resolve the origin kind a media argument carries: a direct
@@ -4671,6 +4676,51 @@ fn media_arg_origin_kind(expr: &Expr, ctx: &FlowCtx) -> Option<String> {
         Expr::Ident { name, .. } => ctx.origin_kinds.get(name).cloned(),
         _ => None,
     }
+}
+
+/// №729: resolve the read-back domain an expression carries — a var
+/// bound (directly or through a let-chain / field read / `to_string`)
+/// from a paired Source. ANY other shape is foreign admixture -> None
+/// (fail-closed — the conservative boundary of the pair table).
+/// №532: the non-carrying tail is EXPLICIT — a new Expr variant is a
+/// compile error here until it is consciously classified (the
+/// read-back domain never rides a new shape by default).
+fn readback_domain(expr: &Expr, ctx: &FlowCtx) -> Option<String> {
+    match expr {
+        Expr::Ident { name, .. } => ctx.readback_domains.get(name).cloned(),
+        Expr::FieldAccess { object, .. } => readback_domain(object, ctx),
+        Expr::FnCall { name, args, .. } if name == "to_string" && args.len() == 1 => {
+            readback_domain(&args[0], ctx)
+        }
+        Expr::StringLit { .. }
+        | Expr::FloatLit { .. }
+        | Expr::BoolLit { .. }
+        | Expr::FnCall { .. }
+        | Expr::QualifiedCall { .. }
+        | Expr::BinaryOp { .. }
+        | Expr::IfElse { .. }
+        | Expr::List { .. }
+        | Expr::IndexAccess { .. }
+        | Expr::StructLit { .. }
+        | Expr::BlockIfElse { .. }
+        | Expr::MatchExpr { .. }
+        | Expr::Try { .. }
+        | Expr::HandleSource { .. }
+        | Expr::ProvBind { .. } => None,
+    }
+}
+
+/// №729: does the paired Source feed this sink's lookup-key position?
+/// The exemption exists only for the pair table's (sink, key_arg) rows
+/// AND only when the argument's provenance is the pair's own domain.
+fn readback_pair_clears(fn_name: &str, arg_index: usize, arg: &Expr, ctx: &FlowCtx) -> bool {
+    let domain = match readback_domain(arg, ctx) {
+        Some(d) => d,
+        None => return false,
+    };
+    READBACK_PAIRS
+        .iter()
+        .any(|p| p.sink == fn_name && p.key_arg == arg_index && p.domain == domain)
 }
 
 /// Collect sink call-sites whose argument labels do not clear the sink
@@ -4758,6 +4808,55 @@ pub const ACTION_BRIDGE: &[ActionBridgeThreshold] = &[
         max_conf: "public",
         min_integrity: "trusted",
         integrity_enforcement: "clearance for confidentiality (private-db); integrity via SQL_DYNAMIC (non-literal SQL is refused before the bridge can see it)",
+    },
+];
+
+/// ── Naryad #729 (gh#1350 Ask 2, the owner verbatim (a)) ──────────────
+/// The sanctioned read-back pairs: a value originating from the paired
+/// Source of the SAME domain, used as the destructive lookup key of the
+/// paired Sink, clears the sink gate for that key position. The
+/// mechanism fact (the #1350 package §2): the paired sinks are
+/// MATCH-ONLY — the key never persists new data into the state
+/// (`cron_remove` filters stored entries by the key, `builtins/cron.rs`;
+/// `mtree_forget` removes the node the key addresses,
+/// `builtins/memory.rs`) — the data returns to the domain it came from;
+/// no egress channel by construction. The mtree twin is `mtree_forget`,
+/// NOT `mtree_store`: store's arg 0 is the PAYLOAD text (auto-assigned
+/// id, admission-scored — `memory.rs:478`) with NO key position, so a
+/// store call stays gated in full (the #1350 issue's «mtree reads →
+/// mtree_store» conjecture is corrected by the source).
+///
+/// The conservative boundary (fail-closed, №523/№531): the provenance
+/// chain must be paired-source-only — field reads and `to_string`
+/// preserve the domain, ANY foreign admixture (concat/interpolation
+/// with data not originating from the paired Source) loses the
+/// exemption; the key POSITION only (multi-arg sinks keep every other
+/// position gated — the TAINT_PERSISTENCE vocabulary); a poisoned label
+/// clears nothing anywhere (ADR-0154 §2.1 — the exemption never
+/// overrides quarantine).
+pub struct ReadbackPair {
+    /// The Source builtin the key may originate from.
+    pub source: &'static str,
+    /// The Sink builtin whose lookup-key position is exempted.
+    pub sink: &'static str,
+    /// The lookup-key argument position the exemption covers.
+    pub key_arg: usize,
+    /// The domain both ends share ("cron" | "mtree").
+    pub domain: &'static str,
+}
+
+pub const READBACK_PAIRS: &[ReadbackPair] = &[
+    ReadbackPair {
+        source: "cron_list",
+        sink: "cron_remove",
+        key_arg: 0,
+        domain: "cron",
+    },
+    ReadbackPair {
+        source: "mtree_retrieve",
+        sink: "mtree_forget",
+        key_arg: 0,
+        domain: "mtree",
     },
 ];
 
@@ -5115,6 +5214,18 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                         continue;
                     }
                     if let Some(reason) = clearance_failure(name, &label) {
+                        // ── №729 (gh#1350 Ask 2, the owner verbatim (a)):
+                        // the sanctioned read-back pair — the destructive
+                        // lookup key originating from the SAME domain's
+                        // Source clears. The key never persists (the pair
+                        // table's match-only mechanism fact). Poisoned
+                        // clears nothing anywhere (ADR-0154 §2.1) — the
+                        // exemption never overrides quarantine.
+                        if label.conf != crate::labels::Conf::Poisoned
+                            && readback_pair_clears(name, i, a, ctx)
+                        {
+                            continue;
+                        }
                         violations.push(SinkViolation {
                             container: container.to_string(),
                             fn_name: name.clone(),
@@ -5346,6 +5457,30 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                             ctx.origin_kinds.remove(name);
                         }
                     }
+                    // ── №729: the read-back domain tracking — a value
+                    // from a paired Source (a direct call) or a
+                    // domain-carrying chain (let / field / `to_string`)
+                    // keeps the domain; ANY other binding drops it
+                    // (fail-closed, the №387 alias posture).
+                    {
+                        let domain = if let Expr::FnCall { name: callee, .. } = value {
+                            READBACK_PAIRS
+                                .iter()
+                                .find(|p| p.source == callee.as_str())
+                                .map(|p| p.domain.to_string())
+                                .or_else(|| readback_domain(value, ctx))
+                        } else {
+                            readback_domain(value, ctx)
+                        };
+                        match domain {
+                            Some(d) => {
+                                ctx.readback_domains.insert(name.clone(), d);
+                            }
+                            None => {
+                                ctx.readback_domains.remove(name);
+                            }
+                        }
+                    }
                 }
                 Statement::Each {
                     variable,
@@ -5382,6 +5517,30 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                         }
                         None => {
                             ctx_body.origin_kinds.remove(variable);
+                        }
+                    }
+                    // ── №729: the iterant carries the paired Source's
+                    // read-back domain (`each cj in cron_list()` → `cj`
+                    // is the cron domain for the body scope; the fork is
+                    // scope-local — the domain does not escape the loop).
+                    // №532: if-let, not a wildcard match — a new Expr
+                    // shape rides the fail-closed default (no domain).
+                    {
+                        let domain = if let Expr::FnCall { name: callee, .. } = iterable {
+                            READBACK_PAIRS
+                                .iter()
+                                .find(|p| p.source == callee.as_str())
+                                .map(|p| p.domain.to_string())
+                        } else {
+                            readback_domain(iterable, ctx)
+                        };
+                        match domain {
+                            Some(d) => {
+                                ctx_body.readback_domains.insert(variable.clone(), d);
+                            }
+                            None => {
+                                ctx_body.readback_domains.remove(variable);
+                            }
                         }
                     }
                     walk_stmts(

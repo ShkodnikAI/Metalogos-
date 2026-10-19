@@ -4,6 +4,29 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added
+
+- **№729 (gh#1356, gh#1350 Ask 2 — the owner's verbatim (a),
+  2026-10-19):** the sanctioned read-back pair recognition — a
+  destructive lookup key originating from the paired Source of the
+  same domain (`cron_list` → `cron_remove`; `mtree_retrieve` →
+  `mtree_forget`, the table `semantic::READBACK_PAIRS`) clears the
+  sink-clearance gate at the key position: the paired sinks are
+  match-only, the key never persists new data into the state — the
+  data returns to the domain it came from, no egress channel by
+  construction. Programs green on ≤ 0.33.0 that the gh#1336 coverage
+  extension (0.33.1) refused via the `each`-body visibility compile
+  again without the masking bridge. The conservative boundary
+  (fail-closed №523/№531): the provenance chain must be
+  paired-source-only (field reads and `to_string` preserve the domain;
+  ANY foreign admixture loses the exemption); the exemption covers the
+  key POSITION only (the payload positions of multi-arg sinks stay
+  gated); a poisoned label clears nothing anywhere (ADR-0154 §2.1).
+  `mtree_store` is NOT a read-back pair: the store's arg 0 is the
+  payload text (auto-assigned id, admission-scored) with no key
+  position — the #1350 issue's «mtree reads → mtree_store» conjecture
+  corrected by the source.
+
 ### Changed
 
 - **№723 (gh#1343, Wave 50 — the owner's verbatim «вербатим принят»,

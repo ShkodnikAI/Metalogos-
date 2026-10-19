@@ -168,52 +168,45 @@ pub fn query_tw(db: &Mutex<Option<rusqlite::Connection>>, args: &[Value]) -> Res
             .prepare(&sql)
             .map_err(|e| sql_err("query() SQL error", e))?;
         let col_names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
-        let mapped = stmt
-            .query_map(rusqlite::params_from_iter(params.iter()), |row| {
-                let mut fields = std::collections::HashMap::new();
-                for (i, col) in col_names.iter().enumerate() {
-                    let val: Value = match row.get_ref(i) {
-                        Ok(rusqlite::types::ValueRef::Null) => Value::Unit,
-                        Ok(rusqlite::types::ValueRef::Integer(n)) => {
-                            // Heuristic: if the column name suggests it's an ID or count, keep as Float
-                            Value::Float(n as f64)
-                        }
-                        Ok(rusqlite::types::ValueRef::Real(f)) => Value::Float(f),
-                        Ok(rusqlite::types::ValueRef::Text(s)) => {
+        // ADR-0194 packages A(c)+B(i), №734: the TW SELECT loop MIRRORS
+        // the VM lane (the loud-fail CONTRACT, the №523/№531 posture):
+        // the cell error names the column (the db_ops.rs:773 mirror),
+        // the row error propagates — the dead `Unit` lie and the silent
+        // skip (`filter_map(|r| r.ok())`) are gone (№604). The paths
+        // are practically unreachable (the ADR §2 probe: get_ref is
+        // in-bounds by construction) — the batteries carry the
+        // verification (tests/n194_query_parity.rs).
+        let mut rows_iter = stmt
+            .query(rusqlite::params_from_iter(params.iter()))
+            .map_err(|e| sql_err("query() execution error", e))?;
+        let mut results = Vec::new();
+        while let Some(row) = rows_iter.next().map_err(|e| sql_err("query() row error", e))? {
+            let mut fields = std::collections::HashMap::new();
+            for (i, col) in col_names.iter().enumerate() {
+                let val: rusqlite::types::ValueRef = row
+                    .get_ref(i)
+                    .map_err(|e| format!("query() column {} error: {}", col, e))?;
+                fields.insert(
+                    col.clone(),
+                    match val {
+                        rusqlite::types::ValueRef::Null => Value::Unit,
+                        rusqlite::types::ValueRef::Integer(n) => Value::Float(n as f64),
+                        rusqlite::types::ValueRef::Real(f) => Value::Float(f),
+                        rusqlite::types::ValueRef::Text(s) => {
                             Value::String(String::from_utf8_lossy(s).to_string())
                         }
-                        Ok(rusqlite::types::ValueRef::Blob(b)) => {
-                            // Encode blobs as hex strings
+                        rusqlite::types::ValueRef::Blob(b) => {
                             Value::String(b.iter().map(|byte| format!("{:02x}", byte)).collect())
                         }
-                        // ADR-0194 packages A(c)+B(i), №734: the loud-fail
-                        // CONTRACT (the №523/№531 posture) — the cell error
-                        // names the column (the db_ops.rs:739 mirror). The
-                        // path is practically unreachable (the ADR §2 probe:
-                        // get_ref is in-bounds by construction) — the dead
-                        // `Unit` lie is gone.
-                        Err(e) => {
-                            return Err(rusqlite::Error::UserFunctionError(
-                                format!("query() column {} error: {}", col, e).into(),
-                            ));
-                        }
-                    };
-                    fields.insert(col.clone(), val);
-                }
-                Ok(Value::Struct {
-                    type_name: "Row".to_string(),
-                    fields,
-                })
-            })
-            .map_err(|e| sql_err("query() execution error", e))?;
-        // ADR-0194 packages A(c)+B(i), №734: the row error PROPAGATES —
-        // the silent skip (`filter_map(|r| r.ok())`) is gone (the
-        // class-4 «тихо-неверное поведение» posture, №604).
-        let mut rows = Vec::new();
-        for r in mapped {
-            rows.push(r.map_err(|e| sql_err("query() row error", e))?);
+                    },
+                );
+            }
+            results.push(Value::Struct {
+                type_name: "Row".to_string(),
+                fields,
+            });
         }
-        Ok(Value::List(rows))
+        Ok(Value::List(results))
     } else {
         // INSERT/UPDATE/DELETE/CREATE/ALTER/etc. → affected row count as String
         let affected = conn

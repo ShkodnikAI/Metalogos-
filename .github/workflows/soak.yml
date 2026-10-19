@@ -19,6 +19,22 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Наряд №722 (issue #1341, волна 50): the ENOSPC guard. The 19.10
+      # soak-parity failed at "Build debug binary" with "No space left
+      # on device (os error 28)" after the three test phases (the В48
+      # lesson class: the runner disk overflow). Free the pre-installed
+      # runner bloat before the build phases; the df-h lines keep the
+      # hygiene provable in the log.
+      - name: Free runner disk (ENOSPC guard — №722, the В48 lesson)
+        run: |
+          echo "=== disk before:"
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL || true
+          sudo docker image prune -af >/dev/null 2>&1 || true
+          sudo apt-get clean || true
+          echo "=== disk after:"
+          df -h /
+
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2

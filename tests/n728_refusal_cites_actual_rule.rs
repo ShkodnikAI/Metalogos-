@@ -28,14 +28,20 @@ fn clearance_line(errs: &[String]) -> String {
         .unwrap_or_else(|| panic!("the sink-clearance refusal must fire: {errs:?}"))
 }
 
-/// The #1350 minimal repro, verbatim: both forms pass on ≤ 0.33.0 and
-/// both fire from 0.33.1 (the gh#1336 shared lowering made `each`
-/// bodies visible to the sink-clearance pass).
-const CRON_READBACK: &str = r#"
+/// A foreign key into a non-ACTION sink (the n325 private-entity
+/// shape): no paired-source provenance — the gate fires and the refusal
+/// must name the classification row (№728).
+///
+/// NOTE (the №729 interaction): the #1350 flat repro (the cron_list →
+/// cron_remove read-back) used to be this pin's program — the SAME
+/// train's №729 (the sanctioned read-back pair recognition, the owner
+/// verbatim (a)) makes that exact shape compile GREEN by design, so the
+/// non-ACTION refusal pin rides a foreign key now (the №729 test file
+/// carries the read-back GREEN pins).
+const FOREIGN_KEY: &str = r#"
+    entity stale_id: String = "Иванов Иван, снилс 123-456-789"
     pattern T() -> String {
-        each cj in cron_list() {
-            let _ = cron_remove(to_string(cj.prompt))
-        }
+        let _ = cron_remove(stale_id)
         return "ok"
     }
 "#;
@@ -70,7 +76,7 @@ fn n728_action_sink_keeps_the_bridge_text() {
 
 #[test]
 fn n728_non_action_sink_names_the_classification_row() {
-    let errs = refusal_messages(CRON_READBACK);
+    let errs = refusal_messages(FOREIGN_KEY);
     let hit = clearance_line(&errs);
     assert!(
         hit.contains(

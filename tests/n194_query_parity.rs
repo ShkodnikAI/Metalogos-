@@ -77,7 +77,11 @@ pattern ParityProbe(_x: String) -> String {
 }
 flow Main { input: String = "x" -> ParityProbe -> output }
 "#;
-    assert_parity(src, "String/3", "the mutation contract (B(i)) must hold on both lanes");
+    assert_parity(
+        src,
+        "String/3",
+        "the mutation contract (B(i)) must hold on both lanes",
+    );
 }
 
 /// t2 — the §2 control: SELECT → rows on BOTH backends (the happy path
@@ -95,7 +99,11 @@ pattern ParityProbe(_x: String) -> String {
 }
 flow Main { input: String = "x" -> ParityProbe -> output }
 "#;
-    assert_parity(src, "List/x/z", "the SELECT control (the §2 parity) must hold");
+    assert_parity(
+        src,
+        "List/x/z",
+        "the SELECT control (the §2 parity) must hold",
+    );
 }
 
 /// t3 — the №381 regression: SELECT with the bound parameters on BOTH
@@ -114,7 +122,11 @@ pattern ParityProbe(_x: String) -> String {
 }
 flow Main { input: String = "x" -> ParityProbe -> output }
 "#;
-    assert_parity(src, "List/y", "the parameterized SELECT (the №381 regression) must hold");
+    assert_parity(
+        src,
+        "List/y",
+        "the parameterized SELECT (the №381 regression) must hold",
+    );
 }
 
 /// t4 — the parameterized MUTATION: the B(i) mechanics ride
@@ -154,5 +166,9 @@ pattern ParityProbe(_x: String) -> String {
 }
 flow Main { input: String = "x" -> ParityProbe -> output }
 "#;
-    assert_parity(src, "String/3", "the №474 ONE contract must stay untouched");
+    assert_parity(
+        src,
+        "String/3",
+        "the №474 ONE contract must stay untouched",
+    );
 }

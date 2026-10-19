@@ -242,7 +242,8 @@
 #   merge at the window re-reads the live fact.
 # typed: 326
 # total: 516
-# threshold_bp: 6317
+# (superseded) threshold_bp was 6317 — №725 (gh#1348): the live marker
+#   superseded, the raise to 6844 in the block below.
 
 
 # 2026-10-10 №668 (gh#1183, wave 40): the «memory → recognition»
@@ -257,7 +258,8 @@
 #   the X-3 rule).
 # typed: 322
 # total: 516
-# threshold_bp: 6240
+# (superseded) threshold_bp was 6240 — №725: the stray superseded
+#   (sat below the machine-read marker, never enforced).
 
 # 2026-10-13 N7 (gh#1217, волна #1222 PE-2): set_header ships TYPED
 # (Struct<HttpResponse>{...} — the parameterized spelling WITH the
@@ -269,11 +271,28 @@
 # (336*10000)//525 = 6400 bp. Only-up (№757), raised in the same PR.
 # typed: 336
 # total: 525
-# threshold_bp: 6400
+# (superseded) threshold_bp was 6400 — №725: the stray superseded
+#   (same anatomy).
 
 # 2026-10-13 N7-merge (gh#1217, волна #1222 PE-2): the merged tree —
 # N6's xml rows AND set_header both present — typed 336/525 → 337/526
 # (the №757 raise rides the same PR: 6400 → 6406).
 # typed: 337
 # total: 526
-# threshold_bp: 6406
+# (superseded) threshold_bp was 6406 — №725: the stray superseded
+#   (the "latest recorded" tail — recorded, never enforced).
+
+# 2026-10-19 №725 (gh#1348, wave 50): the machine-requested ratchet —
+#   the gate's own advisory executed. The recorded triple drifted since
+#   the N7-merge raise (337/526 = 6406 bp): the wave-50 typing movement
+#   grew the live share to 360/526 (68.44%) while the enforced floor
+#   stood at 6317 (the first-match marker — the №536 lesson) and three
+#   stray markers (6240/6400/6406) sat below it — recorded, never
+#   enforced. This line resyncs the recorded fact (the №536 form) and
+#   raises the floor to the live share: (360*10000)//526 = 6844 bp.
+#   ONE live marker remains — enforced = recorded = 6844; equality is
+#   GREEN by the only-up rule. Zero product semantics: the baseline and
+#   its markers only (the issue's Границы).
+# typed: 360
+# total: 526
+# threshold_bp: 6844

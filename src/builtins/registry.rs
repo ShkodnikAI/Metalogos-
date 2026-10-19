@@ -281,7 +281,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("ct_eq", 2, "crypto"; builtin_ct_eq, "Bool"), // N2 (gh#1211): constant-time string equality — the secret-comparison builtin (no `==` timing leak)
     spec!("encrypt", 2, "crypto"; builtin_encrypt),
     spec!("decrypt", 2, "crypto"; builtin_decrypt, "String"), // №757 precise movement (N6, gh#1216): the compensation package — the verified single-shape handler fact (the ONLY Ok arm is Value::String(s) — the UTF-8 plaintext)
-    spec!("generate_key", 0, "crypto"; builtin_generate_key), // №712 re-refusal: the REAL 256-bit random key returns Value::Secret (crypto.rs:206-216) — the opaque-Secret ground (the secret() form; no Secret spelling in the vocabulary)
+    spec!("generate_key", 0, "crypto"; builtin_generate_key), // №712 re-refusal: the REAL 256-bit random key returns Value::Secret (src/builtins/crypto.rs:206-216; the №730 re-verified anchor) — the opaque-Secret ground (the secret() form; no Secret spelling in the vocabulary)
     spec!("base64_encode", 1, "encoding"; builtin_base64_encode, "String"),
     spec!("base64_decode", 1, "encoding"; builtin_base64_decode, "String"),
     // ── Auth stubs (interpreter-mode mocks; real auth requires server mode; builtin_base64_decode) ──
@@ -295,9 +295,9 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("session_duty_enter", 1, "session"; builtin_session_duty_enter, "Bool"),
     spec!("session_duty_exit", 1, "session"; builtin_session_duty_exit, "Bool"),
     spec!("session_wake", 2, 3, "session"; builtin_session_wake, "String"), // №613: returns the delivered source (String) so programs can branch
-    spec!("session_poll_wake", 1, "session"; builtin_session_poll_wake), // №712: Unknown honest — Struct "Wake"{source,payload} when a wake is pending | Unit when none (session.rs:149-156) — the state-dependent union (the №543 send_message form: the flat vocabulary has no state-dependent union)
+    spec!("session_poll_wake", 1, "session"; builtin_session_poll_wake), // №712: Unknown honest — Struct "Wake"{source,payload} when a wake is pending | Unit when none (session.rs:276-291 — the №730 re-verified anchor) — the state-dependent union (the №543 send_message form: the flat vocabulary has no state-dependent union)
     spec!("session_interrupt", 2, 3, "session"; builtin_session_interrupt, "String"), // №613: returns the accepted priority (String)
-    spec!("session_take_interrupt", 1, "session"; builtin_session_take_interrupt), // №712: Unknown honest — Struct "Interrupt"{priority,reason} when an interrupt is queued | Unit when none (session.rs:199-206) — the same state-dependent union (the №543 form)
+    spec!("session_take_interrupt", 1, "session"; builtin_session_take_interrupt), // №712: Unknown honest — Struct "Interrupt"{priority,reason} when an interrupt is queued | Unit when none (session.rs:326-345 — the №730 re-verified anchor) — the same state-dependent union (the №543 form)
     // №539: String — the literal "ok" return (verified handler; not Unit).
     spec!("session_clear", 1, "memory"; builtin_session_clear, "String"), // ── Bot — Telegram messaging ──
     spec!("send_message", 2, 4, "bot"; builtin_send_message), // №543: Unknown honest — String (delivered) | Unit (no TELEGRAM_BOT_TOKEN fallback); the flat vocabulary has no env-dependent union. N3: the 4th argument is opts (parse_mode/bot/disable_preview/chunk/retry)
@@ -385,9 +385,9 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // process-global registry (src/memory_typed.rs) — private is
     // consent-gated + encrypted at rest, reads/exports are audited
     // sinks, redact is the only private egress. Category "memory".
-    spec!("memory_open", 2, "memory"; builtin_memory_open), // №539: Unknown honest — the opaque Value::Memory handle; the flat vocabulary has no Memory spelling (the №538 Query posture)
+    spec!("memory_open", 2, "memory"; builtin_memory_open), // №539: Unknown honest — the opaque Value::Memory handle; the flat vocabulary has no Memory spelling (the №538 Query posture; the №730 fresh anchor: the wrapper src/builtins/memory_typed.rs:28-44, the handle src/memory_typed.rs:300)
     spec!("memory_put", 3, 5, "memory"; builtin_memory_put, "Unit"),
-    spec!("memory_read", 2, "memory"; builtin_memory_read), // №539: Unknown honest — String|Secret by the container label (public → String, private → the gated Secret); typing String would false-warn the private lane
+    spec!("memory_read", 2, "memory"; builtin_memory_read), // №539: Unknown honest — String|Secret by the container label (public → String, private → the gated Secret); typing String would false-warn the private lane (the №730 fresh anchor: the wrapper src/builtins/memory_typed.rs:137-152, the union arms src/memory_typed.rs:550-556 — Stored::Plain → String | Stored::Enc → Value::Secret)
     spec!("memory_keys", 1, "memory"; builtin_memory_keys, "List<String>"), // №631: the String keys (memory_typed.rs)
     spec!("memory_provenance", 2, "memory"; builtin_memory_provenance, "List<String>"), // №631: the String parents (memory_typed.rs)
     spec!("memory_export", 3, "memory"; builtin_memory_export, "String"), // №539: the exported path
@@ -514,16 +514,16 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("event_count", 0, "stub"), // №717: planned events convenience wrapper; no handler — the count value would be data-dependent by the event ledger (the №712 query_row posture); typing a stub shape would be fictitious
     spec!("events_since", 1, "stub"), // №717: planned events convenience wrapper; no handler — the row-list element shape would be data-dependent (the №712 query_row posture); typing a stub shape would be fictitious
     spec!("event_sum", 2, "stub"), // query_scalar/query_row: planned convenience wrappers; no handler (use query + json_get instead) — №717 refresh: the sum value would be data-dependent by the event ledger (the №712 query_scalar posture); the row comment cited the WRONG twins (query_scalar/query_row, not the events family) — the anchor is refreshed, the Unknown ground unchanged
-    spec!("query_scalar", 0, "stub"), // №712 re-refusal: planned convenience wrapper, no handler — the value type is data-dependent by column type (db_ops.rs:535-557); typing a stub shape would be fictitious (the №706 posture)
-    spec!("query_row", 0, "stub"), // №712 re-refusal: planned convenience wrapper, no handler — the element type is data-dependent by column type: Null→Unit, Integer/Real→Float, Text/Blob→String (db_ops.rs:535-557); typing a stub shape would be fictitious (the №706 posture) // ── Test builtins ──
+    spec!("query_scalar", 0, "stub"), // №712 re-refusal: planned convenience wrapper, no handler — the value type is data-dependent by column type (db_ops.rs:541-553 — the №730 re-verified mapping rows); typing a stub shape would be fictitious (the №706 posture)
+    spec!("query_row", 0, "stub"), // №712 re-refusal: planned convenience wrapper, no handler — the element type is data-dependent by column type: Null→Unit, Integer/Real→Float, Text/Blob→String (db_ops.rs:541-553 — the №730 re-verified mapping rows); typing a stub shape would be fictitious (the №706 posture) // ── Test builtins ──
     spec!("assert_eq", 2, "test"; builtin_assert_eq),
     spec!("assert_contains", 2, "test"; builtin_assert_contains), // ── Fluid builtins ──
     spec!("confidence", 1, "fluid"; builtin_confidence, "Float"), // ── Encoding builtins ──
     spec!("toon_encode", 1, "encoding"; builtin_toon_encode, "String"),
     spec!("toon_decode", 1, "encoding"; builtin_toon_decode), // ── Recipe / DAG / Orchestration builtins ──
     spec!("recipe_save", 0, "recipe" => "ext"; builtin_recipe_save),
-    spec!("recipe_search", 1, 2, "recipe" => "ext"; builtin_recipe_search), // semantic search via recall_top_k + kv_get — №717 re-refusal: the always-empty List handler (recipes.rs:75 — the same placeholder ground as recipe_list recipes.rs:86) — a List<X> spelling would be fictitious (the №712 recipe_list form; the №669 graph_path form)
-    spec!("recipe_list", 0, "recipe" => "ext"; builtin_recipe_list), // №712: Unknown honest — the handler answers the always-empty List (recipes.rs:86; no live element instance exists on any lane) — spelling List<X> would be fictitious (the graph_path №669 form)
+    spec!("recipe_search", 1, 2, "recipe" => "ext"; builtin_recipe_search), // semantic search via recall_top_k + kv_get — №717 re-refusal: the always-empty List handler (src/builtins/office/recipes.rs:63-71 — the same placeholder ground as recipe_list src/builtins/office/recipes.rs:80-87; the №730 re-verified anchors) — a List<X> spelling would be fictitious (the №712 recipe_list form; the №669 graph_path form)
+    spec!("recipe_list", 0, "recipe" => "ext"; builtin_recipe_list), // №712: Unknown honest — the handler answers the always-empty List (src/builtins/office/recipes.rs:80-87 — the №730 re-verified anchor; no live element instance exists on any lane) — spelling List<X> would be fictitious (the graph_path №669 form)
     spec!("dag_phases", 1, "orchestration" => "ext"; builtin_dag_phases),
     spec!("topo_sort", 1, "orchestration" => "ext"; builtin_topo_sort),
     spec!("resolve_skill_index", 1, "stub"), // planned skill resolution; no handler — №717: the anchor is refreshed (the row itself, registry.rs — the true-stub posture); typing a stub shape would be fictitious (the №706 posture)
@@ -598,7 +598,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("hex_decode", 1, "crypto"; builtin_hex_decode),
     // Наряд №172: secret() — reads env var as Value::Secret directly
     // (hard-failure if missing, unlike env() which returns empty string).
-    spec!("secret", 1, "crypto"; builtin_secret), // №712 re-refusal: the opaque Value::Secret (crypto.rs:322-328 — SecretString wrap); the flat vocabulary has no Secret spelling (the №538 Query posture) and typing String would breach the SECRET_LEAK Category-A contract — the Secret spelling is the dictionary lane (the owner decision) // ── Regex (Наряд №54; builtin_hex_decode) ──
+    spec!("secret", 1, "crypto"; builtin_secret), // №712 re-refusal: the opaque Value::Secret (src/builtins/crypto.rs:322-328 — SecretString wrap; the №730 re-verified anchor); the flat vocabulary has no Secret spelling (the №538 Query posture) and typing String would breach the SECRET_LEAK Category-A contract — the Secret spelling is the dictionary lane (the owner decision) // ── Regex (Наряд №54; builtin_hex_decode) ──
     spec!("regex_match", 2, "string"; builtin_regex_match, "Bool"),
     spec!("regex_captures", 2, "string"; builtin_regex_captures, "List"),
     spec!("regex_replace", 3, "string"; builtin_regex_replace, "String"), // ── PDF office automation (Наряд MLG-3; builtin_regex_replace) ──

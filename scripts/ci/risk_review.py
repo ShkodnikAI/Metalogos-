@@ -43,7 +43,12 @@ ROOT = __file__.rsplit('/scripts/ci/', 1)[0]
 
 # The high-risk perimeter (the audit 25.09 §8.2 p.3).
 PERIMETER = (
-    "src/io.rs",
+    # Issue #956 (the freshness pass): the io perimeter follows the
+    # files (the №567 form). The I/O surface's current homes: the I/O
+    # builtins + the fs facade. The old `src/io.rs` path never matched
+    # in this history — a dead trigger line, removed honestly.
+    "src/builtins/io.rs",
+    "src/fs_gate.rs",
     # №567 (gh#931): server.rs moved with the transport crate; the
     # perimeter follows the file.
     "metalogos-server/src/server.rs",

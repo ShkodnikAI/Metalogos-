@@ -1,11 +1,15 @@
 # Risk-Review Checklist (№469)
 
 Decision 7-A.2 (gate gh#680): the review goes **by risk, not by order**.
-A PR that touches `src/io.rs`, `src/server.rs`, `src/audit.rs`,
-`src/semantic.rs`, the `llm*` family, or **adds a `spawn`** must be
-reviewed against this checklist. The mechanical surface (which changed
-lines hit which item) is produced by `scripts/ci/risk_review.py --report`
-and attached to the PR by the `risk-review` CI job.
+A PR that touches the I/O surface (`src/builtins/io.rs` — the I/O
+builtins; `src/fs_gate.rs` — the fs facade; the perimeter follows the
+files through the crate splits, the №567 form — the issue #956
+freshness pass), `metalogos-server/src/server.rs` (the transport-crate
+home, №567), `src/audit.rs`, `src/semantic.rs`, the `llm*` family, or
+**adds a `spawn`** must be reviewed against this checklist. The
+mechanical surface (which changed lines hit which item) is produced by
+`scripts/ci/risk_review.py --report` and attached to the PR by the
+`risk-review` CI job.
 
 **Status: ADVISORY (non-blocking).** The job never gates a merge by
 itself; making it blocking is a separate owner decision. It does NOT

@@ -39,6 +39,18 @@ All notable changes to the Metalogos project.
   one-PR form: the fact key (`gate_032_untyped_sources.txt`, FROZEN)
   WITH its checker. The §535 blocking surface grows by the owner's
   explicit verbatim — no product behavior changed.
+- **№734 (gh#1364, Wave 51 tail — the owner's verbatim 2026-10-20,
+  packages A(c)+B(i)):** `query()` on mutations returns the
+  affected-row count as a String on BOTH backends (the №474 ONE
+  contract — ADR-0194 packages A(c)+B(i), №734). AFFECTS: the VM-lane
+  mutations change `[]` → `"n"` (the legacy divergence closed — the TW
+  shape stands since Наряд №7); the examples and the office contour
+  ride `db_execute` for mutations — zero affected consumers (the ADR
+  §3 inventory). The error paths: the loud-fail CONTRACT pinned on
+  both lanes (the cell/row errors name the column — practically
+  unreachable; the ADR §2 probe record remains the carrier). The
+  ratification record: ADR-0194 §8 (the verbatim + the delegation
+  lekalo В49).
 
 ### Fixed
 

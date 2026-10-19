@@ -129,8 +129,11 @@ pub fn query_param(
 // reference — no interpreter borrow escapes the call sites.
 // ─────────────────────────────────────────────────────────────────────
 
-/// `query(sql, params?)` — TW. SELECT/PRAGMA → List of Struct ("Row"),
-/// everything else → the affected-row count as a String (Наряд №7).
+/// `query(sql, params?)` — TW. THE SQL EXECUTOR: SELECT/PRAGMA → List
+/// of Struct ("Row"), everything else → the affected-row count as a
+/// String (Наряд №7; the №474 ONE contract — ADR-0194 packages
+/// A(c)+B(i), №734: the loud-fail cell/row errors name the column —
+/// the CONTRACT, not a lane-history accident).
 pub fn query_tw(db: &Mutex<Option<rusqlite::Connection>>, args: &[Value]) -> Result<Value, String> {
     let sql = match args.first() {
         Some(Value::String(s)) => s.clone(),
@@ -165,37 +168,48 @@ pub fn query_tw(db: &Mutex<Option<rusqlite::Connection>>, args: &[Value]) -> Res
             .prepare(&sql)
             .map_err(|e| sql_err("query() SQL error", e))?;
         let col_names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
-        let rows: Vec<Value> = stmt
-            .query_map(rusqlite::params_from_iter(params.iter()), |row| {
-                let mut fields = std::collections::HashMap::new();
-                for (i, col) in col_names.iter().enumerate() {
-                    let val: Value = match row.get_ref(i) {
-                        Ok(rusqlite::types::ValueRef::Null) => Value::Unit,
-                        Ok(rusqlite::types::ValueRef::Integer(n)) => {
-                            // Heuristic: if the column name suggests it's an ID or count, keep as Float
-                            Value::Float(n as f64)
-                        }
-                        Ok(rusqlite::types::ValueRef::Real(f)) => Value::Float(f),
-                        Ok(rusqlite::types::ValueRef::Text(s)) => {
+        // ADR-0194 packages A(c)+B(i), №734: the TW SELECT loop MIRRORS
+        // the VM lane (the loud-fail CONTRACT, the №523/№531 posture):
+        // the cell error names the column (the db_ops.rs:773 mirror),
+        // the row error propagates — the dead `Unit` lie and the silent
+        // skip (`filter_map(|r| r.ok())`) are gone (№604). The paths
+        // are practically unreachable (the ADR §2 probe: get_ref is
+        // in-bounds by construction) — the batteries carry the
+        // verification (tests/n194_query_parity.rs).
+        let mut rows_iter = stmt
+            .query(rusqlite::params_from_iter(params.iter()))
+            .map_err(|e| sql_err("query() execution error", e))?;
+        let mut results = Vec::new();
+        while let Some(row) = rows_iter
+            .next()
+            .map_err(|e| sql_err("query() row error", e))?
+        {
+            let mut fields = std::collections::HashMap::new();
+            for (i, col) in col_names.iter().enumerate() {
+                let val: rusqlite::types::ValueRef = row
+                    .get_ref(i)
+                    .map_err(|e| format!("query() column {} error: {}", col, e))?;
+                fields.insert(
+                    col.clone(),
+                    match val {
+                        rusqlite::types::ValueRef::Null => Value::Unit,
+                        rusqlite::types::ValueRef::Integer(n) => Value::Float(n as f64),
+                        rusqlite::types::ValueRef::Real(f) => Value::Float(f),
+                        rusqlite::types::ValueRef::Text(s) => {
                             Value::String(String::from_utf8_lossy(s).to_string())
                         }
-                        Ok(rusqlite::types::ValueRef::Blob(b)) => {
-                            // Encode blobs as hex strings
+                        rusqlite::types::ValueRef::Blob(b) => {
                             Value::String(b.iter().map(|byte| format!("{:02x}", byte)).collect())
                         }
-                        Err(_) => Value::Unit,
-                    };
-                    fields.insert(col.clone(), val);
-                }
-                Ok(Value::Struct {
-                    type_name: "Row".to_string(),
-                    fields,
-                })
-            })
-            .map_err(|e| sql_err("query() execution error", e))?
-            .filter_map(|r| r.ok())
-            .collect();
-        Ok(Value::List(rows))
+                    },
+                );
+            }
+            results.push(Value::Struct {
+                type_name: "Row".to_string(),
+                fields,
+            });
+        }
+        Ok(Value::List(results))
     } else {
         // INSERT/UPDATE/DELETE/CREATE/ALTER/etc. → affected row count as String
         let affected = conn
@@ -685,17 +699,21 @@ pub fn query_param_vm(vm: &impl DbAccess, args: &[Value]) -> Result<Value, Strin
 // call site passes `&mut Vm` unchanged.
 /// `query_scalar(sql, params?)` — VM. TYPED param binding (the №381
 /// parity fix); the connection is lazily opened (№409).
-/// `query(sql, params?)` — VM. SELECT → List of Struct ("Row"); the
-/// optional params list binds TYPED (the №381 parity fix — the VM
-/// dropped it entirely before that naryad).
-/// №480/№540: this pair STAYS — the success-path shapes are identical,
-/// but the error paths differ in KIND: the TW lane silently SKIPS an
-/// erroring row (`query_map` + `filter_map(r.ok())`, cell errors → Unit)
-/// while the VM lane fails LOUDLY (row/column errors name the column).
-/// The paths are practically unreachable over embedded sqlite (the
-/// ValueRef conversions are infallible for the mapped columns), yet
-/// they are semantically different — a parity-fix candidate (the №474
-/// class), PINNED by №711 → ADR-0194 (Proposed; the owner's verbatim pending).
+/// `query(sql, params?)` — VM. THE SQL EXECUTOR: SELECT/PRAGMA → List
+/// of Struct ("Row"), everything else → the affected-row count as a
+/// String (the №474 ONE contract — ADR-0194 packages A(c)+B(i), №734:
+/// the mutation detect mirrors the TW byte-for-byte); the optional
+/// params list binds TYPED (the №381 parity fix — the VM dropped it
+/// entirely before that naryad).
+/// №480/№540: this pair STAYED divergent until the ratification — the
+/// success-path shapes were identical, but the error paths differed in
+/// KIND (the TW silently SKIPPED an erroring row — `filter_map(r.ok())`,
+/// cell errors → Unit — while the VM failed LOUDLY) and the mutation
+/// result contract diverged (the TW String count vs the VM empty List).
+/// ADR-0194 ACCEPTED 2026-10-20 — packages A(c)+B(i) (the landing —
+/// №734): the loud-fail contract on BOTH lanes + the №474 ONE contract
+/// String-count on mutations; the paths are practically unreachable
+/// over embedded sqlite (the ADR §2 probe record remains the carrier).
 pub fn query_vm(vm: &mut impl DbAccess, args: &[Value]) -> Result<Value, String> {
     let sql = match args.first() {
         Some(Value::String(s)) => s.clone(),
@@ -723,6 +741,18 @@ pub fn query_vm(vm: &mut impl DbAccess, args: &[Value]) -> Result<Value, String>
         .db_conn()
         .as_ref()
         .ok_or_else(|| db_not_open_error(loud, "query"))?;
+    // ADR-0194 packages A(c)+B(i), №734: the mutation detect MIRRORS the
+    // TW byte-for-byte (`trim().to_uppercase()`; NOT SELECT/PRAGMA) —
+    // the №474 ONE contract: mutations return the affected-row count as
+    // a String on BOTH backends; errors ride the same `sql_err("query()
+    // SQL error", e)` mapping as the TW mutation arm.
+    let sql_upper = sql.trim().to_uppercase();
+    if !(sql_upper.starts_with("SELECT") || sql_upper.starts_with("PRAGMA")) {
+        let affected = conn
+            .execute(&sql, rusqlite::params_from_iter(params.iter()))
+            .map_err(|e| sql_err("query() SQL error", e))?;
+        return Ok(Value::String(affected.to_string()));
+    }
     let mut stmt = conn
         .prepare(&sql)
         .map_err(|e| sql_err("query() SQL error", e))?;

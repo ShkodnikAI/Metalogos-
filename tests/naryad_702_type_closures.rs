@@ -88,19 +88,11 @@ fn assert_both(src: &str, expected: &str) {
     assert_eq!(vm.trim_end(), expected, "VM output mismatch\n{src}");
 }
 
-fn assert_tw(src: &str, expected: &str) {
-    let tw = metalogos::run_program(src)
-        .unwrap_or_else(|e| panic!("TW run failed: {e}\n{src}"))
-        .unwrap_or_default();
-    assert_eq!(tw.trim_end(), expected, "TW output mismatch\n{src}");
-}
-
-fn assert_vm(src: &str, expected: &str) {
-    let vm = vm_run(src)
-        .unwrap_or_else(|e| panic!("VM run failed: {e}\n{src}"))
-        .unwrap_or_default();
-    assert_eq!(vm.trim_end(), expected, "VM output mismatch\n{src}");
-}
+// The TW-only / VM-only split-assertions (assert_tw / assert_vm) were
+// retired with the №734 landing: the query() mutation divergence they
+// existed to pin is resolved — the both-backend form is the only
+// sanctioned shape now (tests/n194_query_parity.rs carries the
+// dedicated pins).
 
 // ── conv_context → String ─────────────────────────────────────────────
 
@@ -163,17 +155,23 @@ flow Main { input: String = "x" -> T -> output }
     );
 }
 
-// ── the multimorphic contract: query ─────────────────────────────────
+// ── the query contract — the №734 parity (was: the multimorphic divergence) ──
 
 #[test]
-fn n702_query_is_backend_divergent_on_mutations() {
-    // The DIVERGENT live contract — the refusal evidence, one SELECT
-    // shape shared and one mutation shape split:
+fn n702_query_mutation_parity_after_n734() {
+    // WAS: the DIVERGENT live contract — the refusal evidence, one
+    // SELECT shape shared and one mutation shape split:
     //   TW (db_ops.rs:200-204): the INSERT answers the affected-row
     //   count as a String → "1".
-    //   VM (db_ops.rs:699+): the rows are built unconditionally → the
-    //   mutation yields the EMPTY list → "0" via len().
-    // A single honest spelling cannot describe both lanes.
+    //   VM (db_ops.rs:699+): the rows were built unconditionally → the
+    //   mutation yielded the EMPTY list → "0" via len().
+    // RESOLVED by №734 (wave 51 tail): ADR-0194 ACCEPTED 2026-10-20 —
+    // packages A(c)+B(i), the VM mutation detect mirrors the TW
+    // byte-for-byte; the mutation answers the affected-row count as a
+    // String on BOTH lanes (the №474 ONE contract). The pin rides the
+    // sanctioned parity now; the dedicated parity pins live in
+    // tests/n194_query_parity.rs (t1 — the ADR §2 live-probe shape,
+    // now green on both).
     let src = r#"
 db { url: "sqlite::memory:" }
 pattern T(i: String) -> String {
@@ -184,8 +182,7 @@ pattern T(i: String) -> String {
 }
 flow Main { input: String = "x" -> T -> output }
 "#;
-    assert_tw(src, "1/1");
-    assert_vm(src, "[]/1");
+    assert_both(src, "1/1");
 }
 
 // ── the data-dependent element types: query_row / query_scalar ───────

@@ -316,7 +316,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // №481: the EXPLICIT-silence twin of env — the `_or` suffix carries the
     // silent-default semantics in the name (audit 25.09 §3.9 naming rule).
     spec!("env_or", 2, "system"; builtin_env_or, "String"), // ── DB builtins ──
-    spec!("query", 1, 2, "db"; builtin_query), // №538: Unknown honest — returns the opaque Query wrapper (Value::Query); the flat vocabulary has no Query entry, and the EXECUTION result type depends on the backend — PINNED by №711: the decision package (the error paths + the result contract, the live probe TW n=3 vs VM n=[]) is ADR-0194 (Proposed; the owner's verbatim pending — the №712 re-refusal, the mutation shapes are db_ops.rs:200-204 vs 699+)
+    spec!("query", 1, 2, "db"; builtin_query), // №538: Unknown honest — returns the opaque Query wrapper (Value::Query); the flat vocabulary has no Query entry, and the result type depends on the SQL class: SELECT/PRAGMA → rows, else → the affected count as a String on BOTH lanes (the №474 ONE contract — ADR-0194 ACCEPTED 2026-10-20, packages A(c)+B(i), the landing №734); rows|count is still a union with no flat spelling — the Unknown honest stands (the №712 re-refusal; the shapes db_ops.rs:210-218 vs :717+)
     spec!("db_execute", 1, 2, "db"; builtin_db_execute, "Unit"), // ADR-0068: optional params list — the interpreter path returns Unit; the executed surface is the Query pipeline (№484 DbAccess)
     // ── LLM builtins ──
     #[cfg(feature = "llm")]
@@ -514,8 +514,8 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("event_count", 0, "stub"), // №717: planned events convenience wrapper; no handler — the count value would be data-dependent by the event ledger (the №712 query_row posture); typing a stub shape would be fictitious
     spec!("events_since", 1, "stub"), // №717: planned events convenience wrapper; no handler — the row-list element shape would be data-dependent (the №712 query_row posture); typing a stub shape would be fictitious
     spec!("event_sum", 2, "stub"), // query_scalar/query_row: planned convenience wrappers; no handler (use query + json_get instead) — №717 refresh: the sum value would be data-dependent by the event ledger (the №712 query_scalar posture); the row comment cited the WRONG twins (query_scalar/query_row, not the events family) — the anchor is refreshed, the Unknown ground unchanged
-    spec!("query_scalar", 0, "stub"), // №712 re-refusal: planned convenience wrapper, no handler — the value type is data-dependent by column type (db_ops.rs:541-553 — the №730 re-verified mapping rows); typing a stub shape would be fictitious (the №706 posture)
-    spec!("query_row", 0, "stub"), // №712 re-refusal: planned convenience wrapper, no handler — the element type is data-dependent by column type: Null→Unit, Integer/Real→Float, Text/Blob→String (db_ops.rs:541-553 — the №730 re-verified mapping rows); typing a stub shape would be fictitious (the №706 posture) // ── Test builtins ──
+    spec!("query_scalar", 0, "stub"), // №712 re-refusal: planned convenience wrapper, no handler — the value type is data-dependent by column type (db_ops.rs:554-564 — the №734 re-verified mapping rows); typing a stub shape would be fictitious (the №706 posture)
+    spec!("query_row", 0, "stub"), // №712 re-refusal: planned convenience wrapper, no handler — the element type is data-dependent by column type: Null→Unit, Integer/Real→Float, Text/Blob→String (db_ops.rs:554-564 — the №734 re-verified mapping rows); typing a stub shape would be fictitious (the №706 posture) // ── Test builtins ──
     spec!("assert_eq", 2, "test"; builtin_assert_eq),
     spec!("assert_contains", 2, "test"; builtin_assert_contains), // ── Fluid builtins ──
     spec!("confidence", 1, "fluid"; builtin_confidence, "Float"), // ── Encoding builtins ──

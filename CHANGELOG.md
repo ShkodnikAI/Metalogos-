@@ -90,6 +90,18 @@ All notable changes to the Metalogos project.
   `METALOGOS_SERVE_BACKEND=interpreter` (АСС-1.7) until the release
   trains.
 
+### Note (added 2026-10-19, gh#1350)
+
+- **Gate coverage (the gh#1336 follow-up):** the shared statement lowering
+  (the serve-VM fix above) also made `each` bodies visible to the
+  compile-time sink-clearance pass — programs green on ≤ 0.33.0 may fail
+  `mlog check` from 0.33.1 with previously-invisible findings (e.g.
+  `PII_EGRESS_NETWORK` on a `cron_list()` → `cron_remove` read-back).
+  Interim bridge: `redact(…, "all")` (the documented trap: the ADR-0136
+  entropy net masks token-like key runs). The value-preserving recipe is
+  ratified in gh#1350 (the read-back pair recognition, Ask 2 (a)) — the
+  implementation rides the next release train.
+
 
 ## [0.33.0] - 2026-10-19
 

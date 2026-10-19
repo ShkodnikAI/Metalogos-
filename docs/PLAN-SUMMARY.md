@@ -112,9 +112,31 @@ gates remaining: the ADR-0191 §-answers (the OD variants), the train
 №2 candidate (19.10 — the [Unreleased] classification = the 0.31.0
 MINOR), №639 (15.10) / №648 (01.12) outside the wave.
 
-## Current wave — the open machine tail (2026-10-19)
+## Current wave — the open machine tail (2026-10-20)
 
-Wave 50 EXECUTED (the dispatch gh#1333): №717 (the movement №5 —
+Wave 51 EXECUTED (the dispatch gh#1362): the В50 tail FIRST (№727 the
+carrier-B CHANGELOG note, gh#1354; №728 the refusal branches by the
+failed gate — the Ask 3 (a2), gh#1355; №729 the sanctioned read-back
+pair — the Ask 2 (a), READBACK_PAIRS, mtree_store refuted by the
+source; gh#1350 closed executed, main 2610039), then the composition:
+№730 (the movement №6 — the HONEST ZERO-closure outcome under the
+BLOCKING gate: the ПДн residue refuses; 10 anchors refreshed; the
+refusal shapes probed live; the 44-row Unknown ground re-pinned;
+goal032 stays 23/67 — the residue wall is the designed endgame
+frontier, gh#1359), №731 (the release line — the 26.10 prep contour
+GREEN, the next-draft byte-for-byte, ADR-0195 Proposed with the §6
+verdict package, the README ADR count 187; GO 26.10 verified-wait,
+gh#1360), the tail №734 (ADR-0194 RATIFIED — the owner's verbatim
+packages A(c)+B(i) — and LANDED: the query() mutations return the
+affected count as a String on BOTH lanes (the VM [] → "n" — the
+observable change), the TW SELECT loop mirrors the VM (the loud-fail
+contract), the mutation teeth reproduced in CI, the №702 pin rides the
+parity, limitations :150 resolved, gh#1364), the post-wave sync №732
+(REALITY §6.36, the generator numbers; strictly last). The owner
+gates: the 26.10 figure + tag → publication; the ADR-0195 verdict;
+the goal032 next-movement shape (the residue wall).
+
+Wave 50 EXECUTED (the dispatch gh#1333): №717 (the movement №5 — (the dispatch gh#1333): №717 (the movement №5 —
 THREE honest closures: listen_start DuplexFlow, llm_stream_open
 LlmStream, vision_fetch_weights String; goal032 20 → 23/67
 report-only; the floor 6551 → 6758 bp in the same PR; the twins

@@ -2905,3 +2905,109 @@ NLnet/Restack M1 (03.11.2026); №648 (01.12.2026); the PAT rotation
 act). The machine tail: **№725** (gh#1348) — the typed-floor raise to
 6844 bp (the №467 procedure; the unfreeze-gate advisory convergence),
 P3, the next нарядный PR.
+
+### 6.36. Wave 51 post-wave record (naryad №732): the В50 tail executed + the residue-wall movement №6 + the release-line prep with ADR-0195 + the ADR-0194 ratification landing — query() is the ONE contract on both lanes (main @ the naryad's PR, 2026-10-20)
+
+The В50 tail rode outside the В51 composition (the dispatch gh#1362
+pre-registered the ride) and was executed first; the wave composition
+№730 ∥ №731 → №732 (strictly last) + the tail №734:
+
+- **The В50 tail** (2026-10-19): №727 (gh#1354, squash `bd56dc1`) — the
+  carrier B note into CHANGELOG [0.33.1] (the gh#1350 Ask 1); №728
+  (gh#1355, squash `b2aa774`) — the sink-clearance refusal branches by
+  the failed gate (the Ask 3 verbatim (a2): the ACTION six keeps the
+  №391 bridge text byte-for-byte, the others cite the generic rule +
+  the №316 classification); №729 (gh#1356, squash `2610039`) — the
+  sanctioned read-back pair recognition (the Ask 2 verbatim (a):
+  `semantic::READBACK_PAIRS`, the key-position-only exemption,
+  fail-closed by construction; `mtree_store` refuted by the source —
+  the true twin of `cron_remove` is `mtree_forget`); gh#1350 closed
+  executed; main CI GREEN on 2610039.
+- **№730** (gh#1359, squash `a3e95eb`): the movement №6 — the FIRST
+  package under the BLOCKING gate — returned the HONEST ZERO-closure
+  result: the ПДн residue (13 rows) closes nothing; all 44 open
+  fixed-list rows carry standing refusal postures (the handler code
+  has not moved since the №717 walk — the diff over the handler
+  surface EMPTY, verified 2026-10-20). Delivered as the refusal
+  package: 10 drifted anchors refreshed in registry.rs (comment-only),
+  the refusal shapes probed live on both backends
+  (`tests/naryad_730_type_closures.rs`: recipe_list `List/[]`, the
+  session unions BOTH arms live, memory_read public arm String, stdin
+  the loud true-stub refusal), the 44-row Unknown ground re-pinned
+  (42 default + 2 feature-gated — the №717 form). **goal032 stays
+  23/67** (the gate GREEN, exit 0); the growth paths run through
+  owner/semantics lanes (the Secret spelling — the dictionary lane;
+  the №543 union forms; the stub handlers; query* — post-№734); the
+  residue wall is the designed endgame frontier (ADR-0193 endgame
+  (A)).
+- **№731** (gh#1360, squash `126c2d2`): the release line — the 26.10
+  prep contour VERIFIED GREEN (unfreeze --gate-target 0.33.1
+  --office-tests pass --strict EXIT 0; release_gap EXIT 0; the notes
+  verbatim both ways EXIT 0; release.yml as-is);
+  `docs/release-notes-next-draft.md` — the prep-day snapshot generated
+  from [Unreleased] byte-for-byte (the figure UNDECIDED — the owner's
+  call to the window; the regen-at-the-window rule, №713);
+  **ADR-0195** (Proposed, zero wiring) — the 0.34 release-gate
+  criteria: (a) the ratchet floors only / (b) the ADR-0193 endgame (A)
+  figure as the release RECORD (the honest N today = 23 — the wall) /
+  (c) the precise floor + №569 (parked until the owner lanes open);
+  the §5 recommendation without the decision; the §6 verdict package.
+  The §2.5 map + go/no-go filed to gh#1360: **GO 26.10 verified-wait**
+  (0.33.2 recommended — the tail-ride PATCH); the ADR index row 0194
+  registered + 0195; the README ADR count 186 → 187 (the
+  readme_consistency machine caught the drift — it works as designed).
+- **№734** (gh#1364, squash `8b76ab2`): **ADR-0194 RATIFIED — Accepted
+  2026-10-20** (the owner's verbatim with the package-choice
+  delegation, the В49 lekalo; packages **A(c)** + **B(i)** — the §8
+  record) and LANDED: the VM mutation detect mirrors the TW
+  byte-for-byte (trim().to_uppercase(); NOT SELECT/PRAGMA) —
+  **the observable change: the VM-lane mutations through `query()`
+  return the affected count as a String ("n") instead of the empty
+  List** (the №474 ONE contract on BOTH lanes; the examples/office
+  mutations ride `db_execute` — zero affected consumers, the §3 ADR
+  inventory); the TW SELECT loop mirrors the VM lane (the loud-fail
+  CONTRACT: the cell error names the column — the :769 mirror; the row
+  error propagates; the dead `Unit` lie and the silent skip are gone —
+  №604/№523/№531; practically unreachable on the reachable inputs —
+  the ADR §2 probe record remains the carrier);
+  `tests/n194_query_parity.rs` (t1 the parity pin — the mutation →
+  String "3" on TW AND VM; t2 the SELECT control; t3 the №381
+  regression; t4 the parameterized mutation; t5 the №474 cross-check);
+  **the mutation teeth reproduced in CI** (the A.3 revert turned
+  t1/t4 RED on the VM lane — `[TYPE_MISMATCH] String + List` — then
+  restored byte-identical); the №702 divergence pin rides the
+  sanctioned parity (renamed `n702_query_mutation_parity_after_n734`,
+  assert_both "1/1" — the №728 lesson); the limitations №711 row →
+  the resolved form (split by root); the [Unreleased] Changed row №734
+  with the AFFECTS estimate; the registry query*/query_row/
+  query_scalar anchor cites synced (the same-PR rule); the pin tail
+  db_ops.rs:708-716 (9 lines preserved — the №711 lekalo). The CI
+  rounds were the honest walk: 1 (the E0599 fix — the TW SELECT loop
+  mirrors the VM; no UserFunctionError in this rusqlite), 2 (the
+  mutation teeth), 3 (the №702 pin + fmt), 4 (the anchors + the index
+  Accepted), 5 (the fmt t5 short-last-arg).
+
+The machine numbers at the sync (2026-10-20, main @ 8b76ab2): the
+sensitive surface **98/145 = 6758 bp** (the enforced floor **6844 bp**,
+only-up — №725's raise stands over the current share), **goal032
+closed 23/67** (the gate BLOCKING — ADR-0193 Accepted; the floor 23
+only-up; the movement №6 honestly closed zero), **typed 360/526 =
+68.44% (precise 238/526 = 45.24%)**, the **parameterized share
+91/121 = 75.20%** (twins 7520 bp), the **field-label share 58/60 =
+96.66%**, **mirrors 6/6, dups 0**, **debt 8/0/15**,
+**REFERENCE 526/526 = 100.0%, Missing 0**, **[Unreleased] carries the
+№729 Added + №723/№734 Changed + №724 Fixed rows** (the merged naryads
+only — the №687 rule).
+
+The owner gates remaining (accumulated): the **26.10 window — the
+figure (0.33.2 recommended / 0.34.0) + the tag → publication** (the
+§2.5 map in gh#1360); the **ADR-0195 verdict** (the 0.34-gate
+criteria — the §6 package: the form / the endgame N / the precise
+floor + №569); the **goal032 next-movement shape** (the residue-wall
+report of №730 — the owner lanes: the Secret spelling, the №543 union
+forms, the stub naryads); the office #536 fix decision; the good-first
+pool refill mechanics; the zip-ignore review (2026-11-17); the
+coverage threshold (№569); the second maintainer; NLnet/Restack M1
+(03.11.2026); №648 (01.12.2026); the PAT rotation. RESOLVED this
+cycle: the ADR-0194 verbatim (the packages A(c)+B(i) — №734); the
+draft v0.4.0 cleanup (deleted, verified 0 drafts).

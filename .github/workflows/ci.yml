@@ -815,6 +815,19 @@ jobs:
           python3 scripts/ci/sensitive_surface_share.py
           python3 scripts/ci/sensitive_surface_share.py --gate scripts/ci/sensitive_surface_baseline.txt
           python3 scripts/ci/sensitive_surface_share.py --list | head -50
+      # №723 (issue #1343; ADR-0193 ACCEPTED 2026-10-19 — the owner's
+      # live verbatim «вербатим принят»): the goal032 fixed-list gate
+      # wired BLOCKING (the gate_031 §5 one-PR form: the fact key WITH
+      # its checker). The floor is the LIVE counter at the wiring —
+      # 23/67 — only-up: a closed row losing its signature goes RED;
+      # the lift rides the closure PR (the №757/№613 form). The §6.6 (A)
+      # endgame: the lanes feed the same machine; the id closes once;
+      # the FROZEN list never edits. The №535 act: this step IS the
+      # owner's explicit blocking surface (the verbatim, 2026-10-19).
+      - name: Gate — the goal032 fixed-list floor (ADR-0193 ratified; blocking, 23/67 only-up)
+        run: |
+          python3 scripts/ci/sensitive_surface_share.py --goal032 scripts/ci/gate_032_untyped_sources.txt
+          python3 scripts/ci/sensitive_surface_share.py --gate032 scripts/ci/gate_032_untyped_sources.txt 23
 
   # №562 (issue #923; the audit 02.10 §6.1): the tag↔main gap gate — a
   # pending Security entry in [Unreleased] older than the floor FAILS the

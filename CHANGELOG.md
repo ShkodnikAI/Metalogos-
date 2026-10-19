@@ -4,6 +4,19 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Changed
+
+- **№723 (gh#1343, Wave 50 — the owner's verbatim «вербатим принят»,
+  2026-10-19):** the goal032 fixed-list gate is wired BLOCKING in CI —
+  ADR-0193 Accepted: the figure ≥20/67 ratified as-reached-late, the
+  deadline closed as-reached, the ПДн-first record fixated, the endgame
+  (A) floor fixation. The operational floor = the live counter at the
+  wiring (23/67), only-up: a closed row losing its signature goes RED;
+  the lift rides the closure PR (the №757/№613 form). The gate_031 §5
+  one-PR form: the fact key (`gate_032_untyped_sources.txt`, FROZEN)
+  WITH its checker. The §535 blocking surface grows by the owner's
+  explicit verbatim — no product behavior changed.
+
 ## [0.33.1] - 2026-10-19
 
 ### Changed

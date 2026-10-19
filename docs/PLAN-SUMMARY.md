@@ -147,8 +147,9 @@ no integration rework, gh#1314), the conveyor zip-audit enablement
 (the 0.33.1 lockstep prep — gh#1315, the gates EXIT 0; **the owner
 merged the lockstep** 2026-10-17T05:44Z, `e526a8bb` — the
 `[0.33.1] - 2026-10-26` cut is ON MAIN, the tag + the publication
-await the owner's 26.10 train-day act; the 0.33.0 publish waits in
-the 19.10 window). The post-wave sync: №709 (REALITY §6.33, the
+await the owner's 26.10 train-day act; the 0.33.0 PUBLISHED
+2026-10-19T03:39:46Z (the owner's explicit delegation, the run #18
+verified ALL GREEN)). The post-wave sync: №709 (REALITY §6.33, the
 generator numbers; strictly last).
 
 Wave 47 EXECUTED (the dispatch gh#1299): №700 (the dependabot sweep

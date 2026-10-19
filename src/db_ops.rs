@@ -741,6 +741,18 @@ pub fn query_vm(vm: &mut impl DbAccess, args: &[Value]) -> Result<Value, String>
         .db_conn()
         .as_ref()
         .ok_or_else(|| db_not_open_error(loud, "query"))?;
+    // ADR-0194 packages A(c)+B(i), №734: the mutation detect MIRRORS the
+    // TW byte-for-byte (`trim().to_uppercase()`; NOT SELECT/PRAGMA) —
+    // the №474 ONE contract: mutations return the affected-row count as
+    // a String on BOTH backends; errors ride the same `sql_err("query()
+    // SQL error", e)` mapping as the TW mutation arm.
+    let sql_upper = sql.trim().to_uppercase();
+    if !(sql_upper.starts_with("SELECT") || sql_upper.starts_with("PRAGMA")) {
+        let affected = conn
+            .execute(&sql, rusqlite::params_from_iter(params.iter()))
+            .map_err(|e| sql_err("query() SQL error", e))?;
+        return Ok(Value::String(affected.to_string()));
+    }
     let mut stmt = conn
         .prepare(&sql)
         .map_err(|e| sql_err("query() SQL error", e))?;

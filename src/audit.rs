@@ -5798,14 +5798,46 @@ fn check_sink_clearance(
             continue;
         }
         let check_id = sink_check_id(&v.fn_name, v.arg_index, &v.label);
+        // ── №728 (gh#1350 Ask 3, the owner verbatim (a2)): the refusal
+        // cites the ACTUAL failed rule. For the six ACTION sinks the
+        // №391 bridge text stays byte-identical (the decision/data
+        // argument wording reads the bridge table); every other sink
+        // names the generic sink rule and its own №316-classification
+        // row — the consumer is no longer sent to a table that does not
+        // contain the call (the #1350 report: a cron_remove refusal
+        // cited the bridge whose table lists the six ACTION sinks only).
+        let bridge_member = crate::semantic::ACTION_BRIDGE
+            .iter()
+            .any(|t| v.fn_name == t.sink);
+        let rule_note = if bridge_member {
+            format!(
+                " — bridge (№391): the decision/data argument of {} \
+                 must satisfy conf ⊑ public AND integrity ≥ trusted",
+                v.fn_name
+            )
+        } else {
+            let class_note = match crate::builtins_classification::classify(&v.fn_name) {
+                Some(c) => format!(
+                    "{}/{}/{}",
+                    c.role.as_str(),
+                    c.default_label.as_str(),
+                    c.reversibility.as_str()
+                ),
+                None => "unclassified".to_string(),
+            };
+            format!(
+                " — {} is classified {} (the builtins classification, №316-class); \
+                 the bridge (№391) table covers the six ACTION sinks only",
+                v.fn_name, class_note
+            )
+        };
         findings.push(AuditFinding {
             severity,
             check_id,
             line: v.span.start_line as usize,
             message: format!(
                 "sink clearance violated: argument {} of {} in {} carries label '{}'; \
-                 sinks require public{} — bridge (№391): the decision/data argument of {} \
-                 must satisfy conf ⊑ public AND integrity ≥ trusted; failed threshold: {}",
+                 sinks require public{}{}; failed threshold: {}",
                 v.arg_index,
                 v.fn_name,
                 v.container,
@@ -5815,7 +5847,7 @@ fn check_sink_clearance(
                 } else {
                     ""
                 },
-                v.fn_name,
+                rule_note,
                 v.reason
             ),
         });

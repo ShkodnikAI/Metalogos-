@@ -27,9 +27,9 @@ One builtin name, two lanes, TWO distinct forks:
 1. **The RESULT CONTRACT — reachable and observable.** A mutation
    through `query()` — `query("INSERT/UPDATE/DELETE/CREATE…")` —
    returns the affected-row count as a **String** on the TW lane
-   (`db_ops.rs:217-222`, the `else` branch of `query_tw`), while the
+   (`db_ops.rs:210-218`, the `else` branch of `query_tw`), while the
    VM lane builds rows UNCONDITIONALLY and returns an **empty List**
-   (`db_ops.rs:721+`, `query_vm` — sqlite steps the statement to
+   (`db_ops.rs:717+`, `query_vm` — sqlite steps the statement to
    completion, no rows come back, the affected count is discarded).
    SELECT/PRAGMA is in parity (both lanes produce the List of Row
    structs). [Resolved 2026-10-20: the package B(i) landing — §8.]
@@ -69,8 +69,8 @@ live program input over embedded sqlite):
   therefore dead, and the mapping closure cannot fail (always `Ok`) →
   the `filter_map(|r| r.ok())` (`db_ops.rs:196`) never drops a row.
   [Resolved 2026-10-20: the package A(c) landing — §8 — the cell error
-  is the loud `Err` naming the column (`db_ops.rs:189-199`), the row
-  error propagates (`db_ops.rs:209-215`).]
+  is the loud `Err` naming the column (`db_ops.rs:186-191`), the row
+  error propagates (`db_ops.rs:179-183`).]
 - The VM row error (`rows.next()` → the sqlite step error) requires an
   OS/IO fault (a full disk, a corrupt file) — not constructible by a
   program input on an embedded connection.
@@ -101,7 +101,7 @@ semantic fork; the result-contract fork is LIVE and observable.
 ## §4. Decision package A — the error-path direction (the owner picks one)
 
 - **(a) lift TW to loud** (the VM semantics): a cell error becomes a
-  loud Err naming the column (the parity with `db_ops.rs:773`), the
+  loud Err naming the column (the parity with `db_ops.rs:769`), the
   row error propagates. The dead branches become live-but-unreachable
   — zero observable change on reachable inputs; the code loses the
   silent `Unit` lie.
@@ -145,7 +145,7 @@ semantic fork; the result-contract fork is LIVE and observable.
 
 ## §7. What landed with this ADR (the №711 mechanics)
 
-- The candidate comment (`db_ops.rs:712-720` — the №690-698 anchor
+- The candidate comment (`db_ops.rs:708-716` — the №690-698 anchor
   shifted by the landing edits) → **PINNED**: the tail now names №711
   + this ADR (Proposed; the owner's verbatim pending).
 - The limitations row (the honest-limits entry — the №651 lekalo).
@@ -166,7 +166,7 @@ ADR:
 
 - **Package A = (c)** — pin loud-fail on BOTH lanes by contract: the
   TW cell error is the loud `Err` naming the column (the
-  `db_ops.rs:773` mirror — `db_ops.rs:189-199`), the row error
+  `db_ops.rs:769` mirror — `db_ops.rs:186-191`), the row error
   propagates (`db_ops.rs:209-215`); the fail-closed reaction is the
   CONTRACT (the №523/№531 posture), not an accident of each lane's
   history. Zero observable change on reachable inputs (§2 —
@@ -174,7 +174,7 @@ ADR:
   dead-branch unit test, carry the verification.
 - **Package B = (i)** — String-count on both: the VM mutation detect
   mirrors the TW byte-for-byte (`trim().to_uppercase()`; NOT
-  SELECT/PRAGMA — `db_ops.rs:748-759`); `query("UPDATE…")` returns
+  SELECT/PRAGMA — `db_ops.rs:744-755`); `query("UPDATE…")` returns
   `"3"` on both lanes; SELECT keeps the rows. The №474 ONE contract,
   pinned by `tests/n194_query_parity.rs`.
 

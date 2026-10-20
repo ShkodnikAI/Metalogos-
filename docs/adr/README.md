@@ -230,6 +230,6 @@ real ADRs (№309/№320/№412) before the booking.
 | 0186 | The 0.30 Release Gate — the draft criteria (the fixation is the owner's gate; the В34 addendum shape accepted 2026-10-07) | Proposed |
 | 0187 | The memory-phase plan — the Phase-4 slot (the KNN recall reference), the ADR-0185 container-form decision slot, the parity posture | Proposed |
 | 0188 | The template semantics composition — the §7 lane plan: the compile-time port re-priced (full / partial / status-quo), the phased recommendation (the OWNER's choice slot) | Proposed |
-| 0193 | The 0.32 typed-source goal — the FIXED-LIST closure form (67 untyped @ f92c61c, ≥20, the denominator out) | Proposed |
+| 0193 | The 0.32 typed-source goal — the FIXED-LIST closure form (67 untyped @ f92c61c, ≥20, the denominator out) | Accepted (2026-10-19 — «вербатим принят», №723) |
 | 0194 | The query() parity package — the two-lane result contract (the packages A/B: the loud-fail + the String-count mutation parity) | Accepted (2026-10-20 — packages A(c)+B(i), №734) |
-| 0195 | The 0.34 release-gate criteria — the draft variants (the ratchet base / the endgame figure / the precise floor + №569) | Proposed |
+| 0195 | The 0.34 release-gate criteria — the draft variants (the ratchet base / the endgame figure / the precise floor + №569) | Accepted (2026-10-20 — the §5 package as submitted: the form (b) + N=23, (c) parked, №735) |

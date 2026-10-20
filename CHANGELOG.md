@@ -51,6 +51,17 @@ All notable changes to the Metalogos project.
   unreachable; the ADR §2 probe record remains the carrier). The
   ratification record: ADR-0194 §8 (the verbatim + the delegation
   lekalo В49).
+- **№735 (gh#1369, wave-51 tail — the owner's verbatim 2026-10-20,
+  «вербатим ADR-0195»):** the 0.34 release-gate criteria are FIXED —
+  ADR-0195 Accepted: the accumulated ratchet floors stay the base
+  (the №644 bp, the goal032 23/67 BLOCKING, the №467/№468/№462/№562
+  gates) plus the endgame (A) figure `closed 23/67` recorded as the
+  0.34 line's release RECORD (the notes-record, not a blocking wire);
+  the precise-share floor and the №569 coverage threshold are PARKED
+  until the owner lanes open (the Secret spelling, the №543 union
+  forms). Any only-up raise (a higher N, the (c) unparking) rides a
+  follow-up owner verbatim. The ratification record: ADR-0195 §7;
+  zero CI wiring (the RECORD form wires notes, not CI).
 
 ### Fixed
 

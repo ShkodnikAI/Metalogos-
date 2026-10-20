@@ -114,6 +114,25 @@ MINOR), №639 (15.10) / №648 (01.12) outside the wave.
 
 ## Current wave — the open machine tail (2026-10-20)
 
+Wave 52 EXECUTED (the dispatch gh#1374): the tail №735 FIRST (ADR-0195
+RATIFIED — the owner's verbatim, the §5 package as submitted: the form
+(b) + N=23, (c) PARKED, the RECORD zero-CI-wiring; the index 0193 row
+synced, gh#1369), then the composition: №736 (the movement №7 — the
+query* package: the SECOND honest zero with the refusal table
+CORRECTED — the divergence cause dead by №734, the "no handler"
+anchors stale (the handlers ARE live on both lanes), the union ground
+survives the stage-0 vocabulary; the 8-test live handler battery; the
+t6c machine fact (the context-less query refuses loudly — the №7
+intercepts precede the registry) caught by CI and re-pinned; goal032
+stays 23/67; the vocabulary lane named — (α) the union spelling /
+(β) the fixed-result №543 form / (γ) the Query/Row opaque kinds,
+gh#1371), №737 (the 26.10 window refresh — the notes draft current
+(verbatim True), the gates GREEN, the §2.5 map: 0.33.2 tail-ride
+recommended (all five rows; no 0.34 feature roster), GO 26.10
+verified-wait, gh#1372), the post-wave sync №738 (REALITY §6.37, the
+generator numbers; strictly last). The owner gates: the 26.10 figure +
+tag → publication; the query* vocabulary lane; the goal032 lanes.
+
 Wave 51 EXECUTED (the dispatch gh#1362): the В50 tail FIRST (№727 the
 carrier-B CHANGELOG note, gh#1354; №728 the refusal branches by the
 failed gate — the Ask 3 (a2), gh#1355; №729 the sanctioned read-back

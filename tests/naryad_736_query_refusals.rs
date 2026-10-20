@@ -196,9 +196,15 @@ pattern M(_t: String) -> String {
 flow Main { input: String = "t" -> M -> output }
 "#;
     let tw = run_tw(src).expect_err("TW must refuse loudly (the stub fallback)");
-    assert!(tw.contains("query_row"), "TW refusal must name query_row: {tw}");
+    assert!(
+        tw.contains("query_row"),
+        "TW refusal must name query_row: {tw}"
+    );
     let vm = run_vm(src).expect_err("VM must refuse loudly (the stub fallback)");
-    assert!(vm.contains("query_row"), "VM refusal must name query_row: {vm}");
+    assert!(
+        vm.contains("query_row"),
+        "VM refusal must name query_row: {vm}"
+    );
 }
 
 /// t6b — the same for query_scalar.
@@ -212,9 +218,15 @@ pattern M(_t: String) -> String {
 flow Main { input: String = "t" -> M -> output }
 "#;
     let tw = run_tw(src).expect_err("TW must refuse loudly (the stub fallback)");
-    assert!(tw.contains("query_scalar"), "TW refusal must name query_scalar: {tw}");
+    assert!(
+        tw.contains("query_scalar"),
+        "TW refusal must name query_scalar: {tw}"
+    );
     let vm = run_vm(src).expect_err("VM must refuse loudly (the stub fallback)");
-    assert!(vm.contains("query_scalar"), "VM refusal must name query_scalar: {vm}");
+    assert!(
+        vm.contains("query_scalar"),
+        "VM refusal must name query_scalar: {vm}"
+    );
 }
 
 /// t6c — the context-less query refuses LOUDLY too: the №7 intercepts

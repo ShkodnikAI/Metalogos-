@@ -29,6 +29,38 @@ All notable changes to the Metalogos project.
 
 ### Changed
 
+- **№748 (gh#1392, Wave 55):** the 0.32 fixed-list movement №10 — the
+  lane α continuation (the В55 dispatch gh#1394): the machine walk of
+  ALL 38 open rows on live main with the №736 intercept-walk lesson
+  applied to the WHOLE wall (the registry comment is the REGISTRY arm,
+  not the whole ground) closes SIX rows by the №644 criterion from the
+  LIVE both-lane handler facts: `reflex_list` → `List<String>` (the
+  shared reflex_list_dispatch is the live both-lane path — the model
+  names sorted by ReflexId.0; the №744 vision_list form), `event_count`
+  → `Float` and `event_sum` → `Float` (the ADR-0052 intercepts are the
+  live handlers — the №717 "planned wrapper, no handler" anchors were
+  factually STALE; the №757 decrypt single-shape form), `events_since`
+  → `List<Struct<Event>>` (the same intercept — the query rows form:
+  the type_name carries the shape, no field-meta claimed),
+  `deny_event` → `Struct<DenyEvent>{reason:internal,sink:internal,
+  class:internal,argument:untrusted,label:internal,line:internal,
+  human:untrusted}` (the №392 on_deny intercepts are the live handlers
+  — the listen_start fixed-projection form; outside an on_deny body
+  the usage stays a COMPILE error [DENY_HANDLER_SCOPE] — the error
+  channel, not a shape), `deny_reason` → `String` (the reason field
+  make_event always inserts — the single reachable arm). The other 32
+  rows refuse as a wall — the classes re-verified with fresh anchors
+  (inspect — the Struct|Unit state union, the (β) lane, the owner gate
+  7; find — the data-dependent first match; reflex_generate — the
+  candle-gated duality, no house precedent for feature-conditional
+  typing; reflex_load — the bare Reflex opaque is not covered-grade;
+  the stale anchor ranges refreshed comment-only: session_poll_wake/
+  session_take_interrupt/duplex_open). goal032 29 → 35/67; the floors
+  raised in the SAME PR (№757/№613): sensitive 7172 → 7586 bp, typed
+  6958 → 7072 bp, precise 4543 → 4600 bp, parameterized 7580 → 7637 bp
+  (97/127 — the denominator grows WITH the rows), field-label 58/60 →
+  59/61. Battery: tests/naryad_748_wall_walk.rs.
+
 - **№744 (gh#1385, Wave 54):** the 0.32 fixed-list movement №9 — the
   lane α continuation through the №740 UNION vocabulary (the В54
   dispatch gh#1388): the ПДн prima-facie group (session_poll_wake/

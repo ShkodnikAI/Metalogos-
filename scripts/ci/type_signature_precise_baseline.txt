@@ -149,4 +149,19 @@
 # per the №757/№613 procedure; the PRECISE_TYPES definition is untouched.
 # precise: 239
 # total: 526
-# threshold_bp: 4543
+# threshold_bp was 4543 — superseded by the №748 move below (the
+# gate parser reads the FIRST "# threshold_bp: N" line — the history
+# blocks stay "was"-prefixed or behind it).
+
+# 2026-10-21 №748 (gh#1392, wave 55): the movement №10 — THREE rows ship
+# PRECISE: event_count Float + event_sum Float (the ADR-0052 intercepts'
+# single-shape Float facts — audit_ops.rs:90/123; the №757 decrypt form)
+# + deny_reason String (the №392 on_deny intercept's single reachable
+# arm — audit_ops.rs:58-68, the reason field make_event always inserts,
+# deny.rs:132). The №717 "planned wrapper, no handler" anchors were
+# factually STALE (the №736 intercept-walk lesson). 239/526 → 242/526;
+# (242*10000)//526 = 4600 bp. The floor rises in the same PR per the
+# №757/№613 procedure; the PRECISE_TYPES definition is untouched.
+# precise: 242
+# total: 526
+# threshold_bp: 4600

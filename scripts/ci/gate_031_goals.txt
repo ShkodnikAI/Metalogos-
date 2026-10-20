@@ -155,4 +155,10 @@ goal_sensitive_surface_bp: 4782
 # refused as a wall (the classes in the naryad report). goal032
 # 26 → 29/67.
 # (104*10000)//145 = 7172 bp (the same-PR raise, №757).
-fact_sensitive_surface_bp: 7172
+# №748 (gh#1392, wave 55): the movement №10 — SIX honest closures
+# (reflex_list List<String>; event_count/event_sum Float + events_since
+# List<Struct<Event>> — the ADR-0052 intercepts; deny_event
+# Struct<DenyEvent>{7 labeled} + deny_reason String — the №392
+# intercepts). The other 32 open rows refused as a wall. 29 → 35/67.
+# (110*10000)//145 = 7586 bp (the same-PR raise, №757).
+fact_sensitive_surface_bp: 7586

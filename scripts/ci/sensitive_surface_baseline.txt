@@ -328,4 +328,29 @@ recorded, never enforced; the live floor is the №740 line below)
 # (104*10000)//145 = 7172 bp; the fact twin and the floor raised in
 # the SAME PR (the №757/№613 procedure — the machine's own note «raise
 # the baseline floor to 7172 in the same-PR move»).
-# threshold_bp: 7172
+# threshold_bp was 7172 — superseded by the №748 move below (the
+# gate parser reads the FIRST "# threshold_bp: N" line — the history
+# blocks stay "was"-prefixed or behind it).
+
+# 2026-10-21 №748 (gh#1392, wave 55): the movement №10 — SIX honest
+# closures, ALL through the live-intercept walk (the №736 lesson applied
+# to the WHOLE wall — the №717 "planned wrapper, no handler" anchors for
+# the events trio and the deny pair were factually STALE: the ADR-0051/
+# 0052 intercepts are the live handlers on BOTH lanes):
+#   reflex_list List<String> (the shared dispatch — TW execution.rs:578/
+#     2038, VM vm.rs:2918-2923; the vision_list №744 form),
+#   event_count Float + event_sum Float + events_since
+#     List<Struct<Event>> (the ADR-0052 intercepts — execution.rs:2337/
+#     2342/2351, vm.rs:2824/2829/2834; audit_ops.rs:86/112/142),
+#   deny_event Struct<DenyEvent>{7 labeled fields} + deny_reason String
+#     (the №392 on_deny intercepts — execution.rs:2318, vm.rs:2395;
+#     deny.rs:122-143 the fixed 7-field shape; outside an on_deny body
+#     the refusal stays LOUD — the error channel, not a shape).
+# The OTHER 32 open rows refused as a wall — the classes re-verified on
+# live main (the intercept walk: voice/video/bpe/stub rows carry NO
+# interpreter/VM dispatches; the named classes in the naryad report).
+# The goal032 counter 29 → 35/67. The machine read:
+# (110*10000)//145 = 7586 bp; the fact twin and the floor raised in
+# the SAME PR (the №757/№613 procedure — the machine's own note «raise
+# the baseline floor to 7586 in the same-PR move»).
+# threshold_bp: 7586

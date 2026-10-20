@@ -340,4 +340,29 @@
 # union stays inside its List head).
 # typed: 366
 # total: 526
-# threshold_bp: 6958
+# threshold_bp was 6958 — superseded by the №748 move below (the
+# gate parser reads the FIRST "# threshold_bp: N" line — the history
+# blocks stay "was"-prefixed or behind it).
+
+# 2026-10-21 №748 (gh#1392, wave 55): the 0.32 fixed-list movement №10 —
+# the lane α continuation (the В55 dispatch gh#1394; the machine walk of
+# ALL open rows on live main) — SIX rows newly TYPED:
+#   reflex_list List<String> (the shared reflex_list_dispatch — the live
+#     both-lane path; the №744 vision_list form),
+#   event_count Float + event_sum Float (the ADR-0052 intercepts — the
+#     single-shape Float facts, the №757 decrypt form),
+#   events_since List<Struct<Event>> (the ADR-0052 intercept — the
+#     query rows form: the type_name carries the shape, no field-meta),
+#   deny_event Struct<DenyEvent>{7 labeled fields} (the №392 on_deny
+#     intercept — the listen_start fixed-projection form),
+#   deny_reason String (the №392 intercept — the single reachable arm).
+# The №717 "planned wrapper, no handler" anchors for the events trio and
+# the deny pair were factually STALE (the №736 intercept-walk lesson).
+# inspect stays Unknown (the Struct|Unit state union — the (β) owner
+# gate); find stays Unknown (the data-dependent first match). The
+# goal032 counter 29 → 35/67. The machine read:
+# (372*10000)//526 = 7072 bp; the floor raised in the SAME PR (the
+# №757/№613 procedure — the machine's own note).
+# typed: 372
+# total: 526
+# threshold_bp: 7072

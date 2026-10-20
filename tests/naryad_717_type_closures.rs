@@ -258,13 +258,15 @@ flow Main { input: String = "t" -> M -> output }
 
 #[test]
 fn n717_movement_refusals_stay_unknown_in_registry() {
-    // Each refusal was READ, not skipped (the №706 rule): the 42
+    // Each refusal was READ, not skipped (the №706 rule): the 39
     // default-build rows keep the honest Unknown return type (plus the
     // two feature-gated rows asserted under their gates below) — no
-    // fictitious spellings landed. The list: 28 fresh №717 anchors +
-    // 14 re-verified №712/№669 anchors.
+    // fictitious spellings landed. The list: 26 fresh №717 anchors +
+    // 13 re-verified №712/№669 anchors. graph_path, vision_list,
+    // vision_lora_load left the ground: №744 (gh#1385, wave 54) closed
+    // them with the live handler facts (the №744 battery).
     for name in [
-        // fresh №717 (28 in the default build; +2 feature-gated below)
+        // fresh №717 (26 in the default build; +2 feature-gated below)
         "backend_select",
         "call_llm_schema",
         "config_load",
@@ -290,13 +292,11 @@ fn n717_movement_refusals_stay_unknown_in_registry() {
         "series_pull",
         "subgraph_extract",
         "trajectory_make",
-        "vision_list",
         "vision_load",
-        "vision_lora_load",
-        // re-verified №712/№669 (14)
+        // re-verified №712/№669 — graph_path left: №744 (gh#1385,
+        // wave 54) closed it (the №744 battery); the residue (13)
         "forecast_next",
         "generate_key",
-        "graph_path",
         "memory_open",
         "memory_read",
         // query/query_row/query_scalar left the refusal ground: №740

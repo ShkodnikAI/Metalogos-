@@ -108,12 +108,12 @@ fn spec_of(name: &str) -> &'static metalogos::builtins::BuiltinSpec {
         .unwrap_or_else(|| panic!("the registry row {name} must exist"))
 }
 
-// ── The registry-side ground: the 41 open fixed-list rows stay Unknown ──
+// ── The registry-side ground: the 38 open fixed-list rows stay Unknown ──
 
 #[test]
 fn n730_open_fixed_list_ground_stays_unknown_in_registry() {
-    // The movement №6 closes ZERO rows — the full open ground (41 =
-    // 39 default-build rows + the two feature-gated video/voice rows
+    // The movement №6 closes ZERO rows — the open ground (38 =
+    // 36 default-build rows + the two feature-gated video/voice rows
     // asserted under their gates below) is re-pinned as the interlock
     // with naryad_717_type_closures.rs: any future PR that types one
     // of these rows WITHOUT the honest handler fact breaks THIS pin
@@ -121,7 +121,9 @@ fn n730_open_fixed_list_ground_stays_unknown_in_registry() {
     // in its own naryad). №740 (gh#1378, wave 53) closed the THREE
     // query* rows through the №740 UNION vocabulary (lane α) — the
     // rows left THIS pin with the live handler fact (the spellings
-    // pinned in tests/naryad_740_union_spellings.rs).
+    // pinned in tests/naryad_740_union_spellings.rs). №744 (gh#1385,
+    // wave 54) closed graph_path, vision_list, vision_lora_load —
+    // the spellings pinned in tests/naryad_744_lane_alpha_spellings.rs.
     for name in [
         // the ПДн residue (10 after №740) — the movement №6 package,
         // the query* three closed by №740 with the live-handler fact
@@ -135,7 +137,9 @@ fn n730_open_fixed_list_ground_stays_unknown_in_registry() {
         "session_poll_wake",
         "session_take_interrupt",
         "stdin",
-        // the re-verified №717 residue (31)
+        // the re-verified №717 residue — graph_path, vision_list,
+        // vision_lora_load left the ground: №744 (gh#1385, wave 54)
+        // closed them (the №744 battery); the residue (26)
         "backend_select",
         "call_llm_schema",
         "config_load",
@@ -149,7 +153,6 @@ fn n730_open_fixed_list_ground_stays_unknown_in_registry() {
         "find",
         "forecast_next",
         "goal_make",
-        "graph_path",
         "inspect",
         "media_source_capture",
         "pose_make",
@@ -162,9 +165,7 @@ fn n730_open_fixed_list_ground_stays_unknown_in_registry() {
         "series_pull",
         "subgraph_extract",
         "trajectory_make",
-        "vision_list",
         "vision_load",
-        "vision_lora_load",
     ] {
         let s = spec_of(name);
         assert_eq!(

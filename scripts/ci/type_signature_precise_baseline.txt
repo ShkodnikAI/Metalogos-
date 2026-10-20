@@ -103,7 +103,9 @@
 # untouched.
 # precise: 222
 # total: 516
-# threshold_bp: 4302
+# threshold_bp was 4302 (superseded history — the №536 form: the
+# gate parser reads the FIRST "# threshold_bp: N" line; the live floor
+# is the №744 line below)
 
 # 2026-10-13 N7 (gh#1217, волна #1222 PE-2): set_header ships
 # parameterized-coarse (the HttpResponse Struct has no precise scalar
@@ -122,7 +124,9 @@
 # №757 procedure; the PRECISE_TYPES definition is untouched.
 # precise: 227
 # total: 525
-# threshold_bp: 4323
+# threshold_bp was 4323 (superseded history — the №536 form: the
+# gate parser reads the FIRST "# threshold_bp: N" line; the live floor
+# is the №744 line below)
 
 # 2026-10-13 N7-merge (gh#1217): the merged tree — set_header ships
 # parameterized-coarse (NOT precise), the N6 compensation rides —
@@ -130,4 +134,19 @@
 # the №757 procedure).
 # precise: 227
 # total: 526
-# threshold_bp: 4315
+# threshold_bp was 4315 (superseded history — the №536 form: the
+# gate parser reads the FIRST "# threshold_bp: N" line; the live floor
+# is the №744 line below)
+
+# 2026-10-20 №744 (gh#1385, wave 54): the movement №9 — vision_lora_load
+# ships PRECISE ("String" — the №244 intercept's SINGLE Ok arm returns
+# the adapter name, vision.rs:1097; the verified single-shape fact —
+# the №757 decrypt form). 238/526 → 239/526; (239*10000)//526 = 4543 bp.
+# The raise consumes the pending note (the machine has printed «raise
+# the baseline floor» since №717's 4524 read — the enforced floor sat at
+# the stale 4302 FIRST-match triple; the history triples reworded to the
+# was-form above, the №536 procedure). The floor rises in the same PR
+# per the №757/№613 procedure; the PRECISE_TYPES definition is untouched.
+# precise: 239
+# total: 526
+# threshold_bp: 4543

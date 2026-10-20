@@ -59,7 +59,14 @@ use metalogos::builtins::{sig_types::Type, BUILTIN_REGISTRY};
 // the Type::Union erasure), query_row List<Float|String|Unit>. The
 // floor 333 → 336 compiled; the SOURCE count 363/526 = 6901 bp (the
 // baseline file raised in the SAME PR — the №757/№613 procedure).
-const TYPED_FLOOR: usize = 336;
+// №744 (gh#1385, wave 54): the movement №9 — the lane α continuation —
+// THREE rows newly TYPED on the default-feature build: graph_path
+// List<Struct<PathError>|Struct<PathNode>> (the union INNER — the
+// query_row form), vision_list List<String> (the №240 intercept's live
+// shape), vision_lora_load String (the №244 intercept's single Ok arm).
+// The floor 336 → 339 compiled; the SOURCE count 366/526 = 6958 bp (the
+// baseline file raised in the SAME PR — the №757/№613 procedure).
+const TYPED_FLOOR: usize = 339;
 
 #[test]
 fn typed_signature_share_never_falls_below_the_floor() {
@@ -149,7 +156,11 @@ fn every_typed_signature_is_the_honest_parse_of_its_path() {
 // typed (the floor 333 → 336) but never parameterized, never in the
 // List/Struct denominator. The compiled floor 74 → 75; the denominator
 // 99 → 100.
-const PARAM_FLOOR: usize = 75;
+// №744 (gh#1385, wave 54): the movement №9 — graph_path and vision_list
+// join the parameterized rows (the union INNER stays inside its List
+// head); vision_lora_load ships precise String (NOT parameterized).
+// The compiled floor 75 → 77; the denominator 100 → 102.
+const PARAM_FLOOR: usize = 77;
 /// The compiled denominator: 91 SOURCE List/Struct rows − the 4 gated
 /// vec/store rows (the same by-design source/compiled gap the TYPED_FLOOR
 /// comment documents — the gated rows are BARE List/Struct, so the
@@ -164,7 +175,8 @@ const PARAM_FLOOR: usize = 75;
 /// package) — the compiled denominator 95 → 99 (the base must not
 /// shrink).
 /// №740 (wave 53): query_row joins — 99 → 100.
-const PARAM_LS_DENOM: usize = 100;
+/// №744 (wave 54): graph_path + vision_list join — 100 → 102.
+const PARAM_LS_DENOM: usize = 102;
 
 #[test]
 fn parameterized_signature_share_never_falls_below_the_floor() {

@@ -129,4 +129,19 @@
 # the pending №668-era note to 7520 is consumed by this same-PR move).
 # parameterized: 92
 # LS rows: 122
-# threshold_bp: 7540
+# threshold_bp was 7540 — superseded by the №744 move below (the
+# gate parser reads the FIRST "# threshold_bp: N" line — the history
+# blocks stay "was"-prefixed or behind it).
+
+# 2026-10-20 №744 (gh#1385, wave 54): the movement №9 — graph_path
+# List<Struct<PathError>|Struct<PathNode>> and vision_list List<String>
+# join the parameterized rows (the union INNER stays inside its List
+# head — the parameterized-head rule); vision_lora_load ships precise
+# String (NOT parameterized). The DENOMINATOR grows WITH the rows:
+# 122 → 124 (the two new typed List/Struct rows — the same by-design
+# denominator growth the №668/№669 entries record). The machine read:
+# (94*10000)//124 = 7580 bp; the floor raised in the SAME PR (the
+# №757/№613 procedure — the machine's own note).
+# parameterized: 94
+# LS rows: 124
+# threshold_bp: 7580

@@ -147,5 +147,12 @@ goal_sensitive_surface_bp: 4782
 # List<Float|String|Unit>), the №644 covered rule gains the
 # well-formed-union branch (every arm covered-grade — the №539
 # false-warn guard). goal032 23 → 26/67 (the db group 3/3).
-# (101*10000)//145 = 6965 bp (the same-PR raise, №757).
-fact_sensitive_surface_bp: 6965
+# №744 (gh#1385, wave 54): the movement №9 — THREE honest closures
+# (graph_path List<Struct<PathError>|Struct<PathNode>> — the union
+# INNER names both element shapes; vision_list List<String> — the №240
+# intercept's live shape; vision_lora_load String — the №244 single Ok
+# arm), all three Source/Internal sources. The ПДн prima-facie group
+# refused as a wall (the classes in the naryad report). goal032
+# 26 → 29/67.
+# (104*10000)//145 = 7172 bp (the same-PR raise, №757).
+fact_sensitive_surface_bp: 7172

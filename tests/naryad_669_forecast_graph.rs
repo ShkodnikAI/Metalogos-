@@ -103,12 +103,21 @@ fn n669_forecast_next_stays_the_honest_opaque_refusal() {
 }
 
 #[test]
-fn n669_graph_path_stays_the_honest_heterogeneous_refusal() {
+fn n669_graph_path_left_the_refusal_ground_the_744_union_inner() {
+    // №744 (gh#1385, wave 54) closed graph_path through the №740 UNION
+    // vocabulary (lane α): the union INNER names BOTH element shapes —
+    // the PathNode{id,text,level} found arm AND the PathError{status,
+    // from,to} no-path singleton — so the №669 "a fictitious
+    // List<PathNode> would lie about the no-path arm" concern dissolves
+    // (the №740 query_row form: the exact union inner, no fictitious X).
+    // The live both-backend probes ride
+    // tests/naryad_744_lane_alpha_spellings.rs; the pin here is the
+    // parameterized List head (the closure grade).
     let s = spec_of("graph_path");
     assert_eq!(
         s.return_type,
-        Type::Unknown,
-        "graph_path: the found arm carries PathNode{{id,text,level}}, the no-path arm carries the PathError{{status,from,to}} singleton (memory.rs) — no single element spelling exists; a fictitious List<PathNode> would lie about the no-path arm"
+        Type::List,
+        "graph_path: the №744 union INNER spelling — the row left the №669 refusal ground with the live handler fact"
     );
-    assert!(!s.parameterized);
+    assert!(s.parameterized);
 }

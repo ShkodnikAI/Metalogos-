@@ -320,4 +320,24 @@
 # own-category rule).
 # typed: 363
 # total: 526
-# threshold_bp: 6901
+# threshold_bp was 6901 — superseded by the №744 move below (the
+# gate parser reads the FIRST "# threshold_bp: N" line — the history
+# blocks stay "was"-prefixed or behind it).
+
+# 2026-10-20 №744 (gh#1385, wave 54): the 0.32 fixed-list movement №9 —
+# the lane α continuation (the В54 dispatch gh#1388; the ПДн prima-facie
+# group refused as a wall, the next group chosen by the machine) — THREE
+# rows newly TYPED: graph_path List<Struct<PathError>|Struct<PathNode>>
+# (the union INNER — the №740 query_row form; the always-List handler
+# fact memory.rs:789-815), vision_list List<String> (the №240 intercept
+# is the live both-lane path — execution.rs:599/2061, vm.rs:2955), 
+# vision_lora_load String (the №244 intercept, the single Ok arm —
+# vision.rs:1097). The goal032 counter 26 → 29/67. The machine read:
+# (366*10000)//526 = 6958 bp; the floor raised in the SAME PR (the
+# №757/№613 procedure — the machine's own note). Unions/inner unions
+# count typed (the TYPED_RE `|` class), never precise, never
+# parameterized at the TOP level (the own-category rule; the inner
+# union stays inside its List head).
+# typed: 366
+# total: 526
+# threshold_bp: 6958

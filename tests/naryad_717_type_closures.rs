@@ -73,17 +73,31 @@
 //   device_open / duplex_open / pose_make / trajectory_make /
 //   goal_make / subgraph_extract — the opaque Device/Duplex/Pose/
 //   Trajectory/GoalPredicate/Subgraph handles (no stage-0 spellings).
-//   reflex_bpe_load / reflex_load / reflex_list / reflex_generate —
-//   the loud-Err handlers (typing an unreachable Ok shape would be
-//   fictitious).
+//   reflex_bpe_load / reflex_load / reflex_generate — the loud-Err
+//   REGISTRY arms (the №748 re-verified anchors, gh#1392: the shared
+//   dispatches precede them on BOTH lanes — TW execution.rs:556/588,
+//   VM vm.rs:2909/2924; reflex_load's live Ok arm is the bare Reflex
+//   opaque — not covered-grade; reflex_generate's Ok arm is
+//   candle-gated (reflex.rs:1353) — the feature-duality ground;
+//   reflex_bpe_load never returns Ok on any lane). reflex_list left
+//   the ground: №748 (gh#1392, wave 55) closed it List<String> — the
+//   shared reflex_list_dispatch is the live both-lane path
+//   (TW execution.rs:578/2038, VM vm.rs:2918-2923; the №744
+//   vision_list form; the №748 battery).
 //   media_source_capture / vision_list / vision_load /
 //   vision_lora_load — the state-carrying interceptions (the
 //   registry fallback is the loud Err — ADR-0164, №240/№242/№244).
 //   video_fetch_weights (the formal No-Go, №294/ADR-0151 D7) /
 //   voice_load (not implemented, phase A5/ADR-0143).
-//   deny_event / deny_reason / event_count / events_since /
-//   event_sum / find / inspect / resolve_skill_index — the planned
-//   stubs, no handler on any lane.
+//   The №748 re-verified anchors (gh#1392): the deny pair and the
+//   events trio are LIVE on both lanes (the ADR-0051/0052 intercepts —
+//   the №717 "planned wrapper, no handler" anchors were factually
+//   STALE) and LEFT the ground: deny_event Struct<DenyEvent>{7 labeled}
+//   + deny_reason String + event_count/event_sum Float + events_since
+//   List<Struct<Event>> — tests/naryad_748_wall_walk.rs. find/inspect
+//   stay Unknown: find — the data-dependent first match (the arbitrary
+//   Value); inspect — the Struct|Unit state union (the (β) lane, the
+//   owner gate 7). resolve_skill_index — the true stub, no handler.
 //
 // The ratchet: the sensitive floor moved UP in the SAME PR
 // (6551 → 6758 bp; scripts/ci/sensitive_surface_baseline.txt —
@@ -266,17 +280,17 @@ fn n717_movement_refusals_stay_unknown_in_registry() {
     // vision_lora_load left the ground: №744 (gh#1385, wave 54) closed
     // them with the live handler facts (the №744 battery).
     for name in [
-        // fresh №717 (26 in the default build; +2 feature-gated below)
+        // fresh №717 (26 at the wave; the №748 closures took the deny pair
+        // and the events trio — 21 in the default build now; +2 feature-gated below)
         "backend_select",
         "call_llm_schema",
         "config_load",
-        "deny_event",
-        "deny_reason",
+        // deny_event/deny_reason/event_count/event_sum/events_since left
+        // the refusal ground: №748 (gh#1392, wave 55) closed them — the
+        // ADR-0051/0052 intercepts are the live both-lane handlers (the
+        // №736 intercept-walk lesson) — tests/naryad_748_wall_walk.rs.
         "device_open",
         "duplex_open",
-        "event_count",
-        "event_sum",
-        "events_since",
         "find",
         "goal_make",
         "inspect",
@@ -285,7 +299,9 @@ fn n717_movement_refusals_stay_unknown_in_registry() {
         "recipe_search",
         "reflex_bpe_load",
         "reflex_generate",
-        "reflex_list",
+        // reflex_list left the refusal ground: №748 (gh#1392, wave 55)
+        // closed it List<String> through the live shared dispatch (lane
+        // α; the №744 vision_list form) — tests/naryad_748_wall_walk.rs.
         "reflex_load",
         "resolve_skill_index",
         "series_make",

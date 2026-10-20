@@ -144,4 +144,19 @@
 # №757/№613 procedure — the machine's own note).
 # parameterized: 94
 # LS rows: 124
-# threshold_bp: 7580
+# threshold_bp was 7580 — superseded by the №748 move below (the
+# gate parser reads the FIRST "# threshold_bp: N" line — the history
+# blocks stay "was"-prefixed or behind it).
+
+# 2026-10-21 №748 (gh#1392, wave 55): the movement №10 — THREE rows join
+# the parameterized rows: reflex_list List<String> (the shared dispatch's
+# live shape — the №744 vision_list form), events_since
+# List<Struct<Event>> (the ADR-0052 intercept — the query rows form) and
+# deny_event Struct<DenyEvent>{...} (the №392 on_deny intercept — the
+# labeled Struct head is parameterized by the №627 brace rule). The
+# DENOMINATOR grows WITH the rows: 125 → 127. The machine read:
+# (97*10000)//127 = 7637 bp; the floor raised in the SAME PR
+# (the №757/№613 procedure — the machine's own note).
+# parameterized: 97
+# LS rows: 127
+# threshold_bp: 7637

@@ -139,17 +139,18 @@ fn n730_open_fixed_list_ground_stays_unknown_in_registry() {
         "stdin",
         // the re-verified №717 residue — graph_path, vision_list,
         // vision_lora_load left the ground: №744 (gh#1385, wave 54)
-        // closed them (the №744 battery); the residue (26)
+        // closed them (the №744 battery); reflex_list + the deny pair
+        // + the events trio left: №748 (gh#1392, wave 55 — the live
+        // intercepts); the residue (20)
         "backend_select",
         "call_llm_schema",
         "config_load",
-        "deny_event",
-        "deny_reason",
+        // deny_event/deny_reason/event_count/event_sum/events_since left
+        // the refusal ground: №748 (gh#1392, wave 55) closed them — the
+        // ADR-0051/0052 intercepts are the live both-lane handlers (the
+        // №736 intercept-walk lesson) — tests/naryad_748_wall_walk.rs.
         "device_open",
         "duplex_open",
-        "event_count",
-        "event_sum",
-        "events_since",
         "find",
         "forecast_next",
         "goal_make",
@@ -158,7 +159,9 @@ fn n730_open_fixed_list_ground_stays_unknown_in_registry() {
         "pose_make",
         "reflex_bpe_load",
         "reflex_generate",
-        "reflex_list",
+        // reflex_list left the refusal ground: №748 (gh#1392, wave 55)
+        // closed it List<String> through the live shared dispatch —
+        // tests/naryad_748_wall_walk.rs.
         "reflex_load",
         "resolve_skill_index",
         "series_make",

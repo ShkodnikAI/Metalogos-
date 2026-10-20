@@ -108,25 +108,26 @@ fn spec_of(name: &str) -> &'static metalogos::builtins::BuiltinSpec {
         .unwrap_or_else(|| panic!("the registry row {name} must exist"))
 }
 
-// ── The registry-side ground: the 44 open fixed-list rows stay Unknown ──
+// ── The registry-side ground: the 41 open fixed-list rows stay Unknown ──
 
 #[test]
 fn n730_open_fixed_list_ground_stays_unknown_in_registry() {
-    // The movement №6 closes ZERO rows — the full open ground (44 =
-    // 42 default-build rows + the two feature-gated video/voice rows
+    // The movement №6 closes ZERO rows — the full open ground (41 =
+    // 39 default-build rows + the two feature-gated video/voice rows
     // asserted under their gates below) is re-pinned as the interlock
     // with naryad_717_type_closures.rs: any future PR that types one
     // of these rows WITHOUT the honest handler fact breaks THIS pin
     // first (the №688 rule: an id closes once, by the №644 predicate,
-    // in its own naryad).
+    // in its own naryad). №740 (gh#1378, wave 53) closed the THREE
+    // query* rows through the №740 UNION vocabulary (lane α) — the
+    // rows left THIS pin with the live handler fact (the spellings
+    // pinned in tests/naryad_740_union_spellings.rs).
     for name in [
-        // the ПДн residue (13) — the movement №6 package, refusals fresh
+        // the ПДн residue (10 after №740) — the movement №6 package,
+        // the query* three closed by №740 with the live-handler fact
         "generate_key",
         "memory_open",
         "memory_read",
-        "query",
-        "query_row",
-        "query_scalar",
         "recipe_list",
         "recipe_search",
         "request_body",

@@ -8,8 +8,8 @@ The definition (the audit skeleton, verbatim):
   sources    = Role::Source ∧ default_label ≠ Public   (the FIXED
                denominator — the №316 classification; never diluted;
                the definition change is a separate naryad)
-  covered    = typed ∧ (scalar ∨ parameterized) ∧ (¬Struct ∨ all fields
-               labeled)
+  covered    = typed ∧ (scalar ∨ parameterized ∨ №740-union) ∧ (¬Struct
+               ∨ all fields labeled)
 
   - typed          — the registry row carries a return-type string
                      (the type_signature_share.py SPEC/TYPED read);
@@ -17,6 +17,15 @@ The definition (the audit skeleton, verbatim):
                      {String, Float, Bool, Unit} (the №560 set);
   - parameterized  — the path_is_parameterized mirror (List<T> /
                      Struct<Name>, №623/№627);
+  - №740-union     — the union spelling `arm|arm|...` (lane α, the
+                     В53 dispatch gh#1381): well-formed (≥2
+                     stage-0-clean arms, strictly ascending — the
+                     canonical form) and EVERY arm covered-grade
+                     (scalar ∨ parameterized, a Struct arm carries
+                     the well-formed meta) — the false-warn guard:
+                     every reachable arm is named and precisely
+                     shaped; a malformed union is typed-coarse
+                     (fail-closed, never covered);
   - Struct fields  — a parameterized Struct row counts covered only
                      with a well-formed non-empty field-meta section
                      (the №627 grammar mirror — the same checker the
@@ -111,6 +120,19 @@ def compute():
         t = typed_types.get(n)
         if t is None:
             uncovered[n] = 'untyped'
+            continue
+        arms = tss.union_arms(t)
+        if arms is not None:
+            # №740 (lane α): the union branch — covered only when the
+            # union is WELL-FORMED (the canonical grammar) and EVERY
+            # arm is covered-grade (the false-warn guard). A malformed
+            # union is typed-coarse — fail-closed, never covered.
+            if tss.union_well_formed(t) and all(
+                tss.union_arm_covered(a) for a in arms
+            ):
+                covered[n] = t
+            else:
+                uncovered[n] = 'typed-coarse'
             continue
         scalar = t in tss.PRECISE_TYPES
         param = tss.path_is_parameterized(t)

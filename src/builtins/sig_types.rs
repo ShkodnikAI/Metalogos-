@@ -129,6 +129,14 @@ pub enum Type {
     /// The honest "the string path is outside the stage-0 vocabulary"
     /// answer — never a fictitious precise type.
     Unknown,
+    /// №740 (gh#1378, Wave 53, lane α): a well-formed UNION spelling
+    /// `arm|arm|...` — the vocabulary extension the query* movement
+    /// needed (the SQL-class union rows|count of `query`, the
+    /// String|Float|Unit cell union of `query_scalar`). The arms live
+    /// in the spec! string (the same erasure discipline as the
+    /// List/Struct parameters — the enum stays stage-0, the union is
+    /// its own variant, never laundered into a single precise type).
+    Union,
 }
 
 /// The flat fill-site vocabulary. The const table maps the documented
@@ -200,10 +208,29 @@ impl Type {
     ///   empty table, a brace tail on a non-`Struct<` head) is honestly
     ///   `Unknown` — fail-closed, a typo must not launder into a typed
     ///   row;
+    /// - `arm|arm|...` (№740, lane α): the UNION form — at least TWO
+    ///   arms separated by `|`, every arm a stage-0-clean spelling
+    ///   (flat name / `List<...>` / `Struct<...>` / the №627 meta
+    ///   form), the arms STRICTLY ASCENDING in byte order (the
+    ///   canonical form — a duplicate or an unsorted union is a typo
+    ///   and fails closed). Erases to `Type::Union` — the union names
+    ///   EVERY reachable arm (the №539 false-warn guard: a partial-arm
+    ///   type is refused when another arm is reachable and PRIMARY).
     /// - anything else — including labeled strings, which the const
     ///   parser cannot lift to `Labeled(Box)` on stable — is honestly
     ///   `Unknown`.
     pub const fn from_path(s: &str) -> Type {
+        // №740: the union branch FIRST — a TOP-LEVEL `|` (depth 0, i.e.
+        // outside any `<>`) makes the string a union candidate; a pipe
+        // INSIDE `<>` is an inner union (the erasure owns the inner —
+        // e.g. query_row's `List<Float|String|Unit>` erases to List).
+        if bytes_has_top_level_pipe(s.as_bytes()) {
+            return if union_well_formed(s) {
+                Type::Union
+            } else {
+                Type::Unknown
+            };
+        }
         let b = s.as_bytes();
         let mut i = 0;
         while i < FLAT_TABLE.len() {
@@ -303,6 +330,125 @@ const fn bytes_ends_with(b: &[u8], suffix: &[u8]) -> bool {
     true
 }
 
+/// №740: does the byte string carry a TOP-LEVEL `|` (depth 0 — outside
+/// any `<>`)? The union-branch probe: a pipe inside `<>` is an INNER
+/// union (the erasure's parameter business), never a union split
+/// point. Const, no allocation.
+const fn bytes_has_top_level_pipe(b: &[u8]) -> bool {
+    let mut i = 0;
+    let mut depth = 0i32;
+    while i < b.len() {
+        if b[i] == b'<' {
+            depth += 1;
+        } else if b[i] == b'>' {
+            depth -= 1;
+        } else if b[i] == b'|' && depth == 0 {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
+
+/// №740: strict byte-lexicographic order — `a < b` (the union arms'
+/// canonical-form check; const, the same style as the eq twin).
+const fn bytes_lt(a: &[u8], b: &[u8]) -> bool {
+    let mut i = 0;
+    while i < a.len() && i < b.len() {
+        if a[i] != b[i] {
+            return a[i] < b[i];
+        }
+        i += 1;
+    }
+    a.len() < b.len()
+}
+
+/// №740: the drop-free const mirror of `Type::from_path`'s ACCEPT set
+/// (a `Type` value cannot be dropped in a const fn — the `Box` in
+/// `Labeled` carries drop glue — so the union walker needs a bool,
+/// not the variant). TRUE exactly when `from_path(s)` would return
+/// anything but `Unknown` for a `|`-free string; pinned to agree by
+/// the in-tree tests (the two-forms discipline).
+const fn arm_is_clean(s: &str) -> bool {
+    let b = s.as_bytes();
+    let mut i = 0;
+    while i < FLAT_TABLE.len() {
+        if bytes_eq(b, FLAT_TABLE[i].0.as_bytes()) {
+            return true;
+        }
+        i += 1;
+    }
+    if bytes_starts_with(b, b"List<") && bytes_ends_with(b, b">") {
+        return true;
+    }
+    if bytes_starts_with(b, b"Struct<") && bytes_ends_with(b, b">") {
+        return true;
+    }
+    if bytes_ends_with(b, b"}") {
+        let (head, meta) = split_field_meta(s);
+        let hb = head.as_bytes();
+        return bytes_starts_with(hb, b"Struct<")
+            && bytes_ends_with(hb, b">")
+            && !meta.is_empty()
+            && field_meta_well_formed(meta);
+    }
+    false
+}
+
+/// №740 (gh#1378, Wave 53, lane α): is this spec! type string the
+/// UNION spelling `arm|arm|...`? Well-formed only under the same
+/// grammar `from_path` enforces: the split points are the TOP-LEVEL
+/// pipes (depth 0, outside any `<>`), ≥2 stage-0-clean arms, strictly
+/// ascending byte order — the canonical form, duplicates fail.
+/// Anything else with a top-level `|` is NOT a union (a malformed
+/// union is Unknown-honest, never a lenient category). The arms live
+/// in the spec! string; the metric locks treat a union as its OWN
+/// category (never scalar, never parameterized — the №644 covered
+/// rule gains the union branch, every arm covered-grade).
+pub const fn union_well_formed(s: &str) -> bool {
+    let b = s.as_bytes();
+    let mut arms = 0;
+    let mut start = 0usize;
+    let mut i = 0usize;
+    let mut depth = 0i32;
+    let mut prev: &[u8] = &[];
+    loop {
+        if i == b.len() || (b[i] == b'|' && depth == 0) {
+            // split_at at ASCII-delimited positions only (`|` is ASCII,
+            // `i` sits on it or on the end — both char boundaries).
+            let rest = if start == 0 { s } else { s.split_at(start).1 };
+            let arm = rest.split_at(i - start).0;
+            let ab = arm.as_bytes();
+            // the canonical form: STRICTLY ascending — prev < arm
+            // (a duplicate or an unsorted union is a typo, fail-closed)
+            if arms > 0 && !bytes_lt(prev, ab) {
+                return false;
+            }
+            // every arm is a stage-0-clean spelling (an arm may carry
+            // `<>`-nested pipes — the union-inner form; arm_is_clean is
+            // the drop-free bool mirror of from_path's accept set)
+            if !arm_is_clean(arm) {
+                return false;
+            }
+            prev = ab;
+            arms += 1;
+            if i == b.len() {
+                break;
+            }
+            start = i + 1;
+        } else if b[i] == b'<' {
+            depth += 1;
+        } else if b[i] == b'>' {
+            depth -= 1;
+            if depth < 0 {
+                return false; // a stray `>` — malformed, fail-closed
+            }
+        }
+        i += 1;
+    }
+    arms >= 2
+}
+
 /// №623: is this spec! type string the PARAMETERIZED spelling
 /// (`List<...>` / `Struct<...>` whose inner is NOT the stage-0 label
 /// suffix — `X<private>`/`<internal>`/`<untrusted>` are the №577 label
@@ -316,7 +462,17 @@ const fn bytes_ends_with(b: &[u8], suffix: &[u8]) -> bool {
 /// verbatim (the §№623 label-suffix exclusion included); a malformed
 /// brace tail (no `>` before the `{`) falls through to `false`
 /// (fail-closed).
+///
+/// №740: a UNION string is NEVER parameterized — the union is its own
+/// category (the metric locks: the parameterized share counts
+/// List/Struct rows; a union row would otherwise ride the denominator
+/// by its first arm's head). The probe is the TOP-LEVEL pipe (an inner
+/// union — `List<Float|String|Unit>` — stays a parameterized List).
+/// Fail-closed false, symmetric to the malformed-brace posture.
 pub const fn path_is_parameterized(s: &str) -> bool {
+    if bytes_has_top_level_pipe(s.as_bytes()) {
+        return false;
+    }
     let (head, _meta) = split_field_meta(s);
     let b = head.as_bytes();
     let starts_list = bytes_starts_with(b, b"List<") && bytes_ends_with(b, b">");
@@ -514,6 +670,7 @@ impl std::fmt::Display for Type {
             Type::Fluid => f.write_str("Fluid"),
             Type::Opaque(k) => write!(f, "Opaque({:?})", k),
             Type::Labeled(t, l) => write!(f, "{}<{}>", t, l),
+            Type::Union => f.write_str("Union"),
             Type::Unknown => f.write_str("Unknown"),
         }
     }
@@ -777,6 +934,87 @@ mod tests {
             "List<Tool>{name:untrusted}",
         ] {
             assert_eq!(parse_type(s), Type::from_path(s), "divergence on {:?}", s);
+        }
+    }
+
+    // ── №740: the union spelling (lane α) ───────────────────────────────
+
+    #[test]
+    fn union_form_erases_to_union() {
+        // THE movement's spellings (the registry rows of №740).
+        assert_eq!(Type::from_path("List<Struct<Row>>|String"), Type::Union);
+        assert_eq!(Type::from_path("Float|String|Unit"), Type::Union);
+        // a union as a List INNER — the erasure keeps the List head
+        // (the inner is the parameter's business, the same looseness
+        // the erasure always had); query_row's spelling.
+        assert_eq!(Type::from_path("List<Float|String|Unit>"), Type::List);
+        // the meta form as an arm
+        assert_eq!(
+            Type::from_path("Float|Struct<Weather>{city:untrusted}"),
+            Type::Union
+        );
+    }
+
+    #[test]
+    fn union_malformed_is_honest_unknown() {
+        // trailing pipe = the empty second arm
+        assert_eq!(Type::from_path("String|"), Type::Unknown);
+        assert_eq!(Type::from_path("|String"), Type::Unknown); // leading pipe
+        assert_eq!(Type::from_path("Float||Unit"), Type::Unknown); // empty arm
+                                                                   // duplicates fail the canonical order
+        assert_eq!(Type::from_path("String|String"), Type::Unknown);
+        // unsorted arms fail the canonical order
+        assert_eq!(Type::from_path("String|Float"), Type::Unknown);
+        assert_eq!(Type::from_path("Unit|Float|String"), Type::Unknown);
+        // a malformed arm launders nothing
+        assert_eq!(Type::from_path("Float|nonsense"), Type::Unknown);
+        assert_eq!(
+            Type::from_path("Float|Struct<Weather>{city:secret}"),
+            Type::Unknown
+        );
+        // a pipe inside the meta section — the arm grammar has none
+        assert_eq!(
+            Type::from_path("Struct<Weather>{city:untr|usted}"),
+            Type::Unknown
+        );
+        // spaces are not in the grammar
+        assert_eq!(Type::from_path("Float | String"), Type::Unknown);
+    }
+
+    #[test]
+    fn union_is_its_own_metric_category() {
+        // never scalar (the PRECISE read is the caller's — pinned here
+        // via the parameterized lock: a union is NEVER parameterized)
+        assert!(!path_is_parameterized("Float|String|Unit"));
+        assert!(!path_is_parameterized("List<Struct<Row>>|String"));
+        assert!(!path_is_parameterized(
+            "Float|Struct<Weather>{city:untrusted}"
+        ));
+        // the non-union verdicts keep their ground
+        assert!(path_is_parameterized("List<Float|String|Unit>"));
+        assert!(path_is_parameterized("List<Tool>"));
+    }
+
+    #[test]
+    fn union_well_formed_agrees_with_from_path() {
+        for s in [
+            "Float|String|Unit",
+            "List<Struct<Row>>|String",
+            "List<Float|String|Unit>",
+            "String|String",
+            "String|Float",
+            "Float|",
+            "Float||Unit",
+            "Float | String",
+            "Float|Struct<Weather>{city:untrusted}",
+            "Struct<Weather>{city:untr|usted}",
+        ] {
+            assert_eq!(
+                union_well_formed(s),
+                matches!(Type::from_path(s), Type::Union),
+                "divergence on {:?}",
+                s
+            );
         }
     }
 }

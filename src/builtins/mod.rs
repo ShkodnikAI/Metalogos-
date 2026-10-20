@@ -173,12 +173,53 @@ macro_rules! spec {
         }
     };
 
+    // ── №740 (gh#1378, Wave 53, lane α): the TYPED-HANDLERLESS
+    // variant ── the row's live handler is the LANE INTERCEPT (the №26
+    // P1-7 db gate: the intercepts precede the registry dispatch on
+    // BOTH lanes — the t6 fact), so the registry row stays
+    // `handler: None` (the context-less dispatch is the loud stub,
+    // unchanged) while the row carries the DOCUMENTED LIVE SIGNATURE
+    // through the same from_path conversion. The `intercept` marker
+    // token distinguishes the arm from the handler variants — a bare
+    // string type would otherwise mis-bind as `$handler` and fail the
+    // BuiltinFn cast (fail-loud at compile time); placed BEFORE the
+    // typed-handler arms so the marker wins the match order.
+    ($name:expr, $arity:expr, $max:expr, $cat:expr; intercept, $rt:expr) => {
+        $crate::builtins::BuiltinSpec {
+            name: $name,
+            arity: $arity,
+            max_arity: Some($max),
+            category: $cat,
+            layer: "core",
+            return_type: $crate::builtins::sig_types::Type::from_path($rt),
+            parameterized: $crate::builtins::sig_types::path_is_parameterized($rt),
+            field_meta: $crate::builtins::sig_types::field_meta_of($rt),
+            handler: None,
+        }
+    };
+    ($name:expr, $arity:expr, $cat:expr; intercept, $rt:expr) => {
+        $crate::builtins::BuiltinSpec {
+            name: $name,
+            arity: $arity,
+            max_arity: None,
+            category: $cat,
+            layer: "core",
+            return_type: $crate::builtins::sig_types::Type::from_path($rt),
+            parameterized: $crate::builtins::sig_types::path_is_parameterized($rt),
+            field_meta: $crate::builtins::sig_types::field_meta_of($rt),
+            handler: None,
+        }
+    };
+
     // ── Typed-handler variants (№467 stage 0) ──
     // The trailing `, $rt` after the handler carries the documented
     // string path of the return type; `Type::from_path` converts it to
     // the enum AT THE FILL SITE (an unparseable path is honestly
     // `Unknown`). The stub rows stay untyped until a documented path
-    // exists — an intentionally-no-handler row has no honest type yet.
+    // exists — №740 (lane α) added the ONE exception: the intercept
+    // rows above, whose live handler facts are documented by the lane
+    // intercepts themselves (the signature rides the registry row, the
+    // handler stays None).
     ($name:expr, $arity:expr, $max:expr, $cat:expr; $handler:expr, $rt:expr) => {
         $crate::builtins::BuiltinSpec {
             name: $name,

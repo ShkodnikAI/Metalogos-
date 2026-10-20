@@ -3285,3 +3285,145 @@ the second maintainer; NLnet/Restack M1 (03.11.2026); №648
 №9** — the lane α continuation landed (№744, the goal032 26 → 29/67;
 the graph/vision package closed); the 26.10 prep (the verified-wait
 GO, the post-merge refresh — №745).
+
+### 6.40. Wave 55 post-wave record (naryad №749): the movement №10 — the intercept walk of the WHOLE wall (the №736 lesson applied systematically) — the six-row closure package (main @ the naryad's PR, 2026-10-21)
+
+The wave composition №748 → №749 (strictly last; the dispatch gh#1394;
+the release naryad NOT assigned — the 26.10 window occupied by the GO
+verified-wait №745, the dedup):
+
+- **№748** (gh#1392, squash `ef14797`): the 0.32 fixed-list movement
+  №10 — the lane α continuation (the В55 dispatch gh#1394). The
+  machine walk of ALL 38 open rows on live main 4b13319 with the
+  **№736 intercept-walk lesson applied to the WHOLE wall** (the
+  registry comment is the REGISTRY arm, not the whole ground — every
+  row's interpreter/VM dispatch chain checked, not just the comment).
+  SIX rows closed by the №644 criterion from the LIVE both-lane
+  handler facts: `reflex_list` → `List<String>` (the shared
+  reflex_list_dispatch precedes the registry stub on BOTH lanes — TW
+  execution.rs:578/2038, VM vm.rs:2918-2923; the names sorted by
+  ReflexId.0 — deterministic, reflex.rs:1220-1241; the empty registry
+  answers the honest empty List — the vision_list №744 form; the row
+  keeps its loud-Err stub byte-for-byte — the query №740 posture),
+  `event_count` → `Float` + `event_sum` → `Float` (the ADR-0052
+  intercepts ARE the live handlers on both lanes — execution.rs:2337/
+  2351, vm.rs:2824/2829; audit_ops.rs:86-91/112-124 — the single-shape
+  №757 decrypt form; the №717 «planned wrapper, no handler» anchors
+  were factually STALE), `events_since` → `List<Struct<Event>>` (the
+  same ground — execution.rs:2342, vm.rs:2834; audit_ops.rs:142-179 —
+  every element Struct{type_name: "Event"}; the fields dynamic by
+  construction — duration_ms optional — NO field-meta claimed, the
+  query rows №740 form), `deny_event` →
+  `Struct<DenyEvent>{reason:internal,sink:internal,class:internal,
+  argument:untrusted,label:internal,line:internal,human:untrusted}`
+  (the №392 on_deny intercepts ARE the live handlers on both lanes —
+  execution.rs:2318, vm.rs:2395; deny.rs:122-143 make_event — the
+  FIXED 7-field projection, the listen_start №717 form; argument/human
+  echo the refused call → untrusted — the №706 device_state echo form;
+  OUTSIDE an on_deny body the usage is a COMPILE error
+  [DENY_HANDLER_SCOPE] — the error channel, not a shape),
+  `deny_reason` → `String` (the reason field make_event ALWAYS inserts
+  — deny.rs:132 — the defensive unwrap_or(Unit) unreachable by
+  construction; the single reachable arm). The OTHER 32 rows refused —
+  the wall classes re-verified with fresh anchors: **the (β) lane, the
+  owner gate 7 (4)** — session_poll_wake/session_take_interrupt (the
+  №543-form state unions; the №730 anchor ranges 276-291/326-345 were
+  STALE — the live arms session.rs:148-160/198-207; refreshed
+  comment-only), backend_select (the №543 form, backends.rs:225/262),
+  **inspect** (the Struct "PatternStats" | Unit state union — the
+  pattern-existence state; the live intercepts execution.rs:2326/
+  vm.rs:2716; the SAME (β) class as session_*); **data-dependent (3)**
+  — call_llm_schema (llm_schema.rs:162/287-303), config_load
+  (office/config.rs:130 → json.rs:321-341), **find** (the ADR-0051
+  intercepts LIVE on both lanes — execution.rs:2313, vm.rs:2415; the
+  first matched Value of an ARBITRARY type | the soft-failure Unit —
+  the №717 anchor STALE, refreshed); **the feature duality (1)** —
+  reflex_generate (the Ok arm List<Float> under candle reflex.rs:1353;
+  the default build refuses loudly reflex.rs:1359 — no house precedent
+  for feature-conditional typing, the vision №744 intercepts were
+  UNCONDITIONAL; the owner lane); **coarse-opaques (2)** — reflex_load
+  (the live dispatch → Value::Reflex reflex.rs:1113 — the kind EXISTS
+  in the vocabulary, the bare opaque is not covered-grade — the №744
+  device_open form), reflex_bpe_load (never Ok, no dispatches);
+  **no-vocabulary-name opaques (9)** — memory_open (Value::Memory),
+  duplex_open (Value::Duplex; the anchor 213 → 218 refreshed),
+  device_open, pose_make, trajectory_make, goal_make, subgraph_extract,
+  forecast_next, vision_load (the live dispatch → Value::Vision);
+  **named-but-coarse opaques (4)** — series_make (SeriesHandle),
+  media_source_capture (the live dispatch → Value::Media media.rs:459),
+  secret, generate_key (Secret — parked, ADR-0195 §7 (c));
+  **parked/dynamic (3)** — memory_read (String|Secret — parked),
+  request_body (the №661 dynamic fields), stdin (the true stub —
+  verified UNDEFINED_FUNCTION on both lanes); **always-empty Lists
+  (2)** — recipe_list/recipe_search (the №669 form); **never-Ok/loud
+  (3)** — series_pull (src/forecast.rs:451-457), voice_load,
+  video_fetch_weights. The floors (the №757/№613 same-PR form): the
+  sensitive 7172 → **7586 bp** (110/145), the general typed
+  6958 → **7072 bp** (372/526), the precise 4543 → **4600 bp**
+  (242/526), the parameterized 7580 → **7637 bp** (97/127 — the
+  denominator grows WITH the three new List/Struct rows), the
+  field-label share 58/60 → **59/61**, the goal032 BLOCKING figure
+  **29 → 35** in ci.yml (**35/67**); the fact twins synced same-PR
+  (gate_031 fact_sensitive_surface_bp 7586; gate_029 + gate_030
+  fact_precise_share_bp 4600 — BOTH records; gate_030
+  fact_parameterized_share_bp 7637 — the №525 form). The compiled
+  floors: TYPED_FLOOR 345, PARAM_FLOOR 80, PARAM_LS_DENOM 105. The
+  battery `tests/naryad_748_wall_walk.rs` (8 tests: the six-spelling
+  registry pins — the DenyEvent meta byte-exact, the 32-row wall
+  Unknown pins (+2 feature-gated under cfg), the live both-backend
+  probes: reflex_list List|0, the events trio Float|Float|List (the
+  shapes only — the counts data-dependent by design), the deny pair
+  INSIDE on_deny through the kv bridge
+  (`Struct|IRREVERSIBLE_NO_GRANT|String` — both lanes), the
+  [DENY_HANDLER_SCOPE] compile refusal outside the handler, the stdin
+  loud stub, the Secret/empty-List grounds). The interlocks
+  №706/№717/№730 re-pinned. **The honest round-fixation:** CI round 1
+  caught `cargo-deny` — the ADVISORY-DB DRIFT (the emSign-intermediates
+  advisories published between main's 19:05Z green and the 21:16Z run;
+  the fix = the patch bumps rustls-webpki 0.103.15 → 0.103.16 +
+  webpki-roots 1.0.9 → 1.0.10, Cargo.lock only, zero API change —
+  fed52f4) — and CI round 2 caught the **n706 interlock pin** (the
+  №706 battery still pinned the deny pair and the events trio as
+  Unknown — the local sweep had missed that battery; re-pinned, the
+  full workspace sweep ran clean — 0d390ba); the coverage
+  (non-blocking) flake of round 2 did NOT reproduce in round 3; CI
+  **50/50** (round 3, run 39499832931 tail). (β) and (γ) NOT taken
+  (the dispatch gate 7).
+- **№749** (gh#1393, this PR): the post-wave docs sync — REALITY §6.40,
+  the PLAN-SUMMARY Wave 55 row, the counters from the generators
+  (gen_metrics --check OK — the README/PLAN-SUMMARY blocks were
+  regenerated inside №748's PR per the fact-key-with-checker form;
+  gen_reference --check OK — no REFERENCE drift: the six spellings
+  ride the registry the REFERENCE renders from); docs/limitations.md —
+  NO new honest-boundaries records (the six closures typed EXISTING
+  surfaces; the §16.0-D stub discipline held — no new stub rows).
+
+The machine numbers at the sync (2026-10-21, main @ ef14797): the
+sensitive surface **110/145 = 7586 bp** (the enforced floor **7586
+bp**, only-up — the equality the №748 raise recorded), **goal032
+closed 35/67** (the gate BLOCKING — ADR-0193 Accepted; the db group
+3/3, the request_body group 0/1), **typed 372/526 = 70.72% (precise
+242/526 = 46.00%)**, the **parameterized share 97/127 = 76.37%**, the
+**field-label share 59/61 = 96.72%**, **mirrors 6, dups 0, quorum
+0/8**, **debt 8/0/15 (ignore 8, example_uncovered 0, dead_code 15)**,
+**REFERENCE 526/526 = 100.0%** (gen_reference --check OK), **[Unreleased]
+carries the №729 Added + №723/№734/№735/№740/№744/№748 Changed +
+№724 Fixed rows** (the merged naryads only — the №687 rule).
+gen_metrics --check OK (the hand-written numbers match the generators
+— the №566 consistency holds).
+
+The owner gates remaining (accumulated): the **26.10 window — the
+figure (0.33.2 recommended / 0.34.0) + the tag → publication** (the
+§2.5 map in gh#1386; the [Unreleased] now carries the movement №10 row
+— the 0.33.2 tail-ride figure reads EIGHT rows); the **goal032 lanes
+(β)/(γ)** (the fixed-result №543 form / the Query/Row opaque kinds —
+the owner verdicts, the dispatch gh#1394 gate 7; the В55 walk added
+the inspect classification to the (β) queue and the reflex_generate
+feature-duality question to the owner lane); the Secret spellings +
+the №543 union forms (ADR-0195 §7 (c) — parked until the lanes open);
+the NLnet/Restack M1 (03.11.2026); №648 (01.12.2026); the zip-ignore
+review (2026-11-17); the coverage threshold (№569 — PARKED by ADR-0195
+(c)); the second maintainer; the PAT rotation. RESOLVED this cycle:
+the **movement №10** — the intercept walk of the whole wall landed
+(№748, the goal032 29 → 35/67; the six-row package closed; the deny
+pair + the events trio + reflex_list live contracts pinned).

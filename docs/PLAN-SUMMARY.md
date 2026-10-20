@@ -112,7 +112,47 @@ gates remaining: the ADR-0191 §-answers (the OD variants), the train
 №2 candidate (19.10 — the [Unreleased] classification = the 0.31.0
 MINOR), №639 (15.10) / №648 (01.12) outside the wave.
 
-## Current wave — the open machine tail (2026-10-20)
+## Current wave — the open machine tail (2026-10-21)
+
+Wave 55 EXECUTED (the dispatch gh#1394): №748 → №749 (strictly last;
+the release naryad NOT assigned — the 26.10 window occupied by the GO
+verified-wait №745). №748 (the movement №10 — the lane α
+continuation): the machine walk of ALL 38 open rows with the №736
+intercept-walk lesson applied to the WHOLE wall (the registry comment
+is the REGISTRY arm, not the whole ground) — SIX rows closed from the
+LIVE both-lane handler facts: reflex_list `List<String>` (the shared
+dispatch — the vision_list №744 form), event_count `Float` +
+event_sum `Float` (the ADR-0052 intercepts — the №717 "planned
+wrapper, no handler" anchors factually STALE; the №757 form),
+events_since `List<Struct<Event>>` (the query rows form — no
+field-meta, the fields dynamic by construction), deny_event
+`Struct<DenyEvent>{7 labeled fields}` (the №392 on_deny intercepts —
+the listen_start fixed-projection form; outside a handler the COMPILE
+refusal [DENY_HANDLER_SCOPE]), deny_reason `String` (the single
+reachable arm). The 32-row wall re-verified with fresh anchors: the
+(β) queue gained inspect (PatternStats|Unit — the state union, the
+owner gate 7); find is data-dependent (the first matched Value of an
+arbitrary type); reflex_generate — the candle-gated duality (the
+owner lane); the stale №730/№717 anchor ranges refreshed comment-only
+(session_*, duplex_open, find). The floors same-PR (№757/№613):
+sensitive 7172 → 7586 bp (110/145), typed 6958 → 7072 bp, precise
+4543 → 4600 bp, parameterized 7580 → 7637 bp (97/127), field-label
+59/61, the goal032 BLOCKING figure 29 → 35 (**35/67**); the fact
+twins synced (gate_031 + gate_029/gate_030 BOTH precise records +
+gate_030 parameterized); the compiled floors TYPED_FLOOR 345 /
+PARAM_FLOOR 80 / PARAM_LS_DENOM 105; the battery
+tests/naryad_748_wall_walk.rs (8 tests, the deny pair pinned INSIDE
+on_deny through the kv bridge); the interlocks №706/№717/№730
+re-pinned; the honest round-fixation — CI round 1 caught the
+advisory-db drift (the emSign advisories; the patch bumps
+rustls-webpki 0.103.16 + webpki-roots 1.0.10, Cargo.lock only), round
+2 caught the n706 pin, CI 50/50 (round 3); (β)/(γ) NOT taken. №749
+(the docs sync, strictly last): REALITY §6.40, this row, the counters
+from the generators (gen_metrics/gen_reference --check OK).
+The owner gates: the 26.10 figure + tag → publication (the
+[Unreleased] now carries the movement №10 row — the 0.33.2 tail-ride
+figure reads EIGHT rows); the goal032 lanes (β)/(γ); the Secret
+spellings + the №543 union forms (parked).
 
 Wave 54 EXECUTED (the dispatch gh#1388): №744 ∥ №745 → №746 (strictly
 last). №744 (the movement №9 — the lane α continuation through the

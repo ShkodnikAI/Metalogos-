@@ -1,7 +1,8 @@
 <!-- GENERATED prep snapshot (№741, 2026-10-20 — the wave-53 refresh
-     of the №737 draft; no NEW [Unreleased] rows landed after the №737
-     cut — the movement №8 (№740) rides its own-PR CHANGELOG row, the
-     draft regenerates at the post-merge refresh) — do NOT hand-edit.
+     AFTER the №740 merge (88ea0d9): the [Unreleased] carries the
+     movement №8 row (the №740 UNION vocabulary — the goal032 26/67,
+     the floors 6965/6901/7540 bp); the header re-dated by the refresh
+     commit) — do NOT hand-edit.
      This file is the PREP-DAY snapshot for the 26.10 window train: the
      content is `python3 scripts/ci/release_notes.py Unreleased` — the
      [Unreleased] section of CHANGELOG.md verbatim (№497: the notes and
@@ -40,6 +41,27 @@
   corrected by the source.
 
 ### Changed
+
+- **№740 (gh#1378, Wave 53):** the 0.32 fixed-list movement №8 — the
+  query* package through the №740 UNION vocabulary (lane α, the
+  growth path №736/§6.37 named): the stage-0 dictionary gains the
+  union spelling `arm|arm|...` (≥2 stage-0-clean arms, strictly
+  ascending — the canonical form; a malformed union fails closed to
+  Unknown) and THREE registry rows close by the №644 criterion from
+  the LIVE handler facts: `query` → `List<Struct<Row>>|String` (the
+  SQL-class union rows|count — the №474 ONE contract, the fields
+  dynamic by construction, the rows-path NOT extended),
+  `query_scalar` → `Float|String|Unit` (the cell union),
+  `query_row` → `List<Float|String|Unit>` (the heterogeneous List
+  through the union inner — the №669 fictitious-X concern dissolves).
+  The №539 false-warn guard satisfied by construction: the union
+  names EVERY reachable arm. The context-less calls still refuse
+  loudly (the t6 pin — the intercept rows stay handlerless through
+  the new `intercept` spec! variant). goal032 23 → 26/67 (the db
+  group 3/3 — the first ПДн-class group fully closed); the floors
+  raised in the SAME PR (№757/№613): sensitive 6758 → 6965 bp,
+  typed 6844 → 6901 bp, parameterized 6893 → 7540 bp, the goal032
+  gate figure 26 in ci.yml. Battery: tests/naryad_740_union_spellings.rs.
 
 - **№723 (gh#1343, Wave 50 — the owner's verbatim «вербатим принят»,
   2026-10-19):** the goal032 fixed-list gate is wired BLOCKING in CI —

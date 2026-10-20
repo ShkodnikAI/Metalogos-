@@ -186,9 +186,9 @@ pattern Probe(_x: String) -> String {
 flow Main { input: String = "x" -> Probe -> output }
 "#;
     for (lane, out) in [("TW", run_tw(src)), ("VM", run_vm(src))] {
-        let err = out
-            .err()
-            .unwrap_or_else(|| panic!("{lane}: the refusal must be loud (the error channel)\n{src}"));
+        let err = out.err().unwrap_or_else(|| {
+            panic!("{lane}: the refusal must be loud (the error channel)\n{src}")
+        });
         assert!(
             err.contains("vision_lora_load"),
             "{lane}: the refusal must name the builtin: {err}\n{src}"

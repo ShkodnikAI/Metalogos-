@@ -293,9 +293,10 @@ fn n712_pdna_refusals_stay_unknown_in_registry() {
     // Each refusal was READ, not skipped (the №706 rule): the rows keep
     // the honest Unknown return type — no fictitious spellings landed.
     for name in [
-        "query",
-        "query_row",
-        "query_scalar",
+        // query/query_row/query_scalar left the refusal ground: №740
+        // (gh#1378, wave 53) closed them through the №740 UNION
+        // vocabulary (lane α) with the live handler fact — the
+        // spellings pinned in tests/naryad_740_union_spellings.rs.
         "request_body",
         "secret",
         "memory_open",

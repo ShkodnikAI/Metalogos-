@@ -52,7 +52,14 @@ use metalogos::builtins::{sig_types::Type, BUILTIN_REGISTRY};
 // 333 — the six capability-gated rows (the three html + the three xml)
 // ride only the source metric; set_header (N7) is NOT gated and adds
 // its compiled row. The floor 322 → 332 → 333 compiled.
-const TYPED_FLOOR: usize = 333;
+// №740 (gh#1378, wave 53): the query* package through the №740 UNION
+// vocabulary (lane α, the В53 dispatch gh#1381) — THREE rows newly
+// TYPED on the default-feature build: query
+// List<Struct<Row>>|String, query_scalar Float|String|Unit (both —
+// the Type::Union erasure), query_row List<Float|String|Unit>. The
+// floor 333 → 336 compiled; the SOURCE count 363/526 = 6901 bp (the
+// baseline file raised in the SAME PR — the №757/№613 procedure).
+const TYPED_FLOOR: usize = 336;
 
 #[test]
 fn typed_signature_share_never_falls_below_the_floor() {
@@ -135,7 +142,14 @@ fn every_typed_signature_is_the_honest_parse_of_its_path() {
 // N7 (2026-10-13, gh#1217, wave #1222 PE-2): set_header ships
 // parameterized-coarse (the HttpResponse Struct has no precise scalar
 // shape) — NOT capability-gated, the compiled floor grows 73 → 74.
-const PARAM_FLOOR: usize = 74;
+// №740 (gh#1378, wave 53): the query* package through the №740 UNION
+// vocabulary (lane α) — query_row joins the parameterized rows
+// (List<Float|String|Unit>, the union INNER, the parameterized head);
+// the two union rows (query, query_scalar) are their OWN category —
+// typed (the floor 333 → 336) but never parameterized, never in the
+// List/Struct denominator. The compiled floor 74 → 75; the denominator
+// 99 → 100.
+const PARAM_FLOOR: usize = 75;
 /// The compiled denominator: 91 SOURCE List/Struct rows − the 4 gated
 /// vec/store rows (the same by-design source/compiled gap the TYPED_FLOOR
 /// comment documents — the gated rows are BARE List/Struct, so the
@@ -149,7 +163,8 @@ const PARAM_FLOOR: usize = 74;
 /// №669 (wave 40): four new typed List/Struct rows (the forecast/graph
 /// package) — the compiled denominator 95 → 99 (the base must not
 /// shrink).
-const PARAM_LS_DENOM: usize = 99;
+/// №740 (wave 53): query_row joins — 99 → 100.
+const PARAM_LS_DENOM: usize = 100;
 
 #[test]
 fn parameterized_signature_share_never_falls_below_the_floor() {

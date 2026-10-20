@@ -109,13 +109,13 @@ An AI-native "hello": a learnable pattern with a fallback, run in a flow — all
 | ------ | ------------------------------------- |
 | Version | 0.33.1 |
 | Built-in Functions | 526 functions across 45 modules |
-| Typed Signatures | 360/526 (68.44%) — precise 238/526 (45.24%) |
+| Typed Signatures | 363/526 (69.01%) — precise 238/526 (45.24%) |
 | SVG/Graphics | 44 builtins, hand-rolled in pure Rust |
 | Grammar | 339 rules |
 | Architecture Decisions | 187 ADRs |
 | Example Programs | 253 .mlog programs |
 | Reference | REFERENCE.md (~315 KB) — 100% registry coverage |
-| Changelog | CHANGELOG.md (~78 KB) — every wave documented |
+| Changelog | CHANGELOG.md (~79 KB) — every wave documented |
 <!-- END GENERATED METRICS -->
 
 ## The Newcomer Contract (2-minute read)

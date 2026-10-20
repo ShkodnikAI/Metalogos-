@@ -141,4 +141,11 @@ goal_sensitive_surface_bp: 4782
 # state-carrying interceptions);
 # 98*10000//145 = 6758). The counter is machine-read, never
 # hand-zeroed.
-fact_sensitive_surface_bp: 6758
+# №740 (gh#1378, wave 53): the query* package through the №740 UNION
+# vocabulary (lane α) — THREE honest closures (query
+# List<Struct<Row>>|String, query_scalar Float|String|Unit, query_row
+# List<Float|String|Unit>), the №644 covered rule gains the
+# well-formed-union branch (every arm covered-grade — the №539
+# false-warn guard). goal032 23 → 26/67 (the db group 3/3).
+# (101*10000)//145 = 6965 bp (the same-PR raise, №757).
+fact_sensitive_surface_bp: 6965

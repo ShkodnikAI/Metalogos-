@@ -11,15 +11,14 @@
 //   2. What SURVIVES for all THREE rows is the UNION ground the
 //      stage-0 vocabulary (№627: PRECISE {String,Float,Bool,Unit} +
 //      the List</Struct< parameterized forms) cannot spell:
-//        query        the SQL-class union rows|count|wrapper —
+//        query        the SQL-class union rows|count —
 //                     SELECT/PRAGMA → the List of Row structs
 //                     (db_ops.rs:199-212 TW / :757-790 VM), mutations
 //                     → the String count (db_ops.rs:212-218 TW /
-//                     :744-755 VM), context-less → the opaque
-//                     Value::Query wrapper; typing String would
-//                     false-warn the PRIMARY SELECT arm (the
-//                     memory_read №539 partial-arm form; the ADR-0194
-//                     §2 probe record).
+//                     :744-755 VM); typing String would false-warn
+//                     the PRIMARY SELECT arm (the memory_read №539
+//                     partial-arm form; the ADR-0194 §2 probe record).
+//                     The context-less call refuses loudly (t6).
 //        query_row    the handler IS LIVE (the №26 P1-7 intercepts —
 //                     TW execution.rs:2483-2490, VM vm.rs:2706-2712;
 //                     the №730 "planned wrapper, no handler" anchors
@@ -44,9 +43,12 @@
 //   t5 — query SELECT → List (the union's rows arm; the mutation
 //        String arm is the №194 battery's t1);
 //   t6 — the context-less lane: query_row/query_scalar refuse LOUDLY
-//        (the registry stub fallback — the №706 form), while query
-//        succeeds wrapping the SQL as the opaque Query (type_of
-//        "Query" — the №538 posture; the wrapper arm).
+//        (the undefined-function path over the no-handler stubs), and
+//        query refuses LOUDLY too (the №7 intercepts precede the
+//        registry dispatch on BOTH lanes — the db-not-open named
+//        remedy, the №758 form; the registry's Value::Query wrapper
+//        arm is shadowed by the intercepts execution.rs:2440-2442 /
+//        vm.rs:2447).
 //
 // The movement outcome: the counter criterion (23 → N, N > 23) is
 // UNACHIEVABLE honestly — the union ground needs the vocabulary/
@@ -210,22 +212,19 @@ pattern M(_t: String) -> String {
 flow Main { input: String = "t" -> M -> output }
 "#;
     let tw = run_tw(src).expect_err("TW must refuse loudly (the stub fallback)");
-    assert!(
-        tw.contains("query_scalar"),
-        "TW refusal must name query_scalar: {tw}"
-    );
+    assert!(tw.contains("query_scalar"), "TW refusal must name query_scalar: {tw}");
     let vm = run_vm(src).expect_err("VM must refuse loudly (the stub fallback)");
-    assert!(
-        vm.contains("query_scalar"),
-        "VM refusal must name query_scalar: {vm}"
-    );
+    assert!(vm.contains("query_scalar"), "VM refusal must name query_scalar: {vm}");
 }
 
-/// t6c — the context-less query succeeds wrapping the SQL as the
-/// opaque Value::Query (the №538 posture — the wrapper arm of the
-/// union; the flat vocabulary has no Query kind).
+/// t6c — the context-less query refuses LOUDLY too: the №7 intercepts
+/// fire BEFORE the registry dispatch on BOTH lanes, so the db-not-open
+/// named remedy (the №758 form — the message names the builtin) is the
+/// context-less contract, NOT the registry's opaque Value::Query
+/// wrapper (that static fallback arm is shadowed by the intercepts at
+/// execution.rs:2440-2442 and vm.rs:2447).
 #[test]
-fn n736_query_context_less_opaque_wrapper_on_both_backends() {
+fn n736_query_context_less_loud_on_both_backends() {
     let src = r#"
 pattern Q(_t: String) -> String {
   let q = query("SELECT 1")
@@ -233,5 +232,8 @@ pattern Q(_t: String) -> String {
 }
 flow Main { input: String = "t" -> Q -> output }
 "#;
-    assert_both(src, "Query");
+    let tw = run_tw(src).expect_err("TW must refuse loudly (the db-not-open remedy)");
+    assert!(tw.contains("query"), "TW refusal must name query: {tw}");
+    let vm = run_vm(src).expect_err("VM must refuse loudly (the db-not-open remedy)");
+    assert!(vm.contains("query"), "VM refusal must name query: {vm}");
 }

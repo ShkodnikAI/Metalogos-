@@ -3011,3 +3011,79 @@ coverage threshold (№569); the second maintainer; NLnet/Restack M1
 (03.11.2026); №648 (01.12.2026); the PAT rotation. RESOLVED this
 cycle: the ADR-0194 verbatim (the packages A(c)+B(i) — №734); the
 draft v0.4.0 cleanup (deleted, verified 0 drafts).
+
+### 6.37. Wave 52 post-wave record (naryad №738): the ADR-0195 ratification tail + the query*-wall movement №7 + the 26.10 window refresh — the vocabulary lane is the named growth path (main @ the naryad's PR, 2026-10-20)
+
+The №735 tail rode outside the В52 composition (the dispatch gh#1374
+pre-registered the ride) and merged first; the wave composition
+№736 ∥ №737 → №738 (strictly last):
+
+- **№735** (gh#1369, squash `a21674b`): **ADR-0195 RATIFIED — Accepted
+  2026-10-20** (the owner's verbatim «вербатим ADR-0195 (0.34-гейт»;
+  the §5 package as submitted — the ADR-0193 §7 form, the delegation
+  lekalo §8 ADR-0194): **P1 = (b)** the accumulated ratchet floors as
+  the base + the endgame (A) figure as the 0.34 line's release RECORD
+  (the notes-record, NOT a blocking wire — the cadence stays decoupled
+  from the types program); **P2 = N=23** (the honest value — the
+  residue wall; the ADR-0193 §7.5 floor already enforces 23 only-up);
+  **P3 = (c) PARKED** (the precise floor + №569 — until the owner
+  lanes open). Zero CI wiring (the RECORD form — §6.4); the landing:
+  the ADR §7 + the index rows (0195 → Accepted; the 0193 row synced —
+  stale since №723) + the CHANGELOG Changed row (the №723 form); the
+  README metrics regen 77 → 78 KB. CI 49/49 (gh#1370).
+- **№736** (gh#1371, squash `3681662`): the movement №7 — the query*
+  package after the ADR-0194 ratification — returned the SECOND HONEST
+  ZERO-closure result, with the refusal table CORRECTED by the machine
+  facts: the №712/№730 DIVERGENCE cause is DEAD (the №734 parity — the
+  mutation String on both lanes, the SELECT List on both); the
+  query_row/query_scalar "planned wrapper, no handler" anchors were
+  factually STALE (the №26 P1-7 intercepts ARE live — TW
+  execution.rs:2474-2490, VM vm.rs:2439-2442/2706-2712); what SURVIVES
+  is the UNION ground the stage-0 vocabulary cannot spell (query
+  rows|count — the context-less call refuses loudly: the №7 intercepts
+  precede the registry dispatch on BOTH lanes, execution.rs:2440-2442 /
+  vm.rs:2447; query_scalar String|Float|Unit; query_row the
+  heterogeneous List). Delivered: the three registry anchors refreshed
+  (comment-only), the live-handler battery
+  `tests/naryad_736_query_refusals.rs` (8 tests: the wired handlers on
+  both lanes, the union arms String/Float/Unit, the loud context-less
+  refusals — the t6c machine fact caught by the CI round 1 and
+  re-pinned). **goal032 stays 23/67** (BLOCKING GREEN); the sensitive
+  floor unraised (the №757/№613 form — nothing honest to raise). The
+  named growth path (the owner lane, №644 boundary): (α) the union
+  spelling in the №627 grammar / (β) the fixed-result №543 form /
+  (γ) the Query/Row opaque kinds.
+- **№737** (gh#1372, squash `d650bfc`): the 26.10 window refresh — the
+  notes draft regenerated from the current [Unreleased] (the
+  №734/№735 rows in; verbatim-verified True — the №497/№713 rules);
+  the release gates GREEN (unfreeze --strict EXIT 0, release_gap
+  EXIT 0); the §2.5 figure map filed to gh#1372: 0.33.2 tail-ride
+  carries all five rows (the №729 compiler unlock + the №734 VM
+  observable + the CI/process rows), 0.34.0 has NO feature roster (the
+  version-semantics lie); **the executor's position: 0.33.2
+  tail-ride; the decision — the owner's (gate 1)**; **GO 26.10
+  verified-wait**.
+
+The machine numbers at the sync (2026-10-20, main @ d650bfc): the
+sensitive surface **98/145 = 6758 bp** (the enforced floor **6844 bp**,
+only-up), **goal032 closed 23/67** (the gate BLOCKING — ADR-0193
+Accepted; the movement №7 honestly closed zero), **typed 360/526 =
+68.44% (precise 238/526 = 45.24%)**, the **parameterized share
+91/121 = 75.20%**, the **field-label share 58/60 = 96.66%**,
+**mirrors 6/6, dups 0**, **debt 8/0/15**, **REFERENCE 526/526 =
+100.0%, Missing 0**, **[Unreleased] carries the №729 Added +
+№723/№734/№735 Changed + №724 Fixed rows** (the merged naryads only —
+the №687 rule).
+
+The owner gates remaining (accumulated): the **26.10 window — the
+figure (0.33.2 recommended / 0.34.0) + the tag → publication** (the
+§2.5 map in gh#1372); the **query* vocabulary lane** (the №736
+decision point: (α) the union spelling / (β) the fixed-result №543
+form / (γ) the Query/Row opaque kinds); the goal032 lanes (the Secret
+spelling, the №543 union forms, the stub naryads); the office #536 fix
+decision; the good-first pool refill mechanics; the zip-ignore review
+(2026-11-17); the coverage threshold (№569 — PARKED by ADR-0195 (c));
+the second maintainer; NLnet/Restack M1 (03.11.2026); №648
+(01.12.2026); the PAT rotation. RESOLVED this cycle: the ADR-0195
+verdict (the form (b) + N=23, (c) PARKED — №735); the 26.10 prep
+(the verified-wait GO — №737).

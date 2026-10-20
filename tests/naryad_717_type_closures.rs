@@ -299,9 +299,9 @@ fn n717_movement_refusals_stay_unknown_in_registry() {
         "graph_path",
         "memory_open",
         "memory_read",
-        "query",
-        "query_row",
-        "query_scalar",
+        // query/query_row/query_scalar left the refusal ground: №740
+        // (gh#1378, wave 53) closed them through the №740 UNION
+        // vocabulary (lane α) — tests/naryad_740_union_spellings.rs.
         "recipe_list",
         "request_body",
         "secret",

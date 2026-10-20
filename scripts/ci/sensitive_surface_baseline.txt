@@ -313,4 +313,19 @@ recorded, never enforced; the live floor is the №740 line below)
 # (101*10000)//145 = 6965 bp; the fact twin and the floor raised in
 # the SAME PR (the №757/№613 procedure — the machine's own note «raise
 # the baseline floor to 6965 in the same-PR move»).
-# threshold_bp: 6965
+# threshold_bp was 6965 — superseded by the №744 move below (the
+# gate parser reads the FIRST "# threshold_bp: N" line — the history
+# blocks stay "was"-prefixed or behind it).
+
+# 2026-10-20 №744 (gh#1385, wave 54): the movement №9 — THREE honest
+# closures (graph_path List<Struct<PathError>|Struct<PathNode>> — the
+# union INNER names both element shapes; vision_list List<String>; 
+# vision_lora_load String — all three Source/Internal sources), the
+# №740-union branch carries the INNER form. The ПДн prima-facie group
+# (session_*/memory_*/secret/stdin/request_body/device_open) refused as
+# a wall — the classes named in the naryad report. The goal032 counter
+# 26 → 29/67. The machine read:
+# (104*10000)//145 = 7172 bp; the fact twin and the floor raised in
+# the SAME PR (the №757/№613 procedure — the machine's own note «raise
+# the baseline floor to 7172 in the same-PR move»).
+# threshold_bp: 7172

@@ -29,6 +29,31 @@ All notable changes to the Metalogos project.
 
 ### Changed
 
+- **№744 (gh#1385, Wave 54):** the 0.32 fixed-list movement №9 — the
+  lane α continuation through the №740 UNION vocabulary (the В54
+  dispatch gh#1388): the ПДн prima-facie group (session_poll_wake/
+  session_take_interrupt — the №543-form state-dependent unions,
+  memory_read/memory_open/secret — the Secret/opaque-spelling ground
+  parked by ADR-0195 §7 (c), stdin — the true stub, request_body — the
+  dynamic Struct fields, device_open — the opaque Device handle)
+  refuses as a wall (each row READ, the classes in the naryad report),
+  and the machine-chosen next package closes THREE rows by the №644
+  criterion from the LIVE both-lane handler facts:
+  `graph_path` → `List<Struct<PathError>|Struct<PathNode>>` (the union
+  INNER — the №740 query_row form: the result is ALWAYS a List, the
+  elements are the PathNode structs or the single PathError — the №669
+  fictitious-List concern dissolves with both element shapes named),
+  `vision_list` → `List<String>` (the №240 intercept is the live
+  both-lane path — the `[Vision#N]` String handles; the row keeps its
+  loud-Err fallback — the query №740 posture), `vision_lora_load` →
+  `String` (the №244 intercept's single Ok arm — the adapter name; the
+  №757 decrypt form). goal032 26 → 29/67; the floors raised in the
+  SAME PR (№757/№613): sensitive 6965 → 7172 bp, typed 6901 → 6958 bp,
+  precise 4302 → 4543 bp (the FIRST-match triple restored to the live
+  value — the №536 form), parameterized 7540 → 7580 bp (94/124 — the
+  denominator grows WITH the two new List rows). Battery:
+  tests/naryad_744_lane_alpha_spellings.rs.
+
 - **№740 (gh#1378, Wave 53):** the 0.32 fixed-list movement №8 — the
   query* package through the №740 UNION vocabulary (lane α, the
   growth path №736/§6.37 named): the stage-0 dictionary gains the

@@ -3087,3 +3087,97 @@ the second maintainer; NLnet/Restack M1 (03.11.2026); №648
 (01.12.2026); the PAT rotation. RESOLVED this cycle: the ADR-0195
 verdict (the form (b) + N=23, (c) PARKED — №735); the 26.10 prep
 (the verified-wait GO — №737).
+
+### 6.38. Wave 53 post-wave record (naryad №742): the query* movement №8 — the №740 UNION vocabulary (lane α) LANDED + the 26.10 window prep with the post-merge refresh — the first ПДн-class group fully closed (main @ the naryad's PR, 2026-10-20)
+
+The wave composition №740 ∥ №741 → №742 (strictly last; the dispatch
+gh#1381):
+
+- **№740** (gh#1378, squash `88ea0d9`): the 0.32 fixed-list movement
+  №8 — the query* package through the **№740 UNION vocabulary**
+  (lane α — the growth path №736/§6.37 named): the stage-0 dictionary
+  gains the union spelling `arm|arm|...` (the split at the TOP-LEVEL
+  pipes — depth 0, outside any `<>`; a pipe inside `<>` is an inner
+  union, the erasure's parameter business; ≥2 stage-0-clean arms —
+  `arm_is_clean`, the drop-free const mirror of from_path's accept
+  set; STRICTLY ASCENDING byte order — the canonical form; a
+  duplicate, an unsorted or a malformed arm fails closed to Unknown).
+  THREE registry rows closed by the №644 criterion from the LIVE
+  handler facts (the №539 false-warn guard satisfied by construction
+  — every reachable arm named): `query` →
+  `List<Struct<Row>>|String` (the SQL-class union rows|count — the
+  №474 ONE contract; the Row fields dynamic by construction, no
+  field-meta claimed, the rows-path NOT extended — the ADR-0194
+  Запреты hold), `query_scalar` → `Float|String|Unit` (the cell
+  union, db_ops.rs:478-489), `query_row` → `List<Float|String|Unit>`
+  (the FIRST row's cells, db_ops.rs:554-576 — the №669
+  "a List<X> spelling would be fictitious" concern dissolves with the
+  union inner). The new `intercept` spec! variant (the
+  typed-handlerless form — the live handlers are the №26 P1-7 lane
+  intercepts, the registry rows stay handler: None, the context-less
+  dispatch the loud stub; the t6 pin loud on both lanes). The mirrors
+  in lockstep (the two-locks discipline): type_signature_share.py +
+  sensitive_surface_share.py (the №740-union branch of the №644
+  covered rule — well-formed ∧ every arm covered-grade; a malformed
+  union is typed-coarse, fail-closed) + the five regex copies
+  (`|` in the char class — type_signature_share, gen_metrics ×2,
+  gen_reference, readme_consistency, n566). The floors (the №757/№613
+  same-PR form, the machine's own notes): the sensitive 6758 →
+  **6965 bp** (101/145), the general typed 6844 → **6901 bp**
+  (363/526), the parameterized 6893 → **7540 bp** (92/122 — the
+  pending №668-era note to 7520 consumed), the goal032 BLOCKING
+  figure **23 → 26** in ci.yml (**26/67** — the db (query*) group
+  3/3, the FIRST ПДн-class group fully closed; the raise rides the
+  owner's В53 dispatch — the ADR-0195 §7 note); the fact twins synced
+  same-PR (gate_030 fact_parameterized_share_bp 7540, gate_031
+  fact_sensitive_surface_bp 6965 — the №525 form). The battery
+  `tests/naryad_740_union_spellings.rs` (6 tests: the registry-side
+  pins, the grammar armor, the false-warn guard against the LIVE
+  both-backend contract, the t6 pin). The interlocks №706/№712/№717/
+  №730 re-pinned (44 → 41 open ground). **The honest round-fixation:**
+  CI round 1 (run 39418087071) caught the two locks the movement
+  missed — the interlock pins (the query* rows were pinned
+  Unknown-honest by three earlier batteries) and the gate-facts fact
+  twins; both re-pinned/synced in the SAME PR (c5bfcc5) — the form
+  worked as designed. CI 49/49 (round 2 @ c5bfcc5). (β) and (γ) NOT
+  taken (the dispatch gate 7 — separate owner verdicts).
+- **№741** (gh#1379, squash `f4741c5`): the 26.10 window prep —
+  the notes draft re-cut (the wave-53 refresh of the №737 snapshot)
+  and REFRESHED over the №740 merge per the naryad's own form (the
+  [Unreleased] carries the movement №8 row; verbatim-verified True —
+  the №497/№713 rules); the release gates GREEN twice (round 1 on the
+  prep snapshot @ 676ad4e, round 2 on the post-merge refresh
+  @ 344cad3: unfreeze --strict EXIT 0, release_gap EXIT 0, goal032
+  26/67 EXIT 0, gate-facts-sync EXIT 0); the §2.5 figure map filed to
+  gh#1379: 0.33.2 tail-ride carries all six rows (the №740 row is
+  metrics/registry-comments/gates — zero product semantics),
+  0.34.0 has NO feature roster (the RECORD «closed 26/67» reads
+  naturally in the 0.34 notes when the owner opens the figure);
+  **the executor's position: 0.33.2 tail-ride; the decision — the
+  owner's (gate 1)**; **GO 26.10 verified-wait**.
+
+The machine numbers at the sync (2026-10-20, main @ f4741c5): the
+sensitive surface **101/145 = 6965 bp** (the enforced floor **6965
+bp**, only-up — the equality the №740 raise recorded), **goal032
+closed 26/67** (the gate BLOCKING — ADR-0193 Accepted; the db group
+3/3), **typed 363/526 = 69.01% (precise 238/526 = 45.24%)**, the
+**parameterized share 92/122 = 75.40%**, the **field-label share
+58/60 = 96.66%**, **mirrors 6/6, dups 0, quorum 0/8**, **debt
+8/0/15**, **REFERENCE 526/526 = 100.0%, TODO(doc) 0**, **[Unreleased]
+carries the №729 Added + №723/№734/№735/№740 Changed + №724 Fixed
+rows** (the merged naryads only — the №687 rule). gen_metrics --check
+OK (the hand-written numbers match the generators — the №566
+consistency holds).
+
+The owner gates remaining (accumulated): the **26.10 window — the
+figure (0.33.2 recommended / 0.34.0) + the tag → publication** (the
+§2.5 map in gh#1379); the **query* lanes (β)/(γ)** (the fixed-result
+№543 form / the Query/Row opaque kinds — the owner verdicts, the
+dispatch gh#1381 gate 7); the goal032 lanes (the Secret spelling, the
+№543 union forms, the stub naryads); the office #536 fix decision; the
+good-first pool refill mechanics; the zip-ignore review (2026-11-17);
+the coverage threshold (№569 — PARKED by ADR-0195 (c)); the second
+maintainer; NLnet/Restack M1 (03.11.2026); №648 (01.12.2026); the PAT
+rotation. RESOLVED this cycle: the **query* vocabulary lane (α)** —
+the union spelling LANDED (№740, the goal032 23 → 26/67); the 26.10
+prep (the verified-wait GO, the post-merge refresh — №741).

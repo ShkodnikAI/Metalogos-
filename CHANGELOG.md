@@ -29,6 +29,27 @@ All notable changes to the Metalogos project.
 
 ### Changed
 
+- **№740 (gh#1378, Wave 53):** the 0.32 fixed-list movement №8 — the
+  query* package through the №740 UNION vocabulary (lane α, the
+  growth path №736/§6.37 named): the stage-0 dictionary gains the
+  union spelling `arm|arm|...` (≥2 stage-0-clean arms, strictly
+  ascending — the canonical form; a malformed union fails closed to
+  Unknown) and THREE registry rows close by the №644 criterion from
+  the LIVE handler facts: `query` → `List<Struct<Row>>|String` (the
+  SQL-class union rows|count — the №474 ONE contract, the fields
+  dynamic by construction, the rows-path NOT extended),
+  `query_scalar` → `Float|String|Unit` (the cell union),
+  `query_row` → `List<Float|String|Unit>` (the heterogeneous List
+  through the union inner — the №669 fictitious-X concern dissolves).
+  The №539 false-warn guard satisfied by construction: the union
+  names EVERY reachable arm. The context-less calls still refuse
+  loudly (the t6 pin — the intercept rows stay handlerless through
+  the new `intercept` spec! variant). goal032 23 → 26/67 (the db
+  group 3/3 — the first ПДн-class group fully closed); the floors
+  raised in the SAME PR (№757/№613): sensitive 6758 → 6965 bp,
+  typed 6844 → 6901 bp, parameterized 6893 → 7540 bp, the goal032
+  gate figure 26 in ci.yml. Battery: tests/naryad_740_union_spellings.rs.
+
 - **№723 (gh#1343, Wave 50 — the owner's verbatim «вербатим принят»,
   2026-10-19):** the goal032 fixed-list gate is wired BLOCKING in CI —
   ADR-0193 Accepted: the figure ≥20/67 ratified as-reached-late, the

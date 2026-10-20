@@ -391,7 +391,7 @@ fn real_builtin_category_count() -> usize {
     // `spec!(..., handler, "Type")` — strip it so the last remaining
     // string is the category again (the type is not a module).
     let type_re =
-        Regex::new(r#"(;\s*[A-Za-z_0-9]+),\s*"[A-Za-z][A-Za-z0-9<>{}:,_]*"\s*\)"#).unwrap();
+        Regex::new(r#"(;\s*[A-Za-z_0-9]+),\s*"[A-Za-z][A-Za-z0-9<>{}:,_|]*"\s*\)"#).unwrap();
 
     let mut categories: std::collections::HashSet<String> = std::collections::HashSet::new();
 

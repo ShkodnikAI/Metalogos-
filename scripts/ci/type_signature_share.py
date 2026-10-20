@@ -26,7 +26,7 @@ REGISTRY = ROOT + '/src/builtins/registry.rs'
 
 SPEC_RE = re.compile(r'spec!\("([a-z_0-9]+)"')
 TYPED_RE = re.compile(
-    r'spec!\("([a-z_0-9]+)",[^\n;]*;\s*[A-Za-z_0-9]+\s*,\s*"([A-Za-z][A-Za-z0-9<>{}:,_]*)"\s*\)'
+    r'spec!\("([a-z_0-9]+)",[^\n;]*;\s*[A-Za-z_0-9]+\s*,\s*"([A-Za-z][A-Za-z0-9<>{}:,_|]*)"\s*\)'
 )
 
 # №560 (gh#921; the audit 02.10 M-4): the PRECISE type set — a typed row
@@ -64,7 +64,12 @@ def split_field_meta(s):
 
 def path_is_parameterized(s):
     """Mirror of the Rust const fn (№623 + the №627 brace extension):
-    the ORIGINAL rule runs on the head verbatim."""
+    the ORIGINAL rule runs on the head verbatim. №740: a TOP-LEVEL-union
+    string is NEVER parameterized (the union is its own category); a
+    pipe INSIDE <> is an inner union — `List<Float|String|Unit>` stays a
+    parameterized List (the byte-exact twin of the Rust depth probe)."""
+    if _has_top_level_pipe(s):
+        return False
     head, _ = split_field_meta(s)
     if not head.endswith('>'):
         return False
@@ -75,6 +80,96 @@ def path_is_parameterized(s):
         or head.endswith('<internal>')
         or head.endswith('<untrusted>')
     )
+
+
+def _has_top_level_pipe(s):
+    """№740 mirror of the Rust bytes_has_top_level_pipe: a `|` at depth 0
+    (outside any `<>`) — the union split point; a pipe inside `<>` is an
+    inner union (the erasure's parameter business)."""
+    depth = 0
+    for ch in s:
+        if ch == '<':
+            depth += 1
+        elif ch == '>':
+            depth -= 1
+        elif ch == '|' and depth == 0:
+            return True
+    return False
+
+
+def union_arms(s):
+    """№740 mirror of the Rust depth-aware union split: the top-level
+    `|` segments, or None when the string carries no top-level pipe
+    (not a union candidate)."""
+    if not _has_top_level_pipe(s):
+        return None
+    arms, start, depth = [], 0, 0
+    for i, ch in enumerate(s):
+        if ch == '<':
+            depth += 1
+        elif ch == '>':
+            depth -= 1
+        elif ch == '|' and depth == 0:
+            arms.append(s[start:i])
+            start = i + 1
+    arms.append(s[start:])
+    return arms
+
+
+def _arm_is_stage0_clean(arm):
+    """№740 mirror of the Rust arm_is_clean (the drop-free accept-set
+    mirror of from_path): the flat names (the documented vocabulary —
+    the aliases Dict/SeriesHandle included), the List</Struct< forms,
+    the №627 meta form."""
+    flat = {
+        'Int', 'Float', 'Bool', 'String', 'Unit', 'List', 'Map', 'Dict',
+        'Struct', 'Fluid', 'Secret', 'Reflex', 'Grant', 'Series',
+        'SeriesHandle', 'Media', 'Embodied',
+    }
+    if arm in flat:
+        return True
+    if arm.startswith('List<') and arm.endswith('>'):
+        return True
+    if arm.startswith('Struct<') and arm.endswith('>'):
+        return True
+    if arm.endswith('}'):
+        head, meta = split_field_meta(arm)
+        return (
+            head.startswith('Struct<')
+            and head.endswith('>')
+            and bool(meta)
+            and field_meta_well_formed(meta)
+        )
+    return False
+
+
+def union_well_formed(s):
+    """№740 mirror of the Rust union_well_formed: ≥2 top-level arms,
+    every arm a stage-0-clean spelling, STRICTLY ascending byte order
+    (the canonical form — duplicates and unsorted arms fail closed)."""
+    arms = union_arms(s)
+    if arms is None or len(arms) < 2:
+        return False
+    for arm in arms:
+        if not _arm_is_stage0_clean(arm):
+            return False
+    return all(a < b for a, b in zip(arms, arms[1:]))
+
+
+def union_arm_covered(arm):
+    """№740: the per-arm covered grade — the SAME rules the №644 top
+    level applies (scalar ∨ parameterized, a Struct-shaped arm needs
+    the well-formed meta). A union row is covered when EVERY arm is
+    covered-grade (the false-warn guard: every reachable arm is named
+    and precisely shaped)."""
+    if arm in PRECISE_TYPES:
+        return True
+    if not path_is_parameterized(arm):
+        return False
+    if arm.startswith('Struct<'):
+        meta = field_meta_of(arm)
+        return bool(meta) and field_meta_well_formed(meta)
+    return True
 
 
 def field_meta_well_formed(meta):
@@ -145,7 +240,7 @@ def compute():
     ls_types = {
         n: t
         for n, t in typed_types.items()
-        if t.split('<', 1)[0] in ('List', 'Struct')
+        if union_arms(t) is None and t.split('<', 1)[0] in ('List', 'Struct')
     }
     n_ls = len(ls_types)
     n_param = sum(1 for t in ls_types.values() if '<' in t)

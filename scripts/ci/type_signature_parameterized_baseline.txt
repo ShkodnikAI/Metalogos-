@@ -81,7 +81,7 @@
 #   live fact.
 # parameterized: 71
 # LS rows: 103
-# threshold_bp: 6893
+# threshold_bp was 6893 (superseded — the stray-marker discipline, №536: recorded, never enforced)
 
 
 # №668 (gh#1183, wave 40): the «memory → recognition» package — 8 rows
@@ -96,7 +96,7 @@
 #   67/99 = 6767 bp. Only-up (№757), the same PR.
 # parameterized: 67
 # LS rows: 99
-# threshold_bp: 6767
+# threshold_bp was 6767 (superseded — the stray-marker discipline, №536: recorded, never enforced)
 
 # 2026-10-13 N7 (gh#1217, волна #1222 PE-2): set_header ships
 # Struct<HttpResponse>{4 internal} WITH the field-meta in the same
@@ -110,10 +110,23 @@
 # bp. Only-up (№757), raised in the same PR.
 # LS rows: 108
 # parameterized: 76
-# threshold_bp: 7037
+# threshold_bp was 7037 (superseded — the stray-marker discipline, №536: recorded, never enforced)
 
 # 2026-10-13 N7-merge (gh#1217): the merged tree — set_header ships
 # parameterized-coarse (76 → 77, the List/Struct denominator grows to
 # 109 with N6's xml rows) — the floor 7037 → 7064 per №757.
 # parameterized: 77
-# threshold_bp: 7064
+# threshold_bp was 7064 (superseded — the stray-marker discipline, №536: recorded, never enforced)
+
+# №740 (gh#1378, wave 53): the fixed-list movement №8 — the query*
+# package through the №740 UNION vocabulary (lane α): query_row joins
+# the List/Struct rows (List<Float|String|Unit> — the union INNER, the
+# parameterized head); the TWO union rows (query
+# List<Struct<Row>>|String, query_scalar Float|String|Unit) are their
+# OWN category — never in the denominator (the №740 own-category
+# rule). The machine read: (92*10000)//122 = 7540 bp; the floor raised
+# in the SAME PR (the №757/№613 procedure — the machine's own note;
+# the pending №668-era note to 7520 is consumed by this same-PR move).
+# parameterized: 92
+# LS rows: 122
+# threshold_bp: 7540

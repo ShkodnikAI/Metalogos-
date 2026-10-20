@@ -263,7 +263,9 @@
 # The machine read: 98*10000//145 = 6758 bp; the fact twin (gate_031)
 # raised in the SAME PR (the №757/№613 procedure — the machine's own
 # note «raise the baseline floor to 6758 in the same-PR move»).
-# threshold_bp: 6758
+# threshold_bp was 6758 — superseded by the №740 move below (the
+gate parser reads the FIRST "# threshold_bp: N" line — the history
+blocks stay "was"-prefixed or behind it).
 
 
 # №661 (issue #1162, 2026-10-09; the К-Б stage-2 verdict gh#1144):
@@ -288,4 +290,27 @@
 #   moves untyped → typed-coarse (typed "Embodied" honestly) and stays
 #   uncovered; closing it needs the dictionary/vocabulary decision that
 #   is OUTSIDE the naryad; 62*10000//138 = 4492 bp)
-# threshold_bp: 4492
+# threshold_bp was 4492 (superseded — the stray-marker discipline, №536:
+recorded, never enforced; the live floor is the №740 line below)
+
+# №740 (gh#1378, wave 53): the fixed-list movement №8 — the query*
+# package through the №740 UNION vocabulary (lane α, the В53 dispatch
+# gh#1381): THREE honest closures by the №644 criterion (the live
+# contracts pinned on both backends in tests/naryad_740_union_spellings.rs):
+#   query        → List<Struct<Row>>|String (the SQL-class union — the
+#                  rows|count arms, the №539 false-warn guard satisfied
+#                  by naming EVERY reachable arm; the rows-path NOT
+#                  extended, the ADR-0194 Запреты hold);
+#   query_scalar → Float|String|Unit (the cell union — Null→Unit,
+#                  Integer/Real→Float, Text/Blob→String, db_ops.rs:478-489);
+#   query_row    → List<Float|String|Unit> (the heterogeneous List
+#                  through the union INNER — db_ops.rs:554-564/570-576).
+# The №644 covered definition gains the №740-union branch (well-formed
+# canonical union, EVERY arm covered-grade — the false-warn guard); a
+# malformed union is typed-coarse, never covered (fail-closed). The
+# goal032 counter 23 → 26/67 (the db (query*) group 3/3 — the FIRST
+# ПДн-class group fully closed). The machine read:
+# (101*10000)//145 = 6965 bp; the fact twin and the floor raised in
+# the SAME PR (the №757/№613 procedure — the machine's own note «raise
+# the baseline floor to 6965 in the same-PR move»).
+# threshold_bp: 6965

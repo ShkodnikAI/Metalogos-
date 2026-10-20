@@ -95,14 +95,15 @@
 //                  per file (config.rs — json_value_to_mlog_value; the
 //                  type_name is the file stem) — the dynamic-shape
 //                  ground, the request_body form.
-//   event_count / events_since / event_sum / deny_event / deny_reason /
-//   recipe_list / recipe_search / find / inspect / resolve_skill_index /
-//   llm_stream_open / series_make / series_pull / vision_list /
-//   vision_load / vision_lora_load / video_fetch_weights / voice_load /
-//   media_source_capture / reflex_* / duplex_state / device_open /
-//   listen_start / duplex_open / pose_make / trajectory_make /
-//   goal_make / subgraph_extract / forecast_next(≠list) ... — the
-//   registry rows stay stubs or opaque/heterogeneous as of main
+//   The №748 re-verified anchors (gh#1392, wave 55): the deny pair and
+//   the events trio are LIVE on both lanes (the ADR-0051/0052
+//   intercepts — the №717 "planned wrapper, no handler" anchors were
+//   factually STALE) and LEFT the ground — closed through
+//   tests/naryad_748_wall_walk.rs (deny_event Struct<DenyEvent>{7
+//   labeled} + deny_reason String + event_count/event_sum Float +
+//   events_since List<Struct<Event>>); reflex_list closed List<String>
+//   through the shared dispatch. The rest of the walk residue stays
+//   stubs or opaque/heterogeneous as of main.
 //   474ff7ae7 (the per-row anchors live in the PR table; the honest
 //   refusals DO NOT close by silence — each was read, not skipped).
 //
@@ -493,11 +494,10 @@ fn n706_registry_type_spellings_pinned() {
         "generate_key",
         "backend_select",
         "config_load",
-        "deny_event",
-        "deny_reason",
-        "event_count",
-        "event_sum",
-        "events_since",
+        // deny_event/deny_reason/event_count/event_sum/events_since left
+        // the refusal ground: №748 (gh#1392, wave 55) closed them — the
+        // ADR-0051/0052 intercepts are the live both-lane handlers (the
+        // №736 intercept-walk lesson) — tests/naryad_748_wall_walk.rs.
     ] {
         let r = row(n);
         assert!(

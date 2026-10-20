@@ -114,6 +114,39 @@ MINOR), №639 (15.10) / №648 (01.12) outside the wave.
 
 ## Current wave — the open machine tail (2026-10-20)
 
+Wave 54 EXECUTED (the dispatch gh#1388): №744 ∥ №745 → №746 (strictly
+last). №744 (the movement №9 — the lane α continuation through the
+№740 UNION vocabulary): the ПДн prima-facie group (8 rows) read
+against the live sources — a refusal WALL with named classes (the
+№543-form state unions session_* — the (β) owner gate; the
+Secret/opaque ground memory_read/memory_open/secret — ADR-0195 §7 (c)
+parked; stdin true stub; request_body dynamic Struct (№661);
+device_open opaque Device); the NEXT group chosen by the machine —
+THREE rows closed from the LIVE both-lane handler facts: graph_path
+`List<Struct<PathError>|Struct<PathNode>>` (the union INNER, the
+query_row form — the always-List SSOT handler memory.rs:789), 
+vision_list `List<String>` (the №240 intercept live on both lanes),
+vision_lora_load `String` (the №244 single Ok arm — the №757 form);
+the floors same-PR (№757/№613): sensitive 6965 → 7172 bp (104/145),
+typed 6901 → 6958 bp, precise 4302 → 4543 bp (the FIRST-match triple
+restored — the №536 procedure; the pending note consumed),
+parameterized 7540 → 7580 bp (94/124 — the denominator grows WITH the
+rows), the goal032 BLOCKING figure 26 → 29 (**29/67**); the fact
+twins synced (gate_031 + gate_029/gate_030 BOTH precise records +
+gate_030); the battery tests/naryad_744_lane_alpha_spellings.rs
+(5 tests); the interlocks №717/№730 re-pinned (41 → 38) + the n669
+graph_path pin re-pinned to the closure form; the honest
+round-fixation — CI round 1 caught the n669 pin and one fmt fold,
+both fixed same-PR; (β)/(γ) NOT taken (the dispatch gate 7). №745
+(the 26.10 window prep): the draft re-cut and REFRESHED over the №744
+merge (the movement №9 row in; verbatim True), the gates GREEN twice
+(unfreeze --strict, release_gap, goal032 29/67, gate-facts-sync — all
+EXIT 0), the §2.5 map: 0.33.2 tail-ride recommended (all seven rows;
+no 0.34 feature roster), the decision — the owner's (gate 1); GO
+26.10 verified-wait. The owner gates: the 26.10 figure + tag →
+publication; the goal032 lanes (β)/(γ); the Secret spellings + the
+№543 union forms (parked).
+
 Wave 53 EXECUTED (the dispatch gh#1381): №740 ∥ №741 → №742 (strictly
 last). №740 (the movement №8 — the query* package through the №740
 UNION vocabulary, lane α — the growth path №736 named): the stage-0

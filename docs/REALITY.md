@@ -3181,3 +3181,107 @@ maintainer; NLnet/Restack M1 (03.11.2026); №648 (01.12.2026); the PAT
 rotation. RESOLVED this cycle: the **query* vocabulary lane (α)** —
 the union spelling LANDED (№740, the goal032 23 → 26/67); the 26.10
 prep (the verified-wait GO, the post-merge refresh — №741).
+
+### 6.39. Wave 54 post-wave record (naryad №746): the movement №9 — the lane α continuation (the ПДн wall + the machine-chosen package) + the 26.10 prep refresh — the graph/vision package closed (main @ the naryad's PR, 2026-10-20)
+
+The wave composition №744 ∥ №745 → №746 (strictly last; the dispatch
+gh#1388):
+
+- **№744** (gh#1385, squash `5bdbbeb`): the 0.32 fixed-list movement
+  №9 — the lane α continuation through the **№740 UNION vocabulary**.
+  The ПДн prima-facie group (the ADR-0193 priority — eight rows:
+  session_poll_wake, session_take_interrupt, memory_open, memory_read,
+  secret, stdin, request_body, device_open) read against the live
+  sources on e1c66b0 — **a refusal wall, every row with a named
+  class**: session_* — the №543-form state-dependent unions (the (β)
+  lane, the owner gate NOT taken; ADR-0195 §7 (c) «№543 union-формы»
+  parked); memory_read — the Secret arm (ADR-0195 §7 (c)
+  «Secret-спеллинги» parked; the Opaque arm not covered-grade by the
+  №740 union rule); memory_open/secret — the opaque handles with no
+  kind in the dictionary; stdin — the true stub; request_body — the
+  dynamic Struct fields (the №661 armor); device_open — the opaque
+  Device handle (Embodied = typed-coarse, never covered). The
+  honest-zero branch fired for the ПДн group; the NEXT group chosen by
+  the machine (`--goal032 --list` + the covered-grade rule). THREE
+  rows closed by the №644 criterion from the LIVE both-lane handler
+  facts: `graph_path` → `List<Struct<PathError>|Struct<PathNode>>`
+  (the union INNER — the №740 query_row form; the result is ALWAYS a
+  List — the №170 SSOT handler memory.rs:789 serves both lanes; the
+  found arm the PathNode{id,text,level} elements memory.rs:800, the
+  no-path arm the SINGLE PathError{status,from,to} memory.rs:812; the
+  №669 "a fictitious List<PathNode>" concern dissolves with BOTH
+  element shapes named; field-labels stage 2 — the sibling
+  graph_query precedent), `vision_list` → `List<String>` (the №240
+  intercept is the LIVE path on both lanes — execution.rs:599/2061,
+  vm.rs:2955 — the `[Vision#N]` String handles vision.rs:362; the row
+  keeps its loud-Err fallback byte-for-byte — the query №740 posture:
+  the type is the INTERCEPT's shape, not the fallback's),
+  `vision_lora_load` → `String` (the №244 intercept —
+  execution.rs:813/2275, vm.rs:3008; the SINGLE Ok arm vision.rs:1097
+  — the №757 decrypt form). The floors (the №757/№613 same-PR form):
+  the sensitive 6965 → **7172 bp** (104/145), the general typed
+  6901 → **6958 bp** (366/526), the precise 4302 → **4543 bp**
+  (239/526 — the enforced FIRST-match triple restored to the live
+  value; the three stale history triples reworded to the was-form —
+  the №536 procedure; the pending machine note consumed), the
+  parameterized 7540 → **7580 bp** (94/124 — the denominator grows
+  WITH the two new List rows), the goal032 BLOCKING figure **26 → 29**
+  in ci.yml (**29/67**); the fact twins synced same-PR (gate_031
+  fact_sensitive_surface_bp 7172; gate_029 + gate_030
+  fact_precise_share_bp 4543 — BOTH records, caught by the local
+  sync-checker run before the push; gate_030
+  fact_parameterized_share_bp 7580 — the №525 form). The compiled
+  floors: TYPED_FLOOR 339, PARAM_FLOOR 77, PARAM_LS_DENOM 102. The
+  battery `tests/naryad_744_lane_alpha_spellings.rs` (5 tests: the
+  registry-side pins, the inner-union canonical grammar — the
+  TOP-LEVEL twin proves the ascending order, the live both-backend
+  probes: the graph_path found/no-path arms through mtree_store + the
+  dijkstra self-path, the vision_list empty-registry List, the
+  vision_lora_load loud refusals naming the builtin). The interlocks
+  №717/№730 re-pinned (41 → 38 open ground) + **the honest
+  round-fixation:** CI round 1 (run 39462069570) caught the n669
+  graph_path pin (the honest-refusal pin of the wave-40 battery — the
+  row left the ground with the live fact; re-pinned to the closure
+  form) and one fmt fold — both fixed same-PR (4e6b826); CI 49/49
+  (round 2). (β) and (γ) NOT taken (the dispatch gate 7).
+- **№745** (gh#1386, squash `e1bbd98`): the 26.10 window prep — the
+  notes draft re-cut (the wave-54 refresh of the №741 snapshot),
+  REFRESHED over the №744 merge per the naryad's own form (the
+  [Unreleased] carries the movement №9 row; verbatim-verified True —
+  the №497/№713 rules); the release gates GREEN twice (the refreshed
+  base 5bdbbeb AND the main at the audit: unfreeze --strict EXIT 0 —
+  Overall GREEN, 4.1 enforced 6958 = recorded 6958; release_gap EXIT
+  0; goal032 29/67 EXIT 0; gate-facts-sync EXIT 0); the §2.5 figure
+  map filed to gh#1386: 0.33.2 tail-ride carries all SEVEN rows
+  ([Unreleased]: №729 Added + №723/№734/№735/№740/№744 Changed +
+  №724 Fixed), 0.34.0 has NO feature roster (the RECORD «closed
+  29/67» reads naturally in the notes when the owner opens the
+  figure); **the executor's position: 0.33.2 tail-ride; the decision
+  — the owner's (gate 1)**; **GO 26.10 verified-wait**.
+
+The machine numbers at the sync (2026-10-20, main @ e1bbd98): the
+sensitive surface **104/145 = 7172 bp** (the enforced floor **7172
+bp**, only-up — the equality the №744 raise recorded), **goal032
+closed 29/67** (the gate BLOCKING — ADR-0193 Accepted; the db group
+3/3, the request_body group 0/1), **typed 366/526 = 69.58% (precise
+239/526 = 45.43%)**, the **parameterized share 94/124 = 75.80%**, the
+**field-label share 58/60 = 96.66%**, **mirrors 6/6, dups 0, quorum
+0/8**, **debt 8/0/15, example_uncovered 0**, **REFERENCE 526/526 =
+100.0%**, **[Unreleased] carries the №729 Added + №723/№734/№735/
+№740/№744 Changed + №724 Fixed rows** (the merged naryads only — the
+№687 rule). gen_metrics --check OK (the hand-written numbers match
+the generators — the №566 consistency holds).
+
+The owner gates remaining (accumulated): the **26.10 window — the
+figure (0.33.2 recommended / 0.34.0) + the tag → publication** (the
+§2.5 map in gh#1386); the **goal032 lanes (β)/(γ)** (the fixed-result
+№543 form / the Query/Row opaque kinds — the owner verdicts, the
+dispatch gh#1388 gate 7); the Secret spellings + the №543 union forms
+(ADR-0195 §7 (c) — parked until the lanes open); the office #536 fix
+decision; the good-first pool refill mechanics; the zip-ignore review
+(2026-11-17); the coverage threshold (№569 — PARKED by ADR-0195 (c));
+the second maintainer; NLnet/Restack M1 (03.11.2026); №648
+(01.12.2026); the PAT rotation. RESOLVED this cycle: the **movement
+№9** — the lane α continuation landed (№744, the goal032 26 → 29/67;
+the graph/vision package closed); the 26.10 prep (the verified-wait
+GO, the post-merge refresh — №745).

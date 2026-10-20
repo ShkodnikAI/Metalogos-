@@ -1,9 +1,9 @@
-# ADR-0195: The 0.34 Release-Gate Criteria — the draft variants (PROPOSED; the owner's verbatim pending)
+# ADR-0195: The 0.34 Release-Gate Criteria — the draft variants (ACCEPTED 2026-10-20; the owner's verbatim — the §5 package as submitted)
 
-- Status: **Proposed** (the draft, №731, Волна 51; §6 «The verdict
-  package» is under the owner's verbatim — zero self-capture, the
-  OD-дисциплина №659-b; this ADR wires NOTHING: ноль CI-правок, the
-  wiring rides the owner's verbatim — the №723/ADR-0193 §7 form)
+- Status: **Accepted** (2026-10-20 — the owner's verbatim
+  «вербатим ADR-0195 (0.34-гейт»; the §5 package as submitted — the
+  ADR-0193 §7 form; the §7 ratification record; the landing №735 —
+  zero CI wiring: the RECORD form wires notes, not CI, §6.4)
 - Date: 2026-10-20 (the draft, №731, Волна 51)
 - Deciders: the executor (the draft); the OWNER fixes the parameters
 - Naryad: №731 (issue #1360, Волна 51)
@@ -114,7 +114,7 @@ prerequisite for ANY precise movement — a floor without the movement
 capacity is the frozen-floor form). The recommendation is a POSITION,
 not a verdict: every parameter in §6 belongs to the owner.
 
-## §6. The verdict package (the owner picks; zero self-capture)
+## §6. The verdict package (the owner picks; zero self-capture) — RESOLVED by §7 (2026-10-20)
 
 ### §6.1 Parameter 1 — the 0.34 gate form (the owner picks one)
 
@@ -143,3 +143,46 @@ the CI wiring rides the owner's verbatim (the №723/ADR-0193 §7
 one-PR form); this ADR's draft wires nothing — the §6.4 wiring is
 the POST-verbatim act, executed by the naryad that carries the
 owner's verbatim (the №734/№723 landing form).
+
+## §7. The ratification — 2026-10-20 (the owner's verbatim; the landing №735)
+
+**The verbatim (the owner's chat, 2026-10-20, word-for-word):**
+
+> «вербатим ADR-0195 (0.34-гейт».
+
+**The interpretation (the honest fixation):** the verbatim names the
+ADR without overriding any §6 parameter — the §5 recommendation
+package AS SUBMITTED is ratified (the ADR-0193 §7 form: «вербатим
+принят» = the recommendations as written; the delegation lekalo is
+the ADR-0194 §8 shape). Every only-up raise (a higher N, the (c)
+unparking) rides a follow-up owner verbatim — nothing here forecloses
+it.
+
+**The §6 parameters are FIXED:**
+
+1. **Parameter 1 (the 0.34 gate form) = (b)** — (a) the accumulated
+   ratchet floors stay the base (the №644 bp 6844; the goal032 23/67
+   BLOCKING — ADR-0193; the №467 typed share; the №468/№462/№562
+   gates; zero new CI wiring — the floors already gate) **plus** the
+   endgame (A) figure as the 0.34 line's release RECORD: the
+   notes-record, NOT a blocking wire (the §4b recommended posture —
+   the release cadence stays decoupled from the types program).
+2. **Parameter 2 (the endgame N) = 23** — the honest value today
+   (the residue wall, №730); the same number the ADR-0193 §7.5
+   endgame (A) fixation already enforces only-up. The 0.34 line's
+   goal statement records `closed 23/67`; a higher N rides the
+   lanes-opening plan (the Secret spelling, the №543 union forms,
+   the stub naryads) with a follow-up owner verbatim.
+3. **Parameter 3 (the precise floor / the №569 threshold) = PARKED**
+   — the floor without the movement capacity is the frozen-floor
+   form (§4c); the precise movement runs through the owner lanes;
+   the thresholds get their values when the lanes open.
+
+**The wiring (§6.4 executed by №735):** the RECORD form wires notes,
+not CI — zero workflow edits (the §4a zero-price posture for the
+base; the §4b record posture for the figure). The landing: this §7
+(the SSOT of the gate criteria), the ADR index rows (0195 →
+Accepted; the 0193 row synced in the same PR — the file has been
+Accepted since №723, the index cell was stale), the CHANGELOG
+[Unreleased] Changed row (the №723 form). The release-notes regen at
+the window (the №713 rule) picks the figure from the CHANGELOG row.

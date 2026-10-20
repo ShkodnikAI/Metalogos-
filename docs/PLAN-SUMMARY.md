@@ -114,6 +114,33 @@ MINOR), №639 (15.10) / №648 (01.12) outside the wave.
 
 ## Current wave — the open machine tail (2026-10-20)
 
+Wave 53 EXECUTED (the dispatch gh#1381): №740 ∥ №741 → №742 (strictly
+last). №740 (the movement №8 — the query* package through the №740
+UNION vocabulary, lane α — the growth path №736 named): the stage-0
+dictionary gains the union spelling `arm|arm|...` (top-level pipes,
+≥2 stage-0-clean arms, strictly ascending — the canonical form;
+malformed fails closed to Unknown); THREE rows closed from the LIVE
+handler facts — query `List<Struct<Row>>|String`, query_scalar
+`Float|String|Unit`, query_row `List<Float|String|Unit>` (the №539
+false-warn guard by construction; the rows-path NOT extended; the new
+`intercept` spec! variant keeps the registry rows handlerless — the
+t6 pin loud); the floors same-PR (№757/№613): sensitive 6758 → 6965
+bp (101/145), typed 6844 → 6901 bp, parameterized 6893 → 7540 bp
+(92/122), the goal032 BLOCKING figure 23 → 26 (**26/67** — the db
+group 3/3, the FIRST ПДн-class group fully closed), the fact twins
+synced (gate_030/gate_031); the battery tests/naryad_740_union_spellings.rs
+(6 tests); the interlocks №706/№712/№717/№730 re-pinned (44 → 41);
+the honest round-fixation — CI round 1 caught the missed interlock
+pins and the fact twins, both fixed same-PR; (β)/(γ) NOT taken (the
+dispatch gate 7). №741 (the 26.10 window prep): the draft re-cut and
+REFRESHED over the №740 merge (the movement №8 row in; verbatim
+True), the gates GREEN twice (unfreeze --strict, release_gap,
+goal032 26/67, gate-facts-sync — all EXIT 0), the §2.5 map: 0.33.2
+tail-ride recommended (all six rows; no 0.34 feature roster), the
+decision — the owner's (gate 1); GO 26.10 verified-wait. The owner
+gates: the 26.10 figure + tag → publication; the query* lanes (β)/(γ);
+the goal032 lanes.
+
 Wave 52 EXECUTED (the dispatch gh#1374): the tail №735 FIRST (ADR-0195
 RATIFIED — the owner's verbatim, the §5 package as submitted: the form
 (b) + N=23, (c) PARKED, the RECORD zero-CI-wiring; the index 0193 row

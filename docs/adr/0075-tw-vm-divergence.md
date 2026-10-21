@@ -258,6 +258,26 @@ All 9 remaining cases have been resolved in Naryad №36.
 | 18 | dept_schema | db_insert + schema DDL + db_conn in VM | Naryad №36 |
 | 19 | p30_db_params | query_scalar + db_execute + query handlers in VM | Naryad №36 |
 
+## Resolved in Naryad №756 (2 lane divergences — the №751 (α)-walk discoveries)
+
+Both divergences were pinned behaviorally by `tests/naryad_751_endgame_walk.rs`
+(the walk's honest-zero discoveries, 2026-10-21) and resolved in Naryad №756
+(gh#1408, Wave 57, main `2640e87`+) — the №751 divergence pin re-pinned to the
+parity fact in the same PR (форма №740). The №756 pins:
+`tests/naryad_756_lane_divergences.rs` (8 behavioral pins, both lanes).
+
+| # | Divergence | Was | Resolution (the anchors) |
+|---|---|---|---|
+| 22 | resolve_skill_index type_name | TW `format!("SkillIndex_{dept}")` (execution.rs:2600) vs the VM fixed `"SkillIndex"` (vm.rs:2519 pre-№756) | ONE shape on BOTH lanes: `format!("SkillIndex_{dept}")` (the TW canon; the VM arm — vm.rs run-loop arm) |
+| 23 | resolve_skill_index truncation field | TW-only (execution.rs:2588-2598); the VM arm ended at budget (the compiled `CompiledSkillIndex` did not carry the mode at all) | the compiled field `CompiledSkillIndex.truncation` (bytecode.rs) — the compiler maps the declaration's `TruncationMode` (compiler.rs), the VM arm inserts the field in the TW spelling (`whole_skill_only` / `truncate_at_boundary`); absent stays absent on both |
+| 24 | GetField absent-field READ (NOT in the original 21-case ledger — the №751 walk's discovery 2) | the TW `FieldAccess` loud (execution.rs:1743, `values.rs get_field` Result) vs the VM silent `Unit` fallback (vm.rs:1232, `unwrap_or(Value::Unit)`) | the loud-fail contract on BOTH lanes and BOTH VM execution loops (`run()` and `execute_code_inner()` — the fallback removed): the `get_field` Err propagates verbatim (the ADR-0194 package A = (c) contract) |
+
+The registry row (`src/builtins/registry.rs`, `resolve_skill_index`) carries
+the resolution comment. The `return_type` stays `Unknown` honest: the union
+grammar has no dynamic-arm shape (the №669 form), and the types movement is
+OUTSIDE the №756 scope (ADR-0194 Запреты — the type floors do not move; the
+№751 interlock `n751_the_divergence_row_stays_unknown_honest` holds).
+
 ## 58/58 clarification — both-error count
 
 The crosscheck test (`tests/crosscheck_backends.rs`) has a branch that treats

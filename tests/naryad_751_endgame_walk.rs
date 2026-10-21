@@ -140,19 +140,19 @@ flow Main { input: String = "x" -> P -> output }
     );
 }
 
-// ── The divergence pins: why NO spelling survives (the honest zero) ──
+// ── The divergence pins — №756 (gh#1408) RESOLVED both (форма №740
+//    round-1 re-pin: the divergence facts became the parity facts) ──
 
 #[test]
-fn n751_the_type_name_and_field_set_diverge_across_lanes() {
-    // The divergence ground, pinned BEHAVIORALLY: the truncation field
-    // is TW-only (execution.rs:2588-2598 vs the VM arm ending at
-    // budget — vm.rs:2515-2521). The SAME program: TW answers "String"
-    // (the field exists), the VM answers the silent Unit (vm.rs:1232,
-    // the GetField unwrap_or — the walk's discovery 2). A
-    // Struct<SkillIndex> spelling would be fictitious on the TW lane
-    // anyway (the type_name format!("SkillIndex_{dept}") —
-    // execution.rs:2600 — vs the fixed "SkillIndex" — vm.rs:2519); the
-    // row stays Unknown honest.
+fn n756_resolved_type_name_and_truncation_are_parity_across_lanes() {
+    // №756 (gh#1408, Wave 57) re-pin — was:
+    // n751_the_type_name_and_field_set_diverge_across_lanes (the
+    // divergence pin: TW "String" vs the VM silent Unit). The resolution:
+    // the truncation field carries on BOTH lanes now (the compiled
+    // CompiledSkillIndex.truncation — bytecode.rs; the compiler carries
+    // si.truncation; the VM arm inserts it — vm.rs run-loop arm) and the
+    // type_name is the dept-qualified "SkillIndex_{dept}" on BOTH (the
+    // TW canon). The SAME program answers "String" on both lanes.
     let src = r#"
 skill_index eng {
   tier 1 always {
@@ -180,8 +180,8 @@ flow Main { input: String = "x" -> P -> output }
         .unwrap_or_default();
     assert_eq!(
         vm.trim_end(),
-        "Unit",
-        "VM silently Units the absent field (vm.rs:1232) — the divergence pin\n{src}"
+        "String",
+        "VM carries the truncation field too — the №756 parity (was: the silent Unit, vm.rs:1232)\n{src}"
     );
 }
 

@@ -31,6 +31,47 @@ All notable changes to the Metalogos project.
 
 ### Fixed
 
+- **№765 (gh#1418, Wave 59 — the S-1b XSS closure, the external audit
+  §3 H-1):** the let-form of render() is no longer a gap. The audit
+  scenario — `let page = render("Comment", j.author, j.text)` →
+  `respond_html(page)` — produced no finding and the raw slot carried
+  the request data straight into the page. Three layers move together:
+  (1) `builtin_render` computes the RAW-slot param names from the
+  template body (the SAME `template_scan::raw_param_positions` the
+  audit taint layer and the html_label walk read — ONE scan, four
+  consumers) and requires `Value::Html` for them exactly like the safe
+  slots since №695 — the fail-closed refusal `RAW_SLOT_NOT_HTML` names
+  the slot and the fact (the ungated dynamics: the VM lane refuses in
+  the real pipeline; the TW lane's checked programs hit the static
+  implicit-coercion gate first). (2) `html_label::walk` — the BINDING
+  walk resolves the raw positions through the shared resolver (a
+  StringLit name or a bare Ident that names a DECLARED template —
+  render is a name-reference builtin; a variable-carried name stays
+  the conservative unknown, the №685-E pin) and answers
+  `Labeled(String, Untrusted)` when a labeled argument sits at a raw
+  position; the sink walk keeps its №685 contract. (3) render is OUT of
+  the blanket sanitizer lists (the binary predicates: the memory-taint
+  layer, the interp state walker) and POSITION-AWARE in the label
+  engines (the raw map decides per slot: the all-escaped template keeps
+  the sanitizer semantics — the №685-D/n98 pins; any raw slot conducts
+  the join of its raw args; the dynamic name stays the conservative
+  conductor). The check path seeds the raw map now (the same
+  re-seeding discipline the audit entries follow). Pins: NEW
+  `tests/naryad_765_s1b_let_form.rs` (7: the audit scenario flagged on
+  BOTH surfaces — red before the fix, green after; query_param into a
+  raw slot; render→memory→respond_html keeps the taint fact; the TW
+  static coercion refusal + the VM runtime backstop refusal; the Html
+  producer composition runs; the render(render()) negative; the
+  all-escaped interlock) + 2 inline units in http.rs (the raw-slot
+  backstop at the pub(crate) boundary). The interlocks hold: №685
+  24/24, №695 4/4, №686 3/3, №376 4/4, №448 11/11, №201 8/8,
+  template_integration 8/8, n98 8/8. AFFECTS: programs that relied on
+  render-as-sanitizer for RAW slots now get findings (the static layers)
+  and runtime refusals (a plain String in a `{{{ }}}` slot); the
+  all-escaped templates keep the previous behavior byte-for-byte; the
+  escape_html status untouched; the raw semantics of №685/№695/№696 not
+  regressed.
+
 - **№762 (gh#1415, Wave 58 — the census/classification of the 129 quiet
   `unwrap_or(Value::Unit)` fallbacks in `vm.rs`, the №756 scope tail):**
   the loud operand contract (the ADR-0194 package A = (c) RATIFIED) is

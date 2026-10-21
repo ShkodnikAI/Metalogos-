@@ -27,6 +27,17 @@ pub(crate) struct TemplateEntry {
     /// reads it: a safe-slot value must be `Value::Html` (the opaque
     /// type), never a plain String (SAFE_PIPE_NOT_HTML, fail-closed).
     pub safe_params: Vec<String>,
+    /// №765 (gh#1418, Wave 59 — the audit S-1b): the param NAMES used in
+    /// the RAW triple-brace form `{{{ param }}}` — the SAME shared
+    /// tokenizer (`template_scan::raw_param_positions`). The runtime
+    /// backstop reads it exactly like the safe one: a raw-slot value
+    /// must be `Value::Html` too — a plain String in the raw slot is
+    /// the fail-closed refusal (the XSS-through-raw-insert class the
+    /// audit pinned: without the check the raw slot carried any String
+    /// straight into the page). Unreachable from a checked program
+    /// (the static raw gate refuses at the call site) — this guards
+    /// the ungated dynamics only.
+    pub raw_params: Vec<String>,
 }
 
 pub(crate) static GLOBAL_TEMPLATES: Lazy<Mutex<HashMap<String, TemplateEntry>>> =
@@ -66,6 +77,14 @@ pub(crate) fn register_template(name: &str, body: &str, params: Vec<String>) -> 
         .iter()
         .filter_map(|&i| params.get(i).cloned())
         .collect();
+    // №765 (the audit S-1b): the raw-slot names — the SAME tokenizer the
+    // audit taint layer and the html_label walk read (ONE scan, now FOUR
+    // consumers).
+    let raw_idx = crate::template_scan::raw_param_positions(body, &params);
+    let raw_params = raw_idx
+        .iter()
+        .filter_map(|&i| params.get(i).cloned())
+        .collect();
     if let Ok(mut g) = GLOBAL_TEMPLATES.lock() {
         g.insert(
             name.to_string(),
@@ -73,6 +92,7 @@ pub(crate) fn register_template(name: &str, body: &str, params: Vec<String>) -> 
                 body: body.to_string(),
                 params,
                 safe_params,
+                raw_params,
             },
         );
     }
@@ -593,6 +613,24 @@ pub(crate) fn builtin_render(args: &[Value]) -> Result<Value, String> {
                 "render('{}'): parameter '{}' is used in the safe insert '{{{{ {} | safe }}}}' \
                  but the value is not Html ({}: {}) — build it with an explicit Html producer \
                  (SAFE_PIPE_NOT_HTML, №695)",
+                template_name,
+                param,
+                param,
+                val.type_name(),
+                val
+            ));
+        }
+        // №765 (gh#1418, Wave 59 — the audit S-1b): the SAME backstop for
+        // the RAW slots — the triple-brace form substitutes verbatim (no
+        // escape), so a plain String here IS the XSS surface the audit
+        // pinned (the let-form: render(...) bound to a variable, the
+        // result reaching respond_html unchecked). A raw-slot value must
+        // be the opaque Html; the refusal names the slot and the fact.
+        if entry.raw_params.iter().any(|p| p == param) && !matches!(val, Value::Html(_)) {
+            return Err(format!(
+                "render('{}'): parameter '{}' is used in the raw insert '{{{{{{ {} }}}}}}' \
+                 but the value is not Html ({}: {}) — build it with an explicit Html producer \
+                 (RAW_SLOT_NOT_HTML, №765)",
                 template_name,
                 param,
                 param,
@@ -2563,4 +2601,56 @@ pub(crate) fn builtin_weather_forecast(args: &[Value]) -> Result<Value, String> 
         ));
     }
     Ok(Value::List(result))
+}
+
+#[cfg(test)]
+mod n765_tests {
+    //! №765 (gh#1418, Wave 59 — the audit S-1b): the RAW-slot runtime
+    //! backstop — the ungated dynamics (the .mbc path, the external
+    //! callers) never carry a plain String into the `{{{ }}}` surface.
+    //! The static implicit-coercion gate closes the checked programs at
+    //! the call site; this unit pins the RUNTIME backstop itself (the
+    //! pub(crate) boundary is the honest access — the external battery
+    //! pins the static layers).
+
+    use super::*;
+
+    #[test]
+    fn n765_raw_slot_backstop_refuses_plain_string() {
+        crate::builtins::http::register_template(
+            "N765Card",
+            "  <div>{{{ body }}}</div>\n",
+            vec!["body".to_string()],
+        )
+        .expect("the template registers");
+        let err = builtin_render(&[
+            Value::String("N765Card".to_string()),
+            Value::String("plain text".to_string()),
+        ])
+        .expect_err("the raw slot must refuse a plain String");
+        assert!(
+            err.contains("RAW_SLOT_NOT_HTML") && err.contains("raw insert"),
+            "the refusal must name the raw slot and the class; got: {err}"
+        );
+    }
+
+    #[test]
+    fn n765_raw_slot_accepts_html_value() {
+        crate::builtins::http::register_template(
+            "N765Card",
+            "  <div>{{{ body }}}</div>\n",
+            vec!["body".to_string()],
+        )
+        .expect("the template registers");
+        let out = builtin_render(&[
+            Value::String("N765Card".to_string()),
+            Value::Html("<b>bold</b>".to_string()),
+        ])
+        .expect("the Html value runs");
+        let out_str = match &out {
+            Value::Html(h) => h.clone(),
+            other => format!("{}", other),
+        };
+        assert_eq!(out_str, "<div><b>bold</b></div>");
+    }
 }

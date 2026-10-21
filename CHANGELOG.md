@@ -4,6 +4,8 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+## [0.33.2] - 2026-10-26
+
 ### Added
 
 - **№729 (gh#1356, gh#1350 Ask 2 — the owner's verbatim (a),

@@ -7,7 +7,7 @@
 **AI-native programming language with security by design. Written in Rust.**
 
 [![Rust](https://img.shields.io/badge/rust-1.93.1-orange.svg)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/v0.33.1-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/releases)
+[![Version](https://img.shields.io/badge/v0.33.2-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/releases)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-green.svg)](#license)
 [![CI](https://github.com/ShkodnikAI/Metalogos-/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ShkodnikAI/Metalogos-/actions/workflows/ci.yml) — the real workflow status (44 blocking jobs on every push and PR; light/dark adaptive)
 [![Open Collective](https://img.shields.io/opencollective/all/metalogos?label=Backers&logo=open-collective&color=7fadf2)](https://opencollective.com/metalogos)
@@ -107,7 +107,7 @@ An AI-native "hello": a learnable pattern with a fallback, run in a flow — all
 <!-- BEGIN GENERATED METRICS (scripts/gen_metrics.py — do not edit inside) -->
 | Metric | Value (generated — do not hand-edit) |
 | ------ | ------------------------------------- |
-| Version | 0.33.1 |
+| Version | 0.33.2 |
 | Built-in Functions | 526 functions across 45 modules |
 | Typed Signatures | 372/526 (70.72%) — precise 242/526 (46.00%) |
 | SVG/Graphics | 44 builtins, hand-rolled in pure Rust |

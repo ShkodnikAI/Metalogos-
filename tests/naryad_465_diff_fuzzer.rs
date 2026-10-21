@@ -147,11 +147,15 @@ fn gen_expr(rng: &mut Rng, vars: &[String], depth: u32) -> String {
             // declared) made the №617 static undefined-variable scan
             // refuse EVERY program carrying it (the sweep ran vacuously
             // green — comparing refusals, not executions). A declared
-            // local is picked when one exists; every 8th pick stays the
-            // undefined ident so the [UNDEFINED_VARIABLE] error-class
-            // lane keeps its coverage (deterministic per seed).
+            // local is picked when one exists; the undefined-ident lane
+            // keeps the [UNDEFINED_VARIABLE] error-class coverage.
+            // №766 scale-down: the RECURSIVE generator multiplies the
+            // depth-0 leaf picks per program (~4-6×), so the per-pick
+            // probability scales 1/8 → 1/48 — the PER-PROGRAM refusal
+            // rate returns under the liveness floor while the class lane
+            // stays alive (deterministic per seed).
             _ => {
-                if !vars.is_empty() && rng.below(8) != 0 {
+                if !vars.is_empty() && rng.below(48) != 0 {
                     vars[rng.below(vars.len() as u64) as usize].clone()
                 } else {
                     rng.pick(WORDS).to_string()
@@ -215,7 +219,101 @@ fn gen_expr(rng: &mut Rng, vars: &[String], depth: u32) -> String {
     }
 }
 
-fn gen_stmts(rng: &mut Rng, vars: &mut Vec<String>, _depth: u32, budget: &mut u32) -> Vec<String> {
+// ── №766 (gh#1419, Wave 59): the RECURSIVE statement generator ───────
+//
+// The external audit 21.10 §3 H-2 finding: the old `gen_stmts` carried a
+// `_depth` parameter it never used — the "nesting" was a handful of
+// FIXED fragments (the №621/gh#1336 patch-instance shapes), so the
+// «form A inside form B» class (№369: the nested match; gh#1336: the
+// nested each — both found by CONSUMERS, not by the fuzzer) stayed
+// unmeasured by construction. The audit's "Не делать" is explicit:
+// closing H-2 with ANOTHER fixed fragment repeats the exact mistake.
+//
+// The repair: gen_stmts is RECURSIVE — at every level the generator
+// picks among the six nesting forms (if/else, bounded while, each,
+// each-with-index, match, the flat pool) and recurses into the body
+// with depth-1. Every generated block appends a deterministic TAG to
+// the trace accumulator (`tr`) declared by gen_program and printed in
+// the pattern's return — any block the VM (or the TW) silently drops
+// makes the trace diverge, so the class is OBSERVABLE by construction,
+// not by luck.
+//
+// The pairs metric (форма-родитель × форма-ребёнок, 6×6 = 36): every
+// generated (parent, child) statement pair is recorded into the
+// thread-local set while PAIRS_ON is armed; the
+// n766_nesting_pairs_floor test reads the coverage against the
+// checked-in baseline (scripts/ci/fuzz_nesting_pairs_baseline.txt,
+// the №757/№613 only-up form) and the CI log carries the table —
+// the report the audit's §6 п.2 asks for.
+
+const FORM_FLAT: u8 = 0;
+const FORM_IF: u8 = 1;
+const FORM_WHILE: u8 = 2;
+const FORM_EACH: u8 = 3;
+const FORM_EACH_IDX: u8 = 4;
+const FORM_MATCH: u8 = 5;
+/// The metric dimension: flat / if / while / each / each-idx / match.
+const NESTING_FORMS: usize = 6;
+/// The metric parent for the TOP-LEVEL statements (the pattern body):
+/// the 6×6 matrix = {top, if, while, each, each_idx, match} parents ×
+/// {flat, if, while, each, each_idx, match} children — every cell is
+/// reachable (the flat form is a LEAF child; the top level is a parent
+/// only — the two half-matrices tile the 36 cells without voids).
+const PARENT_TOP: u8 = 6;
+
+thread_local! {
+    static PAIRS: std::cell::RefCell<std::collections::BTreeSet<u16>> =
+        const { std::cell::RefCell::new(std::collections::BTreeSet::new()) };
+    static PAIRS_ON: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn record_pair(parent: u8, child: u8) {
+    if PAIRS_ON.with(|c| c.get()) {
+        PAIRS.with(|s| {
+            s.borrow_mut().insert((parent as u16) * 16 + child as u16);
+        });
+    }
+}
+
+fn pairs_begin() {
+    PAIRS.with(|s| s.borrow_mut().clear());
+    PAIRS_ON.with(|c| c.set(true));
+}
+
+fn pairs_end() -> std::collections::BTreeSet<(u8, u8)> {
+    PAIRS_ON.with(|c| c.set(false));
+    PAIRS.with(|s| {
+        s.borrow()
+            .iter()
+            .map(|&v| ((v >> 4) as u8, (v & 0xF) as u8))
+            .collect()
+    })
+}
+
+fn gen_stmts(rng: &mut Rng, vars: &mut Vec<String>, depth: u32, budget: &mut u32) -> Vec<String> {
+    gen_stmts_under(rng, vars, depth, budget, None)
+}
+
+/// The metric form for a statement under the given parent: the TOP
+/// level records (PARENT_TOP, form) — the audit's «форма-родитель ×
+/// форма-ребёнок» matrix counts the top level as the sixth parent.
+fn metric_form(parent: Option<u8>, form: u8) -> (u8, u8) {
+    (parent.unwrap_or(PARENT_TOP), form)
+}
+
+/// The recursive body generator. `parent` = the enclosing nesting form
+/// (None = the pattern-body top level — pairs are recorded only for the
+/// parented statements). The child bodies get a CLONE of the variable
+/// scope: their lets stay block-local (a later top-level reference to a
+/// block-scoped let would be a same-class refusal — the vacuous-sweep
+/// contributor the №621 lesson named).
+fn gen_stmts_under(
+    rng: &mut Rng,
+    vars: &mut Vec<String>,
+    depth: u32,
+    budget: &mut u32,
+    parent: Option<u8>,
+) -> Vec<String> {
     let mut out = Vec::new();
     let n = 2 + rng.below(4);
     for _ in 0..n {
@@ -223,124 +321,152 @@ fn gen_stmts(rng: &mut Rng, vars: &mut Vec<String>, _depth: u32, budget: &mut u3
             break;
         }
         *budget -= 1;
-        match rng.below(8) {
-            0 => {
-                let v = format!("v{}", rng.alnum(3));
-                out.push(format!("let {} = {}", v, gen_expr(rng, vars, 2)));
-                vars.push(v);
+        let form: u8 = if depth == 0 {
+            FORM_FLAT
+        } else {
+            match rng.below(10) {
+                0..=3 => FORM_FLAT,
+                4 => FORM_IF,
+                5 => FORM_WHILE,
+                6 => FORM_EACH,
+                7 => FORM_EACH_IDX,
+                8 => FORM_MATCH,
+                _ => FORM_FLAT,
             }
-            1 => {
-                // №621: the if/else branch bodies are not only flat lets —
-                // the loop shapes (the №612 class) also generate NESTED in
-                // a block form, not only at the top statement level.
-                let cond = format!(
-                    "to_string({}) == to_string({})",
-                    gen_expr(rng, vars, 1),
-                    gen_expr(rng, vars, 1)
-                );
-                match rng.below(3) {
-                    0 => out.push(format!(
-                        "if {cond} {{\n  let m = \"eq\"\n}} else {{\n  let m = \"ne\"\n}}"
-                    )),
-                    // gh#1336: the each-in-if shape must be OBSERVABLE — the
-                    // pre-fix body (`len(item)` discarded) could NOT catch the
-                    // silent VM drop of the nested loop (0 iterations, the
-                    // outputs still matched — the class escaped the run for
-                    // months). The accumulator assigned INSIDE the loop and
-                    // read AFTER the if makes the drop a TW/VM divergence
-                    // again; the float seed keeps the Add Float+Float (the
-                    // same proven arithmetic the №621 shape 6 uses).
-                    1 => out.push(format!(
-                        "let mut eacc = 0.0\nif {cond} {{\n  each item in [\"a\", \"b\"] {{\n    eacc = eacc + len(item)\n  }}\n  let m = \"eq\"\n}} else {{\n  let m = \"ne\"\n}}\nto_string(eacc)"
-                    )),
-                    _ => out.push(format!(
-                        "if {cond} {{\n  let m = \"eq\"\n}} else {{\n  let g = 0\n  while g < 2 {{\n    let g = g + 1\n  }}\n  let m = \"ne\"\n}}"
-                    )),
-                }
-            }
-            2 => {
-                // №621: the each family is LIVE now — the historical string
-                // carried DOUBLED braces (`{{` via .to_string()) and the
-                // each never parsed (the branch was inert: every program
-                // carrying it was refused by BOTH backends with the same
-                // parse error, zero diff coverage). Three bodies: the
-                // historical let body; the BARE CALL last (the №612
-                // trigger shape — a non-Unit call result as the body's
-                // last statement); the user-pattern call with the
-                // non-Unit return (ph is defined before pa in
-                // gen_program, so the call resolves).
-                match rng.below(3) {
-                    0 => out.push(
-                        "each item in [\"a\", \"b\", \"c\"] {\n  let acc = len(item)\n}"
-                            .to_string(),
-                    ),
-                    1 => {
-                        out.push("each item in [\"a\", \"b\", \"c\"] {\n  len(item)\n}".to_string())
-                    }
-                    _ => {
-                        out.push("each item in [\"a\", \"b\", \"c\"] {\n  ph(item)\n}".to_string())
-                    }
-                }
-            }
-            3 => {
-                // №621: the while family — the historical let body; the
-                // body with a BARE CALL after the progression (still
-                // terminating); the CODE AFTER THE LOOP (a bare call / an
-                // assignment following the while in the same pushed
-                // block — the tail the №612 defect used to cut).
-                let var = format!("w{}", rng.alnum(2));
-                vars.push(var.clone());
-                match rng.below(3) {
-                    0 => out.push(format!(
-                        "let {var} = \"\"\nlet guard = 0\nwhile guard < 3 {{\n  let guard = guard + 1\n}}"
-                    )),
-                    1 => out.push(format!(
-                        "let {var} = \"\"\nlet guard = 0\nwhile guard < 3 {{\n  let guard = guard + 1\n  to_string(guard)\n}}\nto_string(guard)"
-                    )),
-                    _ => out.push(format!(
-                        "let mut {var} = \"\"\nlet guard = 0\nwhile guard < 3 {{\n  let guard = guard + 1\n  len(\"xy\")\n}}\n{var} = to_string(guard)"
-                    )),
-                }
-            }
-            4 => {
-                let name = rng.alnum(2);
-                out.push(format!("let s{name} = {}", gen_expr(rng, vars, 2)));
-            }
-            5 => {
-                let name = rng.alnum(2);
-                out.push(format!("let t{name} = {}", gen_expr(rng, vars, 1)));
-            }
-            6 => {
-                // №621: the «call; assignment» mixture inside the loop
-                // body — acc is declared BEFORE the loop and ASSIGNED
-                // inside it (the assignment resets the implicit value —
-                // the №612 etalon; `let mut` — the language's assignment
-                // contract), the bare call sits between the statements as
-                // the trigger; the code AFTER the loop reads the
-                // accumulator, so the loop's completion is observable in
-                // the diffed output.
-                out.push(
-                    "let mut acc = 0\neach item in [\"a\", \"bc\", \"def\"] {\n  len(item)\n  acc = len(item)\n}\nto_string(acc)"
-                        .to_string(),
-                );
-            }
-            _ => {
-                // №621: the nested loop — a bounded while containing an
-                // each whose body ENDS with the bare call (the №612 class
-                // at the nesting depth 2 — inside a loop, inside a
-                // pattern body; not only at the top statement level).
-                // gh#1336: the each-in-while shape is OBSERVABLE now — the
-                // accumulator rides the loop and lands in the diffed
-                // output (the pre-fix `len(item)` body could not see the
-                // silent VM drop of the nested each).
-                out.push(
-                    "let outer = 0\nlet mut wacc = 0.0\nwhile outer < 2 {\n  each item in [\"a\", \"b\"] {\n    wacc = wacc + len(item)\n  }\n  let outer = outer + 1\n}\nto_string(outer) + \":\" + to_string(wacc)"
-                        .to_string(),
-                );
-            }
+        };
+        if let Some(p) = parent {
+            record_pair(p, form);
+        } else {
+            let (pp, cc) = metric_form(parent, form);
+            record_pair(pp, cc);
+        }
+        match form {
+            FORM_IF => out.push(gen_if_block(rng, vars, depth, budget)),
+            FORM_WHILE => out.push(gen_while_block(rng, vars, depth, budget)),
+            FORM_EACH => out.push(gen_each_block(rng, vars, depth, budget, false)),
+            FORM_EACH_IDX => out.push(gen_each_block(rng, vars, depth, budget, true)),
+            FORM_MATCH => out.push(gen_match_block(rng, vars, depth, budget)),
+            _ => out.extend(gen_flat_stmt(rng, vars)),
         }
     }
     out
+}
+
+/// The flat pool — the proven lets (the №621 arithmetic shapes). The
+/// legacy multi-line fragments (the №612/gh#1336 shapes) stay at the
+/// TOP level only (the historical coverage is preserved; no NEW fixed
+/// fragments — the audit's «Не делать»).
+fn gen_flat_stmt(rng: &mut Rng, vars: &mut Vec<String>) -> Vec<String> {
+    let mut out = Vec::new();
+    match rng.below(3) {
+        0 => {
+            let v = format!("v{}", rng.alnum(3));
+            out.push(format!("let {} = {}", v, gen_expr(rng, vars, 2)));
+            vars.push(v);
+        }
+        1 => {
+            let name = rng.alnum(2);
+            out.push(format!("let s{name} = {}", gen_expr(rng, vars, 2)));
+        }
+        _ => {
+            let name = rng.alnum(2);
+            out.push(format!("let t{name} = {}", gen_expr(rng, vars, 1)));
+        }
+    }
+    out
+}
+
+/// The nested-body helper: the trace tag, the recursion at depth-1 over
+/// a cloned scope, the block-local indentation.
+fn gen_nested_body(
+    rng: &mut Rng,
+    vars: &mut [String],
+    depth: u32,
+    budget: &mut u32,
+    form: u8,
+    tag: &str,
+) -> String {
+    let tag_stmt = format!("tr = tr + \":{}\"", tag);
+    let mut child = vars.to_vec();
+    let stmts = gen_stmts_under(rng, &mut child, depth.saturating_sub(1), budget, Some(form));
+    let mut body = format!("  {}\n", tag_stmt);
+    for st in stmts {
+        body.push_str(&format!("  {}\n", st.replace('\n', "\n  ")));
+    }
+    body
+}
+
+fn gen_if_block(rng: &mut Rng, vars: &mut [String], depth: u32, budget: &mut u32) -> String {
+    let cond = format!(
+        "to_string({}) == to_string({})",
+        gen_expr(rng, vars, 1),
+        gen_expr(rng, vars, 1)
+    );
+    let tag = rng.alnum(2);
+    let a = gen_nested_body(rng, vars, depth, budget, FORM_IF, &format!("i{}", tag));
+    let b = gen_nested_body(rng, vars, depth, budget, FORM_IF, &format!("J{}", tag));
+    format!("if {cond} {{\n{a}}} else {{\n{b}}}")
+}
+
+fn gen_while_block(rng: &mut Rng, vars: &mut [String], depth: u32, budget: &mut u32) -> String {
+    let g = format!("g{}", rng.alnum(2));
+    let tag = rng.alnum(2);
+    let mut s =
+        format!("let {g} = 0\nwhile {g} < 3 {{\n  let {g} = {g} + 1\n  tr = tr + \":w{tag}\"\n");
+    // The guarded break — the break/continue family of the audit's list,
+    // inside the loop, after the trace append (the skip itself stays
+    // observable: the tag landed, the rest of the body may not).
+    if rng.below(3) == 0 {
+        s.push_str(&format!(
+            "  if to_string({g}) == \"2\" {{\n    break\n  }}\n"
+        ));
+    }
+    let mut child = vars.to_vec();
+    let stmts = gen_stmts_under(
+        rng,
+        &mut child,
+        depth.saturating_sub(1),
+        budget,
+        Some(FORM_WHILE),
+    );
+    for st in stmts {
+        s.push_str(&format!("  {}\n", st.replace('\n', "\n  ")));
+    }
+    s.push('}');
+    s
+}
+
+fn gen_each_block(
+    rng: &mut Rng,
+    vars: &mut [String],
+    depth: u32,
+    budget: &mut u32,
+    with_index: bool,
+) -> String {
+    let form = if with_index { FORM_EACH_IDX } else { FORM_EACH };
+    let tag = rng.alnum(2);
+    let head = if with_index {
+        format!("each ix, item in [\"a\", \"b\"] {{\n  tr = tr + \":x{tag}\" + to_string(ix)\n")
+    } else {
+        format!("each item in [\"a\", \"b\"] {{\n  tr = tr + \":e{tag}\"\n")
+    };
+    let mut child = vars.to_vec();
+    let stmts = gen_stmts_under(rng, &mut child, depth.saturating_sub(1), budget, Some(form));
+    let mut s = head;
+    for st in stmts {
+        s.push_str(&format!("  {}\n", st.replace('\n', "\n  ")));
+    }
+    s.push('}');
+    s
+}
+
+fn gen_match_block(rng: &mut Rng, vars: &mut [String], depth: u32, budget: &mut u32) -> String {
+    let scrut = format!("to_string({})", gen_expr(rng, vars, 1));
+    let lit = format!("z{}", rng.alnum(2));
+    let tag = rng.alnum(2);
+    let a = gen_nested_body(rng, vars, depth, budget, FORM_MATCH, &format!("m{}", tag));
+    let b = gen_nested_body(rng, vars, depth, budget, FORM_MATCH, &format!("M{}", tag));
+    format!("match {scrut} {{\n  \"{lit}\" then {{\n{a}  }}\n  else {{\n{b}  }}\n}}")
 }
 
 /// Generate one program. Returns the .mlog source.
@@ -400,15 +526,21 @@ fn gen_program(seed: u64) -> String {
     // rule outcome is part of the diffed output on both backends.
     src.push_str("\npattern pfzf(x: Float) -> String { return \"flag:\" + to_string(x) }\n");
     src.push_str("\npattern pa(x: String) -> String {\n");
-    let mut vars = vec!["x".to_string()];
+    // №766: the trace accumulator — every generated block appends its
+    // deterministic tag; the return carries the trace into the diffed
+    // output, so a silently dropped block is a TW/VM divergence (the
+    // audit's §3 H-2 observability requirement).
+    src.push_str("  let mut tr = \"\"\n");
+    let mut vars = vec!["x".to_string(), "tr".to_string()];
     for st in gen_stmts(&mut rng, &mut vars, 2, &mut budget) {
         src.push_str(&format!("  {}\n", st.replace('\n', "\n  ")));
     }
     // №621 repair: the return is to_string()-wrapped — the pattern's
     // declared result is String, a bare numeric expr was a same-class
-    // refusal (the vacuous-sweep contributor).
+    // refusal (the vacuous-sweep contributor). №766: the trace rides the
+    // return.
     src.push_str(&format!(
-        "  return to_string({})\n}}\n",
+        "  return to_string({}) + \":T\" + tr\n}}\n",
         gen_expr(&mut rng, &vars, 2)
     ));
 
@@ -436,12 +568,15 @@ fn gen_program(seed: u64) -> String {
     // forget on the container surface is memory_release (Unit).
     src.push_str("  memory_release(mem, \"k2\")\n");
     src.push_str("  let n2 = len(memory_keys(mem))\n");
-    let mut vars = vec!["y".to_string(), "r1".to_string()];
+    // №766: the trace accumulator for pb's generated blocks (the same
+    // observability contract as pa's).
+    src.push_str("  let mut tr = \"\"\n");
+    let mut vars = vec!["y".to_string(), "r1".to_string(), "tr".to_string()];
     for st in gen_stmts(&mut rng, &mut vars, 1, &mut budget) {
         src.push_str(&format!("  {}\n", st.replace('\n', "\n  ")));
     }
     src.push_str(&format!(
-        "  return r1 + \":\" + to_string(n1) + \":\" + to_string(n2) + \":\" + to_string({})\n}}\n",
+        "  return r1 + \":\" + to_string(n1) + \":\" + to_string(n2) + \":\" + to_string({}) + \":T\" + tr\n}}\n",
         gen_expr(&mut rng, &vars, 1)
     ));
 
@@ -1718,24 +1853,25 @@ fn n1336_nested_each_shapes_are_observable() {
     // backends with the accumulator riding the diffed output — a
     // regression to the silent drop (either backend) fails the equality
     // or the liveness value.
-    let mut saw_branch_each = false;
-    let mut saw_nested_each = false;
+    // №766 re-pin: the legacy FIXED fragments (eacc/wacc) are gone — the
+    // recursive generator produces the nested-each shapes SYSTEMATICALLY
+    // (any nesting form may parent an each, and every generated block
+    // carries the trace tag, so the shape is observable by construction).
+    // The shape-production proof = the pairs (if, each) and (while, each)
+    // recorded over the seed sweep (the same metric the
+    // n766_nesting_pairs_floor ratchet pins).
+    pairs_begin();
     for seed in 0..200u64 {
-        let src = gen_program(0x4e34_6546_0000_0000u64 + seed);
-        if src.contains("eacc = eacc + len(item)") {
-            saw_branch_each = true;
-        }
-        if src.contains("wacc = wacc + len(item)") {
-            saw_nested_each = true;
-        }
+        let _ = gen_program(0x4e34_6546_0000_0000u64 + seed);
     }
+    let pairs = pairs_end();
     assert!(
-        saw_branch_each,
-        "the generator must produce the observable each-in-if shape (gh#1336)"
+        pairs.contains(&(FORM_IF, FORM_EACH)),
+        "the generator must produce the observable each-in-if shape (gh#1336; the (if, each) pair)"
     );
     assert!(
-        saw_nested_each,
-        "the generator must produce the observable each-in-while shape (gh#1336)"
+        pairs.contains(&(FORM_WHILE, FORM_EACH)),
+        "the generator must produce the observable each-in-while shape (gh#1336; the (while, each) pair)"
     );
 
     // (b) liveness + parity: the canonical shapes execute on BOTH
@@ -1983,5 +2119,144 @@ fn n621_sweep_liveness_ratchet() {
         both_ok,
         iters,
         floor
+    );
+}
+
+// ── №766: the nesting-pairs metric — the ratchet ─────────────────────
+//
+// The audit §6 п.2: the coverage of the (форма-родитель × форма-ребёнок)
+// pairs the generator ACTUALLY produces must be measured and only-up —
+// the class «A inside B» (№369, gh#1336) cannot escape again silently.
+// The floor lives in scripts/ci/fuzz_nesting_pairs_baseline.txt (the
+// №757/№613 form: a PR that raises the achieved coverage MUST bump the
+// file in the same PR — a higher count than the floor is a FAILURE
+// demanding the bump, a lower count is a regression). The CI log
+// carries the 6×6 table — the report the audit asks for.
+#[test]
+fn n766_nesting_pairs_floor() {
+    let baseline_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("scripts")
+        .join("ci")
+        .join("fuzz_nesting_pairs_baseline.txt");
+    let floor: usize = std::fs::read_to_string(&baseline_path)
+        .unwrap_or_else(|e| panic!("the baseline file must exist ({:?}): {}", baseline_path, e))
+        .trim()
+        .parse()
+        .unwrap_or_else(|e| panic!("the baseline must be an integer: {e}"));
+    let iters = iterations().min(150);
+    pairs_begin();
+    for i in 0..iters as u64 {
+        let _ = gen_program(0x4e34_6546_0000_0000u64 + i);
+    }
+    let pairs = pairs_end();
+    let parent_names = ["top", "if", "while", "each", "each_idx", "match"];
+    let mut table = String::new();
+    for (p, pname) in parent_names.iter().enumerate() {
+        // The row order: top(6), if(1), while(2), each(3), each_idx(4), match(5).
+        let parent_code = if p == 0 { PARENT_TOP } else { p as u8 };
+        let row: Vec<String> = (0..NESTING_FORMS as u8)
+            .map(|c| {
+                if pairs.contains(&(parent_code, c)) {
+                    "X".to_string()
+                } else {
+                    ".".to_string()
+                }
+            })
+            .collect();
+        table.push_str(&format!("  {:9} {}\n", pname, row.join(" ")));
+    }
+    println!(
+        "№766 nesting pairs: {}/{} over {iters} generated programs\nparent\\child   flat if while each each_idx match\n{table}",
+        pairs.len(),
+        NESTING_FORMS * NESTING_FORMS
+    );
+    assert!(
+        pairs.len() >= floor,
+        "the nesting-pairs coverage dropped to {}/{} (the floor {floor}) — \
+         the recursive generator lost a form pair (the №369/gh#1336 class \
+         visibility); repair the generator, never lower the floor",
+        pairs.len(),
+        NESTING_FORMS * NESTING_FORMS
+    );
+    assert!(
+        pairs.len() <= floor,
+        "the nesting-pairs coverage rose to {}/{} (the floor {floor}) — \
+         bump scripts/ci/fuzz_nesting_pairs_baseline.txt to {} in this PR \
+         (the only-up ratchet, форма №757/№613)",
+        pairs.len(),
+        NESTING_FORMS * NESTING_FORMS,
+        pairs.len()
+    );
+}
+
+// ── №766: the mutation probe — the Each-arm sensitivity ──────────────
+//
+// The audit §6 п.2 criterion: disabling the Each arm in
+// compile_stmt_with_locals must send the fuzzer RED (the generator must
+// be SENSITIVE to the gh#1336 class, not blind to it). The compiler
+// cannot be mutated at runtime, so the probe proves the sensitivity BY
+// CONSTRUCTION: a program whose shared output carries an each-trace tag
+// diverges the moment the Each arm stops emitting code (the tag cannot
+// appear — the TW/VM outputs differ). The probe counts the sweep
+// programs whose output provably depends on the nested-each execution;
+// the manual procedure (the №621 form: comment out the Statement::Each
+// arm in compile_stmt_with_locals, cargo test --test naryad_465_diff_fuzzer,
+// observe RED) stays in the naryad report.
+#[test]
+fn n766_mutation_probe_each_arm_sensitivity() {
+    let _env = lock_env();
+    std::env::remove_var("SMTP_HOST");
+    std::env::remove_var("SMTP_USER");
+    std::env::remove_var("SMTP_PASS");
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
+    std::env::remove_var("METALOGOS_MOCK_LLM_FAULT");
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let iters = 60u32.min(iterations());
+    let mut each_sensitive = 0u32;
+    let mut executed = 0u32;
+    for i in 0..iters as u64 {
+        let src = gen_program(0x4e34_6546_0000_0000u64 + i);
+        let tw = run_tw(&src, &repo);
+        let vm = run_vm(&src, &repo);
+        let (tw, vm) = match (tw, vm) {
+            (Ok(a), Ok(b)) => (a, b),
+            _ => continue,
+        };
+        executed += 1;
+        // The each-family tags land in the trace the return prints: ":e"
+        // (each), ":x" (each-with-index — the tag is followed by the index
+        // digits). A program whose output carries one DEPENDS on the Each
+        // arm: disable it and the tag vanishes from one backend only —
+        // the divergence the fuzzer catches.
+        let out = tw.as_deref().unwrap_or_default();
+        if out.contains(":e") || out.contains(":x") {
+            each_sensitive += 1;
+        }
+        assert_eq!(
+            tw,
+            vm,
+            "the sweep must stay in parity (seed {})",
+            0x4e34_6546_0000_0000u64 + i
+        );
+    }
+    assert!(
+        executed >= iters * 60 / 100,
+        "the probe sweep executes only {executed}/{iters} — the vacuous-sweep posture"
+    );
+    // The measured floor: the share of the sweep that provably depends on
+    // the nested-each execution. A drop means the generator stopped
+    // producing observable each shapes — the gh#1336 class goes invisible
+    // again. Never lower this floor.
+    let floor = executed * 40 / 100;
+    assert!(
+        each_sensitive >= floor,
+        "only {each_sensitive}/{executed} programs are Each-sensitive (the floor \
+         {floor}) — the generator's each shapes lost their observability; \
+         the mutation probe would NOT catch the gh#1336 class. Repair the \
+         generator, never lower this floor."
+    );
+    println!(
+        "№766 mutation probe: {each_sensitive}/{executed} programs Each-sensitive \
+         (disabling the Each arm diverges them by construction)"
     );
 }

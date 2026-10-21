@@ -198,3 +198,64 @@ flow Main { input: String = "a|b|c" -> ContEach -> output }
 fn n1336_continue_inside_each_in_if() {
     assert_parity_and_liveness(EACH_CONTINUE, "2", "continue-in-each-in-if");
 }
+
+// ── №766 (gh#1419, Wave 59): the THIRD form of the class — each inside a
+// match ARM ────────────────────────────────────────────────────────────
+//
+// The external audit (METALOGOS_AUDIT_9fa9821.md, §3 H-2, §6 п.3): the
+// №369 comment (the nested match) + gh#1336 (the nested each) name ONE
+// class — «form A inside form B» — and the matrix had no each-in-match
+// test (the "match arms" mention lived only in the header comment). The
+// shared compile_stmt_with_locals now compiles every nested context, so
+// this pin closes the last row of the audit's list: the match arm is
+// the same nested context the if/while/each bodies are.
+
+#[test]
+fn n766_each_inside_match_arm_executes_on_both_backends() {
+    let prog = r#"
+pattern P(x: String) -> String {
+  let mut acc = 0.0
+  match x {
+    "go" then {
+      each item in ["a", "b"] {
+        acc = acc + len(item)
+      }
+    }
+    else {
+      acc = 0.0
+    }
+  }
+  return to_string(acc)
+}
+flow Main { input: String = "go" -> P -> output }
+"#;
+    // The accumulator is read AFTER the match: a dropped each (either
+    // backend) answers 0 instead of 2 — the gh#1336 silent-drop shape
+    // cannot pass as parity.
+    assert_parity_and_liveness(prog, "2", "each-in-match-arm (№766)");
+}
+
+#[test]
+fn n766_each_with_index_inside_match_arm_executes() {
+    // The each-with-index form — the second loop form of the №17.3 pair —
+    // through the same match-arm context, the index riding the sum.
+    let prog = r#"
+pattern P(x: String) -> String {
+  let mut acc = 0.0
+  match x {
+    "go" then {
+      each i, item in ["a", "bc", "def"] {
+        acc = acc + len(item) + i
+      }
+    }
+    else {
+      acc = 0.0
+    }
+  }
+  return to_string(acc)
+}
+flow Main { input: String = "go" -> P -> output }
+"#;
+    // 0 + 1 + 2 + (1 + 2 + 3) = 9
+    assert_parity_and_liveness(prog, "9", "each-with-index-in-match-arm (№766)");
+}

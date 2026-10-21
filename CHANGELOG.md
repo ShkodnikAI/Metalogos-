@@ -6,6 +6,48 @@ All notable changes to the Metalogos project.
 
 ### Fixed
 
+- **№762 (gh#1415, Wave 58 — the census/classification of the 129 quiet
+  `unwrap_or(Value::Unit)` fallbacks in `vm.rs`, the №756 scope tail):**
+  the loud operand contract (the ADR-0194 package A = (c) RATIFIED) is
+  pinned for the reachable class. The census split every site by the
+  live handler/opcode facts: **(a) 47 pinned, semantics unchanged** —
+  (a1) 39 loud-through-result (the fallback feeds an evaluator that
+  rejects `Unit` loudly on every path: the binop family through
+  `eval_binop`'s coded mismatch, `Contains` on the run loop through
+  `eval_contains`, `CmpGt/Lt/Ge/Le` through the `eval_cmp` catch-all —
+  only `CmpEq`/`CmpNe` answer `Unit` silently, `GetField` through
+  `get_field` (the №756 contract), the rule-value `FieldAccess` read,
+  and `LoadGlobalByName` — every valid-program emission is a
+  name-reference position whose miss lands the builtin's own loud
+  `model not declared` text, which stays UNCHANGED); (a2) 6
+  documented-soft language semantics (the `IndexAccess` in-value
+  lookups — out-of-range index / missing key are valid-program events
+  with the documented `Unit` answer); (a3) 2 internal register-stack
+  pops (`EndValueExpr` over `value_registers`). **(b) 82
+  reachable-masking — fixed loud:** the `.mbc` delivery path
+  (`deserialize` — no version/integrity gate) makes stack underflow and
+  slot-bounds misses reachable via a desynchronized or corrupt program,
+  and the silent `Unit` fallback flowed into results, stores, branches
+  and memory as the №604 class-4 silently-wrong shape — every class-(b)
+  site now refuses loudly naming the instruction and the fact
+  (`VM: stack underflow at …`, the slot/range/name spelled out). Zero
+  observable change on valid bytecode: the compiler guarantees every
+  operand (`expr; Return` in every context, the №582 epilogue, the
+  constructor-paired slots), all fixes are line-count-neutral (the
+  registry `vm.rs:` anchors hold). Pins:
+  `tests/naryad_762_unit_fallback_census.rs` (7: the run-loop and
+  inner-loop underflow pins with the named refusals, the slot-bounds
+  pins, the inner `Return` + the body-epilogue tail, the (a1)
+  loud-through-result behavioral pins (Add/CmpGt/GetField refuse with
+  the evaluator's text, no underflow text), the (a2) documented-soft
+  pins, and the happy-path negative controls). AFFECTS: the VM lane
+  semantics — a desynchronized or corrupt `.mbc` program now fails
+  loudly at the first operand-stack violation instead of silently
+  producing `Unit`-poisoned results/branches/memory (the programs that
+  relied on the silent fallback read the loud refusal); valid programs
+  are byte-for-byte unchanged; the TW lane unchanged (structurally
+  incapable of stack underflow).
+
 - **№756 (gh#1408, Wave 57 — the two lane divergences from the №751
   (α)-walk):** the TW/VM lanes answer ONE contract on both discoveries.
   (1) `resolve_skill_index`: the VM lane answers the dept-qualified

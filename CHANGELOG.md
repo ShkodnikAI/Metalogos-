@@ -53,8 +53,8 @@ All notable changes to the Metalogos project.
   (`deserialize` — no version/integrity gate) makes stack underflow and
   slot-bounds misses reachable via a desynchronized or corrupt program,
   and the silent `Unit` fallback flowed into results, stores, branches
-  and memory as the №604 class-4 silently-wrong shape — every class-(b)
-  site now refuses loudly naming the instruction and the fact
+  and memory as the №604 class-4 shape (the error masked as a value) —
+  every class-(b) site now refuses loudly naming the instruction and the fact
   (`VM: stack underflow at …`, the slot/range/name spelled out). Zero
   observable change on valid bytecode: the compiler guarantees every
   operand (`expr; Return` in every context, the №582 epilogue, the

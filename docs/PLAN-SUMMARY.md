@@ -114,6 +114,55 @@ MINOR), №639 (15.10) / №648 (01.12) outside the wave.
 
 ## Current wave — the open machine tail (2026-10-21)
 
+Wave 56 EXECUTED (the dispatch gh#1400): №751 → №752 → №753 (strictly
+last). №751 (the movement №11 — the lane α ENDGAME): the machine walk
+of ALL 32 open rows on live main faa35c3 (the --goal032 --list list
+confirmed 1:1) — the HONEST ZERO (the №736 form) with the (α)
+fixation: lane α is EXHAUSTED — every remaining row grows only
+through the owner gates ((β) state unions — the gate 7; (γ) opaque
+kinds; the Secret spellings — ADR-0195 §7 (c)) or through the
+lane-parity fixes OUTSIDE the types movement (ADR-0194 Запреты). TWO
+discoveries (both lane-parity facts, the candidate [compiler]
+naryads): (1) resolve_skill_index — the №717 "true-stub posture"
+anchor factually STALE: the handlers LIVE on both lanes (TW
+execution.rs:2537-2603, VM vm.rs:2466-2522) but the lanes DIVERGE —
+the TW type_name format!("SkillIndex_{dept}") (execution.rs:2600) vs
+the fixed "SkillIndex" (vm.rs:2519), the truncation field TW-only —
+no honest spelling survives (the №669 form) — the DIVERGENCE class
+(the ADR-0075 family), the row stays Unknown honest; (2) the
+absent-field READ diverges across ALL structs — the TW FieldAccess
+propagates the get_field error LOUDLY (execution.rs:1743,
+values.rs:386-394) while the VM GetField falls back to the silent
+Unit (vm.rs:1232) — not in the ADR-0075 ledger, the loud-fail
+(ADR-0194) candidate. The registry comment refreshes (comment-only,
+spec! args byte-for-byte): resolve_skill_index + fit_to_budget (the
+stale "no handler" anchor — live both lanes). The battery
+tests/naryad_751_endgame_walk.rs (4 tests — the behavioral divergence
+pin: the SAME program answers TW "String" / VM "Unit"); CI 49/49
+round 1; the floors NOT moved (the zero closures — only-up
+respected). №752 (the release line of two windows): the draft
+machine check — the draft was the №745/В54 cut (7 rows) while
+[Unreleased] carries EIGHT (В55 assigned no release naryad, the
+dedup) → the regen: the body = release_notes.py Unreleased VERBATIM
+(BODY_VERBATIM_OK, №497), the header re-dated; the DECIDED figure
+recorded — 0.33.2 tail-ride (the owner's verbatim 21.10); the gates
+GREEN on ccb4f9b: unfreeze --strict Overall GREEN (§4 + v2 0.31,
+exit 0 — 4.1 enforced 7072 = recorded; the 4.4 twin GREEN 4/4 after
+the environmental ENOSPC RED was cleaned — the В48 lesson),
+release_gap EXIT 0, goal032 35/67 EXIT 0, gate-facts-sync EXIT 0,
+gen_metrics/gen_reference --check OK; the tags v0.33.2/v0.34.0
+absent, drafts 0; the §2.5 package of 02.11 — (i) 0.33.3 tail-ride,
+(ii) 0.34.0 feature-cut per ADR-0195 §7 (b) — the FIRST set where
+the 0.34 gate formally passes (N=23 exceeded by the live 35/67); GO
+verified-wait both windows; CI 49/49 round 1. №753 (the docs sync,
+strictly last): REALITY §6.41, this row, the counters from the
+generators (gen_reference --check OK — no REFERENCE drift). The
+owner gates: the 26.10 window — the 0.33.2 prep-to-publication tail
+(the cut + the lockstep 0.33.1 → 0.33.2 + the regen) by the
+В56-tail naryad, the tag → publication — the OWNER's act (ADR-0186
+§4.5); the (α)-package — the (β)/(γ)/Secret/parity lanes (the gate
+7); the 02.11 figure.
+
 Wave 55 EXECUTED (the dispatch gh#1394): №748 → №749 (strictly last;
 the release naryad NOT assigned — the 26.10 window occupied by the GO
 verified-wait №745). №748 (the movement №10 — the lane α

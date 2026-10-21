@@ -882,7 +882,9 @@ impl Vm {
                     ip += 1;
                 }
                 Instruction::LoadGlobal(slot) => {
-                    let val = self.globals.get(*slot).cloned().unwrap_or(Value::Unit);
+                    let val = self.globals.get(*slot).cloned().ok_or_else(|| {
+                        underflow_err(&format!("LoadGlobal (global slot {slot} out of range)"))
+                    })?;
                     stack.push(val);
                     ip += 1;
                 }
@@ -908,7 +910,7 @@ impl Vm {
                     ip += 1;
                 }
                 Instruction::StoreGlobal(slot) => {
-                    let val = stack.pop().unwrap_or(Value::Unit);
+                    let val = stack.pop().ok_or_else(|| underflow_err("StoreGlobal"))?;
                     if *slot < self.globals.len() {
                         self.globals[*slot] = val;
                     }
@@ -918,14 +920,16 @@ impl Vm {
                     // Local variables are stored on the stack, below the base pointer
                     let bp = call_stack.last().map(|f| f.base_bp).unwrap_or(0);
                     let idx = bp + slot;
-                    let val = stack.get(idx).cloned().unwrap_or(Value::Unit);
+                    let val = stack.get(idx).cloned().ok_or_else(|| {
+                        underflow_err(&format!("LoadLocal (local slot {idx} out of range)"))
+                    })?;
                     stack.push(val);
                     ip += 1;
                 }
                 Instruction::StoreLocal(slot) => {
                     let bp = call_stack.last().map(|f| f.base_bp).unwrap_or(0);
                     let idx = bp + slot;
-                    let val = stack.pop().unwrap_or(Value::Unit);
+                    let val = stack.pop().ok_or_else(|| underflow_err("StoreLocal"))?;
                     if idx >= stack.len() {
                         stack.resize(idx + 1, Value::Unit);
                     }
@@ -951,7 +955,9 @@ impl Vm {
                     }
                     let bp = call_stack.last().map(|f| f.base_bp).unwrap_or(0);
                     let idx = bp + slot;
-                    let val = stack.pop().unwrap_or(Value::Unit);
+                    let val = stack
+                        .pop()
+                        .ok_or_else(|| underflow_err("StoreAssignLocal"))?;
                     if idx >= stack.len() {
                         stack.resize(idx + 1, Value::Unit);
                     }
@@ -1014,7 +1020,12 @@ impl Vm {
                         .unwrap_or_else(|| "unknown".to_string());
                     let mut args = Vec::new();
                     for _ in 0..*arity {
-                        args.insert(0, stack.pop().unwrap_or(Value::Unit));
+                        args.insert(
+                            0,
+                            stack.pop().ok_or_else(|| {
+                                underflow_err(&format!("CallBuiltin '{name}' (operand)"))
+                            })?,
+                        );
                     }
                     // Problem B: map(list, "pattern_name") — needs pattern table access
                     if name == "map" {
@@ -1075,7 +1086,12 @@ impl Vm {
                     // Pop arguments (in reverse) and bind as locals
                     let mut locals = Vec::new();
                     for _ in 0..*arity {
-                        locals.insert(0, stack.pop().unwrap_or(Value::Unit));
+                        locals.insert(
+                            0,
+                            stack.pop().ok_or_else(|| {
+                                underflow_err(&format!("CallPattern '{}' (argument)", pattern.name))
+                            })?,
+                        );
                     }
 
                     // Push call frame
@@ -1106,7 +1122,7 @@ impl Vm {
                     // instruction — not from nested pattern calls (those go
                     // through execute_code which has its own Return handler).
                     // For correctness, truncate the stack and stop execution.
-                    let return_val = stack.pop().unwrap_or(Value::Unit);
+                    let return_val = stack.pop().ok_or_else(|| underflow_err("Return"))?;
                     if let Some(frame) = call_stack.pop() {
                         stack.truncate(frame.base_bp);
                     }
@@ -1119,7 +1135,12 @@ impl Vm {
                 Instruction::LlmCall(idx, arity) => {
                     let mut args = Vec::new();
                     for _ in 0..*arity {
-                        args.insert(0, stack.pop().unwrap_or(Value::Unit));
+                        args.insert(
+                            0,
+                            stack.pop().ok_or_else(|| {
+                                underflow_err(&format!("LlmCall #{idx} (operand)"))
+                            })?,
+                        );
                     }
                     let result = self.call_llm(*idx, &args)?;
                     stack.push(result);
@@ -1183,14 +1204,14 @@ impl Vm {
                     ip += 1;
                 }
                 Instruction::CmpEq => {
-                    let right = stack.pop().unwrap_or(Value::Unit);
-                    let left = stack.pop().unwrap_or(Value::Unit);
+                    let right = stack.pop().ok_or_else(|| underflow_err("CmpEq (right)"))?;
+                    let left = stack.pop().ok_or_else(|| underflow_err("CmpEq (left)"))?;
                     stack.push(self.eval_cmp(left, right, AstCompareOp::Eq)?);
                     ip += 1;
                 }
                 Instruction::CmpNe => {
-                    let right = stack.pop().unwrap_or(Value::Unit);
-                    let left = stack.pop().unwrap_or(Value::Unit);
+                    let right = stack.pop().ok_or_else(|| underflow_err("CmpNe (right)"))?;
+                    let left = stack.pop().ok_or_else(|| underflow_err("CmpNe (left)"))?;
                     let eq_result = self.eval_cmp(left, right, AstCompareOp::Eq)?;
                     match eq_result {
                         // №372: Bool encoding (TW parity) — invert the Bool.
@@ -1216,7 +1237,12 @@ impl Vm {
                     // Pop in reverse to get correct order
                     let mut values = Vec::new();
                     for _ in 0..field_names.len() {
-                        values.insert(0, stack.pop().unwrap_or(Value::Unit));
+                        values.insert(
+                            0,
+                            stack.pop().ok_or_else(|| {
+                                underflow_err(&format!("MakeStruct '{type_name}' (field value)"))
+                            })?,
+                        );
                     }
                     for (name, val) in field_names.iter().zip(values.iter()) {
                         fields.insert(name.clone(), val.clone());
@@ -1240,8 +1266,12 @@ impl Vm {
                     ip += 1;
                 }
                 Instruction::IndexAccess => {
-                    let idx = stack.pop().unwrap_or(Value::Unit);
-                    let base = stack.pop().unwrap_or(Value::Unit);
+                    let idx = stack
+                        .pop()
+                        .ok_or_else(|| underflow_err("IndexAccess (index)"))?;
+                    let base = stack
+                        .pop()
+                        .ok_or_else(|| underflow_err("IndexAccess (base)"))?;
                     let result = match (&base, &idx) {
                         (Value::List(items), Value::Float(f)) => {
                             let i = *f as isize;
@@ -1269,7 +1299,9 @@ impl Vm {
                     let mut pairs: Vec<(Value, Value)> = Vec::new();
                     for _ in 0..*count {
                         let confidence = stack.pop().unwrap_or(Value::Float(0.0));
-                        let value = stack.pop().unwrap_or(Value::Unit);
+                        let value = stack
+                            .pop()
+                            .ok_or_else(|| underflow_err("MakeFluid (value)"))?;
                         pairs.insert(0, (value, confidence));
                     }
                     for (value, confidence) in pairs {
@@ -1296,7 +1328,7 @@ impl Vm {
                     ip = *target;
                 }
                 Instruction::JumpIfNot(target) => {
-                    let val = stack.pop().unwrap_or(Value::Unit);
+                    let val = stack.pop().ok_or_else(|| underflow_err("JumpIfNot"))?;
                     if !is_truthy(&val) {
                         ip = *target;
                     } else {
@@ -1310,7 +1342,7 @@ impl Vm {
                     // opaque / Fluid — a LOUD coded refusal, never a silent
                     // branch (the №629 loud-refusal class). The soft
                     // `is_truthy` (JumpIfNot) stays for &&/|| only (№532).
-                    let val = stack.pop().unwrap_or(Value::Unit);
+                    let val = stack.pop().ok_or_else(|| underflow_err("JumpIfNotCond"))?;
                     if !val.as_bool()? {
                         ip = *target;
                     } else {
@@ -1318,7 +1350,7 @@ impl Vm {
                     }
                 }
                 Instruction::JumpIfLow(threshold, target) => {
-                    let val = stack.pop().unwrap_or(Value::Unit);
+                    let val = stack.pop().ok_or_else(|| underflow_err("JumpIfLow"))?;
                     let below = match &val {
                         Value::Float(f) => *f < *threshold,
                         Value::Fluid(variants) => {
@@ -1340,13 +1372,13 @@ impl Vm {
 
                 // ── METALOGOS Memory ────────────────────────────
                 Instruction::Collapse(required_type) => {
-                    let val = stack.pop().unwrap_or(Value::Unit);
+                    let val = stack.pop().ok_or_else(|| underflow_err("Collapse"))?;
                     let collapsed = self.maybe_collapse(&val, required_type);
                     stack.push(collapsed);
                     ip += 1;
                 }
                 Instruction::Memorize(priority) => {
-                    let val = stack.pop().unwrap_or(Value::Unit);
+                    let val = stack.pop().ok_or_else(|| underflow_err("Memorize"))?;
                     let value_str = match val {
                         Value::String(s) => s,
                         other => format!("{}", other),
@@ -1365,7 +1397,7 @@ impl Vm {
                     ip += 1;
                 }
                 Instruction::Recall => {
-                    let query = stack.pop().unwrap_or(Value::Unit);
+                    let query = stack.pop().ok_or_else(|| underflow_err("Recall"))?;
                     let query_str = match query {
                         Value::String(s) => s,
                         other => format!("{}", other),
@@ -1375,7 +1407,7 @@ impl Vm {
                     ip += 1;
                 }
                 Instruction::Forget(days) => {
-                    let query = stack.pop().unwrap_or(Value::Unit);
+                    let query = stack.pop().ok_or_else(|| underflow_err("Forget"))?;
                     let query_str = match query {
                         Value::String(s) => s,
                         other => format!("{}", other),
@@ -1393,14 +1425,16 @@ impl Vm {
 
                 // ── Adapt / Relate / Mutate ─────────────────────
                 Instruction::Adapt(pattern_name) => {
-                    let output_str = match stack.pop().unwrap_or(Value::Unit) {
-                        Value::String(s) => s,
-                        other => format!("{}", other),
-                    };
-                    let input_str = match stack.pop().unwrap_or(Value::Unit) {
-                        Value::String(s) => s,
-                        other => format!("{}", other),
-                    };
+                    let output_str =
+                        match stack.pop().ok_or_else(|| underflow_err("Adapt (output)"))? {
+                            Value::String(s) => s,
+                            other => format!("{}", other),
+                        };
+                    let input_str =
+                        match stack.pop().ok_or_else(|| underflow_err("Adapt (input)"))? {
+                            Value::String(s) => s,
+                            other => format!("{}", other),
+                        };
                     // Find the learnable by name and add the example
                     let mut found = false;
                     for (info, few_shot) in &mut self.learnables {
@@ -1424,15 +1458,18 @@ impl Vm {
                     ip += 1;
                 }
                 Instruction::Relate => {
-                    let relation = match stack.pop().unwrap_or(Value::Unit) {
+                    let relation = match stack
+                        .pop()
+                        .ok_or_else(|| underflow_err("Relate (relation)"))?
+                    {
                         Value::String(s) => s,
                         other => format!("{}", other),
                     };
-                    let to = match stack.pop().unwrap_or(Value::Unit) {
+                    let to = match stack.pop().ok_or_else(|| underflow_err("Relate (to)"))? {
                         Value::String(s) => s,
                         other => format!("{}", other),
                     };
-                    let from = match stack.pop().unwrap_or(Value::Unit) {
+                    let from = match stack.pop().ok_or_else(|| underflow_err("Relate (from)"))? {
                         Value::String(s) => s,
                         other => format!("{}", other),
                     };
@@ -1455,14 +1492,18 @@ impl Vm {
                     // Pop example_count pairs of (input, output)
                     let mut new_examples = Vec::new();
                     for _ in 0..*example_count {
-                        let output_str = match stack.pop().unwrap_or(Value::Unit) {
+                        let output_str = match stack
+                            .pop()
+                            .ok_or_else(|| underflow_err("Mutate (output)"))?
+                        {
                             Value::String(s) => s,
                             other => format!("{}", other),
                         };
-                        let input_str = match stack.pop().unwrap_or(Value::Unit) {
-                            Value::String(s) => s,
-                            other => format!("{}", other),
-                        };
+                        let input_str =
+                            match stack.pop().ok_or_else(|| underflow_err("Mutate (input)"))? {
+                                Value::String(s) => s,
+                                other => format!("{}", other),
+                            };
                         new_examples.push((input_str, output_str));
                     }
 
@@ -1486,7 +1527,9 @@ impl Vm {
                         pipeline,
                         branch_defs,
                     } = &**fp;
-                    let source_val = stack.pop().unwrap_or(Value::Unit);
+                    let source_val = stack
+                        .pop()
+                        .ok_or_else(|| underflow_err("FlowPipeline (source)"))?;
 
                     // Execute pipeline steps
                     let mut current = source_val;
@@ -1510,14 +1553,22 @@ impl Vm {
                     // Load the source value (legacy path)
                     let source_val = match source_expr {
                         FlowExpr::GlobalSlot(slot) => {
-                            self.globals.get(*slot).cloned().unwrap_or(Value::Unit)
+                            self.globals.get(*slot).cloned().ok_or_else(|| {
+                                underflow_err(&format!(
+                                    "FlowExec (global slot {slot} out of range)"
+                                ))
+                            })?
                         }
                         FlowExpr::Ident(name) => program
                             .globals
                             .iter()
                             .position(|n| n == name)
                             .and_then(|slot| self.globals.get(slot).cloned())
-                            .unwrap_or(Value::Unit),
+                            .ok_or_else(|| {
+                                underflow_err(&format!(
+                                    "FlowExec (flow source '{name}' unresolved)"
+                                ))
+                            })?,
                         FlowExpr::Const(v) => v.clone(),
                     };
 
@@ -1579,13 +1630,18 @@ impl Vm {
                 Instruction::MakeList(count) => {
                     let mut items = Vec::new();
                     for _ in 0..*count {
-                        items.insert(0, stack.pop().unwrap_or(Value::Unit));
+                        items.insert(
+                            0,
+                            stack
+                                .pop()
+                                .ok_or_else(|| underflow_err("MakeList (element)"))?,
+                        );
                     }
                     stack.push(Value::List(items));
                     ip += 1;
                 }
                 Instruction::ListLen => {
-                    let val = stack.pop().unwrap_or(Value::Unit);
+                    let val = stack.pop().ok_or_else(|| underflow_err("ListLen"))?;
                     let len = match val {
                         Value::List(items) => items.len() as f64,
                         _ => 0.0,
@@ -1606,8 +1662,12 @@ impl Vm {
                     ip += 1;
                 }
                 Instruction::StartsWith => {
-                    let needle = stack.pop().unwrap_or(Value::Unit);
-                    let haystack = stack.pop().unwrap_or(Value::Unit);
+                    let needle = stack
+                        .pop()
+                        .ok_or_else(|| underflow_err("StartsWith (needle)"))?;
+                    let haystack = stack
+                        .pop()
+                        .ok_or_else(|| underflow_err("StartsWith (haystack)"))?;
                     let result = match (&haystack, &needle) {
                         (Value::String(h), Value::String(n)) => {
                             Value::Bool(h.starts_with(n.as_str()))
@@ -1626,12 +1686,18 @@ impl Vm {
                     // MatchTest::matches — same code TW runs.
                     let ok = match &**test {
                         MatchTest::Compare(op) => {
-                            let threshold = stack.pop().unwrap_or(Value::Unit);
-                            let scrutinee = stack.pop().unwrap_or(Value::Unit);
+                            let threshold = stack
+                                .pop()
+                                .ok_or_else(|| underflow_err("MatchTest (threshold)"))?;
+                            let scrutinee = stack
+                                .pop()
+                                .ok_or_else(|| underflow_err("MatchTest (scrutinee)"))?;
                             crate::ast::MatchArm::compare_values(&scrutinee, op, &threshold)
                         }
                         other => {
-                            let scrutinee = stack.pop().unwrap_or(Value::Unit);
+                            let scrutinee = stack
+                                .pop()
+                                .ok_or_else(|| underflow_err("MatchTest (scrutinee)"))?;
                             other.matches(&scrutinee, &Value::Unit)
                         }
                     };
@@ -1640,7 +1706,7 @@ impl Vm {
                 }
                 // ── Value expressions (№370, ADR-0141 Stage 1.2) ──
                 Instruction::Dup => {
-                    let top = stack.last().cloned().unwrap_or(Value::Unit);
+                    let top = stack.last().cloned().ok_or_else(|| underflow_err("Dup"))?;
                     stack.push(top);
                     ip += 1;
                 }
@@ -1652,7 +1718,7 @@ impl Vm {
                     // TW eval_statements_cf contract: only a NON-Unit value
                     // updates the register; a trailing Unit-valued
                     // statement does not reset it.
-                    let val = stack.pop().unwrap_or(Value::Unit);
+                    let val = stack.pop().ok_or_else(|| underflow_err("KeepLastValue"))?;
                     if !matches!(val, Value::Unit) {
                         if let Some(reg) = self.value_registers.last_mut() {
                             *reg = val;
@@ -1669,7 +1735,7 @@ impl Vm {
                     // №622: the UNCONDITIONAL capture — a `return` inside a
                     // value-channel arm body replaces the block value (even
                     // with Unit), the TW eval_statements flatten contract.
-                    let val = stack.pop().unwrap_or(Value::Unit);
+                    let val = stack.pop().ok_or_else(|| underflow_err("SetValueReg"))?;
                     if let Some(reg) = self.value_registers.last_mut() {
                         *reg = val;
                     }
@@ -1739,14 +1805,16 @@ impl Vm {
                 Instruction::LoadLocal(slot) => {
                     let bp = call_stack.last().map(|f| f.base_bp).unwrap_or(0);
                     let idx = bp + slot;
-                    let val = stack.get(idx).cloned().unwrap_or(Value::Unit);
+                    let val = stack.get(idx).cloned().ok_or_else(|| {
+                        underflow_err(&format!("LoadLocal (local slot {idx} out of range)"))
+                    })?;
                     stack.push(val);
                     ip += 1;
                 }
                 Instruction::StoreLocal(slot) => {
                     let bp = call_stack.last().map(|f| f.base_bp).unwrap_or(0);
                     let idx = bp + slot;
-                    let val = stack.pop().unwrap_or(Value::Unit);
+                    let val = stack.pop().ok_or_else(|| underflow_err("StoreLocal"))?;
                     // Ensure stack has space at idx
                     if idx >= stack.len() {
                         stack.resize(idx + 1, Value::Unit);
@@ -1768,7 +1836,9 @@ impl Vm {
                     }
                     let bp = call_stack.last().map(|f| f.base_bp).unwrap_or(0);
                     let idx = bp + slot;
-                    let val = stack.pop().unwrap_or(Value::Unit);
+                    let val = stack
+                        .pop()
+                        .ok_or_else(|| underflow_err("StoreAssignLocal"))?;
                     // Ensure stack has space at idx
                     if idx >= stack.len() {
                         stack.resize(idx + 1, Value::Unit);
@@ -1781,7 +1851,9 @@ impl Vm {
                     ip += 1;
                 }
                 Instruction::LoadGlobal(slot) => {
-                    let val = self.globals.get(*slot).cloned().unwrap_or(Value::Unit);
+                    let val = self.globals.get(*slot).cloned().ok_or_else(|| {
+                        underflow_err(&format!("LoadGlobal (global slot {slot} out of range)"))
+                    })?;
                     stack.push(val);
                     ip += 1;
                 }
@@ -1793,7 +1865,12 @@ impl Vm {
                         .unwrap_or_else(|| "unknown".to_string());
                     let mut args = Vec::new();
                     for _ in 0..*arity {
-                        args.insert(0, stack.pop().unwrap_or(Value::Unit));
+                        args.insert(
+                            0,
+                            stack.pop().ok_or_else(|| {
+                                underflow_err(&format!("CallBuiltin '{name}' (operand)"))
+                            })?,
+                        );
                     }
                     // Problem B: map(list, "pattern_name") — needs pattern table access
                     if name == "map" {
@@ -1846,7 +1923,12 @@ impl Vm {
                     }
                     let mut locals = Vec::new();
                     for _ in 0..*arity {
-                        locals.insert(0, stack.pop().unwrap_or(Value::Unit));
+                        locals.insert(
+                            0,
+                            stack.pop().ok_or_else(|| {
+                                underflow_err(&format!("CallPattern '{}' (argument)", pattern.name))
+                            })?,
+                        );
                     }
                     let base_bp = stack.len();
                     call_stack.push(CallFrame {
@@ -1891,14 +1973,14 @@ impl Vm {
                     ip += 1;
                 }
                 Instruction::Return => {
-                    return Ok(stack.pop().unwrap_or(Value::Unit));
+                    return stack.pop().ok_or_else(|| underflow_err("Return"));
                 }
                 // Phase 5.1: control flow in pattern bodies
                 Instruction::Jump(target) => {
                     ip = *target;
                 }
                 Instruction::JumpIfNot(target) => {
-                    let val = stack.pop().unwrap_or(Value::Unit);
+                    let val = stack.pop().ok_or_else(|| underflow_err("JumpIfNot"))?;
                     if !is_truthy(&val) {
                         ip = *target;
                     } else {
@@ -1908,7 +1990,7 @@ impl Vm {
                 Instruction::JumpIfNotCond(target) => {
                     // №651 (S-VAL-013): the condition path in pattern bodies —
                     // the same TW `as_bool` mirror as the main loop's arm.
-                    let val = stack.pop().unwrap_or(Value::Unit);
+                    let val = stack.pop().ok_or_else(|| underflow_err("JumpIfNotCond"))?;
                     if !val.as_bool()? {
                         ip = *target;
                     } else {
@@ -1941,14 +2023,14 @@ impl Vm {
                     ip += 1;
                 }
                 Instruction::CmpEq => {
-                    let right = stack.pop().unwrap_or(Value::Unit);
-                    let left = stack.pop().unwrap_or(Value::Unit);
+                    let right = stack.pop().ok_or_else(|| underflow_err("CmpEq (right)"))?;
+                    let left = stack.pop().ok_or_else(|| underflow_err("CmpEq (left)"))?;
                     stack.push(self.eval_cmp(left, right, AstCompareOp::Eq)?);
                     ip += 1;
                 }
                 Instruction::CmpNe => {
-                    let right = stack.pop().unwrap_or(Value::Unit);
-                    let left = stack.pop().unwrap_or(Value::Unit);
+                    let right = stack.pop().ok_or_else(|| underflow_err("CmpNe (right)"))?;
+                    let left = stack.pop().ok_or_else(|| underflow_err("CmpNe (left)"))?;
                     let eq_result = self.eval_cmp(left, right, AstCompareOp::Eq)?;
                     match eq_result {
                         // №372: Bool encoding (TW parity) — invert the Bool.
@@ -1990,8 +2072,12 @@ impl Vm {
                 }
                 // Problem B: IndexAccess was missing from execute_code.
                 Instruction::IndexAccess => {
-                    let idx = stack.pop().unwrap_or(Value::Unit);
-                    let base = stack.pop().unwrap_or(Value::Unit);
+                    let idx = stack
+                        .pop()
+                        .ok_or_else(|| underflow_err("IndexAccess (index)"))?;
+                    let base = stack
+                        .pop()
+                        .ok_or_else(|| underflow_err("IndexAccess (base)"))?;
                     let result = match (&base, &idx) {
                         (Value::List(items), Value::Float(f)) => {
                             let i = *f as isize;
@@ -2011,7 +2097,7 @@ impl Vm {
                     ip += 1;
                 }
                 Instruction::Collapse(required_type) => {
-                    let val = stack.pop().unwrap_or(Value::Unit);
+                    let val = stack.pop().ok_or_else(|| underflow_err("Collapse"))?;
                     let collapsed = self.maybe_collapse(&val, required_type);
                     stack.push(collapsed);
                     ip += 1;
@@ -2019,14 +2105,19 @@ impl Vm {
                 Instruction::LlmCall(idx, arity) => {
                     let mut args = Vec::new();
                     for _ in 0..*arity {
-                        args.insert(0, stack.pop().unwrap_or(Value::Unit));
+                        args.insert(
+                            0,
+                            stack.pop().ok_or_else(|| {
+                                underflow_err(&format!("LlmCall #{idx} (operand)"))
+                            })?,
+                        );
                     }
                     let result = self.call_llm(*idx, &args)?;
                     stack.push(result);
                     ip += 1;
                 }
                 Instruction::Recall => {
-                    let query = stack.pop().unwrap_or(Value::Unit);
+                    let query = stack.pop().ok_or_else(|| underflow_err("Recall"))?;
                     let query_str = match query {
                         Value::String(s) => s,
                         other => format!("{}", other),
@@ -2043,7 +2134,7 @@ impl Vm {
                 // dishonest silence this наряд excludes. Handlers mirror
                 // execute_main_code verbatim (same stores, same audit parity).
                 Instruction::Memorize(priority) => {
-                    let val = stack.pop().unwrap_or(Value::Unit);
+                    let val = stack.pop().ok_or_else(|| underflow_err("Memorize"))?;
                     let value_str = match val {
                         Value::String(s) => s,
                         other => format!("{}", other),
@@ -2062,7 +2153,7 @@ impl Vm {
                     ip += 1;
                 }
                 Instruction::Forget(days) => {
-                    let query = stack.pop().unwrap_or(Value::Unit);
+                    let query = stack.pop().ok_or_else(|| underflow_err("Forget"))?;
                     let query_str = match query {
                         Value::String(s) => s,
                         other => format!("{}", other),
@@ -2078,15 +2169,18 @@ impl Vm {
                     ip += 1;
                 }
                 Instruction::Relate => {
-                    let relation = match stack.pop().unwrap_or(Value::Unit) {
+                    let relation = match stack
+                        .pop()
+                        .ok_or_else(|| underflow_err("Relate (relation)"))?
+                    {
                         Value::String(s) => s,
                         other => format!("{}", other),
                     };
-                    let to = match stack.pop().unwrap_or(Value::Unit) {
+                    let to = match stack.pop().ok_or_else(|| underflow_err("Relate (to)"))? {
                         Value::String(s) => s,
                         other => format!("{}", other),
                     };
-                    let from = match stack.pop().unwrap_or(Value::Unit) {
+                    let from = match stack.pop().ok_or_else(|| underflow_err("Relate (from)"))? {
                         Value::String(s) => s,
                         other => format!("{}", other),
                     };
@@ -2103,13 +2197,18 @@ impl Vm {
                 Instruction::MakeList(count) => {
                     let mut items = Vec::new();
                     for _ in 0..*count {
-                        items.insert(0, stack.pop().unwrap_or(Value::Unit));
+                        items.insert(
+                            0,
+                            stack
+                                .pop()
+                                .ok_or_else(|| underflow_err("MakeList (element)"))?,
+                        );
                     }
                     stack.push(Value::List(items));
                     ip += 1;
                 }
                 Instruction::ListLen => {
-                    let val = stack.pop().unwrap_or(Value::Unit);
+                    let val = stack.pop().ok_or_else(|| underflow_err("ListLen"))?;
                     let len = match val {
                         Value::List(items) => items.len() as f64,
                         _ => 0.0,
@@ -2130,8 +2229,12 @@ impl Vm {
                     ip += 1;
                 }
                 Instruction::StartsWith => {
-                    let needle = stack.pop().unwrap_or(Value::Unit);
-                    let haystack = stack.pop().unwrap_or(Value::Unit);
+                    let needle = stack
+                        .pop()
+                        .ok_or_else(|| underflow_err("StartsWith (needle)"))?;
+                    let haystack = stack
+                        .pop()
+                        .ok_or_else(|| underflow_err("StartsWith (haystack)"))?;
                     let result = match (&haystack, &needle) {
                         (Value::String(h), Value::String(n)) => {
                             Value::Bool(h.starts_with(n.as_str()))
@@ -2148,12 +2251,18 @@ impl Vm {
                 Instruction::MatchTest(test) => {
                     let ok = match &**test {
                         MatchTest::Compare(op) => {
-                            let threshold = stack.pop().unwrap_or(Value::Unit);
-                            let scrutinee = stack.pop().unwrap_or(Value::Unit);
+                            let threshold = stack
+                                .pop()
+                                .ok_or_else(|| underflow_err("MatchTest (threshold)"))?;
+                            let scrutinee = stack
+                                .pop()
+                                .ok_or_else(|| underflow_err("MatchTest (scrutinee)"))?;
                             crate::ast::MatchArm::compare_values(&scrutinee, op, &threshold)
                         }
                         other => {
-                            let scrutinee = stack.pop().unwrap_or(Value::Unit);
+                            let scrutinee = stack
+                                .pop()
+                                .ok_or_else(|| underflow_err("MatchTest (scrutinee)"))?;
                             other.matches(&scrutinee, &Value::Unit)
                         }
                     };
@@ -2162,7 +2271,7 @@ impl Vm {
                 }
                 // ── Value expressions (№370) — see execute_main_code ──
                 Instruction::Dup => {
-                    let top = stack.last().cloned().unwrap_or(Value::Unit);
+                    let top = stack.last().cloned().ok_or_else(|| underflow_err("Dup"))?;
                     stack.push(top);
                     ip += 1;
                 }
@@ -2171,7 +2280,7 @@ impl Vm {
                     ip += 1;
                 }
                 Instruction::KeepLastValue => {
-                    let val = stack.pop().unwrap_or(Value::Unit);
+                    let val = stack.pop().ok_or_else(|| underflow_err("KeepLastValue"))?;
                     if !matches!(val, Value::Unit) {
                         if let Some(reg) = self.value_registers.last_mut() {
                             *reg = val;
@@ -2188,7 +2297,7 @@ impl Vm {
                     // №622: the UNCONDITIONAL capture — a `return` inside a
                     // value-channel arm body replaces the block value (even
                     // with Unit), the TW eval_statements flatten contract.
-                    let val = stack.pop().unwrap_or(Value::Unit);
+                    let val = stack.pop().ok_or_else(|| underflow_err("SetValueReg"))?;
                     if let Some(reg) = self.value_registers.last_mut() {
                         *reg = val;
                     }
@@ -2202,7 +2311,12 @@ impl Vm {
                     let mut fields = HashMap::new();
                     let mut values = Vec::new();
                     for _ in 0..field_names.len() {
-                        values.insert(0, stack.pop().unwrap_or(Value::Unit));
+                        values.insert(
+                            0,
+                            stack.pop().ok_or_else(|| {
+                                underflow_err(&format!("MakeStruct '{type_name}' (field value)"))
+                            })?,
+                        );
                     }
                     for (name, val) in field_names.iter().zip(values.iter()) {
                         fields.insert(name.clone(), val.clone());
@@ -2214,8 +2328,12 @@ impl Vm {
                     ip += 1;
                 }
                 Instruction::Contains => {
-                    let needle = stack.pop().unwrap_or(Value::Unit);
-                    let haystack = stack.pop().unwrap_or(Value::Unit);
+                    let needle = stack
+                        .pop()
+                        .ok_or_else(|| underflow_err("Contains (needle)"))?;
+                    let haystack = stack
+                        .pop()
+                        .ok_or_else(|| underflow_err("Contains (haystack)"))?;
                     let result = match (&haystack, &needle) {
                         (Value::String(h), Value::String(n)) => Value::Bool(h.contains(n.as_str())),
                         (Value::List(items), _) => Value::Bool(
@@ -2262,7 +2380,9 @@ impl Vm {
                 }
             }
         }
-        Ok(stack.pop().unwrap_or(Value::Unit))
+        stack
+            .pop()
+            .ok_or_else(|| underflow_err("the body epilogue (the return value)"))
     }
 
     /// Call a built-in function by name.
@@ -3733,7 +3853,11 @@ impl Vm {
                 // Search globals by name
                 let slot = self.global_names.iter().position(|n| n == name);
                 match slot {
-                    Some(s) => Ok(self.globals.get(s).cloned().unwrap_or(Value::Unit)),
+                    Some(s) => Ok(self.globals.get(s).cloned().ok_or_else(|| {
+                        underflow_err(&format!(
+                            "the rule value read (global slot {s} out of range for '{name}')"
+                        ))
+                    })?),
                     // №479 (ADR-0131): stable diagnostic code at the origin —
                     // parity with the TW lane's stamp for the same failure.
                     None => Err(crate::interpreter::values::coded_error(
@@ -4205,6 +4329,38 @@ impl Vm {
             )),
         }
     }
+}
+
+/// №762 (gh#1415, Wave 58): the loud operand contract (ADR-0194 package A
+/// = (c) RATIFIED) — the census of the 129 quiet `unwrap_or(Value::Unit)`
+/// fallbacks in this file split every site into:
+///   (a) 47 pinned, semantics unchanged:
+///     (a1) 39 loud-through-result — the fallback feeds an evaluator that
+///          rejects Unit loudly on every path (eval_binop / eval_contains /
+///          the eval_cmp Eq|Ne-free catch-all / get_field / as_float; the
+///          LoadGlobalByName name-reference positions whose miss lands the
+///          builtin's own loud "model not declared" — semantic.rs keeps
+///          that text UNCHANGED);
+///     (a2) 6 documented-soft language semantics — the IndexAccess
+///          in-value lookups (out-of-range index, missing struct key are
+///          VALID-program events with the documented Unit answer);
+///     (a3) 2 internal register-stack pops (value_registers, paired by
+///          BeginValueExpr/EndValueExpr — not bytecode-stream-controlled);
+///   (b) 82 reachable-masking (this landing): the .mbc delivery path
+///       (`deserialize` — bytecode.rs, no version/integrity gate) makes
+///       stack underflow / slot-bounds misses REACHABLE via a
+///       desynchronized or corrupt program, and the silent Unit fallback
+///       then flows into results, stores, branches and memory as the
+///       №604 class-4 silently-wrong shape. Every class-(b) site now
+///       refuses LOUDLY naming the instruction; zero observable change on
+///       valid bytecode (the compiler guarantees every operand — the
+///       constructor pins live in tests/naryad_762_unit_fallback_census.rs).
+/// All fixes are line-count-neutral (1:1) — the registry.rs vm.rs:NNNN
+/// anchors hold (the same-PR rule, форма №740).
+fn underflow_err(instr: &str) -> String {
+    format!(
+        "VM: stack underflow at {instr} (the operand stack is empty or the slot is out of range — bytecode desync or a corrupt .mbc)"
+    )
 }
 
 /// Truthiness check (matches interpreter).

@@ -3555,3 +3555,110 @@ zero closures, the (α) fixation; the two divergence discoveries
 pinned behaviorally); the **draft refreshed to the eight-row truth**
 (№752 — the В55 dedup gap closed); the **0.33.2 figure fixed** (the
 owner's verbatim 21.10).
+
+### 6.42. Wave 57 post-wave record (naryad №760): the two lane divergences RESOLVED — the resolve_skill_index parity + the GetField loud-fail (the ADR-0194 (c) contract); the release line — the next-draft refreshed by the Wave 57 fact, the 02.11 figure mapped, GO verified-wait (main @ the naryad's PR, 2026-10-21)
+
+The wave composition №756 → №759 → №760 (strictly last; the dispatch
+gh#1411; the machine trigger — the В56 close + the 0.33.2 publication
+tail consumed):
+
+- **№756** (gh#1408, squash `21b3be9`): the [compiler] naryad — BOTH
+  lane divergences from the №751 (α)-walk resolved by parity,
+  semantically, OUTSIDE the types movement (ADR-0194 Запреты — the
+  floors not moved, the return_type stays Unknown honest per the №669
+  form). **(1) resolve_skill_index — ONE shape on both lanes:** the
+  type_name `format!("SkillIndex_{dept}")` on BOTH (the TW canon; the
+  VM fixed «SkillIndex» is gone — the vm.rs run-loop arm); the
+  truncation field carries on BOTH — `CompiledSkillIndex.truncation`
+  (bytecode.rs, `serde(default)` — the old .mbc safe), the compiler
+  maps the declaration's `TruncationMode` (compiler.rs), the VM arm
+  inserts the field in the TW spelling (`whole_skill_only` /
+  `truncate_at_boundary`); absent stays absent on both (no fictitious
+  default). **(2) The absent-field READ — loud-fail on both lanes**
+  (ADR-0194 package A = (c)): the VM `GetField` `Unit` fallback
+  removed on BOTH execution loops (`run()` and `execute_code_inner()`
+  — was `unwrap_or(Value::Unit)`, the error masked as a value — the
+  №604 class-4 shape); the `get_field` Err propagates verbatim (the
+  same strings the TW FieldAccess always propagated). The ADR-0075
+  ledger section «Resolved in Naryad №756» (rows 22–24 — the
+  GetField loudness NOT in the original 21-case list, the walk's
+  discovery 2); the registry comment carries the resolution anchors.
+  The pins: NEW `tests/naryad_756_lane_divergences.rs` (8 behavioral
+  pins, both lanes: the dept-qualified type_name probe + the negative
+  fixed-form control; the truncation both-modes + absent-stays-absent;
+  the absent-field and non-struct loud refusals with the pinned error
+  strings; the present-field happy path `List|Float`); the №751
+  divergence pin re-pinned to the parity fact (форма №740, same-PR):
+  `n756_resolved_type_name_and_truncation_are_parity_across_lanes` —
+  both lanes «String». CI **49/49 GREEN round 2** (round 1 48/49 — the
+  honest note: the naryad's own CHANGELOG row matched the №604/№643
+  security-dictionary surface on the compound «silently-wrong»
+  bi-gram; the row re-spelled honestly without the bi-gram — the fact
+  still named («the error masked as a value — the №604 class-4
+  shape»), the release-block label NOT claimed deliberately — the
+  naryad FIXES the divergence, it does not describe a live
+  security-relevant boundary; the dictionary probe 0 matches after).
+  The gates GREEN: gen_metrics --check OK (the README regen — the
+  CHANGELOG-size fact, the №735 lesson); gen_reference --check OK
+  (526/526); goal032 EXIT 0 (35/67 only-up); release_gap EXIT 0;
+  gate-facts-sync EXIT 0; type_signature_share EXIT 0 (the floors
+  untouched); unfreeze --gate-target 0.33.2 --strict --office-tests
+  pass **EXIT 0 Overall GREEN** (twin naryad_429_memory_office_path
+  4/4 on the tree; the toolchain 1.99.1 58cf8f9c3 — the sandbox
+  reassembled after the snapshot rollback layer); fmt clean; clippy
+  -D warnings clean; the interlock batteries green (751 4/4 after the
+  re-pin, crosscheck 8/8 — the 58/58 goldens, vm_golden 24/24,
+  inspect 4/4, phase19_22 20/20, 269 4/4).
+- **№759** (gh#1409, squash `cdc5140`): the release line (the sixth
+  window of the Monday cadence; the lekalo №752/№745/№741). The
+  [Unreleased] carries the №756 Fixed row → the №754 prep-day
+  next-draft STALE (№713: a stale draft is a lie) → **the regen**: the
+  header the №759 form (the figure UNDECIDED — the owner's call to the
+  02.11 window), the body = `release_notes.py Unreleased` VERBATIM
+  (the diff probe **BODY VERBATIM OK** — №497). The **§2.5-map** of
+  the 02.11 figure filed in the issue (the decision support, NOT the
+  choice): (i) 0.33.3 tail-ride — 1 Fixed (№756), the low prep cost,
+  the AFFECTS note mandatory (the VM absent-field reads refuse loudly
+  now); (ii) 0.34.0 feature-cut — the ADR-0195 §7 criteria gate-ready
+  (the ratchets enforced=recorded, the RECORD N=23 exceeded by the
+  live 35/67) but the roster EMPTY and the minor-number cost (the
+  gate consumed, the next feature-cut pushed to 0.35.0). The gates
+  GREEN ×2 (before/after the refresh). **GO 02.11 — verified-wait**
+  (both figures technically ready; the merge/tag/publication — the
+  OWNER's act, §6.5/ADR-0186 §4.5). CI **49/49 GREEN round 1**.
+- **№760** (gh#1410, this PR): the post-wave docs sync — REALITY
+  §6.42, the PLAN-SUMMARY Wave 57 row, the counters from the
+  generators; docs/limitations.md — NO new honest-boundaries records
+  (the divergences are RESOLVED by №756, not declared live — the loud
+  GetField is the landed contract, not a boundary; the §16.0-D stub
+  discipline held).
+
+The machine numbers at the sync (2026-10-21, main @ cdc5140): the
+sensitive surface **110/145 = 7586 bp** (the enforced floor **7586
+bp**, only-up), **goal032 closed 35/67** (the gate BLOCKING —
+ADR-0193 Accepted), **typed 372/526 = 70.72% (precise 242/526 =
+46.00%)**, the **parameterized share 97/127 = 76.37%**, the
+**field-label share 59/61 = 96.72%**, **mirrors 6, dups 0**, **debt
+8/0/15 (ignore 8, example_uncovered 0, dead_code 15)**, **REFERENCE
+526/526 = 100.0%** (gen_reference --check OK — no drift: the №756
+changes are semantics, the rendered signature surface unchanged),
+**[Unreleased] carries the №756 Fixed row** (the merged naryads only
+— the №687 rule). gen_metrics --check OK (the №566 consistency
+holds).
+
+The owner gates remaining (accumulated): the **02.11 window — the
+figure** (0.33.3 tail-ride vs 0.34.0 feature-cut — the §2.5-map in
+gh#1409; GO verified-wait) **+ the tag → publication** (the OWNER's
+act — ADR-0186 §4.5); the **goal032 lanes** — the (α)-package (the
+gate 7): (β) the state unions, (γ) the opaque kinds, the Secret
+spellings (ADR-0195 §7 (c) — parked until the lanes open), the
+data-dependent trio and the candle-gated reflex_generate — the
+semantics lanes; the NLnet/Restack M1 (03.11.2026); №648
+(01.12.2026); the zip-ignore review (2026-11-17); the coverage
+threshold (№569 — PARKED by ADR-0195 (c)); the second maintainer;
+the PAT rotation. RESOLVED this cycle: **both lane divergences** —
+the resolve_skill_index parity (the dept-qualified type_name + the
+truncation field on both lanes) and the GetField loud-fail (the
+ADR-0194 (c) contract landed on both lanes and both VM loops); the
+**next-draft refreshed** by the Wave 57 fact; the **02.11 figure
+mapped** with the GO verified-wait.

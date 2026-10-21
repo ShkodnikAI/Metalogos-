@@ -114,6 +114,53 @@ MINOR), №639 (15.10) / №648 (01.12) outside the wave.
 
 ## Current wave — the open machine tail (2026-10-21)
 
+Wave 57 EXECUTED (the dispatch gh#1411): №756 → №759 → №760
+(strictly last). №756 (the [compiler] naryad): BOTH lane divergences
+from the №751 (α)-walk RESOLVED by parity — semantically, OUTSIDE the
+types movement (the floors not moved, the return_type stays Unknown
+honest per the №669 form). (1) resolve_skill_index — ONE shape on both
+lanes: the type_name format!("SkillIndex_{dept}") on BOTH (the TW
+canon; the VM fixed "SkillIndex" gone — the vm.rs run-loop arm), the
+truncation field carries on BOTH (CompiledSkillIndex.truncation —
+bytecode.rs; the compiler maps the declaration's TruncationMode; the
+VM arm inserts it in the TW spelling; absent stays absent on both).
+(2) The absent-field READ — loud-fail on both lanes (the ADR-0194
+package A = (c) contract): the VM GetField Unit fallback REMOVED on
+BOTH execution loops (run() and execute_code_inner() — was
+unwrap_or(Value::Unit), the error masked as a value — the №604
+class-4 shape); the get_field Err propagates verbatim. The ADR-0075
+ledger section "Resolved in Naryad №756" (rows 22–24); the registry
+comment carries the resolution anchors. The pins: NEW
+tests/naryad_756_lane_divergences.rs (8 behavioral pins, both lanes);
+the №751 divergence pin re-pinned to the parity fact (форма №740,
+same-PR). CI 49/49 GREEN round 2 (round 1 48/49 — the honest note:
+the CHANGELOG row matched the №604/№643 security-dictionary surface
+on the compound "silently-wrong" bi-gram; re-spelled honestly, the
+fact still named, the release-block label NOT claimed — the naryad
+fixes the divergence, it does not declare a live boundary). The
+gates GREEN: gen_metrics --check OK (the README regen — the
+№735 lesson); gen_reference --check OK (526/526); goal032 EXIT 0
+(35/67); release_gap EXIT 0; gate-facts-sync EXIT 0;
+type_signature_share EXIT 0 (the floors untouched); unfreeze
+--strict --office-tests pass EXIT 0 Overall GREEN (the twin 4/4;
+the toolchain reassembled after the sandbox rollback layer); fmt
+clean; clippy -D warnings clean; the interlocks green (751 4/4,
+crosscheck 8/8, vm_golden 24/24, inspect 4/4, phase19 20/20, 269
+4/4). №759 (the release line, the sixth window of the Monday
+cadence): the [Unreleased] carries the №756 Fixed row → the next-
+draft STALE (№713) → the regen (the header the №759 form — the
+figure UNDECIDED; the body VERBATIM — BODY VERBATIM OK, №497); the
+§2.5-map filed (0.33.3 tail-ride — 1 Fixed, the low cost, the
+AFFECTS note mandatory; 0.34.0 feature-cut — gate-ready but the
+roster EMPTY and the minor-number cost); the gates GREEN ×2; GO
+02.11 verified-wait (the publication — the OWNER's act, ADR-0186
+§4.5); CI 49/49 round 1. №760 (the docs sync, strictly last):
+REALITY §6.42, this row, the counters from the generators
+(gen_reference --check OK — no drift); limitations — no new
+records (the divergences are RESOLVED, not declared live). The
+owner gates: the 02.11 window figure + the tag → publication; the
+(α)-package (the gate 7); NLnet M1 03.11; №648 01.12.
+
 Wave 56 EXECUTED (the dispatch gh#1400): №751 → №752 → №753 (strictly
 last). №751 (the movement №11 — the lane α ENDGAME): the machine walk
 of ALL 32 open rows on live main faa35c3 (the --goal032 --list list

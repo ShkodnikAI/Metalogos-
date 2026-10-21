@@ -1591,8 +1591,11 @@ fn label_source(fn_name: &str, args: &[Expr], env: &BTreeMap<String, Label>) -> 
             })
         }
         "http_get" | "read_file" => Some(kind_label("UserInput")),
-        // Sanitizers restore trust.
-        "render" | "escape_html" => Some(kind_label("Sanitized")),
+        // Sanitizers restore trust. №765 (gh#1418, Wave 59 — the audit
+        // S-1b): render is REMOVED — a template with raw slots (`{{{ }}}`)
+        // conducts the untrusted state verbatim (the let-form XSS); the
+        // escape_html status is untouched (the audit's boundary).
+        "escape_html" => Some(kind_label("Sanitized")),
         // N2 (gh#1211): ct_eq — the constant-time comparison verdict.
         // The INTEGRITY is restored (the verdict is the "validate before
         // decide" data the №327 decision gate asks for — comparing an
@@ -1734,6 +1737,31 @@ fn expr_label(expr: &Expr, env: &BTreeMap<String, Label>) -> Label {
         Expr::Ident { name, .. } => env.get(name).cloned().unwrap_or_else(Label::bottom),
         Expr::FieldAccess { object, .. } => expr_label(object, env),
         Expr::FnCall { name, args, .. } => {
+            // №765 (gh#1418, Wave 59 — the audit S-1b): render is NOT a
+            // blanket sanitizer — the seeded raw map decides per position
+            // (the №685 walk mirror): the all-escaped template keeps the
+            // sanitizer semantics (the №685-D/n98 pins — the escaped slot
+            // escapes at runtime), any raw slot conducts the join of its
+            // raw args (the let-form XSS the audit pinned), and a
+            // dynamic/unknown name is the conservative join of ALL value
+            // args (the №685-E fail-closed pin). The BINARY predicate
+            // lists took the blanket removal; the ENGINES carry the
+            // position-aware form — the only shape that satisfies both
+            // the audit's fix and the №685 interlocks.
+            if name == "render" {
+                let snapshot = crate::html_label::render_raw_snapshot();
+                let raw_positions =
+                    crate::html_label::resolve_raw_positions(&snapshot, args.first());
+                let is_raw = |idx: usize| raw_positions.map(|p| p.contains(&idx)).unwrap_or(true);
+                let mut acc = legacy_taint_label("Sanitized").unwrap_or_else(Label::bottom);
+                for (idx, a) in args.iter().skip(1).enumerate() {
+                    if !is_raw(idx) {
+                        continue;
+                    }
+                    acc = acc.join(&expr_label(a, env));
+                }
+                return acc;
+            }
             if let Some(l) = label_source(name, args, env) {
                 return l;
             }
@@ -6698,6 +6726,12 @@ fn schema_ddl_dryrun(declarations: &[Declaration], errors: &mut Vec<SpannedError
 ///   - Opaque types used in correct contexts (Phase 6.2–6.5)
 #[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
+    // №765 (gh#1418, Wave 59 — the audit S-1b): the raw-position map is
+    // seeded here too — the position-aware render arm in expr_label
+    // reads it on the CHECK path (the audit entries seed for their own
+    // path; re-seeding overwrites — each invocation is self-contained,
+    // the seed_render_raw contract).
+    crate::html_label::seed_render_raw(declarations);
     let mut result = AnalysisResult::default();
     let mut entity_types: HashSet<String> = HashSet::new();
     let mut entity_names: HashSet<String> = HashSet::new();

@@ -111,6 +111,27 @@ pub(crate) fn render_raw_snapshot() -> Option<RenderRawMap> {
     RENDER_RAW.with(|cell| cell.borrow().clone())
 }
 
+/// №765 (gh#1418, Wave 59 — the audit S-1b): the shared static-template
+/// resolution for the render name argument. A StringLit name is the
+/// literal form; a bare Ident is the name-reference form (render is a
+/// name-reference builtin — semantic.rs `is_name_reference_builtin` — a
+/// bare Ident there is a compile-time template reference, never a
+/// variable read). A name that maps to a DECLARED template resolves its
+/// raw positions; anything else (a variable holding the name — the
+/// №685-E dynamic pin, an expression, an unknown name) is the
+/// conservative unknown. ONE resolution, THREE consumers (the walk's
+/// two modes + the label engines) — the ONE-scan discipline.
+pub(crate) fn resolve_raw_positions<'a>(
+    snapshot: &'a Option<RenderRawMap>,
+    name_arg: Option<&Expr>,
+) -> Option<&'a Vec<usize>> {
+    match (snapshot, name_arg) {
+        (Some(map), Some(Expr::StringLit { value, .. })) => map.get(value),
+        (Some(map), Some(Expr::Ident { name, .. })) => map.get(name),
+        _ => None,
+    }
+}
+
 /// The depth bound of the sink walk — the №295 contract (the mirror of
 /// the audit's `TAINT_NESTING_MAX_DEPTH`): at depth 4+ the walk cannot
 /// see and the argument is honestly unflagged intraprocedurally.
@@ -261,13 +282,42 @@ fn walk(
             }
             if name == "render" {
                 if mode != WalkMode::Sink {
+                    // №765 (gh#1418, Wave 59 — the audit S-1b): the
+                    // BINDING walk no longer treats render() as an
+                    // unconditional String lifter either — a raw slot
+                    // (`{{{ }}}` / the safe form) CONDUCTS the untrusted
+                    // state of its argument into the value the variable
+                    // HOLDS: the audit's let-form (`let page =
+                    // render("T", j.author, j.text)` → respond_html(page))
+                    // read a clean String here and the page went out
+                    // unchecked. The raw positions resolve from the
+                    // seeded map exactly like the sink walk; a
+                    // dynamic/unknown name walks every argument
+                    // conservatively (fail-closed). A labeled argument
+                    // at a raw position answers
+                    // `Labeled(String, Untrusted)` — the rendered page
+                    // carries that value verbatim into the HTML surface
+                    // (the raw-slot OUTPUT is untrusted regardless of
+                    // the input label kind); only all-escaped positions
+                    // keep the pinned clean `Type::String`.
+                    let snapshot = render_raw_snapshot();
+                    let raw_positions = resolve_raw_positions(&snapshot, args.first());
+                    let is_raw = |idx: usize| -> bool {
+                        raw_positions.map(|pos| pos.contains(&idx)).unwrap_or(true)
+                    };
+                    for (idx, arg) in args.iter().skip(1).enumerate() {
+                        if !is_raw(idx) {
+                            continue;
+                        }
+                        if walk(arg, vars, learnable, WalkMode::BindingNested, depth + 1).is_some()
+                        {
+                            return Some(llm_source_type());
+                        }
+                    }
                     return Some(Type::String);
                 }
                 let snapshot = render_raw_snapshot();
-                let raw_positions: Option<&Vec<usize>> = match (&snapshot, args.first()) {
-                    (Some(map), Some(Expr::StringLit { value, .. })) => map.get(value),
-                    _ => None,
-                };
+                let raw_positions = resolve_raw_positions(&snapshot, args.first());
                 // The escape positions are skipped either way; the raw
                 // positions conduct. Unknown template (no seeded fact
                 // for the name — including a literal name that maps to

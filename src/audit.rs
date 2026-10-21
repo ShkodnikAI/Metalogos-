@@ -3007,11 +3007,13 @@ fn memory_key_prefix(expr: &Expr) -> Option<String> {
     }
 }
 
-/// `render` / `escape_html` / `redact` at the TOP of an expression lift
-/// the taint (the same sanitizer vocabulary the sink-clearance and
-/// №327 decision gates accept).
+/// `escape_html` / `redact` at the TOP of an expression lift the taint
+/// (the same sanitizer vocabulary the sink-clearance and №327 decision
+/// gates accept). №765 (gh#1418, Wave 59 — the audit S-1b): render is
+/// REMOVED — a template with raw slots conducts the untrusted state
+/// verbatim; the fail-closed posture (№523/№531) points this way.
 fn is_memory_taint_sanitizer(name: &str) -> bool {
-    name == "render" || name == "escape_html" || name == "redact"
+    name == "escape_html" || name == "redact"
 }
 
 /// №405: resolve the memory-key prefix THROUGH local let-bindings —
@@ -4610,11 +4612,13 @@ impl InterpWalkState {
     }
 }
 
-/// №292 (hoisted for the state walker): render/escape_html wrapping
-/// anything is sanitized — taint lifted.
+/// №292 (hoisted for the state walker): escape_html wrapping anything is
+/// sanitized — taint lifted. №765 (gh#1418, Wave 59 — the audit S-1b):
+/// render is REMOVED — a template with raw slots conducts the untrusted
+/// state verbatim (the let-form XSS the audit pinned).
 fn is_interp_sanitizer_expr(expr: &crate::ast::Expr) -> bool {
     if let crate::ast::Expr::FnCall { name, .. } = expr {
-        if name == "render" || name == "escape_html" {
+        if name == "escape_html" {
             return true;
         }
     }
@@ -4687,7 +4691,35 @@ fn interp_expr_label(
             .cloned()
             .unwrap_or_else(crate::labels::Label::bottom),
         crate::ast::Expr::FnCall { name, args, .. } => {
-            if name == "render" || name == "escape_html" {
+            // №765 (gh#1418, Wave 59 — the audit S-1b): render is NOT a
+            // blanket sanitizer — the seeded raw map decides per position
+            // (the №685 walk mirror): the all-escaped template keeps the
+            // sanitizer semantics (the №685-D pin — the escaped slot
+            // escapes at runtime), any raw slot conducts the join of its
+            // raw args (the let-form XSS), and a dynamic/unknown name is
+            // the conservative join of ALL value args (the №685-E pin).
+            // The BINARY predicate lists took the blanket removal; the
+            // ENGINES carry the position-aware form — the only shape that
+            // satisfies both the audit's fix and the №685 interlocks.
+            if name == "render" {
+                let snapshot = crate::html_label::render_raw_snapshot();
+                let raw_positions =
+                    crate::html_label::resolve_raw_positions(&snapshot, args.first());
+                let is_raw = |idx: usize| raw_positions.map(|p| p.contains(&idx)).unwrap_or(true);
+                let mut acc = crate::labels::legacy_taint_label("Sanitized")
+                    .unwrap_or_else(crate::labels::Label::bottom);
+                for (idx, a) in args.iter().skip(1).enumerate() {
+                    if !is_raw(idx) {
+                        continue;
+                    }
+                    acc = acc.join(&interp_expr_label(a, state, summaries));
+                }
+                return acc;
+            }
+            // №765 (gh#1418, Wave 59 — the audit S-1b): escape_html keeps
+            // its sanitizer status (the audit's boundary); render moved to
+            // the position-aware arm above.
+            if name == "escape_html" {
                 return crate::labels::legacy_taint_label("Sanitized")
                     .unwrap_or_else(crate::labels::Label::bottom);
             }

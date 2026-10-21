@@ -3427,3 +3427,131 @@ review (2026-11-17); the coverage threshold (№569 — PARKED by ADR-0195
 the **movement №10** — the intercept walk of the whole wall landed
 (№748, the goal032 29 → 35/67; the six-row package closed; the deny
 pair + the events trio + reflex_list live contracts pinned).
+
+### 6.41. Wave 56 post-wave record (naryad №753): the movement №11 — the lane α ENDGAME: the honest zero + the (α) fixation — the two divergence discoveries; the release line — the draft refreshed to the eight-row truth, the 0.33.2 figure decided (main @ the naryad's PR, 2026-10-21)
+
+The wave composition №751 → №752 → №753 (strictly last; the dispatch
+gh#1400; the owner trigger 21.10 + the verbatim «Исполняй волну 56,
+затем готовь релиз 0.33.2 к публикации» — the 0.33.2 figure FIXED):
+
+- **№751** (gh#1397, squash `ccb4f9b`): the 0.32 fixed-list movement
+  №11 — the lane α endgame. The machine walk of ALL 32 open rows on
+  live main faa35c3 (the `--goal032 --list` list confirmed 1:1) — the
+  **HONEST ZERO** (the №736 form) with the **(α) fixation: lane α is
+  EXHAUSTED** — every remaining row grows only through the owner
+  gates (the (β) state unions — the gate 7; the (γ) opaque kinds; the
+  Secret spellings — ADR-0195 §7 (c)) or through the lane-parity
+  fixes OUTSIDE the types movement (ADR-0194 Запреты). The TWO
+  discoveries (both lane-parity facts, both outside the movement —
+  the candidate [compiler] naryads): **(1) resolve_skill_index** —
+  the №717 «true-stub posture» anchor factually STALE (the same error
+  class as the №748 events/deny anchors): the handlers ARE LIVE on
+  both lanes (TW execution.rs:2537-2603, VM vm.rs:2466-2522, the
+  shared №466 group 7 validation runtime_ops.rs:261-290) — but the
+  lanes DIVERGE: the TW type_name is `format!("SkillIndex_{dept}")`
+  (execution.rs:2600) while the VM's is the fixed «SkillIndex»
+  (vm.rs:2519), and the truncation field is TW-only (execution.rs:
+  2588-2598; the VM arm ends at budget — vm.rs:2515-2521) — a single
+  honest spelling is impossible without lying about a lane (the №669
+  form; no dynamic-arm form in the union grammar) — the refusal
+  class: the **LANE DIVERGENCE** (the ADR-0075 family), the row stays
+  Unknown honest; **(2) the absent-field READ diverges across ALL
+  structs** — the TW FieldAccess propagates the get_field error
+  LOUDLY (execution.rs:1743; values.rs:386-394 — Result) while the
+  VM GetField falls back to the silent Unit (vm.rs:1232 — the
+  unwrap_or) — NOT in the ADR-0075 ledger; the loud-fail contract
+  (ADR-0194) candidate. The registry comment refreshes (comment-only,
+  the spec! args byte-for-byte): resolve_skill_index (true-stub → the
+  divergence class) + fit_to_budget (the stale «no handler» anchor —
+  live on both lanes: execution.rs:964/2605-2609, vm.rs:2839,
+  runtime_ops.rs:78 — outside the №688 list, outside the movement).
+  The interlock №730 noted (the Unknown pin holds). The battery
+  `tests/naryad_751_endgame_walk.rs` (4 tests: the both-lane Struct
+  liveness Struct|List|List|Struct — the TriggerRule type_name the
+  SAME on both lanes; the loud no-declaration refusal both lanes; the
+  behavioral divergence pin — the SAME program answers TW «String» /
+  VM «Unit»; the registry Unknown pin). CI **49/49 GREEN round 1**;
+  the floors NOT moved (the zero closures — only-up respected:
+  goal032 35/67, sensitive 7586 bp, typed 7072, precise 4600,
+  parameterized 7637 bp unchanged); gen_metrics/gen_reference --check
+  OK; clippy -D warnings clean; locally 23/23 across the four
+  batteries (n730 6, n748 8, n751 4, problem_a 5).
+- **№752** (gh#1398, squash `f560c0b`): the release line of two
+  windows (lekalo №719; the prep form №745). The machine draft check:
+  the draft was the №745/В54 cut (7 rows) while [Unreleased] @
+  ccb4f9b carries **EIGHT** (В55 assigned no release naryad — the
+  dedup) → the composition changed → **the regen**: the body =
+  `release_notes.py Unreleased` VERBATIM (the diff check
+  BODY_VERBATIM_OK — №497: the notes and the changelog can never
+  disagree by construction), the header re-dated (№752, 2026-10-21).
+  The header records the DECIDED figure: **0.33.2 tail-ride — the
+  owner's verbatim 21.10**; the cut [Unreleased] → [0.33.2] (the
+  stamp 2026-10-26) + the lockstep 0.33.1 → 0.33.2 + the regen
+  `release_notes.py 0.33.2` — the prep-to-publication tail (the
+  В56-tail naryad); the publication — the OWNER's act (§6.5/ADR-0186
+  §4.5). The gates GREEN on ccb4f9b: **unfreeze --strict Overall
+  GREEN (§4 + v2 0.31), exit 0** (4.1 enforced 7072 bp = recorded;
+  4.2 dups 0 / mirrors 6; 4.3 debt 8/8·0/0·15/15; 4.4 the twin
+  naryad_429_memory_office_path GREEN 4/4 on this commit — the
+  honest environmental note: the first local strict read fell RED on
+  4.4 — the runner disk 100%, ENOSPC os error 28 at the twin build,
+  the В48 lesson: target 8.2G → cargo clean → the twin 4/4; the RED
+  was not code, the CI verdict OT=pass matches); **release_gap EXIT
+  0**; **goal032 35/67 EXIT 0**; **gate-facts-sync EXIT 0**;
+  gen_metrics/gen_reference --check OK. The release objects: the
+  tags v0.33.2/v0.34.0 ABSENT, drafts 0, Latest v0.33.1. The §2.5
+  package of the 02.11 window (the figure NOT pre-decided): (i)
+  0.33.3 tail-ride — the ratchet-cadence continuation; (ii) 0.34.0
+  feature-cut per ADR-0195 §7 form (b) — **the FIRST set where the
+  0.34 gate formally passes** (the ratchets enforced=recorded + the
+  RECORD line «closed 23/67 — live 35/67»; N=23 exceeded). GO
+  verified-wait both windows. CI **49/49 GREEN round 1**.
+- **№753** (gh#1399, this PR): the post-wave docs sync — REALITY
+  §6.41, the PLAN-SUMMARY Wave 56 row, the counters from the
+  generators (gen_reference --check OK — no REFERENCE drift: the
+  №751 changes are registry-comment-only, the rendered surface is
+  unchanged); docs/limitations.md — NO new honest-boundaries records
+  (zero product changes; the divergences are the EXISTING-surface
+  facts recorded here and in the registry comments, not new stub
+  rows; the §16.0-D stub discipline held).
+
+The machine numbers at the sync (2026-10-21, main @ f560c0b): the
+sensitive surface **110/145 = 7586 bp** (the enforced floor **7586
+bp**, only-up), **goal032 closed 35/67** (the gate BLOCKING —
+ADR-0193 Accepted; the db group 3/3, the request_body group 0/1),
+**typed 372/526 = 70.72% (precise 242/526 = 46.00%)**, the
+**parameterized share 97/127 = 76.37%**, the **field-label share
+59/61 = 96.72%**, **mirrors 6, dups 0, quorum 0/8**, **debt 8/0/15
+(ignore 8, example_uncovered 0, dead_code 15)**, **REFERENCE
+526/526 = 100.0%** (gen_reference --check OK), **[Unreleased] carries
+the №729 Added + №723/№734/№735/№740/№744/№748 Changed + №724 Fixed
+rows** (the merged naryads only — the №687 rule). gen_metrics
+--check OK (the hand-written numbers match the generators — the №566
+consistency holds).
+
+The owner gates remaining (accumulated): the **26.10 window — the
+0.33.2 prep-to-publication tail** (the cut [Unreleased] → [0.33.2]
+with the stamp 2026-10-26 + the lockstep 0.33.1 → 0.33.2 + the regen
+`release_notes.py 0.33.2` — the В56-tail naryad by the owner's
+verbatim 21.10) **+ the tag → publication** (the OWNER's act —
+ADR-0186 §4.5); the **goal032 lanes** — the (α)-result package (the
+gate 7): (β) session_poll_wake/session_take_interrupt/backend_select/
+inspect (the №543-form state unions), (γ) the opaque kinds (the 9
+unnamed + series_make/media_source_capture + reflex_load/
+reflex_bpe_load), the Secret spellings secret/generate_key/
+memory_read (ADR-0195 §7 (c) — parked until the lanes open), the
+parity fixes OUTSIDE the types movement — resolve_skill_index (the
+type_name + the truncation field) and the GetField loudness (the
+ADR-0194 loud-fail contract); the data-dependent trio
+(call_llm_schema/config_load/find) and the candle-gated
+reflex_generate — the semantics lanes; the **02.11 window figure**
+(0.33.3 tail-ride vs 0.34.0 feature-cut — the §2.5 package in
+gh#1398; the first set where the 0.34 gate formally passes); the
+NLnet/Restack M1 (03.11.2026); №648 (01.12.2026); the zip-ignore
+review (2026-11-17); the coverage threshold (№569 — PARKED by
+ADR-0195 (c)); the second maintainer; the PAT rotation. RESOLVED
+this cycle: the **movement №11** — lane α exhausted honestly (the
+zero closures, the (α) fixation; the two divergence discoveries
+pinned behaviorally); the **draft refreshed to the eight-row truth**
+(№752 — the В55 dedup gap closed); the **0.33.2 figure fixed** (the
+owner's verbatim 21.10).

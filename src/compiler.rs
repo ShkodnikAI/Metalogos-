@@ -411,6 +411,18 @@ impl Compiler {
                     let compiled = crate::bytecode::CompiledSkillIndex {
                         name: si.name.clone(),
                         budget: si.budget,
+                        // №756: the truncation mode carries over the compile —
+                        // the VM lane answers the same Struct shape as the TW
+                        // lane (the ADR-0075 divergence resolved; the canon
+                        // spelling is the TW one, execution.rs:2588-2598).
+                        truncation: si.truncation.as_ref().map(|t| match t {
+                            crate::ast::TruncationMode::WholeSkillOnly => {
+                                "whole_skill_only".to_string()
+                            }
+                            crate::ast::TruncationMode::TruncateAtBoundary => {
+                                "truncate_at_boundary".to_string()
+                            }
+                        }),
                         tiers: si
                             .tiers
                             .iter()

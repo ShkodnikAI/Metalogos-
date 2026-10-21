@@ -1229,7 +1229,13 @@ impl Vm {
                 }
                 Instruction::GetField(field) => {
                     let val = stack.pop().unwrap_or(Value::Unit);
-                    let result = val.get_field(field).cloned().unwrap_or(Value::Unit);
+                    // №756 (gh#1408, Wave 57): loud-fail parity (ADR-0194
+                    // package A = (c)) — the absent field / the non-struct
+                    // access propagates the get_field Err on BOTH lanes and
+                    // BOTH VM execution loops (was: the silent Unit fallback
+                    // — the №604 class-4 silently-wrong shape; ADR-0075
+                    // resolved). The run() loop site.
+                    let result = val.get_field(field).cloned()?;
                     stack.push(result);
                     ip += 1;
                 }
@@ -1958,7 +1964,14 @@ impl Vm {
                 }
                 Instruction::GetField(field) => {
                     let val = stack.pop().unwrap_or(Value::Unit);
-                    let result = val.get_field(field).cloned().unwrap_or(Value::Unit);
+                    // №756 (gh#1408, Wave 57): loud-fail parity (ADR-0194
+                    // package A = (c)) — the absent field / the non-struct
+                    // access propagates the get_field Err on BOTH lanes and
+                    // BOTH VM execution loops (was: the silent Unit fallback
+                    // — the №604 class-4 silently-wrong shape; ADR-0075
+                    // resolved). The execute_code_inner() loop site (the
+                    // pattern/route/function bodies).
+                    let result = val.get_field(field).cloned()?;
                     stack.push(result);
                     ip += 1;
                 }
@@ -2515,8 +2528,16 @@ impl Vm {
             if let Some(b) = idx.budget {
                 fields.insert("budget".to_string(), Value::Float(b));
             }
+            // №756 (gh#1408, Wave 57): truncation parity — the field rides
+            // the compiled index now (bytecode.rs CompiledSkillIndex), the
+            // VM answers the same shape as the TW lane (ADR-0075 resolved).
+            if let Some(ref t) = idx.truncation {
+                fields.insert("truncation".to_string(), Value::String(t.clone()));
+            }
             return Ok(Value::Struct {
-                type_name: "SkillIndex".to_string(),
+                // №756: type_name parity — the dept-qualified spelling (the
+                // TW canon, was: the fixed "SkillIndex"; ADR-0075 resolved).
+                type_name: format!("SkillIndex_{}", dept),
                 fields,
             });
         }

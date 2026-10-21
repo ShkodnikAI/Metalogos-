@@ -4,6 +4,37 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Fixed
+
+- **№756 (gh#1408, Wave 57 — the two lane divergences from the №751
+  (α)-walk):** the TW/VM lanes answer ONE contract on both discoveries.
+  (1) `resolve_skill_index`: the VM lane answers the dept-qualified
+  type_name and carries the truncation field now — `CompiledSkillIndex`
+  carries `truncation` through the compile (bytecode.rs; the compiler
+  maps the declaration's `TruncationMode`), the VM arm inserts the field
+  in the TW spelling (`whole_skill_only` / `truncate_at_boundary`) and
+  answers `format!("SkillIndex_{dept}")` (was: the fixed `"SkillIndex"`,
+  the truncation TW-only — the ADR-0075 divergence the №751 walk pinned).
+  (2) The absent-field READ is LOUD on both lanes (the ADR-0194 package
+  A = (c) loud-fail contract): the VM `GetField` `Unit` fallback is
+  removed on BOTH execution loops (`run()` and `execute_code_inner()`
+  — was `unwrap_or(Value::Unit)`, the error masked as a value — the
+  №604 class-4 shape); the `get_field` Err propagates — the same
+  string the TW
+  `FieldAccess` always propagated (`field 'x' not found on struct` /
+  `cannot access field 'x' on non-struct value (...)`). The registry
+  comment carries the resolution anchors; the №751 divergence pin
+  re-pinned to the parity fact (форма №740, same-PR). Pins:
+  `tests/naryad_756_lane_divergences.rs` (8: the dept-qualified
+  type_name probe + the negative fixed-form control, the truncation
+  both-modes + the absent-stays-absent, the absent-field and non-struct
+  loud refusals on both lanes, the present-field happy path). AFFECTS:
+  the VM lane semantics — absent-field reads now refuse loudly (the
+  programs that relied on the silent Unit read the loud refusal; the
+  TW lane unchanged); the `resolve_skill_index` answer gains the
+  dept-suffixed type_name and the truncation field on the VM lane (the
+  shape parity).
+
 ## [0.33.2] - 2026-10-21
 
 ### Added

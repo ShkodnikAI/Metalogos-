@@ -578,6 +578,14 @@ pub struct CompiledSkillIndex {
     pub name: String,
     pub tiers: Vec<CompiledSkillTier>,
     pub budget: Option<f64>,
+    /// №756 (gh#1408, Wave 57): the truncation mode carries over the
+    /// compile — the TW lane already surfaced it (execution.rs:2588-2598)
+    /// while the VM lane lost it here and answered WITHOUT the field (the
+    /// ADR-0075 divergence, resolved by the truncation parity). Canon: the
+    /// TW spelling — "whole_skill_only" / "truncate_at_boundary" (the same
+    /// strings the Struct field carries on both lanes now).
+    #[serde(default)]
+    pub truncation: Option<String>,
 }
 
 /// A compiled tier within a skill_index.

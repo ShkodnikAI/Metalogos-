@@ -4,7 +4,7 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
-## [0.33.2] - 2026-10-26
+## [0.33.2] - 2026-10-21
 
 ### Added
 

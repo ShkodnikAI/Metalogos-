@@ -112,7 +112,43 @@ gates remaining: the ADR-0191 §-answers (the OD variants), the train
 №2 candidate (19.10 — the [Unreleased] classification = the 0.31.0
 MINOR), №639 (15.10) / №648 (01.12) outside the wave.
 
-## Current wave — the open machine tail (2026-10-21)
+## Current wave — the open machine tail (2026-10-22)
+
+Wave 58 EXECUTED (the dispatch gh#1417): №762 → №763 (strictly
+last). №762 (the [compiler] naryad, squash `8e631ab`, CI 49/49
+round 1): the census/classification of ALL 129 quiet
+`unwrap_or(Value::Unit)` fallbacks in vm.rs — the №756 scope tail —
+by the live handler/opcode facts: (a) 47 pinned, semantics
+unchanged ((a1) 39 loud-through-result — the binop family through
+eval_binop, Contains-run through eval_contains, CmpGt/Lt/Ge/Le
+through the eval_cmp catch-all — ONLY CmpEq/CmpNe answer Unit
+silently, GetField through get_field (№756), the rule-value
+FieldAccess read, LoadGlobalByName name-reference positions whose
+miss lands the builtin's own loud "model not declared" (the text
+UNCHANGED); (a2) 6 documented-soft IndexAccess in-value lookups;
+(a3) 2 internal register-stack pops); (b) 82 reachable-masking
+FIXED loud — the .mbc delivery path (deserialize, no
+version/integrity gate) makes underflow and slot-bounds misses
+reachable, and the silent Unit flowed into results/stores/branches/
+memory as the №604 class-4 shape; every class-(b) site refuses
+loudly naming the instruction and the fact. Zero observable change
+on valid bytecode (the compiler guarantees every operand); all
+fixes line-count-neutral 1:1 — the registry vm.rs: anchors hold.
+Pins: NEW tests/naryad_762_unit_fallback_census.rs (7 — both loops,
+the slot-bounds, the inner Return + the body-epilogue tail, the
+(a1) behavioral pins, the (a2) soft pins, the happy-path controls);
+the interlocks 751/756/757/758/736/744/730/194 GREEN; lib 876/876;
+the floors untouched (semantics, NOT typing). №763 (this PR): the
+agent-index honesty — llms.txt refreshed FROM the generators (409→
+526 builtins, 214→253 examples, 132→187 ADR, №1-№289+→№1-№763, the
+three missing canonical rows added: docs/spec/tools.md,
+docs/limitations.md, docs/PLAN-SUMMARY.md) + CLAUDE.md restored
+byte-identical to AGENTS.md (was 8958 vs 10703 — the R-01 drift) +
+the NEW blocking gate scripts/ci/agent_index_gate.py (the counters
+== the generators, the bridge byte-identity, the link targets; the
+tamper traps spring) wired as the agent-index (blocking) CI job +
+the blocking_checks.tsv cell (33 cells now) pinned by
+tests/naryad_763_agent_index_gate.rs.
 
 Wave 57 EXECUTED (the dispatch gh#1411): №756 → №759 → №760
 (strictly last). №756 (the [compiler] naryad): BOTH lane divergences

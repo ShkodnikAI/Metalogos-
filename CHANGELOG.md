@@ -4,6 +4,31 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added
+
+- **№763 (gh#1416, Wave 58 — the agent-index honesty, the R-01
+  finding):** the llms.txt drift (uncovered by any generator gate since
+  its creation) is closed by a BLOCKING gate. (1) llms.txt refreshed
+  FROM the generators — the builtins count 409 → 526 (the registry
+  scan), the examples 214 → 253, the ADRs 132 → 187 (the gen_metrics
+  machines), the naryad range №1-№289+ → №1-№763 (the merged-history
+  №505-grammar scan — the naryad sequence machine), and the three
+  missing canonical rows added (docs/spec/tools.md, docs/limitations.md,
+  docs/PLAN-SUMMARY.md). (2) CLAUDE.md — the declared "bridge copy of
+  AGENTS.md" — restored byte-identical to AGENTS.md (was 8958 vs 10703
+  bytes; the №676 A5 content-source form: AGENTS.md is the source, the
+  copy is one). (3) NEW `scripts/ci/agent_index_gate.py` (the
+  gen_metrics --check form): the llms.txt counters == the generator
+  machines, the bridge byte-identity, every llms.txt link target
+  exists; `--self-test` carries the tamper traps (the stale counter,
+  the broken bridge, the dangling link — all spring). Wired as the
+  `agent-index (blocking)` CI job (fetch-depth: 0 — the git-log
+  machine) + the blocking_checks.tsv cell (33 cells) pinned by
+  `tests/naryad_763_agent_index_gate.rs`. Stale agent indexes are
+  false facts on the first screen of IDE agents and RAG pipelines —
+  the same honesty family as the stale-draft rule (№713); the drift
+  now refuses the merge.
+
 ### Fixed
 
 - **№762 (gh#1415, Wave 58 — the census/classification of the 129 quiet

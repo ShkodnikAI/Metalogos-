@@ -708,6 +708,24 @@ jobs:
         run: |
           python3 scripts/ci/sync_gate_facts.py --tamper-test
 
+  agent-index:
+    name: agent-index (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      # №763 (gh#1416, Wave 58): the agent indexes stay honest — llms.txt
+      # counters == the generators, CLAUDE.md == AGENTS.md byte-for-byte,
+      # the link targets exist. fetch-depth: 0 — the naryad-range machine
+      # scans the merged git history (the №505 grammar).
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: "Gate — the agent-index consistency (№763: the R-01 drift is refused)"
+        run: |
+          python3 scripts/ci/agent_index_gate.py
+      - name: "Negative test — the tamper traps spring (the №535 sync form)"
+        run: |
+          python3 scripts/ci/agent_index_gate.py --self-test
+
   registry-bounds:
     name: registry-bounds (blocking)
     runs-on: ubuntu-latest

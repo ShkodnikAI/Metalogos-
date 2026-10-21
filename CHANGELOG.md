@@ -16,10 +16,11 @@ All notable changes to the Metalogos project.
   answers `format!("SkillIndex_{dept}")` (was: the fixed `"SkillIndex"`,
   the truncation TW-only — the ADR-0075 divergence the №751 walk pinned).
   (2) The absent-field READ is LOUD on both lanes (the ADR-0194 package
-  A = (c) loud-fail contract): the VM `GetField` silent `Unit` fallback
-  is removed on BOTH execution loops (`run()` and `execute_code_inner()`
-  — was `unwrap_or(Value::Unit)`, the №604 class-4 silently-wrong
-  shape); the `get_field` Err propagates — the same string the TW
+  A = (c) loud-fail contract): the VM `GetField` `Unit` fallback is
+  removed on BOTH execution loops (`run()` and `execute_code_inner()`
+  — was `unwrap_or(Value::Unit)`, the error masked as a value — the
+  №604 class-4 shape); the `get_field` Err propagates — the same
+  string the TW
   `FieldAccess` always propagated (`field 'x' not found on struct` /
   `cannot access field 'x' on non-struct value (...)`). The registry
   comment carries the resolution anchors; the №751 divergence pin

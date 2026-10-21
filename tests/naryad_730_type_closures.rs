@@ -163,6 +163,12 @@ fn n730_open_fixed_list_ground_stays_unknown_in_registry() {
         // closed it List<String> through the live shared dispatch —
         // tests/naryad_748_wall_walk.rs.
         "reflex_load",
+        // resolve_skill_index — №751 (wave 56) re-classed the №717
+        // "true stub" anchor: the row is LIVE on both lanes but the
+        // lanes DIVERGE (the TW type_name SkillIndex_{dept} vs the
+        // fixed "SkillIndex"; the truncation field TW-only) — the
+        // divergence class (the ADR-0075 family); the Unknown pin
+        // stays — tests/naryad_751_endgame_walk.rs.
         "resolve_skill_index",
         "series_make",
         "series_pull",

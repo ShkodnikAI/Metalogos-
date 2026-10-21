@@ -3662,3 +3662,108 @@ truncation field on both lanes) and the GetField loud-fail (the
 ADR-0194 (c) contract landed on both lanes and both VM loops); the
 **next-draft refreshed** by the Wave 57 fact; the **02.11 figure
 mapped** with the GO verified-wait.
+
+### 6.43. Wave 58 post-wave record (naryad №763): the census of the 129 quiet Unit fallbacks — the loud operand contract for the 82 reachable-maskers (ADR-0194 (c)), 47 pinned honest; the agent-index honesty — llms.txt from the generators, the bridge byte-identity, the NEW blocking gate (main @ the naryad's PR, 2026-10-22)
+
+The wave composition №762 → №763 (strictly last; the dispatch gh#1417;
+the machine trigger — the В57 close + the direct owner trigger 22.10):
+
+- **№762** (gh#1415, squash `8e631ab`, CI **49/49 GREEN round 1**): the
+  [compiler] naryad — the census/classification of ALL **129
+  `unwrap_or(Value::Unit)`** sites in vm.rs (the r29 anchor list was the
+  INPUT, the live handlers the verdict; the kant-facts confirmed 1-в-1:
+  129 sites / 7 `unwrap_or_default` / 4 `let _ =`; the GetField arms
+  loud-by-result per №756). **(a) 47 pinned, semantics untouched**:
+  (a1) 39 loud-through-result — the binop family (16+16 through
+  `eval_binop`'s coded mismatch), `Contains` run-loop (2) through
+  `eval_contains`, `CmpGt/Lt/Ge/Le` (16) through the `eval_cmp`
+  catch-all — **only `CmpEq`/`CmpNe` answer Unit silently**
+  (`Unit==Unit → Ok(true)`) — the (b) class; `GetField` pops (2) via
+  `get_field` (№756), the rule-value `FieldAccess` read (3749),
+  `LoadGlobalByName` (2) — every valid emission is a name-reference
+  position whose miss lands the builtin's own loud `model not declared`
+  (the semantic.rs «unchanged» contract — the text NOT touched);
+  (a2) 6 documented-soft — the `IndexAccess` in-value lookups
+  (out-of-range index / missing key = valid-program events);
+  (a3) 2 — the `EndValueExpr` register-stack pops. **(b) 82
+  reachable-masking — FIXED loud** (run 44 / inner 37 / rule-read 1):
+  the `.mbc` delivery path is live (`deserialize` — NO version or
+  integrity gate, bytecode.rs) so underflow/slot-misses are reachable
+  via a desynchronized or corrupt program; the silent Unit flowed into
+  results, stores, branches and memory — the №604 class-4 shape; the
+  strongest forms named in the audit: the quiet `Bool(true)` from the
+  empty-stack `CmpEq`, the `"()"` garbage the memory family wrote, the
+  silent `Ok(Unit)` body value. Every class-(b) site refuses naming the
+  instruction and the fact (`VM: stack underflow at …`); the arity
+  loops name the callee. Zero observable change on valid bytecode (the
+  compiler guarantees every operand: `expr; Return` in every context —
+  compiler.rs:3593, the №582 epilogue, the constructor-paired slots);
+  ALL fixes **line-count-neutral 1:1** — the registry `vm.rs:` anchors
+  (17, макс. 3008-3009) hold without edits (the same-PR rule, форма
+  №740). The boundary notes recorded honestly: the MakeFluid-confidence
+  Float-fallback (1271) is outside the 129 census; the StoreGlobal
+  out-of-range silent drop (`if *slot < len`) is adjacent, not one of
+  the 129; the run/inner `Contains`+`StartsWith` soft-arm loop
+  divergence on VALID bytecode is the ADR-0075 family — out of the
+  underflow class, untouched. Pins: NEW
+  `tests/naryad_762_unit_fallback_census.rs` (7: both loops with the
+  named refusals, the slot-bounds, the inner Return + the body-epilogue
+  tail, the (a1) behavioral pins — Add/CmpGt/GetField refuse with the
+  evaluator's text and NO underflow text, the (a2) soft pins, the
+  happy-path negative controls). The interlocks GREEN: №751 (4), №756
+  (8), №757 (5), №758 (5), №736 (6), №744 (8), №730 (7), №194 (5),
+  №146/№415/№266/№264/№385/№328; **lib 876/876**. The gates GREEN:
+  gen_metrics --check (the README regen — the CHANGELOG-size fact),
+  gen_reference 526/526, goal032 35/67 exit 0, release_gap,
+  gate-facts-sync, type_signature_share (the floors untouched —
+  semantics, NOT typing), sensitive 7586 bp at the floor, debt 0/0/15,
+  blocking-checks-sync 32 cells, the stop-list does not grow. The
+  [Unreleased] carries the №762 Fixed row with AFFECTS (форма №756).
+- **№763** (gh#1416, this PR): the agent-index honesty (the R-01
+  finding). **llms.txt refreshed FROM the generators**: 409 → **526
+  builtins**, 214 → **253 examples**, 132 → **187 ADR**, №1-№289+ →
+  **№1-№763** (the merged-history №505-grammar scan — the naryad
+  sequence machine); the three missing canonical rows ADDED
+  (docs/spec/tools.md, docs/limitations.md, docs/PLAN-SUMMARY.md);
+  the CLAUDE.md row note re-spelled (the manual sync → the gate).
+  **CLAUDE.md restored byte-identical to AGENTS.md** (was 8958 vs
+  10703 bytes — the drift the r29 contour measured; the №676 A5
+  content-source form). **The NEW blocking gate**
+  `scripts/ci/agent_index_gate.py` (the gen_metrics --check form): the
+  counters == the generators (the SAME machines — gen_metrics
+  count_total_builtins/count_adrs/count_examples + the git-history
+  naryad scan), the bridge byte-identity, the llms.txt link targets
+  exist; `--self-test` — the tamper traps spring (the stale counter,
+  the broken bridge, the dangling link); wired as the **agent-index
+  (blocking) CI job** (fetch-depth: 0 — the git-log machine) + the
+  **blocking_checks.tsv cell** (33 cells: blocks=28) pinned by NEW
+  `tests/naryad_763_agent_index_gate.rs` (the gate green + the traps +
+  the Rust byte-identity twin). docs/limitations.md — NO new
+  honest-boundaries records (the underflow refusals are the LANDED
+  contract of №762, not a live boundary; the agent-index drift is
+  FIXED by this naryad, not declared live — the §16.0-D stub
+  discipline held).
+
+The machine numbers at the sync (2026-10-22, main @ 8e631ab): the
+sensitive surface **110/145 = 7586 bp** (the enforced floor **7586
+bp**, only-up), **goal032 closed 35/67** (BLOCKING), **typed 372/526
+= 70.72% (precise 242/526 = 46.00%)**, the **parameterized share
+97/127 = 76.37%**, the **field-label share 59/61 = 96.72%**,
+**mirrors 6, dups 0**, **debt 8/0/15**, **REFERENCE 526/526 =
+100.0%**, the agent-index gate GREEN (526/253/187/№763 + the bridge
+byte-identity), **blocking cells 33**. gen_metrics --check OK.
+
+The owner gates remaining (accumulated): the **02.11 window — the
+figure** (0.33.3 tail-ride vs 0.34.0 feature-cut — the §2.5-map in
+gh#1409; GO verified-wait) **+ the tag → publication** (the OWNER's
+act — ADR-0186 §4.5); the **goal032 lanes** (the gate 7): (β) the
+state unions, (γ) the opaque kinds, the Secret spellings (ADR-0195
+§7 (c) — parked until the lanes open), the data-dependent trio and
+the candle-gated reflex_generate; the NLnet/Restack M1 (03.11.2026);
+№648 (01.12.2026); the zip-ignore review (2026-11-17); the coverage
+threshold (№569 — PARKED by ADR-0195 (c)); the second maintainer
+(§6 п.7 of the audit — the CODEOWNERS src/ coverage); the PAT
+rotation. RESOLVED this cycle: **the 129-census** — the loud operand
+contract pinned for the 82 reachable-maskers, the 47 pinned honest;
+**the agent-index drift** — llms.txt from the generators, the bridge
+byte-identity, the blocking gate wired.

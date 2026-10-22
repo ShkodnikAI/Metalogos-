@@ -56,11 +56,11 @@ All notable changes to the Metalogos project.
   historical sections gain a line, not a rewrite). (2)
   `scripts/ci/mirror_counter.py` builds the scan root from
   `Path(__file__).parents[2]` — the old CWD-relative glob printed a
-  silent `0` (exit 0) when run from `scripts/ci/`, a false green for a
+  bare `0` (exit 0) when run from `scripts/ci/`, a false green for a
   metric that can only move DOWN (the audit L-1, reproduced 1-в-1);
   now any CWD prints the honest 6 (verified from the root,
   `scripts/ci/` and `scripts/`), and a missing `src/` tree fails LOUD
-  (exit 2) — never a silent zero. The CI invocation from the root is
+  (exit 2) — never a quiet zero. The CI invocation from the root is
   unchanged; the metric value (6, threshold 6) is untouched.
 
 - **№766 (gh#1419, Wave 59 — the diff-fuzzer H-2, the external audit

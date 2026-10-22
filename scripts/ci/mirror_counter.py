@@ -32,13 +32,37 @@ Usage:
   mirror_counter.py                 → prints the count report
   mirror_counter.py --list          → each match: file, line, pattern, text
   mirror_counter.py --gate BASELINE → exit 1 if the count > baseline
+                                      (BASELINE resolves against the
+                                      caller's CWD — CI runs from root)
+
+№768 (gh#1421; the external audit 21.10 §3 L-1): the scan root is built
+from `Path(__file__).parents[2]` — NOT from the process CWD. The old
+relative glob was a silent false green: run from `scripts/ci/` the
+glob matched nothing, the counter printed `0` and exited 0 — for a
+metric that can only move DOWN, a wrong-CWD zero is indistinguishable
+from an honest one (the audit reproduced it 1-в-1). The script now
+finds its src/ from its own location (any CWD gives the same count —
+verified: root and scripts/ci/ both print 6) and fails LOUD if the
+tree is absent (exit 2 — never a silent 0).
 """
-import glob
 import re
 import sys
+from pathlib import Path
+
+# №768: the repo root from __file__ (scripts/ci/mirror_counter.py →
+# parents[0] = scripts/ci, [1] = scripts, [2] = the repo root); the
+# CWD-independence is the L-1 fix.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_SRC_DIR = _REPO_ROOT / 'src'
+if not _SRC_DIR.is_dir():
+    print('::error::mirror_counter.py resolved the repo root %s but no src/ '
+          'tree lives there — the scan would be a silent 0 (the L-1 '
+          'false-green class); fix the layout or run from the repo '
+          'checkout.' % _REPO_ROOT)
+    sys.exit(2)
 
 # The whole src/ tree (№564) — every .rs file, deterministic order.
-SRC_GLOB = 'src/**/*.rs'
+SRC_GLOB = str(_SRC_DIR / '**' / '*.rs')
 # The fixed pattern set — the §3.3 narrow pair + the §7.2 sketch
 # markers (№502 continuity: TW-identical / same as the TW stay in the
 # set, zero hits at the №564 adoption).
@@ -51,7 +75,7 @@ MIRROR_RE = re.compile(
 def matches():
     """(file, line_no, matched_text, whole_line) per match in src/**/*.rs."""
     out = []
-    for path in sorted(glob.glob(SRC_GLOB, recursive=True)):
+    for path in sorted(str(p) for p in _SRC_DIR.rglob('*.rs')):
         with open(path, encoding='utf-8') as fh:
             for no, line in enumerate(fh, 1):
                 m = MIRROR_RE.search(line)

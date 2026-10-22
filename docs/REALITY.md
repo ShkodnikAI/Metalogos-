@@ -2429,6 +2429,15 @@ landing), and the NEW follow-up from this record: the coverage
 runner-disk fix (the honest finding above). REMOVED by this record:
 the 0.32.0 publication itself (executed on the owner's verdict).
 
+**Note (added 2026-10-22, naryad №768 — the external audit 21.10
+§3 M-2, третий перенос):** the narrative line for the version line —
+**0.31 was never released; its goal folded into 0.32.0.** The 0.31
+number stayed the GOAL name (gate_031, the typing movement — the
+protocol paragraph above), the RELEASE number 0.32.0 is the owner's
+verdict; the tag line `v0.30.1` → `v0.32.0` carries no `v0.31.*`, and
+the CHANGELOG [0.32.0] section carries the same note (added by the
+same naryad — the historical sections gain a line, not a rewrite).
+
 
 ### 6.30. Wave 46 post-wave record (naryad №698): the safe-pipe + spec-tools + fixed-list wave — the ADR-0188 phase 2 landed (the safe stage `{{ param | safe }}` with the check-time Html typing; the ledger gh#967 §7 closed, №115 executed), the spec topic 6 «Tools and the abstraction» (S-TOOL-001..007), the 0.32 fixed-list movement №1 (9 honest closures; the sensitive floor 5034 → 5655 bp), and the showcase pin v0.32.0 + App C landed cross-repo (main @ `8088962`, 2026-10-16)
 

@@ -29,6 +29,21 @@ All notable changes to the Metalogos project.
   the same honesty family as the stale-draft rule (№713); the drift
   now refuses the merge.
 
+### Changed
+
+- **№767 (gh#1420, Wave 59 — the audit 21.10 M-1, the exemption's paper
+  trail):** the read-back pair exemption (№729 — `cron_list` →
+  `cron_remove`; `mtree_retrieve` → `mtree_forget`, the table
+  `semantic::READBACK_PAIRS`) leaves the documentation trace the audit
+  methodology demands: a limitations row (the Static Analysis section —
+  the live anchor, the conservative boundary, the revisit condition) +
+  the risk-review verdict recorded in ADR-0154 §11 (accepted,
+  position-only, domain-matched, quarantine-proof; a third pair or a
+  recognition-shape change re-opens the review). The implementation is
+  NOT changed — the docs-only honesty pass; every future Category-A
+  exemption follows the same protocol (the row + the verdict in the
+  same PR).
+
 ### Fixed
 
 - **№766 (gh#1419, Wave 59 — the diff-fuzzer H-2, the external audit

@@ -3776,3 +3776,130 @@ rotation. RESOLVED this cycle: **the 129-census** — the loud operand
 contract pinned for the 82 reachable-maskers, the 47 pinned honest;
 **the agent-index drift** — llms.txt from the generators, the bridge
 byte-identity, the blocking gate wired.
+
+### 6.44. Wave 59 post-wave record (naryad №769): the audit-driven wave — the external audit 21.10 landed as five naryads the same day (the S-1b XSS closure, the recursive diff-fuzzer, the READBACK_PAIRS paper trail, the 0.31 narrative + the loud mirror counter); the audit episode fixed in the record (main @ the naryad's PR, 2026-10-22)
+
+The wave composition №765 → №766 → №767 → №768 → №769 (strictly last;
+the dispatch gh#1423; the trigger — the direct owner trigger 22.10
+«Проверь замечания по аудиту, напиши и залей наряды» + the external
+audit METALOGOS_AUDIT_9fa9821.md, 21.10.2026, v0.33.2, оценка 9.5/10;
+метод: чтение кода + прогон CI-скриптов):
+
+- **№765** (gh#1418, squash `3d75b1b`, CI 50/50 GREEN): the [security]
+  naryad — the **S-1b XSS closure** (the audit H-1): the audit
+  scenario `let page = render("Comment", j.author, j.text)` →
+  `respond_html(page)` produced no finding and the raw slot carried
+  request data into the page. Three layers: `builtin_render` computes
+  the RAW-slot param names from the template body (the ONE
+  `template_scan::raw_param_positions` scan — four consumers) and
+  requires `Value::Html` for them like the safe slots (the
+  `RAW_SLOT_NOT_HTML` refusal); the html_label BINDING walk resolves
+  the raw positions through the shared resolver and answers
+  `Labeled(String, Untrusted)` at raw positions; render is OUT of the
+  blanket sanitizer lists and POSITION-AWARE in the label engines.
+  Pins: `tests/naryad_765_s1b_let_form.rs` (7) + 2 inline units; the
+  interlocks hold (№685 24/24, №695 4/4, №686 3/3, №448 11/11, n98
+  8/8). AFFECTS: the render-as-sanitizer reliance on RAW slots is
+  refused (static findings + runtime refusals); the all-escaped
+  templates byte-for-byte unchanged.
+- **№766** (gh#1419, squash `3d0dcdc`, CI 50/50 GREEN): the [testing]
+  naryad — the **recursive diff-fuzzer** (the audit H-2: `gen_stmts`
+  carried `_depth` it never used; the «form A inside form B» class
+  was unmeasurable by construction). `gen_stmts(depth)` picks among
+  the SIX nesting forms and recurses (п.1); every generated block
+  appends a deterministic TAG to the trace accumulator — a dropped
+  block is a TW/VM divergence by construction (п.2); the
+  each-in-match pins land in `tests/n1336_vm_each_in_if.rs` (п.3);
+  the nesting-pairs metric {top, if, while, each, each_idx, match} ×
+  {flat, if, while, each, each_idx, match} = **36/36 achieved**, the
+  floor in `scripts/ci/fuzz_nesting_pairs_baseline.txt` (the NEW
+  only-up ratchet, п.4); the Each-arm mutation probe asserts the
+  sensitive share ≥40% (п.5).
+- **№767** (gh#1420, squash `75e144a`, CI 50/50 GREEN): the [process]
+  naryad — the **READBACK_PAIRS paper trail** (the audit M-1): the
+  limitations row (the Static Analysis section; the live anchor
+  `semantic.rs:4876` — the issue's 4721 was the audit snapshot @
+  `9fa9821`, the №765/№766 merges shifted it, the fact 1-в-1) + the
+  risk-review verdict **ACCEPTED with the standing boundary** in
+  ADR-0154 §11 (position-only, domain-matched, provenance-
+  conservative, quarantine-proof; the revisit conditions pinned) +
+  the cross-links both ways + the [Unreleased] Changed row + the
+  README regen. **Honest episode:** the round-1 CI agent-index
+  (blocking) RED — the NEW №763 gate caught the llms.txt range drift
+  (№1-№766 vs the machine's №1-№767 — the naryad's own commit); the
+  same-PR refresh (959ddfe), the gate green — the discipline works
+  as designed, zero-delay by substance.
+- **№768** (gh#1421, squash `f4a7750`, CI 50/50 GREEN): the [hygiene]
+  naryad — the **0.31 narrative** (the audit M-2, the third carry:
+  «это пять минут работы») — the Note subsection in the historical
+  [0.32.0] (the gh#1350 Note form) + the same note in the §6.29
+  record (the historical sections gain a line, not a rewrite) — and
+  the **mirror_counter CWD-independence** (the audit L-1, reproduced
+  1-в-1: from `scripts/ci/` the counter printed a silent 0/exit 0 —
+  a false green for an only-down metric): the scan root from
+  `Path(__file__).parents[2]`, any CWD prints the honest 6, a
+  missing src/ fails LOUD (exit 2); the CI invocation and the metric
+  value untouched.
+
+**The audit episode — the wave's origin, the verification, and the
+process lesson:**
+
+- The external audit (METALOGOS_AUDIT_9fa9821.md, 21.10.2026, v0.33.2,
+  9.5/10) landed five findings: H-1 (High — the S-1b XSS let-form
+  gap), H-2 (High — the fuzzer's flat generator), M-1 (Medium — the
+  READBACK_PAIRS exemption without the limitations/risk-review
+  trace), M-2 (Medium — the 0.31 narrative missing), L-1 (Low — the
+  mirror_counter CWD false green).
+- The r30 verification contour (GET-only + the shallow clone + the
+  CI-script runs at HEAD `9fa9821` = the audit's revision 1-в-1)
+  confirmed ALL findings; the §2 metrics reproduced 1-в-1; the two
+  line-drifts (expr_is_string_shaped 10079→10238, READBACK_PAIRS
+  4848→4721) — the snapshot noise, the facts intact. The auditor's
+  amendment to the 16.10 report is ACCEPTED in the same record: the
+  sensitive_surface_share.py item is WITHDRAWN (the script works from
+  the root; nothing fixed there — the №768 boundary honored).
+- **The findings became issues the same day** (gh#1418–gh#1421, the
+  dispatch gh#1423) — the wave's process precedent (the audit §1
+  lesson, below).
+- **The process lesson (the audit §1, accepted):** the 0.32 goal was
+  OVERSHOT (35/67 at the ≥20 target — the machine), yet the S-1b
+  (High) reached 5 days and 3 releases without movement, and the
+  gh#1336 nesting class was found by a PRODUCTION CONSUMER, not by
+  the fuzzer. The counters' honest wall is not the whole honesty: a
+  coverage number can rise while a HIGH finding idles. The В59
+  precedent: **external/audit findings become issues IMMEDIATELY**
+  (the №562 tag↔main gate sees only the «### Security» [Unreleased]
+  records — a finding outside the tracker is invisible to every
+  gate; the tracker is the sensory organ).
+- **Limitations (форма №736): no NEW boundaries this wave.** The
+  №765 S-1b closure extended the EXISTING raw-contract enforcement —
+  the №685 limitations row already carries the raw-positions-conduct
+  contract; the READBACK_PAIRS row (№767) documents the existing
+  exemption (the audit M-1 demanded the trace, not a new boundary).
+
+**The wave numbers (the machines @ the merge head; the ratchet
+floors only-up):** typed 372/526 = 70.72%; precise 242/526 = 46.00%;
+parameterized 97/127 = 76.37%; field-label 59/61 = 96.72%; sensitive
+110/145 = 7586 bp (the floor 7586 only-up); goal032 **35/67**
+BLOCKING (ADR-0193; the fixed-list counter — the audit's overshoot
+fact); untyped 32; долг 8/0/15; ops-pairs 6; mirror 6; REFERENCE
+526/526 = 100%; the NEW ratchet (№766): the fuzzer nesting-pairs
+**36/36** only-up. The consistency gates: gen_metrics --check OK,
+gen_reference --check OK (no drift — no signature surface moved),
+agent_index OK, honest_boundary EXIT 0, gate-facts-sync OK.
+
+**The owner gates remaining (the dispatch gh#1423 §5, the status on
+the record date):** the **02.11 window** — the release figure
+(0.33.3 tail-ride vs 0.34.0 feature-cut; the §2.5 map
+gh#1398/gh#1409) + the tag → publication (ADR-0186 §4.5 — the
+owner's act); the **goal032 lanes (β)/(γ)** — the owner verdicts
+(the package in the №751 report; gate 7); **NLnet M1 03.11**; the
+**zip-ignore review 17.11**; **№648 01.12**; the **second
+maintainer** — УСИЛЕН аудитом (§6 п.7: the CODEOWNERS coverage for
+src/audit.rs, src/html_label.rs, src/compiler.rs — the critical
+files uncovered, the candidate is the owner's); the №561 pool
+refill (9/10); the PAT rotation. PARKED: the №569 threshold (ADR-0195
+(c)). RESOLVED this cycle: the **S-1b XSS class** (the 5 code anchors
++ the let-form battery); the **fuzzer recursion blindspot** (the
+36/36 nesting floor); the **READBACK_PAIRS trace**; the **0.31
+narrative** (the third carry); the **mirror counter false green**.

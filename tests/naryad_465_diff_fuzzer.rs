@@ -358,7 +358,7 @@ fn gen_stmts_under(
 /// fragments — the audit's «Не делать»).
 fn gen_flat_stmt(rng: &mut Rng, vars: &mut Vec<String>) -> Vec<String> {
     let mut out = Vec::new();
-    match rng.below(3) {
+    match rng.below(4) {
         0 => {
             let v = format!("v{}", rng.alnum(3));
             out.push(format!("let {} = {}", v, gen_expr(rng, vars, 2)));
@@ -368,9 +368,27 @@ fn gen_flat_stmt(rng: &mut Rng, vars: &mut Vec<String>) -> Vec<String> {
             let name = rng.alnum(2);
             out.push(format!("let s{name} = {}", gen_expr(rng, vars, 2)));
         }
-        _ => {
+        2 => {
             let name = rng.alnum(2);
             out.push(format!("let t{name} = {}", gen_expr(rng, vars, 1)));
+        }
+        // gh#1430 (naryad №772, the bug's ask 3): the class shape —
+        // try → raising pattern call → catch → arithmetic on a PRE-try
+        // local. `tr` is bound before every generated body runs (the
+        // №766 accumulator, always in the vars scope), so the trace
+        // append AFTER the catch reads a pre-try local on both engines:
+        // the pre-№772 VM wiped the caller frame's locals to Unit on
+        // this unwind (a stale CallFrame shifted the base_bp), the
+        // append then diverged loudly. The caught value rides the
+        // trace too (`.ok` — the try-result struct's field, the pc
+        // `mail.ok` form).
+        _ => {
+            let name = rng.alnum(2);
+            out.push(format!("let u{name} = try boom()"));
+            out.push(format!(
+                "let u{name}_state = if u{name}.ok then \"1\" else \"0\""
+            ));
+            out.push(format!("tr = tr + \":u\" + u{name}_state"));
         }
     }
     out
@@ -519,6 +537,14 @@ fn gen_program(seed: u64) -> String {
     // shape of the №612 class). Defined BEFORE pa so the call resolves
     // on both backends.
     src.push_str("\npattern ph(q: String) -> String { return \"h:\" + q }\n");
+
+    // gh#1430 (naryad №772): the DETERMINISTIC raising pattern — the
+    // generated try-shape calls it, the builtin refusal
+    // ([TYPE_MISMATCH] on to_float of a non-numeric literal) is stable
+    // on both backends, so the try → pattern-call raises → catch →
+    // pre-try-local arithmetic shape diffs deterministically (no time,
+    // no network, no state).
+    src.push_str("\npattern boom() -> Any { return to_float(\"abc\") }\n");
 
     // Pattern A: pure transformation (calls the string/math ops).
     // №510: pfzf heads the pipeline — it renders the rule-written flag

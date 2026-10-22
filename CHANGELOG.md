@@ -46,6 +46,20 @@ All notable changes to the Metalogos project.
 
 ### Fixed
 
+- **№776 (gh#1445, Wave 60 hygiene tail — the №771 form):** the
+  gate-facts-sync verdict read survives a GitHub API filter flap. The
+  `status=completed` runs-list filter answered `total_count=0` on the
+  0-side of a server-side flap while the same endpoint without the
+  filter showed all five completed GREEN runs (the evidence log in
+  gh#1445: 0,0,0,5,5,5,0,5 on identical queries ~20s apart); two main
+  runs failed fail-closed INFRA (№525 — the honest behavior, the gate
+  did not pass an unreadable state). The empty-list answer is retried
+  now within a bounded window (6 attempts × 20s ≈ 2 min; the observed
+  0-side of the flap is ~20-80s); the verdict still comes ONLY from
+  completed runs, an API exception stays the loud immediate exit 2,
+  and the exhausted retries still fail closed — the №525 contract is
+  unchanged (the retry never turns an unreadable state into a pass).
+
 - **№772 (gh#1435, Wave 60 — the prod bug gh#1430, the fosved-acc
   АСС-1.9 finding on v0.33.2):** catching a pattern-call error with
   `try` no longer wipes the caller's frame locals on the VM. The

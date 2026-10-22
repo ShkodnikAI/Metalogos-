@@ -31,6 +31,44 @@ All notable changes to the Metalogos project.
 
 ### Fixed
 
+- **№766 (gh#1419, Wave 59 — the diff-fuzzer H-2, the external audit
+  §3):** the fuzzer's statement generator is RECURSIVE now — the old
+  `gen_stmts` carried a `_depth` parameter it never used, and the
+  «form A inside form B» class (№369: the nested match; gh#1336: the
+  nested each — both found by CONSUMERS, not by the fuzzer) was
+  unmeasurable by construction. (1) `gen_stmts(depth)` at every level
+  picks among the SIX nesting forms (if/else, bounded while, each,
+  each-with-index, match, the flat pool) and recurses into the body at
+  depth-1 (the audit's п.1). (2) Every generated block appends a
+  deterministic TAG to the trace accumulator the program prints in its
+  return — any silently dropped block is a TW/VM divergence by
+  construction, not by luck (п.2). (3) The each-in-match-arm pins land
+  in `tests/n1336_vm_each_in_if.rs` (the parity + the liveness — the
+  accumulator is read AFTER the match; the each-with-index form too) —
+  the last row of the audit's §6 п.3 list (п.3). (4) The nesting-pairs
+  metric (форма-родитель × форма-ребёнок): {top, if, while, each,
+  each_idx, match} × {flat, if, while, each, each_idx, match} = 36
+  cells, all reachable — the achieved coverage is 36/36 over the seed
+  sweep; the floor lives in
+  `scripts/ci/fuzz_nesting_pairs_baseline.txt` (the only-up ratchet:
+  a lower count is a regression, a higher count DEMANDS the bump in
+  the same PR) and the CI log carries the 6×6 table (п.4). (5) The
+  mutation probe: the Each-arm sensitivity is pinned BY CONSTRUCTION —
+  the sweep programs whose output carries an each-trace tag diverge the
+  moment the Each arm stops emitting code; the probe asserts the
+  sensitive share (≥40% of the executed sweep) — disabling the Each arm
+  in `compile_stmt_with_locals` sends the run red (п.5; the manual
+  procedure — the №503/№618 form — in the naryad report). The
+  generator's liveness holds: the undefined-ident error-class lane
+  scaled 1/8 → 1/48 per leaf pick (the recursion multiplies the leaf
+  picks; the PER-PROGRAM refusal rate returns under the №621 sweep
+  floor — the lane keeps its coverage). The audit's «Не делать» held:
+  no new fixed fragment — the coverage is systemic. Pins: the fuzzer
+  suite 13/13 (the legacy n1336 shape-production probe re-pinned to the
+  pairs (if, each)/(while, each)), n1336 9/9. AFFECTS: none for the
+  production code — the change is the test generator + the metric (the
+  compiler/VM semantics untouched).
+
 - **№765 (gh#1418, Wave 59 — the S-1b XSS closure, the external audit
   §3 H-1):** the let-form of render() is no longer a gap. The audit
   scenario — `let page = render("Comment", j.author, j.text)` →

@@ -3903,3 +3903,110 @@ refill (9/10); the PAT rotation. PARKED: the №569 threshold (ADR-0195
 + the let-form battery); the **fuzzer recursion blindspot** (the
 36/36 nesting floor); the **READBACK_PAIRS trace**; the **0.31
 narrative** (the third carry); the **mirror counter false green**.
+
+### 6.45. Wave 60 post-wave record (naryad №775): the prod-bug wave — gh#1430 fixed same-day (the consumer's TW/VM divergence, the second case of the gh#1336 class: the try×pattern-call unwind wiped the frame locals on the VM) + the release line refreshed (the 02.11 window: the 8-row draft, the tail-ride recommendation) + the second-maintainer record prepared verified-wait (main @ the naryad's PR, 2026-10-22)
+
+The wave composition №772 → №773 → №774 → №775 (strictly last; the
+dispatch gh#1439; the trigger — the direct owner trigger 22.10 «Где
+волны исполнены, проверяй и заводи следующую волну нарядов»):
+
+- **№772** (gh#1435, squash `7069d4c`, CI 50/50 GREEN раунд 2): the
+  [compiler] naryad — the **gh#1430 prod-bug fix** (fosved-acc
+  АСС-1.9): `try` catching a pattern-call error wiped the caller's
+  frame locals on the VM — the unwound CallPattern left its CallFrame
+  installed (the `?` propagation skipped the cleanup the success path
+  performs), every later LoadLocal/StoreLocal resolved against the
+  stale base_bp, the pre-try locals read Unit (`Unit Sub Float` /
+  `Float Sub Unit`; the fosved-acc duty monitor went dark during an
+  outage on the serve VM lane; TW kept the values). The fix: BOTH
+  TryEval arms (the run loop + the inner loop — форма №762) snapshot
+  the stack/call_stack depths before the guarded code and restore both
+  on catch — the `run_deny_handler` (№392) discipline; the loud
+  contract (ADR-0194 (c)) unchanged, TW untouched. Pins:
+  `tests/n1430_try_pattern_unwind.rs` — 6 tests, **4 RED before the
+  fix** (verified by a stash-run on unpatched main) + 2 negative
+  controls; the differential fuzzer carries the class shape (the bug's
+  ask 3: `try boom()` → catch → a pre-try trace append; with the fix
+  stashed it diverged loudly, with the fix 13/13). AFFECTS (форма №756
+  in the row): programs relying on the Unit wipe see the TW values.
+  **The №772 CI episode:** раунд 1 docs-metrics RED — the README
+  generated block went stale (the CHANGELOG size 97→99 KB from the
+  onaryad row); the same-PR regen `9f58208` (the fact key WITH checker
+  form, №735).
+- **№773** (gh#1436, squash `3eef378`, CI 50/50 GREEN раунд 2): the
+  [release] naryad — the **02.11 draft VERBATIM-refresh** ([Unreleased]
+  @ `7069d4c`: 8 rows — №756, №762, №763, №765, №766, №767, №768,
+  №772; the draft = `release_notes.py Unreleased` byte-verbatim, diff
+  EXIT 0, №713) + the **§2.5 map posted to gh#1436**: 0.33.3
+  tail-ride RECOMMENDED (the security S-1b + the prod bug gh#1430 ride
+  before the EMPTY 0.34 roster; the ADR-0195 gate criteria are
+  formally met — sensitive 7586 bp ≥ 6844, goal032 35/67 BLOCKING —
+  but the (β)/(γ) lanes are behind owner gate 7) + the go/no-go (6
+  criteria). **The №773 CI episode:** раунд 1 agent-index RED — the
+  machine saw the naryad's own commit №773 vs llms.txt №1-№772; the
+  same-PR refresh `4973fcf` (the №767 lesson applied).
+- **№774** (gh#1437, no PR — **verified-wait**): the [process] naryad —
+  the second-maintainer record: the ready ADDITIVE CODEOWNERS block
+  (src/audit.rs, src/html_label.rs, src/compiler.rs — the audit 21.10
+  §6 п.7; the №471 perimeter untouched) + the candidate criteria
+  (Rust review + security surface + per-PR SLA + no-conflict) posted
+  to gh#1437. The commit is FORBIDDEN without the owner verbatim
+  (форма №755; the self-assignment forbidden) — the gate stands.
+
+**The gh#1430 episode — the consumer finds the divergence, the second
+case of the gh#1336 class («потребитель раньше машины»):**
+
+- The bug (fosved-acc АСС-1.9, naryad fosved-acc#33, step A.2, opened
+  22.10 02:58Z): the minimal p3/p2 shapes + the boundary (the
+  inline-builtin try keeps the locals — the corruption is specific to
+  the pattern-call unwind) + the serve e2e; reproduced by the executor
+  on the EXACT v0.33.2 release binary (sha256 `48b98167…` verified
+  against SHA256SUMS).
+- The same-day pipeline: the issue 02:58Z → the dispatch 06:46Z (the
+  owner trigger) → the fix merged ~14:25Z — **the class lifetime under
+  a day** (the В59 process lesson applied: the tracker is the sensory
+  organ; the external-consumer bugs go the same road as the audit
+  findings).
+- **The honest refutation (форма №716):** the secondary symptom (the
+  double `[try] caught error` print on VM) does NOT reproduce — the
+  exact v0.33.2 binary and main, the CLI (p3, the two-catch p3b, the
+  nested p3c) and the serve path, catch-count = 1 everywhere; one
+  eprintln per TryEval execution by construction. The likely origin:
+  the consumer's merged stderr across two engine runs. No second root
+  — no separate edit; the primary fix does not touch the print.
+- **The honest finding (вне границ наряда, в отчёт):**
+  `gen_classification.py --goal032 --list` on a clean HEAD produces a
+  non-default diff (REFERENCE.md +1, builtins_classification.rs
+  +9/−26 — the latent generator drift, the №744 class). The canonical
+  goal032 gate (`sensitive_surface_share.py --goal032`) is GREEN — the
+  blocking surface is not affected; the regeneration is a separate
+  decision (not executed inside №772).
+- **Limitations (форма №736): no NEW boundaries this wave.** The №772
+  fix RESTORES parity (the AFFECTS note documents the behavior change
+  for the programs relying on the Unit wipe); the docs surface of the
+  wave is the draft refresh (№773) and the report (№774).
+
+**The wave numbers (the machines @ the merge head; the ratchet floors
+only-up):** typed 372/526 = 70.72%; precise 242/526 = 46.00%;
+parameterized 97/127 = 76.37%; field-label 59/61 = 96.72%; sensitive
+110/145 = 7586 bp (the floor 7586 only-up); goal032 **35/67** BLOCKING
+(ADR-0193); untyped 32; долг 8/0/15; ops-pairs 6; mirror 6; дубли 0;
+REFERENCE 526/526 = 100%; the fuzzer nesting-pairs **36/36** only-up.
+The consistency gates: gen_metrics --check OK, gen_reference --check
+OK (no drift — no signature surface moved), agent_index OK, honest_boundary
+EXIT 0, gate-facts-sync OK.
+
+**The owner gates remaining (the dispatch gh#1439 §5, the status on
+the record date):** the **02.11 window** — the release figure (the §2.5
+map gh#1436 recommends **0.33.3 tail-ride**: the 8-row [Unreleased],
+the ADR-0195 criteria formally met, the 0.34 roster empty) + the tag →
+publication (ADR-0186 §4.5 — the owner's act); the **second
+maintainer** — №774's ready CODEOWNERS record + the candidate criteria
+wait the owner verbatim (форма №755); the **goal032 lanes (β)/(γ)**
+(gate 7); **NLnet M1 03.11**; the **zip-ignore review 17.11**; **№648
+01.12**; the №561 pool refill (9/10); the PAT rotation. PARKED: the
+№569 threshold (ADR-0195 (c)). RESOLVED this cycle: the **gh#1430
+unwind class** (the try×pattern-call frame wipe — found by the
+consumer, fixed same-day, the fuzzer covers the shape); the **02.11
+draft staleness** (the 8-row verbatim truth); the **second-maintainer
+record** (the ready form, the gate stands).

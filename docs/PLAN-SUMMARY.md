@@ -114,6 +114,42 @@ MINOR), №639 (15.10) / №648 (01.12) outside the wave.
 
 ## Current wave — the open machine tail (2026-10-22)
 
+Wave 59 EXECUTED (the dispatch gh#1423, audit-driven — the external
+audit 21.10 @ `9fa9821`, 9.5/10, all findings confirmed by the r30
+contour): №765 → №766 → №767 → №768 → №769 (strictly last). №765
+(gh#1418, squash `3d75b1b`, CI 50/50): the S-1b XSS closure — the
+raw-slot runtime backstop (RAW_SLOT_NOT_HTML from the ONE template
+body scan), the html_label binding walk answers Labeled(String,
+Untrusted) at raw positions, render OUT of the blanket sanitizer
+lists (position-aware engines), the let-form battery (7 pins). №766
+(gh#1419, squash `3d0dcdc`): the recursive diff-fuzzer —
+gen_stmts(depth) over the SIX nesting forms, the trace-tagged
+observable bodies (a dropped block is a TW/VM divergence by
+construction), the each-in-match pins, the 36/36 nesting-pairs
+ratchet (the NEW only-up floor), the Each-arm mutation probe (≥40%
+sensitive share). №767 (gh#1420, squash `75e144a`): the
+READBACK_PAIRS paper trail — the limitations row (the live anchor
+semantic.rs:4876) + the risk-review verdict ACCEPTED in ADR-0154 §11
++ the cross-links; the agent-index gate caught its own llms.txt
+drift on the PR (the №763 same-PR discipline works). №768 (gh#1421,
+squash `f4a7750`): the 0.31 narrative (the CHANGELOG [0.32.0] Note +
+the REALITY §6.29 note — never released, folded into 0.32.0) + the
+mirror_counter CWD-independence (any CWD prints the honest 6; a
+missing src/ fails LOUD exit 2 — never a silent 0). №769 (this row):
+the post-wave docs + the audit episode fixed in REALITY §6.44 (the
+process lesson: external/audit findings become issues IMMEDIATELY —
+the В59 precedent). The wave numbers (the machines): typed 372/526
+(70.72%), precise 242/526 (46.00%), parameterized 97/127 (76.37%),
+field-label 59/61 (96.72%), sensitive 7586 bp (110/145), goal032
+35/67 BLOCKING, untyped 32, mirror 6, the fuzzer nesting-pairs
+36/36 (the new floor), REFERENCE 526/526. The owner gates: the
+02.11 window (the release figure 0.33.3 tail-ride vs 0.34.0
+feature-cut — the gh#1398/gh#1409 map + the tag → publication,
+ADR-0186 §4.5); the goal032 lanes (β)/(γ) (gate 7); NLnet M1 03.11;
+the zip-ignore review 17.11; №648 01.12; the second maintainer (the
+audit §6 п.7 — the CODEOWNERS src/ coverage); the №561 pool refill
+(9/10); the PAT rotation.
+
 Wave 58 EXECUTED (the dispatch gh#1417): №762 → №763 (strictly
 last). №762 (the [compiler] naryad, squash `8e631ab`, CI 49/49
 round 1): the census/classification of ALL 129 quiet

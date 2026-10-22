@@ -114,6 +114,42 @@ MINOR), №639 (15.10) / №648 (01.12) outside the wave.
 
 ## Current wave — the open machine tail (2026-10-22)
 
+Wave 60 EXECUTED (the dispatch gh#1439 — the direct owner trigger
+22.10 «Где волны исполнены, проверяй и заводи следующую волну
+нарядов»): №772 → №773 → №774 → №775 (strictly last). №772 (gh#1435,
+squash `7069d4c`, CI 50/50): the gh#1430 prod-bug fix — the try×
+pattern-call unwind wiped the caller's frame locals on the VM (the
+unwound CallPattern left its CallFrame installed; the stale base_bp
+made the pre-try locals read Unit — `Unit Sub Float` /
+`Float Sub Unit`; the fosved-acc duty monitor went dark during an
+outage on the serve VM lane); BOTH TryEval arms restore the
+stack/call_stack depths on catch (форма №762, the run_deny_handler
+№392 discipline); 6 both-backend pins (4 RED before, verified by a
+stash-run), the fuzzer carries the class shape (the bug's ask 3), the
+class lifetime under a day (the issue 02:58Z → the fix ~14:25Z). №773
+(gh#1436, squash `3eef378`): the 02.11 draft VERBATIM-refresh (8 rows
+@ `7069d4c`, the byte-verbatim diff EXIT 0) + the §2.5 map — 0.33.3
+tail-ride RECOMMENDED (the ADR-0195 criteria formally met: sensitive
+7586 bp, goal032 35/67; the 0.34 roster empty — the (β)/(γ) lanes
+behind owner gate 7) + the go/no-go (6 criteria); the publication is
+the owner's act. №774 (gh#1437, no PR — verified-wait): the
+second-maintainer record — the ready ADDITIVE CODEOWNERS block
+(src/audit.rs, src/html_label.rs, src/compiler.rs — the audit §6 п.7)
++ the candidate criteria; the commit waits the owner verbatim (форма
+№755). №775 (this row): the post-wave docs — the gh#1430 episode in
+REALITY §6.45 (the honest refutation of the double-print symptom, форма
+№716; the honest finding: the gen_classification latent drift, the
+№744 class; no NEW boundaries). The wave numbers (the machines):
+typed 372/526 (70.72%), precise 242/526 (46.00%), parameterized
+97/127 (76.37%), field-label 59/61 (96.72%), sensitive 7586 bp
+(110/145), goal032 35/67 BLOCKING, untyped 32, долг 8/0/15, mirror 6,
+дубли 0, REFERENCE 526/526, the fuzzer nesting-pairs 36/36. The owner
+gates: the 02.11 window (the figure — the gh#1436 map recommends the
+tail-ride + the tag → publication, ADR-0186 §4.5); the second
+maintainer (№774's record — the verbatim); the goal032 lanes (β)/(γ)
+(gate 7); NLnet M1 03.11; the zip-ignore review 17.11; №648 01.12;
+the №561 pool refill (9/10); the PAT rotation.
+
 Wave 59 EXECUTED (the dispatch gh#1423, audit-driven — the external
 audit 21.10 @ `9fa9821`, 9.5/10, all findings confirmed by the r30
 contour): №765 → №766 → №767 → №768 → №769 (strictly last). №765

@@ -46,6 +46,23 @@ All notable changes to the Metalogos project.
 
 ### Fixed
 
+- **№768 (gh#1421, Wave 59 — the audit 21.10 §3 M-2 + L-1):** the 0.31
+  narrative lands (the third carry — the audit's «это пять минут
+  работы») and the mirror counter stops lying about its CWD. (1) The
+  version-line narrative — «0.31 was never released; its goal folded
+  into 0.32.0» — a Note subsection in the historical [0.32.0] section
+  (the gh#1350 Note form; the tags confirm: `v0.30.1` → `v0.32.0`, no
+  `v0.31.*`) + the same note in the REALITY §6.29 record (the
+  historical sections gain a line, not a rewrite). (2)
+  `scripts/ci/mirror_counter.py` builds the scan root from
+  `Path(__file__).parents[2]` — the old CWD-relative glob printed a
+  silent `0` (exit 0) when run from `scripts/ci/`, a false green for a
+  metric that can only move DOWN (the audit L-1, reproduced 1-в-1);
+  now any CWD prints the honest 6 (verified from the root,
+  `scripts/ci/` and `scripts/`), and a missing `src/` tree fails LOUD
+  (exit 2) — never a silent zero. The CI invocation from the root is
+  unchanged; the metric value (6, threshold 6) is untouched.
+
 - **№766 (gh#1419, Wave 59 — the diff-fuzzer H-2, the external audit
   §3):** the fuzzer's statement generator is RECURSIVE now — the old
   `gen_stmts` carried a `_depth` parameter it never used, and the
@@ -444,6 +461,14 @@ All notable changes to the Metalogos project.
   lift; №115 closes executed.
 
 ## [0.32.0] - 2026-10-15
+
+### Note (added 2026-10-22, №768 — the external audit 21.10 §3 M-2)
+
+The version line skips 0.31: **0.31 was never released** — its goal
+(the gate_031 typing movement, ADR-0191) folded into 0.32.0, and the
+release number 0.32.0 is the owner's verdict (the lockstep
+0.30.1 → 0.32.0; the REALITY §6.29 record). The tag line confirms:
+`v0.30.1` → `v0.32.0`, no `v0.31.*` tag exists.
 
 ### Security
 

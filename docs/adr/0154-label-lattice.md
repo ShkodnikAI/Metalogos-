@@ -217,3 +217,18 @@ Every `redact()` application — statically enumerated across all statement-bear
 ### 10.3 Verification (№326)
 
 - `cargo test naryad_326` — 14 tests: the registry (names/targets/lookup, loud unknown words), the downward path (hash_only passes the №325 gate; the same flow without redact fails), conservatism (pii_strip/truncate keep the label), unconditional events (count + policy/target in message; present under legacy; dynamic → `<dynamic>`), runtime shapes (hash determinism and data destruction, truncation shape), the showcase `examples/l1_redact.mlog`.
+
+## 11. Appendix (№767): the read-back pair exemption — the documented boundary + the risk-review record
+
+Added by naryad №767 (gh#1420, Wave 59 — the external audit 21.10 §3 M-1, §6 п.4). The boundary is documented in [`docs/limitations.md`](../limitations.md) (the Static Analysis section); this appendix is the ADR-side record and the risk-review trail. The implementation is NOT modified by this appendix — it is a documentation pass.
+
+### 11.1 The fact
+
+The sink-clearance gate (№325) reads this lattice: a sink requires `public` conf (§2.1 — `poisoned` clears nothing). №729 (gh#1356) added the ONE deliberate narrow exemption — the read-back pair table (`semantic::READBACK_PAIRS`, `src/semantic.rs`): a destructive lookup key originating from the paired Source of the same domain (`cron_list` → `cron_remove`; `mtree_retrieve` → `mtree_forget`) clears the gate at the KEY POSITION only. The rationale: the paired sinks are match-only — the key never persists new data into the state, the data returns to the domain it came from; there is no egress channel by construction. The conservative boundary rides the lattice: the provenance chain must be paired-source-only (field reads and `to_string` preserve the domain, ANY foreign admixture loses the exemption — `readback_domain` answers `None`, fail-closed); the payload positions of multi-arg sinks stay gated; a `poisoned` label clears nothing anywhere (§2.1 — the exemption never overrides quarantine).
+
+### 11.2 The risk-review record (the audit 21.10 §6 п.4 — пункт 10 of the audit methodology)
+
+- **Verdict: ACCEPTED with the standing boundary** (2026-10-22, naryad №767, Wave 59).
+- **What was reviewed:** the exemption is position-only (the lookup-key argument alone, `key_arg: 0` in both rows), domain-matched (both ends share one domain — `cron` / `mtree`), provenance-conservative (paired-source-only chains; field reads / `to_string` preserve the domain, every other expression form fails closed), and quarantine-proof (§2.1 — `poisoned` clears nothing anywhere). The audit's own assessment stands: «реализация консервативная — претензий по существу нет».
+- **Limitations of the record:** the review covers the table AS IT STANDS (two pairs); the implementation was not re-verified line-by-line by this review — the pinning tests of №729 remain the executable verification.
+- **Conditions for revision:** a THIRD pair, or a shape change in the pair recognition (a new carrying expression form in `readback_domain`), or any relaxation of the conservative boundary — each re-opens this review in its own naryad. Every future Category-A exemption follows the same protocol: the limitations row + the risk-review verdict in the same PR (the M-1 lesson: «исправление видимости обнаружило реальные срабатывания, и ответом стало исключение» — the correct answer, but the trace must survive).

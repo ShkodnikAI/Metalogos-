@@ -1591,6 +1591,25 @@ impl Vm {
                     // `try_result_struct` builds the SAME shape as the TW
                     // (error information is no longer discarded as Unit).
                     let inner: Vec<Instruction> = inner_code.clone();
+                    // gh#1430 (naryad №772): snapshot the frame discipline
+                    // BEFORE the guarded code runs. A caught error may
+                    // unwind through pattern-call frames — CallPattern
+                    // pushes a CallFrame and propagates the error with `?`,
+                    // so the callee's frame (and its stack region) stay
+                    // installed after the catch. Every later LoadLocal /
+                    // StoreLocal then resolves against the STALE base_bp:
+                    // the caller's own pre-try locals read back as Unit and
+                    // the reported `Unit Sub Float` / `Float Sub Unit`
+                    // kills the route. TW keeps the locals (its env map is
+                    // untouched by the failed call) — restore BOTH depths
+                    // on catch, the same discipline run_deny_handler (№392)
+                    // applies to its own body on every path. Nothing is
+                    // invented: the truncation removes only what the
+                    // guarded code pushed; the loud contract (ADR-0194 (c))
+                    // is unchanged — the error still prints and still lands
+                    // in the result struct.
+                    let stack_depth = stack.len();
+                    let frame_depth = call_stack.len();
                     match self.execute_code(&inner, &mut stack, &mut call_stack, program) {
                         Ok(val) => stack.push(crate::interpreter::values::try_result_struct(
                             true, val, None,
@@ -1598,6 +1617,8 @@ impl Vm {
                         Err(e) => {
                             // №385 (ADR-0169): the SAME shared classifier as the
                             // TW — one error string, one code, both backends.
+                            stack.truncate(stack_depth);
+                            call_stack.truncate(frame_depth);
                             eprintln!("[try] caught error: {}", e);
                             stack.push(crate::interpreter::values::try_result_struct(
                                 false,
@@ -2353,6 +2374,18 @@ impl Vm {
                     // `try_result_struct` builds the SAME shape as the TW
                     // (error information is no longer discarded as Unit).
                     let inner: Vec<Instruction> = inner_code.clone();
+                    // gh#1430 (naryad №772): the inner-loop MIRROR of the
+                    // run-loop arm — the same snapshot/restore discipline.
+                    // A caught error here unwinds through pattern-call
+                    // frames the same way (a route body or a pattern body
+                    // guarding a nested pattern call), and a stale frame
+                    // shifts the enclosing body's base_bp: the pre-try
+                    // locals read back as Unit after the catch. Restore
+                    // BOTH depths on catch — the run_deny_handler (№392)
+                    // discipline; nothing is invented, the loud contract
+                    // (ADR-0194 (c)) is unchanged.
+                    let stack_depth = stack.len();
+                    let frame_depth = call_stack.len();
                     match self.execute_code(&inner, stack, call_stack, program) {
                         Ok(val) => stack.push(crate::interpreter::values::try_result_struct(
                             true, val, None,
@@ -2360,6 +2393,8 @@ impl Vm {
                         Err(e) => {
                             // №385 (ADR-0169): the SAME shared classifier as the
                             // TW — one error string, one code, both backends.
+                            stack.truncate(stack_depth);
+                            call_stack.truncate(frame_depth);
                             eprintln!("[try] caught error: {}", e);
                             stack.push(crate::interpreter::values::try_result_struct(
                                 false,

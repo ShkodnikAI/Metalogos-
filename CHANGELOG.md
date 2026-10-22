@@ -46,6 +46,37 @@ All notable changes to the Metalogos project.
 
 ### Fixed
 
+- **№772 (gh#1435, Wave 60 — the prod bug gh#1430, the fosved-acc
+  АСС-1.9 finding on v0.33.2):** catching a pattern-call error with
+  `try` no longer wipes the caller's frame locals on the VM. The
+  unwound CallPattern left its CallFrame installed (the `?` propagation
+  skipped the cleanup the success path performs), so every later
+  LoadLocal/StoreLocal resolved against the stale base_bp — the pre-try
+  locals read back as Unit and the reported `Unit Sub Float` /
+  `Float Sub Unit` killed the route (the fosved-acc site monitor went
+  dark during an outage on the serve VM lane; TW kept the values — the
+  divergence the consumer found before the machine, the gh#1336 class
+  again). (1) The fix: BOTH TryEval arms (the run loop and the inner
+  loop — форма №762) snapshot the stack and call_stack depths before
+  the guarded code runs and restore both on catch — the same discipline
+  `run_deny_handler` (№392) applies to its own body on every path;
+  nothing is invented, the loud contract (ADR-0194 (c)) is unchanged —
+  the error still prints once and still lands in the result struct; TW
+  (the reference) untouched. (2) The pins:
+  `tests/n1430_try_pattern_unwind.rs` — 6 tests, 4 RED before the fix
+  on unpatched main (the issue's p3 shape 1-в-1 with TW, the consumer
+  ms shape, the nested-frames shape, the route-body lane through
+  `execute_route_code`) + 2 negative controls that were green before
+  and must stay (the inline-builtin boundary, the try success path).
+  (3) The differential fuzzer (the bug's ask 3) carries the class shape
+  now — `try boom()` → catch → a trace append reading a PRE-try local;
+  verified honest: with the fix stashed the fuzzer diverged loudly
+  (`Unit + String` on the VM), with the fix it is green 13/13 — the
+  class cannot return quietly. AFFECTS: VM programs that relied on
+  reading pre-try locals as Unit after a caught pattern-call error now
+  see the TW values (the divergence was the defect; TW behavior
+  unchanged byte-for-byte; the inline-builtin try boundary unchanged).
+
 - **№768 (gh#1421, Wave 59 — the audit 21.10 §3 M-2 + L-1):** the 0.31
   narrative lands (the third carry — the audit's «это пять минут
   работы») and the mirror counter stops lying about its CWD. (1) The

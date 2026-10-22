@@ -81,6 +81,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -241,18 +242,35 @@ def branch_protection_audit_observed(token: str) -> dict:
         'Authorization': 'Bearer %s' % token,
         'Accept': 'application/vnd.github+json',
     })
-    try:
-        data = json.load(urllib.request.urlopen(req))
-    except Exception as e:
-        print('::error::the GitHub API query failed (%s) — fail-closed' % e)
-        sys.exit(2)
-    runs = data.get('workflow_runs') or []
-    if not runs:
-        print('::error::no completed branch-protection-audit runs — the '
-              'verdict is unreadable (fail-closed INFRA)')
-        sys.exit(2)
-    verdict = 'GREEN' if runs[0].get('conclusion') == 'success' else 'RED'
-    return {'fact_branch_protection_audit': verdict}
+    # Naryad №776 (gh#1445, 2026-10-22): the GitHub API runs-list
+    # `status=completed` filter FLAPS server-side — identical queries
+    # seconds apart returned total_count 0,0,0,5,5,5,0,5 (the evidence
+    # log in gh#1445), and two main runs failed fail-closed INFRA on
+    # the 0-side while the runs were green and visible unfiltered.
+    # The retry is INFRA-tolerance ONLY: the empty-list answer is
+    # retried within a bounded window (6 attempts × 20s ≈ 2 min — the
+    # observed 0-side of the flap is ~20-80s), the verdict still comes
+    # ONLY from completed runs, an API exception stays the loud
+    # immediate exit 2, and after the retries are exhausted the gate
+    # still fails closed — №525 unchanged: the retry never turns an
+    # unreadable state into a pass.
+    for attempt in range(6):
+        try:
+            data = json.load(urllib.request.urlopen(req))
+        except Exception as e:
+            print('::error::the GitHub API query failed (%s) — fail-closed' % e)
+            sys.exit(2)
+        runs = data.get('workflow_runs') or []
+        if runs:
+            verdict = 'GREEN' if runs[0].get('conclusion') == 'success' else 'RED'
+            return {'fact_branch_protection_audit': verdict}
+        if attempt < 5:
+            print('::notice::the runs list read empty (attempt %d/6) — the '
+                  'API filter flaps (gh#1445); retrying in 20s' % (attempt + 1))
+            time.sleep(20)
+    print('::error::no completed branch-protection-audit runs — the '
+          'verdict is unreadable (fail-closed INFRA)')
+    sys.exit(2)
 
 
 def open_high_observed(token: str) -> str:

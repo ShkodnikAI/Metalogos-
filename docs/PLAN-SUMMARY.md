@@ -112,7 +112,42 @@ gates remaining: the ADR-0191 §-answers (the OD variants), the train
 №2 candidate (19.10 — the [Unreleased] classification = the 0.31.0
 MINOR), №639 (15.10) / №648 (01.12) outside the wave.
 
-## Current wave — the open machine tail (2026-10-22)
+## Current wave — the open machine tail (2026-10-23)
+
+Wave 61 EXECUTED (the dispatch gh#1455 — the direct owner trigger
+23.10 «Где волны исполнены, проверяй и заводи следующую волну
+нарядов»): №777 → №778 → №779 (strictly last). №777 (gh#1452,
+squash `9c0f584`, CI 50/50 round 1): the №772 honest finding closed
+(the №744 class) — the classification-SSOT generator drift-proof and
+gate-covered: the template's six static fragments now carry the
+fmt-gate style and the emitted Rust is normalized through rustfmt
+(the same canonical formatter as the fmt gate — a formatter-default
+change is no longer a drift source), the REFERENCE block no longer
+grows an empty line per run (the END-marker newline doubling), the
+argv is loudly validated (argparse — the `--goal032 --list` spelling
+was never a mode, exit 2), the NEW `--check` gate (both artifacts
+rebuilt in memory, exit 1 on drift) wired BLOCKING into the fmt job
+(the fact key WITH its checker, №735); the artifacts NOT touched
+(byte-identical to HEAD — the floors stand), the negatives spring (a
+one-token tamper → exit 1, the unknown flags → exit 2), the bare run
+on a clean HEAD is diff-empty. №778 (gh#1453, no PR — the report
+form): the wave-60 INFRA duplicates gh#1443/gh#1444 closed as
+duplicates of gh#1445 (the cross-ref comments, the texts NOT edited,
+completed) + the publication discipline (an immediate cross-ref of
+every instance at the moment of publication) + the branch-freshness
+skip fact (the gate is `pull_request`-scoped by construction — the
+lawful skip, no defect, the gate not weakened). №779 (this row): the
+post-wave docs — the wave record in REALITY §6.46 (no NEW
+boundaries). The wave numbers (the machines @ `9c0f584`): typed
+372/526 (70.72%), precise 242/526 (46.00%), parameterized 97/127
+(76.37%), field-label 59/61 (96.72%), sensitive 7586 bp (110/145),
+goal032 35/67 BLOCKING, untyped 32, долг 8/0/15, mirror 6, дубли 0,
+REFERENCE 526/526, the fuzzer nesting-pairs 36/36. The owner gates:
+the 02.11 window (the figure — the gh#1436 map recommends the
+tail-ride + the tag → publication, ADR-0186 §4.5); the second
+maintainer (№774's record — the verbatim); the goal032 lanes (β)/(γ)
+(gate 7); NLnet M1 03.11; the zip-ignore review 17.11; №648 01.12;
+the №561 pool refill (9/10); the PAT rotation.
 
 Wave 60 EXECUTED (the dispatch gh#1439 — the direct owner trigger
 22.10 «Где волны исполнены, проверяй и заводи следующую волну

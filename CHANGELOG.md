@@ -72,6 +72,20 @@ All notable changes to the Metalogos project.
 
 ### Fixed
 
+- **№785 (gh#1507, Wave 62 hygiene tail — the №776 form):** the
+  cargo-audit/cargo-deny RED on main (`e77a93c`) — `RUSTSEC-2026-0385`
+  (ctutils 0.4.2: the non-constant-time mask generation / `u128`
+  comparisons) landed in the RustSec advisory database BETWEEN the CI
+  rounds (the same commit graph was GREEN an hour earlier on the
+  tokio bump — the base flap, not a diff regression; the №780 diff
+  does not touch Cargo.lock). The bump: ctutils 0.4.2 → 0.4.4
+  (`cargo update --precise`, the single Cargo.lock hunk) — the
+  constant-time comparison stack (the №1002/gh#1211 `ct_eq` contour)
+  rides the fixed release. 0 vulnerabilities after (5 allowed
+  unmaintained/yanked warnings, the advisory class); the
+  0367/0368/0369 zip ignores are untouched (UPSTREAM-BLOCKED, the
+  2026-11-17 expiry review stands).
+
 - **№780 (gh#1491, Wave 62 — the audit-23.10 A1, P0):** the runtime
   label gates (`LabelJoin`/`SinkCheck` — the №325/ADR-0156 runtime
   twin, the `[SINK_CLEARANCE_RUNTIME]` verdict) execute in the

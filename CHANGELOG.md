@@ -31,6 +31,32 @@ All notable changes to the Metalogos project.
 
 ### Changed
 
+- **№777 (gh#1452, Wave 61 — the №772 honest finding closed, the №744
+  class):** the classification-SSOT generator is now drift-proof and
+  gate-covered. A bare `gen_classification.py` run on a clean HEAD
+  produced a non-default diff (builtins_classification.rs +8/−26 — the
+  template's static fragments were not in the fmt-gate style;
+  REFERENCE.md +1 — the block carried a trailing newline the tail after
+  the END marker already provides, one empty line per run). (1) The
+  template fragments now carry the fmt-gate style and the emitted Rust
+  is normalized through rustfmt when it is on PATH — the generator
+  cannot drift from the fmt gate by a formatter-default change. (2) The
+  REFERENCE block no longer grows an empty line per run (the replace
+  path emits END without the doubled newline). (3) The argv is loudly
+  validated via argparse: unknown flags are a loud exit 2 — the
+  `--goal032 --list` spelling from the №772 report was never a mode
+  (the flags were dropped and the run REGENERATED the tree). (4) NEW
+  `--check` mode (the gen_metrics --check form): both artifacts are
+  rebuilt in memory and compared against the tree — exit 1 on drift,
+  nothing written; wired BLOCKING into the fmt job right after
+  `cargo fmt --all --check` (the fact key WITH its checker, №735).
+  Verification: a one-token classification tamper springs `--check`
+  (exit 1); `--goal032 --list` exits 2 with a named refusal; the bare
+  run on a clean HEAD is diff-empty (idempotent). AFFECTS: the
+  regeneration workflow and the CI surface only — no product behavior
+  change; the classification data (526 entries, 289 non-Pure) is
+  byte-identical; the floors stand (sensitive 7586 bp, goal032 35/67).
+
 - **№767 (gh#1420, Wave 59 — the audit 21.10 M-1, the exemption's paper
   trail):** the read-back pair exemption (№729 — `cron_list` →
   `cron_remove`; `mtree_retrieve` → `mtree_forget`, the table

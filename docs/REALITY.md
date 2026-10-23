@@ -4010,3 +4010,135 @@ unwind class** (the try×pattern-call frame wipe — found by the
 consumer, fixed same-day, the fuzzer covers the shape); the **02.11
 draft staleness** (the 8-row verbatim truth); the **second-maintainer
 record** (the ready form, the gate stands).
+
+
+### 6.46. Wave 61 post-wave record (naryad №779): the honest-finding wave — the №772 gen_classification latent drift (the №744 class) closed at the root: the drift-proof generator + the blocking --check gate; the wave-60 INFRA duplicates closed (the hygiene); the branch-freshness skip fact documented (main @ the naryad's PR, 2026-10-23)
+
+The wave composition №777 → №778 → №779 (strictly last; the dispatch
+gh#1455; the trigger — the direct owner trigger 23.10 «Где волны
+исполнены, проверяй и заводи следующую волну нарядов»; the r30
+verification of the wave 60 + the hygiene tail 4a698ff was ALL GREEN
+at the dispatch):
+
+- **№777** (gh#1452, squash `9c0f584`, CI 50/50 GREEN round 1): the
+  [ci] naryad — the **№772 honest finding closed** (the №744 class —
+  the latent generator drift). The fact (the reproduction on a clean
+  HEAD `7c2276c`): a bare `gen_classification.py` run produced a
+  non-default diff (builtins_classification.rs +8/−26,
+  REFERENCE.md +1, numstat; EXIT 0). The root — THREE components,
+  and the classification DATA was never wrong (the 526-entry table
+  byte-identical, the floors untouched): (a) the template's six
+  static fragments (the classify chain, four asserts, the
+  String::from) were outside the rustfmt norm the fmt gate
+  enforces — `cargo fmt` translated the generator's output
+  byte-for-byte into the committed form (proved by a run), so the
+  committed tree always carried the rustfmt view while the raw
+  generator run would break the fmt gate; (b) the REFERENCE block
+  grew ONE empty line per run — the split goes by the END marker
+  without its line terminator, the tail after the marker already
+  starts with the newline that ends the END line, and the block
+  carried `END + "\n"` — a doubling accumulated by every
+  regeneration; (c) the gate hole: the canonical goal032 gate reads
+  the committed data and never runs the generator, the fmt gate
+  reads the commits — NOTHING compared the generator's output
+  against the tree (the reproducibility of the result was nobody's
+  surface); the argv was silently dropped (no parser at all) — the
+  `--goal032 --list` spelling from the №772 report was never a mode
+  (the №744 class: the machine disagrees with its source in a way
+  no gate sees). The fix (the generator only — the artifacts NOT
+  touched, byte-identical to HEAD; форма №590 hands-off kept, the
+  floors stand: sensitive 7586 bp, goal032 35/67, field-label
+  59/61): the template fragments now carry the fmt-gate style; the
+  emitted Rust is normalized through rustfmt when it is on PATH —
+  the SAME canonical formatter as the fmt gate, so a
+  formatter-default change is no longer a drift source (a loud
+  WARNING without rustfmt — never a quiet path); the REFERENCE
+  replace path emits END without the doubled newline; the
+  parse-back is fail-closed (a row-count mismatch is a loud
+  refusal, not a truncated block); the argv is loudly validated
+  (argparse — unknown flags are exit 2); a NEW `--check` mode (the
+  gen_metrics --check form) rebuilds BOTH artifacts in memory and
+  compares them against the tree — exit 1 on drift, writes
+  nothing. The gate hole closed in the fact-key-WITH-checker form
+  (№735): the step «Gate — the classification SSOT freshness
+  (№777; blocking)» sits in the fmt job right after
+  `cargo fmt --all --check` (the toolchain with rustfmt is
+  guaranteed there). The negative verification: a one-token
+  classification tamper springs `--check` (exit 1); the
+  `--goal032 --list` spelling exits 2 with a named refusal; the
+  bare run on a clean HEAD is diff-empty (idempotent). Why the
+  canonical gate was green (the naryad's ask 5, the verbatim):
+  both gates address the RESULT (the data, the commit format), not
+  the REPRODUCIBILITY of the result — the generator-vs-tree drift
+  was nobody's surface; now the reproducibility has its own
+  blocking checker. AFFECTS (форма №756, the [Unreleased] Changed
+  row): the regeneration workflow and the CI surface only — no
+  product behavior change.
+- **№778** (gh#1453, the report form — no PR, no repo surface): the
+  [hygiene] naryad. The wave-60 INFRA duplicates gh#1443 (RU) and
+  gh#1444 (EN) closed as **duplicates of gh#1445**: a cross-ref
+  comment in each (the dup marker + the gh#1445 link + the №776 fix
+  pointer: PR #1446, squash `4a698ff`, the bounded retry, №525
+  unchanged), closed completed; the duplicate TEXTS not edited —
+  the historical evidence of the 22.10 GitHub API flap anomaly
+  (REALITY §6.45). The publication discipline (the micro-addition
+  to the №771 form, one line): an INFRA report published in several
+  instances gets an immediate cross-ref of every instance AT the
+  moment of publication — the two open duplicates sat on the board
+  as a false live-defect signal. The branch-freshness fact (the
+  r30 remark): the job is `if: github.event_name == 'pull_request'`
+  by construction — the gate addresses the PR surface only (the
+  stale-branch revert class of №161/№182, the 20-commit threshold);
+  on a main push the skip is the lawful no-op, the same verdict
+  recorded in the В51 and В60 verifications; NO defect, NO fix, the
+  gate not weakened (the №525 / gate-facts-sync / №776 surfaces
+  untouched — zero workflow diffs).
+- **The session honest notes (форма №716/честная находка, no NEW
+  product boundaries):** (a) the MultiEdit non-atomicity recurred in
+  the №777 session (the lesson №723 confirmed a second time: five
+  of six template edits landed while the sixth failed the verbatim
+  match — caught immediately by the byte-level fragment check, the
+  remaining two hunks applied in a follow-up edit; the discipline
+  stands: a multi-edit is verified hunk-by-hunk, never assumed); (b)
+  the `--check` dependence: in an environment WITHOUT rustfmt the
+  gate is blind to a future formatter-default change (the template
+  view is compared against the tree) — documented in the PR body
+  and the audit; the CI step lives in the rustfmt-guaranteed job
+  and a rustfmt-less environment gets a loud WARNING — the honest
+  surface, not a quiet one.
+- **Limitations (форма №736): no NEW boundaries this wave.** №777
+  closes the wave-60 honest finding (the reproducibility hole) and
+  №778 is the hygiene; zero product changes (the classification
+  data, the compiler, the runtime untouched); the docs surface of
+  the wave is this record and the PLAN-SUMMARY row.
+
+**The wave numbers (the machines @ the merge head `9c0f584`; the
+ratchet floors only-up):** typed 372/526 = 70.72%; precise 242/526 =
+46.00%; parameterized 97/127 = 76.37%; field-label 59/61 = 96.72%;
+sensitive 110/145 = 7586 bp (the floor 7586 — the №644 fixed
+denominator); goal032 35/67 BLOCKING EXIT 0 (the ADR-0193 ≥20 figure
+RATIFIED, the floor only-up); untyped 32; долг 8/0/15
+(ignore/ignore_todo/dead_code; example_uncovered 0,
+read_file_soft_missing 0); mirror mentions 6; дубли 0; REFERENCE
+526/526 = 100%; the fuzzer nesting-pairs 36/36. `gen_metrics
+--check` OK (the README block regenerated same-PR — the CHANGELOG
+size shift), `gen_reference` up to date, honest_boundary --diff EXIT
+0 + the retrospective IN SYNC (86 rows, the №604 dictionary clean),
+sync_gate_facts OK, blocking_checks_sync 33 cells OK, numbering
+self-test ALL PASS.
+
+**The owner gates (as of the record date):** the **02.11 window** —
+the release figure (the §2.5 map gh#1436 recommends **0.33.3
+tail-ride**: the 8-row [Unreleased], the ADR-0195 criteria formally
+met, the 0.34 roster empty) + the tag → publication (ADR-0186 §4.5
+— the owner's act); the **second maintainer** — №774's ready
+CODEOWNERS record + the candidate criteria wait the owner verbatim
+(форма №755); the **goal032 lanes (β)/(γ)** (gate 7); **NLnet M1
+03.11**; the **zip-ignore review 17.11**; **№648 01.12**; the №561
+pool refill (9/10); the PAT rotation. PARKED: the №569 threshold
+(ADR-0195 (c)). RESOLVED this cycle: the **classification-SSOT
+reproducibility hole** (the №772 honest finding — the generator is
+drift-proof and the reproducibility has its own blocking checker);
+the **wave-60 INFRA duplicate surface** (gh#1443/gh#1444 closed
+with cross-refs); the **branch-freshness skip fact** (the lawful
+PR-scoped construction, documented).

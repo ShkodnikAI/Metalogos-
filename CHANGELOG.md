@@ -6,6 +6,22 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№788 (gh#1511, Wave 63 — audit-23.10 C4-a T3, the owner decision
+  23.10):** the honest-boundary CHANGELOG verdict — `security: no —
+  <reason>` on the row itself is the THIRD legal path (next to the
+  `### Security` section and the `release-block` evidence); the gate
+  accepts it and prints it for the review. The rephrase-circumvention
+  detector rides the same blocking job: a dictionary-matching line
+  removed from CHANGELOG/limitations whose replacement matches neither
+  the dictionary nor the verdict exits 1 («rephrase without verdict»)
+  — the №762.1/№771 synonym lane is closed, the dictionary unweakened,
+  the hunk-scoped pairing keeps multi-line entries together. Self-test:
+  six new cases (the verdict accepted, the bare `security: no.`
+  rejection, the №771 shape caught, the verdict-carrying rewrite
+  lawful, the dict-vocabulary lane, the limitations shape). The
+  AGENTS.md rule: a naryad whose only content is a rephrase under the
+  gate is not issued.
+
 - **№763 (gh#1416, Wave 58 — the agent-index honesty, the R-01
   finding):** the llms.txt drift (uncovered by any generator gate since
   its creation) is closed by a BLOCKING gate. (1) llms.txt refreshed

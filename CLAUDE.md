@@ -184,7 +184,21 @@ on compilation.
   many commits if other work ran in parallel — compare before merge,
   not only before starting work.
 
-## 10. Documentation language — English only
+## 10. The honest-boundary CHANGELOG verdict — no rephrase naryads
+
+Owner decision (C4 п.3, 2026-10-23, gh#1498): a `CHANGELOG.md` line
+flagged by the honest-boundary security dictionary has THREE legal
+paths — the `### Security` section, the `release-block` evidence, or
+the EXPLICIT verdict `security: no — <reason>` on the row itself (the
+reason rides the row; the gate prints it for the review). **Rephrasing
+the line to slip under the dictionary is not a legal path** — the
+circumvention detector catches a removed dictionary-matching line whose
+replacement matches neither the dictionary nor the verdict (exit 1,
+«rephrase without verdict»). Consequently, **a naryad whose only
+content is rephrasing a row under the gate is NOT issued** — answer a
+false positive with the verdict, keep the dictionary unweakened.
+
+## 11. Documentation language — English only
 
 Owner directive (2026-09-17): **all documentation in this repository
 is written in English only.** Every new CHANGELOG entry and every new

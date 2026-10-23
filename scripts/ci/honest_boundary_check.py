@@ -95,6 +95,14 @@ REPO = "ShkodnikAI/Metalogos-"
 LABEL = "release-block"
 ISSUE_REF_RE = re.compile(r"(?i)(?:/issues/|\bissues/|gh#|#)(\d+)")
 
+# №788 (gh#1498, C4-a T3 — the owner decision 23.10): the EXPLICIT
+# verdict form — `security: no — <reason>` on the row itself is the
+# THIRD legal path for a dictionary-matching line (next to the ###
+# Security section and the release-block evidence). The reason must be
+# non-empty and rides the row for the review; a bare "security: no"
+# without the dash-reason does not satisfy the form.
+VERDICT_RE = re.compile(r"security:\s*no\s*[—–-]\s*\S", re.IGNORECASE)
+
 # The marker forms, case-insensitive (the calibration is in the docstring).
 MARKERS: tuple[re.Pattern[str], ...] = (
     re.compile(r"(?i)honest\s+boundary"),
@@ -401,6 +409,17 @@ def check_security_rows(
         matched = dictionary_match(row, patterns)
         if not matched:
             continue
+        # №788: the EXPLICIT verdict — the row declares itself NOT
+        # security-relevant, the reason rides the row; the gate accepts
+        # and PRINTS it (visible at the review). The rephrase alternative
+        # (what №762.1/№771 had to do) is now CAUGHT by the circumvention
+        # detector — the verdict is the only dictionary-preserving out.
+        if VERDICT_RE.search(row):
+            reports.append(
+                "security row OK (the explicit `security: no` verdict — "
+                f"C4 п.3, №788; the reason rides the row): {row[:120]}"
+            )
+            continue
         refs = issue_refs(row)
         evidence: str | None = None
         if pr_ok:
@@ -493,6 +512,88 @@ def check_changelog_security(
     )
     reports.extend(sec_reports)
     return code, reports, len(entries), under
+
+
+# ── №788 (gh#1498, C4-a T3): the rephrase-circumvention detector ──────
+#
+# The precedent: №762.1 (f546ec3) and №771 (d4addbf) closed the FALSE
+# POSITIVES by REPHRASING the row around the dictionary («silent `0` …
+# false green» → «bare `0`», «silent zero» → «quiet zero») — the honest
+# move for a false positive, but the SAME move silently launders a REAL
+# security row (the dictionary is a finite list; «quiet» is not in it —
+# the issue names the hole verbatim). The owner's decision (C4 п.3): a
+# false positive is answered by the EXPLICIT verdict `security: no —
+# <reason>` on the row — NOT by a rephrase, and a naryad whose only
+# content is a rephrase under the gate is not issued. This detector
+# closes the laundering lane: a dictionary-matching line REMOVED from
+# CHANGELOG.md/docs/limitations.md while the replacement in the same
+# hunk matches NEITHER the dictionary NOR the verdict = exit 1 («rephrase
+# without verdict»). The dictionary is NOT weakened; the gate stays
+# blocking; the hunk-scoped pairing keeps multi-line entries together.
+
+REPHRASE_FILES = ("CHANGELOG.md", "docs/limitations.md")
+
+
+def check_rephrase_circumvention(
+    diff: str, patterns: list[re.Pattern[str]]
+) -> tuple[int, list[str]]:
+    """The №788 detector — hunk-scoped: within one hunk of one guarded
+    file, a removed dictionary-matching line with no dictionary-matching
+    and no verdict-carrying replacement is a rephrase-circumvention.
+    Returns (exit_code, the violation lines)."""
+    violations: list[str] = []
+    current_file: str | None = None
+    removed_match = 0
+    added_match = 0
+    added_verdict = 0
+    removed_samples: list[str] = []
+
+    def flush() -> None:
+        nonlocal removed_match, added_match, added_verdict, removed_samples
+        if removed_match > 0 and added_match == 0 and added_verdict == 0:
+            violations.append(
+                "REPHRASE WITHOUT VERDICT (№788, C4 п.3): a dictionary-"
+                f"matching line was removed from {current_file} and the "
+                "replacement in the same hunk matches neither the "
+                "dictionary nor the explicit `security: no — <reason>` "
+                "verdict — the honest-boundary history is not editable by "
+                "synonym. Answer a false positive with the VERDICT on the "
+                "row; a real security row carries the release-block "
+                "evidence."
+            )
+            for s in removed_samples[:3]:
+                violations.append(f"  removed: {s.strip()[:150]}")
+        removed_match = 0
+        added_match = 0
+        added_verdict = 0
+        removed_samples = []
+
+    for line in diff.splitlines():
+        if line.startswith("--- ") or line.startswith("+++ "):
+            flush()
+            if line.startswith("+++ "):
+                m = FILE_HEADER_RE.match(line)
+                current_file = m.group(1) if m else None
+            continue
+        if line.startswith("@@"):
+            flush()
+            continue
+        if current_file not in REPHRASE_FILES:
+            continue
+        if line.startswith("-") and not line.startswith("---"):
+            text = line[1:]
+            if dictionary_match(text, patterns):
+                removed_match += 1
+                if len(removed_samples) < 3:
+                    removed_samples.append(text)
+        elif line.startswith("+") and not line.startswith("+++"):
+            text = line[1:]
+            if dictionary_match(text, patterns):
+                added_match += 1
+            if VERDICT_RE.search(text):
+                added_verdict += 1
+    flush()
+    return (1 if violations else 0), violations
 
 
 # ── №674 (gh#1201, В41): the «Honest limits» spec-section mirror check ──
@@ -939,6 +1040,101 @@ def self_test() -> int:
         "+  and the legacy arithmetic was wrong in the third decimal only.\n",
         lambda n: set(),
     )
+    # ── №788 (C4 п.3): the explicit verdict — the THIRD legal path ──
+    # the dictionary-matching row WITH the explicit `security: no —
+    # <reason>` verdict — accepted by the row gate, printed for review
+    cl_case(
+        "the №788 verdict: the dict row with `security: no — <reason>` — accepted",
+        0,
+        "diff --git a/CHANGELOG.md b/CHANGELOG.md\n"
+        "--- a/CHANGELOG.md\n"
+        "+++ b/CHANGELOG.md\n"
+        "@@ -10,6 +10,9 @@\n"
+        " ## [Unreleased]\n"
+        " \n"
+        "+- **№768 (gh#1421):** the mirror counter answered silently 0 on a\n"
+        "+  broken scan — the false green — security: no — the counter is\n"
+        "+  loud by design since №776; the wording was the bug, not the\n"
+        "+  behavior.\n",
+        lambda n: set(),
+    )
+    # the bare «security: no» WITHOUT the dash-reason is NOT the form —
+    # the row gate still demands the evidence
+    cl_case(
+        "the bare `security: no.` without the reason — still caught",
+        1,
+        "diff --git a/CHANGELOG.md b/CHANGELOG.md\n"
+        "--- a/CHANGELOG.md\n"
+        "+++ b/CHANGELOG.md\n"
+        "@@ -10,6 +10,9 @@\n"
+        " ## [Unreleased]\n"
+        " \n"
+        "+- **№768 (gh#1421):** the mirror counter answered silently 0 on a\n"
+        "+  broken scan — the false green — security: no.\n",
+        lambda n: set(),
+    )
+
+    # ── №788: the rephrase-circumvention detector ──
+    def rep_case(name, want_code, diff_text):
+        nonlocal failed
+        c, _v = check_rephrase_circumvention(diff_text, patterns)
+        st = "ok" if c == want_code else "FAIL"
+        if st == "FAIL":
+            failed += 1
+        print(f"  self-test [{st}] code={c}/{want_code}: {name}")
+
+    # the №771 precedent shape — the synonym rephrase LAUNDERING the
+    # dictionary line: caught («rephrase without verdict»)
+    rep_case(
+        "the №771 shape: silent→bare rephrase without verdict — caught",
+        1,
+        "diff --git a/CHANGELOG.md b/CHANGELOG.md\n"
+        "--- a/CHANGELOG.md\n"
+        "+++ b/CHANGELOG.md\n"
+        "@@ -10,7 +10,7 @@\n"
+        " ## [Unreleased]\n"
+        " \n"
+        "-- **№768:** the mirror counter was a silent 0 on a broken scan — the false green\n"
+        "+- **№768:** the mirror counter was a bare 0 on a broken scan — the green that lied\n",
+        )
+    # the same removal, the replacement carries the verdict — lawful
+    rep_case(
+        "the same removal with the `security: no —` verdict — lawful",
+        0,
+        "diff --git a/CHANGELOG.md b/CHANGELOG.md\n"
+        "--- a/CHANGELOG.md\n"
+        "+++ b/CHANGELOG.md\n"
+        "@@ -10,7 +10,7 @@\n"
+        " ## [Unreleased]\n"
+        " \n"
+        "-- **№768:** the mirror counter was a silent 0 on a broken scan — the false green\n"
+        "+- **№768:** the mirror counter was a bare 0 on a broken scan — security: no — the counter is loud by design since №776, the wording was the false-positive cleanup\n",
+        )
+    # the replacement keeps the dictionary vocabulary — the row gate owns
+    # it, the detector stays silent (no double-punishment lane)
+    rep_case(
+        "the replacement keeps the dict vocabulary — the row gate's lane",
+        0,
+        "diff --git a/CHANGELOG.md b/CHANGELOG.md\n"
+        "--- a/CHANGELOG.md\n"
+        "+++ b/CHANGELOG.md\n"
+        "@@ -10,7 +10,7 @@\n"
+        " ## [Unreleased]\n"
+        " \n"
+        "-- **№768:** the mirror counter was a silent 0 on a broken scan — the false green\n"
+        "+- **№768:** the mirror counter answered silently 0 on a broken scan — the false green\n",
+        )
+    # the limitations.md shape — the same laundering lane is closed there
+    rep_case(
+        "the limitations.md shape: VM/secret divergence reworded away — caught",
+        1,
+        "diff --git a/docs/limitations.md b/docs/limitations.md\n"
+        "--- a/docs/limitations.md\n"
+        "+++ b/docs/limitations.md\n"
+        "@@ -80,7 +80,7 @@\n"
+        "- | the VM lane writes the secret to the log (the TW refuses) — the divergent secret surface |\n"
+        "+ | the VM lane writes the log entry (the TW refuses) — the divergent logging surface |\n",
+        )
 
     # ── №674: the spec «Honest limits» mirror cases (HERMETIC — a
     #    tempdir spec dir + a synthetic limitations.md; the live-repo
@@ -1062,6 +1258,18 @@ def main() -> int:
         for line in cl_reports:
             print(f"::error::{line}" if not line.startswith("  ") else line)
         return cl_code
+
+    # №788: the rephrase-circumvention detector — the SAME blocking job
+    # (no new cell, №535): a dictionary-matching line removed from
+    # CHANGELOG/limitations without a dictionary/verdict replacement is
+    # the laundering lane the owner's C4 п.3 decision closes.
+    rep_code, rep_lines = check_rephrase_circumvention(diff, patterns)
+    if rep_code != 0:
+        for line in rep_lines:
+            print(f"::error::{line}" if not line.startswith("  ") else line)
+        return rep_code
+    for line in rep_lines:
+        print(line)
 
     # №674: the spec «Honest limits» mirror check — the SAME blocking
     # job (no new cell, №535), repo-state based: every ACTIVE record of

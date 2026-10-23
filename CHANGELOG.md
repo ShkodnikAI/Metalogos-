@@ -6,6 +6,20 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№790 (gh#1513, Wave 63 — audit-23.10 C1 (b), the owner decision
+  23.10):** ADR-0196 **Accepted** — the MCP policy gateway is the
+  FLAGSHIP PILOT: the language stays a product until the fork; the
+  pilot scope G0 (#1458 landed as №780, #1460) → G1–G4 (#1480–#1483,
+  waves 64–66); the MEASURABLE exit criteria (the published G4 demo
+  with the reproducible script; the Fosved Office dogfood; ≥ 3
+  external installation attempts) — conjunctive; the fork by the
+  results is a NEW owner act (the expansion (a) or the course
+  unchanged (c)); the boundaries: no builtin expansion beyond the
+  gateway's need, the domain quota and the stop-list in force, the
+  language roadmap untouched. The full owner verbatim lives in #1470;
+  the ADR quotes the posture line (the docs-language budget — the
+  lint is the honest machine). The ADR index 187 → 188.
+
 - **№789 (gh#1512, Wave 63 — audit-23.10 C4-a T1, the owner decision
   23.10):** `scripts/gen_wave_record.py` — the wave-record generator:
   by the `wave-N` label it finds the dispatch, parses the naryad

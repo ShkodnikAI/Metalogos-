@@ -342,6 +342,14 @@ impl Default for Vm {
     }
 }
 
+/// №780 (audit-23.10 A1): the shared SinkCheck verdict for BOTH execution
+/// loops — fall through (`Continue`) or jump to the deny continuation
+/// (`Jump`, the №392 path). The error case is `Err` (the loud verdict).
+enum SinkCheckOutcome {
+    Continue,
+    Jump(usize),
+}
+
 impl Vm {
     /// Create a new VM with empty state.
     pub fn new() -> Self {
@@ -772,8 +780,145 @@ impl Vm {
         // of reflex/vision/origin declarations on the (now empty) tables.
         self.load_program(program)
     }
+
+    /// №780 (audit-23.10 A1): the LabelJoin executor shared by BOTH
+    /// execution loops (`execute_main_code` and `execute_code_inner` —
+    /// the pattern/route bodies). The inner loop previously dropped
+    /// this arm into the wildcard tail: the label env stayed unseeded
+    /// in the pattern/route bodies and the runtime SinkCheck twin saw
+    /// bottom labels — the ADR-0156 §1 contract was half-executed.
+    fn exec_label_join(&mut self, dst: &str, src: &str) {
+        let incoming = if let Some(source) = src.strip_prefix('@') {
+            runtime_source_label(source)
+        } else {
+            self.label_env.get(src).cloned().unwrap_or_default()
+        };
+        let merged = self
+            .label_env
+            .get(dst)
+            .cloned()
+            .unwrap_or_default()
+            .join(&incoming);
+        self.label_env.insert(dst.to_string(), merged);
+    }
+
+    /// №780 (audit-23.10 A1): the SinkCheck executor shared by BOTH
+    /// execution loops — the runtime twin of the №325 gate
+    /// (ADR-0156, `[SINK_CLEARANCE_RUNTIME]`) now executes in the
+    /// pattern/route bodies too (the deny path №392 included).
+    /// `next_ip` is the fall-through ip the deny continuation
+    /// `skip_to` points from.
+    fn exec_sink_check(
+        &mut self,
+        sc: &SinkCheckData,
+        stack: &mut Vec<Value>,
+        call_stack: &mut Vec<CallFrame>,
+        program: &Program,
+        next_ip: usize,
+    ) -> Result<SinkCheckOutcome, String> {
+        let SinkCheckData {
+            fn_name,
+            arg,
+            line,
+            arg_index,
+            deny,
+            slot,
+        } = sc;
+        let label = if let Some(source) = arg.strip_prefix('@') {
+            runtime_source_label(source)
+        } else {
+            self.label_env.get(arg).cloned().unwrap_or_default()
+        };
+        // Quarantine clears nothing; everything else must be
+        // public at a sink (the №325 contract, runtime twin).
+        // EXEC additionally refuses untrusted (№325/№327).
+        let exec_untrusted = fn_name == crate::runtime_ops::NAME_EXEC || fn_name == "exec_argv";
+        if label.conf != crate::labels::Conf::Public
+            || (exec_untrusted && label.integrity == crate::labels::Integrity::Untrusted)
+        {
+            // №780 (audit-23.10 A1): the typed materialization contracts
+            // keep their canonical codes even when the runtime twin fires
+            // BEFORE the shared builtin leg (the bodies arm the checks
+            // now — the WorldState canon №355/№691: the handle's
+            // materialization refuses `WORLD_STATE_PRIVATE` on BOTH
+            // backends, the conformance pair sst_001 pins the code).
+            // The value is read from the tracked local slot (the compiler
+            // records it for Ident arguments; `None` → the general
+            // verdict).
+            let value = slot.and_then(|slot| {
+                let bp = call_stack.last().map(|f| f.base_bp).unwrap_or(0);
+                let idx = bp + slot as usize;
+                stack.get(idx).cloned()
+            });
+            if matches!(value, Some(Value::WorldState(_))) {
+                let message = crate::interpreter::values::coded_error(
+                    crate::interpreter::values::CODE_WORLD_STATE_PRIVATE,
+                    format!(
+                        "{} refused: WorldState is private-by-default state — its materialization outside the verified contour is an error (the Phase-1 lattice / №349 consistency; inspect via the introspection surfaces); the runtime sink gate agrees (line {})",
+                        fn_name,
+                        line,
+                    ),
+                );
+                eprintln!("[WORLD_STATE][audit-event] {}", message);
+                return Err(message);
+            }
+            // №392: the reason class is the SAME sink_check_id
+            // the static audit uses — the event's reason and
+            // the diagnostic class agree verbatim.
+            let reason = crate::audit::sink_check_id(fn_name, *arg_index as usize, &label);
+            // №385: the stamp goes through the shared `coded_error`
+            // so the try classifier (ADR-0169) reads the same
+            // marker the code constant pins — the message text
+            // after the stamp is unchanged.
+            let message = crate::interpreter::values::coded_error(
+                crate::interpreter::values::CODE_SINK_CLEARANCE_RUNTIME,
+                format!(
+                    "sink clearance violated at runtime: {} argument '{}' carries label '{}' (line {}) — the static gate and the runtime agree on the verdict; deny reason class: {}",
+                    fn_name,
+                    arg,
+                    label,
+                    line,
+                    reason
+                ),
+            );
+            let class = crate::audit::sink_kind(fn_name);
+            if deny.is_some() {
+                // №392: a covering on_deny handler handles the
+                // refusal — the refused call is skipped and a
+                // degraded Unit becomes its result. The verdict
+                // itself is final: the handler cannot re-allow.
+                let handled = self.vm_fire_on_deny(
+                    program,
+                    fn_name,
+                    arg,
+                    class,
+                    reason,
+                    &format!("{}", label),
+                    *line as f64,
+                    &message,
+                    stack,
+                    call_stack,
+                    next_ip,
+                )?;
+                if handled {
+                    if let Some(path) = deny {
+                        return Ok(SinkCheckOutcome::Jump(path.skip_to as usize));
+                    }
+                }
+            }
+            eprintln!("[SINK_CLEARANCE][audit-event] {}", message);
+            return Err(message);
+        }
+        Ok(SinkCheckOutcome::Continue)
+    }
+
+    // №780 (audit-23.10 A1): the allow is KEPT but RE-SPOKED — it covers the
+    // Value-variant matches inside these loops (the J-cast/stat/label
+    // stringifiers), NOT the Instruction match: the Instruction match is
+    // exhaustive in BOTH loops (the former inner-loop wildcard tail — the
+    // ADR-0156 §1 gate hole — is retired; docs/wildcard-tail-ledger.md
+    // updated accordingly).
     #[allow(clippy::wildcard_enum_match_arm)]
-    // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
     /// Execute main_code (the top-level instruction sequence).
     /// Called by `run()` after `load_program()`.
     fn execute_main_code(&mut self, program: &Program) -> Result<Option<String>, String> {
@@ -793,93 +938,21 @@ impl Vm {
                 }
                 // ── Runtime labels (Наряд №328, ADR-0156) ─────
                 Instruction::LabelJoin(lj) => {
+                    // №780: the executor is SHARED with the inner loop
+                    // (the pattern/route bodies) — one body, both loops.
                     let LabelJoinData { dst, src } = &**lj;
-                    let incoming = if let Some(source) = src.strip_prefix('@') {
-                        runtime_source_label(source)
-                    } else {
-                        self.label_env.get(src).cloned().unwrap_or_default()
-                    };
-                    let merged = self
-                        .label_env
-                        .get(dst)
-                        .cloned()
-                        .unwrap_or_default()
-                        .join(&incoming);
-                    self.label_env.insert(dst.clone(), merged);
+                    self.exec_label_join(dst, src);
                     ip += 1;
                 }
                 Instruction::SinkCheck(sc) => {
-                    let SinkCheckData {
-                        fn_name,
-                        arg,
-                        line,
-                        arg_index,
-                        deny,
-                    } = &**sc;
-                    let label = if let Some(source) = arg.strip_prefix('@') {
-                        runtime_source_label(source)
-                    } else {
-                        self.label_env.get(arg).cloned().unwrap_or_default()
-                    };
-                    // Quarantine clears nothing; everything else must be
-                    // public at a sink (the №325 contract, runtime twin).
-                    // EXEC additionally refuses untrusted (№325/№327).
-                    let exec_untrusted =
-                        fn_name == crate::runtime_ops::NAME_EXEC || fn_name == "exec_argv";
-                    if label.conf != crate::labels::Conf::Public
-                        || (exec_untrusted
-                            && label.integrity == crate::labels::Integrity::Untrusted)
-                    {
-                        // №392: the reason class is the SAME sink_check_id
-                        // the static audit uses — the event's reason and
-                        // the diagnostic class agree verbatim.
-                        let reason =
-                            crate::audit::sink_check_id(fn_name, *arg_index as usize, &label);
-                        // №385: the stamp goes through the shared `coded_error`
-                        // so the try classifier (ADR-0169) reads the same
-                        // marker the code constant pins — the message text
-                        // after the stamp is unchanged.
-                        let message = crate::interpreter::values::coded_error(
-                            crate::interpreter::values::CODE_SINK_CLEARANCE_RUNTIME,
-                            format!(
-                                "sink clearance violated at runtime: {} argument '{}' carries label '{}' (line {}) — the static gate and the runtime agree on the verdict; deny reason class: {}",
-                                fn_name,
-                                arg,
-                                label,
-                                line,
-                                reason
-                            ),
-                        );
-                        let class = crate::audit::sink_kind(fn_name);
-                        if deny.is_some() {
-                            // №392: a covering on_deny handler handles the
-                            // refusal — the refused call is skipped and a
-                            // degraded Unit becomes its result. The verdict
-                            // itself is final: the handler cannot re-allow.
-                            let handled = self.vm_fire_on_deny(
-                                program,
-                                fn_name,
-                                arg,
-                                class,
-                                reason,
-                                &format!("{}", label),
-                                *line as f64,
-                                &message,
-                                &mut stack,
-                                &mut call_stack,
-                                ip + 1,
-                            )?;
-                            if handled {
-                                if let Some(path) = deny {
-                                    ip = path.skip_to as usize;
-                                    continue;
-                                }
-                            }
-                        }
-                        eprintln!("[SINK_CLEARANCE][audit-event] {}", message);
-                        return Err(message);
+                    // №780: the executor is SHARED with the inner loop
+                    // (the pattern/route bodies) — the runtime twin of
+                    // the №325 gate executes in both loops, the deny
+                    // path (№392) included.
+                    match self.exec_sink_check(sc, &mut stack, &mut call_stack, program, ip + 1)? {
+                        SinkCheckOutcome::Continue => ip += 1,
+                        SinkCheckOutcome::Jump(to) => ip = to,
                     }
-                    ip += 1;
                 }
                 Instruction::LoadGlobal(slot) => {
                     let val = self.globals.get(*slot).cloned().ok_or_else(|| {
@@ -1800,7 +1873,13 @@ impl Vm {
         self.value_registers = saved_registers;
         out
     }
-    #[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
+    // №780 (audit-23.10 A1): the allow is KEPT but RE-SPOKED — it covers the
+    // Value-variant matches inside the inner loop, NOT the Instruction match:
+    // every Instruction variant has an explicit arm here now — LabelJoin/
+    // SinkCheck execute (the ADR-0156 §1 both-paths contract), the main-only
+    // set fails LOUD (compiler/VM skew), the enumeration test pins the split
+    // (a new variant without classification is a compile error).
+    #[allow(clippy::wildcard_enum_match_arm)]
     fn execute_code_inner(
         &mut self,
         code: &[Instruction],
@@ -2409,10 +2488,49 @@ impl Vm {
                     }
                     ip += 1;
                 }
-                // For any unhandled instruction, skip
-                _ => {
+                // ── Runtime labels (Наряд №328, ADR-0156; №780: BOTH loops) ──
+                Instruction::LabelJoin(lj) => {
+                    let LabelJoinData { dst, src } = &**lj;
+                    self.exec_label_join(dst, src);
                     ip += 1;
                 }
+                Instruction::SinkCheck(sc) => {
+                    // №780 (audit-23.10 A1): the runtime twin of the №325
+                    // gate (ADR-0156, `[SINK_CLEARANCE_RUNTIME]`) executes
+                    // in the pattern/route bodies — previously this arm
+                    // drowned in the wildcard tail and the server code
+                    // never checked the sink clearance (the deny path
+                    // №392 works here too).
+                    match self.exec_sink_check(sc, stack, call_stack, program, ip + 1)? {
+                        SinkCheckOutcome::Continue => ip += 1,
+                        SinkCheckOutcome::Jump(to) => ip = to,
+                    }
+                }
+                // №780 (audit-23.10 A1): the main-only instructions are
+                // NOT silently skipped — a main-only instruction in a
+                // pattern/route body is a compiler/VM skew and answers
+                // loudly (docs/wildcard-tail-ledger.md is retired from
+                // the quiet tail; the enumeration test pins the split).
+                Instruction::StoreGlobal(_)
+                | Instruction::RegisterPattern(_)
+                | Instruction::RegisterLearnable(_)
+                | Instruction::MakeFluid(_)
+                | Instruction::JumpIfLow(_, _)
+                | Instruction::Adapt(_)
+                | Instruction::Mutate(_)
+                | Instruction::FlowPipeline(_)
+                | Instruction::FlowExec(_)
+                | Instruction::ExecuteRules
+                | Instruction::Halt
+                | Instruction::RegisterPatternRef(_) => {
+                    return Err(format!(
+                        "VM: instruction {} is main-only — compiler/VM skew (a pattern/route body must not contain it)",
+                        instr_name(instr)
+                    ));
+                } // №780: NO wildcard tail — the match above is exhaustive
+                  // over the 58 Instruction variants (the main-only set
+                  // answers loudly, the labels execute, the enumeration
+                  // test pins the split).
             }
         }
         stack
@@ -4396,6 +4514,74 @@ fn underflow_err(instr: &str) -> String {
     format!(
         "VM: stack underflow at {instr} (the operand stack is empty or the slot is out of range — bytecode desync or a corrupt .mbc)"
     )
+}
+
+/// №780 (audit-23.10 A1): the instruction variant name for the loud
+/// compiler/VM skew diagnostics. EXHAUSTIVE by design — a NEW
+/// `Instruction` variant fails THIS match to compile until it is named
+/// here (the vm_state_enumeration form: an unclassified variant is a
+/// compile error, never a silent tail).
+fn instr_name(i: &Instruction) -> &'static str {
+    match i {
+        Instruction::Const(_) => "Const",
+        Instruction::LabelJoin(_) => "LabelJoin",
+        Instruction::SinkCheck(_) => "SinkCheck",
+        Instruction::LoadGlobal(_) => "LoadGlobal",
+        Instruction::LoadGlobalByName(_) => "LoadGlobalByName",
+        Instruction::StoreGlobal(_) => "StoreGlobal",
+        Instruction::LoadLocal(_) => "LoadLocal",
+        Instruction::StoreLocal(_) => "StoreLocal",
+        Instruction::RegisterPattern(_) => "RegisterPattern",
+        Instruction::RegisterLearnable(_) => "RegisterLearnable",
+        Instruction::CallBuiltin(_, _) => "CallBuiltin",
+        Instruction::CallPattern(_, _) => "CallPattern",
+        Instruction::Return => "Return",
+        Instruction::Add => "Add",
+        Instruction::Sub => "Sub",
+        Instruction::Mul => "Mul",
+        Instruction::Div => "Div",
+        Instruction::Contains => "Contains",
+        Instruction::CmpGt => "CmpGt",
+        Instruction::CmpLt => "CmpLt",
+        Instruction::CmpGe => "CmpGe",
+        Instruction::CmpLe => "CmpLe",
+        Instruction::CmpEq => "CmpEq",
+        Instruction::CmpNe => "CmpNe",
+        Instruction::MakeStruct(_) => "MakeStruct",
+        Instruction::GetField(_) => "GetField",
+        Instruction::IndexAccess => "IndexAccess",
+        Instruction::MakeList(_) => "MakeList",
+        Instruction::ListLen => "ListLen",
+        Instruction::Pop => "Pop",
+        Instruction::PushUnit => "PushUnit",
+        Instruction::StartsWith => "StartsWith",
+        Instruction::MakeFluid(_) => "MakeFluid",
+        Instruction::Jump(_) => "Jump",
+        Instruction::JumpIfNot(_) => "JumpIfNot",
+        Instruction::JumpIfLow(_, _) => "JumpIfLow",
+        Instruction::Collapse(_) => "Collapse",
+        Instruction::Memorize(_) => "Memorize",
+        Instruction::Recall => "Recall",
+        Instruction::Forget(_) => "Forget",
+        Instruction::LlmCall(_, _) => "LlmCall",
+        Instruction::Adapt(_) => "Adapt",
+        Instruction::Relate => "Relate",
+        Instruction::Mutate(_) => "Mutate",
+        Instruction::FlowPipeline(_) => "FlowPipeline",
+        Instruction::FlowExec(_) => "FlowExec",
+        Instruction::TryEval(_) => "TryEval",
+        Instruction::ExecuteRules => "ExecuteRules",
+        Instruction::Halt => "Halt",
+        Instruction::StoreAssignLocal(_) => "StoreAssignLocal",
+        Instruction::MatchTest(_) => "MatchTest",
+        Instruction::Dup => "Dup",
+        Instruction::BeginValueExpr => "BeginValueExpr",
+        Instruction::KeepLastValue => "KeepLastValue",
+        Instruction::EndValueExpr => "EndValueExpr",
+        Instruction::SetValueReg => "SetValueReg",
+        Instruction::RegisterPatternRef(_) => "RegisterPatternRef",
+        Instruction::JumpIfNotCond(_) => "JumpIfNotCond",
+    }
 }
 
 /// Truthiness check (matches interpreter).

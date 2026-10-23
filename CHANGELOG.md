@@ -72,6 +72,57 @@ All notable changes to the Metalogos project.
 
 ### Fixed
 
+- **№785 (gh#1507, Wave 62 hygiene tail — the №776 form):** the
+  cargo-audit/cargo-deny RED on main (`e77a93c`) — `RUSTSEC-2026-0385`
+  (ctutils 0.4.2: the non-constant-time mask generation / `u128`
+  comparisons) landed in the RustSec advisory database BETWEEN the CI
+  rounds (the same commit graph was GREEN an hour earlier on the
+  tokio bump — the base flap, not a diff regression; the №780 diff
+  does not touch Cargo.lock). The bump: ctutils 0.4.2 → 0.4.4
+  (`cargo update --precise`, the single Cargo.lock hunk) — the
+  constant-time comparison stack (the №1002/gh#1211 `ct_eq` contour)
+  rides the fixed release. 0 vulnerabilities after (5 allowed
+  unmaintained/yanked warnings, the advisory class); the
+  0367/0368/0369 zip ignores are untouched (UPSTREAM-BLOCKED, the
+  2026-11-17 expiry review stands).
+
+- **№780 (gh#1491, Wave 62 — the audit-23.10 A1, P0):** the runtime
+  label gates (`LabelJoin`/`SinkCheck` — the №325/ADR-0156 runtime
+  twin, the `[SINK_CLEARANCE_RUNTIME]` verdict) execute in the
+  pattern/route bodies too. Two halves of one hole: the compiler did
+  NOT arm the body's sink sites (`compile_pattern_body_with_locals`
+  had no `emit_armed_sink_checks` on `ExprStmt`/`Return`), and the VM
+  inner loop (the pattern/route executor) dropped both label
+  instructions into the wildcard tail — the serve route bodies (the
+  server code) never ran the sink-clearance check, the label env
+  stayed unseeded there. The fix: the compiler arms the body sinks
+  symmetrically to `compile_stmt_with_locals` (the deny path №392
+  included), the VM inner loop executes the label instructions from
+  the SAME executors as the main loop, and the main-only instructions
+  answer LOUD in a body
+  (`VM: instruction <X> is main-only — compiler/VM skew`) instead of
+  the quiet skip. The split (inner vs main-only, 46+12) is pinned by
+  the exhaustive enumeration test — a new `Instruction` variant
+  without a class is a compile error; ADR-0156 §1 carries the
+  №780 note (the contract sentence is now the fact);
+  docs/wildcard-tail-ledger.md updated. Red-before: 5/6 of the new
+  pins fail on the unpatched main (verified by a stash-run). The
+  verification sweep also caught the COMPILER half of the hole (the
+  body sink sites compiled WITHOUT the armed check at all — the
+  debug byte dump) — both halves are closed by this naryad. The
+  variable sink arguments carry their local slot (serde-default,
+  old .mbc files deserialize cleanly) so the VM reads the value
+  behind the name and keeps the typed materialization canon
+  (№355/№691: a WorldState handle refuses `WORLD_STATE_PRIVATE`,
+  the sst_001 pair, on BOTH backends) even when the twin fires
+  before the shared builtin leg.
+  AFFECTS (форма №756): programs relying on the missing body-level
+  runtime gate (a private label reaching a sink inside a
+  pattern/route body) are now refused loudly on the VM — the TW
+  static gate always refused; the serve lane now agrees with the
+  static verdict. The main-only skew error is a new loud class for
+  hand-built bytecode only (the compiler emits none).
+
 - **№776 (gh#1445, Wave 60 hygiene tail — the №771 form):** the
   gate-facts-sync verdict read survives a GitHub API filter flap. The
   `status=completed` runs-list filter answered `total_count=0` on the

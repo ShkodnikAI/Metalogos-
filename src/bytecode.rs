@@ -362,6 +362,15 @@ pub struct SinkCheckData {
     /// `Program::deny_handlers` + the continuation after the refused
     /// sink call (patched by the compiler).
     pub deny: Option<SinkDenyPath>,
+    /// №780 (audit-23.10 A1): the local slot of a variable argument
+    /// (`Some` when the compiler tracked the Ident into a slot) — lets
+    /// the VM read the VALUE behind the name and specialize the verdict
+    /// for the typed materialization contracts (the WorldState canon
+    /// №355/№691: the typed `WORLD_STATE_PRIVATE` code stays canonical
+    /// even when the runtime twin fires BEFORE the shared builtin leg).
+    /// `#[serde(default)]` — old .mbc files deserialize cleanly.
+    #[serde(default)]
+    pub slot: Option<u32>,
 }
 
 /// Payload of `Instruction::LabelJoin` (№328 runtime label join).

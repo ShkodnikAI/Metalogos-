@@ -14,6 +14,8 @@ The static gates (№323 inference, №325 sink clearance, №327 decisions) are
 
 The compiler lowers source-backed `let`/assignments into `LabelJoin` and every sink call site (identifiers and direct-source arguments) into `SinkCheck` — in both compile paths (top-level statements and pattern bodies).
 
+> **№780 note (audit-23.10 A1, wave 62, 2026-10-23):** the sentence above was the CONTRACT, not the fact — until №780 the bodies (pattern/route) compiled their sink sites WITHOUT the armed `SinkCheck` (`compile_pattern_body_with_locals` had no `emit_armed_sink_checks` on `ExprStmt`/`Return`) AND the VM inner loop dropped the `LabelJoin`/`SinkCheck` arms into the wildcard tail, so the server code (serve route bodies) never executed the runtime twin. №780 closes BOTH halves: the compiler arms the body sinks (symmetric to `compile_stmt_with_locals`), the VM inner loop executes the label instructions from the SAME executors as the main loop (the deny path №392 included), and the main-only instructions answer LOUD in a body (`compiler/VM skew`) — the split is pinned by the exhaustive enumeration test (a new `Instruction` variant without a class is a compile error).
+
 ## 2. The dispatch-gap rule
 
 The JIT compiler is not in the tree yet. `bytecode::is_jit_eligible` is the SSOT predicate the future dispatcher must consult: label instructions are explicitly OUTSIDE the JIT-eligible class (arithmetic-only). When a JIT dispatcher appears, it is required to reject label-bearing functions with a distinct error naming this ADR — never to skip them silently. Pinned by test.

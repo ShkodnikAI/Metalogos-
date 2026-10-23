@@ -441,6 +441,7 @@ fn n385_vm_runtime_sink_refusal_carries_classifier_stamp() {
                 line: 3,
                 arg_index: 0,
                 deny: None,
+                slot: None,
             })),
         ],
         collections_loaded: false,

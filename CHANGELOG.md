@@ -92,7 +92,16 @@ All notable changes to the Metalogos project.
   without a class is a compile error; ADR-0156 §1 carries the
   №780 note (the contract sentence is now the fact);
   docs/wildcard-tail-ledger.md updated. Red-before: 5/6 of the new
-  pins fail on the unpatched main (verified by a stash-run).
+  pins fail on the unpatched main (verified by a stash-run). The
+  verification sweep also caught the COMPILER half of the hole (the
+  body sink sites compiled WITHOUT the armed check at all — the
+  debug byte dump) — both halves are closed by this naryad. The
+  variable sink arguments carry their local slot (serde-default,
+  old .mbc files deserialize cleanly) so the VM reads the value
+  behind the name and keeps the typed materialization canon
+  (№355/№691: a WorldState handle refuses `WORLD_STATE_PRIVATE`,
+  the sst_001 pair, on BOTH backends) even when the twin fires
+  before the shared builtin leg.
   AFFECTS (форма №756): programs relying on the missing body-level
   runtime gate (a private label reaching a sink inside a
   pattern/route body) are now refused loudly on the VM — the TW

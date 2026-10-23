@@ -58,6 +58,7 @@ fn n328_label_instructions_are_not_jit_eligible() {
             line: 1,
             arg_index: 0,
             deny: None,
+            slot: None,
         })),
     ];
     assert!(!is_jit_eligible(&label_code));
@@ -79,6 +80,7 @@ fn n328_vm_sink_check_rejects_private_labels_at_runtime() {
             line: 3,
             arg_index: 0,
             deny: None,
+            slot: None,
         })),
     ]);
     let result = Vm::new().run(program);
@@ -98,6 +100,7 @@ fn n328_vm_sink_check_passes_bottom_labels() {
             line: 1,
             arg_index: 0,
             deny: None,
+            slot: None,
         },
     ))]);
     let result = Vm::new().run(program);
@@ -123,6 +126,7 @@ fn n328_runtime_source_labels_match_the_static_mapping() {
             line: 1,
             arg_index: 0,
             deny: None,
+            slot: None,
         })),
     ]);
     let err = Vm::new().run(program).expect_err("private must fail");
@@ -139,6 +143,7 @@ fn n328_runtime_source_labels_match_the_static_mapping() {
             line: 1,
             arg_index: 0,
             deny: None,
+            slot: None,
         })),
     ]);
     let err = Vm::new().run(program).expect_err("untrusted must fail");
@@ -227,6 +232,7 @@ fn n328_runtime_label_is_the_adr0154_label() {
             line: 1,
             arg_index: 0,
             deny: None,
+            slot: None,
         })),
     ]);
     let err = Vm::new()

@@ -92,6 +92,7 @@ fn n780_label_gates_are_inner_classified() {
         line: 1,
         arg_index: 0,
         deny: None,
+        slot: None,
     }));
     assert_eq!(class(&lj), "inner");
     assert_eq!(class(&sc), "inner");

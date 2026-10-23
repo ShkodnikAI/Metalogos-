@@ -822,6 +822,7 @@ impl Vm {
             line,
             arg_index,
             deny,
+            slot,
         } = sc;
         let label = if let Some(source) = arg.strip_prefix('@') {
             runtime_source_label(source)
@@ -835,6 +836,32 @@ impl Vm {
         if label.conf != crate::labels::Conf::Public
             || (exec_untrusted && label.integrity == crate::labels::Integrity::Untrusted)
         {
+            // №780 (audit-23.10 A1): the typed materialization contracts
+            // keep their canonical codes even when the runtime twin fires
+            // BEFORE the shared builtin leg (the bodies arm the checks
+            // now — the WorldState canon №355/№691: the handle's
+            // materialization refuses `WORLD_STATE_PRIVATE` on BOTH
+            // backends, the conformance pair sst_001 pins the code).
+            // The value is read from the tracked local slot (the compiler
+            // records it for Ident arguments; `None` → the general
+            // verdict).
+            let value = slot.and_then(|slot| {
+                let bp = call_stack.last().map(|f| f.base_bp).unwrap_or(0);
+                let idx = bp + slot as usize;
+                stack.get(idx).cloned()
+            });
+            if matches!(value, Some(Value::WorldState(_))) {
+                let message = crate::interpreter::values::coded_error(
+                    crate::interpreter::values::CODE_WORLD_STATE_PRIVATE,
+                    format!(
+                        "{} refused: WorldState is private-by-default state — its materialization outside the verified contour is an error (the Phase-1 lattice / №349 consistency; inspect via the introspection surfaces); the runtime sink gate agrees (line {})",
+                        fn_name,
+                        line,
+                    ),
+                );
+                eprintln!("[WORLD_STATE][audit-event] {}", message);
+                return Err(message);
+            }
             // №392: the reason class is the SAME sink_check_id
             // the static audit uses — the event's reason and
             // the diagnostic class agree verbatim.

@@ -53,6 +53,7 @@ fn sink_check(fn_name: &str, arg: &str) -> Instruction {
         line: 3,
         arg_index: 0,
         deny: None,
+        slot: None,
     }))
 }
 
@@ -223,4 +224,47 @@ mlogserver {
         "the route body runs through the SAME inner loop — the private label at a sink must refuse (the audit-23.10 A1 serve lane)",
     );
     assert!(err.contains("SINK_CLEARANCE_RUNTIME"), "{err}");
+}
+
+// ── The typed materialization canon (№355/№691) survives the twin ────
+
+#[test]
+fn n780_world_state_in_body_keeps_the_typed_code() {
+    // The runtime twin fires BEFORE the shared builtin leg now — the
+    // WorldState canon keeps its typed code (`WORLD_STATE_PRIVATE`,
+    // the conformance pair sst_001): the compiler tracks the argument
+    // slot, the VM reads the value and specializes the verdict.
+    let mut program = empty_program();
+    program.patterns = std::sync::Arc::new(vec![metalogos::bytecode::CompiledFn {
+        name: "snap".to_string(),
+        param_count: 0,
+        param_types: vec![],
+        code: vec![
+            label_join("w", "@world_state"),
+            Instruction::Const(Box::new(Value::WorldState(Default::default()))),
+            Instruction::StoreLocal(0),
+            Instruction::SinkCheck(Box::new(metalogos::bytecode::SinkCheckData {
+                fn_name: "print".to_string(),
+                arg: "w".to_string(),
+                line: 3,
+                arg_index: 0,
+                deny: None,
+                slot: Some(0),
+            })),
+            Instruction::Const(Box::new(Value::Float(0.0))),
+        ],
+        is_pure: false,
+    }]);
+    program.main_code = vec![Instruction::CallPattern(0, 0)];
+    let err = Vm::new()
+        .run(program)
+        .expect_err("the WorldState materialization refuses");
+    assert!(
+        err.contains("WORLD_STATE_PRIVATE"),
+        "the typed canon survives the earlier twin: {err}"
+    );
+    assert!(
+        !err.contains("SINK_CLEARANCE_RUNTIME"),
+        "the general verdict must not shadow the typed one: {err}"
+    );
 }

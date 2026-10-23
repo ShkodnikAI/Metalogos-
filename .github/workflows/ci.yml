@@ -533,6 +533,16 @@ jobs:
           prefix-key: v2
       - name: Format check
         run: cargo fmt --all --check
+      # №777 (issue #1452, wave 61, P1): the classification-SSOT freshness
+      # gate — the №772 honest finding's gate hole closed (the fact key
+      # WITH its checker, the №735 form): the generator rebuilds BOTH
+      # artifacts in memory and compares against the tree; any drift
+      # (a stale template, a rustfmt-default change, a hand edit) is a
+      # loud exit 1. The generator normalizes through rustfmt — the same
+      # canonical formatter as the fmt gate above — so the №744
+      # latent-drift class cannot re-open silently.
+      - name: Gate — the classification SSOT freshness (№777; blocking)
+        run: python3 scripts/gen_classification.py --check
 
   clippy:
     name: clippy (blocking)

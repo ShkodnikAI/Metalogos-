@@ -18,6 +18,23 @@ Rules:
   - every non-Pure role carries a one-sentence rationale.
 
 Run from repo root: python3 scripts/gen_classification.py
+
+Modes (Наряд №777, wave 61 — the argv is LOUDLY validated: unknown flags
+are a loud refusal exit 2, never silently ignored — the silent-ignore was
+the gate hole that let `--goal032 --list` (a non-canonical spelling from
+the №772 report) look like a special read-only mode while silently
+REGENERATING the tree):
+  (no flags)  regenerate src/builtins_classification.rs + the
+              REFERENCE.md block (the canonical writer run)
+  --check     CI-style gate: rebuild BOTH artifacts in memory and compare
+              against the tree (like gen_metrics.py --check); a drift
+              prints the diffstat and exits 1; writes nothing
+
+The emitted Rust is normalized through rustfmt when it is available
+(the same canonical formatter the CI fmt gate uses), so the generator
+cannot drift from the fmt gate by a rustfmt-default change (the №744
+latent-drift class); without rustfmt on PATH the template is emitted
+as-is with a loud warning.
 """
 
 import re
@@ -149,7 +166,10 @@ pub struct BuiltClassEntry {
 /// Classification lookup — linear scan over a small static array; the map
 /// is compile-time data, uniqueness is test-enforced.
 pub fn classify(name: &str) -> Option<&'static BuiltClass> {
-    BUILTIN_CLASSES.iter().find(|e| e.name == name).map(|e| &e.class)
+    BUILTIN_CLASSES
+        .iter()
+        .find(|e| e.name == name)
+        .map(|e| &e.class)
 }
 
 /// SSOT map: имя → BuiltClass for EVERY registered builtin (№316).
@@ -219,7 +239,11 @@ mod tests {
             .map(|e| e.name)
             .filter(|n| !registry.contains(*n))
             .collect();
-        assert!(extras.is_empty(), "classified names not in registry: {:?}", extras);
+        assert!(
+            extras.is_empty(),
+            "classified names not in registry: {:?}",
+            extras
+        );
     }
 
     /// №316 «Сделано, когда» (а): rationale on every non-Pure entry.
@@ -249,7 +273,12 @@ mod tests {
     #[test]
     fn issue_minimum_classes() {
         let expect_sink = [
-            "http_post", "write_file", "send_message", "print", "db_execute", "tts_send",
+            "http_post",
+            "write_file",
+            "send_message",
+            "print",
+            "db_execute",
+            "tts_send",
         ];
         for n in expect_sink {
             let c = classify(n).unwrap_or_else(|| panic!("{}", n));
@@ -265,7 +294,11 @@ mod tests {
             assert_eq!(c.reversibility, Reversibility::Irreversible, "{}", n);
         }
         let redact = classify("redact").unwrap();
-        assert_eq!(redact.role, Role::Lift, "redact — taint-sanitizer lift (ADR-0136)");
+        assert_eq!(
+            redact.role,
+            Role::Lift,
+            "redact — taint-sanitizer lift (ADR-0136)"
+        );
     }
 
     /// №316: Sink/Source/Lift/Pure distribution is sane (sanity counts,
@@ -292,11 +325,13 @@ mod tests {
             (Some(b), Some(e)) if b < e => (&reference[b..e], true),
             _ => ("", false),
         };
-        assert!(found, "REFERENCE.md must contain the classification block markers");
-
-        let mut expected = String::from(
-            "| Builtin | Role | Default label | Reversibility |\n|---|---|---|---|\n",
+        assert!(
+            found,
+            "REFERENCE.md must contain the classification block markers"
         );
+
+        let mut expected =
+            String::from("| Builtin | Role | Default label | Reversibility |\n|---|---|---|---|\n");
         for e in BUILTIN_CLASSES {
             let role = e.class.role.as_str();
             let label = e.class.default_label.as_str();
@@ -763,7 +798,98 @@ def parse_registry():
     return entries
 
 
+def build_rust(rows):
+    """Emit the classification file content (№777): template + entries,
+    normalized through rustfmt when available (the №744 class guard)."""
+    entry_lines = []
+    for name, cat, role, label, rev, rationale in rows:
+        if role == "Pure":
+            entry_lines.append(
+                f'    BuiltClassEntry {{ name: "{name}", class: BuiltClass {{ role: Role::Pure, '
+                f'default_label: Label::{label}, reversibility: Reversibility::{rev}, rationale: "" }} }},'
+            )
+        else:
+            lit = rationale.replace('\\', '\\\\').replace('"', '\\"')
+            entry_lines.append(
+                f'    BuiltClassEntry {{ name: "{name}", class: BuiltClass {{ role: Role::{role}, '
+                f'default_label: Label::{label}, reversibility: Reversibility::{rev}, rationale: "{lit}" }} }},'
+            )
+    rust = RUST_TEMPLATE.replace("{ENTRIES}", "\n".join(entry_lines))
+    import shutil
+    import subprocess
+
+    rustfmt = shutil.which("rustfmt")
+    if rustfmt:
+        proc = subprocess.run(
+            [rustfmt, "--emit", "stdout", "--edition", "2021"],
+            input=rust.encode("utf-8"),
+            capture_output=True,
+            timeout=120,
+        )
+        if proc.returncode != 0:
+            print("ERROR: rustfmt normalization failed:", proc.stderr.decode("utf-8", "replace")[:500])
+            sys.exit(1)
+        rust = proc.stdout.decode("utf-8")
+    else:
+        print("WARNING: rustfmt not on PATH — emitting the template as-is (the tree may drift from the fmt gate)")
+    return rust
+
+
+def reference_markdown(rust_text, expected_rows):
+    """Parse the entries back from the Rust map text (№777: the parse is
+    fail-closed — a row-count mismatch is a loud refusal, not a partial
+    block; this is what would break if a future rustfmt re-wrapped the
+    entry literals)."""
+    entry_re = re.compile(
+        r'BuiltClassEntry \{ name: "([^"]+)", class: BuiltClass \{ role: Role::(\w+), '
+        r'default_label: Label::(\w+), reversibility: Reversibility::(\w+), rationale: "([^"]*)" \} \}'
+    )
+    md = ["| Builtin | Role | Default label | Reversibility |", "|---|---|---|---|"]
+    for m in entry_re.finditer(rust_text):
+        name, role, label, rev, rationale = m.groups()
+        role_s = {"Pure": "pure", "Source": "source", "Lift": "lift", "Sink": "sink"}[role]
+        label_s = {"Public": "public", "Internal": "internal", "Secret": "secret", "Network": "network"}[label]
+        rev_s = {"Pure": "pure", "Reversible": "reversible", "Irreversible": "irreversible"}[rev]
+        if rationale:
+            md.append(f"| `{name}` | {role_s} | {label_s} | {rev_s} | {rationale} |")
+        else:
+            md.append(f"| `{name}` | {role_s} | {label_s} | {rev_s} | — |")
+    if len(md) - 2 != expected_rows:
+        print(f"ERROR: parsed back {len(md) - 2} entries for {expected_rows} rows — the Rust map text is not parseable (fail-closed, №777)")
+        sys.exit(1)
+    return md
+
+
+def reference_new_text(ref_old, md):
+    """The next REFERENCE.md content (№777): in the replace path the block
+    carries NO trailing newline after END — the tail after the END marker
+    already starts with the newline that terminates the END line, so the
+    previous `END + "\n"` form appended ONE empty line per run (the
+    +1-line REFERENCE drift of the №772 honest finding)."""
+    block = BEGIN + "\n\n" + "\n".join(md) + "\n\n" + END
+    if BEGIN in ref_old and END in ref_old:
+        head, rest = ref_old.split(BEGIN, 1)
+        _, tail = rest.split(END, 1)
+        return head + block + tail
+    return (
+        ref_old.rstrip("\n")
+        + "\n\n## 7. Builtin Classification — role × label × reversibility (№316)\n\n"
+        + "> Generated from `src/builtins_classification.rs` (SSOT, №316) by `scripts/gen_classification.py`. "
+        + "Role: pure / source / lift / sink; label: public / internal / secret / network; reversibility of the external effect: pure / reversible / irreversible.\n\n"
+        + block
+        + "\n"
+    )
+
+
 def main():
+    import argparse
+
+    ap = argparse.ArgumentParser(
+        description="Generate src/builtins_classification.rs + the REFERENCE.md classification block (№316; modes per №777)"
+    )
+    ap.add_argument("--check", action="store_true", help="CI-style gate: compare the rebuilt artifacts against the tree, write nothing (exit 1 on drift)")
+    args = ap.parse_args()
+
     entries = parse_registry()
     print(f"registry names: {len(entries)}")
 
@@ -796,54 +922,31 @@ def main():
         print(f"ERROR: non-Pure without rationale: {empty_rat}")
         sys.exit(1)
 
-    entry_lines = []
-    for name, cat, role, label, rev, rationale in rows:
-        if role == "Pure":
-            entry_lines.append(
-                f'    BuiltClassEntry {{ name: "{name}", class: BuiltClass {{ role: Role::Pure, '
-                f'default_label: Label::{label}, reversibility: Reversibility::{rev}, rationale: "" }} }},'
-            )
-        else:
-            lit = rationale.replace('\\', '\\\\').replace('"', '\\"')
-            entry_lines.append(
-                f'    BuiltClassEntry {{ name: "{name}", class: BuiltClass {{ role: Role::{role}, '
-                f'default_label: Label::{label}, reversibility: Reversibility::{rev}, rationale: "{lit}" }} }},'
-            )
-    rust = RUST_TEMPLATE.replace("{ENTRIES}", "\n".join(entry_lines))
+    # ── Build BOTH artifacts in memory (№777: single build path for the
+    # writer run and the --check gate; the parse-back reads the in-memory
+    # text, not the committed file) ──
+    rust = build_rust(rows)
+    md = reference_markdown(rust, len(rows))
+    ref = reference_new_text(REFERENCE.read_text(encoding="utf-8"), md)
+
+    if args.check:
+        drift = []
+        on_disk_rs = OUT_RS.read_text(encoding="utf-8")
+        on_disk_ref = REFERENCE.read_text(encoding="utf-8")
+        if rust != on_disk_rs:
+            drift.append("  src/builtins_classification.rs: rebuilt != committed")
+        if ref != on_disk_ref:
+            drift.append("  REFERENCE.md: rebuilt != committed")
+        if drift:
+            print("DRIFT: gen_classification artifacts are stale (run the generator, form №590):")
+            for d in drift:
+                print(d)
+            sys.exit(1)
+        print(f"gen_classification --check: OK ({len(rows)} entries, {len(md) - 2} reference rows, no drift)")
+        return
+
     OUT_RS.write_text(rust, encoding="utf-8")
     print(f"wrote {OUT_RS} ({len(rows)} entries, {len(non_pure)} non-Pure)")
-
-    # ── REFERENCE block: parsed back from the committed Rust map ──
-    rs = OUT_RS.read_text(encoding="utf-8")
-    entry_re = re.compile(
-        r'BuiltClassEntry \{ name: "([^"]+)", class: BuiltClass \{ role: Role::(\w+), '
-        r'default_label: Label::(\w+), reversibility: Reversibility::(\w+), rationale: "([^"]*)" \} \}'
-    )
-    md = ["| Builtin | Role | Default label | Reversibility |", "|---|---|---|---|"]
-    for m in entry_re.finditer(rs):
-        name, role, label, rev, rationale = m.groups()
-        role_s = {"Pure": "pure", "Source": "source", "Lift": "lift", "Sink": "sink"}[role]
-        label_s = {"Public": "public", "Internal": "internal", "Secret": "secret", "Network": "network"}[label]
-        rev_s = {"Pure": "pure", "Reversible": "reversible", "Irreversible": "irreversible"}[rev]
-        if rationale:
-            md.append(f"| `{name}` | {role_s} | {label_s} | {rev_s} | {rationale} |")
-        else:
-            md.append(f"| `{name}` | {role_s} | {label_s} | {rev_s} | — |")
-    block = BEGIN + "\n\n" + "\n".join(md) + "\n\n" + END + "\n"
-
-    ref = REFERENCE.read_text(encoding="utf-8")
-    if BEGIN in ref and END in ref:
-        head, rest = ref.split(BEGIN, 1)
-        _, tail = rest.split(END, 1)
-        ref = head + block + tail
-    else:
-        ref = (
-            ref.rstrip("\n")
-            + "\n\n## 7. Builtin Classification — role × label × reversibility (№316)\n\n"
-            + "> Generated from `src/builtins_classification.rs` (SSOT, №316) by `scripts/gen_classification.py`. "
-            + "Role: pure / source / lift / sink; label: public / internal / secret / network; reversibility of the external effect: pure / reversible / irreversible.\n\n"
-            + block
-        )
     REFERENCE.write_text(ref, encoding="utf-8")
     print(f"updated {REFERENCE} classification block ({len(md) - 2} rows)")
 

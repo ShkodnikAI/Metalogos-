@@ -2373,7 +2373,7 @@ verdict (not filed), the Камертон forwarding, №632 (gh#1100 — the
 plan-relevance audit release №3, 2026-11-01 ± 1 day), №648 (gh#1135 —
 2026-12-01), №682 (gh#1233 — the App C landing: the owner's release
 act → the pin bump). REMOVED from the gates by this record: the
-NLnet-20.10 line (the grants line closed by the owner's verdict,
+grants-application line (closed by the owner's verdict,
 2026-10-12 — §6.24/§6.25), the parameterized movement to 5000 bp
 (REACHED by №637), the В36 tail itself (№639 executed, №641 this
 record).
@@ -2508,8 +2508,7 @@ ADR-0193 parameters (≥20/67, the PDn priority) + the «0.32 release»
 label RE-ANCHOR (v0.32.0 published 15.10 — the label is dead; the
 next minor window), the coverage threshold decision (№569, ≥76% line),
 the second maintainer, the №385 additive lane for the tool refusal
-codes (the №696 finding), the train window 19.10, NLnet/Restack M1
-(03.11.2026), №648 (01.12.2026).
+codes (the №696 finding), the train window 19.10, №648 (01.12.2026).
 
 ### 6.31. Wave 47 movement №2 record (naryad №702): the PDn core of the 0.32 fixed list — TWO honest closures (conv_context → String, conv_history → List<Message>), EIGHT anchored refusals — the backend-divergent query contract surfaced (main @ the naryad's PR, 2026-10-16)
 
@@ -2608,8 +2607,7 @@ owner's verdict.
 The owner gates remaining (unchanged + the wave's flags): the
 ADR-0193 parameters (≥20/67, the PDn priority) + the «0.32 release»
 label RE-ANCHOR, the coverage threshold (№569), the second maintainer,
-the 19.10 train verdict (gh#1304), NLnet/Restack M1 (03.11.2026),
-№648 (01.12.2026), and the wave's new flag: the **parser-migration
+the 19.10 train verdict (gh#1304), №648 (01.12.2026), and the wave's new flag: the **parser-migration
 naryad candidate** (html5ever/xml5ever → the 0.39+unofficial pin
 line, or the rcdom 0.40 wait — the №700 audit).
 
@@ -2696,8 +2694,7 @@ threshold (№569), the second maintainer, the 19.10 publish verdict RESOLVED
 (0.33.0 PUBLISHED 2026-10-19T03:39:46Z) + the 26.10 train verdict
 (gh#1315), the
 zip-ignore review (2026-11-17 or the first candle zip-^9 release),
-the query-divergence language-design gate (the owner's), NLnet/Restack
-M1 (03.11.2026), №648 (01.12.2026), and the infra flag: the executor
+the query-divergence language-design gate (the owner's), №648 (01.12.2026), and the infra flag: the executor
 PAT carries NO git-push transport (the API-write path works — the
 publish lane runs through the git-data API).
 
@@ -2804,7 +2801,7 @@ gate wiring); the **ADR-0194 verbatim** (the packages A/B — the
 query error paths + the result contract); the 26.10 train verdict
 (gh#1327); the zip-ignore review (2026-11-17 or the first candle
 zip-^9 release); the coverage threshold (№569); the second
-maintainer; NLnet/Restack M1 (03.11.2026); №648 (01.12.2026); the
+maintainer; №648 (01.12.2026); the
 PAT rotation (the exposed-token discipline); the draft v0.4.0
 cleanup (the owner's act).
 
@@ -2908,8 +2905,7 @@ verdict + the office #536 fix decision; the **ADR-0194 verbatim** (the
 packages A/B — the query error paths + the result contract); the
 good-first pool refill mechanics (the office note after the #956
 execution); the zip-ignore review (2026-11-17 or the first candle
-zip-^9 release); the coverage threshold (№569); the second maintainer;
-NLnet/Restack M1 (03.11.2026); №648 (01.12.2026); the PAT rotation
+zip-^9 release); the coverage threshold (№569); the second maintainer; №648 (01.12.2026); the PAT rotation
 (the exposed-token discipline); the draft v0.4.0 cleanup (the owner's
 act). The machine tail: **№725** (gh#1348) — the typed-floor raise to
 6844 bp (the №467 procedure; the unfreeze-gate advisory convergence),
@@ -3016,8 +3012,7 @@ floor + №569); the **goal032 next-movement shape** (the residue-wall
 report of №730 — the owner lanes: the Secret spelling, the №543 union
 forms, the stub naryads); the office #536 fix decision; the good-first
 pool refill mechanics; the zip-ignore review (2026-11-17); the
-coverage threshold (№569); the second maintainer; NLnet/Restack M1
-(03.11.2026); №648 (01.12.2026); the PAT rotation. RESOLVED this
+coverage threshold (№569); the second maintainer; №648 (01.12.2026); the PAT rotation. RESOLVED this
 cycle: the ADR-0194 verbatim (the packages A(c)+B(i) — №734); the
 draft v0.4.0 cleanup (deleted, verified 0 drafts).
 
@@ -3092,7 +3087,7 @@ form / (γ) the Query/Row opaque kinds); the goal032 lanes (the Secret
 spelling, the №543 union forms, the stub naryads); the office #536 fix
 decision; the good-first pool refill mechanics; the zip-ignore review
 (2026-11-17); the coverage threshold (№569 — PARKED by ADR-0195 (c));
-the second maintainer; NLnet/Restack M1 (03.11.2026); №648
+the second maintainer; №648
 (01.12.2026); the PAT rotation. RESOLVED this cycle: the ADR-0195
 verdict (the form (b) + N=23, (c) PARKED — №735); the 26.10 prep
 (the verified-wait GO — №737).
@@ -3186,7 +3181,7 @@ dispatch gh#1381 gate 7); the goal032 lanes (the Secret spelling, the
 №543 union forms, the stub naryads); the office #536 fix decision; the
 good-first pool refill mechanics; the zip-ignore review (2026-11-17);
 the coverage threshold (№569 — PARKED by ADR-0195 (c)); the second
-maintainer; NLnet/Restack M1 (03.11.2026); №648 (01.12.2026); the PAT
+maintainer; №648 (01.12.2026); the PAT
 rotation. RESOLVED this cycle: the **query* vocabulary lane (α)** —
 the union spelling LANDED (№740, the goal032 23 → 26/67); the 26.10
 prep (the verified-wait GO, the post-merge refresh — №741).
@@ -3289,7 +3284,7 @@ dispatch gh#1388 gate 7); the Secret spellings + the №543 union forms
 (ADR-0195 §7 (c) — parked until the lanes open); the office #536 fix
 decision; the good-first pool refill mechanics; the zip-ignore review
 (2026-11-17); the coverage threshold (№569 — PARKED by ADR-0195 (c));
-the second maintainer; NLnet/Restack M1 (03.11.2026); №648
+the second maintainer; №648
 (01.12.2026); the PAT rotation. RESOLVED this cycle: the **movement
 №9** — the lane α continuation landed (№744, the goal032 26 → 29/67;
 the graph/vision package closed); the 26.10 prep (the verified-wait
@@ -3430,7 +3425,7 @@ the owner verdicts, the dispatch gh#1394 gate 7; the В55 walk added
 the inspect classification to the (β) queue and the reflex_generate
 feature-duality question to the owner lane); the Secret spellings +
 the №543 union forms (ADR-0195 §7 (c) — parked until the lanes open);
-the NLnet/Restack M1 (03.11.2026); №648 (01.12.2026); the zip-ignore
+№648 (01.12.2026); the zip-ignore
 review (2026-11-17); the coverage threshold (№569 — PARKED by ADR-0195
 (c)); the second maintainer; the PAT rotation. RESOLVED this cycle:
 the **movement №10** — the intercept walk of the whole wall landed
@@ -3555,8 +3550,7 @@ ADR-0194 loud-fail contract); the data-dependent trio
 (call_llm_schema/config_load/find) and the candle-gated
 reflex_generate — the semantics lanes; the **02.11 window figure**
 (0.33.3 tail-ride vs 0.34.0 feature-cut — the §2.5 package in
-gh#1398; the first set where the 0.34 gate formally passes); the
-NLnet/Restack M1 (03.11.2026); №648 (01.12.2026); the zip-ignore
+gh#1398; the first set where the 0.34 gate formally passes); №648 (01.12.2026); the zip-ignore
 review (2026-11-17); the coverage threshold (№569 — PARKED by
 ADR-0195 (c)); the second maintainer; the PAT rotation. RESOLVED
 this cycle: the **movement №11** — lane α exhausted honestly (the
@@ -3662,7 +3656,7 @@ act — ADR-0186 §4.5); the **goal032 lanes** — the (α)-package (the
 gate 7): (β) the state unions, (γ) the opaque kinds, the Secret
 spellings (ADR-0195 §7 (c) — parked until the lanes open), the
 data-dependent trio and the candle-gated reflex_generate — the
-semantics lanes; the NLnet/Restack M1 (03.11.2026); №648
+semantics lanes; №648
 (01.12.2026); the zip-ignore review (2026-11-17); the coverage
 threshold (№569 — PARKED by ADR-0195 (c)); the second maintainer;
 the PAT rotation. RESOLVED this cycle: **both lane divergences** —
@@ -3768,8 +3762,7 @@ gh#1409; GO verified-wait) **+ the tag → publication** (the OWNER's
 act — ADR-0186 §4.5); the **goal032 lanes** (the gate 7): (β) the
 state unions, (γ) the opaque kinds, the Secret spellings (ADR-0195
 §7 (c) — parked until the lanes open), the data-dependent trio and
-the candle-gated reflex_generate; the NLnet/Restack M1 (03.11.2026);
-№648 (01.12.2026); the zip-ignore review (2026-11-17); the coverage
+the candle-gated reflex_generate; №648 (01.12.2026); the zip-ignore review (2026-11-17); the coverage
 threshold (№569 — PARKED by ADR-0195 (c)); the second maintainer
 (§6 п.7 of the audit — the CODEOWNERS src/ coverage); the PAT
 rotation. RESOLVED this cycle: **the 129-census** — the loud operand
@@ -3893,7 +3886,7 @@ the record date):** the **02.11 window** — the release figure
 (0.33.3 tail-ride vs 0.34.0 feature-cut; the §2.5 map
 gh#1398/gh#1409) + the tag → publication (ADR-0186 §4.5 — the
 owner's act); the **goal032 lanes (β)/(γ)** — the owner verdicts
-(the package in the №751 report; gate 7); **NLnet M1 03.11**; the
+(the package in the №751 report; gate 7); the
 **zip-ignore review 17.11**; **№648 01.12**; the **second
 maintainer** — УСИЛЕН аудитом (§6 п.7: the CODEOWNERS coverage for
 src/audit.rs, src/html_label.rs, src/compiler.rs — the critical
@@ -4003,7 +3996,7 @@ the ADR-0195 criteria formally met, the 0.34 roster empty) + the tag →
 publication (ADR-0186 §4.5 — the owner's act); the **second
 maintainer** — №774's ready CODEOWNERS record + the candidate criteria
 wait the owner verbatim (форма №755); the **goal032 lanes (β)/(γ)**
-(gate 7); **NLnet M1 03.11**; the **zip-ignore review 17.11**; **№648
+(gate 7); the **zip-ignore review 17.11**; **№648
 01.12**; the №561 pool refill (9/10); the PAT rotation. PARKED: the
 №569 threshold (ADR-0195 (c)). RESOLVED this cycle: the **gh#1430
 unwind class** (the try×pattern-call frame wipe — found by the
@@ -4133,12 +4126,16 @@ tail-ride**: the 8-row [Unreleased], the ADR-0195 criteria formally
 met, the 0.34 roster empty) + the tag → publication (ADR-0186 §4.5
 — the owner's act); the **second maintainer** — №774's ready
 CODEOWNERS record + the candidate criteria wait the owner verbatim
-(форма №755); the **goal032 lanes (β)/(γ)** (gate 7); **NLnet M1
-03.11**; the **zip-ignore review 17.11**; **№648 01.12**; the №561
+(форма №755); the **goal032 lanes (β)/(γ)** (gate 7); the **zip-ignore review 17.11**; **№648 01.12**; the №561
 pool refill (9/10); the PAT rotation. PARKED: the №569 threshold
 (ADR-0195 (c)). RESOLVED this cycle: the **classification-SSOT
 reproducibility hole** (the №772 honest finding — the generator is
 drift-proof and the reproducibility has its own blocking checker);
 the **wave-60 INFRA duplicate surface** (gh#1443/gh#1444 closed
 with cross-refs); the **branch-freshness skip fact** (the lawful
-PR-scoped construction, documented).
+PR-scoped construction, documented). REMOVED by the owner's directive (23.10, repeated
+24.10): the grant-application references (the funding-programme mentions) are swept
+from REALITY and PLAN-SUMMARY — closed milestones are not silently deleted; this
+record documents the sweep (gh#1484, the wave-63 hygiene naryad; the M1 milestone
+was closed by the owner, #1135 Context row). The language capability grants
+(`grant_issue`, ADR-0167) and the Open Collective sponsorship are untouched.

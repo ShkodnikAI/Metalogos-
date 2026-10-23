@@ -70,6 +70,23 @@ All notable changes to the Metalogos project.
   exemption follows the same protocol (the row + the verdict in the
   same PR).
 
+### Removed
+
+- **№786 (gh#1484, Wave 63 — the grant-application sweep, the owner's
+  directive 23.10, repeated 24.10):** the funding-programme mentions
+  (the milestone M1 is closed by the owner — #1135) are swept from
+  REALITY (17 lines) and PLAN-SUMMARY (6 lines); the sweep itself is
+  documented in the current REALITY section (closed milestones are not
+  silently deleted — the record keeps the fact, drops the programme
+  names). The recurrence root — every wave dispatch re-planting the
+  stale funding-programme owner gate — is closed by the NEW blocking
+  docs-metrics step `scripts/ci/no_stale_grant_refs.py` (git grep over
+  the doc surfaces; red on an artificially planted mention —
+  self-tested). The language capability grants (`grant_issue`,
+  `src/grants.rs`, ADR-0167) and the Open Collective sponsorship are
+  untouched. AFFECTS: documentation only — no runtime, grammar, or
+  registry surfaces.
+
 ### Fixed
 
 - **№785 (gh#1507, Wave 62 hygiene tail — the №776 form):** the

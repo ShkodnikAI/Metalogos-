@@ -52,8 +52,10 @@ decides, not product strategy.
 **Ask for an explicit owner decision, do not assume:**
 irreversible actions (rewriting git history) and anything that
 changes the project identity — revising already-accepted `ADR`s
-(`Result`/`Option` — rejected, `ADR-0106`; VM parity — deferred,
-`ADR-0105`; a real `adapt` metric — deferred, `ADR-0112`), a new
+(`Result`/`Option` — revised under the loud model by the owner's C6
+R-b decision, `ADR-0198` supersedes `ADR-0106`; VM parity —
+superseded by `ADR-0197`; a real `adapt` metric — deferred,
+`ADR-0112`), a new
 semantic pillar (not a mechanical extension of an existing one). The
 boundary is not distrust of one's own judgment, but that the course
 of the project is decided by the owner, not the agent.
@@ -110,7 +112,11 @@ grep -rl "keyword" docs/adr/*.md
 ```
 Frequent topics where the decision is already made — do not reopen
 without an explicit owner request:
-- `Result`/`Option` instead of soft-failure → **rejected**, `ADR-0106`
+- `Result`/`Option` instead of soft-failure → **the error model is
+  the loud failure + `_or` + `try`; `Result<T>`/`Option<T>` live in
+  the type layer as the aliases of the existing shapes, no new
+  `Value` variants, no full sum types — `ADR-0198` supersedes
+  `ADR-0106` (the C6 R-b owner decision, 2026-10-23)**
 - A real metric instead of mock `accuracy` for `adapt` → deferred to a
   real case, `ADR-0112`
 - VM parity with TW (`match`, `BlockIfElse` expression) → deliberately

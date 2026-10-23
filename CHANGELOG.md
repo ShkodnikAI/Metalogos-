@@ -6,6 +6,26 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№789 (gh#1512, Wave 63 — audit-23.10 C4-a T1, the owner decision
+  23.10):** `scripts/gen_wave_record.py` — the wave-record generator:
+  by the `wave-N` label it finds the dispatch, parses the naryad
+  composition table, and assembles the REALITY §-record (per naryad:
+  the issue, the source issue, the merge commit from the git-history
+  scan, the PR, the CI verdict ON the merge commit) + the PLAN-SUMMARY
+  line. The machine counters ride VERBATIM from the scripts/ci
+  machines — nothing paraphrased; a broken machine prints
+  `MACHINE UNAVAILABLE` into the record (never silently dropped, never
+  invented). The prose is ONLY the `HONEST-FINDING:` marked lines from
+  the naryad audit comments (no markers → an empty section — the
+  generator writes no prose, the C4 form). The weekly flow (one PR for
+  all the waves of the week, manual until the owner decides on the
+  schedule) replaces the per-wave «strictly last» docs naryad. The
+  verification: the wave-62 and wave-61 records generated — the
+  structured fields reproduce the git/API facts 1:1 (the comparison
+  with the manual §6.46 rides the naryad report); the wave-61 sweep
+  surfaced №778 as closed-without-a-merge-commit (the honest
+  no-surface rendering).
+
 - **№788 (gh#1511, Wave 63 — audit-23.10 C4-a T3, the owner decision
   23.10):** the honest-boundary CHANGELOG verdict — `security: no —
   <reason>` on the row itself is the THIRD legal path (next to the

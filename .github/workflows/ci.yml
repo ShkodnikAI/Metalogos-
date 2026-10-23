@@ -1110,6 +1110,14 @@ jobs:
       # same sources (the pinning test: naryad_566_plan_summary_numbers).
       - name: Validate the generated metrics blocks (README + PLAN-SUMMARY)
         run: python3 scripts/gen_metrics.py --check
+      # Наряд №786 (gh#1484, the owner directive 23.10): the grant-application
+      # (funding-programme) mentions are swept out of the docs — the M1
+      # milestone is closed (#1135) and every wave dispatch used to re-plant
+      # the stale gate (the recurrence root). This blocking step keeps the
+      # mentions from returning. The language capability grants (grant_issue,
+      # ADR-0167) and the Open Collective sponsorship stay out of scope.
+      - name: No stale grant-application references (№786)
+        run: python3 scripts/ci/no_stale_grant_refs.py
 
   # Наряд №256 (part B, PR #284's ready block): дымовой фаззинг новых целей
   # (2 минуты бюджета на цель). НЕ блокирующий: паники, найденные фаззером,

@@ -6,6 +6,20 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№792 (gh#1515, Wave 63 — audit-23.10 C6 R-b 1, the owner decision
+  23.10):** ADR-0198 **Accepted** (supersedes ADR-0106) — the error
+  model is the LOUD failure with a code + the explicit `_or`
+  quietness + `try` for the handling; in the type layer `Result<T>`
+  (the try result) and `Option<T>` (= `T|Unit`) are the ALIASES of the
+  existing shapes — **no new `Value` variants, the grammar of values
+  and the 526 signatures unchanged, no full sum types** (`Ok/Err/
+  Some/None`, `?` are not introduced). The same-PR lineage edits:
+  ADR-0106 → Superseded (the soft-failure premise expired; the
+  "not without demonstrated need" principle survives), AGENTS.md §3/§6
+  re-pointed (the CLAUDE.md bridge byte-identical). The I-c Int piece
+  (the loud `[PRECISION_LOSS]`) already landed as №787; the static
+  use-check rides #1505. The ADR index 189 → 190.
+
 - **№791 (gh#1514, Wave 63 — audit-23.10 C5-b V1, the owner decision
   23.10):** ADR-0197 **Accepted** — the VM is the ONLY executor of the
   user commands (`run`, `serve`, `mcp-serve`, `eval`, REPL); TW is the

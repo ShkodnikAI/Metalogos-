@@ -239,3 +239,4 @@ real ADRs (№309/№320/№412) before the booking.
 | 0195 | The 0.34 Release-Gate Criteria — the draft variants (ACCEPTED 2026-10-20; the owner's verbatim — the §5 package as submitted) | Accepted** (2026-10-20 |
 | 0196 | The MCP Policy Gateway — the flagship pilot (the C1 (b) decision, ACCEPTED 2026-10-23 by the owner's verbatim) | Accepted** (2026-10-23 |
 | 0197 | The VM Is the Only Executor of User Commands; TW Is the Reference Oracle (the C5 (b) decision, ACCEPTED 2026-10-23 by the owner's verbatim) | Accepted** (2026-10-23 |
+| 0198 | The Error Model — the Loud Failure + `_or` + `try`; `Result<T>`/`Option<T>` in the Type Layer Without New `Value` Variants (the C6 R-b decision, ACCEPTED 2026-10-23 by the owner's verbatim; SUPERSEDES ADR-0106) | Accepted** (2026-10-23 |

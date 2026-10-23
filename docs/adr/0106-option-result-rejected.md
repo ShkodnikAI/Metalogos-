@@ -1,10 +1,11 @@
 # ADR-0106: `Option`/`Result` — not introduced, soft-failure remains the error model
 
-> **Status:** Rejected  
+> **Status:** Rejected — **SUPERSEDED by [ADR-0198](0198-error-model.md)** (2026-10-23, the C6 R-b owner decision: the soft-failure premise expired — the language is loud now, the quietness is the explicit `_or` opt-in; `Result<T>`/`Option<T>` are accepted in the TYPE layer as the aliases of the existing shapes (the try result, `T|Unit`) WITHOUT new `Value` variants; the "not without demonstrated need" principle survives — the need is documented in ADR-0198 §1)  
 > **Date:** 2026-08-21  
 > **Decision by:** owner  
 > **Precedent:** ADR-0105 (VM experimental scope — same "not without
-> demonstrated need" principle)
+> demonstrated need" principle; its own remainder superseded by
+> ADR-0197)
 
 ## Context
 

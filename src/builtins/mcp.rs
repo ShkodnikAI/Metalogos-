@@ -353,7 +353,9 @@ fn mcp_tools_list(conn: &mut McpConn, timeout: Duration) -> Result<Value, String
             .unwrap_or("")
             .to_string();
         let input_schema = match tool.get("inputSchema") {
-            Some(schema) => json_value_to_mlog_value(schema),
+            // №787: the checked conversion — the lossy JSON integer in a
+            // tool schema is a loud [PRECISION_LOSS], never a silent Float.
+            Some(schema) => json_value_to_mlog_value(schema, "$")?,
             None => Value::Unit,
         };
         let mut fields = std::collections::HashMap::new();

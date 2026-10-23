@@ -674,6 +674,19 @@ pub const CODE_SPECTRAL_INPUT: &str = "SPECTRAL_INPUT";
 /// consumer) MUST be able to branch «timeout → poll again» against
 /// «connection dropped → back off».
 pub const CODE_HTTP_TIMEOUT: &str = "HTTP_TIMEOUT";
+
+/// №787 (gh#1503, Wave 63 P1 — audit-23.10 C6 I-c): the integer
+/// precision-loss boundary — a SQLite/JSON integer that f64 cannot
+/// represent exactly (|n| > 2^53: 64-bit ids, snowflakes) is refused
+/// LOUDLY at the conversion origin (the SQLite column name or the JSON
+/// path + the value), instead of the silent `n as f64` round-trip
+/// distortion (the JSON `unwrap_or(0.0)` arm was worse than lossy: a
+/// plausible-looking 0.0). Program-facing (the query*/parse_json
+/// builtin routes on BOTH backends), so it IS in
+/// `ORIGIN_STAMPED_CODES`: `try{}` classifies the failure to this typed
+/// code on TW and VM alike. The exact powers of two beyond 2^53
+/// (e.g. i64::MIN) stay on the unchanged Value::Float path.
+pub const CODE_PRECISION_LOSS: &str = "PRECISION_LOSS";
 /// №592 (Волна 30, Камертон Н1-06): the transport-level failure — DNS,
 /// refused, reset, or the connection DROPPED MID-RESPONSE (the
 /// `resp.text()` read). The mid-response break was previously laundered
@@ -736,6 +749,10 @@ const ORIGIN_STAMPED_CODES: &[&str] = &[
     CODE_LLM_PROVIDER_UNAVAILABLE,
     CODE_SQL_ERROR,
     CODE_SANDBOX_VIOLATION,
+    // №787: the loud integer precision-loss boundary (SQLite/JSON) —
+    // branchable: the caller can catch [PRECISION_LOSS] and re-read the
+    // value as TEXT/CAST inside the same try.
+    CODE_PRECISION_LOSS,
     CODE_SINK_CLEARANCE_RUNTIME,
     CODE_MEDIA_SEALED_EGRESS,
     CODE_BACKEND_DEGRADED,

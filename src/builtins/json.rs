@@ -40,28 +40,73 @@ pub(crate) fn builtin_parse_json(args: &[Value]) -> Result<Value, String> {
     let text = expect_string_arg("parse_json", args, 0)?;
     let parsed: serde_json::Value =
         serde_json::from_str(&text).map_err(|e| format!("parse_json() error: {}", e))?;
-    Ok(json_value_to_mlog_value(&parsed))
+    json_value_to_mlog_value(&parsed, "$")
 }
 
-/// Convert serde_json::Value to METALOGOS Value (same logic as interpreter's method).
-pub(crate) fn json_value_to_mlog_value(json: &serde_json::Value) -> Value {
+/// №787 (gh#1503, C6 I-c): the JSON→Value integer boundary — an integer
+/// f64 cannot represent exactly (|n| > 2^53) is a LOUD `[PRECISION_LOSS]`
+/// refusal naming the document path and the value; the former
+/// `as_f64().unwrap_or(0.0)` arm was a silent distortion (and a silent
+/// plausible-looking 0.0 in the never-representable case). Non-integer
+/// numbers (serde already parsed them as f64 — no additional loss at
+/// this boundary) and the exactly-representable integers ride the
+/// UNCHANGED Value::Float behavior.
+pub(crate) fn json_number_to_value(n: &serde_json::Number, path: &str) -> Result<Value, String> {
+    if let Some(i) = n.as_i64() {
+        let f = i as f64;
+        if (f as i128) == i as i128 {
+            return Ok(Value::Float(f));
+        }
+    } else if let Some(u) = n.as_u64() {
+        let f = u as f64;
+        if (f as u128) == u as u128 {
+            return Ok(Value::Float(f));
+        }
+    } else {
+        // serde parsed this literal as f64 — the boundary adds no loss.
+        return Ok(Value::Float(n.as_f64().unwrap_or(0.0)));
+    }
+    Err(crate::interpreter::values::coded_error(
+        crate::interpreter::values::CODE_PRECISION_LOSS,
+        format!(
+            "the JSON number {} at {} is an integer that f64 cannot represent exactly — the silent conversion would distort it; read it as a string or re-shape the document",
+            n, path
+        ),
+    ))
+}
+
+/// Convert serde_json::Value to METALOGOS Value (same logic as the
+/// interpreter's method); `path` is the JSON pointer-ish location used by
+/// the №787 precision-loss refusals (root "$", members "$.key",
+/// elements "$.key[2]").
+pub(crate) fn json_value_to_mlog_value(
+    json: &serde_json::Value,
+    path: &str,
+) -> Result<Value, String> {
     match json {
-        serde_json::Value::String(s) => Value::String(s.clone()),
-        serde_json::Value::Number(n) => Value::Float(n.as_f64().unwrap_or(0.0)),
-        serde_json::Value::Bool(b) => Value::Bool(*b),
-        serde_json::Value::Null => Value::Unit,
+        serde_json::Value::String(s) => Ok(Value::String(s.clone())),
+        serde_json::Value::Number(n) => json_number_to_value(n, path),
+        serde_json::Value::Bool(b) => Ok(Value::Bool(*b)),
+        serde_json::Value::Null => Ok(Value::Unit),
         serde_json::Value::Array(arr) => {
-            Value::List(arr.iter().map(json_value_to_mlog_value).collect())
+            let mut items = Vec::with_capacity(arr.len());
+            for (i, v) in arr.iter().enumerate() {
+                items.push(json_value_to_mlog_value(v, &format!("{}[{}]", path, i))?);
+            }
+            Ok(Value::List(items))
         }
         serde_json::Value::Object(obj) => {
             let mut fields = std::collections::HashMap::new();
             for (k, v) in obj {
-                fields.insert(k.clone(), json_value_to_mlog_value(v));
+                fields.insert(
+                    k.clone(),
+                    json_value_to_mlog_value(v, &format!("{}.{}", path, k))?,
+                );
             }
-            Value::Struct {
+            Ok(Value::Struct {
                 type_name: "Json".to_string(),
                 fields,
-            }
+            })
         }
     }
 }
@@ -321,26 +366,36 @@ pub(crate) fn yaml_to_json_value(yaml: &serde_yaml::Value) -> serde_json::Value 
 pub(crate) fn json_value_to_mlog_value_with_type(
     json: &serde_json::Value,
     type_name: &str,
-) -> Value {
+    path: &str,
+) -> Result<Value, String> {
     match json {
-        serde_json::Value::String(s) => Value::String(s.clone()),
-        serde_json::Value::Number(n) => Value::Float(n.as_f64().unwrap_or(0.0)),
-        serde_json::Value::Bool(b) => Value::Bool(*b),
-        serde_json::Value::Null => Value::Unit,
-        serde_json::Value::Array(arr) => Value::List(
-            arr.iter()
-                .map(|v| json_value_to_mlog_value_with_type(v, type_name))
-                .collect(),
-        ),
+        serde_json::Value::String(s) => Ok(Value::String(s.clone())),
+        serde_json::Value::Number(n) => json_number_to_value(n, path),
+        serde_json::Value::Bool(b) => Ok(Value::Bool(*b)),
+        serde_json::Value::Null => Ok(Value::Unit),
+        serde_json::Value::Array(arr) => {
+            let mut items = Vec::with_capacity(arr.len());
+            for (i, v) in arr.iter().enumerate() {
+                items.push(json_value_to_mlog_value_with_type(
+                    v,
+                    type_name,
+                    &format!("{}[{}]", path, i),
+                )?);
+            }
+            Ok(Value::List(items))
+        }
         serde_json::Value::Object(obj) => {
             let mut fields = std::collections::HashMap::new();
             for (k, v) in obj {
-                fields.insert(k.clone(), json_value_to_mlog_value_with_type(v, type_name));
+                fields.insert(
+                    k.clone(),
+                    json_value_to_mlog_value_with_type(v, type_name, &format!("{}.{}", path, k))?,
+                );
             }
-            Value::Struct {
+            Ok(Value::Struct {
                 type_name: type_name.to_string(),
                 fields,
-            }
+            })
         }
     }
 }

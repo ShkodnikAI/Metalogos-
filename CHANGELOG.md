@@ -89,6 +89,22 @@ All notable changes to the Metalogos project.
 
 ### Fixed
 
+- **№787 (gh#1510, Wave 63 — audit-23.10 C6 I-c):** the integer
+  precision-loss boundary — a SQLite/JSON integer f64 cannot represent
+  exactly (|n| > 2^53: 64-bit ids, snowflakes) is a LOUD
+  `[PRECISION_LOSS]` coded refusal naming the column (the four
+  SQLite row-conversion sites — query/query_scalar/query_row on both
+  lanes through the ONE shared `value_ref_to_value`) or the document
+  path (`parse_json`/`config_load`/MCP tool schemas/the VM LlmResponse
+  — the JSON `unwrap_or(0.0)` arm is gone). The exactly-representable
+  integers (|n| ≤ 2^53 and the exact powers of two beyond it, e.g.
+  i64::MIN) ride the UNCHANGED Float behavior — the boundary battery
+  pins 2^53 and i64::MIN as value-comparisons (RED-before: the reads
+  returned the distorted 9007199254740992). AFFECTS: programs that
+  relied on the quiet round-trip now catch `[PRECISION_LOSS]`
+  (try-classified on both backends); re-read lossy columns as TEXT or
+  CAST in SQL.
+
 - **№785 (gh#1507, Wave 62 hygiene tail — the №776 form):** the
   cargo-audit/cargo-deny RED on main (`e77a93c`) — `RUSTSEC-2026-0385`
   (ctutils 0.4.2: the non-constant-time mask generation / `u128`

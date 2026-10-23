@@ -143,6 +143,7 @@ fn emit_sink_checks(
     args: &[crate::ast::Expr],
     line: u32,
     deny_handler: Option<u32>,
+    locals: Option<&HashMap<String, usize>>,
 ) -> Vec<usize> {
     let mut emitted = Vec::new();
     for (i, a) in args.iter().enumerate() {
@@ -172,6 +173,16 @@ fn emit_sink_checks(
             | crate::ast::Expr::ProvBind { .. } => None,
         };
         if let Some(arg) = trackable {
+            // №780 (audit-23.10 A1): a variable argument carries its local
+            // slot when the compiler tracks the Ident — the VM reads the
+            // VALUE behind the name and specializes the verdict for the
+            // typed materialization contracts (WorldState №355/№691).
+            let slot = match (&a, locals) {
+                (crate::ast::Expr::Ident { name, .. }, Some(locals)) => {
+                    locals.get(name).map(|&s| s as u32)
+                }
+                _ => None,
+            };
             emitted.push(code.len());
             code.push(Instruction::SinkCheck(Box::new(SinkCheckData {
                 fn_name: fn_name.to_string(),
@@ -185,6 +196,7 @@ fn emit_sink_checks(
                     handler,
                     skip_to: 0,
                 }),
+                slot,
             })));
         }
     }
@@ -241,6 +253,7 @@ impl Compiler {
         &self,
         code: &mut Vec<Instruction>,
         expr: &crate::ast::Expr,
+        locals: &HashMap<String, usize>,
     ) -> Vec<usize> {
         if let crate::ast::Expr::FnCall {
             name, args, span, ..
@@ -249,7 +262,7 @@ impl Compiler {
             if is_sink_call(name) {
                 let class = crate::audit::sink_kind(name);
                 let handler = self.deny_handler_indices.get(class).copied();
-                return emit_sink_checks(code, name, args, span.start_line, handler);
+                return emit_sink_checks(code, name, args, span.start_line, handler, Some(locals));
             }
         }
         Vec::new()
@@ -1679,6 +1692,13 @@ impl Compiler {
                     code.push(Instruction::store_assign_local(slot, name.clone(), true));
                 }
                 Statement::Return { value: expr, .. } => {
+                    // №780 (audit-23.10 A1): the runtime twin of the №325
+                    // gate at the body's sink sites — compile_stmt_with_locals
+                    // arms Return the same way; the pattern/route bodies were
+                    // compiling their sinks WITHOUT the armed check (the
+                    // serve lane's gate was compiler-side absent, not just
+                    // VM-side silent).
+                    let deny_checks = self.emit_armed_sink_checks(&mut code, expr, locals);
                     self.compile_expr_with_locals(
                         expr,
                         &mut code,
@@ -1687,6 +1707,8 @@ impl Compiler {
                         &mut loop_stack,
                         mutable,
                     )?;
+                    let skip_to = code.len();
+                    Self::patch_deny_skip_to(&mut code, &deny_checks, skip_to);
                     code.push(Instruction::Return);
                 }
                 Statement::While {
@@ -1845,6 +1867,11 @@ impl Compiler {
                     )?;
                 }
                 Statement::ExprStmt { expr, .. } => {
+                    // №780 (audit-23.10 A1): the armed sink check on the
+                    // body's statement sinks (symmetric to
+                    // compile_stmt_with_locals) — print/respond/write_file
+                    // in a pattern/route body are gated at runtime too.
+                    let deny_checks = self.emit_armed_sink_checks(&mut code, expr, locals);
                     self.compile_expr_with_locals(
                         expr,
                         &mut code,
@@ -1853,6 +1880,8 @@ impl Compiler {
                         &mut loop_stack,
                         mutable,
                     )?;
+                    let skip_to = code.len();
+                    Self::patch_deny_skip_to(&mut code, &deny_checks, skip_to);
                     // Discard result (side-effect expression like respond(), write_file())
                     code.push(Instruction::Pop);
                 }
@@ -2719,7 +2748,7 @@ impl Compiler {
                 // №392: armed the same way — a handled refusal degrades
                 // to Unit, which (unlike compile_stmt_with_locals) stays
                 // on the stack here as the kept branch value.
-                let deny_checks = self.emit_armed_sink_checks(code, expr);
+                let deny_checks = self.emit_armed_sink_checks(code, expr, locals);
                 self.compile_expr_with_locals(expr, code, locals, next_slot, loop_stack, mutable)?;
                 let skip_to = code.len();
                 Self::patch_deny_skip_to(code, &deny_checks, skip_to);
@@ -3042,7 +3071,7 @@ impl Compiler {
                 // handler exists — a handled refusal degrades to Unit,
                 // which becomes the return value (skip_to lands on the
                 // Return below; the refused call never executes).
-                let deny_checks = self.emit_armed_sink_checks(code, expr);
+                let deny_checks = self.emit_armed_sink_checks(code, expr, locals);
                 self.compile_expr_with_locals(expr, code, locals, next_slot, loop_stack, mutable)?;
                 let skip_to = code.len();
                 Self::patch_deny_skip_to(code, &deny_checks, skip_to);
@@ -3173,7 +3202,7 @@ impl Compiler {
                 // №328: the runtime twin of the №325 gate at sink sites.
                 // №392: armed the same way — a handled refusal degrades
                 // to Unit, which the Pop below discards.
-                let deny_checks = self.emit_armed_sink_checks(code, expr);
+                let deny_checks = self.emit_armed_sink_checks(code, expr, locals);
                 self.compile_expr_with_locals(expr, code, locals, next_slot, loop_stack, mutable)?;
                 let skip_to = code.len();
                 Self::patch_deny_skip_to(code, &deny_checks, skip_to);

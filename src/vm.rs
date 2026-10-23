@@ -3774,12 +3774,18 @@ impl Vm {
             self.record_distill_example(&info.name, &input, &response);
         }
 
-        // Try to parse JSON response into Value::Struct
+        // Try to parse JSON response into Value::Struct. №787: the checked
+        // conversion — the lossy JSON integer in a response is a loud
+        // [PRECISION_LOSS] naming the key (the VM lane converts through
+        // the SAME checked boundary as parse_json/config_load — форма №762).
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&response) {
             if let Some(obj) = json.as_object() {
                 let mut fields = std::collections::HashMap::new();
                 for (k, v) in obj {
-                    fields.insert(k.clone(), Vm::json_to_value(v));
+                    fields.insert(
+                        k.clone(),
+                        crate::builtins::json::json_value_to_mlog_value(v, &format!("$.{}", k))?,
+                    );
                 }
                 return Ok(Value::Struct {
                     type_name: "LlmResponse".to_string(),
@@ -3789,29 +3795,6 @@ impl Vm {
         }
 
         Ok(Value::String(response))
-    }
-
-    /// Convert serde_json::Value to METALOGOS Value (for VM).
-    fn json_to_value(json: &serde_json::Value) -> Value {
-        match json {
-            serde_json::Value::String(s) => Value::String(s.clone()),
-            serde_json::Value::Number(n) => Value::Float(n.as_f64().unwrap_or(0.0)),
-            serde_json::Value::Bool(b) => Value::Bool(*b),
-            serde_json::Value::Null => Value::Unit,
-            serde_json::Value::Array(arr) => {
-                Value::List(arr.iter().map(Vm::json_to_value).collect())
-            }
-            serde_json::Value::Object(obj) => {
-                let mut fields = std::collections::HashMap::new();
-                for (k, v) in obj {
-                    fields.insert(k.clone(), Vm::json_to_value(v));
-                }
-                Value::Struct {
-                    type_name: "Json".to_string(),
-                    fields,
-                }
-            }
-        }
     }
 
     /// Execute a flow step: check branches, then invoke pattern/builtin.

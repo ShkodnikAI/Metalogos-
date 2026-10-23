@@ -6,6 +6,21 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№791 (gh#1514, Wave 63 — audit-23.10 C5-b V1, the owner decision
+  23.10):** ADR-0197 **Accepted** — the VM is the ONLY executor of the
+  user commands (`run`, `serve`, `mcp-serve`, `eval`, REPL); TW is the
+  reference oracle in CI (the crosscheck, the diff-fuzzer, the
+  doc-tests) and behind the transitional `--reference` flag (two
+  release windows by default, an extension is a new owner act). The
+  same-PR lineage edits: ADR-0105 — the remainder SUPERSEDED (the
+  TW-default posture; ADR-0141 had already superseded the readiness
+  reservations), ADR-0171 — EXTENDED from `serve` to ALL the
+  user-command lanes. The oracle's contract stays: the core-semantics
+  criterion, the shared-RuntimeContext dedup, the CI oracle surfaces.
+  The landing order (the owner's verbatim): the precondition #1458
+  landed (№780), V2 rides with the gateway pilot, then V3, then the
+  V4 gate closes the lane. The ADR index 188 → 189.
+
 - **№790 (gh#1513, Wave 63 — audit-23.10 C1 (b), the owner decision
   23.10):** ADR-0196 **Accepted** — the MCP policy gateway is the
   FLAGSHIP PILOT: the language stays a product until the fork; the

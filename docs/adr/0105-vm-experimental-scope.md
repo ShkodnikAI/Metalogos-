@@ -1,8 +1,8 @@
 # ADR-0105: Bytecode VM — experimental scope (not full-language equivalent)
 
-> **Status:** Accepted  
+> **Status:** Accepted — **the remainder SUPERSEDED by [ADR-0197](0197-vm-single-executor.md)** (2026-10-23: the VM is the only executor of user commands, TW is the reference oracle; ADR-0141 already superseded the readiness reservations — D7; the last standing piece — the TW-default posture — is superseded by ADR-0197 §4.1)  
 > **Date:** 2026-08-21  
-> **Naryads:** №108 (decision), №109 (documentation), №129 (BlockIfElse loud error)  
+> **Naryads:** №108 (decision), №109 (documentation), №129 (BlockIfElse loud error); the supersession record — №791  
 > **Precedent:** ADR-0073 (JIT experimental scaffold)
 
 ## Context

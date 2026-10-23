@@ -51,3 +51,17 @@ Total tail: 98 wildcard arms.
 - `fn args_of` — wildcard arms at lines 5027, 5266
 - `fn check_program` — wildcard arms at lines 5450, 5774
 - `fn svg_security_lint` — wildcard arms at lines 7658
+
+## №780 update (the audit-23.10 A1 — the vm.rs Instruction matches)
+
+The `execute_code_inner` wildcard tail (the label gates drowned there —
+the serve route bodies never executed `LabelJoin`/`SinkCheck`) is RETIRED:
+the Instruction match is now EXHAUSTIVE in BOTH loops (`execute_main_code`
+and `execute_code_inner`) — the label instructions execute from the shared
+executors, the 12-strong main-only set answers loudly
+(`VM: instruction <X> is main-only — compiler/VM skew`), and
+`tests/n780_vm_instruction_enumeration.rs` pins the classification (a new
+`Instruction` variant without a class is a compile error). The
+function-level `#[allow(wildcard_enum_match_arm)]` on both loops is
+RE-SPOKED: it covers the Value-variant matches inside the loops only, NOT
+the Instruction match.

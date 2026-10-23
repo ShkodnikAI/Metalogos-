@@ -1679,6 +1679,13 @@ impl Compiler {
                     code.push(Instruction::store_assign_local(slot, name.clone(), true));
                 }
                 Statement::Return { value: expr, .. } => {
+                    // №780 (audit-23.10 A1): the runtime twin of the №325
+                    // gate at the body's sink sites — compile_stmt_with_locals
+                    // arms Return the same way; the pattern/route bodies were
+                    // compiling their sinks WITHOUT the armed check (the
+                    // serve lane's gate was compiler-side absent, not just
+                    // VM-side silent).
+                    let deny_checks = self.emit_armed_sink_checks(&mut code, expr);
                     self.compile_expr_with_locals(
                         expr,
                         &mut code,
@@ -1687,6 +1694,8 @@ impl Compiler {
                         &mut loop_stack,
                         mutable,
                     )?;
+                    let skip_to = code.len();
+                    Self::patch_deny_skip_to(&mut code, &deny_checks, skip_to);
                     code.push(Instruction::Return);
                 }
                 Statement::While {
@@ -1845,6 +1854,11 @@ impl Compiler {
                     )?;
                 }
                 Statement::ExprStmt { expr, .. } => {
+                    // №780 (audit-23.10 A1): the armed sink check on the
+                    // body's statement sinks (symmetric to
+                    // compile_stmt_with_locals) — print/respond/write_file
+                    // in a pattern/route body are gated at runtime too.
+                    let deny_checks = self.emit_armed_sink_checks(&mut code, expr);
                     self.compile_expr_with_locals(
                         expr,
                         &mut code,
@@ -1853,6 +1867,8 @@ impl Compiler {
                         &mut loop_stack,
                         mutable,
                     )?;
+                    let skip_to = code.len();
+                    Self::patch_deny_skip_to(&mut code, &deny_checks, skip_to);
                     // Discard result (side-effect expression like respond(), write_file())
                     code.push(Instruction::Pop);
                 }

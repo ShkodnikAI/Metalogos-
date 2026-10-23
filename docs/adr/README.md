@@ -225,11 +225,16 @@ real ADRs (№309/№320/№412) before the booking.
 | 0181 | The 0.29 Release Gate — the Absolute-Goals Criteria (owner-fixed 2026-10-04) | Accepted (the parameters fixed by the OWNER, 2026-10-04) |
 | 0182 | The media-handle family and the backend-registry interface — the domain-line reopening contour | Accepted |
 | 0183 | The migration-rollback boundary — schema evolution stays ADDITIVE-ONLY; the rollback path is backup restore, not a language surface | Accepted |
-| 0184 | The fate of the depth-≥2 early answer — `RESPOND_SWALLOWED` stays FOREVER (variant Б); the propagation-to-any-depth is not built | Accepted |
+| 0184 | The fate of the depth-≥2 early answer — `RESPOND_SWALLOWED` stays FOREVER (variant Б); the propagation-to-any-depth (variant А) is not built | Accepted |
 | 0185 | The container form of `memory_forget` — DEFERRED to the memory-phase planning (not rejected); the managed by-query forgetting is the accepted surface | Accepted |
-| 0186 | The 0.30 Release Gate — the draft criteria (the fixation is the owner's gate; the В34 addendum shape accepted 2026-10-07) | Proposed |
-| 0187 | The memory-phase plan — the Phase-4 slot (the KNN recall reference), the ADR-0185 container-form decision slot, the parity posture | Proposed |
-| 0188 | The template semantics composition — the §7 lane plan: the compile-time port re-priced (full / partial / status-quo), the phased recommendation (the OWNER's choice slot) | Proposed |
-| 0193 | The 0.32 typed-source goal — the FIXED-LIST closure form (67 untyped @ f92c61c, ≥20, the denominator out) | Accepted (2026-10-19 — «вербатим принят», №723) |
-| 0194 | The query() parity package — the two-lane result contract (the packages A/B: the loud-fail + the String-count mutation parity) | Accepted (2026-10-20 — packages A(c)+B(i), №734) |
-| 0195 | The 0.34 release-gate criteria — the draft variants (the ratchet base / the endgame figure / the precise floor + №569) | Accepted (2026-10-20 — the §5 package as submitted: the form (b) + N=23, (c) parked, №735) |
+| 0186 | The 0.30 Release Gate — the Owner-Fixed Criteria (Accepted; the §5 mechanical transition landed) | Accepted (the executor's draft №615 |
+| 0187 | The Memory-Phase Plan — the Phase-4 slot, the container-form decision slot (ADR-0185 revisit), the parity posture | Proposed** (the executor's draft plan |
+| 0188 | The Template Semantics Composition — the §7 lane plan: the compile-time port re-priced, the phased recommendation (the OWNER's choice slot) | Accepted |
+| 0189 | The release train — the Monday cadence, the window, and the honest-content rule | Accepted |
+| 0190 | metalogos-examples — the showcase charter (three apps with e2e, for the language consumer) | Accepted |
+| 0191 | The 0.31 Release Gate — the sensitive-surface parameter (OWNER-FIXED; the divergence closed by the owner's verdict 2026-10-13) | Accepted** (`owner_fixed: true` |
+| 0192 | The `html` / `xml` capability features — html5ever / xml5ever behind off-by-default flags | Accepted** (the owner's dispatch #1222 |
+| 0193 | The 0.32 Typed-Source Goal — the FIXED-LIST closure form (ACCEPTED 2026-10-19; the owner's verbatim) | Accepted** (2026-10-19 |
+| 0194 | The query-parity decision package — the db_ops error paths and the query result contract (ACCEPTED 2026-10-20; the owner's verbatim — packages A(c)+B(i)) | Accepted** (2026-10-20 |
+| 0195 | The 0.34 Release-Gate Criteria — the draft variants (ACCEPTED 2026-10-20; the owner's verbatim — the §5 package as submitted) | Accepted** (2026-10-20 |
+| 0196 | The MCP Policy Gateway — the flagship pilot (the C1 (b) decision, ACCEPTED 2026-10-23 by the owner's verbatim) | Accepted** (2026-10-23 |

@@ -114,6 +114,10 @@ MINOR), №639 (15.10) / №648 (01.12) outside the wave.
 
 ## Current wave — the open machine tail (2026-10-23)
 
+Wave 63 EXECUTED (the dispatch gh#1516): №786 → №787 → №788 → №789 → №790 → №791 → №792. The machine record: the generated §6.63 (the verbatim counters, the merge-CI verdicts).
+
+Wave 62 EXECUTED (the dispatch gh#1490): №780 → №781 → №782 → №783 → №784. The machine record: the generated §6.62 (the verbatim counters, the merge-CI verdicts).
+
 Wave 61 EXECUTED (the dispatch gh#1455 — the direct owner trigger
 23.10 «Где волны исполнены, проверяй и заводи следующую волну
 нарядов»): №777 → №778 → №779 (strictly last). №777 (gh#1452,

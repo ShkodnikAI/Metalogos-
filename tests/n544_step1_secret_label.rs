@@ -123,13 +123,22 @@ fn label_flows_through_let_bound_variables() {
 #[test]
 fn sanitizers_strip_the_label() {
     let vars: HashMap<String, Type> = HashMap::new();
-    // render/escape_html — the audit's Sanitized semantics.
-    assert!(!is_private_labeled(&label_of_expr(
+    // A2 (naryad 781, the audit-23.10 S-1): the №544 step-1 override is
+    // REVOKED — the escape restores the INTEGRITY only, the
+    // CONFIDENTIALITY rides the argument join (the ct_eq N2 form): an
+    // escaped env-secret is STILL private (the n35–n38 leak-suite pins).
+    assert!(is_private_labeled(&label_of_expr(
         &call("escape_html", vec![call("env", vec![strlit("K")])]),
         &vars
     )));
+    // The public side of the same contract: escaping a PUBLIC value stays
+    // public (the ok_781_escape_html_untrusted_respond fence shape).
+    assert!(!is_private_labeled(&label_of_expr(
+        &call("escape_html", vec![strlit("hello")]),
+        &vars
+    )));
     // redact with a one-way policy lifts the label (ADR-0136 D2 parity —
-    // the ok_02 corpus shape).
+    // the ok_02 corpus shape; the ONLY sanctioned path down).
     assert!(!is_private_labeled(&label_of_expr(
         &call(
             "redact",

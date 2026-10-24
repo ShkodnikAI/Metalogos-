@@ -64,12 +64,17 @@ PERIMETER_PREFIXES = (
 # trigger set. Basename match (the crate split may move a file; the
 # №567 perimeter-follow precedent). audit.rs and semantic.rs are already
 # in the PERIMETER; html_label.rs and builtins_classification.rs join
-# through this set, and ALL FOUR carry the item-10 section.
+# through this set; A2 (naryad 781, the audit-23.10 S-1): secret_label.rs
+# and sql_label.rs join too — the label lanes that SPEAK the sanitizer
+# semantics must be watched by the same reminder. ALL SIX carry the
+# item-10 section.
 SANITIZER_SITE_FILES = (
     "audit.rs",
     "html_label.rs",
     "builtins_classification.rs",
     "semantic.rs",
+    "secret_label.rs",
+    "sql_label.rs",
 )
 
 # The checklist items (the mechanical observation patterns per item).
@@ -447,13 +452,15 @@ diff --git a/README.md b/README.md
     # 3. the label vocabulary of the section is grep-able (the driver
     #    test pins the same strings).
     assert "source → sink" in sec and "regression pair" in sec
-    # 4. the site set is exactly the four №686 files (a set drift = a
+    # 4. the site set is exactly the six №686+A2 files (a set drift = a
     #    checklist drift — both move in one PR).
     assert SANITIZER_SITE_FILES == (
         "audit.rs",
         "html_label.rs",
         "builtins_classification.rs",
         "semantic.rs",
+        "secret_label.rs",
+        "sql_label.rs",
     )
     print("risk_review --self-test: 4/4 fixture groups green (site hit, clean diff, vocabulary, set pin)")
 

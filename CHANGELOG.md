@@ -168,6 +168,37 @@ All notable changes to the Metalogos project.
 
 ### Fixed
 
+- **№782 (gh#1493, Wave 62 — the audit-23.10 A3, P0):** the executor
+  resource limits — `serve` can no longer be killed by a runaway
+  program. Three halves: (1) the string capacity — ONE SSOT
+  (`src/limits.rs::MAX_STRING_LENGTH`, the old two drift-prone local
+  copies in vm.rs/execution.rs are gone); the multiplicative builtins
+  (`repeat`, `pad_left`, `pad_right`) check `unit_len * count` BEFORE
+  the allocation — the old `s.repeat(1e12)` died in the allocator
+  (an abort, not a panic — `spawn_blocking` cannot catch it, the whole
+  serve process went down); `join` computes the exact need up front,
+  `format`/`word_wrap` carry the loud input/result checks (their
+  growth is input-proportional). (2) the native-recursion depth cap —
+  the CallPattern recursion (`pattern R(n) { return R(n+1) }`) used to
+  overflow the thread stack (in serve the route bodies run inside
+  `spawn_blocking` with the 2 MiB stack — the overflow ABORTED the
+  serve process); BOTH executors guard the entry now (`[CALL_DEPTH_EXCEEDED]`,
+  default 512, `METALOGOS_VM_MAX_DEPTH` is the deployment knob, the
+  VM run path executes on a 256 MB thread (the №197 form), the serve
+  blocking pool runs 8 MiB stacks). (3) the main VM loop
+  (`execute_main_code`) carries the iteration counter mirrored from
+  `execute_code_inner` — an eternal top-level loop hung `mlog run`
+  forever. The subprocess pin battery (6 tests, both backends) verified
+  the RED-before on the unpatched main: the alloc abort + the stack
+  overflow, byte-for-byte the audit's symptoms; the `while`-shape pin
+  patches the compiled Halt into a self-jump (the top-level grammar
+  cannot express the eternal main loop — the patch is the honest
+  construction). The new section in docs/limitations.md: the defaults,
+  the knob, what the caps do NOT cover (the opaque subsystems'
+  allocations). AFFECTS: programs that relied on the unlimited
+  recursion/string growth (below the limits the semantics is
+  unchanged — crosscheck green).
+
 - **№781 (gh#1492, Wave 62 — the audit-23.10 A2, P0):** escaping a
   secret is still a secret. The `escape_html` builtin and the ESCAPED
   slots of `render` restored the INTEGRITY of the data but carried an

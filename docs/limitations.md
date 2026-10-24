@@ -21,6 +21,12 @@
 ## Bytecode VM (ADR-0105, ADR-0141)
 > **All rows of this section are CLOSED** — archived verbatim in [limitations-archive.md](limitations-archive.md) (№571, gh#935).
 
+## Resource Limits (№782 — audit-23.10 A3)
+
+| Limitation | Primary source | Status / condition for removal |
+|---|---|---|
+| The executor resource limits: the string capacity (`limits::MAX_STRING_LENGTH`, 1 MB — ONE SSOT for both backends; the multiplicative builtins `repeat`/`pad_left`/`pad_right` check BEFORE the allocation, `join` computes the exact need, `format`/`word_wrap` carry the loud input checks — their growth is input-proportional) and the native-recursion depth cap (`limits::max_call_depth()`, default **512** — the lower bound of the audit's 512–1024 range, chosen so the loud `[CALL_DEPTH_EXCEEDED]` refusal reaches the caller in EVERY build profile: the debug-profile `execute_code` frames are large; `METALOGOS_VM_MAX_DEPTH` is the deployment knob, an unparseable/zero value falls back to the default; the VM run path executes on a 256 MB thread (the №197 form), the serve blocking pool runs 8 MiB stacks). The main VM loop (`execute_main_code`) carries the iteration counter mirrored from `execute_code_inner` (×100 000 per instruction) | [src/limits.rs](../src/limits.rs); the pins `metalogos-server/tests/n782_resource_limits.rs` (RED-before verified on d0245a4: the alloc abort + the stack overflow, both backends) | **Documented boundary**: the caps do NOT cover allocations inside opaque subsystems (svg/pdf/image generators keep their own loud refusals) and do NOT change the semantics of successful programs below the limits (crosscheck green) |
+
 ## Vision Pillar (ADR-0122)
 
 | Limitation | Primary source | Status / condition for removal |

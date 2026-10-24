@@ -202,7 +202,14 @@ fn naryad_371_non_add_type_errors_identically() {
 /// The 1 MB MAX_STRING_LENGTH limit is enforced with the same message.
 #[test]
 fn naryad_371_string_length_limit_parity() {
-    // 1,000,001 'a' chars + "x" = 1,000,002 > 1,000,000 → both error.
+    // 1,000,001 'a' chars > 1,000,000 → both error.
+    // №782 (audit-23.10 A3): the refusal moved BEFORE the allocation
+    // (`src/limits.rs::check_string_capacity`) — the old post-hoc
+    // concat wording ("string length ... exceeds maximum allowed")
+    // is superseded by the coded `[STRING_TOO_LARGE]` pre-allocation
+    // refusal; the parity is structural (ONE builtin serves both
+    // backends), the at-limit path below keeps the old concat check
+    // meaningful.
     let src = program("  let big = repeat(\"a\", 1000001)\n  return big + \"x\"");
     let base_dir = PathBuf::from("examples");
     let tw = run_tw(&src, &base_dir);
@@ -211,7 +218,7 @@ fn naryad_371_string_length_limit_parity() {
     let vm_err = vm.expect_err("VM must enforce the length limit (№371)");
     assert_eq!(tw_err, vm_err, "length-limit error must be identical");
     assert!(
-        tw_err.contains("exceeds maximum allowed 1000000"),
+        tw_err.contains("[STRING_TOO_LARGE]") && tw_err.contains("1000001"),
         "unexpected limit message: {}",
         tw_err
     );

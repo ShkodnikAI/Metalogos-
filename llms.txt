@@ -26,7 +26,7 @@
 
 - [README.md](README.md): общий обзор — features, project structure, milestones, roadmap, quickstart, links.
 - [docs/PLAN-SUMMARY.md](docs/PLAN-SUMMARY.md): публичный дайджест плана волн (derived artifact, access mode §16.0-7).
-- [CHANGELOG.md](CHANGELOG.md): полная история изменений (наряды №1-№796), SSOT для "что нового".
+- [CHANGELOG.md](CHANGELOG.md): полная история изменений (наряды №1-№797), SSOT для "что нового".
 - [docs/adr/](docs/adr/): 190 ADR (Architecture Decision Records) — все архитектурные решения с контекстом, альтернативами, и последствиями. Индекс в `docs/adr/README.md`.
 - [docs/threat-model.md](docs/threat-model.md): единая поддерживаемая точка про ограничения безопасности.
 - [docs/privacy.md](docs/privacy.md): инженерная политика приватности — какие данные хранятся, где, как удаляются (пометки CONFIRMED/PARTIAL/ABSENT; №519).

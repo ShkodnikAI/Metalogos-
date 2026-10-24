@@ -75,8 +75,8 @@ def count_typed_signatures() -> tuple[int, int, int]:
     content = (REPO / "src" / "builtins" / "registry.rs").read_text(encoding="utf-8")
     spec_re = re.compile(r'spec!\("([a-z_0-9]+)"')
     typed_re = re.compile(
-        r'spec!\("([a-z_0-9]+)",[^\n;]*;\s*[A-Za-z_0-9]+\s*,\s*"([A-Za-z][A-Za-z0-9<>{}:,_|]*)"(?:\s*,\s*"(?:stable|experimental|parked)")?\s*\)'
-    )  # №796: the trailing tier literal is part of every row
+        r'spec!\("([a-z_0-9]+)",[^\n;]*;\s*[A-Za-z_0-9]+\s*,\s*"(?!stable"|experimental"|parked")([A-Za-z][A-Za-z0-9<>{}:,_|]*)"(?:\s*,\s*"(?:stable|experimental|parked)")?\s*\)'
+    )  # №796: the tier tail is tolerated AND the type capture must not BE the tier word
     precise_types = {"String", "Float", "Bool", "Unit"}
     total = spec_re.findall(content)
     typed = typed_re.findall(content)

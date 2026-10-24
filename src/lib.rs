@@ -20,6 +20,7 @@ use crate::audit::{audit_category_a, Severity};
 pub mod audit;
 pub mod audit_ops;
 pub mod builtins;
+pub mod limits;
 pub mod secret_label;
 // №544 (gh#882) step 2: the SQL lane's label semantics — the leaf module
 // the audit's check_sql_dynamic consumes (the Labeled migration).

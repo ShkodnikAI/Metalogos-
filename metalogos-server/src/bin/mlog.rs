@@ -413,14 +413,29 @@ fn cmd_run_bytecode(file: PathBuf) {
         }
     };
 
-    match metalogos::run_bytecode(program) {
-        Ok(output) => {
+    // №782 (audit-23.10 A3): the VM path mirrors the TW form (№197) — the
+    // native CallPattern recursion runs on a 256 MB thread so the depth
+    // CAP (the loud `[CALL_DEPTH_EXCEEDED]`) is what stops runaway
+    // recursion, not the stack guard page (in the debug profile the
+    // unoptimized execute_code frames exhaust the 8 MB main-thread stack
+    // BEFORE the default cap is reached).
+    let handle = std::thread::Builder::new()
+        .stack_size(256 * 1024 * 1024)
+        .spawn(move || metalogos::run_bytecode(program))
+        .expect("failed to spawn VM thread");
+
+    match handle.join() {
+        Ok(Ok(output)) => {
             if let Some(result) = output {
                 println!("{}", result);
             }
         }
-        Err(e) => {
+        Ok(Err(e)) => {
             eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+        Err(_) => {
+            eprintln!("error: VM thread panicked");
             std::process::exit(1);
         }
     }
@@ -881,6 +896,15 @@ fn cmd_serve(file: PathBuf) {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(workers)
         .enable_all()
+        // №782 (audit-23.10 A3): the blocking-pool thread stack — the route
+        // bodies execute inside spawn_blocking; the default 2 MiB stack left
+        // only ~64 debug-profile / ~1000 release-profile native-recursion
+        // frames before the overflow (the overflow is an ABORT of the whole
+        // serve process, not a catchable panic). The depth CAP
+        // (METALOGOS_VM_MAX_DEPTH, default 512) is the loud contract; the
+        // larger stack is the insurance the cap's refusal needs to REACH
+        // the caller in every build profile.
+        .thread_stack_size(8 * 1024 * 1024)
         .build()
         .unwrap_or_else(|e| {
             eprintln!("error: cannot create tokio runtime: {}", e);

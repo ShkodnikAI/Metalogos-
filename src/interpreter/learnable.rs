@@ -42,8 +42,30 @@ impl Interpreter {
             }
         }
 
+        // №782 (audit-23.10 A3): the TW native-recursion depth cap —
+        // symmetric to the VM `execute_code` guard. The pattern-call
+        // mechanism is recursive on the Rust side (eval_statements →
+        // invoke_pattern_with_hooks → eval_statements → ...): without a
+        // cap a self-recursive pattern exhausted the 256 MB run-thread
+        // stack and crashed with SIGSEGV instead of a loud refusal.
+        let depth = self.call_depth.load(std::sync::atomic::Ordering::Relaxed) + 1;
+        if depth > crate::limits::max_call_depth() {
+            return Err(crate::interpreter::values::coded_error(
+                crate::interpreter::values::CODE_CALL_DEPTH_EXCEEDED,
+                format!(
+                    "TW: pattern-call depth exceeded {} (METALOGOS_VM_MAX_DEPTH)",
+                    crate::limits::max_call_depth()
+                ),
+            ));
+        }
+        self.call_depth
+            .store(depth, std::sync::atomic::Ordering::Relaxed);
+
         // Execute the actual pattern
         let result = f();
+
+        self.call_depth
+            .store(depth - 1, std::sync::atomic::Ordering::Relaxed);
 
         // Execute all after_pattern hooks
         if !self.hooks_after.is_empty() {

@@ -1070,9 +1070,9 @@ impl Interpreter {
     const WHILE_SAFETY_LIMIT: u64 = 100_000;
     /// Phase 7.5: Sandbox iteration limit (10,000 for both while and each).
     const SANDBOX_ITER_LIMIT: u64 = 10_000;
-    /// Наряд №17 В.4: Maximum string length to prevent memory exhaustion.
-    /// Applied to builtin string operations (concat, replace, split, etc.).
-    const MAX_STRING_LENGTH: usize = 1_000_000; // 1 MB
+    // №782 (audit-23.10 A3): the string-capacity SSOT lives in
+    // `crate::limits::MAX_STRING_LENGTH` — the old local copy here was one
+    // of the TWO drift-prone duplicates (vm.rs carried the other).
 
     // №369: `compare_values` moved to `ast::MatchArm::compare_values` —
     // the shared predicate both backends run (the interpreter included).
@@ -2984,11 +2984,11 @@ impl Interpreter {
             // Arithmetic on Floats
             (BinOp::Add, Value::String(a), Value::String(b)) => {
                 let result = format!("{}{}", a, b);
-                if result.len() > Self::MAX_STRING_LENGTH {
+                if result.len() > crate::limits::MAX_STRING_LENGTH {
                     return Err(format!(
                         "string length {} exceeds maximum allowed {}",
                         result.len(),
-                        Self::MAX_STRING_LENGTH
+                        crate::limits::MAX_STRING_LENGTH
                     ));
                 }
                 Ok(Value::String(result))

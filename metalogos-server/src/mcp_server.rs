@@ -36,13 +36,24 @@
 //     (stdio, http, sse — and the test harness) now enforces the
 //     Category A startup gate (the №98 `run_server` precedent):
 //     IRREVERSIBLE_NO_GRANT, SQL_DYNAMIC, SECRET_LEAK, … refuse the
-//     process loudly. The runtime taint twin (VM SinkCheck) stays
-//     VM-side — the interpreter has no runtime labels (№405 layer);
-//     the startup gate is the TW-side backstop this boundary relies on.
+//     process loudly.
+//   - №795 (the C5 (b) owner decision, ADR-0197): the tool methods
+//     execute on the VM — the SAME compile-path as serve, the strict
+//     compile at startup (a non-compilable file refuses the gateway;
+//     the pre-№795 TW path silently ignored the non-tool decls' run
+//     errors). The runtime taint twin (VM SinkCheck, the №780/ADR-0156
+//     machinery) now fires IN TOOL BODIES through the same VM — the
+//     "the startup gate is the only backstop" boundary is closed: a
+//     private value routed into a sink at RUNTIME is refused loudly
+//     ([SINK_CLEARANCE_RUNTIME]), not just the statically-provable
+//     forms. TW stays the reference oracle in CI (ADR-0197).
 
 use metalogos::ast::{Declaration, Param};
-use metalogos::interpreter::Interpreter;
 use metalogos::interpreter::Value;
+// №795 (the C5 (b) owner decision, ADR-0197): the tool methods execute on
+// the VM — the SAME compile-path as serve. The TW interpreter is gone from
+// the mcp-serve lane (it has no runtime label-gate twin — the header
+// contract); TW stays the reference oracle in CI.
 // №793 (the gateway G1): the upstream session pool — the session client
 // lives in the metalogos crate, the gateway holds ONE process per declared
 // upstream for its lifetime.
@@ -81,14 +92,27 @@ pub struct McpServeOpts {
 /// between transports by construction.
 pub struct McpServer {
     tools: Vec<ExposedTool>,
-    /// The declarations the tools come from (methods execute against
-    /// them). Not exposed over the wire.
-    declarations: Vec<Declaration>,
+    /// №795 (the C5 (b) decision, ADR-0197): the VM tool state — the
+    /// declarations (the param lists), the COMPILED program (the same
+    /// compile-path as serve) and the qualified pattern index. The tool
+    /// methods execute on the VM (the runtime label gates fire); the TW
+    /// interpreter is gone from this lane.
+    vm_state: std::sync::Arc<VmToolState>,
     /// №793 (the gateway G1): the declared upstream sessions — ONE live
     /// process per entry for the gateway's lifetime; a dead upstream is
     /// reconnected LOUDLY on the next use. Mutex: handle_request takes
     /// &self (the transports share the core through Arc).
     upstreams: Mutex<Vec<McpSession>>,
+}
+
+/// The compiled tool surface (№795): built ONCE at `McpServer::new` —
+/// the strict form: a non-compilable file REFUSES the gateway loudly
+/// (the pre-№795 TW path silently ignored the non-tool decls' run
+/// errors — the quiet start is gone).
+pub struct VmToolState {
+    pub(crate) declarations: Vec<Declaration>,
+    pub(crate) program: metalogos::bytecode::Program,
+    pub(crate) pattern_index: std::collections::HashMap<String, usize>,
 }
 
 impl McpServer {
@@ -202,9 +226,32 @@ impl McpServer {
             }
         );
 
+        // ── №795: the VM compile at startup — the SAME compile-path as serve ──
+        // Tool methods compile as qualified patterns (№684); the program
+        // executes tool bodies on the VM per call (the runtime label gates
+        // fire — the capability the TW lane never had). The db bootstrap
+        // mirrors serve (№1169/№1170): resolved ONCE, eagerly.
+        let mut compiler = metalogos::compiler::Compiler::new();
+        let mut program = compiler
+            .compile(declarations.to_vec())
+            .map_err(|e| format!("mcp-serve: VM compile error: {}", e))?;
+        metalogos::vm::boot_resolve_db_url(&mut program)
+            .map_err(|e| format!("mcp-serve: VM db bootstrap error: {}", e))?;
+        let mut pattern_index = std::collections::HashMap::new();
+        for t in &tools {
+            if let Some(idx) = compiler.pattern_index(&t.full_name) {
+                pattern_index.insert(t.full_name.clone(), idx);
+            }
+        }
+        let vm_state = std::sync::Arc::new(VmToolState {
+            declarations: declarations.to_vec(),
+            program,
+            pattern_index,
+        });
+
         Ok(McpServer {
             tools,
-            declarations: declarations.to_vec(),
+            vm_state,
             upstreams: Mutex::new(upstreams),
         })
     }
@@ -439,9 +486,9 @@ impl McpServer {
                     });
                 };
 
-                // Execute the tool method body.
+                // Execute the tool method body (№795: on the VM).
                 match execute_tool_method(
-                    &self.declarations,
+                    &self.vm_state,
                     &tool.tool_name,
                     &tool.method_name,
                     &arguments,
@@ -673,7 +720,7 @@ fn collect_exposed_tools(declarations: &[Declaration], allowlist: &[String]) -> 
 }
 
 fn execute_tool_method(
-    declarations: &[Declaration],
+    vm_state: &VmToolState,
     tool_name: &str,
     method_name: &str,
     arguments: &serde_json::Value,
@@ -690,8 +737,10 @@ fn execute_tool_method(
     // MCP caller is untrusted, the exact route-body threat shape).
     let _serve_guard = metalogos::builtins::ServeRouteExecGuard::new();
 
-    // Find the tool declaration.
-    let tool_decl = declarations
+    // Find the tool declaration (the param list rides the DECLARATION —
+    // the execution rides the compiled program).
+    let tool_decl = vm_state
+        .declarations
         .iter()
         .find_map(|d| {
             if let Declaration::Tool(t) = d {
@@ -703,35 +752,31 @@ fn execute_tool_method(
         })
         .ok_or_else(|| format!("Tool not found: {}", tool_name))?;
 
-    // Find the method.
     let method = tool_decl
         .methods
         .iter()
         .find(|m| m.name == method_name)
         .ok_or_else(|| format!("Method not found: {}.{}", tool_name, method_name))?;
 
-    // Build interpreter with declarations (load patterns/templates/etc).
-    let mut interp = Interpreter::new();
-    interp.set_base_dir(std::path::PathBuf::from("."));
-    let _ = interp.run(
-        declarations
-            .iter()
-            .filter(|d| !matches!(d, Declaration::Tool(_)))
-            .cloned()
-            .collect::<Vec<_>>(),
-    );
+    // №795: the VM lane — the qualified key compiles as a REGULAR PATTERN
+    // (№684); the invocation is the CallPattern convention (the args bind
+    // as the frame locals). The runtime label gates (ADR-0156) fire in the
+    // body — the capability the TW lane never had (the RED pin n795).
+    let qualified = format!("{}.{}", tool_name, method_name);
+    let idx = *vm_state
+        .pattern_index
+        .get(&qualified)
+        .ok_or_else(|| format!("Method not compiled for VM: {}", qualified))?;
 
-    // Convert JSON arguments to a Value env (param_name → value).
-    let mut env = std::collections::HashMap::new();
-    if arguments.is_object() {
-        for p in &method.params {
-            let json_val = arguments.get(&p.name).unwrap_or(&serde_json::Value::Null);
-            env.insert(p.name.clone(), json_to_value(json_val));
-        }
+    // Convert JSON arguments to positional Values (the declaration order).
+    let mut args = Vec::with_capacity(method.params.len());
+    for p in &method.params {
+        let json_val = arguments.get(&p.name).unwrap_or(&serde_json::Value::Null);
+        args.push(json_to_value(json_val));
     }
 
-    // Execute the method body via eval_statements (pub(crate) on Interpreter).
-    let result = interp.eval_statements(&method.body, &mut env)?;
+    let mut vm = metalogos::vm::Vm::new();
+    let result = vm.invoke_pattern(idx, args, &vm_state.program)?;
     Ok(format!("{}", result))
 }
 

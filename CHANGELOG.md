@@ -54,6 +54,32 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№796 (gh#1534, Wave 64 — audit-23.10 C3-a T1, the C3 (a) owner
+  decision, ADR-0196-adjacent):** the maturity tier SSOT — every
+  `spec!` registration carries an EXPLICIT `tier`
+  (`"stable" | "experimental" | "parked"`, the owner's rule table
+  23.10). The gate IS the grammar: the spec! macro requires the
+  trailing tier literal on every arm — a registration without one is
+  a compile error (the №796 gate form, stronger than a CI script).
+  The classification (the owner's rule): `stable` = the working,
+  test-covered core (the labels, the grants, the ledger, MCP, the
+  memory, the media handles, the working perception backends, the
+  provider voice); `experimental` = the embodied family
+  (device_*/pose_make/proof_*), the forecast family (series_*/forecast_*),
+  the not-implemented stub seams (provisional — the dispute list);
+  `parked` = the ADR-0178 generative contour (reflex-generate,
+  vision-generate/edit/lora, voice_design/tts_speak/voice_enroll,
+  video-render/extend/interp + the weights-fetch infrastructure).
+  The compiled default build: 476 stable / 22 experimental / 11
+  parked (509 = 526 source rows minus the 69 feature-gated); the
+  source-level 526/526 ride gen_reference --check. REFERENCE's
+  generated index gains the Tier column (the generator re-validates
+  the vocabulary loudly — a tier outside the three-word set is
+  exit 2). The BEHAVIOR IS UNTOUCHED (the naryad boundary: the
+  marking only). The 3-pin battery (the vocabulary coverage, the
+  owner-rule spot checks, the census) — new-surface pins. The
+  disputable rows ride the naryad report for the owner's review.
+
 - **№793 (gh#1531, Wave 64 — the gateway G1, the C1 (b) owner
   decision, ADR-0196):** the MCP contour gains the SESSION layer —
   long-lived upstream sessions for the gateway. The new

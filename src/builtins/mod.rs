@@ -49,6 +49,12 @@ pub struct BuiltinSpec {
     pub parameterized: bool, // №623: the spec string carries List<T>/Struct<Name> (the third metric's in-tree fact; the enum stays erased)
     pub field_meta: &'static str, // №627: the raw field-label section inner ("f:label,...") or "" — the registry side-table, the enum NOT extended
     pub handler: Option<BuiltinFn>, // None = stub (intentionally no handler)
+    /// №796 (gh#1534, Wave 64 P1 — the C3 (a) owner decision): the
+    /// maturity tier — `"stable"` | `"experimental" | `"parked"` (the
+    /// owner's rule table). REQUIRED by every spec! arm — a registration
+    /// without an explicit tier is a compile error (the gate is the
+    /// grammar itself).
+    pub tier: &'static str,
 }
 
 /// Macro for concise BuiltinSpec construction.
@@ -67,7 +73,7 @@ pub struct BuiltinSpec {
 #[macro_export]
 macro_rules! spec {
     // ── Handler variants (most specific first) ──
-    ($name:expr, $arity:expr, $max:expr, $cat:expr => $layer:expr; $handler:expr) => {
+    ($name:expr, $arity:expr, $max:expr, $cat:expr => $layer:expr; $handler:expr, $tier:expr) => {
         $crate::builtins::BuiltinSpec {
             name: $name,
             arity: $arity,
@@ -78,9 +84,10 @@ macro_rules! spec {
             parameterized: false,
             field_meta: "",
             handler: Some($handler as $crate::builtins::BuiltinFn),
+            tier: $tier,
         }
     };
-    ($name:expr, $arity:expr, $cat:expr => $layer:expr; $handler:expr) => {
+    ($name:expr, $arity:expr, $cat:expr => $layer:expr; $handler:expr, $tier:expr) => {
         $crate::builtins::BuiltinSpec {
             name: $name,
             arity: $arity,
@@ -91,9 +98,10 @@ macro_rules! spec {
             parameterized: false,
             field_meta: "",
             handler: Some($handler as $crate::builtins::BuiltinFn),
+            tier: $tier,
         }
     };
-    ($name:expr, $arity:expr, $max:expr, $cat:expr; $handler:expr) => {
+    ($name:expr, $arity:expr, $max:expr, $cat:expr; $handler:expr, $tier:expr) => {
         $crate::builtins::BuiltinSpec {
             name: $name,
             arity: $arity,
@@ -104,9 +112,10 @@ macro_rules! spec {
             parameterized: false,
             field_meta: "",
             handler: Some($handler as $crate::builtins::BuiltinFn),
+            tier: $tier,
         }
     };
-    ($name:expr, $arity:expr, $cat:expr; $handler:expr) => {
+    ($name:expr, $arity:expr, $cat:expr; $handler:expr, $tier:expr) => {
         $crate::builtins::BuiltinSpec {
             name: $name,
             arity: $arity,
@@ -117,10 +126,11 @@ macro_rules! spec {
             parameterized: false,
             field_meta: "",
             handler: Some($handler as $crate::builtins::BuiltinFn),
+            tier: $tier,
         }
     };
     // ── Stub variants (handler: None) ──
-    ($name:expr, $arity:expr, $max:expr, $cat:expr => $layer:expr) => {
+    ($name:expr, $arity:expr, $max:expr, $cat:expr => $layer:expr, $tier:expr) => {
         $crate::builtins::BuiltinSpec {
             name: $name,
             arity: $arity,
@@ -131,9 +141,10 @@ macro_rules! spec {
             parameterized: false,
             field_meta: "",
             handler: None,
+            tier: $tier,
         }
     };
-    ($name:expr, $arity:expr, $cat:expr => $layer:expr) => {
+    ($name:expr, $arity:expr, $cat:expr => $layer:expr, $tier:expr) => {
         $crate::builtins::BuiltinSpec {
             name: $name,
             arity: $arity,
@@ -144,9 +155,10 @@ macro_rules! spec {
             parameterized: false,
             field_meta: "",
             handler: None,
+            tier: $tier,
         }
     };
-    ($name:expr, $arity:expr, $max:expr, $cat:expr) => {
+    ($name:expr, $arity:expr, $max:expr, $cat:expr, $tier:expr) => {
         $crate::builtins::BuiltinSpec {
             name: $name,
             arity: $arity,
@@ -157,9 +169,10 @@ macro_rules! spec {
             parameterized: false,
             field_meta: "",
             handler: None,
+            tier: $tier,
         }
     };
-    ($name:expr, $arity:expr, $cat:expr) => {
+    ($name:expr, $arity:expr, $cat:expr, $tier:expr) => {
         $crate::builtins::BuiltinSpec {
             name: $name,
             arity: $arity,
@@ -170,6 +183,7 @@ macro_rules! spec {
             parameterized: false,
             field_meta: "",
             handler: None,
+            tier: $tier,
         }
     };
 
@@ -184,7 +198,7 @@ macro_rules! spec {
     // string type would otherwise mis-bind as `$handler` and fail the
     // BuiltinFn cast (fail-loud at compile time); placed BEFORE the
     // typed-handler arms so the marker wins the match order.
-    ($name:expr, $arity:expr, $max:expr, $cat:expr; intercept, $rt:expr) => {
+    ($name:expr, $arity:expr, $max:expr, $cat:expr; intercept, $rt:expr, $tier:expr) => {
         $crate::builtins::BuiltinSpec {
             name: $name,
             arity: $arity,
@@ -195,9 +209,10 @@ macro_rules! spec {
             parameterized: $crate::builtins::sig_types::path_is_parameterized($rt),
             field_meta: $crate::builtins::sig_types::field_meta_of($rt),
             handler: None,
+            tier: $tier,
         }
     };
-    ($name:expr, $arity:expr, $cat:expr; intercept, $rt:expr) => {
+    ($name:expr, $arity:expr, $cat:expr; intercept, $rt:expr, $tier:expr) => {
         $crate::builtins::BuiltinSpec {
             name: $name,
             arity: $arity,
@@ -208,6 +223,7 @@ macro_rules! spec {
             parameterized: $crate::builtins::sig_types::path_is_parameterized($rt),
             field_meta: $crate::builtins::sig_types::field_meta_of($rt),
             handler: None,
+            tier: $tier,
         }
     };
 
@@ -220,7 +236,7 @@ macro_rules! spec {
     // rows above, whose live handler facts are documented by the lane
     // intercepts themselves (the signature rides the registry row, the
     // handler stays None).
-    ($name:expr, $arity:expr, $max:expr, $cat:expr; $handler:expr, $rt:expr) => {
+    ($name:expr, $arity:expr, $max:expr, $cat:expr; $handler:expr, $rt:expr, $tier:expr) => {
         $crate::builtins::BuiltinSpec {
             name: $name,
             arity: $arity,
@@ -231,9 +247,10 @@ macro_rules! spec {
             parameterized: $crate::builtins::sig_types::path_is_parameterized($rt),
             field_meta: $crate::builtins::sig_types::field_meta_of($rt),
             handler: Some($handler as $crate::builtins::BuiltinFn),
+            tier: $tier,
         }
     };
-    ($name:expr, $arity:expr, $cat:expr; $handler:expr, $rt:expr) => {
+    ($name:expr, $arity:expr, $cat:expr; $handler:expr, $rt:expr, $tier:expr) => {
         $crate::builtins::BuiltinSpec {
             name: $name,
             arity: $arity,
@@ -244,9 +261,10 @@ macro_rules! spec {
             parameterized: $crate::builtins::sig_types::path_is_parameterized($rt),
             field_meta: $crate::builtins::sig_types::field_meta_of($rt),
             handler: Some($handler as $crate::builtins::BuiltinFn),
+            tier: $tier,
         }
     };
-    ($name:expr, $arity:expr, $max:expr, $cat:expr => $layer:expr; $handler:expr, $rt:expr) => {
+    ($name:expr, $arity:expr, $max:expr, $cat:expr => $layer:expr; $handler:expr, $rt:expr, $tier:expr) => {
         $crate::builtins::BuiltinSpec {
             name: $name,
             arity: $arity,
@@ -257,9 +275,10 @@ macro_rules! spec {
             parameterized: $crate::builtins::sig_types::path_is_parameterized($rt),
             field_meta: $crate::builtins::sig_types::field_meta_of($rt),
             handler: Some($handler as $crate::builtins::BuiltinFn),
+            tier: $tier,
         }
     };
-    ($name:expr, $arity:expr, $cat:expr => $layer:expr; $handler:expr, $rt:expr) => {
+    ($name:expr, $arity:expr, $cat:expr => $layer:expr; $handler:expr, $rt:expr, $tier:expr) => {
         $crate::builtins::BuiltinSpec {
             name: $name,
             arity: $arity,
@@ -270,7 +289,14 @@ macro_rules! spec {
             parameterized: $crate::builtins::sig_types::path_is_parameterized($rt),
             field_meta: $crate::builtins::sig_types::field_meta_of($rt),
             handler: Some($handler as $crate::builtins::BuiltinFn),
+            tier: $tier,
         }
+    };
+    // ── №796 gate: a registration WITHOUT an explicit tier is a compile
+    // error — the maturity vocabulary (stable/experimental/parked, the
+    // owner's C3 (a) rule) is mandatory on every spec! row.
+    ($($rest:tt)*) => {
+        compile_error!("spec! without an explicit tier (№796): every registration carries \"stable\" | \"experimental\" | \"parked\" as the trailing argument")
     };
 }
 

@@ -41,18 +41,25 @@ fn recompute_floor() -> (usize, usize, usize, usize, usize) {
         fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {:?}: {}", path, e));
 
     let spec_re = Regex::new(r#"spec!\("([a-z_0-9]+)""#).unwrap();
+    // №796: the trailing tier literal is part of every row — the capture
+    // below takes the first string after the handler and the CODE filters
+    // the tier words out (the rust regex crate has no look-around; the
+    // handler-only rows carry the tier, not a type).
     let typed_re = Regex::new(
-        r#"spec!\("([a-z_0-9]+)",[^\n;]*;\s*[A-Za-z_0-9]+\s*,\s*"([A-Za-z][A-Za-z0-9<>{}:,_|]*)"\s*\)"#,
+        r#"spec!\("([a-z_0-9]+)",[^\n;]*;\s*[A-Za-z_0-9]+\s*,\s*"([A-Za-z][A-Za-z0-9<>{}:,_|]*)"(?:\s*,\s*"(?:stable|experimental|parked)")?\s*\)"#,
     )
     .unwrap();
+    const TIER_WORDS: [&str; 3] = ["stable", "experimental", "parked"];
 
     let n_total = spec_re.captures_iter(&content).count();
     let mut typed: HashMap<String, String> = HashMap::new();
     for cap in typed_re.captures_iter(&content) {
-        typed.insert(
-            cap.get(1).unwrap().as_str().to_string(),
-            cap.get(2).unwrap().as_str().to_string(),
-        );
+        let ty = cap.get(2).unwrap().as_str();
+        if TIER_WORDS.contains(&ty) {
+            // The handler-only row: its only tail string IS the tier.
+            continue;
+        }
+        typed.insert(cap.get(1).unwrap().as_str().to_string(), ty.to_string());
     }
     let n_typed = typed.len();
     let precise_types = ["String", "Float", "Bool", "Unit"];

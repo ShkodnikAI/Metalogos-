@@ -108,8 +108,8 @@ An AI-native "hello": a learnable pattern with a fallback, run in a flow — all
 | Metric | Value (generated — do not hand-edit) |
 | ------ | ------------------------------------- |
 | Version | 0.33.2 |
-| Built-in Functions | 526 functions across 39 modules |
-| Typed Signatures | 140/526 (26.61%) — precise 0/526 (0.00%) |
+| Built-in Functions | 526 functions across 47 modules |
+| Typed Signatures | 512/526 (97.33%) — precise 242/526 (46.00%) |
 | SVG/Graphics | 44 builtins, hand-rolled in pure Rust |
 | Grammar | 339 rules |
 | Architecture Decisions | 190 ADRs |

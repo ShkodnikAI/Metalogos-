@@ -26,8 +26,8 @@ REGISTRY = ROOT + '/src/builtins/registry.rs'
 
 SPEC_RE = re.compile(r'spec!\("([a-z_0-9]+)"')
 TYPED_RE = re.compile(
-    r'spec!\("([a-z_0-9]+)",[^\n;]*;\s*[A-Za-z_0-9]+\s*,\s*"([A-Za-z][A-Za-z0-9<>{}:,_|]*)"\s*\)'
-)
+    r'spec!\("([a-z_0-9]+)",[^\n;]*;\s*[A-Za-z_0-9]+\s*,\s*"([A-Za-z][A-Za-z0-9<>{}:,_|]*)"' + r'(?:\s*,\s*"(?:stable|experimental|parked)")?\s*\)'
+)  # №796: the trailing tier literal is part of every row — the type capture ends before it
 
 # №560 (gh#921; the audit 02.10 M-4): the PRECISE type set — a typed row
 # counts as precise when its signature names the exact shape, not just the

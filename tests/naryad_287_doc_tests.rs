@@ -283,7 +283,12 @@ each item in items {
         let (dir, p) = write_fixture("BRK.md", md);
         let files = vec![p];
         let report = run_doc_tests(&files, DocBackend::Vm, dir.path()).expect("run");
-        assert_eq!(report.failures.len(), 1, "the broken example must fail: {:?}", report);
+        assert_eq!(
+            report.failures.len(),
+            1,
+            "the broken example must fail: {:?}",
+            report
+        );
         assert!(
             report.failures[0].contains("[TYPE_MISMATCH]"),
             "the failure must name the coded refusal: {:?}",

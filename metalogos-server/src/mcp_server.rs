@@ -43,7 +43,12 @@
 use metalogos::ast::{Declaration, Param};
 use metalogos::interpreter::Interpreter;
 use metalogos::interpreter::Value;
+// №793 (the gateway G1): the upstream session pool — the session client
+// lives in the metalogos crate, the gateway holds ONE process per declared
+// upstream for its lifetime.
+use metalogos::mcp_session::{mcp_allowlist_gate, parse_upstreams_spec, McpSession};
 use std::io::{self, BufRead, Write};
+use std::sync::Mutex;
 
 /// Maximum response size (bytes) before truncation.
 const MAX_RESPONSE_SIZE: usize = 1_000_000;
@@ -79,6 +84,11 @@ pub struct McpServer {
     /// The declarations the tools come from (methods execute against
     /// them). Not exposed over the wire.
     declarations: Vec<Declaration>,
+    /// №793 (the gateway G1): the declared upstream sessions — ONE live
+    /// process per entry for the gateway's lifetime; a dead upstream is
+    /// reconnected LOUDLY on the next use. Mutex: handle_request takes
+    /// &self (the transports share the core through Arc).
+    upstreams: Mutex<Vec<McpSession>>,
 }
 
 impl McpServer {
@@ -119,6 +129,57 @@ impl McpServer {
                 .collect::<Vec<_>>()
                 .join(", ")
         );
+
+        // ── №793 (the gateway G1): the upstream session pool ──
+        // METALOGOS_MCP_UPSTREAMS is read ONCE here (the №263 discipline);
+        // every declaration's argv[0] passes the SAME allowlist gate as the
+        // stateless builtins (no weakening) — a declaration outside the
+        // allowlist REFUSES the gateway fail-closed (a config error, not a
+        // transient state). A spawn failure at startup is LOUD (stderr) and
+        // leaves the session degraded until the first use retries.
+        let upstreams = match std::env::var("METALOGOS_MCP_UPSTREAMS") {
+            Err(_) => Vec::new(),
+            Ok(raw) => {
+                let mut sessions = parse_upstreams_spec(&raw)?;
+                for s in &sessions {
+                    // The allowlist gate rides the declaration (fail-closed).
+                    mcp_allowlist_gate(s.command())?;
+                }
+                // The collision rule: the gateway's OWN tools win a name
+                // collision with an upstream prefix — detected loudly here.
+                for s in &sessions {
+                    if tools
+                        .iter()
+                        .any(|t| t.full_name == s.name() || t.tool_name == s.name())
+                    {
+                        eprintln!(
+                            "[mcp-serve] WARNING: upstream name `{}` collides with a local tool namespace — the LOCAL tool wins every ambiguous call (№793)",
+                            s.name()
+                        );
+                    }
+                }
+                // Eager spawn: a dead upstream at startup is a loud note,
+                // not a constructor failure (the reconnect rides ensure_alive).
+                for s in &mut sessions {
+                    if let Err(e) = s.ensure_alive() {
+                        eprintln!(
+                            "[mcp-serve] upstream `{}` failed to start (degraded until the first retry): {}",
+                            s.name(),
+                            e
+                        );
+                    }
+                }
+                eprintln!(
+                    "[mcp-serve] upstream sessions declared: {}",
+                    sessions
+                        .iter()
+                        .map(|s| s.name().to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+                sessions
+            }
+        };
         // №401 findings (gh#536): the tool-method gate state is loud at
         // startup, mirroring the №253/№259 serve posture — the operator
         // must see WHEN tool methods may read env/exec.
@@ -144,6 +205,7 @@ impl McpServer {
         Ok(McpServer {
             tools,
             declarations: declarations.to_vec(),
+            upstreams: Mutex::new(upstreams),
         })
     }
 
@@ -155,20 +217,36 @@ impl McpServer {
         id: &serde_json::Value,
     ) -> serde_json::Value {
         match method {
-            "initialize" => serde_json::json!({
-                "jsonrpc": "2.0",
-                "id": id,
-                "result": {
-                    "protocolVersion": "2024-11-05",
-                    "serverInfo": {
-                        "name": "metalogos-mcp-server",
-                        "version": env!("CARGO_PKG_VERSION")
-                    },
-                    "capabilities": {
-                        "tools": {}
+            "initialize" => {
+                // №793: the version negotiation — the server answers the
+                // CLIENT's requested revision when it supports it (the spec
+                // matrix), its latest known otherwise; an unsupported pair
+                // surfaces as the client's loud refusal naming both versions.
+                const SERVER_KNOWN_VERSIONS: [&str; 3] = ["2024-11-05", "2025-03-26", "2025-11-25"];
+                let requested = params
+                    .get("protocolVersion")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let answer = if SERVER_KNOWN_VERSIONS.contains(&requested) {
+                    requested
+                } else {
+                    "2025-11-25"
+                };
+                serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {
+                        "protocolVersion": answer,
+                        "serverInfo": {
+                            "name": "metalogos-mcp-server",
+                            "version": env!("CARGO_PKG_VERSION")
+                        },
+                        "capabilities": {
+                            "tools": {}
+                        }
                     }
-                }
-            }),
+                })
+            }
 
             "notifications/initialized" => serde_json::json!({
                 "jsonrpc": "2.0",
@@ -177,7 +255,7 @@ impl McpServer {
             }),
 
             "tools/list" => {
-                let tool_list: Vec<serde_json::Value> = self
+                let mut tool_list: Vec<serde_json::Value> = self
                     .tools
                     .iter()
                     .map(|t| {
@@ -212,6 +290,49 @@ impl McpServer {
                         })
                     })
                     .collect();
+                // ── №793 (the gateway G1): the upstream tools aggregation ──
+                // Each declared upstream's tools/list rides the LONG-LIVED
+                // session; the tool names carry the `name.` prefix. A down
+                // upstream drops its tools from THIS list with a loud stderr
+                // note (the call attempt to it refuses loudly with the reason
+                // — never a silent omission without a trace).
+                if let Ok(mut pool) = self.upstreams.lock() {
+                    for s in pool.iter_mut() {
+                        match s.tools_list_json() {
+                            Ok(tools_json) => {
+                                if let Some(arr) = tools_json.as_array() {
+                                    for tool in arr {
+                                        let mut entry = tool.clone();
+                                        if let Some(name) = entry
+                                            .get("name")
+                                            .and_then(|n| n.as_str())
+                                            .map(str::to_string)
+                                        {
+                                            entry["name"] = serde_json::Value::String(format!(
+                                                "{}.{}",
+                                                s.name(),
+                                                name
+                                            ));
+                                        }
+                                        tool_list.push(entry);
+                                    }
+                                } else {
+                                    eprintln!(
+                                        "[mcp-upstream] `{}` tools/list: result.tools is not an array — skipped loudly",
+                                        s.name()
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!(
+                                    "[mcp-upstream] `{}` tools/list failed (its tools are omitted from this listing): {}",
+                                    s.name(),
+                                    e
+                                );
+                            }
+                        }
+                    }
+                }
                 serde_json::json!({
                     "jsonrpc": "2.0",
                     "id": id,
@@ -225,6 +346,64 @@ impl McpServer {
                     .get("arguments")
                     .cloned()
                     .unwrap_or(serde_json::Value::Null);
+
+                // ── №793 (the gateway G1): the upstream proxy ──
+                // `name.tool` routes to the declared upstream's LONG-LIVED
+                // session (one process per upstream, the loud reconnect on
+                // death). The LOCAL tools win a collision (full_name or the
+                // bare method_name match is checked FIRST — the rule pinned
+                // loudly at startup). The response shape, the size cap and
+                // the error envelope are byte-identical to the local path.
+                let local_match = self
+                    .tools
+                    .iter()
+                    .any(|t| t.full_name == tool_name || t.method_name == tool_name);
+                if !local_match {
+                    if let Some((upstream_name, upstream_tool)) = tool_name.split_once('.') {
+                        let mut proxy = None;
+                        if let Ok(mut pool) = self.upstreams.lock() {
+                            if let Some(s) = pool.iter_mut().find(|s| s.name() == upstream_name) {
+                                proxy = Some(
+                                    match s.tools_call_text(upstream_tool, arguments.clone()) {
+                                        Ok(text) => Ok(text),
+                                        Err(e) => Err(e),
+                                    },
+                                );
+                            }
+                        }
+                        if let Some(result) = proxy {
+                            return match result {
+                                Ok(text) => {
+                                    let result_str = if text.len() > MAX_RESPONSE_SIZE {
+                                        format!(
+                                            "{}... (truncated, {} bytes)",
+                                            &text[..MAX_RESPONSE_SIZE],
+                                            text.len()
+                                        )
+                                    } else {
+                                        text
+                                    };
+                                    serde_json::json!({
+                                        "jsonrpc": "2.0",
+                                        "id": id,
+                                        "result": {
+                                            "content": [{"type": "text", "text": result_str}],
+                                            "isError": false
+                                        }
+                                    })
+                                }
+                                Err(e) => serde_json::json!({
+                                    "jsonrpc": "2.0",
+                                    "id": id,
+                                    "result": {
+                                        "content": [{"type": "text", "text": format!("Error: {}", e)}],
+                                        "isError": true
+                                    }
+                                }),
+                            };
+                        }
+                    }
+                }
 
                 // Find the tool method by name.
                 let tool = self

@@ -127,7 +127,9 @@ pub(crate) fn builtin_config_load(args: &[Value]) -> Result<Value, String> {
             .map_err(|e| format!("config_load: JSON parse error in '{}': {}", path, e))?
     };
 
-    Ok(json_value_to_mlog_value_with_type(&parsed, type_name))
+    // №787: the checked conversion — the lossy JSON/YAML integer in a
+    // config document is a loud [PRECISION_LOSS] naming the path.
+    json_value_to_mlog_value_with_type(&parsed, type_name, "$")
 }
 
 /// `vault_validate(config, required_fields)` — validate a loaded config against required fields.

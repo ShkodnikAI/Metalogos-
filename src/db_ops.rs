@@ -44,9 +44,97 @@
 //! below — a live, mock-testable contract; `Vm` is one implementor.
 
 use crate::interpreter::db::{convert_params, sql_err};
+use crate::interpreter::values::{coded_error, CODE_PRECISION_LOSS};
 use crate::interpreter::Value;
 use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard};
+
+// ── №787 (gh#1503, Wave 63 P1 — audit-23.10 C6 I-c): the loud integer
+// precision-loss boundary ─────────────────────────────────────────────
+// The SQLite→Value row conversion used `ValueRef::Integer(n) =>
+// Value::Float(n as f64)` at FOUR sites (query_tw, query_scalar,
+// query_row, query_vm) — an integer f64 cannot represent exactly
+// (|n| > 2^53: 64-bit ids, snowflakes) was SILENTLY distorted by the
+// round-trip. The ONE shared conversion below refuses lossy integers
+// LOUDLY with the `[PRECISION_LOSS]` code naming the column and the
+// value; the exactly-representable integers (|n| ≤ 2^53 and the exact
+// powers of two beyond it — the i128 round-trip is the exactness test,
+// which the `as`-saturating i64 cast cannot get right at i64::MAX)
+// ride the UNCHANGED Value::Float behavior. The carrier rides the
+// rusqlite closure-error channel (query_map closures must return
+// `rusqlite::Result`) and is unwrapped at the surfacing point so the
+// position-0 `[PRECISION_LOSS]` stamp survives the trip.
+
+/// The rusqlite-closure carrier for the already-coded
+/// `[PRECISION_LOSS]` message (the position-0 stamp must survive
+/// `query_map`'s error channel; the text-scan fallback in
+/// `unwrap_precision_loss` covers any re-wrapping rusqlite adds).
+#[derive(Debug)]
+pub(crate) struct PrecisionLossCarrier(pub(crate) String);
+
+impl std::fmt::Display for PrecisionLossCarrier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::error::Error for PrecisionLossCarrier {}
+
+const PRECISION_LOSS_STAMP: &str = "[PRECISION_LOSS]";
+
+/// The ONE SQLite integer→Value conversion (the №787 loud boundary).
+pub(crate) fn sqlite_integer_to_value(n: i64, col: &str) -> Result<Value, String> {
+    let f = n as f64;
+    if (f as i128) == n as i128 {
+        Ok(Value::Float(f))
+    } else {
+        Err(coded_error(
+            CODE_PRECISION_LOSS,
+            format!(
+                "the SQLite column `{}` carries the integer {}, which f64 cannot represent exactly — returning it as Float would silently distort the value; store it as TEXT or CAST it in SQL",
+                col, n
+            ),
+        ))
+    }
+}
+
+/// The ONE ValueRef→Value row conversion — the four former
+/// byte-identical match blocks (query_tw, query_scalar, query_row,
+/// query_vm) collapse onto it; only the Integer arm is fallible.
+pub(crate) fn value_ref_to_value(v: rusqlite::types::ValueRef, col: &str) -> Result<Value, String> {
+    Ok(match v {
+        rusqlite::types::ValueRef::Null => Value::Unit,
+        rusqlite::types::ValueRef::Integer(n) => sqlite_integer_to_value(n, col)?,
+        rusqlite::types::ValueRef::Real(f) => Value::Float(f),
+        rusqlite::types::ValueRef::Text(s) => Value::String(String::from_utf8_lossy(s).to_string()),
+        rusqlite::types::ValueRef::Blob(b) => {
+            Value::String(b.iter().map(|byte| format!("{:02x}", byte)).collect())
+        }
+    })
+}
+
+/// The closure-side wrapper for the `query_map` sites: the coded message
+/// rides the rusqlite error channel inside the carrier.
+pub(crate) fn value_ref_to_value_rusqlite(
+    v: rusqlite::types::ValueRef,
+    col: &str,
+) -> rusqlite::Result<Value> {
+    value_ref_to_value(v, col)
+        .map_err(|msg| rusqlite::Error::ToSqlConversionFailure(Box::new(PrecisionLossCarrier(msg))))
+}
+
+/// The surfacing-side unwrap: a carried `[PRECISION_LOSS]` keeps the
+/// position-0 stamp verbatim; `None` rides the caller's default mapping
+/// (the sql_err form the site had before).
+pub(crate) fn unwrap_precision_loss(e: &rusqlite::Error) -> Option<String> {
+    if let rusqlite::Error::ToSqlConversionFailure(be) = e {
+        if let Some(p) = be.downcast_ref::<PrecisionLossCarrier>() {
+            return Some(p.0.clone());
+        }
+    }
+    let s = e.to_string();
+    s.find(PRECISION_LOSS_STAMP).map(|idx| s[idx..].to_string())
+}
 
 /// The db-group names this module owns. The backends compare their
 /// dispatch names against the constants below — the name strings are
@@ -189,20 +277,10 @@ pub fn query_tw(db: &Mutex<Option<rusqlite::Connection>>, args: &[Value]) -> Res
                 let val: rusqlite::types::ValueRef = row
                     .get_ref(i)
                     .map_err(|e| format!("query() column {} error: {}", col, e))?;
-                fields.insert(
-                    col.clone(),
-                    match val {
-                        rusqlite::types::ValueRef::Null => Value::Unit,
-                        rusqlite::types::ValueRef::Integer(n) => Value::Float(n as f64),
-                        rusqlite::types::ValueRef::Real(f) => Value::Float(f),
-                        rusqlite::types::ValueRef::Text(s) => {
-                            Value::String(String::from_utf8_lossy(s).to_string())
-                        }
-                        rusqlite::types::ValueRef::Blob(b) => {
-                            Value::String(b.iter().map(|byte| format!("{:02x}", byte)).collect())
-                        }
-                    },
-                );
+                // №787: the loud integer precision-loss boundary — the
+                // lossy integer refuses with the column named.
+                let v = value_ref_to_value(val, col)?;
+                fields.insert(col.clone(), v);
             }
             results.push(Value::Struct {
                 type_name: "Row".to_string(),
@@ -475,25 +553,22 @@ pub fn query_scalar(db: &mut impl DbAccess, args: &[Value]) -> Result<Value, Str
     let mut stmt = conn
         .prepare(&sql)
         .map_err(|e| sql_err("query_scalar() SQL error", e))?;
+    // №787: the lossy-integer refusal names the column — the scalar's
+    // column name rides the same conversion as the row sites.
+    let col0 = stmt.column_name(0).unwrap_or("scalar").to_string();
     let mut rows = stmt
         .query_map(rusqlite::params_from_iter(params.iter()), |row| {
-            row.get_ref(0).map(|v| match v {
-                rusqlite::types::ValueRef::Null => Value::Unit,
-                rusqlite::types::ValueRef::Integer(n) => Value::Float(n as f64),
-                rusqlite::types::ValueRef::Real(f) => Value::Float(f),
-                rusqlite::types::ValueRef::Text(s) => {
-                    Value::String(String::from_utf8_lossy(s).to_string())
-                }
-                rusqlite::types::ValueRef::Blob(b) => {
-                    Value::String(b.iter().map(|byte| format!("{:02x}", byte)).collect())
-                }
-            })
+            let v = row.get_ref(0)?;
+            value_ref_to_value_rusqlite(v, &col0)
         })
         .map_err(|e| sql_err("query_scalar() execution error", e))?;
 
     match rows.next() {
         Some(Ok(val)) => Ok(val),
-        Some(Err(e)) => Err(sql_err("query_scalar() row error", e)),
+        Some(Err(e)) => match unwrap_precision_loss(&e) {
+            Some(msg) => Err(msg),
+            None => Err(sql_err("query_scalar() row error", e)),
+        },
         None => Ok(Value::Unit),
     }
 }
@@ -547,23 +622,15 @@ pub fn query_row(db: &mut impl DbAccess, args: &[Value]) -> Result<Value, String
         .prepare(&sql)
         .map_err(|e| sql_err("query_row() SQL error", e))?;
     let col_count = stmt.column_count();
+    // №787: the lossy-integer refusal names the column — the row sites
+    // carry the column names for the same conversion as query_tw.
+    let col_names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
     let mut rows = stmt
         .query_map(rusqlite::params_from_iter(params.iter()), |row| {
             let mut vals = Vec::with_capacity(col_count);
-            for i in 0..col_count {
-                let val = match row.get_ref(i) {
-                    Ok(rusqlite::types::ValueRef::Null) => Value::Unit,
-                    Ok(rusqlite::types::ValueRef::Integer(n)) => Value::Float(n as f64),
-                    Ok(rusqlite::types::ValueRef::Real(f)) => Value::Float(f),
-                    Ok(rusqlite::types::ValueRef::Text(s)) => {
-                        Value::String(String::from_utf8_lossy(s).to_string())
-                    }
-                    Ok(rusqlite::types::ValueRef::Blob(b)) => {
-                        Value::String(b.iter().map(|byte| format!("{:02x}", byte)).collect())
-                    }
-                    Err(_) => Value::Unit,
-                };
-                vals.push(val);
+            for (i, col) in col_names.iter().enumerate() {
+                let v = row.get_ref(i)?;
+                vals.push(value_ref_to_value_rusqlite(v, col)?);
             }
             Ok(vals)
         })
@@ -571,7 +638,10 @@ pub fn query_row(db: &mut impl DbAccess, args: &[Value]) -> Result<Value, String
 
     match rows.next() {
         Some(Ok(vals)) => Ok(Value::List(vals)),
-        Some(Err(e)) => Err(sql_err("query_row() row error", e)),
+        Some(Err(e)) => match unwrap_precision_loss(&e) {
+            Some(msg) => Err(msg),
+            None => Err(sql_err("query_row() row error", e)),
+        },
         None => Ok(Value::List(vec![])),
     }
 }
@@ -767,20 +837,10 @@ pub fn query_vm(vm: &mut impl DbAccess, args: &[Value]) -> Result<Value, String>
             let val: rusqlite::types::ValueRef = row
                 .get_ref(i)
                 .map_err(|e| format!("query() column {} error: {}", col, e))?;
-            fields.insert(
-                col.clone(),
-                match val {
-                    rusqlite::types::ValueRef::Null => Value::Unit,
-                    rusqlite::types::ValueRef::Integer(n) => Value::Float(n as f64),
-                    rusqlite::types::ValueRef::Real(f) => Value::Float(f),
-                    rusqlite::types::ValueRef::Text(s) => {
-                        Value::String(String::from_utf8_lossy(s).to_string())
-                    }
-                    rusqlite::types::ValueRef::Blob(b) => {
-                        Value::String(b.iter().map(|byte| format!("{:02x}", byte)).collect())
-                    }
-                },
-            );
+            // №787: the loud integer precision-loss boundary — the same
+            // shared conversion as the TW row loop (форма №762).
+            let v = value_ref_to_value(val, col)?;
+            fields.insert(col.clone(), v);
         }
         results.push(Value::Struct {
             type_name: "Row".to_string(),

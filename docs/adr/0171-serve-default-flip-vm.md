@@ -1,6 +1,6 @@
 # ADR-0171: `mlog serve` default backend flip — the VM becomes the default (Stage 5 executed)
 
-**Status:** Accepted
+**Status:** Accepted — **EXTENDED by [ADR-0197](0197-vm-single-executor.md)** (2026-10-23: the serve-default posture extends from `serve` to ALL the user-command lanes — `run`, `eval`, REPL, `mcp-serve` ride the VM; TW stays as the reference oracle in CI and behind the transitional `--reference`; the per-lane flips land with #1500/#1501/#1502)
 **Date:** 2026-09-21
 **Naryad:** №404 Stage 5 (issue #527 — the owner-decision issue; the flip directive is recorded there as `w6: n404-flip-directive`, comment 5754930273)
 **Depends on:** ADR-0088 (the serve backend switch), ADR-0141 (the staged plan — Stages 1–4 executed, Stage 5 gated on the owner), ADR-0105 (reservations superseded per ADR-0141 D7), the №398 re-gate protocol series (№404, №410, №415), №402 (the `Arc<Program>` shared snapshot), №409 (the per-request footprint compression), №415/№416 (the retained-representation compression)

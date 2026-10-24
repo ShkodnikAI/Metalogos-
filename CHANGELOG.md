@@ -6,6 +6,85 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№792 (gh#1515, Wave 63 — audit-23.10 C6 R-b 1, the owner decision
+  23.10):** ADR-0198 **Accepted** (supersedes ADR-0106) — the error
+  model is the LOUD failure with a code + the explicit `_or`
+  quietness + `try` for the handling; in the type layer `Result<T>`
+  (the try result) and `Option<T>` (= `T|Unit`) are the ALIASES of the
+  existing shapes — **no new `Value` variants, the grammar of values
+  and the 526 signatures unchanged, no full sum types** (`Ok/Err/
+  Some/None`, `?` are not introduced). The same-PR lineage edits:
+  ADR-0106 → Superseded (the soft-failure premise expired; the
+  "not without demonstrated need" principle survives), AGENTS.md §3/§6
+  re-pointed (the CLAUDE.md bridge byte-identical). The I-c Int piece
+  (the loud `[PRECISION_LOSS]`) already landed as №787; the static
+  use-check rides #1505. The ADR index 189 → 190.
+
+- **№791 (gh#1514, Wave 63 — audit-23.10 C5-b V1, the owner decision
+  23.10):** ADR-0197 **Accepted** — the VM is the ONLY executor of the
+  user commands (`run`, `serve`, `mcp-serve`, `eval`, REPL); TW is the
+  reference oracle in CI (the crosscheck, the diff-fuzzer, the
+  doc-tests) and behind the transitional `--reference` flag (two
+  release windows by default, an extension is a new owner act). The
+  same-PR lineage edits: ADR-0105 — the remainder SUPERSEDED (the
+  TW-default posture; ADR-0141 had already superseded the readiness
+  reservations), ADR-0171 — EXTENDED from `serve` to ALL the
+  user-command lanes. The oracle's contract stays: the core-semantics
+  criterion, the shared-RuntimeContext dedup, the CI oracle surfaces.
+  The landing order (the owner's verbatim): the precondition #1458
+  landed (№780), V2 rides with the gateway pilot, then V3, then the
+  V4 gate closes the lane. The ADR index 188 → 189.
+
+- **№790 (gh#1513, Wave 63 — audit-23.10 C1 (b), the owner decision
+  23.10):** ADR-0196 **Accepted** — the MCP policy gateway is the
+  FLAGSHIP PILOT: the language stays a product until the fork; the
+  pilot scope G0 (#1458 landed as №780, #1460) → G1–G4 (#1480–#1483,
+  waves 64–66); the MEASURABLE exit criteria (the published G4 demo
+  with the reproducible script; the Fosved Office dogfood; ≥ 3
+  external installation attempts) — conjunctive; the fork by the
+  results is a NEW owner act (the expansion (a) or the course
+  unchanged (c)); the boundaries: no builtin expansion beyond the
+  gateway's need, the domain quota and the stop-list in force, the
+  language roadmap untouched. The full owner verbatim lives in #1470;
+  the ADR quotes the posture line (the docs-language budget — the
+  lint is the honest machine). The ADR index 187 → 188.
+
+- **№789 (gh#1512, Wave 63 — audit-23.10 C4-a T1, the owner decision
+  23.10):** `scripts/gen_wave_record.py` — the wave-record generator:
+  by the `wave-N` label it finds the dispatch, parses the naryad
+  composition table, and assembles the REALITY §-record (per naryad:
+  the issue, the source issue, the merge commit from the git-history
+  scan, the PR, the CI verdict ON the merge commit) + the PLAN-SUMMARY
+  line. The machine counters ride VERBATIM from the scripts/ci
+  machines — nothing paraphrased; a broken machine prints
+  `MACHINE UNAVAILABLE` into the record (never silently dropped, never
+  invented). The prose is ONLY the `HONEST-FINDING:` marked lines from
+  the naryad audit comments (no markers → an empty section — the
+  generator writes no prose, the C4 form). The weekly flow (one PR for
+  all the waves of the week, manual until the owner decides on the
+  schedule) replaces the per-wave «strictly last» docs naryad. The
+  verification: the wave-62 and wave-61 records generated — the
+  structured fields reproduce the git/API facts 1:1 (the comparison
+  with the manual §6.46 rides the naryad report); the wave-61 sweep
+  surfaced №778 as closed-without-a-merge-commit (the honest
+  no-surface rendering).
+
+- **№788 (gh#1511, Wave 63 — audit-23.10 C4-a T3, the owner decision
+  23.10):** the honest-boundary CHANGELOG verdict — `security: no —
+  <reason>` on the row itself is the THIRD legal path (next to the
+  `### Security` section and the `release-block` evidence); the gate
+  accepts it and prints it for the review. The rephrase-circumvention
+  detector rides the same blocking job: a dictionary-matching line
+  removed from CHANGELOG/limitations whose replacement matches neither
+  the dictionary nor the verdict exits 1 («rephrase without verdict»)
+  — the №762.1/№771 synonym lane is closed, the dictionary unweakened,
+  the hunk-scoped pairing keeps multi-line entries together. Self-test:
+  six new cases (the verdict accepted, the bare `security: no.`
+  rejection, the №771 shape caught, the verdict-carrying rewrite
+  lawful, the dict-vocabulary lane, the limitations shape). The
+  AGENTS.md rule: a naryad whose only content is a rephrase under the
+  gate is not issued.
+
 - **№763 (gh#1416, Wave 58 — the agent-index honesty, the R-01
   finding):** the llms.txt drift (uncovered by any generator gate since
   its creation) is closed by a BLOCKING gate. (1) llms.txt refreshed
@@ -70,7 +149,40 @@ All notable changes to the Metalogos project.
   exemption follows the same protocol (the row + the verdict in the
   same PR).
 
+### Removed
+
+- **№786 (gh#1484, Wave 63 — the grant-application sweep, the owner's
+  directive 23.10, repeated 24.10):** the funding-programme mentions
+  (the milestone M1 is closed by the owner — #1135) are swept from
+  REALITY (17 lines) and PLAN-SUMMARY (6 lines); the sweep itself is
+  documented in the current REALITY section (closed milestones are not
+  silently deleted — the record keeps the fact, drops the programme
+  names). The recurrence root — every wave dispatch re-planting the
+  stale funding-programme owner gate — is closed by the NEW blocking
+  docs-metrics step `scripts/ci/no_stale_grant_refs.py` (git grep over
+  the doc surfaces; red on an artificially planted mention —
+  self-tested). The language capability grants (`grant_issue`,
+  `src/grants.rs`, ADR-0167) and the Open Collective sponsorship are
+  untouched. AFFECTS: documentation only — no runtime, grammar, or
+  registry surfaces.
+
 ### Fixed
+
+- **№787 (gh#1510, Wave 63 — audit-23.10 C6 I-c):** the integer
+  precision-loss boundary — a SQLite/JSON integer f64 cannot represent
+  exactly (|n| > 2^53: 64-bit ids, snowflakes) is a LOUD
+  `[PRECISION_LOSS]` coded refusal naming the column (the four
+  SQLite row-conversion sites — query/query_scalar/query_row on both
+  lanes through the ONE shared `value_ref_to_value`) or the document
+  path (`parse_json`/`config_load`/MCP tool schemas/the VM LlmResponse
+  — the JSON `unwrap_or(0.0)` arm is gone). The exactly-representable
+  integers (|n| ≤ 2^53 and the exact powers of two beyond it, e.g.
+  i64::MIN) ride the UNCHANGED Float behavior — the boundary battery
+  pins 2^53 and i64::MIN as value-comparisons (RED-before: the reads
+  returned the distorted 9007199254740992). AFFECTS: programs that
+  relied on the quiet round-trip now catch `[PRECISION_LOSS]`
+  (try-classified on both backends); re-read lossy columns as TEXT or
+  CAST in SQL.
 
 - **№785 (gh#1507, Wave 62 hygiene tail — the №776 form):** the
   cargo-audit/cargo-deny RED on main (`e77a93c`) — `RUSTSEC-2026-0385`

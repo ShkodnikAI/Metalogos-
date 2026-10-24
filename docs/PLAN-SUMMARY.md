@@ -146,7 +146,7 @@ REFERENCE 526/526, the fuzzer nesting-pairs 36/36. The owner gates:
 the 02.11 window (the figure — the gh#1436 map recommends the
 tail-ride + the tag → publication, ADR-0186 §4.5); the second
 maintainer (№774's record — the verbatim); the goal032 lanes (β)/(γ)
-(gate 7); NLnet M1 03.11; the zip-ignore review 17.11; №648 01.12;
+(gate 7); the zip-ignore review 17.11; №648 01.12;
 the №561 pool refill (9/10); the PAT rotation.
 
 Wave 60 EXECUTED (the dispatch gh#1439 — the direct owner trigger
@@ -182,7 +182,7 @@ typed 372/526 (70.72%), precise 242/526 (46.00%), parameterized
 gates: the 02.11 window (the figure — the gh#1436 map recommends the
 tail-ride + the tag → publication, ADR-0186 §4.5); the second
 maintainer (№774's record — the verbatim); the goal032 lanes (β)/(γ)
-(gate 7); NLnet M1 03.11; the zip-ignore review 17.11; №648 01.12;
+(gate 7); the zip-ignore review 17.11; №648 01.12;
 the №561 pool refill (9/10); the PAT rotation.
 
 Wave 59 EXECUTED (the dispatch gh#1423, audit-driven — the external
@@ -216,7 +216,7 @@ field-label 59/61 (96.72%), sensitive 7586 bp (110/145), goal032
 36/36 (the new floor), REFERENCE 526/526. The owner gates: the
 02.11 window (the release figure 0.33.3 tail-ride vs 0.34.0
 feature-cut — the gh#1398/gh#1409 map + the tag → publication,
-ADR-0186 §4.5); the goal032 lanes (β)/(γ) (gate 7); NLnet M1 03.11;
+ADR-0186 §4.5); the goal032 lanes (β)/(γ) (gate 7);
 the zip-ignore review 17.11; №648 01.12; the second maintainer (the
 audit §6 п.7 — the CODEOWNERS src/ coverage); the №561 pool refill
 (9/10); the PAT rotation.
@@ -302,7 +302,7 @@ REALITY §6.42, this row, the counters from the generators
 (gen_reference --check OK — no drift); limitations — no new
 records (the divergences are RESOLVED, not declared live). The
 owner gates: the 02.11 window figure + the tag → publication; the
-(α)-package (the gate 7); NLnet M1 03.11; №648 01.12.
+(α)-package (the gate 7); №648 01.12.
 
 Wave 56 EXECUTED (the dispatch gh#1400): №751 → №752 → №753 (strictly
 last). №751 (the movement №11 — the lane α ENDGAME): the machine walk
@@ -568,7 +568,7 @@ parameterized 80/112, norms 49, pairs 59, mirrors 6, dups 0. The
 in-flight machine tail: №648 (gh#1135, the dated plan audit
 2026-12-01). The owner gates: the ADR-0193 verdict (parameters + the
 label re-anchor), the coverage threshold (№569), the 19.10 train
-verdict (gh#1304), NLnet M1 03.11.2026, the parser-migration naryad
+verdict (gh#1304), the parser-migration naryad
 candidate. The wave's REALITY record: §6.32.
 
 
@@ -586,7 +586,7 @@ mirrors 6, dups 0. The in-flight machine tail: №648 (gh#1135, the
 dated plan audit 2026-12-01). The owner gates: the ADR-0193 verdict
 (parameters + the label re-anchor), the coverage threshold (№569),
 the №385 additive lane (the tool refusal codes), the 19.10 train
-window ([Unreleased] carries the №695 Added), NLnet M1 03.11.2026.
+window ([Unreleased] carries the №695 Added).
 The wave's REALITY record: §6.30.
 
 The in-flight machine surface: **№682 (gh#1233)** — verified-wait

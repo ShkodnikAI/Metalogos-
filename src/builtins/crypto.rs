@@ -1,5 +1,6 @@
 // ── Phase 6.4/6.5 — Crypto & Auth builtins ───────────────────────────
 
+use crate::interpreter::values::{coded_error, CODE_NOT_IMPLEMENTED};
 use crate::interpreter::{SecretString, Value};
 
 use super::core::expect_string_arg;
@@ -229,15 +230,23 @@ pub(crate) fn builtin_authenticate(args: &[Value]) -> Result<Value, String> {
         }
         None => return Err("authenticate() requires 2 arguments (email, password)".to_string()),
     };
-    // In interpreter mode, always fail (mock)
-    Ok(Value::Unit)
+    // №784 (gh#1495, Wave 62 — audit-23.10 A5): the pre-№784 mock answered
+    // Ok(Unit) while the REFERENCE row promised "In a server context,
+    // checks the credentials" — a promise with no code behind it (no
+    // server user-store exists on either backend). The honest contract is
+    // the loud failure (ADR-0198): every call refuses with the coded
+    // [NOT_IMPLEMENTED] refusal naming the real credential path.
+    Err(coded_error(
+        CODE_NOT_IMPLEMENTED,
+        "authenticate() is not implemented in this build (no server user-store): to check credentials call verify_password(password, hash) against the stored hash",
+    ))
 }
 
 // ── Naryad №348: the session mock handlers (builtin_session_login /
 // builtin_session_logout) MOVED to src/builtins/session.rs — the real
 // session surface over the process-global registry (src/session.rs,
-// ADR-0172). `authenticate` stays a mock here: a server user-store is a
-// separate pillar slice, not part of №348.
+// ADR-0172). `authenticate` stays the not-implemented seam here: a
+// server user-store is a separate pillar slice, not part of №348.
 
 // ── Наряд №50 Block 3: SHA-256 / HMAC-SHA-256 / hex builtins ──
 

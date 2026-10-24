@@ -285,8 +285,13 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("base64_encode", 1, "encoding"; builtin_base64_encode, "String"),
     spec!("base64_decode", 1, "encoding"; builtin_base64_decode, "String"),
     // ── Auth stubs (interpreter-mode mocks; real auth requires server mode; builtin_base64_decode) ──
-    // authenticate: always returns Unit — mock; no user database in interpreter
-    spec!("authenticate", 2, "stub"; builtin_authenticate, "Unit"), // №613: the registered handler IS the interpreter surface — the mock contract is Ok(Unit)
+    // authenticate: №784 (audit-23.10 A5) — the handler refuses LOUDLY
+    // with [NOT_IMPLEMENTED] naming verify_password (the Ok(Unit) mock
+    // answered while REFERENCE promised credential checking — the
+    // promise had no code behind it). The "stub" class names the
+    // not-implemented seam; the declared Unit is the vacuous success
+    // type (every call errs — the error channel is the contract).
+    spec!("authenticate", 2, "stub"; builtin_authenticate, "Unit"),
     // ── Session (№348, ADR-0172): real session surface over the process-global
     // registry (src/session.rs) — the pre-№348 mock handlers lived above in
     // crypto.rs. Every transition is an Action-Ledger record (ADR-0167 §3.4).

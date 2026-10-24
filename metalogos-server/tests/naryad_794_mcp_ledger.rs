@@ -47,7 +47,11 @@ fn call(server: &McpServer, name: &str, args: serde_json::Value) -> serde_json::
 /// error), DENIED = the gateway refused (unknown tool, not in
 /// allowlist). The session: 2 ok calls + 1 body-error call (allowed) +
 /// 2 refusals (denied) = 5 records, 3 `mcp.call` + 2 `mcp.call.denied`.
+// №475 ratchet: the test-harness file writes (the export + the tampered
+// copy + the temp dir) are the justified harness form — the
+// #[allow] + the reason, mirroring the naryad_394 precedent.
 #[test]
+#[allow(clippy::disallowed_methods)] // the test harness: the ledger export + the tamper fixture
 fn n794_five_call_session_leaves_five_signed_records() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     // The deterministic chain (the №393 reproducible-keys form).

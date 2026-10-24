@@ -4305,7 +4305,7 @@ impl Vm {
     /// invoke a COMPILED pattern by index with positional arguments — the
     /// tool-method execution form for `mcp-serve` (the same executor as
     /// serve, per the single-executor decision; TW stays the CI oracle).
-    /// The mirror of the `CallPattern` instruction's calling convention:
+    /// The same calling convention as the `CallPattern` instruction:
     /// the args bind as the frame locals at base 0, the depth budget is
     /// per-request, the backend tag contract matches `execute_route_code`.
     pub fn invoke_pattern(

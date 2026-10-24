@@ -138,9 +138,12 @@ fn stdio_core_handles_initialize_list_call_and_refusals() {
     let server = McpServer::new(&decls, &["notify.send".to_string(), "stats".to_string()])
         .expect("server builds");
 
-    // initialize
+    // initialize — №793: the version NEGOTIATION superseded the hardcoded
+    // 2024-11-05 answer. An initialize without a requested revision gets
+    // the server's latest (2025-11-25); the per-revision matrix rides
+    // tests/naryad_793_mcp_upstreams.rs (the negotiation pins).
     let init = server.handle_request("initialize", &serde_json::json!({}), &serde_json::json!(1));
-    assert_eq!(init["result"]["protocolVersion"], "2024-11-05");
+    assert_eq!(init["result"]["protocolVersion"], "2025-11-25");
     assert_eq!(init["result"]["serverInfo"]["name"], "metalogos-mcp-server");
 
     // tools/call by FULL name

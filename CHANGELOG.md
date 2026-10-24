@@ -6,6 +6,35 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№793 (gh#1531, Wave 64 — the gateway G1, the C1 (b) owner
+  decision, ADR-0196):** the MCP contour gains the SESSION layer —
+  long-lived upstream sessions for the gateway. The new
+  `src/mcp_session.rs` module carries the connection primitives
+  (moved verbatim in behavior from the builtins module — the
+  stateless `mcp_call`/`mcp_list_tools` contract is unchanged, the
+  back-compat form the naryad requires) plus `McpSession`: ONE live
+  process per declared upstream for the gateway's lifetime, the
+  loud reconnect on an upstream death (the deterministic stream-EOF
+  death signal + the reaped-exit check; a failed call is never
+  auto-retried — the side-effect decision stays with the caller).
+  The gateway reads `METALOGOS_MCP_UPSTREAMS` once at startup (the
+  №263 discipline; entries `name=argv0,arg1,...` separated by `;`),
+  aggregates the upstream `tools/list` under the `name.` prefix and
+  proxies `tools/call name.tool` to the session — the response
+  shape, the size cap and the error envelope are byte-identical to
+  the local path; the LOCAL tools win a name collision (pinned
+  loudly at startup); the allowlist gate rides every declaration
+  fail-closed. The protocol: the client declares the CURRENT
+  revision `2025-11-25` (the legacy `2025-03-26` declaration is
+  superseded), the server negotiates the client's known revision
+  (the hardcoded `2024-11-05` answer is gone), a mismatch is a loud
+  refusal naming both versions. The 6-pin gateway battery +
+  the 4-pin session battery verified RED-before on the pre-№793
+  revision: 4/6 gateway pins failed (no upstream aggregation, the
+  hardcoded version, no declaration gate), 2 regression pins green.
+  AFFECTS: gateway deployments can now serve stateful upstreams
+  (a browser, a db session); the stateless builtins unchanged.
+
 - **№792 (gh#1515, Wave 63 — audit-23.10 C6 R-b 1, the owner decision
   23.10):** ADR-0198 **Accepted** (supersedes ADR-0106) — the error
   model is the LOUD failure with a code + the explicit `_or`

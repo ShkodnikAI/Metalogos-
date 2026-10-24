@@ -70,6 +70,7 @@ The `mlog` binary supports the following commands:
 | Fail-closed | `--allowlist` is required on every transport — an empty allowlist refuses to start; unknown tools are JSON-RPC `-32602` refusals. The allowlist alone decides what is published. |
 | Tool-policy | Compiled from the profile — each `tools/list` entry carries `_meta["metalogos.dev/policy"]` with `sink_calls` (№316 Role::Sink calls + `audit::sink_kind` classes), `clearance_args` (params flowing into sink arguments), `irreversible`, `source_calls` — no manual YAML. The policy annotates; it never widens. |
 | Security parity | The same `McpServer::handle_request` core serves every transport: allowlist/exec/env gates, label clearance and taint rules are transport-independent (pinned by `tests/naryad_394_mcp_server.rs`). |
+| Upstream sessions | `METALOGOS_MCP_UPSTREAMS` (№793, the gateway G1): one LONG-LIVED process per declared upstream for the gateway's lifetime; `tools/list` aggregates the upstream tools under the `name.` prefix, `tools/call name.tool` proxies to the session; a dead upstream reconnects LOUDLY on the next use (never silent); a failed call is not auto-retried (the side-effect decision stays with the caller). Protocol: the client and the server speak the current revision `2025-11-25`, the legacy revisions fallback, a mismatch is a loud refusal naming both versions. Pinned by `tests/naryad_793_mcp_upstreams.rs` + `tests/naryad_793_session_client.rs`. |
 
 ### Environment variables
 
@@ -86,6 +87,7 @@ The `mlog` binary supports the following commands:
 | `METALOGOS_STT_BASE_URL` | base URL override for transcription (`whisper_transcribe`; provider default, `/audio/transcriptions` appended) — mock servers / self-host proxies (Naryad #279) |
 | `METALOGOS_FORCE_PIPE` | `1` — force piped-mode REPL (for tests) |
 | `METALOGOS_MCP_AUTH_TOKEN` | bearer token for `mlog mcp-serve --transport http\|sse` when `--auth-token` is not given (Naryad #394, ADR-0168) |
+| `METALOGOS_MCP_UPSTREAMS` | the gateway upstream declarations (№793, ADR-0196 G1): entries `name=argv0,arg1,...` separated by `;` (the №259 format convention; the name is `[a-z0-9_-]+` — the `name.tool` prefix must stay unambiguous); read ONCE at `McpServer::new` (the №263 discipline); every argv[0] passes `METALOGOS_MCP_ALLOWLIST` fail-closed; a spawn failure at startup is a loud degraded note, the reconnect rides the next use |
 | `METALOGOS_LEDGER_KEY` | 64-hex signing seed for the Action Ledger (reproducible chains in tests/CI; unset = OS-random key per process; Naryad #393, ADR-0167) |
 
 ---

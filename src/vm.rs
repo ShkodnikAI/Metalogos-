@@ -32,6 +32,11 @@ pub struct Vm {
     /// Runtime label environment (Наряд №328): variable → ADR-0154
     /// label. Seeded by LabelJoin, consulted by SinkCheck.
     label_env: std::collections::BTreeMap<String, crate::labels::Label>,
+    /// №782 (audit-23.10 A3): the native-recursion depth of execute_code
+    /// entries (CallPattern in both loops, run_deny_handler, the value-
+    /// expression calls, routes). Reset at the run()/execute_route_code
+    /// boundaries; the cap is `limits::max_call_depth()`.
+    call_depth: usize,
     /// №370: stack of VALUE-EXPRESSION registers (BeginValueExpr/
     /// KeepLastValue/EndValueExpr) — the last-value registers of block
     /// value forms live here, NOT in stack cells, so arbitrary expression
@@ -355,6 +360,7 @@ impl Vm {
     pub fn new() -> Self {
         Vm {
             label_env: std::collections::BTreeMap::new(),
+            call_depth: 0,
             value_registers: Vec::new(),
             globals: Vec::new(),
             global_names: std::sync::Arc::new(Vec::new()),
@@ -407,6 +413,9 @@ impl Vm {
         // applies per request/tick/program run — the charges of `embed` et
         // al. accumulate within the run and reset at the next boundary).
         let _contour_budget_scope = crate::builtins::embed_seam::ContourBudgetScope::new();
+        // №782: the depth cap is a per-run budget — a program-level reset,
+        // not an accumulation across runs of the same Vm.
+        self.call_depth = 0;
         // Наряд №276: LLM traces emitted from builtins during this run carry
         // backend="vm"; the previous tag is restored on exit (thread pools
         // reuse threads — a leaked tag would lie about the next program).
@@ -927,8 +936,22 @@ impl Vm {
         let mut ip = 0;
         let mut flow_output: Option<String> = None;
         let code = &program.main_code;
+        // №782 (audit-23.10 A3): the main-loop iteration limit — mirrored
+        // from execute_code_inner (which had its own counter since the
+        // start): execute_main_code ran UNBOUNDED, so a top-level loop in
+        // the main code hung `mlog run`/the serve startup forever.
+        let max_iterations = code.len().max(1) * 100_000;
+        let mut iterations: usize = 0;
 
         while ip < code.len() {
+            iterations += 1;
+            if iterations > max_iterations {
+                return Err(format!(
+                    "VM execute_main_code: possible infinite loop ({} iterations, {} instructions)",
+                    iterations,
+                    code.len()
+                ));
+            }
             let instr = &code[ip];
             match instr {
                 // ── Constants & Variables ─────────────────────
@@ -1736,9 +1759,20 @@ impl Vm {
                 }
                 Instruction::ListLen => {
                     let val = stack.pop().ok_or_else(|| underflow_err("ListLen"))?;
+                    // №783 (audit-23.10 A4/N-2): the VM each over a NON-List
+                    // answered 0.0 — ZERO iterations, silently (the TW
+                    // refusal is a coded [TYPE_MISMATCH]) — a live TW/VM
+                    // divergence of the gh#1336 class (a client-string
+                    // json_body() made the VM lane skip the loop). The
+                    // byte-identical TW wording, the same code.
                     let len = match val {
                         Value::List(items) => items.len() as f64,
-                        _ => 0.0,
+                        other => {
+                            return Err(crate::interpreter::values::coded_error(
+                                crate::interpreter::values::CODE_TYPE_MISMATCH,
+                                format!("each: expected List, got {}", other.type_name()),
+                            ));
+                        }
                     };
                     stack.push(Value::Float(len));
                     ip += 1;
@@ -1864,12 +1898,31 @@ impl Vm {
         call_stack: &mut Vec<CallFrame>,
         program: &Program,
     ) -> Result<Value, String> {
+        // №782 (audit-23.10 A3): the native-recursion depth cap — the
+        // CallPattern recursion (pattern R(n) { return R(n+1) }) used to
+        // overflow the thread stack: in serve the route bodies run inside
+        // spawn_blocking (2 MiB) and the overflow ABORTED the whole serve
+        // process. The entry guard refuses LOUDLY with the stable code
+        // before the stack is exhausted; the depth resets at the
+        // run()/execute_route_code boundaries.
+        self.call_depth += 1;
+        if self.call_depth > crate::limits::max_call_depth() {
+            self.call_depth -= 1;
+            return Err(crate::interpreter::values::coded_error(
+                crate::interpreter::values::CODE_CALL_DEPTH_EXCEEDED,
+                format!(
+                    "VM: native recursion depth exceeded {} (METALOGOS_VM_MAX_DEPTH)",
+                    crate::limits::max_call_depth()
+                ),
+            ));
+        }
         // №370: register-stack isolation — a pattern/route executed via a
         // CallPattern from inside another function's value expression must
         // not see (or leak through an early Return into) the caller's open
         // registers. Save/restore around the inner loop.
         let saved_registers = std::mem::take(&mut self.value_registers);
         let out = self.execute_code_inner(code, stack, call_stack, program);
+        self.call_depth -= 1;
         self.value_registers = saved_registers;
         out
     }
@@ -2309,9 +2362,20 @@ impl Vm {
                 }
                 Instruction::ListLen => {
                     let val = stack.pop().ok_or_else(|| underflow_err("ListLen"))?;
+                    // №783 (audit-23.10 A4/N-2): the VM each over a NON-List
+                    // answered 0.0 — ZERO iterations, silently (the TW
+                    // refusal is a coded [TYPE_MISMATCH]) — a live TW/VM
+                    // divergence of the gh#1336 class (a client-string
+                    // json_body() made the VM lane skip the loop). The
+                    // byte-identical TW wording, the same code.
                     let len = match val {
                         Value::List(items) => items.len() as f64,
-                        _ => 0.0,
+                        other => {
+                            return Err(crate::interpreter::values::coded_error(
+                                crate::interpreter::values::CODE_TYPE_MISMATCH,
+                                format!("each: expected List, got {}", other.type_name()),
+                            ));
+                        }
                     };
                     stack.push(Value::Float(len));
                     ip += 1;
@@ -4227,6 +4291,9 @@ impl Vm {
         // Наряд №276: same backend tag contract as run() — server VM routes
         // trace with backend="vm" (each request runs on its own thread).
         let prev_tag = crate::llm::set_llm_backend_tag("vm");
+        // №782: per-request isolation covers the depth budget too — a
+        // request's recursion cannot ride on the previous request's depth.
+        self.call_depth = 0;
         let mut stack: Vec<Value> = Vec::new();
         let mut call_stack: Vec<CallFrame> = Vec::new();
         let out = self.execute_code(&route.code, &mut stack, &mut call_stack, program);
@@ -4308,8 +4375,10 @@ impl Vm {
         op: crate::ast::BinOp,
         right: Value,
     ) -> Result<Value, String> {
-        // Same limit as TW (`Interpreter::MAX_STRING_LENGTH`).
-        const MAX_STRING_LENGTH: usize = 1_000_000; // 1 MB
+        // №782 (audit-23.10 A3): the string-capacity SSOT lives in
+        // `crate::limits::MAX_STRING_LENGTH` — the old local copy here was
+        // one of the TWO drift-prone duplicates (execution.rs carried the
+        // other).
 
         // Enforce opaque type restrictions for Add (concatenation) — TW parity.
         if matches!(op, crate::ast::BinOp::Add) {
@@ -4330,11 +4399,11 @@ impl Vm {
             // String concatenation — with the same length limit as TW.
             (crate::ast::BinOp::Add, Value::String(a), Value::String(b)) => {
                 let result = format!("{}{}", a, b);
-                if result.len() > MAX_STRING_LENGTH {
+                if result.len() > crate::limits::MAX_STRING_LENGTH {
                     Err(format!(
                         "string length {} exceeds maximum allowed {}",
                         result.len(),
-                        MAX_STRING_LENGTH
+                        crate::limits::MAX_STRING_LENGTH
                     ))
                 } else {
                     Ok(Value::String(result))
@@ -4722,6 +4791,7 @@ mod n403_reset_tests {
     ) {
         let Vm {
             label_env,
+            call_depth,
             value_registers,
             globals,
             global_names,
@@ -4770,6 +4840,7 @@ mod n403_reset_tests {
         // exists to break the build when a field is added unhandled.
         let _ = (
             label_env,
+            call_depth,
             value_registers,
             globals,
             global_names,

@@ -107,6 +107,12 @@ pub struct Interpreter {
     /// Global variable store.
     // №567: pub for the metalogos-server transport (the route-state merge).
     pub variables: HashMap<String, Value>,
+    /// №782 (audit-23.10 A3): the TW native-recursion depth of pattern
+    /// invocations (the invoke_pattern_with_hooks guard) — symmetric to
+    /// the VM `execute_code` cap; `METALOGOS_VM_MAX_DEPTH` is the knob.
+    /// Atomic (not Cell): the Interpreter crosses thread boundaries on
+    /// the serve paths (the route_handler constraint).
+    call_depth: std::sync::atomic::AtomicUsize,
     /// Struct type registry.
     struct_types: HashMap<String, StructType>,
     /// Compiled patterns (pure).
@@ -327,6 +333,7 @@ impl Interpreter {
         let (distill_tx, distill_rx) = std::sync::mpsc::channel();
         Interpreter {
             variables: HashMap::new(),
+            call_depth: std::sync::atomic::AtomicUsize::new(0),
             struct_types: HashMap::new(),
             patterns: HashMap::new(),
             learnable_patterns: HashMap::new(),

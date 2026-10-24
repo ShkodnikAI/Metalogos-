@@ -252,6 +252,19 @@ pub(crate) fn builtin_word_wrap(args: &[Value]) -> Result<Value, String> {
     if width == 0 {
         return Err("word_wrap: width must be > 0".to_string());
     }
+    // №782: the output reflows the input (no multiplicative growth) —
+    // the loud post-check refuses oversized results (the allocation is
+    // input-proportional, the abort-class risk does not apply).
+    if s.len() > crate::limits::MAX_STRING_LENGTH {
+        return Err(crate::interpreter::values::coded_error(
+            crate::interpreter::values::CODE_STRING_TOO_LARGE,
+            format!(
+                "word_wrap: input length {} exceeds the {}-byte limit",
+                s.len(),
+                crate::limits::MAX_STRING_LENGTH
+            ),
+        ));
+    }
     // Unicode-correct: count chars, not bytes. No unicode-width crate,
     // consistent with existing len/substring precedent.
     let mut result = String::with_capacity(s.len() + s.len() / 10);
@@ -360,6 +373,22 @@ pub(crate) fn builtin_join(args: &[Value]) -> Result<Value, String> {
         ",".to_string()
     };
     let parts: Vec<String> = list.iter().map(|v| format!("{}", v)).collect();
+    // №782: the join-формы check the capacity BEFORE the final allocation
+    // (the parts' lengths are known; the sum + separators is the exact need).
+    let need: usize = parts
+        .iter()
+        .map(|p| p.len())
+        .sum::<usize>()
+        .saturating_add(sep.len().saturating_mul(parts.len().saturating_sub(1)));
+    if need > crate::limits::MAX_STRING_LENGTH {
+        return Err(crate::interpreter::values::coded_error(
+            crate::interpreter::values::CODE_STRING_TOO_LARGE,
+            format!(
+                "join: requested length {need} exceeds the {}-byte limit",
+                crate::limits::MAX_STRING_LENGTH
+            ),
+        ));
+    }
     Ok(Value::String(parts.join(&sep)))
 }
 
@@ -490,6 +519,19 @@ pub(crate) fn builtin_format(args: &[Value]) -> Result<Value, String> {
         return Err("format() requires at least 1 argument (template)".to_string());
     }
     let template = expect_string_arg("format", args, 0)?;
+    // №782: the interpolation is input-proportional (no multiplicative
+    // growth) — the loud pre-check refuses the oversized template, the
+    // post-check below guards against oversized argument expansions.
+    if template.len() > crate::limits::MAX_STRING_LENGTH {
+        return Err(crate::interpreter::values::coded_error(
+            crate::interpreter::values::CODE_STRING_TOO_LARGE,
+            format!(
+                "format: template length {} exceeds the {}-byte limit",
+                template.len(),
+                crate::limits::MAX_STRING_LENGTH
+            ),
+        ));
+    }
     let mut result = String::new();
     let mut arg_idx = 1;
     let mut chars = template.chars().peekable();
@@ -511,6 +553,19 @@ pub(crate) fn builtin_format(args: &[Value]) -> Result<Value, String> {
         } else {
             result.push(ch);
         }
+    }
+    // №782: the post-check — the argument expansions can grow the result
+    // beyond the template (the loud refusal, not the silent oversized
+    // string; the allocation is input-proportional).
+    if result.len() > crate::limits::MAX_STRING_LENGTH {
+        return Err(crate::interpreter::values::coded_error(
+            crate::interpreter::values::CODE_STRING_TOO_LARGE,
+            format!(
+                "format: result length {} exceeds the {}-byte limit",
+                result.len(),
+                crate::limits::MAX_STRING_LENGTH
+            ),
+        ));
     }
     Ok(Value::String(result))
 }
@@ -590,6 +645,10 @@ pub(crate) fn builtin_repeat(args: &[Value]) -> Result<Value, String> {
     if (n - n_int as f64).abs() > 1e-9 {
         return Err("repeat() count must be an integer".to_string());
     }
+    // №782 (audit-23.10 A3): the pre-allocation capacity guard — the old
+    // `s.repeat(n)` attempted the allocation first; a 1 TB request died
+    // in the allocator (abort, not panic) and killed the serve process.
+    crate::limits::check_string_capacity("repeat", s.len(), n_int)?;
     Ok(Value::String(s.repeat(n_int)))
 }
 
@@ -608,6 +667,9 @@ pub(crate) fn builtin_pad_left(args: &[Value]) -> Result<Value, String> {
         return Ok(Value::String(s));
     }
     let padding_len = n_int - s_len;
+    // №782: the pre-allocation capacity guard (fill is ONE char — its
+    // utf-8 length multiplies the padding).
+    crate::limits::check_string_capacity("pad_left", fill_char.len_utf8(), padding_len)?;
     let padding: String = std::iter::repeat_n(fill_char, padding_len).collect();
     Ok(Value::String(format!("{}{}", padding, s)))
 }
@@ -627,6 +689,8 @@ pub(crate) fn builtin_pad_right(args: &[Value]) -> Result<Value, String> {
         return Ok(Value::String(s));
     }
     let padding_len = n_int - s_len;
+    // №782: the pre-allocation capacity guard (mirror of pad_left).
+    crate::limits::check_string_capacity("pad_right", fill_char.len_utf8(), padding_len)?;
     let padding: String = std::iter::repeat_n(fill_char, padding_len).collect();
     Ok(Value::String(format!("{}{}", s, padding)))
 }

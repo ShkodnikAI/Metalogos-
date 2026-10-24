@@ -11,8 +11,11 @@
 //! signature taxonomy (sig_types::Label::Private; the №322 lattice is
 //! the algebra behind it — conf=private). The label JOINS through
 //! composition (a composite with any private part is private — the
-//! ADR-0154 §2 conf join over data), sanitizers strip it
-//! (`render` / `escape_html`), `redact` lifts it exactly when the
+//! ADR-0154 §2 conf join over data), the sanitizers' contract is
+//! INTEGRITY-ONLY (A2, naryad 781: `escape_html` / the escaped
+//! `render` slots restore trust — the CONFIDENTIALITY rides the
+//! argument join, the N2/gh#1211 ct_eq form: an escaped secret is
+//! still a secret), `redact` lifts it exactly when the
 //! policy is one-way (the redact-policy registry, ADR-0136 D2), and
 //! the sink check asks the TYPE question. The lanes of the other audit
 //! classes: SQL_DYNAMIC is typed since №544 step 2 (its own leaf
@@ -44,8 +47,10 @@ use crate::builtins::sig_types::{Label, Type};
 // the confidentiality label of the signature taxonomy (sig_types::Label;
 // the №322 lattice is the algebra behind it — conf=private). The label
 // JOINS through composition (a composite with any private part is
-// private — the ADR-0154 §2 conf join over data), sanitizers strip it
-// (`render` / `escape_html` — the audit's Sanitized semantics),
+// private — the ADR-0154 §2 conf join over data), the sanitizers'
+// contract is INTEGRITY-ONLY (A2, naryad 781: `escape_html` / the
+// escaped `render` slots restore trust — the CONFIDENTIALITY rides
+// the argument join, the ct_eq N2 form),
 // `redact` strips it exactly when the policy is one-way (the
 // redact-policy registry, target_conf == "public" — ADR-0136 D2), and
 // the sink check asks the TYPE question
@@ -104,11 +109,12 @@ pub fn label_of_expr(expr: &Expr, vars: &HashMap<String, Type>) -> Option<Type> 
         Expr::BoolLit { .. } => Some(Type::Bool),
         Expr::Ident { name, .. } => vars.get(name).cloned(),
         Expr::FnCall { name, args, .. } => {
-            // Sanitizers override argument labels (the audit's Sanitized
-            // semantics: the result is a known, unlabeled String).
-            if name == "render" || name == "escape_html" {
-                return Some(Type::String);
-            }
+            // A2 (naryad 781, the audit-23.10 S-1): render/escape_html are
+            // NOT label overriders here anymore — they fall through to the
+            // generic argument join below: the escape restores the
+            // INTEGRITY (a machinery concern of the other lanes), the
+            // CONFIDENTIALITY is the data's (an escaped secret is still a
+            // secret — the ct_eq N2 form).
             // №274 (ADR-0136): redact is the masking sanitizer — the label
             // lifts exactly when the policy is one-way (target public).
             if name == "redact" {
@@ -152,14 +158,12 @@ pub fn label_of_expr(expr: &Expr, vars: &HashMap<String, Type>) -> Option<Type> 
 
 /// The label-typed value of a binding's initializer (the binding parity
 /// of the audit's `binding_taint`): direct sources first, then the
-/// expression walk.
+/// expression walk (A2, naryad 781: render/escape_html carry no override
+/// here anymore — the escape is integrity-only, the label join decides).
 pub fn binding_label(value: &Expr, vars: &HashMap<String, Type>) -> Option<Type> {
     if let Expr::FnCall { name, .. } = value {
         if name == "env" || name == "secret" {
             return Some(secret_source_type());
-        }
-        if name == "render" || name == "escape_html" {
-            return Some(Type::String);
         }
         if name == "redact" {
             if let Expr::FnCall { args, .. } = value {

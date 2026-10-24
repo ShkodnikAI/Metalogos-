@@ -159,7 +159,12 @@ def collect_curated_rows():
         if not m:
             continue
         name = m.group(1)
-        cells = [c.strip() for c in ln.strip().strip("|").split("|")]
+        # №784: split on UNESCAPED pipes only — the curated cells carry
+        # Markdown-escaped unions (`String\|String`) and the naive
+        # `split("|")` cut them mid-cell, mangling the harvested signature
+        # AND swapping the description for the return-type column (the
+        # authenticate row rode that mangle into the generated index).
+        cells = [c.strip() for c in re.split(r'(?<!\\)\|', ln.strip().strip("|"))]
         if len(cells) < 4 or name in rows:
             continue
         rows[name] = (cells[1], cells[3])
@@ -180,6 +185,15 @@ def clean_doc(lines):
     text = " ".join(out).strip()
     text = re.sub(r"^Usage:\s*", "", text)
     return text
+
+
+def esc_cell(text):
+    """Escape raw pipes for a Markdown table cell — IDEMPOTENT (№784).
+
+    An already-escaped `\\|` (the curated union spellings) must survive
+    verbatim; re-escaping it produced `\\\\|` (a literal backslash followed
+    by a CELL SEPARATOR) and broke the row again on the render side."""
+    return re.sub(r'(?<!\\)\|', r'\\|', text)
 
 
 def arity_text(lo, hi):
@@ -237,7 +251,7 @@ def render(entries, curated, docs):
                 todo += 1
             md.append(
                 f"| `{name}(...)` | {arity_text(lo, hi)} "
-                f"| {(sig or '—').replace('|', '\\|')} | {desc.replace('|', '\\|')} |"
+                f"| {esc_cell(sig or '—')} | {esc_cell(desc)} |"
             )
         md.append("")
     md.append(END)

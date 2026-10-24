@@ -168,6 +168,130 @@ All notable changes to the Metalogos project.
 
 ### Fixed
 
+- **№784 (gh#1495, Wave 62 — the audit-23.10 A5/S-8, P1):** the
+  authenticate mock answered `Ok(Unit)` while the REFERENCE row
+  promised "In a server context, checks the credentials" — a promise
+  with no code behind it (no server user-store exists on either
+  backend). Every call now refuses with the coded `[NOT_IMPLEMENTED]`
+  refusal naming the real credential path —
+  `verify_password(password, hash)` against the stored hash (the
+  ADR-0198 loud-failure line); the code joins `ORIGIN_STAMPED_CODES`
+  (the №413 mechanics) so `try authenticate(...)` can branch on it.
+  The 5-pin battery (the two loud-refusal pins, the two
+  validation-refusal regression pins, the try-code pin) verified
+  RED-before on the pre-№784 engines: 3/5 failed (the printable Unit
+  instead of the refusal; no try code). The REFERENCE row (curated +
+  the generated index) is re-spelled honestly, and the regeneration
+  surfaced a generator defect fixed in the same PR: the curated-row
+  harvest split table cells on EVERY pipe, so the Markdown-escaped
+  union signatures (`String\|String`) were cut mid-cell and 17
+  generated rows (authenticate, len, to_float, to_int, parse_json,
+  call_llm, http paths, send_message, send_photo, render, inspect,
+  reflex_metrics, vec_store, vec_search) carried truncated signatures
+  with the return-type column riding in as the description; the
+  harvest now splits on unescaped pipes and the cell escaping is
+  idempotent — all 526 rows render intact (gen_reference --check
+  526/526, TODO(doc) 0, curated sections untouched). AFFECTS:
+  programs calling authenticate now catch the loud refusal (the
+  migration is the named verify_password path); hash_password /
+  verify_password untouched.
+
+- **№783 (gh#1494, Wave 62 — the audit-23.10 A4/S-3+N-2, P1):** the
+  query* family no longer loses parameters silently, and `each` over a
+  non-List refuses identically on both backends. (1) The params SSOT —
+  `bind_params(who, args, idx)` in db_ops.rs now serves ALL SIX db
+  functions (query, query_vm, query_row, query_scalar, db_execute,
+  db_execute_with_grant): the pre-№783 query* family answered a
+  non-List second argument with `Vec::new()` — SILENTLY
+  (`query("… WHERE id = ?1", user_id)` bound ZERO parameters and,
+  without a mandatory placeholder, passed quietly with the caller's
+  data never reaching the engine); the refusal NAMES the `[x, y]`
+  form, the №553 loudness contract moves into the SSOT (its pins ride
+  the landed wording). (2) The VM `each` over a NON-List answered 0
+  iterations silently (ListLen → 0.0) while the TW refused — a live
+  TW/VM divergence of the gh#1336 class (a client-string
+  `json_body()` made the VM lane skip the loop); both ListLen arms
+  now carry the byte-identical TW coded refusal
+  (`[TYPE_MISMATCH] each: expected List, got <type>`). (3) The №766
+  diff-fuzzer carries the class shape — one in 31 generated iterables
+  is a String literal (the refusal-parity shape; the executed-counter
+  floors of the №621/№766 probes hold — the form stays rare at the
+  statement level). The 7-pin battery (4 functions × both backends +
+  the TW/VM each-parity pair + 2 happy-path controls) verified
+  RED-before on the pre-№783 engines: 5/7 failed (the quiet Ok
+  instead of the refusal, the old №553 wording, the VM divergence);
+  the №553 wording pins re-spelled to the landed form. AFFECTS:
+  programs that passed a non-List params argument now catch the loud
+  refusal (the redact-equivalent `[x, y]` List form stays the legal
+  path); the each-over-non-List programs now refuse on the VM lane
+  exactly as the TW lane always did.
+
+- **№782 (gh#1493, Wave 62 — the audit-23.10 A3, P0):** the executor
+  resource limits — `serve` can no longer be killed by a runaway
+  program. Three halves: (1) the string capacity — ONE SSOT
+  (`src/limits.rs::MAX_STRING_LENGTH`, the old two drift-prone local
+  copies in vm.rs/execution.rs are gone); the multiplicative builtins
+  (`repeat`, `pad_left`, `pad_right`) check `unit_len * count` BEFORE
+  the allocation — the old `s.repeat(1e12)` died in the allocator
+  (an abort, not a panic — `spawn_blocking` cannot catch it, the whole
+  serve process went down); `join` computes the exact need up front,
+  `format`/`word_wrap` carry the loud input/result checks (their
+  growth is input-proportional). (2) the native-recursion depth cap —
+  the CallPattern recursion (`pattern R(n) { return R(n+1) }`) used to
+  overflow the thread stack (in serve the route bodies run inside
+  `spawn_blocking` with the 2 MiB stack — the overflow ABORTED the
+  serve process); BOTH executors guard the entry now (`[CALL_DEPTH_EXCEEDED]`,
+  default 512, `METALOGOS_VM_MAX_DEPTH` is the deployment knob, the
+  VM run path executes on a 256 MB thread (the №197 form), the serve
+  blocking pool runs 8 MiB stacks). (3) the main VM loop
+  (`execute_main_code`) carries the iteration counter mirrored from
+  `execute_code_inner` — an eternal top-level loop hung `mlog run`
+  forever. The subprocess pin battery (6 tests, both backends) verified
+  the RED-before on the unpatched main: the alloc abort + the stack
+  overflow, byte-for-byte the audit's symptoms; the `while`-shape pin
+  patches the compiled Halt into a self-jump (the top-level grammar
+  cannot express the eternal main loop — the patch is the honest
+  construction). The new section in docs/limitations.md: the defaults,
+  the knob, what the caps do NOT cover (the opaque subsystems'
+  allocations). AFFECTS: programs that relied on the unlimited
+  recursion/string growth (below the limits the semantics is
+  unchanged — crosscheck green).
+
+- **№781 (gh#1492, Wave 62 — the audit-23.10 A2, P0):** escaping a
+  secret is still a secret. The `escape_html` builtin and the ESCAPED
+  slots of `render` restored the INTEGRITY of the data but carried an
+  unconditional declassification — the result was treated as
+  `Public`, so `respond("200 OK", escape_html(env("API_TOKEN")))`
+  passed every gate on all three label lanes. The fix (the N2/
+  gh#1211 ct_eq form, one shape in every lane): the INTEGRITY is
+  restored (the escape still cleans untrusted markup — the №685/
+  №695/№765 XSS contract is NOT weakened), the CONFIDENTIALITY is
+  the join of the arguments. The lanes: `secret_label.rs` — the
+  render/escape_html overrides are removed from `label_of_expr` and
+  `binding_label` (the argument join decides); the label lattice
+  (`semantic.rs` `label_source` + the `render` position-aware arm,
+  `audit.rs` `interp_expr_label` — both engines symmetric) — an
+  escaped slot restores the integrity only, a raw slot conducts
+  everything (№765 unchanged), an unknown/dynamic template name
+  stays the conservative conductor. The audit A5-class stakes:
+  `secret_label.rs`/`sql_label.rs` join the risk-review site set
+  (№686, the item-10 reminder fires on their diffs; AGENTS.md §8.5
+  updated, the self-test set-pin moves 4 → 6). The threat-model
+  Boundary 3 carries the corollary verbatim (escape restores
+  integrity only, never lowers confidentiality; the redact-policy
+  registry stays the only path down). The leak-suite quartet pins
+  the hole RED-before (verified on the unpatched main: 4/4 compiled
+  — NOT CAUGHT; a stash-run of the mutation probe shows every pin
+  losing the SECRET_LEAK class to the PII_EGRESS_* mismatch —
+  the pins are hard-wired to the lane); the A2 fences
+  (`ok_781_escape_html_untrusted_respond`, `ok_781_secret_hash_only_
+  respond`) keep the false-positive side green. AFFECTS: programs
+  that sent an escaped env-secret to a sink now catch `SECRET_LEAK`
+  at compile time (the redact one-way policies — `hash_only`/
+  `secrets`/`all` — stay the legal path); everything else compiles
+  unchanged. security: yes — the compile-time gate grew teeth on the
+  escaped-secret egress class.
+
 - **№787 (gh#1510, Wave 63 — audit-23.10 C6 I-c):** the integer
   precision-loss boundary — a SQLite/JSON integer f64 cannot represent
   exactly (|n| > 2^53: 64-bit ids, snowflakes) is a LOUD

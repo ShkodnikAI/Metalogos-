@@ -44,6 +44,33 @@
 //! below — a live, mock-testable contract; `Vm` is one implementor.
 
 use crate::interpreter::db::{convert_params, sql_err};
+
+// ── №783 (audit-23.10 A4/S-3) — the params-argument SSOT ────────────────
+//
+// ONE binder for the optional params argument of the six db functions
+// (query_tw, query_vm, query_row, query_scalar, db_execute,
+// db_execute_with_grant). The pre-№783 query* family answered a
+// non-List second argument with `Vec::new()` — SILENTLY: a
+// `query("… WHERE id = ?1", user_id)` bound ZERO parameters and (when
+// the SQL carried no mandatory placeholder) passed quietly with the
+// caller's data never reaching the engine. `db_execute` (№553) and
+// `db_execute_with_grant` were already loud — the same contract moves
+// into the SSOT, the refusal NAMES the expected `[x, y]` shape.
+pub(crate) fn bind_params(
+    who: &str,
+    args: &[Value],
+    idx: usize,
+) -> Result<Vec<rusqlite::types::Value>, String> {
+    match args.get(idx) {
+        None => Ok(Vec::new()),
+        Some(Value::List(items)) => convert_params(items),
+        Some(other) => Err(format!(
+            "{who}() argument {} must be a List of parameters (the `[x, y]` form), got {}",
+            idx + 1,
+            other.type_name()
+        )),
+    }
+}
 use crate::interpreter::values::{coded_error, CODE_PRECISION_LOSS};
 use crate::interpreter::Value;
 use std::collections::HashMap;
@@ -233,15 +260,9 @@ pub fn query_tw(db: &Mutex<Option<rusqlite::Connection>>, args: &[Value]) -> Res
         }
         None => return Err("query() requires at least 1 argument (SQL string)".to_string()),
     };
-    // Наряд №99: convert_params — type-safe, no silent shift/degradation
-    let params: Vec<rusqlite::types::Value> = if args.len() > 1 {
-        match &args[1] {
-            Value::List(items) => convert_params(items)?,
-            _ => Vec::new(),
-        }
-    } else {
-        Vec::new()
-    };
+    // Наряд №99: convert_params — type-safe, no silent shift/degradation.
+    // №783: the SSOT binder — a non-List second argument is a LOUD refusal.
+    let params: Vec<rusqlite::types::Value> = bind_params(NAME_QUERY, args, 1)?;
 
     let guard = db.lock().map_err(|e| format!("db lock error: {}", e))?;
     let conn = guard.as_ref().ok_or_else(|| {
@@ -330,16 +351,7 @@ pub fn db_execute(db: &mut impl DbAccess, args: &[Value]) -> Result<Value, Strin
     // №553: the loud non-List refusal — ONE contract on both backends
     // (the audit example: a placeholder SQL with a non-List second
     // argument must never degrade into a silent no-params execute).
-    let params: Vec<rusqlite::types::Value> = match args.get(1) {
-        Some(Value::List(items)) => convert_params(items)?,
-        Some(other) => {
-            return Err(format!(
-                "db_execute() second argument must be List, got {}",
-                other.type_name()
-            ))
-        }
-        None => Vec::new(),
-    };
+    let params: Vec<rusqlite::types::Value> = bind_params(NAME_DB_EXECUTE, args, 1)?;
     // №409: the lazy open fires on the VM lane; a no-op through the TW
     // adapter.
     db.ensure_db_open();
@@ -410,17 +422,8 @@ pub fn db_execute_with_grant(db: &mut impl DbAccess, args: &[Value]) -> Result<V
         }
     };
     // №553: the loud non-List refusal — ONE contract on both backends.
-    let params: Vec<rusqlite::types::Value> = match args.get(2) {
-        Some(Value::List(items)) => convert_params(items)?,
-        Some(other) => {
-            return Err(format!(
-                "{}() third argument must be List, got {}",
-                NAME_DB_EXECUTE_WITH_GRANT,
-                other.type_name()
-            ))
-        }
-        None => Vec::new(),
-    };
+    // №783: the refusal lives in the SSOT binder (the `[x, y]` shape named).
+    let params: Vec<rusqlite::types::Value> = bind_params(NAME_DB_EXECUTE_WITH_GRANT, args, 2)?;
     // Gate BEFORE execution: state/TTL (check_active) + scope coverage
     // of every destructive op in the statement.
     crate::grants::check_active(&handle)?;
@@ -532,14 +535,7 @@ pub fn query_scalar(db: &mut impl DbAccess, args: &[Value]) -> Result<Value, Str
     };
     // Наряд №99 / №381 parity: convert_params — typed binds, no silent
     // shift (the old string binds degraded types behind sqlite affinity).
-    let params: Vec<rusqlite::types::Value> = if args.len() > 1 {
-        match &args[1] {
-            Value::List(items) => convert_params(items)?,
-            _ => Vec::new(),
-        }
-    } else {
-        Vec::new()
-    };
+    let params: Vec<rusqlite::types::Value> = bind_params(NAME_QUERY_SCALAR, args, 1)?;
     // №409: the lazy open fires on the VM lane; a no-op through the TW
     // adapter (the TW opens at the db declaration).
     db.ensure_db_open();
@@ -599,14 +595,7 @@ pub fn query_row(db: &mut impl DbAccess, args: &[Value]) -> Result<Value, String
     // the same contract on both lanes. Unit → Null keeps the placeholder
     // count (no positional shift); an unsupported value is a loud error
     // naming the 1-based parameter position — never a silent drop.
-    let params: Vec<rusqlite::types::Value> = if args.len() > 1 {
-        match &args[1] {
-            Value::List(items) => convert_params(items)?,
-            _ => Vec::new(),
-        }
-    } else {
-        Vec::new()
-    };
+    let params: Vec<rusqlite::types::Value> = bind_params(NAME_QUERY_ROW, args, 1)?;
 
     // №409: the lazy open fires on the VM lane; a no-op through the TW
     // adapter (the TW opens at the db declaration).
@@ -795,14 +784,7 @@ pub fn query_vm(vm: &mut impl DbAccess, args: &[Value]) -> Result<Value, String>
     // while the tree-walking backend binds them. The Stage 4
     // benchmark corpus (naryad #381, ADR-0141 §D5) caught the
     // divergence; both backends now share the typed convert_params.
-    let params: Vec<rusqlite::types::Value> = if args.len() > 1 {
-        match &args[1] {
-            Value::List(items) => convert_params(items)?,
-            _ => Vec::new(),
-        }
-    } else {
-        Vec::new()
-    };
+    let params: Vec<rusqlite::types::Value> = bind_params(NAME_QUERY, args, 1)?;
     // №409: lazy db open on first use.
     vm.ensure_db_open();
     // №758: the loud reason is read BEFORE the &mut connection borrow.
@@ -1042,7 +1024,7 @@ mod tests {
                 &[s("DELETE FROM t"), Value::Float(2.0)]
             )
             .unwrap_err(),
-            "db_execute() second argument must be List, got Float"
+            "db_execute() argument 2 must be a List of parameters (the `[x, y]` form), got Float"
         );
         table(&db);
         let out = db_execute(

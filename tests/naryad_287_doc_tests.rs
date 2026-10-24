@@ -240,14 +240,12 @@ flow Main { input: String = "abc" -> Shout -> output }
 fn vm_backend_skips_uncompilable_grammar() {
     with_lock(|| {
         // Блок, который TW-парсер берёт, но VM-компилятор не поддерживает
-        // (ADR-0105: block if/else в let — не в VM-подмножестве) → skip.
+        // (spawn — не в VM-подмножестве) → skip (vm-compile:).
         let md = r#"
 # VM-limited
 
 ```mlog
-each item in items {
-  print(item)
-}
+spawn("ls")
 ```
 "#;
         let (dir, p) = write_fixture("VML.md", md);
@@ -257,6 +255,43 @@ each item in items {
         assert!(
             report.failures.is_empty(),
             "vm-compile limitations must skip, not fail: {:?}",
+            report.failures
+        );
+    });
+}
+
+/// №783 (audit-23.10 A4/N-2): the semantic-evolution companion of the
+/// skip pin. The OLD pin carried an `each item in items` block (items
+/// undefined → Unit) and demanded «skip, not fail» — the VM lane
+/// answered 0 ITERATIONS silently then, so a broken example passed
+/// every doc-test. The №783 parity made the not-List each a LOUD
+/// `[TYPE_MISMATCH]` on both lanes: a broken doc example now FAILS
+/// (the correct verdict — the doc suite is the executable
+/// documentation, a lying example must not ride as "executed").
+#[test]
+fn vm_backend_flags_broken_examples_loudly() {
+    with_lock(|| {
+        let md = r#"
+# Broken example
+
+```mlog
+each item in items {
+  print(item)
+}
+```
+"#;
+        let (dir, p) = write_fixture("BRK.md", md);
+        let files = vec![p];
+        let report = run_doc_tests(&files, DocBackend::Vm, dir.path()).expect("run");
+        assert_eq!(
+            report.failures.len(),
+            1,
+            "the broken example must fail: {:?}",
+            report
+        );
+        assert!(
+            report.failures[0].contains("[TYPE_MISMATCH]"),
+            "the failure must name the coded refusal: {:?}",
             report.failures
         );
     });

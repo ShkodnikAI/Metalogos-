@@ -4706,22 +4706,40 @@ fn interp_expr_label(
                 let raw_positions =
                     crate::html_label::resolve_raw_positions(&snapshot, args.first());
                 let is_raw = |idx: usize| raw_positions.map(|p| p.contains(&idx)).unwrap_or(true);
-                let mut acc = crate::labels::legacy_taint_label("Sanitized")
-                    .unwrap_or_else(crate::labels::Label::bottom);
+                // A2 (naryad 781, the audit-23.10 S-1): an ESCAPED slot
+                // restores the INTEGRITY only — its CONFIDENTIALITY is the
+                // argument's (the ct_eq form); a raw slot conducts
+                // EVERYTHING (№765 unchanged); an unknown/dynamic template
+                // name stays the conservative conductor (fail-closed).
+                let mut acc = crate::labels::Label::bottom();
                 for (idx, a) in args.iter().skip(1).enumerate() {
-                    if !is_raw(idx) {
-                        continue;
+                    let l = interp_expr_label(a, state, summaries);
+                    if is_raw(idx) {
+                        acc = acc.join(&l);
+                    } else {
+                        acc = acc.join(&crate::labels::Label {
+                            conf: l.conf,
+                            integrity: crate::labels::Integrity::Trusted,
+                            consent: l.consent,
+                        });
                     }
-                    acc = acc.join(&interp_expr_label(a, state, summaries));
                 }
                 return acc;
             }
             // №765 (gh#1418, Wave 59 — the audit S-1b): escape_html keeps
-            // its sanitizer status (the audit's boundary); render moved to
-            // the position-aware arm above.
+            // its sanitizer status for the INTEGRITY axis (the №685/№695/
+            // №765 XSS contract is not weakened); A2 (naryad 781): the
+            // CONFIDENTIALITY is the join of the arguments (the
+            // N2/gh#1211 ct_eq form) — an escaped secret is still a secret.
             if name == "escape_html" {
-                return crate::labels::legacy_taint_label("Sanitized")
-                    .unwrap_or_else(crate::labels::Label::bottom);
+                let joined = args.iter().fold(crate::labels::Label::bottom(), |acc, a| {
+                    acc.join(&interp_expr_label(a, state, summaries))
+                });
+                return crate::labels::Label {
+                    conf: joined.conf,
+                    integrity: crate::labels::Integrity::Trusted,
+                    consent: joined.consent,
+                };
             }
             if is_llm_source(name) {
                 return crate::labels::legacy_taint_label("LlmOutput")

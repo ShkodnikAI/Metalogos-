@@ -168,6 +168,34 @@ All notable changes to the Metalogos project.
 
 ### Fixed
 
+- **№784 (gh#1495, Wave 62 — the audit-23.10 A5/S-8, P1):** the
+  authenticate mock answered `Ok(Unit)` while the REFERENCE row
+  promised "In a server context, checks the credentials" — a promise
+  with no code behind it (no server user-store exists on either
+  backend). Every call now refuses with the coded `[NOT_IMPLEMENTED]`
+  refusal naming the real credential path —
+  `verify_password(password, hash)` against the stored hash (the
+  ADR-0198 loud-failure line); the code joins `ORIGIN_STAMPED_CODES`
+  (the №413 mechanics) so `try authenticate(...)` can branch on it.
+  The 5-pin battery (the two loud-refusal pins, the two
+  validation-refusal regression pins, the try-code pin) verified
+  RED-before on the pre-№784 engines: 3/5 failed (the printable Unit
+  instead of the refusal; no try code). The REFERENCE row (curated +
+  the generated index) is re-spelled honestly, and the regeneration
+  surfaced a generator defect fixed in the same PR: the curated-row
+  harvest split table cells on EVERY pipe, so the Markdown-escaped
+  union signatures (`String\|String`) were cut mid-cell and 17
+  generated rows (authenticate, len, to_float, to_int, parse_json,
+  call_llm, http paths, send_message, send_photo, render, inspect,
+  reflex_metrics, vec_store, vec_search) carried truncated signatures
+  with the return-type column riding in as the description; the
+  harvest now splits on unescaped pipes and the cell escaping is
+  idempotent — all 526 rows render intact (gen_reference --check
+  526/526, TODO(doc) 0, curated sections untouched). AFFECTS:
+  programs calling authenticate now catch the loud refusal (the
+  migration is the named verify_password path); hash_password /
+  verify_password untouched.
+
 - **№783 (gh#1494, Wave 62 — the audit-23.10 A4/S-3+N-2, P1):** the
   query* family no longer loses parameters silently, and `each` over a
   non-List refuses identically on both backends. (1) The params SSOT —

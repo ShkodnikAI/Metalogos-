@@ -546,6 +546,12 @@ pub const CODE_CALL_DEPTH_EXCEEDED: &str = "CALL_DEPTH_EXCEEDED";
 pub const CODE_SINK_CLEARANCE_RUNTIME: &str = "SINK_CLEARANCE_RUNTIME";
 /// Sealed-at-rest media refused materialization (№325/ADR-0162 §2.5 backstop).
 pub const CODE_MEDIA_SEALED_EGRESS: &str = "MEDIA_SEALED_EGRESS";
+/// №784 (audit-23.10 A5): the not-implemented seam — a registered
+/// surface whose REFERENCE row promised behavior no backend implements
+/// (the authenticate mock answered Ok(Unit)) refuses LOUDLY with this
+/// code naming the real path (verify_password) instead of the quiet
+/// mock answer.
+pub const CODE_NOT_IMPLEMENTED: &str = "NOT_IMPLEMENTED";
 /// Backend ladder exhausted (№336/ADR-0165). The typed `Degraded(t)` result
 /// reuses the SAME frozen name for its `error.code` field (single constant,
 /// see `src/builtins/backends.rs`) — the typed path stays typed; if such a
@@ -761,6 +767,10 @@ const ORIGIN_STAMPED_CODES: &[&str] = &[
     // branchable: the caller can catch [PRECISION_LOSS] and re-read the
     // value as TEXT/CAST inside the same try.
     CODE_PRECISION_LOSS,
+    // №784: the not-implemented seam (authenticate) — branchable: the
+    // caller can catch [NOT_IMPLEMENTED] and route to the real
+    // credential path (verify_password) inside the same try.
+    CODE_NOT_IMPLEMENTED,
     CODE_SINK_CLEARANCE_RUNTIME,
     CODE_MEDIA_SEALED_EGRESS,
     CODE_BACKEND_DEGRADED,

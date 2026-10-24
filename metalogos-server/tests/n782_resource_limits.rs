@@ -70,16 +70,15 @@ fn run_with_timeout(path: &PathBuf, secs: u64) -> (Option<i32>, String, String, 
         let _ = tx.send((out, err));
     });
     let deadline = Instant::now() + Duration::from_secs(secs);
-    let mut timed_out = false;
     let outputs;
     loop {
         if Instant::now() >= deadline {
-            timed_out = true;
+            // The RED detector for the main-loop class: the process HUNG
+            // instead of the loud refusal — kill it and report the timeout.
             let _ = child.kill();
             let status = child.wait();
-            outputs = (String::new(), String::new());
             let code = status.ok().and_then(|s| s.code());
-            return (Some(code.unwrap_or(-1)), outputs.0, outputs.1, true);
+            return (Some(code.unwrap_or(-1)), String::new(), String::new(), true);
         }
         match rx.recv_timeout(Duration::from_millis(200)) {
             Ok((out, err)) => {
@@ -96,7 +95,7 @@ fn run_with_timeout(path: &PathBuf, secs: u64) -> (Option<i32>, String, String, 
         }
     }
     let _ = child.wait();
-    (None, outputs.0, outputs.1, timed_out)
+    (None, outputs.0, outputs.1, false)
 }
 
 const REPEAT_PROG: &str = r#"

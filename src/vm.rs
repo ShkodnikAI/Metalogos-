@@ -1759,9 +1759,20 @@ impl Vm {
                 }
                 Instruction::ListLen => {
                     let val = stack.pop().ok_or_else(|| underflow_err("ListLen"))?;
+                    // №783 (audit-23.10 A4/N-2): the VM each over a NON-List
+                    // answered 0.0 — ZERO iterations, silently (the TW
+                    // refusal is a coded [TYPE_MISMATCH]) — a live TW/VM
+                    // divergence of the gh#1336 class (a client-string
+                    // json_body() made the VM lane skip the loop). The
+                    // byte-identical TW wording, the same code.
                     let len = match val {
                         Value::List(items) => items.len() as f64,
-                        _ => 0.0,
+                        other => {
+                            return Err(crate::interpreter::values::coded_error(
+                                crate::interpreter::values::CODE_TYPE_MISMATCH,
+                                format!("each: expected List, got {}", other.type_name()),
+                            ));
+                        }
                     };
                     stack.push(Value::Float(len));
                     ip += 1;
@@ -2351,9 +2362,20 @@ impl Vm {
                 }
                 Instruction::ListLen => {
                     let val = stack.pop().ok_or_else(|| underflow_err("ListLen"))?;
+                    // №783 (audit-23.10 A4/N-2): the VM each over a NON-List
+                    // answered 0.0 — ZERO iterations, silently (the TW
+                    // refusal is a coded [TYPE_MISMATCH]) — a live TW/VM
+                    // divergence of the gh#1336 class (a client-string
+                    // json_body() made the VM lane skip the loop). The
+                    // byte-identical TW wording, the same code.
                     let len = match val {
                         Value::List(items) => items.len() as f64,
-                        _ => 0.0,
+                        other => {
+                            return Err(crate::interpreter::values::coded_error(
+                                crate::interpreter::values::CODE_TYPE_MISMATCH,
+                                format!("each: expected List, got {}", other.type_name()),
+                            ));
+                        }
                     };
                     stack.push(Value::Float(len));
                     ip += 1;

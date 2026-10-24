@@ -358,7 +358,7 @@ fn gen_stmts_under(
 /// fragments — the audit's «Не делать»).
 fn gen_flat_stmt(rng: &mut Rng, vars: &mut Vec<String>) -> Vec<String> {
     let mut out = Vec::new();
-    match rng.below(4) {
+    match rng.below(5) {
         0 => {
             let v = format!("v{}", rng.alnum(3));
             out.push(format!("let {} = {}", v, gen_expr(rng, vars, 2)));
@@ -371,6 +371,26 @@ fn gen_flat_stmt(rng: &mut Rng, vars: &mut Vec<String>) -> Vec<String> {
         2 => {
             let name = rng.alnum(2);
             out.push(format!("let t{name} = {}", gen_expr(rng, vars, 1)));
+        }
+        // №783 (audit-23.10 A4/N-2): the ITERABLE NON-LIST class shape —
+        // `each` over a value that MAY hold a String (the client-string
+        // json_body() scenario): one in four generated iterables is a
+        // String literal (the refusal-parity shape — both engines carry
+        // the SAME coded [TYPE_MISMATCH] now, the trace never advances),
+        // three in 31 are List literals — the not-List arm stays RARE at
+        // the STATEMENT level (a program carries many statements, so the
+        // program-level refusal probability stays low and the
+        // executed-counter floors of the №621/№766 probes hold).
+        3 => {
+            let name = format!("e{}", rng.alnum(2));
+            let init = if rng.below(32) == 0 {
+                format!("\"{}\"", rng.alnum(3))
+            } else {
+                "[\"a\", \"b\"]".to_string()
+            };
+            out.push(format!("let {name} = {init}"));
+            out.push(format!("each xi in {name} {{ tr = tr + \":e\" }}"));
+            vars.push(name);
         }
         // gh#1430 (naryad №772, the bug's ask 3): the class shape —
         // try → raising pattern call → catch → arithmetic on a PRE-try

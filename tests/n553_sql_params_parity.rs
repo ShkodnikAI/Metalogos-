@@ -58,7 +58,7 @@ flow Main { input: Float = 42.0 -> AuditRepro -> output }
 "#;
     assert_parity_error(
         src,
-        "db_execute() second argument must be List, got Float",
+        "db_execute() argument 2 must be a List of parameters (the `[x, y]` form), got Float",
         "the audit example (placeholder SQL)",
     );
 }
@@ -80,7 +80,7 @@ flow Main { input: String = "not-a-list" -> FreezeAll -> output }
 "#;
     assert_parity_error(
         src,
-        "db_execute() second argument must be List, got String",
+        "db_execute() argument 2 must be a List of parameters (the `[x, y]` form), got String",
         "the audit example (placeholder-free SQL)",
     );
 }
@@ -102,7 +102,7 @@ flow Main { input: Float = 7.0 -> GrantedWipe -> output }
 "#;
     assert_parity_error(
         src,
-        "db_execute_with_grant() third argument must be List, got Float",
+        "db_execute_with_grant() argument 3 must be a List of parameters (the `[x, y]` form), got Float",
         "the grant twin",
     );
 }

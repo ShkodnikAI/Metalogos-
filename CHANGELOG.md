@@ -168,6 +168,36 @@ All notable changes to the Metalogos project.
 
 ### Fixed
 
+- **№783 (gh#1494, Wave 62 — the audit-23.10 A4/S-3+N-2, P1):** the
+  query* family no longer loses parameters silently, and `each` over a
+  non-List refuses identically on both backends. (1) The params SSOT —
+  `bind_params(who, args, idx)` in db_ops.rs now serves ALL SIX db
+  functions (query, query_vm, query_row, query_scalar, db_execute,
+  db_execute_with_grant): the pre-№783 query* family answered a
+  non-List second argument with `Vec::new()` — SILENTLY
+  (`query("… WHERE id = ?1", user_id)` bound ZERO parameters and,
+  without a mandatory placeholder, passed quietly with the caller's
+  data never reaching the engine); the refusal NAMES the `[x, y]`
+  form, the №553 loudness contract moves into the SSOT (its pins ride
+  the landed wording). (2) The VM `each` over a NON-List answered 0
+  iterations silently (ListLen → 0.0) while the TW refused — a live
+  TW/VM divergence of the gh#1336 class (a client-string
+  `json_body()` made the VM lane skip the loop); both ListLen arms
+  now carry the byte-identical TW coded refusal
+  (`[TYPE_MISMATCH] each: expected List, got <type>`). (3) The №766
+  diff-fuzzer carries the class shape — one in 31 generated iterables
+  is a String literal (the refusal-parity shape; the executed-counter
+  floors of the №621/№766 probes hold — the form stays rare at the
+  statement level). The 7-pin battery (4 functions × both backends +
+  the TW/VM each-parity pair + 2 happy-path controls) verified
+  RED-before on the pre-№783 engines: 5/7 failed (the quiet Ok
+  instead of the refusal, the old №553 wording, the VM divergence);
+  the №553 wording pins re-spelled to the landed form. AFFECTS:
+  programs that passed a non-List params argument now catch the loud
+  refusal (the redact-equivalent `[x, y]` List form stays the legal
+  path); the each-over-non-List programs now refuse on the VM lane
+  exactly as the TW lane always did.
+
 - **№782 (gh#1493, Wave 62 — the audit-23.10 A3, P0):** the executor
   resource limits — `serve` can no longer be killed by a runaway
   program. Three halves: (1) the string capacity — ONE SSOT

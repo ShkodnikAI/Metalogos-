@@ -374,6 +374,11 @@ impl McpServer {
                         if let Some(result) = proxy {
                             return match result {
                                 Ok(text) => {
+                                    // №794 (the gateway G3): the ALLOWED call — the ledger
+                                    // carries the decision, the tool and the outcome
+                                    // (the arguments ride only as the args_hash — the ledger
+                                    // must not become a leak channel).
+                                    ledger_mcp_record(true, tool_name, "ok");
                                     let result_str = if text.len() > MAX_RESPONSE_SIZE {
                                         format!(
                                             "{}... (truncated, {} bytes)",
@@ -392,14 +397,19 @@ impl McpServer {
                                         }
                                     })
                                 }
-                                Err(e) => serde_json::json!({
-                                    "jsonrpc": "2.0",
-                                    "id": id,
-                                    "result": {
-                                        "content": [{"type": "text", "text": format!("Error: {}", e)}],
-                                        "isError": true
-                                    }
-                                }),
+                                Err(e) => {
+                                    // Allowed (the proxy routed the call) but the
+                                    // upstream/tool failed — the OUTCOME, not a denial.
+                                    ledger_mcp_record(true, tool_name, &format!("error: {}", e));
+                                    serde_json::json!({
+                                        "jsonrpc": "2.0",
+                                        "id": id,
+                                        "result": {
+                                            "content": [{"type": "text", "text": format!("Error: {}", e)}],
+                                            "isError": true
+                                        }
+                                    })
+                                }
                             };
                         }
                     }
@@ -411,6 +421,9 @@ impl McpServer {
                     .iter()
                     .find(|t| t.full_name == tool_name || t.method_name == tool_name);
                 if tool.is_none() {
+                    // №794 (the gateway G3): the DENIED call — the ledger records
+                    // every refusal with the reason (the args hash-only).
+                    ledger_mcp_record(false, tool_name, "denied: unknown tool (not in allowlist)");
                     return serde_json::json!({
                         "jsonrpc": "2.0",
                         "id": id,
@@ -418,6 +431,7 @@ impl McpServer {
                     });
                 }
                 let Some(tool) = tool else {
+                    ledger_mcp_record(false, tool_name, "denied: not in allowlist");
                     return serde_json::json!({
                         "jsonrpc": "2.0",
                         "id": id,
@@ -433,6 +447,8 @@ impl McpServer {
                     &arguments,
                 ) {
                     Ok(result) => {
+                        // №794: the allowed call — ok.
+                        ledger_mcp_record(true, tool_name, "ok");
                         let result_str = if result.len() > MAX_RESPONSE_SIZE {
                             format!(
                                 "{}... (truncated, {} bytes)",
@@ -451,14 +467,19 @@ impl McpServer {
                             }
                         })
                     }
-                    Err(e) => serde_json::json!({
-                        "jsonrpc": "2.0",
-                        "id": id,
-                        "result": {
-                            "content": [{"type": "text", "text": format!("Error: {}", e)}],
-                            "isError": true
-                        }
-                    }),
+                    Err(e) => {
+                        // №794: the allowed call whose BODY failed — the outcome,
+                        // not a denial (the tool executed; the body errored).
+                        ledger_mcp_record(true, tool_name, &format!("error: {}", e));
+                        serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": {
+                                "content": [{"type": "text", "text": format!("Error: {}", e)}],
+                                "isError": true
+                            }
+                        })
+                    }
                 }
             }
 
@@ -603,6 +624,24 @@ struct ExposedTool {
     description: String,
     /// Naryad #394: the compiled policy (№316 SSOT, no manual YAML).
     policy: crate::mcp_policy::ToolPolicy,
+}
+
+/// №794 (the gateway G3): the ledger record on EVERY `tools/call` —
+/// allowed (`mcp.call`) or refused (`mcp.call.denied`), the tool in the
+/// scope, the reason/outcome in the detail. The detail is hashed into
+/// the record's `args_hash` BY THE LEDGER SCHEMA — the arguments and
+/// the reasons never ride the journal in the open form (the ledger must
+/// not become a leak channel). The actor is the gateway process; the
+/// floating session label extends this record with G2 (#1481) — the
+/// `label=pre-G2` marker is the explicit extension point, not silence.
+fn ledger_mcp_record(allowed: bool, tool: &str, outcome: &str) {
+    let action = if allowed {
+        "mcp.call"
+    } else {
+        "mcp.call.denied"
+    };
+    let detail = format!("tool={} outcome={} label=pre-G2", tool, outcome);
+    metalogos::ledger::record(action, "mcp-gateway", tool, &detail);
 }
 
 fn collect_exposed_tools(declarations: &[Declaration], allowlist: &[String]) -> Vec<ExposedTool> {

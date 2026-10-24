@@ -271,6 +271,28 @@ All notable changes to the Metalogos project.
 
 ### Fixed
 
+- **№798 (gh#1536, Wave 64 — audit-23.10 B6/D-2, P3):** `llms.txt` is
+  ENGLISH — the owner's 2026-09-17 "documentation in English only"
+  directive is now machine-enforced for the file too. The pre-№798
+  state: the file carried Russian prose wholesale (1298 Cyrillic
+  letters / 39.4% — the verified scan) while
+  `tests/docs_language_lint.rs` walked `.md` files only, so the
+  directive was declared but not enforced for the agent-facing index.
+  Three halves: (1) the full translation (the structure, the links
+  and the machine-readable counters preserved — the agent-index gate
+  counters identical); (2) the lint's scanned set gains the explicit
+  NON-`.md` agent inputs (`llms.txt`) — the coverage pin + the
+  scanner's negative control (a synthetic Russian document is
+  flagged, an English one passes; no repo file is mutated); the RED
+  form verified honestly: the extended lint against the pre-№798
+  Russian `llms.txt` FAILS with the 39.4% verdict (stash-run, форма
+  №772); (3) the agent-index gate's two Russian-coupled llms patterns
+  (`рабочих .mlog`, `наряды №1-№N`) move to the English spellings —
+  a regression back to Russian now trips the gate twice (the missing
+  statement + the lint). The `.rs` Cyrillic comments stay OUT of
+  scope (the owner's gray-zone decision, the audit's own note).
+  AFFECTS: documentation + the lint surface only.
+
 - **№797 (gh#1535, Wave 64 — audit-23.10 B5/D-1, P2):** the AGENTS.md
   stale facts (the file every coding agent reads first) — three
   corrections: (1) the §5 coverage claim ("~59%, not 100%") is

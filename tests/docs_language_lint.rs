@@ -55,7 +55,15 @@ struct Violation {
     share_percent: f64,
 }
 
-/// Walk a directory recursively, yielding paths to all `.md` files.
+/// The NON-`.md` agent-input documents (№798, the audit-23.10 B6/D-2):
+/// `llms.txt` is the agent-facing index (the RAG/IDE entry point) and is
+/// documentation like any `.md` — the owner's 2026-09-17 English-only
+/// directive applies to it too. It lived OUTSIDE the lint's `.md`-only
+/// walk, so the directive was not machine-enforced for it.
+const NON_MD_AGENT_INPUTS: &[&str] = &["llms.txt"];
+
+/// Walk a directory recursively, yielding paths to all `.md` files PLUS
+/// the explicit non-`.md` agent inputs (`llms.txt`).
 ///
 /// `target/` (build artifacts) and `.git/` are skipped; other hidden
 /// directories (e.g. `.github`) ARE scanned — the PR template lives there
@@ -63,6 +71,12 @@ struct Violation {
 fn md_files(root: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     walk(root, &mut out);
+    for rel in NON_MD_AGENT_INPUTS {
+        let path = root.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+        if path.is_file() {
+            out.push(path);
+        }
+    }
     out
 }
 
@@ -277,4 +291,51 @@ fn tempfile_dir() -> PathBuf {
     ));
     fs::create_dir_all(&p).unwrap();
     p
+}
+
+/// №798 (the audit-23.10 B6/D-2): the coverage pin — the non-`.md`
+/// agent inputs are INSIDE the lint's scanned set (the pre-№798 lint
+/// walked `.md` only, so `llms.txt` carried Russian prose unflagged —
+/// the directive was declared but not enforced for the file).
+#[test]
+fn n798_lint_covers_the_non_md_agent_inputs() {
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
+    let root = PathBuf::from(&manifest_dir);
+    let scanned = md_files(&root);
+    for rel in NON_MD_AGENT_INPUTS {
+        let target = root.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+        assert!(
+            scanned.contains(&target),
+            "the lint must scan `{rel}` (the №798 agent-input coverage)"
+        );
+    }
+}
+
+/// The negative control: the scanner FLAGS a synthetic Russian document
+/// and PASSES an English one — the mechanism's self-test (the planted
+/// regression form; no repo file is mutated).
+#[test]
+fn n798_scanner_flags_russian_and_passes_english() {
+    let dir = std::env::temp_dir().join("n798-lint-negative-control");
+    let _ = std::fs::create_dir_all(&dir);
+    let russian = dir.join("russian_fixture.md");
+    std::fs::write(
+        &russian,
+        "Это тестовый документ на русском языке для проверки lint-механизма.\n         Он содержит достаточно кириллицы, чтобы пересечь порог срабатывания.\n",
+    )
+    .expect("write the fixture");
+    assert!(
+        scan_file(&russian).is_some(),
+        "the Russian document must be flagged"
+    );
+    let english = dir.join("english_fixture.md");
+    std::fs::write(
+        &english,
+        "This is a test document in technical English for the lint mechanism.\n         It contains no Cyrillic letters at all, so the threshold is never crossed.\n",
+    )
+    .expect("write the fixture");
+    assert!(scan_file(&english).is_none(), "the English document passes");
+    let _ = std::fs::remove_file(&russian);
+    let _ = std::fs::remove_file(&english);
+    let _ = std::fs::remove_dir(&dir);
 }

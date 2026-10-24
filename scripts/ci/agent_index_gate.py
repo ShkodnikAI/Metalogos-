@@ -94,7 +94,7 @@ def check_repo(repo: Path) -> list[str]:
             "ADR count",
         ),
         (
-                r":\s(\d+) рабочих `.mlog`",
+            r":\s(\d+) working `.mlog`",
             gen_metrics.count_examples(),
             "examples count",
         ),
@@ -109,9 +109,14 @@ def check_repo(repo: Path) -> list[str]:
             )
 
     # The naryad range: №1-№N where N is the highest merged naryad.
-    stated_range = re.search(r"наряды №1-№(\d+)\+?", llms)
+    # №798: llms.txt is ENGLISH (the B6 owner directive 2026-09-17 now
+    # machine-enforced for this file too) — the stated form is
+    # "naryads №1-№N"; the Russian-spelled statement is gone and its
+    # absence trips the gate loudly (a regression back to Russian is
+    # caught twice: here and by the docs-language lint).
+    stated_range = re.search(r"naryads №1-№(\d+)\+?", llms)
     if stated_range is None:
-        problems.append("llms.txt: the naryad range statement (наряды №1-№N) is gone")
+        problems.append("llms.txt: the naryad range statement (naryads №1-№N) is gone")
     elif is_shallow(repo):
         print(
             "agent-index-gate: SKIP (loud) — the naryad-range check needs the full "

@@ -48,10 +48,6 @@ fn parse(src: &str) -> Vec<metalogos::ast::Declaration> {
     metalogos::parser::parse(src).expect("parses")
 }
 
-fn request(method: &str, params: serde_json::Value) -> serde_json::Value {
-    serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
-}
-
 fn call_text(response: &serde_json::Value) -> String {
     let text = response["result"]["content"][0]["text"]
         .as_str()
@@ -153,7 +149,7 @@ fn n793_upstream_death_loud_reconnect() {
     // failure (if any) must be the loud envelope; the eventual success
     // answers 0 — a FRESH process (the old one is verifiably gone).
     let mut reconnected = None;
-    for attempt in 0..5 {
+    for _attempt in 0..5 {
         let r = server.handle_request(
             "tools/call",
             &serde_json::json!({"name": "stateful.count", "arguments": {}}),

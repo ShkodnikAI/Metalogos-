@@ -168,6 +168,41 @@ All notable changes to the Metalogos project.
 
 ### Fixed
 
+- **№781 (gh#1492, Wave 62 — the audit-23.10 A2, P0):** escaping a
+  secret is still a secret. The `escape_html` builtin and the ESCAPED
+  slots of `render` restored the INTEGRITY of the data but carried an
+  unconditional declassification — the result was treated as
+  `Public`, so `respond("200 OK", escape_html(env("API_TOKEN")))`
+  passed every gate on all three label lanes. The fix (the N2/
+  gh#1211 ct_eq form, one shape in every lane): the INTEGRITY is
+  restored (the escape still cleans untrusted markup — the №685/
+  №695/№765 XSS contract is NOT weakened), the CONFIDENTIALITY is
+  the join of the arguments. The lanes: `secret_label.rs` — the
+  render/escape_html overrides are removed from `label_of_expr` and
+  `binding_label` (the argument join decides); the label lattice
+  (`semantic.rs` `label_source` + the `render` position-aware arm,
+  `audit.rs` `interp_expr_label` — both engines symmetric) — an
+  escaped slot restores the integrity only, a raw slot conducts
+  everything (№765 unchanged), an unknown/dynamic template name
+  stays the conservative conductor. The audit A5-class stakes:
+  `secret_label.rs`/`sql_label.rs` join the risk-review site set
+  (№686, the item-10 reminder fires on their diffs; AGENTS.md §8.5
+  updated, the self-test set-pin moves 4 → 6). The threat-model
+  Boundary 3 carries the corollary verbatim (escape restores
+  integrity only, never lowers confidentiality; the redact-policy
+  registry stays the only path down). The leak-suite quartet pins
+  the hole RED-before (verified on the unpatched main: 4/4 compiled
+  — NOT CAUGHT; a stash-run of the mutation probe shows every pin
+  losing the SECRET_LEAK class to the PII_EGRESS_* mismatch —
+  the pins are hard-wired to the lane); the A2 fences
+  (`ok_781_escape_html_untrusted_respond`, `ok_781_secret_hash_only_
+  respond`) keep the false-positive side green. AFFECTS: programs
+  that sent an escaped env-secret to a sink now catch `SECRET_LEAK`
+  at compile time (the redact one-way policies — `hash_only`/
+  `secrets`/`all` — stay the legal path); everything else compiles
+  unchanged. security: yes — the compile-time gate grew teeth on the
+  escaped-secret egress class.
+
 - **№787 (gh#1510, Wave 63 — audit-23.10 C6 I-c):** the integer
   precision-loss boundary — a SQLite/JSON integer f64 cannot represent
   exactly (|n| > 2^53: 64-bit ids, snowflakes) is a LOUD

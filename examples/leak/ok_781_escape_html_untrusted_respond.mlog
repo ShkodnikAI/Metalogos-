@@ -1,0 +1,9 @@
+// Легально (A2 fence): Untrusted-вход экранируется ДО HTML-ответа —
+// целостность восстановлена, конфиденциальность Public, находок нет.
+// XSS-контракт №685/№695/№765 цел: escape_html по-прежнему чистит
+// Untrusted для HTML_INJECTION.
+pattern Page(q: String) -> String {
+  let _ = respond_html(escape_html(query_param("q")))
+  return "page"
+}
+flow Main { input: String = "q" -> Page -> output }

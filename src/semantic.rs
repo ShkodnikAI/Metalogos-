@@ -1595,7 +1595,22 @@ fn label_source(fn_name: &str, args: &[Expr], env: &BTreeMap<String, Label>) -> 
         // S-1b): render is REMOVED — a template with raw slots (`{{{ }}}`)
         // conducts the untrusted state verbatim (the let-form XSS); the
         // escape_html status is untouched (the audit's boundary).
-        "escape_html" => Some(kind_label("Sanitized")),
+        // A2 (naryad 781, the audit-23.10 S-1): escape_html restores the
+        // INTEGRITY only — the CONFIDENTIALITY is the join of the
+        // arguments (the N2/gh#1211 ct_eq form): an escaped secret is
+        // still a secret. The HTML_INJECTION taint lane keeps its
+        // Sanitized status (the №685/№695/№765 XSS contract is not
+        // weakened — untrusted data stays cleaned for HTML output).
+        "escape_html" => {
+            let joined = args
+                .iter()
+                .fold(Label::bottom(), |acc, a| acc.join(&expr_label(a, env)));
+            Some(Label {
+                conf: joined.conf,
+                integrity: crate::labels::Integrity::Trusted,
+                consent: joined.consent,
+            })
+        }
         // N2 (gh#1211): ct_eq — the constant-time comparison verdict.
         // The INTEGRITY is restored (the verdict is the "validate before
         // decide" data the №327 decision gate asks for — comparing an
@@ -1753,12 +1768,23 @@ fn expr_label(expr: &Expr, env: &BTreeMap<String, Label>) -> Label {
                 let raw_positions =
                     crate::html_label::resolve_raw_positions(&snapshot, args.first());
                 let is_raw = |idx: usize| raw_positions.map(|p| p.contains(&idx)).unwrap_or(true);
-                let mut acc = legacy_taint_label("Sanitized").unwrap_or_else(Label::bottom);
+                // A2 (naryad 781, the audit-23.10 S-1): an ESCAPED slot
+                // restores the INTEGRITY only — its CONFIDENTIALITY is the
+                // argument's (the ct_eq form); a raw slot conducts
+                // EVERYTHING (№765 unchanged); an unknown/dynamic template
+                // name stays the conservative conductor (fail-closed).
+                let mut acc = Label::bottom();
                 for (idx, a) in args.iter().skip(1).enumerate() {
-                    if !is_raw(idx) {
-                        continue;
+                    let l = expr_label(a, env);
+                    if is_raw(idx) {
+                        acc = acc.join(&l);
+                    } else {
+                        acc = acc.join(&Label {
+                            conf: l.conf,
+                            integrity: crate::labels::Integrity::Trusted,
+                            consent: l.consent,
+                        });
                     }
-                    acc = acc.join(&expr_label(a, env));
                 }
                 return acc;
             }

@@ -110,7 +110,7 @@ The integrity axis is about DECISIONS, not existence: `if`/`else if` conditions,
 
 ### Boundary 3 — downward moves: the redact policy registry
 
-The ONLY sanctioned path down is `redact(value, "<policy>")` with a literal policy value (ADR-0154 §10): `hash_only` → `public` (one-way SHA-256), `all` → `public`, `secrets` → `public` (legacy ADR-0136), `pii` → `private`, `pii_strip` → `private`, `truncate` → `private` — conservative policies do NOT declassify (pattern strips can miss data; the gate keeps blocking). Unknown words are loud runtime errors; dynamic policies pass the label through — no silent downward moves. Every application is an unconditional `REDACT_APPLIED` audit event (`[REDACT][audit-event]`). ADR-0158 is the booking for the standalone declassify-boundaries write-up; the implemented contract lives in ADR-0154 §10 today.
+The ONLY sanctioned path down is `redact(value, "<policy>")` with a literal policy value (ADR-0154 §10): `hash_only` → `public` (one-way SHA-256), `all` → `public`, `secrets` → `public` (legacy ADR-0136), `pii` → `private`, `pii_strip` → `private`, `truncate` → `private` — conservative policies do NOT declassify (pattern strips can miss data; the gate keeps blocking). Unknown words are loud runtime errors; dynamic policies pass the label through — no silent downward moves. Every application is an unconditional `REDACT_APPLIED` audit event (`[REDACT][audit-event]`). ADR-0158 is the booking for the standalone declassify-boundaries write-up; the implemented contract lives in ADR-0154 §10 today. The sanitizer corollary (A2, naryad 781 — the audit-23.10 S-1): **`escape_html` and the escaped slots of `render` restore integrity only, never lower confidentiality** — an escaped secret is still a secret (the conf rides the argument join in every label lane, the ct_eq N2 form); the redact-policy registry stays the only path down, and the raw `render` slots conduct everything (№765).
 
 ### Migration bridge — `profile legacy { egress: permissive_with_audit }`
 
@@ -120,8 +120,8 @@ Pre-lattice programs relay user data into outputs as their whole point; the prof
 
 `examples/leak/` + `tests/run_leak_suite.rs` is the executable evidence that the boundaries above actually catch the scenarios they name:
 
-- **28 negatives** (`n01`…`n28`) — programs that MUST NOT compile; each carries an `.error` file pinning the expected failure CLASS (`EXPECTED: <CLASS> — scenario`). A negative that compiles — or that fails for a FOREIGN reason (class mismatch) — fails the run.
-- **16 positives** (`ok_*`) — legal flows (redact-before-sink, local log for private data, plain public transforms) that MUST keep compiling AND running with pinned output, before and after №325. This is the false-positive fence.
+- **48 negatives** (`n01`…`n38` + the serial forms) — programs that MUST NOT compile; each carries an `.error` file pinning the expected failure CLASS (`EXPECTED: <CLASS> — scenario`). A negative that compiles — or that fails for a FOREIGN reason (class mismatch) — fails the run. The A2 quartet (`n35`–`n38`) pins the sanitizer corollary: escaping a secret stays a `SECRET_LEAK`.
+- **27 positives** (`ok_*`) — legal flows (redact-before-sink, local log for private data, plain public transforms, the A2 fences `ok_781_*`) that MUST keep compiling AND running with pinned output, before and after №325. This is the false-positive fence.
 - **Mode**: since №325 `BLOCKING = true` — the gate is live, "not caught" fails CI. The corpus lives OUTSIDE the main golden cycle by design (`tests/golden.rs` scans `examples/` non-recursively); the dedicated runner is `tests/run_leak_suite.rs`.
 
 ### Second line — runtime label parity (№328, ADR-0156)

@@ -164,7 +164,9 @@ on compilation.
    it does not present a partial result as a complete one.
 5. A PR that changes the sanitizer/source/sink layer — the taint/label
    sites (`src/audit.rs`, `src/html_label.rs`, `src/semantic.rs` label
-   lattice, `src/builtins_classification.rs`), the sanitize/source/sink
+   lattice, `src/builtins_classification.rs`, `src/secret_label.rs`,
+   `src/sql_label.rs` — the A2 additions, naryad 781: the label lanes
+   that speak the sanitizer semantics), the sanitize/source/sink
    name sets in them, or the `render`/`template_render`/`set_header`-class
    contracts — must fill item 10 of `docs/risk-review-checklist.md` in
    the PR description: the touched sites, the before/after for every

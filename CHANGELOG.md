@@ -6,6 +6,28 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№794 (gh#1532, Wave 64 — the gateway G3, the C1 (b) owner
+  decision, ADR-0196):** the ledger entry on EVERY gateway
+  `tools/call` — `mcp.call` (allowed: the local ok, the local body
+  error, the upstream proxy ok/proxy error) and `mcp.call.denied`
+  (the gateway refusals: the unknown tool, the not-in-allowlist
+  miss), the tool in the record scope, the reason/outcome in the
+  detail. The detail rides the ledger schema's `args_hash` BY
+  CONSTRUCTION — the arguments and the reasons never appear in the
+  journal in the open form (the ledger must not become a leak
+  channel; the pin replays a `LEAKME` argument and reads the stored
+  record back). The actor is the gateway process; the floating
+  session label extends the record with G2 (#1481) — the
+  `label=pre-G2` marker is the explicit extension point, not
+  silence. The 2-pin battery verified RED-before via the
+  hooks-stash run (форма №772): 2/2 failed on the pre-№794
+  hooks (no mcp.* records); the 5-call session (3 allowed / 2
+  denied) leaves 5 signed records, `mlog ledger verify --expect-head`
+  is GREEN on the export and RED after a one-letter tamper.
+  AFFECTS: gateway deployments gain the audit trail the G4 demo
+  needs; the stateless builtins' audit-log contract unchanged
+  (№268).
+
 - **№793 (gh#1531, Wave 64 — the gateway G1, the C1 (b) owner
   decision, ADR-0196):** the MCP contour gains the SESSION layer —
   long-lived upstream sessions for the gateway. The new

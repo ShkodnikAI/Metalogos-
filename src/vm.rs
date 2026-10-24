@@ -4300,6 +4300,44 @@ impl Vm {
         crate::llm::set_llm_backend_tag(prev_tag);
         out
     }
+
+    /// №795 (gh#1533, Wave 64 P1 — the C5 (b) owner decision, ADR-0197):
+    /// invoke a COMPILED pattern by index with positional arguments — the
+    /// tool-method execution form for `mcp-serve` (the same executor as
+    /// serve, per the single-executor decision; TW stays the CI oracle).
+    /// The mirror of the `CallPattern` instruction's calling convention:
+    /// the args bind as the frame locals at base 0, the depth budget is
+    /// per-request, the backend tag contract matches `execute_route_code`.
+    pub fn invoke_pattern(
+        &mut self,
+        pattern_idx: usize,
+        args: Vec<Value>,
+        program: &Program,
+    ) -> Result<Value, String> {
+        let prev_tag = crate::llm::set_llm_backend_tag("vm");
+        self.call_depth = 0;
+        let out = (|| -> Result<Value, String> {
+            self.load_program(program)?;
+            let pattern = program
+                .patterns
+                .get(pattern_idx)
+                .ok_or_else(|| format!("VM: pattern index {} not found", pattern_idx))?
+                .clone();
+            if args.len() != pattern.param_count {
+                return Err(format!(
+                    "VM: pattern {} expects {} args, got {}",
+                    pattern.name,
+                    pattern.param_count,
+                    args.len()
+                ));
+            }
+            let mut stack: Vec<Value> = args;
+            let mut call_stack: Vec<CallFrame> = Vec::new();
+            self.execute_code(&pattern.code, &mut stack, &mut call_stack, program)
+        })();
+        crate::llm::set_llm_backend_tag(prev_tag);
+        out
+    }
     #[allow(clippy::wildcard_enum_match_arm)]
     // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
     /// ADR-0089: If confidence < 1.0, wrap a concrete result as Fluid

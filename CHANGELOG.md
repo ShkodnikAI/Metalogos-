@@ -4,7 +4,31 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
-### Added
+### Changed
+
+- **№795 (gh#1533, Wave 64 — audit-23.10 C5-b V2, the C5 (b) owner
+  decision, ADR-0197):** `mcp-serve` executes tool methods on the VM —
+  the SAME compile-path as serve (the strict VM compile at startup; a
+  non-compilable file refuses the gateway loudly, where the pre-№795
+  TW path silently ignored the non-tool declarations' run errors).
+  The capability the switch buys: the RUNTIME label gates
+  (`[SINK_CLEARANCE_RUNTIME]`, the №780/ADR-0156 machinery) fire IN
+  TOOL BODIES — a private value routed into a sink at runtime is
+  refused loudly through the tools/call envelope, where the pre-№795
+  TW path answered green (the leak went through; the TW lane has no
+  runtime label twin). The invocation rides the new
+  `Vm::invoke_pattern` (the CallPattern convention: the JSON args
+  bind positionally per the declaration order; the per-request depth
+  budget and the backend-tag contract match `execute_route_code`).
+  The gates are unchanged: `ServeRouteExecGuard` (№253-А/№259),
+  the Category-A startup gate, the allowlist, the exec/env posture.
+  The 3-pin battery (the runtime-gate pin + the honest parity pins)
+  verified RED-before via the changes-stash run (форма №772): the
+  runtime pin FAILED on the pre-№795 TW path (the green answer —
+  the leak), the parity pins green. The existing mcp suites
+  (№394/№477/№536/№793/№794) stay green on the VM lane. AFFECTS:
+  gateway tool files must compile on the VM lane (the strict form);
+  the tool bodies gain the runtime label enforcement.
 
 - **№794 (gh#1532, Wave 64 — the gateway G3, the C1 (b) owner
   decision, ADR-0196):** the ledger entry on EVERY gateway
@@ -27,6 +51,8 @@ All notable changes to the Metalogos project.
   AFFECTS: gateway deployments gain the audit trail the G4 demo
   needs; the stateless builtins' audit-log contract unchanged
   (№268).
+
+### Added
 
 - **№793 (gh#1531, Wave 64 — the gateway G1, the C1 (b) owner
   decision, ADR-0196):** the MCP contour gains the SESSION layer —

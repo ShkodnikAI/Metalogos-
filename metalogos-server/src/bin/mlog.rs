@@ -28,6 +28,12 @@ use std::path::PathBuf;
 struct Cli {
     #[command(subcommand)]
     command: Commands,
+    /// №800 (gh#1547, V3 — the C5 (b) owner decision, ADR-0197): execute
+    /// on the REFERENCE backend (TW) instead of the VM. The oracle lane
+    /// for comparison only — the loud banner fires; TRANSITIONAL (two
+    /// release windows from the V3 landing, ADR-0197 §4.3).
+    #[arg(long, global = true)]
+    reference: bool,
 }
 
 #[derive(clap::Subcommand, Debug)]
@@ -191,13 +197,13 @@ fn main() {
         });
 
     match cli.command {
-        Commands::Run { file } => cmd_run(file),
-        Commands::Repl => cmd_repl_stdio(),
+        Commands::Run { file } => cmd_run(file, cli.reference),
+        Commands::Repl => cmd_repl_stdio(cli.reference),
         Commands::Check { file, root } => cmd_check(file, root),
         #[cfg(feature = "server")]
         Commands::Serve { file } => cmd_serve(file),
         Commands::Compile { file } => cmd_compile(file),
-        Commands::Eval { file } => cmd_eval(file),
+        Commands::Eval { file } => cmd_eval(file, cli.reference),
         Commands::Test {
             file,
             filter,
@@ -348,10 +354,45 @@ fn cmd_ledger(cmd: LedgerCmd) {
     }
 }
 
-/// `mlog run <file>` — parse + execute (or deserialize + VM run for .mbc)
-fn cmd_run(file: PathBuf) {
-    // Detect .mbc extension → bytecode path
+/// №800: the backend detector — the TEST HOOK the naryad names ("детектор
+/// бэкенда в выводе диагностики или через тестовый хук"). With
+/// METALOGOS_BACKEND_ECHO=1 run/eval/repl print the executor to stderr
+/// ("[backend: vm]" / "[backend: reference-tw]"); SILENT by default — no
+/// UX noise, the honest detector is one env var away.
+fn backend_echo(tag: &str) {
+    if std::env::var("METALOGOS_BACKEND_ECHO")
+        .map(|v| v == "1" || v == "true")
+        .unwrap_or(false)
+    {
+        eprintln!("[backend: {tag}]");
+    }
+}
+
+/// №800: the ADR-0197 banner for the --reference lane (the oracle escape
+/// hatch announces itself — a silent TW run would be a lie about which
+/// executor answered).
+fn reference_banner() {
+    eprintln!(
+        "mlog: reference backend (TW) — for comparison only (transitional per ADR-0197; the VM is the executor)"
+    );
+}
+
+/// `mlog run <file>` — parse + execute (or deserialize + VM run for .mbc).
+/// №800: the default lane executes on the VM (the single user-command
+/// executor, ADR-0197) — the same executor `serve` and `mcp-serve` use;
+/// `--reference` keeps the TW oracle reachable for comparison.
+fn cmd_run(file: PathBuf, reference: bool) {
+    // Detect .mbc extension → bytecode path (the VM by construction —
+    // the TW oracle consumes SOURCE; a --reference on .mbc refuses loud
+    // instead of silently answering from the wrong executor).
     if file.extension().map(|e| e == "mbc").unwrap_or(false) {
+        if reference {
+            eprintln!(
+                "error: --reference cannot run .mbc bytecode — the TW reference oracle consumes .mlog source (use `mlog run <file.mlog> --reference`)"
+            );
+            std::process::exit(1);
+        }
+        backend_echo("vm");
         cmd_run_bytecode(file);
         return;
     }
@@ -364,6 +405,13 @@ fn cmd_run(file: PathBuf) {
         }
     };
 
+    if reference {
+        backend_echo("reference-tw");
+        reference_banner();
+    } else {
+        backend_echo("vm");
+    }
+
     // Наряд №197: run the interpreter in a thread with a large stack so that
     // deeply-recursive Metalogos patterns (e.g. self-host/parser.mlog parsing
     // itself) do not overflow the default 8MB main-thread stack. The interpreter's
@@ -372,11 +420,22 @@ fn cmd_run(file: PathBuf) {
     // → eval_statements → ... For parser.mlog's nested if-else expressions,
     // this can recurse 100+ levels deep. 256MB is a safe upper bound that
     // still fits within typical container memory limits.
+    // №782 (audit-23.10 A3): the VM path mirrors the TW form — the native
+    // CallPattern recursion runs on the same 256 MB thread so the depth CAP
+    // (the loud `[CALL_DEPTH_EXCEEDED]`) is what stops runaway recursion in
+    // every build profile.
     let source_for_thread = source.clone();
-    let handle = std::thread::Builder::new()
-        .stack_size(256 * 1024 * 1024)
-        .spawn(move || metalogos::run_program(&source_for_thread))
-        .expect("failed to spawn interpreter thread");
+    let handle = if reference {
+        std::thread::Builder::new()
+            .stack_size(256 * 1024 * 1024)
+            .spawn(move || metalogos::run_program(&source_for_thread))
+            .expect("failed to spawn interpreter thread")
+    } else {
+        std::thread::Builder::new()
+            .stack_size(256 * 1024 * 1024)
+            .spawn(move || metalogos::run_program_on_vm(&source_for_thread))
+            .expect("failed to spawn VM thread")
+    };
 
     match handle.join() {
         Ok(Ok(output)) => {
@@ -451,6 +510,30 @@ fn cmd_compile(file: PathBuf) {
         }
     };
 
+    // №535 (pinned by naryad_535 compile pins): the compile-mode import
+    // caveat — the CWD-anchored resolution applies here; the warning
+    // precedes any loud import error. №800: the warning lives on the
+    // `mlog compile` lane only (the run lane's import gate is the №523
+    // static resolution — a "cannot be resolved" line there would lie
+    // about a working import).
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("import ") {
+            let path = rest
+                .split_whitespace()
+                .next()
+                .unwrap_or_default()
+                .trim_end_matches(';')
+                .to_string();
+            if !path.is_empty() {
+                eprintln!(
+                    "warning: import '{}' cannot be resolved in compile mode (use `mlog serve` instead)",
+                    path
+                );
+            }
+        }
+    }
+
     let program = match metalogos::compile_program(&source) {
         Ok(p) => p,
         Err(e) => {
@@ -485,8 +568,12 @@ fn cmd_compile(file: PathBuf) {
     }
 }
 
-/// `mlog eval <file>` — parse + execute declarations + run eval blocks (ADR-0050)
-fn cmd_eval(file: PathBuf) {
+/// `mlog eval <file>` — parse + execute declarations + run eval blocks (ADR-0050).
+/// №800: the default lane executes on the VM (the declarations build the
+/// learnable/adapt state ON the VM; the harness scores through the same
+/// `call_llm` path a user call takes); `--reference` keeps the TW oracle
+/// reachable for comparison.
+fn cmd_eval(file: PathBuf, reference: bool) {
     let source = match fs::read_to_string(&file) {
         Ok(s) => s,
         Err(e) => {
@@ -495,8 +582,28 @@ fn cmd_eval(file: PathBuf) {
         }
     };
 
-    match metalogos::eval_program(&source) {
-        Ok(results) => {
+    if reference {
+        backend_echo("reference-tw");
+        reference_banner();
+    } else {
+        backend_echo("vm");
+    }
+
+    // The №197/№782 big-stack thread form — the compile and the pattern
+    // recursion must not overflow in the debug profile.
+    let handle = std::thread::Builder::new()
+        .stack_size(256 * 1024 * 1024)
+        .spawn(move || {
+            if reference {
+                metalogos::eval_program(&source)
+            } else {
+                metalogos::eval_program_on_vm(&source)
+            }
+        })
+        .expect("failed to spawn eval thread");
+
+    match handle.join() {
+        Ok(Ok(results)) => {
             let mut any_failed = false;
             for result in &results {
                 println!("{}", result.format_report());
@@ -509,8 +616,12 @@ fn cmd_eval(file: PathBuf) {
                 std::process::exit(1);
             }
         }
-        Err(e) => {
+        Ok(Err(e)) => {
             eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+        Err(_) => {
+            eprintln!("error: eval thread panicked");
             std::process::exit(1);
         }
     }
@@ -924,23 +1035,60 @@ fn cmd_serve(file: PathBuf) {
 
 /// `mlog repl` — interactive session with persistent state.
 ///
-/// Uses rustyline for line editing with history when stdin is a tty.
-/// When stdin is piped (non-tty), reads lines from stdin silently
-/// (used by integration tests feeding 3 lines via pipe).
-fn cmd_repl_stdio() {
-    let mut interp = metalogos::interpreter::Interpreter::new();
+/// №800: the DEFAULT backend is the VM — the `VmRepl` session (the
+/// persistent Vm carries globals/patterns/learnables/memory across
+/// inputs, the session chunks compile against the live tables).
+/// `--reference` keeps the TW lane (the long-lived Interpreter) reachable
+/// for comparison. Uses rustyline for line editing with history when
+/// stdin is a tty. When stdin is piped (non-tty), reads lines from stdin
+/// silently (used by integration tests feeding 3 lines via pipe).
+///
+/// The REPL surface is backend-agnostic: both sessions answer the same
+/// `feed_line` contract (the mutate log prepends the flow output). The
+/// large sessions sit behind `Box` (the clippy large_enum_variant form —
+/// the REPL holds exactly one session at a time).
+enum ReplBackend {
+    /// The TW reference oracle lane (--reference, ADR-0197).
+    Reference(Box<metalogos::interpreter::Interpreter>),
+    /// The VM executor lane (the default).
+    Vm(Box<metalogos::VmRepl>),
+}
 
+fn repl_feed(backend: &mut ReplBackend, line: &str) -> Result<Option<String>, String> {
+    match backend {
+        ReplBackend::Reference(interp) => metalogos::feed_line(interp, line),
+        ReplBackend::Vm(session) => session.feed_line(line),
+    }
+}
+
+fn cmd_repl_stdio(reference: bool) {
+    if reference {
+        backend_echo("reference-tw");
+        reference_banner();
+        let mut backend =
+            ReplBackend::Reference(Box::new(metalogos::interpreter::Interpreter::new()));
+        repl_loop(&mut backend);
+    } else {
+        backend_echo("vm");
+        let mut backend = ReplBackend::Vm(Box::new(metalogos::VmRepl::new()));
+        repl_loop(&mut backend);
+    }
+}
+
+/// The shared loop driver — stdin routing only; the backend sits behind
+/// `repl_feed` (the executor is invisible to the I/O plumbing).
+fn repl_loop(backend: &mut ReplBackend) {
     if stdin_is_piped() {
         // Non-interactive (piped stdin): read lines and eval each
-        cmd_repl_piped(&mut interp);
+        cmd_repl_piped(backend);
     } else {
         // Interactive tty: use rustyline with history and readline
-        cmd_repl_interactive(&mut interp);
+        cmd_repl_interactive(backend);
     }
 }
 
 /// Piped stdin mode: read lines, evaluate, print results. Used by tests.
-fn cmd_repl_piped(interp: &mut metalogos::interpreter::Interpreter) {
+fn cmd_repl_piped(backend: &mut ReplBackend) {
     let stdin = io::stdin();
     for line in stdin.lock().lines() {
         match line {
@@ -952,7 +1100,7 @@ fn cmd_repl_piped(interp: &mut metalogos::interpreter::Interpreter) {
                 if trimmed == "exit" || trimmed == "quit" {
                     break;
                 }
-                match metalogos::feed_line(interp, trimmed) {
+                match repl_feed(backend, trimmed) {
                     Ok(Some(output)) => println!("{}", output),
                     Ok(None) => {} // Declaration processed, no output
                     Err(e) => eprintln!("error: {}", e),
@@ -964,7 +1112,7 @@ fn cmd_repl_piped(interp: &mut metalogos::interpreter::Interpreter) {
 }
 
 /// Interactive tty mode: rustyline with history, prompt, readline.
-fn cmd_repl_interactive(interp: &mut metalogos::interpreter::Interpreter) {
+fn cmd_repl_interactive(backend: &mut ReplBackend) {
     println!("METALOGOS REPL v{}", env!("CARGO_PKG_VERSION"));
     println!("Type declarations. Use 'exit' or 'quit' to leave.");
     println!();
@@ -1002,7 +1150,7 @@ fn cmd_repl_interactive(interp: &mut metalogos::interpreter::Interpreter) {
         // Add to history
         let _ = rl.add_history_entry(trimmed);
 
-        match metalogos::feed_line(interp, trimmed) {
+        match repl_feed(backend, trimmed) {
             Ok(Some(output)) => println!("=> {}", output),
             Ok(None) => {} // Declaration processed silently
             Err(e) => eprintln!("error: {}", e),

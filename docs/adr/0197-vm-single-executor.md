@@ -96,8 +96,8 @@ what it is the reference of:
 |---|---|---|---|
 | The precondition | #1458 / №780 | the runtime label gates execute in the pattern/route bodies on the VM | LANDED (`e77a93c`, Wave 62) |
 | V-ADR — this ADR | #1499 / №791 | the decision record | LANDED (this naryad) |
-| V2 | #1500 | `mcp-serve` executes the tool methods on the VM (the runtime labels in MCP) — WITH the gateway pilot (the G2 precondition #1481) | queued (Wave 64) |
-| V3 | #1501 | `run`/`eval`/REPL on the VM + the transitional `--reference` (TW) | queued (Wave 65) |
+| V2 | #1500 | `mcp-serve` executes the tool methods on the VM (the runtime labels in MCP) — WITH the gateway pilot (the G2 precondition #1481) | LANDED (№795, `a74d8dd`, Wave 64) |
+| V3 | #1501 | `run`/`eval`/REPL on the VM + the transitional `--reference` (TW) | LANDED (№800, Wave 65 — the two-window transition clock starts at this landing) |
 | V4 | #1502 | TW ONLY the oracle: the crosscheck/diff-fuzzer/doc-tests; the gate «the user path does not ride TW» | queued (Wave 66) |
 
 The order is the owner's verbatim (§2): after #1458 (landed), V2 with

@@ -101,6 +101,28 @@ pub struct Compiler {
     sandboxes: HashMap<String, SandboxDecl>,
 }
 
+/// №800 (wave 65, P1 — the C5 (b) owner decision, ADR-0197): the REPL
+/// session symbol base — the tables the persistent VM already carries
+/// from the earlier session lines. A session CHUNK compiles against THIS
+/// base: the base names keep their existing slots/indices (the live VM
+/// resolves them), only the chunk's own declarations get fresh ones.
+/// The base is the SSOT for the REPL session symbols; it is snapshotted
+/// from the compiler after each chunk (`session_base_snapshot`) and fed
+/// into the next chunk's `Compiler::with_session`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SessionBase {
+    /// Global variable names, slot index = position (the live VM's
+    /// `globals`/`global_names` layout).
+    pub global_names: Vec<String>,
+    /// Pattern names, index = the live VM's pattern-table index.
+    pub pattern_names: Vec<String>,
+    /// Learnable names, index = the live VM's learnable-table index.
+    pub learnable_names: Vec<String>,
+    /// Struct/entity type fields (the compile-time MakeStruct validation
+    /// table), carried so a later line can construct an earlier type.
+    pub struct_fields: HashMap<String, Vec<String>>,
+}
+
 impl Default for Compiler {
     fn default() -> Self {
         Self::new()
@@ -329,6 +351,70 @@ impl Compiler {
     /// under qualified keys).
     pub fn pattern_index(&self, name: &str) -> Option<usize> {
         self.pattern_indices.get(name).copied()
+    }
+
+    /// №800 (gh#1547, V3): create a compiler that compiles a REPL session
+    /// CHUNK against the live session's symbol base. The base names keep
+    /// their existing slots/indices — the chunk's code references them
+    /// positionally and the PERSISTENT VM resolves them in its own tables
+    /// (`Vm::run_chunk` appends the chunk's fresh tables after the base).
+    /// A name the base already carries and the chunk redeclares is
+    /// shadowed to a FRESH index (the TW redefinition semantics: the new
+    /// binding wins from this line on).
+    pub fn with_session(base: SessionBase) -> Self {
+        let mut compiler = Self::new();
+        compiler.global_slots = base
+            .global_names
+            .iter()
+            .enumerate()
+            .map(|(i, name)| (name.clone(), i))
+            .collect();
+        compiler.next_global = base.global_names.len();
+        compiler.pattern_indices = base
+            .pattern_names
+            .iter()
+            .enumerate()
+            .map(|(i, name)| (name.clone(), i))
+            .collect();
+        compiler.learnable_indices = base
+            .learnable_names
+            .iter()
+            .enumerate()
+            .map(|(i, name)| (name.clone(), i))
+            .collect();
+        compiler.struct_fields = base.struct_fields;
+        compiler
+    }
+
+    /// №800: snapshot the session symbol tables AFTER a chunk compiled —
+    /// the updated `SessionBase` the next chunk seeds from (the compiler
+    /// is the SSOT for the session symbols: base + everything the chunk
+    /// declared, with redefinitions shadowed).
+    pub fn session_base_snapshot(&self) -> SessionBase {
+        let mut global_names = vec![String::new(); self.next_global];
+        for (name, &slot) in &self.global_slots {
+            if slot < global_names.len() {
+                global_names[slot] = name.clone();
+            }
+        }
+        let mut pattern_names = vec![String::new(); self.pattern_indices.len()];
+        for (name, &idx) in &self.pattern_indices {
+            if idx < pattern_names.len() {
+                pattern_names[idx] = name.clone();
+            }
+        }
+        let mut learnable_names = vec![String::new(); self.learnable_indices.len()];
+        for (name, &idx) in &self.learnable_indices {
+            if idx < learnable_names.len() {
+                learnable_names[idx] = name.clone();
+            }
+        }
+        SessionBase {
+            global_names,
+            pattern_names,
+            learnable_names,
+            struct_fields: self.struct_fields.clone(),
+        }
     }
 
     /// Compile a list of declarations into a bytecode Program.

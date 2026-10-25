@@ -162,7 +162,71 @@ pub struct EvalResult {
     pub failures: Vec<(String, String, String)>,
 }
 
+/// №800 (gh#1547, V3): the eval LABEL conversion — the TW harness's
+/// лекало verbatim: a String value trims to its label, anything else
+/// renders through its Display. ONE body for both backends (the scoring
+/// SSOT `EvalResult::from_examples` pairs with it). An `if let`, not a
+/// match — the VM lane denies wildcard Value arms (№532).
+pub fn eval_label(value: crate::interpreter::values::Value) -> String {
+    if let crate::interpreter::values::Value::String(s) = &value {
+        s.trim().to_string()
+    } else {
+        value.to_string()
+    }
+}
+
 impl EvalResult {
+    /// №800 (gh#1547, V3): the SHARED aggregation — confusion matrix,
+    /// accuracy, threshold verdict from the per-example (input, expected,
+    /// actual) triples. The TW eval harness (interpreter::hooks) and the
+    /// VM eval harness (vm.rs) both feed it: ONE aggregation body for
+    /// both backends (the №540 lane-parity dedup form — the harnesses
+    /// differ only in HOW they invoke the learnable, never in HOW they
+    /// score it).
+    pub fn from_examples(
+        pattern_name: String,
+        metric: String,
+        threshold: f64,
+        examples: Vec<(String, String, String)>,
+    ) -> EvalResult {
+        let total = examples.len();
+        let mut correct = 0usize;
+        let mut confusion: std::collections::HashMap<
+            String,
+            std::collections::HashMap<String, usize>,
+        > = std::collections::HashMap::new();
+        let mut failures: Vec<(String, String, String)> = Vec::new();
+        for (input, expected_label, actual_label) in &examples {
+            let pred_entry = confusion
+                .entry(expected_label.clone())
+                .or_default()
+                .entry(actual_label.clone())
+                .or_insert(0);
+            *pred_entry += 1;
+            if actual_label == expected_label {
+                correct += 1;
+            } else {
+                failures.push((input.clone(), expected_label.clone(), actual_label.clone()));
+            }
+        }
+        let accuracy = if total > 0 {
+            correct as f64 / total as f64
+        } else {
+            1.0 // empty dataset → perfect by convention (the TW contract)
+        };
+        EvalResult {
+            pattern_name,
+            metric,
+            total,
+            correct,
+            accuracy,
+            threshold,
+            passed: accuracy >= threshold,
+            confusion,
+            failures,
+        }
+    }
+
     /// Format the eval result as a human-readable report.
     pub fn format_report(&self) -> String {
         let mut lines = Vec::new();
@@ -336,7 +400,10 @@ pub struct Conversation {
 /// №521: serde derives — the declared config rides the compiled Program
 /// to the VM lane (the same plumbing as `memory_persist_path`); the
 /// `#[serde(default)]` on the Program field keeps old .mbc files loading.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+/// №800: PartialEq — the REPL session chunks apply a declared config ONLY
+/// when it differs from the default (a later chunk must not reset an
+/// earlier line's declaration with its own default).
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ConversationConfig {
     /// Time-to-live in seconds. Default: 1800 (30 minutes).
     pub ttl: u64,

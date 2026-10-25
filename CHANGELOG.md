@@ -693,7 +693,7 @@ All notable changes to the Metalogos project.
 ### Security
 
 - **№795 (gh#1533, Wave 64 — audit-23.10 C5-b V2, the C5 (b) owner
-  decision, ADR-0197):** `mcp-serve` executes tool methods on the VM —
+  decision, ADR-0197; fix date 2026-10-24):** `mcp-serve` executes tool methods on the VM —
   the SAME compile-path as serve (the strict VM compile at startup; a
   non-compilable file refuses the gateway loudly, where the pre-№795
   TW path silently ignored the non-tool declarations' run errors).

@@ -1,4 +1,4 @@
-// Легально: обратимое кодирование туда-обратно.
+// Legal: the reversible encode-decode roundtrip.
 pattern Roundtrip(data: String) -> String {
   return base64_decode(base64_encode("roundtrip"))
 }

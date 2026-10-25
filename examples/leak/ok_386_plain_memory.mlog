@@ -1,5 +1,5 @@
-// Легально (№386 green): LLM-источника нет вовсе — запись в память чистая,
-// кросс-модульный реестр нечего регистрировать, recall→respond легален.
+// Legal (№386 green): there is NO LLM source at all — the memory write is clean,
+// the cross-module registry has nothing to record, and the recall→respond flow is legal.
 pattern SaveFact(_tick: String) -> String {
   let _ = memorize("fact386", "plain text, no LLM anywhere")
   return "saved"

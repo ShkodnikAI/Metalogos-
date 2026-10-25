@@ -1,1 +1,1 @@
-EXPECTED: VOICE_EGRESS_UNCONSENTED — tts_send синтезированного голоса в облако без consent
+EXPECTED: VOICE_EGRESS_UNCONSENTED — the tts_send synthesized voice sent to the cloud without consent

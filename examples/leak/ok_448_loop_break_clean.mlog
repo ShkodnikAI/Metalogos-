@@ -1,4 +1,4 @@
-// Наряд №448 zero-false-positive contract: break-carry of a SANITIZED
+// Naryad №448 zero-false-positive contract: break-carry of a SANITIZED
 // value must stay clean — the loop-exit merge joins the break-point
 // state, and render() has lifted the LLM taint before the carry.
 // Runtime: the single item breaks on the first iteration, so the LLM

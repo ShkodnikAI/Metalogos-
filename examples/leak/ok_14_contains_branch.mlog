@@ -1,4 +1,4 @@
-// Легально: ветвление по contains на публичной строке.
+// Legal: branching on contains over a public string.
 pattern Route(data: String) -> String {
   if data == "запрос срочный" {
     return "fast"

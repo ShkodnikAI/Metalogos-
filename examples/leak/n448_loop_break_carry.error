@@ -1,1 +1,1 @@
-EXPECTED: TAINT_INTERP — вывод LLM выносится из цикла через break (состояние точки break не сливалось с состоянием выхода цикла)
+EXPECTED: TAINT_INTERP — the LLM output carried out of a loop through break (the break-point state never joined the loop-exit state)

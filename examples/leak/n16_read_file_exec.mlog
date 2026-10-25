@@ -1,5 +1,5 @@
-// Угроза: локальный файл, изменённый третьей стороной, становится командой.
-// Атака: подмена command-файла → произвольное исполнение.
+// Threat: a locally modified-by-a-third-party file becoming the command.
+// Attack: the command-file swap -> arbitrary execution.
 pattern Send(data: String) -> String {
   let _ = exec(read_file("command.txt"))
   return "executed"

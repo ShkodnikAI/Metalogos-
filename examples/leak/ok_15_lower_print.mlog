@@ -1,4 +1,4 @@
-// Легально: нормализация регистра публичной строки.
+// Legal: the case normalization of a public string.
 pattern Normalize(data: String) -> String {
   return lower("ABCD")
 }

@@ -1,4 +1,4 @@
-// Легально: ветвление по публичным данным.
+// Legal: branching on public data.
 entity temp: String = "38.2"
 pattern Diagnose(temp: String) -> String {
   if temp == "39.5" {

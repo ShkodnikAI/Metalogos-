@@ -1,4 +1,4 @@
-// Легально: явная замена токена на маску перед печатью.
+// Legal: the explicit token-to-mask replacement before printing.
 pattern Mask(data: String) -> String {
   return replace("token=SECRET", "SECRET", "[REDACTED]")
 }

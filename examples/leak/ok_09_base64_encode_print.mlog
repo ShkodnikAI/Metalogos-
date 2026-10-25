@@ -1,4 +1,4 @@
-// Легально: кодирование публичной строки.
+// Legal: encoding a public string.
 pattern Encode(data: String) -> String {
   return base64_encode("metalogos")
 }

@@ -1,1 +1,1 @@
-EXPECTED: PII_EGRESS_NETWORK — персональные данные уходят на внешний хост
+EXPECTED: PII_EGRESS_NETWORK — personal data exfiltrated to an external host

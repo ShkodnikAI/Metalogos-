@@ -1,8 +1,8 @@
-// Наряд №386 (issue #480): READ-половина кросс-модульной пары.
-// Этот модуль САМ ничего не пишет в память: поток — memorize(LLM) в
-// n386_a_writer (аудируется РАНЬШЕ в этом сьюте) → recall('draft386:…')
-// здесь → respond(). Файловая эвристика №141 этого не видит; видит
-// кросс-модульный реестр №386.
+// Naryad №386 (issue #480): the READ half of the cross-module pair.
+// This module writes NOTHING to memory itself: the flow — memorize(LLM) in
+// n386_a_writer (audited EARLIER in this suite) -> recall('draft386:…')
+// here -> respond(). The №141 file heuristic cannot see this; the
+// cross-module №386 registry can.
 pattern Handle(_tick: String) -> String {
   let y = recall("draft386:latest")
   let r = respond("200 OK", y)

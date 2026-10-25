@@ -1,6 +1,6 @@
-// Naryad #387: приватный likeness-хэндл в media_save без consent и без
-// токена — refuse (SECRET_LEAK, private-egress); токен и consent —
-// единственные легальные креденшалы (№335/№387).
+// Naryad #387: a private likeness handle in media_save without consent and without
+// the token — refuse (SECRET_LEAK, private-egress); the token and the consent are
+// the only legal credentials (№335/№387).
 origin portrait { kind: likeness, media: image, label: private }
 pattern Send(data: String) -> String {
   let face = source portrait

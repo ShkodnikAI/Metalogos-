@@ -1,1 +1,1 @@
-EXPECTED: TAINT_PERSISTENCE — вывод LLM memorize под ключом, связанным в let (префикс 'user405:' резолвится слоем №405; реестр сеет префикс для модуля-читателя)
+EXPECTED: TAINT_PERSISTENCE — the LLM output memorized under a let-bound key (the 'user405:' prefix resolves through the №405 layer; the registry seeds the prefix for the reader module)

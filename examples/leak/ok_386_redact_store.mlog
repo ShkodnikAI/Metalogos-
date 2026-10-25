@@ -1,6 +1,6 @@
-// Легально (№386 green): вывод LLM санитизируется ДО записи — ключ не
-// становится заражённым, реестр нечего записывать, поток recall→respond
-// во втором паттерне чист.
+// Legal (№386 green): the LLM output is sanitized BEFORE the store — the key never
+// becomes tainted, the registry has nothing to record, and the recall→respond flow
+// in the second pattern is clean.
 pattern StoreDraft(data: String) -> String {
   let _ = memorize("note386", redact(call_llm(data), "hash_only"))
   return "stored"

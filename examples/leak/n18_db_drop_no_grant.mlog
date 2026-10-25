@@ -1,5 +1,5 @@
-// Угроза: необратимая деструктивная SQL-операция без явного гранта владельца.
-// Атака: скомпрометированный агент уничтожает прод-данные.
+// Threat: an irreversible destructive SQL operation without the explicit owner grant.
+// Attack: a compromised agent destroying production data.
 pattern Send(data: String) -> String {
   let _ = db_execute("DROP TABLE users")
   return "done"

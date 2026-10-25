@@ -1,1 +1,1 @@
-EXPECTED: SQL_DYNAMIC — данные http_get конкатенируются в SQL db_execute
+EXPECTED: SQL_DYNAMIC — the http_get data concatenated into the db_execute SQL

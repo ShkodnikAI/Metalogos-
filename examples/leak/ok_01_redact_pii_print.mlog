@@ -1,4 +1,4 @@
-// Легально: redact перед sink — PII маскируется до печати (ADR-0136 «mask before sink»).
+// Legal: redact before the sink — the PII masked before printing (ADR-0136 'mask before sink').
 entity note: String = "карта 4111 1111 1111 1111, тел +7 913 000 00 00"
 
 pattern SafeLog(note: String) -> String {

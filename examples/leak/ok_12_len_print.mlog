@@ -1,4 +1,4 @@
-// Легально: длина публичной строки.
+// Legal: the length of a public string.
 pattern Measure(data: String) -> String {
   let _ = print(to_string(len("metalogos")))
   return "measured"

@@ -1,1 +1,1 @@
-EXPECTED: HTML_INJECTION — query_param в respond без экранирования
+EXPECTED: HTML_INJECTION — a query_param reflected into respond unescaped

@@ -1,1 +1,1 @@
-EXPECTED: UNTRUSTED_FRAME — данные http_get как I2V-референс video_render
+EXPECTED: UNTRUSTED_FRAME — the http_get data used as the I2V reference of video_render

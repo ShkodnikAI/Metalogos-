@@ -1,4 +1,4 @@
-// Легально: публичные данные свободно печатаются.
+// Legal: public data prints freely.
 pattern Shout(data: String) -> String {
   let _ = print("PUBLIC: " + upper(data))
   return "PUBLIC: " + upper(data)

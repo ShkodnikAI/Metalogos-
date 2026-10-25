@@ -1,1 +1,1 @@
-EXPECTED: PII_EGRESS_OUTPUT — приватные персональные данные печатаются в stdout
+EXPECTED: PII_EGRESS_OUTPUT — private personal data printed to stdout

@@ -1263,6 +1263,12 @@ jobs:
           # the preinstalled surfaces this job never touches. Node stays
           # (the Actions runtime depends on it).
           sudo rm -rf /opt/az /usr/local/share/powershell /usr/share/miniconda /usr/local/julia /opt/hostedtoolcache/PyPy /usr/share/az_* /opt/microsoft /opt/google
+          # №799 (round 5, the third tier): the second tier was not enough —
+          # the instrumented --all-targets link still hit SIGBUS. The
+          # preinstalled toolchains/languages this job never invokes
+          # (dtolnay installs its own rustup; the p88 browser gate is
+          # platform-gated OFF in CI; no JVM/SQL server in the suite).
+          sudo rm -rf /usr/share/rust /usr/share/maven /usr/share/gradle-* /usr/share/kotlin /usr/share/mysql /usr/share/postgresql* /var/lib/postgresql /usr/share/chromium /usr/local/share/chromium
           sudo docker image prune -af > /dev/null 2>&1 || true
           df -h /
       - uses: dtolnay/rust-toolchain@stable

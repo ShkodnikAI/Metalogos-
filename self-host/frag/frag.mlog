@@ -1,0 +1,13 @@
+pattern Z(t: List, pos: Float, n: Float) -> List {
+  let r = X(t, pos, n)
+  let mut left = get(r, 0)
+  let mut p = get(r, 1)
+  while PeekKw(t, p, n, "or") == 1.0 {
+    p = p + 1.0
+    let r2 = X(t, p, n)
+    let right = get(r2, 0)
+    p = get(r2, 1)
+    left = "(BINOP " + left + " " + right + ")"
+  }
+  return make_list(left, p)
+}

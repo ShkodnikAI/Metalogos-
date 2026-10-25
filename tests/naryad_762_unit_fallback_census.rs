@@ -300,14 +300,20 @@ flow Main { input: String = "x" -> P -> output }
 
 #[test]
 fn n762_class_a1_loadglobalbyname_soft_miss_pin() {
-    // LoadGlobalByName on a name nothing resolves — the handler keeps the
-    // Unit fallback (the (a1) classification: every valid-program emission
-    // is a name-reference position whose miss lands the builtin's loud
-    // error; the handler itself must NOT grow an underflow refusal — the
-    // semantic.rs "unchanged" contract). The crafted stream runs to Halt.
+    // №800 (gh#1547, V3): the (a1) SOFT classification is RETIRED — the
+    // name-miss refuses LOUDLY with [UNDEFINED_VARIABLE] (the TW-parity
+    // backstop; the silent Unit read was the truthy-string bypass class
+    // the №181/№523 notes describe). The №762 census keeps the pin as the
+    // LOUD witness: the crafted stream (a bare LoadGlobalByName on a name
+    // nothing resolves) refuses, it does not answer Unit. The census's
+    // other classes (the struct-key miss, the each-not-List per №783) are
+    // unchanged.
     let p = underflow_program(vec![Instruction::LoadGlobalByName("zzz".into())]);
-    let out = run_vm(p).expect("the soft name-miss must not refuse");
-    assert_eq!(out, None);
+    let err = run_vm(p).expect_err("the name-miss must refuse loudly (№800)");
+    assert!(
+        err.contains("[UNDEFINED_VARIABLE]"),
+        "the refusal names the class: {err}"
+    );
 }
 
 // ── Happy-path negative controls — valid programs unchanged ──────────

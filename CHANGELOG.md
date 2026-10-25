@@ -38,7 +38,14 @@ All notable changes to the Metalogos project.
   `[UNDEFINED_FUNCTION]` first on the VM lane, the reference lane keeps
   the TW runtime order (the №535 pins state both lanes; the
   single-defect classes — undefined variable, undefined function —
-  refuse with the same codes on both).
+  refuse with the same codes on both). The flip SURFACED one
+  pre-existing VM defect: the self-host parser self-parse
+  (ParseWhile→ParseBlock→ParseStmt→ParseIfStmt, deep) replaces a
+  pattern-call result with an AST string — the №197 bootstrap rides the
+  `--reference` oracle lane until the repair (tracked gh#1555; the
+  corpus unaffected; the №762 (a1) name-miss soft fallback and the №287
+  doc-test broken-example code follow the contract — loud
+  `[UNDEFINED_VARIABLE]` on both).
 - **№799 (gh#1546, Wave 65 — the C3 (a) T2 owner decision, the maturity
   tiers):** the parked builtins refuse at CHECK time — the tier-`parked`
   rows (the №796 census) compile ONLY under the owning feature

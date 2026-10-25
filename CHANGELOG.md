@@ -37,8 +37,10 @@ All notable changes to the Metalogos project.
   calling parked builtins stop passing check in the default build
   (the fix: the feature build, or the documented alternative); the
   №483 media-handle pin now reads registry ∪ parked (the names stay
-  in the language); the №526 erasure fns stay compiled in EVERY build
-  (only the user-program rows gate). The office e2e proxies
+  in the language); the №526 erasure pair rides the `voice` build with
+  its rows — a build without `voice` collects no prints, so the erasure
+  right holds by construction (the voice CI job carries the pair's
+  tests; the dead-code debt floor is untouched). The office e2e proxies
   (probe021cron/probe021qp/probe318qp) check clean; the leak-suite
   classes unchanged (cat_a precedes the parked consult).
 

@@ -121,12 +121,12 @@ pub const PARKED_REGISTRY: &[ParkedSpec] = &[
     ParkedSpec {
         name: "voice_delete",
         feature: Some("voice"),
-        basis: "the user-program row is voice-gated; the No. 526 erasure fns stay compiled in every build",
+        basis: "the row and the No. 526 erasure pair ride the `voice` build (a build without voice collects no prints — the right holds by construction)",
     },
     ParkedSpec {
         name: "voice_list",
         feature: Some("voice"),
-        basis: "the user-program row is voice-gated; the No. 526 erasure fns stay compiled in every build",
+        basis: "the row and the No. 526 erasure pair ride the `voice` build (a build without voice collects no prints — the right holds by construction)",
     },
     // ── Video (the opt-in `video` build; No. 307/No. 309, ADR-0151) ──
     ParkedSpec {

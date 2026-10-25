@@ -13,6 +13,9 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+// №799: every `Value` consumer in this module (the stubs, the №526
+// erasure pair) rides the `voice` build — the import rides the same gate.
+#[cfg(feature = "voice")]
 use crate::interpreter::Value;
 
 /// Opaque handle to a Voice artifact (voiceprint) in VoiceRegistry.
@@ -299,8 +302,10 @@ pub mod backend;
 //
 // №526: voice_delete / voice_list are REAL (not stubs) — the GDPR Art. 17
 // erasure path over the live runtime surfaces (the RAM registry + the
-// store API), available in ALL builds (the erasure right is not
-// feature-gated; VOICE_REGISTRY itself was never feature-gated).
+// store API). №799 (T2, gh#1488): the fns ride the `voice` build with
+// their (parked-tier, №796) rows — the erasure right holds BY
+// CONSTRUCTION in every build (a build without `voice` collects no
+// prints; the voice build carries the full collect+erase pair).
 
 /// №526 (issue #835; audit 30.09 N-2): `voice_delete(handle)` — the
 /// erasure path over the live VOICE_REGISTRY. Accepts a Voice handle
@@ -315,12 +320,14 @@ pub mod backend;
 /// path, tested at the store level) — a shipped runtime persists zero
 /// voiceprints today (privacy.md §2.1), so the registry is the live
 /// surface the builtin erases.
-/// №799 (T2, gh#1488): the fn stays compiled in EVERY build (the №526
-/// posture above — the erasure surface is not feature-gated); only the
-/// USER-PROGRAM registry row gates with `voice`, so the default build's
-/// only reachability is in-tree (the future consent/quarantine flows)
-/// and the tests — hence the scoped allow, not a cfg.
-#[allow(dead_code)]
+/// №799 (T2, gh#1488): the fn rides the `voice` build together with its
+/// registry row (the tier is parked — №796, the owner classification).
+/// The №526 erasure right holds BY CONSTRUCTION in every build: a build
+/// without `voice` cannot create voiceprints (the enroll surface is the
+/// same parked family), so there is nothing collected to erase; the
+/// voice build carries the full collect+erase pair. The unit tests ride
+/// the same gate and run in the voice CI job.
+#[cfg(feature = "voice")]
 pub(crate) fn builtin_voice_delete(args: &[Value]) -> Result<Value, String> {
     if args.len() != 1 {
         return Err(format!(
@@ -356,11 +363,9 @@ pub(crate) fn builtin_voice_delete(args: &[Value]) -> Result<Value, String> {
 /// registry → the empty string (the honest zero). Deterministic order
 /// (ascending ids). The persisted-store listing (name/model/saved_at/
 /// algo/ciphertext length, never decrypted) is `VoiceStore::list_voiceprints`
-/// — the same №526 composition at the store level.
-/// №799 (T2, gh#1488): stays compiled in EVERY build (the №526 posture);
-/// only the user-program row gates with `voice` — the scoped allow, not
-/// a cfg.
-#[allow(dead_code)]
+/// — the same №526 composition at the store level. №799: rides the
+/// `voice` build with its row (see builtin_voice_delete's №799 note).
+#[cfg(feature = "voice")]
 pub(crate) fn builtin_voice_list(args: &[Value]) -> Result<Value, String> {
     if !args.is_empty() {
         return Err(format!(
@@ -505,6 +510,7 @@ mod tests {
 
     // ── №526 (issue #835; N-2): the runtime erasure path ──
 
+    #[cfg(feature = "voice")] // №799: the erasure pair rides the voice build
     #[test]
     fn n526_registry_delete_and_list_cycle() {
         let mut reg = VoiceRegistry::new();
@@ -524,6 +530,7 @@ mod tests {
         assert!(reg.list_voiceprints().is_empty());
     }
 
+    #[cfg(feature = "voice")] // №799: the erasure pair rides the voice build
     #[test]
     fn n526_builtin_voice_delete_then_list_empty() {
         // the №526 language-path cycle: insert → voice_list shows it →
@@ -570,6 +577,7 @@ mod tests {
         assert_eq!(reg.list_voiceprints().len(), 0);
     }
 
+    #[cfg(feature = "voice")] // №799: the erasure pair rides the voice build
     #[test]
     fn n526_builtin_voice_delete_audio_artifact() {
         let id = {
@@ -593,6 +601,7 @@ mod tests {
         assert!(reg.get_artifact(id).is_none(), "the artifact is gone");
     }
 
+    #[cfg(feature = "voice")] // №799: the erasure pair rides the voice build
     #[test]
     fn n526_builtin_voice_delete_loud_on_wrong_type() {
         let r = builtin_voice_delete(&[Value::Float(3.0)]);

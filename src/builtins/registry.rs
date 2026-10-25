@@ -1203,10 +1203,12 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // consent ledger survives by design (the Art. 9 proof). APPENDED at
     // the end — inserting mid-array would shift existing CallBuiltin
     // indices (.mbc contract). Registry 505→507 (append-only).
-    // №799 (T2, gh#1488): the parked rows gate with `voice`. The №526
-    // erasure contract is NOT touched: the fns (voice/mod.rs) stay
-    // compiled in EVERY build — only the USER-PROGRAM rows gate; the
-    // check refusal names --features voice via `builtins::parked`.
+    // №799 (T2, gh#1488): the parked rows gate with `voice` together
+    // with the №526 erasure pair (voice/mod.rs) — a build without
+    // `voice` collects no prints (enroll is the same parked family), so
+    // the erasure right holds by construction; the voice build carries
+    // the full collect+erase pair. The check refusal names --features
+    // voice via `builtins::parked`.
     #[cfg(feature = "voice")]
     spec!("voice_delete", 1, "voice"; builtin_voice_delete, "parked"), // voice|audio handle
     #[cfg(feature = "voice")]

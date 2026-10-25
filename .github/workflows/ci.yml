@@ -1277,18 +1277,17 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov
-      # №445 wave-infra: the rust-cache restore for the heavy jobs
-      # (clippy + the feature-gated test jobs) died deterministically in
-      # the GitHub cache service 3 runs in a row (the job was killed
-      # mid-restore, before any check ran). A cache failure is a
-      # performance loss, never a correctness signal — make the step
-      # non-fatal and bust the poisoned cache partition (prefix-key v2).
-      # No check is weakened: clippy/tests still run and still fail the
-      # job on their own findings.
-      - uses: Swatinem/rust-cache@v2
-        continue-on-error: true
-        with:
-          prefix-key: v2
+      # №799 (round 7 — the structural fix of the №693 class): NO
+      # rust-cache in THIS job. The restored target cache carries MONTHS
+      # of the instrumented tree — the stale test binaries of every
+      # renamed/removed test since the cache key was minted ride back in,
+      # and the fresh links (every wave adds bins) die in SIGBUS after
+      # ANY reclaim (the tiers 1-3 proved it: the failure returned on
+      # each of the three №799 rounds). The cache restore is a
+      # PERFORMANCE aid only (the №445 posture) — the full instrumented
+      # rebuild costs ~15-20 min on the job that is the longest in the
+      # pipeline anyway; the disk then fits with headroom. No check is
+      # weakened: the same llvm-cov run produces the same summary.
       # Self-host тесты (naryad_197*, self_host_lexer) спавнят бинарь по
       # жёсткому пути target/debug/mlog (§3 наряда №265 запрещает менять
       # tests/**) — llvm-cov строит в СВОЙ target-dir, поэтому бинарь

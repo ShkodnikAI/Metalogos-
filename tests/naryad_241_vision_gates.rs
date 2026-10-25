@@ -23,6 +23,9 @@ use metalogos::builtins::{vision_export_dispatch, vision_export_raw_dispatch};
 use metalogos::interpreter::Value;
 use metalogos::vision::provenance::VisionManifest;
 use metalogos::vision::{VisionArtifact, VisionRegistry};
+// №799: the only `serial()` users are the vision-gated fetch probes —
+// the import rides the same gate.
+#[cfg(feature = "vision")]
 use serial_test::serial;
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -64,6 +67,8 @@ impl TmpDirRel {
     fn p(&self, file: &str) -> String {
         format!("{}/{}", self.0, file)
     }
+    // №799: the callers are the vision-gated fetch probes.
+    #[cfg(feature = "vision")]
     fn path(&self) -> std::path::PathBuf {
         std::path::PathBuf::from(self.0)
     }
@@ -365,6 +370,8 @@ fn vision_with_policy_has_no_missing_warning() {
 /// Default-deny (Block 3.2в): no `MLOG_VISION_WEIGHTS_ALLOWLIST` → loud
 /// refusal naming MODEL_WEIGHTS_UNSAFE, BEFORE any network activity —
 /// the tempdir (passed as the flow input → dest_dir) stays empty.
+#[cfg(feature = "vision")]
+// №799 (T2, gh#1488): the vision build's contract — the default parked refusal is pinned by naryad_799
 #[test]
 #[serial]
 fn fetch_weights_default_deny_without_allowlist() {
@@ -392,6 +399,8 @@ flow Main { input: String = "DEST" -> Fetch -> output }
 }
 
 /// Host NOT in the allowlist → loud refusal, still no network, no files.
+#[cfg(feature = "vision")]
+// №799 (T2, gh#1488): the vision build's contract — the default parked refusal is pinned by naryad_799
 #[test]
 #[serial]
 fn fetch_weights_refuses_host_outside_allowlist() {
@@ -419,6 +428,8 @@ flow Main { input: String = "DEST" -> Fetch -> output }
 }
 
 /// Empty allowlist string = default-deny too (no hosts named = no trust).
+#[cfg(feature = "vision")]
+// №799 (T2, gh#1488): the vision build's contract — the default parked refusal is pinned by naryad_799
 #[test]
 #[serial]
 fn fetch_weights_empty_allowlist_is_deny() {

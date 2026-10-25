@@ -46,6 +46,8 @@ fn vision_list_returns_empty_list() {
 
 // ── Test 2: vision_generate loud error via TW ───────────────────
 
+#[cfg(feature = "vision")]
+// №799 (T2, gh#1488): the vision build's contract — the default parked refusal is pinned by naryad_799
 #[test]
 fn vision_generate_loud_error_tw() {
     let source = r#"
@@ -78,6 +80,8 @@ fn vision_generate_loud_error_tw() {
 
 // ── Test 3: vision_generate loud error via VM (byte-for-byte TW parity) ─
 
+#[cfg(feature = "vision")]
+// №799 (T2, gh#1488): the vision build's contract — the default parked refusal is pinned by naryad_799
 #[test]
 fn vision_generate_loud_error_vm() {
     let source = r#"
@@ -128,6 +132,8 @@ fn vision_generate_loud_error_vm() {
 /// №243: vision_edit is a REAL path — a String where a Vision handle is
 /// expected is a loud typed refusal (same shape as vision_export/save;
 /// the type check fires before anything else).
+#[cfg(feature = "vision")]
+// №799 (T2, gh#1488): the vision build's contract — the default parked refusal is pinned by naryad_799
 #[test]
 fn vision_edit_wrong_handle_type_loud_error() {
     let source = r#"
@@ -152,6 +158,8 @@ fn vision_edit_wrong_handle_type_loud_error() {
 
 /// №243: vision_edit arity contract — 1 argument is a loud refusal with
 /// the arity contract (лекало vision_generate's arity refusal).
+#[cfg(feature = "vision")]
+// №799 (T2, gh#1488): the vision build's contract — the default parked refusal is pinned by naryad_799
 #[test]
 fn vision_edit_wrong_arity_loud_error() {
     let source = r#"
@@ -238,6 +246,8 @@ fn vision_load_no_db_loud_error() {
 /// VISION_UNSIGNED_EXPORT Category-A gate (ADR-0125) otherwise refuses
 /// the program at compile time, and this test's subject is the RUNTIME
 /// wrong-handle-type refusal, which must stay reachable and loud.
+#[cfg(feature = "vision")]
+// №799 (T2, gh#1488): the vision build's contract — the default parked refusal is pinned by naryad_799
 #[test]
 fn vision_export_wrong_handle_type_loud_error() {
     let source = r#"
@@ -299,6 +309,8 @@ fn type_of_vision() {
 // declares the correct arity for each builtin. Here we verify the arity
 // is 3 (model_name, prompt, seed) by checking the registry directly.
 
+#[cfg(feature = "vision")]
+// №799 (T2, gh#1488): the vision build's contract — the default parked refusal is pinned by naryad_799
 #[test]
 fn vision_generate_registered_arity_is_3() {
     // The registry-arity-check job already verifies this on CI,
@@ -336,6 +348,8 @@ fn vision_generate_registered_arity_is_3() {
 /// but no `db { url: ... }` declaration, the refusal is the loud no-db
 /// error naming the declaration (ADR-0124 §6: the adapter's ONLY home is
 /// SQLite), not a stub text.
+#[cfg(feature = "vision")]
+// №799 (T2, gh#1488): the vision build's contract — the default parked refusal is pinned by naryad_799
 #[test]
 fn vision_lora_load_no_db_loud_error() {
     let source = r#"
@@ -365,6 +379,8 @@ fn vision_lora_load_no_db_loud_error() {
 
 /// №244: vision_lora_generate arity contract — 2 arguments is a loud
 /// refusal with the 3-arity contract (лекало vision_edit's arity refusal).
+#[cfg(feature = "vision")]
+// №799 (T2, gh#1488): the vision build's contract — the default parked refusal is pinned by naryad_799
 #[test]
 fn vision_lora_generate_wrong_arity_loud_error() {
     let source = r#"

@@ -1,4 +1,4 @@
-// Наряд №448: taint carried OUT of a loop through break. The binding is
+// Naryad №448: taint carried OUT of a loop through break. The binding is
 // tainted inside the body, `break` exits, and the sink sits after the
 // loop. Before №448 no static walker merged the break-point state into
 // the loop-exit state: the leak compiled clean.

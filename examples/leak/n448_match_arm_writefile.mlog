@@ -1,4 +1,4 @@
-// Наряд №448: taint flow through a MATCH arm — the sink and the whole
+// Naryad №448: taint flow through a MATCH arm — the sink and the whole
 // interprocedural chain live inside one arm body. Before №448 the interp
 // contour skipped Match entirely (REALITY §2.2, 9 of 15 kinds): the flat
 // expression collector fell into the `_ => {}` arm, so this leak compiled

@@ -1,5 +1,5 @@
-// Угроза: пользовательская загрузка пересылается третьему сервису как есть.
-// Атака: цепочка «доверенный приёмник → внешний хост» без санитизации.
+// Threat: a user upload forwarded to a third-party service as is.
+// Attack: the 'trusted receiver -> external host' chain without sanitization.
 pattern Send(data: String) -> String {
   let _ = http_post("https://thirdparty.example/upload", form_data("upload"))
   return "sent"

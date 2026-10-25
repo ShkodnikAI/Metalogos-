@@ -1,1 +1,1 @@
-EXPECTED: SECRET_EGRESS_NETWORK — приватный URL (интранет-эндпоинт) как адрес http_post
+EXPECTED: SECRET_EGRESS_NETWORK — a private intranet URL used as the http_post address

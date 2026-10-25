@@ -1,1 +1,1 @@
-EXPECTED: TAINT_INTERP — вывод LLM уходит в write_file внутри одной ветки match (interp-контур не сканировал Match-arms)
+EXPECTED: TAINT_INTERP — the LLM output flows into write_file inside one match arm (the interp contour never scanned the match arms)

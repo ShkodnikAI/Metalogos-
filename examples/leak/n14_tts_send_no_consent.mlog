@@ -1,5 +1,5 @@
-// Угроза: клонированный голос отправляется в мессенджер без LikenessToken субъекта.
-// Атака: voice-фейк от имени человека без его согласия (ADR-0145).
+// Threat: the cloned voice sent to a messenger without the subject's LikenessToken.
+// Attack: a voice fake impersonating a person without their consent (ADR-0145).
 pattern Send(data: String) -> String {
   let _ = tts_send("текст от имени клиента", "voice-orlov", env("MLOG_LEAK_SUITE_BOT"), "12345")
   return "sent"

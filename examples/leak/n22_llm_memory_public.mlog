@@ -1,5 +1,5 @@
-// Угроза: непроверенный вывод LLM переживает сессию через память и уходит в ответ.
-// Атака: отравленная память — инъекция сохраняется и ретранслируется позже (№141/№157).
+// Threat: the unverified LLM output outliving the session through memory and reaching the response.
+// Attack: the poisoned memory — the injection persisted and relayed later (№141/№157).
 pattern Stash(data: String) -> String {
   let _ = memorize("leak_key", call_llm(data))
   return "stashed"

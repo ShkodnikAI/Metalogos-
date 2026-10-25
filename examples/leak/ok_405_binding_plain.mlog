@@ -1,7 +1,7 @@
-// Наряд №405 (green): LLM-источника нет вовсе — let-связанные ключи
-// (обе стороны) пишут и читают чистый текст; слой №405 нечего
-// регистрировать, recall→respond легален (зеркало ok_386_plain_memory
-// в форме №405).
+// Naryad №405 (green): there is NO LLM source at all — the let-bound keys
+// (both sides) write and read clean text; the №405 layer has nothing
+// to record, and the recall→respond flow is legal (the ok_386_plain_memory
+// mirror in the №405 form).
 pattern SaveFact(_tick: String) -> String {
   let key = "fact405:" + "plain"
   let _ = memorize(key, "plain text, no LLM anywhere")

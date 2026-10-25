@@ -1,5 +1,5 @@
-// Угроза: синтетическое изображение покидает процесс без provenance-манифеста (EU AI Act Art. 50).
-// Атака: немаркированный дипфейк распространяется как подлинная фотография (№320).
+// Threat: a synthetic image leaving the process without the provenance manifest (EU AI Act Art. 50).
+// Attack: the unmarked deepfake spreading as a genuine photograph (№320).
 pattern Send(data: String) -> String {
   let _ = vision_export_raw("gen_handle", "out.png")
   return "exported"

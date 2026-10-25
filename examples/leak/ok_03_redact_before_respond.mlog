@@ -1,4 +1,4 @@
-// Легально: непроверенный текст санитизируется redact перед публичным ответом.
+// Legal: the unverified text sanitized by redact before the public response.
 entity feedback: String = "жалоба: alert(1) от клиента"
 
 pattern Reply(feedback: String) -> String {

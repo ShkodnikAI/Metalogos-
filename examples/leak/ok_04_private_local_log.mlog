@@ -1,4 +1,4 @@
-// Легально: приватная запись в ЛОКАЛЬНЫЙ журнал (не сеть) — Internal sink.
+// Legal: a private record into a LOCAL journal (not the network) — an Internal sink.
 entity note: String = "приватная заметка для внутреннего журнала"
 
 pattern Journal(note: String) -> String {

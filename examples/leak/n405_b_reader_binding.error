@@ -1,1 +1,1 @@
-EXPECTED: TAINT_PERSISTENCE — кросс-модульный recall ключа, связанного в let (префикс 'user405:' записан в n405_a_writer; слой №405 матчит let-связанные префиксы обеих сторон)
+EXPECTED: TAINT_PERSISTENCE — the cross-module recall of the let-bound key (the 'user405:' prefix written in n405_a_writer; the №405 layer matches the let-bound prefixes on both sides)

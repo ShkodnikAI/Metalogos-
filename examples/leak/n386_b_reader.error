@@ -1,1 +1,1 @@
-EXPECTED: TAINT_PERSISTENCE — кросс-модульный recall ключа, заражённого в n386_a_writer, доходит до respond (реестр №386)
+EXPECTED: TAINT_PERSISTENCE — the cross-module recall of the key tainted in n386_a_writer reaches respond (the №386 registry)

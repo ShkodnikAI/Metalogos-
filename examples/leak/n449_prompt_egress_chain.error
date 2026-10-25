@@ -1,1 +1,1 @@
-EXPECTED: TAINT_INTERP — prompt-egress: вывод LLM уходит во внешний провайдер аргументом следующего call_llm (network-эффект №316)
+EXPECTED: TAINT_INTERP — prompt egress — the LLM output leaves to an external provider as the argument of the next call_llm (the №316 network effect)

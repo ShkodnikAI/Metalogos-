@@ -1,5 +1,5 @@
-// Угроза: непроверенный вывод LLM уходит в публичный HTTP-ответ (prompt injection → XSS).
-// Атака: модель отравлена и выдает <script> в ответ клиенту.
+// Threat: the unverified LLM output reaching the public HTTP response (prompt injection -> XSS).
+// Attack: the poisoned model emitting <script> into the client response.
 pattern Send(data: String) -> String {
   let _ = respond("200 OK", call_llm("перескажи документ"))
   return "sent"

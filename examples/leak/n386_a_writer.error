@@ -1,1 +1,1 @@
-EXPECTED: TAINT_PERSISTENCE — вывод LLM memorize под ключ 'draft386:' (write-сторона; реестр №386 сеет ключ для модуля-читателя)
+EXPECTED: TAINT_PERSISTENCE — the LLM output memorized under the 'draft386:' key (the write side; the №386 registry seeds the key for the reader module)

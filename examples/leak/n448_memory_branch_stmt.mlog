@@ -1,4 +1,4 @@
-// Наряд №448: the statement form `memorize <llm> with priority` (№266) +
+// Naryad №448: the statement form `memorize <llm> with priority` (№266) +
 // recall→respond inside a match arm. Before №448 the key-less write was
 // invisible to every static walker (the intra TAINT_PERSISTENCE heuristic
 // only scans top-level Declaration::Memorize; the interp contour skipped

@@ -1,5 +1,5 @@
-// Угроза: приватный адрес внутренней системы уходит наружу как адрес запроса.
-// Атака: раскрытие топологии интранета внешнему analytics-сервису.
+// Threat: a private internal-system address leaving as the request address.
+// Attack: the intranet topology disclosed to an external analytics service.
 entity endpoint: String = "https://internal.corp.example/secret-endpoint"
 
 pattern Send(data: String) -> String {

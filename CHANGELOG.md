@@ -38,6 +38,23 @@ All notable changes to the Metalogos project.
 
 ### Changed
 
+- **№803 (gh#1550, Wave 65 — the C2 showcase, the gh#1486 registry task):**
+  the leak-suite showcase reads in ENGLISH — the `// Threat:/Attack:`
+  headers of `examples/leak/*.mlog` and the explanatory parts of the
+  `EXPECTED: <CLASS> — <scenario>` lines are translated (66 .mlog + 47
+  .error files); the failure CLASS before the em-dash is byte-identical
+  (the runner compares ONLY the class — `run_leak_suite` green after the
+  translation, the corpus BLOCKING gate intact). The program payload
+  strings (the realistic PII/secret fixtures the ok_*.expected outputs
+  pin) stay verbatim — they are behavior, not comments. The showcase is
+  the first-screen surface for the C2 positioning (№804 rides this). The
+  documented acceptance: no Cyrillic in the comments/explanations of
+  `examples/leak/` (the payload strings are exempt by the naryad's own
+  wording). security: no — the refusal classes, the runner comparison
+  and every gate input are unchanged; a text-only translation. AFFECTS:
+  none — the suite output, the classes and the .expected pins are
+  identical; the English text makes the showcase legible to the
+  non-Russian-speaking AI-agent audience (the C2 decision).
 - **№801 (gh#1548, Wave 65 — the C1 (b) G2 owner decision, the gateway
   pilot, ADR-0196):** the MCP gateway carries a FLOATING session label
   (LIO current-label form) — one current label per agent session that

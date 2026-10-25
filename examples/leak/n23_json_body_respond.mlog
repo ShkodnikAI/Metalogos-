@@ -1,5 +1,5 @@
-// Угроза: тело JSON-запроса отражается в публичный ответ как есть.
-// Атака: отражённая инъекция через POST-тело.
+// Threat: the JSON request body reflected into the public response as is.
+// Attack: the reflected injection through the POST body.
 pattern Send(data: String) -> String {
   let _ = respond("200 OK", json_body())
   return "sent"

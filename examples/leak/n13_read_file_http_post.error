@@ -1,1 +1,1 @@
-EXPECTED: UNTRUSTED_EGRESS_NETWORK — содержимое локального файла уходит на внешний хост
+EXPECTED: UNTRUSTED_EGRESS_NETWORK — local file contents exfiltrated to an external host

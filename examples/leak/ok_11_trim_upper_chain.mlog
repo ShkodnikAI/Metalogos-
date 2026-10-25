@@ -1,4 +1,4 @@
-// Легально: цепочка чистых трансформаций.
+// Legal: a chain of clean transforms.
 pattern Clean(data: String) -> String {
   return upper(trim("  data  "))
 }

@@ -1,4 +1,4 @@
-// Легально: локальная память ключ-значение с публичным значением.
+// Legal: the local key-value memory with a public value.
 pattern Remember(data: String) -> String {
   let _ = kv_set("greet", "hello")
   return kv_get("greet")

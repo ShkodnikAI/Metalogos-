@@ -1,5 +1,5 @@
-// Угроза: недоверенный кадр из сети становится I2V-якорем (deepfake без screen+consent).
-// Атака: подмена лица по кадру, скачанному с подконтрольного хоста (ADR-0149 D5).
+// Threat: an untrusted network frame becoming the I2V anchor (a deepfake without screen+consent).
+// Attack: the face swapped from a frame downloaded off an attacker-controlled host (ADR-0149 D5).
 pattern Send(data: String) -> String {
   let _ = video_render("wan-2.2-ti2v-5b", "scene", http_get("https://cdn.example/frame.png"))
   return "rendered"

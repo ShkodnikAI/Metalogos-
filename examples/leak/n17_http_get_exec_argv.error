@@ -1,1 +1,1 @@
-EXPECTED: UNTRUSTED_EXEC_DECISION — данные http_get как аргумент exec_argv
+EXPECTED: UNTRUSTED_EXEC_DECISION — the http_get data as an exec_argv argument

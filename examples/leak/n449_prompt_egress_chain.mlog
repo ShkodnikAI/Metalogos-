@@ -1,4 +1,4 @@
-// Наряд №449: prompt egress — the output of one LLM call is fed as the
+// Naryad №449: prompt egress — the output of one LLM call is fed as the
 // PROMPT of the next (prompt-injection chain). The №316 row of call_llm
 // carries the DUAL note («the prompt is transmitted to an external
 // provider — №317 corpus must cover prompt-egress»); before №449 the

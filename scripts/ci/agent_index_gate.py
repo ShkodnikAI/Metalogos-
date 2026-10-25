@@ -189,7 +189,11 @@ def self_test() -> int:
         # The git history: the copy has no .git — plant a minimal one whose
         # highest naryad MATCHES llms.txt's stated range end (the self-test
         # proves the CHECKS, not a number coincidence).
-        stated_end = re.search(r"наряды №1-№(\d+)",
+        # №798: the stated form is English ("naryads №1-№N") — the same
+        # pattern the check above reads; the self-test extracts the range
+        # end with the SAME regex (a divergence here would let the
+        # self-test's planted git history disagree with the check).
+        stated_end = re.search(r"naryads №1-№(\d+)\+?",
                                (repo_copy / "llms.txt").read_text(encoding="utf-8")).group(1)
         subprocess.run(["git", "init", "-q"], cwd=repo_copy, check=True)
         subprocess.run(["git", "add", "-A"], cwd=repo_copy, check=True)

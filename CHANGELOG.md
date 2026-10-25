@@ -4,6 +4,38 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added
+
+- **№802 (gh#1549, Wave 65 — the C6 R-b 2 static check, the ADR-0198
+  queue):** the try result and the `T|Unit` union are verified BEFORE use —
+  the flow-sensitive semantic pass refuses `[UNCHECKED_RESULT]` (a
+  `.value` read on a try-bound variable outside a proven `.ok` guard: the
+  `if r.ok { … }` then-branch, the early-exit `r.ok == false { return … }`,
+  the short-circuit `r.ok and …`, the `match r.ok { "true" then { … } }`
+  arm) and `[UNCHECKED_OPTION]` (a union-with-Unit value — `query_scalar`'s
+  `Float|String|Unit`, a declared `-> T|Unit` — used where `T` is required:
+  the arithmetic/ordering operands, the `each` iterable, the string-key
+  index, a declared precise parameter; `to_string` is the sanctioned total
+  projection). Conservative posture: an unprovable guard refuses; the
+  sanctioned escape is the explicit suppression comment with a non-empty
+  reason (`// allow(unchecked_result): <reason>` — a bare allow is NOT a
+  suppression; one comment sanctions one access line, several reads on the
+  same line are a unit). The refusal fires on `mlog check` and blocks the
+  №523 run gate and the serve startup on BOTH backends (the shared
+  semantic pass; the mcp-serve startup keeps the unfiltered refusal — the
+  fail-closed asymmetry is recorded). The registry SSOT carries the raw
+  return-type spelling (`return_type_raw`) so the union arms are readable
+  without a shadow table. Examples migrated: p30 projects the union cell
+  through `to_string` (the honest fix); w385_office_branch and the №670
+  conformance specimens carry the suppression comments with reasons (the
+  redact-obfuscated guards and the verbatim shape pins are deliberate).
+  RED-before 4/12 (the №772 form). security: no — the check widens the
+  refusal surface only (fail-closed), no gate, allowlist or taint floor
+  moves; the honest-boundary dictionary is untouched. AFFECTS: programs
+  reading `r.value` without an `.ok` guard or consuming `T|Unit` values
+  raw now refuse at check/run time — guard them, project through
+  `to_string`, or suppress with a reason.
+
 ### Changed
 
 - **№801 (gh#1548, Wave 65 — the C1 (b) G2 owner decision, the gateway

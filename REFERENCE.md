@@ -554,6 +554,26 @@ Note: `!r.ok` from ADR-0142 is pseudocode — the mlog grammar has no unary
 binds to a `unary_expr` — parenthesize or use a `let` for compound inner
 expressions (`try (1.0 / 0.0)`, not `try 1.0 / 0.0`).
 
+**The static "checked before use" gate (Naryad #802 — the C6 R-b 2
+decision, ADR-0198).** Reading `r.value` outside a proven `.ok` guard
+refuses at `mlog check` with `[UNCHECKED_RESULT]` — the failed try's value
+is Unit, so the unchecked read is the runtime refusal shifted left (on BOTH
+backends: the same shared semantic pass gates `mlog check`, the run path
+and the serve startups). The guards the checker PROVES: `if r.ok { ... }`
+(the then-branch), the early-exit forms `if r.ok == false { return ... }`
+(everything after the `if`), the short-circuit join `r.ok and <expr>`, and
+`match r.ok { "true" then { ... } }`. Anything else refuses CONSERVATIVELY
+— the sanctioned escape is the explicit suppression comment with a
+non-empty reason (`// allow(unchecked_result): <reason>`, on the read's
+line or the line above; a bare allow without the reason is not a
+suppression). The same gate covers the `T|Unit` unions (the ADR-0198
+`Option<T>`): a value whose type spelling carries a `Unit` arm
+(`query_scalar`'s `Float|String|Unit`, a declared `-> T|Unit`) refuses
+`[UNCHECKED_OPTION]` where `T` is required — the arithmetic/ordering
+operands, the `each` iterable, a string-key index, a declared precise
+parameter. `to_string` is the sanctioned total projection (never refused);
+the Unit arm is handled by the `type_of(v) == "Unit"` guard.
+
 **String projection of a `try` result (issue #602 — the 0.19 contract).**
 The STRING projection of a TryResult — `to_string`, `print`, string
 interpolation — renders ONLY the `value` field: on success the inner value

@@ -12,7 +12,10 @@ pattern DbParams(x: String) -> String {
   db_execute("INSERT INTO t (name) VALUES (?1)", ["'; DROP TABLE t; --"])
   let n = query_scalar("SELECT COUNT(*) FROM t", [])
   let first = query_scalar("SELECT name FROM t LIMIT 1", [])
-  return "count=" + to_string(n) + " first=" + first
+  // №802: the union cell projects through to_string (the sanctioned
+  // total projection) — the raw union in the concat position refuses
+  // at check time ([UNCHECKED_OPTION]).
+  return "count=" + to_string(n) + " first=" + to_string(first)
 }
 
 flow Main { input: String = "x" -> DbParams -> output }

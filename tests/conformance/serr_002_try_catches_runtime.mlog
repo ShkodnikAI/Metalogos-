@@ -3,7 +3,7 @@
 pattern p(x: String) -> String {
   let r = try(0.0 / 0.0)
   let after = "ran"
-  return "ok=" + str(r.ok) + " value=" + str(r.value) + " after=" + after
+  return "ok=" + str(r.ok) + " value=" + str(r.value) + " after=" + after // allow(unchecked_result): the №670 specimen pins the failure-path projection (value=Unit is the pinned fact)
 }
 flow Main {
   input: String = "go" -> p -> output

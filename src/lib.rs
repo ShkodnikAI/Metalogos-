@@ -146,7 +146,7 @@ pub fn run_program_with_dir(
 ) -> Result<Option<String>, String> {
     let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
 
-    enforce_run_gates(&declarations, &base_dir)?;
+    enforce_run_gates(&declarations, &base_dir, source)?;
 
     let mut interp = interpreter::Interpreter::new();
     interp.set_base_dir(base_dir);
@@ -180,6 +180,7 @@ pub fn run_program_with_dir(
 fn enforce_run_gates(
     declarations: &[ast::Declaration],
     base_dir: &std::path::Path,
+    source: &str,
 ) -> Result<(), String> {
     // Наряд №98: enforce Category A security invariants before execution.
     // SQL_DYNAMIC, SECRET_LEAK, HTML_INJECTION are now compile-time errors.
@@ -223,8 +224,12 @@ fn enforce_run_gates(
         let mut merged_decls = module_decls;
         merged_decls.extend(declarations.to_vec());
         let sem_result = semantic::check_program(&merged_decls);
-        let blocking: Vec<&semantic::SpannedError> = sem_result
-            .errors
+        // №802: the allow-comment suppressions are honored on the run
+        // path too (the checked surface and the run gate must agree —
+        // a suppressed-at-check program must not refuse at run).
+        let mut sem_errors = sem_result.errors;
+        sem_errors = semantic::filter_suppressed_unchecked(sem_errors, source);
+        let blocking: Vec<&semantic::SpannedError> = sem_errors
             .iter()
             .filter(|err| !semantic::is_exempt_from_blocking(err.kind))
             .collect();
@@ -259,7 +264,11 @@ pub fn audit_program(source: &str) -> Result<audit::AuditResult, String> {
 /// Returns an AnalysisResult with errors and warnings.
 pub fn check_program(source: &str) -> Result<semantic::AnalysisResult, String> {
     let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
-    Ok(semantic::check_program(&declarations))
+    let mut result = semantic::check_program(&declarations);
+    // №802: the explicit allow-comment suppressions are honored where
+    // the span lines map to THIS source.
+    result.errors = semantic::filter_suppressed_unchecked(result.errors, source);
+    Ok(result)
 }
 
 /// Parse and check a .mlog program, resolving imports against an optional
@@ -318,7 +327,11 @@ pub fn check_program_with_root(
     let mut all_decls = root_decls;
     all_decls.extend(declarations);
 
-    Ok(semantic::check_program(&all_decls))
+    let mut result = semantic::check_program(&all_decls);
+    // №802: the allow-comment suppressions map to the CHECKED file's
+    // lines (the merged root decls keep their own spans).
+    result.errors = semantic::filter_suppressed_unchecked(result.errors, source);
+    Ok(result)
 }
 
 /// Parse a single line and feed it to a reusable interpreter.
@@ -483,7 +496,7 @@ fn compile_session_declarations(
 /// oracle in CI and behind `--reference`).
 pub fn run_program_on_vm(source: &str) -> Result<Option<String>, String> {
     let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
-    enforce_run_gates(&declarations, std::path::Path::new("."))?;
+    enforce_run_gates(&declarations, std::path::Path::new("."), source)?;
     let program = compile_program(source)?;
     run_bytecode(program)
 }
@@ -497,7 +510,7 @@ pub fn eval_program_on_vm(source: &str) -> Result<Vec<interpreter::types::EvalRe
     // №800: the run-path gate set — the default eval lane is a USER path
     // (the same posture `run` keeps); the `--reference` oracle lane keeps
     // the TW eval's historical ungated form.
-    enforce_run_gates(&declarations, std::path::Path::new("."))?;
+    enforce_run_gates(&declarations, std::path::Path::new("."), source)?;
     let eval_blocks: Vec<ast::EvalDecl> = declarations
         .iter()
         .filter_map(|d| match d {

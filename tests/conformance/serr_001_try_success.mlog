@@ -2,7 +2,7 @@
 // inner value exactly, error is Unit ("()").
 pattern p(x: String) -> String {
   let r = try(1.0 + 2.0)
-  return "ok=" + str(r.ok) + " value=" + str(r.value) + " err=" + str(r.error)
+  return "ok=" + str(r.ok) + " value=" + str(r.value) + " err=" + str(r.error) // allow(unchecked_result): the №670 specimen pins the try-result projection verbatim (ok/value/error on the success path)
 }
 flow Main {
   input: String = "go" -> p -> output

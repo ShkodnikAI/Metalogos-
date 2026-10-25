@@ -94,8 +94,11 @@ fn run_vm(source: &str, base: &Path) -> Result<String, String> {
     let mut merged_decls = module_decls;
     merged_decls.extend(declarations.clone());
     let sem_result = metalogos::semantic::check_program(&merged_decls);
-    let blocking: Vec<&metalogos::semantic::SpannedError> = sem_result
-        .errors
+    // №802: the allow-comment suppressions ride the test-side gate too
+    // (the same agreement the lib run gate keeps).
+    let mut sem_errors = sem_result.errors;
+    sem_errors = metalogos::semantic::filter_suppressed_unchecked(sem_errors, source);
+    let blocking: Vec<&metalogos::semantic::SpannedError> = sem_errors
         .iter()
         .filter(|err| !metalogos::semantic::is_exempt_from_blocking(err.kind))
         .collect();

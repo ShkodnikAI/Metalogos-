@@ -114,8 +114,8 @@ An AI-native "hello": a learnable pattern with a fallback, run in a flow — all
 | Grammar | 343 rules |
 | Architecture Decisions | 190 ADRs |
 | Example Programs | 253 .mlog programs |
-| Reference | REFERENCE.md (~329 KB) — 100% registry coverage |
-| Changelog | CHANGELOG.md (~134 KB) — every wave documented |
+| Reference | REFERENCE.md (~330 KB) — 100% registry coverage |
+| Changelog | CHANGELOG.md (~136 KB) — every wave documented |
 <!-- END GENERATED METRICS -->
 
 ## The Newcomer Contract (2-minute read)

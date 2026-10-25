@@ -158,7 +158,10 @@ fn n730_open_fixed_list_ground_stays_unknown_in_registry() {
         "media_source_capture",
         "pose_make",
         "reflex_bpe_load",
-        "reflex_generate",
+        // reflex_generate left the DEFAULT-build ground: №799 (gh#1546,
+        // wave 65) gated the row with `candle` — asserted under the
+        // same gate below (the parked default refusal is pinned by
+        // naryad_799).
         // reflex_list left the refusal ground: №748 (gh#1392, wave 55)
         // closed it List<String> through the live shared dispatch —
         // tests/naryad_748_wall_walk.rs.
@@ -198,6 +201,15 @@ fn n730_open_fixed_list_ground_stays_unknown_in_registry() {
         spec_of("voice_load").return_type,
         Type::Unknown,
         "the refusal voice_load must stay Unknown honest"
+    );
+    // №799 (T2, gh#1488): reflex_generate left the default-build ground —
+    // the row gates with `candle`; the parked default refusal is pinned
+    // by naryad_799.
+    #[cfg(feature = "candle")]
+    assert_eq!(
+        spec_of("reflex_generate").return_type,
+        Type::Unknown,
+        "the refusal reflex_generate must stay Unknown honest (№799: the row gates with candle)"
     );
 }
 

@@ -73,6 +73,8 @@ fn vision_declaration_emits_no_bytecode() {
 // ── Block 2: dispatch negatives (loud, exact messages) ───────────────
 
 /// Unknown declaration name → loud Err listing the declared names.
+#[cfg(feature = "vision")]
+// №799 (T2, gh#1488): the vision build's contract — the default parked refusal is pinned by naryad_799
 #[test]
 fn generate_unknown_declaration_loud_error() {
     let source = r#"
@@ -102,6 +104,8 @@ flow Main { input: String = "x" -> Generate -> output }
 }
 
 /// Wrong arity (1 arg instead of 2) → loud Err with the R4 contract text.
+#[cfg(feature = "vision")]
+// №799 (T2, gh#1488): the vision build's contract — the default parked refusal is pinned by naryad_799
 #[test]
 fn generate_wrong_arity_loud_error() {
     let source = r#"
@@ -129,6 +133,8 @@ flow Main { input: String = "x" -> Generate -> output }
 /// real clip. We do not `#[ignore]` and we do not unset the variable
 /// (unsetting a global env var in a parallel test runner is a race with
 /// the env-gated tests).
+#[cfg(feature = "vision")]
+// №799 (T2, gh#1488): the vision build's contract — the default parked refusal is pinned by naryad_799
 #[test]
 fn generate_missing_weights_env_loud_error() {
     if std::env::var_os("MLOG_VISION_WEIGHTS_DIR").is_some() {

@@ -552,6 +552,13 @@ pub const CODE_MEDIA_SEALED_EGRESS: &str = "MEDIA_SEALED_EGRESS";
 /// code naming the real path (verify_password) instead of the quiet
 /// mock answer.
 pub const CODE_NOT_IMPLEMENTED: &str = "NOT_IMPLEMENTED";
+/// №799 (T2, gh#1488): the parked-builtin seam — a name KNOWN to the
+/// registry source whose row does not compile into THIS build (the
+/// feature gate, the C3 (a) tiers). The refusal names the feature and
+/// the parking basis; the caller can catch [BUILTIN_PARKED] and route to
+/// the feature-on path (or the documented alternative) inside the same
+/// try.
+pub const CODE_BUILTIN_PARKED: &str = "BUILTIN_PARKED";
 /// Backend ladder exhausted (№336/ADR-0165). The typed `Degraded(t)` result
 /// reuses the SAME frozen name for its `error.code` field (single constant,
 /// see `src/builtins/backends.rs`) — the typed path stays typed; if such a
@@ -771,6 +778,9 @@ const ORIGIN_STAMPED_CODES: &[&str] = &[
     // caller can catch [NOT_IMPLEMENTED] and route to the real
     // credential path (verify_password) inside the same try.
     CODE_NOT_IMPLEMENTED,
+    // №799: the parked seam — branchable: the caller can catch
+    // [BUILTIN_PARKED] and route inside the same try.
+    CODE_BUILTIN_PARKED,
     CODE_SINK_CLEARANCE_RUNTIME,
     CODE_MEDIA_SEALED_EGRESS,
     CODE_BACKEND_DEGRADED,

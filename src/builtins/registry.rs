@@ -1,17 +1,26 @@
 use super::reflex::{
     builtin_reflex_bpe_decode, builtin_reflex_bpe_encode, builtin_reflex_bpe_load,
     builtin_reflex_bpe_save, builtin_reflex_bpe_train, builtin_reflex_detokenize,
-    builtin_reflex_generate_stub, builtin_reflex_list_stub, builtin_reflex_load_stub,
-    builtin_reflex_metrics_stub, builtin_reflex_predict_stub, builtin_reflex_save_stub,
-    builtin_reflex_tokenize, builtin_reflex_train_stub,
+    builtin_reflex_list_stub, builtin_reflex_load_stub, builtin_reflex_metrics_stub,
+    builtin_reflex_predict_stub, builtin_reflex_save_stub, builtin_reflex_tokenize,
+    builtin_reflex_train_stub,
 };
+// №799 (T2, gh#1488): the parked row gates with its feature — the stub
+// import rides the same gate (the default build neither registers nor
+// compiles the parked surface; `builtins::parked` names it).
+#[cfg(feature = "candle")]
+use super::reflex::builtin_reflex_generate_stub;
 // Наряд №210: Vision pillar stub handlers (ADR-0124).
+// №799 (T2, gh#1488): the parked stubs gate with the `vision` feature —
+// the stable vision rows (vision_list/save/load) keep their stub imports
+// ungated (the rows compile in the default build).
+#[cfg(feature = "vision")]
 use super::vision::{
     builtin_vision_edit_stub, builtin_vision_export_raw_stub, builtin_vision_export_stub,
-    builtin_vision_fetch_weights, builtin_vision_generate_stub, builtin_vision_list_stub,
-    builtin_vision_load_stub, builtin_vision_lora_generate_stub, builtin_vision_lora_load_stub,
-    builtin_vision_save_stub,
+    builtin_vision_fetch_weights, builtin_vision_generate_stub, builtin_vision_lora_generate_stub,
+    builtin_vision_lora_load_stub,
 };
+use super::vision::{builtin_vision_list_stub, builtin_vision_load_stub, builtin_vision_save_stub};
 // Наряд №307 (ADR-0147-0150): Video pillar builtins. Наряд №309 (ADR-0151):
 // real pipeline implementations — I2V anchors, interp, extend, mux, export.
 #[cfg(feature = "video")]
@@ -82,7 +91,10 @@ use crate::voice::{
 };
 // №526 (issue #835): the erasure path is NOT feature-gated — the GDPR
 // Art. 17 right cannot depend on a build flag; VOICE_REGISTRY itself was
-// never feature-gated.
+// never feature-gated. The fns stay compiled in EVERY build (voice/mod.rs
+// owns the erasure contract); №799 gates only the USER-PROGRAM rows —
+// so this registry-side import rides the same gate as the rows.
+#[cfg(feature = "voice")]
 use crate::voice::{builtin_voice_delete, builtin_voice_list};
 
 /// Master registry of ALL builtin functions.
@@ -827,6 +839,10 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("reflex_metrics", 1, "reflex"; builtin_reflex_metrics_stub, "stable"),
     spec!("reflex_list", 0, "reflex"; builtin_reflex_list_stub, "List<String>", "stable"), // №748 (gh#1392, Wave 55, lane α): the LIVE path is the shared reflex_list_dispatch — it precedes the registry row on BOTH lanes (TW execution.rs:578/2038, VM vm.rs:2918-2923; the №717 "loud Err stub" anchor reflex.rs:112-117 named only the shadowed fallback arm — the №736 intercept-walk lesson) and answers the List of the declared reflex/reflex_seq model names as Strings (reflex.rs:1220-1241: the names sorted by ReflexId.0 — the registration order, deterministic; the empty registry answers the honest empty List — the vision_list №744 form); the spelling names the ONLY reachable Ok arm (the №539 guard by construction: no other Ok arm exists on either lane); the registry stub stays byte-for-byte as the shadowed fail-closed fallback (the query №740 posture — the type is the INTERCEPT's shape, not the fallback's)
     // ── Наряд №193: text generation (ADR-0120) ──
+    // №799 (T2, gh#1488): the parked row gates with `candle` (the live Ok
+    // arm is candle-gated, №748) — the default build refuses at CHECK via
+    // `builtins::parked` naming --features candle.
+    #[cfg(feature = "candle")]
     spec!("reflex_generate", 4, "reflex"; builtin_reflex_generate_stub, "parked"), // №748 re-refusal (gh#1392, Wave 55): the №717 stub-only ground was STALE — the shared reflex_generate_dispatch precedes the registry row on BOTH lanes (TW execution.rs:588/2042, VM vm.rs:2924-2928); the Ok arm is the List<Float> of token ids (reflex.rs:1353) but it is CANDLE-GATED (#[cfg(feature = "candle")]) — the default build refuses loudly (reflex.rs:1359 "candle feature not enabled"), so the reachable-Ok ground is FEATURE-DEPENDENT (the reflex_bpe_load never-Ok posture applies to the default binary; the candle build is a different contract) — typing the feature-conditional arm has NO house precedent (the №744 vision intercepts were UNCONDITIONAL) and the row CANNOT close in the default build — the Unknown ground stays; the feature-lane typing verdict is the owner lane; the stub stays byte-for-byte as the shadowed fallback
     // ── Наряд №194: tokenization (ADR-0120 follow-up) ──
     // These are pure functions (no registry access) — real handlers, not stubs.
@@ -846,18 +862,26 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // contract). generate/list/export are intercepted before the generic
     // fallback (лекало reflex_train); these specs remain the last-resort
     // handlers + the arity/type contract for LSP and checks.
+    // №799 (T2, gh#1488): the parked vision rows gate with `vision` — the
+    // default build refuses at CHECK via `builtins::parked` naming
+    // --features vision (the lie "undefined" is gone; №796 tiers).
+    #[cfg(feature = "vision")]
     spec!("vision_generate", 2, "vision"; builtin_vision_generate_stub, "parked"),
+    #[cfg(feature = "vision")]
     spec!("vision_edit", 2, "vision"; builtin_vision_edit_stub, "parked"),
+    #[cfg(feature = "vision")]
     spec!("vision_export", 2, "vision"; builtin_vision_export_stub, "parked"),
     // Наряд №241 (R5, Block 2.1 — ADR-0125): explicit raw opt-out. Real
     // path intercepted like vision_export (state-carrying). Every call
     // site is audit-flagged VISION_UNSIGNED_EXPORT_RAW (Warning).
+    #[cfg(feature = "vision")]
     spec!("vision_export_raw", 2, "vision"; builtin_vision_export_raw_stub, "parked"),
     // Наряд №241 (R5, Block 3.2 — ADR-0125 MODEL_WEIGHTS_UNSAFE): REAL
     // stateless handler (no interception needed — no registry state):
     // SSRF-guarded (check_url_ssrf, лекало №130), allowlist default-deny
     // (MLOG_VISION_WEIGHTS_ALLOWLIST), manifest.json-class only, SHA-256
     // pinned via reused WeightsManifest. Registry 388→389.
+    #[cfg(feature = "vision")]
     spec!("vision_fetch_weights", 2, "vision"; builtin_vision_fetch_weights, "String", "parked"), // №717 (gh#1329, Wave 50): the SINGLE Ok arm returns the caller's dest_dir echo (vision.rs:1524, the vision-gated arm; the non-vision arm is the loud refusal) — the verified single-shape String fact (the №757 decrypt form); the allowlist default-deny + SSRF guard + pickle-extension refusals all stay in the error channel (loud, unchanged)
     spec!("vision_list", 0, "vision"; builtin_vision_list_stub, "List<String>", "stable"), // №744 (gh#1385, Wave 54, lane α): the LIVE path is the №240 intercept — it precedes the registry dispatch on BOTH lanes (TW execution.rs:599-604/2061-2066, VM vm.rs:2955-2956) and answers the List of `[Vision#N]` String display handles (vision.rs:362, one per registry id, sorted — determinism; the doc contract vision.rs:351 `vision_list() -> List<String>`); the spelling names the live both-lane contract (the query №740 posture: the row KEEPS its handler — the unreachable loud-Err fallback vision.rs:1706-1712 stays byte-for-byte, the №706 fail-closed form; the type is the INTERCEPT's shape, not the fallback's); the empty registry answers the honest empty List (no element instance — nothing fictitious named: the inner is the plain String the dispatch constructs)
     // Наряд №242 (R6.1): vision_save/vision_load — real SQLite persistence
@@ -876,7 +900,9 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // 389→391: the vision family reaches its ADR-0124 §3 ceiling of
     // ~10 (8→10) — the NEXT vision builtin requires an ADR-0124 edit
     // (loudly noted in CHANGELOG).
+    #[cfg(feature = "vision")]
     spec!("vision_lora_load", 2, "vision"; builtin_vision_lora_load_stub, "String", "parked"), // №744 (gh#1385, Wave 54, lane α): the LIVE path is the №244 intercept — both lanes (TW execution.rs:813-818/2275-2280, VM vm.rs:3008-3009), the dispatch receives the program db connection (the adapter's only home — ADR-0124 §6); the SINGLE Ok arm returns the adapter name as String (vision.rs:1097 `Ok(Value::String(name))`) — the verified single-shape fact (the №757 decrypt form); the missing-adapter/wrong-handle/db refusals stay LOUD in the error channel; the registry stub stays the unreachable loud-Err fallback (the query №740 posture — the type is the INTERCEPT's shape, not the fallback's)
+    #[cfg(feature = "vision")]
     spec!("vision_lora_generate", 3, "vision"; builtin_vision_lora_generate_stub, "parked"),
     // ── Наряд №331 (ADR-0162): unified media layer (category "media") ──
     // Four per-type store builtins (opaque handles — bytes never enter
@@ -1177,7 +1203,15 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // consent ledger survives by design (the Art. 9 proof). APPENDED at
     // the end — inserting mid-array would shift existing CallBuiltin
     // indices (.mbc contract). Registry 505→507 (append-only).
+    // №799 (T2, gh#1488): the parked rows gate with `voice` together
+    // with the №526 erasure pair (voice/mod.rs) — a build without
+    // `voice` collects no prints (enroll is the same parked family), so
+    // the erasure right holds by construction; the voice build carries
+    // the full collect+erase pair. The check refusal names --features
+    // voice via `builtins::parked`.
+    #[cfg(feature = "voice")]
     spec!("voice_delete", 1, "voice"; builtin_voice_delete, "parked"), // voice|audio handle
+    #[cfg(feature = "voice")]
     spec!("voice_list", 0, "voice"; builtin_voice_list, "String", "parked"),
     // ── №591 (Волна 30, Камертон Н1-05/Н1-07, инвариант 3): the spectral
     // contour — the Lomb–Scargle periodogram for unevenly sampled series
@@ -1237,6 +1271,14 @@ pub fn builtin_name_set() -> std::collections::HashSet<String> {
         .iter()
         .map(|s| s.name.to_string())
         .collect()
+}
+
+/// №799 (T2, gh#1488): name → the compiled spec, if the row compiles
+/// into THIS build. The tier reader for the check lane's experimental
+/// warning (the parked names are NOT here in the default build — they
+/// refuse through `builtins::parked`, not through their tier).
+pub fn spec_by_name(name: &str) -> Option<&'static BuiltinSpec> {
+    BUILTIN_REGISTRY.iter().find(|s| s.name == name)
 }
 
 /// Name → arity mapping. 0 = variadic (skip check).

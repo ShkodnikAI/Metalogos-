@@ -132,6 +132,10 @@ flow Main {{ input: String = "x" -> T -> output }}
 // ── voice_list → String ───────────────────────────────────────────────
 
 #[test]
+// №799 (T2, gh#1488): voice_list rides the `voice` build with its parked
+// row — the both-backend probe is the feature build's contract (the
+// default parked refusal is pinned by naryad_799).
+#[cfg(feature = "voice")]
 fn n697_voice_list_is_string() {
     // The String contract: the result concatenates like a String (the
     // `+` on a non-String operand is a type error). The empty-registry

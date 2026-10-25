@@ -52,6 +52,20 @@ pub enum SemanticErrorKind {
     /// stays named so the gate's exemption list can be explicit and
     /// future kinds can be classified without new plumbing.
     UndefinedFunction,
+    /// №799 (T2, gh#1488): the called name IS defined — it is a parked
+    /// builtin (the C3 (a) tier, №796) whose row does not compile into
+    /// THIS build. The refusal carries `[BUILTIN_PARKED]`, the feature
+    /// and the parking basis (`builtins::parked::refusal_message`);
+    /// blocks the run/serve gates like every semantic finding (the
+    /// exemption list stays empty).
+    BuiltinParked,
+    /// №799 (T2, gh#1488): the called builtin's tier is `experimental`
+    /// — a WARNING, never an error. The finding is pushed into the
+    /// errors vec with this kind and check_program partitions it into
+    /// `warnings` at the tail (the ONE place) — the blocking gates never
+    /// see it, `mlog check` stays exit-0, and the warning prints with
+    /// the `[BUILTIN_EXPERIMENTAL]` class prefix.
+    BuiltinExperimental,
     /// №581 (the audit d63cc1d X-1, release-block): RESPOND_NOT_TERMINAL —
     /// a bare `respond*`/`respond_html*` call (an ExprStmt, no enclosing
     /// `return`) sits in a NON-terminal position of a route body (not the
@@ -185,10 +199,22 @@ impl SemanticErrorKind {
             SemanticErrorKind::RawInsertNotHtml => Some(CODE_RAW_INSERT_NOT_HTML),
             SemanticErrorKind::SafePipeNotHtml => Some(CODE_SAFE_PIPE_NOT_HTML),
             SemanticErrorKind::UnsafePipeForm => None,
+            SemanticErrorKind::BuiltinParked => Some(CODE_BUILTIN_PARKED),
+            SemanticErrorKind::BuiltinExperimental => Some(CODE_BUILTIN_EXPERIMENTAL),
             SemanticErrorKind::Other => None,
         }
     }
 }
+
+// №799 (T2, gh#1488): the parked refusal's stable code — the SAME
+// constant the coded errors use (values.rs), so the check gate, the run
+// gate's position-0 stamp, the VM compile origin and the try-branching
+// mechanics all name one class.
+use crate::interpreter::values::CODE_BUILTIN_PARKED;
+/// №799: the experimental-tier WARNING class — a check-lane warning
+/// (never an error; the exit-0 semantics), printed by `mlog check` and
+/// partitioned out of the blocking path (see check_program's tail).
+pub const CODE_BUILTIN_EXPERIMENTAL: &str = "BUILTIN_EXPERIMENTAL";
 
 /// Наряд №523: the ONE explicit exemption list for the run/serve
 /// blocking gates. EVERY `check_program` error blocks by default; a kind
@@ -7466,6 +7492,21 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
         .warnings
         .extend(respond_html_two_arg_warnings(declarations));
 
+    // №799 (T2, gh#1488): the experimental-tier partition — the ONE
+    // place. The check walk pushed [BUILTIN_EXPERIMENTAL] findings into
+    // `errors` with the BuiltinExperimental kind (the walker threads
+    // one vec); here they move to `warnings`: the blocking gates (№523)
+    // never see them, `mlog check` stays exit-0, the human output
+    // carries the class prefix. The parked kind NEVER partitions — it
+    // blocks by construction (the C3 (a) tiers: parked = not callable
+    // in this build, experimental = callable with a notice).
+    let (experimental, rest): (Vec<_>, Vec<_>) = result
+        .errors
+        .into_iter()
+        .partition(|e| e.kind == SemanticErrorKind::BuiltinExperimental);
+    result.warnings.extend(experimental);
+    result.errors = rest;
+
     result
 }
 
@@ -9591,21 +9632,35 @@ fn check_expr_calls(
         const INTERCEPTED_FUNCTIONS: &[&str] = &["recall_top_k"];
 
         if !is_known && !INTERCEPTED_FUNCTIONS.contains(&name.as_str()) {
-            // Наряд №165: span taken from the FnCall expression itself —
-            // the call site is the natural place to point the squiggle.
-            // Наряд №523: the finding carries the structured
-            // UNDEFINED_FUNCTION kind — the blocking gates classify by
-            // the enum, never by the message text.
-            errors.push(
-                SpannedError::at_expr(
-                    expr,
-                    format!(
-                        "undefined: function '{}' is not a builtin, pattern, or learnable",
-                        name
-                    ),
-                )
-                .with_kind(SemanticErrorKind::UndefinedFunction),
-            );
+            // №799 (T2, gh#1488): a PARKED builtin's name is KNOWN to the
+            // registry source even when the row does not compile into
+            // THIS build (the feature gate, the C3 (a) tiers) — the
+            // refusal names the feature and the parking basis instead of
+            // the lie "undefined". The finding blocks the run/serve
+            // gates like every semantic finding (the exemption list
+            // stays empty; №523).
+            if let Some(parked) = crate::builtins::parked::parked_spec(name) {
+                errors.push(
+                    SpannedError::at_expr(expr, crate::builtins::parked::refusal_message(parked))
+                        .with_kind(SemanticErrorKind::BuiltinParked),
+                );
+            } else {
+                // Наряд №165: span taken from the FnCall expression itself —
+                // the call site is the natural place to point the squiggle.
+                // Наряд №523: the finding carries the structured
+                // UNDEFINED_FUNCTION kind — the blocking gates classify by
+                // the enum, never by the message text.
+                errors.push(
+                    SpannedError::at_expr(
+                        expr,
+                        format!(
+                            "undefined: function '{}' is not a builtin, pattern, or learnable",
+                            name
+                        ),
+                    )
+                    .with_kind(SemanticErrorKind::UndefinedFunction),
+                );
+            }
         }
 
         // Check builtin arity
@@ -9628,6 +9683,28 @@ fn check_expr_calls(
             if !dynamic_arity {
                 if let Err(e) = crate::builtins::check_builtin_arity(name, args.len()) {
                     errors.push(SpannedError::at_expr(expr, e));
+                }
+            }
+
+            // №799 (T2, gh#1488): the experimental tier warns on CHECK —
+            // never an error (the exit-0 semantics). The finding rides
+            // the errors vec with its OWN kind and check_program
+            // partitions it into `warnings` at the tail (the ONE place):
+            // the blocking gates never see it, the human output carries
+            // the [BUILTIN_EXPERIMENTAL] class prefix.
+            if let Some(spec) = crate::builtins::registry::spec_by_name(name) {
+                if spec.tier == "experimental" {
+                    errors.push(
+                        SpannedError::at_expr(
+                            expr,
+                            format!(
+                                "[BUILTIN_EXPERIMENTAL] {} is experimental — it may change \
+                                 or refuse without notice (tier: experimental)",
+                                name
+                            ),
+                        )
+                        .with_kind(SemanticErrorKind::BuiltinExperimental),
+                    );
                 }
             }
         }

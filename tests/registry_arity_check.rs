@@ -147,11 +147,12 @@ fn registry_arity_exhaustive() {
         // ── Vision pillar (№210/№240/№241 — ADR-0124/0125) ──
         // The vision rows were absent before №241 — added with the
         // vision_export_raw spec so the exhaustive list covers the pillar.
-        ("vision_generate", 2, 2),
-        ("vision_edit", 2, 2),
-        ("vision_export", 2, 2),
-        ("vision_export_raw", 2, 2),    // Наряд №241 Block 2.1
-        ("vision_fetch_weights", 2, 2), // Наряд №241 Block 3.2 (real handler)
+        // №799 (T2, gh#1488): the PARKED vision rows (generate/edit/
+        // export/export_raw/fetch_weights) gate with the `vision` feature
+        // — their arity is the FEATURE build's contract now (the parked
+        // slice below; the default build's registry doesn't compile the
+        // rows, and check_builtin_arity answers Ok for unknown names).
+        // The STABLE vision rows stay here (vision_save/vision_load).
         ("vision_save", 2, 2),
         ("vision_load", 1, 1),
         // ── System builtins ──
@@ -283,7 +284,21 @@ fn registry_arity_exhaustive() {
         ("reflex_load", 1, 1),
     ];
 
-    for &(name, min_a, max_a) in cases {
+    // №799 (T2, gh#1488): the parked vision rows' arity — the feature
+    // build's contract (the rows gate with `vision`; see the cases
+    // comment above).
+    #[cfg(feature = "vision")]
+    let parked_cases: &[(&str, usize, usize)] = &[
+        ("vision_generate", 2, 2),
+        ("vision_edit", 2, 2),
+        ("vision_export", 2, 2),
+        ("vision_export_raw", 2, 2),    // Наряд №241 Block 2.1
+        ("vision_fetch_weights", 2, 2), // Наряд №241 Block 3.2 (real handler)
+    ];
+    #[cfg(not(feature = "vision"))]
+    let parked_cases: &[(&str, usize, usize)] = &[];
+
+    for &(name, min_a, max_a) in cases.iter().chain(parked_cases.iter()) {
         if min_a == 0 {
             // Special case: geo_ip (0..1) — test 0 and 1
             assert!(

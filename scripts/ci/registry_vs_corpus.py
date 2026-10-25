@@ -15,6 +15,13 @@ Boundaries:
   - pairs whose name is NOT in the registry export are skipped — patterns,
     learnables and tool methods are the program's own surface, not the
     registry's contract;
+  - the PARKED builtins (№799 — the C3 (a) T2: the feature-gated rows do
+    not compile into the default-build registry) ride the corpus's own
+    SKIP annotation form — `SKIP|name|argc|parked (feature-gated <f>;
+    №799 …)` — the observed shape stays recorded, the expected refusal
+    is the annotation (the default build refuses at check); the parity
+    lock (tests/naryad_799_parked_parity.rs) pins the parked surface
+    itself;
   - the DYNAMIC-ARITY builtins (forget, render — the semantic.rs
     dynamic_arity list) are skipped: the registry spec cannot state their
     real contract, the builtin remains the loud runtime validator;

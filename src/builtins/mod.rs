@@ -454,6 +454,11 @@ use regex::*;
 // macro in registry.rs can reference them.
 pub mod reflex;
 pub mod vision;
+// №799 (T2, gh#1488): the parked surface SSOT — the always-compiled
+// (name, feature, basis) table behind the [BUILTIN_PARKED] check
+// refusal. The rows themselves gate in registry.rs; the parity lock
+// (tests/naryad_799_parked_parity.rs) pins table ↔ rows set-equality.
+pub mod parked;
 // Наряд №331 (ADR-0162): unified media layer — media_store_* / media_save /
 // media_retain / media_release / media_meta. NOT feature-gated: the store,
 // handles, and at-rest sealing have no inference-stack dependencies (mirrors

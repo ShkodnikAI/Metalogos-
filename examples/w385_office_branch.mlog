@@ -8,7 +8,7 @@
 pattern OfficeStep(task: String) -> String {
   let r = try call_llm("Summarize the task:", task)
   if redact(to_string(r.ok), "hash_only") == redact("true", "hash_only") {
-    return "done:" + r.value
+    return "done:" + r.value // allow(unchecked_result): the guard is the redact-obfuscated r.ok == true check (ADR-0169 (д) — the branch by CODE through the sanctioned seam)
   }
   if redact(r.error.code, "hash_only") == redact("SANDBOX_VIOLATION", "hash_only") {
     return "hard-fail:" + r.error.code
@@ -16,7 +16,7 @@ pattern OfficeStep(task: String) -> String {
   if redact(r.error.code, "hash_only") == redact("LLM_TIMEOUT", "hash_only") {
     let r2 = try call_llm("Summarize the task:", task)
     if redact(to_string(r2.ok), "hash_only") == redact("true", "hash_only") {
-      return "done:" + r2.value
+      return "done:" + r2.value // allow(unchecked_result): the guard is the redact-obfuscated r2.ok == true check (ADR-0169 (д))
     }
     if redact(r2.error.code, "hash_only") == redact("LLM_TIMEOUT", "hash_only") {
       return "fallback:canned-summary-after-retry"

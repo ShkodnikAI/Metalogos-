@@ -749,6 +749,11 @@ pub fn enforce_semantic_startup(declarations: &[Declaration]) -> Result<(), Stri
     let mut merged_decls = module_decls;
     merged_decls.extend(declarations.to_vec());
     let sem_result = metalogos::semantic::check_program(&merged_decls);
+    // №802 note: the mcp-serve startup keeps the UNFILTERED refusal
+    // surface (no source threading through the MCP entrypoints in this
+    // naryad) — a suppressed-at-check program may refuse here; the
+    // asymmetry is fail-closed (stricter, never looser) and is recorded
+    // in the naryad report.
     let blocking: Vec<&metalogos::semantic::SpannedError> = sem_result
         .errors
         .iter()

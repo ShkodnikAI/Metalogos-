@@ -3,7 +3,7 @@
 // refusal is data (branchable), not a re-raised signal.
 pattern p(x: String) -> String {
   let outer = try(try(0.0 / 0.0))
-  return "outer=" + str(outer.ok) + " inner=" + str(outer.value.ok) + " code=" + outer.value.error.code
+  return "outer=" + str(outer.ok) + " inner=" + str(outer.value.ok) + " code=" + outer.value.error.code // allow(unchecked_result): the №670 specimen pins the inner TryResult as data — the outer.value read is the contract
 }
 flow Main {
   input: String = "go" -> p -> output

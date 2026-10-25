@@ -55,6 +55,15 @@ pub struct BuiltinSpec {
     /// without an explicit tier is a compile error (the gate is the
     /// grammar itself).
     pub tier: &'static str,
+    /// №802 (gh#1549, wave 65, the C6 R-b 2 static check): the RAW
+    /// return-type spelling from the spec! row ("" = the row is
+    /// untyped). `Type::Union` is a flat tag — the ARMS live in the
+    /// spec! string and are erased by `from_path` (the №740 erasure
+    /// discipline); the raw spelling is the SSOT the UNCHECKED_OPTION
+    /// walk re-reads to learn whether a union row carries a `Unit` arm
+    /// (an `Option<T>` in the ADR-0198 vocabulary). No shadow table —
+    /// the same literal feeds both `return_type` and this field.
+    pub return_type_raw: &'static str,
 }
 
 /// Macro for concise BuiltinSpec construction.
@@ -81,6 +90,7 @@ macro_rules! spec {
             category: $cat,
             layer: $layer,
             return_type: $crate::builtins::sig_types::Type::Unknown,
+            return_type_raw: "",
             parameterized: false,
             field_meta: "",
             handler: Some($handler as $crate::builtins::BuiltinFn),
@@ -95,6 +105,7 @@ macro_rules! spec {
             category: $cat,
             layer: $layer,
             return_type: $crate::builtins::sig_types::Type::Unknown,
+            return_type_raw: "",
             parameterized: false,
             field_meta: "",
             handler: Some($handler as $crate::builtins::BuiltinFn),
@@ -109,6 +120,7 @@ macro_rules! spec {
             category: $cat,
             layer: "core",
             return_type: $crate::builtins::sig_types::Type::Unknown,
+            return_type_raw: "",
             parameterized: false,
             field_meta: "",
             handler: Some($handler as $crate::builtins::BuiltinFn),
@@ -123,6 +135,7 @@ macro_rules! spec {
             category: $cat,
             layer: "core",
             return_type: $crate::builtins::sig_types::Type::Unknown,
+            return_type_raw: "",
             parameterized: false,
             field_meta: "",
             handler: Some($handler as $crate::builtins::BuiltinFn),
@@ -138,6 +151,7 @@ macro_rules! spec {
             category: $cat,
             layer: $layer,
             return_type: $crate::builtins::sig_types::Type::Unknown,
+            return_type_raw: "",
             parameterized: false,
             field_meta: "",
             handler: None,
@@ -152,6 +166,7 @@ macro_rules! spec {
             category: $cat,
             layer: $layer,
             return_type: $crate::builtins::sig_types::Type::Unknown,
+            return_type_raw: "",
             parameterized: false,
             field_meta: "",
             handler: None,
@@ -166,6 +181,7 @@ macro_rules! spec {
             category: $cat,
             layer: "core",
             return_type: $crate::builtins::sig_types::Type::Unknown,
+            return_type_raw: "",
             parameterized: false,
             field_meta: "",
             handler: None,
@@ -180,6 +196,7 @@ macro_rules! spec {
             category: $cat,
             layer: "core",
             return_type: $crate::builtins::sig_types::Type::Unknown,
+            return_type_raw: "",
             parameterized: false,
             field_meta: "",
             handler: None,
@@ -206,6 +223,7 @@ macro_rules! spec {
             category: $cat,
             layer: "core",
             return_type: $crate::builtins::sig_types::Type::from_path($rt),
+            return_type_raw: $rt,
             parameterized: $crate::builtins::sig_types::path_is_parameterized($rt),
             field_meta: $crate::builtins::sig_types::field_meta_of($rt),
             handler: None,
@@ -220,6 +238,7 @@ macro_rules! spec {
             category: $cat,
             layer: "core",
             return_type: $crate::builtins::sig_types::Type::from_path($rt),
+            return_type_raw: $rt,
             parameterized: $crate::builtins::sig_types::path_is_parameterized($rt),
             field_meta: $crate::builtins::sig_types::field_meta_of($rt),
             handler: None,
@@ -244,6 +263,7 @@ macro_rules! spec {
             category: $cat,
             layer: "core",
             return_type: $crate::builtins::sig_types::Type::from_path($rt),
+            return_type_raw: $rt,
             parameterized: $crate::builtins::sig_types::path_is_parameterized($rt),
             field_meta: $crate::builtins::sig_types::field_meta_of($rt),
             handler: Some($handler as $crate::builtins::BuiltinFn),
@@ -258,6 +278,7 @@ macro_rules! spec {
             category: $cat,
             layer: "core",
             return_type: $crate::builtins::sig_types::Type::from_path($rt),
+            return_type_raw: $rt,
             parameterized: $crate::builtins::sig_types::path_is_parameterized($rt),
             field_meta: $crate::builtins::sig_types::field_meta_of($rt),
             handler: Some($handler as $crate::builtins::BuiltinFn),
@@ -272,6 +293,7 @@ macro_rules! spec {
             category: $cat,
             layer: $layer,
             return_type: $crate::builtins::sig_types::Type::from_path($rt),
+            return_type_raw: $rt,
             parameterized: $crate::builtins::sig_types::path_is_parameterized($rt),
             field_meta: $crate::builtins::sig_types::field_meta_of($rt),
             handler: Some($handler as $crate::builtins::BuiltinFn),
@@ -286,6 +308,7 @@ macro_rules! spec {
             category: $cat,
             layer: $layer,
             return_type: $crate::builtins::sig_types::Type::from_path($rt),
+            return_type_raw: $rt,
             parameterized: $crate::builtins::sig_types::path_is_parameterized($rt),
             field_meta: $crate::builtins::sig_types::field_meta_of($rt),
             handler: Some($handler as $crate::builtins::BuiltinFn),

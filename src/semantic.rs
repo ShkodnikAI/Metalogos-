@@ -101,6 +101,24 @@ pub enum SemanticErrorKind {
     /// lowering); the depth-≥2 semantics question itself (an early answer
     /// everywhere vs the error forever) is a separate owner gate (№603).
     RespondSwallowed,
+    /// №802 (gh#1549, волна 65, the C6 R-b 2 static check): UNCHECKED_RESULT —
+    /// the `.value` of a try-result (the ADR-0198 `Result<T>` — the
+    /// ADR-0142 `Struct{ok, value, error}`) is read outside a branch
+    /// where `.ok` was PROVEN (`if r.ok { … }`, the early-exit
+    /// `r.ok == false { return … }`, the short-circuit `r.ok and …`).
+    /// The failed try's value is Unit — the read is the runtime
+    /// refusal shifted left to check/startup time on BOTH backends.
+    /// The sanctioned escape: `// allow(unchecked_result): <reason>`
+    /// (a bare allow without the reason is NOT a suppression).
+    UncheckedResult,
+    /// №802: UNCHECKED_OPTION — a `T|Unit` value (the ADR-0198
+    /// `Option<T>`; the union spelling carries a Unit arm —
+    /// `query_scalar`'s `Float|String|Unit`, the declared `-> T|Unit`
+    /// rows) is used where `T` is required: the arithmetic/ordering
+    /// operands, the `each` iterable, the string-key index, the
+    /// declared precise parameters. `to_string` is the sanctioned
+    /// total projection. The escape: `// allow(unchecked_option): <reason>`.
+    UncheckedOption,
     /// №617 (ledger gh#967 §3): UNDEFINED_VARIABLE — a bare `Ident` read
     /// (or an assignment target) that the variable-scope walk cannot
     /// resolve against the TW scope model (pattern params + entity
@@ -195,6 +213,8 @@ impl SemanticErrorKind {
             }
             SemanticErrorKind::RespondNotTerminal => Some(CODE_RESPOND_NOT_TERMINAL),
             SemanticErrorKind::RespondSwallowed => Some(CODE_RESPOND_SWALLOWED),
+            SemanticErrorKind::UncheckedResult => Some(CODE_UNCHECKED_RESULT),
+            SemanticErrorKind::UncheckedOption => Some(CODE_UNCHECKED_OPTION),
             SemanticErrorKind::UndefinedVariable => {
                 Some(crate::interpreter::values::CODE_UNDEFINED_VARIABLE)
             }
@@ -6976,6 +6996,15 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
     // reasons. Messages carry the [DENY_ prefix the run path blocks on.
     check_deny_events(declarations, &mut result.errors);
 
+    // №802 (gh#1549, волна 65, the C6 R-b 2 static check — the ADR-0198
+    // queue): the try result and the `T|Unit` union are verified before
+    // use. The refusal fires on `mlog check` and blocks the №523 run
+    // gate and the serve/mcp-serve startup gates on BOTH backends (the
+    // shared semantic pass); the suppression comment
+    // `// allow(unchecked_result|unchecked_option): <reason>` is
+    // honored by the source-level callers that hold the file text.
+    check_unchecked_uses(declarations, &mut result.errors);
+
     // №581 (the audit d63cc1d X-1) → №584 (X-1 step 2) → №600 (the audit
     // 25b375e Y-1, release-block): the respond-terminality walk. The
     // early-answer surface keeps the style ADVISORY (a bare respond*
@@ -10878,6 +10907,1000 @@ fn check_expr_vars(expr: &Expr, scope: &mut VarScope, errors: &mut Vec<SpannedEr
         | Expr::BoolLit { .. }
         | Expr::HandleSource { .. } => {}
     }
+}
+
+// ── №802 (gh#1549, волна 65, P2 — the C6 R-b 2 static check) ─────────
+//
+// ADR-0198 (№792) accepted the error model: `Result<T>` is the type of
+// the `try` result (`Struct{ok, value, error}`, ADR-0142), `Option<T>`
+// is the spelling of `T|Unit` — the ALIASES of the existing shapes.
+// Nothing stopped a program from reading `r.value` without ever
+// checking `r.ok`, or from using a `T|Unit` value where `T` is
+// required — the failure surfaced only at RUNTIME. This pass shifts
+// BOTH refusals left to the shared semantic pass (backend-independent
+// by construction — the №673 contour shape): every `mlog check`, the
+// №523 run gate and the serve/mcp-serve startup gates refuse the
+// class on BOTH backends.
+//
+// The shape (the registry-task wording, verbatim):
+//   1. the flow-sensitive check: `.value` on a try-result outside a
+//      branch where `.ok` was proven — [UNCHECKED_RESULT]; a `T|Unit`
+//      value used in a `T` position without the Unit handling —
+//      [UNCHECKED_OPTION];
+//   2. CONSERVATIVE: when the guard cannot be proven, the error fires,
+//      and the explicit suppression comment
+//      `// allow(unchecked_result): <reason>` (visible at review)
+//      is the sanctioned escape — a BARE allow (no reason) is NOT a
+//      suppression (the honest-spelling rule, pinned);
+//   3. the Result-ness comes ONLY from the `try` binding (a row
+//      struct's `.value` field never fires — the p7-compat negative).
+//
+// The guard grammar the walker PROVES (everything else is
+// "unsure" → error → suppress):
+//   - `if r.ok { ... }` — the then-branch is checked;
+//   - `if r.ok == true` / `true == r.ok` — the then-branch;
+//   - `if r.ok == false { return ... }` — the code AFTER the if is
+//     checked (the early-exit dominance; a top-level return/break/
+//     continue in the branch proves the exit);
+//   - `if not(r.ok) { return ... }` — the same dominance form;
+//   - `A and B` — the right side is walked under A's then-facts
+//     (`and` short-circuits on BOTH backends — the execution.rs fact);
+//   - `match r.ok { "true" then { ... } }` — the "true" arm is checked;
+//   - `if type_of(v) == "Unit" { return ... }` — after the if the
+//     Unit arm is excluded; `type_of(v) != "Unit"` — the then-branch.
+// The Option T-positions the walker refuses: the arithmetic/ordering
+// binary operands (Add/Sub/Mul/Div/Gt/Lt/Ge/Le), the `each` iterable,
+// the string-key index access, and the declared-pattern arguments
+// whose parameter spelling is a precise (non-union, non-Fluid) type.
+// `to_string` is the sanctioned total projection — never a T position.
+// The builtin ARGUMENT positions carry no param types in the registry
+// (the №467 stage-0 SSOT records only the returns) — that lane stays
+// out of this naryad's refusal surface, honestly (recorded in the
+// report; widening it is a registry decision, not a walker guess).
+
+/// №802: the stable code of the unchecked try-result read.
+pub const CODE_UNCHECKED_RESULT: &str = "UNCHECKED_RESULT";
+
+/// №802: the stable code of the unchecked `T|Unit` use.
+pub const CODE_UNCHECKED_OPTION: &str = "UNCHECKED_OPTION";
+
+/// The declared surface of the plain-name callables: the RAW return
+/// spelling (the union arms live in the string — the №740 erasure
+/// keeps `Type::Union` a flat tag) and the RAW parameter spellings.
+struct UncheckedCallables {
+    returns_raw: std::collections::HashMap<String, String>,
+    params_raw: std::collections::HashMap<String, Vec<String>>,
+}
+
+#[allow(clippy::wildcard_enum_match_arm)] // №802 tail: the collect maps only the plain-name callables' declared surfaces (pattern/learnable); every other declaration contributes no callable — a future callable-bearing declaration joins this match at the next audit
+impl UncheckedCallables {
+    fn collect(declarations: &[Declaration]) -> Self {
+        let mut map = Self {
+            returns_raw: std::collections::HashMap::new(),
+            params_raw: std::collections::HashMap::new(),
+        };
+        for d in declarations {
+            match d {
+                Declaration::Pattern(p) => {
+                    map.returns_raw
+                        .insert(p.name.clone(), p.return_type.clone());
+                    map.params_raw.insert(
+                        p.name.clone(),
+                        p.params.iter().map(|q| q.type_name.clone()).collect(),
+                    );
+                }
+                Declaration::LearnablePattern(l) => {
+                    map.returns_raw
+                        .insert(l.name.clone(), l.return_type.clone());
+                    map.params_raw.insert(
+                        l.name.clone(),
+                        l.params.iter().map(|q| q.type_name.clone()).collect(),
+                    );
+                }
+                _ => {}
+            }
+        }
+        map
+    }
+}
+
+/// The TOP-LEVEL arms of a union spelling — the `|` split that respects
+/// the angle-bracket nesting (`List<Float|String|Unit>` has ONE
+/// top-level arm, the List head; its inner unions are element facts,
+/// not the variable's shape).
+fn union_arms_top(raw: &str) -> Vec<String> {
+    let mut arms = Vec::new();
+    let mut depth = 0usize;
+    let mut cur = String::new();
+    for ch in raw.chars() {
+        match ch {
+            '<' => {
+                depth += 1;
+                cur.push(ch);
+            }
+            '>' => {
+                depth = depth.saturating_sub(1);
+                cur.push(ch);
+            }
+            '|' if depth == 0 => {
+                arms.push(cur.trim().to_string());
+                cur.clear();
+            }
+            _ => cur.push(ch),
+        }
+    }
+    arms.push(cur.trim().to_string());
+    arms
+}
+
+/// The ADR-0198 Option shape: a MULTI-ARM union whose top-level arms
+/// include `Unit`. A bare `Unit` return is not an Option (nothing to
+/// unwrap); a parameterized `List<...|Unit>` is not a top-level Option.
+fn raw_is_option(raw: &str) -> bool {
+    let arms = union_arms_top(raw);
+    arms.len() > 1 && arms.iter().any(|a| a.eq_ignore_ascii_case("Unit"))
+}
+
+/// Whether the builtin's registry row returns an Option shape (the
+/// `return_type_raw` SSOT — the same literal `from_path` consumed).
+fn builtin_returns_option(name: &str) -> bool {
+    crate::builtins::BUILTIN_REGISTRY
+        .iter()
+        .find(|s| s.name == name)
+        .map(|s| raw_is_option(s.return_type_raw))
+        .unwrap_or(false)
+}
+
+/// The flow state of one straight-line block.
+#[derive(Clone, Default)]
+struct UncheckedFlow {
+    /// var → the `.ok` guard proven? (present = bound to a try result)
+    try_vars: std::collections::HashMap<String, bool>,
+    /// var → the Unit arm excluded? (present = bound to an Option shape)
+    opt_vars: std::collections::HashMap<String, bool>,
+}
+
+/// The guard facts one condition proves for the branches of its `if`.
+#[derive(Default, Clone)]
+struct GuardFacts {
+    try_then: Vec<String>,
+    try_else: Vec<String>,
+    opt_then: Vec<String>,
+    opt_else: Vec<String>,
+    /// The then-branch proves the NEGATED side (`not(r.ok)`,
+    /// `r.ok == false`, `type_of(v) == "Unit"`) — a top-level early exit
+    /// there makes the code AFTER the if carry the else-facts.
+    negated: bool,
+}
+
+impl GuardFacts {
+    fn is_empty(&self) -> bool {
+        self.try_then.is_empty()
+            && self.try_else.is_empty()
+            && self.opt_then.is_empty()
+            && self.opt_else.is_empty()
+    }
+}
+
+/// Mark the tracked variables the names name (an untracked name's
+/// guard is a no-op — the honesty of the narrow surface).
+fn apply_facts(flow: &mut UncheckedFlow, try_names: &[String], opt_names: &[String]) {
+    for n in try_names {
+        if flow.try_vars.contains_key(n) {
+            flow.try_vars.insert(n.clone(), true);
+        }
+    }
+    for n in opt_names {
+        if flow.opt_vars.contains_key(n) {
+            flow.opt_vars.insert(n.clone(), true);
+        }
+    }
+}
+
+/// The eq/ne guard shapes shared by both orientations
+/// (`r.ok == true` / `true == r.ok`).
+fn eq_guard_facts(probe: &Expr, lit: &Expr, eq: bool) -> Option<GuardFacts> {
+    match (probe, lit) {
+        (Expr::FieldAccess { object, field, .. }, Expr::BoolLit { value, .. }) if field == "ok" => {
+            let Expr::Ident { name, .. } = object.as_ref() else {
+                return None;
+            };
+            let true_side = *value == eq;
+            Some(if true_side {
+                GuardFacts {
+                    try_then: vec![name.clone()],
+                    ..Default::default()
+                }
+            } else {
+                GuardFacts {
+                    try_else: vec![name.clone()],
+                    negated: true,
+                    ..Default::default()
+                }
+            })
+        }
+        (Expr::FnCall { name, args, .. }, Expr::StringLit { value, .. })
+            if name == "type_of" && args.len() == 1 && value == "Unit" =>
+        {
+            let Expr::Ident { name: v, .. } = &args[0] else {
+                return None;
+            };
+            Some(if eq {
+                // type_of(v) == "Unit": the then-branch IS the Unit arm
+                GuardFacts {
+                    opt_else: vec![v.clone()],
+                    negated: true,
+                    ..Default::default()
+                }
+            } else {
+                // type_of(v) != "Unit": the then-branch excludes Unit
+                GuardFacts {
+                    opt_then: vec![v.clone()],
+                    ..Default::default()
+                }
+            })
+        }
+        _ => None,
+    }
+}
+
+/// The guard facts of one condition (the PROVEN shapes only).
+#[allow(clippy::wildcard_enum_match_arm)] // №802 tail: the proven guard shapes are enumerated; every future Expr variant lands in the catch-all as UNPROVABLE (the conservative posture — an unrecognized condition never marks a branch checked), never as silently proven
+fn guard_facts(cond: &Expr) -> GuardFacts {
+    match cond {
+        Expr::FieldAccess { object, field, .. } if field == "ok" => {
+            if let Expr::Ident { name, .. } = object.as_ref() {
+                GuardFacts {
+                    try_then: vec![name.clone()],
+                    ..Default::default()
+                }
+            } else {
+                GuardFacts::default()
+            }
+        }
+        Expr::BinaryOp {
+            left,
+            op: BinOp::And,
+            ..
+        } => {
+            // `A and B`: the then-branch proves A's then-facts (B was
+            // evaluated too, which presupposes A on BOTH backends).
+            guard_facts(left)
+        }
+        Expr::BinaryOp {
+            left,
+            op: BinOp::Or,
+            right,
+            ..
+        } => {
+            // `A or B`: the else-branch proves BOTH arms false.
+            let mut a = guard_facts(left);
+            let b = guard_facts(right);
+            a.try_else.extend(b.try_else);
+            a.opt_else.extend(b.opt_else);
+            a
+        }
+        Expr::BinaryOp {
+            left,
+            op: op @ (BinOp::Eq | BinOp::Ne),
+            right,
+            ..
+        } => {
+            let eq = matches!(op, BinOp::Eq);
+            for (probe, lit) in [
+                (left.as_ref(), right.as_ref()),
+                (right.as_ref(), left.as_ref()),
+            ] {
+                if let Some(f) = eq_guard_facts(probe, lit, eq) {
+                    return f;
+                }
+            }
+            GuardFacts::default()
+        }
+        Expr::FnCall { name, args, .. } if name == "not" && args.len() == 1 => {
+            let mut f = guard_facts(&args[0]);
+            if !f.is_empty() {
+                std::mem::swap(&mut f.try_then, &mut f.try_else);
+                std::mem::swap(&mut f.opt_then, &mut f.opt_else);
+                f.negated = true;
+            }
+            f
+        }
+        // №802 tail: everything unenumerated is honestly "unprovable"
+        // (an unrecognized condition never marks a branch checked).
+        _ => GuardFacts::default(),
+    }
+}
+
+/// A top-level return/break/continue in the branch body proves the
+/// branch exits (the dominance fact for the negated-guard form).
+fn branch_exits(body: &[Statement]) -> bool {
+    body.iter().any(|st| {
+        matches!(
+            st,
+            Statement::Return { .. } | Statement::Break | Statement::Continue
+        )
+    })
+}
+
+/// Rebind one variable per its initializer (the runtime-follow rule:
+/// a fresh binding carries what the initializer proves — a non-try,
+/// non-union initializer drops the old knowledge).
+#[allow(clippy::wildcard_enum_match_arm)] // №802 tail: the initializer shapes that PROVE a type are enumerated (Try/Ident-copy/FnCall); everything else (literals, field/index access, struct literals…) honestly proves nothing — the variable stays untracked, the conservative direction
+fn bind_unchecked(
+    name: &str,
+    value: &Expr,
+    flow: &mut UncheckedFlow,
+    callables: &UncheckedCallables,
+) {
+    flow.try_vars.remove(name);
+    flow.opt_vars.remove(name);
+    match value {
+        Expr::Try { .. } => {
+            flow.try_vars.insert(name.to_string(), false);
+        }
+        Expr::Ident { name: src, .. } => {
+            if let Some(checked) = flow.try_vars.get(src).copied() {
+                flow.try_vars.insert(name.to_string(), checked);
+            } else if let Some(handled) = flow.opt_vars.get(src).copied() {
+                flow.opt_vars.insert(name.to_string(), handled);
+            }
+        }
+        Expr::FnCall { name: callee, .. } => {
+            let declared_option = callables
+                .returns_raw
+                .get(callee)
+                .map(|raw| raw_is_option(raw))
+                .unwrap_or(false);
+            if declared_option || builtin_returns_option(callee) {
+                flow.opt_vars.insert(name.to_string(), false);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The precise-parameter predicate: the declared spelling parses to a
+/// comparable precise type (labels erased, Fluid/Union/Unknown silent).
+fn declared_param_precise(raw: &str) -> bool {
+    #[allow(clippy::wildcard_enum_match_arm)] // №802 tail: the precise arm is the negation of the three silent shapes (Fluid/Unknown/Union) plus the label erasure — a future Type variant defaults to PRECISE (fires), the fail-closed direction
+    fn comparable(ty: &crate::builtins::sig_types::Type) -> bool {
+        match ty {
+            crate::builtins::sig_types::Type::Labeled(inner, _) => comparable(inner),
+            crate::builtins::sig_types::Type::Fluid
+            | crate::builtins::sig_types::Type::Unknown
+            | crate::builtins::sig_types::Type::Union => false,
+            _ => true,
+        }
+    }
+    comparable(&crate::builtins::sig_types::parse_type(raw))
+}
+
+#[allow(clippy::wildcard_enum_match_arm)] // №802 tail: the leaf variants (StringLit/FloatLit/BoolLit/Ident/HandleSource) land in the catch-all as no-ops — they carry no sub-expressions and cannot hide a read; a future CONTAINER variant must join the walk loudly
+fn walk_expr_unchecked(
+    expr: &Expr,
+    flow: &UncheckedFlow,
+    callables: &UncheckedCallables,
+    errors: &mut Vec<SpannedError>,
+) {
+    match expr {
+        Expr::FieldAccess {
+            object,
+            field,
+            span,
+        } => {
+            if let Expr::Ident { name, .. } = object.as_ref() {
+                if field == "value" {
+                    if flow.try_vars.get(name) == Some(&false) {
+                        errors.push(SpannedError::at(
+                            format!(
+                                "[UNCHECKED_RESULT] the .value of '{}' is read outside a proven .ok guard — the failed try's value is Unit (the ADR-0142 Struct{{ok, value, error}}): check `if r.ok {{ ... }}` (or early-exit on `r.ok == false`) before reading .value, or suppress with a reason: // allow(unchecked_result): <reason> (naryad №802, ADR-0198)",
+                                name
+                            ),
+                            span.clone(),
+                        ));
+                    }
+                    return; // the Ident object needs no descent
+                }
+            }
+            walk_expr_unchecked(object, flow, callables, errors);
+        }
+        Expr::IndexAccess {
+            object,
+            index,
+            span,
+        } => {
+            if let (Expr::Ident { name, .. }, Expr::StringLit { value: key, .. }) =
+                (object.as_ref(), index.as_ref())
+            {
+                if key == "value" && flow.try_vars.get(name) == Some(&false) {
+                    errors.push(SpannedError::at(
+                        format!(
+                            "[UNCHECKED_RESULT] the [\"value\"] read of '{}' is the same unchecked getfield (the failed try's value is Unit): check the .ok guard first, or suppress with a reason: // allow(unchecked_result): <reason> (naryad №802)",
+                            name
+                        ),
+                        span.clone(),
+                    ));
+                    return;
+                }
+                if flow.opt_vars.get(name) == Some(&false) {
+                    errors.push(SpannedError::at(
+                        format!(
+                            "[UNCHECKED_OPTION] '{}' may be Unit (the union spelling carries a Unit arm — the ADR-0198 Option<T>) and is indexed where a List is required: handle the Unit arm first (`if type_of(v) == \"Unit\" {{ ... }}`), or suppress with a reason: // allow(unchecked_option): <reason> (naryad №802)",
+                            name
+                        ),
+                        span.clone(),
+                    ));
+                    return;
+                }
+            }
+            walk_expr_unchecked(object, flow, callables, errors);
+            walk_expr_unchecked(index, flow, callables, errors);
+        }
+        Expr::BinaryOp {
+            left,
+            op,
+            right,
+            span,
+        } => {
+            match op {
+                BinOp::And => {
+                    walk_expr_unchecked(left, flow, callables, errors);
+                    let facts = guard_facts(left);
+                    if facts.is_empty() {
+                        walk_expr_unchecked(right, flow, callables, errors);
+                    } else {
+                        let mut rf = flow.clone();
+                        apply_facts(&mut rf, &facts.try_then, &facts.opt_then);
+                        walk_expr_unchecked(right, &rf, callables, errors);
+                    }
+                }
+                BinOp::Eq | BinOp::Ne => {
+                    walk_expr_unchecked(left, flow, callables, errors);
+                    walk_expr_unchecked(right, flow, callables, errors);
+                }
+                _ => {
+                    // The arithmetic/ordering T positions: a Unit arm
+                    // refuses loudly at runtime on BOTH backends.
+                    walk_expr_unchecked(left, flow, callables, errors);
+                    walk_expr_unchecked(right, flow, callables, errors);
+                    for operand in [left.as_ref(), right.as_ref()] {
+                        if let Expr::Ident { name, .. } = operand {
+                            if flow.opt_vars.get(name) == Some(&false) {
+                                errors.push(SpannedError::at(
+                                    format!(
+                                        "[UNCHECKED_OPTION] '{}' may be Unit (the union spelling carries a Unit arm — the ADR-0198 Option<T>) and is used where a value is required ('{}'): handle the Unit arm first (`if type_of(v) == \"Unit\" {{ ... }}`), project through to_string, or suppress with a reason: // allow(unchecked_option): <reason> (naryad №802)",
+                                        name, op
+                                    ),
+                                    operand.span().clone(),
+                                ));
+                            }
+                        }
+                    }
+                    let _ = span;
+                }
+            }
+        }
+        Expr::FnCall { name, args, .. } => {
+            for a in args {
+                walk_expr_unchecked(a, flow, callables, errors);
+            }
+            // The declared-parameter T positions: a union-with-Unit
+            // argument in a precise (non-union) declared param.
+            if let Some(params) = callables.params_raw.get(name) {
+                for (i, a) in args.iter().enumerate() {
+                    let Some(p) = params.get(i) else { continue };
+                    if !declared_param_precise(p) {
+                        continue;
+                    }
+                    if let Expr::Ident { name: v, .. } = a {
+                        if flow.opt_vars.get(v) == Some(&false) {
+                            errors.push(SpannedError::at(
+                                format!(
+                                    "[UNCHECKED_OPTION] '{}' may be Unit (the union spelling carries a Unit arm) and is passed to the declared '{}' parameter of '{}': handle the Unit arm first, or suppress with a reason: // allow(unchecked_option): <reason> (naryad №802)",
+                                    v, p, name
+                                ),
+                                a.span().clone(),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        Expr::QualifiedCall { args, .. } => {
+            for a in args {
+                walk_expr_unchecked(a, flow, callables, errors);
+            }
+        }
+        Expr::List { items, .. } => {
+            for i in items {
+                walk_expr_unchecked(i, flow, callables, errors);
+            }
+        }
+        Expr::StructLit { fields, .. } => {
+            for v in fields.values() {
+                walk_expr_unchecked(v, flow, callables, errors);
+            }
+        }
+        Expr::IfElse {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            walk_expr_unchecked(condition, flow, callables, errors);
+            let facts = guard_facts(condition);
+            let mut then_flow = flow.clone();
+            apply_facts(&mut then_flow, &facts.try_then, &facts.opt_then);
+            walk_expr_unchecked(then_branch, &then_flow, callables, errors);
+            let mut else_flow = flow.clone();
+            apply_facts(&mut else_flow, &facts.try_else, &facts.opt_else);
+            walk_expr_unchecked(else_branch, &else_flow, callables, errors);
+        }
+        Expr::BlockIfElse {
+            condition,
+            then_body,
+            else_ifs,
+            else_body,
+            ..
+        } => {
+            // The expression-form block-if: the branches are walked for
+            // their findings, but the outer flow is NOT rejoined (the
+            // expression context holds an immutable flow; a branch may
+            // not run at all — the conservative posture, the stage-1
+            // cloned-env discipline).
+            let ei: Vec<(&Expr, &Vec<Statement>)> =
+                else_ifs.iter().map(|(c, b)| (c.as_ref(), b)).collect();
+            let mut branch_flow = flow.clone();
+            walk_if_block_unchecked(
+                condition,
+                then_body,
+                &ei,
+                else_body.as_ref(),
+                &mut branch_flow,
+                callables,
+                errors,
+            );
+        }
+        Expr::MatchExpr {
+            scrutinee,
+            arms,
+            else_body,
+            ..
+        } => {
+            walk_expr_unchecked(scrutinee, flow, callables, errors);
+            let ok_probe = match_arm_ok_var(scrutinee);
+            for arm in arms {
+                let mut af = flow.clone();
+                if let (Some(v), MatchArm::Exact(s, _)) = (ok_probe.as_ref(), arm) {
+                    if s == "true" {
+                        apply_facts(&mut af, std::slice::from_ref(v), &[]);
+                    }
+                }
+                for st in arm.body() {
+                    walk_stmt_unchecked(st, &mut af, callables, errors);
+                }
+            }
+            if let Some(eb) = else_body {
+                let mut ef = flow.clone();
+                walk_stmts_unchecked(eb, &mut ef, callables, errors);
+            }
+        }
+        Expr::Try { expr, .. } => {
+            walk_expr_unchecked(expr, flow, callables, errors);
+        }
+        Expr::ProvBind { inner, .. } => {
+            walk_expr_unchecked(inner, flow, callables, errors);
+        }
+        // №802 tail: the leaf shapes carry no sub-expressions and no
+        // access sites — nothing to walk; a future CONTAINER variant
+        // must join the walk loudly.
+        _ => {}
+    }
+}
+
+/// The try-var an `r.ok` probe names (the match-on-ok guard support).
+fn match_arm_ok_var(scrutinee: &Expr) -> Option<String> {
+    if let Expr::FieldAccess { object, field, .. } = scrutinee {
+        if field == "ok" {
+            if let Expr::Ident { name, .. } = object.as_ref() {
+                return Some(name.clone());
+            }
+        }
+    }
+    None
+}
+
+/// The shared if/else-block walk (the statement form and the
+/// BlockIfElse expression share the exact branch discipline). The
+/// else-if chain arrives as borrowed pairs — the two AST forms carry
+/// `(Expr, Vec<Statement>)` vs `(Box<Expr>, Vec<Statement>)`.
+fn walk_if_block_unchecked(
+    condition: &Expr,
+    then_body: &[Statement],
+    else_ifs: &[(&Expr, &Vec<Statement>)],
+    else_body: Option<&Vec<Statement>>,
+    flow: &mut UncheckedFlow,
+    callables: &UncheckedCallables,
+    errors: &mut Vec<SpannedError>,
+) {
+    walk_expr_unchecked(condition, flow, callables, errors);
+    let facts = guard_facts(condition);
+    let mut then_flow = flow.clone();
+    apply_facts(&mut then_flow, &facts.try_then, &facts.opt_then);
+    walk_stmts_unchecked(then_body, &mut then_flow, callables, errors);
+    let mut else_flow = flow.clone();
+    apply_facts(&mut else_flow, &facts.try_else, &facts.opt_else);
+    for (cond, body) in else_ifs {
+        // The else-if chain: each condition is evaluated in the
+        // pre-state (conservative — the earlier branches may have
+        // run); its body carries its own guard facts.
+        walk_expr_unchecked(cond, flow, callables, errors);
+        let ef = guard_facts(cond);
+        let mut chain_flow = flow.clone();
+        apply_facts(&mut chain_flow, &ef.try_then, &ef.opt_then);
+        walk_stmts_unchecked(body, &mut chain_flow, callables, errors);
+    }
+    match else_body {
+        Some(eb) => {
+            walk_stmts_unchecked(eb, &mut else_flow, callables, errors);
+            if else_ifs.is_empty() {
+                // The intersection join: a variable is checked after
+                // the if/else only when BOTH branches proved it.
+                for (k, checked) in flow.try_vars.clone() {
+                    let t = then_flow.try_vars.get(&k).copied();
+                    let e = else_flow.try_vars.get(&k).copied();
+                    if checked {
+                        flow.try_vars.insert(k, t == Some(true) && e == Some(true));
+                    }
+                }
+                for (k, handled) in flow.opt_vars.clone() {
+                    let t = then_flow.opt_vars.get(&k).copied();
+                    let e = else_flow.opt_vars.get(&k).copied();
+                    if !handled {
+                        flow.opt_vars.insert(k, t == Some(true) && e == Some(true));
+                    }
+                }
+            }
+        }
+        None => {
+            // No else: NO join (the if may skip; the branch's knowledge
+            // must not leak). The negated-guard dominance applies —
+            // `if r.ok == false { return … }` / `if type_of(v) == "Unit"
+            // { return … }` make the code AFTER the if carry the
+            // else-facts.
+            if facts.negated && branch_exits(then_body) && else_ifs.is_empty() {
+                apply_facts(flow, &facts.try_else, &facts.opt_else);
+            }
+        }
+    }
+}
+
+fn walk_stmt_unchecked(
+    st: &Statement,
+    flow: &mut UncheckedFlow,
+    callables: &UncheckedCallables,
+    errors: &mut Vec<SpannedError>,
+) {
+    match st {
+        Statement::LetBinding { name, value, .. } => {
+            walk_expr_unchecked(value, flow, callables, errors);
+            bind_unchecked(name, value, flow, callables);
+        }
+        Statement::Assign { name, value, .. } => {
+            walk_expr_unchecked(value, flow, callables, errors);
+            bind_unchecked(name, value, flow, callables);
+        }
+        Statement::IfThen {
+            condition, body, ..
+        } => {
+            walk_expr_unchecked(condition, flow, callables, errors);
+            let facts = guard_facts(condition);
+            let mut body_flow = flow.clone();
+            apply_facts(&mut body_flow, &facts.try_then, &facts.opt_then);
+            walk_stmts_unchecked(body, &mut body_flow, callables, errors);
+            // The negated-guard dominance: `if not(r.ok) { return ... }`
+            // makes the code AFTER the if carry the else-facts.
+            if facts.negated && branch_exits(body) {
+                apply_facts(flow, &facts.try_else, &facts.opt_else);
+            }
+        }
+        Statement::IfElseBlock {
+            condition,
+            then_body,
+            else_ifs,
+            else_body,
+            ..
+        } => {
+            let ei: Vec<(&Expr, &Vec<Statement>)> = else_ifs.iter().map(|(c, b)| (c, b)).collect();
+            walk_if_block_unchecked(
+                condition,
+                then_body,
+                &ei,
+                else_body.as_ref(),
+                flow,
+                callables,
+                errors,
+            );
+        }
+        Statement::While {
+            condition, body, ..
+        } => {
+            walk_expr_unchecked(condition, flow, callables, errors);
+            let mut body_flow = flow.clone();
+            walk_stmts_unchecked(body, &mut body_flow, callables, errors);
+            // The loop may run zero times: the body's knowledge does
+            // not leak (the stage-1 discipline).
+        }
+        Statement::Each {
+            variable,
+            iterable,
+            body,
+            ..
+        }
+        | Statement::EachWithIndex {
+            item_var: variable,
+            iterable,
+            body,
+            ..
+        } => {
+            // The iterable is a T position (a List is required).
+            if let Expr::Ident { name, .. } = iterable {
+                if flow.opt_vars.get(name) == Some(&false) {
+                    errors.push(SpannedError::at(
+                        format!(
+                            "[UNCHECKED_OPTION] '{}' may be Unit (the union spelling carries a Unit arm) and is iterated where a List is required: handle the Unit arm first, or suppress with a reason: // allow(unchecked_option): <reason> (naryad №802)",
+                            name
+                        ),
+                        iterable.span().clone(),
+                    ));
+                }
+            }
+            let _ = variable;
+            walk_expr_unchecked(iterable, flow, callables, errors);
+            let mut body_flow = flow.clone();
+            walk_stmts_unchecked(body, &mut body_flow, callables, errors);
+        }
+        Statement::Match {
+            scrutinee,
+            arms,
+            else_body,
+            ..
+        } => {
+            walk_expr_unchecked(scrutinee, flow, callables, errors);
+            let ok_probe = match_arm_ok_var(scrutinee);
+            for arm in arms {
+                let mut af = flow.clone();
+                if let (Some(v), MatchArm::Exact(s, _)) = (ok_probe.as_ref(), arm) {
+                    if s == "true" {
+                        apply_facts(&mut af, std::slice::from_ref(v), &[]);
+                    }
+                }
+                for st in arm.body() {
+                    walk_stmt_unchecked(st, &mut af, callables, errors);
+                }
+            }
+            if let Some(eb) = else_body {
+                let mut ef = flow.clone();
+                walk_stmts_unchecked(eb, &mut ef, callables, errors);
+            }
+        }
+        Statement::Return { value, .. } | Statement::ExprStmt { expr: value, .. } => {
+            walk_expr_unchecked(value, flow, callables, errors);
+        }
+        Statement::Memorize(m) => walk_expr_unchecked(&m.value, flow, callables, errors),
+        Statement::Forget(f) => walk_expr_unchecked(&f.query, flow, callables, errors),
+        Statement::Relate(r) => {
+            walk_expr_unchecked(&r.from, flow, callables, errors);
+            walk_expr_unchecked(&r.to, flow, callables, errors);
+        }
+        Statement::Break | Statement::Continue => {}
+    }
+}
+
+fn walk_stmts_unchecked(
+    stmts: &[Statement],
+    flow: &mut UncheckedFlow,
+    callables: &UncheckedCallables,
+    errors: &mut Vec<SpannedError>,
+) {
+    for st in stmts {
+        walk_stmt_unchecked(st, flow, callables, errors);
+    }
+}
+
+/// №802: the entry — walk every statement-bearing declaration body.
+#[allow(clippy::wildcard_enum_match_arm)] // №802 tail: the walker descends only into the statement-bearing bodies (the deny-pass coverage set); the silent arm is the documented no-body set (learnable templates, flows, entity/schema declaratives) — a future declaration with statements JOINS this match at the next audit
+pub fn check_unchecked_uses(declarations: &[Declaration], errors: &mut Vec<SpannedError>) {
+    let callables = UncheckedCallables::collect(declarations);
+    for decl in declarations {
+        match decl {
+            Declaration::Pattern(p) => {
+                let mut flow = UncheckedFlow::default();
+                walk_stmts_unchecked(&p.body, &mut flow, &callables, errors);
+            }
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    let mut flow = UncheckedFlow::default();
+                    walk_stmts_unchecked(&m.body, &mut flow, &callables, errors);
+                }
+            }
+            Declaration::Test(t) => {
+                let mut flow = UncheckedFlow::default();
+                walk_stmts_unchecked(&t.body, &mut flow, &callables, errors);
+            }
+            Declaration::Hook(h) => {
+                let mut flow = UncheckedFlow::default();
+                walk_stmts_unchecked(&h.body, &mut flow, &callables, errors);
+            }
+            Declaration::MlogServer(srv) => {
+                for r in &srv.routes {
+                    let mut flow = UncheckedFlow::default();
+                    walk_stmts_unchecked(&r.body, &mut flow, &callables, errors);
+                }
+            }
+            Declaration::OnDeny(d) => {
+                let mut flow = UncheckedFlow::default();
+                walk_stmts_unchecked(&d.body, &mut flow, &callables, errors);
+            }
+            // Learnable patterns are prompt templates (no statement
+            // body); flows are declarative; everything else carries no
+            // user statements.
+            _ => {}
+        }
+    }
+}
+
+/// №802: the suppression filter — removes the [UNCHECKED_RESULT] /
+/// [UNCHECKED_OPTION] findings the explicit allow-comments sanction.
+///
+/// The MECHANISM is textual by necessity: the parser's expression
+/// spans are the historical `Span::unknown()` across the board
+/// (expr.rs carries zero `from_pest` calls — the recorded hole; the
+/// span propagation is its own movement), so an error cannot name its
+/// line. The filter instead matches the access TEXT: an allow-comment
+/// line `// allow(unchecked_result): <reason>` sanctions the read of
+/// the named variable ON THAT LINE (the trailing form) or ON THE NEXT
+/// LINE (the dedicated-comment form). The reason must be non-empty —
+/// a bare allow is NOT a suppression. The per-(code, variable) QUOTA
+/// caps over-suppression: a comment's weight is the number of reads
+/// on its ONE access line — several reads on the same line are
+/// sanctioned as a unit, two adjacent access lines need two comments
+/// (one comment cannot launder two lines). The
+/// comments sit in the program text (visible at review, the naryad
+/// wording); the multi-file honest limitation (an imported module's
+/// identical access text) is recorded in the naryad report.
+pub fn filter_suppressed_unchecked(errors: Vec<SpannedError>, source: &str) -> Vec<SpannedError> {
+    /// The (code, variable) a finding names — `None` for foreign messages.
+    fn unchecked_ref_of(message: &str) -> Option<(&'static str, String)> {
+        let code = if message.contains("[UNCHECKED_RESULT]") {
+            "unchecked_result"
+        } else if message.contains("[UNCHECKED_OPTION]") {
+            "unchecked_option"
+        } else {
+            return None;
+        };
+        // The first quoted name after the marker: 'r'.
+        let start = message.match_indices('\'').next()?.0;
+        let rest = &message[start + 1..];
+        let end = rest.find('\'')?;
+        let var = &rest[..end];
+        if var.is_empty() || !var.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            return None;
+        }
+        Some((code, var.to_string()))
+    }
+
+    /// The access probe: HOW MANY reads of the variable the
+    /// allow-comment on line `idx` sanctions. The preferred access
+    /// line is the comment's OWN line (the trailing form); only when
+    /// it carries no probe does the NEXT line count (the dedicated
+    /// comment form) — one comment is one access LINE, so two
+    /// adjacent access lines cannot share one comment (the
+    /// multi-line laundering stays closed), while several reads on
+    /// the SAME line are sanctioned as a unit (the specimen shape:
+    /// `str(outer.value.ok)` + `outer.value.error.code` on one line).
+    fn comment_weight(lines: &[&str], idx: usize, code: &str, var: &str) -> usize {
+        fn probe_count(ln: &str, code: &str, var: &str) -> usize {
+            if code == "unchecked_result" {
+                let dot = format!("{}.value", var);
+                if ln.contains(&dot) {
+                    return ln.matches(&dot).count();
+                }
+                ln.matches(&format!("{}[", var)).count()
+            } else {
+                word_count(ln, var)
+            }
+        }
+        if idx < lines.len() {
+            let same = probe_count(lines[idx], code, var);
+            if same > 0 {
+                return same;
+            }
+        }
+        if idx + 1 < lines.len() {
+            probe_count(lines[idx + 1], code, var)
+        } else {
+            0
+        }
+    }
+
+    /// The word-boundary occurrence count.
+    fn word_count(line: &str, word: &str) -> usize {
+        let chars: Vec<char> = line.chars().collect();
+        let w: Vec<char> = word.chars().collect();
+        if w.is_empty() || w.len() > chars.len() {
+            return 0;
+        }
+        let mut n = 0;
+        for i in 0..=(chars.len() - w.len()) {
+            if chars[i..i + w.len()] == w[..] {
+                let before_ok = i == 0 || !(chars[i - 1].is_alphanumeric() || chars[i - 1] == '_');
+                let j = i + w.len();
+                let after_ok = j >= chars.len() || !(chars[j].is_alphanumeric() || chars[j] == '_');
+                if before_ok && after_ok {
+                    n += 1;
+                }
+            }
+        }
+        n
+    }
+
+    let lines: Vec<&str> = source.lines().collect();
+    // The allow-comment lines: (line index, code) — the reason must be
+    // non-empty (a bare allow is not a suppression).
+    let token_of = |code: &str| {
+        if code == "unchecked_result" {
+            "allow(unchecked_result):"
+        } else {
+            "allow(unchecked_option):"
+        }
+    };
+    let allow_lines: Vec<(usize, &'static str)> = lines
+        .iter()
+        .enumerate()
+        .filter_map(|(i, ln)| {
+            for code in ["unchecked_result", "unchecked_option"] {
+                let token = token_of(code);
+                if let Some(pos) = ln.find(token) {
+                    if !ln[pos + token.len()..].trim().is_empty() {
+                        return Some((i, code));
+                    }
+                }
+            }
+            None
+        })
+        .collect();
+
+    // The suppression quota per (code, variable): the number of
+    // matching allow-comments (one comment sanctions ONE site).
+    let mut quota: std::collections::HashMap<(String, String), usize> =
+        std::collections::HashMap::new();
+    let mut used: std::collections::HashMap<(String, String), usize> =
+        std::collections::HashMap::new();
+    let mut kept = Vec::with_capacity(errors.len());
+    for err in errors {
+        match unchecked_ref_of(&err.message) {
+            Some((code, var)) => {
+                let key = (code.to_string(), var.clone());
+                let q = *quota.entry(key.clone()).or_insert_with(|| {
+                    allow_lines
+                        .iter()
+                        .filter(|(_i, c)| *c == code)
+                        .map(|(i, _)| comment_weight(&lines, *i, code, &var))
+                        .sum()
+                });
+                let u = used.entry(key).or_insert(0);
+                if *u < q {
+                    *u += 1; // the comment spends its sanction
+                    continue;
+                }
+                kept.push(err);
+            }
+            None => kept.push(err),
+        }
+    }
+    kept
 }
 
 #[cfg(test)]

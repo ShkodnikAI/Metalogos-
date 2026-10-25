@@ -58,14 +58,14 @@ fn naryad_374_success_path_shape() {
     assert_parity(
         "success_shape",
         &program(
-            "  let r = try to_string(42.0)\n  return to_string(r.ok) + \"/\" + r.value + \"/\" + to_string(type_of(r.error) == \"Unit\")",
+            "  let r = try to_string(42.0)\n  return to_string(r.ok) + \"/\" + r.value + \"/\" + to_string(type_of(r.error) == \"Unit\") // allow(unchecked_result): the №374 pin reads the try-result shape verbatim",
         ),
     );
     // The inner value keeps its TYPE through the wrap (float passthrough).
     assert_parity(
         "success_value_type",
         &program(
-            "  let r = try (2.0 + 3.0)\n  return to_string(r.ok) + \"/\" + to_string(r.value) + \"/\" + type_of(r.value)",
+            "  let r = try (2.0 + 3.0)\n  return to_string(r.ok) + \"/\" + to_string(r.value) + \"/\" + type_of(r.value) // allow(unchecked_result): the №374 pin reads the try-result shape verbatim",
         ),
     );
 }
@@ -76,7 +76,7 @@ fn naryad_374_error_path_shape() {
     assert_parity(
         "error_shape",
         &program(
-            "  let r = try (1.0 / 0.0)\n  return to_string(r.ok) + \"/\" + to_string(type_of(r.value) == \"Unit\") + \"/\" + r.error.code + \"/\" + r.error.message",
+            "  let r = try (1.0 / 0.0)\n  return to_string(r.ok) + \"/\" + to_string(type_of(r.value) == \"Unit\") + \"/\" + r.error.code + \"/\" + r.error.message // allow(unchecked_result): the №374 pin reads the try-result shape verbatim",
         ),
     );
     // A builtin called with a WRONG TYPE errors at runtime — try catches it
@@ -103,14 +103,14 @@ fn naryad_374_nested_try() {
     assert_parity(
         "nested_try_via_let",
         &program(
-            "  let inner = try (1.0 / 0.0)\n  let outer = try to_string(inner.ok)\n  return to_string(outer.ok) + \"/\" + outer.value",
+            "  let inner = try (1.0 / 0.0)\n  let outer = try to_string(inner.ok)\n  return to_string(outer.ok) + \"/\" + outer.value // allow(unchecked_result): the №374 pin reads the try-result shape verbatim",
         ),
     );
     // The inner error does not leak into the outer try's error path.
     assert_parity(
         "nested_error_isolated",
         &program(
-            "  let inner = try (1.0 / 0.0)\n  let outer = try (2.0 + 2.0)\n  return to_string(inner.ok == false) + \"/\" + to_string(outer.ok == true) + \"/\" + to_string(outer.value)",
+            "  let inner = try (1.0 / 0.0)\n  let outer = try (2.0 + 2.0)\n  return to_string(inner.ok == false) + \"/\" + to_string(outer.ok == true) + \"/\" + to_string(outer.value) // allow(unchecked_result): the №374 pin reads the try-result shape verbatim",
         ),
     );
 }
@@ -130,7 +130,7 @@ fn naryad_374_try_in_pattern_and_route_bodies() {
     // try whose SUCCESS value feeds further computation in the body.
     assert_parity(
         "try_success_feeds_body",
-        &program("  let r = try (2.0 * 3.0)\n  return to_string(r.value * 2.0)"),
+        &program("  let r = try (2.0 * 3.0)\n  return to_string(r.value * 2.0) // allow(unchecked_result): the №374 pin reads the try-result shape verbatim"),
     );
     // Multiple try sites in one body.
     assert_parity(

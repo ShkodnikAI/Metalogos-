@@ -120,7 +120,7 @@ fn naryad_602_structural_access_untouched() {
     let out = assert_parity(
         "602 structural success",
         &program(
-            "  let r = try trim(\"hello\")\n  return to_string(r.ok) + \"/\" + type_of(r) + \"/\" + r.value + \"/\" + to_string(r.error)",
+            "  let r = try trim(\"hello\")\n  return to_string(r.ok) + \"/\" + type_of(r) + \"/\" + r.value + \"/\" + to_string(r.error) // allow(unchecked_result): the №602 pin reads the structural contract fields verbatim",
         ),
     );
     assert_eq!(out, "true/Struct/hello/()");

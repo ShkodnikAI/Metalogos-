@@ -1,41 +1,41 @@
 # METALOGOS
 
-> Metalogos — язык для ИИ-агентов: семь столпов (Entity/Pattern/Flow/Memory/Rule/Learn/Adapt) спроектированы для того, как рассуждает ИИ, не человек. Компилятор + интерпретер (tree-walking + bytecode VM) + HTTP server + LLM integration + ML layer (Reflex) + vision (Vision pillar) + voice (TTS/STT).
+> Metalogos — a language for AI agents: seven pillars (Entity/Pattern/Flow/Memory/Rule/Learn/Adapt) designed for how an AI reasons, not a human. Compiler + interpreter (tree-walking + bytecode VM) + HTTP server + LLM integration + ML layer (Reflex) + vision (the Vision pillar) + voice (TTS/STT).
 
-> Этот файл — индекс для IDE-агентов и RAG-пайплайнов, на которые явно указали URL этого репозитория. Не для автоматического обнаружения — основные краулеры (GPTBot, ClaudeBot, Google-Extended) практически не запрашивают `llms.txt` системно. Ценность — для инструментов, которым явно сказали "читай отсюда" (Cursor/Cline-style интеграции, внутренние RAG-конвейеры).
+> This file is the index for IDE agents and RAG pipelines that were EXPLICITLY pointed at this repository's URL. Not for automatic discovery — the major crawlers (GPTBot, ClaudeBot, Google-Extended) do not systematically request `llms.txt`. The value is for tools that were told "read from here" (Cursor/Cline-style integrations, internal RAG pipelines).
 
-## Канонические файлы
+## Canonical files
 
-- [AGENTS.md](AGENTS.md): методология для ИИ-агентов-кодеров — где лежит истина по каждому классу вопросов (источник: код, не проза), каких ошибок избегать, что значит «наряд сделан». Читать первым, до любой задачи.
+- [AGENTS.md](AGENTS.md): the methodology for coding AI agents — where the truth lives for each class of question (the source: code, not prose), which mistakes to avoid, what "a naryad is done" means. Read it first, before any task.
 - [CLAUDE.md](CLAUDE.md): bridge copy of AGENTS.md for Claude-compatible tools (synced byte-for-byte — the drift is refused by the №763 agent-index gate; history: issue #299).
 - GEMINI.md: removed as the byte-identical duplicate of CLAUDE.md (the №676 A5 dedup — the manual double-sync of the AGENTS.md bridge copy ended); Gemini-compatible tools read [AGENTS.md](AGENTS.md) (the content source) or [CLAUDE.md](CLAUDE.md) (the bridge copy).
 
-## Справочники и формальные спецификации
+## Reference and formal specifications
 
-- [REFERENCE.md](REFERENCE.md): полный справочник по языку — §3 Syntax (операторы, контрольные конструкции, выражения), §4 Built-in Functions (526 builtins, 100% coverage, 0 TODO, SSOT-regenerated from `src/builtins/registry.rs`), §6 generated index.
-- [docs/spec/tools.md](docs/spec/tools.md): normative tools/abstraction spec (the №645 protocol — every norm probed).
-- [docs/limitations.md](docs/limitations.md): индекс известных ограничений — истина живёт в первоисточниках (ADR, исходники, отчёты нарядов).
-- [src/grammar.pest](src/grammar.pest): формальная PEG-грамматика (530+ строк) — исчерпывающая спецификация синтаксиса .mlog. Это исходник компилятора, не документация — если расхождения с REFERENCE.md, грамматика authoritative.
-- [tree-sitter-mlog/grammar.js](tree-sitter-mlog/grammar.js): параллельная tree-sitter грамматика для внешних инструментов (Zed/Helix/treesitter-index). Не часть компиляции .mlog.
+- [REFERENCE.md](REFERENCE.md): the full language reference — §3 Syntax (operators, control constructs, expressions), §4 Built-in Functions (526 builtins, 100% coverage, 0 TODO, SSOT-regenerated from `src/builtins/registry.rs`), §6 the generated index.
+- [docs/spec/tools.md](docs/spec/tools.md): the normative tools/abstraction spec (the №645 protocol — every norm probed).
+- [docs/limitations.md](docs/limitations.md): the index of the known limitations — the truth lives in the primary sources (ADRs, the sources, the naryad reports).
+- [src/grammar.pest](src/grammar.pest): the formal PEG grammar (530+ lines) — the exhaustive specification of the .mlog syntax. It is the compiler's source, not documentation — if it diverges from REFERENCE.md, the grammar is authoritative.
+- [tree-sitter-mlog/grammar.js](tree-sitter-mlog/grammar.js): the parallel tree-sitter grammar for the external tools (Zed/Helix/treesitter-index). Not part of the .mlog compilation.
 
-## Примеры
+## Examples
 
-- [examples/](examples/): 253 рабочих `.mlog`-файлов, покрывающих все столпы языка — базовый синтаксис (m1-m5), fluid types, control flow, HTTP server + routes, crypto/secrets, cyrillic identifiers, context loading, knowledge graph, hooks lifecycle, schema, skill index, reflex (classification + generation), vision, pattern composition, full apps. Большинство имеет `.expected` pair (выход) или `.error` (ожидаемая ошибка) — это executable documentation.
+- [examples/](examples/): 253 working `.mlog` files covering all the language pillars — the basic syntax (m1-m5), fluid types, control flow, HTTP server + routes, crypto/secrets, cyrillic identifiers, context loading, knowledge graph, hooks lifecycle, schema, skill index, reflex (classification + generation), vision, pattern composition, full apps. Most carry a `.expected` pair (the output) or `.error` (the expected error) — executable documentation.
 
-## Архитектура
+## Architecture
 
-- [README.md](README.md): общий обзор — features, project structure, milestones, roadmap, quickstart, links.
-- [docs/PLAN-SUMMARY.md](docs/PLAN-SUMMARY.md): публичный дайджест плана волн (derived artifact, access mode §16.0-7).
-- [CHANGELOG.md](CHANGELOG.md): полная история изменений (наряды №1-№797), SSOT для "что нового".
-- [docs/adr/](docs/adr/): 190 ADR (Architecture Decision Records) — все архитектурные решения с контекстом, альтернативами, и последствиями. Индекс в `docs/adr/README.md`.
-- [docs/threat-model.md](docs/threat-model.md): единая поддерживаемая точка про ограничения безопасности.
-- [docs/privacy.md](docs/privacy.md): инженерная политика приватности — какие данные хранятся, где, как удаляются (пометки CONFIRMED/PARTIAL/ABSENT; №519).
+- [README.md](README.md): the general overview — features, project structure, milestones, roadmap, quickstart, links.
+- [docs/PLAN-SUMMARY.md](docs/PLAN-SUMMARY.md): the public digest of the wave plan (a derived artifact, the access mode §16.0-7).
+- [CHANGELOG.md](CHANGELOG.md): the full change history (naryads №1-№798), the SSOT for "what's new".
+- [docs/adr/](docs/adr/): 190 ADR (Architecture Decision Records) — every architectural decision with the context, the alternatives and the consequences. The index in `docs/adr/README.md`.
+- [docs/threat-model.md](docs/threat-model.md): the single, maintained point about the security limitations.
+- [docs/privacy.md](docs/privacy.md): the engineering privacy policy — what data is stored, where, how it is deleted (the CONFIRMED/PARTIAL/ABSENT markers; №519).
 
-## Наряды (work orders)
+## Work orders (naryads)
 
-- [docs/FEATURE_INTAKE.md](docs/FEATURE_INTAKE.md): tracker для запросов новых фич.
-- [docs/AI_USAGE.md](docs/AI_USAGE.md): disclosure — как generative AI используется в разработке проекта.
-- [docs/MEMORY_ROADMAP.md](docs/MEMORY_ROADMAP.md): roadmap для memory-системы.
+- [docs/FEATURE_INTAKE.md](docs/FEATURE_INTAKE.md): the tracker for the new-feature requests.
+- [docs/AI_USAGE.md](docs/AI_USAGE.md): the disclosure — how generative AI is used in the project's development.
+- [docs/MEMORY_ROADMAP.md](docs/MEMORY_ROADMAP.md): the roadmap for the memory system.
 
 ## Quickstart
 
@@ -59,7 +59,7 @@ cargo build --release
 ./target/release/mlog audit examples/p6_full_app.mlog
 ```
 
-## Канал
+## Channel
 
 - Repository: https://github.com/ShkodnikAI/Metalogos-
 - Issues: https://github.com/ShkodnikAI/Metalogos-/issues

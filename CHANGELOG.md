@@ -6,30 +6,6 @@ All notable changes to the Metalogos project.
 
 ### Changed
 
-- **№795 (gh#1533, Wave 64 — audit-23.10 C5-b V2, the C5 (b) owner
-  decision, ADR-0197):** `mcp-serve` executes tool methods on the VM —
-  the SAME compile-path as serve (the strict VM compile at startup; a
-  non-compilable file refuses the gateway loudly, where the pre-№795
-  TW path silently ignored the non-tool declarations' run errors).
-  The capability the switch buys: the RUNTIME label gates
-  (`[SINK_CLEARANCE_RUNTIME]`, the №780/ADR-0156 machinery) fire IN
-  TOOL BODIES — a private value routed into a sink at runtime is
-  refused loudly through the tools/call envelope, where the pre-№795
-  TW path answered green (the leak went through; the TW lane has no
-  runtime label twin). The invocation rides the new
-  `Vm::invoke_pattern` (the CallPattern convention: the JSON args
-  bind positionally per the declaration order; the per-request depth
-  budget and the backend-tag contract match `execute_route_code`).
-  The gates are unchanged: `ServeRouteExecGuard` (№253-А/№259),
-  the Category-A startup gate, the allowlist, the exec/env posture.
-  The 3-pin battery (the runtime-gate pin + the honest parity pins)
-  verified RED-before via the changes-stash run (форма №772): the
-  runtime pin FAILED on the pre-№795 TW path (the green answer —
-  the leak), the parity pins green. The existing mcp suites
-  (№394/№477/№536/№793/№794) stay green on the VM lane. AFFECTS:
-  gateway tool files must compile on the VM lane (the strict form);
-  the tool bodies gain the runtime label enforcement.
-
 - **№794 (gh#1532, Wave 64 — the gateway G3, the C1 (b) owner
   decision, ADR-0196):** the ledger entry on EVERY gateway
   `tools/call` — `mcp.call` (allowed: the local ok, the local body
@@ -270,6 +246,28 @@ All notable changes to the Metalogos project.
   registry surfaces.
 
 ### Fixed
+
+- **№798 (gh#1536, Wave 64 — audit-23.10 B6/D-2, P3):** `llms.txt` is
+  ENGLISH — the owner's 2026-09-17 "documentation in English only"
+  directive is now machine-enforced for the file too. The pre-№798
+  state: the file carried Russian prose wholesale (1298 Cyrillic
+  letters / 39.4% — the verified scan) while
+  `tests/docs_language_lint.rs` walked `.md` files only, so the
+  directive was declared but not enforced for the agent-facing index.
+  Three halves: (1) the full translation (the structure, the links
+  and the machine-readable counters preserved — the agent-index gate
+  counters identical); (2) the lint's scanned set gains the explicit
+  NON-`.md` agent inputs (`llms.txt`) — the coverage pin + the
+  scanner's negative control (a synthetic Russian document is
+  flagged, an English one passes; no repo file is mutated); the RED
+  form verified honestly: the extended lint against the pre-№798
+  Russian `llms.txt` FAILS with the 39.4% verdict (stash-run, форма
+  №772); (3) the agent-index gate's two Russian-coupled llms patterns
+  (`рабочих .mlog`, `наряды №1-№N`) move to the English spellings —
+  a regression back to Russian now trips the gate twice (the missing
+  statement + the lint). The `.rs` Cyrillic comments stay OUT of
+  scope (the owner's gray-zone decision, the audit's own note).
+  AFFECTS: documentation + the lint surface only.
 
 - **№797 (gh#1535, Wave 64 — audit-23.10 B5/D-1, P2):** the AGENTS.md
   stale facts (the file every coding agent reads first) — three
@@ -691,6 +689,32 @@ All notable changes to the Metalogos project.
   TW lane unchanged); the `resolve_skill_index` answer gains the
   dept-suffixed type_name and the truncation field on the VM lane (the
   shape parity).
+
+### Security
+
+- **№795 (gh#1533, Wave 64 — audit-23.10 C5-b V2, the C5 (b) owner
+  decision, ADR-0197; fix date 2026-10-24):** `mcp-serve` executes tool methods on the VM —
+  the SAME compile-path as serve (the strict VM compile at startup; a
+  non-compilable file refuses the gateway loudly, where the pre-№795
+  TW path silently ignored the non-tool declarations' run errors).
+  The capability the switch buys: the RUNTIME label gates
+  (`[SINK_CLEARANCE_RUNTIME]`, the №780/ADR-0156 machinery) fire IN
+  TOOL BODIES — a private value routed into a sink at runtime is
+  refused loudly through the tools/call envelope, where the pre-№795
+  TW path answered green (the leak went through; the TW lane has no
+  runtime label twin). The invocation rides the new
+  `Vm::invoke_pattern` (the CallPattern convention: the JSON args
+  bind positionally per the declaration order; the per-request depth
+  budget and the backend-tag contract match `execute_route_code`).
+  The gates are unchanged: `ServeRouteExecGuard` (№253-А/№259),
+  the Category-A startup gate, the allowlist, the exec/env posture.
+  The 3-pin battery (the runtime-gate pin + the honest parity pins)
+  verified RED-before via the changes-stash run (форма №772): the
+  runtime pin FAILED on the pre-№795 TW path (the green answer —
+  the leak), the parity pins green. The existing mcp suites
+  (№394/№477/№536/№793/№794) stay green on the VM lane. AFFECTS:
+  gateway tool files must compile on the VM lane (the strict form);
+  the tool bodies gain the runtime label enforcement.
 
 ## [0.33.2] - 2026-10-21
 

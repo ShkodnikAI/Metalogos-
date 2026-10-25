@@ -38,6 +38,32 @@ All notable changes to the Metalogos project.
 
 ### Changed
 
+- **№804 (gh#1551, Wave 65 — the C2 positioning, the gh#1485 registry
+  task, the owner decision 23.10):** the first screen carries ONE
+  formulation across the three entry points — **README**, the GitHub
+  description (prepared for the owner's verbatim — the repo-settings
+  act) and **llms.txt**: *"A language for AI agents where data cannot
+  reach actions it is not cleared for: secret leaks, injection and
+  unauthorized irreversible actions are rejected before the program
+  runs."* The irreversible-actions claim is PINNED — the static
+  `[IRREVERSIBLE_NO_GRANT]` refusal with the leak-suite test link
+  (n18). «A Taste» is now the n02 showcase: the leaking program, the
+  REAL `mlog check` output (shot from the release binary v0.33.2,
+  sha256 48b98167…) and the `redact(…, "secrets")` fix that passes;
+  Quick Start's first command is `mlog check
+  examples/leak/n02_secret_respond.mlog`; the new «What it stops»
+  section lists the five refusal classes, each linked to its pinned
+  negative. **Metrics moved to [docs/metrics.md](docs/metrics.md)** —
+  the full generated table (the one honest place, + the new Leak Suite
+  row: 48 negatives / 27 positives); the README front page carries
+  three rows max (version, leak suite, the pointer); `gen_metrics.py`
+  and `tests/readme_consistency.rs` re-pointed (the size/count rows are
+  checked in the new place). Honest status preserved verbatim. security:
+  no — the surface text and the metrics placement; every promise on the
+  first screen is pinned by a test or a leak-suite negative, nothing
+  new promised. AFFECTS: the README-facing docs only; the GitHub
+  description/topics flip is the owner's repo-settings act (the
+  prepared string sits in gh#1551).
 - **№803 (gh#1550, Wave 65 — the C2 showcase, the gh#1486 registry task):**
   the leak-suite showcase reads in ENGLISH — the `// Threat:/Attack:`
   headers of `examples/leak/*.mlog` and the explanatory parts of the

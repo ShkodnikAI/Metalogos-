@@ -8,6 +8,12 @@ by this script and embedded into README.md between explicit markers — the
 same posture as `gen_reference.py` (the curated text stays hand-written; the
 counts are computed).
 
+№804 (gh#1551, the C2 positioning): the FULL table lives in
+`docs/metrics.md` (one honest place for the numbers); the README front
+page carries THREE rows max — the version, the leak-suite negatives/
+positives, the CI link. The same mirrors apply: the full table is
+recomputed independently in `tests/readme_consistency.rs`.
+
 Mirrors the independent recomputation in `tests/readme_consistency.rs`:
 the test derives the same numbers from the same sources and compares them
 against the claims the README makes. If the generated block and the test
@@ -25,6 +31,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 README = REPO / "README.md"
+METRICS_DOC = REPO / "docs" / "metrics.md"
 PLAN_SUMMARY = REPO / "docs" / "PLAN-SUMMARY.md"
 
 BEGIN = "<!-- BEGIN GENERATED METRICS (scripts/gen_metrics.py — do not edit inside) -->"
@@ -37,6 +44,8 @@ END = "<!-- END GENERATED METRICS -->"
 # the machine metrics. The fix mirrors the №460 posture: ONE generator,
 # the numbers between explicit markers, the narrative stays hand-written
 # (the №566 boundary: the digest's prose is the publisher's voice).
+MD_BEGIN = "<!-- BEGIN GENERATED METRICS (scripts/gen_metrics.py — do not edit inside) -->"
+MD_END = "<!-- END GENERATED METRICS -->"
 PS_BEGIN = "<!-- BEGIN GENERATED NUMBERS (scripts/gen_metrics.py — do not edit inside) -->"
 PS_END = "<!-- END GENERATED NUMBERS -->"
 
@@ -124,7 +133,68 @@ def cargo_version() -> str:
     return m.group(1)
 
 
+def leak_counts() -> tuple[int, int]:
+    """№804: the leak-suite showcase numbers — the negative scenarios are
+    the .error files (one per refused program), the positives are the
+    ok_*.mlog programs that run clean. The BLOCKING runner
+    (tests/run_leak_suite.rs) is the gate; these counts are its census."""
+    leak_dir = REPO / "examples" / "leak"
+    neg = sum(1 for p in leak_dir.iterdir() if p.suffix == ".error")
+    pos = sum(1 for p in leak_dir.iterdir() if p.is_file() and p.suffix == ".mlog" and p.name.startswith("ok_"))
+    return neg, pos
+
+
+def full_block() -> str:
+    """№804: the FULL generated table — docs/metrics.md (the one honest
+    place for every machine number; the README front page links here)."""
+    total = count_total_builtins()
+    modules = count_builtin_modules()
+    svg = count_svg_builtins()
+    rules = count_parser_rules()
+    adrs = count_adrs()
+    examples = count_examples()
+    version = cargo_version()
+    changelog_kb = file_kb("CHANGELOG.md")
+    reference_kb = file_kb("REFERENCE.md")
+    typed, total_fns, precise = count_typed_signatures()
+    typed_bp = (typed * 10000) // total_fns if total_fns else 0
+    precise_bp = (precise * 10000) // total_fns if total_fns else 0
+    neg, pos = leak_counts()
+    return (
+        f"| Metric | Value (generated — do not hand-edit) |\n"
+        f"| ------ | ------------------------------------- |\n"
+        f"| Version | {version} |\n"
+        f"| Leak Suite | {neg} negatives / {pos} positives (examples/leak/ — the BLOCKING gate) |\n"
+        f"| Built-in Functions | {total} functions across {modules} modules |\n"
+        f"| Typed Signatures | {typed}/{total_fns} ({typed_bp / 100:.2f}%) — precise {precise}/{total_fns} ({precise_bp / 100:.2f}%) |\n"
+        f"| SVG/Graphics | {svg} builtins, hand-rolled in pure Rust |\n"
+        f"| Grammar | {rules} rules |\n"
+        f"| Architecture Decisions | {adrs} ADRs |\n"
+        f"| Example Programs | {examples} .mlog programs |\n"
+        f"| Reference | REFERENCE.md (~{reference_kb} KB) — 100% registry coverage |\n"
+        f"| Changelog | CHANGELOG.md (~{changelog_kb} KB) — every wave documented |\n"
+    )
+
+
+def front_block() -> str:
+    """№804: the README front-page rows — THREE max (the version, the
+    leak-suite negatives/positives, the CI badge row is a badge, not a
+    table row, so the third line is the pointer to the full table)."""
+    version = cargo_version()
+    neg, pos = leak_counts()
+    return (
+        f"| Metric | Value (generated — do not hand-edit) |\n"
+        f"| ------ | ------------------------------------- |\n"
+        f"| Version | {version} |\n"
+        f"| Leak Suite | {neg} negatives / {pos} positives (the BLOCKING gate) |\n"
+        f"| Full metrics | [docs/metrics.md](docs/metrics.md) — the generated table |\n"
+    )
+
+
 def block() -> str:
+    # №804: the README block IS the front block (≤3 rows); the full table
+    # moved to docs/metrics.md. The legacy name kept for the call sites.
+    return front_block()
     total = count_total_builtins()
     modules = count_builtin_modules()
     svg = count_svg_builtins()
@@ -199,6 +269,26 @@ def main() -> int:
             end_pos = text.index(END, start)
             README.write_text(text[:start] + "\n" + block() + text[end_pos:], encoding="utf-8")
             print("README.md metrics block regenerated")
+
+    # №804: the full generated table lives in docs/metrics.md.
+    if not METRICS_DOC.exists():
+        print("ERROR: docs/metrics.md is missing (the №804 full-metrics place)", file=sys.stderr)
+        return 2
+    ok, current = upsert_block(METRICS_DOC, MD_BEGIN, MD_END, full_block(), "metrics-doc")
+    if check:
+        if ok:
+            print("OK: docs/metrics.md generated table is up to date")
+        else:
+            stale.append("docs/metrics.md")
+    else:
+        if not ok:
+            text = METRICS_DOC.read_text(encoding="utf-8")
+            start = text.index(MD_BEGIN) + len(MD_BEGIN)
+            end_pos = text.index(MD_END, start)
+            METRICS_DOC.write_text(
+                text[:start] + "\n" + full_block() + text[end_pos:], encoding="utf-8"
+            )
+            print("docs/metrics.md table regenerated")
 
     if not PLAN_SUMMARY.exists():
         print("ERROR: docs/PLAN-SUMMARY.md is missing", file=sys.stderr)

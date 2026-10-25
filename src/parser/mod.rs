@@ -109,6 +109,9 @@ fn parse_inner(source: &str) -> Result<Vec<Declaration>, ParseError> {
                 Rule::llm_decl => declarations.push(parse_llm_decl(inner_pair)?),
                 Rule::tool_decl => declarations.push(parse_tool_decl(inner_pair)?),
                 Rule::profile_decl => declarations.push(parse_profile_decl(inner_pair)),
+                // №801 (gh#1548): the MCP policy — the upstream tool
+                // classes for the floating session label (the gateway G2).
+                Rule::mcp_policy_decl => declarations.push(parse_mcp_policy_decl(inner_pair)?),
                 // Наряд №332 (ADR-0164): perception origin declaration.
                 Rule::origin_decl => declarations.push(decl::parse_origin_decl(inner_pair)),
                 Rule::reflex_decl => declarations.push(parse_reflex_decl(inner_pair)?),

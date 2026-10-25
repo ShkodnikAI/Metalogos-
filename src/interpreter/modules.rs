@@ -89,6 +89,9 @@ impl Interpreter {
                 // №325: the compatibility profile is a compile-time
                 // declaration — no runtime effect.
                 Declaration::Profile(_) => {}
+                // №801: the MCP policy is gateway-level — no runtime
+                // effect in the interpreter either.
+                Declaration::McpPolicy(_) => {}
                 // №392: deny handlers merge into the importing interpreter
                 // (an imported module's handlers cover its own sink calls
                 // in the importing program too).

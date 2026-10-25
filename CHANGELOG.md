@@ -6,6 +6,32 @@ All notable changes to the Metalogos project.
 
 ### Changed
 
+- **№801 (gh#1548, Wave 65 — the C1 (b) G2 owner decision, the gateway
+  pilot, ADR-0196):** the MCP gateway carries a FLOATING session label
+  (LIO current-label form) — one current label per agent session that
+  the upstream tool classes move. The policy is a first-class `.mlog`
+  declaration: `mcp_policy { tool "upstream.name" source "private";
+  tool "upstream.mail" sink "public"; }` — a Source entry JOINs its
+  label into the session on a successful call; a Sink entry demands the
+  session label FLOW TO it before the call (`Label::flows_to` — the
+  conf ≤ required, the integrity ≥ required, the consent scopes cover;
+  Poisoned never flows). A sink refusal is a TYPED error to the agent
+  (`[SINK_CLEARANCE]` naming the tool, the requirement and the current
+  label) + the №794 ledger record; the ONE downgrade path is the owner
+  grant — `grant_issue(scope "mcp:<tool>", class "once")` unblocks the
+  call EXACTLY ONCE (the grant table consumes it; the second call
+  refuses again). The session label rides every `tools/call` result
+  `_meta` (`metalogos.dev/session-label`). `mlog check` validates the
+  policy (an unknown Label-annotation word or a bare local-namespace
+  tool name refuse with `[MCP_POLICY]`). Conservative posture: an
+  upstream tool WITHOUT a policy entry passes UNCLASSIFIED (the №793
+  posture — the pilot is opt-in; the startup prints the loaded-entry
+  count, the first call of an unpoliced tool prints a one-time loud
+  note). AFFECTS: gateway operators — the policy-less deployments
+  behave exactly as №793; the classified ones gain the inter-call data
+  flow the LIO model demands. The per-connection label split for the
+  network transports rides with the http session work (the stdio
+  transport IS one session; the pilot documents this).
 - **№800 (gh#1547, Wave 65 — the C5 (b) V3 owner decision, ADR-0197):**
   `run`/`eval`/REPL execute on the VM — the single user-command executor
   (the same executor `serve` and `mcp-serve` already use; TW becomes the

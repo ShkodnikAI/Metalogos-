@@ -70,6 +70,9 @@ The `mlog` binary supports the following commands:
 | Fail-closed | `--allowlist` is required on every transport — an empty allowlist refuses to start; unknown tools are JSON-RPC `-32602` refusals. The allowlist alone decides what is published. |
 | Tool-policy | Compiled from the profile — each `tools/list` entry carries `_meta["metalogos.dev/policy"]` with `sink_calls` (№316 Role::Sink calls + `audit::sink_kind` classes), `clearance_args` (params flowing into sink arguments), `irreversible`, `source_calls` — no manual YAML. The policy annotates; it never widens. |
 | Security parity | The same `McpServer::handle_request` core serves every transport: allowlist/exec/env gates, label clearance and taint rules are transport-independent (pinned by `tests/naryad_394_mcp_server.rs`). |
+| Execution | Tool methods execute on the VM (№795, ADR-0197) — the SAME compile-path as serve: the strict VM compile at startup (a non-compilable file refuses the gateway), the runtime label gates (`[SINK_CLEARANCE_RUNTIME]`) fire in tool bodies (the pre-№795 TW path had no runtime twin and answered green on a private-into-sink leak); the JSON args bind positionally per the declaration order. Pinned by `tests/naryad_795_mcp_vm.rs`. |
+| Action Ledger | Every `tools/call` lands one signed record (№794, ADR-0167): `mcp.call` (allowed — the local ok, the body error, the upstream proxy ok/error) or `mcp.call.denied` (the gateway refusals), the tool in the scope, the reason in the detail — the detail rides `args_hash` by construction, the arguments never appear in the open form; the floating session label extends the record with G2 (#1481). Pinned by `tests/naryad_794_mcp_ledger.rs` (the 5-call session, the CLI verify green/red). |
+| Upstream sessions | `METALOGOS_MCP_UPSTREAMS` (№793, the gateway G1): one LONG-LIVED process per declared upstream for the gateway's lifetime; `tools/list` aggregates the upstream tools under the `name.` prefix, `tools/call name.tool` proxies to the session; a dead upstream reconnects LOUDLY on the next use (never silent); a failed call is not auto-retried (the side-effect decision stays with the caller). Protocol: the client and the server speak the current revision `2025-11-25`, the legacy revisions fallback, a mismatch is a loud refusal naming both versions. Pinned by `tests/naryad_793_mcp_upstreams.rs` + `tests/naryad_793_session_client.rs`. |
 
 ### Environment variables
 
@@ -86,6 +89,7 @@ The `mlog` binary supports the following commands:
 | `METALOGOS_STT_BASE_URL` | base URL override for transcription (`whisper_transcribe`; provider default, `/audio/transcriptions` appended) — mock servers / self-host proxies (Naryad #279) |
 | `METALOGOS_FORCE_PIPE` | `1` — force piped-mode REPL (for tests) |
 | `METALOGOS_MCP_AUTH_TOKEN` | bearer token for `mlog mcp-serve --transport http\|sse` when `--auth-token` is not given (Naryad #394, ADR-0168) |
+| `METALOGOS_MCP_UPSTREAMS` | the gateway upstream declarations (№793, ADR-0196 G1): entries `name=argv0,arg1,...` separated by `;` (the №259 format convention; the name is `[a-z0-9_-]+` — the `name.tool` prefix must stay unambiguous); read ONCE at `McpServer::new` (the №263 discipline); every argv[0] passes `METALOGOS_MCP_ALLOWLIST` fail-closed; a spawn failure at startup is a loud degraded note, the reconnect rides the next use |
 | `METALOGOS_LEDGER_KEY` | 64-hex signing seed for the Action Ledger (reproducible chains in tests/CI; unset = OS-random key per process; Naryad #393, ADR-0167) |
 
 ---
@@ -2192,754 +2196,754 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 ### `action` — 5 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `db_execute_with_grant(...)` | 2..3 | `Grant, String[, List] -> String` | Executes SQL under the grant: ledger state, TTL, scope coverage of the destructive ops and quota are enforced at runtime; consumption happens only after success |
-| `grant_issue(...)` | 2..4 | `String, Number[, String, Number] -> Grant` | Mints a capability. class: "once" (default) / "n" + uses / "unlimited"; ttl in seconds |
-| `grant_revoke(...)` | 1 | `Grant -> Number` | Cascading revocation — the grant and every descendant become revoked; returns the count |
-| `grant_subgrant(...)` | 3..5 | `Grant, String, Number[, ...] -> Grant` | Attenuation-only derivation: narrower scope, shorter TTL, lower class power; a Once parent is consumed by the split |
-| `grant_use(...)` | 1 | `Grant -> Number` | Consumes one use; returns the remaining count (-1 = unlimited) |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `db_execute_with_grant(...)` | 2..3 | `Grant, String[, List] -> String` | Executes SQL under the grant: ledger state, TTL, scope coverage of the destructive ops and quota are enforced at runtime; consumption happens only after success | stable |
+| `grant_issue(...)` | 2..4 | `String, Number[, String, Number] -> Grant` | Mints a capability. class: "once" (default) / "n" + uses / "unlimited"; ttl in seconds | stable |
+| `grant_revoke(...)` | 1 | `Grant -> Number` | Cascading revocation — the grant and every descendant become revoked; returns the count | stable |
+| `grant_subgrant(...)` | 3..5 | `Grant, String, Number[, ...] -> Grant` | Attenuation-only derivation: narrower scope, shorter TTL, lower class power; a Once parent is consumed by the split | stable |
+| `grant_use(...)` | 1 | `Grant -> Number` | Consumes one use; returns the remaining count (-1 = unlimited) | stable |
 
 ### `bot` — 36 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `answer_callback_query(...)` | 1..3 | — | `answer_callback_query(callback_query_id, text?, show_alert?)` — respond to Telegram inline keyboard callback. `callback_query_id` from update.callback_query.id. `text` — notification text (max 200 chars). `show_alert` — 1.0 = alert popup, 0.0 = toast (default). |
-| `ask_approval(...)` | 1 | — | `ask_approval(title, description)` — create an approval request. Returns Struct { id, title, description, approved, status }. The `approved` field is 0.0 (pending). Use kv_get("approval:<id>") to poll. In Telegram bot context, this would generate an inline keyboard. |
-| `cancel_remind(...)` | 1 | — | `cancel_remind(id)` — cancel reminder. Returns "ok" or "not_found". |
-| `check_reminders(...)` | variadic | — | `check_reminders()` — get due reminders. One-shot deactivated; recurring advanced. |
-| `compress_html(...)` | 1 | — | `compress_html(html)` — convert HTML to clean readable text. Strips all tags, decodes HTML entities, adds newlines at block boundaries. CJK characters preserved grapheme-by-grapheme. Returns compressed String. |
-| `edit_message_text(...)` | 3..4 | — | `edit_message_text(chat_id, message_id, text, reply_markup?)` — edit existing Telegram message. Used to update inline keyboard buttons after callback. |
-| `estimate_tokens(...)` | 1 | — | `estimate_tokens(text)` — rough token count heuristic (len / 4 for CJK+Latin mix). ADR note: temporary heuristic, replace with proper tokenizer when available. |
-| `extract_entities(...)` | 1 | — | `extract_entities(text)` — extract named entities from text using regex heuristics. Returns List of Struct { kind, name, start, end }. Kinds detected: person (capitalized word sequences), email, url, phone, date. |
-| `extract_param(...)` | 2 | — | `extract_param(text, index)` — parse colon-separated callback_data, return N-th segment. Example: extract_param("dept:osp:watch:42", 2) → "watch" |
-| `get_profile(...)` | variadic | — | `get_profile()` — get all active user preferences. Returns List of Struct { class, key, value, evidence, state }. |
-| `goal_complete(...)` | variadic | — | `goal_complete()` — mark the current thread goal as complete. Returns Struct { status, objective }. |
-| `goal_get(...)` | variadic | — | `goal_get()` — get the current thread goal. Returns Struct or empty struct if no goal is set. |
-| `goal_set(...)` | 2 | — | `goal_set(objective, budget?)` — set the current thread goal. Returns Struct { objective, status, budget, spent }. |
-| `goals_add(...)` | 1 | — | `goals_add(text)` — add a long-term goal (max 8). Returns Struct { id, text, status }. |
-| `goals_list(...)` | variadic | — | `goals_list()` — list all long-term goals. Returns List of Struct { id, text, status }. |
-| `goals_reflect(...)` | variadic | — | `goals_reflect()` — returns a summary of goals for reflection. This is a stub: real implementation would call LLM to evaluate goals. Returns Struct { goal_count, active, status }. |
-| `human_create(...)` | 2 | — | `human_create(name, traits)` — create or update a persona. `traits` is a string describing personality: "friendly, professional, speaks Russian". Stores persona in KV under `human_persona:{name}`. Returns Struct {name, traits, created_at, memory_count}. |
-| `human_delete(...)` | 1 | — | `human_delete(persona)` — delete a persona and all its memories. Returns Struct {deleted_memories: Float, status: String}. |
-| `human_forget(...)` | 2 | — | `human_forget(persona, key?)` — delete a specific memory or all memories for a persona. With 2 args: deletes specific memory by key. Returns "ok" or "not_found". With 1 arg: deletes ALL memories for persona. Returns count of deleted memories. |
-| `human_mood(...)` | 3 | — | `human_mood(persona, mood?, intensity?)` — get or set persona's emotional state. With 1 arg: returns current mood as Struct {mood, intensity, updated_at}. With 2+ args: sets mood. `intensity` is 0.0–1.0 (default 0.5). `mood` examples: "happy", "sad", "focused", "creative", "neutral", "excited". |
-| `human_personas(...)` | variadic | — | `human_personas()` — list all created personas. Returns List of PersonaSummary structs: {name, traits, mood, memory_count, created_at}. |
-| `human_recall(...)` | 3 | — | `human_recall(persona, query, limit?)` — search persona's memories by keyword match. Returns List of Memory structs sorted by importance (descending), then by recency. Each struct: {key, content, importance, created_at, access_count, relevance}. |
-| `human_remember(...)` | 4 | — | `human_remember(persona, key, content, importance?)` — store a memory in persona's memory tree. `importance` is 0.0–1.0 (default 0.5). Higher importance = recalled first. Stores as KV entry `human_mem:{persona}:{key}` with metadata. |
-| `human_respond(...)` | 2 | — | `human_respond(persona, message, context?)` — generate a human-like response. Uses the persona's traits, mood, and recalled memories to craft a response via LLM. `context` is optional additional context (e.g., conversation history). Returns the generated response as String. |
-| `learn_preference(...)` | 3 | — | `learn_preference(class, key, value)` — record a preference observation. class: "style" \| "identity" \| "tooling" \| "veto" \| "goal" \| "channel" Stores in KV under "pref:<class>:<key>" with timestamp and evidence count. Returns Struct { class, key, value, status }. |
-| `list_reminders(...)` | variadic | — | `list_reminders()` — list all active reminders. |
-| `memory_score(...)` | 1 | — | `memory_score(text, metadata?)` — score a text chunk for memory admission. Returns Struct { score, admitted, signals: {token_count, unique_words, entity_density} }. Signals: token_count: 0-1, plateau over chunk size (10-8000 tokens) unique_words: 0-1, type-token ratio (lexical diversity) entity_density: 0-1, entities per token (capped) Admission threshold: score >= 0.3 |
-| `read_file_tokens(...)` | 1 | — | `read_file_tokens(path)` — read file and return {content, tokens} struct. Convenience for skill_index: read skill file + estimate its token cost in one call. |
-| `remind(...)` | 3 | — | `remind(message, timestamp, data?)` — one-time reminder. Returns ID. |
-| `remind_recurring(...)` | 2 | — | `remind_recurring(message, interval_seconds, data?)` — recurring reminder. Returns ID. |
-| `send_document(...)` | 2..3 | — | `send_document(chat_id, file_path, caption) → { ok }` |
-| `send_message(...)` | 2..4 | `String\|Float, String, any?, Struct? -> String\|Unit` | Sends a message to a chat (Telegram/Discord). N3 opts: `parse_mode` ("HTML"\|"MarkdownV2"), `bot` (the token comes from `TELEGRAM_BOT_TOKEN_<NAME>`, the name uppercased — an explicitly named bot with no token env is a loud error naming the env var), `disable_preview`, `chunk` (default true — the text routes through text_chunk, the "paragraph" strategy, budget 4000, overlap 0; `reply_markup` rides ONLY the last chunk), `retry` `{max_retries, base_delay}` (base_delay in ms; 429 honors retry_after, 5xx backs off base_delay·2^attempt; both capped at 30 s; up to max_retries (default 3) retries; other 4xx are loud immediately). The token never enters logs/errors (every diagnostic is redacted). A 3-argument Struct without any known opts key stays the legacy `reply_markup`. In interpreter mode (no token) — logs to `[AUDIT]`, returns Unit |
-| `send_photo(...)` | 2..4 | `String\|Float, String, String?, Struct? -> String\|Unit` | Sends a photo (an HTTPS URL or a file_id — the API passthrough). The caption is refused loud beyond 1024 characters BEFORE any wire traffic. `parse_mode` / `retry` / `bot` apply; `chunk` and `disable_preview` are documented no-ops for a photo (one caption ≤1024 — nothing to chunk, no link preview). In interpreter mode (no token) — logs to `[AUDIT]`, returns Unit |
-| `todo_add(...)` | 2 | — | `todo_add(title, status?)` — add a todo card. Default status: "todo". Returns Struct { id, title, status, created_at }. |
-| `todo_list(...)` | variadic | — | `todo_list()` — list all todos. Returns List of Struct { id, title, status, created_at }. |
-| `todo_update(...)` | 2 | — | `todo_update(id, new_status)` — update a todo's status. Returns Struct { id, old_status, new_status, updated }. |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `answer_callback_query(...)` | 1..3 | — | `answer_callback_query(callback_query_id, text?, show_alert?)` — respond to Telegram inline keyboard callback. `callback_query_id` from update.callback_query.id. `text` — notification text (max 200 chars). `show_alert` — 1.0 = alert popup, 0.0 = toast (default). | stable |
+| `ask_approval(...)` | 1 | — | `ask_approval(title, description)` — create an approval request. Returns Struct { id, title, description, approved, status }. The `approved` field is 0.0 (pending). Use kv_get("approval:<id>") to poll. In Telegram bot context, this would generate an inline keyboard. | stable |
+| `cancel_remind(...)` | 1 | — | `cancel_remind(id)` — cancel reminder. Returns "ok" or "not_found". | stable |
+| `check_reminders(...)` | variadic | — | `check_reminders()` — get due reminders. One-shot deactivated; recurring advanced. | stable |
+| `compress_html(...)` | 1 | — | `compress_html(html)` — convert HTML to clean readable text. Strips all tags, decodes HTML entities, adds newlines at block boundaries. CJK characters preserved grapheme-by-grapheme. Returns compressed String. | stable |
+| `edit_message_text(...)` | 3..4 | — | `edit_message_text(chat_id, message_id, text, reply_markup?)` — edit existing Telegram message. Used to update inline keyboard buttons after callback. | stable |
+| `estimate_tokens(...)` | 1 | — | `estimate_tokens(text)` — rough token count heuristic (len / 4 for CJK+Latin mix). ADR note: temporary heuristic, replace with proper tokenizer when available. | stable |
+| `extract_entities(...)` | 1 | — | `extract_entities(text)` — extract named entities from text using regex heuristics. Returns List of Struct { kind, name, start, end }. Kinds detected: person (capitalized word sequences), email, url, phone, date. | stable |
+| `extract_param(...)` | 2 | — | `extract_param(text, index)` — parse colon-separated callback_data, return N-th segment. Example: extract_param("dept:osp:watch:42", 2) → "watch" | stable |
+| `get_profile(...)` | variadic | — | `get_profile()` — get all active user preferences. Returns List of Struct { class, key, value, evidence, state }. | stable |
+| `goal_complete(...)` | variadic | — | `goal_complete()` — mark the current thread goal as complete. Returns Struct { status, objective }. | stable |
+| `goal_get(...)` | variadic | — | `goal_get()` — get the current thread goal. Returns Struct or empty struct if no goal is set. | stable |
+| `goal_set(...)` | 2 | — | `goal_set(objective, budget?)` — set the current thread goal. Returns Struct { objective, status, budget, spent }. | stable |
+| `goals_add(...)` | 1 | — | `goals_add(text)` — add a long-term goal (max 8). Returns Struct { id, text, status }. | stable |
+| `goals_list(...)` | variadic | — | `goals_list()` — list all long-term goals. Returns List of Struct { id, text, status }. | stable |
+| `goals_reflect(...)` | variadic | — | `goals_reflect()` — returns a summary of goals for reflection. This is a stub: real implementation would call LLM to evaluate goals. Returns Struct { goal_count, active, status }. | stable |
+| `human_create(...)` | 2 | — | `human_create(name, traits)` — create or update a persona. `traits` is a string describing personality: "friendly, professional, speaks Russian". Stores persona in KV under `human_persona:{name}`. Returns Struct {name, traits, created_at, memory_count}. | stable |
+| `human_delete(...)` | 1 | — | `human_delete(persona)` — delete a persona and all its memories. Returns Struct {deleted_memories: Float, status: String}. | stable |
+| `human_forget(...)` | 2 | — | `human_forget(persona, key?)` — delete a specific memory or all memories for a persona. With 2 args: deletes specific memory by key. Returns "ok" or "not_found". With 1 arg: deletes ALL memories for persona. Returns count of deleted memories. | stable |
+| `human_mood(...)` | 3 | — | `human_mood(persona, mood?, intensity?)` — get or set persona's emotional state. With 1 arg: returns current mood as Struct {mood, intensity, updated_at}. With 2+ args: sets mood. `intensity` is 0.0–1.0 (default 0.5). `mood` examples: "happy", "sad", "focused", "creative", "neutral", "excited". | stable |
+| `human_personas(...)` | variadic | — | `human_personas()` — list all created personas. Returns List of PersonaSummary structs: {name, traits, mood, memory_count, created_at}. | stable |
+| `human_recall(...)` | 3 | — | `human_recall(persona, query, limit?)` — search persona's memories by keyword match. Returns List of Memory structs sorted by importance (descending), then by recency. Each struct: {key, content, importance, created_at, access_count, relevance}. | stable |
+| `human_remember(...)` | 4 | — | `human_remember(persona, key, content, importance?)` — store a memory in persona's memory tree. `importance` is 0.0–1.0 (default 0.5). Higher importance = recalled first. Stores as KV entry `human_mem:{persona}:{key}` with metadata. | stable |
+| `human_respond(...)` | 2 | — | `human_respond(persona, message, context?)` — generate a human-like response. Uses the persona's traits, mood, and recalled memories to craft a response via LLM. `context` is optional additional context (e.g., conversation history). Returns the generated response as String. | stable |
+| `learn_preference(...)` | 3 | — | `learn_preference(class, key, value)` — record a preference observation. class: "style" \| "identity" \| "tooling" \| "veto" \| "goal" \| "channel" Stores in KV under "pref:<class>:<key>" with timestamp and evidence count. Returns Struct { class, key, value, status }. | stable |
+| `list_reminders(...)` | variadic | — | `list_reminders()` — list all active reminders. | stable |
+| `memory_score(...)` | 1 | — | `memory_score(text, metadata?)` — score a text chunk for memory admission. Returns Struct { score, admitted, signals: {token_count, unique_words, entity_density} }. Signals: token_count: 0-1, plateau over chunk size (10-8000 tokens) unique_words: 0-1, type-token ratio (lexical diversity) entity_density: 0-1, entities per token (capped) Admission threshold: score >= 0.3 | stable |
+| `read_file_tokens(...)` | 1 | — | `read_file_tokens(path)` — read file and return {content, tokens} struct. Convenience for skill_index: read skill file + estimate its token cost in one call. | stable |
+| `remind(...)` | 3 | — | `remind(message, timestamp, data?)` — one-time reminder. Returns ID. | stable |
+| `remind_recurring(...)` | 2 | — | `remind_recurring(message, interval_seconds, data?)` — recurring reminder. Returns ID. | stable |
+| `send_document(...)` | 2..3 | — | `send_document(chat_id, file_path, caption) → { ok }` | stable |
+| `send_message(...)` | 2..4 | `String\|Float, String, any?, Struct? -> String\|Unit` | Sends a message to a chat (Telegram/Discord). N3 opts: `parse_mode` ("HTML"\|"MarkdownV2"), `bot` (the token comes from `TELEGRAM_BOT_TOKEN_<NAME>`, the name uppercased — an explicitly named bot with no token env is a loud error naming the env var), `disable_preview`, `chunk` (default true — the text routes through text_chunk, the "paragraph" strategy, budget 4000, overlap 0; `reply_markup` rides ONLY the last chunk), `retry` `{max_retries, base_delay}` (base_delay in ms; 429 honors retry_after, 5xx backs off base_delay·2^attempt; both capped at 30 s; up to max_retries (default 3) retries; other 4xx are loud immediately). The token never enters logs/errors (every diagnostic is redacted). A 3-argument Struct without any known opts key stays the legacy `reply_markup`. In interpreter mode (no token) — logs to `[AUDIT]`, returns Unit | stable |
+| `send_photo(...)` | 2..4 | `String\|Float, String, String?, Struct? -> String\|Unit` | Sends a photo (an HTTPS URL or a file_id — the API passthrough). The caption is refused loud beyond 1024 characters BEFORE any wire traffic. `parse_mode` / `retry` / `bot` apply; `chunk` and `disable_preview` are documented no-ops for a photo (one caption ≤1024 — nothing to chunk, no link preview). In interpreter mode (no token) — logs to `[AUDIT]`, returns Unit | stable |
+| `todo_add(...)` | 2 | — | `todo_add(title, status?)` — add a todo card. Default status: "todo". Returns Struct { id, title, status, created_at }. | stable |
+| `todo_list(...)` | variadic | — | `todo_list()` — list all todos. Returns List of Struct { id, title, status, created_at }. | stable |
+| `todo_update(...)` | 2 | — | `todo_update(id, new_status)` — update a todo's status. Returns Struct { id, old_status, new_status, updated }. | stable |
 
 ### `calendar` — 10 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `cal_connect(...)` | 3 | `String×3` (the password accepts `Secret`, naryad #70) `-> String` | A `session_id`. PROPFIND, `calendar-home-set` discovery |
-| `cal_create(...)` | 4..7 | `String×4, String?×3 -> String` | Creates a `.ics`, returns a UID. Arity 4..7 |
-| `cal_delete(...)` | 1 | `String -> String` | DELETE with `If-Match` |
-| `cal_events(...)` | 3 | `String×3 -> String` | Events within a range (CalDAV REPORT `calendar-query`, RFC 4791 section 7.8) |
-| `cal_freebusy(...)` | 3 | `String×3 -> String` | CalDAV REPORT `free-busy-query`, RFC 4791 section 7.10 |
-| `cal_list(...)` | 1 | `String -> String` | A list of calendars (PROPFIND Depth:1) |
-| `cal_read(...)` | 1 | `String -> String` | A single event by URL |
-| `cal_update(...)` | 2 | `String×2 -> String` | GET+PUT with `ETag`/`If-Match` |
-| `ical_generate(...)` | 1 | `String -> String` | Builds a `VEVENT`+`VCALENDAR` from JSON |
-| `ical_parse(...)` | 1 | `String -> String` | Parses iCalendar text (RFC 5545) |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `cal_connect(...)` | 3 | `String×3` (the password accepts `Secret`, naryad #70) `-> String` | A `session_id`. PROPFIND, `calendar-home-set` discovery | stable |
+| `cal_create(...)` | 4..7 | `String×4, String?×3 -> String` | Creates a `.ics`, returns a UID. Arity 4..7 | stable |
+| `cal_delete(...)` | 1 | `String -> String` | DELETE with `If-Match` | stable |
+| `cal_events(...)` | 3 | `String×3 -> String` | Events within a range (CalDAV REPORT `calendar-query`, RFC 4791 section 7.8) | stable |
+| `cal_freebusy(...)` | 3 | `String×3 -> String` | CalDAV REPORT `free-busy-query`, RFC 4791 section 7.10 | stable |
+| `cal_list(...)` | 1 | `String -> String` | A list of calendars (PROPFIND Depth:1) | stable |
+| `cal_read(...)` | 1 | `String -> String` | A single event by URL | stable |
+| `cal_update(...)` | 2 | `String×2 -> String` | GET+PUT with `ETag`/`If-Match` | stable |
+| `ical_generate(...)` | 1 | `String -> String` | Builds a `VEVENT`+`VCALENDAR` from JSON | stable |
+| `ical_parse(...)` | 1 | `String -> String` | Parses iCalendar text (RFC 5545) | stable |
 
 ### `chart` — 8 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `chart_area(...)` | 2 | — | chart_area: area chart — same shape as chart_line, but the path closes down to the baseline (chart_y_bottom) and is filled with a translucent accent color. A solid stroke line is drawn on top for definition. |
-| `chart_bar(...)` | 2 | — | `chart_bar(data, style?)` — vertical bar chart as SVG from a List of numbers or {label, value} Structs; optional style Struct (colors, size); deterministic output (golden-test invariant). |
-| `chart_boxplot(...)` | 2 | — | chart_boxplot: per-label statistical box-and-whisker plot. |
-| `chart_donut(...)` | 2 | — | `chart_donut(data, style?)` — donut chart as SVG with a right-side legend (same layout family as chart_radar); deterministic output. |
-| `chart_heatmap(...)` | 2 | — | Parse "#rrggbb" hex color to (h, s, l) in HSL space. h: 0..=360 degrees, s: 0..=1, l: 0..=1. Returns None if the string is malformed (wrong prefix, wrong length, or non-hex digits). |
-| `chart_line(...)` | 2 | — | chart_line: line chart with one `<path>` through all points. |
-| `chart_radar(...)` | 2 | — | chart_radar: multi-series radar chart in polar coordinates. |
-| `chart_scatter(...)` | 2 | — | chart_scatter: scatter plot with two independent numeric axes. |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `chart_area(...)` | 2 | — | chart_area: area chart — same shape as chart_line, but the path closes down to the baseline (chart_y_bottom) and is filled with a translucent accent color. A solid stroke line is drawn on top for definition. | stable |
+| `chart_bar(...)` | 2 | — | `chart_bar(data, style?)` — vertical bar chart as SVG from a List of numbers or {label, value} Structs; optional style Struct (colors, size); deterministic output (golden-test invariant). | stable |
+| `chart_boxplot(...)` | 2 | — | chart_boxplot: per-label statistical box-and-whisker plot. | stable |
+| `chart_donut(...)` | 2 | — | `chart_donut(data, style?)` — donut chart as SVG with a right-side legend (same layout family as chart_radar); deterministic output. | stable |
+| `chart_heatmap(...)` | 2 | — | Parse "#rrggbb" hex color to (h, s, l) in HSL space. h: 0..=360 degrees, s: 0..=1, l: 0..=1. Returns None if the string is malformed (wrong prefix, wrong length, or non-hex digits). | stable |
+| `chart_line(...)` | 2 | — | chart_line: line chart with one `<path>` through all points. | stable |
+| `chart_radar(...)` | 2 | — | chart_radar: multi-series radar chart in polar coordinates. | stable |
+| `chart_scatter(...)` | 2 | — | chart_scatter: scatter plot with two independent numeric axes. | stable |
 
 ### `contacts` — 10 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `card_connect(...)` | 3 | `String×3` (`Secret`-compatible) `-> String` | A `session_id`. PROPFIND, `addressbook-home-set` discovery |
-| `card_contacts(...)` | 2 | `String×2 -> String` | A book's contacts (CardDAV REPORT `addressbook-query`, RFC 6352 section 8.6) |
-| `card_create(...)` | 3..7 | `String×3, String?×4 -> String` | Creates a `.vcf`, returns a UID. Arity 3..7 |
-| `card_delete(...)` | 1 | `String -> String` | DELETE with `If-Match` |
-| `card_list(...)` | 1 | `String -> String` | A list of address books |
-| `card_read(...)` | 1 | `String -> String` | A single contact by URL |
-| `card_search(...)` | 2 | `String×2 -> String` | Searches all books (`FN` + `EMAIL`) |
-| `card_update(...)` | 2 | `String×2 -> String` | GET+PUT with `ETag`/`If-Match` |
-| `vcard_generate(...)` | 1 | `String -> String` | Builds a vCard v4.0 from JSON |
-| `vcard_parse(...)` | 1 | `String -> String` | Parses vCard text (RFC 6350) |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `card_connect(...)` | 3 | `String×3` (`Secret`-compatible) `-> String` | A `session_id`. PROPFIND, `addressbook-home-set` discovery | stable |
+| `card_contacts(...)` | 2 | `String×2 -> String` | A book's contacts (CardDAV REPORT `addressbook-query`, RFC 6352 section 8.6) | stable |
+| `card_create(...)` | 3..7 | `String×3, String?×4 -> String` | Creates a `.vcf`, returns a UID. Arity 3..7 | stable |
+| `card_delete(...)` | 1 | `String -> String` | DELETE with `If-Match` | stable |
+| `card_list(...)` | 1 | `String -> String` | A list of address books | stable |
+| `card_read(...)` | 1 | `String -> String` | A single contact by URL | stable |
+| `card_search(...)` | 2 | `String×2 -> String` | Searches all books (`FN` + `EMAIL`) | stable |
+| `card_update(...)` | 2 | `String×2 -> String` | GET+PUT with `ETag`/`If-Match` | stable |
+| `vcard_generate(...)` | 1 | `String -> String` | Builds a vCard v4.0 from JSON | stable |
+| `vcard_parse(...)` | 1 | `String -> String` | Parses vCard text (RFC 6350) | stable |
 
 ### `convert` — 4 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `float(...)` | 1 | `String\|Float -> Float` | Equivalent to `to_float()`, but errors on an invalid string |
-| `to_float(...)` | 1 | `String\|Float\|Bool -> Float` | Converts to Float. A NON-NUMERIC string is a LOUD failure: `[TYPE_MISMATCH]` naming the input and pointing at `to_float_or` (№514 — the ONE soft-failure rule: silence is visible in the name). `Bool → 1.0/0.0` is a conversion, not a soft failure |
-| `to_float_or(...)` | 2 | `String\|Float\|Bool, Float -> Float` | The EXPLICIT-silence twin of `to_float` (№514 — the `_or` naming rule of №481): the parsed value when the string parses, the default when it does not; the fallback firing is announced on the audit stderr (`[TO_FLOAT_OR]`, the value never logged). A non-scalar input type stays LOUD — explicit silence covers DATA, not type errors |
-| `to_string(...)` | 1 | `Any -> String` | Equivalent to `str()`. Float without `.0` for integers |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `float(...)` | 1 | `String\|Float -> Float` | Equivalent to `to_float()`, but errors on an invalid string | stable |
+| `to_float(...)` | 1 | `String\|Float\|Bool -> Float` | Converts to Float. A NON-NUMERIC string is a LOUD failure: `[TYPE_MISMATCH]` naming the input and pointing at `to_float_or` (№514 — the ONE soft-failure rule: silence is visible in the name). `Bool → 1.0/0.0` is a conversion, not a soft failure | stable |
+| `to_float_or(...)` | 2 | `String\|Float\|Bool, Float -> Float` | The EXPLICIT-silence twin of `to_float` (№514 — the `_or` naming rule of №481): the parsed value when the string parses, the default when it does not; the fallback firing is announced on the audit stderr (`[TO_FLOAT_OR]`, the value never logged). A non-scalar input type stays LOUD — explicit silence covers DATA, not type errors | stable |
+| `to_string(...)` | 1 | `Any -> String` | Equivalent to `str()`. Float without `.0` for integers | stable |
 
 ### `cron` — 5 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `cron_add(...)` | 2..5 | `String, String, String?, String?, String? -> CronJob` | Adds a cron job and returns `CronJob { id, cron_expr, prompt, enabled, status }` — the job id for `cron_run(id)`/`cron_remove(id)` is the `.id` field (verified against the 0.21.0 runtime; gh#590). `cron_expr` is a 5-field cron expression (e.g. `"0 9 * * 1-5"` — every weekday at 9:00). `prompt` is what to run. Optional: `tz` — the job's IANA timezone (windows are matched in it; default `MLOG_CRON_TZ` env, else UTC); `catch_up` — `"run_once"` (default: all missed windows coalesce into ONE fire at the next tick) or `"skip"` (missed windows are dropped); `payload` — a fixed DATA string handed to the target as its single String argument (never interpreted as code; zero-arg patterns must not set it). Unknown TZ / bad policy refuse loudly (`CRON_JOB_FAILED`) |
-| `cron_list(...)` | variadic | `-> List` | A list of all cron jobs. Each element is `CronJob { id, cron_expr, prompt, enabled, force_run, run_count, created_at, last_run, last_run_tz, last_window, tz, catch_up, payload, next_run, next_run_tz }` — `next_run`/`last_run` are epoch seconds; the `*_tz` fields are ISO strings in the JOB's timezone |
-| `cron_mark_fired(...)` | 1 | `String -> Float` | Marks a job as run: clears `force_run`, increments `run_count`, updates `last_run` and the window dedup stamp. Returns `1.0` if found, `0.0` if not |
-| `cron_remove(...)` | 1 | `String -> Float` | Deletes a job by ID. Returns `1.0` if deleted, `0.0` if not found |
-| `cron_run(...)` | 1 | `String -> Float` | Forces a job to run outside its schedule (sets `force_run=true`; the fire stamps the current window, so the scheduled tick in the same window will not re-fire). Returns `1.0` if found, `0.0` if not |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `cron_add(...)` | 2..5 | `String, String, String?, String?, String? -> CronJob` | Adds a cron job and returns `CronJob { id, cron_expr, prompt, enabled, status }` — the job id for `cron_run(id)`/`cron_remove(id)` is the `.id` field (verified against the 0.21.0 runtime; gh#590). `cron_expr` is a 5-field cron expression (e.g. `"0 9 * * 1-5"` — every weekday at 9:00). `prompt` is what to run. Optional: `tz` — the job's IANA timezone (windows are matched in it; default `MLOG_CRON_TZ` env, else UTC); `catch_up` — `"run_once"` (default: all missed windows coalesce into ONE fire at the next tick) or `"skip"` (missed windows are dropped); `payload` — a fixed DATA string handed to the target as its single String argument (never interpreted as code; zero-arg patterns must not set it). Unknown TZ / bad policy refuse loudly (`CRON_JOB_FAILED`) | stable |
+| `cron_list(...)` | variadic | `-> List` | A list of all cron jobs. Each element is `CronJob { id, cron_expr, prompt, enabled, force_run, run_count, created_at, last_run, last_run_tz, last_window, tz, catch_up, payload, next_run, next_run_tz }` — `next_run`/`last_run` are epoch seconds; the `*_tz` fields are ISO strings in the JOB's timezone | stable |
+| `cron_mark_fired(...)` | 1 | `String -> Float` | Marks a job as run: clears `force_run`, increments `run_count`, updates `last_run` and the window dedup stamp. Returns `1.0` if found, `0.0` if not | stable |
+| `cron_remove(...)` | 1 | `String -> Float` | Deletes a job by ID. Returns `1.0` if deleted, `0.0` if not found | stable |
+| `cron_run(...)` | 1 | `String -> Float` | Forces a job to run outside its schedule (sets `force_run=true`; the fire stamps the current window, so the scheduled tick in the same window will not re-fire). Returns `1.0` if found, `0.0` if not | stable |
 
 ### `crypto` — 11 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `ct_eq(...)` | 2 | `String, String -> Bool` | Constant-time string equality — compare secrets without the `==` prefix-timing leak. The verdict is trusted for decisions (comparing an untrusted token against the expected secret IS the validation); its confidentiality follows the compared values |
-| `decrypt(...)` | 2 | `Encrypted, Secret -> String` | Decrypts AES-256-GCM. Errors on a wrong key |
-| `encrypt(...)` | 2 | `String, Secret -> Encrypted` | Encrypts with AES-256-GCM using a random 96-bit nonce. The key is 64 hex characters |
-| `generate_key(...)` | variadic | `-> Secret` | Generates a 256-bit random key (64 hex characters) |
-| `hash_password(...)` | 1 | `String -> Hash` | Hashes a password (Argon2id with a random salt) |
-| `hex_decode(...)` | 1 | `String -> String` | Decodes hex to a string. Invalid UTF-8 becomes a `<binary: N bytes>` placeholder |
-| `hex_encode(...)` | 1 | `String -> String` | Encodes a string to hex (UTF-8 bytes to hex characters) |
-| `hmac_sha256(...)` | 2 | `String, String -> String` | HMAC-SHA256 with a key, hex representation (64 characters) |
-| `secret(...)` | 1 | — | `secret(key)` — reads an environment variable as an OPAQUE `Value::Secret`: hard-failure when the variable is missing, the value never prints, concatenates, or converts to String, and `respond(secret(...))` is rejected at compile time (`SECRET_LEAK`, Category A). See ADR-0116-era threat-model row and `env()` for the readable variant. |
-| `sha256(...)` | 1 | `String -> String` | The SHA-256 hash, hex representation (64 characters). Unicode-aware: hashes the UTF-8 bytes |
-| `verify_password(...)` | 2 | `String, Hash -> Bool` | Verifies a password (constant-time comparison) |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `ct_eq(...)` | 2 | `String, String -> Bool` | Constant-time string equality — compare secrets without the `==` prefix-timing leak. The verdict is trusted for decisions (comparing an untrusted token against the expected secret IS the validation); its confidentiality follows the compared values | stable |
+| `decrypt(...)` | 2 | `Encrypted, Secret -> String` | Decrypts AES-256-GCM. Errors on a wrong key | stable |
+| `encrypt(...)` | 2 | `String, Secret -> Encrypted` | Encrypts with AES-256-GCM using a random 96-bit nonce. The key is 64 hex characters | stable |
+| `generate_key(...)` | variadic | `-> Secret` | Generates a 256-bit random key (64 hex characters) | stable |
+| `hash_password(...)` | 1 | `String -> Hash` | Hashes a password (Argon2id with a random salt) | stable |
+| `hex_decode(...)` | 1 | `String -> String` | Decodes hex to a string. Invalid UTF-8 becomes a `<binary: N bytes>` placeholder | stable |
+| `hex_encode(...)` | 1 | `String -> String` | Encodes a string to hex (UTF-8 bytes to hex characters) | stable |
+| `hmac_sha256(...)` | 2 | `String, String -> String` | HMAC-SHA256 with a key, hex representation (64 characters) | stable |
+| `secret(...)` | 1 | — | `secret(key)` — reads an environment variable as an OPAQUE `Value::Secret`: hard-failure when the variable is missing, the value never prints, concatenates, or converts to String, and `respond(secret(...))` is rejected at compile time (`SECRET_LEAK`, Category A). See ADR-0116-era threat-model row and `env()` for the readable variant. | stable |
+| `sha256(...)` | 1 | `String -> String` | The SHA-256 hash, hex representation (64 characters). Unicode-aware: hashes the UTF-8 bytes | stable |
+| `verify_password(...)` | 2 | `String, Hash -> Bool` | Verifies a password (constant-time comparison) | stable |
 
 ### `db` — 2 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `db_execute(...)` | 1..2 | `String -> Unit` | Executes an SQL query without returning data |
-| `query(...)` | 1..2 | `String, List -> List` | An SQL query. SELECT returns List[Row{...}], everything else returns a string with the number of affected rows |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `db_execute(...)` | 1..2 | `String -> Unit` | Executes an SQL query without returning data | stable |
+| `query(...)` | 1..2 | `String, List -> List` | An SQL query. SELECT returns List[Row{...}], everything else returns a string with the number of affected rows | stable |
 
 ### `diagram` — 21 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `diagram_architecture(...)` | 2 | — | `diagram_architecture(data, style) -> String` |
-| `diagram_data_flow(...)` | 2 | — | `diagram_data_flow(data, style) -> String` |
-| `diagram_er(...)` | 2 | — | `diagram_er(data, style) -> String` |
-| `diagram_flowchart(...)` | 2 | — | `diagram_flowchart(data, style) -> String` |
-| `diagram_gantt(...)` | 2 | — | `diagram_gantt(data, style) -> String` |
-| `diagram_high_level(...)` | 2 | — | `diagram_high_level(data, style) -> String` |
-| `diagram_layers(...)` | 2 | — | `diagram_layers(data, style) -> String` |
-| `diagram_loop(...)` | 2 | — | `diagram_loop(data, style) -> String` |
-| `diagram_medallion(...)` | 2 | — | `diagram_medallion(data, style) -> String` |
-| `diagram_nested(...)` | 2 | — | `diagram_nested(data, style) -> String` |
-| `diagram_org_chart(...)` | 2 | — | `diagram_org_chart(data, style) -> String` |
-| `diagram_process(...)` | 2 | — | `diagram_process(data, style) -> String` |
-| `diagram_pyramid(...)` | 2 | — | `diagram_pyramid(data, style) -> String` |
-| `diagram_quadrant(...)` | 2 | — | `diagram_quadrant(data, style) -> String` |
-| `diagram_sequence(...)` | 2 | — | `diagram_sequence(data, style?)` — UML-style sequence diagram as SVG: participants as lifelines, ordered messages as arrows between them. |
-| `diagram_state(...)` | 2 | — | `diagram_state(data, style) -> String` |
-| `diagram_swimlane(...)` | 2 | — | `diagram_swimlane(data, style) -> String` |
-| `diagram_timeline(...)` | 2 | — | `diagram_timeline(data, style?)` — horizontal event timeline as SVG: dated events placed on one axis; overlaps detected where possible. |
-| `diagram_tree(...)` | 2 | — | `diagram_tree(data, style) -> String` |
-| `diagram_venn(...)` | 2 | — | `diagram_venn(data, style) -> String` |
-| `infographic_qa(...)` | 1 | `String -> Struct{passed, warnings, checks_run}` | An advisory check: contrast (WCAG, a threshold of 4.5), saturation discipline (more than 2 colors with S>60% triggers a warning), element density. `passed: false` is advice, not a block |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `diagram_architecture(...)` | 2 | — | `diagram_architecture(data, style) -> String` | stable |
+| `diagram_data_flow(...)` | 2 | — | `diagram_data_flow(data, style) -> String` | stable |
+| `diagram_er(...)` | 2 | — | `diagram_er(data, style) -> String` | stable |
+| `diagram_flowchart(...)` | 2 | — | `diagram_flowchart(data, style) -> String` | stable |
+| `diagram_gantt(...)` | 2 | — | `diagram_gantt(data, style) -> String` | stable |
+| `diagram_high_level(...)` | 2 | — | `diagram_high_level(data, style) -> String` | stable |
+| `diagram_layers(...)` | 2 | — | `diagram_layers(data, style) -> String` | stable |
+| `diagram_loop(...)` | 2 | — | `diagram_loop(data, style) -> String` | stable |
+| `diagram_medallion(...)` | 2 | — | `diagram_medallion(data, style) -> String` | stable |
+| `diagram_nested(...)` | 2 | — | `diagram_nested(data, style) -> String` | stable |
+| `diagram_org_chart(...)` | 2 | — | `diagram_org_chart(data, style) -> String` | stable |
+| `diagram_process(...)` | 2 | — | `diagram_process(data, style) -> String` | stable |
+| `diagram_pyramid(...)` | 2 | — | `diagram_pyramid(data, style) -> String` | stable |
+| `diagram_quadrant(...)` | 2 | — | `diagram_quadrant(data, style) -> String` | stable |
+| `diagram_sequence(...)` | 2 | — | `diagram_sequence(data, style?)` — UML-style sequence diagram as SVG: participants as lifelines, ordered messages as arrows between them. | stable |
+| `diagram_state(...)` | 2 | — | `diagram_state(data, style) -> String` | stable |
+| `diagram_swimlane(...)` | 2 | — | `diagram_swimlane(data, style) -> String` | stable |
+| `diagram_timeline(...)` | 2 | — | `diagram_timeline(data, style?)` — horizontal event timeline as SVG: dated events placed on one axis; overlaps detected where possible. | stable |
+| `diagram_tree(...)` | 2 | — | `diagram_tree(data, style) -> String` | stable |
+| `diagram_venn(...)` | 2 | — | `diagram_venn(data, style) -> String` | stable |
+| `infographic_qa(...)` | 1 | `String -> Struct{passed, warnings, checks_run}` | An advisory check: contrast (WCAG, a threshold of 4.5), saturation discipline (more than 2 colors with S>60% triggers a warning), element density. `passed: false` is advice, not a block | stable |
 
 ### `email` — 7 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `imap_list(...)` | 2..3 | `String, Float, Float? -> String` | A list of emails — envelope + flags. Arity 2..3 |
-| `imap_mark_read(...)` | 1 | `String -> String` | Marks it as read |
-| `imap_move(...)` | 2 | `String, String -> String` | Moves it (RFC 6851 `MOVE`, falling back to `COPY`+`DELETE`) |
-| `imap_read(...)` | 1 | `String -> String` | The full email: headers, body, attachments |
-| `imap_search(...)` | 2 | `String, String -> String` | A text search (the IMAP `TEXT` criteria) |
-| `smtp_send(...)` | 3..6 | `String×3, String?×3 -> String` | Sends a plain-text email, TLS/STARTTLS. Arity 3..6 |
-| `smtp_send_html(...)` | 3..4 | `String×3, String? -> String` | An HTML email. Arity 3..4 |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `imap_list(...)` | 2..3 | `String, Float, Float? -> String` | A list of emails — envelope + flags. Arity 2..3 | stable |
+| `imap_mark_read(...)` | 1 | `String -> String` | Marks it as read | stable |
+| `imap_move(...)` | 2 | `String, String -> String` | Moves it (RFC 6851 `MOVE`, falling back to `COPY`+`DELETE`) | stable |
+| `imap_read(...)` | 1 | `String -> String` | The full email: headers, body, attachments | stable |
+| `imap_search(...)` | 2 | `String, String -> String` | A text search (the IMAP `TEXT` criteria) | stable |
+| `smtp_send(...)` | 3..6 | `String×3, String?×3 -> String` | Sends a plain-text email, TLS/STARTTLS. Arity 3..6 | stable |
+| `smtp_send_html(...)` | 3..4 | `String×3, String? -> String` | An HTML email. Arity 3..4 | stable |
 
 ### `embodied` — 10 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `bounds_attach(...)` | 2 | — | `bounds_attach(device, formula) -> Device` |
-| `chunk_make(...)` | 2..3 | — | `chunk_make(device, trajectory, goal?) -> ActionChunk` |
-| `device_open(...)` | 1..2 | — | `device_open(backend, bounds?) -> Device` |
-| `device_state(...)` | 1 | — | `device_state(device) -> Struct` |
-| `goal_make(...)` | 1 | — | `goal_make(predicate) -> GoalPredicate` |
-| `pose_make(...)` | 4 | — | `pose_make(x, y, z, yaw) -> Pose` |
-| `proof_seal(...)` | 2..3 | — | `proof_seal(world, chunk, telemetry?) -> Proof` |
-| `proof_verify(...)` | 1 | — | `proof_verify(proof) -> Struct` |
-| `trajectory_make(...)` | 1 | — | `trajectory_make(poses) -> Trajectory` |
-| `world_state(...)` | 1 | — | `world_state(device) -> WorldState` |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `bounds_attach(...)` | 2 | — | `bounds_attach(device, formula) -> Device` | experimental |
+| `chunk_make(...)` | 2..3 | — | `chunk_make(device, trajectory, goal?) -> ActionChunk` | experimental |
+| `device_open(...)` | 1..2 | — | `device_open(backend, bounds?) -> Device` | experimental |
+| `device_state(...)` | 1 | — | `device_state(device) -> Struct` | experimental |
+| `goal_make(...)` | 1 | — | `goal_make(predicate) -> GoalPredicate` | experimental |
+| `pose_make(...)` | 4 | — | `pose_make(x, y, z, yaw) -> Pose` | experimental |
+| `proof_seal(...)` | 2..3 | — | `proof_seal(world, chunk, telemetry?) -> Proof` | experimental |
+| `proof_verify(...)` | 1 | — | `proof_verify(proof) -> Struct` | experimental |
+| `trajectory_make(...)` | 1 | — | `trajectory_make(poses) -> Trajectory` | experimental |
+| `world_state(...)` | 1 | — | `world_state(device) -> WorldState` | experimental |
 
 ### `encoding` — 4 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `base64_decode(...)` | 1 | `String -> String` | Decodes Base64. Errors if not valid Base64 or not UTF-8 |
-| `base64_encode(...)` | 1 | `String -> String` | Encodes a string as Base64 (standard alphabet). Unicode-aware: encodes the UTF-8 bytes |
-| `toon_decode(...)` | 1 | `String -> Any` | Decodes a TOON string back into a Value. A recursive-descent parser |
-| `toon_encode(...)` | 1 | `Any -> String` | Encodes a value as TOON (Token-Optimized Object Notation). Prefixed with `TOON:`. Any Value becomes a string |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `base64_decode(...)` | 1 | `String -> String` | Decodes Base64. Errors if not valid Base64 or not UTF-8 | stable |
+| `base64_encode(...)` | 1 | `String -> String` | Encodes a string as Base64 (standard alphabet). Unicode-aware: encodes the UTF-8 bytes | stable |
+| `toon_decode(...)` | 1 | `String -> Any` | Decodes a TOON string back into a Value. A recursive-descent parser | stable |
+| `toon_encode(...)` | 1 | `Any -> String` | Encodes a value as TOON (Token-Optimized Object Notation). Prefixed with `TOON:`. Any Value becomes a string | stable |
 
 ### `fluid` — 2 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `budget_check(...)` | 2 | `Float, Float -> Dict` | Returns `BudgetStatus { step, total_steps, remaining, fraction, over_budget }`. Errors if `total_steps == 0` |
-| `confidence(...)` | 1 | `Fluid -> Float` | Returns the maximum confidence of the probabilistic type. Returns `1.0` for concrete values |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `budget_check(...)` | 2 | `Float, Float -> Dict` | Returns `BudgetStatus { step, total_steps, remaining, fraction, over_budget }`. Errors if `total_steps == 0` | stable |
+| `confidence(...)` | 1 | `Fluid -> Float` | Returns the maximum confidence of the probabilistic type. Returns `1.0` for concrete values | stable |
 
 ### `forecast` — 5 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `forecast_next(...)` | 2 | — | `forecast_next(handle, horizon) -> Forecast` |
-| `forecast_points(...)` | 1 | — | `forecast_points(handle) -> Struct` |
-| `forecast_state(...)` | 1 | — | `forecast_state(handle) -> Struct` |
-| `series_make(...)` | 1..2 | — | `series_make(source, frequency?) -> Series` |
-| `series_pull(...)` | 2 | — | `series_pull(grant, source) -> Series` |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `forecast_next(...)` | 2 | — | `forecast_next(handle, horizon) -> Forecast` | experimental |
+| `forecast_points(...)` | 1 | — | `forecast_points(handle) -> Struct` | experimental |
+| `forecast_state(...)` | 1 | — | `forecast_state(handle) -> Struct` | experimental |
+| `series_make(...)` | 1..2 | — | `series_make(source, frequency?) -> Series` | experimental |
+| `series_pull(...)` | 2 | — | `series_pull(grant, source) -> Series` | experimental |
 
 ### `graph` — 8 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `graph_neighbors(...)` | variadic | `String -> String` | A node's neighbors (direct links). A JSON array of nodes |
-| `graph_path(...)` | 2 | `String, String -> String` | The shortest path between two nodes. Returns a JSON array of nodes on the path. An empty array if there is no path |
-| `graph_query(...)` | 1..3 | `String, Float?, String? -> String` | Searches the graph with an optional level filter (`"L0"`, `"L1"`, `"L2"`). `limit` defaults to 5 |
-| `subgraph_extract(...)` | variadic | `String, Float -> String` | Extracts a subgraph from `root_id` to a given `depth`. JSON with nodes and edges |
-| `subgraph_json(...)` | variadic | `String, Float -> String` | The full subgraph as JSON (nodes + edges). Ready for visualization |
-| `subgraph_nodes(...)` | variadic | `String, Float -> String` | Only the subgraph's nodes (no edges). A JSON array of nodes |
-| `trace_end(...)` | variadic | `String -> Dict` | Ends a trace segment. Returns `TraceResult { id, label, duration_ms }` |
-| `trace_start(...)` | variadic | `String -> String` | Starts a trace segment with a label. Returns a trace_id |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `graph_neighbors(...)` | variadic | `String -> String` | A node's neighbors (direct links). A JSON array of nodes | stable |
+| `graph_path(...)` | 2 | `String, String -> String` | The shortest path between two nodes. Returns a JSON array of nodes on the path. An empty array if there is no path | stable |
+| `graph_query(...)` | 1..3 | `String, Float?, String? -> String` | Searches the graph with an optional level filter (`"L0"`, `"L1"`, `"L2"`). `limit` defaults to 5 | stable |
+| `subgraph_extract(...)` | variadic | `String, Float -> String` | Extracts a subgraph from `root_id` to a given `depth`. JSON with nodes and edges | stable |
+| `subgraph_json(...)` | variadic | `String, Float -> String` | The full subgraph as JSON (nodes + edges). Ready for visualization | stable |
+| `subgraph_nodes(...)` | variadic | `String, Float -> String` | Only the subgraph's nodes (no edges). A JSON array of nodes | stable |
+| `trace_end(...)` | variadic | `String -> Dict` | Ends a trace segment. Returns `TraceResult { id, label, duration_ms }` | stable |
+| `trace_start(...)` | variadic | `String -> String` | Starts a trace segment with a label. Returns a trace_id | stable |
 
 ### `io` — 13 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `append_file(...)` | 2 | `String, String -> String` | Appends to the end of a file. Returns `"ok"` or `""`; sandbox violations are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) |
-| `delete_file(...)` | 1 | `String -> String` | Deletes a file. Returns `"ok"`, `""` when the file is missing; sandbox violations are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) |
-| `exec(...)` | 1 | — | `exec(cmd)` — execute a shell command and return stdout. |
-| `exec_argv(...)` | 1..2 | — | `exec_argv(binary: String, args: List<String>) -> String` |
-| `file_exists(...)` | 1 | `String -> Bool` | Checks whether a file exists |
-| `git_push(...)` | 1 | — | `git_push(message?) -> String` — git add/commit/push via subprocess. Uses GITHUB_TOKEN and GITHUB_REPO env vars for authentication. Usage: git_push("commit message") -> "ok" \| "nothing to commit" \| error |
-| `list_dir(...)` | 1 | `String -> List` | A list of files in a directory. With no argument — the current directory |
-| `mcp_call(...)` | 4 | — | №413 (issue #558, ADR-0169 §3.1 extension): the MCP contour's failure taxonomy (`MCP_SPAWN_FAILED`, `MCP_TIMEOUT`, `MCP_IO_ERROR`, `MCP_PROTOCOL_ERROR`, `MCP_TOOL_NOT_FOUND`, `MCP_TOOL_ERROR`, `MCP_NOT_ALLOWLISTED`) already sits at position 0 of the error strings the contour raises — it is now whitelisted for the `try` classifier in `values::ORIGIN_STAMPED_CODES`. The wrapper below no longer buries those stamps mid-message. |
-| `mcp_list_tools(...)` | 2 | — | `mcp_list_tools(command, args_list) -> List[Struct{name, description, input_schema}]`. |
-| `print(...)` | 1 | `String -> String` | Prints a string to stdout, returns it |
-| `read_file(...)` | 1 | `String -> String` | Reads a file. **Missing file** — a LOUD `[IO_ERROR]` refusal since v0.28.0 (№563: the №531 transition ended with the release; the №514 rule, gh#798: softness lives in the `_or` name — the explicit fallback is `read_file_or(path, default)`), everything else is loud (`*_or` — soft, the rest — loud). **A file that exists (or passed the sandbox) but cannot be opened/read** — a configuration/environment error, refused LOUDLY with `[IO_ERROR]` and the OS reason (№481): the old silent "" masked real defects. Sandbox violations (absolute path, `..`, symlink escape, broken symlink) are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) |
-| `read_file_or(...)` | 2 | `String, String -> String` | The explicit-silence twin of `read_file` (№507 — the `_or` symmetry with `env_or`, №481). **Missing file** — the caller's default (announced on the audit stderr: the path, never the value). Every other branch is byte-identical to `read_file`: sandbox violations and the №455 deny-list stay loud `[SANDBOX_VIOLATION]`, open/read failures stay loud `[IO_ERROR]` — the explicit silence never bypasses them |
-| `write_file(...)` | 2 | `String, String -> String` | Writes a file (overwrite). Returns `"ok"` or `""` on an OS-level error; sandbox violations are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `append_file(...)` | 2 | `String, String -> String` | Appends to the end of a file. Returns `"ok"` or `""`; sandbox violations are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) | stable |
+| `delete_file(...)` | 1 | `String -> String` | Deletes a file. Returns `"ok"`, `""` when the file is missing; sandbox violations are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) | stable |
+| `exec(...)` | 1 | — | `exec(cmd)` — execute a shell command and return stdout. | stable |
+| `exec_argv(...)` | 1..2 | — | `exec_argv(binary: String, args: List<String>) -> String` | stable |
+| `file_exists(...)` | 1 | `String -> Bool` | Checks whether a file exists | stable |
+| `git_push(...)` | 1 | — | `git_push(message?) -> String` — git add/commit/push via subprocess. Uses GITHUB_TOKEN and GITHUB_REPO env vars for authentication. Usage: git_push("commit message") -> "ok" \| "nothing to commit" \| error | stable |
+| `list_dir(...)` | 1 | `String -> List` | A list of files in a directory. With no argument — the current directory | stable |
+| `mcp_call(...)` | 4 | — | №413 (issue #558, ADR-0169 §3.1 extension): the MCP contour's failure taxonomy (`MCP_SPAWN_FAILED`, `MCP_TIMEOUT`, `MCP_IO_ERROR`, `MCP_PROTOCOL_ERROR`, `MCP_TOOL_NOT_FOUND`, `MCP_TOOL_ERROR`, `MCP_NOT_ALLOWLISTED`) already sits at position 0 of the error strings the contour raises — it is now whitelisted for the `try` classifier in `values::ORIGIN_STAMPED_CODES`. The wrapper below no longer buries those stamps mid-message. | stable |
+| `mcp_list_tools(...)` | 2 | — | `mcp_list_tools(command, args_list) -> List[Struct{name, description, input_schema}]`. | stable |
+| `print(...)` | 1 | `String -> String` | Prints a string to stdout, returns it | stable |
+| `read_file(...)` | 1 | `String -> String` | Reads a file. **Missing file** — a LOUD `[IO_ERROR]` refusal since v0.28.0 (№563: the №531 transition ended with the release; the №514 rule, gh#798: softness lives in the `_or` name — the explicit fallback is `read_file_or(path, default)`), everything else is loud (`*_or` — soft, the rest — loud). **A file that exists (or passed the sandbox) but cannot be opened/read** — a configuration/environment error, refused LOUDLY with `[IO_ERROR]` and the OS reason (№481): the old silent "" masked real defects. Sandbox violations (absolute path, `..`, symlink escape, broken symlink) are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) | stable |
+| `read_file_or(...)` | 2 | `String, String -> String` | The explicit-silence twin of `read_file` (№507 — the `_or` symmetry with `env_or`, №481). **Missing file** — the caller's default (announced on the audit stderr: the path, never the value). Every other branch is byte-identical to `read_file`: sandbox violations and the №455 deny-list stay loud `[SANDBOX_VIOLATION]`, open/read failures stay loud `[IO_ERROR]` — the explicit silence never bypasses them | stable |
+| `write_file(...)` | 2 | `String, String -> String` | Writes a file (overwrite). Returns `"ok"` or `""` on an OS-level error; sandbox violations are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) | stable |
 
 ### `json` — 9 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `dict_get(...)` | 3 | `Struct, String, Any -> Any` | Dict-style key access. Returns `default` if the key is absent. Does not support dot-paths (use `json_get` for that) |
-| `dict_has(...)` | 2 | `Struct, String -> Bool` | `true` if the key exists in the dict. A direct check (no dot-path) |
-| `dict_keys(...)` | 1 | `Struct -> List` | Returns a list of all the dict's keys |
-| `dict_set(...)` | 3 | `Struct, String, Any -> Struct` | Returns a **new** Struct with the key updated. The original dict is not mutated |
-| `dict_values(...)` | 1 | `Struct -> List` | Returns a list of all the dict's values (order matches `dict_keys`) |
-| `has_field(...)` | 2 | `Struct, String -> Float` | `1.0` if the field exists, `0.0` if not. Supports dot-paths |
-| `json_encode(...)` | 1 | `Any -> String` | Serializes a value to a JSON string. Supports String, Float, Bool, Unit→null, List→array, Struct→object |
-| `json_get(...)` | 2..3 | `Struct, String -> Value` | Accesses a field by a dot-path. Returns the **real value** (including String). Returns Unit if the field is absent or a SQL NULL. Supports dot-paths: `"voice.file_id"` |
-| `parse_json(...)` | 1..2 | `String -> Struct\|List\|String\|Float\|Bool\|Unit` | Parses a JSON string. Objects become a Struct with `type_name: "Json"`, arrays become a List, `null` becomes Unit |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `dict_get(...)` | 3 | `Struct, String, Any -> Any` | Dict-style key access. Returns `default` if the key is absent. Does not support dot-paths (use `json_get` for that) | stable |
+| `dict_has(...)` | 2 | `Struct, String -> Bool` | `true` if the key exists in the dict. A direct check (no dot-path) | stable |
+| `dict_keys(...)` | 1 | `Struct -> List` | Returns a list of all the dict's keys | stable |
+| `dict_set(...)` | 3 | `Struct, String, Any -> Struct` | Returns a **new** Struct with the key updated. The original dict is not mutated | stable |
+| `dict_values(...)` | 1 | `Struct -> List` | Returns a list of all the dict's values (order matches `dict_keys`) | stable |
+| `has_field(...)` | 2 | `Struct, String -> Float` | `1.0` if the field exists, `0.0` if not. Supports dot-paths | stable |
+| `json_encode(...)` | 1 | `Any -> String` | Serializes a value to a JSON string. Supports String, Float, Bool, Unit→null, List→array, Struct→object | stable |
+| `json_get(...)` | 2..3 | `Struct, String -> Value` | Accesses a field by a dot-path. Returns the **real value** (including String). Returns Unit if the field is absent or a SQL NULL. Supports dot-paths: `"voice.file_id"` | stable |
+| `parse_json(...)` | 1..2 | `String -> Struct\|List\|String\|Float\|Bool\|Unit` | Parses a JSON string. Objects become a Struct with `type_name: "Json"`, arrays become a List, `null` becomes Unit | stable |
 
 ### `list` — 17 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `chunk(...)` | 2 | — | `chunk(items, size)` — split a list into sublists of at most `size` elements. The last chunk may be shorter. Returns List<List>. Error if size <= 0. |
-| `compact_list(...)` | 3 | — | `compact_list(items, keep_first, keep_last)` — context condensation for lists. Protects the first `keep_first` and last `keep_last` items, replaces middle items with a single placeholder struct { compacted: true, removed_count: N }. Inspired by OpenPlanter's compact_messages() for managing long conversation histories. |
-| `condense(...)` | 1 | — | `condense(list)` — collapse consecutive identical string elements with count. Example: ["a","a","b"] -> ["a","×2","b"] |
-| `dedup(...)` | 1 | `List -> List` | Removes duplicates, keeping the order of first occurrence |
-| `filter(...)` | 3 | `List, String, Value -> List` | Filters: field == value |
-| `first(...)` | 1 | `List -> Value` | The first element. An empty string if the list is empty |
-| `get(...)` | 2 | `List, Float -> Value` | Gets an element by index. Errors on out-of-bounds |
-| `last(...)` | 1 | `List -> Value` | The last element. An empty string if the list is empty |
-| `make_list(...)` | variadic | — | `make_list(a, b, c, ...) -> List` — create a list from variadic arguments. Eliminates race conditions from write_file/read_file workarounds for returning multiple values from patterns. Usage: make_list("red", "green", "blue") -> List ["red", "green", "blue"] |
-| `matches_any(...)` | 2 | — | `matches_any(text, triggers_list)` — case-insensitive substring match. Returns 1.0 if ANY trigger string is found in text, 0.0 otherwise. Used by skill_index tier matching (Problem A). |
-| `push(...)` | 2 | `List, Value -> List` | Appends an element (returns a new list) |
-| `reduce(...)` | 3 | `List, String, Float -> Float` | Sum of a field's values across the list |
-| `slice(...)` | 3 | `List, Float, Float -> List` | Slice of the list [start, end). Soft-failure: start >= len returns an empty list, end > len is clamped, start >= end returns an empty list (ADR-0069) |
-| `sort(...)` | 1 | — | `sort(list)` — sort list elements in ascending order. |
-| `sort_by(...)` | 2..3 | `List, String, Float -> List` | Sorts structs by a field (desc=1.0 → descending) |
-| `unique(...)` | 1 | — | `unique(list)` — remove duplicates preserving first-occurrence order. Uses the same equality semantics as `dedup` (JSON serialization for complex types = deep structural comparison for Struct, not reference identity). |
-| `zip(...)` | 2 | `List, List -> List` | Pairwise combination into `Pair{a, b}` |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `chunk(...)` | 2 | — | `chunk(items, size)` — split a list into sublists of at most `size` elements. The last chunk may be shorter. Returns List<List>. Error if size <= 0. | stable |
+| `compact_list(...)` | 3 | — | `compact_list(items, keep_first, keep_last)` — context condensation for lists. Protects the first `keep_first` and last `keep_last` items, replaces middle items with a single placeholder struct { compacted: true, removed_count: N }. Inspired by OpenPlanter's compact_messages() for managing long conversation histories. | stable |
+| `condense(...)` | 1 | — | `condense(list)` — collapse consecutive identical string elements with count. Example: ["a","a","b"] -> ["a","×2","b"] | stable |
+| `dedup(...)` | 1 | `List -> List` | Removes duplicates, keeping the order of first occurrence | stable |
+| `filter(...)` | 3 | `List, String, Value -> List` | Filters: field == value | stable |
+| `first(...)` | 1 | `List -> Value` | The first element. An empty string if the list is empty | stable |
+| `get(...)` | 2 | `List, Float -> Value` | Gets an element by index. Errors on out-of-bounds | stable |
+| `last(...)` | 1 | `List -> Value` | The last element. An empty string if the list is empty | stable |
+| `make_list(...)` | variadic | — | `make_list(a, b, c, ...) -> List` — create a list from variadic arguments. Eliminates race conditions from write_file/read_file workarounds for returning multiple values from patterns. Usage: make_list("red", "green", "blue") -> List ["red", "green", "blue"] | stable |
+| `matches_any(...)` | 2 | — | `matches_any(text, triggers_list)` — case-insensitive substring match. Returns 1.0 if ANY trigger string is found in text, 0.0 otherwise. Used by skill_index tier matching (Problem A). | stable |
+| `push(...)` | 2 | `List, Value -> List` | Appends an element (returns a new list) | stable |
+| `reduce(...)` | 3 | `List, String, Float -> Float` | Sum of a field's values across the list | stable |
+| `slice(...)` | 3 | `List, Float, Float -> List` | Slice of the list [start, end). Soft-failure: start >= len returns an empty list, end > len is clamped, start >= end returns an empty list (ADR-0069) | stable |
+| `sort(...)` | 1 | — | `sort(list)` — sort list elements in ascending order. | stable |
+| `sort_by(...)` | 2..3 | `List, String, Float -> List` | Sorts structs by a field (desc=1.0 → descending) | stable |
+| `unique(...)` | 1 | — | `unique(list)` — remove duplicates preserving first-occurrence order. Uses the same equality semantics as `dedup` (JSON serialization for complex types = deep structural comparison for Struct, not reference identity). | stable |
+| `zip(...)` | 2 | `List, List -> List` | Pairwise combination into `Pair{a, b}` | stable |
 
 ### `llm` — 9 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `call_claude(...)` | 4 | `String, String, String, String -> String` | A direct call to the Anthropic Claude Messages API (v1/messages). Returns `content[0].text` |
-| `call_llm(...)` | 1..3 | `String, String[, String] -> String` | Calls the LLM backend. The optional third argument names the model for THIS call — a direct provider name (`"glm-5.3"`) or a named profile alias resolved via `METALOGOS_LLM_MODEL_{ALIAS}` (N12: both `glm-5.3-flash` and `glm-5.3` work in one process). Two-argument calls keep the configured `METALOGOS_LLM_MODEL` default unchanged. Reasoning models (N13): a `reasoning_content` block (GLM thinking mode) NEVER reaches the output — only the final `content` flows out, on all three paths (non-stream legacy, SmartRouter, streaming deltas); the trace line carries the token usage the provider reported (completion_tokens includes the reasoning tokens); a reasoning-only response with `content: null` fails LOUD (never a silent empty string). Returns the deterministic mock `"[MOCK: prompt \| input]"` ONLY when `METALOGOS_MOCK_LLM=1 |
-| `call_llm_schema(...)` | 2..3 | `String, String[, String] -> Struct` | Calls the LLM backend and requires the answer to be a single JSON value conforming to the schema. Supported schema subset (ADR-0133): `type`, `properties`, `required`, `items`, `enum`; annotation keywords (`title`, `description`, `$schema`, ...) are ignored; any other keyword is a loud `LLM_SCHEMA_UNSUPPORTED_FEATURE`. Answer fields beyond `properties` are rejected (strict-by-default). The result is a `Dict` Struct usable with `json_get`/`has_field`/`dict_*`. Parse/validation failures (including max_tokens truncation) are loud `LLM_SCHEMA_MISMATCH` and retry up to `METALOGOS_LLM_SCHEMA_RETRIES` (default 2, cap 10) with the validator report fed back into the prompt. Mock tier returns a deterministic minimal instance derived from the schema (only when `METALOGOS_MOCK_LLM=1 |
-| `json_validate(...)` | 2..3 | `String, String[, Bool] -> Struct` | Validates a JSON string against the ADR-0133 schema subset WITHOUT calling an LLM («shape-before-use», №286): the SAME validator as `call_llm_schema` (extracted to a shared module, zero new rules — differential corpus green in both paths). Returns `{valid, errors}` where `errors` is a list of violation reports with paths (`value.age: expected type integer, got string "33"`). `strict` (default `true`) = fields beyond `properties` are violations (as in `call_llm_schema`); `strict=false` permits undeclared fields — every other rule (type/required/items/enum, the subset, the root-object contract) is unchanged. Invalid `schema_json`/unsupported keyword — loud `LLM_SCHEMA_UNSUPPORTED_FEATURE` (the SAME code as `call_llm_schema`); invalid `value_json` is a loud parse error, NOT `valid=false` (the validator judges structure, the parser judges bytes) |
-| `llm_last_finish_reason(...)` | variadic | — | №757: `llm_last_finish_reason()` — the mlog-visible truncation probe. Returns the finish_reason/stop_reason/done_reason of the LAST completed LLM call or stream ("stop", "length", "max_tokens", "end_turn", ...). `""` means no completed call ever reported a reason (honest absence — the mock and error paths never invent one). The truncation check from mlog is `llm_last_finish_reason() == "length"` (OpenAI-compatible) or `== "max_tokens"` (Anthropic); both spellings also raise the stderr warning at the moment of the call itself. |
-| `llm_stream_close(...)` | 1 | — | `llm_stream_close(handle) -> Struct { tokens, latency_ms, status, provider, model }` |
-| `llm_stream_next(...)` | 1 | — | `llm_stream_next(handle) -> String` |
-| `llm_stream_open(...)` | 1..2 | — | `llm_stream_open(prompt, input?) -> Struct { handle, model, provider }` |
-| `llm_usage(...)` | variadic | `-> Struct` | LLM usage statistics: `total_calls`, `total_tokens`, `total_errors`, `cache_hits_semantic` (№273/ADR-0135), `canary_leaks` (№284 — confirmed canary leaks), `providers` (a list of `{alias, calls, tokens, errors, avg_latency_ms, health_score}`) |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `call_claude(...)` | 4 | `String, String, String, String -> String` | A direct call to the Anthropic Claude Messages API (v1/messages). Returns `content[0].text` | stable |
+| `call_llm(...)` | 1..3 | `String, String[, String] -> String` | Calls the LLM backend. The optional third argument names the model for THIS call — a direct provider name (`"glm-5.3"`) or a named profile alias resolved via `METALOGOS_LLM_MODEL_{ALIAS}` (N12: both `glm-5.3-flash` and `glm-5.3` work in one process). Two-argument calls keep the configured `METALOGOS_LLM_MODEL` default unchanged. Reasoning models (N13): a `reasoning_content` block (GLM thinking mode) NEVER reaches the output — only the final `content` flows out, on all three paths (non-stream legacy, SmartRouter, streaming deltas); the trace line carries the token usage the provider reported (completion_tokens includes the reasoning tokens); a reasoning-only response with `content: null` fails LOUD (never a silent empty string). Returns the deterministic mock `"[MOCK: prompt \| input]"` ONLY when `METALOGOS_MOCK_LLM=1 | stable |
+| `call_llm_schema(...)` | 2..3 | `String, String[, String] -> Struct` | Calls the LLM backend and requires the answer to be a single JSON value conforming to the schema. Supported schema subset (ADR-0133): `type`, `properties`, `required`, `items`, `enum`; annotation keywords (`title`, `description`, `$schema`, ...) are ignored; any other keyword is a loud `LLM_SCHEMA_UNSUPPORTED_FEATURE`. Answer fields beyond `properties` are rejected (strict-by-default). The result is a `Dict` Struct usable with `json_get`/`has_field`/`dict_*`. Parse/validation failures (including max_tokens truncation) are loud `LLM_SCHEMA_MISMATCH` and retry up to `METALOGOS_LLM_SCHEMA_RETRIES` (default 2, cap 10) with the validator report fed back into the prompt. Mock tier returns a deterministic minimal instance derived from the schema (only when `METALOGOS_MOCK_LLM=1 | stable |
+| `json_validate(...)` | 2..3 | `String, String[, Bool] -> Struct` | Validates a JSON string against the ADR-0133 schema subset WITHOUT calling an LLM («shape-before-use», №286): the SAME validator as `call_llm_schema` (extracted to a shared module, zero new rules — differential corpus green in both paths). Returns `{valid, errors}` where `errors` is a list of violation reports with paths (`value.age: expected type integer, got string "33"`). `strict` (default `true`) = fields beyond `properties` are violations (as in `call_llm_schema`); `strict=false` permits undeclared fields — every other rule (type/required/items/enum, the subset, the root-object contract) is unchanged. Invalid `schema_json`/unsupported keyword — loud `LLM_SCHEMA_UNSUPPORTED_FEATURE` (the SAME code as `call_llm_schema`); invalid `value_json` is a loud parse error, NOT `valid=false` (the validator judges structure, the parser judges bytes) | stable |
+| `llm_last_finish_reason(...)` | variadic | — | №757: `llm_last_finish_reason()` — the mlog-visible truncation probe. Returns the finish_reason/stop_reason/done_reason of the LAST completed LLM call or stream ("stop", "length", "max_tokens", "end_turn", ...). `""` means no completed call ever reported a reason (honest absence — the mock and error paths never invent one). The truncation check from mlog is `llm_last_finish_reason() == "length"` (OpenAI-compatible) or `== "max_tokens"` (Anthropic); both spellings also raise the stderr warning at the moment of the call itself. | stable |
+| `llm_stream_close(...)` | 1 | — | `llm_stream_close(handle) -> Struct { tokens, latency_ms, status, provider, model }` | stable |
+| `llm_stream_next(...)` | 1 | — | `llm_stream_next(handle) -> String` | stable |
+| `llm_stream_open(...)` | 1..2 | — | `llm_stream_open(prompt, input?) -> Struct { handle, model, provider }` | stable |
+| `llm_usage(...)` | variadic | `-> Struct` | LLM usage statistics: `total_calls`, `total_tokens`, `total_errors`, `cache_hits_semantic` (№273/ADR-0135), `canary_leaks` (№284 — confirmed canary leaks), `providers` (a list of `{alias, calls, tokens, errors, avg_latency_ms, health_score}`) | stable |
 
 ### `math` — 17 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `abs(...)` | 1 | `Float -> Float` | Absolute value |
-| `clamp(...)` | 3 | `Float, Float, Float -> Float` | Clamps a value into the range `[lo, hi]` |
-| `exp(...)` | 1 | `Float -> Float` | e^x. `exp(0)=1`, `exp(1)=e` |
-| `ln(...)` | 1 | `Float -> Float` | Natural logarithm. Soft-failure: `0.0` for `x <= 0` |
-| `lomb_scargle(...)` | 2 | — | `lomb_scargle(times, values)` — the normalized Lomb–Scargle periodogram for unevenly sampled series (Scargle 1982; the per-frequency phase offset τ, Press et al. NR §13.8 formulation). The frequency grid derives from the data: f_min = 1/T, f_max = 1/(2·median-spacing), Δf = 1/(N·T) (N-fold oversampling of the Rayleigh limit) — no magic constants. Powers are normalized by 2σ², so under the Gaussian-noise null a bin is Exp(1)-distributed. Fewer than 12 points, a zero-variance series, a zero baseline, or an over-capacity grid returns the typed `Degraded` struct (degraded=true) — never a quiet spectrum. A length mismatch or a non-finite element is a loud [SPECTRAL_INPUT] domain error. Pure function — zero effects (№316). Numbers only, no interpretations (the instrumental forecast posture, docs/limitations.md). №607: past the WORK budget (N × M > 10⁷ sine/cosine pairs) the grid is COARSENED over the same band — the Spectrum carries `degraded: true` + the explicit `degraded_reason`; the call also charges the contour budget seam (the №546 per-request budget) and refuses loudly on exhaustion. |
-| `max(...)` | 2 | `Float, Float -> Float` | Maximum of two numbers |
-| `min(...)` | 2 | `Float, Float -> Float` | Minimum of two numbers |
-| `normal_sample(...)` | 2 | — | `normal_sample(mean, stddev)` — one draw from N(mean, stddev) via the classical Box–Muller transform over the shared deterministic PRNG (the random_seed/random xorshift64 stream — a fixed seed yields the same sequence on both backends). Pure function, no own state. stddev <= 0 (NaN included) is a loud domain error stamped [NORMAL_SAMPLE_STDDEV], never a NaN result. |
-| `pow(...)` | 2 | `Float, Float -> Float` | base^exp |
-| `random(...)` | variadic | `-> Float` | `[0.0, 1.0)`. If `random_seed()` was called — deterministic. Otherwise — non-deterministic (system time) |
-| `random_seed(...)` | 1 | `Float -> Unit` | Sets the seed for a deterministic PRNG (xorshift64). Subsequent `random()` calls are reproducible |
-| `round(...)` | 1 | `Float -> Float` | Rounds to the nearest integer |
-| `sigmoid(...)` | 1 | `Float -> Float` | The logistic function 1/(1+e^−x). Numerically stable: `sigmoid(1000)=1`, `sigmoid(-1000)=0` (not NaN) |
-| `softmax(...)` | 1 | `List -> List` | Numerically stable softmax (subtracts max before exp). Output sums to 1.0 |
-| `spectral_peak(...)` | 1 | — | `spectral_peak(spectrum)` — the dominant frequency of a `lomb_scargle` Spectrum with its false-alarm p-value (1 − (1 − e^{−z})^M over the scanned grid — the conservative full-bin count) and its share of the total spectral power inside a ±1/T band around the peak (one Rayleigh resolution element on each side — derived from the baseline, not a magic constant). A `Degraded` input propagates loudly and unchanged; anything that is not a Spectrum is a loud [SPECTRAL_INPUT] error. Pure function — zero effects (№316). Numbers only, no interpretations. |
-| `sqrt(...)` | 1 | `Float -> Float` | Square root. Soft-failure: `0.0` for `x < 0` |
-| `tanh(...)` | 1 | `Float -> Float` | Hyperbolic tangent. In (−1, 1). `tanh(1000)=1`, `tanh(-1000)=-1` |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `abs(...)` | 1 | `Float -> Float` | Absolute value | stable |
+| `clamp(...)` | 3 | `Float, Float, Float -> Float` | Clamps a value into the range `[lo, hi]` | stable |
+| `exp(...)` | 1 | `Float -> Float` | e^x. `exp(0)=1`, `exp(1)=e` | stable |
+| `ln(...)` | 1 | `Float -> Float` | Natural logarithm. Soft-failure: `0.0` for `x <= 0` | stable |
+| `lomb_scargle(...)` | 2 | — | `lomb_scargle(times, values)` — the normalized Lomb–Scargle periodogram for unevenly sampled series (Scargle 1982; the per-frequency phase offset τ, Press et al. NR §13.8 formulation). The frequency grid derives from the data: f_min = 1/T, f_max = 1/(2·median-spacing), Δf = 1/(N·T) (N-fold oversampling of the Rayleigh limit) — no magic constants. Powers are normalized by 2σ², so under the Gaussian-noise null a bin is Exp(1)-distributed. Fewer than 12 points, a zero-variance series, a zero baseline, or an over-capacity grid returns the typed `Degraded` struct (degraded=true) — never a quiet spectrum. A length mismatch or a non-finite element is a loud [SPECTRAL_INPUT] domain error. Pure function — zero effects (№316). Numbers only, no interpretations (the instrumental forecast posture, docs/limitations.md). №607: past the WORK budget (N × M > 10⁷ sine/cosine pairs) the grid is COARSENED over the same band — the Spectrum carries `degraded: true` + the explicit `degraded_reason`; the call also charges the contour budget seam (the №546 per-request budget) and refuses loudly on exhaustion. | stable |
+| `max(...)` | 2 | `Float, Float -> Float` | Maximum of two numbers | stable |
+| `min(...)` | 2 | `Float, Float -> Float` | Minimum of two numbers | stable |
+| `normal_sample(...)` | 2 | — | `normal_sample(mean, stddev)` — one draw from N(mean, stddev) via the classical Box–Muller transform over the shared deterministic PRNG (the random_seed/random xorshift64 stream — a fixed seed yields the same sequence on both backends). Pure function, no own state. stddev <= 0 (NaN included) is a loud domain error stamped [NORMAL_SAMPLE_STDDEV], never a NaN result. | stable |
+| `pow(...)` | 2 | `Float, Float -> Float` | base^exp | stable |
+| `random(...)` | variadic | `-> Float` | `[0.0, 1.0)`. If `random_seed()` was called — deterministic. Otherwise — non-deterministic (system time) | stable |
+| `random_seed(...)` | 1 | `Float -> Unit` | Sets the seed for a deterministic PRNG (xorshift64). Subsequent `random()` calls are reproducible | stable |
+| `round(...)` | 1 | `Float -> Float` | Rounds to the nearest integer | stable |
+| `sigmoid(...)` | 1 | `Float -> Float` | The logistic function 1/(1+e^−x). Numerically stable: `sigmoid(1000)=1`, `sigmoid(-1000)=0` (not NaN) | stable |
+| `softmax(...)` | 1 | `List -> List` | Numerically stable softmax (subtracts max before exp). Output sums to 1.0 | stable |
+| `spectral_peak(...)` | 1 | — | `spectral_peak(spectrum)` — the dominant frequency of a `lomb_scargle` Spectrum with its false-alarm p-value (1 − (1 − e^{−z})^M over the scanned grid — the conservative full-bin count) and its share of the total spectral power inside a ±1/T band around the peak (one Rayleigh resolution element on each side — derived from the baseline, not a magic constant). A `Degraded` input propagates loudly and unchanged; anything that is not a Spectrum is a loud [SPECTRAL_INPUT] error. Pure function — zero effects (№316). Numbers only, no interpretations. | stable |
+| `sqrt(...)` | 1 | `Float -> Float` | Square root. Soft-failure: `0.0` for `x < 0` | stable |
+| `tanh(...)` | 1 | `Float -> Float` | Hyperbolic tangent. In (−1, 1). `tanh(1000)=1`, `tanh(-1000)=-1` | stable |
 
 ### `media` — 12 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `media_bind_origin(...)` | 2 | — | `media_bind_origin(origin_name, handle)` — the ProvBind runtime (№332, ADR-0164): binds the store entry's origin and joins the declared origin conf into the entry label (re-sealing when a public entry becomes non-public). The handle value passes through unchanged. Pure: store bookkeeping, no byte movement. State-carrying: interpreter/VM intercept before the generic fallback. |
-| `media_manifest(...)` | 1 | — | `media_manifest(handle)` — the in-program provenance read (№337, ADR-0166 §2.4): Struct { kind, origin, conf, synthetic, bytes_sha256, refs, sealed } WITHOUT materializing bytes. State-carrying: interpreter/VM intercept before the generic fallback. |
-| `media_manifest_read(...)` | 1 | — | `media_manifest_read(path)` — the sidecar READ path (№337, ADR-0166 §2.4): parses a `<...>.manifest.json` from the sandbox and returns the same struct shape as media_manifest. Missing/empty/corrupt manifests are LOUD errors (№320 posture); a manifest without `synthetic` reads TRUE (conservative, unknown ⇒ marked). Stateless — a plain registry builtin. |
-| `media_meta(...)` | 1 | — | `media_meta(handle)` — store metadata WITHOUT materializing bytes: Struct { kind, conf, refs, sealed } (ADR-0162 §2.4). |
-| `media_release(...)` | 1 | — | `media_release(handle)` — refcount −1; at 0 the entry is evicted (sealed bytes zeroized). Returns the remaining refcount. Loud on unknown handles. |
-| `media_retain(...)` | 1 | — | `media_retain(handle)` — refcount +1 on a media handle (ADR-0162 §2.4); returns the same handle (chainable). |
-| `media_save(...)` | 2..3 | — | `media_save(handle, path)` — the ONLY sanctioned media materialization: writes the exact bytes to a sandboxed file (№131/№252). Sink: №325 clearance at compile time (SECRET_LEAK for private labels) + runtime backstop MEDIA_SEALED_EGRESS for sealed entries. Returns the path. |
-| `media_source_capture(...)` | 1 | — | `media_source_capture(origin_name)` — the HandleSource runtime (№332, ADR-0164): resolves the declared origin and captures a handle through the media store. `kind: file` reads the sandboxed path (loud on missing files); `kind: camera` is a loud PARKED boundary (real capture hardware does not exist in this environment). Source: the handle label is the origin's declared conf. State-carrying: interpreter/VM intercept before the generic fallback. |
-| `media_store_audio(...)` | 2 | — | `media_store_audio(data, sensitivity)` — wraps provided bytes into an opaque Audio handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. |
-| `media_store_image(...)` | 2 | — | `media_store_image(data, sensitivity)` — wraps provided bytes into an opaque Image handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. |
-| `media_store_video_frame(...)` | 2 | — | `media_store_video_frame(data, sensitivity)` — wraps provided bytes into an opaque VideoFrame handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. |
-| `media_store_video_segment(...)` | 2 | — | `media_store_video_segment(data, sensitivity)` — wraps provided bytes into an opaque VideoSegment handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `media_bind_origin(...)` | 2 | — | `media_bind_origin(origin_name, handle)` — the ProvBind runtime (№332, ADR-0164): binds the store entry's origin and joins the declared origin conf into the entry label (re-sealing when a public entry becomes non-public). The handle value passes through unchanged. Pure: store bookkeeping, no byte movement. State-carrying: interpreter/VM intercept before the generic fallback. | stable |
+| `media_manifest(...)` | 1 | — | `media_manifest(handle)` — the in-program provenance read (№337, ADR-0166 §2.4): Struct { kind, origin, conf, synthetic, bytes_sha256, refs, sealed } WITHOUT materializing bytes. State-carrying: interpreter/VM intercept before the generic fallback. | stable |
+| `media_manifest_read(...)` | 1 | — | `media_manifest_read(path)` — the sidecar READ path (№337, ADR-0166 §2.4): parses a `<...>.manifest.json` from the sandbox and returns the same struct shape as media_manifest. Missing/empty/corrupt manifests are LOUD errors (№320 posture); a manifest without `synthetic` reads TRUE (conservative, unknown ⇒ marked). Stateless — a plain registry builtin. | stable |
+| `media_meta(...)` | 1 | — | `media_meta(handle)` — store metadata WITHOUT materializing bytes: Struct { kind, conf, refs, sealed } (ADR-0162 §2.4). | stable |
+| `media_release(...)` | 1 | — | `media_release(handle)` — refcount −1; at 0 the entry is evicted (sealed bytes zeroized). Returns the remaining refcount. Loud on unknown handles. | stable |
+| `media_retain(...)` | 1 | — | `media_retain(handle)` — refcount +1 on a media handle (ADR-0162 §2.4); returns the same handle (chainable). | stable |
+| `media_save(...)` | 2..3 | — | `media_save(handle, path)` — the ONLY sanctioned media materialization: writes the exact bytes to a sandboxed file (№131/№252). Sink: №325 clearance at compile time (SECRET_LEAK for private labels) + runtime backstop MEDIA_SEALED_EGRESS for sealed entries. Returns the path. | stable |
+| `media_source_capture(...)` | 1 | — | `media_source_capture(origin_name)` — the HandleSource runtime (№332, ADR-0164): resolves the declared origin and captures a handle through the media store. `kind: file` reads the sandboxed path (loud on missing files); `kind: camera` is a loud PARKED boundary (real capture hardware does not exist in this environment). Source: the handle label is the origin's declared conf. State-carrying: interpreter/VM intercept before the generic fallback. | stable |
+| `media_store_audio(...)` | 2 | — | `media_store_audio(data, sensitivity)` — wraps provided bytes into an opaque Audio handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. | stable |
+| `media_store_image(...)` | 2 | — | `media_store_image(data, sensitivity)` — wraps provided bytes into an opaque Image handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. | stable |
+| `media_store_video_frame(...)` | 2 | — | `media_store_video_frame(data, sensitivity)` — wraps provided bytes into an opaque VideoFrame handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. | stable |
+| `media_store_video_segment(...)` | 2 | — | `media_store_video_segment(data, sensitivity)` — wraps provided bytes into an opaque VideoSegment handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. | stable |
 
 ### `memory` — 38 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `deref(...)` | 1 | — | `deref(hash)` — retrieve content by SHA-256 hash from ref store. |
-| `embed(...)` | 1 | `(String) -> List` | Embedding of `text` through the process-global manager (see model facts above). No new dependencies — a pure reuse of the ADR-0040 stack. |
-| `forget(...)` | 3..4 | — | The forgetting front door (№445, the canon §10.3): `forget(handle, key, grant, dry_run?)` — the ADR-0155 linear action over the typed Memory<K> lane with the fail-closed refusal ladder: the consent gate (a private container requires the active memory:<subject> consent — MEMORY_FORGET_CONSENT_REQUIRED + a memory.forget.denied record), the grant ladder (GRANT_MISSING / GRANT_INACTIVE / GRANT_SCOPE_MISMATCH — scope memory:forget:<container>; the grant is consumed on SUCCESS only), the retained VETO (MEMORY_RETAIN_PROTECTED). dry_run=true returns the preview {dry_run, container, root, deleted: [], poisoned: [...], batch_id} — no state change, no grant consumption (the №280 preview discipline); apply deletes the ROOT (soft — the ledger carries the content digests) and POISONS every derived entry: a poisoned survivor stays in the container but cannot materialize into any sink — memory_read/memory_export refuse with MEMORY_POISONED and the recall lane skips the quarantine. Ledger: memory.forget {container, targets, hashes, dry_run fact} + irreversible.memory_forget on apply. The legacy 1..2-argument forget(query, days?) surface is unchanged (№72). |
-| `kv_delete(...)` | 1 | `String -> Unit` | Deletes a key |
-| `kv_exists(...)` | 1 | `String -> Bool` | Checks whether a key exists |
-| `kv_get(...)` | 1 | `String -> String` | Reads a value (an empty string if the key is absent) |
-| `kv_list(...)` | variadic | `-> List` | Returns a list of all keys |
-| `kv_set(...)` | 2 | `String, String -> Unit` | Writes a key-value pair |
-| `mem_delete(...)` | 1 | `String -> String` | Equivalent to `kv_delete`, returns the deleted value |
-| `mem_get(...)` | 1 | `String -> String` | Equivalent to `kv_get` |
-| `mem_set(...)` | 2 | `String, String -> String` | Equivalent to `kv_set`, but returns the value written |
-| `memorize(...)` | 2..3 | `String, Float, String -> Unit` | Saves a fact with a priority (0.0-1.0) and a type. Example: `memorize("likes spicy food", 0.9, "persona")` |
-| `memory_boost(...)` | variadic | — | `memory_boost(id, amount?)` — boost a memory node's score by amount (default 0.1, capped at 1.0). Updates last_accessed timestamp. Returns Struct { id, new_score, access_count }. |
-| `memory_cascade_preview(...)` | 2 | — | `memory_cascade_preview(handle, key) -> Struct` |
-| `memory_decay(...)` | variadic | — | `memory_decay(lambda?)` — apply exponential decay to all memory node scores. `lambda` controls decay rate (default 0.01 = gentle). Formula: score *= e^(-lambda * hours_since_access). Returns Struct { decayed: <count>, nodes: <total>, edges: <total> }. |
-| `memory_export(...)` | 3 | — | `memory_export(handle, key, path) -> String` |
-| `memory_forget(...)` | 5..7 | `(String, String, List, Float, Float[, Bool[, List]]) -> Struct` | Managed forgetting with boundaries (supermemory forget-matching discipline; №280). `dry_run=true` (the DEFAULT — arity 5, or an explicit `true`) returns only candidates: `List[Struct{id, score}]` where `score` is the cosine similarity (best per id; ids deduplicated; already-forgotten ids are not candidates), `applied: 0`, `batch_id: ""`. Apply (`dry_run=false`) works STRICTLY over an explicit `ids` list taken from a preview — never over a re-searched query: every id is point-checked against the preview bounds (exists in the table, similarity ≥ `threshold` — the same computation as the preview, not a re-search), an unknown id or an id outside the bounds is a LOUD error BEFORE anything is written (atomic apply); the id count may not exceed `max_forget`. Soft delete: nothing is physically removed — applied ids go into the forget ledger `{table}__forgotten` (id, batch_id, reason, forgotten_at); `batch_id` (`MLOG-FORGET-<base32×26>`, 128 bits) is stamped on every applied id and returned; a repeated forget of the same id is a no-op (`applied: 0`, `batch_id: ""`). Loud refusals: `threshold` outside `[0, 1]`, `max_forget` non-integer / outside `[1, 10000]`, `ids` non-empty-violations (empty list, non-String element), `dry_run=false` without ids, `ids` together with `dry_run=true`, a `List` in the `dry_run` position, dimension mismatch, a missing table, sandbox violations (preview opens ForRead, apply opens ForWrite). Auto-forgetting (TTL, displacement by updates) is deliberately v2 / out of scope. |
-| `memory_forget_cascade(...)` | 3 | — | `memory_forget_cascade(handle, key, grant) -> Struct` |
-| `memory_keys(...)` | 1 | — | `memory_keys(handle) -> List<String>` |
-| `memory_open(...)` | 2 | — | `memory_open(subject, label) -> Memory` |
-| `memory_provenance(...)` | 2 | — | `memory_provenance(handle, key) -> List<String>` |
-| `memory_prune(...)` | variadic | — | `memory_prune(threshold?, min_age_hours?)` — remove dead memory nodes. `threshold`: minimum score to keep (default 0.05). `min_age_hours`: minimum age in hours before pruning (default 24, protects fresh entries). Returns Struct { pruned: <count>, remaining: <total> }. |
-| `memory_put(...)` | 3..5 | — | `memory_put(handle, key, value, parents?, opts?) -> Unit` №445: the optional opts Struct `{priority?, decay_rate?, ttl_secs?}` sets the activation attributes (the additive-arity precedent of №280's include_forgotten — indices stay stable). |
-| `memory_read(...)` | 2 | — | `memory_read(handle, key) -> String \| Secret` |
-| `memory_release(...)` | 2 | — | `memory_release(handle, key) -> Unit` |
-| `memory_retain(...)` | 2 | — | `memory_retain(handle, key) -> Unit` |
-| `memory_retain_ttl(...)` | 3 | — | The canon retain(memory, ttl) (№445): `memory_retain_ttl(handle, key, ttl_secs)` — gives ONE typed entry a lifetime; past the deadline the sweep auto-forgets it on the next read/keys/recall touch (the №280 v2 deferral lifted into the typed contour; the expiry is recorded as memory.ttl_expired {container, keys, hashes}). A repeat call MOVES the deadline. A POISONED entry refuses a new lifetime (MEMORY_POISONED). Records memory.retain_ttl. The deletion pin (memory_retain) and the TTL are independent. |
-| `memory_retained(...)` | 1 | — | `memory_retained(handle) -> List<String>` |
-| `memory_revise(...)` | variadic | — | `memory_revise(id, new_text, new_score?)` — update a node and resolve Contradicts. If the node contradicts others, the system keeps the higher-scoring belief and demotes the loser (score *= 0.3, adds Supersedes edge). Returns Struct { action, winner_id, superseded_id? }. |
-| `recall(...)` | 1..2 | — | Memory recall — the front door of memory (№442): the store lane (hybrid BM25+vector RRF on the TW; the VM-native twin) plus the typed lane; a query that names gated private memory (a private container's key, no active consent grant) refuses fail-closed (MEMORY_RECALL_CONSENT_REQUIRED — the refusal is a memory.recall.denied record); typed-lane hits carry the [MEM] provenance suffix (container/subject/label/time/taint); every call records memory.recall {query hash, containers, hits, consent fact}. |
-| `recall_top_k(...)` | 1..3 | `String, Float, String -> String` | Returns the top-K entries sorted by RRF score. A JSON array: `[{value, score, type, priority}]` (the interpreter's hybrid FTS5+cosine search; Bug #530: the VM now compiles the name and searches its own backend-local store with token-level scoring). An empty type searches across all types |
-| `ref(...)` | 1 | — | `ref(content)` — compute SHA-256 hash, store in KV, return hash string. Idempotent. |
-| `session_clear(...)` | 1 | `String -> String` | Deletes all of the session's data. Returns `"ok"` |
-| `session_get(...)` | 2 | `String, String -> String` | Reads a value from the session (an empty string if absent) |
-| `session_set(...)` | 3 | `String, String, String -> String` | Saves a value in the session |
-| `user_profile(...)` | 2 | `(String, String) -> Struct` | Deterministic profile of a container — "what we know about X" in ONE call (supermemory user-profiles pattern; №281), NO LLM call (LLM synthesis is deliberately out of Tier-1 scope — loud). Records are the container's KV entries written by `memorize`/`kv_set` (with `memory { persist: <db_path> }` pointing at the SAME file) under the convention `container:<container>:<bucket>:<key>` (string values): `static` = bucket `static` (long-lived facts), `dynamic` = bucket `dynamic` (current context), `buckets` = a Struct mapping every OTHER bucket name to its `List[Struct{key, value}]` (arbitrary topics); `count` = total records; entries sorted by key (deterministic). A profile with no records is EMPTY, not an error; an empty db without a `kv_store` table is also an empty profile; a malformed record (a key without `<bucket>:<key>` after the container prefix) is a LOUD data error. Container prefix = hard isolation: another container's records are physically invisible (never silently leaked). Results are cached in-process (perf-only) with invalidation on ANY kv write through builtins (generation counter) + the file mtime (external writes); the cache never changes semantics. Loud refusals: an empty container, `:` inside the container (key-convention separator), sandbox violations (ForRead — the file must exist). |
-| `vec_search(...)` | 4..5 | `(String, String, List, Float[, Bool\|Struct]) -> List` | Search over the stored table; returns at most `k` hits as `{id, distance, score}` structs (`score` ∈ [0,1] is the mode's normalized relevance — in `semantic` mode it is `1 − distance`; `distance` is the TRUE cosine distance in `semantic` mode and `1 − score` in `fts`/`hybrid` — not a physical distance, documented honestly). The optional fifth argument is type-disambiguated: a Bool is `include_forgotten` (№280, default `false` — ids recorded in the forget ledger are hidden; `k` is the per-arm/KNN sample size BEFORE the filter); a Struct is №281 opts `{include_forgotten?, mode?, scope?, query_text?}`: `mode` = `"semantic"` (default, pure KNN, vec0 `distance_metric=cosine`, nearest first) |
-| `vec_store(...)` | 4..5 | `(String, String, String, List[, String\|Struct]) -> Struct` | Stores `embedding` (a non-empty `List[Float]`) into the `vec0` table `table` of the SQLite file `db_path` (created on demand; the table with a metadata column `id` is created on first store with the dimension fixed from the first vector). `id` is the caller's string key (need not be unique — it is returned as-is by `vec_search`). №281: the optional fifth argument `payload` is either a String (the document text for the FTS5 arm of `fts`/`hybrid` search — stored in the shadow index `{table}__fts` keyed by `id`, the LAST text stored for an id wins) or a Struct `{text?, scope?}` — `scope` binds the table to a container namespace on first store (re-binding to another scope is a LOUD refusal; scope is a hard boundary, the containerTag analogue). Loud refusals: a dimension mismatch against the stored table dimension (the error names both numbers — vectors of different models must not be mixed), an empty embedding, a table name outside `[A-Za-z_][A-Za-z0-9_]*` (SQL identifier whitelist — the name is interpolated into DDL), an unknown opts field / a wrong-typed `text`/`scope` (fail-closed), sandbox violations. |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `deref(...)` | 1 | — | `deref(hash)` — retrieve content by SHA-256 hash from ref store. | stable |
+| `embed(...)` | 1 | `(String) -> List` | Embedding of `text` through the process-global manager (see model facts above). No new dependencies — a pure reuse of the ADR-0040 stack. | stable |
+| `forget(...)` | 3..4 | — | The forgetting front door (№445, the canon §10.3): `forget(handle, key, grant, dry_run?)` — the ADR-0155 linear action over the typed Memory<K> lane with the fail-closed refusal ladder: the consent gate (a private container requires the active memory:<subject> consent — MEMORY_FORGET_CONSENT_REQUIRED + a memory.forget.denied record), the grant ladder (GRANT_MISSING / GRANT_INACTIVE / GRANT_SCOPE_MISMATCH — scope memory:forget:<container>; the grant is consumed on SUCCESS only), the retained VETO (MEMORY_RETAIN_PROTECTED). dry_run=true returns the preview {dry_run, container, root, deleted: [], poisoned: [...], batch_id} — no state change, no grant consumption (the №280 preview discipline); apply deletes the ROOT (soft — the ledger carries the content digests) and POISONS every derived entry: a poisoned survivor stays in the container but cannot materialize into any sink — memory_read/memory_export refuse with MEMORY_POISONED and the recall lane skips the quarantine. Ledger: memory.forget {container, targets, hashes, dry_run fact} + irreversible.memory_forget on apply. The legacy 1..2-argument forget(query, days?) surface is unchanged (№72). | stable |
+| `kv_delete(...)` | 1 | `String -> Unit` | Deletes a key | stable |
+| `kv_exists(...)` | 1 | `String -> Bool` | Checks whether a key exists | stable |
+| `kv_get(...)` | 1 | `String -> String` | Reads a value (an empty string if the key is absent) | stable |
+| `kv_list(...)` | variadic | `-> List` | Returns a list of all keys | stable |
+| `kv_set(...)` | 2 | `String, String -> Unit` | Writes a key-value pair | stable |
+| `mem_delete(...)` | 1 | `String -> String` | Equivalent to `kv_delete`, returns the deleted value | stable |
+| `mem_get(...)` | 1 | `String -> String` | Equivalent to `kv_get` | stable |
+| `mem_set(...)` | 2 | `String, String -> String` | Equivalent to `kv_set`, but returns the value written | stable |
+| `memorize(...)` | 2..3 | `String, Float, String -> Unit` | Saves a fact with a priority (0.0-1.0) and a type. Example: `memorize("likes spicy food", 0.9, "persona")` | stable |
+| `memory_boost(...)` | variadic | — | `memory_boost(id, amount?)` — boost a memory node's score by amount (default 0.1, capped at 1.0). Updates last_accessed timestamp. Returns Struct { id, new_score, access_count }. | stable |
+| `memory_cascade_preview(...)` | 2 | — | `memory_cascade_preview(handle, key) -> Struct` | stable |
+| `memory_decay(...)` | variadic | — | `memory_decay(lambda?)` — apply exponential decay to all memory node scores. `lambda` controls decay rate (default 0.01 = gentle). Formula: score *= e^(-lambda * hours_since_access). Returns Struct { decayed: <count>, nodes: <total>, edges: <total> }. | stable |
+| `memory_export(...)` | 3 | — | `memory_export(handle, key, path) -> String` | stable |
+| `memory_forget(...)` | 5..7 | `(String, String, List, Float, Float[, Bool[, List]]) -> Struct` | Managed forgetting with boundaries (supermemory forget-matching discipline; №280). `dry_run=true` (the DEFAULT — arity 5, or an explicit `true`) returns only candidates: `List[Struct{id, score}]` where `score` is the cosine similarity (best per id; ids deduplicated; already-forgotten ids are not candidates), `applied: 0`, `batch_id: ""`. Apply (`dry_run=false`) works STRICTLY over an explicit `ids` list taken from a preview — never over a re-searched query: every id is point-checked against the preview bounds (exists in the table, similarity ≥ `threshold` — the same computation as the preview, not a re-search), an unknown id or an id outside the bounds is a LOUD error BEFORE anything is written (atomic apply); the id count may not exceed `max_forget`. Soft delete: nothing is physically removed — applied ids go into the forget ledger `{table}__forgotten` (id, batch_id, reason, forgotten_at); `batch_id` (`MLOG-FORGET-<base32×26>`, 128 bits) is stamped on every applied id and returned; a repeated forget of the same id is a no-op (`applied: 0`, `batch_id: ""`). Loud refusals: `threshold` outside `[0, 1]`, `max_forget` non-integer / outside `[1, 10000]`, `ids` non-empty-violations (empty list, non-String element), `dry_run=false` without ids, `ids` together with `dry_run=true`, a `List` in the `dry_run` position, dimension mismatch, a missing table, sandbox violations (preview opens ForRead, apply opens ForWrite). Auto-forgetting (TTL, displacement by updates) is deliberately v2 / out of scope. | stable |
+| `memory_forget_cascade(...)` | 3 | — | `memory_forget_cascade(handle, key, grant) -> Struct` | stable |
+| `memory_keys(...)` | 1 | — | `memory_keys(handle) -> List<String>` | stable |
+| `memory_open(...)` | 2 | — | `memory_open(subject, label) -> Memory` | stable |
+| `memory_provenance(...)` | 2 | — | `memory_provenance(handle, key) -> List<String>` | stable |
+| `memory_prune(...)` | variadic | — | `memory_prune(threshold?, min_age_hours?)` — remove dead memory nodes. `threshold`: minimum score to keep (default 0.05). `min_age_hours`: minimum age in hours before pruning (default 24, protects fresh entries). Returns Struct { pruned: <count>, remaining: <total> }. | stable |
+| `memory_put(...)` | 3..5 | — | `memory_put(handle, key, value, parents?, opts?) -> Unit` №445: the optional opts Struct `{priority?, decay_rate?, ttl_secs?}` sets the activation attributes (the additive-arity precedent of №280's include_forgotten — indices stay stable). | stable |
+| `memory_read(...)` | 2 | — | `memory_read(handle, key) -> String \| Secret` | stable |
+| `memory_release(...)` | 2 | — | `memory_release(handle, key) -> Unit` | stable |
+| `memory_retain(...)` | 2 | — | `memory_retain(handle, key) -> Unit` | stable |
+| `memory_retain_ttl(...)` | 3 | — | The canon retain(memory, ttl) (№445): `memory_retain_ttl(handle, key, ttl_secs)` — gives ONE typed entry a lifetime; past the deadline the sweep auto-forgets it on the next read/keys/recall touch (the №280 v2 deferral lifted into the typed contour; the expiry is recorded as memory.ttl_expired {container, keys, hashes}). A repeat call MOVES the deadline. A POISONED entry refuses a new lifetime (MEMORY_POISONED). Records memory.retain_ttl. The deletion pin (memory_retain) and the TTL are independent. | stable |
+| `memory_retained(...)` | 1 | — | `memory_retained(handle) -> List<String>` | stable |
+| `memory_revise(...)` | variadic | — | `memory_revise(id, new_text, new_score?)` — update a node and resolve Contradicts. If the node contradicts others, the system keeps the higher-scoring belief and demotes the loser (score *= 0.3, adds Supersedes edge). Returns Struct { action, winner_id, superseded_id? }. | stable |
+| `recall(...)` | 1..2 | — | Memory recall — the front door of memory (№442): the store lane (hybrid BM25+vector RRF on the TW; the VM-native twin) plus the typed lane; a query that names gated private memory (a private container's key, no active consent grant) refuses fail-closed (MEMORY_RECALL_CONSENT_REQUIRED — the refusal is a memory.recall.denied record); typed-lane hits carry the [MEM] provenance suffix (container/subject/label/time/taint); every call records memory.recall {query hash, containers, hits, consent fact}. | stable |
+| `recall_top_k(...)` | 1..3 | `String, Float, String -> String` | Returns the top-K entries sorted by RRF score. A JSON array: `[{value, score, type, priority}]` (the interpreter's hybrid FTS5+cosine search; Bug #530: the VM now compiles the name and searches its own backend-local store with token-level scoring). An empty type searches across all types | stable |
+| `ref(...)` | 1 | — | `ref(content)` — compute SHA-256 hash, store in KV, return hash string. Idempotent. | stable |
+| `session_clear(...)` | 1 | `String -> String` | Deletes all of the session's data. Returns `"ok"` | stable |
+| `session_get(...)` | 2 | `String, String -> String` | Reads a value from the session (an empty string if absent) | stable |
+| `session_set(...)` | 3 | `String, String, String -> String` | Saves a value in the session | stable |
+| `user_profile(...)` | 2 | `(String, String) -> Struct` | Deterministic profile of a container — "what we know about X" in ONE call (supermemory user-profiles pattern; №281), NO LLM call (LLM synthesis is deliberately out of Tier-1 scope — loud). Records are the container's KV entries written by `memorize`/`kv_set` (with `memory { persist: <db_path> }` pointing at the SAME file) under the convention `container:<container>:<bucket>:<key>` (string values): `static` = bucket `static` (long-lived facts), `dynamic` = bucket `dynamic` (current context), `buckets` = a Struct mapping every OTHER bucket name to its `List[Struct{key, value}]` (arbitrary topics); `count` = total records; entries sorted by key (deterministic). A profile with no records is EMPTY, not an error; an empty db without a `kv_store` table is also an empty profile; a malformed record (a key without `<bucket>:<key>` after the container prefix) is a LOUD data error. Container prefix = hard isolation: another container's records are physically invisible (never silently leaked). Results are cached in-process (perf-only) with invalidation on ANY kv write through builtins (generation counter) + the file mtime (external writes); the cache never changes semantics. Loud refusals: an empty container, `:` inside the container (key-convention separator), sandbox violations (ForRead — the file must exist). | stable |
+| `vec_search(...)` | 4..5 | `(String, String, List, Float[, Bool\|Struct]) -> List` | Search over the stored table; returns at most `k` hits as `{id, distance, score}` structs (`score` ∈ [0,1] is the mode's normalized relevance — in `semantic` mode it is `1 − distance`; `distance` is the TRUE cosine distance in `semantic` mode and `1 − score` in `fts`/`hybrid` — not a physical distance, documented honestly). The optional fifth argument is type-disambiguated: a Bool is `include_forgotten` (№280, default `false` — ids recorded in the forget ledger are hidden; `k` is the per-arm/KNN sample size BEFORE the filter); a Struct is №281 opts `{include_forgotten?, mode?, scope?, query_text?}`: `mode` = `"semantic"` (default, pure KNN, vec0 `distance_metric=cosine`, nearest first) | stable |
+| `vec_store(...)` | 4..5 | `(String, String, String, List[, String\|Struct]) -> Struct` | Stores `embedding` (a non-empty `List[Float]`) into the `vec0` table `table` of the SQLite file `db_path` (created on demand; the table with a metadata column `id` is created on first store with the dimension fixed from the first vector). `id` is the caller's string key (need not be unique — it is returned as-is by `vec_search`). №281: the optional fifth argument `payload` is either a String (the document text for the FTS5 arm of `fts`/`hybrid` search — stored in the shadow index `{table}__fts` keyed by `id`, the LAST text stored for an id wins) or a Struct `{text?, scope?}` — `scope` binds the table to a container namespace on first store (re-binding to another scope is a LOUD refusal; scope is a hard boundary, the containerTag analogue). Loud refusals: a dimension mismatch against the stored table dimension (the error names both numbers — vectors of different models must not be mixed), an empty embedding, a table name outside `[A-Za-z_][A-Za-z0-9_]*` (SQL identifier whitelist — the name is interpolated into DDL), an unknown opts field / a wrong-typed `text`/`scope` (fail-closed), sandbox violations. | stable |
 
 ### `mtree` — 5 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `mtree_forget(...)` | 1 | `String -> Float` | Deletes a node by ID. Returns `1.0` if it existed, `0.0` if not |
-| `mtree_retrieve(...)` | 1..2 | `String, Float? -> String` | Searches the memory graph. `limit` defaults to 5. Returns a JSON array of nodes with metadata |
-| `mtree_stats(...)` | variadic | `-> Dict` | Returns `MemoryStats { l0_count, l1_count, l2_count, total_nodes, edges }` |
-| `mtree_store(...)` | 2 | `String, String? -> String` | Saves text as an L0 node. `source` defaults to `"user"`. Returns the node ID. The admission score is computed from length/uniqueness |
-| `mtree_summarize(...)` | variadic | `-> Unit` | L0 to L1 to L2 clustering. Groups L0 nodes into L1 summaries, L1 into L2. Idempotent — a repeat call recomputes the summaries |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `mtree_forget(...)` | 1 | `String -> Float` | Deletes a node by ID. Returns `1.0` if it existed, `0.0` if not | stable |
+| `mtree_retrieve(...)` | 1..2 | `String, Float? -> String` | Searches the memory graph. `limit` defaults to 5. Returns a JSON array of nodes with metadata | stable |
+| `mtree_stats(...)` | variadic | `-> Dict` | Returns `MemoryStats { l0_count, l1_count, l2_count, total_nodes, edges }` | stable |
+| `mtree_store(...)` | 2 | `String, String? -> String` | Saves text as an L0 node. `source` defaults to `"user"`. Returns the node ID. The admission score is computed from length/uniqueness | stable |
+| `mtree_summarize(...)` | variadic | `-> Unit` | L0 to L1 to L2 clustering. Groups L0 nodes into L1 summaries, L1 into L2. Idempotent — a repeat call recomputes the summaries | stable |
 
 ### `orchestration` — 2 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `dag_phases(...)` | 1 | — | `dag_phases(dag)` — extract parallel execution phases from a DAG. |
-| `topo_sort(...)` | 1 | — | `topo_sort(dag)` — topological sort of a DAG. |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `dag_phases(...)` | 1 | — | `dag_phases(dag)` — extract parallel execution phases from a DAG. | stable |
+| `topo_sort(...)` | 1 | — | `topo_sort(dag)` — topological sort of a DAG. | stable |
 
 ### `pdf` — 25 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `html_to_pdf(...)` | 2 | — | `html_to_pdf(html, path) → { path, size }` |
-| `pdf_add_image(...)` | 4..6 | — | `pdf_add_image(id, x, y, image_path [,width, height]) → { ok }` |
-| `pdf_add_page(...)` | 3 | — | `pdf_add_page(id, width, height) → { page }` |
-| `pdf_classify(...)` | 1 | `String -> Dict` | Classifies a PDF: TextBased / Scanned / ImageBased / Mixed. Keys: type, confidence, pages_needing_ocr, page_count |
-| `pdf_create(...)` | variadic | — | `pdf_create() → { id }` |
-| `pdf_delete_pages(...)` | 3 | — | `pdf_delete_pages(path, pages_json, output_path) → { ok, pages_remaining }` |
-| `pdf_draw_line(...)` | 5..6 | — | `pdf_draw_line(id, x1, y1, x2, y2, width) → { ok }` |
-| `pdf_draw_rect(...)` | 5..7 | — | `pdf_draw_rect(id, x, y, w, h, stroke, fill) → { ok }` |
-| `pdf_draw_table(...)` | 5..6 | — | `pdf_draw_table(id, x, y, col_widths_json, rows_json [,style_json]) → { ok }` |
-| `pdf_extract_images(...)` | 1..2 | — | `pdf_extract_images(path [,output_dir]) → [paths]` |
-| `pdf_extract_regions(...)` | 2 | `String, String -> List` | Extracts text regions with coordinates. A list of dicts: text, needs_ocr, ocr_reason, page, x, y |
-| `pdf_fill_form(...)` | 3 | — | `pdf_fill_form(path, fields_json, output_path) → { path, fields_filled }` |
-| `pdf_merge(...)` | 2 | — | `pdf_merge(paths_json, output) → { path, pages, size }` |
-| `pdf_metadata(...)` | 1 | — | `pdf_metadata(path) → { title, author, subject, creator, producer, pages, created, modified }` |
-| `pdf_ocr(...)` | 1 | `String -> Dict` | An OCR fallback for scans (requires `--features pdf-ocr` and a system Tesseract). Keys: markdown, ocr_confidence, pages_processed |
-| `pdf_page_numbers(...)` | 1..4 | — | `pdf_page_numbers(id [,format, x, y]) → { ok }` |
-| `pdf_rotate_page(...)` | 4 | — | `pdf_rotate_page(path, page_number, degrees, output_path) → { ok }` |
-| `pdf_save(...)` | 2 | — | `pdf_save(id, path) → { path, size }` |
-| `pdf_set_metadata(...)` | 3 | — | `pdf_set_metadata(path, key, value) → { ok }` |
-| `pdf_set_page_footer(...)` | 2..4 | — | `pdf_set_page_footer(id, text [,font, size]) → { ok }` |
-| `pdf_set_page_header(...)` | 2..4 | — | `pdf_set_page_header(id, text [,font, size]) → { ok }` |
-| `pdf_split(...)` | 3 | — | `pdf_split(path, ranges_json, output_dir) → { files, pages }` |
-| `pdf_to_markdown(...)` | 1 | `String -> Dict` | The full pipeline: classification + text extraction + Markdown. Keys: markdown, page_count, pdf_type, has_tables, confidence, processing_time_ms |
-| `pdf_watermark(...)` | 2..5 | — | `pdf_watermark(id, text [,font, size, opacity]) → { ok }` |
-| `pdf_write_text(...)` | 4..6 | — | `pdf_write_text(id, x, y, text, font, size) → { ok }` |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `html_to_pdf(...)` | 2 | — | `html_to_pdf(html, path) → { path, size }` | stable |
+| `pdf_add_image(...)` | 4..6 | — | `pdf_add_image(id, x, y, image_path [,width, height]) → { ok }` | stable |
+| `pdf_add_page(...)` | 3 | — | `pdf_add_page(id, width, height) → { page }` | stable |
+| `pdf_classify(...)` | 1 | `String -> Dict` | Classifies a PDF: TextBased / Scanned / ImageBased / Mixed. Keys: type, confidence, pages_needing_ocr, page_count | stable |
+| `pdf_create(...)` | variadic | — | `pdf_create() → { id }` | stable |
+| `pdf_delete_pages(...)` | 3 | — | `pdf_delete_pages(path, pages_json, output_path) → { ok, pages_remaining }` | stable |
+| `pdf_draw_line(...)` | 5..6 | — | `pdf_draw_line(id, x1, y1, x2, y2, width) → { ok }` | stable |
+| `pdf_draw_rect(...)` | 5..7 | — | `pdf_draw_rect(id, x, y, w, h, stroke, fill) → { ok }` | stable |
+| `pdf_draw_table(...)` | 5..6 | — | `pdf_draw_table(id, x, y, col_widths_json, rows_json [,style_json]) → { ok }` | stable |
+| `pdf_extract_images(...)` | 1..2 | — | `pdf_extract_images(path [,output_dir]) → [paths]` | stable |
+| `pdf_extract_regions(...)` | 2 | `String, String -> List` | Extracts text regions with coordinates. A list of dicts: text, needs_ocr, ocr_reason, page, x, y | stable |
+| `pdf_fill_form(...)` | 3 | — | `pdf_fill_form(path, fields_json, output_path) → { path, fields_filled }` | stable |
+| `pdf_merge(...)` | 2 | — | `pdf_merge(paths_json, output) → { path, pages, size }` | stable |
+| `pdf_metadata(...)` | 1 | — | `pdf_metadata(path) → { title, author, subject, creator, producer, pages, created, modified }` | stable |
+| `pdf_ocr(...)` | 1 | `String -> Dict` | An OCR fallback for scans (requires `--features pdf-ocr` and a system Tesseract). Keys: markdown, ocr_confidence, pages_processed | stable |
+| `pdf_page_numbers(...)` | 1..4 | — | `pdf_page_numbers(id [,format, x, y]) → { ok }` | stable |
+| `pdf_rotate_page(...)` | 4 | — | `pdf_rotate_page(path, page_number, degrees, output_path) → { ok }` | stable |
+| `pdf_save(...)` | 2 | — | `pdf_save(id, path) → { path, size }` | stable |
+| `pdf_set_metadata(...)` | 3 | — | `pdf_set_metadata(path, key, value) → { ok }` | stable |
+| `pdf_set_page_footer(...)` | 2..4 | — | `pdf_set_page_footer(id, text [,font, size]) → { ok }` | stable |
+| `pdf_set_page_header(...)` | 2..4 | — | `pdf_set_page_header(id, text [,font, size]) → { ok }` | stable |
+| `pdf_split(...)` | 3 | — | `pdf_split(path, ranges_json, output_dir) → { files, pages }` | stable |
+| `pdf_to_markdown(...)` | 1 | `String -> Dict` | The full pipeline: classification + text extraction + Markdown. Keys: markdown, page_count, pdf_type, has_tables, confidence, processing_time_ms | stable |
+| `pdf_watermark(...)` | 2..5 | — | `pdf_watermark(id, text [,font, size, opacity]) → { ok }` | stable |
+| `pdf_write_text(...)` | 4..6 | — | `pdf_write_text(id, x, y, text, font, size) → { ok }` | stable |
 
 ### `recipe` — 3 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `recipe_list(...)` | variadic | — | `recipe_list()` — return all known recipe names. args: [] (reads from recipe index key) |
-| `recipe_save(...)` | variadic | — | `recipe_save(name, description, skills, plan)` — persist a recipe. args: [name: String, description: String, skills: List, plan: Struct/any] Stores in KV under `__recipe:<name>` as JSON. Updates recipe index. |
-| `recipe_search(...)` | 1..2 | — | `recipe_search(query)` — search recipes by description similarity (substring match). args: [query: String] Iterates all recipes stored under `__recipe:*` in KV, returns matching ones. NOTE: This is a simplified implementation using substring matching. Full semantic search (cosine similarity) requires embedding infrastructure. |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `recipe_list(...)` | variadic | — | `recipe_list()` — return all known recipe names. args: [] (reads from recipe index key) | stable |
+| `recipe_save(...)` | variadic | — | `recipe_save(name, description, skills, plan)` — persist a recipe. args: [name: String, description: String, skills: List, plan: Struct/any] Stores in KV under `__recipe:<name>` as JSON. Updates recipe index. | stable |
+| `recipe_search(...)` | 1..2 | — | `recipe_search(query)` — search recipes by description similarity (substring match). args: [query: String] Iterates all recipes stored under `__recipe:*` in KV, returns matching ones. NOTE: This is a simplified implementation using substring matching. Full semantic search (cosine similarity) requires embedding infrastructure. | stable |
 
 ### `reflex` — 14 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `reflex_bpe_decode(...)` | 2 | — | `reflex_bpe_decode(tokens: List<Float>, vocab: BpeVocab) -> String` |
-| `reflex_bpe_encode(...)` | 2 | — | `reflex_bpe_encode(text: String, vocab: BpeVocab) -> List<Float>` |
-| `reflex_bpe_load(...)` | 1 | — | `reflex_bpe_load(name: String) -> BpeVocab` (Наряд №195, ADR-0116) |
-| `reflex_bpe_save(...)` | 1 | — | `reflex_bpe_save(vocab: BpeVocab) -> Unit` (Наряд №195, ADR-0116) |
-| `reflex_bpe_train(...)` | 2 | — | `reflex_bpe_train(corpus: String, vocab_size: Float) -> BpeVocab` |
-| `reflex_detokenize(...)` | 1 | — | `reflex_detokenize(tokens) -> String` |
-| `reflex_generate(...)` | 4 | — | Stub — VM not yet supported (Наряд №193 — text generation). |
-| `reflex_list(...)` | variadic | `() -> List<String>` | Returns the names of all declared `reflex`/`reflex_seq` models in declaration order. Read-only — for monitoring, dashboards, an externally-checked `rollback_if`. |
-| `reflex_load(...)` | 1 | `(String) -> Reflex` | Loads the weights for a previously saved model and applies them to the *current* `reflex` declaration with the same name. Does not register a new model — it mutates the weights of the existing one. Errors on a shape mismatch if the declaration has changed. |
-| `reflex_metrics(...)` | 1 | `(Reflex) -> Struct` | Read-only introspection: returns the model's metadata (NOT the weights, ADR-0114). `is_trained: Bool` (true if `last_metric` is set), `last_metric: Float\|Unit` (the last accuracy/loss, `Unit` if untrained), `input_size: Float`, `labels: List<String>`. Works for both `reflex` and `reflex_seq`. |
-| `reflex_predict(...)` | 2 | `(Reflex, List<Float>) -> Fluid` | Predicts for a new input. Returns a `Fluid` with one variant per label: `type_name: "Label"`, `value: String(label_name)`, `confidence: Float` (the softmax probability). Variants are sorted by descending confidence — `to_string(fluid)` shows the label with the highest confidence. |
-| `reflex_save(...)` | 1 | `(Reflex) -> Unit` | Saves the trained weights plus metadata to SQLite (configured via `memory { persist: "path.db" }`, ADR-0116). The key is the model's name from its declaration. Format checks: a `REFLEX_VERSION` or shape mismatch is an explicit error, not silent corruption. |
-| `reflex_tokenize(...)` | 1 | — | `reflex_tokenize(text) -> List<Float>` |
-| `reflex_train(...)` | 5 | `(Reflex, List<List<Float>>, Float, String, Float) -> Struct` | Trains model `model` on `data`. Each row of `data` is `[features..., class_idx]` (the last element is the label index). An 80/20 holdout split (ADR-0115), a minimum of 10 examples. `epochs` is the number of epochs (>=0), `metric` is a metric name from `METRIC_REGISTRY` (usually `"accuracy"`), `threshold` is a 0.0..1.0 threshold for `threshold_met`. `learning_rate` is fixed at 0.1. |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `reflex_bpe_decode(...)` | 2 | — | `reflex_bpe_decode(tokens: List<Float>, vocab: BpeVocab) -> String` | stable |
+| `reflex_bpe_encode(...)` | 2 | — | `reflex_bpe_encode(text: String, vocab: BpeVocab) -> List<Float>` | stable |
+| `reflex_bpe_load(...)` | 1 | — | `reflex_bpe_load(name: String) -> BpeVocab` (Наряд №195, ADR-0116) | parked |
+| `reflex_bpe_save(...)` | 1 | — | `reflex_bpe_save(vocab: BpeVocab) -> Unit` (Наряд №195, ADR-0116) | stable |
+| `reflex_bpe_train(...)` | 2 | — | `reflex_bpe_train(corpus: String, vocab_size: Float) -> BpeVocab` | stable |
+| `reflex_detokenize(...)` | 1 | — | `reflex_detokenize(tokens) -> String` | stable |
+| `reflex_generate(...)` | 4 | — | Stub — VM not yet supported (Наряд №193 — text generation). | parked |
+| `reflex_list(...)` | variadic | `() -> List<String>` | Returns the names of all declared `reflex`/`reflex_seq` models in declaration order. Read-only — for monitoring, dashboards, an externally-checked `rollback_if`. | stable |
+| `reflex_load(...)` | 1 | `(String) -> Reflex` | Loads the weights for a previously saved model and applies them to the *current* `reflex` declaration with the same name. Does not register a new model — it mutates the weights of the existing one. Errors on a shape mismatch if the declaration has changed. | stable |
+| `reflex_metrics(...)` | 1 | `(Reflex) -> Struct` | Read-only introspection: returns the model's metadata (NOT the weights, ADR-0114). `is_trained: Bool` (true if `last_metric` is set), `last_metric: Float\|Unit` (the last accuracy/loss, `Unit` if untrained), `input_size: Float`, `labels: List<String>`. Works for both `reflex` and `reflex_seq`. | stable |
+| `reflex_predict(...)` | 2 | `(Reflex, List<Float>) -> Fluid` | Predicts for a new input. Returns a `Fluid` with one variant per label: `type_name: "Label"`, `value: String(label_name)`, `confidence: Float` (the softmax probability). Variants are sorted by descending confidence — `to_string(fluid)` shows the label with the highest confidence. | stable |
+| `reflex_save(...)` | 1 | `(Reflex) -> Unit` | Saves the trained weights plus metadata to SQLite (configured via `memory { persist: "path.db" }`, ADR-0116). The key is the model's name from its declaration. Format checks: a `REFLEX_VERSION` or shape mismatch is an explicit error, not silent corruption. | stable |
+| `reflex_tokenize(...)` | 1 | — | `reflex_tokenize(text) -> List<Float>` | stable |
+| `reflex_train(...)` | 5 | `(Reflex, List<List<Float>>, Float, String, Float) -> Struct` | Trains model `model` on `data`. Each row of `data` is `[features..., class_idx]` (the last element is the label index). An 80/20 holdout split (ADR-0115), a minimum of 10 examples. `epochs` is the number of epochs (>=0), `metric` is a metric name from `METRIC_REGISTRY` (usually `"accuracy"`), `threshold` is a 0.0..1.0 threshold for `threshold_met`. `learning_rate` is fixed at 0.1. | stable |
 
 ### `registry` — 2 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `backend_list(...)` | variadic | — | `backend_list()` — the static backend registry as `List[Struct { name, class, weights_id, pin, license, license_note }]`. |
-| `backend_select(...)` | 2 | — | `backend_select(class, ladder)` — the backend try-chain (Наряд №336, ADR-0165). Walks the ladder in priority order over the №333 registry SSOT; every rung attempt is an audit event (stderr line + the program-visible `attempts` list, №326 posture). |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `backend_list(...)` | variadic | — | `backend_list()` — the static backend registry as `List[Struct { name, class, weights_id, pin, license, license_note }]`. | stable |
+| `backend_select(...)` | 2 | — | `backend_select(class, ladder)` — the backend try-chain (Наряд №336, ADR-0165). Walks the ladder in priority order over the №333 registry SSOT; every rung attempt is an audit event (stderr line + the program-visible `attempts` list, №326 posture). | stable |
 
 ### `security` — 15 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `canary_check(...)` | 2..3 | `String, String[, Struct] -> Struct` | Runtime leak detector: checks the LLM response for the canary marker — exact occurrence + resistant to trivial distortions (case, splitting by whitespace/punctuation). opts: `mode` ("exact" default; "zwsp" additionally ignores zero-width chars U+200B/200C/200D/2060/FEFF inside the marker — in "exact" they DELIBERATELY break the match). Returns `{leaked, id, position}` — position is the CHAR index of the first occurrence in the original text, -1.0 when clean. Leak → runtime CANARY_LEAK warning (stderr) + `llm_usage().canary_leaks` counter; statically, inside `if (r.leaked) {...}` the response is labeled «compromised channel» and sink usage warns CANARY_LEAK. Detector, NOT a gate. Unknown/malformed canary_id (a secret is not a canary) — loud error (№284) |
-| `canary_insert(...)` | 1..2 | `String[, Struct] -> Struct` | Embeds a random canary marker (`MLOG-CANARY-` + 26 base32 chars, 128-bit entropy) into untrusted text BEFORE sending it to the LLM. Returns `{marked_text, canary_id}`. opts: `count` (1..=4, default 1 — same id inserted count times), `position` ("random" |
-| `consent_grant(...)` | 2..4 | — | `consent_grant(value, scope, subject?, ttl_seconds?)` — record the grant in the ledger; the value passes through with its consent scope extended (static: semantic.rs label_source). |
-| `consent_ledger_export(...)` | 1 | — | `consent_ledger_export(path)` — dump the ledger as JSON to a sandboxed path (FILE EGRESS — classified Sink, audited). Returns the written path. |
-| `consent_revoke(...)` | 1..2 | — | `consent_revoke(value, scope?)` — record the revocation (scope or ALL); the value is returned under the quarantine label — the flat cascade poisons every derivative through lattice absorption. |
-| `ledger_count(...)` | variadic | — | `ledger_count()` — number of records in the process-local journal. |
-| `ledger_export(...)` | 1 | — | `ledger_export(path)` — dump the verifiable JSONL chain to a sandboxed path. FILE EGRESS — classified Sink, audited. Returns the written path. |
-| `ledger_export_intoto(...)` | 1 | — | `ledger_export_intoto(path)` — dump the in-toto Statement profile (ADR-0157) to a sandboxed path. FILE EGRESS — classified Sink. |
-| `ledger_head(...)` | variadic | — | `ledger_head()` — the current head hash ("" for an empty journal). |
-| `ledger_rotate(...)` | variadic | — | `ledger_rotate()` — append a key-rotation record (signed by the still-active key); returns the NEW key id. Subsequent records are signed by the fresh key (signer continuity, ADR-0167 §3.2). |
-| `ledger_snapshot(...)` | variadic | — | `ledger_snapshot()` — append a snapshot record pinning the head; returns the snapshot record hash (the `mlog ledger archive` anchor). |
-| `ledger_verify(...)` | 1 | — | `ledger_verify(path)` — Naryad #415 (P2-2 residue): READ (ingress, NOT egress) — a sandboxed read of an exported JSONL chain that returns the STRUCTURAL verification verdict as a `LedgerVerdict` struct: `ok`, `records`, `head_hash`, `distinct_keys`, `anchored_start`, `error_record` (1-based Float, or Unit when the fault is chain-level or absent), `error_reason` ("" when ok). The chain checks are the library's `ledger_verify` — the crypto is not re-implemented here. A missing file is a soft verdict (`ok=false`, "cannot read") per the №254 read contract; a sandbox escape stays a loud `[SANDBOX_VIOLATION]`. |
-| `likeness_challenge(...)` | 1..3 | — | `likeness_challenge(subject, scope?, ttl_seconds?)` — issue a one-time likeness challenge (ADR-0149 D1). |
-| `likeness_verify(...)` | 1..3 | — | `likeness_verify(challenge, subject?, scope?)` — consume the challenge, record the consent-ledger grant, return the opaque token. |
-| `quarantine_write(...)` | 1..2 | — | `quarantine_write(value, reason?)` — the quarantine sink: the ONLY legal egress for a poisoned value. Returns the audit-event text (the program-visible half of the event; the static half is the QUARANTINE_EGRESS audit finding + stderr line, №326 posture). |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `canary_check(...)` | 2..3 | `String, String[, Struct] -> Struct` | Runtime leak detector: checks the LLM response for the canary marker — exact occurrence + resistant to trivial distortions (case, splitting by whitespace/punctuation). opts: `mode` ("exact" default; "zwsp" additionally ignores zero-width chars U+200B/200C/200D/2060/FEFF inside the marker — in "exact" they DELIBERATELY break the match). Returns `{leaked, id, position}` — position is the CHAR index of the first occurrence in the original text, -1.0 when clean. Leak → runtime CANARY_LEAK warning (stderr) + `llm_usage().canary_leaks` counter; statically, inside `if (r.leaked) {...}` the response is labeled «compromised channel» and sink usage warns CANARY_LEAK. Detector, NOT a gate. Unknown/malformed canary_id (a secret is not a canary) — loud error (№284) | stable |
+| `canary_insert(...)` | 1..2 | `String[, Struct] -> Struct` | Embeds a random canary marker (`MLOG-CANARY-` + 26 base32 chars, 128-bit entropy) into untrusted text BEFORE sending it to the LLM. Returns `{marked_text, canary_id}`. opts: `count` (1..=4, default 1 — same id inserted count times), `position` ("random" | stable |
+| `consent_grant(...)` | 2..4 | — | `consent_grant(value, scope, subject?, ttl_seconds?)` — record the grant in the ledger; the value passes through with its consent scope extended (static: semantic.rs label_source). | stable |
+| `consent_ledger_export(...)` | 1 | — | `consent_ledger_export(path)` — dump the ledger as JSON to a sandboxed path (FILE EGRESS — classified Sink, audited). Returns the written path. | stable |
+| `consent_revoke(...)` | 1..2 | — | `consent_revoke(value, scope?)` — record the revocation (scope or ALL); the value is returned under the quarantine label — the flat cascade poisons every derivative through lattice absorption. | stable |
+| `ledger_count(...)` | variadic | — | `ledger_count()` — number of records in the process-local journal. | stable |
+| `ledger_export(...)` | 1 | — | `ledger_export(path)` — dump the verifiable JSONL chain to a sandboxed path. FILE EGRESS — classified Sink, audited. Returns the written path. | stable |
+| `ledger_export_intoto(...)` | 1 | — | `ledger_export_intoto(path)` — dump the in-toto Statement profile (ADR-0157) to a sandboxed path. FILE EGRESS — classified Sink. | stable |
+| `ledger_head(...)` | variadic | — | `ledger_head()` — the current head hash ("" for an empty journal). | stable |
+| `ledger_rotate(...)` | variadic | — | `ledger_rotate()` — append a key-rotation record (signed by the still-active key); returns the NEW key id. Subsequent records are signed by the fresh key (signer continuity, ADR-0167 §3.2). | stable |
+| `ledger_snapshot(...)` | variadic | — | `ledger_snapshot()` — append a snapshot record pinning the head; returns the snapshot record hash (the `mlog ledger archive` anchor). | stable |
+| `ledger_verify(...)` | 1 | — | `ledger_verify(path)` — Naryad #415 (P2-2 residue): READ (ingress, NOT egress) — a sandboxed read of an exported JSONL chain that returns the STRUCTURAL verification verdict as a `LedgerVerdict` struct: `ok`, `records`, `head_hash`, `distinct_keys`, `anchored_start`, `error_record` (1-based Float, or Unit when the fault is chain-level or absent), `error_reason` ("" when ok). The chain checks are the library's `ledger_verify` — the crypto is not re-implemented here. A missing file is a soft verdict (`ok=false`, "cannot read") per the №254 read contract; a sandbox escape stays a loud `[SANDBOX_VIOLATION]`. | stable |
+| `likeness_challenge(...)` | 1..3 | — | `likeness_challenge(subject, scope?, ttl_seconds?)` — issue a one-time likeness challenge (ADR-0149 D1). | stable |
+| `likeness_verify(...)` | 1..3 | — | `likeness_verify(challenge, subject?, scope?)` — consume the challenge, record the consent-ledger grant, return the opaque token. | stable |
+| `quarantine_write(...)` | 1..2 | — | `quarantine_write(value, reason?)` — the quarantine sink: the ONLY legal egress for a poisoned value. Returns the audit-event text (the program-visible half of the event; the static half is the QUARANTINE_EGRESS audit finding + stderr line, №326 posture). | stable |
 
 ### `session` — 8 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `session_duty_enter(...)` | 1 | — | `session_duty_enter(session) -> Bool` |
-| `session_duty_exit(...)` | 1 | — | `session_duty_exit(session) -> Bool` |
-| `session_interrupt(...)` | 2..3 | — | `session_interrupt(session, priority, reason?) -> String` |
-| `session_login(...)` | 2 | `String -> Session` | Creates a session for the user |
-| `session_logout(...)` | 1 | `Session -> Unit` | Destroys the session |
-| `session_poll_wake(...)` | 1 | — | `session_poll_wake(session) -> Struct \| Unit` |
-| `session_take_interrupt(...)` | 1 | — | `session_take_interrupt(session) -> Struct \| Unit` |
-| `session_wake(...)` | 2..3 | — | `session_wake(session, source, payload?) -> Number` |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `session_duty_enter(...)` | 1 | — | `session_duty_enter(session) -> Bool` | stable |
+| `session_duty_exit(...)` | 1 | — | `session_duty_exit(session) -> Bool` | stable |
+| `session_interrupt(...)` | 2..3 | — | `session_interrupt(session, priority, reason?) -> String` | stable |
+| `session_login(...)` | 2 | `String -> Session` | Creates a session for the user | stable |
+| `session_logout(...)` | 1 | `Session -> Unit` | Destroys the session | stable |
+| `session_poll_wake(...)` | 1 | — | `session_poll_wake(session) -> Struct \| Unit` | stable |
+| `session_take_interrupt(...)` | 1 | — | `session_take_interrupt(session) -> Struct \| Unit` | stable |
+| `session_wake(...)` | 2..3 | — | `session_wake(session, source, payload?) -> Number` | stable |
 
 ### `std` — 11 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `__abs(...)` | 1 | — | `__abs(x)` — std-library primitive behind the std `abs` wrapper. |
-| `__clamp(...)` | 3 | — | `__clamp(x, lo, hi)` — std-library primitive behind the std `clamp` wrapper. |
-| `__first(...)` | 1 | — | `__first(list)` — std-library primitive behind the std `first` wrapper: the first element (soft-failure semantics of the std layer apply). |
-| `__join(...)` | 2 | — | `__join(list, sep)` — std-library primitive behind the std/string `join` wrapper: joins a List of strings with the separator. |
-| `__last(...)` | 1 | — | `__last(list)` — std-library primitive behind the std `last` wrapper: the last element (soft-failure semantics of the std layer apply). |
-| `__max(...)` | 2 | — | `__max(a, b)` — std-library primitive behind the std `max` wrapper. |
-| `__min(...)` | 2 | — | `__min(a, b)` — std-library primitive behind the std `min` wrapper. |
-| `__replace(...)` | 3 | — | `__replace(s, from, to)` — std-library primitive behind the std/string `replace` wrapper: replaces every occurrence of `from` with `to`. |
-| `__round(...)` | 1 | — | `__round(x)` — std-library primitive behind the std `round` wrapper. |
-| `__split(...)` | 2 | — | `__split(s, sep)` — std-library primitive behind the std/string `split` wrapper: splits on the separator into a List of strings. |
-| `__trim(...)` | 1 | — | `__trim(s)` — std-library primitive behind the std/string `trim` wrapper: strips leading and trailing whitespace. The `__` prefix marks a primitive used by `std/*.mlog` pattern wrappers (prefer the wrapper in user code). |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `__abs(...)` | 1 | — | `__abs(x)` — std-library primitive behind the std `abs` wrapper. | stable |
+| `__clamp(...)` | 3 | — | `__clamp(x, lo, hi)` — std-library primitive behind the std `clamp` wrapper. | stable |
+| `__first(...)` | 1 | — | `__first(list)` — std-library primitive behind the std `first` wrapper: the first element (soft-failure semantics of the std layer apply). | stable |
+| `__join(...)` | 2 | — | `__join(list, sep)` — std-library primitive behind the std/string `join` wrapper: joins a List of strings with the separator. | stable |
+| `__last(...)` | 1 | — | `__last(list)` — std-library primitive behind the std `last` wrapper: the last element (soft-failure semantics of the std layer apply). | stable |
+| `__max(...)` | 2 | — | `__max(a, b)` — std-library primitive behind the std `max` wrapper. | stable |
+| `__min(...)` | 2 | — | `__min(a, b)` — std-library primitive behind the std `min` wrapper. | stable |
+| `__replace(...)` | 3 | — | `__replace(s, from, to)` — std-library primitive behind the std/string `replace` wrapper: replaces every occurrence of `from` with `to`. | stable |
+| `__round(...)` | 1 | — | `__round(x)` — std-library primitive behind the std `round` wrapper. | stable |
+| `__split(...)` | 2 | — | `__split(s, sep)` — std-library primitive behind the std/string `split` wrapper: splits on the separator into a List of strings. | stable |
+| `__trim(...)` | 1 | — | `__trim(s)` — std-library primitive behind the std/string `trim` wrapper: strips leading and trailing whitespace. The `__` prefix marks a primitive used by `std/*.mlog` pattern wrappers (prefer the wrapper in user code). | stable |
 
 ### `string` — 48 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `capitalize(...)` | 1 | — | `capitalize(s)` — uppercases the first character and lowercases the rest. |
-| `char_at(...)` | 2 | `String, Float -> String` | Returns the character at an index. An empty string on out-of-bounds |
-| `chomp(...)` | 1 | — | `chomp(s)` -- remove a single trailing newline (\n or \r\n). |
-| `contains(...)` | 2 | `String, String -> Float` | Returns `1.0` if it contains it, `0.0` otherwise |
-| `ends_with(...)` | 2 | `String, String -> Bool` | Checks whether the string ends with a suffix |
-| `escape_html(...)` | 1 | `String -> String` | Escapes HTML special characters: `& < > " '` |
-| `escape_js(...)` | 1 | — | `escape_js(s) -> String` -- escape a string for safe insertion into JavaScript. Escapes: backslash, single quote, double quote, newline, carriage return, tab, line separator, paragraph separator, and NUL. |
-| `escape_json(...)` | 1 | `String -> String` | Escapes JSON special characters: `" \ \n \t \r` |
-| `format(...)` | variadic | — | `format(template, arg1, arg2, ...)` -- positional string interpolation. Replaces `{}` placeholders in template with arguments. Usage: format("Hello {}, you are {} years old", name, age) |
-| `fuzzy_find_best(...)` | 2 | — | `fuzzy_find_best(query, candidates)` — find the best match for `query` in a list of candidate strings. Returns a struct { index, candidate, score } or Unit if list is empty. |
-| `fuzzy_match(...)` | 2 | — | `fuzzy_match(a, b)` -- Jaro-Winkler similarity between two strings (0.0..1.0). Ported from OpenPlanter's wiki/matching.rs NameRegistry pattern. |
-| `hashline_edit(...)` | 2 | — | `hashline_edit(text, edits)` — apply edits to text using hashline-verified line references. `edits` is a list of structs, each with an `op` field ("set_line", "replace_lines", "insert_after") and corresponding fields. |
-| `hashline_read(...)` | 1 | — | `hashline_read(text)` — annotate each line with a 2-char CRC32 hash prefix. Output format: "N:HH\|content" per line. Inspired by OpenPlanter's tools.py hashline system for safe LLM editing. |
-| `index_of(...)` | 2 | `String, String -> Float` | Returns the position (in characters, not bytes) of the first occurrence, or `-1.0` |
-| `join(...)` | 2 | `List, String -> String` | Joins list elements with a separator. Default `","` |
-| `len(...)` | 1 | `String\|List -> Float` | Length of a string (characters) or a list (elements) |
-| `length(...)` | 1 | `String -> Float` | Length of the string in characters (Unicode-aware). Equivalent to `len()` |
-| `lines(...)` | 1 | — | `lines(s)` -- split string into list of lines (no trailing empty element). |
-| `lower(...)` | 1 | `String -> String` | Converts a string to lowercase |
-| `pad_left(...)` | 3 | — | `pad_left(s, n, fill)` -- left-pad string with fill character to length n. |
-| `pad_right(...)` | 3 | — | `pad_right(s, n, fill)` -- right-pad string with fill character to length n. |
-| `redact(...)` | 2 | `String, String -> String` | Masks PII/secrets with deterministic typed masks (`[REDACTED:sk-…abc4]`). mode: `"pii"` (email `***@***.tld`, phone, Luhn-validated cards with vendor, IBAN), `"secrets"` (sk-/AKIA/ghp_ keys, JWT, PEM, Bearer + entropy net: base64/hex runs ≥24 with digit+hex-letter), `"all"`. Unknown mode — loud error. The ONLY builtin whose `"secrets"/"all"` modes clear the `Secret` taint statically — «mask before sink» (ADR-0136); `LlmOutput` is never cleared by redact (only `render`). №284: canary markers `MLOG-CANARY-<id>` are NOT masked (canary ≠ secret — the marker survives redact so №284's invariant holds) |
-| `regex_captures(...)` | 2 | — | `regex_captures(pattern, text)` → List |
-| `regex_match(...)` | 2 | — | `regex_match(pattern, text)` → Bool |
-| `regex_replace(...)` | 3 | — | `regex_replace(pattern, text, replacement)` → String |
-| `repeat(...)` | 2 | — | `repeat(s, n)` -- repeat string n times. |
-| `replace(...)` | 3 | `String, String, String -> String` | Replaces all occurrences of `old` with `new`. Unicode-aware, works with Cyrillic and emoji |
-| `reverse(...)` | 1 | `String -> String` | Reverses the string (per character) |
-| `slugify(...)` | 1 | — | `slugify(s)` — URL-safe slug: lowercase, non-alphanumerics collapsed to single hyphens, leading/trailing hyphens trimmed. Cyrillic (Russian and Belarusian letters) is transliterated through the deterministic per-character table (N1, gh#1210): `slugify("Привет мир")` = `privet-mir`, `slugify("Щётка")` = `shchetka`. Other non-ASCII characters are dropped. |
-| `split(...)` | 2 | `String, String -> List` | Splits a string by a separator. An empty separator splits per character |
-| `squeeze(...)` | 2 | — | `squeeze(s, chars)` -- collapse consecutive identical characters from `chars`. |
-| `starts_with(...)` | 2 | `String, String -> Bool` | Checks whether the string starts with a prefix |
-| `str(...)` | 1 | `Any -> String` | Converts any value to a string |
-| `strip(...)` | 2 | — | `strip(s, chars)` -- remove characters from both ends of string. Naryad #277 (proptest no-panic): the ends are counted independently, so when the two strips overlap (string fully made of strip-chars, e.g. `strip("&", "Ⱥ&")`), `start > len - end` and the slice PANICKED. The correct contract (same as `str::trim_matches` with a set): both ends consuming the whole string yields the empty string. |
-| `substring(...)` | 3 | `String, Float, Float -> String` | Extracts a substring by character indices. Soft-failure: an empty string on out-of-bounds |
-| `text_chunk(...)` | 2..3 | `String, String[, Struct] -> List` | Structure-aware chunking for the RAG pipeline (№285, RecursiveCharacterTextSplitter-аналог без зависимостей). strategies: `"markdown"` (h1–h3 → sections with `header_path` = "H1 > H2 > H3" metadata ready for vec_store; long sections split by paragraphs; header lines are never torn — a header longer than the budget is a loud error), `"paragraph"` (blocks by double newline, small blocks merged within budget), `"fixed"` (windows with overlap). opts: `max_chars` (default 1200), `overlap` (default 100, CHARACTERS, applied at hard windowing; seam is word-aligned), `max_tokens?` — when set the budget is `token_count` (same SSOT estimate). Cascade "header → paragraph → newline → space" + greedy merge of small pieces. Every chunk: `{index, text, chars, tokens}` (+`header_path` for markdown). Loud errors: unknown strategy, `overlap >= max_chars` (or `>= max_tokens` in token mode), `max_tokens <= 0`, `max_chars <= 0`, unknown opts fields, opts not a Struct. Empty/short text → 1 chunk, not an error |
-| `title_case(...)` | 1 | — | `title_case(s)` — uppercases the first character of every word (previous character non-letter acts as the word boundary). |
-| `to_int(...)` | 1 | `String\|Float\|Bool -> Float` | Converts to an integer (truncates the fractional part). A NON-NUMERIC string is a LOUD failure: `[TYPE_MISMATCH]` pointing at `to_int_or` (№514). `Bool → 1.0/0.0` is a conversion |
-| `to_int_or(...)` | 2 | `String\|Float\|Bool, Float -> Float` | The EXPLICIT-silence twin of `to_int` (№514): the parsed/truncated value when the string parses, the default when it does not; announced on the audit stderr (`[TO_INT_OR]`). Non-scalar input stays LOUD |
-| `token_count(...)` | 1 | — | `token_count(text)` — estimate token count. Cyrillic: chars/2, Latin: chars/4. |
-| `trim(...)` | 1 | `String -> String` | Trims whitespace from the edges |
-| `trim_end(...)` | 1 | — | `trim_end(s)` — strips trailing whitespace (Unicode-aware). |
-| `trim_start(...)` | 1 | — | `trim_start(s)` — strips leading whitespace (Unicode-aware). |
-| `truncate(...)` | 2 | — | `truncate(s, max_len)` — cuts the string to at most `max_len` characters (char-wise) appending an ellipsis `…` when truncation happens; `max_len` 0 yields the empty string. |
-| `type_of(...)` | 1 | — | `type_of(value) -> String` — returns the runtime type name as a String. Useful for safe checking after json_get: `if type_of(x) == "Unit" { ... }` |
-| `upper(...)` | 1 | `String -> String` | Converts a string to uppercase |
-| `word_wrap(...)` | 2 | — | `word_wrap(s, width)` — reflows text to `width` columns without breaking words; errors on width 0. |
-| `words(...)` | 1 | — | `words(s)` -- split string into list of words by whitespace. |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `capitalize(...)` | 1 | — | `capitalize(s)` — uppercases the first character and lowercases the rest. | stable |
+| `char_at(...)` | 2 | `String, Float -> String` | Returns the character at an index. An empty string on out-of-bounds | stable |
+| `chomp(...)` | 1 | — | `chomp(s)` -- remove a single trailing newline (\n or \r\n). | stable |
+| `contains(...)` | 2 | `String, String -> Float` | Returns `1.0` if it contains it, `0.0` otherwise | stable |
+| `ends_with(...)` | 2 | `String, String -> Bool` | Checks whether the string ends with a suffix | stable |
+| `escape_html(...)` | 1 | `String -> String` | Escapes HTML special characters: `& < > " '` | stable |
+| `escape_js(...)` | 1 | — | `escape_js(s) -> String` -- escape a string for safe insertion into JavaScript. Escapes: backslash, single quote, double quote, newline, carriage return, tab, line separator, paragraph separator, and NUL. | stable |
+| `escape_json(...)` | 1 | `String -> String` | Escapes JSON special characters: `" \ \n \t \r` | stable |
+| `format(...)` | variadic | — | `format(template, arg1, arg2, ...)` -- positional string interpolation. Replaces `{}` placeholders in template with arguments. Usage: format("Hello {}, you are {} years old", name, age) | stable |
+| `fuzzy_find_best(...)` | 2 | — | `fuzzy_find_best(query, candidates)` — find the best match for `query` in a list of candidate strings. Returns a struct { index, candidate, score } or Unit if list is empty. | stable |
+| `fuzzy_match(...)` | 2 | — | `fuzzy_match(a, b)` -- Jaro-Winkler similarity between two strings (0.0..1.0). Ported from OpenPlanter's wiki/matching.rs NameRegistry pattern. | stable |
+| `hashline_edit(...)` | 2 | — | `hashline_edit(text, edits)` — apply edits to text using hashline-verified line references. `edits` is a list of structs, each with an `op` field ("set_line", "replace_lines", "insert_after") and corresponding fields. | stable |
+| `hashline_read(...)` | 1 | — | `hashline_read(text)` — annotate each line with a 2-char CRC32 hash prefix. Output format: "N:HH\|content" per line. Inspired by OpenPlanter's tools.py hashline system for safe LLM editing. | stable |
+| `index_of(...)` | 2 | `String, String -> Float` | Returns the position (in characters, not bytes) of the first occurrence, or `-1.0` | stable |
+| `join(...)` | 2 | `List, String -> String` | Joins list elements with a separator. Default `","` | stable |
+| `len(...)` | 1 | `String\|List -> Float` | Length of a string (characters) or a list (elements) | stable |
+| `length(...)` | 1 | `String -> Float` | Length of the string in characters (Unicode-aware). Equivalent to `len()` | stable |
+| `lines(...)` | 1 | — | `lines(s)` -- split string into list of lines (no trailing empty element). | stable |
+| `lower(...)` | 1 | `String -> String` | Converts a string to lowercase | stable |
+| `pad_left(...)` | 3 | — | `pad_left(s, n, fill)` -- left-pad string with fill character to length n. | stable |
+| `pad_right(...)` | 3 | — | `pad_right(s, n, fill)` -- right-pad string with fill character to length n. | stable |
+| `redact(...)` | 2 | `String, String -> String` | Masks PII/secrets with deterministic typed masks (`[REDACTED:sk-…abc4]`). mode: `"pii"` (email `***@***.tld`, phone, Luhn-validated cards with vendor, IBAN), `"secrets"` (sk-/AKIA/ghp_ keys, JWT, PEM, Bearer + entropy net: base64/hex runs ≥24 with digit+hex-letter), `"all"`. Unknown mode — loud error. The ONLY builtin whose `"secrets"/"all"` modes clear the `Secret` taint statically — «mask before sink» (ADR-0136); `LlmOutput` is never cleared by redact (only `render`). №284: canary markers `MLOG-CANARY-<id>` are NOT masked (canary ≠ secret — the marker survives redact so №284's invariant holds) | stable |
+| `regex_captures(...)` | 2 | — | `regex_captures(pattern, text)` → List | stable |
+| `regex_match(...)` | 2 | — | `regex_match(pattern, text)` → Bool | stable |
+| `regex_replace(...)` | 3 | — | `regex_replace(pattern, text, replacement)` → String | stable |
+| `repeat(...)` | 2 | — | `repeat(s, n)` -- repeat string n times. | stable |
+| `replace(...)` | 3 | `String, String, String -> String` | Replaces all occurrences of `old` with `new`. Unicode-aware, works with Cyrillic and emoji | stable |
+| `reverse(...)` | 1 | `String -> String` | Reverses the string (per character) | stable |
+| `slugify(...)` | 1 | — | `slugify(s)` — URL-safe slug: lowercase, non-alphanumerics collapsed to single hyphens, leading/trailing hyphens trimmed. Cyrillic (Russian and Belarusian letters) is transliterated through the deterministic per-character table (N1, gh#1210): `slugify("Привет мир")` = `privet-mir`, `slugify("Щётка")` = `shchetka`. Other non-ASCII characters are dropped. | stable |
+| `split(...)` | 2 | `String, String -> List` | Splits a string by a separator. An empty separator splits per character | stable |
+| `squeeze(...)` | 2 | — | `squeeze(s, chars)` -- collapse consecutive identical characters from `chars`. | stable |
+| `starts_with(...)` | 2 | `String, String -> Bool` | Checks whether the string starts with a prefix | stable |
+| `str(...)` | 1 | `Any -> String` | Converts any value to a string | stable |
+| `strip(...)` | 2 | — | `strip(s, chars)` -- remove characters from both ends of string. Naryad #277 (proptest no-panic): the ends are counted independently, so when the two strips overlap (string fully made of strip-chars, e.g. `strip("&", "Ⱥ&")`), `start > len - end` and the slice PANICKED. The correct contract (same as `str::trim_matches` with a set): both ends consuming the whole string yields the empty string. | stable |
+| `substring(...)` | 3 | `String, Float, Float -> String` | Extracts a substring by character indices. Soft-failure: an empty string on out-of-bounds | stable |
+| `text_chunk(...)` | 2..3 | `String, String[, Struct] -> List` | Structure-aware chunking for the RAG pipeline (№285, RecursiveCharacterTextSplitter-аналог без зависимостей). strategies: `"markdown"` (h1–h3 → sections with `header_path` = "H1 > H2 > H3" metadata ready for vec_store; long sections split by paragraphs; header lines are never torn — a header longer than the budget is a loud error), `"paragraph"` (blocks by double newline, small blocks merged within budget), `"fixed"` (windows with overlap). opts: `max_chars` (default 1200), `overlap` (default 100, CHARACTERS, applied at hard windowing; seam is word-aligned), `max_tokens?` — when set the budget is `token_count` (same SSOT estimate). Cascade "header → paragraph → newline → space" + greedy merge of small pieces. Every chunk: `{index, text, chars, tokens}` (+`header_path` for markdown). Loud errors: unknown strategy, `overlap >= max_chars` (or `>= max_tokens` in token mode), `max_tokens <= 0`, `max_chars <= 0`, unknown opts fields, opts not a Struct. Empty/short text → 1 chunk, not an error | stable |
+| `title_case(...)` | 1 | — | `title_case(s)` — uppercases the first character of every word (previous character non-letter acts as the word boundary). | stable |
+| `to_int(...)` | 1 | `String\|Float\|Bool -> Float` | Converts to an integer (truncates the fractional part). A NON-NUMERIC string is a LOUD failure: `[TYPE_MISMATCH]` pointing at `to_int_or` (№514). `Bool → 1.0/0.0` is a conversion | stable |
+| `to_int_or(...)` | 2 | `String\|Float\|Bool, Float -> Float` | The EXPLICIT-silence twin of `to_int` (№514): the parsed/truncated value when the string parses, the default when it does not; announced on the audit stderr (`[TO_INT_OR]`). Non-scalar input stays LOUD | stable |
+| `token_count(...)` | 1 | — | `token_count(text)` — estimate token count. Cyrillic: chars/2, Latin: chars/4. | stable |
+| `trim(...)` | 1 | `String -> String` | Trims whitespace from the edges | stable |
+| `trim_end(...)` | 1 | — | `trim_end(s)` — strips trailing whitespace (Unicode-aware). | stable |
+| `trim_start(...)` | 1 | — | `trim_start(s)` — strips leading whitespace (Unicode-aware). | stable |
+| `truncate(...)` | 2 | — | `truncate(s, max_len)` — cuts the string to at most `max_len` characters (char-wise) appending an ellipsis `…` when truncation happens; `max_len` 0 yields the empty string. | stable |
+| `type_of(...)` | 1 | — | `type_of(value) -> String` — returns the runtime type name as a String. Useful for safe checking after json_get: `if type_of(x) == "Unit" { ... }` | stable |
+| `upper(...)` | 1 | `String -> String` | Converts a string to uppercase | stable |
+| `word_wrap(...)` | 2 | — | `word_wrap(s, width)` — reflows text to `width` columns without breaking words; errors on width 0. | stable |
+| `words(...)` | 1 | — | `words(s)` -- split string into list of words by whitespace. | stable |
 
 ### `stub` — 24 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `authenticate(...)` | 2 | `String, Secret\|String -> Unit` | Not implemented in this build (no server user-store): every call refuses loudly with [NOT_IMPLEMENTED]; to check credentials call verify_password(password, hash) against the stored hash |
-| `conv_add(...)` | 3 | — | VM-native conversation context (handled inside `src/vm.rs`, no host handler): appends a message to the conversation. |
-| `conv_context(...)` | 1 | — | VM-native conversation context (handled inside `src/vm.rs`, no host handler): returns the compacted conversation context window. |
-| `conv_end(...)` | 1 | — | VM-native conversation context (handled inside `src/vm.rs`, no host handler): closes the conversation. |
-| `conv_history(...)` | 1 | — | VM-native conversation context (handled inside `src/vm.rs`, no host handler): returns the conversation message history. |
-| `conv_start(...)` | 1 | — | VM-native conversation context (handled inside `src/vm.rs`, no host handler): opens a conversation by id. |
-| `db_insert(...)` | variadic | `String, Struct -> Float` | A parameterized INSERT. Returns last_insert_rowid (Problem C) |
-| `deny_event(...)` | variadic | — | №392 DenyEvent — returns the typed deny event (`reason`, `sink`, `class`, `argument`, `label`, `line`, `human`) for the refusal being handled. Handler-scoped: intercepted by name inside `src/vm.rs` and `src/interpreter/execution.rs` (no host handler); outside an on_deny body it is a compile error and a loud runtime error. |
-| `deny_reason(...)` | variadic | — | №392 deny reason word — returns the `reason` string of the live DenyEvent (same vocabulary the audit check_ids use). Handler-scoped like deny_event; a match over it inside on_deny is checked for exhaustiveness. |
-| `event_count(...)` | variadic | — | VM-native event analytics (handled inside `src/vm.rs`, no host handler): counts events in the event log, optionally filtered by type. (The registry's old "planned, no handler" comment is stale — the VM implements it.) |
-| `event_sum(...)` | 2 | — | VM-native event analytics (handled inside `src/vm.rs`, no host handler): sums a numeric field across events of a type. |
-| `events_since(...)` | 1 | — | VM-native event analytics (handled inside `src/vm.rs`, no host handler): lists events since a sequence/timestamp marker. |
-| `find(...)` | 4 | — | VM-native entity-store query (handled inside `src/vm.rs`, no host handler): scans globals for Struct values matching (type, field, operator, threshold). |
-| `fit_to_budget(...)` | variadic | — | VM-native fluid-budget helper (handled inside `src/vm.rs`, no host handler): trims a List of items to fit a token budget. |
-| `if_eq(...)` | 3 | — | Registry-only stub — no handler on TW or VM; calling the name errors on both backends (the language's `if` comparison is an expression, not a builtin). |
-| `inspect(...)` | 1 | `String -> Struct\|Unit` | Returns a pattern's statistics (ADR-0051): `examples_count`, `invocation_count`, `last_invocation_at`, `mode` (for learnable: TEACHING/DISTILLED). Soft-failure — a nonexistent pattern returns `Unit`, not an error |
-| `is_string_token(...)` | 1 | — | Registry-only stub — no handler on TW or VM; calling the name errors on both backends (entry kept for registry/opcode indexing completeness). |
-| `map(...)` | variadic | `List, String -> List` | Applies a pattern to each element (requires `import std/collections`) |
-| `newline(...)` | variadic | — | Registry-only stub — no handler on TW or VM; calling the name errors on both backends (entry kept for registry/opcode indexing completeness). |
-| `query_row(...)` | variadic | — | VM-native DB helper (handled inside `src/vm.rs`, no host handler): executes an SQL query and returns the first row as a Dict. |
-| `query_scalar(...)` | variadic | — | VM-native DB helper (handled inside `src/vm.rs`, no host handler): executes an SQL query and returns the first column of the first row as a scalar. |
-| `resolve_skill_index(...)` | 1 | — | VM-native skill resolver (handled inside `src/vm.rs`, no host handler): resolves a skill index entry for the VM execution path. |
-| `split_tokens(...)` | variadic | — | Registry-only stub — no handler on TW or VM; calling the name errors on both backends (entry kept for registry/opcode indexing completeness). |
-| `stdin(...)` | variadic | — | Registry-only stub — no handler on TW or VM; calling the name errors on both backends (entry kept for registry/opcode indexing completeness). |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `authenticate(...)` | 2 | `String, Secret\|String -> Unit` | Not implemented in this build (no server user-store): every call refuses loudly with [NOT_IMPLEMENTED]; to check credentials call verify_password(password, hash) against the stored hash | experimental |
+| `conv_add(...)` | 3 | — | VM-native conversation context (handled inside `src/vm.rs`, no host handler): appends a message to the conversation. | stable |
+| `conv_context(...)` | 1 | — | VM-native conversation context (handled inside `src/vm.rs`, no host handler): returns the compacted conversation context window. | stable |
+| `conv_end(...)` | 1 | — | VM-native conversation context (handled inside `src/vm.rs`, no host handler): closes the conversation. | stable |
+| `conv_history(...)` | 1 | — | VM-native conversation context (handled inside `src/vm.rs`, no host handler): returns the conversation message history. | stable |
+| `conv_start(...)` | 1 | — | VM-native conversation context (handled inside `src/vm.rs`, no host handler): opens a conversation by id. | stable |
+| `db_insert(...)` | variadic | `String, Struct -> Float` | A parameterized INSERT. Returns last_insert_rowid (Problem C) | experimental |
+| `deny_event(...)` | variadic | — | №392 DenyEvent — returns the typed deny event (`reason`, `sink`, `class`, `argument`, `label`, `line`, `human`) for the refusal being handled. Handler-scoped: intercepted by name inside `src/vm.rs` and `src/interpreter/execution.rs` (no host handler); outside an on_deny body it is a compile error and a loud runtime error. | stable |
+| `deny_reason(...)` | variadic | — | №392 deny reason word — returns the `reason` string of the live DenyEvent (same vocabulary the audit check_ids use). Handler-scoped like deny_event; a match over it inside on_deny is checked for exhaustiveness. | stable |
+| `event_count(...)` | variadic | — | VM-native event analytics (handled inside `src/vm.rs`, no host handler): counts events in the event log, optionally filtered by type. (The registry's old "planned, no handler" comment is stale — the VM implements it.) | stable |
+| `event_sum(...)` | 2 | — | VM-native event analytics (handled inside `src/vm.rs`, no host handler): sums a numeric field across events of a type. | stable |
+| `events_since(...)` | 1 | — | VM-native event analytics (handled inside `src/vm.rs`, no host handler): lists events since a sequence/timestamp marker. | stable |
+| `find(...)` | 4 | — | VM-native entity-store query (handled inside `src/vm.rs`, no host handler): scans globals for Struct values matching (type, field, operator, threshold). | stable |
+| `fit_to_budget(...)` | variadic | — | VM-native fluid-budget helper (handled inside `src/vm.rs`, no host handler): trims a List of items to fit a token budget. | stable |
+| `if_eq(...)` | 3 | — | Registry-only stub — no handler on TW or VM; calling the name errors on both backends (the language's `if` comparison is an expression, not a builtin). | experimental |
+| `inspect(...)` | 1 | `String -> Struct\|Unit` | Returns a pattern's statistics (ADR-0051): `examples_count`, `invocation_count`, `last_invocation_at`, `mode` (for learnable: TEACHING/DISTILLED). Soft-failure — a nonexistent pattern returns `Unit`, not an error | stable |
+| `is_string_token(...)` | 1 | — | Registry-only stub — no handler on TW or VM; calling the name errors on both backends (entry kept for registry/opcode indexing completeness). | experimental |
+| `map(...)` | variadic | `List, String -> List` | Applies a pattern to each element (requires `import std/collections`) | stable |
+| `newline(...)` | variadic | — | Registry-only stub — no handler on TW or VM; calling the name errors on both backends (entry kept for registry/opcode indexing completeness). | experimental |
+| `query_row(...)` | variadic | — | VM-native DB helper (handled inside `src/vm.rs`, no host handler): executes an SQL query and returns the first row as a Dict. | stable |
+| `query_scalar(...)` | variadic | — | VM-native DB helper (handled inside `src/vm.rs`, no host handler): executes an SQL query and returns the first column of the first row as a scalar. | stable |
+| `resolve_skill_index(...)` | 1 | — | VM-native skill resolver (handled inside `src/vm.rs`, no host handler): resolves a skill index entry for the VM execution path. | stable |
+| `split_tokens(...)` | variadic | — | Registry-only stub — no handler on TW or VM; calling the name errors on both backends (entry kept for registry/opcode indexing completeness). | experimental |
+| `stdin(...)` | variadic | — | Registry-only stub — no handler on TW or VM; calling the name errors on both backends (entry kept for registry/opcode indexing completeness). | experimental |
 
 ### `svg` — 13 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `color_palette(...)` | 2 | `String, String -> Struct` | An HSL-cascade palette. `intent` in {calm, tension, energy, authority, warmth}, `mode` in {light, dark}. Output — 5 tokens (`paper`, `ink`, `accent`, `muted`, `rule`) |
-| `svg_callout(...)` | 5..6 | — | `svg_callout(x, y, w, h, text, id?)` — callout box with a dashed border and connector (visually distinct from solid diagram connections). |
-| `svg_canvas(...)` | 4 | `Float×2, String, List -> String` | A root `<svg>` (`viewbox` is structural) |
-| `svg_canvas_preset(...)` | 3 | `String, String, List -> String` | The same, with a named canvas size: `doc_inline` (960×600), `slide_16x9` (1280×720), `social_og` (1200×632), `print_a4_landscape`, `print_a4_portrait` |
-| `svg_circle(...)` | 4 | `Float×3, String×2 -> String` | A circle |
-| `svg_generate(...)` | 4 | `String, String, Float×2 -> String` | A procedural background. `kind` in {flow, grid, noise}. Deterministic (the same `intent` gives an identical result, no `rand`/system clock) |
-| `svg_group(...)` | 1..2 | `List, String -> String` | A group with an optional transform (`transform` is structural, like `d`) |
-| `svg_icon(...)` | 5 | `String, Float×3, String -> String` | A ready-made icon. `name` in {server, laptop, phone, database, cloud, arrow-right, check, warning, user, document} |
-| `svg_line(...)` | 5..6 | `Float×4, String, Float -> String` | A line |
-| `svg_path(...)` | 2..3 | `String×3 -> String` | An arbitrary path. `d` is a structural argument, **not escaped**, a compile error on injection |
-| `svg_rect(...)` | 5..6 | `Float×4, String×2 -> String` | A rectangle |
-| `svg_sketchy_filter(...)` | 1..5 | `String, Float -> String` | A "hand-drawn" style SVG filter (`id` is structural) |
-| `svg_text(...)` | 5..6 | `Float×2, String, Float, String×2 -> String` | Text (auto-escaped) |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `color_palette(...)` | 2 | `String, String -> Struct` | An HSL-cascade palette. `intent` in {calm, tension, energy, authority, warmth}, `mode` in {light, dark}. Output — 5 tokens (`paper`, `ink`, `accent`, `muted`, `rule`) | stable |
+| `svg_callout(...)` | 5..6 | — | `svg_callout(x, y, w, h, text, id?)` — callout box with a dashed border and connector (visually distinct from solid diagram connections). | stable |
+| `svg_canvas(...)` | 4 | `Float×2, String, List -> String` | A root `<svg>` (`viewbox` is structural) | stable |
+| `svg_canvas_preset(...)` | 3 | `String, String, List -> String` | The same, with a named canvas size: `doc_inline` (960×600), `slide_16x9` (1280×720), `social_og` (1200×632), `print_a4_landscape`, `print_a4_portrait` | stable |
+| `svg_circle(...)` | 4 | `Float×3, String×2 -> String` | A circle | stable |
+| `svg_generate(...)` | 4 | `String, String, Float×2 -> String` | A procedural background. `kind` in {flow, grid, noise}. Deterministic (the same `intent` gives an identical result, no `rand`/system clock) | stable |
+| `svg_group(...)` | 1..2 | `List, String -> String` | A group with an optional transform (`transform` is structural, like `d`) | stable |
+| `svg_icon(...)` | 5 | `String, Float×3, String -> String` | A ready-made icon. `name` in {server, laptop, phone, database, cloud, arrow-right, check, warning, user, document} | stable |
+| `svg_line(...)` | 5..6 | `Float×4, String, Float -> String` | A line | stable |
+| `svg_path(...)` | 2..3 | `String×3 -> String` | An arbitrary path. `d` is a structural argument, **not escaped**, a compile error on injection | stable |
+| `svg_rect(...)` | 5..6 | `Float×4, String×2 -> String` | A rectangle | stable |
+| `svg_sketchy_filter(...)` | 1..5 | `String, Float -> String` | A "hand-drawn" style SVG filter (`id` is structural) | stable |
+| `svg_text(...)` | 5..6 | `Float×2, String, Float, String×2 -> String` | Text (auto-escaped) | stable |
 
 ### `system` — 4 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `env(...)` | 1 | `String -> String` (→ `Secret` in an entity context) | Reads an environment variable. A MISSING variable is a configuration error: refused LOUDLY with `[ENV_NOT_FOUND]`, naming the variable and pointing at `env_or` (№481) — the old soft empty string masked misconfiguration silently. **Serve gate (naryad №259)**: inside serve route bodies `env()` is denied by default with a loud `ENV_NOT_PERMITTED` error — route code often receives untrusted input and must not read the process's secrets. Escape hatches (alternatives, not AND): `METALOGOS_SERVE_ALLOW_ENV=1` allows all env reads in route bodies, or `METALOGOS_ENV_ALLOWLIST="NAME1,NAME2"` allows exactly the listed names. Outside serve (`mlog run`, `mlog check`, repl, serve top level) the read is ungated, as before. The denial is identical for existing and non-existing names (the gate runs before the read).  See also the exec gates (`EXEC_NOT_PERMITTED`, naryad №253) in the threat model. **Hardcoded-secret gate (naryad №458)**: a string LITERAL in a high-precision provider token format (`ghp_`/`github_pat_`/`sk-ant-`/`AKIA`/`ASIA`/`xox[bpa]-`/`glpat-`/`AIza`/PEM headers, at the audit's length thresholds) refuses COMPILE-TIME with `HARDCODED_SECRET` (Category A) on run/compile/serve/mcp-serve — the escape crane is reading secrets through `env()` (this builtin) or binding them to a `Secret`-typed entity; EXAMPLE-marked fixture placeholders (the AWS docs key convention) stay clean, and the name heuristics (`api_key`, `token=`) remain a warning-level `mlog audit` finding, not a block |
-| `env_or(...)` | 2 | `String, String -> String` (→ `Secret` in an entity context) | The EXPLICIT-silence twin of `env` (№481): the variable's value when set, the default when missing — the `_or` suffix carries the silent-default semantics IN THE NAME (the audit 25.09 §3.9 naming rule). Every firing of the fallback is announced on the audit stderr (`[ENV_OR] '<name>' is not set — using the explicit default`; the №326 op-log posture — the VALUE is never logged, only the variable name). The SAME №259 serve gate applies — explicit silence never bypasses the env policy. Migration honesty: programs that relied on the old `env()` empty-string default switch to `env_or(name, "")` |
-| `policy_check(...)` | 1 | `String -> Dict` | Checks a command against policy: heredoc `<<`, pipe ` |
-| `replay_snapshot(...)` | 1 | `List -> Dict` | Serializes a list of values into a JSON snapshot. Returns `ReplaySnapshot { seq, items, json, created_at }`. seq=0 is a full snapshot, seq=N is a delta |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `env(...)` | 1 | `String -> String` (→ `Secret` in an entity context) | Reads an environment variable. A MISSING variable is a configuration error: refused LOUDLY with `[ENV_NOT_FOUND]`, naming the variable and pointing at `env_or` (№481) — the old soft empty string masked misconfiguration silently. **Serve gate (naryad №259)**: inside serve route bodies `env()` is denied by default with a loud `ENV_NOT_PERMITTED` error — route code often receives untrusted input and must not read the process's secrets. Escape hatches (alternatives, not AND): `METALOGOS_SERVE_ALLOW_ENV=1` allows all env reads in route bodies, or `METALOGOS_ENV_ALLOWLIST="NAME1,NAME2"` allows exactly the listed names. Outside serve (`mlog run`, `mlog check`, repl, serve top level) the read is ungated, as before. The denial is identical for existing and non-existing names (the gate runs before the read).  See also the exec gates (`EXEC_NOT_PERMITTED`, naryad №253) in the threat model. **Hardcoded-secret gate (naryad №458)**: a string LITERAL in a high-precision provider token format (`ghp_`/`github_pat_`/`sk-ant-`/`AKIA`/`ASIA`/`xox[bpa]-`/`glpat-`/`AIza`/PEM headers, at the audit's length thresholds) refuses COMPILE-TIME with `HARDCODED_SECRET` (Category A) on run/compile/serve/mcp-serve — the escape crane is reading secrets through `env()` (this builtin) or binding them to a `Secret`-typed entity; EXAMPLE-marked fixture placeholders (the AWS docs key convention) stay clean, and the name heuristics (`api_key`, `token=`) remain a warning-level `mlog audit` finding, not a block | stable |
+| `env_or(...)` | 2 | `String, String -> String` (→ `Secret` in an entity context) | The EXPLICIT-silence twin of `env` (№481): the variable's value when set, the default when missing — the `_or` suffix carries the silent-default semantics IN THE NAME (the audit 25.09 §3.9 naming rule). Every firing of the fallback is announced on the audit stderr (`[ENV_OR] '<name>' is not set — using the explicit default`; the №326 op-log posture — the VALUE is never logged, only the variable name). The SAME №259 serve gate applies — explicit silence never bypasses the env policy. Migration honesty: programs that relied on the old `env()` empty-string default switch to `env_or(name, "")` | stable |
+| `policy_check(...)` | 1 | `String -> Dict` | Checks a command against policy: heredoc `<<`, pipe ` | stable |
+| `replay_snapshot(...)` | 1 | `List -> Dict` | Serializes a list of values into a JSON snapshot. Returns `ReplaySnapshot { seq, items, json, created_at }`. seq=0 is a full snapshot, seq=N is a delta | stable |
 
 ### `template` — 1 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `template_render(...)` | 2 | `String, Struct -> Html` | A separate engine (not an extension of `render()`): `{{ var }}` (escaped), `{{{ var }}}` (unescaped), `{{#if}}/{{else}}`, `{{#each}}`. The filter pipe refuses loudly in template STRINGS (№695: the safe stage lives in template declarations, where the Html typing can hold). Template content is trusted author code, not scanned by the lint |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `template_render(...)` | 2 | `String, Struct -> Html` | A separate engine (not an extension of `render()`): `{{ var }}` (escaped), `{{{ var }}}` (unescaped), `{{#if}}/{{else}}`, `{{#each}}`. The filter pipe refuses loudly in template STRINGS (№695: the safe stage lives in template declarations, where the Html typing can hold). Template content is trusted author code, not scanned by the lint | stable |
 
 ### `test` — 2 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `assert_contains(...)` | 2 | `Any, Any -> Unit` | Panics if the string representation of `needle` is not found in `haystack` |
-| `assert_eq(...)` | 2 | `Any, Any -> Any` | A runtime equality assertion. Returns actual on success, panics with `actual != expected` |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `assert_contains(...)` | 2 | `Any, Any -> Unit` | Panics if the string representation of `needle` is not found in `haystack` | stable |
+| `assert_eq(...)` | 2 | `Any, Any -> Any` | A runtime equality assertion. Returns actual on success, panics with `actual != expected` | stable |
 
 ### `time` — 15 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `add_days(...)` | 2 | `Float, Float -> Float` | Adds `days` to a timestamp. Negative `days` subtracts. `ts + days * 86400` |
-| `add_hours(...)` | 2 | `Float, Float -> Float` | Adds `hours` to a timestamp. Negative `hours` subtracts. `ts + hours * 3600` |
-| `date_diff_days(...)` | 2 | — | `date_diff_days(a, b)` — the SIGNED fractional difference of two Unix timestamps in days: (a − b)/86400 (positive when a is later). No rounding — the consumer (the response-age decay, the synodic-month arithmetic) owns the rounding policy. Non-finite inputs are a loud [DATE_INVALID] refusal (NaN would poison the arithmetic silently). Pure function (№316). |
-| `date_format_iso(...)` | 1 | — | `date_format_iso(t)` — format a Unix UTC timestamp as the canonical RFC 3339 UTC string "YYYY-MM-DDTHH:MM:SSZ". The display is UTC (the Z form); the sub-second part of the input is truncated at DISPLAY only — the arithmetic surfaces (date_diff_days, the raw timestamp) keep full precision. An out-of-range or non-finite timestamp is a loud [DATE_INVALID] refusal. Pure function (№316). |
-| `date_parse_iso(...)` | 1 | — | `date_parse_iso(s)` — parse an ISO-8601/RFC 3339 datetime string and return the Unix UTC timestamp as Float seconds (microsecond precision). Accepted: the full RFC 3339 form (Z or ±HH:MM — the offset is honored and converted to UTC), the naive datetime with a T or space separator (interpreted as UTC — never the machine's local zone), and the date-only form (midnight UTC). An invalid string is a LOUD typed refusal stamped [DATE_INVALID] — never a zero date. Pure function (parsing already-present bytes, №316). |
-| `date_parts(...)` | 1 | `Float? -> Dict` | Returns `DateParts { year, month, day, hour, minute, second, weekday }`. `timestamp` defaults to the current moment |
-| `days_between(...)` | 2 | `Float, Float -> Float` | The absolute difference between two timestamps, in days. ` |
-| `days_in_month(...)` | 2 | `Float, Float -> Float` | The number of days in a month. `month` is 1-12. Errors if the month is out of range. Accounts for leap years |
-| `format_date(...)` | 2 | `String?, Float? -> String` | Formats a timestamp using a strftime string. `fmt` defaults to `"%Y-%m-%d %H:%M:%S"`. `timestamp` defaults to the current moment |
-| `is_leap_year(...)` | 1 | `Float -> Bool` | `true` if the year is a leap year (Gregorian rules) |
-| `now(...)` | variadic | `-> Float` | The current Unix timestamp, in seconds |
-| `now_unix(...)` | variadic | — | `now_unix()` — the current Unix timestamp as Float (seconds since the epoch; UTC by definition — a Unix timestamp has no timezone). The UTC-facing twin of `now()` (the same read, the honest name for the consumer's UTC-first arithmetic). |
-| `sleep(...)` | 1 | `Float -> Unit` | Blocks the current thread for `seconds` seconds. Use carefully in `mlog serve` — it blocks request handling |
-| `time(...)` | variadic | `-> Float` | The current Unix timestamp (seconds since the epoch). High precision (sub-second) |
-| `weekday_name(...)` | 1 | `Float -> String` | The weekday's name (localized via chrono::Local). E.g. `"Monday"` |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `add_days(...)` | 2 | `Float, Float -> Float` | Adds `days` to a timestamp. Negative `days` subtracts. `ts + days * 86400` | stable |
+| `add_hours(...)` | 2 | `Float, Float -> Float` | Adds `hours` to a timestamp. Negative `hours` subtracts. `ts + hours * 3600` | stable |
+| `date_diff_days(...)` | 2 | — | `date_diff_days(a, b)` — the SIGNED fractional difference of two Unix timestamps in days: (a − b)/86400 (positive when a is later). No rounding — the consumer (the response-age decay, the synodic-month arithmetic) owns the rounding policy. Non-finite inputs are a loud [DATE_INVALID] refusal (NaN would poison the arithmetic silently). Pure function (№316). | stable |
+| `date_format_iso(...)` | 1 | — | `date_format_iso(t)` — format a Unix UTC timestamp as the canonical RFC 3339 UTC string "YYYY-MM-DDTHH:MM:SSZ". The display is UTC (the Z form); the sub-second part of the input is truncated at DISPLAY only — the arithmetic surfaces (date_diff_days, the raw timestamp) keep full precision. An out-of-range or non-finite timestamp is a loud [DATE_INVALID] refusal. Pure function (№316). | stable |
+| `date_parse_iso(...)` | 1 | — | `date_parse_iso(s)` — parse an ISO-8601/RFC 3339 datetime string and return the Unix UTC timestamp as Float seconds (microsecond precision). Accepted: the full RFC 3339 form (Z or ±HH:MM — the offset is honored and converted to UTC), the naive datetime with a T or space separator (interpreted as UTC — never the machine's local zone), and the date-only form (midnight UTC). An invalid string is a LOUD typed refusal stamped [DATE_INVALID] — never a zero date. Pure function (parsing already-present bytes, №316). | stable |
+| `date_parts(...)` | 1 | `Float? -> Dict` | Returns `DateParts { year, month, day, hour, minute, second, weekday }`. `timestamp` defaults to the current moment | stable |
+| `days_between(...)` | 2 | `Float, Float -> Float` | The absolute difference between two timestamps, in days. ` | stable |
+| `days_in_month(...)` | 2 | `Float, Float -> Float` | The number of days in a month. `month` is 1-12. Errors if the month is out of range. Accounts for leap years | stable |
+| `format_date(...)` | 2 | `String?, Float? -> String` | Formats a timestamp using a strftime string. `fmt` defaults to `"%Y-%m-%d %H:%M:%S"`. `timestamp` defaults to the current moment | stable |
+| `is_leap_year(...)` | 1 | `Float -> Bool` | `true` if the year is a leap year (Gregorian rules) | stable |
+| `now(...)` | variadic | `-> Float` | The current Unix timestamp, in seconds | stable |
+| `now_unix(...)` | variadic | — | `now_unix()` — the current Unix timestamp as Float (seconds since the epoch; UTC by definition — a Unix timestamp has no timezone). The UTC-facing twin of `now()` (the same read, the honest name for the consumer's UTC-first arithmetic). | stable |
+| `sleep(...)` | 1 | `Float -> Unit` | Blocks the current thread for `seconds` seconds. Use carefully in `mlog serve` — it blocks request handling | stable |
+| `time(...)` | variadic | `-> Float` | The current Unix timestamp (seconds since the epoch). High precision (sub-second) | stable |
+| `weekday_name(...)` | 1 | `Float -> String` | The weekday's name (localized via chrono::Local). E.g. `"Monday"` | stable |
 
 ### `tokens` — 1 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `diagram_style(...)` | 1 | `String×5 -> Struct` | A validator for manually specified tokens (without generating via `color_palette`) |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `diagram_style(...)` | 1 | `String×5 -> Struct` | A validator for manually specified tokens (without generating via `color_palette`) | stable |
 
 ### `vault` — 3 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `config_load(...)` | 1 | — | `config_load(path)` — load a JSON or YAML config file and return as struct. |
-| `semantic_search(...)` | 3 | — | `semantic_search(query, documents, top_k)` — semantic similarity search. |
-| `vault_validate(...)` | 2 | — | `vault_validate(config, required_fields)` — validate a loaded config against required fields. |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `config_load(...)` | 1 | — | `config_load(path)` — load a JSON or YAML config file and return as struct. | stable |
+| `semantic_search(...)` | 3 | — | `semantic_search(query, documents, top_k)` — semantic similarity search. | stable |
+| `vault_validate(...)` | 2 | — | `vault_validate(config, required_fields)` — validate a loaded config against required fields. | stable |
 
 ### `video` — 7 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `av_mux(...)` | 2 | — | `av_mux(video, audio)` — deterministic `.mlgv.av` sidecar container pairing VideoId ↔ AudioId with frame-aligned timestamps (ADR-0151 D4). |
-| `frame_interp(...)` | 2 | — | `frame_interp(handle, factor)` — RIFE-class latent interpolation, 2x/4x (ADR-0151 D2). Endpoints preserved: first/last latent frames never move. |
-| `video_export(...)` | 2 | — | `video_export(handle, path)` — signed-by-construction `.mlgv` container: manifest + watermark embedded, unsigned export does not exist (runtime gate VIDEO_UNSIGNED_EXPORT, ADR-0151 D5; contract test pins it). |
-| `video_extend(...)` | 2 | — | `video_extend(handle, extra)` — clip continuation anchored on the last latent frame (ADR-0151 D3). `extra` = number of ADDITIONAL latent frames. |
-| `video_fetch_weights(...)` | 2 | — | `video_fetch_weights(url, dir)` — FORMAL No-Go (№294 class, ADR-0151 D7): production-weights inference is parked in this environment (4 GB RAM, no GPU); the tiny seeded pipeline needs no external weights. The name stays registered so the shared MODEL_WEIGHTS_UNSAFE static gate (№300, `_fetch_weights` suffix convention) and the SSRF-guard vocabulary cover the surface. This is a recorded boundary, not a hidden stub. |
-| `video_render(...)` | 2..4 | — | `video_render(decl, prompt[, ref_first[, ref_last]])` — real tiny pipeline (ADR-0151 D1): T2V (2 args) / I2V first-anchor (3) / two-anchor first–last (4). Seed = sha256(model\|prompt); ref-hash(es) recorded in the manifest. |
-| `video_understand(...)` | 1..3 | — | `video_understand(segment, prompt?, model?)` — the video-understanding backend call (№408). `segment` is the segment payload reference (String; a `VideoSegmentId` surface); `prompt` is the comprehension question (e.g. "what happens in this clip"); `model` defaults to the registry canon `qwen2.5-vl-7b-instruct` (weights: qwen2.5-vl-7b-instruct, Qwen/Qwen2.5-VL-7B-Instruct). |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `av_mux(...)` | 2 | — | `av_mux(video, audio)` — deterministic `.mlgv.av` sidecar container pairing VideoId ↔ AudioId with frame-aligned timestamps (ADR-0151 D4). | stable |
+| `frame_interp(...)` | 2 | — | `frame_interp(handle, factor)` — RIFE-class latent interpolation, 2x/4x (ADR-0151 D2). Endpoints preserved: first/last latent frames never move. | parked |
+| `video_export(...)` | 2 | — | `video_export(handle, path)` — signed-by-construction `.mlgv` container: manifest + watermark embedded, unsigned export does not exist (runtime gate VIDEO_UNSIGNED_EXPORT, ADR-0151 D5; contract test pins it). | stable |
+| `video_extend(...)` | 2 | — | `video_extend(handle, extra)` — clip continuation anchored on the last latent frame (ADR-0151 D3). `extra` = number of ADDITIONAL latent frames. | parked |
+| `video_fetch_weights(...)` | 2 | — | `video_fetch_weights(url, dir)` — FORMAL No-Go (№294 class, ADR-0151 D7): production-weights inference is parked in this environment (4 GB RAM, no GPU); the tiny seeded pipeline needs no external weights. The name stays registered so the shared MODEL_WEIGHTS_UNSAFE static gate (№300, `_fetch_weights` suffix convention) and the SSRF-guard vocabulary cover the surface. This is a recorded boundary, not a hidden stub. | parked |
+| `video_render(...)` | 2..4 | — | `video_render(decl, prompt[, ref_first[, ref_last]])` — real tiny pipeline (ADR-0151 D1): T2V (2 args) / I2V first-anchor (3) / two-anchor first–last (4). Seed = sha256(model\|prompt); ref-hash(es) recorded in the manifest. | parked |
+| `video_understand(...)` | 1..3 | — | `video_understand(segment, prompt?, model?)` — the video-understanding backend call (№408). `segment` is the segment payload reference (String; a `VideoSegmentId` surface); `prompt` is the comprehension question (e.g. "what happens in this clip"); `model` defaults to the registry canon `qwen2.5-vl-7b-instruct` (weights: qwen2.5-vl-7b-instruct, Qwen/Qwen2.5-VL-7B-Instruct). | stable |
 
 ### `vision` — 12 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `ocr_extract(...)` | 1..3 | — | `ocr_extract(image, lang?, model?)` — the OCR backend call (№407). `image` is the image payload reference (String) OR an `Image` media handle (№599, ADR-0182 §3.3 step 1 — the store-backed bridge, the vision_understand overload posture verbatim). `lang` is the recognition language hint (e.g. "eng"); `model` defaults to the registry canon `trocr-base-printed` (weights: trocr-base-printed, microsoft/trocr-base-printed). |
-| `vision_edit(...)` | 2 | `(Vision, String) -> Vision` | **In-context editing of a signed artifact** (#243, R6.2). The source MUST be signed: an artifact with no provenance manifest is a loud refusal (there is nothing honest to inherit; producing an unsigned artifact through the real compute path is forbidden by ADR-0125) — raw export (`vision_export_raw`) is unaffected. Pipeline: source PNG to decode to a loud dims contract (R4.1: 256..=4096, x16; a multiple of the VAE factor — silent resizing is forbidden, the output keeps the source's resolution) to the VAE encoder (non-decoder prefixes of the same pinned VAE file; encode in posterior MODE) to a reference latent to Qwen3-4B on the edit prompt to the Z-Image DiT with in-context token concatenation (a noise branch plus the reference at every step, `euler_step` applies only to the noise branch) to `EDIT_STEPS = 8` (the distilled turbo NFE) to decode to PNG. The output is ALWAYS signed: a watermark plus a manifest, where `model_id`/`policy`/`seed` are inherited from the source, `prompt_sha256` is the hash of the edit prompt, and `timestamp`/`png_sha256` are fresh. Loud refusals: an unsigned source, an unknown handle, a wrong type, an empty prompt, dimensions outside R4.1 or not a multiple of the factor, `MLOG_VISION_WEIGHTS_DIR` not set (the variable and how to set it are named verbatim). UserInput taint on the prompt triggers an audit warning, `VISION_PROMPT_USER_INPUT` (the same check-id as `vision_generate`'s). |
-| `vision_export(...)` | 2 | — | Last-resort stub — real path is the intercepted `vision_export_dispatch`. |
-| `vision_export_raw(...)` | 2 | `(Vision, String) -> String` | **An explicit opt-out from signing** (ADR-0125), amended by №320/ADR-0152 (EU AI Act Art. 50 marking, deadline 2026-12-02): raw egress of a SYNTHETIC artifact (`synthetic: true` — every local generation path marks it) or a manifest-less artifact is refused — runtime error `MEDIA_SYNTHETIC_UNMARKED`, and every call site is a static Category-A compile error of the same check-id; the №241 advisory `VISION_UNSIGNED_EXPORT_RAW` Warning remains in `mlog audit`. Legal only for artifacts explicitly marked `synthetic: false` (foreign non-synthetic ingest; no local path produces them). Signed export (PNG + `<path>.manifest.json` with the `synthetic` field) goes through `vision_export`; an artifact with no manifest cannot be exported that way (the runtime backstop `VISION_UNSIGNED_EXPORT`). |
-| `vision_fetch_weights(...)` | 2 | `(String, String) -> String` | **SSRF-guarded, allowlist-gated, SHA-pinned weight downloading** (ADR-0125's `MODEL_WEIGHTS_UNSAFE`). Layers of protection: (1) the `MLOG_VISION_WEIGHTS_ALLOWLIST` allowlist — **default-deny**: an unset/empty env produces a loud refusal before any network access; (2) an SSRF guard (`check_url_ssrf`): private/loopback/link-local/metadata addresses are forbidden, DNS resolutions are pinned against rebinding; (3) only `manifest.json`-class URLs (a bare `.safetensors` has "no pin" and is refused; pickle-class `.pkl/.pt/.pth/.ckpt/.bin/...` is refused by extension); (4) SHA-256 pinning of every manifest entry (reusing `WeightsManifest`) — a mismatch is a loud refusal, and the file is NOT written; entry names must be bare `*.safetensors`. The static gate `MODEL_WEIGHTS_UNSAFE` (an audit Error, Category A) additionally catches literal URLs with an SSRF-blocked host, a bare `.safetensors`, and the pickle class. The downloaded tree (`manifest.json` plus shards) is consumed by `vision_generate` via `MLOG_VISION_WEIGHTS_DIR` — with re-verification of the SHA at load time (defense in depth). |
-| `vision_generate(...)` | 2 | — | Last-resort stub — real path is the intercepted `vision_generate_dispatch`. |
-| `vision_list(...)` | variadic | — | Last-resort stub — real path is the intercepted `vision_list_dispatch`. |
-| `vision_load(...)` | 1 | `(String) -> Vision` | **Loading an artifact from the program's database** (#242, R6.1): exactly the bytes and the manifest that were saved (provenance persistence neither regenerates nor supplements them). Inserted into the session's registry with a new, monotonic id. Loud refusals: no database, an unknown name (with a list of what is saved), a malformed manifest JSON in the database (silent degradation to unsigned is forbidden). An artifact with `manifest: None` loads as-is and is still refused by a signed `vision_export` (`VISION_UNSIGNED_EXPORT`) — and, since №320/ADR-0152, by `vision_export_raw` too (`MEDIA_SYNTHETIC_UNMARKED`: unmarked media is treated as synthetic) — #241's backstop survives persistence. |
-| `vision_lora_generate(...)` | 3 | `(String, String, String) -> Vision` | **Generation with a LoRA adapter applied** (#244, R6.3). The same pipeline as `vision_generate`, but the DiT is built through `from_weights_with_lora`: `W' = W + scale·(up@down)` in F32 over the attention projections; the adapter is resolved from the database on every call with a loud **integrity pin** (`sha256(bytes) != meta.sha256` is an error BEFORE any compute). Provenance: the composite `model_sha256` (see above), `model_id`/watermark/policy/seed/steps from the base declaration; sign ALWAYS. Loud refusals: arity/types, empty prompt, unknown decl (with the list), unknown model, no database, unknown `lora_name` (with `lora_list`), corrupted meta JSON, integrity mismatch, missing env/component, non-1024. UserInput-tainted prompts raise the `VISION_PROMPT_USER_INPUT` audit Warning (the same check id; args 0 and 2 are never flagged). |
-| `vision_lora_load(...)` | 2 | `(String, String) -> String` | **Loading a LoRA adapter into the SQLite BLOB store** (#244, R6.3; ADR-0124 §6 — the adapter lives ONLY in the program's database, no session state). Reads the safetensors file ONCE — only inside `MLOG_VISION_WEIGHTS_DIR` (a relative path, no traversal, `.safetensors` extension, file must exist; the path contract lives in `vision_lora_check_adapter_path`), validates loudly (both canonical name forms — diffusers-PEFT and ComfyUI; rank = the mean pair dimension, scale = alpha/rank with the loud 1.0 default; non-F32 upcast is loud; targets must be attention projections `to_q/to_k/to_v/to_out.0` per `zimage_expected_keys`; half pairs, non-attention targets, unknown prefixes, orphaned keys, mismatched dimensions are loud errors with the FULL list) and stores the bytes plus fixed-shape metadata (`LoraMeta`: sha256/rank/alpha/scale/targets) into the `vision_lora_adapters` table. The prescribed check order: arity → no-db → env → path → feature gate → read/parse → insert; a name collision is a loud error (no upsert). Returns the persistent key `name`. |
-| `vision_save(...)` | 2 | `(Vision, String) -> String` | **SQLite persistence of an artifact** (#242, R6.1). Writes the artifact (a PNG as a BLOB plus a JSON provenance manifest) to the program's database (the `db { url: "sqlite:..." }` declaration) — the `vision_artifacts` table, whose persistent key is `name` (the registry id is a session-scoped handle and is not persisted). Loud refusals: no database (with a hint at the declaration), an empty name, a name collision (a silent overwrite would be a silent loss of the provenance chain; upsert/delete are out of scope for #242), an unknown handle. A verbatim round trip: the `timestamp` and the manifest's fields are not regenerated. |
-| `vision_understand(...)` | 1..3 | — | `vision_understand(image, prompt?, model?)` — the vision-understanding backend call (№334). `image` is the image payload reference (String) OR an `Image` media handle (№599, ADR-0182 §3.3 step 1 — the multi-form overload posture of №493: the handle form ADDS capability, the String golden behavior is untouched). A handle materializes through the store's sanctioned read path (sealed entries decrypt only inside the sanctioned consumer — the PROCESSING posture, not byte egress); the handle's static label joins the result's label through the existing №323 inference (private image in → private description out). `prompt` is the question about the image; `model` defaults to the registry canon `molmoact2` (weights: molmoact2, allenai/MolmoAct2). |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `ocr_extract(...)` | 1..3 | — | `ocr_extract(image, lang?, model?)` — the OCR backend call (№407). `image` is the image payload reference (String) OR an `Image` media handle (№599, ADR-0182 §3.3 step 1 — the store-backed bridge, the vision_understand overload posture verbatim). `lang` is the recognition language hint (e.g. "eng"); `model` defaults to the registry canon `trocr-base-printed` (weights: trocr-base-printed, microsoft/trocr-base-printed). | stable |
+| `vision_edit(...)` | 2 | `(Vision, String) -> Vision` | **In-context editing of a signed artifact** (#243, R6.2). The source MUST be signed: an artifact with no provenance manifest is a loud refusal (there is nothing honest to inherit; producing an unsigned artifact through the real compute path is forbidden by ADR-0125) — raw export (`vision_export_raw`) is unaffected. Pipeline: source PNG to decode to a loud dims contract (R4.1: 256..=4096, x16; a multiple of the VAE factor — silent resizing is forbidden, the output keeps the source's resolution) to the VAE encoder (non-decoder prefixes of the same pinned VAE file; encode in posterior MODE) to a reference latent to Qwen3-4B on the edit prompt to the Z-Image DiT with in-context token concatenation (a noise branch plus the reference at every step, `euler_step` applies only to the noise branch) to `EDIT_STEPS = 8` (the distilled turbo NFE) to decode to PNG. The output is ALWAYS signed: a watermark plus a manifest, where `model_id`/`policy`/`seed` are inherited from the source, `prompt_sha256` is the hash of the edit prompt, and `timestamp`/`png_sha256` are fresh. Loud refusals: an unsigned source, an unknown handle, a wrong type, an empty prompt, dimensions outside R4.1 or not a multiple of the factor, `MLOG_VISION_WEIGHTS_DIR` not set (the variable and how to set it are named verbatim). UserInput taint on the prompt triggers an audit warning, `VISION_PROMPT_USER_INPUT` (the same check-id as `vision_generate`'s). | parked |
+| `vision_export(...)` | 2 | — | Last-resort stub — real path is the intercepted `vision_export_dispatch`. | parked |
+| `vision_export_raw(...)` | 2 | `(Vision, String) -> String` | **An explicit opt-out from signing** (ADR-0125), amended by №320/ADR-0152 (EU AI Act Art. 50 marking, deadline 2026-12-02): raw egress of a SYNTHETIC artifact (`synthetic: true` — every local generation path marks it) or a manifest-less artifact is refused — runtime error `MEDIA_SYNTHETIC_UNMARKED`, and every call site is a static Category-A compile error of the same check-id; the №241 advisory `VISION_UNSIGNED_EXPORT_RAW` Warning remains in `mlog audit`. Legal only for artifacts explicitly marked `synthetic: false` (foreign non-synthetic ingest; no local path produces them). Signed export (PNG + `<path>.manifest.json` with the `synthetic` field) goes through `vision_export`; an artifact with no manifest cannot be exported that way (the runtime backstop `VISION_UNSIGNED_EXPORT`). | parked |
+| `vision_fetch_weights(...)` | 2 | `(String, String) -> String` | **SSRF-guarded, allowlist-gated, SHA-pinned weight downloading** (ADR-0125's `MODEL_WEIGHTS_UNSAFE`). Layers of protection: (1) the `MLOG_VISION_WEIGHTS_ALLOWLIST` allowlist — **default-deny**: an unset/empty env produces a loud refusal before any network access; (2) an SSRF guard (`check_url_ssrf`): private/loopback/link-local/metadata addresses are forbidden, DNS resolutions are pinned against rebinding; (3) only `manifest.json`-class URLs (a bare `.safetensors` has "no pin" and is refused; pickle-class `.pkl/.pt/.pth/.ckpt/.bin/...` is refused by extension); (4) SHA-256 pinning of every manifest entry (reusing `WeightsManifest`) — a mismatch is a loud refusal, and the file is NOT written; entry names must be bare `*.safetensors`. The static gate `MODEL_WEIGHTS_UNSAFE` (an audit Error, Category A) additionally catches literal URLs with an SSRF-blocked host, a bare `.safetensors`, and the pickle class. The downloaded tree (`manifest.json` plus shards) is consumed by `vision_generate` via `MLOG_VISION_WEIGHTS_DIR` — with re-verification of the SHA at load time (defense in depth). | parked |
+| `vision_generate(...)` | 2 | — | Last-resort stub — real path is the intercepted `vision_generate_dispatch`. | parked |
+| `vision_list(...)` | variadic | — | Last-resort stub — real path is the intercepted `vision_list_dispatch`. | stable |
+| `vision_load(...)` | 1 | `(String) -> Vision` | **Loading an artifact from the program's database** (#242, R6.1): exactly the bytes and the manifest that were saved (provenance persistence neither regenerates nor supplements them). Inserted into the session's registry with a new, monotonic id. Loud refusals: no database, an unknown name (with a list of what is saved), a malformed manifest JSON in the database (silent degradation to unsigned is forbidden). An artifact with `manifest: None` loads as-is and is still refused by a signed `vision_export` (`VISION_UNSIGNED_EXPORT`) — and, since №320/ADR-0152, by `vision_export_raw` too (`MEDIA_SYNTHETIC_UNMARKED`: unmarked media is treated as synthetic) — #241's backstop survives persistence. | stable |
+| `vision_lora_generate(...)` | 3 | `(String, String, String) -> Vision` | **Generation with a LoRA adapter applied** (#244, R6.3). The same pipeline as `vision_generate`, but the DiT is built through `from_weights_with_lora`: `W' = W + scale·(up@down)` in F32 over the attention projections; the adapter is resolved from the database on every call with a loud **integrity pin** (`sha256(bytes) != meta.sha256` is an error BEFORE any compute). Provenance: the composite `model_sha256` (see above), `model_id`/watermark/policy/seed/steps from the base declaration; sign ALWAYS. Loud refusals: arity/types, empty prompt, unknown decl (with the list), unknown model, no database, unknown `lora_name` (with `lora_list`), corrupted meta JSON, integrity mismatch, missing env/component, non-1024. UserInput-tainted prompts raise the `VISION_PROMPT_USER_INPUT` audit Warning (the same check id; args 0 and 2 are never flagged). | parked |
+| `vision_lora_load(...)` | 2 | `(String, String) -> String` | **Loading a LoRA adapter into the SQLite BLOB store** (#244, R6.3; ADR-0124 §6 — the adapter lives ONLY in the program's database, no session state). Reads the safetensors file ONCE — only inside `MLOG_VISION_WEIGHTS_DIR` (a relative path, no traversal, `.safetensors` extension, file must exist; the path contract lives in `vision_lora_check_adapter_path`), validates loudly (both canonical name forms — diffusers-PEFT and ComfyUI; rank = the mean pair dimension, scale = alpha/rank with the loud 1.0 default; non-F32 upcast is loud; targets must be attention projections `to_q/to_k/to_v/to_out.0` per `zimage_expected_keys`; half pairs, non-attention targets, unknown prefixes, orphaned keys, mismatched dimensions are loud errors with the FULL list) and stores the bytes plus fixed-shape metadata (`LoraMeta`: sha256/rank/alpha/scale/targets) into the `vision_lora_adapters` table. The prescribed check order: arity → no-db → env → path → feature gate → read/parse → insert; a name collision is a loud error (no upsert). Returns the persistent key `name`. | parked |
+| `vision_save(...)` | 2 | `(Vision, String) -> String` | **SQLite persistence of an artifact** (#242, R6.1). Writes the artifact (a PNG as a BLOB plus a JSON provenance manifest) to the program's database (the `db { url: "sqlite:..." }` declaration) — the `vision_artifacts` table, whose persistent key is `name` (the registry id is a session-scoped handle and is not persisted). Loud refusals: no database (with a hint at the declaration), an empty name, a name collision (a silent overwrite would be a silent loss of the provenance chain; upsert/delete are out of scope for #242), an unknown handle. A verbatim round trip: the `timestamp` and the manifest's fields are not regenerated. | stable |
+| `vision_understand(...)` | 1..3 | — | `vision_understand(image, prompt?, model?)` — the vision-understanding backend call (№334). `image` is the image payload reference (String) OR an `Image` media handle (№599, ADR-0182 §3.3 step 1 — the multi-form overload posture of №493: the handle form ADDS capability, the String golden behavior is untouched). A handle materializes through the store's sanctioned read path (sealed entries decrypt only inside the sanctioned consumer — the PROCESSING posture, not byte egress); the handle's static label joins the result's label through the existing №323 inference (private image in → private description out). `prompt` is the question about the image; `model` defaults to the registry canon `molmoact2` (weights: molmoact2, allenai/MolmoAct2). | stable |
 
 ### `voice` — 19 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `audio_export(...)` | 1 | — | `audio_export(handle)` stub — ADR-0145. |
-| `duplex_open(...)` | 1..2 | — | `duplex_open(session, priority?) -> Duplex` |
-| `duplex_state(...)` | 1 | — | `duplex_state(duplex) -> Struct` |
-| `listen_start(...)` | 1..2 | — | `listen_start(duplex, priority?) -> Struct` |
-| `listen_stop(...)` | 1 | — | `listen_stop(duplex) -> Struct` |
-| `omni_ask(...)` | 1..3 | — | `omni_ask(prompt, media?, model?)` — the omni-class backend call (№334): a prompt with an OPTIONAL media payload reference (String). Defaults to the registry canon `nemotron-omni`. |
-| `speak_start(...)` | 2..3 | — | `speak_start(duplex, text, priority?) -> Struct` |
-| `speak_stop(...)` | 1 | — | `speak_stop(duplex) -> Struct` |
-| `stt_transcribe(...)` | 1..2 | — | `stt_transcribe(audio, model?)` — the STT-class backend call (№334). `audio` is the audio payload reference (String); `model` defaults to the registry canon `whisper-turbo` (weights: whisper-large-v3-turbo). |
-| `tts_generate(...)` | 2..4 | `String, String[, String][, String] -> String` | Speech synthesis WITHOUT delivery (Naryad #279): writes the audio file into the file sandbox (write_file semantics, Naryad #252) and returns the sandbox-relative path — feed it to `read_file`/`send_document` yourself. Providers v1: `"openai"` (default); `model`: `tts-1` (default) / `tts-1-hd` / `gpt-4o-mini-tts`. Key: `METALOGOS_TTS_API_KEY` (falls back to `OPENAI_API_KEY`); `METALOGOS_TTS_BASE_URL` overrides `https://api.openai.com/v1` (mock servers / self-host proxies) — `/audio/speech` is appended. Output format: provider default (MP3) |
-| `tts_send(...)` | 4..5 | `String, String, String, String[, String] -> String` | Delivery convenience: synthesizes speech (delegates to the same exchange as `tts_generate` — `tts-1`, base-URL/key overrides behave identically) and sends the audio to a Telegram chat (`sendVoice`; optional 5th arg `"audio"` switches to `sendAudio`). Key: `METALOGOS_TTS_API_KEY` (falls back to `OPENAI_API_KEY`). For synthesis without delivery use `tts_generate` |
-| `tts_speak(...)` | 2 | — | `tts_speak(decl, text)` stub — ADR-0143. |
-| `voice_delete(...)` | 1 | — | №526 (issue #835; audit 30.09 N-2): `voice_delete(handle)` — the erasure path over the live VOICE_REGISTRY. Accepts a Voice handle (the voiceprint — the biometric embedding) or an Audio handle (the audio artifact — the "artifact file" bytes of the registry). IDEMPOTENT: an absent handle is `"absent"` (the repeated erase succeeds — GDPR Art. 17(1): erasure without obstacles), never an error. The consent ledger is untouched (the Art. 9 consent proof survives by design — docs/privacy.md §2.1). Wrong types refuse loudly. The PERSISTED (SQLite) prints are erased through the store API `VoiceStore::delete_voiceprint` (the same secure zero-then-delete path, tested at the store level) — a shipped runtime persists zero voiceprints today (privacy.md §2.1), so the registry is the live surface the builtin erases. |
-| `voice_design(...)` | 2 | — | `voice_design(text, voice)` stub — ADR-0143. |
-| `voice_enroll(...)` | 2..3 | — | `voice_enroll(decl, audio, kind)` stub — ADR-0145. |
-| `voice_list(...)` | variadic | — | №526: `voice_list()` — the informed-deletion basis at the runtime surface: the held voiceprints (id, model — the embedding NEVER enters the result) and the held audio artifacts (id, byte length). Empty registry → the empty string (the honest zero). Deterministic order (ascending ids). The persisted-store listing (name/model/saved_at/ algo/ciphertext length, never decrypted) is `VoiceStore::list_voiceprints` — the same №526 composition at the store level. |
-| `voice_load(...)` | 1 | — | `voice_load(name)` stub — ADR-0143 (persistence). |
-| `voice_save(...)` | 2 | — | `voice_save(handle, name)` stub — ADR-0143 (persistence). |
-| `whisper_transcribe(...)` | 3..4 | `String, String, String[, String] -> String` | Downloads a voice message from Telegram by `file_id`, sends it for transcription to the Whisper API. `provider`: `"openai"` (default) or `"groq"`. `METALOGOS_STT_BASE_URL` overrides the transcription API base (mock servers / self-host proxies) — `/audio/transcriptions` is appended. Returns the recognized text. Arity 3..4 — the registry used to declare min 1 while the runtime always required 3 (Naryad #279 fact-check fix; a 1-arg call now fails `mlog check` on statics instead of exploding at runtime) |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `audio_export(...)` | 1 | — | `audio_export(handle)` stub — ADR-0145. | parked |
+| `duplex_open(...)` | 1..2 | — | `duplex_open(session, priority?) -> Duplex` | stable |
+| `duplex_state(...)` | 1 | — | `duplex_state(duplex) -> Struct` | stable |
+| `listen_start(...)` | 1..2 | — | `listen_start(duplex, priority?) -> Struct` | stable |
+| `listen_stop(...)` | 1 | — | `listen_stop(duplex) -> Struct` | stable |
+| `omni_ask(...)` | 1..3 | — | `omni_ask(prompt, media?, model?)` — the omni-class backend call (№334): a prompt with an OPTIONAL media payload reference (String). Defaults to the registry canon `nemotron-omni`. | stable |
+| `speak_start(...)` | 2..3 | — | `speak_start(duplex, text, priority?) -> Struct` | stable |
+| `speak_stop(...)` | 1 | — | `speak_stop(duplex) -> Struct` | stable |
+| `stt_transcribe(...)` | 1..2 | — | `stt_transcribe(audio, model?)` — the STT-class backend call (№334). `audio` is the audio payload reference (String); `model` defaults to the registry canon `whisper-turbo` (weights: whisper-large-v3-turbo). | stable |
+| `tts_generate(...)` | 2..4 | `String, String[, String][, String] -> String` | Speech synthesis WITHOUT delivery (Naryad #279): writes the audio file into the file sandbox (write_file semantics, Naryad #252) and returns the sandbox-relative path — feed it to `read_file`/`send_document` yourself. Providers v1: `"openai"` (default); `model`: `tts-1` (default) / `tts-1-hd` / `gpt-4o-mini-tts`. Key: `METALOGOS_TTS_API_KEY` (falls back to `OPENAI_API_KEY`); `METALOGOS_TTS_BASE_URL` overrides `https://api.openai.com/v1` (mock servers / self-host proxies) — `/audio/speech` is appended. Output format: provider default (MP3) | stable |
+| `tts_send(...)` | 4..5 | `String, String, String, String[, String] -> String` | Delivery convenience: synthesizes speech (delegates to the same exchange as `tts_generate` — `tts-1`, base-URL/key overrides behave identically) and sends the audio to a Telegram chat (`sendVoice`; optional 5th arg `"audio"` switches to `sendAudio`). Key: `METALOGOS_TTS_API_KEY` (falls back to `OPENAI_API_KEY`). For synthesis without delivery use `tts_generate` | stable |
+| `tts_speak(...)` | 2 | — | `tts_speak(decl, text)` stub — ADR-0143. | parked |
+| `voice_delete(...)` | 1 | — | №526 (issue #835; audit 30.09 N-2): `voice_delete(handle)` — the erasure path over the live VOICE_REGISTRY. Accepts a Voice handle (the voiceprint — the biometric embedding) or an Audio handle (the audio artifact — the "artifact file" bytes of the registry). IDEMPOTENT: an absent handle is `"absent"` (the repeated erase succeeds — GDPR Art. 17(1): erasure without obstacles), never an error. The consent ledger is untouched (the Art. 9 consent proof survives by design — docs/privacy.md §2.1). Wrong types refuse loudly. The PERSISTED (SQLite) prints are erased through the store API `VoiceStore::delete_voiceprint` (the same secure zero-then-delete path, tested at the store level) — a shipped runtime persists zero voiceprints today (privacy.md §2.1), so the registry is the live surface the builtin erases. | parked |
+| `voice_design(...)` | 2 | — | `voice_design(text, voice)` stub — ADR-0143. | parked |
+| `voice_enroll(...)` | 2..3 | — | `voice_enroll(decl, audio, kind)` stub — ADR-0145. | parked |
+| `voice_list(...)` | variadic | — | №526: `voice_list()` — the informed-deletion basis at the runtime surface: the held voiceprints (id, model — the embedding NEVER enters the result) and the held audio artifacts (id, byte length). Empty registry → the empty string (the honest zero). Deterministic order (ascending ids). The persisted-store listing (name/model/saved_at/ algo/ciphertext length, never decrypted) is `VoiceStore::list_voiceprints` — the same №526 composition at the store level. | parked |
+| `voice_load(...)` | 1 | — | `voice_load(name)` stub — ADR-0143 (persistence). | parked |
+| `voice_save(...)` | 2 | — | `voice_save(handle, name)` stub — ADR-0143 (persistence). | parked |
+| `whisper_transcribe(...)` | 3..4 | `String, String, String[, String] -> String` | Downloads a voice message from Telegram by `file_id`, sends it for transcription to the Whisper API. `provider`: `"openai"` (default) or `"groq"`. `METALOGOS_STT_BASE_URL` overrides the transcription API base (mock servers / self-host proxies) — `/audio/transcriptions` is appended. Returns the recognized text. Arity 3..4 — the registry used to declare min 1 while the runtime always required 3 (Naryad #279 fact-check fix; a 1-arg call now fails `mlog check` on statics instead of exploding at runtime) | stable |
 
 ### `web` — 29 builtin(s)
 
-| Builtin | Arity | Signature (curated) | Description |
-|---|---|---|---|
-| `feed_parse(...)` | 1 | — | `feed_parse(xml) -> List<Struct<FeedItem>{title, link, published, summary, id}>` — RSS 2.0 and Atom 1.0 detected by the root element; neither → a loud error naming the two supported shapes. |
-| `form_data(...)` | 1 | `-> Struct {FormData}` | Parses data from an `application/x-www-form-urlencoded` request body |
-| `geo_distance(...)` | 2..5 | — | `geo_distance(lat1, lon1, lat2, lon2, unit?)` — haversine distance. unit: "km"(default), "mi", "nm", "m". |
-| `geo_ip(...)` | 0..1 | — | `geo_ip(ip?)` — geolocate by IP. Uses ip-api.com (free, no key). Returns Struct {ip, city, region, country, country_code, lat, lon, isp, timezone}. |
-| `html_links(...)` | 2 | — | `html_links(html, base_url) -> List<Struct<HtmlLink>{href, text}>` — every <a> with a resolvable href; the hrefs are ABSOLUTE (resolved against base_url), only http/https survive — `javascript:` (and any other scheme) is DROPPED by contract. The base_url must itself be an http/https URL (loud otherwise). |
-| `html_render(...)` | 3 | `String, Float×2 -> String` | A screenshot via a headless browser (`METALOGOS_BROWSER_BIN`, no default path). The only function in this family that spawns an external process — via `exec_restricted` (argv, not a shell). Network isolation is not guaranteed at the OS level — the input must be self-contained HTML |
-| `html_select(...)` | 2 | — | `html_select(html, css) -> List<Struct<HtmlMatch>{tag, text, attrs, html}>` — every element matching ANY comma-separated selector (document order). The loud limits: the 5 MiB input, the 10 000-node result. |
-| `html_text(...)` | 1..2 | — | `html_text(html, css?) -> String` — the normalized concatenated text of the matched elements (no selector = the whole document). The script/style subtrees NEVER contribute; whitespace runs collapse. |
-| `http_download(...)` | 2..3 | `String, String -> Bool` | Downloads `url` into `dest_path` (the path must be inside the write sandbox). Returns `true` on success, `false` on any failure (network error, HTTP 4xx/5xx, sandbox violation, write error — the soft-failure contract). The URL is SSRF-gated like the other egress builtins: a blocked address is a LOUD `SSRF guard` error, not a silent `false` (naryad №261). 30s timeout |
-| `http_get(...)` | 1..4 | `String -> String` | A GET request. 30s default timeout. Errors on status >= 400. №592 outcome taxonomy (branchable via `try{}`): `[HTTP_TIMEOUT]` the per-call deadline expired, `[HTTP_CONNECT]` the transport failed (DNS/refused/reset/mid-response break), `[HTTP_STATUS]` the server answered >= 400 |
-| `http_post(...)` | 2..6 | `String, String -> String` | A POST request. Content-Type defaults to `application/json`. 30s timeout. Errors on status >= 400 |
-| `http_post_multipart(...)` | 2..4 | `String, Struct, Struct -> String` | A multipart POST. `fields` are text fields (a Struct), `files` are file fields (a Struct, whose values are file paths). File paths must be inside the read sandbox (relative paths); absolute paths, `..` and sandbox escapes are a loud `[SANDBOX_VIOLATION]` error. 120s timeout |
-| `json_body(...)` | variadic | `-> Struct {JsonBody}` | Parses JSON from the request body |
-| `query_param(...)` | 1 | `String -> String` | Gets a query parameter from the URL. `curl "localhost:8080/search?q=hello" -> query_param("q") == "hello"`. An empty string if the parameter is absent. Percent-decoding: RFC 3986 bytes reassembled as UTF-8 (`%D0%B6` → `"ж"`), `+` → space (form-urlencoded convention), invalid escapes pass through literally, invalid UTF-8 is lossy — see the §4.13 note (Naryad #257) |
-| `render(...)` | 2..3 | `String, String, Any, ... -> Html` | Renders a template, substituting `{{ var }}` variables (HTML-escaped), `{{{ var }}}` variables (RAW — №685: the raw parameter must be declared `Html` and the value built by an explicit Html producer, e.g. a nested `render`; anything else refuses at start with `RAW_INSERT_NOT_HTML` on both backends, and the raw positions CONDUCT the taint instead of lifting it) and `{{ var \| safe }}` variables (RAW — №695, ADR-0188 phase 2: the safe stage, the escape-exempt; the parameter must be declared `Html` — `SAFE_PIPE_NOT_HTML` on both backends otherwise — and the value must be the opaque `Html`; every unrecognized pipe form refuses loudly). The number of arguments after the template name must be even (key/value pairs) |
-| `request_body(...)` | variadic | — | `json_body()` / `request_body()` — raw body of the current route request, parsed as JSON into a `Dict` Struct; `request_body` is the explicit-name alias. Result carries `UserInput` taint (untrusted request data). |
-| `request_header(...)` | 1 | `String -> String` | Gets a request header from the current route request by a case-insensitive name. The empty string when the header is absent or no route context is set (fails closed — see `examples/telegram_webhook_secret.mlog`). The result carries `UserInput` taint — validate before deciding; compare secrets with `ct_eq` (N2) |
-| `require(...)` | 1..2 | `Bool -> Unit` | A runtime assertion. Errors if `false` |
-| `respond(...)` | 1..2 | `String -> HttpResponse` | Builds an HTTP response. Format: `"200 OK"`, `"404 Not Found"`, etc. |
-| `respond_html(...)` | 1..2 | `String -> HttpResponse`; `String, String -> HttpResponse` | Three forms (#892). **1-arg:** the whole argument is the HTML body, status 200. **2-arg, first arg is a status** (opens with "200", "404 Not Found", …): the legacy documented form — the second argument is the body VERBATIM. **2-arg, first arg is not a status:** the (title, body) form — a full HTML document is built (the title renders at the top of `<body>` verbatim and tag-stripped into `<head><title>`). All three serve `Content-Type: text/html; charset=utf-8`. **The 2-arg form is DEPRECATED (№565)** — the sense is read from the first argument's CONTENT (a number-like string becomes a status, anything else a title); a semantic warning fires when the first argument is not a string literal; migrate to `respond_html_status` / `respond_html_doc` (removal no earlier than one release with the warning) |
-| `respond_html_doc(...)` | 2 | `String, String -> HttpResponse` | The EXPLICIT document form (№565): the first argument is a TITLE — never read as a status, never dropped. Full HTML document (the title renders at the top of `<body>` verbatim and tag-stripped into `<head><title>`), status 200. `Content-Type: text/html; charset=utf-8`; the HTML egress gates treat it exactly like `respond_html` |
-| `respond_html_status(...)` | 2 | `String \| Float, String -> HttpResponse` | The EXPLICIT status form (№565): the sense lives in the NAME, not in the data. The body is served VERBATIM with the given status; the status must open with an HTTP code in 100..=599 ("404", "404 Not Found") or be a whole number 100..=599 — otherwise a LOUD argument error (no silent 200 fallback). `Content-Type: text/html; charset=utf-8`; the HTML egress gates (LLM-output, open-redirect, secret-leak, recall-taint) treat it exactly like `respond_html` |
-| `server_path_param(...)` | 1 | — | `server_path_param(name)` — stub that returns empty string (Наряд №283). Real implementation is handled in interpreter.rs and vm.rs FnCall dispatch (needs access to server_path_params HashMap on the runtime context — same pattern as `query_param`). Returns empty string when no templated route matched (static route, or no server context). |
-| `set_header(...)` | 3 | — | `set_header(resp, name, value) -> HttpResponse` (N7, gh#1217) — the APPLICATION response headers. The pure value transform: it takes the response value, attaches the allowlisted header and returns the new response (the route returns it; the server applies the set at the conversion boundary). `set` semantics: the same name (case-insensitive) is REPLACED, the other headers keep their order. |
-| `sitemap_parse(...)` | 1 | — | `sitemap_parse(xml) -> List<Struct<SitemapEntry>{loc, lastmod}>` — the `urlset > url` and `sitemapindex > sitemap` shapes uniformly: every `url`/`sitemap` element carrying a `loc` child becomes an entry (lastmod often absent → ""). |
-| `weather(...)` | 2 | — | `weather(city_or_lat, lon?)` — current weather via Open-Meteo (FREE, no API key). `weather("Minsk")` or `weather(53.9, 27.57)`. Returns Struct {temp, feels_like, temp_min, temp_max, humidity, description, wind_speed, wind_direction, pressure, cloud_cover, is_day, city, country}. |
-| `weather_forecast(...)` | 1..3 | — | `weather_forecast(city_or_lat, lon?, days?)` — multi-day forecast via Open-Meteo (FREE, no API key). `weather_forecast("Minsk", 7)` or `weather_forecast(53.9, 27.57, 3)`. Default: 7 days. Max: 16 days. Returns List of DayForecast structs. |
-| `web_search(...)` | 1..2 | — | `web_search(query, num_results?) -> String` — search via SerpAPI. Uses SERPAPI_KEY env var. Returns raw JSON string. Usage: web_search("query") -> JSON string Usage: web_search("query", 5) -> JSON string with 5 results |
-| `xml_parse(...)` | 1 | — | `xml_parse(xml) -> Struct<XmlNode>{tag, attrs, text, children}` — the general tree. The depth cap (256) and the node cap (10 000) both fail LOUD: the recursive build must not blow the stack on an adversarial chain. |
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `feed_parse(...)` | 1 | — | `feed_parse(xml) -> List<Struct<FeedItem>{title, link, published, summary, id}>` — RSS 2.0 and Atom 1.0 detected by the root element; neither → a loud error naming the two supported shapes. | stable |
+| `form_data(...)` | 1 | `-> Struct {FormData}` | Parses data from an `application/x-www-form-urlencoded` request body | stable |
+| `geo_distance(...)` | 2..5 | — | `geo_distance(lat1, lon1, lat2, lon2, unit?)` — haversine distance. unit: "km"(default), "mi", "nm", "m". | stable |
+| `geo_ip(...)` | 0..1 | — | `geo_ip(ip?)` — geolocate by IP. Uses ip-api.com (free, no key). Returns Struct {ip, city, region, country, country_code, lat, lon, isp, timezone}. | stable |
+| `html_links(...)` | 2 | — | `html_links(html, base_url) -> List<Struct<HtmlLink>{href, text}>` — every <a> with a resolvable href; the hrefs are ABSOLUTE (resolved against base_url), only http/https survive — `javascript:` (and any other scheme) is DROPPED by contract. The base_url must itself be an http/https URL (loud otherwise). | stable |
+| `html_render(...)` | 3 | `String, Float×2 -> String` | A screenshot via a headless browser (`METALOGOS_BROWSER_BIN`, no default path). The only function in this family that spawns an external process — via `exec_restricted` (argv, not a shell). Network isolation is not guaranteed at the OS level — the input must be self-contained HTML | stable |
+| `html_select(...)` | 2 | — | `html_select(html, css) -> List<Struct<HtmlMatch>{tag, text, attrs, html}>` — every element matching ANY comma-separated selector (document order). The loud limits: the 5 MiB input, the 10 000-node result. | stable |
+| `html_text(...)` | 1..2 | — | `html_text(html, css?) -> String` — the normalized concatenated text of the matched elements (no selector = the whole document). The script/style subtrees NEVER contribute; whitespace runs collapse. | stable |
+| `http_download(...)` | 2..3 | `String, String -> Bool` | Downloads `url` into `dest_path` (the path must be inside the write sandbox). Returns `true` on success, `false` on any failure (network error, HTTP 4xx/5xx, sandbox violation, write error — the soft-failure contract). The URL is SSRF-gated like the other egress builtins: a blocked address is a LOUD `SSRF guard` error, not a silent `false` (naryad №261). 30s timeout | stable |
+| `http_get(...)` | 1..4 | `String -> String` | A GET request. 30s default timeout. Errors on status >= 400. №592 outcome taxonomy (branchable via `try{}`): `[HTTP_TIMEOUT]` the per-call deadline expired, `[HTTP_CONNECT]` the transport failed (DNS/refused/reset/mid-response break), `[HTTP_STATUS]` the server answered >= 400 | stable |
+| `http_post(...)` | 2..6 | `String, String -> String` | A POST request. Content-Type defaults to `application/json`. 30s timeout. Errors on status >= 400 | stable |
+| `http_post_multipart(...)` | 2..4 | `String, Struct, Struct -> String` | A multipart POST. `fields` are text fields (a Struct), `files` are file fields (a Struct, whose values are file paths). File paths must be inside the read sandbox (relative paths); absolute paths, `..` and sandbox escapes are a loud `[SANDBOX_VIOLATION]` error. 120s timeout | stable |
+| `json_body(...)` | variadic | `-> Struct {JsonBody}` | Parses JSON from the request body | stable |
+| `query_param(...)` | 1 | `String -> String` | Gets a query parameter from the URL. `curl "localhost:8080/search?q=hello" -> query_param("q") == "hello"`. An empty string if the parameter is absent. Percent-decoding: RFC 3986 bytes reassembled as UTF-8 (`%D0%B6` → `"ж"`), `+` → space (form-urlencoded convention), invalid escapes pass through literally, invalid UTF-8 is lossy — see the §4.13 note (Naryad #257) | stable |
+| `render(...)` | 2..3 | `String, String, Any, ... -> Html` | Renders a template, substituting `{{ var }}` variables (HTML-escaped), `{{{ var }}}` variables (RAW — №685: the raw parameter must be declared `Html` and the value built by an explicit Html producer, e.g. a nested `render`; anything else refuses at start with `RAW_INSERT_NOT_HTML` on both backends, and the raw positions CONDUCT the taint instead of lifting it) and `{{ var \| safe }}` variables (RAW — №695, ADR-0188 phase 2: the safe stage, the escape-exempt; the parameter must be declared `Html` — `SAFE_PIPE_NOT_HTML` on both backends otherwise — and the value must be the opaque `Html`; every unrecognized pipe form refuses loudly). The number of arguments after the template name must be even (key/value pairs) | stable |
+| `request_body(...)` | variadic | — | `json_body()` / `request_body()` — raw body of the current route request, parsed as JSON into a `Dict` Struct; `request_body` is the explicit-name alias. Result carries `UserInput` taint (untrusted request data). | stable |
+| `request_header(...)` | 1 | `String -> String` | Gets a request header from the current route request by a case-insensitive name. The empty string when the header is absent or no route context is set (fails closed — see `examples/telegram_webhook_secret.mlog`). The result carries `UserInput` taint — validate before deciding; compare secrets with `ct_eq` (N2) | stable |
+| `require(...)` | 1..2 | `Bool -> Unit` | A runtime assertion. Errors if `false` | stable |
+| `respond(...)` | 1..2 | `String -> HttpResponse` | Builds an HTTP response. Format: `"200 OK"`, `"404 Not Found"`, etc. | stable |
+| `respond_html(...)` | 1..2 | `String -> HttpResponse`; `String, String -> HttpResponse` | Three forms (#892). **1-arg:** the whole argument is the HTML body, status 200. **2-arg, first arg is a status** (opens with "200", "404 Not Found", …): the legacy documented form — the second argument is the body VERBATIM. **2-arg, first arg is not a status:** the (title, body) form — a full HTML document is built (the title renders at the top of `<body>` verbatim and tag-stripped into `<head><title>`). All three serve `Content-Type: text/html; charset=utf-8`. **The 2-arg form is DEPRECATED (№565)** — the sense is read from the first argument's CONTENT (a number-like string becomes a status, anything else a title); a semantic warning fires when the first argument is not a string literal; migrate to `respond_html_status` / `respond_html_doc` (removal no earlier than one release with the warning) | stable |
+| `respond_html_doc(...)` | 2 | `String, String -> HttpResponse` | The EXPLICIT document form (№565): the first argument is a TITLE — never read as a status, never dropped. Full HTML document (the title renders at the top of `<body>` verbatim and tag-stripped into `<head><title>`), status 200. `Content-Type: text/html; charset=utf-8`; the HTML egress gates treat it exactly like `respond_html` | stable |
+| `respond_html_status(...)` | 2 | `String \| Float, String -> HttpResponse` | The EXPLICIT status form (№565): the sense lives in the NAME, not in the data. The body is served VERBATIM with the given status; the status must open with an HTTP code in 100..=599 ("404", "404 Not Found") or be a whole number 100..=599 — otherwise a LOUD argument error (no silent 200 fallback). `Content-Type: text/html; charset=utf-8`; the HTML egress gates (LLM-output, open-redirect, secret-leak, recall-taint) treat it exactly like `respond_html` | stable |
+| `server_path_param(...)` | 1 | — | `server_path_param(name)` — stub that returns empty string (Наряд №283). Real implementation is handled in interpreter.rs and vm.rs FnCall dispatch (needs access to server_path_params HashMap on the runtime context — same pattern as `query_param`). Returns empty string when no templated route matched (static route, or no server context). | stable |
+| `set_header(...)` | 3 | — | `set_header(resp, name, value) -> HttpResponse` (N7, gh#1217) — the APPLICATION response headers. The pure value transform: it takes the response value, attaches the allowlisted header and returns the new response (the route returns it; the server applies the set at the conversion boundary). `set` semantics: the same name (case-insensitive) is REPLACED, the other headers keep their order. | stable |
+| `sitemap_parse(...)` | 1 | — | `sitemap_parse(xml) -> List<Struct<SitemapEntry>{loc, lastmod}>` — the `urlset > url` and `sitemapindex > sitemap` shapes uniformly: every `url`/`sitemap` element carrying a `loc` child becomes an entry (lastmod often absent → ""). | stable |
+| `weather(...)` | 2 | — | `weather(city_or_lat, lon?)` — current weather via Open-Meteo (FREE, no API key). `weather("Minsk")` or `weather(53.9, 27.57)`. Returns Struct {temp, feels_like, temp_min, temp_max, humidity, description, wind_speed, wind_direction, pressure, cloud_cover, is_day, city, country}. | stable |
+| `weather_forecast(...)` | 1..3 | — | `weather_forecast(city_or_lat, lon?, days?)` — multi-day forecast via Open-Meteo (FREE, no API key). `weather_forecast("Minsk", 7)` or `weather_forecast(53.9, 27.57, 3)`. Default: 7 days. Max: 16 days. Returns List of DayForecast structs. | stable |
+| `web_search(...)` | 1..2 | — | `web_search(query, num_results?) -> String` — search via SerpAPI. Uses SERPAPI_KEY env var. Returns raw JSON string. Usage: web_search("query") -> JSON string Usage: web_search("query", 5) -> JSON string with 5 results | stable |
+| `xml_parse(...)` | 1 | — | `xml_parse(xml) -> Struct<XmlNode>{tag, attrs, text, children}` — the general tree. The depth cap (256) and the node cap (10 000) both fail LOUD: the recursive build must not blow the stack on an adversarial chain. | stable |
 
 <!-- END GENERATED BUILTIN INDEX -->
 

@@ -64,6 +64,7 @@ pub mod error;
 pub mod interpreter;
 pub mod labels;
 pub mod llm;
+pub mod mcp_session; // №793: the MCP stdio session layer (the gateway upstream pool form)
 /// №685 (gh#1252, В44): the shared template tokenizer + the raw-insert
 /// scan — the UNGATED home (render() is ungated, the raw-insert gates
 /// must hold on every configuration; the gated template_render engine

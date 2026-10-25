@@ -4,7 +4,110 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Changed
+
+- **№795 (gh#1533, Wave 64 — audit-23.10 C5-b V2, the C5 (b) owner
+  decision, ADR-0197):** `mcp-serve` executes tool methods on the VM —
+  the SAME compile-path as serve (the strict VM compile at startup; a
+  non-compilable file refuses the gateway loudly, where the pre-№795
+  TW path silently ignored the non-tool declarations' run errors).
+  The capability the switch buys: the RUNTIME label gates
+  (`[SINK_CLEARANCE_RUNTIME]`, the №780/ADR-0156 machinery) fire IN
+  TOOL BODIES — a private value routed into a sink at runtime is
+  refused loudly through the tools/call envelope, where the pre-№795
+  TW path answered green (the leak went through; the TW lane has no
+  runtime label twin). The invocation rides the new
+  `Vm::invoke_pattern` (the CallPattern convention: the JSON args
+  bind positionally per the declaration order; the per-request depth
+  budget and the backend-tag contract match `execute_route_code`).
+  The gates are unchanged: `ServeRouteExecGuard` (№253-А/№259),
+  the Category-A startup gate, the allowlist, the exec/env posture.
+  The 3-pin battery (the runtime-gate pin + the honest parity pins)
+  verified RED-before via the changes-stash run (форма №772): the
+  runtime pin FAILED on the pre-№795 TW path (the green answer —
+  the leak), the parity pins green. The existing mcp suites
+  (№394/№477/№536/№793/№794) stay green on the VM lane. AFFECTS:
+  gateway tool files must compile on the VM lane (the strict form);
+  the tool bodies gain the runtime label enforcement.
+
+- **№794 (gh#1532, Wave 64 — the gateway G3, the C1 (b) owner
+  decision, ADR-0196):** the ledger entry on EVERY gateway
+  `tools/call` — `mcp.call` (allowed: the local ok, the local body
+  error, the upstream proxy ok/proxy error) and `mcp.call.denied`
+  (the gateway refusals: the unknown tool, the not-in-allowlist
+  miss), the tool in the record scope, the reason/outcome in the
+  detail. The detail rides the ledger schema's `args_hash` BY
+  CONSTRUCTION — the arguments and the reasons never appear in the
+  journal in the open form (the ledger must not become a leak
+  channel; the pin replays a `LEAKME` argument and reads the stored
+  record back). The actor is the gateway process; the floating
+  session label extends the record with G2 (#1481) — the
+  `label=pre-G2` marker is the explicit extension point, not
+  silence. The 2-pin battery verified RED-before via the
+  hooks-stash run (форма №772): 2/2 failed on the pre-№794
+  hooks (no mcp.* records); the 5-call session (3 allowed / 2
+  denied) leaves 5 signed records, `mlog ledger verify --expect-head`
+  is GREEN on the export and RED after a one-letter tamper.
+  AFFECTS: gateway deployments gain the audit trail the G4 demo
+  needs; the stateless builtins' audit-log contract unchanged
+  (№268).
+
 ### Added
+
+- **№796 (gh#1534, Wave 64 — audit-23.10 C3-a T1, the C3 (a) owner
+  decision, ADR-0196-adjacent):** the maturity tier SSOT — every
+  `spec!` registration carries an EXPLICIT `tier`
+  (`"stable" | "experimental" | "parked"`, the owner's rule table
+  23.10). The gate IS the grammar: the spec! macro requires the
+  trailing tier literal on every arm — a registration without one is
+  a compile error (the №796 gate form, stronger than a CI script).
+  The classification (the owner's rule): `stable` = the working,
+  test-covered core (the labels, the grants, the ledger, MCP, the
+  memory, the media handles, the working perception backends, the
+  provider voice); `experimental` = the embodied family
+  (device_*/pose_make/proof_*), the forecast family (series_*/forecast_*),
+  the not-implemented stub seams (provisional — the dispute list);
+  `parked` = the ADR-0178 generative contour (reflex-generate,
+  vision-generate/edit/lora, voice_design/tts_speak/voice_enroll,
+  video-render/extend/interp + the weights-fetch infrastructure).
+  The compiled default build: 476 stable / 22 experimental / 11
+  parked (509 = 526 source rows minus the 69 feature-gated); the
+  source-level 526/526 ride gen_reference --check. REFERENCE's
+  generated index gains the Tier column (the generator re-validates
+  the vocabulary loudly — a tier outside the three-word set is
+  exit 2). The BEHAVIOR IS UNTOUCHED (the naryad boundary: the
+  marking only). The 3-pin battery (the vocabulary coverage, the
+  owner-rule spot checks, the census) — new-surface pins. The
+  disputable rows ride the naryad report for the owner's review.
+
+- **№793 (gh#1531, Wave 64 — the gateway G1, the C1 (b) owner
+  decision, ADR-0196):** the MCP contour gains the SESSION layer —
+  long-lived upstream sessions for the gateway. The new
+  `src/mcp_session.rs` module carries the connection primitives
+  (moved verbatim in behavior from the builtins module — the
+  stateless `mcp_call`/`mcp_list_tools` contract is unchanged, the
+  back-compat form the naryad requires) plus `McpSession`: ONE live
+  process per declared upstream for the gateway's lifetime, the
+  loud reconnect on an upstream death (the deterministic stream-EOF
+  death signal + the reaped-exit check; a failed call is never
+  auto-retried — the side-effect decision stays with the caller).
+  The gateway reads `METALOGOS_MCP_UPSTREAMS` once at startup (the
+  №263 discipline; entries `name=argv0,arg1,...` separated by `;`),
+  aggregates the upstream `tools/list` under the `name.` prefix and
+  proxies `tools/call name.tool` to the session — the response
+  shape, the size cap and the error envelope are byte-identical to
+  the local path; the LOCAL tools win a name collision (pinned
+  loudly at startup); the allowlist gate rides every declaration
+  fail-closed. The protocol: the client declares the CURRENT
+  revision `2025-11-25` (the legacy `2025-03-26` declaration is
+  superseded), the server negotiates the client's known revision
+  (the hardcoded `2024-11-05` answer is gone), a mismatch is a loud
+  refusal naming both versions. The 6-pin gateway battery +
+  the 4-pin session battery verified RED-before on the pre-№793
+  revision: 4/6 gateway pins failed (no upstream aggregation, the
+  hardcoded version, no declaration gate), 2 regression pins green.
+  AFFECTS: gateway deployments can now serve stateful upstreams
+  (a browser, a db session); the stateless builtins unchanged.
 
 - **№792 (gh#1515, Wave 63 — audit-23.10 C6 R-b 1, the owner decision
   23.10):** ADR-0198 **Accepted** (supersedes ADR-0106) — the error
@@ -167,6 +270,24 @@ All notable changes to the Metalogos project.
   registry surfaces.
 
 ### Fixed
+
+- **№797 (gh#1535, Wave 64 — audit-23.10 B5/D-1, P2):** the AGENTS.md
+  stale facts (the file every coding agent reads first) — three
+  corrections: (1) the §5 coverage claim ("~59%, not 100%") is
+  re-spelled to the current machine truth (the GENERATED index covers
+  100% of the registry; the curated prose may lag — the registry grep
+  stays the SSOT); (2) the §6 hardcoded "all 110 in a row" ADR count
+  is REMOVED per the docs-metrics form (the number is regenerated by
+  the machines, never hand-maintained — the header says so); (3) the
+  §6 "VM parity with TW … deliberately not implemented (ADR-0105)"
+  is re-pointed to the current architecture: the parity is a BLOCKING
+  contract, the VM is the single executor of the user commands and TW
+  is the reference oracle in CI (`ADR-0197` supersedes the `ADR-0105`
+  remainder — the C5 owner decision). The §8.5 site-files audit item
+  (secret_label.rs / sql_label.rs missing from the sanitizer-layer
+  list) had ALREADY landed with №781's A2 additions — verified, no
+  edit needed. CLAUDE.md re-synced byte-for-byte (the №763 identity;
+  the agent-index gate green). AFFECTS: documentation only.
 
 - **№784 (gh#1495, Wave 62 — the audit-23.10 A5/S-8, P1):** the
   authenticate mock answered `Ok(Unit)` while the REFERENCE row

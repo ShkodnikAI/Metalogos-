@@ -37,7 +37,7 @@ BEGIN = "<!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not
 END = "<!-- END GENERATED BUILTIN INDEX -->"
 
 SPEC_RE = re.compile(r'spec!\(\s*"([^"]+)"\s*,\s*(\d+)\s*(?:,\s*(\d+))?\s*,\s*"([^"]+)"')
-HANDLER_RE = re.compile(r';\s*([A-Za-z0-9_]+)\s*(?:,\s*"[A-Za-z][A-Za-z0-9<>{}:,_|]*")?\s*\)?\s*,?\s*$')  # №467: the typed tail `, "Type"` is optional
+HANDLER_RE = re.compile(r';\s*([A-Za-z0-9_]+)\s*(?:,\s*"[A-Za-z][A-Za-z0-9<>{}:,_|]*")?(?:,\s*"(?:stable|experimental|parked)")?\s*\)?\s*,?\s*$')  # №467: the typed tail `, "Type"` is optional; №796: the trailing tier literal
 FN_RE = re.compile(r"(?:pub(?:\(crate\))?\s+)?fn\s+([a-z0-9_]+)\s*\(")
 DOC_RE = re.compile(r"^\s*///\s?(.*)$")
 ROW_NAME_RE = re.compile(r"^\|\s*`([a-z_][a-z0-9_]*)\(")
@@ -84,8 +84,17 @@ MANUAL_DESCRIPTIONS = {
 }
 
 
+TIER_RE = re.compile(r',\s*"(stable|experimental|parked)"\s*\)')
+TIER_VOCABULARY = ("stable", "experimental", "parked")
+
+
 def collect_registry():
-    """(name, min, max, category, handler|None) per spec! line, in file order."""
+    """(name, min, max, category, handler|None, tier) per spec! line, in file order.
+
+    №796: every registration carries an explicit maturity tier (the macro
+    grammar REQUIRES the trailing literal — a row without one is a compile
+    error); this reader re-validates the vocabulary loudly (a tier outside
+    the owner's three-word set is exit 2, never silence)."""
     entries = []
     for line in REGISTRY.read_text(encoding="utf-8").splitlines():
         code = line.split("//")[0]
@@ -95,7 +104,12 @@ def collect_registry():
         name, lo, hi, cat = m.group(1), int(m.group(2)), m.group(3), m.group(4)
         hi = int(hi) if hi is not None else lo
         hm = HANDLER_RE.search(code)
-        entries.append((name, lo, hi, cat, hm.group(1) if hm else None))
+        tm = TIER_RE.search(code)
+        if not tm:
+            raise SystemExit(
+                f"gen_reference: registry row `{name}` carries NO tier (№796 gate) — exit 2"
+            )
+        entries.append((name, lo, hi, cat, hm.group(1) if hm else None, tm.group(1)))
     return entries
 
 
@@ -213,9 +227,15 @@ def split_generated(text):
 
 
 def render(entries, curated, docs):
-    handler_of = {name: handler for name, _, _, _, handler in entries}
+    handler_of = {name: handler for name, _, _, _, handler, _ in entries}
+    tier_of = {name: tier for name, _, _, _, _, tier in entries}
+    for name, tier in tier_of.items():
+        if tier not in TIER_VOCABULARY:
+            raise SystemExit(
+                f"gen_reference: `{name}` carries tier `{tier}` outside the vocabulary {TIER_VOCABULARY} — exit 2"
+            )
     cats = {}
-    for name, lo, hi, cat, _ in entries:
+    for name, lo, hi, cat, _, _ in entries:
         cats.setdefault(cat, []).append((name, lo, hi))
 
     md = [BEGIN, ""]
@@ -236,8 +256,8 @@ def render(entries, curated, docs):
         rows = cats[cat]
         md.append(f"### `{cat}` — {len(rows)} builtin(s)")
         md.append("")
-        md.append("| Builtin | Arity | Signature (curated) | Description |")
-        md.append("|---|---|---|---|")
+        md.append("| Builtin | Arity | Signature (curated) | Description | Tier |")
+        md.append("|---|---|---|---|---|")
         for name, lo, hi in sorted(rows):
             sig, desc = curated.get(name, ("", ""))
             if not desc and name in MANUAL_DESCRIPTIONS:
@@ -251,7 +271,7 @@ def render(entries, curated, docs):
                 todo += 1
             md.append(
                 f"| `{name}(...)` | {arity_text(lo, hi)} "
-                f"| {esc_cell(sig or '—')} | {esc_cell(desc)} |"
+                f"| {esc_cell(sig or '—')} | {esc_cell(desc)} | {tier_of[name]} |"
             )
         md.append("")
     md.append(END)

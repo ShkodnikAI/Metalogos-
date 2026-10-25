@@ -322,6 +322,15 @@ impl Compiler {
         }
     }
 
+    /// №795: the compiled pattern index (`name`/`tool.method` → the
+    /// `Program::patterns` slot) — the tool-method execution form for
+    /// `mcp-serve` resolves the qualified keys through this map (the
+    /// №684 compile contract: tool methods compile as REGULAR PATTERNS
+    /// under qualified keys).
+    pub fn pattern_index(&self, name: &str) -> Option<usize> {
+        self.pattern_indices.get(name).copied()
+    }
+
     /// Compile a list of declarations into a bytecode Program.
     pub fn compile(&mut self, declarations: Vec<Declaration>) -> Result<Program, String> {
         // Phase 1: resolve imports

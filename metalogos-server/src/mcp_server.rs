@@ -36,14 +36,30 @@
 //     (stdio, http, sse — and the test harness) now enforces the
 //     Category A startup gate (the №98 `run_server` precedent):
 //     IRREVERSIBLE_NO_GRANT, SQL_DYNAMIC, SECRET_LEAK, … refuse the
-//     process loudly. The runtime taint twin (VM SinkCheck) stays
-//     VM-side — the interpreter has no runtime labels (№405 layer);
-//     the startup gate is the TW-side backstop this boundary relies on.
+//     process loudly.
+//   - №795 (the C5 (b) owner decision, ADR-0197): the tool methods
+//     execute on the VM — the SAME compile-path as serve, the strict
+//     compile at startup (a non-compilable file refuses the gateway;
+//     the pre-№795 TW path silently ignored the non-tool decls' run
+//     errors). The runtime taint twin (VM SinkCheck, the №780/ADR-0156
+//     machinery) now fires IN TOOL BODIES through the same VM — the
+//     "the startup gate is the only backstop" boundary is closed: a
+//     private value routed into a sink at RUNTIME is refused loudly
+//     ([SINK_CLEARANCE_RUNTIME]), not just the statically-provable
+//     forms. TW stays the reference oracle in CI (ADR-0197).
 
 use metalogos::ast::{Declaration, Param};
-use metalogos::interpreter::Interpreter;
 use metalogos::interpreter::Value;
+// №795 (the C5 (b) owner decision, ADR-0197): the tool methods execute on
+// the VM — the SAME compile-path as serve. The TW interpreter is gone from
+// the mcp-serve lane (it has no runtime label-gate twin — the header
+// contract); TW stays the reference oracle in CI.
+// №793 (the gateway G1): the upstream session pool — the session client
+// lives in the metalogos crate, the gateway holds ONE process per declared
+// upstream for its lifetime.
+use metalogos::mcp_session::{mcp_allowlist_gate, parse_upstreams_spec, McpSession};
 use std::io::{self, BufRead, Write};
+use std::sync::Mutex;
 
 /// Maximum response size (bytes) before truncation.
 const MAX_RESPONSE_SIZE: usize = 1_000_000;
@@ -76,9 +92,27 @@ pub struct McpServeOpts {
 /// between transports by construction.
 pub struct McpServer {
     tools: Vec<ExposedTool>,
-    /// The declarations the tools come from (methods execute against
-    /// them). Not exposed over the wire.
-    declarations: Vec<Declaration>,
+    /// №795 (the C5 (b) decision, ADR-0197): the VM tool state — the
+    /// declarations (the param lists), the COMPILED program (the same
+    /// compile-path as serve) and the qualified pattern index. The tool
+    /// methods execute on the VM (the runtime label gates fire); the TW
+    /// interpreter is gone from this lane.
+    vm_state: std::sync::Arc<VmToolState>,
+    /// №793 (the gateway G1): the declared upstream sessions — ONE live
+    /// process per entry for the gateway's lifetime; a dead upstream is
+    /// reconnected LOUDLY on the next use. Mutex: handle_request takes
+    /// &self (the transports share the core through Arc).
+    upstreams: Mutex<Vec<McpSession>>,
+}
+
+/// The compiled tool surface (№795): built ONCE at `McpServer::new` —
+/// the strict form: a non-compilable file REFUSES the gateway loudly
+/// (the pre-№795 TW path silently ignored the non-tool decls' run
+/// errors — the quiet start is gone).
+pub struct VmToolState {
+    pub(crate) declarations: Vec<Declaration>,
+    pub(crate) program: metalogos::bytecode::Program,
+    pub(crate) pattern_index: std::collections::HashMap<String, usize>,
 }
 
 impl McpServer {
@@ -119,6 +153,57 @@ impl McpServer {
                 .collect::<Vec<_>>()
                 .join(", ")
         );
+
+        // ── №793 (the gateway G1): the upstream session pool ──
+        // METALOGOS_MCP_UPSTREAMS is read ONCE here (the №263 discipline);
+        // every declaration's argv[0] passes the SAME allowlist gate as the
+        // stateless builtins (no weakening) — a declaration outside the
+        // allowlist REFUSES the gateway fail-closed (a config error, not a
+        // transient state). A spawn failure at startup is LOUD (stderr) and
+        // leaves the session degraded until the first use retries.
+        let upstreams = match std::env::var("METALOGOS_MCP_UPSTREAMS") {
+            Err(_) => Vec::new(),
+            Ok(raw) => {
+                let mut sessions = parse_upstreams_spec(&raw)?;
+                for s in &sessions {
+                    // The allowlist gate rides the declaration (fail-closed).
+                    mcp_allowlist_gate(s.command())?;
+                }
+                // The collision rule: the gateway's OWN tools win a name
+                // collision with an upstream prefix — detected loudly here.
+                for s in &sessions {
+                    if tools
+                        .iter()
+                        .any(|t| t.full_name == s.name() || t.tool_name == s.name())
+                    {
+                        eprintln!(
+                            "[mcp-serve] WARNING: upstream name `{}` collides with a local tool namespace — the LOCAL tool wins every ambiguous call (№793)",
+                            s.name()
+                        );
+                    }
+                }
+                // Eager spawn: a dead upstream at startup is a loud note,
+                // not a constructor failure (the reconnect rides ensure_alive).
+                for s in &mut sessions {
+                    if let Err(e) = s.ensure_alive() {
+                        eprintln!(
+                            "[mcp-serve] upstream `{}` failed to start (degraded until the first retry): {}",
+                            s.name(),
+                            e
+                        );
+                    }
+                }
+                eprintln!(
+                    "[mcp-serve] upstream sessions declared: {}",
+                    sessions
+                        .iter()
+                        .map(|s| s.name().to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+                sessions
+            }
+        };
         // №401 findings (gh#536): the tool-method gate state is loud at
         // startup, mirroring the №253/№259 serve posture — the operator
         // must see WHEN tool methods may read env/exec.
@@ -141,9 +226,33 @@ impl McpServer {
             }
         );
 
+        // ── №795: the VM compile at startup — the SAME compile-path as serve ──
+        // Tool methods compile as qualified patterns (№684); the program
+        // executes tool bodies on the VM per call (the runtime label gates
+        // fire — the capability the TW lane never had). The db bootstrap
+        // mirrors serve (№1169/№1170): resolved ONCE, eagerly.
+        let mut compiler = metalogos::compiler::Compiler::new();
+        let mut program = compiler
+            .compile(declarations.to_vec())
+            .map_err(|e| format!("mcp-serve: VM compile error: {}", e))?;
+        metalogos::vm::boot_resolve_db_url(&mut program)
+            .map_err(|e| format!("mcp-serve: VM db bootstrap error: {}", e))?;
+        let mut pattern_index = std::collections::HashMap::new();
+        for t in &tools {
+            if let Some(idx) = compiler.pattern_index(&t.full_name) {
+                pattern_index.insert(t.full_name.clone(), idx);
+            }
+        }
+        let vm_state = std::sync::Arc::new(VmToolState {
+            declarations: declarations.to_vec(),
+            program,
+            pattern_index,
+        });
+
         Ok(McpServer {
             tools,
-            declarations: declarations.to_vec(),
+            vm_state,
+            upstreams: Mutex::new(upstreams),
         })
     }
 
@@ -155,20 +264,36 @@ impl McpServer {
         id: &serde_json::Value,
     ) -> serde_json::Value {
         match method {
-            "initialize" => serde_json::json!({
-                "jsonrpc": "2.0",
-                "id": id,
-                "result": {
-                    "protocolVersion": "2024-11-05",
-                    "serverInfo": {
-                        "name": "metalogos-mcp-server",
-                        "version": env!("CARGO_PKG_VERSION")
-                    },
-                    "capabilities": {
-                        "tools": {}
+            "initialize" => {
+                // №793: the version negotiation — the server answers the
+                // CLIENT's requested revision when it supports it (the spec
+                // matrix), its latest known otherwise; an unsupported pair
+                // surfaces as the client's loud refusal naming both versions.
+                const SERVER_KNOWN_VERSIONS: [&str; 3] = ["2024-11-05", "2025-03-26", "2025-11-25"];
+                let requested = params
+                    .get("protocolVersion")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let answer = if SERVER_KNOWN_VERSIONS.contains(&requested) {
+                    requested
+                } else {
+                    "2025-11-25"
+                };
+                serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {
+                        "protocolVersion": answer,
+                        "serverInfo": {
+                            "name": "metalogos-mcp-server",
+                            "version": env!("CARGO_PKG_VERSION")
+                        },
+                        "capabilities": {
+                            "tools": {}
+                        }
                     }
-                }
-            }),
+                })
+            }
 
             "notifications/initialized" => serde_json::json!({
                 "jsonrpc": "2.0",
@@ -177,7 +302,7 @@ impl McpServer {
             }),
 
             "tools/list" => {
-                let tool_list: Vec<serde_json::Value> = self
+                let mut tool_list: Vec<serde_json::Value> = self
                     .tools
                     .iter()
                     .map(|t| {
@@ -212,6 +337,49 @@ impl McpServer {
                         })
                     })
                     .collect();
+                // ── №793 (the gateway G1): the upstream tools aggregation ──
+                // Each declared upstream's tools/list rides the LONG-LIVED
+                // session; the tool names carry the `name.` prefix. A down
+                // upstream drops its tools from THIS list with a loud stderr
+                // note (the call attempt to it refuses loudly with the reason
+                // — never a silent omission without a trace).
+                if let Ok(mut pool) = self.upstreams.lock() {
+                    for s in pool.iter_mut() {
+                        match s.tools_list_json() {
+                            Ok(tools_json) => {
+                                if let Some(arr) = tools_json.as_array() {
+                                    for tool in arr {
+                                        let mut entry = tool.clone();
+                                        if let Some(name) = entry
+                                            .get("name")
+                                            .and_then(|n| n.as_str())
+                                            .map(str::to_string)
+                                        {
+                                            entry["name"] = serde_json::Value::String(format!(
+                                                "{}.{}",
+                                                s.name(),
+                                                name
+                                            ));
+                                        }
+                                        tool_list.push(entry);
+                                    }
+                                } else {
+                                    eprintln!(
+                                        "[mcp-upstream] `{}` tools/list: result.tools is not an array — skipped loudly",
+                                        s.name()
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!(
+                                    "[mcp-upstream] `{}` tools/list failed (its tools are omitted from this listing): {}",
+                                    s.name(),
+                                    e
+                                );
+                            }
+                        }
+                    }
+                }
                 serde_json::json!({
                     "jsonrpc": "2.0",
                     "id": id,
@@ -226,12 +394,83 @@ impl McpServer {
                     .cloned()
                     .unwrap_or(serde_json::Value::Null);
 
+                // ── №793 (the gateway G1): the upstream proxy ──
+                // `name.tool` routes to the declared upstream's LONG-LIVED
+                // session (one process per upstream, the loud reconnect on
+                // death). The LOCAL tools win a collision (full_name or the
+                // bare method_name match is checked FIRST — the rule pinned
+                // loudly at startup). The response shape, the size cap and
+                // the error envelope are byte-identical to the local path.
+                let local_match = self
+                    .tools
+                    .iter()
+                    .any(|t| t.full_name == tool_name || t.method_name == tool_name);
+                if !local_match {
+                    if let Some((upstream_name, upstream_tool)) = tool_name.split_once('.') {
+                        let mut proxy = None;
+                        if let Ok(mut pool) = self.upstreams.lock() {
+                            if let Some(s) = pool.iter_mut().find(|s| s.name() == upstream_name) {
+                                proxy = Some(
+                                    match s.tools_call_text(upstream_tool, arguments.clone()) {
+                                        Ok(text) => Ok(text),
+                                        Err(e) => Err(e),
+                                    },
+                                );
+                            }
+                        }
+                        if let Some(result) = proxy {
+                            return match result {
+                                Ok(text) => {
+                                    // №794 (the gateway G3): the ALLOWED call — the ledger
+                                    // carries the decision, the tool and the outcome
+                                    // (the arguments ride only as the args_hash — the ledger
+                                    // must not become a leak channel).
+                                    ledger_mcp_record(true, tool_name, "ok");
+                                    let result_str = if text.len() > MAX_RESPONSE_SIZE {
+                                        format!(
+                                            "{}... (truncated, {} bytes)",
+                                            &text[..MAX_RESPONSE_SIZE],
+                                            text.len()
+                                        )
+                                    } else {
+                                        text
+                                    };
+                                    serde_json::json!({
+                                        "jsonrpc": "2.0",
+                                        "id": id,
+                                        "result": {
+                                            "content": [{"type": "text", "text": result_str}],
+                                            "isError": false
+                                        }
+                                    })
+                                }
+                                Err(e) => {
+                                    // Allowed (the proxy routed the call) but the
+                                    // upstream/tool failed — the OUTCOME, not a denial.
+                                    ledger_mcp_record(true, tool_name, &format!("error: {}", e));
+                                    serde_json::json!({
+                                        "jsonrpc": "2.0",
+                                        "id": id,
+                                        "result": {
+                                            "content": [{"type": "text", "text": format!("Error: {}", e)}],
+                                            "isError": true
+                                        }
+                                    })
+                                }
+                            };
+                        }
+                    }
+                }
+
                 // Find the tool method by name.
                 let tool = self
                     .tools
                     .iter()
                     .find(|t| t.full_name == tool_name || t.method_name == tool_name);
                 if tool.is_none() {
+                    // №794 (the gateway G3): the DENIED call — the ledger records
+                    // every refusal with the reason (the args hash-only).
+                    ledger_mcp_record(false, tool_name, "denied: unknown tool (not in allowlist)");
                     return serde_json::json!({
                         "jsonrpc": "2.0",
                         "id": id,
@@ -239,6 +478,7 @@ impl McpServer {
                     });
                 }
                 let Some(tool) = tool else {
+                    ledger_mcp_record(false, tool_name, "denied: not in allowlist");
                     return serde_json::json!({
                         "jsonrpc": "2.0",
                         "id": id,
@@ -246,14 +486,16 @@ impl McpServer {
                     });
                 };
 
-                // Execute the tool method body.
+                // Execute the tool method body (№795: on the VM).
                 match execute_tool_method(
-                    &self.declarations,
+                    &self.vm_state,
                     &tool.tool_name,
                     &tool.method_name,
                     &arguments,
                 ) {
                     Ok(result) => {
+                        // №794: the allowed call — ok.
+                        ledger_mcp_record(true, tool_name, "ok");
                         let result_str = if result.len() > MAX_RESPONSE_SIZE {
                             format!(
                                 "{}... (truncated, {} bytes)",
@@ -272,14 +514,19 @@ impl McpServer {
                             }
                         })
                     }
-                    Err(e) => serde_json::json!({
-                        "jsonrpc": "2.0",
-                        "id": id,
-                        "result": {
-                            "content": [{"type": "text", "text": format!("Error: {}", e)}],
-                            "isError": true
-                        }
-                    }),
+                    Err(e) => {
+                        // №794: the allowed call whose BODY failed — the outcome,
+                        // not a denial (the tool executed; the body errored).
+                        ledger_mcp_record(true, tool_name, &format!("error: {}", e));
+                        serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": {
+                                "content": [{"type": "text", "text": format!("Error: {}", e)}],
+                                "isError": true
+                            }
+                        })
+                    }
                 }
             }
 
@@ -426,6 +673,24 @@ struct ExposedTool {
     policy: crate::mcp_policy::ToolPolicy,
 }
 
+/// №794 (the gateway G3): the ledger record on EVERY `tools/call` —
+/// allowed (`mcp.call`) or refused (`mcp.call.denied`), the tool in the
+/// scope, the reason/outcome in the detail. The detail is hashed into
+/// the record's `args_hash` BY THE LEDGER SCHEMA — the arguments and
+/// the reasons never ride the journal in the open form (the ledger must
+/// not become a leak channel). The actor is the gateway process; the
+/// floating session label extends this record with G2 (#1481) — the
+/// `label=pre-G2` marker is the explicit extension point, not silence.
+fn ledger_mcp_record(allowed: bool, tool: &str, outcome: &str) {
+    let action = if allowed {
+        "mcp.call"
+    } else {
+        "mcp.call.denied"
+    };
+    let detail = format!("tool={} outcome={} label=pre-G2", tool, outcome);
+    metalogos::ledger::record(action, "mcp-gateway", tool, &detail);
+}
+
 fn collect_exposed_tools(declarations: &[Declaration], allowlist: &[String]) -> Vec<ExposedTool> {
     let mut exposed = Vec::new();
     for decl in declarations {
@@ -455,7 +720,7 @@ fn collect_exposed_tools(declarations: &[Declaration], allowlist: &[String]) -> 
 }
 
 fn execute_tool_method(
-    declarations: &[Declaration],
+    vm_state: &VmToolState,
     tool_name: &str,
     method_name: &str,
     arguments: &serde_json::Value,
@@ -472,8 +737,10 @@ fn execute_tool_method(
     // MCP caller is untrusted, the exact route-body threat shape).
     let _serve_guard = metalogos::builtins::ServeRouteExecGuard::new();
 
-    // Find the tool declaration.
-    let tool_decl = declarations
+    // Find the tool declaration (the param list rides the DECLARATION —
+    // the execution rides the compiled program).
+    let tool_decl = vm_state
+        .declarations
         .iter()
         .find_map(|d| {
             if let Declaration::Tool(t) = d {
@@ -485,35 +752,31 @@ fn execute_tool_method(
         })
         .ok_or_else(|| format!("Tool not found: {}", tool_name))?;
 
-    // Find the method.
     let method = tool_decl
         .methods
         .iter()
         .find(|m| m.name == method_name)
         .ok_or_else(|| format!("Method not found: {}.{}", tool_name, method_name))?;
 
-    // Build interpreter with declarations (load patterns/templates/etc).
-    let mut interp = Interpreter::new();
-    interp.set_base_dir(std::path::PathBuf::from("."));
-    let _ = interp.run(
-        declarations
-            .iter()
-            .filter(|d| !matches!(d, Declaration::Tool(_)))
-            .cloned()
-            .collect::<Vec<_>>(),
-    );
+    // №795: the VM lane — the qualified key compiles as a REGULAR PATTERN
+    // (№684); the invocation is the CallPattern convention (the args bind
+    // as the frame locals). The runtime label gates (ADR-0156) fire in the
+    // body — the capability the TW lane never had (the RED pin n795).
+    let qualified = format!("{}.{}", tool_name, method_name);
+    let idx = *vm_state
+        .pattern_index
+        .get(&qualified)
+        .ok_or_else(|| format!("Method not compiled for VM: {}", qualified))?;
 
-    // Convert JSON arguments to a Value env (param_name → value).
-    let mut env = std::collections::HashMap::new();
-    if arguments.is_object() {
-        for p in &method.params {
-            let json_val = arguments.get(&p.name).unwrap_or(&serde_json::Value::Null);
-            env.insert(p.name.clone(), json_to_value(json_val));
-        }
+    // Convert JSON arguments to positional Values (the declaration order).
+    let mut args = Vec::with_capacity(method.params.len());
+    for p in &method.params {
+        let json_val = arguments.get(&p.name).unwrap_or(&serde_json::Value::Null);
+        args.push(json_to_value(json_val));
     }
 
-    // Execute the method body via eval_statements (pub(crate) on Interpreter).
-    let result = interp.eval_statements(&method.body, &mut env)?;
+    let mut vm = metalogos::vm::Vm::new();
+    let result = vm.invoke_pattern(idx, args, &vm_state.program)?;
     Ok(format!("{}", result))
 }
 

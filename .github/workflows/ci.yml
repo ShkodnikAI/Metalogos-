@@ -1255,6 +1255,14 @@ jobs:
       - name: Free runner disk (№693 — the instrumented tree outgrew the runner)
         run: |
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghc /opt/hostedtoolcache/CodeQL /usr/share/swift /usr/local/share/boost
+          # №799 (wave 65, the №693 class again): the instrumented
+          # --all-targets tree outgrew the reclaim headroom — the №799
+          # PR's two new test binaries pushed the ld link mid-«Coverage
+          # baseline summary» into SIGBUS (the №693 signature: 9e9f2d6,
+          # e5f9f98, 08482d1 — the same death). The second reclaim tier:
+          # the preinstalled surfaces this job never touches. Node stays
+          # (the Actions runtime depends on it).
+          sudo rm -rf /opt/az /usr/local/share/powershell /usr/share/miniconda /usr/local/julia /opt/hostedtoolcache/PyPy /usr/share/az_* /opt/microsoft /opt/google
           sudo docker image prune -af > /dev/null 2>&1 || true
           df -h /
       - uses: dtolnay/rust-toolchain@stable

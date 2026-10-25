@@ -141,6 +141,9 @@ fn assert_both(src: &str, expected: &str) {
     assert_eq!(vm.trim_end(), expected, "VM output mismatch\n{src}");
 }
 
+// №799: the only consumer is the vision-gated default-deny probe —
+// the helper rides the same gate.
+#[cfg(feature = "vision")]
 fn assert_both_loud_err(src: &str, needle: &str) {
     let tw = run_tw(src).expect_err("TW must refuse loudly");
     assert!(tw.contains(needle), "TW refusal must carry {needle}: {tw}");
@@ -198,6 +201,9 @@ fn n717_llm_stream_open_carries_llmstream_meta() {
 }
 
 #[test]
+// №799 (T2, gh#1488): the row gates with `vision` — the spelling pin rides
+// the feature build (the default parked refusal is pinned by naryad_799).
+#[cfg(feature = "vision")]
 fn n717_vision_fetch_weights_is_precise_string() {
     let s = spec_of("vision_fetch_weights");
     assert_eq!(
@@ -253,6 +259,10 @@ flow Main { input: String = "t" -> M -> output }
 }
 
 #[test]
+// №799 (T2, gh#1488): the №241 default-deny probe rides the `vision`
+// build (the handler is the feature build's surface; in the default
+// build the parked refusal fires at check — pinned by naryad_799).
+#[cfg(feature = "vision")]
 fn n717_vision_fetch_weights_default_deny_loud_both_backends() {
     // The allowlist default-deny fires BEFORE any network activity
     // (ADR-0125): without MLOG_VISION_WEIGHTS_ALLOWLIST the handler
@@ -298,7 +308,10 @@ fn n717_movement_refusals_stay_unknown_in_registry() {
         "pose_make",
         "recipe_search",
         "reflex_bpe_load",
-        "reflex_generate",
+        // reflex_generate left the DEFAULT-build ground: №799 (gh#1546,
+        // wave 65) gated the row with `candle` — asserted under the
+        // same gate below (the parked default refusal is pinned by
+        // naryad_799).
         // reflex_list left the refusal ground: №748 (gh#1392, wave 55)
         // closed it List<String> through the live shared dispatch (lane
         // α; the №744 vision_list form) — tests/naryad_748_wall_walk.rs.
@@ -347,6 +360,12 @@ fn n717_movement_refusals_stay_unknown_in_registry() {
         spec_of("voice_load").return_type,
         Type::Unknown,
         "the refusal voice_load must stay Unknown honest"
+    );
+    #[cfg(feature = "candle")]
+    assert_eq!(
+        spec_of("reflex_generate").return_type,
+        Type::Unknown,
+        "the refusal reflex_generate must stay Unknown honest (№799: the row gates with candle)"
     );
 }
 

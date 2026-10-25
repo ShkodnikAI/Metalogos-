@@ -179,8 +179,6 @@ fn n748_the_wall_stays_unknown_in_registry() {
         "call_llm_schema",
         "config_load",
         "find",
-        // the candle-gated duality (1)
-        "reflex_generate",
         // the coarse-opaque dispatch arm (1)
         "reflex_load",
         // owner-gated lanes — the (β) gate 7 (4)
@@ -211,6 +209,15 @@ fn n748_the_wall_stays_unknown_in_registry() {
         spec_of("video_fetch_weights").return_type,
         Type::Unknown,
         "the refusal video_fetch_weights must stay Unknown honest"
+    );
+    // №799 (T2, gh#1488): reflex_generate left the default-build ground —
+    // the row gates with `candle`; the parked default refusal is pinned
+    // by naryad_799.
+    #[cfg(feature = "candle")]
+    assert_eq!(
+        spec_of("reflex_generate").return_type,
+        Type::Unknown,
+        "the refusal reflex_generate must stay Unknown honest (№799: the row gates with candle)"
     );
     #[cfg(feature = "voice")]
     assert_eq!(

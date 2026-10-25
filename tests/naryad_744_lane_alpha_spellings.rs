@@ -99,9 +99,15 @@ fn n744_the_three_rows_carry_their_spellings() {
     // the type is the INTERCEPT's shape, not the fallback's).
     assert!(spec_of("vision_list").handler.is_some());
     // vision_lora_load — the precise String (the single Ok arm).
-    assert_eq!(spec_of("vision_lora_load").return_type, Type::String);
-    assert!(!spec_of("vision_lora_load").parameterized);
-    assert!(spec_of("vision_lora_load").handler.is_some());
+    // №799 (T2, gh#1488): the row gates with the `vision` feature — the
+    // spelling pin rides the feature build (the default build's parked
+    // refusal is pinned by naryad_799_parked_parity).
+    #[cfg(feature = "vision")]
+    {
+        assert_eq!(spec_of("vision_lora_load").return_type, Type::String);
+        assert!(!spec_of("vision_lora_load").parameterized);
+        assert!(spec_of("vision_lora_load").handler.is_some());
+    }
 }
 
 #[test]
@@ -172,6 +178,10 @@ flow Main { input: String = "x" -> Probe -> output }
 }
 
 #[test]
+// №799 (T2, gh#1488): the №244 intercept is the vision build's live
+// path — the probe rides the feature build (the default build's parked
+// refusal is pinned by naryad_799).
+#[cfg(feature = "vision")]
 fn n744_vision_lora_load_refusals_stay_loud_on_both_backends() {
     // The №244 intercept is the LIVE path on both lanes; the missing
     // db / missing adapter / missing weights-dir refusals stay LOUD

@@ -491,6 +491,10 @@ impl Compiler {
                 // №325: the compatibility profile is a compile-time
                 // declaration — nothing to emit.
                 Declaration::Profile(_) => {}
+                // №801: the MCP policy is a GATEWAY-level declaration —
+                // the bytecode carries none of it (the gateway reads it
+                // from the parsed AST at startup).
+                Declaration::McpPolicy(_) => {}
                 Declaration::EntityType(e) => {
                     let fields: Vec<String> = e.fields.iter().map(|f| f.name.clone()).collect();
                     self.struct_fields.insert(e.name.clone(), fields);
@@ -803,6 +807,8 @@ impl Compiler {
                 // №325: the compatibility profile is a compile-time
                 // declaration — nothing to emit.
                 Declaration::Profile(_) => {}
+                // №801: the MCP policy emits nothing into main_code.
+                Declaration::McpPolicy(_) => {}
                 // №392: deny handlers were compiled in pass 1.5 — nothing
                 // to emit into main_code.
                 Declaration::OnDeny(_) => {}

@@ -159,6 +159,9 @@ pub enum Declaration {
     /// the №325 `SINK_CLEARANCE` gate runs in advisory mode — every
     /// violation becomes an audit event instead of a compile error.
     Profile(ProfileDecl),
+    /// №801 (gh#1548): the MCP policy — the upstream tool classes for
+    /// the floating session label (the gateway G2).
+    McpPolicy(McpPolicyDecl),
     Origin(OriginDecl),
 }
 
@@ -173,6 +176,43 @@ pub struct ProfileDecl {
     pub name: String,
     /// Options, e.g. `egress → permissive_with_audit`.
     pub options: Vec<(String, String)>,
+}
+
+/// №801 (gh#1548, wave 65 — the gateway G2, the C1 (b) owner decision):
+/// the MCP policy — the UPSTREAM tool classes the floating session label
+/// reads. `mcp_policy { tool "upstream.name" source "private"; }` — each
+/// entry classifies ONE upstream tool as a Source (the result label
+/// JOINs the session label on success) or a Sink (the session label must
+/// FLOW TO the clearance before the call). The label is a Label
+/// annotation (ADR-0154 §3: the conf word REQUIRED, the integrity
+/// defaults trusted) — validated by `mlog check` (semantic).
+#[derive(Debug, Clone)]
+pub struct McpPolicyDecl {
+    pub span: Span,
+    /// The entries, in declaration order.
+    pub entries: Vec<McpPolicyEntry>,
+}
+
+/// One `tool "upstream.name" <kind> "<label>"` entry.
+#[derive(Debug, Clone)]
+pub struct McpPolicyEntry {
+    pub span: Span,
+    /// The full upstream tool name (`upstream.tool` — a bare name is the
+    /// local-tool namespace, refused by the semantic check: the local
+    /// tools' policy compiles from the body, №394).
+    pub tool: String,
+    /// Source (ingress; the label JOINS) or Sink (egress; the label is
+    /// the required clearance).
+    pub kind: McpPolicyKind,
+    /// The Label annotation text ("private", "public, untrusted") —
+    /// parsed and validated by the semantic check.
+    pub label: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum McpPolicyKind {
+    Source,
+    Sink,
 }
 
 /// Наряд №332 (ADR-0164): perception origin declaration —
@@ -197,6 +237,7 @@ impl Declaration {
     /// and action declarations (rule, memorize, forget, relate).
     pub fn name(&self) -> Option<&str> {
         match self {
+            Declaration::McpPolicy(_) => None,
             Declaration::Template(d) => Some(&d.name),
             Declaration::SkillIndex(d) => Some(&d.name),
             Declaration::Schema(d) => Some(&d.name),
@@ -244,6 +285,7 @@ impl Declaration {
     /// Human-readable kind string for this declaration (for LSP hover/completion).
     pub fn kind_str(&self) -> &'static str {
         match self {
+            Declaration::McpPolicy(_) => "mcp_policy",
             Declaration::MlogServer(_) => "mlogserver",
             Declaration::Template(_) => "template",
             Declaration::Db(_) => "db",
@@ -455,12 +497,17 @@ impl Declaration {
             }
             // №392: the deny handler's type signature is its class selector.
             Declaration::OnDeny(d) => format!("on_deny({})", d.class),
+            // №801: the policy signature is its entry count.
+            Declaration::McpPolicy(d) => {
+                format!("mcp_policy {{ {} entries }}", d.entries.len())
+            }
         }
     }
 
     /// Source span of this declaration.
     pub fn span(&self) -> &Span {
         match self {
+            Declaration::McpPolicy(d) => &d.span,
             Declaration::MlogServer(d) => &d.span,
             Declaration::Template(d) => &d.span,
             Declaration::Db(d) => &d.span,

@@ -260,6 +260,32 @@ impl Label {
             consent: self.consent.clone().meet(other.consent.clone()),
         }
     }
+
+    /// №801 (gh#1548, the gateway G2): the FLOW check — may data carrying
+    /// THIS (session) label pass a sink that REQUIRES `requirement`?
+    /// The LIO flows-to relation on the three axes:
+    ///   * confidentiality: `self.conf <= requirement.conf` (the session
+    ///     must hold no stronger secret than the sink releases);
+    ///   * integrity: `self.integrity >= requirement.integrity` (the
+    ///     session data must be at least as trustworthy as the sink
+    ///     demands);
+    ///   * consent: every scope the requirement names must be covered by
+    ///     the session's scopes.
+    ///
+    /// Poisoned NEVER flows (no legal sinks — ADR-0154 D1): a quarantined
+    /// session refuses every sink, the honest conservative floor.
+    pub fn flows_to(&self, requirement: &Label) -> bool {
+        if self.conf == Conf::Poisoned {
+            return false;
+        }
+        self.conf <= requirement.conf
+            && self.integrity >= requirement.integrity
+            && requirement
+                .consent
+                .scopes()
+                .iter()
+                .all(|s| self.consent.scopes().contains(s))
+    }
 }
 
 impl fmt::Display for Label {

@@ -60,9 +60,9 @@ by itself.
 |---|---|---|---|
 | G0 — the precondition | #1458, #1460 | the runtime label gates execute in the pattern/route bodies; the resource limits | LANDED (№780, `e77a93c`; #1460 in Wave 62 queue) |
 | G-ADR — this ADR | #1479 / №790 | the decision record with the measurable exit | LANDED (this naryad) |
-| G1 | #1480 | the MCP client: the long-lived upstream sessions, the current protocol | queued (Wave 64) |
-| G2 | #1481 | the floating session label — the data flow between the tool calls | queued (Wave 65) |
-| G3 | #1482 | the ledger entry on EVERY tools/call (allowed / refused / reason) | queued (Wave 64) |
+| G1 | #1480 | the MCP client: the long-lived upstream sessions, the current protocol | LANDED (№793, Wave 64) |
+| G2 | #1481 | the floating session label — the data flow between the tool calls | LANDED (№801, Wave 65) |
+| G3 | #1482 | the ledger entry on EVERY tools/call (allowed / refused / reason) | LANDED (№794, Wave 64) |
 | G4 | #1483 | the demo + the dogfood: an agent tries to leak a secret, gets the refusal AND the ledger record | queued (Wave 66) |
 
 The G0 precondition is honest: the wave-62 A-epic (the dispatch

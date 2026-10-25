@@ -5,7 +5,7 @@ COMMENT      = _{ "//" ~ (!("\n" | "\r") ~ ANY)* }
 
 program     =  { SOI ~ (declaration ~ WHITESPACE*)* ~ EOI }
 
-declaration = _{ test_decl | type_alias_decl | context_budget_decl | llm_decl | mlogserver_decl | template_decl | db_decl | schema_decl | skill_index_decl | memory_decl | import_decl | hook_decl | on_deny_decl | relate_decl | sandbox_decl | mutate_decl | eval_decl | fluid_decl | adapt_decl | memorize_decl | forget_decl | entity_type_decl | entity_record_decl | entity_simple_decl | rule_decl | learnable_pattern_decl | pattern_decl | flow_decl | conversation_decl | tool_decl | reflex_decl | reflex_seq_decl | reflex_gen_decl | vision_decl | profile_decl | origin_decl }
+declaration = _{ test_decl | type_alias_decl | context_budget_decl | llm_decl | mcp_policy_decl | mlogserver_decl | template_decl | db_decl | schema_decl | skill_index_decl | memory_decl | import_decl | hook_decl | on_deny_decl | relate_decl | sandbox_decl | mutate_decl | eval_decl | fluid_decl | adapt_decl | memorize_decl | forget_decl | entity_type_decl | entity_record_decl | entity_simple_decl | rule_decl | learnable_pattern_decl | pattern_decl | flow_decl | conversation_decl | tool_decl | reflex_decl | reflex_seq_decl | reflex_gen_decl | vision_decl | profile_decl | origin_decl }
 
 // ── Type Alias (Наряд №119) ──────────────────────────────────────
 // type Token = Secret
@@ -50,6 +50,17 @@ LLM_KW          = @{ "llm" }
 // tool.method(args) resolves via QualifiedCall same as module.pattern().
 tool_decl     = { TOOL_KW ~ IDENT ~ LBRACE ~ tool_method* ~ RBRACE }
 tool_method  = { IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ effect_trail? ~ LBRACE ~ statement* ~ RBRACE }
+
+// ── MCP policy (№801, the gateway G2 — the floating session label) ──
+// mcp_policy { tool "upstream.name" source "private";
+//              tool "upstream.mail" sink "public"; }
+// The entry classifies an UPSTREAM tool (the `upstream.name` form) as a
+// Source (the result label JOINs the session label) or a Sink (the
+// session label must FLOW TO the clearance). The label is a Label
+// annotation (ADR-0154: conf REQUIRED, integrity defaults trusted).
+mcp_policy_decl = { "mcp_policy" ~ LBRACE ~ (policy_entry ~ SEMICOLON)* ~ RBRACE }
+policy_entry    = { "tool" ~ STRING_LITERAL ~ policy_kind ~ STRING_LITERAL }
+policy_kind     = @{ "source" | "sink" }
 TOOL_KW      = @{ "tool" }
 
 // ── Hook (ADR-0045): before_pattern / after_pattern ──────────────────────
@@ -505,6 +516,7 @@ LBRACKET  = @{ "[" }
 RBRACKET  = @{ "]" }
 LBRACE    = @{ "{" }
 RBRACE    = @{ "}" }
+SEMICOLON = @{ ";" }
 GTE       = @{ ">=" }
 LTE       = @{ "<=" }
 EQ        = @{ "==" }

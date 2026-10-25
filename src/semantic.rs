@@ -66,6 +66,12 @@ pub enum SemanticErrorKind {
     /// see it, `mlog check` stays exit-0, and the warning prints with
     /// the `[BUILTIN_EXPERIMENTAL]` class prefix.
     BuiltinExperimental,
+    /// №801 (gh#1548, the gateway G2): MCP_POLICY_INVALID — an mcp_policy
+    /// entry that cannot be a class: an unknown Label-annotation word
+    /// (the label must parse per ADR-0154 §3) or a bare (non-`upstream.`)
+    /// tool name (the local-tool namespace policy compiles from the
+    /// body, №394). Blocks like every semantic finding.
+    McpPolicyInvalid,
     /// №581 (the audit d63cc1d X-1, release-block): RESPOND_NOT_TERMINAL —
     /// a bare `respond*`/`respond_html*` call (an ExprStmt, no enclosing
     /// `return`) sits in a NON-terminal position of a route body (not the
@@ -200,6 +206,7 @@ impl SemanticErrorKind {
             SemanticErrorKind::SafePipeNotHtml => Some(CODE_SAFE_PIPE_NOT_HTML),
             SemanticErrorKind::UnsafePipeForm => None,
             SemanticErrorKind::BuiltinParked => Some(CODE_BUILTIN_PARKED),
+            SemanticErrorKind::McpPolicyInvalid => Some(CODE_MCP_POLICY_INVALID),
             SemanticErrorKind::BuiltinExperimental => Some(CODE_BUILTIN_EXPERIMENTAL),
             SemanticErrorKind::Other => None,
         }
@@ -215,6 +222,10 @@ use crate::interpreter::values::CODE_BUILTIN_PARKED;
 /// (never an error; the exit-0 semantics), printed by `mlog check` and
 /// partitioned out of the blocking path (see check_program's tail).
 pub const CODE_BUILTIN_EXPERIMENTAL: &str = "BUILTIN_EXPERIMENTAL";
+/// №801 (gh#1548, the gateway G2): the mcp_policy entry is not a legal
+/// class — an unknown Label-annotation word or a bare (local-namespace)
+/// tool name.
+pub const CODE_MCP_POLICY_INVALID: &str = "MCP_POLICY";
 
 /// Наряд №523: the ONE explicit exemption list for the run/serve
 /// blocking gates. EVERY `check_program` error blocks by default; a kind
@@ -572,6 +583,7 @@ pub fn break_outside_loop_violations(declarations: &[Declaration]) -> Vec<Spanne
             | Declaration::ReflexGen(_)
             | Declaration::Vision(_)
             | Declaration::Profile(_)
+            | Declaration::McpPolicy(_)
             | Declaration::Origin(_) => {}
         }
     }
@@ -6910,6 +6922,44 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
         if let Declaration::Profile(p) = decl {
             if let Err(e) = crate::profile::validate(p) {
                 result.errors.push(SpannedError::at(e, p.span.clone()));
+            }
+        }
+    }
+
+    // №801 (gh#1548, the gateway G2): validate the MCP policy — each
+    // entry names an UPSTREAM tool (the `upstream.tool` form; a bare
+    // name is the local-tool namespace whose policy compiles from the
+    // body, №394) and carries a parsable Label annotation (ADR-0154 §3:
+    // the conf word required, the integrity defaults trusted). A
+    // miscalibrated class must never be a silent no-op — the gateway
+    // makes denial decisions FROM these entries.
+    for decl in declarations {
+        if let Declaration::McpPolicy(p) = decl {
+            for entry in &p.entries {
+                if !entry.tool.contains('.') {
+                    result.errors.push(
+                        SpannedError::at(
+                            format!(
+                                "[MCP_POLICY] tool '{}' must be the UPSTREAM form `upstream.tool` — a bare name is the local-tool namespace (its policy compiles from the body, №394)",
+                                entry.tool
+                            ),
+                            entry.span.clone(),
+                        )
+                        .with_kind(SemanticErrorKind::McpPolicyInvalid),
+                    );
+                }
+                if let Err(e) = crate::labels::Label::parse(&entry.label) {
+                    result.errors.push(
+                        SpannedError::at(
+                            format!(
+                                "[MCP_POLICY] tool '{}': unknown label word '{}' — the label is a Label annotation (the conf word required: public|consented|private|poisoned; the integrity: trusted|untrusted; e.g. \"public, untrusted\")",
+                                entry.tool, e.word
+                            ),
+                            entry.span.clone(),
+                        )
+                        .with_kind(SemanticErrorKind::McpPolicyInvalid),
+                    );
+                }
             }
         }
     }

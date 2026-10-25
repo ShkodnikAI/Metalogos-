@@ -1337,6 +1337,9 @@ fn walk_decl(d: &metalogos::ast::Declaration, kinds: &mut Kinds) {
         D::Memory(_) => {
             kinds.insert("memory".to_string());
         }
+        D::McpPolicy(_) => {
+            kinds.insert("mcp_policy".to_string());
+        }
         D::Import(_) => {
             kinds.insert("import".to_string());
         }

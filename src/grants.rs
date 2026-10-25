@@ -617,6 +617,73 @@ pub fn revoke(handle: &GrantHandle, note: &str) -> Result<usize, String> {
     })
 }
 
+/// №801 (gh#1548, the gateway G2): find an ACTIVE grant whose scope
+/// attenuates to `action_scope` (e.g. the gateway's `mcp:<tool>` canonical
+/// form — a grant scope `mcp:*` or `mcp:mail.send` covers it). Returns
+/// the strongest covering grant (power desc, then the earliest id — the
+/// deterministic pick). Expired / consumed grants are skipped. The caller
+/// consumes through `grant_use` (the Once semantics live THERE).
+pub fn lookup_active_covering(action_scope: &str) -> Option<GrantHandle> {
+    with_conn(|conn| {
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, scope, class, remaining, expires_at, issuer
+                 FROM grant_state WHERE state = 'active'",
+            )
+            .map_err(|e| format!("grant lookup: {}", e))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, String>(5)?,
+                ))
+            })
+            .map_err(|e| format!("grant lookup: {}", e))?;
+        let mut best: Option<(u8, String, GrantHandle)> = None;
+        for row in rows {
+            let (id, scope, class_s, remaining, expires_at, issuer) =
+                row.map_err(|e| format!("grant lookup: {}", e))?;
+            if (expires_at as u64) <= now_secs() {
+                continue;
+            }
+            if !scope_attenuates(&scope, action_scope) {
+                continue;
+            }
+            let class = GrantClass::from_ledger_str(&class_s);
+            match &class {
+                GrantClass::Once if remaining <= 0 => continue,
+                GrantClass::N(_) if remaining <= 0 => continue,
+                _ => {}
+            }
+            let power = class.power();
+            let better = match &best {
+                None => true,
+                Some((p, best_id, _)) => power > *p || (power == *p && id < *best_id),
+            };
+            if better {
+                best = Some((
+                    power,
+                    id.clone(),
+                    GrantHandle {
+                        grant_id: id,
+                        scope,
+                        class,
+                        expires_at: expires_at as u64,
+                        issuer,
+                    },
+                ));
+            }
+        }
+        Ok(best.map(|(_, _, h)| h))
+    })
+    .ok()
+    .flatten()
+}
+
 /// Consume one use of the grant (ADR-0155 §3.2). Returns the remaining
 /// uses (-1 = unlimited). Typed errors, never panics.
 pub fn grant_use(handle: &GrantHandle, note: &str) -> Result<i64, String> {

@@ -54,6 +54,9 @@ impl Interpreter {
                 // №325: the compatibility profile is a compile-time
                 // declaration — no runtime effect.
                 Declaration::Profile(_) => {}
+                // №801: the MCP policy is gateway-level — no runtime
+                // effect in the interpreter either.
+                Declaration::McpPolicy(_) => {}
                 // №392: registered in the pre-pass — nothing here.
                 Declaration::OnDeny(_) => {}
                 Declaration::Import(import) => {

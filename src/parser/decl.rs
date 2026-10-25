@@ -3041,6 +3041,66 @@ pub(super) fn parse_origin_decl(pair: Pair<Rule>) -> Declaration {
     Declaration::Origin(OriginDecl { span, name, fields })
 }
 
+/// №801 (gh#1548): parse the MCP policy declaration —
+/// `mcp_policy { tool "upstream.name" source "private"; ... }`.
+/// The kind word comes through the silent `policy_kind` rule (the
+/// matched text IS the class); the labels stay STRINGS here — the
+/// Label-annotation validation lives in the semantic check (the
+/// unknown-word refusal carries the line span there).
+pub(super) fn parse_mcp_policy_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
+    let span = Span::from_pest(pair.as_span());
+    let mut entries: Vec<crate::ast::McpPolicyEntry> = Vec::new();
+    for c in children_of(&pair) {
+        if c.as_rule() != Rule::policy_entry {
+            continue;
+        }
+        let entry_span = Span::from_pest(c.as_span());
+        let ec = children_of(&c);
+        let mut words: Vec<String> = Vec::new();
+        let mut kind_word = String::new();
+        for part in &ec {
+            match part.as_rule() {
+                Rule::STRING_LITERAL => words.push(pair_str(part).trim_matches('"').to_string()),
+                Rule::policy_kind => kind_word = part.as_str().to_string(),
+                _ => {}
+            }
+        }
+        if words.len() != 2 || kind_word.is_empty() {
+            return Err(pair_error(
+                &c,
+                &format!(
+                    "mcp_policy entry must be `tool \"upstream.name\" source|sink \"<label>\";` (got {} string part(s), kind {:?})",
+                    words.len(),
+                    kind_word
+                ),
+            ));
+        }
+        let kind = match kind_word.as_str() {
+            "source" => crate::ast::McpPolicyKind::Source,
+            "sink" => crate::ast::McpPolicyKind::Sink,
+            other => {
+                return Err(pair_error(
+                    &c,
+                    &format!(
+                        "mcp_policy entry kind must be `source` or `sink`, got `{}`",
+                        other
+                    ),
+                ));
+            }
+        };
+        entries.push(crate::ast::McpPolicyEntry {
+            span: entry_span,
+            tool: words[0].clone(),
+            kind,
+            label: words[1].clone(),
+        });
+    }
+    Ok(Declaration::McpPolicy(crate::ast::McpPolicyDecl {
+        span,
+        entries,
+    }))
+}
+
 pub(super) fn parse_profile_decl(pair: Pair<Rule>) -> Declaration {
     let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);

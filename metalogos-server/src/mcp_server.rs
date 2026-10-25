@@ -103,6 +103,31 @@ pub struct McpServer {
     /// reconnected LOUDLY on the next use. Mutex: handle_request takes
     /// &self (the transports share the core through Arc).
     upstreams: Mutex<Vec<McpSession>>,
+    /// №801 (the gateway G2): the upstream tool classes from the
+    /// `mcp_policy` declaration — the full tool name (`upstream.tool`) →
+    /// Source(label) | Sink(required label). The map is the ONLY thing
+    /// the floating session label reads; unpoliced upstream tools pass
+    /// through unclassified (the №793 posture — the pilot is opt-in).
+    policy: std::collections::HashMap<String, McpToolClass>,
+    /// №801: the floating (current) session label — ONE label per agent
+    /// session (the stdio transport IS one session; the network
+    /// transports share the core through Arc and join into the same
+    /// label — the per-connection split rides with the http session
+    /// work; the pilot documents this honestly). Source successes JOIN
+    /// their label in; Sink calls check flows_to against it.
+    session_label: Mutex<metalogos::labels::Label>,
+    /// №801: the one-time loud notes for unpoliced upstream tools (the
+    /// stderr noise fires ONCE per tool, not per call).
+    unpoliced_warned: Mutex<std::collections::HashSet<String>>,
+}
+
+/// №801: the compiled class of one upstream tool.
+#[derive(Debug, Clone)]
+pub enum McpToolClass {
+    /// Ingress: a successful call JOINs this label into the session.
+    Source(metalogos::labels::Label),
+    /// Egress: the session label must FLOW TO this clearance.
+    Sink(metalogos::labels::Label),
 }
 
 /// The compiled tool surface (№795): built ONCE at `McpServer::new` —
@@ -249,10 +274,53 @@ impl McpServer {
             pattern_index,
         });
 
+        // ── №801 (the gateway G2): the policy map from the parsed
+        // declarations — the floating session label's ONLY input. Each
+        // entry must parse as a Label annotation (the semantic gate
+        // validates too; the gateway re-parses so a hot load path never
+        // trusts a stale validation) and name an upstream-qualified tool.
+        let mut policy: std::collections::HashMap<String, McpToolClass> =
+            std::collections::HashMap::new();
+        for decl in declarations {
+            if let Declaration::McpPolicy(p) = decl {
+                for entry in &p.entries {
+                    let label = match metalogos::labels::Label::parse(&entry.label) {
+                        Ok(l) => l,
+                        Err(e) => {
+                            return Err(format!(
+                                "mcp-serve: mcp_policy entry '{}': invalid label annotation '{}' ({}). The label is a Label annotation: the conf word required (public|consented|private|poisoned), the integrity optional (trusted|untrusted), e.g. \"public, untrusted\"",
+                                entry.tool, entry.label, e
+                            ));
+                        }
+                    };
+                    if !entry.tool.contains('.') {
+                        return Err(format!(
+                            "mcp-serve: mcp_policy entry '{}' must be the UPSTREAM form `upstream.tool` (a bare name is the local-tool namespace; its policy compiles from the body, №394)",
+                            entry.tool
+                        ));
+                    }
+                    let class = match entry.kind {
+                        metalogos::ast::McpPolicyKind::Source => McpToolClass::Source(label),
+                        metalogos::ast::McpPolicyKind::Sink => McpToolClass::Sink(label),
+                    };
+                    policy.insert(entry.tool.clone(), class);
+                }
+            }
+        }
+        if !policy.is_empty() {
+            eprintln!(
+                "cp-serve] mcp_policy: {} upstream tool class(es) loaded (the floating session label, №801)",
+                policy.len()
+            );
+        }
+
         Ok(McpServer {
             tools,
             vm_state,
             upstreams: Mutex::new(upstreams),
+            policy,
+            session_label: Mutex::new(metalogos::labels::Label::bottom()),
+            unpoliced_warned: Mutex::new(std::collections::HashSet::new()),
         })
     }
 
@@ -407,6 +475,78 @@ impl McpServer {
                     .any(|t| t.full_name == tool_name || t.method_name == tool_name);
                 if !local_match {
                     if let Some((upstream_name, upstream_tool)) = tool_name.split_once('.') {
+                        // ── №801 (the gateway G2): the floating session
+                        // label. The policy class decides BEFORE the call:
+                        // a Sink checks `flows_to` (with the owner-grant
+                        // fallback); a Source joins its label on success.
+                        // An UNPOLICED upstream tool passes through
+                        // unclassified (the №793 posture — the pilot is
+                        // opt-in) with a ONE-TIME loud note.
+                        let class = self.policy.get(tool_name);
+                        if class.is_none() {
+                            let mut warned = self
+                                .unpoliced_warned
+                                .lock()
+                                .unwrap_or_else(|p| p.into_inner());
+                            if warned.insert(tool_name.to_string()) {
+                                eprintln!(
+                                    "cp-serve] G2: upstream tool '{}' has NO mcp_policy class — it passes UNCLASSIFIED (the №793 posture); declare a Source/Sink entry for the session-label gate",
+                                    tool_name
+                                );
+                            }
+                        }
+                        if let Some(McpToolClass::Sink(required)) = class {
+                            let current = self
+                                .session_label
+                                .lock()
+                                .unwrap_or_else(|p| p.into_inner())
+                                .clone();
+                            if !current.flows_to(required) {
+                                // The downgrade path: an OWNER GRANT only —
+                                // the scope convention is `mcp:<tool>`, the
+                                // class "once" consumes on the first pass
+                                // (ADR-0155). The grant's use is recorded in
+                                // the grant ledger by grant_use itself; the
+                                // gateway ledger records the DECISION.
+                                let action_scope = format!("mcp:{}", tool_name);
+                                let granted =
+                                    metalogos::grants::lookup_active_covering(&action_scope)
+                                        .and_then(|h| {
+                                            metalogos::grants::grant_use(
+                                                &h,
+                                                &format!(
+                                                    "mcp-gateway sink clearance for {}",
+                                                    tool_name
+                                                ),
+                                            )
+                                            .ok()
+                                            .map(|_| h)
+                                        });
+                                if granted.is_none() {
+                                    ledger_mcp_record(
+                                        false,
+                                        tool_name,
+                                        "denied: SINK_CLEARANCE (the floating session label does not flow to the sink clearance; no covering owner grant)",
+                                    );
+                                    return serde_json::json!({
+                                        "jsonrpc": "2.0",
+                                        "id": id,
+                                        "result": {
+                                            "content": [{"type": "text", "text": format!(
+                                                "[SINK_CLEARANCE] upstream tool '{}' requires clearance '{}'; the session label is '{}' — the call is refused. The downgrade path: an owner grant (grant_issue scope \"mcp:{}\", class \"once\") or the redact policy.",
+                                                tool_name, required, current, tool_name
+                                            )}],
+                                            "isError": true
+                                        }
+                                    });
+                                }
+                                ledger_mcp_record(
+                                    true,
+                                    tool_name,
+                                    "granted: SINK_CLEARANCE bypassed by the owner once-grant (consumed)",
+                                );
+                            }
+                        }
                         let mut proxy = None;
                         if let Ok(mut pool) = self.upstreams.lock() {
                             if let Some(s) = pool.iter_mut().find(|s| s.name() == upstream_name) {
@@ -421,6 +561,17 @@ impl McpServer {
                         if let Some(result) = proxy {
                             return match result {
                                 Ok(text) => {
+                                    // №801: a Source SUCCESS joins its label
+                                    // into the session (the LIO current-label
+                                    // discipline — the conservative join: the
+                                    // session only rises, never falls).
+                                    if let Some(McpToolClass::Source(label)) = class {
+                                        let mut sl = self
+                                            .session_label
+                                            .lock()
+                                            .unwrap_or_else(|p| p.into_inner());
+                                        *sl = sl.join(label);
+                                    }
                                     // №794 (the gateway G3): the ALLOWED call — the ledger
                                     // carries the decision, the tool and the outcome
                                     // (the arguments ride only as the args_hash — the ledger
@@ -435,12 +586,21 @@ impl McpServer {
                                     } else {
                                         text
                                     };
+                                    // №801: the session label rides every
+                                    // result _meta (the observability the
+                                    // naryad names).
+                                    let session_label = self
+                                        .session_label
+                                        .lock()
+                                        .unwrap_or_else(|p| p.into_inner())
+                                        .to_string();
                                     serde_json::json!({
                                         "jsonrpc": "2.0",
                                         "id": id,
                                         "result": {
                                             "content": [{"type": "text", "text": result_str}],
-                                            "isError": false
+                                            "isError": false,
+                                            "_meta": {"metalogos.dev/session-label": session_label}
                                         }
                                     })
                                 }

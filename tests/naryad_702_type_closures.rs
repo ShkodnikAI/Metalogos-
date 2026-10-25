@@ -218,7 +218,7 @@ pattern T(i: String) -> String {
   let _ = db_execute("INSERT INTO t VALUES (41, 'n702')")
   let num = query_scalar("SELECT id FROM t")
   let txt = query_scalar("SELECT name FROM t")
-  return to_string(num + 1) + "/" + (txt + "!")
+  return to_string(num + 1) + "/" + (txt + "!") // allow(unchecked_option): the №702 pin IS the data-dependent cell dispatch — the numeric column rides +, the text column concatenates; the Unit arm is unreachable on the seeded table
 }
 flow Main { input: String = "x" -> T -> output }
 "#;

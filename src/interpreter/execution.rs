@@ -1031,10 +1031,22 @@ impl Interpreter {
         let pattern = match self.patterns.get(name) {
             Some(p) => p.clone(),
             None => {
+                // №799 (T2, gh#1488): a parked name that skipped the check
+                // gate (the eval/REPL surface) refuses with ITS contract
+                // at the runtime origin — the feature and the basis, not
+                // the generic undefined. The intercepted parked names
+                // never reach here (their dispatches precede the registry
+                // lookup, the №736 ordering).
+                if let Some(parked) = crate::builtins::parked::parked_spec(name) {
+                    return Err(crate::interpreter::values::coded_error(
+                        crate::interpreter::values::CODE_BUILTIN_PARKED,
+                        crate::builtins::parked::refusal_message(parked),
+                    ));
+                }
                 return Err(crate::interpreter::values::coded_error(
                     crate::interpreter::values::CODE_UNDEFINED_FUNCTION,
                     format!("undefined function: '{}'", name),
-                ))
+                ));
             }
         };
 

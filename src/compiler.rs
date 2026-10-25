@@ -1165,6 +1165,16 @@ impl Compiler {
                 } else {
                     // №479 (ADR-0131): stable diagnostic code at the origin —
                     // the diff-fuzzer's class signature compares codes, not prose.
+                    // №799 (T2, gh#1488): a PARKED name refuses with ITS
+                    // contract — the feature and the basis — not the generic
+                    // undefined (the name IS defined; it is parked, the C3
+                    // (a) tiers).
+                    if let Some(parked) = crate::builtins::parked::parked_spec(name) {
+                        return Err(crate::interpreter::values::coded_error(
+                            crate::interpreter::values::CODE_BUILTIN_PARKED,
+                            crate::builtins::parked::refusal_message(parked),
+                        ));
+                    }
                     return Err(crate::interpreter::values::coded_error(
                         crate::interpreter::values::CODE_UNDEFINED_FUNCTION,
                         format!("compile: undefined function: {}", name),

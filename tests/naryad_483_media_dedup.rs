@@ -21,10 +21,21 @@ fn handles_names() -> Vec<&'static str> {
     // The single spelling lives in media_ops; the membership hook is the
     // module's own surface — walk the registry candidate space through
     // handles() to recover the set.
+    // №799 (T2, gh#1488): the candidate space is registry ∪ parked — the
+    // parked rows (vision_edit/export/export_raw/generate/lora_*) left
+    // the default-build registry, but the NAMES stay in the language
+    // (builtins::parked) and the media_ops dispatch tables still own
+    // them; a name known only to the parked table must not silently
+    // drop out of the handle-set pin.
     let mut owned: Vec<&'static str> = Vec::new();
     for s in BUILTIN_REGISTRY.iter() {
         if media_ops::handles(s.name) {
             owned.push(s.name);
+        }
+    }
+    for p in metalogos::builtins::parked::PARKED_REGISTRY {
+        if media_ops::handles(p.name) {
+            owned.push(p.name);
         }
     }
     owned
@@ -33,9 +44,15 @@ fn handles_names() -> Vec<&'static str> {
 #[test]
 fn n483_every_handles_name_is_a_registered_builtin() {
     for name in handles_names() {
+        // №799 (T2, gh#1488): "registered" becomes "known to the
+        // language" — the row compiles into THIS build, OR the name is
+        // on the parked surface (builtins::parked; the row gates with
+        // its feature). A handle name known to NEITHER is the drift.
         assert!(
-            BUILTIN_REGISTRY.iter().any(|s| s.name == name),
-            "media_ops owns `{}`, but it is not in BUILTIN_REGISTRY — the transfer drifted",
+            BUILTIN_REGISTRY.iter().any(|s| s.name == name)
+                || metalogos::builtins::parked::parked_spec(name).is_some(),
+            "media_ops owns `{}`, but it is neither in BUILTIN_REGISTRY nor \
+             on the parked surface — the transfer drifted",
             name
         );
     }

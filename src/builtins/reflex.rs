@@ -118,6 +118,7 @@ pub(crate) fn builtin_reflex_list_stub(_args: &[Value]) -> Result<Value, String>
 }
 
 /// Stub — VM not yet supported (Наряд №193 — text generation).
+#[cfg(feature = "candle")]
 pub(crate) fn builtin_reflex_generate_stub(_args: &[Value]) -> Result<Value, String> {
     Err(
         "reflex_generate: VM backend does not yet support Reflex (ADR-0114) \

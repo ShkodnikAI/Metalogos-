@@ -315,6 +315,12 @@ pub mod backend;
 /// path, tested at the store level) — a shipped runtime persists zero
 /// voiceprints today (privacy.md §2.1), so the registry is the live
 /// surface the builtin erases.
+/// №799 (T2, gh#1488): the fn stays compiled in EVERY build (the №526
+/// posture above — the erasure surface is not feature-gated); only the
+/// USER-PROGRAM registry row gates with `voice`, so the default build's
+/// only reachability is in-tree (the future consent/quarantine flows)
+/// and the tests — hence the scoped allow, not a cfg.
+#[allow(dead_code)]
 pub(crate) fn builtin_voice_delete(args: &[Value]) -> Result<Value, String> {
     if args.len() != 1 {
         return Err(format!(
@@ -351,6 +357,10 @@ pub(crate) fn builtin_voice_delete(args: &[Value]) -> Result<Value, String> {
 /// (ascending ids). The persisted-store listing (name/model/saved_at/
 /// algo/ciphertext length, never decrypted) is `VoiceStore::list_voiceprints`
 /// — the same №526 composition at the store level.
+/// №799 (T2, gh#1488): stays compiled in EVERY build (the №526 posture);
+/// only the user-program row gates with `voice` — the scoped allow, not
+/// a cfg.
+#[allow(dead_code)]
 pub(crate) fn builtin_voice_list(args: &[Value]) -> Result<Value, String> {
     if !args.is_empty() {
         return Err(format!(

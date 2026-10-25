@@ -6,6 +6,42 @@ All notable changes to the Metalogos project.
 
 ### Changed
 
+- **№799 (gh#1546, Wave 65 — the C3 (a) T2 owner decision, the maturity
+  tiers):** the parked builtins refuse at CHECK time — the tier-`parked`
+  rows (the №796 census) compile ONLY under the owning feature
+  (`vision`/`voice`/`video`/`candle`; 11 rows ungated before — the vision
+  family, `reflex_generate`, the №526 erasure rows), and a build without
+  the feature answers `mlog check` with
+  `[BUILTIN_PARKED] <name> requires --features <f> (parked: <basis>)`
+  instead of the old split (the ungated rows passed check and refused
+  only at the call; the gated rows read the lie UNDEFINED_FUNCTION).
+  The always-compiled parked table (`src/builtins/parked.rs`) is the
+  name/basis SSOT — the parity lock pins table ↔ rows set-equality over
+  the registry SOURCE (the №467 two-locks discipline; the gated rows
+  ride the source metric only, the REFERENCE 526-row surface and the
+  typed floors unchanged). The run/serve gates block on the same
+  finding (№523, the position-0 stamp), the VM compile path stamps the
+  coded `[BUILTIN_PARKED]` origin (№479 shape), the TW eval/REPL lane
+  reads it branchably through `try r.error.code` (№413 —
+  `split_origin_stamp`); the environment-parked exception
+  (`reflex_bpe_load`, no feature to gate with — the never-Ok handler,
+  №717/№195) stays registered. The tier-`experimental` calls now WARN
+  on check (`[BUILTIN_EXPERIMENTAL]`, exit-0 — never an error; the
+  №523 blocking gates never see it). The 8-pin battery (форма №772)
+  ran against the pre-№799 main: 6 behavioral REDs (the ungated parked
+  calls PASSED check, the gated name read UNDEFINED_FUNCTION, no
+  warning, the run/compile lanes didn't name the contract) + 2 guards
+  (stable calls clean, truly-unknown stays UNDEFINED_FUNCTION); the
+  parity lock caught the paren-in-comment scan hazard and
+  the environment-parked exception by construction. AFFECTS: programs
+  calling parked builtins stop passing check in the default build
+  (the fix: the feature build, or the documented alternative); the
+  №483 media-handle pin now reads registry ∪ parked (the names stay
+  in the language); the №526 erasure fns stay compiled in EVERY build
+  (only the user-program rows gate). The office e2e proxies
+  (probe021cron/probe021qp/probe318qp) check clean; the leak-suite
+  classes unchanged (cat_a precedes the parked consult).
+
 - **№794 (gh#1532, Wave 64 — the gateway G3, the C1 (b) owner
   decision, ADR-0196):** the ledger entry on EVERY gateway
   `tools/call` — `mcp.call` (allowed: the local ok, the local body

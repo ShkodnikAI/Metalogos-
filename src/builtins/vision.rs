@@ -1402,6 +1402,7 @@ pub fn vision_lora_generate_dispatch(
 /// The downloaded tree (`manifest.json` + shards) is directly consumable
 /// by `vision_generate` via `MLOG_VISION_WEIGHTS_DIR` (weights.rs verifies
 /// SHAs again at load time — defense-in-depth, same pins).
+#[cfg(feature = "vision")]
 pub(crate) fn builtin_vision_fetch_weights(args: &[Value]) -> Result<Value, String> {
     let url = match args.first() {
         Some(Value::String(s)) => s.clone(),
@@ -1694,6 +1695,7 @@ fn value_type_name(v: &Value) -> &'static str {
 // only fire if some third code path reaches the registry directly.
 
 /// Last-resort stub — real path is the intercepted `vision_generate_dispatch`.
+#[cfg(feature = "vision")]
 pub(crate) fn builtin_vision_generate_stub(_args: &[Value]) -> Result<Value, String> {
     Err(
         "vision_generate: reached the generic builtin registry — this builtin is \
@@ -1714,6 +1716,7 @@ pub(crate) fn builtin_vision_list_stub(_args: &[Value]) -> Result<Value, String>
 }
 
 /// Last-resort stub — real path is the intercepted `vision_export_dispatch`.
+#[cfg(feature = "vision")]
 pub(crate) fn builtin_vision_export_stub(_args: &[Value]) -> Result<Value, String> {
     Err(
         "vision_export: reached the generic builtin registry — this builtin is \
@@ -1725,6 +1728,7 @@ pub(crate) fn builtin_vision_export_stub(_args: &[Value]) -> Result<Value, Strin
 
 /// Last-resort stub — real path is the intercepted `vision_export_raw_dispatch`
 /// (Наряд №241 Block 2.1; same state-carrying pattern as `vision_export`).
+#[cfg(feature = "vision")]
 pub(crate) fn builtin_vision_export_raw_stub(_args: &[Value]) -> Result<Value, String> {
     Err(
         "vision_export_raw: reached the generic builtin registry — this builtin is \
@@ -1768,6 +1772,7 @@ pub(crate) fn builtin_vision_load_stub(_args: &[Value]) -> Result<Value, String>
 /// Supersedes the R1-era loud stub that referenced the obsolete
 /// "naryad 214/215" numbering (R0-epoch) — the last «214/215» leaves the
 /// repo by mandated doc truth-up (Block 2.5).
+#[cfg(feature = "vision")]
 pub(crate) fn builtin_vision_edit_stub(_args: &[Value]) -> Result<Value, String> {
     Err(
         "vision_edit: reached the generic builtin registry — this builtin is \
@@ -1781,6 +1786,7 @@ pub(crate) fn builtin_vision_edit_stub(_args: &[Value]) -> Result<Value, String>
 /// (Наряд №244 R6.3: state-carrying like `vision_save`/`vision_load` PLUS
 /// the program's SQLite connection — the adapter's only home is SQLite,
 /// ADR-0124 §6).
+#[cfg(feature = "vision")]
 pub(crate) fn builtin_vision_lora_load_stub(_args: &[Value]) -> Result<Value, String> {
     Err(
         "vision_lora_load: reached the generic builtin registry — this builtin is \
@@ -1795,6 +1801,7 @@ pub(crate) fn builtin_vision_lora_load_stub(_args: &[Value]) -> Result<Value, St
 /// `vision_lora_generate_dispatch` (Наряд №244 R6.3: state-carrying like
 /// `vision_generate` PLUS the program's SQLite connection — the adapter
 /// is resolved from the DB at call time, ADR-0124 §6).
+#[cfg(feature = "vision")]
 pub(crate) fn builtin_vision_lora_generate_stub(_args: &[Value]) -> Result<Value, String> {
     Err(
         "vision_lora_generate: reached the generic builtin registry — this builtin \

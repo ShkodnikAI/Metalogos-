@@ -66,7 +66,9 @@ pattern Send(data: String) -> String {
 $ mlog check examples/leak/n02_secret_respond.mlog
 2 errors:
   1: строка 1: [SECRET_LEAK] secret may be leaked — env() value passed to respond()
-  2: [PII_EGRESS_OUTPUT] sink clearance violated: argument 1 of respond in pattern Send carries label 'private, trusted'; sinks require public — respond is classified sink/public/irreversible (the builtins classification, №316-class); the bridge (№391) table covers the six ACTION sinks only; failed threshold: private-egress
+  2: [PII_EGRESS_OUTPUT] sink clearance violated: … failed threshold: private-egress
+
+(Both refusal lines are quoted from the real run; the second line's full text names the sink-clearance rule and the bridge table — reproduce it with the command above. The README carries no generated naryad numbers — the №676 D1 gate; the refusal output itself is re-printed by `mlog check` verbatim.)
 ```
 
 The fixed version — the secret is REDACTED before the sink — passes:

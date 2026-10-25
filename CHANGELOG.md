@@ -6,6 +6,46 @@ All notable changes to the Metalogos project.
 
 ### Changed
 
+- **№800 (gh#1547, Wave 65 — the C5 (b) V3 owner decision, ADR-0197):**
+  `run`/`eval`/REPL execute on the VM — the single user-command executor
+  (the same executor `serve` and `mcp-serve` already use; TW becomes the
+  REFERENCE ORACLE: it stays in CI — the crosscheck, the diff-fuzzer, the
+  doc-tests — and behind the transitional `--reference` flag, which
+  announces itself with the loud banner and answers `[backend:
+  reference-tw]` under `METALOGOS_BACKEND_ECHO=1`; two release windows
+  per ADR-0197 §4.3). The VM run lane carries the SAME gate set as the
+  TW run path — the shared `enforce_run_gates` body (Category A + the
+  №523 semantic gate over the statically-import-merged declarations):
+  the №535 pins caught the VM lane refusing a missing import with a raw
+  io error and no №523 stamp — a gate divergence, fixed by the shared
+  body, not a wording nit. The REPL session is a persistent VM: the
+  session chunk compiler (`Compiler::with_session` + `Vm::run_chunk`)
+  compiles each line against the live session tables — globals keep
+  their slots, patterns/learnables/rules join them, memory persists
+  (the phase72 carry-over pinned on the VM lane; the cross-line pattern
+  call, the redefinition shadowing, and the loud `[UNDEFINED_VARIABLE]`
+  on unknown names — the silent Unit read in `LoadGlobalByName` is
+  retired on BOTH loops, the №780 one-contract-both-loops form).
+  `mlog eval` scores through the VM harness (`Vm::run_eval_blocks` — the
+  same `call_llm` path a user call takes; the aggregation lives in the
+  shared `EvalResult::from_examples`, one body for both backends).
+  Programs where TW and VM diverged now behave in `run` as they do in
+  `serve`; the examples corpus reproduces its `.expected` outputs
+  through the VM lane unchanged (191/191 runnable). AFFECTS: consumers
+  running `mlog run` on TW-specific behavior — the `--reference` lane
+  keeps it during the transition; a doubly-invalid program (an unknown
+  function AND an unknown variable) surfaces the compile-time
+  `[UNDEFINED_FUNCTION]` first on the VM lane, the reference lane keeps
+  the TW runtime order (the №535 pins state both lanes; the
+  single-defect classes — undefined variable, undefined function —
+  refuse with the same codes on both). The flip SURFACED one
+  pre-existing VM defect: the self-host parser self-parse
+  (ParseWhile→ParseBlock→ParseStmt→ParseIfStmt, deep) replaces a
+  pattern-call result with an AST string — the №197 bootstrap rides the
+  `--reference` oracle lane until the repair (tracked gh#1555; the
+  corpus unaffected; the №762 (a1) name-miss soft fallback and the №287
+  doc-test broken-example code follow the contract — loud
+  `[UNDEFINED_VARIABLE]` on both).
 - **№799 (gh#1546, Wave 65 — the C3 (a) T2 owner decision, the maturity
   tiers):** the parked builtins refuse at CHECK time — the tier-`parked`
   rows (the №796 census) compile ONLY under the owning feature

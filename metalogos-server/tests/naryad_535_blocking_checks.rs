@@ -134,6 +134,14 @@ fn n535_run_missing_import_blocks() {
 
 #[test]
 fn n535_run_runtime_error_blocks() {
+    // №800 (gh#1547, V3): the DEFAULT run lane executes on the VM. The
+    // fixture carries TWO defects (`is_admn` is no known function AND
+    // `user` is no known variable); the VM lane surfaces the COMPILE-time
+    // one first ([UNDEFINED_FUNCTION] — the stricter, earlier refusal of
+    // the same program), the reference lane surfaces the TW runtime's
+    // [UNDEFINED_VARIABLE]. The contract both lanes keep: a defective
+    // program refuses LOUDLY with a stable code, exit non-zero (the pin
+    // follows the flip per the naryad_481 precedent).
     let p = write_program(
         "runtime_err.mlog",
         "entity u: String = is_admn(user)\nflow Main { input: String = u -> output }\n",
@@ -143,7 +151,63 @@ fn n535_run_runtime_error_blocks() {
         .output()
         .unwrap();
     assert!(!out.status.success(), "a runtime error must block run");
-    assert!(String::from_utf8_lossy(&out.stderr).contains("UNDEFINED_VARIABLE"));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("[UNDEFINED_FUNCTION]"),
+        "the VM lane refuses at compile with the stable code: {err}"
+    );
+}
+
+#[test]
+fn n535_run_runtime_error_reference_lane_keeps_tw_class() {
+    // №800: the --reference oracle lane keeps the TW behavior verbatim —
+    // the same fixture refuses with [UNDEFINED_VARIABLE] (the runtime
+    // arg-eval order: the undefined variable fires before the unknown
+    // function call).
+    let p = write_program(
+        "runtime_err_ref.mlog",
+        "entity u: String = is_admn(user)\nflow Main { input: String = u -> output }\n",
+    );
+    let out = Command::new(bin())
+        .args(["run", "--reference", p.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "a runtime error must block run");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("UNDEFINED_VARIABLE"),
+        "the reference lane keeps the TW refusal class: {err}"
+    );
+}
+
+#[test]
+fn n535_run_undefined_variable_refuses_on_both_lanes() {
+    // №800: the SINGLE-defect parity contract — an undefined variable
+    // read refuses with [UNDEFINED_VARIABLE] on the VM lane (the loud
+    // LoadGlobalByName backstop — the silent Unit read is retired) AND on
+    // the reference lane (the TW runtime). No divergence survives when
+    // there is exactly one defect to name.
+    let p = write_program(
+        "undef_var.mlog",
+        "entity u: String = user\nflow Main { input: String = u -> output }\n",
+    );
+    for args in [
+        vec!["run", p.to_str().unwrap()],
+        vec!["run", "--reference", p.to_str().unwrap()],
+    ] {
+        let out = Command::new(bin()).args(&args).output().unwrap();
+        assert!(
+            !out.status.success(),
+            "an undefined variable must block run: {:?}",
+            args
+        );
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            err.contains("UNDEFINED_VARIABLE"),
+            "both lanes name the class: {:?} -> {err}",
+            args
+        );
+    }
 }
 
 // ── compile: the behavioral pins ────────────────────────────────────────

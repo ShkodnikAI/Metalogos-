@@ -270,6 +270,13 @@ spawn("ls")
 /// documentation, a lying example must not ride as "executed").
 #[test]
 fn vm_backend_flags_broken_examples_loudly() {
+    // №800 (gh#1547, V3): the broken example's `items` is an UNDEFINED
+    // NAME — the VM lane now refuses it with the ROOT-defect code
+    // [UNDEFINED_VARIABLE] (the loud LoadGlobalByName backstop) instead
+    // of the downstream [TYPE_MISMATCH] the №783-era silent-Unit produced
+    // (each received Unit → not-List). The №783 posture is PRESERVED and
+    // sharpened: a broken doc example still FAILS — and now names the
+    // actual defect.
     with_lock(|| {
         let md = r#"
 # Broken example
@@ -290,7 +297,7 @@ each item in items {
             report
         );
         assert!(
-            report.failures[0].contains("[TYPE_MISMATCH]"),
+            report.failures[0].contains("[UNDEFINED_VARIABLE]"),
             "the failure must name the coded refusal: {:?}",
             report.failures
         );

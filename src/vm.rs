@@ -28,6 +28,23 @@ use crate::interpreter::{
 use crate::llm;
 
 /// The METALOGOS stack-based virtual machine.
+/// №800 (gh#1547, V3): the session chunk base counts — the table lengths
+/// the chunk was compiled against (the REPL session's live VM state at
+/// chunk-compile time). `Vm::run_chunk` validates its own tables against
+/// these and refuses LOUDLY on a mismatch (a stale chunk executed against
+/// a moved session is a compiler/VM skew, the №1087 backstop posture —
+/// never a silent misbind).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ChunkBase {
+    /// The session's global count when the chunk was compiled.
+    pub global_count: usize,
+    /// The session's pattern-table count when the chunk was compiled.
+    pub pattern_count: usize,
+    /// The session's learnable-table count when the chunk was compiled.
+    pub learnable_count: usize,
+}
+
+/// The METALOGOS stack-based virtual machine.
 pub struct Vm {
     /// Runtime label environment (Наряд №328): variable → ADR-0154
     /// label. Seeded by LabelJoin, consulted by SinkCheck.
@@ -1000,8 +1017,23 @@ impl Vm {
                         // `Value::Reflex(id)` here, mirroring the interpreter's
                         // `eval_expr_with_env` special-case for reflex_train/
                         // reflex_predict first-arg (execution.rs:1311-1370).
-                        .or_else(|| self.reflex_names.get(name).map(|id| Value::Reflex(*id)))
-                        .unwrap_or(Value::Unit);
+                        .or_else(|| self.reflex_names.get(name).map(|id| Value::Reflex(*id)));
+                    // №800 (gh#1547, V3): an unknown name refuses LOUDLY —
+                    // the old silent `unwrap_or(Value::Unit)` was the
+                    // TW-divergence class the №181/№523 notes describe (a
+                    // missing variable read as Unit falsifies checks
+                    // quietly instead of naming the hole). The run lane's
+                    // №523 gate refuses undefined names BEFORE the VM
+                    // executes, so this arm fires for (a) REPL session
+                    // chunks (the TW REPL errors at runtime the same way
+                    // — parity) and (b) bytecode produced past the check
+                    // — the №415 loud-backstop posture.
+                    let val = val.ok_or_else(|| {
+                        crate::interpreter::values::coded_error(
+                            crate::interpreter::values::CODE_UNDEFINED_VARIABLE,
+                            format!("undefined variable: {}", name),
+                        )
+                    })?;
                     stack.push(val);
                     ip += 1;
                 }
@@ -2218,8 +2250,17 @@ impl Vm {
                         .and_then(|slot| self.globals.get(slot).cloned())
                         // Наряд №199: same reflex_names resolution as
                         // execute_main_code's LoadGlobalByName handler.
-                        .or_else(|| self.reflex_names.get(name).map(|id| Value::Reflex(*id)))
-                        .unwrap_or(Value::Unit);
+                        .or_else(|| self.reflex_names.get(name).map(|id| Value::Reflex(*id)));
+                    // №800 (gh#1547, V3): the SAME loud refusal as the
+                    // main-loop twin above — one contract, both loops (the
+                    // №780 form). The silent Unit read is the TW-divergence
+                    // class the №181/№523 notes describe.
+                    let val = val.ok_or_else(|| {
+                        crate::interpreter::values::coded_error(
+                            crate::interpreter::values::CODE_UNDEFINED_VARIABLE,
+                            format!("undefined variable: {}", name),
+                        )
+                    })?;
                     stack.push(val);
                     ip += 1;
                 }
@@ -4338,6 +4379,212 @@ impl Vm {
         crate::llm::set_llm_backend_tag(prev_tag);
         out
     }
+
+    /// №800 (gh#1547, V3): execute a REPL session CHUNK on the persistent
+    /// VM — the incremental-state form the TW REPL gets from its single
+    /// long-lived Interpreter. The chunk's Program was compiled against
+    /// `base` (the session symbol tables at compile time); this method
+    /// APPENDS the chunk's fresh tables after the session's (globals keep
+    /// their slots, patterns/learnables/rules/deny handlers continue the
+    /// live tables), then executes the chunk's main_code — the chunk's
+    /// declarations run ONCE, the earlier session state is untouched.
+    ///
+    /// Contract:
+    ///   * the session must present the chunk to the SAME VM state it was
+    ///     compiled against — a mismatch refuses LOUDLY (`ChunkBase`
+    ///     validation), never misbinds;
+    ///   * the chunk's learnables are NOT pre-appended — the chunk's
+    ///     `RegisterLearnable` instructions push them during main_code
+    ///     (the same emission the run path uses), so a chunk-local
+    ///     `LlmCall(idx)` resolves into the appended region exactly when
+    ///     the table grew;
+    ///   * the chunk's `RegisterPatternRef` validations run against the
+    ///     ALREADY-appended pattern table (this method appends before
+    ///     executing) — chunk-local body indices and session-global
+    ///     `CallPattern` indices both resolve;
+    ///   * the db/vision/origin declarations a chunk carries apply with
+    ///     the same lazy semantics as `load_program` (record now, open on
+    ///     the first access), because a REPL session may declare them on
+    ///     any line;
+    ///   * the contour budget, the depth budget and the backend tag are
+    ///     per-chunk — the same per-run boundaries `run()` keeps.
+    pub fn run_chunk(
+        &mut self,
+        program: &Program,
+        base: &ChunkBase,
+    ) -> Result<Option<String>, String> {
+        // ── The loud base validation ────────────────────────────────
+        let live = (
+            self.globals.len(),
+            self.patterns.len(),
+            self.learnables.len(),
+        );
+        let expected = (base.global_count, base.pattern_count, base.learnable_count);
+        if live != expected {
+            return Err(format!(
+                "VM run_chunk: stale session chunk — the base tables moved (expected {} globals / {} patterns / {} learnables, got {}/{}/{}); recompile the chunk against the live session",
+                expected.0, expected.1, expected.2, live.0, live.1, live.2
+            ));
+        }
+
+        // ── Globals: extend with the chunk's FRESH slots (the base slots
+        // keep their live values — that IS the incremental state). The
+        // chunk Program's globals list covers the FULL session (0..next_
+        // global); the tail beyond the base is what's new. ──────────────
+        let fresh_globals = program.globals.len().saturating_sub(base.global_count);
+        self.globals
+            .extend(std::iter::repeat_n(Value::Unit, fresh_globals));
+        let mut names = (*self.global_names).clone();
+        names.extend(program.globals.iter().skip(base.global_count).cloned());
+        self.global_names = std::sync::Arc::new(names);
+
+        // ── Patterns: append the chunk's bodies (the session-global
+        // CallPattern indices continue into the appended region). ──────
+        if !program.patterns.is_empty() {
+            let patterns = std::sync::Arc::make_mut(&mut self.patterns);
+            patterns.extend(program.patterns.iter().cloned());
+        }
+
+        // ── Rules: append + re-sort (the load_program contract is
+        // priority-descending; a chunk's rules join the live order). ───
+        if !program.rules.is_empty() {
+            let rules = std::sync::Arc::make_mut(&mut self.rules);
+            rules.extend(program.rules.iter().cloned());
+            rules.sort_by_key(|b| std::cmp::Reverse(b.priority));
+        }
+
+        // ── Deny handlers and skill indices: append. ─────────────────
+        if !program.deny_handlers.is_empty() {
+            let handlers = std::sync::Arc::make_mut(&mut self.deny_handlers);
+            handlers.extend(program.deny_handlers.iter().cloned());
+        }
+        if !program.skill_indices.is_empty() {
+            let skills = std::sync::Arc::make_mut(&mut self.skill_indices);
+            skills.extend(program.skill_indices.iter().cloned());
+        }
+
+        // ── Reflex declarations: register the models (the same shared
+        // construction load_program uses — no reimplementation). ───────
+        for decl in &program.reflex_decls {
+            let model = crate::builtins::build_reflex_model(decl)?;
+            let id = self.reflex_registry.register(model);
+            self.reflex_names.insert(decl.name.clone(), id);
+        }
+        #[cfg(feature = "candle")]
+        {
+            for decl in &program.reflex_seq_decls {
+                let model = crate::builtins::build_reflex_seq_model(decl)?;
+                let id = self.reflex_registry.register_seq(Box::new(model));
+                self.reflex_names.insert(decl.name.clone(), id);
+            }
+            for decl in &program.reflex_gen_decls {
+                let model = crate::builtins::build_reflex_gen_model(decl)?;
+                let id = self.reflex_registry.register_gen(Box::new(model));
+                self.reflex_names.insert(decl.name.clone(), id);
+            }
+        }
+
+        // ── Vision/origin declarations: extend (a REPL line may declare
+        // one; the map insert shadows on redeclaration). ───────────────
+        for decl in &program.vision_decls {
+            self.vision_decls.insert(decl.name.clone(), decl.clone());
+        }
+        for decl in &program.origin_decls {
+            self.origin_decls.insert(decl.name.clone(), decl.clone());
+        }
+
+        // ── Session-level config: apply ONLY what the chunk actually
+        // declared (a chunk carries the DEFAULT config otherwise — the
+        // load_program replace semantics would silently reset an earlier
+        // line's declaration). ─────────────────────────────────────────
+        if program.memory_persist_path.is_some() {
+            self.memory_persist_path = program.memory_persist_path.clone();
+        }
+        if program.conversation_config != crate::interpreter::types::ConversationConfig::default() {
+            self.conversation_config = program.conversation_config.clone();
+        }
+        if program.collections_loaded {
+            self.collections_loaded = true;
+        }
+
+        // ── Db: the lazy contract — record now, open on first access.
+        // The chunk's schema DDL joins the live snapshot (applied once per
+        // LAZY open; a session that declares db on a later line gets the
+        // same semantics as a single program). ────────────────────────
+        if program.db_url.is_some() {
+            self.db_url = program.db_url.clone();
+        }
+        if program.db_url_env.is_some() {
+            self.db_url_env = program.db_url_env.clone();
+        }
+        if !program.schema_ddl.is_empty() {
+            let ddl = std::sync::Arc::make_mut(&mut self.db_schema_ddl);
+            ddl.extend(program.schema_ddl.iter().cloned());
+        }
+
+        // ── Execute: the same per-chunk budgets and tag discipline as
+        // run() (contour budget, depth reset, backend tag). ────────────
+        let _contour_budget_scope = crate::builtins::embed_seam::ContourBudgetScope::new();
+        self.call_depth = 0;
+        let prev_tag = crate::llm::set_llm_backend_tag("vm");
+        let out = self.execute_main_code(program);
+        crate::llm::set_llm_backend_tag(prev_tag);
+        out
+    }
+
+    /// №800 (gh#1547, V3): the VM eval harness (ADR-0050) — the `mlog
+    /// eval` executor form. The program must have RUN on this VM first
+    /// (the declarations built the learnable tables and the adapt/few-shot
+    /// state the datasets score against); each eval block's learnable is
+    /// invoked per dataset example through THE SAME path a user call
+    /// takes (`call_llm` — the few-shot cache, the distill routing, the
+    /// context modes, the LLM backend), and the scoring aggregates through
+    /// the SHARED `EvalResult::from_examples` (one body for both backends,
+    /// the №540 dedup form).
+    pub fn run_eval_blocks(
+        &mut self,
+        blocks: &[crate::ast::EvalDecl],
+    ) -> Result<Vec<crate::interpreter::types::EvalResult>, String> {
+        let mut results = Vec::new();
+        for eval_decl in blocks {
+            let learnable_idx = self
+                .learnables
+                .iter()
+                .position(|(info, _)| info.name == eval_decl.pattern_name)
+                .ok_or_else(|| {
+                    format!(
+                        "eval: learnable pattern '{}' not found",
+                        eval_decl.pattern_name
+                    )
+                })?;
+
+            let mut examples: Vec<(String, String, String)> = Vec::new();
+            for (input_str, expected_label) in &eval_decl.dataset {
+                let actual_value =
+                    self.call_llm(learnable_idx, &[Value::String(input_str.clone())])?;
+                let actual_label = crate::interpreter::types::eval_label(actual_value);
+                examples.push((input_str.clone(), expected_label.clone(), actual_label));
+            }
+
+            results.push(crate::interpreter::types::EvalResult::from_examples(
+                eval_decl.pattern_name.clone(),
+                eval_decl.metric.clone(),
+                eval_decl.threshold,
+                examples,
+            ));
+        }
+        Ok(results)
+    }
+
+    // ── №800: the session accessors (the VmRepl reads the live table
+    // counts — the truth the next chunk validates against). ─────────────
+    pub fn pattern_table_len(&self) -> usize {
+        self.patterns.len()
+    }
+    pub fn learnable_table_len(&self) -> usize {
+        self.learnables.len()
+    }
+
     #[allow(clippy::wildcard_enum_match_arm)]
     // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
     /// ADR-0089: If confidence < 1.0, wrap a concrete result as Fluid

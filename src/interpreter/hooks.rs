@@ -342,6 +342,10 @@ impl Interpreter {
 
     /// Run a single eval block: invoke learnable pattern on each dataset example,
     /// compare with expected, compute accuracy and confusion matrix.
+    /// №800: the AGGREGATION is the shared `EvalResult::from_examples`
+    /// (the VM eval harness feeds the same builder — one scoring body for
+    /// both backends); only the INVOCATION stays TW here (the oracle's
+    /// own learnable machinery, ADR-0197 §3).
     fn run_single_eval(&self, eval_decl: &EvalDecl) -> Result<EvalResult, String> {
         let learnable = self
             .learnable_patterns
@@ -353,9 +357,7 @@ impl Interpreter {
                 )
             })?;
 
-        let mut correct = 0usize;
-        let mut confusion: HashMap<String, HashMap<String, usize>> = HashMap::new();
-        let mut failures: Vec<(String, String, String)> = Vec::new(); // (input, expected, actual)
+        let mut examples: Vec<(String, String, String)> = Vec::new();
 
         for (input_str, expected_label) in &eval_decl.dataset {
             // Build args from dataset input (single String argument)
@@ -369,38 +371,14 @@ impl Interpreter {
                 other => format!("{}", other),
             };
 
-            // Record in confusion matrix
-            let pred_entry = confusion
-                .entry(expected_label.clone())
-                .or_default()
-                .entry(actual_label.clone())
-                .or_insert(0);
-            *pred_entry += 1;
-
-            if actual_label == *expected_label {
-                correct += 1;
-            } else {
-                failures.push((input_str.clone(), expected_label.clone(), actual_label));
-            }
+            examples.push((input_str.clone(), expected_label.clone(), actual_label));
         }
 
-        let total = eval_decl.dataset.len();
-        let accuracy = if total > 0 {
-            correct as f64 / total as f64
-        } else {
-            1.0 // empty dataset → perfect by convention
-        };
-
-        Ok(EvalResult {
-            pattern_name: eval_decl.pattern_name.clone(),
-            metric: eval_decl.metric.clone(),
-            total,
-            correct,
-            accuracy,
-            threshold: eval_decl.threshold,
-            passed: accuracy >= eval_decl.threshold,
-            confusion,
-            failures,
-        })
+        Ok(EvalResult::from_examples(
+            eval_decl.pattern_name.clone(),
+            eval_decl.metric.clone(),
+            eval_decl.threshold,
+            examples,
+        ))
     }
 }

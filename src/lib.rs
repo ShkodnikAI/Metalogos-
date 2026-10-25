@@ -146,12 +146,47 @@ pub fn run_program_with_dir(
 ) -> Result<Option<String>, String> {
     let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
 
+    enforce_run_gates(&declarations, &base_dir)?;
+
+    let mut interp = interpreter::Interpreter::new();
+    interp.set_base_dir(base_dir);
+    let output = interp.run(declarations)?;
+
+    // Prepend mutate log messages to output
+    let mutate_log = interp.take_mutate_log();
+    if mutate_log.is_empty() {
+        Ok(output)
+    } else {
+        match output {
+            Some(flow_output) => {
+                let mut result = mutate_log.join("\n");
+                result.push('\n');
+                result.push_str(&flow_output);
+                Ok(Some(result))
+            }
+            None => Ok(Some(mutate_log.join("\n"))),
+        }
+    }
+}
+
+/// №800 (gh#1547, V3): the SHARED run gates — the exact refusal set the
+/// TW run path applies before execution (Category A + the №523 semantic
+/// gate over the statically-import-merged declarations). The VM run lane
+/// (`run_program_on_vm`) feeds the SAME body: the user path has ONE gate
+/// set (ADR-0197) — switching the executor underneath cannot change what
+/// the gates refuse (the №535 n535_run_missing_import_blocks pin caught
+/// the VM lane refusing a missing import with a raw io error and no №523
+/// stamp — a gate divergence, not a wording nit).
+fn enforce_run_gates(
+    declarations: &[ast::Declaration],
+    base_dir: &std::path::Path,
+) -> Result<(), String> {
     // Наряд №98: enforce Category A security invariants before execution.
     // SQL_DYNAMIC, SECRET_LEAK, HTML_INJECTION are now compile-time errors.
     // We call audit_category_a directly (not check_program) because the
     // interpreter resolves imports at runtime — check_program would
     // false-positive on "undefined function" for imported symbols.
-    let cat_a = audit_category_a(&declarations, "");
+    let cat_a = audit_category_a(declarations, "");
     let cat_a_errors: Vec<String> = cat_a
         .iter()
         .filter_map(|f| match f.severity {
@@ -183,10 +218,10 @@ pub fn run_program_with_dir(
     // historical false-positive class that once justified NOT blocking
     // (see the №98 note above) is gone.
     {
-        let module_decls = semantic::resolve_imports_statically(&declarations, &base_dir)
+        let module_decls = semantic::resolve_imports_statically(declarations, base_dir)
             .map_err(|e| format!("Compilation error (Naryad #523): {}", e))?;
         let mut merged_decls = module_decls;
-        merged_decls.extend(declarations.clone());
+        merged_decls.extend(declarations.to_vec());
         let sem_result = semantic::check_program(&merged_decls);
         let blocking: Vec<&semantic::SpannedError> = sem_result
             .errors
@@ -211,25 +246,7 @@ pub fn run_program_with_dir(
         }
     }
 
-    let mut interp = interpreter::Interpreter::new();
-    interp.set_base_dir(base_dir);
-    let output = interp.run(declarations)?;
-
-    // Prepend mutate log messages to output
-    let mutate_log = interp.take_mutate_log();
-    if mutate_log.is_empty() {
-        Ok(output)
-    } else {
-        match output {
-            Some(flow_output) => {
-                let mut result = mutate_log.join("\n");
-                result.push('\n');
-                result.push_str(&flow_output);
-                Ok(Some(result))
-            }
-            None => Ok(Some(mutate_log.join("\n"))),
-        }
-    }
+    Ok(())
 }
 
 /// Static security audit on a .mlog program (ADR-0057).
@@ -330,14 +347,31 @@ pub fn feed_line(
 }
 
 /// Compile a .mlog source to bytecode Program.
-/// Note: imports are not resolved during compilation. Use `mlog serve` for import support.
+/// №800: the stale "imports are not resolved" caveat is gone — the
+/// compiler's Phase 1 resolves imports (resolve_import); the run lane's
+/// import gate is the №523 static resolution in `enforce_run_gates` (the
+/// compile path keeps its narrower №673/№685/№695 gate set — the recorded
+/// №673-era scope).
 pub fn compile_program(source: &str) -> Result<bytecode::Program, String> {
     let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
 
+    enforce_compile_gates(&declarations)?;
+
+    let mut compiler = compiler::Compiler::new();
+    compiler.compile(declarations)
+}
+
+/// №800 (gh#1547, V3): the shared compile gates — the SAME refusal set
+/// `compile_program` applies, factored out so the REPL session chunks
+/// (compiled against a session base) run through the IDENTICAL Category A
+/// audit and the VM compile gates (№673 break/continue, №685 raw-insert,
+/// №695 safe-pipe). A gate added here fires on both the program path and
+/// the session path — one gate body, both entry points.
+fn enforce_compile_gates(declarations: &[ast::Declaration]) -> Result<(), String> {
     // Наряд №98: enforce Category A security invariants before compilation.
     // Same as run_program_with_dir: call audit_category_a directly,
     // not check_program — the compiler handles its own semantic errors.
-    let cat_a = audit_category_a(&declarations, "");
+    let cat_a = audit_category_a(declarations, "");
     let cat_a_errors: Vec<String> = cat_a
         .iter()
         .filter_map(|f| match f.severity {
@@ -352,13 +386,6 @@ pub fn compile_program(source: &str) -> Result<bytecode::Program, String> {
         ));
     }
 
-    // Warn if imports are present — bytecode compiler cannot resolve them
-    for decl in &declarations {
-        if let ast::Declaration::Import(import) = decl {
-            eprintln!("warning: import '{}' cannot be resolved in compile mode (use `mlog serve` instead)", import.path);
-        }
-    }
-
     // №673 (gh#1200, В41): BREAK_OUTSIDE_LOOP — the VM compile gate. The
     // run/serve path blocks on the finding through check_program (№523);
     // the compile→run .mbc path had NO semantic gate, so the «молча
@@ -370,7 +397,7 @@ pub fn compile_program(source: &str) -> Result<bytecode::Program, String> {
     // widening the compile gate to every semantic finding is a separate
     // conversation; the break/continue class is the audit's P1.
     {
-        let violations = semantic::break_outside_loop_violations(&declarations);
+        let violations = semantic::break_outside_loop_violations(declarations);
         if !violations.is_empty() {
             let lines: Vec<String> = violations
                 .iter()
@@ -391,7 +418,7 @@ pub fn compile_program(source: &str) -> Result<bytecode::Program, String> {
     // refuses here, BEFORE the bytecode exists — a raw-insert parameter
     // that is not Html cannot reach the VM.
     {
-        let violations = semantic::raw_insert_not_html_violations(&declarations);
+        let violations = semantic::raw_insert_not_html_violations(declarations);
         if !violations.is_empty() {
             let lines: Vec<String> = violations
                 .iter()
@@ -414,7 +441,7 @@ pub fn compile_program(source: &str) -> Result<bytecode::Program, String> {
     // (the №523 shape) — the scan carries two kinds, and the prefix names
     // the class that actually fired first.
     {
-        let violations = semantic::safe_pipe_violations(&declarations);
+        let violations = semantic::safe_pipe_violations(declarations);
         if !violations.is_empty() {
             let prefix = violations
                 .first()
@@ -432,8 +459,103 @@ pub fn compile_program(source: &str) -> Result<bytecode::Program, String> {
         }
     }
 
-    let mut compiler = compiler::Compiler::new();
-    compiler.compile(declarations)
+    Ok(())
+}
+
+/// №800 (gh#1547, V3): compile a REPL session CHUNK — the same compile
+/// gates, then the session compiler (the chunk's code resolves the base
+/// names positionally against the live VM's tables). Returns the chunk
+/// Program AND the updated session symbol base (the next chunk's seed).
+fn compile_session_declarations(
+    declarations: Vec<ast::Declaration>,
+    base: compiler::SessionBase,
+) -> Result<(bytecode::Program, compiler::SessionBase), String> {
+    enforce_compile_gates(&declarations)?;
+    let mut compiler = compiler::Compiler::with_session(base);
+    let program = compiler.compile(declarations)?;
+    let snapshot = compiler.session_base_snapshot();
+    Ok((program, snapshot))
+}
+
+/// №800 (gh#1547, V3): the `mlog run` executor form — parse, the SHARED
+/// run gates (the same №523 set the TW run path applies), execute on the
+/// VM (the single user-command executor, ADR-0197; TW stays the reference
+/// oracle in CI and behind `--reference`).
+pub fn run_program_on_vm(source: &str) -> Result<Option<String>, String> {
+    let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
+    enforce_run_gates(&declarations, std::path::Path::new("."))?;
+    let program = compile_program(source)?;
+    run_bytecode(program)
+}
+
+/// №800 (gh#1547, V3): the `mlog eval` executor form — compile + run the
+/// declarations on the VM (the adapt/few-shot state builds ON the VM),
+/// then score the eval blocks through the VM harness (`Vm::run_eval_blocks`
+/// — the same `call_llm` path a user call takes).
+pub fn eval_program_on_vm(source: &str) -> Result<Vec<interpreter::types::EvalResult>, String> {
+    let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
+    // №800: the run-path gate set — the default eval lane is a USER path
+    // (the same posture `run` keeps); the `--reference` oracle lane keeps
+    // the TW eval's historical ungated form.
+    enforce_run_gates(&declarations, std::path::Path::new("."))?;
+    let eval_blocks: Vec<ast::EvalDecl> = declarations
+        .iter()
+        .filter_map(|d| match d {
+            ast::Declaration::Eval(e) => Some(e.clone()),
+            _ => None,
+        })
+        .collect();
+    let program = compile_program(source)?;
+    let mut vm = vm::Vm::new();
+    vm.run(program)?;
+    vm.run_eval_blocks(&eval_blocks)
+}
+
+/// №800 (gh#1547, V3): the VM REPL session — a persistent Vm plus the
+/// session symbol base. Each `feed_line` compiles the line's declarations
+/// as a session CHUNK (the same compile gates, the base names resolved
+/// against the live tables) and executes it ON the same VM
+/// (`Vm::run_chunk`): globals keep their slots, patterns/learnables/rules
+/// join the live tables, memory persists — the incremental state between
+/// inputs the TW REPL gets from its long-lived Interpreter.
+pub struct VmRepl {
+    vm: vm::Vm,
+    base: compiler::SessionBase,
+}
+
+impl Default for VmRepl {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl VmRepl {
+    pub fn new() -> Self {
+        VmRepl {
+            vm: vm::Vm::new(),
+            base: compiler::SessionBase::default(),
+        }
+    }
+
+    /// Parse one REPL line, compile it as a session chunk, execute it on
+    /// the persistent VM. The output contract matches `feed_line` (the
+    /// mutate log prepends the flow output) — the REPL surface is
+    /// backend-agnostic, the executor underneath is the VM.
+    pub fn feed_line(&mut self, line: &str) -> Result<Option<String>, String> {
+        let declarations = parser::parse(line).map_err(|e| format!("parse error: {}", e))?;
+        if declarations.is_empty() {
+            return Ok(None);
+        }
+        let chunk_base = vm::ChunkBase {
+            global_count: self.base.global_names.len(),
+            pattern_count: self.vm.pattern_table_len(),
+            learnable_count: self.vm.learnable_table_len(),
+        };
+        let (program, snapshot) = compile_session_declarations(declarations, self.base.clone())?;
+        let out = self.vm.run_chunk(&program, &chunk_base)?;
+        self.base = snapshot;
+        Ok(out)
+    }
 }
 
 /// Run a pre-compiled bytecode Program on the VM.

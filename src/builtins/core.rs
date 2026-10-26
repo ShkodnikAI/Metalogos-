@@ -140,13 +140,34 @@ pub(crate) fn builtin_assert_contains(args: &[Value]) -> Result<Value, String> {
     let haystack = format!("{}", args.first().unwrap_or(&Value::Unit));
     let needle = format!("{}", args.get(1).unwrap_or(&Value::Unit));
     if !haystack.contains(&needle) {
+        // №812 (B4): the preview slices by CHARS (the byte slice panicked
+        // on non-ASCII — a Cyrillic haystack past 80 bytes crashed the
+        // program instead of refusing the assert) and the ARGUMENTS go
+        // through the redaction — a secret must not land in the error
+        // text (the needle/haystack are attacker- and data-controlled).
         Err(format!(
             "assert_contains failed: '{}' not in '{}'",
-            needle,
-            &haystack[..haystack.len().min(80)]
+            preview_redacted(&needle, 80),
+            preview_redacted(&haystack, 80)
         ))
     } else {
         Ok(args[0].clone())
+    }
+}
+
+/// №812 (B4): the char-safe preview — at most `max_chars` characters
+/// (never a byte-slice: `&s[..n]` panics off the char boundary), with an
+/// explicit ellipsis when truncated, and the content redacted (the
+/// redact "secrets" policy — the masking pipeline the audit's №604
+/// recipe already sanctions for error text).
+fn preview_redacted(s: &str, max_chars: usize) -> String {
+    let redacted = crate::builtins::string::redact_string(s, "secrets")
+        .unwrap_or_else(|_| "[REDACTED]".to_string());
+    let head: String = redacted.chars().take(max_chars).collect();
+    if redacted.chars().count() > max_chars {
+        format!("{head}…")
+    } else {
+        head
     }
 }
 

@@ -19,5 +19,5 @@ construction.
 | Architecture Decisions | 190 ADRs |
 | Example Programs | 253 .mlog programs |
 | Reference | REFERENCE.md (~331 KB) — 100% registry coverage |
-| Changelog | CHANGELOG.md (~149 KB) — every wave documented |
+| Changelog | CHANGELOG.md (~150 KB) — every wave documented |
 <!-- END GENERATED METRICS -->

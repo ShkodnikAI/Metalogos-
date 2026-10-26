@@ -65,6 +65,23 @@ All notable changes to the Metalogos project.
 
 ### Changed
 
+- **№812 (gh#1568, Wave 66 — the audit-23.10 B4, the assert crash):**
+  `assert_contains` never PANICS on non-ASCII — the failure preview
+  slices by CHARS (the byte slice `&haystack[..min(len, 80)]` crashed
+  with `byte index is not a char boundary` on a Cyrillic haystack past
+  80 bytes: the assert refusal was a program crash), and the ARGUMENTS
+  in the error text go through the masking pipeline (`redact(…,
+  "secrets")` — a token-like secret in the needle/haystack lands in the
+  error MASKED: the error text is data-controlled). The char-safe
+  preview helper carries an explicit ellipsis on truncation. RED-before
+  (форма №772): the Cyrillic pin was run against the pre-№812 revision
+  and PANICKED (the byte-boundary crash) instead of returning the
+  refusal — the fix turns the crash into the pinned refusal. security:
+  no — a crash-to-refusal fix plus redaction of error text; no gate,
+  allowlist or taint floor moves. AFFECTS: programs relying on the raw
+  (unredacted) error preview of assert_contains now see the masked
+  form; the ASCII refusal shape is pinned unchanged.
+
 - **№811 (gh#1567, Wave 66 — the audit-23.10 B3, SSRF):** the V6 arm of
   the SSRF guard covers the two remaining IPv4-smuggling shapes — NAT64
   `64:ff9b::/96` (RFC 6052) and the legacy IPv4-compatible `::a.b.c.d`

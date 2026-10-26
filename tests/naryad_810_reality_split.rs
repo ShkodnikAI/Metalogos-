@@ -18,10 +18,13 @@ fn repo_root() -> PathBuf {
 /// The current-truth ceiling (the owner decision: «≤30 КБ»).
 const REALITY_CEILING_BYTES: usize = 30 * 1024;
 
-/// The pre-split §6.x section count (the transfer reconciliation figure:
-/// the split carried 50 sections — 6.1 … 6.65 with the historical gaps —
-/// and the archive must carry exactly that many; a dropped section is a
-/// silent deletion, the exact class the transfer forbids).
+/// The pre-split §6.x section count — the TRANSFER FLOOR, not a freeze
+/// (the №810 weekly-record episode: the first --archive append added §6.66
+/// and the rigid equality pin went red; the archive is append-only by
+/// design, so the pin keeps the floor — the transfer's reconciliation —
+/// and lets the count grow with every weekly record; a count BELOW the
+/// floor means a transferred section was dropped, the exact silent-
+/// deletion class the transfer forbids).
 const PRE_SPLIT_SECTION_COUNT: usize = 50;
 
 #[test]
@@ -78,11 +81,13 @@ fn n810_archive_carries_every_transferred_section() {
         files >= 2,
         "the monthly archive split (2026-09 + 2026-10) exists"
     );
-    assert_eq!(
-        total, PRE_SPLIT_SECTION_COUNT,
-        "the archive carries {} section(s) but the pre-split transfer was {} — \
-         a section was dropped or duplicated (the silent-deletion class)",
-        total, PRE_SPLIT_SECTION_COUNT
+    assert!(
+        total >= PRE_SPLIT_SECTION_COUNT,
+        "the archive carries {} section(s) but the pre-split transfer floor is {} — \
+         a transferred section was dropped (the silent-deletion class); \
+         the archive is append-only, so the count may only grow",
+        total,
+        PRE_SPLIT_SECTION_COUNT
     );
 }
 

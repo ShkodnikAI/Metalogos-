@@ -591,6 +591,26 @@ All notable changes to the Metalogos project.
 
 ### Fixed
 
+- **№813 (gh#1578, hygiene — the weekly merge-ci-audit exit-2 class, issue
+  #1577):** the detective treats a 404 on the squash-merge tail ref as the
+  DETERMINATE message-convention finding it is — the association lane
+  (`GET /commits/{sha}/pulls`, exactly one merged PR) resolves the real PR
+  and the break stays a VISIBLE divergence line (a convention break never
+  heals silently); the transient lane (5xx, throttling, network) stays
+  fail-closed exit 2 (№525: an unreadable state is not a pass). The first
+  trigger: №802/№803 carried the ISSUE numbers (#1549/#1550) in the tails —
+  the scheduled run 40309903631 died exit 2 without a single verdict; the
+  manual verdict (issue #1577) also surfaced six tail-less merges
+  (№762/№762.1/№763/№765/№766/№729-tail) — all eight resolved via
+  associations, all heads 13/13 success, zero M-1 findings. The self-test
+  carries the resolver cases (exactly-one-merged resolves;
+  zero/several/none-merged stay unresolvable). security: no — a
+  reporting-path fix in a read-only detective; the required set, the
+  fail-closed posture and the report-only boundary are pinned unchanged.
+  AFFECTS: the weekly audit reports convention breaks as exit-1 divergence
+  lines instead of dying unreadable; the merge-convention tail `(#PR)` is
+  enforced by visibility, not by silence.
+
 - **№798 (gh#1536, Wave 64 — audit-23.10 B6/D-2, P3):** `llms.txt` is
   ENGLISH — the owner's 2026-09-17 "documentation in English only"
   directive is now machine-enforced for the file too. The pre-№798

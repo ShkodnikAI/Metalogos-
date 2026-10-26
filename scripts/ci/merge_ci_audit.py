@@ -18,9 +18,19 @@ check-run for ANY required check is a DIVERGENCE. A `skipped` check is
 not green (a required check that can silently skip protects nothing).
 The script reports; it never merges, reverts, or edits history.
 
+A 404 on the trailing "(#N)" ref is a DETERMINATE answer (the ref is
+not a PR — the squash-merge message convention violated; №813, issue
+#1578: №802/№803 carried the ISSUE number in the tail and the audit
+died exit 2 without a single verdict). The audit resolves the merge
+through the commit-association lane and FILES the break as its own
+divergence line — a convention break never heals silently; what stays
+fail-closed (exit 2) is the TRANSIENT lane only (5xx, throttling,
+network) — an unreadable state is not a pass (№525).
+
 Divergence exit code: 0 = clean, 1 = divergences found (the scheduled
-workflow run goes red — visible), 2 = the audit could not run (API
-failure — fail-closed, a silent auditor is a liar auditor).
+workflow run goes red — visible; a convention break rides here too),
+2 = the audit could not run (a TRANSIENT API failure — fail-closed,
+a silent auditor is a liar auditor).
 
 Modes:
   python3 scripts/ci/merge_ci_audit.py                  # report only
@@ -87,6 +97,14 @@ def required_verdict(check_runs, required):
         elif "success" not in conclusions:
             problems.append(f"{name}: {sorted(set(conclusions))}")
     return (not problems), problems
+
+
+def resolve_associated_pr(assoc):
+    """The determinate-404 lane (№813): exactly ONE merged PR
+    association → its number; zero, several, or none merged → None
+    (unresolvable — a divergence, never a silent pass)."""
+    merged = [p.get("number") for p in (assoc or []) if p.get("merged_at")]
+    return merged[0] if len(merged) == 1 else None
 
 
 def decide(commit, pr_map):
@@ -169,11 +187,25 @@ def self_test():
                 fragment in p for p in problems)):
             print(f"SELF-TEST FAIL case {i}: ok={ok} problems={problems}")
             failures += 1
+    # №813: the association resolver — exactly one merged PR resolves,
+    # everything else (none, several, none-merged) stays unresolvable.
+    assoc_cases = [
+        ([{"number": 1557, "merged_at": "2026-10-24T00:00:00Z"}], 1557),
+        ([{"number": 1557, "merged_at": None}], None),
+        ([], None),
+        ([{"number": 1, "merged_at": "x"}, {"number": 2, "merged_at": "y"}], None),
+    ]
+    for i, (assoc, want) in enumerate(assoc_cases):
+        got = resolve_associated_pr(assoc)
+        if got != want:
+            print(f"SELF-TEST FAIL assoc case {i}: got={got} want={want}")
+            failures += 1
     if failures:
         print(f"SELF-TEST FAILED: {failures} case(s)")
         return 1
-    print(f"SELF-TEST OK: {len(cases)} cases "
-          f"(green, no-runs, skipped, failed, no-PR, unavailable)")
+    print(f"SELF-TEST OK: {len(cases) + len(assoc_cases)} cases "
+          f"(green, no-runs, skipped, failed, no-PR, unavailable, "
+          f"assoc-resolved, assoc-unmerged, assoc-empty, assoc-ambiguous)")
     return 0
 
 
@@ -224,9 +256,28 @@ def main():
             pr_numbers.setdefault(pr, c.get("sha"))
 
     pr_map = {}
+    convention_breaks = []  # (sha7, trailing_ref, resolved_pr) — determinate
+    unresolvable = []       # (sha7, trailing_ref) — the association lane found nothing
     try:
-        for pr in pr_numbers:
-            data = api_get(f"https://api.github.com/repos/{repo}/pulls/{pr}", token)
+        for pr, commit_sha in pr_numbers.items():
+            try:
+                data = api_get(f"https://api.github.com/repos/{repo}/pulls/{pr}", token)
+            except urllib.error.HTTPError as e:
+                if e.code != 404:
+                    raise  # transient/throttling — the fail-closed lane below
+                # 404 is DETERMINATE: the trailing ref is not a PR — the
+                # message convention violated (№813). Resolve through the
+                # commit-association lane; the break itself stays VISIBLE.
+                assoc = api_get(
+                    f"https://api.github.com/repos/{repo}/commits/{commit_sha}/pulls",
+                    token)
+                real = resolve_associated_pr(assoc)
+                if real is None:
+                    unresolvable.append((commit_sha[:7], pr))
+                    pr_map[pr] = {"head_sha": None, "check_runs": []}
+                    continue
+                convention_breaks.append((commit_sha[:7], pr, real))
+                data = api_get(f"https://api.github.com/repos/{repo}/pulls/{real}", token)
             head_sha = data.get("head", {}).get("sha")
             runs = all_check_runs(repo, head_sha, token) if head_sha else []
             pr_map[pr] = {"head_sha": head_sha, "check_runs": runs}
@@ -236,6 +287,16 @@ def main():
         sys.exit(2)
 
     divergences = []
+    for sha7, trailing, real in convention_breaks:
+        divergences.append(
+            f"- `{sha7}`: the trailing ref `#{trailing}` is NOT a PR — the "
+            f"message-convention violation (the squash-merge tail must carry "
+            f"the PR number); resolved via the association lane to PR #{real}")
+    for sha7, trailing in unresolvable:
+        divergences.append(
+            f"- `{sha7}`: the trailing ref `#{trailing}` is NOT a PR and the "
+            f"association lane resolved no merged PR — the merge stays "
+            f"unverified (fail-closed)")
     for c in commits:
         first = (c.get("commit", {}).get("message") or "").splitlines()[0:1]
         first = first[0] if first else ""

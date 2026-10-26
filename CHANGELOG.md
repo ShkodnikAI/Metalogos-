@@ -65,6 +65,26 @@ All notable changes to the Metalogos project.
 
 ### Changed
 
+- **№810 (gh#1566, Wave 66 — the C4-a T2 owner decision):** docs/REALITY.md
+  is the CURRENT TRUTH only (≤30 KB, machine-pinned) — the §6.x
+  wave-record history moved VERBATIM to the monthly archive
+  docs/reality/2026-09.md + 2026-10.md (50 sections, the
+  reconciliation figure is machine-pinned by
+  tests/naryad_810_reality_split.rs — «закрытое не удаляется молча» is
+  preserved by the transfer). REALITY.md carries the generated stub:
+  the verbatim machine-truth block (the same collect_machines SSOT the
+  records use) + the archive map (the map is checked against the
+  archive files). The wave-record generator gains `--archive`: the
+  records APPEND to the record-run month archive (idempotent) and the
+  stub refreshes (scripts/gen_reality_current.py, --check is the CI
+  gate). The language-lint allowlist carries the two archive files
+  (the Russian prose is the RECORD content — the owner decision's
+  sanctioned growth). security: no — a docs-layout change; the gates
+  only strengthen (the size ceiling, the reconciliation counter, the
+  map check are new only-up pins). AFFECTS: the wave records append to
+  docs/reality/ from №810 on; docs/REALITY.md regenerates via
+  gen_reality_current (≤30 KB enforced); the README links are
+  unchanged (the current-truth entry stays the entry).
 - **№809 (gh#1565, Wave 66 — the C3-a T3 levels, ADR-0199):** the
   typed-signature metric reads by MATURITY TIER — the PRIMARY
   definition is the stable-tier share (typed∩stable / stable:

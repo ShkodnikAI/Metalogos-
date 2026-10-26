@@ -61,9 +61,17 @@ fn n812_ascii_haystack_refusal_unchanged_shape() {
 #[test]
 fn n812_secret_needle_is_redacted_in_the_error_text() {
     // The needle goes through the masking pipeline: a token-like secret
-    // in the needle lands in the error text MASKED (the entropy net —
-    // the ADR-0136 redact("secrets") shape).
-    let secret = "BQACAgIAAxkBAAIFq2dXk3mZ8tQhR1vYcN4pL0aB7wE6AAJ0XAACo3pYSvKq9Zx1bC8oHgQ";
+    // in the needle lands in the error text MASKED (the explicit
+    // provider-token shape — the ADR-0136 redact("secrets") shape; the
+    // ghp_ family is re_apikey's first-class citizen).
+    //
+    // The literal is the SANCTIONED synthetic shape (.gitleaks.toml, the
+    // №459 allowlist doctrine: a synthetic fixture carries the EXAMPLE
+    // marker). The first push carried a 72-char base64 blob instead —
+    // the gitleaks default rule generic-api-key caught it and the head
+    // went red (the tripwire worked as designed; a leak lands as a red
+    // build, not as an allowlist entry).
+    let secret = "ghp_EXAMPLE00000000000000000000000000000";
     let err = match call_assert("haystack", secret) {
         Ok(v) => panic!("the assert must refuse, got {v}"),
         Err(e) => e,

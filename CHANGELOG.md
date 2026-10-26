@@ -6,6 +6,33 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№805 (gh#1561, Wave 66 — the gateway G4, the pilot's exit criterion):**
+  the demo + e2e — `examples/gateway/policy.mlog` (the 30-line gateway
+  policy over two upstream MCP servers: file + fetch) and
+  `examples/gateway/README.md` (the 5-minute guide for Claude Desktop /
+  any MCP client) ship as CI-verified artifacts: the e2e
+  (`naryad_805_gateway_demo`, 4 scenarios) reads the SHIPPED policy file,
+  pools BOTH upstreams in ONE gateway process (the №793 pool's first
+  two-upstream exercise), and runs the canonical event — the agent reads
+  `.env` (Source private joins the session label), the POST through the
+  fetch upstream is refused with `[SINK_CLEARANCE]` BEFORE the upstream
+  sees the call, the refusal is a signed `mcp.call.denied` ledger record
+  and the export verifies externally (`ledger_verify` ok); plus the
+  allowed path (a fresh session posts), the once-grant unblock (№801) and
+  the audit tap (`ledger_dump.dump` → the export round-trips through MCP
+  and verifies). The fixture upstreams (`tests/fixtures/mcp_file_server.py`,
+  `tests/fixtures/mcp_fetch_server.py`) speak the newline-delimited
+  JSON-RPC the fixtures already use. `examples/gateway/screencast.sh`
+  drives the REAL gateway with live JSON-RPC for the 60–90 s take (the
+  video cut itself — verified-wait за вербатимом владельца, форма №755).
+  RED-before: the naryad lands no product change (additive examples +
+  tests + fixtures only) — the pins are the new two-upstream coverage and
+  ran on the pre-№805 revision; the result is recorded in the PR body.
+  security: no — the demo adds no executable product surface; the demo
+  policy is conservative (Source private on the file upstream), the
+  ledger/allowlist/label contracts are untouched. AFFECTS: none (the
+  gateway surface is unchanged; the example is the new entry point).
+
 - **№802 (gh#1549, Wave 65 — the C6 R-b 2 static check, the ADR-0198
   queue):** the try result and the `T|Unit` union are verified BEFORE use —
   the flow-sensitive semantic pass refuses `[UNCHECKED_RESULT]` (a

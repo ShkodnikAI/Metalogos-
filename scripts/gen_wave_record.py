@@ -37,6 +37,7 @@ import re
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -75,6 +76,69 @@ def api(url: str, token: str | None):
             print(f"  [retry {attempt + 1}] {url} -> {exc}", file=sys.stderr)
             time.sleep(3 * (attempt + 1))
     raise ApiError(f"the GitHub API broke: {last}")
+
+
+def api_try(url: str, token: str | None):
+    """api() without the retry storm: a 404 is DETERMINATE (the resource
+    does not exist) and returns None — everything else raises exactly as
+    api() does. The №814 lane: the PR citation is VERIFIED, and a wrong
+    tail ref (an issue number — the #1577 class) must be detected fast,
+    not retried four times."""
+    if not token:
+        raise ApiError("GH_TOKEN absent — the PR citation is unresolvable; the generator refuses to guess")
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "metalogos-gen-wave-record",
+            },
+        )
+        with urllib.request.urlopen(req, data=None) as r:
+            return json.loads(r.read().decode())
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return None
+        raise
+
+
+def resolve_pr_for_merge(subject: str, sha: str, token: str | None) -> str:
+    """The PR citation for a merge commit — VERIFIED, never guessed
+    (№814; the #1577 class: №802/№803 carried the ISSUE numbers in the
+    squash-merge tails and the merged record §6.65 cited the wrong PRs).
+
+    The tail "(#N)" is a candidate, not a fact: the citation is confirmed
+    against GET /pulls/{n} (an existing record = a real PR; the shared
+    number space means an issue number 404s here — determinate). A 404,
+    an unmerged record, or no tail at all falls through to the
+    commit-association lane (exactly one merged PR). Unresolvable = a
+    loud `PR unresolved` marker in the record — never a silent wrong
+    number, never a guessed one."""
+    m = PR_SUFFIX_RE.search(subject)
+    candidate = m.group(1) if m else None
+    if candidate is not None:
+        data = api_try(f"https://api.github.com/repos/{REPO}/pulls/{candidate}", token)
+        if data is not None and data.get("merged_at"):
+            return f", PR #{candidate}"
+    assoc = api_try(
+        f"https://api.github.com/repos/{REPO}/commits/{sha}/pulls?per_page=20", token
+    )
+    merged = [p["number"] for p in (assoc or []) if p.get("merged_at")]
+    if len(merged) == 1:
+        if candidate is not None:
+            return (
+                f", PR #{merged[0]} (the tail-ref correction: the tail `#{candidate}` "
+                "is not a merged PR — the #1577 message-convention class)"
+            )
+        return (
+            f", PR #{merged[0]} (the tail-ref correction: the merge subject "
+            "carries no `(#PR)` tail — the #1577 message-convention class)"
+        )
+    return (
+        ", PR unresolved (the tail ref is not a merged PR and the association "
+        "lane resolved no merged PR — the #1577 class; the citation stays loud, never guessed)"
+    )
 
 
 def find_dispatch(wave: int, token: str | None) -> dict:
@@ -221,8 +285,7 @@ def wave_record(wave: int, token: str | None) -> tuple[str, str]:
         merge = git_log_naryad(no)
         if merge:
             sha, subject = merge
-            pr_m = PR_SUFFIX_RE.search(subject)
-            pr_note = f", PR #{pr_m.group(1)}" if pr_m else ""
+            pr_note = resolve_pr_for_merge(subject, sha, token)
             verdict = ci_verdict(sha, token)
             rec.append(
                 f"- **№{no}** (gh#{issue_no}{src_note}) — merged: `{sha[:12]}`{pr_note}; {verdict}"

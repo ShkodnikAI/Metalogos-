@@ -65,6 +65,23 @@ All notable changes to the Metalogos project.
 
 ### Changed
 
+- **№814 (gh#1579, hygiene — the wave-record PR-citation class, issue
+  #1577):** the wave-record generator VERIFIES the PR citation — the
+  squash-merge tail `(#N)` is a candidate, not a fact. A 404 (an issue
+  number in the tail — the #1577 message-convention class), an unmerged
+  record, or a missing tail resolves through the commit-association
+  lane (exactly one merged PR) and the record carries a VISIBLE
+  tail-ref-correction marker; unresolvable stays a loud `PR unresolved`
+  marker — the citation is never an unverified number riding the audit
+  trail, never a guess. The merged §6.65 record is corrected in place
+  (the №762.1 form): №802 cites PR #1557 and №803 cites PR #1558 (the
+  record run had swallowed the issue-number tails #1549/#1550). The
+  acceptance ran live: the generator on wave 65 cites #1557/#1558 with
+  the correction markers, no hand-editing. security: no — a
+  reporting-path fix in a read-only generator; the weekly form
+  (C4-a T1) is unchanged. AFFECTS: the wave records cite verified PRs;
+  the convention breaks stay visible in the audit trail.
+
 - **№810 (gh#1566, Wave 66 — the C4-a T2 owner decision):** docs/REALITY.md
   is the CURRENT TRUTH only (≤30 KB, machine-pinned) — the §6.x
   wave-record history moved VERBATIM to the monthly archive

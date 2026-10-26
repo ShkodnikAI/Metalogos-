@@ -114,6 +114,7 @@ MINOR), №639 (15.10) / №648 (01.12) outside the wave.
 
 ## Current wave — the open machine tail (2026-10-23)
 
+Wave 66 EXECUTED (the dispatch gh#1569): №805 → №806 → №807 → №808 → №809 → №810 → №811 → №812. The machine record: the generated §6.66 (the verbatim counters, the merge-CI verdicts).
 Wave 65 EXECUTED (the dispatch gh#1552): №799 → №800 → №801 → №802 → №803 → №804. The machine record: the generated §6.65 (the verbatim counters, the merge-CI verdicts).
 
 Wave 64 EXECUTED (the dispatch gh#1537): №793 → №794 → №795 → №796 → №797 → №798. The machine record: the generated §6.64 (the verbatim counters, the merge-CI verdicts).

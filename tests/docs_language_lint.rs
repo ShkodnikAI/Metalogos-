@@ -35,7 +35,15 @@ use std::path::{Path, PathBuf};
 /// Repo-relative paths with forward slashes, sorted. Keep frozen:
 /// `docs/adr/0043-unicode-fix.md` is *about* Cyrillic UTF-8 handling —
 /// the «Привет» string literals are the subject matter of the document.
-const ALLOWLIST: &[&str] = &["docs/adr/0043-unicode-fix.md"];
+const ALLOWLIST: &[&str] = &[
+    "docs/adr/0043-unicode-fix.md",
+    // №810 (the C4-a T2 owner decision): the monthly REALITY archives —
+    // the verbatim wave-record transfer (Russian prose is the RECORD
+    // content; the doc is a historical archive, not the documentation
+    // language). Growing this list stays an explicit, reviewed PR edit.
+    "docs/reality/2026-09.md",
+    "docs/reality/2026-10.md",
+];
 
 /// Minimum Cyrillic letters in one file for it to be flagged.
 const MIN_CYRILLIC_LETTERS: usize = 20;

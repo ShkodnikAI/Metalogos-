@@ -271,6 +271,8 @@ def main() -> int:
                         help="the wave number (repeatable — one weekly PR covers all the waves)")
     parser.add_argument("--out", default="",
                         help="write the blocks to DIR/reality-wave-N.md and DIR/plansummary-wave-N.md")
+    parser.add_argument("--archive", action="store_true",
+                        help="№810: append the REALITY block to docs/reality/<record-month>.md (idempotent — an already-present section is skipped) and refresh the docs/REALITY.md generated stub")
     args = parser.parse_args()
     token = os.environ.get("GH_TOKEN")
 
@@ -290,6 +292,24 @@ def main() -> int:
                 f.write(reality + "\n")
             with open(os.path.join(args.out, f"plansummary-wave-{wave}.md"), "w", encoding="utf-8") as f:
                 f.write(plansummary + "\n")
+        if args.archive:
+            month = time.strftime("%Y-%m")
+            archive_path = os.path.join(REPO_ROOT, "docs", "reality", f"{month}.md")
+            os.makedirs(os.path.dirname(archive_path), exist_ok=True)
+            existing = ""
+            if os.path.exists(archive_path):
+                existing = open(archive_path, encoding="utf-8").read()
+            if f"### 6.{wave}." in existing:
+                print(f"archive: docs/reality/{month}.md already carries §6.{wave} — skipped (idempotent)")
+            else:
+                with open(archive_path, "a", encoding="utf-8") as f:
+                    if existing and not existing.endswith("\n\n"):
+                        f.write("\n\n")
+                    f.write(reality.rstrip("\n") + "\n")
+                print(f"archive: §6.{wave} appended to docs/reality/{month}.md")
+            # refresh the REALITY stub (the machine-truth + the archive map)
+            import subprocess
+            subprocess.run([sys.executable, os.path.join(HERE, "gen_reality_current.py")], check=False)
     return 0 if ok else 1
 
 

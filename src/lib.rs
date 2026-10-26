@@ -135,6 +135,9 @@ pub mod voice;
 
 /// Parse and execute a .mlog program. Returns the flow output (if any),
 /// with mutate status messages prepended if present.
+/// [TW-ORACLE] №808: the TW entry — the REFERENCE oracle runner (ADR-0197):
+/// the user executor is `run_program_on_vm`; this lane rides `--reference`
+/// and the CI comparisons only.
 pub fn run_program(source: &str) -> Result<Option<String>, String> {
     run_program_with_dir(source, std::path::PathBuf::from("."))
 }
@@ -579,6 +582,9 @@ pub fn run_bytecode(program: bytecode::Program) -> Result<Option<String>, String
 
 /// Parse a .mlog program, execute declarations, then run all eval blocks (ADR-0050).
 /// Returns a list of EvalResult structs with accuracy, confusion matrix, and failure details.
+/// [TW-ORACLE] №808: the TW entry — the REFERENCE oracle runner (ADR-0197):
+/// the user executor is `eval_program_on_vm`; this lane rides `--reference`
+/// and the CI comparisons only.
 pub fn eval_program(source: &str) -> Result<Vec<interpreter::EvalResult>, String> {
     eval_program_with_dir(source, std::path::PathBuf::from("."))
 }
@@ -737,6 +743,7 @@ flow Main { input: String = "go" -> p -> output }
 
     #[test]
     fn run_path_refuses_break_outside_loop_with_the_stable_code() {
+        // [TW-ORACLE] №808: the in-lib test — the oracle lane under test.
         // The TW run/serve path: the №523 gate stamps the FIRST blocking
         // finding's stable code — the №673 check runs early in
         // check_program, so the stamp is ours.

@@ -426,6 +426,8 @@ fn cmd_run(file: PathBuf, reference: bool) {
     // every build profile.
     let source_for_thread = source.clone();
     let handle = if reference {
+        // [TW-ORACLE] №808: the `--reference` lane — the oracle escape
+        // hatch (ADR-0197; transitional; the VM arm is the executor).
         std::thread::Builder::new()
             .stack_size(256 * 1024 * 1024)
             .spawn(move || metalogos::run_program(&source_for_thread))
@@ -595,6 +597,7 @@ fn cmd_eval(file: PathBuf, reference: bool) {
         .stack_size(256 * 1024 * 1024)
         .spawn(move || {
             if reference {
+                // [TW-ORACLE] №808: the `--reference` eval lane (ADR-0197).
                 metalogos::eval_program(&source)
             } else {
                 metalogos::eval_program_on_vm(&source)

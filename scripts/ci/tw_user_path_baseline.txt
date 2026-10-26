@@ -1,0 +1,6 @@
+# The №808 TW-oracle baseline (scripts/ci/tw_user_path_gate.py).
+# Form: path :: anchor-substring :: reason (one row per sanctioned lane).
+# As of №808 the baseline is EMPTY BY DESIGN: every TW entry in the user
+# paths carries the explicit [TW-ORACLE] mark in the source (the marks ARE
+# the documentation). Add a row ONLY for a lane the owner sanctioned as
+# transitional (ADR-0197) that cannot carry a source comment.

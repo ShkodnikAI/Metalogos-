@@ -65,6 +65,34 @@ All notable changes to the Metalogos project.
 
 ### Changed
 
+- **№807 (gh#1563, Wave 66 — the audit-23.10 B2, the Secret zeroize
+  discipline):** the Secret material no longer lands in plain unsecured
+  String copies on the crypto/masking paths — `hash_password` and
+  `verify_password` BORROW the Secret (argon2 reads the Zeroizing buffer
+  directly), `redact` reads it in place, and `hmac_sha256` now accepts
+  the opaque Secret as the KEY (the recommended path — the material never
+  leaves the Zeroizing buffer; the String key stays accepted for backward
+  compat, both borrowed). The same-class find: the CalDAV session
+  credential (`cal_connect` pass) lives in a `Zeroizing<String>` field —
+  the copy is unavoidable there (the session stores it for the connection
+  lifetime), so it round-trips inside the zeroizing buffer and is wiped on
+  drop. The classification rationale (builtins_classification.rs) records
+  the arg0-Private recommendation for `hmac_sha256` (the REFERENCE row
+  follows the registry regen). The zero-copy invariant is pinned
+  STRUCTURALLY (the №604 source-scan form — a heap copy is not observable
+  at runtime, the source IS the observable): the named sites must not
+  carry `as_str().to_string()` on the Secret arms. RED-before (форма
+  №772): `hmac_sha256(secret("K"), msg)` was run against the pre-№807
+  revision — the static check passed (the opaque posture) and the run
+  refused LOUD (`hmac_sha256() key must be String`); the pins flip that
+  refusal into the working contract on BOTH backends (the digest is
+  carrier-independent: Secret and String keys produce the identical tag).
+  security: YES — the B2 fix; the memory posture only tightens (fewer
+  unsecured copies), no gate, allowlist or taint floor moves; the
+  honest-boundary dictionary is untouched. AFFECTS: none functionally —
+  every previously-working call keeps working; programs passing a Secret
+  key to `hmac_sha256` (previously refused at runtime) now work.
+
 - **№806 (gh#1562, Wave 66 — the audit-23.10 B1, the secret-comparison
   recipe):** the unkeyed `hash_only` redact policy no longer DECLASSIFIES —
   the fingerprint keeps the source confidentiality and restores only

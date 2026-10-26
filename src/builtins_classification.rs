@@ -456,7 +456,7 @@ pub static BUILTIN_CLASSES: &[BuiltClassEntry] = &[
     BuiltClassEntry { name: "html_to_pdf", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     BuiltClassEntry { name: "send_document", class: BuiltClass { role: Role::Sink, default_label: Label::Network, reversibility: Reversibility::Irreversible, rationale: "delivers a document externally — cannot be unsent" } },
     BuiltClassEntry { name: "sha256", class: BuiltClass { role: Role::Lift, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "one-way digest — de-identifies its input (used to hash secrets)" } },
-    BuiltClassEntry { name: "hmac_sha256", class: BuiltClass { role: Role::Lift, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "keyed digest — de-identifies its input" } },
+    BuiltClassEntry { name: "hmac_sha256", class: BuiltClass { role: Role::Lift, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "keyed digest — de-identifies its input; the KEY position (arg0) is Private-recommended — pass the key as Secret (accepted since №807/B2, the material stays in the Zeroizing buffer)" } },
     BuiltClassEntry { name: "hex_encode", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     BuiltClassEntry { name: "hex_decode", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     BuiltClassEntry { name: "secret", class: BuiltClass { role: Role::Source, default_label: Label::Secret, reversibility: Reversibility::Pure, rationale: "materializes a Secret value — Secret taint (№172)" } },

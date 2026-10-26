@@ -1,0 +1,38 @@
+// ── The Metalogos gateway demo policy (naryad №805, the G4 demo) ──────
+//
+// One small .mlog file is the ENTIRE gateway policy. Two upstream MCP
+// servers are classified; every tool result carries a data label; a
+// call whose arguments do not FLOW TO the sink's clearance is refused
+// with a typed error BEFORE the upstream sees it.
+//
+// The classification below is deliberately conservative: a file server
+// CAN read .env or SSH keys, so everything it returns is treated as
+// private. The fetch server is the way out of the machine — posting
+// there demands a public clearance the session will not have after
+// any file read.
+
+mcp_policy {
+  tool "files.read_file" source "private";
+  tool "files.write_file" sink "private, trusted";
+  tool "web.http_get" source "public, untrusted";
+  tool "web.http_post" sink "public, trusted";
+}
+
+// The owner's escape hatch: a grant for ONE concrete call. The agent
+// can ask, but the grant is issued by this local tool — scoped, with a
+// TTL, and consumed on first use ("once").
+tool owner_unlock {
+  unlock(scope: String) -> String {
+    return grant_issue(scope, 60.0, "once")
+  }
+}
+
+// The audit tap: the operator (or the agent, on request) writes the
+// signed, hash-chained ledger export to a path and verifies it
+// EXTERNALLY with `mlog ledger verify <file>` — the gateway's own
+// verdict is never taken on faith.
+tool ledger_dump {
+  dump(path: String) -> String {
+    return ledger_export(path)
+  }
+}

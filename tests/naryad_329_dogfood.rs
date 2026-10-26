@@ -19,7 +19,7 @@
 //!   vocabulary) is gated with the expected classes;
 //! - (г) the ergonomics measurement: the share of annotated lines is
 //!   under 50% (the Go threshold of Фаза 1), pinned to the exact
-//!   annotation inventory (2 lines: escape_html + redact/hash_only);
+//!   annotation inventory (2 lines: escape_html + redact/hash_keyed);
 //! - (д) no-stub hygiene (№16.0-D).
 //!
 //! Boundary (loud): the office-side integration (the real Fosved Office
@@ -103,12 +103,12 @@ fn n329_unsanitized_llm_draft_is_untrusted_egress() {
 
 #[test]
 fn n329_raw_webhook_token_is_secret_egress() {
-    // Remove the redact/hash_only downward move → the raw env Secret hits
+    // Remove the redact/hash_keyed downward move → the raw env Secret hits
     // http_post. In the BODY position the private label is
     // PII_EGRESS_NETWORK (the sink_check_id vocabulary); in the ADDRESS
     // position it is SECRET_EGRESS_NETWORK — both blocked.
     let body_src = dogfood_source().replace(
-        "redact(env(\"FOSVED_WEBHOOK_TOKEN\"), \"hash_only\")",
+        "redact(env(\"FOSVED_WEBHOOK_TOKEN\"), \"hash_keyed\")",
         "env(\"FOSVED_WEBHOOK_TOKEN\")",
     );
     let errs = compile_errors(&body_src);
@@ -280,7 +280,7 @@ fn n329_annotation_inventory_by_place() {
     assert!(
         lines
             .iter()
-            .any(|l| l.contains("redact(env(\"FOSVED_WEBHOOK_TOKEN\"), \"hash_only\")")),
+            .any(|l| l.contains("redact(env(\"FOSVED_WEBHOOK_TOKEN\"), \"hash_keyed\")")),
         "annotation 2: the one-way redact on the webhook secret: {lines:?}"
     );
     assert_eq!(lines.len(), 2, "no other ceremony is required: {lines:?}");

@@ -1,22 +1,29 @@
 // Наряд №326 (issue #420) — redact/declassify: the ONLY sanctioned
 // downward move on the conf axis (ADR-0154 §10), policy as a value.
+// №806 (B1) update: the downward path is the KEYED fingerprint — the
+// unkeyed `hash_only` no longer declassifies (the full 256-bit digest of
+// a low-entropy secret is still brute-forceable offline; it keeps the
+// source label and restores only integrity/comparability).
 //
 // The contracts demonstrated:
-//   Hash — env secret hashed first (hash_only) → compiles: the policy's
-//          target conf is `public` (the data is destroyed, comparability
-//          kept); the application is recorded as an audit event
+//   Hash — env secret fingerprinted first (hash_keyed, HMAC under
+//          METALOGOS_REDACT_KEY) → compiles: the policy's target conf is
+//          `public` (the keyed digest is not brute-forceable without the
+//          process key); the application is recorded as an audit event
 //          ([REDACT][audit-event] + REDACT_APPLIED in `mlog audit`).
 //          Without the redact the same print(env(...)) is a compile
-//          error (SINK_CLEARANCE family — №325).
+//          error (SINK_CLEARANCE family — №325). The unkeyed
+//          redact(env("APP_KEY"), "hash_only") in the SAME position
+//          refuses now — the fingerprint keeps the secret's label.
 //   Strip — PII record masked (pii_strip) → the label STAYS private:
 //          pattern strips are conservative (they can miss data), the
 //          gate keeps blocking raw output. The downward path needs a
-//          one-way policy (hash_only) or full masking ("all").
+//          keyed one-way policy (hash_keyed) or full masking ("all").
 //
 // Tests: tests/naryad_326_redact_policies.rs pins all of it.
 
 pattern Hash(data: String) -> String {
-  let _ = print(redact(env("APP_KEY"), "hash_only"))
+  let _ = print(redact(env("APP_KEY"), "hash_keyed"))
   return "sent"
 }
 
@@ -24,7 +31,7 @@ entity record: String = "Иванов Иван, снилс 123-456-789, диаг
 
 pattern Strip(data: String) -> String {
   let masked = redact(record, "pii_strip")
-  let _ = http_post("https://analytics.example/collect", redact(masked, "hash_only"))
+  let _ = http_post("https://analytics.example/collect", redact(masked, "hash_keyed"))
   return "sent"
 }
 

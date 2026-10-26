@@ -26,7 +26,10 @@
 
 - [README.md](README.md): the general overview — features, project structure, milestones, roadmap, quickstart, links.
 - [docs/PLAN-SUMMARY.md](docs/PLAN-SUMMARY.md): the public digest of the wave plan (a derived artifact, the access mode §16.0-7).
-- [CHANGELOG.md](CHANGELOG.md): the full change history (naryads №1-№805), the SSOT for "what's new".
+<<<<<<< HEAD
+- [CHANGELOG.md](CHANGELOG.md): the full change history (naryads №1-№806), the SSOT for "what's new".
+=======
+>>>>>>> 962f3a8 (Naryad №806 (issue #1562, wave 66, P2 — the audit-23.10 B1, the secret-comparison recipe): the unkeyed hash_only no longer declassifies — the full 256-bit digest keeps the source label and restores only integrity; the new hash_keyed policy (HMAC-SHA256 under the process-scoped METALOGOS_REDACT_KEY, [HMAC:<64hex>], loud fail-closed refusal without the key) is the sanctioned public fingerprint; the recipe everywhere is ct_eq / the keyed fingerprint; ADR-0154 §10 amended; the dogfood contour migrated; the leak suite gains the n806 refusal + the ok_806 keyed fence (ok_781 unkeyed form retired))
 - [docs/adr/](docs/adr/): 190 ADR (Architecture Decision Records) — every architectural decision with the context, the alternatives and the consequences. The index in `docs/adr/README.md`.
 - [docs/threat-model.md](docs/threat-model.md): the single, maintained point about the security limitations.
 - [docs/privacy.md](docs/privacy.md): the engineering privacy policy — what data is stored, where, how it is deleted (the CONFIRMED/PARTIAL/ABSENT markers; №519).

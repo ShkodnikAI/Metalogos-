@@ -65,6 +65,49 @@ All notable changes to the Metalogos project.
 
 ### Changed
 
+- **№806 (gh#1562, Wave 66 — the audit-23.10 B1, the secret-comparison
+  recipe):** the unkeyed `hash_only` redact policy no longer DECLASSIFIES —
+  the fingerprint keeps the source confidentiality and restores only
+  integrity (the №327 decision lift survives on non-secret data: the
+  error-code branching form stays legal). The hole being closed: the old
+  contract shipped a 64-bit UNKEYED SHA-256 prefix labelled `public` — a
+  low-entropy secret (a PIN, a short code) is brute-forced offline in
+  seconds, so the sanctioned recipe was a leak channel dressed as hygiene.
+  The changes: (1) `hash_only` now emits the FULL 256-bit hex digest
+  (`[HASH:<64hex>] hex`, was `[HASH:<16hex>]`) and its registry target is
+  `private`; (2) the NEW `hash_keyed` policy — one-way HMAC-SHA256 under
+  the process-scoped `METALOGOS_REDACT_KEY` (`[HMAC:<64hex>] hex`,
+  process-scoped comparability, declassifies to public; the missing/empty
+  key is a LOUD fail-closed refusal, never a silent unkeyed fallback — a
+  one-word env-keyed design was rejected because the check-time and
+  run-time environments could diverge and the static label would lie,
+  №525); (3) the static label mapping (semantic.rs) reads the amended
+  registry — `hash_only` keeps the input conf and restores integrity,
+  `hash_keyed` lands at bottom; (4) the secret-comparison recipe in the
+  `UNTRUSTED_DECISION` refusal, limitations.md and threat-model.md is now
+  `ct_eq(provided, expected)` (constant-time) or the keyed fingerprint on
+  BOTH sides; (5) ADR-0154 §10 amended in place (the two-word form keeps
+  the static label truthful with zero env dependence). Consumers: the
+  dogfood contour migrates to `hash_keyed` (l1_dogfood, l1_redact), the
+  leak suite gains the `n806_unkeyed_fingerprint_respond` refusal and the
+  `ok_806_secret_keyed_fingerprint_respond` fence (the pre-№806
+  `ok_781_secret_hash_only_respond` is retired — the unkeyed digest
+  respond is a leak now), the office's `hash_only`-BOTH-sides comparison
+  keeps WORKING (deterministic comparability is preserved) but its
+  digests stop declassifying — migrate the egressing fingerprints to
+  `hash_keyed` with a configured process key. RED-before (форма №772):
+  the n806 leak-suite refusal was RED on the pre-№806 revision (the
+  program compiled and the digest flowed to respond) — the fix turns it
+  into the pinned refusal; the keyed refusal/comparability pins went
+  RED (arity/shape) before the implementation landed. security: YES —
+  this is the B1 security fix; the refusal surface widens (fail-closed),
+  no gate, allowlist or taint floor moves; the honest-boundary dictionary
+  is untouched. AFFECTS: programs egressing unkeyed `hash_only`
+  fingerprints of secret-derived values now refuse at check/run — use
+  `ct_eq` for comparisons or `hash_keyed` with a configured
+  `METALOGOS_REDACT_KEY` for public fingerprints; digest outputs are
+  longer (64 hex) and `[HMAC:…]`-shaped for the keyed policy.
+
 - **№804 (gh#1551, Wave 65 — the C2 positioning, the gh#1485 registry
   task, the owner decision 23.10):** the first screen carries ONE
   formulation across the three entry points — **README**, the GitHub

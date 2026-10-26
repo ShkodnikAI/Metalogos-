@@ -22,11 +22,18 @@
 //   V6 "abcdefghijklmnop1234567"                   (23) → identity (run < 24)
 //   V7 "a1b2c3d4e5f6g7h8i9j0k1"                    (22) → identity (run < 24)
 //
-// The sanctioned secret-comparison recipe under serve: `redact(x,
-// "hash_only")` on BOTH sides — the SHA-256 fingerprint destroys the
-// data, keeps comparability, and declassifies to public (the decision
-// passes the №327 gate). Verified live on the release binary: all three
-// failing values (25/32/41) compare `eq` under the recipe.
+// The secret-comparison recipe evolution. The ORIGINAL №716 recipe was
+// `redact(x, "hash_only")` on BOTH sides — the SHA-256 fingerprint
+// destroys the data, keeps comparability, declassifies to public.
+// №806 (the audit-23.10 B1) RETIRED the declassification: an unkeyed
+// digest of a LOW-ENTROPY secret is brute-forced offline in seconds, so
+// the public label on it was a leak channel dressed as hygiene. The
+// recipe as of №806: `ct_eq(provided, expected)` — constant-time, no
+// declassification — or the KEYED fingerprint `redact(x, "hash_keyed")`
+// under the process-scoped `METALOGOS_REDACT_KEY` on BOTH sides (loud
+// refusal without the key). The unkeyed `hash_only` keeps determinism
+// and comparability (the digest is still `[HASH:<64hex>] hex`, the full
+// 256 bits now) but the label stays with the source.
 //
 // This file pins the contract: the golden table 7/7, the recipe's
 // comparability, the trap shape (mask vs raw literal), and the
@@ -34,6 +41,27 @@
 // semantics changed — the masking is intended, the guidance gets loud.
 
 use metalogos::builtins::redact_string;
+use std::sync::Mutex;
+
+// The env-mutation lock: the №806 keyed tests set/remove
+// METALOGOS_REDACT_KEY — the process-global env is shared by the
+// parallel tests in this binary, the mutations serialize on this lock.
+static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+fn lock_env() -> std::sync::MutexGuard<'static, ()> {
+    ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+fn set_key(v: &str) {
+    std::env::set_var("METALOGOS_REDACT_KEY", v);
+}
+
+fn restore_key(prev: Option<String>) {
+    match prev {
+        Some(v) => std::env::set_var("METALOGOS_REDACT_KEY", v),
+        None => std::env::remove_var("METALOGOS_REDACT_KEY"),
+    }
+}
 
 fn run_tw(source: &str) -> Result<Option<String>, String> {
     metalogos::run_program(source)
@@ -142,7 +170,7 @@ fn n716_hash_only_digest_deterministic_and_comparable() {
         assert_ne!(a, *input, "hash_only must destroy the data");
         assert!(
             a.starts_with("[HASH:") && a.ends_with("] hex"),
-            "the digest shape is the [HASH:<16hex>] hex contract: {a}"
+            "the digest shape is the [HASH:<64hex>] hex contract (the full 256 bits, №806): {a}"
         );
     }
 }
@@ -254,7 +282,94 @@ fn n716_untrusted_decision_message_names_hash_only_recipe() {
     assert!(
         errs.iter().any(|m| m.contains("[UNTRUSTED_DECISION]")
             && m.contains("source 'request_header'")
-            && m.contains("hash_only")),
-        "the refusal must name the sanctioned hash_only recipe: {errs:?}"
+            && m.contains("ct_eq")
+            && m.contains("hash_keyed")),
+        "the refusal must name the №806 recipe (ct_eq / the keyed fingerprint): {errs:?}"
     );
+}
+
+// ── №806 (B1): the keyed fingerprint — the sanctioned public recipe ───
+
+#[test]
+fn n806_hash_keyed_deterministic_comparable_keyed_shape() {
+    let _g = lock_env();
+    let prev = std::env::var("METALOGOS_REDACT_KEY").ok();
+    set_key("n716-n806-process-key-0123456789abcdef");
+    let a = redact_ok("abcdefgh1369abcdefghi13ab", "hash_keyed");
+    let b = redact_ok("abcdefgh1369abcdefghi13ab", "hash_keyed");
+    restore_key(prev);
+    assert_eq!(
+        a, b,
+        "the keyed fingerprint must be deterministic under the same key"
+    );
+    assert_ne!(a, "abcdefgh1369abcdefghi13ab", "the data must be destroyed");
+    assert!(
+        a.starts_with("[HMAC:") && a.ends_with("] hex"),
+        "the keyed digest shape is the [HMAC:<64hex>] hex contract: {a}"
+    );
+    let hex = a
+        .trim_start_matches("[HMAC:")
+        .trim_end_matches("] hex")
+        .to_string();
+    assert_eq!(hex.len(), 64, "the full HMAC-SHA256 hex, got: {a}");
+}
+
+#[test]
+fn n806_hash_keyed_recipe_decides_on_both_backends() {
+    // The №806 recipe at the program level: the keyed fingerprint on BOTH
+    // sides decides (the static label is bottom — the №327 gate passes).
+    let _g = lock_env();
+    let prev = std::env::var("METALOGOS_REDACT_KEY").ok();
+    set_key("n716-n806-process-key-0123456789abcdef");
+    let v = "abcdefgh1369abcdefghi13ab";
+    let src = compare_src("hash_keyed", v, v);
+    let tw = tw_out(&src);
+    let vm = vm_out(&src);
+    let ne = compare_src("hash_keyed", v, "abcdefgh1369abcdefghi13abcde69ab");
+    let tw_ne = tw_out(&ne);
+    let vm_ne = vm_out(&ne);
+    restore_key(prev);
+    assert_eq!(tw, "true", "TW: the keyed recipe matches itself");
+    assert_eq!(vm, "true", "VM: the keyed recipe matches itself");
+    assert_eq!(tw_ne, "false", "TW: distinct secrets stay distinct (keyed)");
+    assert_eq!(vm_ne, "false", "VM: distinct secrets stay distinct (keyed)");
+}
+
+#[test]
+fn n806_hash_keyed_refuses_loud_without_the_key_both_backends() {
+    // Fail-closed: the missing key is a LOUD runtime error, never a
+    // silent unkeyed fallback — pinned on both backends.
+    let _g = lock_env();
+    let prev = std::env::var("METALOGOS_REDACT_KEY").ok();
+    std::env::remove_var("METALOGOS_REDACT_KEY");
+    let src = compare_src("hash_keyed", "a", "a");
+    let tw = run_tw(&src).err();
+    let vm = run_vm(&src).err();
+    restore_key(prev);
+    let tw = tw.expect("TW must refuse without the key");
+    let vm = vm.expect("VM must refuse without the key");
+    assert!(
+        tw.contains("METALOGOS_REDACT_KEY") && tw.contains("fail-closed"),
+        "TW: {tw}"
+    );
+    assert!(
+        vm.contains("METALOGOS_REDACT_KEY") && vm.contains("fail-closed"),
+        "VM: {vm}"
+    );
+}
+
+#[test]
+fn n806_hash_only_still_comparable_but_not_public() {
+    // The unkeyed digest keeps its contract half: deterministic
+    // comparability. The declassification half is retired — the static
+    // gate refuses the digest at a public sink (the n326 pin covers the
+    // compile side; here the full digest shape is the honest marker).
+    let a = redact_ok("abcdefgh1369abcdefghi13ab", "hash_only");
+    let b = redact_ok("abcdefgh1369abcdefghi13ab", "hash_only");
+    assert_eq!(a, b, "comparability is kept");
+    let hex = a
+        .trim_start_matches("[HASH:")
+        .trim_end_matches("] hex")
+        .to_string();
+    assert_eq!(hex.len(), 64, "the full 256-bit digest, got: {a}");
 }

@@ -6678,7 +6678,7 @@ fn check_integrity_decisions(
             check_id: "UNTRUSTED_DECISION",
             line: v.span.start_line as usize,
             message: format!(
-                "anti-injection: untrusted data (label '{}' from source '{}') decides a '{}' in {} — validate/one-way-redact it before deciding (secret comparison: redact(x, \"hash_only\") on BOTH sides; masking policies like \"all\" break equality on token-like values — gh#1317)",
+                "anti-injection: untrusted data (label '{}' from source '{}') decides a '{}' in {} — validate/one-way-redact it before deciding (secret comparison: ct_eq(provided, expected) — constant-time, or the keyed fingerprint redact(x, \"hash_keyed\") under METALOGOS_REDACT_KEY on BOTH sides; the unkeyed \"hash_only\" no longer declassifies — B1/№806; masking policies like \"all\" break equality on token-like values — gh#1317)",
                 v.label, v.source_name, v.kind, v.container
             ),
         });

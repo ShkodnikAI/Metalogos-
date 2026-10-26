@@ -46,7 +46,9 @@ mlogserver {
   route "/purge" method=POST {
     let user = query_param("user")
     // №327: untrusted data must not DECIDE — the one-way hash restores
-    // trust (redact(x, "hash_only") is public AND trusted), so the guard
+    // trust (the digest is TRUSTED; since №806/B1 it keeps the source
+    // confidentiality — the digest of an inbound public value stays
+    // public), so the guard
     // compares the presented key with the expected one. The shape mirrors
     // the audit's guard pattern `if is_admin(session_user()) == false`.
     let key = redact(user, "hash_only")

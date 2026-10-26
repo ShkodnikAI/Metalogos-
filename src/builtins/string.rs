@@ -1118,8 +1118,15 @@ pub struct RedactPolicy {
     pub description: &'static str,
 }
 
+/// №806 (B1): the process-scoped key env for the `hash_keyed` policy.
+pub const REDACT_KEY_ENV: &str = "METALOGOS_REDACT_KEY";
+
 /// The built-in policy registry (№326). Legacy ADR-0136 modes keep
 /// their exact semantics and are members of the same table.
+///
+/// №806 (B1): the process-scoped HMAC key for the `hash_keyed` policy.
+/// Process-scoped comparability: digests compare only within the process
+/// (and its peers sharing the key); the key never leaves the process.
 pub static REDACT_POLICIES: &[RedactPolicy] = &[
     RedactPolicy {
         name: "secrets",
@@ -1143,8 +1150,13 @@ pub static REDACT_POLICIES: &[RedactPolicy] = &[
     },
     RedactPolicy {
         name: "hash_only",
+        target_conf: "private",
+        description: "one-way SHA-256 fingerprint, full 256-bit hex (destroys the data, keeps comparability; does NOT declassify — the unkeyed fingerprint of a low-entropy secret is brute-forceable offline, B1/№806)",
+    },
+    RedactPolicy {
+        name: "hash_keyed",
         target_conf: "public",
-        description: "one-way SHA-256 fingerprint (destroys the data, keeps comparability)",
+        description: "one-way HMAC-SHA256 fingerprint under METALOGOS_REDACT_KEY (process-scoped comparability, declassifies; loud refusal without the key, B1/№806)",
     },
     RedactPolicy {
         name: "truncate",
@@ -1159,13 +1171,49 @@ pub fn redact_policy(name: &str) -> Option<&'static RedactPolicy> {
 }
 
 /// Runtime shape of the non-legacy policies.
+/// №806 (B1): the FULL 256-bit digest (was a 64-bit prefix — brute-forceable
+/// offline for low-entropy secrets) and the policy does NOT declassify
+/// anymore: the registry target is `private`. Comparability is kept (the
+/// same deterministic digest on BOTH sides); public comparability of a
+/// fingerprint is the KEYED policy's job.
 fn redact_hash_only(text: &str) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(text.as_bytes());
     let out = hasher.finalize();
     let hex: String = out.iter().map(|b| format!("{b:02x}")).collect();
-    format!("[HASH:{}] hex", &hex[..16])
+    format!("[HASH:{hex}] hex")
+}
+
+/// №806 (B1): the keyed fingerprint — HMAC-SHA256 under the process-scoped
+/// `METALOGOS_REDACT_KEY`. Public comparability WITHOUT the offline
+/// brute-force exposure: without the key an attacker cannot evaluate the
+/// HMAC, so low-entropy secrets stay safe to expose as digests. Fail-closed:
+/// the missing/empty key is a LOUD refusal, never a silent unkeyed fallback.
+fn redact_hash_keyed(text: &str) -> Result<String, String> {
+    const FN: &str = "redact(…, \"hash_keyed\")";
+    let key = match std::env::var(REDACT_KEY_ENV) {
+        Ok(k) if !k.trim().is_empty() => k,
+        Ok(_) => {
+            return Err(format!(
+                "{FN}: {REDACT_KEY_ENV} is set but EMPTY — the keyed fingerprint refuses fail-closed (set a real process key, or use the unkeyed \"hash_only\" which does not declassify)"
+            ))
+        }
+        Err(_) => {
+            return Err(format!(
+                "{FN}: {REDACT_KEY_ENV} is not set — the keyed fingerprint refuses fail-closed (the unkeyed \"hash_only\" does not declassify; B1/№806)"
+            ))
+        }
+    };
+    use hmac::{Hmac, KeyInit, Mac};
+    use sha2::Sha256;
+    type HmacSha256 = Hmac<Sha256>;
+    let mut mac = HmacSha256::new_from_slice(key.as_bytes())
+        .map_err(|e| format!("{FN}: the process key is unusable: {e}"))?;
+    mac.update(text.as_bytes());
+    let out = mac.finalize().into_bytes();
+    let hex: String = out.iter().map(|b| format!("{b:02x}")).collect();
+    Ok(format!("[HMAC:{hex}] hex"))
 }
 
 fn redact_truncate(text: &str) -> String {
@@ -1216,6 +1264,9 @@ fn redact_string_inner(text: &str, mode: &str) -> Result<String, String> {
     // №326 policies with their own transformations:
     if mode == "hash_only" {
         return Ok(redact_hash_only(text));
+    }
+    if mode == "hash_keyed" {
+        return redact_hash_keyed(text);
     }
     if mode == "truncate" {
         return Ok(redact_truncate(text));

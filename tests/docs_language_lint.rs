@@ -339,3 +339,85 @@ fn n798_scanner_flags_russian_and_passes_english() {
     let _ = std::fs::remove_file(&english);
     let _ = std::fs::remove_dir(&dir);
 }
+
+// ── №815: the conflict-marker tripwire ──────────────────────────────────
+//
+// llms.txt landed on main (0e4ce59, №806) carrying a RAW git conflict
+// block — `<<<<<<< HEAD` / `=======` / `>>>>>>> …` — the resolution
+// committed the markers themselves, and four merges (№807/№808/№811/№812)
+// plus every gate passed them through: the agent-index gate covers the
+// machine-generated index lines, not this hand-maintained region, and the
+// language lint checks the language, not the structure. The tripwire: no
+// tracked text document carries a conflict-marker line. The synthetic pin
+// (the negative test) proves the scanner catches the exact shape it
+// exists for — the class repeats silently unless it is grounded.
+
+/// A git conflict-marker line, in git's own spelling: exactly seven
+/// characters. The `<`/`>` forms carry the branch name after a space.
+/// The `=======` separator is counted ONLY inside an open marker block
+/// (a stateful scan, not a bare line match): a setext-style underline of
+/// exactly seven equals outside any block is content, not a conflict.
+fn conflict_marker_lines(content: &str) -> Vec<(usize, String)> {
+    let mut out = Vec::new();
+    let mut in_block = false;
+    for (i, ln) in content.lines().enumerate() {
+        let t = ln.trim_end_matches('\r');
+        let is_marker = if t.starts_with("<<<<<<< ") {
+            in_block = true;
+            true
+        } else if t.starts_with(">>>>>>> ") {
+            in_block = false;
+            true
+        } else {
+            t == "=======" && in_block
+        };
+        if is_marker {
+            out.push((i + 1, t.to_string()));
+        }
+    }
+    out
+}
+
+#[test]
+fn n815_conflict_marker_scanner_catches_the_synthetic_shape() {
+    let marked = "prose line\n<<<<<<< HEAD\nkept line\n=======\n>>>>>>> other-branch\n";
+    let hits = conflict_marker_lines(marked);
+    assert_eq!(
+        hits.len(),
+        3,
+        "all three git marker shapes are caught: {hits:?}"
+    );
+    // The content-level shapes are NOT markers (no false trip): a bare
+    // seven-equals underline OUTSIDE a block (the setext style), short
+    // arrow runs, and mid-line mentions all pass.
+    let clean =
+        "title\n=======\nthe <<<<<<< and >>>>>>> shapes are discussed mid-line\n<<< short\n";
+    assert!(
+        conflict_marker_lines(clean).is_empty(),
+        "content-level separators and prose mentions pass"
+    );
+}
+
+#[test]
+fn no_tracked_doc_carries_conflict_markers() {
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
+    let root = PathBuf::from(&manifest_dir);
+
+    let mut violations: Vec<String> = Vec::new();
+    for file in md_files(&root) {
+        if let Ok(src) = fs::read_to_string(&file) {
+            let hits = conflict_marker_lines(&src);
+            if !hits.is_empty() {
+                let rel = file.strip_prefix(&root).unwrap_or(&file).display();
+                violations.push(format!("{rel}: {} marker line(s)", hits.len()));
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "conflict-marker lines in tracked docs (the №806 llms.txt class — \
+         resolve the conflict, never commit the markers; check \
+         `git grep -nE '^(<{{7}}|={{7}}$|>{{7}})'` before staging):\n  {}",
+        violations.join("\n  ")
+    );
+}

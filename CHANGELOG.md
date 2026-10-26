@@ -591,6 +591,20 @@ All notable changes to the Metalogos project.
 
 ### Fixed
 
+- **№815 (gh#1580, hygiene — the conflict-marker class):** `llms.txt`
+  on main carried a RAW git conflict block (landed with №806/0e4ce59,
+  carried through four merges and every gate — the agent-index gate
+  covers the machine-generated index lines, not the hand-maintained
+  region; the language lint checks the language, not the structure).
+  The block is resolved to its HEAD side (the CHANGELOG reference
+  line); the tripwire lands in `docs_language_lint` — a stateful
+  scanner (the seven-equals separator counts only inside an open
+  marker block, so the setext underlines stay content) pins that no
+  tracked doc carries conflict markers, and the synthetic pin proves
+  the shape is caught. security: no — a docs-hygiene fix + a structural
+  tripwire; no gate loses coverage. AFFECTS: the conflict-marker class
+  is grounded — the silent pass-through is impossible from now on.
+
 - **№813 (gh#1578, hygiene — the weekly merge-ci-audit exit-2 class, issue
   #1577):** the detective treats a 404 on the squash-merge tail ref as the
   DETERMINATE message-convention finding it is — the association lane

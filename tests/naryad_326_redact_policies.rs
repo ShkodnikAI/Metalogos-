@@ -341,7 +341,10 @@ fn n806_hash_keyed_refuses_loud_without_the_key() {
         Some(v) => std::env::set_var("METALOGOS_REDACT_KEY", v),
         None => std::env::remove_var("METALOGOS_REDACT_KEY"),
     }
-    let msg = out.err().expect("the missing key must refuse");
+    let msg = match out {
+        Ok(v) => panic!("the missing key must refuse, got {v}"),
+        Err(m) => m,
+    };
     assert!(msg.contains("METALOGOS_REDACT_KEY"), "names the env: {msg}");
     assert!(msg.contains("fail-closed"), "the posture is loud: {msg}");
     // And an EMPTY key refuses the same way.
@@ -352,7 +355,10 @@ fn n806_hash_keyed_refuses_loud_without_the_key() {
         Some(v) => std::env::set_var("METALOGOS_REDACT_KEY", v),
         None => std::env::remove_var("METALOGOS_REDACT_KEY"),
     }
-    let msg = out.err().expect("the empty key must refuse");
+    let msg = match out {
+        Ok(v) => panic!("the empty key must refuse, got {v}"),
+        Err(m) => m,
+    };
     assert!(msg.contains("EMPTY"), "the empty-key refusal: {msg}");
 }
 

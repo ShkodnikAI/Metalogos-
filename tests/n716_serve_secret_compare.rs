@@ -297,10 +297,7 @@ fn n806_hash_keyed_deterministic_comparable_keyed_shape() {
     set_key("n716-n806-process-key-0123456789abcdef");
     let a = redact_ok("abcdefgh1369abcdefghi13ab", "hash_keyed");
     let b = redact_ok("abcdefgh1369abcdefghi13ab", "hash_keyed");
-    match prev {
-        Some(v) => std::env::set_var("METALOGOS_REDACT_KEY", v),
-        None => std::env::remove_var("METALOGOS_REDACT_KEY"),
-    }
+    restore_key(prev);
     assert_eq!(
         a, b,
         "the keyed fingerprint must be deterministic under the same key"
@@ -331,10 +328,7 @@ fn n806_hash_keyed_recipe_decides_on_both_backends() {
     let ne = compare_src("hash_keyed", v, "abcdefgh1369abcdefghi13abcde69ab");
     let tw_ne = tw_out(&ne);
     let vm_ne = vm_out(&ne);
-    match prev {
-        Some(v) => std::env::set_var("METALOGOS_REDACT_KEY", v),
-        None => std::env::remove_var("METALOGOS_REDACT_KEY"),
-    }
+    restore_key(prev);
     assert_eq!(tw, "true", "TW: the keyed recipe matches itself");
     assert_eq!(vm, "true", "VM: the keyed recipe matches itself");
     assert_eq!(tw_ne, "false", "TW: distinct secrets stay distinct (keyed)");
@@ -351,10 +345,7 @@ fn n806_hash_keyed_refuses_loud_without_the_key_both_backends() {
     let src = compare_src("hash_keyed", "a", "a");
     let tw = run_tw(&src).err();
     let vm = run_vm(&src).err();
-    match prev {
-        Some(v) => std::env::set_var("METALOGOS_REDACT_KEY", v),
-        None => std::env::remove_var("METALOGOS_REDACT_KEY"),
-    }
+    restore_key(prev);
     let tw = tw.expect("TW must refuse without the key");
     let vm = vm.expect("VM must refuse without the key");
     assert!(

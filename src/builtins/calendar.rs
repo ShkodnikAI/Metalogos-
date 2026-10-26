@@ -15,13 +15,16 @@ use once_cell::sync::Lazy;
 struct CalSession {
     url: String,
     user: String,
-    pass: String,
+    /// №807 (B2): the credential lives in a Zeroizing buffer — wiped on drop.
+    pass: Zeroizing<String>,
     /// Cached calendar-home-set URL (discovered via PROPFIND).
     home_set: Option<String>,
 }
 
 static CAL_SESSIONS: Lazy<Mutex<HashMap<String, CalSession>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
+
+use zeroize::Zeroizing;
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -31,7 +34,17 @@ static CAL_SESSIONS: Lazy<Mutex<HashMap<String, CalSession>>> =
 fn str_arg(args: &[Value], idx: usize, name: &str) -> Result<String, String> {
     match args.get(idx) {
         Some(Value::String(s)) => Ok(s.clone()),
-        Some(Value::Secret(zs)) => Ok(zs.as_str().to_string()),
+        _ => Err(format!("{}: arg {} must be a string", name, idx + 1)),
+    }
+}
+
+/// №807 (B2, the same-class find): the SECRET-aware argument form — the
+/// copy is unavoidable (the CalDAV session stores the credential for the
+/// connection lifetime), so the material round-trips in `Zeroizing`.
+fn zero_str_arg(args: &[Value], idx: usize, name: &str) -> Result<Zeroizing<String>, String> {
+    match args.get(idx) {
+        Some(Value::String(s)) => Ok(Zeroizing::new(s.clone())),
+        Some(Value::Secret(zs)) => Ok(Zeroizing::new(zs.as_str().to_string())),
         _ => Err(format!("{}: arg {} must be a string", name, idx + 1)),
     }
 }
@@ -144,7 +157,7 @@ pub fn builtin_cal_connect(args: &[Value]) -> Result<Value, String> {
     }
     let url = str_arg(args, 0, "cal_connect")?;
     let user = str_arg(args, 1, "cal_connect")?;
-    let pass = str_arg(args, 2, "cal_connect")?;
+    let pass = zero_str_arg(args, 2, "cal_connect")?;
 
     let client = build_client()?;
 
@@ -206,7 +219,7 @@ pub fn builtin_cal_list(args: &[Value]) -> Result<Value, String> {
         )
         .header("Depth", "1")
         .header("Content-Type", "application/xml; charset=utf-8")
-        .basic_auth(&session.user, Some(&session.pass))
+        .basic_auth(&session.user, Some(session.pass.as_str()))
         .body(body)
         .send()
         .map_err(|e| format!("cal_list: {}", e))?;
@@ -316,7 +329,7 @@ pub fn builtin_cal_events(args: &[Value]) -> Result<Value, String> {
         )
         .header("Depth", "1")
         .header("Content-Type", "application/xml; charset=utf-8")
-        .basic_auth(&session.user, Some(&session.pass))
+        .basic_auth(&session.user, Some(session.pass.as_str()))
         .body(body)
         .send()
         .map_err(|e| format!("cal_events: {}", e))?;
@@ -382,7 +395,7 @@ pub fn builtin_cal_read(args: &[Value]) -> Result<Value, String> {
 
     let resp = client
         .get(&event_uid)
-        .basic_auth(&session.user, Some(&session.pass))
+        .basic_auth(&session.user, Some(session.pass.as_str()))
         .send()
         .map_err(|e| format!("cal_read: {}", e))?;
 
@@ -466,7 +479,7 @@ pub fn builtin_cal_create(args: &[Value]) -> Result<Value, String> {
     let resp = client
         .put(&event_url)
         .header("Content-Type", "text/calendar; charset=utf-8")
-        .basic_auth(&session.user, Some(&session.pass))
+        .basic_auth(&session.user, Some(session.pass.as_str()))
         .body(ical)
         .send()
         .map_err(|e| format!("cal_create: {}", e))?;
@@ -506,7 +519,7 @@ pub fn builtin_cal_update(args: &[Value]) -> Result<Value, String> {
 
     let resp = client
         .get(&event_uid)
-        .basic_auth(&session.user, Some(&session.pass))
+        .basic_auth(&session.user, Some(session.pass.as_str()))
         .send()
         .map_err(|e| format!("cal_update GET: {}", e))?;
 
@@ -584,7 +597,7 @@ pub fn builtin_cal_update(args: &[Value]) -> Result<Value, String> {
     let mut req = client
         .put(&event_uid)
         .header("Content-Type", "text/calendar; charset=utf-8")
-        .basic_auth(&session.user, Some(&session.pass));
+        .basic_auth(&session.user, Some(session.pass.as_str()));
 
     if let Some(et) = &etag {
         req = req.header("If-Match", et);
@@ -625,7 +638,7 @@ pub fn builtin_cal_delete(args: &[Value]) -> Result<Value, String> {
     // First GET to obtain ETag for If-Match
     let get_resp = client
         .get(&event_uid)
-        .basic_auth(&session.user, Some(&session.pass))
+        .basic_auth(&session.user, Some(session.pass.as_str()))
         .send()
         .map_err(|e| format!("cal_delete GET: {}", e))?;
 
@@ -637,7 +650,7 @@ pub fn builtin_cal_delete(args: &[Value]) -> Result<Value, String> {
 
     let mut req = client
         .delete(&event_uid)
-        .basic_auth(&session.user, Some(&session.pass));
+        .basic_auth(&session.user, Some(session.pass.as_str()));
 
     if let Some(et) = &etag {
         req = req.header("If-Match", et);
@@ -691,7 +704,7 @@ pub fn builtin_cal_freebusy(args: &[Value]) -> Result<Value, String> {
         )
         .header("Depth", "0")
         .header("Content-Type", "application/xml; charset=utf-8")
-        .basic_auth(&session.user, Some(&session.pass))
+        .basic_auth(&session.user, Some(session.pass.as_str()))
         .body(body)
         .send()
         .map_err(|e| format!("cal_freebusy: {}", e))?;

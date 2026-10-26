@@ -1070,9 +1070,12 @@ use regex::Regex;
 pub(crate) fn builtin_redact(args: &[Value]) -> Result<Value, String> {
     // Accept both String and Secret — masking a secret in place is the
     // whole point of the builtin (the ADR-0136 "mask before sink" path).
-    let text = match args.first() {
-        Some(Value::String(s)) => s.clone(),
-        Some(Value::Secret(zs)) => zs.as_str().to_string(),
+    // №807 (B2): the Secret is BORROWED — masking never makes a plain
+    // String copy of the secret material (the zero-copy form feeds the
+    // policy pipeline directly from the Zeroizing buffer).
+    let text: &str = match args.first() {
+        Some(Value::String(s)) => s.as_str(),
+        Some(Value::Secret(zs)) => zs.as_str(),
         Some(other) => {
             return Err(format!(
                 "redact() expected String or Secret as first arg, got {}",
@@ -1082,7 +1085,7 @@ pub(crate) fn builtin_redact(args: &[Value]) -> Result<Value, String> {
         None => return Err("redact() requires 2 arguments: redact(text, mode)".to_string()),
     };
     let mode = expect_string_arg("redact", args, 1)?;
-    redact_string(&text, &mode).map(Value::String)
+    redact_string(text, &mode).map(Value::String)
 }
 
 /// Core masking routine (public for the fuzz target, №274).

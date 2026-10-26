@@ -6,10 +6,12 @@ use crate::interpreter::{SecretString, Value};
 use super::core::expect_string_arg;
 
 pub(crate) fn builtin_hash_password(args: &[Value]) -> Result<Value, String> {
-    // Accept both String (backward compat) and Secret (secure path)
-    let password = match args.first() {
-        Some(Value::String(s)) => s.clone(),
-        Some(Value::Secret(zs)) => zs.as_str().to_string(),
+    // Accept both String (backward compat) and Secret (secure path).
+    // №807 (B2): the Secret is BORROWED, never copied into a plain String —
+    // the zero-copy form feeds argon2 directly from the Zeroizing buffer.
+    let password: &str = match args.first() {
+        Some(Value::String(s)) => s.as_str(),
+        Some(Value::Secret(zs)) => zs.as_str(),
         Some(other) => {
             return Err(format!(
                 "hash_password() expected String or Secret as first arg, got {}",
@@ -32,10 +34,11 @@ pub(crate) fn builtin_hash_password(args: &[Value]) -> Result<Value, String> {
 }
 
 pub(crate) fn builtin_verify_password(args: &[Value]) -> Result<Value, String> {
-    // Accept both String (backward compat) and Secret (secure path)
-    let password = match args.first() {
-        Some(Value::String(s)) => s.clone(),
-        Some(Value::Secret(zs)) => zs.as_str().to_string(),
+    // Accept both String (backward compat) and Secret (secure path).
+    // №807 (B2): the Secret is BORROWED, never copied into a plain String.
+    let password: &str = match args.first() {
+        Some(Value::String(s)) => s.as_str(),
+        Some(Value::Secret(zs)) => zs.as_str(),
         Some(other) => {
             return Err(format!(
                 "verify_password() expected String or Secret as first arg, got {}",
@@ -264,9 +267,13 @@ pub(crate) fn builtin_hmac_sha256(args: &[Value]) -> Result<Value, String> {
     if args.len() < 2 {
         return Err("hmac_sha256() requires 2 arguments (key, message)".to_string());
     }
-    let key = match &args[0] {
+    // №807 (B2): the KEY accepts Secret (the RECOMMENDED path — the key
+    // stays inside the Zeroizing buffer) and String (backward compat);
+    // both are borrowed, no plain-String copy of the key material.
+    let key: &[u8] = match &args[0] {
         Value::String(s) => s.as_bytes(),
-        _ => return Err("hmac_sha256() key must be String".to_string()),
+        Value::Secret(zs) => zs.as_str().as_bytes(),
+        _ => return Err("hmac_sha256() key must be String or Secret (the Secret is the recommended path — №807/B2)".to_string()),
     };
     let message = match &args[1] {
         Value::String(s) => s.as_bytes(),

@@ -1,3 +1,9 @@
+# The release-block fact sync (2026-10-26): the issue #1584 (№816, the
+# VM self-parse divergence, wave 67) opened with the `release-block`
+# label — fact_open_high_server counts OPEN release-block issues and
+# moved 0 → 1 (the ADR-0186 §4 label discipline: the label IS the fact;
+# the №525 rule forbids a goals file that disagrees with its machine
+# source). The sync is the mechanical half; the FIX rides №816.
 # The 0.28 release-gate ABSOLUTE goals (№509, ADR-0179) — the record
 # the v2 gate reads. The PARAMETERS below are the OWNER's to fix
 # (ADR-0179 §3 — the owner gate, not the executor's); the executor
@@ -52,7 +58,7 @@ goal_quorum_den: 3
 # naryad #1043 closed with it. The В31 fact trajectory 0 -> 1 -> 0
 # complete; the syncing PR lands this record (the №583/gh#1024
 # pattern).
-fact_open_high_server: 0
+fact_open_high_server: 1
 # The transfer domain quorum fact: (groups still carrying duplicates)
 # / (the №466 group total at the transfer start).
 # Source: `python3 scripts/ci/count_duplicated_names.py --quorum`

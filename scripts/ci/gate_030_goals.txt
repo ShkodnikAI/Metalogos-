@@ -1,3 +1,9 @@
+# The release-block fact sync (2026-10-26): the issue #1584 (№816, the
+# VM self-parse divergence, wave 67) opened with the `release-block`
+# label — fact_open_high_server counts OPEN release-block issues and
+# moved 0 → 1 (the ADR-0186 §4 label discipline: the label IS the fact;
+# the №525 rule forbids a goals file that disagrees with its machine
+# source). The sync is the mechanical half; the FIX rides №816.
 # The 0.30 release-gate ABSOLUTE goals (№615 + №626 + №630, ADR-0186) —
 # the record the v2 gate reads. STATUS: **OWNER-FIXED — owner_fixed: true.**
 # The §5 MECHANICAL TRANSITION (ADR-0186 §5) landed in the №630 PR
@@ -111,7 +117,7 @@ goal_quorum_den: 3
 # 0 on the live v0.28.2 tag (the carrier #1041); no release-block
 # carrier has opened since. The counter is machine-read, never
 # hand-zeroed.
-fact_open_high_server: 0
+fact_open_high_server: 1
 # The transfer domain quorum fact. Source:
 # `python3 scripts/ci/count_duplicated_names.py --quorum`; the same
 # checker verifies it (the live fact: 0 groups of 8 carry duplicates).

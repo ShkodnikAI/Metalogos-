@@ -108,7 +108,7 @@ def compute():
     uncovered: name → reason in {untyped, typed-coarse, struct-no-meta}.
     """
     cls = classification()
-    _, typed_types = tss.rows()
+    _, typed_types, _tiers = tss.rows()  # №809: rows() carries the tier map now
     sensitive = {
         n: label
         for n, (role, label) in cls.items()

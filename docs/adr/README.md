@@ -240,3 +240,4 @@ real ADRs (№309/№320/№412) before the booking.
 | 0196 | The MCP Policy Gateway — the flagship pilot (the C1 (b) decision, ACCEPTED 2026-10-23 by the owner's verbatim) | Accepted** (2026-10-23 |
 | 0197 | The VM Is the Only Executor of User Commands; TW Is the Reference Oracle (the C5 (b) decision, ACCEPTED 2026-10-23 by the owner's verbatim) | Accepted** (2026-10-23 |
 | 0198 | The Error Model — the Loud Failure + `_or` + `try`; `Result<T>`/`Option<T>` in the Type Layer Without New `Value` Variants (the C6 R-b decision, ACCEPTED 2026-10-23 by the owner's verbatim; SUPERSEDES ADR-0106) | Accepted** (2026-10-23 |
+| 0199 | The Typed-Signature Metric Reads by Maturity Tier — the stable-tier share is the PRIMARY definition, the full-registry figure beside (the C3-a T3 decision; the parked-features CI lane + the soft release rule) | Accepted** (2026-10-23 the decision; the record 2026-10-26 |

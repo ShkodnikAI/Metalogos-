@@ -25,6 +25,9 @@ ROOT = __file__.rsplit('/scripts/ci/', 1)[0]
 REGISTRY = ROOT + '/src/builtins/registry.rs'
 
 SPEC_RE = re.compile(r'spec!\("([a-z_0-9]+)"')
+# №809 (ADR-0199): the maturity tier literal — the №796 trailing argument
+# of every spec! row (the vocabulary is closed: stable | experimental | parked).
+TIER_RE = re.compile(r'"(stable|experimental|parked)"')
 TYPED_RE = re.compile(
     r'spec!\("([a-z_0-9]+)",[^\n;]*;\s*[A-Za-z_0-9]+\s*,\s*"' + r'(?!stable"|experimental"|parked")' + r'([A-Za-z][A-Za-z0-9<>{}:,_|]*)"(?:\s*,\s*"(?:stable|experimental|parked)")?\s*\)'
 )  # №796: the trailing tier literal is part of every row — the type capture ends before it AND must not BE the tier word (the handler-only rows carry the tier, not a type)
@@ -205,7 +208,36 @@ def rows():
     total = SPEC_RE.findall(text)
     typed = TYPED_RE.findall(text)
     typed_types = {name: t for name, t in typed}
-    return total, typed_types
+    # №809 (ADR-0199): the per-row maturity tier — the №796 trailing
+    # literal on the spec! line. Line-based like every other reader here;
+    # the tier is the LAST tier literal on the line (the macro grammar
+    # makes it the row's trailing argument).
+    tiers = {}
+    for line in text.splitlines():
+        nm = SPEC_RE.search(line)
+        if not nm:
+            continue
+        tm = TIER_RE.findall(line)
+        if tm:
+            tiers[nm.group(1)] = tm[-1]
+    return total, typed_types, tiers
+
+
+def stable_share():
+    """№809 (the C3-a T3 owner decision, ADR-0199): the typed share over
+    the STABLE tier — the new PRIMARY definition. The reasoning: the
+    reference level is what the users get by default; the experimental
+    and parked rows sit outside the primary contract (the parked ones
+    refuse at check by the №799 gate), so counting them in the primary
+    denominator diluted the honest figure. The full-526 general share
+    stays beside it (the definition is a CHANGE of the primary figure,
+    not an erasure of the old one) — and the floors of BOTH only move
+    up."""
+    total, typed_types, tiers = rows()
+    stable_total = sum(1 for name in total if tiers.get(name) == 'stable')
+    stable_typed = sum(1 for name in typed_types if tiers.get(name) == 'stable')
+    stable_bp = (stable_typed * 10000) // stable_total if stable_total else 0
+    return stable_typed, stable_total, stable_bp
 
 
 # №661 (issue #1162; the К-Б stage-2 verdict gh#1144): the ENFORCEMENT —
@@ -226,7 +258,7 @@ FIELD_META_ENFORCE_EXCEPTIONS = {
 def compute():
     """(total, typed, typed_bp, precise, precise_bp, ls_total, param,
     param_bp, struct_total, fieldmeta, fieldmeta_bp) — integer-exact bp."""
-    total, typed_types = rows()
+    total, typed_types, _tiers = rows()
     n_total = len(total)
     n_typed = len(typed_types)
     n_precise = sum(1 for t in typed_types.values() if t in PRECISE_TYPES)
@@ -280,7 +312,7 @@ def compute():
 
 
 def main():
-    total, typed_types = rows()
+    total, typed_types, _tiers = rows()
     (
         n_total,
         n_typed,
@@ -346,6 +378,7 @@ def main():
     precise = '--precise' in args
     parameterized = '--parameterized' in args
     fieldmeta = '--fieldmeta' in args
+    stable = '--stable' in args
     if precise:
         n, bp = n_precise, precise_bp
         print(f'precise signatures: {n}/{n_total} ({bp / 100:.2f}%)')
@@ -377,6 +410,20 @@ def main():
             'side-table BuiltinSpec.field_meta, the well-formedness is '
             'fail-closed via from_path + the in-tree grammar test)'
         )
+    elif stable:
+        s_typed, s_total, s_bp = stable_share()
+        n, bp = s_typed, s_bp
+        print(
+            f'stable typed signatures: {s_typed}/{s_total} ({s_bp / 100:.2f}%) '
+            f'— №809: the share among the stable tier (the C3-a T3 PRIMARY '
+            f'definition, ADR-0199)'
+        )
+        print(
+            '  (the primary denominator is the STABLE tier — what the users '
+            'get by default; the experimental/parked rows sit outside the '
+            'primary contract. The full-registry figure stays beside it: '
+            f'{n_typed}/{n_total} ({typed_bp / 100:.2f}%) — both floors only move up)'
+        )
     else:
         print(f'typed signatures: {n_typed}/{n_total} ({typed_bp / 100:.2f}%)')
         print(
@@ -392,17 +439,25 @@ def main():
             f'({fieldmeta_bp / 100:.2f}%) — №627: the fourth share (among '
             f'the parameterized Struct rows)'
         )
+        s_typed, s_total, s_bp = stable_share()
+        print(
+            f'stable typed signatures: {s_typed}/{s_total} '
+            f'({s_bp / 100:.2f}%) — №809: the PRIMARY definition (ADR-0199; '
+            f'the full-526 figure above stays beside it)'
+        )
     # basis points keep the comparison integer-exact
     share_bp = param_bp if parameterized else (precise_bp if precise else typed_bp)
     if fieldmeta:
         share_bp = fieldmeta_bp
+    if stable:
+        _s_t, _s_d, share_bp = stable_share()
     kind = (
         'fieldmeta'
         if fieldmeta
         else (
             'parameterized'
             if parameterized
-            else ('precise' if precise else 'general')
+            else ('stable' if stable else ('precise' if precise else 'general'))
         )
     )
     if '--gate' in args:
@@ -423,12 +478,16 @@ def main():
                 else (
                     'parameterized-share'
                     if parameterized
-                    else ('precise typed-signature' if precise else 'typed-signature')
+                    else (
+                        'stable typed-signature'
+                        if stable
+                        else ('precise typed-signature' if precise else 'typed-signature')
+                    )
                 )
             )
             print(
                 f'::error::the {kind_name} share regressed: {share_bp} bp < '
-                f'{floor} bp floor (№467/№560/№623/№627: the metric rises every '
+                f'{floor} bp floor (№467/№560/№623/№627/№809: the metric rises every '
                 f'release; a typed row lost its type or an untyped row was '
                 f'added — type the new rows or restore the lost paths).'
             )

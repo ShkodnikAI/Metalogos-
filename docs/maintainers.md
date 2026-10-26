@@ -184,6 +184,23 @@ script only reports — it never merges, reverts, or edits history; the
 required set is pinned by `tests/naryad_551_merge_ci_audit.rs` and
 moves together with the checklist below, never alone.
 
+### The parked-features lane and the soft release rule (№809, the C3-a T3 form)
+
+The four feature-gated pillar jobs (candle / vision / voice / video)
+have the dedicated `parked-features.yml` lane (nightly schedule + PR
+path filter on the pillar catalogs + manual dispatch) AS the health
+signal; they STAY in the every-push CI until the owner's protection
+toggle drops their four required contexts (the №809 episode: the
+contexts are required by branch protection, so removing the jobs
+makes every PR unmergeable — the toggle is the owner's admin act,
+форма №755). **The release rule:** a red nightly parked-features run
+does NOT block a tag. But it is never lost: the lane files the fix
+issue automatically (`nightly-failure-record`), and the next release's
+CHANGELOG/limitations carries the line "the parked-features nightly
+is red on X.Y.Z — <pillar>" until the fix lands. A releaser checks
+the last nightly verdict before tagging — the verdict is context,
+not a gate.
+
 ### The good-first-issue pool policy (№561, the audit 02.10 §7.2 W-1)
 
 The pool exists for the INCOMING external contributors — the №491/№471

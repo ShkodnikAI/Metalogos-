@@ -2214,11 +2214,13 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 526 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 526 registered builtins — the three maturity tiers: stable 483 / experimental 22 / parked 21 (№809: the C3(a) levels)
 
-> Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
+> Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest. The sections read by MATURITY TIER (№809): the `stable` tier is the primary reference; `experimental` and `parked` are explicitly separated so a reader never mistakes a gated builtin for an always-available one.
 
-### `action` — 5 builtin(s)
+### Tier `stable` — the primary reference (483)
+
+#### `action` — 5 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
@@ -2228,7 +2230,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `grant_subgrant(...)` | 3..5 | `Grant, String, Number[, ...] -> Grant` | Attenuation-only derivation: narrower scope, shorter TTL, lower class power; a Once parent is consumed by the split | stable |
 | `grant_use(...)` | 1 | `Grant -> Number` | Consumes one use; returns the remaining count (-1 = unlimited) | stable |
 
-### `bot` — 36 builtin(s)
+#### `bot` — 36 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
@@ -2269,7 +2271,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `todo_list(...)` | variadic | — | `todo_list()` — list all todos. Returns List of Struct { id, title, status, created_at }. | stable |
 | `todo_update(...)` | 2 | — | `todo_update(id, new_status)` — update a todo's status. Returns Struct { id, old_status, new_status, updated }. | stable |
 
-### `calendar` — 10 builtin(s)
+#### `calendar` — 10 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
@@ -2284,7 +2286,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `ical_generate(...)` | 1 | `String -> String` | Builds a `VEVENT`+`VCALENDAR` from JSON | stable |
 | `ical_parse(...)` | 1 | `String -> String` | Parses iCalendar text (RFC 5545) | stable |
 
-### `chart` — 8 builtin(s)
+#### `chart` — 8 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
@@ -2297,7 +2299,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `chart_radar(...)` | 2 | — | chart_radar: multi-series radar chart in polar coordinates. | stable |
 | `chart_scatter(...)` | 2 | — | chart_scatter: scatter plot with two independent numeric axes. | stable |
 
-### `contacts` — 10 builtin(s)
+#### `contacts` — 10 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
@@ -2312,7 +2314,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `vcard_generate(...)` | 1 | `String -> String` | Builds a vCard v4.0 from JSON | stable |
 | `vcard_parse(...)` | 1 | `String -> String` | Parses vCard text (RFC 6350) | stable |
 
-### `convert` — 4 builtin(s)
+#### `convert` — 4 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
@@ -2321,7 +2323,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `to_float_or(...)` | 2 | `String\|Float\|Bool, Float -> Float` | The EXPLICIT-silence twin of `to_float` (№514 — the `_or` naming rule of №481): the parsed value when the string parses, the default when it does not; the fallback firing is announced on the audit stderr (`[TO_FLOAT_OR]`, the value never logged). A non-scalar input type stays LOUD — explicit silence covers DATA, not type errors | stable |
 | `to_string(...)` | 1 | `Any -> String` | Equivalent to `str()`. Float without `.0` for integers | stable |
 
-### `cron` — 5 builtin(s)
+#### `cron` — 5 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
@@ -2331,7 +2333,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `cron_remove(...)` | 1 | `String -> Float` | Deletes a job by ID. Returns `1.0` if deleted, `0.0` if not found | stable |
 | `cron_run(...)` | 1 | `String -> Float` | Forces a job to run outside its schedule (sets `force_run=true`; the fire stamps the current window, so the scheduled tick in the same window will not re-fire). Returns `1.0` if found, `0.0` if not | stable |
 
-### `crypto` — 11 builtin(s)
+#### `crypto` — 11 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
@@ -2347,14 +2349,14 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `sha256(...)` | 1 | `String -> String` | The SHA-256 hash, hex representation (64 characters). Unicode-aware: hashes the UTF-8 bytes | stable |
 | `verify_password(...)` | 2 | `String, Hash -> Bool` | Verifies a password (constant-time comparison) | stable |
 
-### `db` — 2 builtin(s)
+#### `db` — 2 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
 | `db_execute(...)` | 1..2 | `String -> Unit` | Executes an SQL query without returning data | stable |
 | `query(...)` | 1..2 | `String, List -> List` | An SQL query. SELECT returns List[Row{...}], everything else returns a string with the number of affected rows | stable |
 
-### `diagram` — 21 builtin(s)
+#### `diagram` — 21 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
@@ -2380,7 +2382,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `diagram_venn(...)` | 2 | — | `diagram_venn(data, style) -> String` | stable |
 | `infographic_qa(...)` | 1 | `String -> Struct{passed, warnings, checks_run}` | An advisory check: contrast (WCAG, a threshold of 4.5), saturation discipline (more than 2 colors with S>60% triggers a warning), element density. `passed: false` is advice, not a block | stable |
 
-### `email` — 7 builtin(s)
+#### `email` — 7 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
@@ -2392,22 +2394,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `smtp_send(...)` | 3..6 | `String×3, String?×3 -> String` | Sends a plain-text email, TLS/STARTTLS. Arity 3..6 | stable |
 | `smtp_send_html(...)` | 3..4 | `String×3, String? -> String` | An HTML email. Arity 3..4 | stable |
 
-### `embodied` — 10 builtin(s)
-
-| Builtin | Arity | Signature (curated) | Description | Tier |
-|---|---|---|---|---|
-| `bounds_attach(...)` | 2 | — | `bounds_attach(device, formula) -> Device` | experimental |
-| `chunk_make(...)` | 2..3 | — | `chunk_make(device, trajectory, goal?) -> ActionChunk` | experimental |
-| `device_open(...)` | 1..2 | — | `device_open(backend, bounds?) -> Device` | experimental |
-| `device_state(...)` | 1 | — | `device_state(device) -> Struct` | experimental |
-| `goal_make(...)` | 1 | — | `goal_make(predicate) -> GoalPredicate` | experimental |
-| `pose_make(...)` | 4 | — | `pose_make(x, y, z, yaw) -> Pose` | experimental |
-| `proof_seal(...)` | 2..3 | — | `proof_seal(world, chunk, telemetry?) -> Proof` | experimental |
-| `proof_verify(...)` | 1 | — | `proof_verify(proof) -> Struct` | experimental |
-| `trajectory_make(...)` | 1 | — | `trajectory_make(poses) -> Trajectory` | experimental |
-| `world_state(...)` | 1 | — | `world_state(device) -> WorldState` | experimental |
-
-### `encoding` — 4 builtin(s)
+#### `encoding` — 4 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
@@ -2416,24 +2403,14 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `toon_decode(...)` | 1 | `String -> Any` | Decodes a TOON string back into a Value. A recursive-descent parser | stable |
 | `toon_encode(...)` | 1 | `Any -> String` | Encodes a value as TOON (Token-Optimized Object Notation). Prefixed with `TOON:`. Any Value becomes a string | stable |
 
-### `fluid` — 2 builtin(s)
+#### `fluid` — 2 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
 | `budget_check(...)` | 2 | `Float, Float -> Dict` | Returns `BudgetStatus { step, total_steps, remaining, fraction, over_budget }`. Errors if `total_steps == 0` | stable |
 | `confidence(...)` | 1 | `Fluid -> Float` | Returns the maximum confidence of the probabilistic type. Returns `1.0` for concrete values | stable |
 
-### `forecast` — 5 builtin(s)
-
-| Builtin | Arity | Signature (curated) | Description | Tier |
-|---|---|---|---|---|
-| `forecast_next(...)` | 2 | — | `forecast_next(handle, horizon) -> Forecast` | experimental |
-| `forecast_points(...)` | 1 | — | `forecast_points(handle) -> Struct` | experimental |
-| `forecast_state(...)` | 1 | — | `forecast_state(handle) -> Struct` | experimental |
-| `series_make(...)` | 1..2 | — | `series_make(source, frequency?) -> Series` | experimental |
-| `series_pull(...)` | 2 | — | `series_pull(grant, source) -> Series` | experimental |
-
-### `graph` — 8 builtin(s)
+#### `graph` — 8 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
@@ -2446,7 +2423,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `trace_end(...)` | variadic | `String -> Dict` | Ends a trace segment. Returns `TraceResult { id, label, duration_ms }` | stable |
 | `trace_start(...)` | variadic | `String -> String` | Starts a trace segment with a label. Returns a trace_id | stable |
 
-### `io` — 13 builtin(s)
+#### `io` — 13 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
@@ -2464,7 +2441,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `read_file_or(...)` | 2 | `String, String -> String` | The explicit-silence twin of `read_file` (№507 — the `_or` symmetry with `env_or`, №481). **Missing file** — the caller's default (announced on the audit stderr: the path, never the value). Every other branch is byte-identical to `read_file`: sandbox violations and the №455 deny-list stay loud `[SANDBOX_VIOLATION]`, open/read failures stay loud `[IO_ERROR]` — the explicit silence never bypasses them | stable |
 | `write_file(...)` | 2 | `String, String -> String` | Writes a file (overwrite). Returns `"ok"` or `""` on an OS-level error; sandbox violations are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) | stable |
 
-### `json` — 9 builtin(s)
+#### `json` — 9 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
@@ -2478,7 +2455,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `json_get(...)` | 2..3 | `Struct, String -> Value` | Accesses a field by a dot-path. Returns the **real value** (including String). Returns Unit if the field is absent or a SQL NULL. Supports dot-paths: `"voice.file_id"` | stable |
 | `parse_json(...)` | 1..2 | `String -> Struct\|List\|String\|Float\|Bool\|Unit` | Parses a JSON string. Objects become a Struct with `type_name: "Json"`, arrays become a List, `null` becomes Unit | stable |
 
-### `list` — 17 builtin(s)
+#### `list` — 17 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
@@ -2500,7 +2477,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `unique(...)` | 1 | — | `unique(list)` — remove duplicates preserving first-occurrence order. Uses the same equality semantics as `dedup` (JSON serialization for complex types = deep structural comparison for Struct, not reference identity). | stable |
 | `zip(...)` | 2 | `List, List -> List` | Pairwise combination into `Pair{a, b}` | stable |
 
-### `llm` — 9 builtin(s)
+#### `llm` — 9 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
@@ -2514,7 +2491,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `llm_stream_open(...)` | 1..2 | — | `llm_stream_open(prompt, input?) -> Struct { handle, model, provider }` | stable |
 | `llm_usage(...)` | variadic | `-> Struct` | LLM usage statistics: `total_calls`, `total_tokens`, `total_errors`, `cache_hits_semantic` (№273/ADR-0135), `canary_leaks` (№284 — confirmed canary leaks), `providers` (a list of `{alias, calls, tokens, errors, avg_latency_ms, health_score}`) | stable |
 
-### `math` — 17 builtin(s)
+#### `math` — 17 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
@@ -2536,7 +2513,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `sqrt(...)` | 1 | `Float -> Float` | Square root. Soft-failure: `0.0` for `x < 0` | stable |
 | `tanh(...)` | 1 | `Float -> Float` | Hyperbolic tangent. In (−1, 1). `tanh(1000)=1`, `tanh(-1000)=-1` | stable |
 
-### `media` — 12 builtin(s)
+#### `media` — 12 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
@@ -2553,7 +2530,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `media_store_video_frame(...)` | 2 | — | `media_store_video_frame(data, sensitivity)` — wraps provided bytes into an opaque VideoFrame handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. | stable |
 | `media_store_video_segment(...)` | 2 | — | `media_store_video_segment(data, sensitivity)` — wraps provided bytes into an opaque VideoSegment handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. | stable |
 
-### `memory` — 38 builtin(s)
+#### `memory` — 38 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
@@ -2596,7 +2573,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `vec_search(...)` | 4..5 | `(String, String, List, Float[, Bool\|Struct]) -> List` | Search over the stored table; returns at most `k` hits as `{id, distance, score}` structs (`score` ∈ [0,1] is the mode's normalized relevance — in `semantic` mode it is `1 − distance`; `distance` is the TRUE cosine distance in `semantic` mode and `1 − score` in `fts`/`hybrid` — not a physical distance, documented honestly). The optional fifth argument is type-disambiguated: a Bool is `include_forgotten` (№280, default `false` — ids recorded in the forget ledger are hidden; `k` is the per-arm/KNN sample size BEFORE the filter); a Struct is №281 opts `{include_forgotten?, mode?, scope?, query_text?}`: `mode` = `"semantic"` (default, pure KNN, vec0 `distance_metric=cosine`, nearest first) | stable |
 | `vec_store(...)` | 4..5 | `(String, String, String, List[, String\|Struct]) -> Struct` | Stores `embedding` (a non-empty `List[Float]`) into the `vec0` table `table` of the SQLite file `db_path` (created on demand; the table with a metadata column `id` is created on first store with the dimension fixed from the first vector). `id` is the caller's string key (need not be unique — it is returned as-is by `vec_search`). №281: the optional fifth argument `payload` is either a String (the document text for the FTS5 arm of `fts`/`hybrid` search — stored in the shadow index `{table}__fts` keyed by `id`, the LAST text stored for an id wins) or a Struct `{text?, scope?}` — `scope` binds the table to a container namespace on first store (re-binding to another scope is a LOUD refusal; scope is a hard boundary, the containerTag analogue). Loud refusals: a dimension mismatch against the stored table dimension (the error names both numbers — vectors of different models must not be mixed), an empty embedding, a table name outside `[A-Za-z_][A-Za-z0-9_]*` (SQL identifier whitelist — the name is interpolated into DDL), an unknown opts field / a wrong-typed `text`/`scope` (fail-closed), sandbox violations. | stable |
 
-### `mtree` — 5 builtin(s)
+#### `mtree` — 5 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
@@ -2606,14 +2583,14 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `mtree_store(...)` | 2 | `String, String? -> String` | Saves text as an L0 node. `source` defaults to `"user"`. Returns the node ID. The admission score is computed from length/uniqueness | stable |
 | `mtree_summarize(...)` | variadic | `-> Unit` | L0 to L1 to L2 clustering. Groups L0 nodes into L1 summaries, L1 into L2. Idempotent — a repeat call recomputes the summaries | stable |
 
-### `orchestration` — 2 builtin(s)
+#### `orchestration` — 2 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
 | `dag_phases(...)` | 1 | — | `dag_phases(dag)` — extract parallel execution phases from a DAG. | stable |
 | `topo_sort(...)` | 1 | — | `topo_sort(dag)` — topological sort of a DAG. | stable |
 
-### `pdf` — 25 builtin(s)
+#### `pdf` — 25 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
@@ -2643,7 +2620,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `pdf_watermark(...)` | 2..5 | — | `pdf_watermark(id, text [,font, size, opacity]) → { ok }` | stable |
 | `pdf_write_text(...)` | 4..6 | — | `pdf_write_text(id, x, y, text, font, size) → { ok }` | stable |
 
-### `recipe` — 3 builtin(s)
+#### `recipe` — 3 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
@@ -2651,17 +2628,15 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `recipe_save(...)` | variadic | — | `recipe_save(name, description, skills, plan)` — persist a recipe. args: [name: String, description: String, skills: List, plan: Struct/any] Stores in KV under `__recipe:<name>` as JSON. Updates recipe index. | stable |
 | `recipe_search(...)` | 1..2 | — | `recipe_search(query)` — search recipes by description similarity (substring match). args: [query: String] Iterates all recipes stored under `__recipe:*` in KV, returns matching ones. NOTE: This is a simplified implementation using substring matching. Full semantic search (cosine similarity) requires embedding infrastructure. | stable |
 
-### `reflex` — 14 builtin(s)
+#### `reflex` — 12 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
 | `reflex_bpe_decode(...)` | 2 | — | `reflex_bpe_decode(tokens: List<Float>, vocab: BpeVocab) -> String` | stable |
 | `reflex_bpe_encode(...)` | 2 | — | `reflex_bpe_encode(text: String, vocab: BpeVocab) -> List<Float>` | stable |
-| `reflex_bpe_load(...)` | 1 | — | `reflex_bpe_load(name: String) -> BpeVocab` (Наряд №195, ADR-0116) | parked |
 | `reflex_bpe_save(...)` | 1 | — | `reflex_bpe_save(vocab: BpeVocab) -> Unit` (Наряд №195, ADR-0116) | stable |
 | `reflex_bpe_train(...)` | 2 | — | `reflex_bpe_train(corpus: String, vocab_size: Float) -> BpeVocab` | stable |
 | `reflex_detokenize(...)` | 1 | — | `reflex_detokenize(tokens) -> String` | stable |
-| `reflex_generate(...)` | 4 | — | Stub — VM not yet supported (Наряд №193 — text generation). | parked |
 | `reflex_list(...)` | variadic | `() -> List<String>` | Returns the names of all declared `reflex`/`reflex_seq` models in declaration order. Read-only — for monitoring, dashboards, an externally-checked `rollback_if`. | stable |
 | `reflex_load(...)` | 1 | `(String) -> Reflex` | Loads the weights for a previously saved model and applies them to the *current* `reflex` declaration with the same name. Does not register a new model — it mutates the weights of the existing one. Errors on a shape mismatch if the declaration has changed. | stable |
 | `reflex_metrics(...)` | 1 | `(Reflex) -> Struct` | Read-only introspection: returns the model's metadata (NOT the weights, ADR-0114). `is_trained: Bool` (true if `last_metric` is set), `last_metric: Float\|Unit` (the last accuracy/loss, `Unit` if untrained), `input_size: Float`, `labels: List<String>`. Works for both `reflex` and `reflex_seq`. | stable |
@@ -2670,14 +2645,14 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `reflex_tokenize(...)` | 1 | — | `reflex_tokenize(text) -> List<Float>` | stable |
 | `reflex_train(...)` | 5 | `(Reflex, List<List<Float>>, Float, String, Float) -> Struct` | Trains model `model` on `data`. Each row of `data` is `[features..., class_idx]` (the last element is the label index). An 80/20 holdout split (ADR-0115), a minimum of 10 examples. `epochs` is the number of epochs (>=0), `metric` is a metric name from `METRIC_REGISTRY` (usually `"accuracy"`), `threshold` is a 0.0..1.0 threshold for `threshold_met`. `learning_rate` is fixed at 0.1. | stable |
 
-### `registry` — 2 builtin(s)
+#### `registry` — 2 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
 | `backend_list(...)` | variadic | — | `backend_list()` — the static backend registry as `List[Struct { name, class, weights_id, pin, license, license_note }]`. | stable |
 | `backend_select(...)` | 2 | — | `backend_select(class, ladder)` — the backend try-chain (Наряд №336, ADR-0165). Walks the ladder in priority order over the №333 registry SSOT; every rung attempt is an audit event (stderr line + the program-visible `attempts` list, №326 posture). | stable |
 
-### `security` — 15 builtin(s)
+#### `security` — 15 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
@@ -2697,7 +2672,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `likeness_verify(...)` | 1..3 | — | `likeness_verify(challenge, subject?, scope?)` — consume the challenge, record the consent-ledger grant, return the opaque token. | stable |
 | `quarantine_write(...)` | 1..2 | — | `quarantine_write(value, reason?)` — the quarantine sink: the ONLY legal egress for a poisoned value. Returns the audit-event text (the program-visible half of the event; the static half is the QUARANTINE_EGRESS audit finding + stderr line, №326 posture). | stable |
 
-### `session` — 8 builtin(s)
+#### `session` — 8 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
@@ -2710,7 +2685,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `session_take_interrupt(...)` | 1 | — | `session_take_interrupt(session) -> Struct \| Unit` | stable |
 | `session_wake(...)` | 2..3 | — | `session_wake(session, source, payload?) -> Number` | stable |
 
-### `std` — 11 builtin(s)
+#### `std` — 11 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
@@ -2726,7 +2701,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `__split(...)` | 2 | — | `__split(s, sep)` — std-library primitive behind the std/string `split` wrapper: splits on the separator into a List of strings. | stable |
 | `__trim(...)` | 1 | — | `__trim(s)` — std-library primitive behind the std/string `trim` wrapper: strips leading and trailing whitespace. The `__` prefix marks a primitive used by `std/*.mlog` pattern wrappers (prefer the wrapper in user code). | stable |
 
-### `string` — 48 builtin(s)
+#### `string` — 48 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
@@ -2779,17 +2754,15 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `word_wrap(...)` | 2 | — | `word_wrap(s, width)` — reflows text to `width` columns without breaking words; errors on width 0. | stable |
 | `words(...)` | 1 | — | `words(s)` -- split string into list of words by whitespace. | stable |
 
-### `stub` — 24 builtin(s)
+#### `stub` — 17 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
-| `authenticate(...)` | 2 | `String, Secret\|String -> Unit` | Not implemented in this build (no server user-store): every call refuses loudly with [NOT_IMPLEMENTED]; to check credentials call verify_password(password, hash) against the stored hash | experimental |
 | `conv_add(...)` | 3 | — | VM-native conversation context (handled inside `src/vm.rs`, no host handler): appends a message to the conversation. | stable |
 | `conv_context(...)` | 1 | — | VM-native conversation context (handled inside `src/vm.rs`, no host handler): returns the compacted conversation context window. | stable |
 | `conv_end(...)` | 1 | — | VM-native conversation context (handled inside `src/vm.rs`, no host handler): closes the conversation. | stable |
 | `conv_history(...)` | 1 | — | VM-native conversation context (handled inside `src/vm.rs`, no host handler): returns the conversation message history. | stable |
 | `conv_start(...)` | 1 | — | VM-native conversation context (handled inside `src/vm.rs`, no host handler): opens a conversation by id. | stable |
-| `db_insert(...)` | variadic | `String, Struct -> Float` | A parameterized INSERT. Returns last_insert_rowid (Problem C) | experimental |
 | `deny_event(...)` | variadic | — | №392 DenyEvent — returns the typed deny event (`reason`, `sink`, `class`, `argument`, `label`, `line`, `human`) for the refusal being handled. Handler-scoped: intercepted by name inside `src/vm.rs` and `src/interpreter/execution.rs` (no host handler); outside an on_deny body it is a compile error and a loud runtime error. | stable |
 | `deny_reason(...)` | variadic | — | №392 deny reason word — returns the `reason` string of the live DenyEvent (same vocabulary the audit check_ids use). Handler-scoped like deny_event; a match over it inside on_deny is checked for exhaustiveness. | stable |
 | `event_count(...)` | variadic | — | VM-native event analytics (handled inside `src/vm.rs`, no host handler): counts events in the event log, optionally filtered by type. (The registry's old "planned, no handler" comment is stale — the VM implements it.) | stable |
@@ -2797,18 +2770,13 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `events_since(...)` | 1 | — | VM-native event analytics (handled inside `src/vm.rs`, no host handler): lists events since a sequence/timestamp marker. | stable |
 | `find(...)` | 4 | — | VM-native entity-store query (handled inside `src/vm.rs`, no host handler): scans globals for Struct values matching (type, field, operator, threshold). | stable |
 | `fit_to_budget(...)` | variadic | — | VM-native fluid-budget helper (handled inside `src/vm.rs`, no host handler): trims a List of items to fit a token budget. | stable |
-| `if_eq(...)` | 3 | — | Registry-only stub — no handler on TW or VM; calling the name errors on both backends (the language's `if` comparison is an expression, not a builtin). | experimental |
 | `inspect(...)` | 1 | `String -> Struct\|Unit` | Returns a pattern's statistics (ADR-0051): `examples_count`, `invocation_count`, `last_invocation_at`, `mode` (for learnable: TEACHING/DISTILLED). Soft-failure — a nonexistent pattern returns `Unit`, not an error | stable |
-| `is_string_token(...)` | 1 | — | Registry-only stub — no handler on TW or VM; calling the name errors on both backends (entry kept for registry/opcode indexing completeness). | experimental |
 | `map(...)` | variadic | `List, String -> List` | Applies a pattern to each element (requires `import std/collections`) | stable |
-| `newline(...)` | variadic | — | Registry-only stub — no handler on TW or VM; calling the name errors on both backends (entry kept for registry/opcode indexing completeness). | experimental |
 | `query_row(...)` | variadic | — | VM-native DB helper (handled inside `src/vm.rs`, no host handler): executes an SQL query and returns the first row as a Dict. | stable |
 | `query_scalar(...)` | variadic | — | VM-native DB helper (handled inside `src/vm.rs`, no host handler): executes an SQL query and returns the first column of the first row as a scalar. | stable |
 | `resolve_skill_index(...)` | 1 | — | VM-native skill resolver (handled inside `src/vm.rs`, no host handler): resolves a skill index entry for the VM execution path. | stable |
-| `split_tokens(...)` | variadic | — | Registry-only stub — no handler on TW or VM; calling the name errors on both backends (entry kept for registry/opcode indexing completeness). | experimental |
-| `stdin(...)` | variadic | — | Registry-only stub — no handler on TW or VM; calling the name errors on both backends (entry kept for registry/opcode indexing completeness). | experimental |
 
-### `svg` — 13 builtin(s)
+#### `svg` — 13 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
@@ -2826,7 +2794,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `svg_sketchy_filter(...)` | 1..5 | `String, Float -> String` | A "hand-drawn" style SVG filter (`id` is structural) | stable |
 | `svg_text(...)` | 5..6 | `Float×2, String, Float, String×2 -> String` | Text (auto-escaped) | stable |
 
-### `system` — 4 builtin(s)
+#### `system` — 4 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
@@ -2835,20 +2803,20 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `policy_check(...)` | 1 | `String -> Dict` | Checks a command against policy: heredoc `<<`, pipe ` | stable |
 | `replay_snapshot(...)` | 1 | `List -> Dict` | Serializes a list of values into a JSON snapshot. Returns `ReplaySnapshot { seq, items, json, created_at }`. seq=0 is a full snapshot, seq=N is a delta | stable |
 
-### `template` — 1 builtin(s)
+#### `template` — 1 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
 | `template_render(...)` | 2 | `String, Struct -> Html` | A separate engine (not an extension of `render()`): `{{ var }}` (escaped), `{{{ var }}}` (unescaped), `{{#if}}/{{else}}`, `{{#each}}`. The filter pipe refuses loudly in template STRINGS (№695: the safe stage lives in template declarations, where the Html typing can hold). Template content is trusted author code, not scanned by the lint | stable |
 
-### `test` — 2 builtin(s)
+#### `test` — 2 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
 | `assert_contains(...)` | 2 | `Any, Any -> Unit` | Panics if the string representation of `needle` is not found in `haystack` | stable |
 | `assert_eq(...)` | 2 | `Any, Any -> Any` | A runtime equality assertion. Returns actual on success, panics with `actual != expected` | stable |
 
-### `time` — 15 builtin(s)
+#### `time` — 15 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
@@ -2868,13 +2836,13 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `time(...)` | variadic | `-> Float` | The current Unix timestamp (seconds since the epoch). High precision (sub-second) | stable |
 | `weekday_name(...)` | 1 | `Float -> String` | The weekday's name (localized via chrono::Local). E.g. `"Monday"` | stable |
 
-### `tokens` — 1 builtin(s)
+#### `tokens` — 1 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
 | `diagram_style(...)` | 1 | `String×5 -> Struct` | A validator for manually specified tokens (without generating via `color_palette`) | stable |
 
-### `vault` — 3 builtin(s)
+#### `vault` — 3 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
@@ -2882,40 +2850,28 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `semantic_search(...)` | 3 | — | `semantic_search(query, documents, top_k)` — semantic similarity search. | stable |
 | `vault_validate(...)` | 2 | — | `vault_validate(config, required_fields)` — validate a loaded config against required fields. | stable |
 
-### `video` — 7 builtin(s)
+#### `video` — 3 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
 | `av_mux(...)` | 2 | — | `av_mux(video, audio)` — deterministic `.mlgv.av` sidecar container pairing VideoId ↔ AudioId with frame-aligned timestamps (ADR-0151 D4). | stable |
-| `frame_interp(...)` | 2 | — | `frame_interp(handle, factor)` — RIFE-class latent interpolation, 2x/4x (ADR-0151 D2). Endpoints preserved: first/last latent frames never move. | parked |
 | `video_export(...)` | 2 | — | `video_export(handle, path)` — signed-by-construction `.mlgv` container: manifest + watermark embedded, unsigned export does not exist (runtime gate VIDEO_UNSIGNED_EXPORT, ADR-0151 D5; contract test pins it). | stable |
-| `video_extend(...)` | 2 | — | `video_extend(handle, extra)` — clip continuation anchored on the last latent frame (ADR-0151 D3). `extra` = number of ADDITIONAL latent frames. | parked |
-| `video_fetch_weights(...)` | 2 | — | `video_fetch_weights(url, dir)` — FORMAL No-Go (№294 class, ADR-0151 D7): production-weights inference is parked in this environment (4 GB RAM, no GPU); the tiny seeded pipeline needs no external weights. The name stays registered so the shared MODEL_WEIGHTS_UNSAFE static gate (№300, `_fetch_weights` suffix convention) and the SSRF-guard vocabulary cover the surface. This is a recorded boundary, not a hidden stub. | parked |
-| `video_render(...)` | 2..4 | — | `video_render(decl, prompt[, ref_first[, ref_last]])` — real tiny pipeline (ADR-0151 D1): T2V (2 args) / I2V first-anchor (3) / two-anchor first–last (4). Seed = sha256(model\|prompt); ref-hash(es) recorded in the manifest. | parked |
 | `video_understand(...)` | 1..3 | — | `video_understand(segment, prompt?, model?)` — the video-understanding backend call (№408). `segment` is the segment payload reference (String; a `VideoSegmentId` surface); `prompt` is the comprehension question (e.g. "what happens in this clip"); `model` defaults to the registry canon `qwen2.5-vl-7b-instruct` (weights: qwen2.5-vl-7b-instruct, Qwen/Qwen2.5-VL-7B-Instruct). | stable |
 
-### `vision` — 12 builtin(s)
+#### `vision` — 5 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
 | `ocr_extract(...)` | 1..3 | — | `ocr_extract(image, lang?, model?)` — the OCR backend call (№407). `image` is the image payload reference (String) OR an `Image` media handle (№599, ADR-0182 §3.3 step 1 — the store-backed bridge, the vision_understand overload posture verbatim). `lang` is the recognition language hint (e.g. "eng"); `model` defaults to the registry canon `trocr-base-printed` (weights: trocr-base-printed, microsoft/trocr-base-printed). | stable |
-| `vision_edit(...)` | 2 | `(Vision, String) -> Vision` | **In-context editing of a signed artifact** (#243, R6.2). The source MUST be signed: an artifact with no provenance manifest is a loud refusal (there is nothing honest to inherit; producing an unsigned artifact through the real compute path is forbidden by ADR-0125) — raw export (`vision_export_raw`) is unaffected. Pipeline: source PNG to decode to a loud dims contract (R4.1: 256..=4096, x16; a multiple of the VAE factor — silent resizing is forbidden, the output keeps the source's resolution) to the VAE encoder (non-decoder prefixes of the same pinned VAE file; encode in posterior MODE) to a reference latent to Qwen3-4B on the edit prompt to the Z-Image DiT with in-context token concatenation (a noise branch plus the reference at every step, `euler_step` applies only to the noise branch) to `EDIT_STEPS = 8` (the distilled turbo NFE) to decode to PNG. The output is ALWAYS signed: a watermark plus a manifest, where `model_id`/`policy`/`seed` are inherited from the source, `prompt_sha256` is the hash of the edit prompt, and `timestamp`/`png_sha256` are fresh. Loud refusals: an unsigned source, an unknown handle, a wrong type, an empty prompt, dimensions outside R4.1 or not a multiple of the factor, `MLOG_VISION_WEIGHTS_DIR` not set (the variable and how to set it are named verbatim). UserInput taint on the prompt triggers an audit warning, `VISION_PROMPT_USER_INPUT` (the same check-id as `vision_generate`'s). | parked |
-| `vision_export(...)` | 2 | — | Last-resort stub — real path is the intercepted `vision_export_dispatch`. | parked |
-| `vision_export_raw(...)` | 2 | `(Vision, String) -> String` | **An explicit opt-out from signing** (ADR-0125), amended by №320/ADR-0152 (EU AI Act Art. 50 marking, deadline 2026-12-02): raw egress of a SYNTHETIC artifact (`synthetic: true` — every local generation path marks it) or a manifest-less artifact is refused — runtime error `MEDIA_SYNTHETIC_UNMARKED`, and every call site is a static Category-A compile error of the same check-id; the №241 advisory `VISION_UNSIGNED_EXPORT_RAW` Warning remains in `mlog audit`. Legal only for artifacts explicitly marked `synthetic: false` (foreign non-synthetic ingest; no local path produces them). Signed export (PNG + `<path>.manifest.json` with the `synthetic` field) goes through `vision_export`; an artifact with no manifest cannot be exported that way (the runtime backstop `VISION_UNSIGNED_EXPORT`). | parked |
-| `vision_fetch_weights(...)` | 2 | `(String, String) -> String` | **SSRF-guarded, allowlist-gated, SHA-pinned weight downloading** (ADR-0125's `MODEL_WEIGHTS_UNSAFE`). Layers of protection: (1) the `MLOG_VISION_WEIGHTS_ALLOWLIST` allowlist — **default-deny**: an unset/empty env produces a loud refusal before any network access; (2) an SSRF guard (`check_url_ssrf`): private/loopback/link-local/metadata addresses are forbidden, DNS resolutions are pinned against rebinding; (3) only `manifest.json`-class URLs (a bare `.safetensors` has "no pin" and is refused; pickle-class `.pkl/.pt/.pth/.ckpt/.bin/...` is refused by extension); (4) SHA-256 pinning of every manifest entry (reusing `WeightsManifest`) — a mismatch is a loud refusal, and the file is NOT written; entry names must be bare `*.safetensors`. The static gate `MODEL_WEIGHTS_UNSAFE` (an audit Error, Category A) additionally catches literal URLs with an SSRF-blocked host, a bare `.safetensors`, and the pickle class. The downloaded tree (`manifest.json` plus shards) is consumed by `vision_generate` via `MLOG_VISION_WEIGHTS_DIR` — with re-verification of the SHA at load time (defense in depth). | parked |
-| `vision_generate(...)` | 2 | — | Last-resort stub — real path is the intercepted `vision_generate_dispatch`. | parked |
 | `vision_list(...)` | variadic | — | Last-resort stub — real path is the intercepted `vision_list_dispatch`. | stable |
 | `vision_load(...)` | 1 | `(String) -> Vision` | **Loading an artifact from the program's database** (#242, R6.1): exactly the bytes and the manifest that were saved (provenance persistence neither regenerates nor supplements them). Inserted into the session's registry with a new, monotonic id. Loud refusals: no database, an unknown name (with a list of what is saved), a malformed manifest JSON in the database (silent degradation to unsigned is forbidden). An artifact with `manifest: None` loads as-is and is still refused by a signed `vision_export` (`VISION_UNSIGNED_EXPORT`) — and, since №320/ADR-0152, by `vision_export_raw` too (`MEDIA_SYNTHETIC_UNMARKED`: unmarked media is treated as synthetic) — #241's backstop survives persistence. | stable |
-| `vision_lora_generate(...)` | 3 | `(String, String, String) -> Vision` | **Generation with a LoRA adapter applied** (#244, R6.3). The same pipeline as `vision_generate`, but the DiT is built through `from_weights_with_lora`: `W' = W + scale·(up@down)` in F32 over the attention projections; the adapter is resolved from the database on every call with a loud **integrity pin** (`sha256(bytes) != meta.sha256` is an error BEFORE any compute). Provenance: the composite `model_sha256` (see above), `model_id`/watermark/policy/seed/steps from the base declaration; sign ALWAYS. Loud refusals: arity/types, empty prompt, unknown decl (with the list), unknown model, no database, unknown `lora_name` (with `lora_list`), corrupted meta JSON, integrity mismatch, missing env/component, non-1024. UserInput-tainted prompts raise the `VISION_PROMPT_USER_INPUT` audit Warning (the same check id; args 0 and 2 are never flagged). | parked |
-| `vision_lora_load(...)` | 2 | `(String, String) -> String` | **Loading a LoRA adapter into the SQLite BLOB store** (#244, R6.3; ADR-0124 §6 — the adapter lives ONLY in the program's database, no session state). Reads the safetensors file ONCE — only inside `MLOG_VISION_WEIGHTS_DIR` (a relative path, no traversal, `.safetensors` extension, file must exist; the path contract lives in `vision_lora_check_adapter_path`), validates loudly (both canonical name forms — diffusers-PEFT and ComfyUI; rank = the mean pair dimension, scale = alpha/rank with the loud 1.0 default; non-F32 upcast is loud; targets must be attention projections `to_q/to_k/to_v/to_out.0` per `zimage_expected_keys`; half pairs, non-attention targets, unknown prefixes, orphaned keys, mismatched dimensions are loud errors with the FULL list) and stores the bytes plus fixed-shape metadata (`LoraMeta`: sha256/rank/alpha/scale/targets) into the `vision_lora_adapters` table. The prescribed check order: arity → no-db → env → path → feature gate → read/parse → insert; a name collision is a loud error (no upsert). Returns the persistent key `name`. | parked |
 | `vision_save(...)` | 2 | `(Vision, String) -> String` | **SQLite persistence of an artifact** (#242, R6.1). Writes the artifact (a PNG as a BLOB plus a JSON provenance manifest) to the program's database (the `db { url: "sqlite:..." }` declaration) — the `vision_artifacts` table, whose persistent key is `name` (the registry id is a session-scoped handle and is not persisted). Loud refusals: no database (with a hint at the declaration), an empty name, a name collision (a silent overwrite would be a silent loss of the provenance chain; upsert/delete are out of scope for #242), an unknown handle. A verbatim round trip: the `timestamp` and the manifest's fields are not regenerated. | stable |
 | `vision_understand(...)` | 1..3 | — | `vision_understand(image, prompt?, model?)` — the vision-understanding backend call (№334). `image` is the image payload reference (String) OR an `Image` media handle (№599, ADR-0182 §3.3 step 1 — the multi-form overload posture of №493: the handle form ADDS capability, the String golden behavior is untouched). A handle materializes through the store's sanctioned read path (sealed entries decrypt only inside the sanctioned consumer — the PROCESSING posture, not byte egress); the handle's static label joins the result's label through the existing №323 inference (private image in → private description out). `prompt` is the question about the image; `model` defaults to the registry canon `molmoact2` (weights: molmoact2, allenai/MolmoAct2). | stable |
 
-### `voice` — 19 builtin(s)
+#### `voice` — 11 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
-| `audio_export(...)` | 1 | — | `audio_export(handle)` stub — ADR-0145. | parked |
 | `duplex_open(...)` | 1..2 | — | `duplex_open(session, priority?) -> Duplex` | stable |
 | `duplex_state(...)` | 1 | — | `duplex_state(duplex) -> Struct` | stable |
 | `listen_start(...)` | 1..2 | — | `listen_start(duplex, priority?) -> Struct` | stable |
@@ -2926,16 +2882,9 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `stt_transcribe(...)` | 1..2 | — | `stt_transcribe(audio, model?)` — the STT-class backend call (№334). `audio` is the audio payload reference (String); `model` defaults to the registry canon `whisper-turbo` (weights: whisper-large-v3-turbo). | stable |
 | `tts_generate(...)` | 2..4 | `String, String[, String][, String] -> String` | Speech synthesis WITHOUT delivery (Naryad #279): writes the audio file into the file sandbox (write_file semantics, Naryad #252) and returns the sandbox-relative path — feed it to `read_file`/`send_document` yourself. Providers v1: `"openai"` (default); `model`: `tts-1` (default) / `tts-1-hd` / `gpt-4o-mini-tts`. Key: `METALOGOS_TTS_API_KEY` (falls back to `OPENAI_API_KEY`); `METALOGOS_TTS_BASE_URL` overrides `https://api.openai.com/v1` (mock servers / self-host proxies) — `/audio/speech` is appended. Output format: provider default (MP3) | stable |
 | `tts_send(...)` | 4..5 | `String, String, String, String[, String] -> String` | Delivery convenience: synthesizes speech (delegates to the same exchange as `tts_generate` — `tts-1`, base-URL/key overrides behave identically) and sends the audio to a Telegram chat (`sendVoice`; optional 5th arg `"audio"` switches to `sendAudio`). Key: `METALOGOS_TTS_API_KEY` (falls back to `OPENAI_API_KEY`). For synthesis without delivery use `tts_generate` | stable |
-| `tts_speak(...)` | 2 | — | `tts_speak(decl, text)` stub — ADR-0143. | parked |
-| `voice_delete(...)` | 1 | — | №526 (issue #835; audit 30.09 N-2): `voice_delete(handle)` — the erasure path over the live VOICE_REGISTRY. Accepts a Voice handle (the voiceprint — the biometric embedding) or an Audio handle (the audio artifact — the "artifact file" bytes of the registry). IDEMPOTENT: an absent handle is `"absent"` (the repeated erase succeeds — GDPR Art. 17(1): erasure without obstacles), never an error. The consent ledger is untouched (the Art. 9 consent proof survives by design — docs/privacy.md §2.1). Wrong types refuse loudly. The PERSISTED (SQLite) prints are erased through the store API `VoiceStore::delete_voiceprint` (the same secure zero-then-delete path, tested at the store level) — a shipped runtime persists zero voiceprints today (privacy.md §2.1), so the registry is the live surface the builtin erases. №799 (T2, gh#1488): the fn rides the `voice` build together with its registry row (the tier is parked — №796, the owner classification). The №526 erasure right holds BY CONSTRUCTION in every build: a build without `voice` cannot create voiceprints (the enroll surface is the same parked family), so there is nothing collected to erase; the voice build carries the full collect+erase pair. The unit tests ride the same gate and run in the voice CI job. | parked |
-| `voice_design(...)` | 2 | — | `voice_design(text, voice)` stub — ADR-0143. | parked |
-| `voice_enroll(...)` | 2..3 | — | `voice_enroll(decl, audio, kind)` stub — ADR-0145. | parked |
-| `voice_list(...)` | variadic | — | №526: `voice_list()` — the informed-deletion basis at the runtime surface: the held voiceprints (id, model — the embedding NEVER enters the result) and the held audio artifacts (id, byte length). Empty registry → the empty string (the honest zero). Deterministic order (ascending ids). The persisted-store listing (name/model/saved_at/ algo/ciphertext length, never decrypted) is `VoiceStore::list_voiceprints` — the same №526 composition at the store level. №799: rides the `voice` build with its row (see builtin_voice_delete's №799 note). | parked |
-| `voice_load(...)` | 1 | — | `voice_load(name)` stub — ADR-0143 (persistence). | parked |
-| `voice_save(...)` | 2 | — | `voice_save(handle, name)` stub — ADR-0143 (persistence). | parked |
 | `whisper_transcribe(...)` | 3..4 | `String, String, String[, String] -> String` | Downloads a voice message from Telegram by `file_id`, sends it for transcription to the Whisper API. `provider`: `"openai"` (default) or `"groq"`. `METALOGOS_STT_BASE_URL` overrides the transcription API base (mock servers / self-host proxies) — `/audio/transcriptions` is appended. Returns the recognized text. Arity 3..4 — the registry used to declare min 1 while the runtime always required 3 (Naryad #279 fact-check fix; a 1-arg call now fails `mlog check` on statics instead of exploding at runtime) | stable |
 
-### `web` — 29 builtin(s)
+#### `web` — 29 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
@@ -2968,6 +2917,90 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `weather_forecast(...)` | 1..3 | — | `weather_forecast(city_or_lat, lon?, days?)` — multi-day forecast via Open-Meteo (FREE, no API key). `weather_forecast("Minsk", 7)` or `weather_forecast(53.9, 27.57, 3)`. Default: 7 days. Max: 16 days. Returns List of DayForecast structs. | stable |
 | `web_search(...)` | 1..2 | — | `web_search(query, num_results?) -> String` — search via SerpAPI. Uses SERPAPI_KEY env var. Returns raw JSON string. Usage: web_search("query") -> JSON string Usage: web_search("query", 5) -> JSON string with 5 results | stable |
 | `xml_parse(...)` | 1 | — | `xml_parse(xml) -> Struct<XmlNode>{tag, attrs, text, children}` — the general tree. The depth cap (256) and the node cap (10 000) both fail LOUD: the recursive build must not blow the stack on an adversarial chain. | stable |
+
+
+### Tier `experimental` — the opt-in tier (present, maturing, may change) (22)
+
+#### `embodied` — 10 builtin(s)
+
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `bounds_attach(...)` | 2 | — | `bounds_attach(device, formula) -> Device` | experimental |
+| `chunk_make(...)` | 2..3 | — | `chunk_make(device, trajectory, goal?) -> ActionChunk` | experimental |
+| `device_open(...)` | 1..2 | — | `device_open(backend, bounds?) -> Device` | experimental |
+| `device_state(...)` | 1 | — | `device_state(device) -> Struct` | experimental |
+| `goal_make(...)` | 1 | — | `goal_make(predicate) -> GoalPredicate` | experimental |
+| `pose_make(...)` | 4 | — | `pose_make(x, y, z, yaw) -> Pose` | experimental |
+| `proof_seal(...)` | 2..3 | — | `proof_seal(world, chunk, telemetry?) -> Proof` | experimental |
+| `proof_verify(...)` | 1 | — | `proof_verify(proof) -> Struct` | experimental |
+| `trajectory_make(...)` | 1 | — | `trajectory_make(poses) -> Trajectory` | experimental |
+| `world_state(...)` | 1 | — | `world_state(device) -> WorldState` | experimental |
+
+#### `forecast` — 5 builtin(s)
+
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `forecast_next(...)` | 2 | — | `forecast_next(handle, horizon) -> Forecast` | experimental |
+| `forecast_points(...)` | 1 | — | `forecast_points(handle) -> Struct` | experimental |
+| `forecast_state(...)` | 1 | — | `forecast_state(handle) -> Struct` | experimental |
+| `series_make(...)` | 1..2 | — | `series_make(source, frequency?) -> Series` | experimental |
+| `series_pull(...)` | 2 | — | `series_pull(grant, source) -> Series` | experimental |
+
+#### `stub` — 7 builtin(s)
+
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `authenticate(...)` | 2 | `String, Secret\|String -> Unit` | Not implemented in this build (no server user-store): every call refuses loudly with [NOT_IMPLEMENTED]; to check credentials call verify_password(password, hash) against the stored hash | experimental |
+| `db_insert(...)` | variadic | `String, Struct -> Float` | A parameterized INSERT. Returns last_insert_rowid (Problem C) | experimental |
+| `if_eq(...)` | 3 | — | Registry-only stub — no handler on TW or VM; calling the name errors on both backends (the language's `if` comparison is an expression, not a builtin). | experimental |
+| `is_string_token(...)` | 1 | — | Registry-only stub — no handler on TW or VM; calling the name errors on both backends (entry kept for registry/opcode indexing completeness). | experimental |
+| `newline(...)` | variadic | — | Registry-only stub — no handler on TW or VM; calling the name errors on both backends (entry kept for registry/opcode indexing completeness). | experimental |
+| `split_tokens(...)` | variadic | — | Registry-only stub — no handler on TW or VM; calling the name errors on both backends (entry kept for registry/opcode indexing completeness). | experimental |
+| `stdin(...)` | variadic | — | Registry-only stub — no handler on TW or VM; calling the name errors on both backends (entry kept for registry/opcode indexing completeness). | experimental |
+
+
+### Tier `parked` — the appendix (parked behind features — the №799 SSOT carries the name/basis) (21)
+
+#### `reflex` — 2 builtin(s)
+
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `reflex_bpe_load(...)` | 1 | — | `reflex_bpe_load(name: String) -> BpeVocab` (Наряд №195, ADR-0116) | parked |
+| `reflex_generate(...)` | 4 | — | Stub — VM not yet supported (Наряд №193 — text generation). | parked |
+
+#### `video` — 4 builtin(s)
+
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `frame_interp(...)` | 2 | — | `frame_interp(handle, factor)` — RIFE-class latent interpolation, 2x/4x (ADR-0151 D2). Endpoints preserved: first/last latent frames never move. | parked |
+| `video_extend(...)` | 2 | — | `video_extend(handle, extra)` — clip continuation anchored on the last latent frame (ADR-0151 D3). `extra` = number of ADDITIONAL latent frames. | parked |
+| `video_fetch_weights(...)` | 2 | — | `video_fetch_weights(url, dir)` — FORMAL No-Go (№294 class, ADR-0151 D7): production-weights inference is parked in this environment (4 GB RAM, no GPU); the tiny seeded pipeline needs no external weights. The name stays registered so the shared MODEL_WEIGHTS_UNSAFE static gate (№300, `_fetch_weights` suffix convention) and the SSRF-guard vocabulary cover the surface. This is a recorded boundary, not a hidden stub. | parked |
+| `video_render(...)` | 2..4 | — | `video_render(decl, prompt[, ref_first[, ref_last]])` — real tiny pipeline (ADR-0151 D1): T2V (2 args) / I2V first-anchor (3) / two-anchor first–last (4). Seed = sha256(model\|prompt); ref-hash(es) recorded in the manifest. | parked |
+
+#### `vision` — 7 builtin(s)
+
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `vision_edit(...)` | 2 | `(Vision, String) -> Vision` | **In-context editing of a signed artifact** (#243, R6.2). The source MUST be signed: an artifact with no provenance manifest is a loud refusal (there is nothing honest to inherit; producing an unsigned artifact through the real compute path is forbidden by ADR-0125) — raw export (`vision_export_raw`) is unaffected. Pipeline: source PNG to decode to a loud dims contract (R4.1: 256..=4096, x16; a multiple of the VAE factor — silent resizing is forbidden, the output keeps the source's resolution) to the VAE encoder (non-decoder prefixes of the same pinned VAE file; encode in posterior MODE) to a reference latent to Qwen3-4B on the edit prompt to the Z-Image DiT with in-context token concatenation (a noise branch plus the reference at every step, `euler_step` applies only to the noise branch) to `EDIT_STEPS = 8` (the distilled turbo NFE) to decode to PNG. The output is ALWAYS signed: a watermark plus a manifest, where `model_id`/`policy`/`seed` are inherited from the source, `prompt_sha256` is the hash of the edit prompt, and `timestamp`/`png_sha256` are fresh. Loud refusals: an unsigned source, an unknown handle, a wrong type, an empty prompt, dimensions outside R4.1 or not a multiple of the factor, `MLOG_VISION_WEIGHTS_DIR` not set (the variable and how to set it are named verbatim). UserInput taint on the prompt triggers an audit warning, `VISION_PROMPT_USER_INPUT` (the same check-id as `vision_generate`'s). | parked |
+| `vision_export(...)` | 2 | — | Last-resort stub — real path is the intercepted `vision_export_dispatch`. | parked |
+| `vision_export_raw(...)` | 2 | `(Vision, String) -> String` | **An explicit opt-out from signing** (ADR-0125), amended by №320/ADR-0152 (EU AI Act Art. 50 marking, deadline 2026-12-02): raw egress of a SYNTHETIC artifact (`synthetic: true` — every local generation path marks it) or a manifest-less artifact is refused — runtime error `MEDIA_SYNTHETIC_UNMARKED`, and every call site is a static Category-A compile error of the same check-id; the №241 advisory `VISION_UNSIGNED_EXPORT_RAW` Warning remains in `mlog audit`. Legal only for artifacts explicitly marked `synthetic: false` (foreign non-synthetic ingest; no local path produces them). Signed export (PNG + `<path>.manifest.json` with the `synthetic` field) goes through `vision_export`; an artifact with no manifest cannot be exported that way (the runtime backstop `VISION_UNSIGNED_EXPORT`). | parked |
+| `vision_fetch_weights(...)` | 2 | `(String, String) -> String` | **SSRF-guarded, allowlist-gated, SHA-pinned weight downloading** (ADR-0125's `MODEL_WEIGHTS_UNSAFE`). Layers of protection: (1) the `MLOG_VISION_WEIGHTS_ALLOWLIST` allowlist — **default-deny**: an unset/empty env produces a loud refusal before any network access; (2) an SSRF guard (`check_url_ssrf`): private/loopback/link-local/metadata addresses are forbidden, DNS resolutions are pinned against rebinding; (3) only `manifest.json`-class URLs (a bare `.safetensors` has "no pin" and is refused; pickle-class `.pkl/.pt/.pth/.ckpt/.bin/...` is refused by extension); (4) SHA-256 pinning of every manifest entry (reusing `WeightsManifest`) — a mismatch is a loud refusal, and the file is NOT written; entry names must be bare `*.safetensors`. The static gate `MODEL_WEIGHTS_UNSAFE` (an audit Error, Category A) additionally catches literal URLs with an SSRF-blocked host, a bare `.safetensors`, and the pickle class. The downloaded tree (`manifest.json` plus shards) is consumed by `vision_generate` via `MLOG_VISION_WEIGHTS_DIR` — with re-verification of the SHA at load time (defense in depth). | parked |
+| `vision_generate(...)` | 2 | — | Last-resort stub — real path is the intercepted `vision_generate_dispatch`. | parked |
+| `vision_lora_generate(...)` | 3 | `(String, String, String) -> Vision` | **Generation with a LoRA adapter applied** (#244, R6.3). The same pipeline as `vision_generate`, but the DiT is built through `from_weights_with_lora`: `W' = W + scale·(up@down)` in F32 over the attention projections; the adapter is resolved from the database on every call with a loud **integrity pin** (`sha256(bytes) != meta.sha256` is an error BEFORE any compute). Provenance: the composite `model_sha256` (see above), `model_id`/watermark/policy/seed/steps from the base declaration; sign ALWAYS. Loud refusals: arity/types, empty prompt, unknown decl (with the list), unknown model, no database, unknown `lora_name` (with `lora_list`), corrupted meta JSON, integrity mismatch, missing env/component, non-1024. UserInput-tainted prompts raise the `VISION_PROMPT_USER_INPUT` audit Warning (the same check id; args 0 and 2 are never flagged). | parked |
+| `vision_lora_load(...)` | 2 | `(String, String) -> String` | **Loading a LoRA adapter into the SQLite BLOB store** (#244, R6.3; ADR-0124 §6 — the adapter lives ONLY in the program's database, no session state). Reads the safetensors file ONCE — only inside `MLOG_VISION_WEIGHTS_DIR` (a relative path, no traversal, `.safetensors` extension, file must exist; the path contract lives in `vision_lora_check_adapter_path`), validates loudly (both canonical name forms — diffusers-PEFT and ComfyUI; rank = the mean pair dimension, scale = alpha/rank with the loud 1.0 default; non-F32 upcast is loud; targets must be attention projections `to_q/to_k/to_v/to_out.0` per `zimage_expected_keys`; half pairs, non-attention targets, unknown prefixes, orphaned keys, mismatched dimensions are loud errors with the FULL list) and stores the bytes plus fixed-shape metadata (`LoraMeta`: sha256/rank/alpha/scale/targets) into the `vision_lora_adapters` table. The prescribed check order: arity → no-db → env → path → feature gate → read/parse → insert; a name collision is a loud error (no upsert). Returns the persistent key `name`. | parked |
+
+#### `voice` — 8 builtin(s)
+
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `audio_export(...)` | 1 | — | `audio_export(handle)` stub — ADR-0145. | parked |
+| `tts_speak(...)` | 2 | — | `tts_speak(decl, text)` stub — ADR-0143. | parked |
+| `voice_delete(...)` | 1 | — | №526 (issue #835; audit 30.09 N-2): `voice_delete(handle)` — the erasure path over the live VOICE_REGISTRY. Accepts a Voice handle (the voiceprint — the biometric embedding) or an Audio handle (the audio artifact — the "artifact file" bytes of the registry). IDEMPOTENT: an absent handle is `"absent"` (the repeated erase succeeds — GDPR Art. 17(1): erasure without obstacles), never an error. The consent ledger is untouched (the Art. 9 consent proof survives by design — docs/privacy.md §2.1). Wrong types refuse loudly. The PERSISTED (SQLite) prints are erased through the store API `VoiceStore::delete_voiceprint` (the same secure zero-then-delete path, tested at the store level) — a shipped runtime persists zero voiceprints today (privacy.md §2.1), so the registry is the live surface the builtin erases. №799 (T2, gh#1488): the fn rides the `voice` build together with its registry row (the tier is parked — №796, the owner classification). The №526 erasure right holds BY CONSTRUCTION in every build: a build without `voice` cannot create voiceprints (the enroll surface is the same parked family), so there is nothing collected to erase; the voice build carries the full collect+erase pair. The unit tests ride the same gate and run in the voice CI job. | parked |
+| `voice_design(...)` | 2 | — | `voice_design(text, voice)` stub — ADR-0143. | parked |
+| `voice_enroll(...)` | 2..3 | — | `voice_enroll(decl, audio, kind)` stub — ADR-0145. | parked |
+| `voice_list(...)` | variadic | — | №526: `voice_list()` — the informed-deletion basis at the runtime surface: the held voiceprints (id, model — the embedding NEVER enters the result) and the held audio artifacts (id, byte length). Empty registry → the empty string (the honest zero). Deterministic order (ascending ids). The persisted-store listing (name/model/saved_at/ algo/ciphertext length, never decrypted) is `VoiceStore::list_voiceprints` — the same №526 composition at the store level. №799: rides the `voice` build with its row (see builtin_voice_delete's №799 note). | parked |
+| `voice_load(...)` | 1 | — | `voice_load(name)` stub — ADR-0143 (persistence). | parked |
+| `voice_save(...)` | 2 | — | `voice_save(handle, name)` stub — ADR-0143 (persistence). | parked |
 
 <!-- END GENERATED BUILTIN INDEX -->
 

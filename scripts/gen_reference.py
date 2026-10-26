@@ -234,12 +234,34 @@ def render(entries, curated, docs):
             raise SystemExit(
                 f"gen_reference: `{name}` carries tier `{tier}` outside the vocabulary {TIER_VOCABULARY} — exit 2"
             )
-    cats = {}
-    for name, lo, hi, cat, _, _ in entries:
-        cats.setdefault(cat, []).append((name, lo, hi))
+    # №809 (the C3-a T3 owner decision): the index reads by MATURITY LEVEL —
+    # the stable tier is the primary reference, experimental is the opt-in
+    # tier, parked is the appendix (the №799 SSOT carries the name/basis).
+    # The layout changed; the COVERAGE contract did not: every registered
+    # builtin still gets exactly one row (the reference_documents_every_
+    # registered_builtin pin is untouched), and the tier counts in the
+    # headline + the tier headers are pinned by tests/reference_consistency.rs
+    # (a row under the wrong tier = a wrong count = a red pin).
+    tiers: dict = {}
+    for name, lo, hi, cat, _, tier in entries:
+        tiers.setdefault(tier, {}).setdefault(cat, []).append((name, lo, hi))
+    tier_counts = {
+        t: sum(len(rows) for rows in tiers.get(t, {}).values())
+        for t in TIER_VOCABULARY
+    }
+    TIER_TITLES = {
+        "stable": "the primary reference",
+        "experimental": "the opt-in tier (present, maturing, may change)",
+        "parked": "the appendix (parked behind features — the №799 SSOT carries the name/basis)",
+    }
 
     md = [BEGIN, ""]
-    md.append(f"## 6. Builtin Index — {len(entries)} registered builtins (100% of `spec!`)")
+    md.append(
+        f"## 6. Builtin Index — {len(entries)} registered builtins — "
+        f"the three maturity tiers: stable {tier_counts['stable']} / "
+        f"experimental {tier_counts['experimental']} / "
+        f"parked {tier_counts['parked']} (№809: the C3(a) levels)"
+    )
     md.append("")
     md.append(
         "> Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by "
@@ -248,32 +270,39 @@ def render(entries, curated, docs):
         "curated sections above when present, otherwise from the handler's doc "
         "comment; `TODO(doc)` marks a description nobody has written yet — "
         "`tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep "
-        "the prose honest."
+        "the prose honest. The sections read by MATURITY TIER (№809): the "
+        "`stable` tier is the primary reference; `experimental` and `parked` "
+        "are explicitly separated so a reader never mistakes a gated builtin "
+        "for an always-available one."
     )
-    md.append("")
     todo = 0
-    for cat in sorted(cats):
-        rows = cats[cat]
-        md.append(f"### `{cat}` — {len(rows)} builtin(s)")
+    for tier in TIER_VOCABULARY:
+        cats = tiers.get(tier, {})
         md.append("")
-        md.append("| Builtin | Arity | Signature (curated) | Description | Tier |")
-        md.append("|---|---|---|---|---|")
-        for name, lo, hi in sorted(rows):
-            sig, desc = curated.get(name, ("", ""))
-            if not desc and name in MANUAL_DESCRIPTIONS:
-                desc = MANUAL_DESCRIPTIONS[name]
-            if not desc:
-                h = handler_of.get(name)
-                if h and h in docs:
-                    desc = clean_doc(docs[h])
-            if not desc:
-                desc = TODO
-                todo += 1
-            md.append(
-                f"| `{name}(...)` | {arity_text(lo, hi)} "
-                f"| {esc_cell(sig or '—')} | {esc_cell(desc)} | {tier_of[name]} |"
-            )
+        md.append(f"### Tier `{tier}` — {TIER_TITLES[tier]} ({tier_counts[tier]})")
         md.append("")
+        for cat in sorted(cats):
+            rows = cats[cat]
+            md.append(f"#### `{cat}` — {len(rows)} builtin(s)")
+            md.append("")
+            md.append("| Builtin | Arity | Signature (curated) | Description | Tier |")
+            md.append("|---|---|---|---|---|")
+            for name, lo, hi in sorted(rows):
+                sig, desc = curated.get(name, ("", ""))
+                if not desc and name in MANUAL_DESCRIPTIONS:
+                    desc = MANUAL_DESCRIPTIONS[name]
+                if not desc:
+                    h = handler_of.get(name)
+                    if h and h in docs:
+                        desc = clean_doc(docs[h])
+                if not desc:
+                    desc = TODO
+                    todo += 1
+                md.append(
+                    f"| `{name}(...)` | {arity_text(lo, hi)} "
+                    f"| {esc_cell(sig or '—')} | {esc_cell(desc)} | {tier_of[name]} |"
+                )
+            md.append("")
     md.append(END)
     return "\n".join(md), todo
 

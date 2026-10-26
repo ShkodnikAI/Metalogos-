@@ -194,7 +194,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      # The №445 wave-infra note (see vision-tests): the cache restore
+      # The №445 wave-infra note (see vision-tests): the cache
       # failure is a performance loss, never a correctness signal.
       - uses: Swatinem/rust-cache@v2
         continue-on-error: true
@@ -223,7 +223,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      # The №445 wave-infra note (see vision-tests): the cache restore
+      # The №445 wave-infra note (see vision-tests): the cache
       # failure is a performance loss, never a correctness signal.
       - uses: Swatinem/rust-cache@v2
         continue-on-error: true
@@ -829,6 +829,14 @@ jobs:
       - name: Gate — the precise typed-signature share vs the checked-in floor (№560; movement only up)
         run: |
           python3 scripts/ci/type_signature_share.py --precise --gate scripts/ci/type_signature_precise_baseline.txt
+      # №809 (issue #1565; the C3-a T3 owner decision, ADR-0199): the
+      # STABLE-tier share — the new PRIMARY definition. The denominator is
+      # the stable tier only (the experimental/parked rows sit outside the
+      # primary contract); the full-registry floor (№467) stays beside it.
+      # Movement only up; the №757 floor procedure.
+      - name: Gate — the stable-tier typed-signature share vs the checked-in floor (№809; movement only up)
+        run: |
+          python3 scripts/ci/type_signature_share.py --stable --gate scripts/ci/type_signature_stable_baseline.txt
       # №661 (issue #1162; the К-Б stage-2 verdict gh#1144): the BLOCKING
       # field-meta coverage rule — every parameterized Struct row carries a
       # well-formed field_meta, the dynamic forms (JsonBody/FormData) are

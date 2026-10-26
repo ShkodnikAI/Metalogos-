@@ -65,6 +65,29 @@ All notable changes to the Metalogos project.
 
 ### Changed
 
+- **№811 (gh#1567, Wave 66 — the audit-23.10 B3, SSRF):** the V6 arm of
+  the SSRF guard covers the two remaining IPv4-smuggling shapes — NAT64
+  `64:ff9b::/96` (RFC 6052) and the legacy IPv4-compatible `::a.b.c.d`
+  both UNFOLD and re-check through the V4 branch (the parity with the
+  №261 mapped-form fix: `64:ff9b::a00:1` is 10.0.0.1 behind a NAT64
+  gateway and used to pass as a "public" V6), and the documentation
+  range `2001:db8::/32` (RFC 3849) is blocked outright (nowhere-
+  routable; an egress there is a configuration against the operator).
+  The special forms keep their standard lanes: `::` (unspecified) and
+  `::1` (loopback) stay on the standard checks — the unfold requires a
+  nonzero sixth segment (unfolding `::1` would produce `0.0.0.1`, which
+  the V4 branch does not block). The №261 regression pin moves
+  `2001:db8::1` out of the public set (the honest contract change, the
+  replacement pin rides the neighboring routable prefix). Documented in
+  threat-model.md and REFERENCE.md. RED-before (форма №772): the new
+  unit pins ran against the pre-№811 revision — the NAT64/compatible
+  private forms passed the guard (RED), the fix turns them into the
+  pinned blocks. security: YES — the B3 fix; the block-list only
+  widens, allowlist-конвенции №259 не тронуты. AFFECTS: programs
+  egressing to `64:ff9b::…`/`::a.b.c.d`/`2001:db8::…` addresses now
+  refuse with the loud `SSRF guard` error (they were silent passes
+  before).
+
 - **№808 (gh#1564, Wave 66 — the audit-23.10 C5-b V4, the TW-oracle
   boundary gate):** the C5 (b) contract is now ENFORCED by a blocking
   CI gate — the VM executes everything a user runs; the tree-walking

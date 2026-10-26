@@ -332,7 +332,11 @@ fn n261_legacy_blocked_classes_stay_blocked() {
         "203.0.113.1",
         "2001:4860:4860::8888",
         "2606:4700:4700::1111",
-        "2001:db8::1",
+        // №811 (B3): 2001:db8::1 ПЕРЕВЕДЁН в блок-набор — RFC 3849
+        // documentation range не маршрутизируется; контракт №811
+        // блокирует его (пин n811_documentation_range_2001_db8_blocked).
+        // Здесь он заменён соседним маршрутизируемым префиксом.
+        "2001:db9::1",
     ] {
         let ip: IpAddr = literal.parse().unwrap();
         assert!(
@@ -536,4 +540,74 @@ fn n261_http_download_does_not_follow_302() {
         "C4: редирект НЕ должен быть отработан вторым запросом, got:\n{}",
         log
     );
+}
+
+// ── №811 (B3): NAT64 64:ff9b::/96 и IPv4-compatible ::a.b.c.d ────────
+
+#[test]
+fn n811_nat64_prefix_unfolds_to_v4_branch() {
+    // RFC 6052: 64:ff9b::/96 — последние 32 бита несут IPv4-адрес.
+    // Разворот и V4-проверка — паритет с mapped-формой (№261 C1).
+    let cases: Vec<(&str, bool)> = vec![
+        ("64:ff9b::a00:1", true),     // = 10.0.0.1 (private) — блок
+        ("64:ff9b::7f00:1", true),    // = 127.0.0.1 (loopback) — блок
+        ("64:ff9b::a9fe:a9fe", true), // = 169.254.169.254 (metadata) — блок
+        ("64:ff9b::808:808", false),  // = 8.8.8.8 (публичный) — НЕ блок
+    ];
+    for (addr, expect_blocked) in cases {
+        let ip: IpAddr = addr.parse().expect("valid IPv6");
+        assert_eq!(
+            is_blocked_address(&ip),
+            expect_blocked,
+            "NAT64 {} (V4-часть {}) — блок={}",
+            addr,
+            expect_blocked,
+            is_blocked_address(&ip)
+        );
+    }
+}
+
+#[test]
+fn n811_ipv4_compatible_unfolds_to_v4_branch() {
+    // Legacy-форма ::a.b.c.d (шесть нулевых групп + встроенный IPv4 в
+    // последних двух сегментах, старшая ненулевая). Специальные формы
+    // (::, ::1) ходят штатными ветками: ::1 — loopback, :: — unspecified
+    // (разворот ::1 дал бы 0.0.0.1, который V4-ветка не блокирует —
+    // поэтому разворот только при segments[6] != 0).
+    let cases: Vec<(&str, bool)> = vec![
+        ("::a00:1", true),     // = 10.0.0.1 — блок
+        ("::7f00:1", true),    // = 127.0.0.1 — блок
+        ("::a9fe:a9fe", true), // = 169.254.169.254 — блок
+        ("::808:808", false),  // = 8.8.8.8 — НЕ блок
+        ("::1", true),         // loopback штатной веткой
+        ("::", true),          // unspecified штатной веткой
+    ];
+    for (addr, expect_blocked) in cases {
+        let ip: IpAddr = addr.parse().expect("valid IPv6");
+        assert_eq!(
+            is_blocked_address(&ip),
+            expect_blocked,
+            "IPv4-compatible {} — блок={}",
+            addr,
+            is_blocked_address(&ip)
+        );
+    }
+}
+
+#[test]
+fn n811_documentation_range_2001_db8_blocked() {
+    // RFC 3849: 2001:db8::/32 — documentation range, в интернете не
+    // маршрутизируется; исходящий запрос туда — конфигурация против себя.
+    assert!(is_blocked_address(
+        &"2001:db8::1".parse::<IpAddr>().unwrap()
+    ));
+    assert!(is_blocked_address(
+        &"2001:db8:ffff:ffff:ffff:ffff:ffff:ffff"
+            .parse::<IpAddr>()
+            .unwrap()
+    ));
+    // Граница: 2001:db9:: (соседний префикс) — НЕ блок.
+    assert!(!is_blocked_address(
+        &"2001:db9::1".parse::<IpAddr>().unwrap()
+    ));
 }

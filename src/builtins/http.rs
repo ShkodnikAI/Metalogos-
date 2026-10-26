@@ -790,6 +790,42 @@ pub fn is_blocked_address(ip: &std::net::IpAddr) -> bool {
             if let Some(v4) = v6.to_ipv4_mapped() {
                 return is_blocked_address(&std::net::IpAddr::V4(v4));
             }
+            // №811 (B3): NAT64 64:ff9b::/96 (RFC 6052) — последние 32 бита
+            // несут IPv4-адрес; разворачивается и проверяется V4-веткой,
+            // как и mapped-форма. Иначе 64:ff9b::a00:1 (= 10.0.0.1 через
+            // NAT64-шлюз) обходил гейт как «публичный» V6.
+            if v6.segments()[0] == 0x0064
+                && v6.segments()[1] == 0xff9b
+                && v6.segments()[2..6] == [0, 0, 0, 0]
+            {
+                let v4 = std::net::Ipv4Addr::new(
+                    (v6.segments()[6] >> 8) as u8,
+                    (v6.segments()[6] & 0xff) as u8,
+                    (v6.segments()[7] >> 8) as u8,
+                    (v6.segments()[7] & 0xff) as u8,
+                );
+                return is_blocked_address(&std::net::IpAddr::V4(v4));
+            }
+            // №811 (B3): IPv4-compatible ::a.b.c.d (шесть нулевых групп +
+            // встроенный IPv4) — legacy-форма того же трюка; разворачивается
+            // и проверяется V4-веткой. (Совпадает с ::/128 и ::1 — те
+            // отсеются разворотом: ::a.b.c.d с a.b.c.d = 0.0.0.0/127.0.0.1.)
+            if v6.segments()[0..6] == [0, 0, 0, 0, 0, 0] && v6.segments()[6] != 0 {
+                let v4 = std::net::Ipv4Addr::new(
+                    (v6.segments()[6] >> 8) as u8,
+                    (v6.segments()[6] & 0xff) as u8,
+                    (v6.segments()[7] >> 8) as u8,
+                    (v6.segments()[7] & 0xff) as u8,
+                );
+                return is_blocked_address(&std::net::IpAddr::V4(v4));
+            }
+            // №811 (B3): documentation range 2001:db8::/32 (RFC 3849) —
+            // не маршрутизируется в интернете; SSRF-целей там нет, выход
+            // наружу на зарезервированный диапазон — всегда конфигурация
+            // против себя. Документировано в task 1 (блокировать).
+            if v6.segments()[0] == 0x2001 && v6.segments()[1] == 0x0db8 {
+                return true;
+            }
             v6.is_loopback()
                 || v6.is_unicast_link_local()
                 || v6.is_unique_local()

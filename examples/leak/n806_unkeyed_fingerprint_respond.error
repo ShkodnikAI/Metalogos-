@@ -1,0 +1,1 @@
+EXPECTED: SECRET_LEAK — №806 (B1): the unkeyed fingerprint no longer declassifies — responding the hash_only digest of an env secret is the same leak (the digest keeps the private label; the keyed fingerprint is the sanctioned path — ok_806)

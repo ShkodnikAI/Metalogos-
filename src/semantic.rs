@@ -1701,24 +1701,41 @@ fn label_source(fn_name: &str, args: &[Expr], env: &BTreeMap<String, Label>) -> 
             // the registry (the single source of truth shared with the
             // runtime). Unknown/dynamic policies pass the input through
             // (conservative — no silent downward moves).
-            let target_conf = args.get(1).and_then(|p| match p {
-                Expr::StringLit { value, .. } => {
-                    crate::builtins::string::redact_policy(value).map(|pol| pol.target_conf)
-                }
+            let policy = args.get(1).and_then(|p| match p {
+                Expr::StringLit { value, .. } => crate::builtins::string::redact_policy(value),
                 _ => None,
             });
-            match target_conf {
+            let target_conf = policy.map(|pol| pol.target_conf);
+            match (policy, target_conf) {
                 // One-way: the data is destroyed — the result is a
                 // compiler-derived value (bottom: public AND trusted).
-                // Integrity is restored too (№327: hash_only decisions
-                // are legal). QUARANTINE EXCEPTION: poisoned is not
-                // curable by any policy (ADR-0154 §2.1 / §10) — the
+                // Integrity is restored too (№327: the fingerprint
+                // decisions are legal). QUARANTINE EXCEPTION: poisoned is
+                // not curable by any policy (ADR-0154 §2.1 / §10) — the
                 // channel is not the data.
-                Some("public") => {
+                (_, Some("public")) => {
                     if input.conf == crate::labels::Conf::Poisoned {
                         Some(input)
                     } else {
                         Some(Label::bottom())
+                    }
+                }
+                // №806 (B1): `hash_only` keeps the input CONFIDENTIALITY —
+                // the unkeyed fingerprint of a low-entropy secret is
+                // brute-forceable offline, so it must NOT declassify — but
+                // still restores INTEGRITY: the full 256-bit digest is a
+                // compiler-derived value for comparability (the №327
+                // decision lift survives on non-secret data — the
+                // error-code branching form). Public comparability of a
+                // fingerprint is the keyed `hash_keyed` policy's job.
+                (Some(pol), _) if pol.target_conf == "private" && pol.name == "hash_only" => {
+                    if input.conf == crate::labels::Conf::Poisoned {
+                        Some(input)
+                    } else {
+                        Some(Label {
+                            integrity: crate::labels::Integrity::Trusted,
+                            ..input
+                        })
                     }
                 }
                 _ => Some(input),

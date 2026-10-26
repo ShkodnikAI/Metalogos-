@@ -10,10 +10,13 @@
 //   1. escape_html(draft)       — the LLM draft is untrusted; network and
 //                                 output sinks refuse untrusted data
 //                                 (UNTRUSTED_EGRESS_NETWORK family).
-//   2. redact(token, hash_only) — the webhook token is a Secret source;
-//                                 the one-way hash is the ONLY downward
-//                                 move (№326); without it the raw token
-//                                 into http_post is SECRET_EGRESS_NETWORK.
+//   2. redact(token, hash_keyed) — the webhook token is a Secret source;
+//                                 the KEYED one-way fingerprint (HMAC under
+//                                 METALOGOS_REDACT_KEY) is the ONLY downward
+//                                 move (№326, as amended by №806/B1 — the
+//                                 unkeyed hash_only no longer declassifies);
+//                                 without it the raw token into http_post is
+//                                 SECRET_EGRESS_NETWORK.
 // Everything else is inferred (ADR-0154 Appendix A) — zero label
 // annotations on variables, parameters, or signatures.
 //
@@ -28,7 +31,7 @@ pattern Dispatch(task: String) -> String {
   let safe = escape_html(draft)
   let _ = send_message("fosved-owner-chat", safe)
   if 2.0 == 1.0 then {
-    let stamp = redact(env("FOSVED_WEBHOOK_TOKEN"), "hash_only")
+    let stamp = redact(env("FOSVED_WEBHOOK_TOKEN"), "hash_keyed")
     let _ = http_post("https://hooks.fosved.example/metrics", safe + "|" + stamp)
   } else {
     let _ = print("[dry-run] webhook body: " + safe)

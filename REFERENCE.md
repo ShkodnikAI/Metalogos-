@@ -257,7 +257,8 @@ target label:
 
 | policy       | target conf | notes |
 |--------------|-------------|-------|
-| `hash_only`  | `public`    | one-way SHA-256 fingerprint — the sanctioned path down |
+| `hash_only`  | `private`   | one-way SHA-256 fingerprint, full 256-bit hex — keeps the source label (the unkeyed digest of a low-entropy secret is brute-forceable offline, №806/B1), restores integrity for decisions |
+| `hash_keyed` | `public`    | one-way HMAC-SHA256 under `METALOGOS_REDACT_KEY` — the sanctioned public fingerprint (process-scoped comparability; loud refusal without the key, №806/B1) |
 | `all`        | `public`    | full masking (legacy ADR-0136) |
 | `secrets`    | `public`    | secret-pattern masking (legacy) |
 | `pii`        | `private`   | conservative — pattern strips can miss data |
@@ -293,7 +294,9 @@ legal: carrying it, transforming it, returning it — all fine. The
 integrity join is componentwise: untrusted poisons derivatives
 (`upper(trim(answer))` stays untrusted). The sanctioned paths to a
 trusted decision: validate before deciding, or one-way-redact
-(`hash_only` restores `trusted` — the data is destroyed). Sink-target
+(`hash_only` restores `trusted` — the data is destroyed; it keeps the
+source confidentiality since №806/B1 — the decision on the digest stays
+legal, the digest itself is not a public value). Sink-target
 decisions keep their №325 classes (UNTRUSTED_EXEC_DECISION,
 UNTRUSTED_EGRESS_NETWORK).
 
@@ -316,8 +319,9 @@ via `send_message` plus a metrics webhook via `http_post`. The gate
 requires exactly two annotations on the contour: the trust-restoring
 sanitizer (`escape_html`) on the untrusted LLM draft before egress
 (network and output sinks refuse untrusted data — §2.4/§2.5), and the
-one-way `redact(x, "hash_only")` on the webhook secret (the only
-downward move — §2.4). Everything else — labels on variables,
+keyed one-way `redact(x, "hash_keyed")` on the webhook secret (the only
+downward move — §2.4; the unkeyed `hash_only` keeps the secret's label
+since №806/B1). Everything else — labels on variables,
 parameters, signatures — is inferred (§2.2). Measured ergonomics:
 2 annotated lines out of 13 code lines ≈ 15%, well under the 50%
 rebuild threshold of plan v2 §13.3 (pinned by

@@ -205,10 +205,13 @@ Implemented in `src/builtins/string.rs` (the policy registry `REDACT_POLICIES` +
 | `all`        | public      | full masking: secrets + PII + entropy net (legacy) |
 | `pii`        | private     | PII-pattern masking — conservative, keeps the source conf (legacy) |
 | `pii_strip`  | private     | PII pattern strip — conservative (new) |
-| `hash_only`  | public      | one-way SHA-256 fingerprint — destroys the data, keeps comparability (new) |
+| `hash_only`  | private     | one-way SHA-256 fingerprint, full 256-bit hex — destroys the data, keeps comparability, does NOT declassify (amended by №806/B1: was `public` with a 64-bit digest) |
+| `hash_keyed` | public      | one-way HMAC-SHA256 under the process-scoped `METALOGOS_REDACT_KEY` — the sanctioned public fingerprint; loud refusal without the key (№806/B1) |
 | `truncate`   | private     | keep the first 3 chars, mask the rest (new) |
 
-Conservatism rule: pattern strips and truncations can miss data, so they do NOT declassify (target `private`) — the sink gate keeps blocking their output. The one-way policies (`hash_only`, full masking) destroy the data and are the sanctioned path down. Unknown or dynamic (non-literal) policy values pass the input label through — no silent downward moves.
+Conservatism rule: pattern strips and truncations can miss data, so they do NOT declassify (target `private`) — the sink gate keeps blocking their output. The one-way policies (full masking) destroy the data and are the sanctioned path down. Unknown or dynamic (non-literal) policy values pass the input label through — no silent downward moves.
+
+**№806 amendment (the audit-23.10 B1, Wave 66).** The original `hash_only` contract had a hole: a 64-bit UNKEYED SHA-256 prefix of a LOW-ENTROPY secret (a PIN, a short token) is brute-forced offline in seconds, so the `public` label on the digest was a leak channel dressed as hygiene. The amendment: `hash_only` produces the FULL 256-bit hex digest, keeps its comparability AND its integrity restore (the №327 decision lift survives on non-secret data — the error-code branching form), but does NOT declassify anymore. Public comparability of a fingerprint moves to the NEW `hash_keyed` policy: HMAC-SHA256 under the process-scoped `METALOGOS_REDACT_KEY` (an attacker without the key cannot evaluate the HMAC, so low-entropy secrets stay safe to expose as digests); the missing/empty key is a LOUD runtime refusal — never a silent unkeyed fallback. The static label mapping (semantic.rs) reads the same registry: `hash_only` keeps the input conf and restores integrity; `hash_keyed` lands at bottom. The secret-comparison recipe (limitations.md, the UNTRUSTED_DECISION refusal text): `ct_eq(provided, expected)` — constant-time — or the keyed fingerprint on BOTH sides. The static label can no longer diverge from the runtime reality: there is no env-dependent policy word (a one-word env-keyed design was rejected — the check-time and run-time environments could diverge, and the label would lie; №525: an untruthful label is worse than a refusal).
 
 ### 10.2 Unconditional audit events
 
@@ -216,7 +219,7 @@ Every `redact()` application — statically enumerated across all statement-bear
 
 ### 10.3 Verification (№326)
 
-- `cargo test naryad_326` — 14 tests: the registry (names/targets/lookup, loud unknown words), the downward path (hash_only passes the №325 gate; the same flow without redact fails), conservatism (pii_strip/truncate keep the label), unconditional events (count + policy/target in message; present under legacy; dynamic → `<dynamic>`), runtime shapes (hash determinism and data destruction, truncation shape), the showcase `examples/l1_redact.mlog`.
+- `cargo test naryad_326` — the registry (names/targets/lookup, loud unknown words), the downward path, conservatism (pii_strip/truncate keep the label), unconditional events (count + policy/target in message; present under legacy; dynamic → `<dynamic>`), runtime shapes (hash determinism and data destruction, truncation shape), the showcase `examples/l1_redact.mlog`. №806 amendment tests (the same file): the full 64-hex digest shape, the keyed determinism + `[HMAC:` shape, the loud missing/empty-key refusal, `hash_only` no longer passing the №325 gate on a secret, `hash_keyed` passing it.
 
 ## 11. Appendix (№767): the read-back pair exemption — the documented boundary + the risk-review record
 

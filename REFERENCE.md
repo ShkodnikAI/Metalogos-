@@ -3312,7 +3312,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `html_to_pdf` | pure | public | pure | — |
 | `send_document` | sink | network | irreversible | delivers a document externally — cannot be unsent |
 | `sha256` | lift | public | pure | one-way digest — de-identifies its input (used to hash secrets) |
-| `hmac_sha256` | lift | public | pure | keyed digest — de-identifies its input |
+| `hmac_sha256` | lift | public | pure | keyed digest — de-identifies its input; the KEY position (arg0) is Private-recommended — pass the key as Secret (accepted since №807/B2, the material stays in the Zeroizing buffer) |
 | `hex_encode` | pure | public | pure | — |
 | `hex_decode` | pure | public | pure | — |
 | `secret` | source | secret | pure | materializes a Secret value — Secret taint (№172) |

@@ -458,7 +458,7 @@ OVERRIDES = {
     "decrypt": ("Pure", "Secret", "Pure", "produces Secret plaintext from ciphertext (label-raising transform)"),
     "generate_key": ("Source", "Secret", "Pure", "materializes a fresh Secret from CSPRNG entropy"),
     "sha256": ("Lift", "Public", "Pure", "one-way digest — de-identifies its input (used to hash secrets)"),
-    "hmac_sha256": ("Lift", "Public", "Pure", "keyed digest — de-identifies its input"),
+    "hmac_sha256": ("Lift", "Public", "Pure", "keyed digest — de-identifies its input; the KEY position (arg0) is Private-recommended — pass the key as Secret (accepted since №807/B2, the material stays in the Zeroizing buffer)"),
     "hex_encode": ("Pure", "Public", "Pure", "deterministic byte-to-text encoding"),
     "hex_decode": ("Pure", "Public", "Pure", "deterministic text-to-byte decoding"),
     "base64_encode": ("Pure", "Public", "Pure", "deterministic encoding — transport, NOT a sanitizer"),

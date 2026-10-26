@@ -14,10 +14,11 @@ construction.
 | Leak Suite | 49 negatives / 27 positives (examples/leak/ — the BLOCKING gate) |
 | Built-in Functions | 526 functions across 47 modules |
 | Typed Signatures | 372/526 (70.72%) — precise 242/526 (46.00%) |
+| Typed Signatures (stable tier — the PRIMARY definition, №809/ADR-0199) | 363/483 (75.15%) — the full-registry figure beside: 372/526 (70.72%) |
 | SVG/Graphics | 44 builtins, hand-rolled in pure Rust |
 | Grammar | 343 rules |
-| Architecture Decisions | 190 ADRs |
+| Architecture Decisions | 191 ADRs |
 | Example Programs | 253 .mlog programs |
-| Reference | REFERENCE.md (~331 KB) — 100% registry coverage |
-| Changelog | CHANGELOG.md (~152 KB) — every wave documented |
+| Reference | REFERENCE.md (~332 KB) — 100% registry coverage |
+| Changelog | CHANGELOG.md (~154 KB) — every wave documented |
 <!-- END GENERATED METRICS -->

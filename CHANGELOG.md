@@ -65,6 +65,34 @@ All notable changes to the Metalogos project.
 
 ### Changed
 
+- **№809 (gh#1565, Wave 66 — the C3-a T3 levels, ADR-0199):** the
+  typed-signature metric reads by MATURITY TIER — the PRIMARY
+  definition is the stable-tier share (typed∩stable / stable:
+  363/483 = 75.15% at the definition date); the full-registry figure
+  (372/526 = 70.72%) stays reported beside it with its own untouched
+  floor (ADR-0179), and the new stable floor
+  (`type_signature_stable_baseline.txt`, 7515 bp) moves only up (the
+  №757 procedure). The REFERENCE §6 index reads by the same levels —
+  stable is the primary reference, experimental the opt-in tier,
+  parked the appendix (the counts pinned by the new
+  `reference_consistency` test: the headline triple, the per-tier
+  headers, every row in its own tier section, the name sets equal to
+  the registry per tier). The four feature-gated pillar jobs
+  (candle/vision/voice/video) move out of the every-push CI into the
+  `parked-features` lane (nightly + PR path filter on the pillar
+  catalogs + dispatch) as the NIGHTLY health signal — the jobs stay in
+  the every-push CI until the owner's protection toggle (the branch
+  protection requires their four contexts; removing the jobs made
+  every PR unmergeable — the episode caught it on the first head, the
+  revision is in ADR-0199 §4), and the soft release rule lands in
+  docs/maintainers.md: a red nightly does NOT block a tag but is
+  recorded (the auto-filed fix issue + the CHANGELOG/limitations
+  line). security: no — a docs/metrics/CI-lane re-aim; no gate loses
+  its verdict power (the general floor is untouched, the new floor
+  only adds). AFFECTS: the primary metric figure changes definition —
+  both figures are quoted side by side from now on; the parked CI
+  latency leaves the per-PR path.
+
 - **№812 (gh#1568, Wave 66 — the audit-23.10 B4, the assert crash):**
   `assert_contains` never PANICS on non-ASCII — the failure preview
   slices by CHARS (the byte slice `&haystack[..min(len, 80)]` crashed

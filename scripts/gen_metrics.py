@@ -93,6 +93,31 @@ def count_typed_signatures() -> tuple[int, int, int]:
     return len(typed), len(total), precise
 
 
+def count_stable_typed() -> tuple[int, int]:
+    """№809 (ADR-0199): the typed count over the STABLE tier — the PRIMARY
+    definition (the C3-a T3 owner decision). Same regex contract as
+    scripts/ci/type_signature_share.py::stable_share — the tier is the
+    №796 trailing literal, the LAST tier word on the spec! line."""
+    content = (REPO / "src" / "builtins" / "registry.rs").read_text(encoding="utf-8")
+    spec_re = re.compile(r'spec!\("([a-z_0-9]+)"')
+    typed_re = re.compile(
+        r'spec!\("([a-z_0-9]+)",[^\n;]*;\s*[A-Za-z_0-9]+\s*,\s*"(?!stable"|experimental"|parked")([A-Za-z][A-Za-z0-9<>{}:,_|]*)"(?:\s*,\s*"(?:stable|experimental|parked)")?\s*\)'
+    )
+    tier_re = re.compile(r'"(stable|experimental|parked)"')
+    tiers = {}
+    for line in content.splitlines():
+        nm = spec_re.search(line)
+        if not nm:
+            continue
+        tm = tier_re.findall(line)
+        if tm:
+            tiers[nm.group(1)] = tm[-1]
+    typed = typed_re.findall(content)
+    stable_total = sum(1 for name in spec_re.findall(content) if tiers.get(name) == "stable")
+    stable_typed = sum(1 for name, _ in typed if tiers.get(name) == "stable")
+    return stable_typed, stable_total
+
+
 def count_svg_builtins() -> int:
     content = (REPO / "src" / "builtins" / "registry.rs").read_text(encoding="utf-8")
     re_svg = re.compile(r'spec!\("(svg_|chart_|diagram_|color_palette|template_render|html_render)')
@@ -159,6 +184,8 @@ def full_block() -> str:
     typed, total_fns, precise = count_typed_signatures()
     typed_bp = (typed * 10000) // total_fns if total_fns else 0
     precise_bp = (precise * 10000) // total_fns if total_fns else 0
+    stable_typed, stable_total = count_stable_typed()
+    stable_bp = (stable_typed * 10000) // stable_total if stable_total else 0
     neg, pos = leak_counts()
     return (
         f"| Metric | Value (generated — do not hand-edit) |\n"
@@ -167,6 +194,7 @@ def full_block() -> str:
         f"| Leak Suite | {neg} negatives / {pos} positives (examples/leak/ — the BLOCKING gate) |\n"
         f"| Built-in Functions | {total} functions across {modules} modules |\n"
         f"| Typed Signatures | {typed}/{total_fns} ({typed_bp / 100:.2f}%) — precise {precise}/{total_fns} ({precise_bp / 100:.2f}%) |\n"
+        f"| Typed Signatures (stable tier — the PRIMARY definition, №809/ADR-0199) | {stable_typed}/{stable_total} ({stable_bp / 100:.2f}%) — the full-registry figure beside: {typed}/{total_fns} ({typed_bp / 100:.2f}%) |\n"
         f"| SVG/Graphics | {svg} builtins, hand-rolled in pure Rust |\n"
         f"| Grammar | {rules} rules |\n"
         f"| Architecture Decisions | {adrs} ADRs |\n"

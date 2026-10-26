@@ -131,3 +131,131 @@ fn reference_has_no_unresolved_todo_markers() {
         todos.join(", ")
     );
 }
+
+// ── №809: the three-tier layout pin (the C3-a T3 owner decision) ────────
+//
+// The generated §6 index reads by MATURITY TIER: `stable` is the primary
+// reference, `experimental` is the opt-in tier, `parked` is the appendix.
+// The counts are machine facts: the headline carries the triple, each
+// tier header carries its own count, the counts sum to the registry
+// total, and every row sits in the section of its own registry tier
+// (a row under the wrong tier moves a count and trips this pin).
+
+fn registry_tiers() -> Vec<(String, String)> {
+    let path = repo_root().join("src").join("builtins").join("registry.rs");
+    let content =
+        fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {:?}: {}", path, e));
+    let name_re = Regex::new(r#"spec!\(\s*"([^"]+)""#).unwrap();
+    let tier_re = Regex::new(r#""(stable|experimental|parked)""#).unwrap();
+    let mut out = Vec::new();
+    for line in content.lines() {
+        let Some(nm) = name_re.captures(line) else {
+            continue;
+        };
+        let Some(tm) = tier_re.captures_iter(line).last() else {
+            continue;
+        };
+        out.push((
+            nm.get(1).unwrap().as_str().to_string(),
+            tm.get(1).unwrap().as_str().to_string(),
+        ));
+    }
+    out
+}
+
+#[test]
+fn reference_tier_sections_carry_the_machine_counts() {
+    let tiers = registry_tiers();
+    assert!(
+        tiers.len() >= 392,
+        "sanity: every spec! row carries the №796 tier literal (got {})",
+        tiers.len()
+    );
+
+    let reference = reference_text();
+    let begin = reference
+        .find("BEGIN GENERATED BUILTIN INDEX")
+        .expect("marker pinned by the block test");
+    let end = reference
+        .find("END GENERATED BUILTIN INDEX")
+        .expect("marker pinned by the block test");
+    let block = &reference[begin..end];
+
+    // The headline triple.
+    let mut counts = std::collections::BTreeMap::new();
+    for (_, tier) in &tiers {
+        *counts.entry(tier.as_str()).or_insert(0usize) += 1;
+    }
+    let headline = format!(
+        "the three maturity tiers: stable {} / experimental {} / parked {}",
+        counts.get("stable").copied().unwrap_or(0),
+        counts.get("experimental").copied().unwrap_or(0),
+        counts.get("parked").copied().unwrap_or(0),
+    );
+    assert!(
+        block.contains(&headline),
+        "the §6 headline does not carry the machine tier triple {headline:?} — regenerate"
+    );
+
+    // Per-tier rows: every row's trailing Tier cell matches the section
+    // it sits in, and the section header carries the section's size.
+    let tier_header_re =
+        Regex::new(r"### Tier `(stable|experimental|parked)`[^\n]*\((\d+)\)").unwrap();
+    let row_re = Regex::new(r"^\| `[a-z_][a-z0-9_]*\(").unwrap();
+    let cell_tier_re = Regex::new(r"\|\s*(stable|experimental|parked)\s*\|\s*$").unwrap();
+
+    let mut current = String::new();
+    let mut section_rows: std::collections::BTreeMap<String, Vec<String>> =
+        std::collections::BTreeMap::new();
+    let mut header_counts: std::collections::BTreeMap<String, usize> =
+        std::collections::BTreeMap::new();
+    // The name extractor hoisted out of the loop (the clippy 1.99
+    // regex_creation_in_loops lint — a Regex::new per row line is waste).
+    let row_name_re = Regex::new(r"`([a-z_][a-z0-9_]*)\(").unwrap();
+    for line in block.lines() {
+        if let Some(h) = tier_header_re.captures(line) {
+            current = h.get(1).unwrap().as_str().to_string();
+            header_counts.insert(current.clone(), h.get(2).unwrap().as_str().parse().unwrap());
+            continue;
+        }
+        if !current.is_empty() && row_re.is_match(line) {
+            let name_cap = row_name_re
+                .captures(line)
+                .expect("a row line opens with the name");
+            let name = name_cap.get(1).unwrap().as_str().to_string();
+            let cell = cell_tier_re
+                .captures(line)
+                .unwrap_or_else(|| panic!("row for {name} carries no Tier cell: {line}"));
+            assert_eq!(
+                cell.get(1).unwrap().as_str(),
+                current,
+                "the row for {name} sits in the `{current}` section but its Tier cell says {}",
+                cell.get(1).unwrap().as_str()
+            );
+            section_rows.entry(current.clone()).or_default().push(name);
+        }
+    }
+
+    let mut registry_by_tier: std::collections::BTreeMap<String, Vec<&String>> =
+        std::collections::BTreeMap::new();
+    for (name, tier) in &tiers {
+        registry_by_tier.entry(tier.clone()).or_default().push(name);
+    }
+    for tier in ["stable", "experimental", "parked"] {
+        let want = registry_by_tier.get(tier).cloned().unwrap_or_default();
+        let got = section_rows.get(tier).cloned().unwrap_or_default();
+        assert_eq!(
+            got.len(),
+            want.len(),
+            "the `{tier}` section carries {} row(s) but the registry has {} — \
+             a row is misplaced or missing (regenerate the index)",
+            got.len(),
+            want.len()
+        );
+        assert_eq!(
+            header_counts.get(tier).copied().unwrap_or(0),
+            want.len(),
+            "the `{tier}` header count does not match the registry tier size"
+        );
+    }
+}

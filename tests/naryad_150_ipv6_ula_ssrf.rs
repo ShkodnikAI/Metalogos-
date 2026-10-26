@@ -48,11 +48,15 @@ fn test_ssrf_public_v6_passes() {
         "C3: 2606:4700:4700::1111 (public) must NOT be blocked"
     );
 
-    // Documentation range 2001:db8::1 — not private, not ULA
-    let doc: IpAddr = "2001:db8::1".parse().unwrap();
+    // №811 (B3): 2001:db8::1 ПЕРЕВЕДЁН в блок-набор — RFC 3849
+    // documentation range не маршрутизируется, исходящий запрос туда —
+    // конфигурация против оператора (контракт №811; пин
+    // n811_documentation_range_2001_db8_blocked в ssrf-pack). Здесь
+    // остаётся соседний маршрутизируемый префикс как public-пример.
+    let doc: IpAddr = "2001:db9::1".parse().unwrap();
     assert!(
         !blocked(&doc),
-        "C3: 2001:db8::1 (documentation) must NOT be blocked"
+        "C3: 2001:db9::1 (routable) must NOT be blocked"
     );
 }
 

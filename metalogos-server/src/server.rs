@@ -1615,6 +1615,10 @@ async fn route_handler(
         let result = if state.backend == ServeBackend::Vm {
             execute_route_body_vm(&state, route, &headers, &body, &query, &path_params).await
         } else {
+            // [TW-ORACLE] №808: the interpreter opt-out lane — the
+            // transitional `METALOGOS_SERVE_BACKEND=interpreter` (ADR-0197
+            // §4; the VM is the executor, the TW arm rides the same term
+            // as `--reference`).
             execute_route_body(&state, &route.body, &headers, &body, &query, &path_params).await
         };
         let mut response = match result {
@@ -4495,6 +4499,7 @@ mlogserver {
                 .collect()
         };
 
+        // [TW-ORACLE] №808: the test harness (the interpreter-backend probe).
         let result = execute_route_body(
             state,
             &state
@@ -4872,6 +4877,7 @@ mlogserver {
             .find(|r| r.path == path && r.method == method);
 
         if let Some(route) = static_match {
+            // [TW-ORACLE] №808: the test harness (the interpreter-backend probe).
             let result = execute_route_body(
                 state,
                 &route.body,
@@ -4895,6 +4901,7 @@ mlogserver {
         // 2. Fallback: template matching.
         match match_templated_route(&state.routes, path, method) {
             Ok(Some((route, path_params))) => {
+                // [TW-ORACLE] №808: the test harness (the interpreter-backend probe).
                 let result = execute_route_body(
                     state,
                     &route.body,

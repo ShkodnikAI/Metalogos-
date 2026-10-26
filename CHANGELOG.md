@@ -65,6 +65,33 @@ All notable changes to the Metalogos project.
 
 ### Changed
 
+- **№808 (gh#1564, Wave 66 — the audit-23.10 C5-b V4, the TW-oracle
+  boundary gate):** the C5 (b) contract is now ENFORCED by a blocking
+  CI gate — the VM executes everything a user runs; the tree-walking
+  interpreter (TW) is the reference oracle. `scripts/ci/
+  tw_user_path_gate.py` scans the user-path sources (`src/lib.rs`,
+  `metalogos-server/src/server.rs`, `metalogos-server/src/bin/mlog.rs`)
+  for the TW-entry calls (`run_program*`, `eval_program*`,
+  `execute_route_body`) and demands an explicit `[TW-ORACLE]` mark in
+  the source or a checked-in baseline row (`tw_user_path_baseline.txt`,
+  `path :: anchor :: reason`); a new unmarked TW entry is RED
+  (fail-closed: an unreadable file or a missing baseline is RED too —
+  №525). The inventory at the landing: 9 entries, ALL marked in-source
+  (the oracle runners `run_program`/`eval_program` + the `--reference`
+  lanes in the CLI + the serve `interpreter` opt-out dispatch + the
+  in-file test harnesses) — the baseline is EMPTY BY DESIGN (the marks
+  ARE the documentation). The gate self-test (the №535 form) pins the
+  shipped GREEN and the synthetic unmarked RED, wired as the new
+  blocking job `tw-oracle-gate`. The crosscheck report wording moves to
+  «VM vs the TW oracle» (the step name and the crosscheck header; the
+  JOB names are untouched — the branch-protection contract, №471).
+  `METALOGOS_SERVE_BACKEND=interpreter` stays transitional with the
+  ADR-0197 banner (unchanged — the same term as `--reference`).
+  security: no — the gate widens the refusal surface only (a CI
+  boundary), no runtime gate, allowlist or taint floor moves. AFFECTS:
+  none at runtime; a PR adding an unmarked TW entry now fails CI with
+  the named remedy.
+
 - **№807 (gh#1563, Wave 66 — the audit-23.10 B2, the Secret zeroize
   discipline):** the Secret material no longer lands in plain unsecured
   String copies on the crypto/masking paths — `hash_password` and

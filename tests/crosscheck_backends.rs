@@ -3,7 +3,7 @@
 // for fixtures and assertions by design — the allow is scoped to this file.
 #![allow(clippy::disallowed_methods)]
 
-// ── Block 4: TW vs VM cross-check test ─────────────────────────────
+// ── Block 4: the cross-check — VM (the executor) vs the TW oracle ──
 // Runs .mlog programs through interpreter (tree-walking) and VM,
 // comparing outputs. JIT is experimental (ADR-0073) — skipped.
 //

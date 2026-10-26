@@ -93,7 +93,7 @@ jobs:
         continue-on-error: true
         with:
           prefix-key: v2
-      - name: TW vs VM parity
+      - name: VM vs the TW oracle (reference) parity
         run: cargo test --workspace --test crosscheck_backends --no-fail-fast
 
   candle-tests:
@@ -717,6 +717,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/ci/sync_gate_facts.py --tamper-test
+
+  tw-oracle-gate:
+    name: tw-oracle-gate (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # №808 (gh#1564, Wave 66 — the C5-b V4 decision): the VM is the
+      # user executor; the TW entries in the user paths carry the
+      # explicit [TW-ORACLE] mark or a baseline row (ADR-0197
+      # transitional lanes). The self-test pins the gate's own RED.
+      - name: "Gate — the TW-oracle user-path boundary (№808, fail-closed)"
+        run: |
+          python3 scripts/ci/tw_user_path_gate.py --self-test
 
   agent-index:
     name: agent-index (blocking)

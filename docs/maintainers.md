@@ -184,6 +184,31 @@ script only reports — it never merges, reverts, or edits history; the
 required set is pinned by `tests/naryad_551_merge_ci_audit.rs` and
 moves together with the checklist below, never alone.
 
+Two more directions ride the same detective since №824 (issue #1592):
+
+- **The reverse direction** — the LIVE protection (read via the
+  `BRANCH_PROTECTION_TOKEN` repo secret, Administration: read-only,
+  the №586 precedent) is diffed against the required set: a context
+  the protection ENFORCES but the detective never verifies is the M-1
+  blind class and is a named divergence. An unreadable protection
+  (no token, 403, 404, 5xx) is exit 2 fail-closed — an unreadable
+  state is not a pass (№525). The other direction (a list row not on
+  the live rule) stays the `branch-protection-audit` RED lane — the
+  two detectives do not duplicate each other.
+- **The №809-class tripwire** — every required context must have a
+  producing job in a `pull_request`-triggered workflow (a stdlib
+  scanner over `.github/workflows/*.yml`; `pull_request_target` does
+  not count — it runs on the base ref). A context required by
+  protection with no PR producer is never green on a PR head — every
+  PR unmergeable forever, the exact №809 episode shape. The offline
+  `--tripwire-check` mode also runs on every CI test lane via the
+  driver test, so the class cannot reintroduce silently.
+
+Honest limitation (recorded): the tripwire checks that the trigger
+EXISTS, not its filter semantics (a path- or types-filtered producer
+still counts) — the №809 class is "no PR producer at all"; narrower
+filter abuse stays a human read.
+
 ### The parked-features lane and the soft release rule (№809, the C3-a T3 form)
 
 The four feature-gated pillar jobs (candle / vision / voice / video)
@@ -245,11 +270,11 @@ document records the checklist; the executor cannot apply it. Settings
 - [ ] **Require a pull request before merging** (no direct pushes);
 - [ ] **Require status checks to pass before merging** — the required
       set (the job display names as the check-runs API reports them,
-      fact-checked against `.github/workflows/ci.yml` @ `25b375e` and
-      the live-protection API read of 2026-10-05 (the №586 first
-      audit — 22 required contexts on the live rule);
-      `msrv (blocking)` joined by №555, `release-gap (blocking)` by
-      №562; the further twelve joined from the live read):
+      fact-checked against `.github/workflows/ci.yml` and the
+      live-protection API read of 2026-10-28 (№824, issue #1592 —
+      23 required contexts; the earlier reads: 22 on 2026-10-05 (the
+      №586 first audit), 27 on 2026-10-26 (the №824 fact — before the
+      owner's №1593 toggle dropped the four pillar contexts)):
       `test-lib (blocking)`, `test-integration (blocking)`,
       `crosscheck (blocking)`, `clippy (blocking)`, `fmt (blocking)`,
       `cargo-audit (blocking)`, `cargo-deny (blocking)`,
@@ -258,14 +283,19 @@ document records the checklist; the executor cannot apply it. Settings
       `registry-arity-check (blocking)`, `msrv (blocking)`,
       `release-gap (blocking)`,
       `ADR numbering (blocking)`, `branch-freshness (blocking)`,
-      `candle-tests (blocking)`, `doc-tests (blocking)`,
+      `doc-tests (blocking)`,
       `html-tests (blocking)`,
       `ledger-golden (blocking)`, `minimal-build (blocking)`,
       `module-size-guard (blocking)`,
       `test-llm-cache-contract (blocking)`,
-      `video-tests (blocking)`, `vision-tests (blocking)`,
-      `voice-tests (blocking)`, `vscode-extension (blocking)`,
+      `vscode-extension (blocking)`,
       `xml-tests (blocking)`;
+      the four pillar contexts (`candle-tests`, `vision-tests`,
+      `voice-tests`, `video-tests`) LEFT the rule with the owner's
+      toggle of 2026-10-27 (gh#1593 — the №809 parked-features form:
+      the health signal is the nightly + path-filtered lane); they are
+      NOT in the required set anymore and their return is a new owner
+      decision.
 - [ ] **Require branches to be up to date before merging** (no merge
       over a stale base);
 - [ ] **Do not allow bypassing the above settings** — including

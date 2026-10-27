@@ -40,4 +40,8 @@ jobs:
       - name: The audit (divergence = red run + the issue)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # №824 (issue #1592): the reverse direction — the LIVE
+          # protection read (Administration: read-only; the №586
+          # secret). Unset or 403 → exit 2 fail-closed (№525).
+          BP_TOKEN: ${{ secrets.BRANCH_PROTECTION_TOKEN }}
         run: python3 scripts/ci/merge_ci_audit.py --days 7 --open-issue

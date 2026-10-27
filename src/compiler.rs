@@ -1746,7 +1746,6 @@ impl Compiler {
                         }
                     }
                     if let Some(&existing_slot) = locals.get(name) {
-                        eprintln!("[CSLOT2] reuse name={} slot={}", name, existing_slot);
                         self.compile_expr_with_locals(
                             value,
                             &mut code,

@@ -245,6 +245,28 @@ repair:
   ledger/allowlist/label contracts are untouched. AFFECTS: none (the
   gateway surface is unchanged; the example is the new entry point).
 
+- **№819 (gh#1587, Wave 67 — the #1302 per-provider model, waiting since
+  16.10):** the `llm {}` provider entry carries the optional `model:`
+  field (`alias, provider, key?, url?, model?` — the #1302 canonical
+  order), and the model resolution moved INSIDE the failover loops: the
+  call model (`call_llm(p, i, "model")`) → the provider's own `model:`
+  → `default_model`, per rung, on both the call and the streaming paths.
+  Before, the model was resolved once and handed to EVERY provider — a
+  mixed provider set made the 2nd/3rd failover rungs ask for a foreign
+  model name and fail (the office OSP refusal class,
+  FOSVED-office-v2 #505). The honest-found companion gap closes too: the
+  VM user lanes (`mlog run`/`mlog eval`/the VM REPL) silently ignored
+  the declared `llm {}` — every `call_llm` fell back to the legacy
+  env-var backend; the router install rides the lane preparation now
+  (the №521 conversation_config class). RED-before: the pins
+  (`tests/naryad_819_provider_model.rs`, over a real local socket) do
+  not compile on unpatched main — the `model:` surface does not exist;
+  the #1302 parse refusal (`expected RBRACE`) is the historical form.
+  security: no — a routing/config surface addition; no label, secret, or
+  sink surface changes; the provider set semantics only tightens.
+  AFFECTS: mixed-provider failover works end-to-end; programs without
+  the new field behave exactly as before (the back-compat pin).
+
 ### Changed
 
 - **№767 (gh#1420, Wave 59 — the audit 21.10 M-1, the exemption's paper

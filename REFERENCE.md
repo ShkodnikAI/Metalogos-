@@ -2930,6 +2930,12 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 ### Tier `experimental` — the opt-in tier (present, maturing, may change) (22)
 
+#### `db` — 1 builtin(s)
+
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `db_insert(...)` | 2 | `String, Struct -> Float` | A parameterized INSERT. Returns last_insert_rowid (Problem C) | experimental |
+
 #### `embodied` — 10 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
@@ -2955,12 +2961,11 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `series_make(...)` | 1..2 | — | `series_make(source, frequency?) -> Series` | experimental |
 | `series_pull(...)` | 2 | — | `series_pull(grant, source) -> Series` | experimental |
 
-#### `stub` — 7 builtin(s)
+#### `stub` — 6 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
 | `authenticate(...)` | 2 | `String, Secret\|String -> Unit` | Not implemented in this build (no server user-store): every call refuses loudly with [NOT_IMPLEMENTED]; to check credentials call verify_password(password, hash) against the stored hash | experimental |
-| `db_insert(...)` | variadic | `String, Struct -> Float` | A parameterized INSERT. Returns last_insert_rowid (Problem C) | experimental |
 | `if_eq(...)` | 3 | — | Registry-only stub — no handler on TW or VM; calling the name errors on both backends (the language's `if` comparison is an expression, not a builtin). | experimental |
 | `is_string_token(...)` | 1 | — | Registry-only stub — no handler on TW or VM; calling the name errors on both backends (entry kept for registry/opcode indexing completeness). | experimental |
 | `newline(...)` | variadic | — | Registry-only stub — no handler on TW or VM; calling the name errors on both backends (entry kept for registry/opcode indexing completeness). | experimental |
@@ -3089,7 +3094,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `split_tokens` | pure | public | pure | — |
 | `if_eq` | pure | public | pure | — |
 | `is_string_token` | pure | public | pure | — |
-| `db_insert` | sink | internal | irreversible | intended DB row insert (registry-only stub) — persistent write |
+| `db_insert` | sink | internal | irreversible | parameterized INSERT into the declared db (the DbAccess lane path, №409/№783; №820 registry sync) — persistent write |
 | `float` | pure | public | pure | — |
 | `to_string` | pure | public | pure | — |
 | `to_float` | pure | public | pure | — |

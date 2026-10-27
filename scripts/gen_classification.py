@@ -436,7 +436,7 @@ OVERRIDES = {
     # ── db / event ──
     "query": ("Source", "Internal", "Pure", "reads the program's persistent DB (state input with provenance)"),
     "db_execute": ("Sink", "Internal", "Irreversible", "arbitrary SQL write against the persistent DB — destructive statements are non-undoable (issue minimum list)"),
-    "db_insert": ("Sink", "Internal", "Irreversible", "intended DB row insert (registry-only stub) — persistent write"),
+    "db_insert": ("Sink", "Internal", "Irreversible", "parameterized INSERT into the declared db (the DbAccess lane path, №409/№783; №820 registry sync) — persistent write"),
     "query_scalar": ("Source", "Internal", "Pure", "VM-native DB read — state input"),
     "query_row": ("Source", "Internal", "Pure", "VM-native DB read — state input"),
     "event_count": ("Source", "Internal", "Pure", "VM-native event-log read — state input"),

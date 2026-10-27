@@ -1623,11 +1623,20 @@ async fn route_handler(
         };
         let mut response = match result {
             Ok(response) => response,
-            Err(e) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Handler error: {}", e),
-            )
-                .into_response(),
+            Err(e) => {
+                // №818 (gh#1586): a handler error must be OBSERVABLE — the
+                // office webhook class (17 days silent). One stderr line,
+                // unconditional, no opt-in; the coded error text rides in `e`.
+                eprintln!(
+                    "[ROUTE_HANDLER_ERROR] {} {} -> 500: {}",
+                    method, uri_path, e
+                );
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Handler error: {}", e),
+                )
+                    .into_response()
+            }
         };
 
         // 5. On GET with CSRF middleware, generate and set CSRF token cookie (Phase 7.4)
@@ -4517,11 +4526,16 @@ mlogserver {
         .await;
         match result {
             Ok(resp) => resp,
-            Err(e) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Handler error: {}", e),
-            )
-                .into_response(),
+            Err(e) => {
+                // №818: the observability line — same contract as the
+                // production path (the test harness stays honest too).
+                eprintln!("[ROUTE_HANDLER_ERROR] {} {} -> 500: {}", method, path, e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Handler error: {}", e),
+                )
+                    .into_response()
+            }
         }
     }
 
@@ -4890,11 +4904,15 @@ mlogserver {
             .await;
             return match result {
                 Ok(resp) => resp,
-                Err(e) => (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Handler error: {}", e),
-                )
-                    .into_response(),
+                Err(e) => {
+                    // №818: the observability line (see the production path).
+                    eprintln!("[ROUTE_HANDLER_ERROR] {} {} -> 500: {}", method, path, e);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Handler error: {}", e),
+                    )
+                        .into_response()
+                }
             };
         }
 
@@ -4913,11 +4931,15 @@ mlogserver {
                 .await;
                 match result {
                     Ok(resp) => resp,
-                    Err(e) => (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Handler error: {}", e),
-                    )
-                        .into_response(),
+                    Err(e) => {
+                        // №818: the observability line (see the production path).
+                        eprintln!("[ROUTE_HANDLER_ERROR] {} {} -> 500: {}", method, path, e);
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!("Handler error: {}", e),
+                        )
+                            .into_response()
+                    }
                 }
             }
             // N8 (gh#1218): this direct-dispatch 404 rides the

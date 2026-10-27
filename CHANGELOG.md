@@ -1037,6 +1037,21 @@ repair:
   tripwire; no gate loses coverage. AFFECTS: the conflict-marker class
   is grounded — the silent pass-through is impossible from now on.
 
+- **№818 (gh#1586, Wave 67 — the #1573 silent-500 class):** every serve
+  route-handler error now prints ONE unconditional stderr line —
+  `[ROUTE_HANDLER_ERROR] <method> <path> -> 500: <error>` — on all four
+  Err(e) paths that build the 500 response (the production dispatch and
+  the three test-harness probes); no opt-in, the ledger untouched (not a
+  security decision). The office webhook class (17 days silent, found
+  only by local reproduction) is closed: the failure mode is observable
+  from the process stderr alone. The pin spawns the REAL `mlog serve`
+  process and asserts the line and the 500 on BOTH backend lanes
+  (`tests/naryad_818_route_handler_stderr.rs`; the fixture
+  `tests/fixtures/naryad_818_route_error.mlog`). security: no — an
+  observability fix; no gate, label, or secret surface changes.
+  AFFECTS: serve operators see handler errors in stderr immediately;
+  the response bodies are unchanged.
+
 - **№820 (gh#1588, Wave 67 — the #1528 stub-audit follow-up):** the
   `db_insert` registry row stops lying. The #1528 anchor ("no handler on
   any lane; REFERENCE promises without code") was factually STALE — the

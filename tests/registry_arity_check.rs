@@ -368,13 +368,14 @@ fn registry_arity_exhaustive() {
 
     // Variadic builtins (arity=0, max_arity=None): accept any count
     // (№445: "forget" left this list — the stub row became a real
-    // 3..4-argument handler).
+    // 3..4-argument handler; №820: "db_insert" left too — the stub row
+    // described a real fixed-shape (String, Struct) handler all along,
+    // arity 2 exact).
     let variadic: &[&str] = &[
         "format",
         "newline",
         "stdin",
         "split_tokens",
-        "db_insert",
         "json_body",
         "request_body",
         "generate_key",

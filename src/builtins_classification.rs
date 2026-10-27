@@ -191,7 +191,7 @@ pub static BUILTIN_CLASSES: &[BuiltClassEntry] = &[
     BuiltClassEntry { name: "split_tokens", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     BuiltClassEntry { name: "if_eq", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     BuiltClassEntry { name: "is_string_token", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
-    BuiltClassEntry { name: "db_insert", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Irreversible, rationale: "intended DB row insert (registry-only stub) — persistent write" } },
+    BuiltClassEntry { name: "db_insert", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Irreversible, rationale: "parameterized INSERT into the declared db (the DbAccess lane path, №409/№783; №820 registry sync) — persistent write" } },
     BuiltClassEntry { name: "float", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     BuiltClassEntry { name: "to_string", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     BuiltClassEntry { name: "to_float", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },

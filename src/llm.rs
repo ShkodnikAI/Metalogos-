@@ -1479,8 +1479,18 @@ pub fn record_canary_leak() {
 
 /// Smart LLM router: wraps multiple providers with failover, circuit breaker, health tracking.
 pub struct SmartRouter {
-    /// Provider configurations (alias, provider_type, api_key, url).
-    providers: Vec<(String, String, Option<String>, Option<String>)>,
+    /// Provider configurations (alias, provider_type, api_key, url, model).
+    /// №819 (#1302): the 5th slot is the provider's OWN model — resolved
+    /// per provider in the failover loops below (call → provider →
+    /// default), so a mixed provider set stops sharing one foreign model
+    /// name.
+    providers: Vec<(
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    )>,
     /// Default model name/alias.
     default_model: Option<String>,
     /// Failover mode: "auto" or None.
@@ -1505,7 +1515,14 @@ impl SmartRouter {
         let provider_names: Vec<String> =
             config.providers.iter().map(|p| p.alias.clone()).collect();
         let circuit_threshold = config.circuit_breaker;
-        let providers: Vec<(String, String, Option<String>, Option<String>)> = config
+        // №819 (#1302): the 5-tuple — the last slot is the provider's own model.
+        let providers: Vec<(
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        )> = config
             .providers
             .iter()
             .map(|p| {
@@ -1523,7 +1540,13 @@ impl SmartRouter {
                     crate::ast::Expr::StringLit { value: s, .. } => Some(s.clone()),
                     _ => None,
                 });
-                (p.alias.clone(), p.provider.clone(), key, p.url.clone())
+                (
+                    p.alias.clone(),
+                    p.provider.clone(),
+                    key,
+                    p.url.clone(),
+                    p.model.clone(),
+                )
             })
             .collect();
 
@@ -1587,11 +1610,12 @@ impl SmartRouter {
         }
 
         let effective_prompt_len = prompt.len() + input.len();
-        // Resolved once here (was inside call_provider) so the trace can
-        // name the requested model without re-deriving it.
-        let resolved_model = model_override
-            .or(self.default_model.as_deref())
-            .unwrap_or("default");
+        // №819 (#1302): the model is resolved PER PROVIDER inside the
+        // loop below — the call model → the provider's own `model:` →
+        // `default_model` — so each failover rung asks for its own name.
+        // The post-loop trace names the LAST attempted provider's model
+        // (tracked here) — honest about what was asked last.
+        let mut last_resolved_model = String::from("default");
 
         // Build ordered list of provider indices, sorted by health_score desc
         let mut candidates: Vec<usize> = (0..self.providers.len()).collect();
@@ -1610,7 +1634,15 @@ impl SmartRouter {
                 continue; // circuit breaker open — skip
             }
 
-            let (ref _alias, ref provider_type, ref api_key, ref url) = self.providers[idx];
+            let (ref _alias, ref provider_type, ref api_key, ref url, ref provider_model) =
+                self.providers[idx];
+            // №819 (#1302): the priority chain — the call model wins, then
+            // the provider's own field, then default_model.
+            let resolved_model = model_override
+                .or(provider_model.as_deref())
+                .or(self.default_model.as_deref())
+                .unwrap_or("default");
+            last_resolved_model = resolved_model.to_string();
             let start = Instant::now();
             last_attempted = Some(provider_type.clone());
 
@@ -1668,7 +1700,9 @@ impl SmartRouter {
         // produced the final error) — honest about what was tried last.
         trace_llm_call(&LlmTraceEvent {
             provider_name: last_attempted.as_deref(),
-            model: Some(resolved_model),
+            // №819: the LAST attempted provider's model (per-provider
+            // resolution — not one string for the whole loop).
+            model: Some(last_resolved_model.as_str()),
             input_tokens: None,
             output_tokens: None,
             latency_ms: call_start.elapsed().as_millis() as u64,
@@ -2153,6 +2187,17 @@ pub struct LlmStreamState {
     finish_reason: Option<String>,
 }
 
+impl LlmStreamState {
+    /// №819 (#1302): the model name this stream ASKED for — the
+    /// per-provider resolution (the call model → the provider's own
+    /// `model:` → `default_model`). Public for the contract tests and
+    /// the observability consumers; the provenance surface of the
+    /// stream state.
+    pub fn resolved_model(&self) -> &str {
+        &self.resolved_model
+    }
+}
+
 impl std::fmt::Debug for LlmStreamState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Mirror Reflex/Vision Debug discipline: provider + model only,
@@ -2297,9 +2342,9 @@ impl SmartRouter {
             );
         }
 
-        let resolved_model = model_override
-            .or(self.default_model.as_deref())
-            .unwrap_or("default");
+        // №819 (#1302): the model is resolved PER PROVIDER inside the
+        // loop below (the call model → the provider's own `model:` →
+        // `default_model`) — the streaming path mirrors `SmartRouter::call`.
 
         // Build ordered candidate list, sorted by health_score desc —
         // identical logic to `SmartRouter::call`.
@@ -2317,7 +2362,14 @@ impl SmartRouter {
             if !self.tracker.is_provider_available(idx) {
                 continue; // circuit breaker open — skip
             }
-            let (ref alias, ref provider_type, ref api_key, ref url) = self.providers[idx];
+            let (ref alias, ref provider_type, ref api_key, ref url, ref provider_model) =
+                self.providers[idx];
+            // №819 (#1302): the same priority chain as the non-streaming
+            // path — per provider, not once for the whole loop.
+            let resolved_model = model_override
+                .or(provider_model.as_deref())
+                .or(self.default_model.as_deref())
+                .unwrap_or("default");
             match self.stream_open_provider(
                 provider_type,
                 api_key.as_deref(),
@@ -3555,6 +3607,7 @@ mod tests {
                 "openai".to_string(),
                 None,
                 Some("http://127.0.0.1:19999".to_string()),
+                None, // №819: no per-provider model
             ),
             (
                 "echo".to_string(),
@@ -3564,6 +3617,7 @@ mod tests {
                     "http://127.0.0.1:{}/v1/chat/completions",
                     echo_port
                 )),
+                None, // №819: no per-provider model
             ),
         ];
         let router = SmartRouter {
@@ -3621,6 +3675,7 @@ mod tests {
             "openai".to_string(),
             None,
             Some("http://127.0.0.1:19999".to_string()),
+            None, // №819: no per-provider model
         )];
         let router = SmartRouter {
             providers,

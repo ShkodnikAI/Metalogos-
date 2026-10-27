@@ -1343,12 +1343,22 @@ pub(super) fn parse_llm_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError
                 .and_then(|c| find_child_str(&children_of(c), Rule::STRING_LITERAL))
                 .map(|s| s[1..s.len() - 1].to_string());
 
+            // №819 (#1302): the optional per-provider model — a static
+            // STRING_LITERAL (the #1302 canonical shape), quoted form
+            // stripped the same way as `url`.
+            let model = entry_children
+                .iter()
+                .find(|c| c.as_rule() == Rule::llm_provider_model)
+                .and_then(|c| find_child_str(&children_of(c), Rule::STRING_LITERAL))
+                .map(|s| s[1..s.len() - 1].to_string());
+
             providers.push(LlmProviderEntry {
                 span: Span::from_pest(entry_pair.as_span()),
                 alias,
                 provider,
                 key,
                 url,
+                model,
             });
         }
     }

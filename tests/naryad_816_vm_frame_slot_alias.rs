@@ -75,11 +75,7 @@ fn naryad_816_frame_slot_alias_new_binding_after_if_arm() {
         "TW reference lane must answer the repro:\n{}",
         tw_err
     );
-    assert!(
-        vm_ok,
-        "VM lane failed on the slot-alias repro:\n{}",
-        vm_err
-    );
+    assert!(vm_ok, "VM lane failed on the slot-alias repro:\n{}", vm_err);
 
     let parse = |s: &str| {
         s.trim()

@@ -1,0 +1,12 @@
+// ── №818 (gh#1586) fixture: a route whose handler errors at runtime ──
+// The handler's get() on a string is a runtime type error — the exact
+// class the office webhook lived with for 17 days silently. The serve
+// process must print the [ROUTE_HANDLER_ERROR] stderr line and answer
+// 500 on BOTH backend lanes.
+mlogserver {
+  port: 18471
+  route "/boom" method=GET {
+    let bad = get("not-a-list", 0.0)
+    respond(bad)
+  }
+}

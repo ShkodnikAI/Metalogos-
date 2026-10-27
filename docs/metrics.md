@@ -19,6 +19,6 @@ construction.
 | Grammar | 344 rules |
 | Architecture Decisions | 192 ADRs |
 | Example Programs | 253 .mlog programs |
-| Reference | REFERENCE.md (~332 KB) — 100% registry coverage |
-| Changelog | CHANGELOG.md (~161 KB) — every wave documented |
+| Reference | REFERENCE.md (~333 KB) — 100% registry coverage |
+| Changelog | CHANGELOG.md (~162 KB) — every wave documented |
 <!-- END GENERATED METRICS -->

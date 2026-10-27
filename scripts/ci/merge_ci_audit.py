@@ -37,6 +37,8 @@ Modes:
   python3 scripts/ci/merge_ci_audit.py --days 14        # wider window
   python3 scripts/ci/merge_ci_audit.py --open-issue     # file the issue
   python3 scripts/ci/merge_ci_audit.py --self-test      # embedded fixtures
+  python3 scripts/ci/merge_ci_audit.py --tripwire-check # offline: every
+        # required context has a PR-producing workflow job (the №809 class)
 """
 
 import json
@@ -47,10 +49,24 @@ import urllib.request
 
 DEFAULT_DAYS = 7
 
+# The reverse direction (№824): the LIVE protection read needs the
+# Administration:read token — the BRANCH_PROTECTION_TOKEN repo secret
+# (the №586 precedent; GITHUB_TOKEN cannot read the protection and a
+# 403 there must never pass for "no protection"). An unreadable
+# protection is exit 2 — an unreadable state is not a pass (№525).
+BP_TOKEN_ENV = "BP_TOKEN"
+
 # The required set (the branch-protection checklist of №551 — the job
 # DISPLAY names as they appear in the check-runs API; fact-checked
 # against .github/workflows/ci.yml on the audit revision 6e66d3d;
 # `msrv (blocking)` added by №555, issue #916; `release-gap (blocking)` by №562, issue #923).
+# №824 (issue #1592, wave 68): the set is now the LIVE branch protection
+# verbatim — the 2026-10-28 admin read returned 23 contexts (the owner's
+# №1593 toggle dropped the four pillar contexts from the rule; the
+# checklist in docs/maintainers.md was synced in the same PR). The
+# ten contexts the №551/№586 lane never carried are the audit's former
+# blind spot: protection enforced them, the detective verified only the
+# original thirteen (the M-1 class on the rest).
 REQUIRED_CHECKS = [
     "test-lib (blocking)",
     "test-integration (blocking)",
@@ -65,12 +81,103 @@ REQUIRED_CHECKS = [
     "registry-arity-check (blocking)",
     "msrv (blocking)",
     "release-gap (blocking)",
+    "ADR numbering (blocking)",
+    "branch-freshness (blocking)",
+    "doc-tests (blocking)",
+    "html-tests (blocking)",
+    "ledger-golden (blocking)",
+    "minimal-build (blocking)",
+    "module-size-guard (blocking)",
+    "test-llm-cache-contract (blocking)",
+    "vscode-extension (blocking)",
+    "xml-tests (blocking)",
 ]
 
 MERGE_PR_RE = re.compile(r"\(#(\d+)\)\s*$")
 
 
+class ProtectionUnreadable(Exception):
+    """The live-protection read failed — fail-closed (№525), exit 2."""
+
+
 # ── pure logic (fixture-tested by --self-test and the Rust driver) ──
+
+def protection_drift(protection_contexts, required):
+    """The reverse direction (№824): protection − REQUIRED_CHECKS.
+
+    Every context the protection ENFORCES must have a row in the
+    audit's required set — otherwise protection holds a check the
+    detective never verifies (the M-1 blind class on that name). The
+    other direction (a list row not on the live rule) is the
+    branch-protection-audit's RED lane (docs/maintainers.md sync), not
+    duplicated here.
+    """
+    required_set = set(required)
+    return sorted(c for c in protection_contexts if c not in required_set)
+
+
+def scan_workflow_producers(workflows_dir):
+    """The №809-class tripwire scan: which check-run display names are
+    produced by a job of a workflow that runs on pull_request.
+
+    Returns {display_name: [workflow_file, ...]}. The scanner is a
+    stdlib subset-parser BY DESIGN (no PyYAML on the audit lane): the
+    `on:` block must carry a `pull_request` key (`pull_request_target`
+    does NOT count — it runs on the base ref, not the PR head); job
+    display names are the 4-space `name:` values under `jobs:` (the
+    repo convention, 47 occurrences in ci.yml), falling back to the
+    job id when `name:` is absent. LIMITATION (honest): a path- or
+    types-filtered `pull_request` trigger counts as producing — the
+    tripwire closes the "no PR producer at all" class (the №809
+    episode); filter semantics stay a human read.
+    """
+    from pathlib import Path
+    producers = {}
+    d = Path(workflows_dir)
+    if not d.is_dir():
+        return producers
+    files = sorted(list(d.glob("*.yml")) + list(d.glob("*.yaml")))
+    for path in files:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        on_m = re.search(r"(?m)^on:\s*$", text)
+        if not on_m:
+            continue
+        rest = text[on_m.end():]
+        top = re.search(r"(?m)^[A-Za-z_][A-Za-z0-9_-]*\s*:", rest)
+        on_block = rest[:top.start()] if top else rest
+        # `pull_request:` — but not `pull_request_target:` (base-ref runs).
+        if not (re.search(r"^\s+pull_request\s*:\s*$", on_block, re.M)
+                or re.search(r"^\s+pull_request\s*:\s*\S", on_block, re.M)):
+            continue
+        jobs_m = re.search(r"(?m)^jobs:\s*$", text)
+        if not jobs_m:
+            continue
+        body = text[jobs_m.end():]
+        # job blocks: 2-space-indent ids; display name = the 4-space
+        # `name:` inside the block, else the id itself.
+        blocks = re.split(r"(?m)^(?=  [A-Za-z0-9_-]+:\s*$)", body)
+        for block in blocks:
+            id_m = re.match(r"  ([A-Za-z0-9_-]+):\s*$", block, re.M)
+            if not id_m:
+                continue
+            name_m = re.search(r"(?m)^    name:\s*(.+?)\s*$", block)
+            display = name_m.group(1).strip() if name_m else id_m.group(1)
+            if "${{" in display:
+                continue  # matrix-generated — not a static required name
+            producers.setdefault(display, []).append(path.name)
+    return producers
+
+
+def tripwire_misses(required, producers):
+    """Required contexts with NO pull_request-producing job (the №809
+    class: a context required by branch protection that no PR workflow
+    produces is never green on a PR head — every PR is unmergeable
+    forever, silently until the first merge attempt)."""
+    return sorted(c for c in required if c not in producers)
+
 
 def parse_pr_number(commit_first_line):
     """The squash-merge convention: '... (#NNN)' — the trailing PR ref."""
@@ -153,6 +260,27 @@ def all_check_runs(repo, sha, token):
         page += 1
 
 
+def read_protection_contexts(repo, token, branch="main"):
+    """The live required-status contexts (№824, the reverse direction).
+
+    Administration:read token (BP_TOKEN — the BRANCH_PROTECTION_TOKEN
+    repo secret, the №586 precedent). Any failure raises
+    ProtectionUnreadable → exit 2 (fail-closed, №525): a 404 is NOT
+    "protection off" here — the checklist state is the enforced rule,
+    and an unreadable rule is an unreadable state, not a pass.
+    """
+    try:
+        data = api_get(
+            f"https://api.github.com/repos/{repo}/branches/{branch}/protection",
+            token)
+    except Exception as e:
+        raise ProtectionUnreadable(str(e))
+    ctx = (data.get("required_status_checks") or {}).get("contexts") or []
+    if not ctx and not (data.get("required_status_checks") or {}):
+        raise ProtectionUnreadable("the protection carries no required_status_checks")
+    return sorted(ctx)
+
+
 def self_test():
     green_runs = [{"name": n, "conclusion": "success"} for n in REQUIRED_CHECKS]
     skipped_runs = [{"name": n, "conclusion": "success"} for n in REQUIRED_CHECKS]
@@ -187,7 +315,7 @@ def self_test():
                 fragment in p for p in problems)):
             print(f"SELF-TEST FAIL case {i}: ok={ok} problems={problems}")
             failures += 1
-    # №813: the association resolver — exactly one merged PR resolves,
+    # №824: the association resolver — exactly one merged PR resolves,
     # everything else (none, several, none-merged) stays unresolvable.
     assoc_cases = [
         ([{"number": 1557, "merged_at": "2026-10-24T00:00:00Z"}], 1557),
@@ -200,12 +328,121 @@ def self_test():
         if got != want:
             print(f"SELF-TEST FAIL assoc case {i}: got={got} want={want}")
             failures += 1
+    # №824: the reverse direction — a protection context without a
+    # required-set row is the M-1 blind class; a covered context is not.
+    drift_cases = [
+        (["a (blocking)", "b (blocking)"], ["a (blocking)"], ["b (blocking)"]),
+        (["a (blocking)"], ["a (blocking)"], []),
+        ([], [], []),
+        (["x (blocking)", "a (blocking)"], ["a (blocking)", "x (blocking)", "q"], []),
+    ]
+    for i, (prot, req, want) in enumerate(drift_cases):
+        got = protection_drift(prot, req)
+        if got != want:
+            print(f"SELF-TEST FAIL drift case {i}: got={got} want={want}")
+            failures += 1
+    # №824: the tripwire scanner — a PR workflow produces its job names,
+    # a push-only workflow does not, pull_request_target does not count.
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        wf = os.path.join(td, "w.yml")
+        open(wf, "w").write(
+            "name: wf\n"
+            "on:\n"
+            "  push:\n"
+            "    branches: [main]\n"
+            "  pull_request:\n"
+            "jobs:\n"
+            "  one:\n"
+            "    name: produced (blocking)\n"
+            "    runs-on: ubuntu-latest\n"
+            "    steps:\n"
+            "      - run: echo hi\n"
+            "  bare:\n"
+            "    runs-on: ubuntu-latest\n"
+            "    steps:\n"
+            "      - run: echo hi\n"
+        )
+        wf2 = os.path.join(td, "p.yml")
+        open(wf2, "w").write(
+            "name: push-only\n"
+            "on:\n"
+            "  push:\n"
+            "    branches: [main]\n"
+            "jobs:\n"
+            "  two:\n"
+            "    name: push-only (blocking)\n"
+            "    runs-on: ubuntu-latest\n"
+            "    steps:\n"
+            "      - run: echo hi\n"
+        )
+        wf3 = os.path.join(td, "t.yml")
+        open(wf3, "w").write(
+            "name: target-lane\n"
+            "on:\n"
+            "  pull_request_target:\n"
+            "jobs:\n"
+            "  three:\n"
+            "    name: target-lane (blocking)\n"
+            "    runs-on: ubuntu-latest\n"
+            "    steps:\n"
+            "      - run: echo hi\n"
+        )
+        prods = scan_workflow_producers(td)
+        if "produced (blocking)" not in prods:
+            print(f"SELF-TEST FAIL tripwire: PR-producer not found: {sorted(prods)}")
+            failures += 1
+        if "bare" not in prods:
+            print(f"SELF-TEST FAIL tripwire: the job-id fallback missing")
+            failures += 1
+        for absent in ("push-only (blocking)", "target-lane (blocking)"):
+            if absent in prods:
+                print(f"SELF-TEST FAIL tripwire: '{absent}' must not be a PR producer")
+                failures += 1
+        misses = tripwire_misses(
+            ["produced (blocking)", "push-only (blocking)", "target-lane (blocking)",
+             "bare"], prods)
+        if misses != ["push-only (blocking)", "target-lane (blocking)"]:
+            print(f"SELF-TEST FAIL tripwire: misses={misses}")
+            failures += 1
     if failures:
         print(f"SELF-TEST FAILED: {failures} case(s)")
         return 1
-    print(f"SELF-TEST OK: {len(cases) + len(assoc_cases)} cases "
+    print(f"SELF-TEST OK: {len(cases) + len(assoc_cases) + len(drift_cases) + 6} "
+          f"assertions "
           f"(green, no-runs, skipped, failed, no-PR, unavailable, "
-          f"assoc-resolved, assoc-unmerged, assoc-empty, assoc-ambiguous)")
+          f"assoc-resolved, assoc-unmerged, assoc-empty, assoc-ambiguous, "
+          f"drift-found, drift-clean, drift-empty, drift-both-covered, "
+          f"tripwire-producer, tripwire-id-fallback, tripwire-push-only, "
+          f"tripwire-pr-target, tripwire-misses, tripwire-bare-produced)")
+    return 0
+
+
+def tripwire_check_mode():
+    """Offline mode (№824, the driver-test lane): scan the repo's
+    .github/workflows and require a pull_request producer for EVERY
+    REQUIRED_CHECKS context. Exit 0 clean / exit 1 — a context the
+    protection would enforce but no PR workflow produces (the №809
+    class) — the tripwire runs in CI on every test lane, so the class
+    can never reintroduce silently."""
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    wf_dir = os.path.join(repo_root, ".github", "workflows")
+    producers = scan_workflow_producers(wf_dir)
+    if not producers:
+        print(f"merge-ci-audit: no PR workflows found under {wf_dir} "
+              "(fail-closed — the scanner found nothing to verify)", file=sys.stderr)
+        return 2
+    misses = tripwire_misses(REQUIRED_CHECKS, producers)
+    if misses:
+        print(f"TRIPWIRE: {len(misses)} required context(s) with no "
+              f"pull_request producer (the №809 class — a PR can never "
+              f"turn them green):")
+        for c in misses:
+            print(f"  - {c}")
+        return 1
+    print(f"TRIPWIRE OK: all {len(REQUIRED_CHECKS)} required contexts have a "
+          f"pull_request-producing workflow job (scanned {len(producers)} "
+          f"distinct display names)")
     return 0
 
 
@@ -213,6 +450,8 @@ def main():
     argv = sys.argv[1:]
     if "--self-test" in argv:
         sys.exit(self_test())
+    if "--tripwire-check" in argv:
+        sys.exit(tripwire_check_mode())
 
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     repo = os.environ.get("GITHUB_REPOSITORY")
@@ -305,8 +544,39 @@ def main():
             divergences.append(
                 f"- `{c.get('sha', '')[:7]}` {first}\n  - " + "\n  - ".join(problems))
 
+    # ── №824: the reverse direction — the LIVE protection vs the set ──
+    bp_token = os.environ.get(BP_TOKEN_ENV)
+    if not bp_token:
+        print(f"merge-ci-audit: {BP_TOKEN_ENV} is required for the reverse "
+              f"direction (the live-protection read; GITHUB_TOKEN cannot "
+              f"read the protection) — fail-closed (№525)", file=sys.stderr)
+        sys.exit(2)
+    try:
+        protection = read_protection_contexts(repo, bp_token)
+    except ProtectionUnreadable as e:
+        print(f"merge-ci-audit: the live protection is UNREADABLE: {e} "
+              "(fail-closed — an unreadable state is not a pass)", file=sys.stderr)
+        sys.exit(2)
+    for c in protection_drift(protection, REQUIRED_CHECKS):
+        divergences.append(
+            f"- the LIVE protection enforces `{c}` which has NO row in "
+            f"REQUIRED_CHECKS — the M-1 blind class (№824): the detective "
+            f"never verifies this check on the merged heads")
+
+    # ── №824: the tripwire — every enforced/audited context must have a
+    # pull_request producer (the №809 class: a required context without
+    # a PR job is never green on a PR head — unmergeable forever) ──
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    producers = scan_workflow_producers(os.path.join(repo_root, ".github", "workflows"))
+    for c in tripwire_misses(sorted(set(REQUIRED_CHECKS) | set(protection)), producers):
+        divergences.append(
+            f"- the required context `{c}` has NO producing job in any "
+            f"pull_request workflow — the №809 class (a PR can never turn "
+            f"it green)")
+
     print(f"merge-ci-audit: {len(commits)} merge(s) on main in the last "
-          f"{days} day(s); required checks: {len(REQUIRED_CHECKS)}")
+          f"{days} day(s); required checks: {len(REQUIRED_CHECKS)}; "
+          f"live protection: {len(protection)} context(s)")
     if divergences:
         print(f"DIVERGENCES: {len(divergences)} (every line needs a human verdict)")
         print("NOTE: a check ABSENT from the head SHA's workflow set (a job "
@@ -317,16 +587,19 @@ def main():
         for d in divergences:
             print(d)
         if open_issue:
-            body = ("The weekly merge↔CI audit (№551) found merge commit(s) "
-                    "without a green run of the required checks — the M-1 "
-                    "class the branch-protection checklist guards against:\n\n"
+            body = ("The weekly merge↔CI audit (№551 + №824) found divergence(s)\n"
+                    "— merges without a green run of the required checks (the\n"
+                    "M-1 class), protection contexts the detective never\n"
+                    "verifies (the reverse direction), or required contexts\n"
+                    "with no pull_request producer (the №809 class):\n\n"
                     + "\n".join(divergences)
                     + "\n\nEvery line is a main merge whose PR head SHA lacked "
                       "a `success` run of the required set (a skipped check "
                       "is not green; a check absent from the head SHA's "
                       "workflow set — a job born after the merge — is still "
-                      "flagged and needs a human verdict). Investigate, then "
-                      "close the issue with the verdict.")
+                      "flagged and needs a human verdict), or a protection/"
+                      "tripwire line (№824) that needs the checklist sync. "
+                      "Investigate, then close the issue with the verdict.")
             data = json.dumps({
                 "title": f"merge↔CI audit: {len(divergences)} merge(s) without green required checks",
                 "body": body,

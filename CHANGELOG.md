@@ -4,6 +4,24 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Fixed
+
+- **№824 (gh#1592, Wave 68 — the CI hygiene, the №809 follow-up):**
+  the weekly merge↔CI detective carried only 13 of the enforced
+  contexts — `REQUIRED_CHECKS` is now the LIVE branch protection
+  verbatim (23 contexts, the 2026-10-28 admin read; the four pillar
+  contexts the owner's №1593 toggle dropped stay out of the set),
+  the reverse direction diffs the live rule against the set (an
+  enforced-but-unaudited context is a named M-1 divergence; an
+  unreadable protection is exit 2 fail-closed, №525 — the
+  `BRANCH_PROTECTION_TOKEN` secret rides the workflow env, the №586
+  form), and the №809-class tripwire requires a pull_request-producing
+  workflow job for every required context (the offline
+  `--tripwire-check` mode rides every CI lane via the driver test).
+  Script + driver test + the maintainers.md checklist move together
+  (the №551 rule). security: no — the audit tooling hardening, no
+  product security surface changes.
+
 ## [0.34.0] - 2026-11-02
 
 ### Migration

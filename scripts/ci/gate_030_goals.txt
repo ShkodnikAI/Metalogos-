@@ -117,7 +117,10 @@ goal_quorum_den: 3
 # 0 on the live v0.28.2 tag (the carrier #1041); no release-block
 # carrier has opened since. The counter is machine-read, never
 # hand-zeroed.
-fact_open_high_server: 1
+# №816 (gh#1584, wave 67): #1584 (the #1555 self-parse divergence) closed
+# by the merge 61fbb667 — the open release-block set is EMPTY (the
+# machine count 0); the 0.34.0 train holds nothing.
+fact_open_high_server: 0
 # The transfer domain quorum fact. Source:
 # `python3 scripts/ci/count_duplicated_names.py --quorum`; the same
 # checker verifies it (the live fact: 0 groups of 8 carry duplicates).

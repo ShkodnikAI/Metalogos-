@@ -96,97 +96,12 @@ jobs:
       - name: VM vs the TW oracle (reference) parity
         run: cargo test --workspace --test crosscheck_backends --no-fail-fast
 
-  candle-tests:
-    name: candle-tests (blocking)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      # №445 wave-infra: the rust-cache restore for the heavy jobs
-      # (clippy + the feature-gated test jobs) died deterministically in
-      # the GitHub cache service 3 runs in a row (the job was killed
-      # mid-restore, before any check ran). A cache failure is a
-      # performance loss, never a correctness signal — make the step
-      # non-fatal and bust the poisoned cache partition (prefix-key v2).
-      # No check is weakened: clippy/tests still run and still fail the
-      # job on their own findings.
-      - uses: Swatinem/rust-cache@v2
-        continue-on-error: true
-        with:
-          prefix-key: v2
-          key: candle-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-      - name: Library tests (feature-gated, includes src/nn/ unit tests)
-        run: cargo test --workspace --lib --features candle --no-fail-fast
-      - name: Reflex pillar integration tests (candle-gated)
-        run: |
-          cargo test --workspace --features candle --no-fail-fast \
-            --test naryad_183_attention_forward \
-            --test naryad_184_rmsnorm_forward \
-            --test naryad_184_swiglu_forward \
-            --test naryad_184_transformer_block_forward \
-            --test naryad_185_seq_convergence \
-            --test naryad_188_gqa_forward \
-            --test naryad_190_single_block_regression \
-            --test naryad_190_stack_forward \
-            --test naryad_190_stack_training \
-            --test naryad_190_stack_weights \
-            --test naryad_192_gqa_stack_forward \
-            --test naryad_192_gqa_stack_training \
-            --test naryad_193_gen_sanity_check \
-            --test naryad_194_vocab_overflow \
-            --test naryad_196_batch_matches_single \
-            --test naryad_196_batching_speedup \
-            --test naryad_196_padding_mask_correctness \
-            --test naryad_199_vm_reflex_train_predict \
-            --test naryad_199_vm_matches_tw_determinism \
-            --test crosscheck_backends \
-            --test golden \
-            --test registry_arity_check
-      - name: Clippy on gated code
-        run: cargo clippy --workspace --features candle --all-targets -- -D warnings
-
-  vision-tests:
-    name: vision-tests (blocking)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      # №445 wave-infra: the rust-cache restore for the heavy jobs
-      # (clippy + the feature-gated test jobs) died deterministically in
-      # the GitHub cache service 3 runs in a row (the job was killed
-      # mid-restore, before any check ran). A cache failure is a
-      # performance loss, never a correctness signal — make the step
-      # non-fatal and bust the poisoned cache partition (prefix-key v2).
-      # No check is weakened: clippy/tests still run and still fail the
-      # job on their own findings.
-      - uses: Swatinem/rust-cache@v2
-        continue-on-error: true
-        with:
-          prefix-key: v2
-          key: vision-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-      - name: Guard — vision must NOT be in default/full features
-        run: |
-          if grep -E '^(default|full) = ' Cargo.toml | grep -q 'vision'; then
-            echo "::error::vision feature must stay off-by-default (ADR-0122, naryad 210)"; exit 1; fi
-      - name: Build with vision feature
-        run: cargo build --workspace --features vision
-      - name: Library tests (includes naryad_210 skeleton tests)
-        run: cargo test --workspace --lib --features vision --no-fail-fast
-      - name: Vision skeleton integration tests
-        run: cargo test --workspace --features vision --no-fail-fast --test naryad_210_vision_skeleton
-      - name: Vision R2 text encoder golden contract
-        # --nocapture: выводит eprintln хэшей/якорей в лог шага — обязательная
-        # инфраструктура процедуры пере-пиннинга (naryad №230). Повторится в R3
-        # при смене dtype-политики/инициализации; без --nocapture хэши не видны
-        # в логе и пере-пиннинг требует отдельной локальной работы.
-        run: cargo test --workspace --features vision --no-fail-fast --test naryad_211_text_encoder_golden -- --nocapture
-      - name: Vision R3 wedge e2e (CI tiny goldens + env-gated loud SKIP)
-        # --nocapture: shows VAE tiny golden hash/anchors + sampler sigmas in CI log.
-        # env-gated tests SKIP loudly when MLOG_VISION_WEIGHTS_DIR unset (no real
-        # weights in CI — see docs/research/naryad-212-weights-manifest.md).
-        run: cargo test --workspace --features vision --no-fail-fast --test naryad_212_wedge_e2e -- --nocapture
-      - name: Clippy on vision-gated code
-        run: cargo clippy --workspace --features vision --all-targets -- -D warnings
+# The four feature-gated pillar jobs (candle / vision / voice / video)
+# do NOT run on every push: their home is .github/workflows/parked-features.yml
+# (nightly 02:00 UTC + the pillar path filter + workflow_dispatch) since the
+# №809 C3-a T3 move; the branch-protection owner toggle (#1593, 27.10) removed
+# the four (blocking) contexts from the required set, so the every-push copies
+# here were pure duplication (№809-move tail). No check is weakened.
 
   html-tests:
     name: html-tests (blocking)
@@ -245,70 +160,6 @@ jobs:
         run: cargo test --workspace --features xml --no-fail-fast --test naryad_n6_xml_builtins
       - name: Clippy on xml-gated code
         run: cargo clippy --workspace --features xml --all-targets -- -D warnings
-
-  voice-tests:
-    name: voice-tests (blocking)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-      # №445 wave-infra: the rust-cache restore for the heavy jobs
-      # (clippy + the feature-gated test jobs) died deterministically in
-      # the GitHub cache service 3 runs in a row (the job was killed
-      # mid-restore, before any check ran). A cache failure is a
-      # performance loss, never a correctness signal — make the step
-      # non-fatal and bust the poisoned cache partition (prefix-key v2).
-      # No check is weakened: clippy/tests still run and still fail the
-      # job on their own findings.
-      - uses: Swatinem/rust-cache@v2
-        continue-on-error: true
-        with:
-          prefix-key: v2
-          key: voice-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-      - name: Guard — voice must NOT be in default/full features
-        run: |
-          if grep -E '^(default|full) = ' Cargo.toml | grep -q 'voice'; then
-            echo "::error::voice feature must stay off-by-default (ADR-0143, naryad 302)"; exit 1; fi
-      - name: Build with voice feature
-        run: cargo build --workspace --features voice
-      - name: Library tests (includes voice skeleton + encoder + store tests)
-        run: cargo test --workspace --lib --features voice --no-fail-fast
-      - name: Clippy on voice-gated code
-        run: cargo clippy --workspace --features voice --all-targets -- -D warnings
-
-  video-tests:
-    name: video-tests (blocking)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-      # №445 wave-infra: the rust-cache restore for the heavy jobs
-      # (clippy + the feature-gated test jobs) died deterministically in
-      # the GitHub cache service 3 runs in a row (the job was killed
-      # mid-restore, before any check ran). A cache failure is a
-      # performance loss, never a correctness signal — make the step
-      # non-fatal and bust the poisoned cache partition (prefix-key v2).
-      # No check is weakened: clippy/tests still run and still fail the
-      # job on their own findings.
-      - uses: Swatinem/rust-cache@v2
-        continue-on-error: true
-        with:
-          prefix-key: v2
-          key: video-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-      - name: Guard — video must NOT be in default/full features
-        run: |
-          if grep -E '^(default|full) = ' Cargo.toml | grep -q 'video'; then
-            echo "::error::video feature must stay off-by-default (ADR-0147, naryad 307)"; exit 1; fi
-      - name: Build with video feature
-        run: cargo build --workspace --features video
-      - name: Library tests (includes video skeleton tests)
-        run: cargo test --workspace --lib --features video --no-fail-fast
-      - name: Clippy on video-gated code
-        run: cargo clippy --workspace --features video --all-targets -- -D warnings
 
   doc-tests:
     name: doc-tests (blocking)

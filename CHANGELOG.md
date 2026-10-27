@@ -665,6 +665,15 @@ repair:
 
 ### Removed
 
+- **№827 (gh#1602, Wave 68 — the owner decision 27.10):** the
+  `waker.yml` keep-alive workflow is removed. The production office
+  service runs on a paid Render plan and does not sleep, so the
+  10-minute `/health` ping had no job left; its blocking prod probe
+  only painted `main` red when the free staging instance failed to
+  start. Instance health is now Render's own Health Check (`/health`,
+  configured by the owner in the Render dashboard). security: no —
+  a CI keep-alive ping, no product surface.
+
 - **№786 (gh#1484, Wave 63 — the grant-application sweep, the owner's
   directive 23.10, repeated 24.10):** the funding-programme mentions
   (the milestone M1 is closed by the owner — #1135) are swept from

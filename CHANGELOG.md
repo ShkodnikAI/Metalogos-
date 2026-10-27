@@ -4,6 +4,26 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added
+
+- **№823 (gh#1600, Wave 68 — the E1–E4 measured baseline for the
+  W4–W6 line, ADR-0200):** the distillation experiments, measurements
+  only — the embed speed (the SSOT TF-IDF backend: ~11–12 µs/line
+  steady-state; the vocabulary growth drives ~8.6× per-line cost at
+  10k distinct tokens — the W4 corpus-vocabulary argument), the
+  reflex_train time/memory curve (linear in N, ~3.2–4.2 µs per
+  example per epoch; the per-C convergence budget measured), the
+  confidence calibration (ECE ≈ 0.044 over 3 procedural seeds — the
+  softmax head is consumable on the clean shape; the per-corpus
+  re-measure is the W6 gate input), the teacher-agreement harness
+  (0.95 vs the 0.58 majority baseline on the 60-text corpus through
+  the serve distill lane). The scripts live in `scripts/research/`,
+  the raw CSVs + the document in `docs/research/`
+  (`distill_experiments_2026-11.md`). security: no — measurement
+  artifacts only, no product surface change; the honest findings (the
+  serve route lane's smart-router gap, the VM list-clone loop
+  artifact) are recorded in the document, no behavior changed.
+
 ### Fixed
 
 - **№824 (gh#1592, Wave 68 — the CI hygiene, the №809 follow-up):**

@@ -1,0 +1,61 @@
+text,truth,teacher,db_source
+meeting-0,neg,neg,neg
+password-1,neg,neg,neg
+shipment-2 urgent,pos,pos,pos
+report-3 urgent,pos,pos,pos
+reset-4 urgent,pos,pos,pos
+status-5 urgent,pos,pos,pos
+shipment-6,neg,neg,neg
+report-7 urgent,pos,pos,pos
+quota-8 urgent,pos,pos,pos
+status-9 urgent,pos,pos,pos
+reset-10,neg,neg,neg
+status-11,neg,neg,neg
+shipment-12,neg,neg,neg
+report-13,neg,neg,neg
+shipment-14 urgent tricky,neg,neg,neg
+password-15,neg,neg,neg
+quota-16 tricky,neg,pos,pos
+invoice-17,neg,neg,neg
+shipment-18 urgent,pos,pos,pos
+backup-19 urgent tricky,neg,neg,neg
+quota-20 urgent,pos,pos,pos
+invoice-21 urgent,pos,pos,pos
+shipment-22,neg,neg,neg
+password-23 urgent tricky,neg,neg,neg
+refund-24 urgent,pos,pos,pos
+invoice-25 urgent tricky,neg,neg,neg
+meeting-26 tricky,neg,pos,pos
+invoice-27,neg,neg,neg
+meeting-28,neg,neg,neg
+report-29,neg,neg,neg
+reset-30 urgent,pos,pos,pos
+invoice-31,neg,neg,neg
+quota-32,neg,neg,neg
+status-33,neg,neg,neg
+quota-34 urgent tricky,neg,neg,neg
+report-35 urgent,pos,pos,pos
+reset-36 urgent,pos,pos,pos
+invoice-37 urgent,pos,pos,pos
+refund-38,neg,neg,neg
+invoice-39 urgent,pos,pos,pos
+quota-40 urgent,pos,pos,pos
+backup-41 urgent,pos,pos,pos
+quota-42 tricky,neg,pos,pos
+status-43,neg,neg,neg
+shipment-44,neg,neg,neg
+status-45,neg,neg,neg
+reset-46 urgent,pos,pos,pos
+status-47,neg,neg,neg
+meeting-48,neg,neg,neg
+invoice-49,neg,neg,neg
+shipment-50 urgent tricky,neg,neg,neg
+password-51 urgent,pos,pos,pos
+shipment-52 urgent,pos,pos,pos
+password-53 urgent,pos,pos,pos
+meeting-54,neg,neg,neg
+report-55 urgent,pos,pos,pos
+shipment-56 urgent,pos,pos,pos
+password-57 urgent,pos,pos,pos
+shipment-58,neg,neg,neg
+password-59,neg,neg,neg

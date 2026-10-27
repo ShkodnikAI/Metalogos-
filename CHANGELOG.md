@@ -1037,6 +1037,29 @@ repair:
   tripwire; no gate loses coverage. AFFECTS: the conflict-marker class
   is grounded — the silent pass-through is impossible from now on.
 
+- **№820 (gh#1588, Wave 67 — the #1528 stub-audit follow-up):** the
+  `db_insert` registry row stops lying. The #1528 anchor ("no handler on
+  any lane; REFERENCE promises without code") was factually STALE — the
+  real parameterized INSERT landed with №409 (the lazy-open VM lane) and
+  carries the №783 params SSOT: `db_insert(table, struct)` writes
+  through src/db_ops.rs and returns last_insert_rowid, special-cased on
+  BOTH lanes before the registry dispatch (the №736 query_scalar
+  stale-anchor correction class). The row moves out of the `stub` class
+  into `db` (arity 2 exact, the `Float` type, the tier stays
+  experimental — the №809 only-up floor is not this naryad's call), and
+  the registered fallback (the db_execute context-less lane form) now
+  answers the loud "no database connection" refusal instead of the
+  generic "no handler". The REFERENCE sink row drops the "(registry-only
+  stub)" claim; the curated INSERT rows were already accurate and stay.
+  RED-before: the registry-honesty pin
+  (`tests/naryad_820_db_insert_surface.rs`) fails on unpatched main
+  (arity 0 / stub / no handler) while the two-lane behavior pins pass —
+  the behavior existed, the record lied. security: no — a metadata/
+  honesty sync over an existing, unchanged surface; no label, secret, or
+  sink behavior changes. AFFECTS: the tier/arity machines and the
+  REFERENCE §6 row describe the shipped surface; wrong-arity calls are
+  caught at the semantic gate now (the arity-0 skip is gone).
+
 ### Security
 
 - **№780 (gh#1491, Wave 62 — the audit-23.10 A1, P0):** the runtime

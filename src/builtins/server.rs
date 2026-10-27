@@ -28,6 +28,25 @@ pub(crate) fn builtin_db_execute(args: &[Value]) -> Result<Value, String> {
     Ok(Value::Unit)
 }
 
+// ── №820 (gh#1588, wave 67 — the #1528 stub-audit follow-up): the
+// registry row stops lying about db_insert. The REAL surface has lived
+// on both lanes since №409 (the lazy-open VM lane) and carries the №783
+// params SSOT: `db_insert(table, struct)` is a real parameterized INSERT
+// over src/db_ops.rs returning last_insert_rowid — the special-cased
+// DbAccess dispatch (TW src/interpreter/execution.rs, VM src/vm.rs)
+// precedes the registry call, exactly like `query`/`query_scalar` (the
+// №736 stale-anchor correction class). This registered fallback is the
+// context-less lane contract (the builtin_db_execute form): it only
+// runs where no db {} was declared — the loud refusal names the real
+// requirement, never a silent mock.
+pub(crate) fn builtin_db_insert_fallback(args: &[Value]) -> Result<Value, String> {
+    let _ = args;
+    Err(
+        "db_insert() error: no database connection. Declare db { url: \"sqlite::memory:\" } first."
+            .to_string(),
+    )
+}
+
 // ── №702 (gh#1296, Wave 47): the PDn-core registry typing — the
 // fail-closed fallback contracts ─────────────────────────────────────
 // The REAL conv dispatch lives in session_ops (the №72 TW FnCall

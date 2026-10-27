@@ -192,8 +192,22 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("stdin", 0, "stub", "experimental"), // №712 re-refusal: the true stub — no handler on any lane (registry.rs:180); the closure would either invent the no-stdin fallback contract or type a non-existent shape — both are semantics decisions outside the types movement
     spec!("split_tokens", 0, "stub", "experimental"),
     spec!("if_eq", 3, "stub", "experimental"),
-    spec!("is_string_token", 1, "stub", "experimental"), // db_insert: planned convenience wrapper for INSERT; no handler (use db_execute instead)
-    spec!("db_insert", 0, "stub", "experimental"),       // ── Convert builtins ──
+    spec!("is_string_token", 1, "stub", "experimental"),
+    // №820 (gh#1588, wave 67 — the #1528 stub-audit follow-up): the row
+    // stops lying. The #1528 anchor ("no handler on any lane") was
+    // factually STALE — the surface landed with №409 (the lazy-open VM
+    // lane) and carries the №783 params SSOT: `db_insert(table, struct)`
+    // is a real parameterized INSERT over src/db_ops.rs returning
+    // last_insert_rowid, special-cased on BOTH lanes (TW
+    // execution.rs:2541-2546, VM vm.rs:2821-2827) BEFORE the registry
+    // dispatch — the №736 query_scalar stale-anchor correction class.
+    // The registered fallback (builtin_db_insert_fallback) is the
+    // context-less lane contract (the db_execute form): the loud
+    // "no database connection" refusal where no db {} was declared —
+    // never a silent mock. The shape is FIXED (String, Struct) — arity 2
+    // exact; the tier stays experimental (the №809 only-up floor, not
+    // this naryad's call). The two-lane pin: tests/naryad_820_db_insert_surface.rs.
+    spec!("db_insert", 2, "db"; builtin_db_insert_fallback, "Float", "experimental"), // ── Convert builtins ──
     spec!("float", 1, "convert"; builtin_float, "Float", "stable"),
     spec!("to_string", 1, "convert"; builtin_to_string, "String", "stable"),
     spec!("to_float", 1, "convert"; builtin_to_float, "Float", "stable"), // ── IO builtins ──

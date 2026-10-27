@@ -58,7 +58,10 @@ fn n820_registry_row_describes_the_real_surface() {
         spec.handler.is_some(),
         "the generic dispatch must never answer \"no handler\" for a name that owns a real lane path"
     );
-    assert_eq!(spec.tier, "experimental", "the tier floor is only-up (№809) — this naryad does not move it");
+    assert_eq!(
+        spec.tier, "experimental",
+        "the tier floor is only-up (№809) — this naryad does not move it"
+    );
 }
 
 // ── T2: the two-lane behavior the honest row claims ───────────────────
@@ -72,8 +75,9 @@ pattern P(t: String) -> Float {
   return rowid
 }
 pattern Q(prev: Float) -> String {
-  let rows = db_query("SELECT name FROM probe WHERE score = 2.5")
-  return get(get(rows, 0), 0)
+  let rows = query("SELECT name FROM probe WHERE score = 2.5")
+  let first = get(rows, 0)
+  return first.name
 }
 flow Main { input: String = "x" -> P -> Q -> output }
 "#
@@ -82,10 +86,14 @@ flow Main { input: String = "x" -> P -> Q -> output }
 
 #[test]
 fn n820_insert_lands_the_row_and_returns_the_rowid_tw_lane() {
-    let out = metalogos::run_program_with_dir(two_lane_program().trim(), std::path::PathBuf::from("."))
-        .expect("the TW lane must run the insert program");
+    let out =
+        metalogos::run_program_with_dir(two_lane_program().trim(), std::path::PathBuf::from("."))
+            .expect("the TW lane must run the insert program");
     let out = out.expect("the flow returns the Q output");
-    assert_eq!(out, "x", "the inserted row must be readable back (name = the inserted value)");
+    assert_eq!(
+        out, "x",
+        "the inserted row must be readable back (name = the inserted value)"
+    );
 }
 
 #[test]
@@ -93,5 +101,8 @@ fn n820_insert_lands_the_row_and_returns_the_rowid_vm_lane() {
     let out = metalogos::run_program_on_vm(two_lane_program().trim())
         .expect("the VM lane must run the insert program");
     let out = out.expect("the flow returns the Q output");
-    assert_eq!(out, "x", "VM: the inserted row must be readable back (the lane parity, №762)");
+    assert_eq!(
+        out, "x",
+        "VM: the inserted row must be readable back (the lane parity, №762)"
+    );
 }

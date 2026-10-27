@@ -1568,11 +1568,10 @@ impl Compiler {
                 // №651: condition path → JumpIfNotCond (TW as_bool mirror).
                 code.push(Instruction::JumpIfNotCond(0));
                 let mut jmp_idx = code.len() - 1;
-                let saved = *next_slot;
                 self.compile_match_expr_arm_body(
                     then_body, code, locals, next_slot, loop_stack, mutable,
                 )?;
-                *next_slot = saved;
+                /* №816: NO slot-counter rollback — an arm's bindings stay LIVE in `locals` (the p30 function-level scoping: a let inside if/else overwrites and persists). Rolling the counter back while the map kept the entries handed NEW bindings the slots of LIVE locals — two locals shared one stack cell and a pattern-call result was replaced by an unrelated value (the #1555 self-parse corruption; the TW is immune — it evaluates the AST without slots). Slots are monotonic per body now. */
                 code.push(Instruction::Jump(0));
                 end_fixups.push(code.len() - 1);
                 code[jmp_idx] = Instruction::JumpIfNotCond(code.len());
@@ -1585,11 +1584,10 @@ impl Compiler {
                     )?;
                     code.push(Instruction::JumpIfNotCond(0));
                     jmp_idx = code.len() - 1;
-                    let saved = *next_slot;
                     self.compile_match_expr_arm_body(
                         ei_body, code, locals, next_slot, loop_stack, mutable,
                     )?;
-                    *next_slot = saved;
+                    /* №816: NO slot-counter rollback — an arm's bindings stay LIVE in `locals` (the p30 function-level scoping: a let inside if/else overwrites and persists). Rolling the counter back while the map kept the entries handed NEW bindings the slots of LIVE locals — two locals shared one stack cell and a pattern-call result was replaced by an unrelated value (the #1555 self-parse corruption; the TW is immune — it evaluates the AST without slots). Slots are monotonic per body now. */
                     code.push(Instruction::Jump(0));
                     end_fixups.push(code.len() - 1);
                     code[jmp_idx] = Instruction::JumpIfNotCond(code.len());
@@ -1855,7 +1853,6 @@ impl Compiler {
                     // VM ran the body to the condition cap as if the operators
                     // were not there (the silent wrong control flow, №652-a).
                     loop_stack.push((loop_start, Vec::new(), Vec::new()));
-                    let saved_next_slot = next_slot;
                     for s in body {
                         self.compile_stmt_with_locals(
                             s,
@@ -1867,7 +1864,7 @@ impl Compiler {
                         )?;
                     }
                     // Restore next_slot after loop body (nested lets inside loop are scoped)
-                    next_slot = saved_next_slot;
+                    /* №816: NO slot-counter rollback — an arm's bindings stay LIVE in `locals` (the p30 function-level scoping: a let inside if/else overwrites and persists). Rolling the counter back while the map kept the entries handed NEW bindings the slots of LIVE locals — two locals shared one stack cell and a pattern-call result was replaced by an unrelated value (the #1555 self-parse corruption; the TW is immune — it evaluates the AST without slots). Slots are monotonic per body now. */
 
                     // №658: patch from the POPPED entry — break → after_loop
                     // (the TW ControlFlow::Break shape), continue → the
@@ -2178,11 +2175,10 @@ impl Compiler {
                 // №651: condition path → JumpIfNotCond (TW as_bool mirror).
                 code.push(Instruction::JumpIfNotCond(0));
                 let jmp_idx = code.len() - 1;
-                let saved = *next_slot;
                 for s in then_body {
                     self.compile_value_stmt(s, code, locals, next_slot, loop_stack, mutable)?;
                 }
-                *next_slot = saved;
+                /* №816: NO slot-counter rollback — an arm's bindings stay LIVE in `locals` (the p30 function-level scoping: a let inside if/else overwrites and persists). Rolling the counter back while the map kept the entries handed NEW bindings the slots of LIVE locals — two locals shared one stack cell and a pattern-call result was replaced by an unrelated value (the #1555 self-parse corruption; the TW is immune — it evaluates the AST without slots). Slots are monotonic per body now. */
                 code[jmp_idx] = Instruction::JumpIfNotCond(code.len());
             }
             Statement::IfElseBlock {
@@ -2199,11 +2195,10 @@ impl Compiler {
                 // №651: condition path → JumpIfNotCond (TW as_bool mirror).
                 code.push(Instruction::JumpIfNotCond(0));
                 let mut jmp_idx = code.len() - 1;
-                let saved = *next_slot;
                 for s in then_body {
                     self.compile_value_stmt(s, code, locals, next_slot, loop_stack, mutable)?;
                 }
-                *next_slot = saved;
+                /* №816: NO slot-counter rollback — an arm's bindings stay LIVE in `locals` (the p30 function-level scoping: a let inside if/else overwrites and persists). Rolling the counter back while the map kept the entries handed NEW bindings the slots of LIVE locals — two locals shared one stack cell and a pattern-call result was replaced by an unrelated value (the #1555 self-parse corruption; the TW is immune — it evaluates the AST without slots). Slots are monotonic per body now. */
                 code.push(Instruction::Jump(0));
                 end_fixups.push(code.len() - 1);
                 code[jmp_idx] = Instruction::JumpIfNotCond(code.len());
@@ -2213,11 +2208,10 @@ impl Compiler {
                     )?;
                     code.push(Instruction::JumpIfNotCond(0));
                     jmp_idx = code.len() - 1;
-                    let saved = *next_slot;
                     for s in ei_body {
                         self.compile_value_stmt(s, code, locals, next_slot, loop_stack, mutable)?;
                     }
-                    *next_slot = saved;
+                    /* №816: NO slot-counter rollback — an arm's bindings stay LIVE in `locals` (the p30 function-level scoping: a let inside if/else overwrites and persists). Rolling the counter back while the map kept the entries handed NEW bindings the slots of LIVE locals — two locals shared one stack cell and a pattern-call result was replaced by an unrelated value (the #1555 self-parse corruption; the TW is immune — it evaluates the AST without slots). Slots are monotonic per body now. */
                     code.push(Instruction::Jump(0));
                     end_fixups.push(code.len() - 1);
                     code[jmp_idx] = Instruction::JumpIfNotCond(code.len());
@@ -2264,11 +2258,10 @@ impl Compiler {
                     code.push(Instruction::match_test(test));
                     code.push(Instruction::JumpIfNot(0));
                     let jmp_idx = code.len() - 1;
-                    let saved = *next_slot;
                     for st in arm.body() {
                         self.compile_value_stmt(st, code, locals, next_slot, loop_stack, mutable)?;
                     }
-                    *next_slot = saved;
+                    /* №816: NO slot-counter rollback — an arm's bindings stay LIVE in `locals` (the p30 function-level scoping: a let inside if/else overwrites and persists). Rolling the counter back while the map kept the entries handed NEW bindings the slots of LIVE locals — two locals shared one stack cell and a pattern-call result was replaced by an unrelated value (the #1555 self-parse corruption; the TW is immune — it evaluates the AST without slots). Slots are monotonic per body now. */
                     code.push(Instruction::Jump(0));
                     end_fixups.push(code.len() - 1);
                     code[jmp_idx] = Instruction::JumpIfNot(code.len());
@@ -2514,7 +2507,6 @@ impl Compiler {
             code.push(Instruction::match_test(test));
             code.push(Instruction::JumpIfNot(0));
             let jmp_idx = code.len() - 1;
-            let saved = *next_slot;
             self.compile_match_expr_arm_body(
                 arm.body(),
                 code,
@@ -2523,7 +2515,7 @@ impl Compiler {
                 loop_stack,
                 mutable,
             )?;
-            *next_slot = saved;
+            /* №816: NO slot-counter rollback — an arm's bindings stay LIVE in `locals` (the p30 function-level scoping: a let inside if/else overwrites and persists). Rolling the counter back while the map kept the entries handed NEW bindings the slots of LIVE locals — two locals shared one stack cell and a pattern-call result was replaced by an unrelated value (the #1555 self-parse corruption; the TW is immune — it evaluates the AST without slots). Slots are monotonic per body now. */
             code.push(Instruction::Jump(0));
             end_fixups.push(code.len() - 1);
             code[jmp_idx] = Instruction::JumpIfNot(code.len());
@@ -2586,7 +2578,6 @@ impl Compiler {
             code.push(Instruction::match_test(test));
             code.push(Instruction::JumpIfNot(0));
             let jmp_idx = code.len() - 1;
-            let saved = *next_slot;
             // №582: the kept arm's FINAL statement goes through the keep
             // compiler (recursively) — the arm leaves EXACTLY one value on
             // the stack: the kept trailing value (the old Pop-strip, the
@@ -2612,7 +2603,7 @@ impl Compiler {
                 // that exits the body.)
                 code.push(Instruction::PushUnit);
             }
-            *next_slot = saved;
+            /* №816: NO slot-counter rollback — an arm's bindings stay LIVE in `locals` (the p30 function-level scoping: a let inside if/else overwrites and persists). Rolling the counter back while the map kept the entries handed NEW bindings the slots of LIVE locals — two locals shared one stack cell and a pattern-call result was replaced by an unrelated value (the #1555 self-parse corruption; the TW is immune — it evaluates the AST without slots). Slots are monotonic per body now. */
             code.push(Instruction::Jump(0));
             end_fixups.push(code.len() - 1);
             code[jmp_idx] = Instruction::JumpIfNot(code.len());
@@ -2688,11 +2679,10 @@ impl Compiler {
             code.push(Instruction::JumpIfNotCond(0)); // placeholder
             let jmp_idx = code.len() - 1;
 
-            let saved_next_slot = *next_slot;
             self.compile_branch_stmts(
                 then_body, keep_tail, code, locals, next_slot, loop_stack, mutable,
             )?;
-            *next_slot = saved_next_slot;
+            // №816: NO slot-counter rollback — an arm's bindings stay LIVE in `locals` (the p30 function-level scoping); a rolled-back counter handed NEW bindings the slots of LIVE locals (the #1555 self-parse corruption). Slots are monotonic per body.
 
             // №582: the epilogue invariant over the if-tail — every live
             // path past the if carries EXACTLY one stack value (the kept
@@ -2737,11 +2727,10 @@ impl Compiler {
         code.push(Instruction::JumpIfNotCond(0));
         let jmp_idx = code.len() - 1;
 
-        let saved_next_slot = *next_slot;
         self.compile_branch_stmts(
             then_body, keep_tail, code, locals, next_slot, loop_stack, mutable,
         )?;
-        *next_slot = saved_next_slot;
+        // №816: NO slot-counter rollback — an arm's bindings stay LIVE in `locals` (the p30 function-level scoping); a rolled-back counter handed NEW bindings the slots of LIVE locals (the #1555 self-parse corruption). Slots are monotonic per body.
 
         code.push(Instruction::Jump(0)); // skip else
         let then_end = code.len() - 1;
@@ -2756,11 +2745,10 @@ impl Compiler {
             code.push(Instruction::JumpIfNotCond(0));
             let ei_jmp = code.len() - 1;
 
-            let saved_ns = *next_slot;
             self.compile_branch_stmts(
                 ei_body, keep_tail, code, locals, next_slot, loop_stack, mutable,
             )?;
-            *next_slot = saved_ns;
+            // №816: NO slot-counter rollback — an arm's bindings stay LIVE in `locals` (the p30 function-level scoping); a rolled-back counter handed NEW bindings the slots of LIVE locals (the #1555 self-parse corruption). Slots are monotonic per body.
 
             code.push(Instruction::Jump(0));
             let ei_end = code.len() - 1;
@@ -2772,11 +2760,10 @@ impl Compiler {
 
         // else body
         if let Some(else_body) = else_body {
-            let saved_ns = *next_slot;
             self.compile_branch_stmts(
                 else_body, keep_tail, code, locals, next_slot, loop_stack, mutable,
             )?;
-            *next_slot = saved_ns;
+            // №816: NO slot-counter rollback — an arm's bindings stay LIVE in `locals` (the p30 function-level scoping); a rolled-back counter handed NEW bindings the slots of LIVE locals (the #1555 self-parse corruption). Slots are monotonic per body.
         } else if keep_tail {
             // №582: NO else — the cond=false path would reach the block end
             // with NO value on the stack while the taken paths leave one.
@@ -3024,11 +3011,10 @@ impl Compiler {
         // placeholder in the NEAREST entry via the shared statement
         // compiler; the entry is patched from the POPPED value below.
         loop_stack.push((loop_start, Vec::new(), Vec::new()));
-        let saved_next_slot = *next_slot;
         for s in body {
             self.compile_stmt_with_locals(s, code, locals, next_slot, loop_stack, mutable)?;
         }
-        *next_slot = saved_next_slot;
+        // №816: NO slot-counter rollback — an arm's bindings stay LIVE in `locals` (the p30 function-level scoping); a rolled-back counter handed NEW bindings the slots of LIVE locals (the #1555 self-parse corruption). Slots are monotonic per body.
 
         // №658: patch from the POPPED entry — continue targets the
         // INCREMENT section (the next item, the TW
@@ -3213,11 +3199,10 @@ impl Compiler {
                 // the body to the condition cap as if the operators were not
                 // there (the silent wrong control flow, №652-a).
                 loop_stack.push((loop_start, Vec::new(), Vec::new()));
-                let saved = *next_slot;
                 for s in body {
                     self.compile_stmt_with_locals(s, code, locals, next_slot, loop_stack, mutable)?;
                 }
-                *next_slot = saved;
+                /* №816: NO slot-counter rollback — an arm's bindings stay LIVE in `locals` (the p30 function-level scoping: a let inside if/else overwrites and persists). Rolling the counter back while the map kept the entries handed NEW bindings the slots of LIVE locals — two locals shared one stack cell and a pattern-call result was replaced by an unrelated value (the #1555 self-parse corruption; the TW is immune — it evaluates the AST without slots). Slots are monotonic per body now. */
 
                 // №658: patch from the POPPED entry — break → after_loop (the
                 // TW ControlFlow::Break shape), continue → the condition
@@ -3246,11 +3231,10 @@ impl Compiler {
                 // №651: condition path → JumpIfNotCond (TW as_bool mirror).
                 code.push(Instruction::JumpIfNotCond(0));
                 let jmp_idx = code.len() - 1;
-                let saved = *next_slot;
                 for s in then_body {
                     self.compile_stmt_with_locals(s, code, locals, next_slot, loop_stack, mutable)?;
                 }
-                *next_slot = saved;
+                /* №816: NO slot-counter rollback — an arm's bindings stay LIVE in `locals` (the p30 function-level scoping: a let inside if/else overwrites and persists). Rolling the counter back while the map kept the entries handed NEW bindings the slots of LIVE locals — two locals shared one stack cell and a pattern-call result was replaced by an unrelated value (the #1555 self-parse corruption; the TW is immune — it evaluates the AST without slots). Slots are monotonic per body now. */
                 code[jmp_idx] = Instruction::JumpIfNotCond(code.len());
             }
             Statement::IfElseBlock {
@@ -3267,11 +3251,10 @@ impl Compiler {
                 // №651: condition path → JumpIfNotCond (TW as_bool mirror).
                 code.push(Instruction::JumpIfNotCond(0));
                 let jmp_idx = code.len() - 1;
-                let saved = *next_slot;
                 for s in then_body {
                     self.compile_stmt_with_locals(s, code, locals, next_slot, loop_stack, mutable)?;
                 }
-                *next_slot = saved;
+                /* №816: NO slot-counter rollback — an arm's bindings stay LIVE in `locals` (the p30 function-level scoping: a let inside if/else overwrites and persists). Rolling the counter back while the map kept the entries handed NEW bindings the slots of LIVE locals — two locals shared one stack cell and a pattern-call result was replaced by an unrelated value (the #1555 self-parse corruption; the TW is immune — it evaluates the AST without slots). Slots are monotonic per body now. */
                 code.push(Instruction::Jump(0));
                 end_fixups.push(code.len() - 1);
                 code[jmp_idx] = Instruction::JumpIfNotCond(code.len());
@@ -3282,26 +3265,24 @@ impl Compiler {
                     )?;
                     code.push(Instruction::JumpIfNotCond(0));
                     let ei_jmp = code.len() - 1;
-                    let saved2 = *next_slot;
                     for s in ei_body {
                         self.compile_stmt_with_locals(
                             s, code, locals, next_slot, loop_stack, mutable,
                         )?;
                     }
-                    *next_slot = saved2;
+                    // №816: NO slot-counter rollback — an arm's bindings stay LIVE in `locals` (the p30 function-level scoping); a rolled-back counter handed NEW bindings the slots of LIVE locals (the #1555 self-parse corruption). Slots are monotonic per body.
                     code.push(Instruction::Jump(0));
                     end_fixups.push(code.len() - 1);
                     code[ei_jmp] = Instruction::JumpIfNotCond(code.len());
                 }
 
                 if let Some(eb) = else_body {
-                    let saved3 = *next_slot;
                     for s in eb {
                         self.compile_stmt_with_locals(
                             s, code, locals, next_slot, loop_stack, mutable,
                         )?;
                     }
-                    *next_slot = saved3;
+                    // №816: NO slot-counter rollback — an arm's bindings stay LIVE in `locals` (the p30 function-level scoping); a rolled-back counter handed NEW bindings the slots of LIVE locals (the #1555 self-parse corruption). Slots are monotonic per body.
                 }
 
                 let end = code.len();

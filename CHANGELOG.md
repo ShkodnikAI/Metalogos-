@@ -1059,6 +1059,27 @@ repair:
   tripwire; no gate loses coverage. AFFECTS: the conflict-marker class
   is grounded — the silent pass-through is impossible from now on.
 
+- **№816 (gh#1584, Wave 67 — the #1555 self-parse divergence, the
+  release-block):** the bytecode compiler no longer rolls the frame-slot
+  counter back after an if/match/loop arm — an arm's `let` bindings stay
+  live in the function-level name→slot map (the p30 scoping contract),
+  so the rolled-back counter could hand a NEW binding the stack cell of
+  a LIVE local: two locals shared one cell and a pattern-call result was
+  replaced by an unrelated value deep in the recursion. The #1555
+  symptom (`self-host/parser.mlog` self-parse: `get() requires List as
+  first argument` in the ParseWhile→ParseBlock→ParseStmt→ParseIfStmt
+  chain) is closed — the self-host parser now self-parses identically on
+  both lanes, byte-for-byte. The class pin (a new binding after an
+  if-arm must not share the arm binding's slot) rides in
+  `tests/naryad_816_vm_frame_slot_alias.rs`, and the minimal repro
+  joined the differential-fuzzer corpus as
+  `tests/fuzz_corpus/seed_frame_slots.mlog` (the №783 form — the fuzzer
+  carries the class shape). security: no — a compiler-correctness fix in
+  the frame-slot allocation; no label, secret, or sink surface changes;
+  the both-lane parity only tightens. AFFECTS: programs with bindings
+  after if/match/loop arms stop reading stale neighbor cells; the TW
+  lane is unchanged (it never had slots).
+
 - **№818 (gh#1586, Wave 67 — the #1573 silent-500 class):** every serve
   route-handler error now prints ONE unconditional stderr line —
   `[ROUTE_HANDLER_ERROR] <method> <path> -> 500: <error>` — on all four

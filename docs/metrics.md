@@ -10,7 +10,7 @@ construction.
 <!-- BEGIN GENERATED METRICS (scripts/gen_metrics.py — do not edit inside) -->
 | Metric | Value (generated — do not hand-edit) |
 | ------ | ------------------------------------- |
-| Version | 0.33.2 |
+| Version | 0.34.0 |
 | Leak Suite | 49 negatives / 27 positives (examples/leak/ — the BLOCKING gate) |
 | Built-in Functions | 526 functions across 47 modules |
 | Typed Signatures | 373/526 (70.91%) — precise 243/526 (46.19%) |

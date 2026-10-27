@@ -4,6 +4,8 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-11-02
+
 ### Migration
 
 Changes in [Unreleased] that can break existing programs, each with the

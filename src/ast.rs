@@ -563,6 +563,12 @@ pub struct LlmProviderEntry {
     pub key: Option<Expr>,
     /// Custom base URL (for "custom" provider or proxy overrides).
     pub url: Option<String>,
+    /// №819 (#1302): the provider's own model name. `None` → the call
+    /// model → the `default_model` fallback (the pre-№819 behavior for
+    /// entries without the field). Resolved PER PROVIDER in the
+    /// failover loops (llm.rs) — a mixed provider set no longer shares
+    /// one foreign model name.
+    pub model: Option<String>,
 }
 
 /// `llm { providers: [...], default_model: "...", failover: auto, circuit_breaker: 3, timeout: 30 }`

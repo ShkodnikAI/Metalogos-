@@ -1966,7 +1966,8 @@ db {
 llm {
   providers: [
     { alias: openai, provider: openai, key: env("OPENAI_KEY") },
-    { alias: claude, provider: anthropic, key: env("ANTHROPIC_KEY"), url: "https://api.anthropic.com" }
+    { alias: claude, provider: anthropic, key: env("ANTHROPIC_KEY"), url: "https://api.anthropic.com" },
+    { alias: ds, provider: openai, key: env("DEEPSEEK_KEY"), url: "https://api.deepseek.com/v1", model: "deepseek-chat" }
   ],
   default_model: "gpt-4",
   failover: auto,
@@ -1974,6 +1975,14 @@ llm {
   timeout: 30
 }
 ```
+
+The optional per-provider `model:` field (№819) names the model THIS
+provider asks for. Resolution is per provider, in the failover loop
+order: the call model (`call_llm(prompt, input, "model")`) → the
+provider's own `model:` → `default_model`. A mixed provider set no
+longer shares one loop-wide model name — each failover rung asks for
+its own model (the entry order stays alias, provider, key?, url?,
+model?).
 
 ### 5.12. Hook (lifecycle hooks, ADR-0045 + ADR-0064)
 

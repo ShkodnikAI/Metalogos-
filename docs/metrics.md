@@ -17,7 +17,7 @@ construction.
 | Typed Signatures (stable tier — the PRIMARY definition, №809/ADR-0199) | 363/483 (75.15%) — the full-registry figure beside: 372/526 (70.72%) |
 | SVG/Graphics | 44 builtins, hand-rolled in pure Rust |
 | Grammar | 343 rules |
-| Architecture Decisions | 191 ADRs |
+| Architecture Decisions | 192 ADRs |
 | Example Programs | 253 .mlog programs |
 | Reference | REFERENCE.md (~332 KB) — 100% registry coverage |
 | Changelog | CHANGELOG.md (~158 KB) — every wave documented |

@@ -24,11 +24,17 @@ llm_body      = { (llm_field ~ (COMMA ~ llm_field)*)? }
 llm_field     = _{ llm_providers | llm_default_model | llm_failover | llm_circuit_breaker | llm_timeout | llm_max_tokens | llm_temperature }
 llm_providers = { "providers" ~ COLON ~ LBRACKET ~ llm_provider_list? ~ RBRACKET }
 llm_provider_list = { llm_provider_entry ~ (COMMA ~ llm_provider_entry)* }
-llm_provider_entry = { LBRACE ~ llm_provider_alias ~ COMMA ~ llm_provider_name ~ (COMMA ~ llm_provider_key)? ~ (COMMA ~ llm_provider_url)? ~ RBRACE }
+// №819 (#1302): the optional per-provider `model` — the LAST optional
+// entry after `url` (the #1302 canonical order alias, provider, key?,
+// url?, model?). Resolved per provider: the call model → the provider
+// model → default_model (llm.rs) — a mixed provider set no longer gets
+// one foreign model name across the failover loop.
+llm_provider_entry = { LBRACE ~ llm_provider_alias ~ COMMA ~ llm_provider_name ~ (COMMA ~ llm_provider_key)? ~ (COMMA ~ llm_provider_url)? ~ (COMMA ~ llm_provider_model)? ~ RBRACE }
 llm_provider_alias = { "alias" ~ COLON ~ IDENT }
 llm_provider_name = { "provider" ~ COLON ~ IDENT }
 llm_provider_key  = { "key" ~ COLON ~ expression }
 llm_provider_url  = { "url" ~ COLON ~ STRING_LITERAL }
+llm_provider_model = { "model" ~ COLON ~ STRING_LITERAL }
 llm_default_model = { "default_model" ~ COLON ~ expression }
 llm_failover      = { "failover" ~ COLON ~ IDENT }
 llm_circuit_breaker = { "circuit_breaker" ~ COLON ~ INT }

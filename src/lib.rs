@@ -500,6 +500,7 @@ fn compile_session_declarations(
 pub fn run_program_on_vm(source: &str) -> Result<Option<String>, String> {
     let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
     enforce_run_gates(&declarations, std::path::Path::new("."), source)?;
+    install_vm_llm_config(&declarations);
     let program = compile_program(source)?;
     run_bytecode(program)
 }
@@ -514,6 +515,7 @@ pub fn eval_program_on_vm(source: &str) -> Result<Vec<interpreter::types::EvalRe
     // (the same posture `run` keeps); the `--reference` oracle lane keeps
     // the TW eval's historical ungated form.
     enforce_run_gates(&declarations, std::path::Path::new("."), source)?;
+    install_vm_llm_config(&declarations);
     let eval_blocks: Vec<ast::EvalDecl> = declarations
         .iter()
         .filter_map(|d| match d {
@@ -562,6 +564,9 @@ impl VmRepl {
         if declarations.is_empty() {
             return Ok(None);
         }
+        // №819: the VM REPL honors a chunk's `llm {}` the same way the
+        // run/eval lanes do (see install_vm_llm_config).
+        install_vm_llm_config(&declarations);
         let chunk_base = vm::ChunkBase {
             global_count: self.base.global_names.len(),
             pattern_count: self.vm.pattern_table_len(),
@@ -571,6 +576,26 @@ impl VmRepl {
         let out = self.vm.run_chunk(&program, &chunk_base)?;
         self.base = snapshot;
         Ok(out)
+    }
+}
+
+/// №819 (#1302): the VM user lanes honor the declared `llm {}` — install
+/// the SmartRouter + the block limits exactly the way the TW declaration
+/// pass does (src/interpreter/execution.rs): last-wins scope, no clear
+/// after the run (the same persistence semantics both REPL lanes rely
+/// on). Before this, the VM lane silently ignored `llm {}` and every
+/// `call_llm` fell back to the legacy env-var backend — the declared
+/// config was dead on the VM (the №521 conversation_config class; the
+/// pre-existing gap the №819 RED test caught, now closed together with
+/// the per-provider model resolution).
+fn install_vm_llm_config(declarations: &[ast::Declaration]) {
+    for d in declarations {
+        if let ast::Declaration::LlmConfig(config) = d {
+            llm::set_global_smart_router(llm::SmartRouter::from_config(config));
+            // №757: the block-level limits ride the same declaration —
+            // the legacy fallback sites honor them too.
+            llm::set_block_llm_limits(config.max_tokens, config.temperature);
+        }
     }
 }
 

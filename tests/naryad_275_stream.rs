@@ -56,6 +56,8 @@ fn build_mock_router() -> SmartRouter {
                 span: metalogos::ast::Span::unknown(),
             }),
             url: Some(mock_url() + "/v1/chat/completions"),
+            // №819: the per-provider model — honest absence (the default_model flow).
+            model: None,
         }],
         default_model: Some("mock-model".to_string()),
         failover: Some("auto".to_string()),
@@ -78,6 +80,8 @@ fn build_mock_router() -> SmartRouter {
                 span: metalogos::ast::Span::unknown(),
             }),
             url: Some(mock_url() + "/v1/chat/completions"),
+            // №819: the per-provider model — honest absence (the default_model flow).
+            model: None,
         }],
         default_model: Some("mock-model".to_string()),
         failover: Some("auto".to_string()),
@@ -213,6 +217,8 @@ fn n275_stream_limit_reached() {
                 "http://127.0.0.1:{}/v1/chat/completions",
                 MOCK_PORT + 1
             )),
+            // №819: the per-provider model — honest absence (the default_model flow).
+            model: None,
         }],
         default_model: Some("mock-model".to_string()),
         failover: Some("auto".to_string()),
@@ -267,6 +273,8 @@ fn n275_stream_close_before_end_drops_cleanly() {
                 "http://127.0.0.1:{}/v1/chat/completions",
                 MOCK_PORT + 2
             )),
+            // №819: the per-provider model — honest absence (the default_model flow).
+            model: None,
         }],
         default_model: Some("mock-model".to_string()),
         failover: Some("auto".to_string()),
@@ -331,6 +339,8 @@ fn n275_stream_end_marker_after_done() {
                 "http://127.0.0.1:{}/v1/chat/completions",
                 MOCK_PORT + 3
             )),
+            // №819: the per-provider model — honest absence (the default_model flow).
+            model: None,
         }],
         default_model: Some("mock-model".to_string()),
         failover: Some("auto".to_string()),

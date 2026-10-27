@@ -1047,7 +1047,7 @@ repair:
   from the process stderr alone. The pin spawns the REAL `mlog serve`
   process and asserts the line and the 500 on BOTH backend lanes
   (`tests/naryad_818_route_handler_stderr.rs`; the fixture
-  `tests/fixtures/naryad_816_route_error.mlog`). security: no — an
+  `tests/fixtures/naryad_818_route_error.mlog`). security: no — an
   observability fix; no gate, label, or secret surface changes.
   AFFECTS: serve operators see handler errors in stderr immediately;
   the response bodies are unchanged.

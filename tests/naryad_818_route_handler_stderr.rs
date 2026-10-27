@@ -21,7 +21,7 @@
 use std::io::{Read, Write};
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 static MLOG_BIN: OnceLock<String> = OnceLock::new();
 
@@ -37,7 +37,7 @@ fn mlog_bin() -> &'static str {
     })
 }
 
-const FIXTURE: &str = "tests/fixtures/naryad_816_route_error.mlog";
+const FIXTURE: &str = "tests/fixtures/naryad_818_route_error.mlog";
 const PORT: u16 = 18471;
 
 fn get_via_tcp() -> String {

@@ -100,7 +100,7 @@ days_between|2|2
 days_in_month|2|2
 db_execute|1|2
 db_execute_with_grant|2|3
-db_insert|0|*
+db_insert|2|2
 decrypt|2|2
 dedup|1|1
 delete_file|1|1

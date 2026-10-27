@@ -16,7 +16,7 @@ construction.
 | Typed Signatures | 373/526 (70.91%) — precise 243/526 (46.19%) |
 | Typed Signatures (stable tier — the PRIMARY definition, №809/ADR-0199) | 363/483 (75.15%) — the full-registry figure beside: 373/526 (70.91%) |
 | SVG/Graphics | 44 builtins, hand-rolled in pure Rust |
-| Grammar | 343 rules |
+| Grammar | 344 rules |
 | Architecture Decisions | 192 ADRs |
 | Example Programs | 253 .mlog programs |
 | Reference | REFERENCE.md (~332 KB) — 100% registry coverage |

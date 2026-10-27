@@ -184,6 +184,9 @@ fn n276_trace_smart_router_fields_with_usage() {
             provider: "openai".to_string(),
             key: None,
             url: Some(base),
+            // №819: the per-provider model — honest absence (the
+            // default_model flow this test pins).
+            model: None,
         }],
         default_model: Some("test-model-276".to_string()),
         failover: Some("manual".to_string()),

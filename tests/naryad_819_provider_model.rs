@@ -369,8 +369,7 @@ fn n819_stream_open_uses_provider_model() {
     // The config is PARSED from mlog — the same llm {} surface a real
     // program writes (exercises the №819 grammar tail on the way).
     let source = format!(
-        "llm {{ providers: [{{alias: p, provider: openai, url: \"{}\", model: \"stream-m\"}}], default_model: \"default-m\" }}",
-        format!("http://{}", addr)
+        "llm {{ providers: [{{alias: p, provider: openai, url: \"http://{addr}\", model: \"stream-m\"}}], default_model: \"default-m\" }}",
     );
     let decls = metalogos::parser::parse(&source).expect("llm decl must parse");
     let config = decls

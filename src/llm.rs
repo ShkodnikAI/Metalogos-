@@ -1477,20 +1477,23 @@ pub fn record_canary_leak() {
     CANARY_LEAKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// №819 (#1302): one provider routing slot — (alias, provider_type,
+/// api_key, url, model). The 5th slot is the provider's OWN model —
+/// resolved per provider in the failover loops (call → provider →
+/// default), so a mixed provider set stops sharing one foreign model
+/// name.
+type ProviderSlot = (
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
 /// Smart LLM router: wraps multiple providers with failover, circuit breaker, health tracking.
 pub struct SmartRouter {
-    /// Provider configurations (alias, provider_type, api_key, url, model).
-    /// №819 (#1302): the 5th slot is the provider's OWN model — resolved
-    /// per provider in the failover loops below (call → provider →
-    /// default), so a mixed provider set stops sharing one foreign model
-    /// name.
-    providers: Vec<(
-        String,
-        String,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-    )>,
+    /// Provider configurations (see `ProviderSlot`).
+    providers: Vec<ProviderSlot>,
     /// Default model name/alias.
     default_model: Option<String>,
     /// Failover mode: "auto" or None.
@@ -1516,13 +1519,7 @@ impl SmartRouter {
             config.providers.iter().map(|p| p.alias.clone()).collect();
         let circuit_threshold = config.circuit_breaker;
         // №819 (#1302): the 5-tuple — the last slot is the provider's own model.
-        let providers: Vec<(
-            String,
-            String,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-        )> = config
+        let providers: Vec<ProviderSlot> = config
             .providers
             .iter()
             .map(|p| {

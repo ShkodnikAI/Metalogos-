@@ -26,6 +26,7 @@ append_file|2|2
 ask_approval|1|1
 assert_contains|2|2
 assert_eq|2|2
+attest_verify|1|1
 authenticate|2|2
 backend_list|0|*
 backend_select|2|2

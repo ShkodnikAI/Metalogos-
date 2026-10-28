@@ -858,7 +858,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // group: the live dispatch (src/builtins/attest.rs) precedes the row
     // on BOTH lanes (TW execution.rs, VM call_reflex_builtin); the stub
     // stays as the shadowed fail-closed fallback (the №748 posture).
-    spec!("attest_verify", 1, "reflex"; builtin_attest_verify_stub, "Struct", "experimental"),
+    spec!("attest_verify", 1, "reflex"; builtin_attest_verify_stub, "Struct<AttestVerdict>{ok:internal,level:internal,spec_hash:internal,reason:internal}", "experimental"),
     // ── Наряд №193: text generation (ADR-0120) ──
     // №799 (T2, gh#1488): the parked row gates with `candle` (the live Ok
     // arm is candle-gated, №748) — the default build refuses at CHECK via

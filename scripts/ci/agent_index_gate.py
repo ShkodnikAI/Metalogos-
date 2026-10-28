@@ -3,7 +3,7 @@
 
 The finding (the office research contour, candidate R-01, 16.10): llms.txt
 is covered by NO generator gate and drifts. The r29 kant-facts: llms.txt
-carried "409 builtins" (the live registry — 526), "214 .mlog" (the
+carried "409 builtins" (the live registry — 527), "214 .mlog" (the
 generator — 253), "132 ADR" (the generator — 187), "наряды №1-№289+" (the
 live sequence — №762+); CLAUDE.md (the declared "bridge copy of
 AGENTS.md") was NOT byte-identical to AGENTS.md (8958 vs 10703 bytes).
@@ -169,7 +169,7 @@ def self_test() -> int:
     traps: list[tuple[str, callable]] = [
         (
             "a stale builtins counter",
-            lambda text: text.replace("(526 builtins", "(999 builtins"),
+            lambda text: text.replace("(527 builtins", "(999 builtins"),
         ),
         (
             "a broken bridge copy",
@@ -211,7 +211,7 @@ def self_test() -> int:
         # Trap 1: the stale counter.
         llms = (repo_copy / "llms.txt").read_text(encoding="utf-8")
         (repo_copy / "llms.txt").write_text(
-            llms.replace("(526 builtins", "(999 builtins"),
+            llms.replace("(527 builtins", "(999 builtins"),
             encoding="utf-8",
         )
         if not check_repo(repo_copy):

@@ -51,7 +51,14 @@ fn shape_mismatch_hidden_units_is_explicit_error() {
     let mut registry_b = ReflexRegistry::new();
     let id_b = registry_b.register(make_model(42, 16));
 
-    let result = persist::load_model_from_db(&mut registry_b, id_b, "shape_test", &db_path, None, metalogos::nn::attest::AttestPolicy::lenient());
+    let result = persist::load_model_from_db(
+        &mut registry_b,
+        id_b,
+        "shape_test",
+        &db_path,
+        None,
+        metalogos::nn::attest::AttestPolicy::lenient(),
+    );
 
     assert!(
         result.is_err(),
@@ -96,7 +103,14 @@ fn shape_mismatch_layer_count_is_explicit_error() {
     let mut registry_b = ReflexRegistry::new();
     let id_b = registry_b.register(model_3layer);
 
-    let result = persist::load_model_from_db(&mut registry_b, id_b, "shape_test", &db_path, None, metalogos::nn::attest::AttestPolicy::lenient());
+    let result = persist::load_model_from_db(
+        &mut registry_b,
+        id_b,
+        "shape_test",
+        &db_path,
+        None,
+        metalogos::nn::attest::AttestPolicy::lenient(),
+    );
     assert!(result.is_err(), "layer count mismatch should error");
     let err = result.unwrap_err().to_lowercase();
     assert!(
@@ -126,7 +140,14 @@ fn shape_match_loads_silently_when_correct() {
     let mut registry_b = ReflexRegistry::new();
     let id_b = registry_b.register(make_model(42, 8)); // SAME shape
 
-    let result = persist::load_model_from_db(&mut registry_b, id_b, "shape_test", &db_path, None, metalogos::nn::attest::AttestPolicy::lenient());
+    let result = persist::load_model_from_db(
+        &mut registry_b,
+        id_b,
+        "shape_test",
+        &db_path,
+        None,
+        metalogos::nn::attest::AttestPolicy::lenient(),
+    );
     assert!(
         result.is_ok(),
         "matching shape should load fine: {:?}",
@@ -167,7 +188,14 @@ fn input_size_mismatch_is_explicit_error() {
     let mut registry_b = ReflexRegistry::new();
     let id_b = registry_b.register(model_3input);
 
-    let result = persist::load_model_from_db(&mut registry_b, id_b, "shape_test", &db_path, None, metalogos::nn::attest::AttestPolicy::lenient());
+    let result = persist::load_model_from_db(
+        &mut registry_b,
+        id_b,
+        "shape_test",
+        &db_path,
+        None,
+        metalogos::nn::attest::AttestPolicy::lenient(),
+    );
     assert!(result.is_err(), "input_size mismatch should error");
     let err = result.unwrap_err().to_lowercase();
     assert!(
@@ -207,7 +235,14 @@ fn labels_mismatch_is_explicit_error() {
     let mut registry_b = ReflexRegistry::new();
     let id_b = registry_b.register(model_diff_labels);
 
-    let result = persist::load_model_from_db(&mut registry_b, id_b, "shape_test", &db_path, None, metalogos::nn::attest::AttestPolicy::lenient());
+    let result = persist::load_model_from_db(
+        &mut registry_b,
+        id_b,
+        "shape_test",
+        &db_path,
+        None,
+        metalogos::nn::attest::AttestPolicy::lenient(),
+    );
     assert!(result.is_err(), "labels mismatch should error");
     let err = result.unwrap_err().to_lowercase();
     assert!(

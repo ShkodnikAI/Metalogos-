@@ -74,6 +74,19 @@ pub struct Vm {
     patterns: std::sync::Arc<Vec<CompiledFn>>,
     /// Learnable pattern table: index → (info, few_shot, original_few_shot).
     learnables: Vec<(CompiledLearnableInfo, Vec<(String, String)>)>,
+    /// Наряд №829: the positional re-registration cursor for the run path.
+    /// `load_program` pre-scans main_code's RegisterLearnable instructions
+    /// into the table (№495); when `execute_main_code` then re-executes the
+    /// SAME instructions, the k-th one must REPLACE the k-th pre-registered
+    /// slot — a push would accumulate a duplicate entry, and the few-shot
+    /// examples the adapt instructions attach to the FIRST name-match would
+    /// live on a slot the last-match name resolution never sees (the p23
+    /// crosscheck regression: the flow step hit the empty duplicate and
+    /// dialed the real LLM). The session path (`run_chunk` — no pre-scan)
+    /// clears the cursor and keeps the push: a chunk's redeclared learnable
+    /// is shadowed to a FRESH index (the compiler assigns it), so the table
+    /// must grow positionally.
+    learnable_register_cursor: Option<usize>,
     /// Built-in function registry.
     /// №409 (step B, candidate C1): SHARED process-wide (`shared_builtins_registry`) —
     /// the registry is a pure derivation of `BUILTIN_REGISTRY` and is read-only on
@@ -383,6 +396,7 @@ impl Vm {
             global_names: std::sync::Arc::new(Vec::new()),
             patterns: std::sync::Arc::new(Vec::new()),
             learnables: Vec::new(),
+            learnable_register_cursor: None,
             builtins: shared_builtins_registry(),
             builtin_names: shared_builtin_names(),
             memory: Vec::new(),
@@ -533,6 +547,10 @@ impl Vm {
                 .map(|info| (info.clone(), Vec::new()))
                 .collect();
         }
+        // №829: main_code carries one RegisterLearnable per learnable
+        // declaration — when execute_main_code re-runs them, each replaces
+        // its pre-registered slot positionally (see the field doc).
+        self.learnable_register_cursor = Some(0);
 
         // Наряд №204 (ADR-0121 stages 3-4): register reflex_seq and
         // reflex_gen models. Candle-feature-gated — these require the
@@ -762,6 +780,8 @@ impl Vm {
         // is what makes VM route bodies able to call learnables at all);
         // request A's runtime few-shot mutations never reach request B.
         self.learnables = Vec::new();
+        // №829: the re-registration cursor is re-armed by load_program.
+        self.learnable_register_cursor = None;
 
         // ── 5. logs/stats/event streams exposed through &self ──
         // audit_log: take_audit_log() already drained it post-execution;
@@ -1135,7 +1155,44 @@ impl Vm {
                     ip += 1;
                 }
                 Instruction::RegisterLearnable(info) => {
-                    self.learnables.push(((**info).clone(), Vec::new()));
+                    // №829: the run path re-executes the SAME RegisterLearnable
+                    // instructions load_program pre-scanned (№495). A push here
+                    // accumulated a DUPLICATE entry: the adapt instructions
+                    // attach few-shot examples to the FIRST name-match, and
+                    // the №829 last-match call resolution (the TW shadow
+                    // semantics) found the empty duplicate — the few-shot
+                    // cache silently missed and the call dialed the real LLM
+                    // (the p23 crosscheck regression caught the class).
+                    // Positional re-registration: the k-th instruction
+                    // replaces the k-th pre-registered slot (the scan order IS
+                    // the execution order — both walk main_code 1:1); a slot
+                    // mismatch is bytecode past the compiler check → fail
+                    // LOUDLY (the №264 backstop contract). The session path
+                    // (run_chunk — no pre-scan) keeps the push: a chunk's
+                    // redeclared learnable is shadowed to a FRESH index, the
+                    // table must grow.
+                    let mut cursor = self.learnable_register_cursor.take();
+                    if let Some(entry) = cursor.as_mut() {
+                        let k = *entry;
+                        *entry += 1;
+                        if k >= self.learnables.len() {
+                            return Err(format!(
+                                "VM: RegisterLearnable index {} out of range (pre-registered table has {} entries) — bytecode produced past the compiler check",
+                                k,
+                                self.learnables.len()
+                            ));
+                        }
+                        if self.learnables[k].0.name != info.name {
+                            return Err(format!(
+                                "VM: RegisterLearnable slot {} holds '{}' but the instruction declares '{}' — the pre-registration scan and main_code drifted; compiler invariant violation, report it",
+                                k, self.learnables[k].0.name, info.name
+                            ));
+                        }
+                        self.learnables[k] = ((**info).clone(), Vec::new());
+                    } else {
+                        self.learnables.push(((**info).clone(), Vec::new()));
+                    }
+                    self.learnable_register_cursor = cursor;
                     ip += 1;
                 }
 
@@ -2664,10 +2721,14 @@ impl Vm {
                 )
             }
         };
+        // №829: LAST-match — the TW map() resolves the name through its
+        // registry (HashMap insert overwrites = the last declaration
+        // owns it); the first-match scan here executed the SHADOWED
+        // body instead (the same wrong-pattern class as invoke_step).
         let pattern = self
             .patterns
             .iter()
-            .find(|p| p.name == pattern_name)
+            .rfind(|p| p.name == pattern_name)
             .ok_or_else(|| format!("map(): pattern '{}' not found", pattern_name))?
             .clone();
         if pattern.param_count != 1 {
@@ -4017,72 +4078,81 @@ impl Vm {
 
     /// Invoke a pattern or builtin by name (used in flow pipeline).
     fn invoke_step(&mut self, name: &str, args: Vec<Value>) -> Result<Value, String> {
-        // Check learnables first
-        for (i, (info, _)) in self.learnables.iter().enumerate() {
-            if info.name == name {
-                return self.call_llm(i, &args);
-            }
+        // Наряд №829 (gh#1622, волна 69): name resolution is LAST-match —
+        // the shadow semantics of the TW registry (HashMap insert
+        // overwrites) and of the compiler's static dispatch map
+        // (pattern_indices.insert overwrites; №829 allocates the slot by
+        // BODY count, so the last declaration owns the name). The
+        // previous first-match scan executed the SHADOWED body when a
+        // later declaration overrode an imported one (the office stub
+        // convention) — the same wrong-pattern class the #1616/#1618
+        // positional desync produced on the CallPattern lane.
+        if let Some(i) = self
+            .learnables
+            .iter()
+            .rposition(|(info, _)| info.name == name)
+        {
+            return self.call_llm(i, &args);
         }
 
         // Check patterns
-        for pattern in self.patterns.iter() {
-            if pattern.name == name {
-                if args.len() != pattern.param_count {
-                    return Err(format!(
-                        "VM: pattern {} expects {} args, got {}",
-                        name,
-                        pattern.param_count,
-                        args.len()
-                    ));
-                }
-
-                // ── VM bytecode path ───────────────────────────
-                // Clone everything needed before mutable self borrow
-                let param_types = pattern.param_types.clone();
-                let code = pattern.code.clone();
-
-                // ADR-0089: reset propagated confidence before collapse
-                self.propagated_confidence = 1.0;
-                // Collapse Fluid arguments to parameter types
-                let collapsed_args: Vec<Value> = args
-                    .iter()
-                    .zip(param_types.iter())
-                    .map(|(arg, param_type)| self.maybe_collapse(arg, param_type))
-                    .collect();
-                // Execute pattern body as bytecode
-                let mut stack: Vec<Value> = Vec::new();
-                let mut call_stack: Vec<CallFrame> = vec![CallFrame {
-                    return_ip: 0,
-                    base_bp: 0,
-                }];
-                let program = Program {
-                    globals: Vec::new(),
-                    patterns: std::sync::Arc::new(Vec::new()),
-                    learnables: Vec::new(),
-                    rules: Vec::new(),
-                    skill_indices: Vec::new(),
-                    reflex_decls: Vec::new(),
-                    origin_decls: Vec::new(),
-                    reflex_seq_decls: Vec::new(),
-                    reflex_gen_decls: Vec::new(),
-                    vision_decls: Vec::new(),
-                    deny_handlers: Vec::new(),
-                    memory_persist_path: None,
-                    conversation_config: Default::default(),
-                    db_url: None,
-                    db_url_env: None,
-                    schema_ddl: Vec::new(),
-                    main_code: Vec::new(),
-                    collections_loaded: false,
-                    shared_cache: crate::bytecode::ProgramSharedCache::new(),
-                };
-                for arg in collapsed_args {
-                    stack.push(arg);
-                }
-                let result = self.execute_code(&code, &mut stack, &mut call_stack, &program);
-                // ADR-0089: wrap result as Fluid if confidence was propagated
-                return Self::vm_wrap_with_confidence(result, self.propagated_confidence);
+        if let Some(i) = self.patterns.iter().rposition(|p| p.name == name) {
+            let pattern = self.patterns[i].clone();
+            if args.len() != pattern.param_count {
+                return Err(format!(
+                    "VM: pattern {} expects {} args, got {}",
+                    name,
+                    pattern.param_count,
+                    args.len()
+                ));
             }
+
+            // ── VM bytecode path ───────────────────────────
+            // Clone everything needed before mutable self borrow
+            let param_types = pattern.param_types.clone();
+            let code = pattern.code.clone();
+
+            // ADR-0089: reset propagated confidence before collapse
+            self.propagated_confidence = 1.0;
+            // Collapse Fluid arguments to parameter types
+            let collapsed_args: Vec<Value> = args
+                .iter()
+                .zip(param_types.iter())
+                .map(|(arg, param_type)| self.maybe_collapse(arg, param_type))
+                .collect();
+            // Execute pattern body as bytecode
+            let mut stack: Vec<Value> = Vec::new();
+            let mut call_stack: Vec<CallFrame> = vec![CallFrame {
+                return_ip: 0,
+                base_bp: 0,
+            }];
+            let program = Program {
+                globals: Vec::new(),
+                patterns: std::sync::Arc::new(Vec::new()),
+                learnables: Vec::new(),
+                rules: Vec::new(),
+                skill_indices: Vec::new(),
+                reflex_decls: Vec::new(),
+                origin_decls: Vec::new(),
+                reflex_seq_decls: Vec::new(),
+                reflex_gen_decls: Vec::new(),
+                vision_decls: Vec::new(),
+                deny_handlers: Vec::new(),
+                memory_persist_path: None,
+                conversation_config: Default::default(),
+                db_url: None,
+                db_url_env: None,
+                schema_ddl: Vec::new(),
+                main_code: Vec::new(),
+                collections_loaded: false,
+                shared_cache: crate::bytecode::ProgramSharedCache::new(),
+            };
+            for arg in collapsed_args {
+                stack.push(arg);
+            }
+            let result = self.execute_code(&code, &mut stack, &mut call_stack, &program);
+            // ADR-0089: wrap result as Fluid if confidence was propagated
+            return Self::vm_wrap_with_confidence(result, self.propagated_confidence);
         }
 
         // Check builtins
@@ -4510,6 +4580,12 @@ impl Vm {
         program: &Program,
         base: &ChunkBase,
     ) -> Result<Option<String>, String> {
+        // №829: the session path has NO pre-scan — the chunk's tables GROW
+        // (a redeclared learnable is shadowed to a fresh index the compiler
+        // assigned), so the RegisterLearnable handler must push. Clearing
+        // the cursor here (not only in reset_for_reuse) keeps the two
+        // entry paths explicit: load_program arms it, run_chunk disarms it.
+        self.learnable_register_cursor = None;
         // ── The loud base validation ────────────────────────────────
         let live = (
             self.globals.len(),
@@ -5179,6 +5255,7 @@ mod n403_reset_tests {
             global_names,
             patterns,
             learnables,
+            learnable_register_cursor,
             builtins,
             builtin_names,
             memory,
@@ -5228,6 +5305,7 @@ mod n403_reset_tests {
             global_names,
             patterns,
             learnables,
+            learnable_register_cursor,
             builtins,
             builtin_names,
             memory,

@@ -29,6 +29,17 @@ pub struct Compiler {
     pattern_bodies: Vec<CompiledFn>,
     /// Pattern name -> index in program.patterns.
     pattern_indices: HashMap<String, usize>,
+    /// Наряд №829 (gh#1622, волна 69): the POSITIONAL allocator for
+    /// CallPattern indices — counts the pattern BODIES the pass2 collector
+    /// will push, in declaration walk order. A name-keyed map's `len()`
+    /// must NEVER allocate the index: a redeclared name (the office stub
+    /// convention — a local stub shadows an imported pattern, ADR-0161
+    /// batteries) keeps the map size flat, so the next FRESH pattern was
+    /// handed the shadow's index and every later index shifted against
+    /// `pattern_bodies` — the #1616/#1618 mis-dispatch class (a call
+    /// executed the pattern defined immediately before the target;
+    /// silent when arities coincide). Mirrors `pattern_bodies.push` 1:1.
+    pattern_body_next_idx: usize,
     /// №684 (В43): declared tool names — the gate for the QualifiedCall
     /// tool-namespace branch. A known tool resolves ONLY through its
     /// qualified methods (ADR-0054, mirroring the interpreter's is_tool
@@ -38,6 +49,13 @@ pub struct Compiler {
     tool_names: HashSet<String>,
     /// Learnable pattern name -> index in program.learnables.
     learnable_indices: HashMap<String, usize>,
+    /// Наряд №829: the positional allocator for CallLearnable indices —
+    /// the same body-count contract as `pattern_body_next_idx` (the
+    /// RegisterLearnable emission is 1:1 with the `Declaration::LearnablePattern`
+    /// walk order; a redeclared learnable name must not collapse the
+    /// index space the way the map-`len()` allocator did for patterns).
+    /// Mirrors the RegisterLearnable emission 1:1.
+    learnable_body_next_idx: usize,
     /// Builtin name -> index in builtin table.
     builtin_indices: HashMap<String, usize>,
     /// Struct type name -> field names (in declaration order).
@@ -317,8 +335,10 @@ impl Compiler {
             next_global: 0,
             pattern_bodies: Vec::new(),
             pattern_indices: HashMap::new(),
+            pattern_body_next_idx: 0,
             tool_names: HashSet::new(),
             learnable_indices: HashMap::new(),
+            learnable_body_next_idx: 0,
             builtin_indices,
             struct_fields: HashMap::new(),
             rules: Vec::new(),
@@ -376,12 +396,17 @@ impl Compiler {
             .enumerate()
             .map(|(i, name)| (name.clone(), i))
             .collect();
+        // №829: the positional allocators continue where the base tables
+        // end — the chunk's bodies append after the base in the live VM
+        // (run_chunk appends), so the next body slot IS the base length.
+        compiler.pattern_body_next_idx = base.pattern_names.len();
         compiler.learnable_indices = base
             .learnable_names
             .iter()
             .enumerate()
             .map(|(i, name)| (name.clone(), i))
             .collect();
+        compiler.learnable_body_next_idx = base.learnable_names.len();
         compiler.struct_fields = base.struct_fields;
         compiler
     }
@@ -397,13 +422,17 @@ impl Compiler {
                 global_names[slot] = name.clone();
             }
         }
-        let mut pattern_names = vec![String::new(); self.pattern_indices.len()];
+        // №829: sized by the BODY count (the allocator), not the map
+        // size — with a redeclared name the map is smaller than the
+        // highest index, and sizing by the map dropped the tail names
+        // from the session base (the next chunk would mis-resolve them).
+        let mut pattern_names = vec![String::new(); self.pattern_body_next_idx];
         for (name, &idx) in &self.pattern_indices {
             if idx < pattern_names.len() {
                 pattern_names[idx] = name.clone();
             }
         }
-        let mut learnable_names = vec![String::new(); self.learnable_indices.len()];
+        let mut learnable_names = vec![String::new(); self.learnable_body_next_idx];
         for (name, &idx) in &self.learnable_indices {
             if idx < learnable_names.len() {
                 learnable_names[idx] = name.clone();
@@ -449,6 +478,125 @@ impl Compiler {
 
         // Pass 2: generate main_code
         let main_code = self.pass2(&all_decls)?;
+
+        // Наряд №829 (gh#1622, волна 69): the LOUD dispatch-table gate —
+        // the by-construction backstop for the #1616/#1618 class. Every
+        // name in `pattern_indices` must land on the body slot whose
+        // CompiledFn name matches (the last-wins shadow the TW registry
+        // produces; the allocator above mirrors the collector 1:1), and
+        // every CallLearnable index must land on the RegisterLearnable
+        // emission carrying the same name. A violation means bytecode
+        // past the compiler's own invariant — refusing HERE is loud and
+        // cheap; executing it would dispatch a FOREIGN pattern (silent
+        // when arities coincide — the dangerous #1616 mode). Mirrors the
+        // №264 backstop contract: bytecode past the check fails loudly,
+        // never silently.
+        for (name, &idx) in &self.pattern_indices {
+            match self.pattern_bodies.get(idx) {
+                Some(body) if body.name == *name => {}
+                Some(body) => {
+                    return Err(format!(
+                        "compile: pattern dispatch table corrupt — '{}' maps to slot {} holding '{}' (the #1616 class: a call would execute a foreign pattern); compiler invariant violation, report it",
+                        name, idx, body.name
+                    ));
+                }
+                None => {
+                    return Err(format!(
+                        "compile: pattern dispatch table corrupt — '{}' maps to slot {} beyond the body table ({} entries); compiler invariant violation, report it",
+                        name,
+                        idx,
+                        self.pattern_bodies.len()
+                    ));
+                }
+            }
+        }
+        {
+            let learnable_bodies: Vec<&CompiledLearnableInfo> = main_code
+                .iter()
+                .filter_map(|instr| match instr {
+                    Instruction::RegisterLearnable(info) => Some(&**info),
+                    // №829: the exhaustive arm list is the crate's
+                    // wildcard-match ratchet — a NEW Instruction variant must
+                    // consciously decide whether it registers a learnable.
+                    Instruction::Const(_)
+                    | Instruction::LabelJoin(_)
+                    | Instruction::SinkCheck(_)
+                    | Instruction::LoadGlobal(_)
+                    | Instruction::LoadGlobalByName(_)
+                    | Instruction::StoreGlobal(_)
+                    | Instruction::LoadLocal(_)
+                    | Instruction::StoreLocal(_)
+                    | Instruction::RegisterPattern(_)
+                    | Instruction::CallBuiltin(..)
+                    | Instruction::CallPattern(..)
+                    | Instruction::Return
+                    | Instruction::Add
+                    | Instruction::Sub
+                    | Instruction::Mul
+                    | Instruction::Div
+                    | Instruction::Contains
+                    | Instruction::CmpGt
+                    | Instruction::CmpLt
+                    | Instruction::CmpGe
+                    | Instruction::CmpLe
+                    | Instruction::CmpEq
+                    | Instruction::CmpNe
+                    | Instruction::MakeStruct(_)
+                    | Instruction::GetField(_)
+                    | Instruction::IndexAccess
+                    | Instruction::MakeList(_)
+                    | Instruction::ListLen
+                    | Instruction::Pop
+                    | Instruction::PushUnit
+                    | Instruction::StartsWith
+                    | Instruction::MakeFluid(_)
+                    | Instruction::Jump(_)
+                    | Instruction::JumpIfNot(_)
+                    | Instruction::JumpIfLow(..)
+                    | Instruction::Collapse(_)
+                    | Instruction::Memorize(_)
+                    | Instruction::Recall
+                    | Instruction::Forget(_)
+                    | Instruction::LlmCall(..)
+                    | Instruction::Adapt(_)
+                    | Instruction::Relate
+                    | Instruction::Mutate(_)
+                    | Instruction::FlowPipeline(_)
+                    | Instruction::FlowExec(_)
+                    | Instruction::TryEval(_)
+                    | Instruction::ExecuteRules
+                    | Instruction::Halt
+                    | Instruction::StoreAssignLocal(_)
+                    | Instruction::MatchTest(_)
+                    | Instruction::Dup
+                    | Instruction::BeginValueExpr
+                    | Instruction::KeepLastValue
+                    | Instruction::EndValueExpr
+                    | Instruction::SetValueReg
+                    | Instruction::RegisterPatternRef(_)
+                    | Instruction::JumpIfNotCond(_) => None,
+                })
+                .collect();
+            for (name, &idx) in &self.learnable_indices {
+                match learnable_bodies.get(idx) {
+                    Some(info) if info.name == *name => {}
+                    Some(info) => {
+                        return Err(format!(
+                            "compile: learnable dispatch table corrupt — '{}' maps to slot {} holding '{}' (the #1616 class for LlmCall); compiler invariant violation, report it",
+                            name, idx, info.name
+                        ));
+                    }
+                    None => {
+                        return Err(format!(
+                            "compile: learnable dispatch table corrupt — '{}' maps to slot {} beyond the RegisterLearnable emission ({} entries); compiler invariant violation, report it",
+                            name,
+                            idx,
+                            learnable_bodies.len()
+                        ));
+                    }
+                }
+            }
+        }
 
         let program = Program {
             // Build globals list with actual names (indexed by slot)
@@ -506,11 +654,23 @@ impl Compiler {
                     self.ensure_global(&e.name);
                 }
                 Declaration::Pattern(p) => {
-                    let idx = self.pattern_indices.len();
+                    // №829: the slot comes from the BODY allocator (the
+                    // count of bodies the pass2 collector will have pushed
+                    // before this declaration's own body), never from the
+                    // map size. A redeclared name overwrites its map entry
+                    // (last-wins — the TW registry semantics) while the
+                    // allocator still advances: both bodies exist in the
+                    // table, and the name binds to the LATER one.
+                    let idx = self.pattern_body_next_idx;
+                    self.pattern_body_next_idx += 1;
                     self.pattern_indices.insert(p.name.clone(), idx);
                 }
                 Declaration::LearnablePattern(lp) => {
-                    let idx = self.learnable_indices.len();
+                    // №829: the same body-count allocator (see the Pattern
+                    // arm) — the RegisterLearnable emission is 1:1 with
+                    // this walk order.
+                    let idx = self.learnable_body_next_idx;
+                    self.learnable_body_next_idx += 1;
                     self.learnable_indices.insert(lp.name.clone(), idx);
                 }
                 Declaration::Fluid(fl) => {
@@ -673,7 +833,11 @@ impl Compiler {
                 Declaration::Tool(t) => {
                     for method in &t.methods {
                         let qualified = format!("{}.{}", t.name, method.name);
-                        let idx = self.pattern_indices.len();
+                        // №829: the body-count allocator (see the Pattern
+                        // arm) — the pass2 collector pushes one body per
+                        // method at this same walk position.
+                        let idx = self.pattern_body_next_idx;
+                        self.pattern_body_next_idx += 1;
                         self.pattern_indices.insert(qualified, idx);
                     }
                     self.tool_names.insert(t.name.clone());

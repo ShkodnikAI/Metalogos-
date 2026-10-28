@@ -539,6 +539,10 @@ impl Interpreter {
         // get_memory_persist_path takes &self — they conflict otherwise).
         if name == crate::reflex_ops::NAME_REFLEX_SAVE {
             let persist = self.get_memory_persist_path();
+            // №825: the attestation input BEFORE the registry lock (the
+            // consistent lock order — distill_states never under the
+            // registry mutex).
+            let attest_input = self.attest_input_for_args(&args);
             let reg = self
                 .reflex_registry
                 .lock()
@@ -547,11 +551,14 @@ impl Interpreter {
                 &reg,
                 &self.reflex_names,
                 persist.as_deref(),
+                attest_input.as_ref(),
                 &args,
             );
         }
         if name == crate::reflex_ops::NAME_REFLEX_LOAD {
             let persist = self.get_memory_persist_path();
+            // №825: same order — the attestation input first, then the lock.
+            let attest_input = self.attest_input_for_args(&args);
             let mut reg = self
                 .reflex_registry
                 .lock()
@@ -560,9 +567,16 @@ impl Interpreter {
                 &mut reg,
                 &self.reflex_names,
                 persist.as_deref(),
+                attest_input.as_ref(),
                 &args,
             )?;
             return Ok(result);
+        }
+        // Наряд №825 (ADR-0200): attest_verify — read-only provenance
+        // verification (the flow-path arm; the expression path goes
+        // through invoke_attest_verify below).
+        if name == crate::builtins::NAME_ATTEST_VERIFY {
+            return self.invoke_attest_verify(args);
         }
         // Наряд №187: reflex_metrics / reflex_list — introspection (read-only).
         // Same dispatch pattern as reflex_predict, but read-only.
@@ -2010,6 +2024,20 @@ impl Interpreter {
                             ));
                         }
                     }
+                    // Наряд №825: attest_verify(Model) — the same bare-Ident
+                    // resolution (the reflex-group marshaling shape).
+                    if name == crate::builtins::NAME_ATTEST_VERIFY && i == 0 {
+                        if let Expr::Ident { name: n, .. } = arg {
+                            if let Some(id) = self.reflex_names.get(n) {
+                                eval_args.push(Value::Reflex(*id));
+                                continue;
+                            }
+                            return Err(format!(
+                                "attest_verify: model '{}' not declared (no matching `reflex {} {{ ... }}` block)",
+                                n, n
+                            ));
+                        }
+                    }
                     // Наряд №193: reflex_generate(ModelName, ...) — same bare-Ident resolution.
                     if name == crate::reflex_ops::NAME_REFLEX_GENERATE && i == 0 {
                         if let Expr::Ident { name: n, .. } = arg {
@@ -2051,6 +2079,11 @@ impl Interpreter {
                 }
                 if name == crate::reflex_ops::NAME_REFLEX_LIST {
                     return self.invoke_reflex_list(eval_args);
+                }
+                // Наряд №825 (ADR-0200): attest_verify — read-only
+                // provenance verification (tier experimental, поправка (г)).
+                if name == crate::builtins::NAME_ATTEST_VERIFY {
+                    return self.invoke_attest_verify(eval_args);
                 }
                 // Наряд №193: reflex_generate — text generation (ADR-0120).
                 if name == crate::reflex_ops::NAME_REFLEX_GENERATE {

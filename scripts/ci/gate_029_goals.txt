@@ -138,5 +138,5 @@ fact_blocking_check_cells: 33
 # Float (the registry row stops lying — the #1528 stale anchor; the real
 # parameterized INSERT since №409/№783, the №736 stale-anchor class).
 # 242 → 243/526.
-# (243*10000)//526 = 4619 bp (the same-PR raise, №757).
-fact_precise_share_bp: 4619
+# (243*10000)//527 = 4611 bp (the №825 registry growth: the denominator 526 → 527).
+fact_precise_share_bp: 4611

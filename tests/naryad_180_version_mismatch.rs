@@ -44,7 +44,7 @@ fn version_mismatch_is_explicit_error() {
     // Save the model.
     {
         let model = registry.get_dense(id).expect("model");
-        persist::save_model_to_db(model, "version_test", &db_path).expect("save");
+        persist::save_model_to_db(model, "version_test", &db_path, None).expect("save");
     }
 
     // Manually corrupt the REFLEX_VERSION field in the stored blob.
@@ -83,7 +83,14 @@ fn version_mismatch_is_explicit_error() {
     .expect("update");
 
     // Try to load — should fail with explicit version error.
-    let result = persist::load_model_from_db(&mut registry, id, "version_test", &db_path);
+    let result = persist::load_model_from_db(
+        &mut registry,
+        id,
+        "version_test",
+        &db_path,
+        None,
+        metalogos::nn::attest::AttestPolicy::lenient(),
+    );
 
     assert!(
         result.is_err(),
@@ -112,7 +119,7 @@ fn corrupted_magic_bytes_is_explicit_error() {
     let id = registry.register(make_model(7));
     {
         let model = registry.get_dense(id).expect("model");
-        persist::save_model_to_db(model, "version_test", &db_path).expect("save");
+        persist::save_model_to_db(model, "version_test", &db_path, None).expect("save");
     }
 
     // Corrupt the magic bytes.
@@ -135,7 +142,14 @@ fn corrupted_magic_bytes_is_explicit_error() {
     )
     .expect("update");
 
-    let result = persist::load_model_from_db(&mut registry, id, "version_test", &db_path);
+    let result = persist::load_model_from_db(
+        &mut registry,
+        id,
+        "version_test",
+        &db_path,
+        None,
+        metalogos::nn::attest::AttestPolicy::lenient(),
+    );
     assert!(result.is_err(), "load should fail on bad magic");
     let err_msg = result.unwrap_err().to_lowercase();
     assert!(

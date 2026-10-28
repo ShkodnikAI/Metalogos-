@@ -59,6 +59,7 @@ The `mlog` binary supports the following commands:
 | `mlog mcp-serve <file.mlog> --allowlist t1.m1,t2` | Expose `tool` constructs as MCP tools (transports: stdio default \| http \| sse — see below) |
 | `mlog ledger verify <file.jsonl> [--expect-head H] [--expect-key K]` | External verification of an exported Action Ledger chain (no runtime; Naryad #393, ADR-0167) |
 | `mlog ledger archive <in.jsonl> <out.jsonl> --at <seq>` | Archive the chain at a snapshot anchor (verified before written) |
+| `mlog attest verify <file.mlog> [--model=Name] [--allow-stale] [--json]` | Verify a reflex model's attestation certificate against the CURRENT declarations — pure parse + SQLite read, the program is NOT executed (Naryad #825, ADR-0200). Exit 0 = provenance-consistent, 1 = refusal (the loud reason). |
 
 #### MCP server (`mlog mcp-serve`) — transports, auth, tool-policy (Naryad #394, ADR-0168)
 
@@ -686,7 +687,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 526 registered builtins (526 of 526): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 527 registered builtins (527 of 527): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -1538,10 +1539,11 @@ The `Reflex` pillar trains, predicts, persistently stores, and distills local ne
 |---|---|---|---|
 | `reflex_train(model, data, epochs, metric, threshold)` | `(Reflex, List<List<Float>>, Float, String, Float) -> Struct` | `Struct{loss: Float, accuracy: Float, metric: String, threshold_met: Bool}` | Trains model `model` on `data`. Each row of `data` is `[features..., class_idx]` (the last element is the label index). An 80/20 holdout split (ADR-0115), a minimum of 10 examples. `epochs` is the number of epochs (>=0), `metric` is a metric name from `METRIC_REGISTRY` (usually `"accuracy"`), `threshold` is a 0.0..1.0 threshold for `threshold_met`. `learning_rate` is fixed at 0.1. |
 | `reflex_predict(model, input)` | `(Reflex, List<Float>) -> Fluid` | A `Fluid` with variants per label | Predicts for a new input. Returns a `Fluid` with one variant per label: `type_name: "Label"`, `value: String(label_name)`, `confidence: Float` (the softmax probability). Variants are sorted by descending confidence — `to_string(fluid)` shows the label with the highest confidence. |
-| `reflex_save(model)` | `(Reflex) -> Unit` | `Unit` | Saves the trained weights plus metadata to SQLite (configured via `memory { persist: "path.db" }`, ADR-0116). The key is the model's name from its declaration. Format checks: a `REFLEX_VERSION` or shape mismatch is an explicit error, not silent corruption. |
-| `reflex_load(name)` | `(String) -> Reflex` | `Reflex` (a handle to the existing model) | Loads the weights for a previously saved model and applies them to the *current* `reflex` declaration with the same name. Does not register a new model — it mutates the weights of the existing one. Errors on a shape mismatch if the declaration has changed. |
+| `reflex_save(model)` | `(Reflex) -> Unit` | `Unit` | Saves the trained weights plus metadata to SQLite (configured via `memory { persist: "path.db" }`, ADR-0116). The key is the model's name from its declaration. Format checks: a `REFLEX_VERSION` or shape mismatch is an explicit error, not silent corruption. №825 (ADR-0200): when the model has a distilling learnable pattern, the save also writes the attestation certificate + the `reflex.attest` ledger anchor in the same transaction — a ledger failure is a loud save error (the artifact rule), and the weights are never stored without their certificate. |
+| `reflex_load(name)` | `(String) -> Reflex` | `Reflex` (a handle to the existing model) | Loads the weights for a previously saved model and applies them to the *current* `reflex` declaration with the same name. Does not register a new model — it mutates the weights of the existing one. Errors on a shape mismatch if the declaration has changed. №825 (ADR-0200): the stored certificate is verified first — weights/embed mismatches always refuse, a stale spec refuses unless `--allow-stale`/`METALOGOS_ATTEST_ALLOW_STALE` (loudly audited); no certificate (pre-W1 weights) warns and continues with `cert: none`, `METALOGOS_ATTEST_STRICT=1` refuses (also for `unsigned` certificates) — the default flips strict one release after W1. |
 | `reflex_metrics(model)` | `(Reflex) -> Struct` | `Struct{name, is_trained, last_metric, input_size, labels}` (Naryad #187) | Read-only introspection: returns the model's metadata (NOT the weights, ADR-0114). `is_trained: Bool` (true if `last_metric` is set), `last_metric: Float\|Unit` (the last accuracy/loss, `Unit` if untrained), `input_size: Float`, `labels: List<String>`. Works for both `reflex` and `reflex_seq`. |
 | `reflex_list()` | `() -> List<String>` | `List<String>` (Naryad #187) | Returns the names of all declared `reflex`/`reflex_seq` models in declaration order. Read-only — for monitoring, dashboards, an externally-checked `rollback_if`. |
+| `attest_verify(model)` | `(Reflex) -> Struct` | `Struct{ok: Bool, level: String, spec_hash: String, reason: String}` (Naryad #825, ADR-0200; tier `experimental`) | Read-only provenance verification against the stored certificate. Re-serializes the live weights (the hash must match `weights_sha256`), recomputes the spec hash from the CURRENT declarations and compares the three hashes. `ok: true` means provenance consistency — NEVER quality. `level`: `unfiltered` (every W1 dataset — decision 5), `unsigned`/`signed` (the certificate's ledger-anchor levels, from W4), `none` (no certificate). Refusal codes in `reason`: `[ATTESTATION_STALE]` (the changed spec field is named), `[ATTESTATION_EMBED_MISMATCH]`, `[ATTESTATION_WEIGHTS_CHANGED]`; `[ATTESTATION_DATA_CHANGED]` is informational, not a refusal. |
 
 **The `reflex` declaration** (naryad #178):
 
@@ -2223,7 +2225,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 526 registered builtins — the three maturity tiers: stable 483 / experimental 22 / parked 21 (№809: the C3(a) levels)
+## 6. Builtin Index — 527 registered builtins — the three maturity tiers: stable 483 / experimental 23 / parked 21 (№809: the C3(a) levels)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest. The sections read by MATURITY TIER (№809): the `stable` tier is the primary reference; `experimental` and `parked` are explicitly separated so a reader never mistakes a gated builtin for an always-available one.
 
@@ -2647,10 +2649,10 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `reflex_bpe_train(...)` | 2 | — | `reflex_bpe_train(corpus: String, vocab_size: Float) -> BpeVocab` | stable |
 | `reflex_detokenize(...)` | 1 | — | `reflex_detokenize(tokens) -> String` | stable |
 | `reflex_list(...)` | variadic | `() -> List<String>` | Returns the names of all declared `reflex`/`reflex_seq` models in declaration order. Read-only — for monitoring, dashboards, an externally-checked `rollback_if`. | stable |
-| `reflex_load(...)` | 1 | `(String) -> Reflex` | Loads the weights for a previously saved model and applies them to the *current* `reflex` declaration with the same name. Does not register a new model — it mutates the weights of the existing one. Errors on a shape mismatch if the declaration has changed. | stable |
+| `reflex_load(...)` | 1 | `(String) -> Reflex` | Loads the weights for a previously saved model and applies them to the *current* `reflex` declaration with the same name. Does not register a new model — it mutates the weights of the existing one. Errors on a shape mismatch if the declaration has changed. №825 (ADR-0200): the stored certificate is verified first — weights/embed mismatches always refuse, a stale spec refuses unless `--allow-stale`/`METALOGOS_ATTEST_ALLOW_STALE` (loudly audited); no certificate (pre-W1 weights) warns and continues with `cert: none`, `METALOGOS_ATTEST_STRICT=1` refuses (also for `unsigned` certificates) — the default flips strict one release after W1. | stable |
 | `reflex_metrics(...)` | 1 | `(Reflex) -> Struct` | Read-only introspection: returns the model's metadata (NOT the weights, ADR-0114). `is_trained: Bool` (true if `last_metric` is set), `last_metric: Float\|Unit` (the last accuracy/loss, `Unit` if untrained), `input_size: Float`, `labels: List<String>`. Works for both `reflex` and `reflex_seq`. | stable |
 | `reflex_predict(...)` | 2 | `(Reflex, List<Float>) -> Fluid` | Predicts for a new input. Returns a `Fluid` with one variant per label: `type_name: "Label"`, `value: String(label_name)`, `confidence: Float` (the softmax probability). Variants are sorted by descending confidence — `to_string(fluid)` shows the label with the highest confidence. | stable |
-| `reflex_save(...)` | 1 | `(Reflex) -> Unit` | Saves the trained weights plus metadata to SQLite (configured via `memory { persist: "path.db" }`, ADR-0116). The key is the model's name from its declaration. Format checks: a `REFLEX_VERSION` or shape mismatch is an explicit error, not silent corruption. | stable |
+| `reflex_save(...)` | 1 | `(Reflex) -> Unit` | Saves the trained weights plus metadata to SQLite (configured via `memory { persist: "path.db" }`, ADR-0116). The key is the model's name from its declaration. Format checks: a `REFLEX_VERSION` or shape mismatch is an explicit error, not silent corruption. №825 (ADR-0200): when the model has a distilling learnable pattern, the save also writes the attestation certificate + the `reflex.attest` ledger anchor in the same transaction — a ledger failure is a loud save error (the artifact rule), and the weights are never stored without their certificate. | stable |
 | `reflex_tokenize(...)` | 1 | — | `reflex_tokenize(text) -> List<Float>` | stable |
 | `reflex_train(...)` | 5 | `(Reflex, List<List<Float>>, Float, String, Float) -> Struct` | Trains model `model` on `data`. Each row of `data` is `[features..., class_idx]` (the last element is the label index). An 80/20 holdout split (ADR-0115), a minimum of 10 examples. `epochs` is the number of epochs (>=0), `metric` is a metric name from `METRIC_REGISTRY` (usually `"accuracy"`), `threshold` is a 0.0..1.0 threshold for `threshold_met`. `learning_rate` is fixed at 0.1. | stable |
 
@@ -2928,7 +2930,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `xml_parse(...)` | 1 | — | `xml_parse(xml) -> Struct<XmlNode>{tag, attrs, text, children}` — the general tree. The depth cap (256) and the node cap (10 000) both fail LOUD: the recursive build must not blow the stack on an adversarial chain. | stable |
 
 
-### Tier `experimental` — the opt-in tier (present, maturing, may change) (22)
+### Tier `experimental` — the opt-in tier (present, maturing, may change) (23)
 
 #### `db` — 1 builtin(s)
 
@@ -2960,6 +2962,12 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `forecast_state(...)` | 1 | — | `forecast_state(handle) -> Struct` | experimental |
 | `series_make(...)` | 1..2 | — | `series_make(source, frequency?) -> Series` | experimental |
 | `series_pull(...)` | 2 | — | `series_pull(grant, source) -> Series` | experimental |
+
+#### `reflex` — 1 builtin(s)
+
+| Builtin | Arity | Signature (curated) | Description | Tier |
+|---|---|---|---|---|
+| `attest_verify(...)` | 1 | `(Reflex) -> Struct` | Read-only provenance verification against the stored certificate. Re-serializes the live weights (the hash must match `weights_sha256`), recomputes the spec hash from the CURRENT declarations and compares the three hashes. `ok: true` means provenance consistency — NEVER quality. `level`: `unfiltered` (every W1 dataset — decision 5), `unsigned`/`signed` (the certificate's ledger-anchor levels, from W4), `none` (no certificate). Refusal codes in `reason`: `[ATTESTATION_STALE]` (the changed spec field is named), `[ATTESTATION_EMBED_MISMATCH]`, `[ATTESTATION_WEIGHTS_CHANGED]`; `[ATTESTATION_DATA_CHANGED]` is informational, not a refusal. | experimental |
 
 #### `stub` — 6 builtin(s)
 
@@ -3454,6 +3462,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `reflex_load` | source | internal | pure | ingests persisted weights from SQLite |
 | `reflex_metrics` | pure | public | pure | — |
 | `reflex_list` | source | internal | pure | reads the Reflex registry state |
+| `attest_verify` | source | internal | pure | reads the attestation certificate from the persistent store (ADR-0200, №825) |
 | `reflex_generate` | source | internal | pure | ingests untrusted model output (LlmOutput-equivalent per №201) |
 | `reflex_tokenize` | pure | public | pure | — |
 | `reflex_detokenize` | pure | public | pure | — |

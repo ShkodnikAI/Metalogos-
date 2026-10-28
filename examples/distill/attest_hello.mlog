@@ -1,0 +1,49 @@
+// Наряд №825 (ADR-0200): the W1 attestation — a minimal save → verify tour.
+//
+// Train a model, save it (the certificate + the reflex.attest ledger
+// anchor land in the same transaction), then verify the provenance with
+// the attest_verify builtin. NOTE: examples/distill/ is deliberately
+// OUTSIDE the golden loop (golden.rs reads examples/ non-recursively) —
+// this file is documentation, not a pinned-output contract.
+//
+// Run: mlog run examples/distill/attest_hello.mlog
+// Verify standalone: mlog attest verify examples/distill/attest_hello.mlog
+
+memory { persist: "target/test_artifacts/attest_hello.db" }
+
+reflex AttestHead {
+  input: embedding(4)
+  layers: [dense(8, "relu"), dense(2, "softmax")]
+  labels: ["pos", "neg"]
+  seed: 42
+}
+
+learnable pattern Classify(text: String) -> String {
+  prompt: "classify the text"
+  distill_to: AttestHead
+  distill_after: 100
+}
+
+pattern Drive(_x: String) -> String {
+  // Rows are [features..., class_idx] — 4 features + the label index.
+  let data = [
+    [0.0, 0.1, 0.2, 0.0, 0.0],
+    [0.2, 0.0, 0.1, 0.1, 0.0],
+    [0.1, 0.2, 0.0, 0.2, 0.0],
+    [5.0, 5.1, 5.2, 5.0, 1.0],
+    [5.2, 5.0, 5.1, 5.1, 1.0],
+    [5.1, 5.2, 5.0, 5.2, 1.0],
+    [0.3, 0.0, 0.1, 0.0, 0.0],
+    [0.0, 0.3, 0.2, 0.1, 0.0],
+    [5.3, 5.0, 5.1, 5.0, 1.0],
+    [5.0, 5.3, 5.2, 5.1, 1.0],
+    [5.2, 5.1, 5.3, 5.2, 1.0],
+    [5.1, 5.2, 5.0, 5.3, 1.0]
+  ]
+  let _t = reflex_train(AttestHead, data, 200.0, "accuracy", 0.85)
+  let _s = reflex_save(AttestHead)
+  let v = attest_verify(AttestHead)
+  return "ok=" + to_string(v.ok) + ";level=" + v.level
+}
+
+flow Main { input: String = "x" -> Drive -> output }

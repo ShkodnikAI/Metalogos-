@@ -375,13 +375,20 @@ fn n504_signature_migration_is_loud_and_blocking() {
     let (registry, id) = make_head();
     {
         let model = registry.get_dense(id).expect("model");
-        persist::save_model_to_db(model, "Head", &db).expect("save");
+        persist::save_model_to_db(model, "Head", &db, None).expect("save");
     }
 
     // A fresh registry loads it cleanly — the current signature round-trips.
     let (mut registry_b, id_b) = make_head();
-    persist::load_model_from_db(&mut registry_b, id_b, "Head", &db)
-        .expect("a current-signature save must load");
+    persist::load_model_from_db(
+        &mut registry_b,
+        id_b,
+        "Head",
+        &db,
+        None,
+        metalogos::nn::attest::AttestPolicy::lenient(),
+    )
+    .expect("a current-signature save must load");
     let loaded = registry_b.get_dense(id_b).expect("loaded");
     assert_eq!(loaded.feature_signature, DISTILL_FEATURE_SIGNATURE);
 
@@ -399,8 +406,15 @@ fn n504_signature_migration_is_loud_and_blocking() {
 
     // The weights stay READABLE — the load succeeds either way…
     let (mut registry_c, id_c) = make_head();
-    persist::load_model_from_db(&mut registry_c, id_c, "Head", &db)
-        .expect("a legacy-signature save must still LOAD (the weights are readable)");
+    persist::load_model_from_db(
+        &mut registry_c,
+        id_c,
+        "Head",
+        &db,
+        None,
+        metalogos::nn::attest::AttestPolicy::lenient(),
+    )
+    .expect("a legacy-signature save must still LOAD (the weights are readable)");
     // …but the model is stamped loudly, and the distill predicate refuses.
     let stale_signature = registry_c
         .get_dense(id_c)

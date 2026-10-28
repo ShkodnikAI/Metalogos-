@@ -174,3 +174,63 @@ headroom.
    soft default is explicitly time-boxed to one release window after
    W1, with the flip recorded in CHANGELOG Migration — the window is
    part of the contract, not an accident.
+
+## §7. The implementation record (№825, 2026-10-28)
+
+The W1 naryad landed; this section records the machine facts of the
+implementation (the §4 sketch, realized — deviations are named, never
+silent):
+
+1. **The canonical spec form.** `spec_hash` covers the machine-built
+   JSON of the pattern signature: pattern name, prompt, distill_after,
+   fallback_if (the operator as the canonical word), min_accuracy,
+   margin (the RESOLVED values), reflex name, input_size, labels, seed,
+   the layer descriptors (`dense(in,out)` — type name + running dims),
+   and the metric literal `accuracy` (the only registered gating metric
+   until №826 widens the registry). Comments, formatting and `cache*`
+   keys cannot enter — they are not part of the compiled pattern node.
+   Activation kind is deliberately excluded (recoverable at deserialize;
+   the persist Block 3 documents an activation swap as "the architecture
+   didn't change"); weight BYTES are the `weights_sha256` lane.
+2. **The changed-field name.** The `[ATTESTATION_STALE]` contract names
+   the changed field — which requires the OLD canonical spec at verify
+   time. The history table carries one extra column, `spec_json` (the
+   exact canonical string per row); the certificate JSON itself keeps
+   the §4 key set verbatim. The snapshot lives in the table, not in the
+   cert — the cert shape is unchanged.
+3. **The null-with-reason encoding.** `teacher`, `pattern` (when no
+   learnable pattern distills into the model) and `rollback_if` are
+   `null` with a sibling `*_reason` key carrying the machine-true
+   reason. Nothing is invented.
+4. **The level precedence.** The certificate's own `level` is
+   `signed` (a configured `METALOGOS_LEDGER_KEY` at save — externally
+   verifiable) or `unsigned` (the per-process random key, §1 fact 1).
+   The verify OUTPUT level is the DATA level while every W1 dataset is
+   unfiltered: `unfiltered` (decision 5 — mandatory in the builtin's
+   response and the CLI output); `signed`/`unsigned` surface from W4
+   on. `none` — no certificate row.
+5. **The verify order in `reflex_load`.** The attestation gate runs
+   BEFORE deserialize: the weights BYTES are the certificate's subject,
+   and a tampered blob must produce the `[ATTESTATION_WEIGHTS_CHANGED]`
+   refusal, not the serializer's magic error. Strict refusals
+   (no certificate, `unsigned`) and every other not-ok verdict refuse
+   the load; the no-certificate lenient path warns and continues
+   (decision 4).
+6. **The data manifest.** The caller's live teaching set (the examples
+   the training consumed — the VM's and the interpreter's
+   `distill_states`) takes precedence; without it, the persistent
+   `distill_samples` rows for the pattern are the manifest (the hub
+   lane's ledger); with neither, the manifest is empty and the
+   provenance word says `none`. The provenance word is part of the
+   stored `data_hash` (`"runtime-teaching:<sha>"` /
+   `"distill_samples:<sha>"` / `"none:<sha>"`).
+7. **The ledger-failure asymmetry (§4 verbatim).** The
+   `reflex.attest` append happens INSIDE the save transaction; a
+   failure rolls the weights row back and surfaces a loud
+   `reflex_save` error — the attestation is the artifact, never a
+   silent side effect.
+8. **The measured bounds.** The full verify pass (open DB → hash the
+   stored blob → rebuild the spec hash → compare) is microseconds on
+   the naryad's fixture sizes — the < 200 ms contract holds with ~5
+   orders of magnitude of headroom (the measurement rides the contract
+   tests).

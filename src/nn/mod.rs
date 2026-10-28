@@ -9,6 +9,10 @@
 //! (ADR-0114): model weights never enter `Value`, only an index.
 
 pub mod activation;
+/// №825 (ADR-0200): the Reflex attestation — the certificate, the three
+/// refusal codes, the `reflex_attestation` history table and the
+/// `reflex.attest` ledger anchor.
+pub mod attest;
 pub mod dense;
 /// №545 (б): the reflex model HANDLE CONTRACTS — the DbAccess №484
 /// seam. This file stays in the language crate across the №545 (в)

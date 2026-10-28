@@ -143,6 +143,38 @@ enum Commands {
         #[command(subcommand)]
         cmd: LedgerCmd,
     },
+    /// №825 (ADR-0200): the Reflex attestation surface — verify a model's
+    /// certificate against the CURRENT declarations WITHOUT running the
+    /// program (pure parse + SQLite read; the weights bytes are hashed
+    /// in place, nothing executes).
+    Attest {
+        #[command(subcommand)]
+        cmd: AttestCmd,
+    },
+}
+
+#[derive(clap::Subcommand, Debug)]
+enum AttestCmd {
+    /// Verify the attestation certificate of a declared reflex model
+    /// against the CURRENT declarations in the .mlog file. Exit 0 =
+    /// provenance-consistent, 1 = refusal (the loud reason is printed).
+    Verify {
+        /// Path to .mlog source file
+        file: PathBuf,
+        /// The reflex model name (default: the only declared `reflex` block;
+        /// with several blocks the flag is required — fail-closed)
+        #[arg(long)]
+        model: Option<String>,
+        /// Downgrade [ATTESTATION_STALE] to an informational verdict —
+        /// LOUD: a ledger record `reflex.attest.allow-stale` is written
+        /// every time the bypass is used
+        #[arg(long)]
+        allow_stale: bool,
+        /// Machine-readable one-line JSON verdict (ok/level/spec_hash/
+        /// reason/model) instead of the human lines; exit codes unchanged
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(clap::Subcommand, Debug)]
@@ -235,6 +267,7 @@ fn main() {
         #[cfg(feature = "server")]
         Commands::Health { url } => cmd_health(url.as_deref()),
         Commands::Ledger { cmd } => cmd_ledger(cmd),
+        Commands::Attest { cmd } => cmd_attest(cmd),
     }
 }
 
@@ -350,6 +383,204 @@ fn cmd_ledger(cmd: LedgerCmd) {
                     std::process::exit(1);
                 }
             }
+        }
+    }
+}
+
+/// №825 (ADR-0200): `mlog attest verify <file.mlog> [--model=Name]
+/// [--allow-stale] [--json]` — the attestation CLI. Pure parse + SQLite
+/// read: the program is NOT executed (the declarations only), the stored
+/// weights BLOB is hashed in place. Exit 0 = provenance-consistent,
+/// 1 = refusal (the loud reason, human or JSON).
+fn cmd_attest(cmd: AttestCmd) {
+    let AttestCmd::Verify {
+        file,
+        model,
+        allow_stale,
+        json,
+    } = cmd;
+
+    let source = match fs::read_to_string(&file) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("error: cannot read {:?}: {}", file, e);
+            std::process::exit(1);
+        }
+    };
+
+    let declarations = match metalogos::parser::parse(&source) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("error: parse: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    // The declared reflex (Dense) models — the attestable surface.
+    let mut reflex_decls: Vec<&metalogos::ast::ReflexDecl> = Vec::new();
+    let mut learnables: Vec<&metalogos::ast::LearnablePatternDecl> = Vec::new();
+    let mut persist_path: Option<String> = None;
+    for decl in &declarations {
+        match decl {
+            metalogos::ast::Declaration::Reflex(r) => reflex_decls.push(r),
+            metalogos::ast::Declaration::LearnablePattern(lp) => learnables.push(lp),
+            metalogos::ast::Declaration::Memory(m) => {
+                if let Some(p) = &m.persist {
+                    persist_path = Some(p.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if reflex_decls.is_empty() {
+        eprintln!(
+            "error: no `reflex` declaration in {:?} — nothing to attest",
+            file
+        );
+        std::process::exit(1);
+    }
+
+    // Model selection: the flag wins; with exactly one declared reflex
+    // block it is the honest default; several blocks without the flag —
+    // fail-closed (never guess).
+    let decl = match &model {
+        Some(name) => reflex_decls
+            .iter()
+            .find(|r| &r.name == name)
+            .ok_or_else(|| {
+                format!(
+                    "no `reflex {} {{ ... }}` block in {:?} (declared: {:?})",
+                    name,
+                    file,
+                    reflex_decls
+                        .iter()
+                        .map(|r| r.name.as_str())
+                        .collect::<Vec<_>>()
+                )
+            })
+            .unwrap_or_else(|e| {
+                eprintln!("error: {}", e);
+                std::process::exit(1);
+            }),
+        None if reflex_decls.len() == 1 => reflex_decls[0],
+        None => {
+            eprintln!(
+                "error: {} reflex blocks declared — specify --model (fail-closed, no guessing)",
+                reflex_decls.len()
+            );
+            std::process::exit(1);
+        }
+    };
+
+    // The persist path: the same SQLite file `memory { persist: ... }`
+    // configures — no certificate, no verdict.
+    let Some(db_path) = &persist_path else {
+        eprintln!(
+            "error: no `memory {{ persist: \"...\" }}` in {:?} — the certificate lives in the program's SQLite file",
+            file
+        );
+        std::process::exit(1);
+    };
+
+    // The canonical layer descriptors — the SAME form the runtime builds
+    // from the live model (type name + running dims; the activation is
+    // deliberately excluded, see nn::attest::layer_descriptors).
+    let mut layers_desc: Vec<String> = Vec::new();
+    let mut running = decl.input_dim;
+    for spec in &decl.layers {
+        match spec.args.first().and_then(|a| a.parse::<usize>().ok()) {
+            Some(out) => {
+                layers_desc.push(format!("{}({},{})", spec.name, running, out));
+                running = out;
+            }
+            None => {
+                eprintln!(
+                    "error: layer '{}' in model '{}': the first argument must be the output dimension",
+                    spec.name, decl.name
+                );
+                std::process::exit(1);
+            }
+        }
+    }
+
+    // The distilling pattern's spec facts (the CLI has no runtime state —
+    // the examples lane is the DB's distill_samples when it exists).
+    let spec = learnables
+        .iter()
+        .find(|lp| {
+            lp.distill_to
+                .as_ref()
+                .map(|n| n == &decl.name)
+                .unwrap_or(false)
+        })
+        .map(|lp| metalogos::nn::attest::AttestSpecInput {
+            pattern_name: Some(lp.name.clone()),
+            prompt: Some(lp.prompt.clone()),
+            distill_after: Some(lp.distill_after),
+            fallback_if: lp.fallback_if.as_ref().map(|(op, v)| {
+                (
+                    metalogos::builtins::attest::compare_op_word(op).to_string(),
+                    *v,
+                )
+            }),
+            min_accuracy: Some(lp.distill_min_accuracy.unwrap_or(0.85)),
+            margin: Some(lp.distill_margin.unwrap_or(0.05)),
+        })
+        .unwrap_or_default();
+
+    let canonical = metalogos::nn::attest::canonical_spec_from_parts(
+        &decl.name,
+        decl.input_dim,
+        &decl.labels,
+        decl.seed,
+        &layers_desc,
+        &spec,
+    );
+    let s_hash = metalogos::vision::provenance::sha256_hex(canonical.as_bytes());
+
+    #[allow(clippy::disallowed_methods)]
+    let conn = match rusqlite::Connection::open(db_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("error: cannot open db '{}': {}", db_path, e);
+            std::process::exit(1);
+        }
+    };
+
+    let policy = metalogos::nn::attest::AttestPolicy {
+        strict: false, // the CLI verifies; the strict gate is the load path
+        allow_stale,
+    };
+    match metalogos::nn::attest::verify_from_db_only(&conn, &decl.name, &canonical, &s_hash, policy)
+    {
+        Ok(report) => {
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "ok": report.ok,
+                        "level": report.level,
+                        "spec_hash": report.spec_hash,
+                        "reason": report.reason,
+                        "model": report.model,
+                    })
+                );
+            } else {
+                println!("model: {}", report.model);
+                println!("ok: {}", report.ok);
+                println!("level: {}", report.level);
+                if !report.reason.is_empty() {
+                    println!("reason: {}", report.reason);
+                }
+            }
+            if !report.ok {
+                std::process::exit(1);
+            }
+        }
+        Err(e) => {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
         }
     }
 }

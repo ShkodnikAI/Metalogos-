@@ -551,6 +551,7 @@ pub static BUILTIN_CLASSES: &[BuiltClassEntry] = &[
     BuiltClassEntry { name: "reflex_load", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "ingests persisted weights from SQLite" } },
     BuiltClassEntry { name: "reflex_metrics", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     BuiltClassEntry { name: "reflex_list", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "reads the Reflex registry state" } },
+    BuiltClassEntry { name: "attest_verify", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "reads the attestation certificate from the persistent store (ADR-0200, №825)" } },
     BuiltClassEntry { name: "reflex_generate", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "ingests untrusted model output (LlmOutput-equivalent per №201)" } },
     BuiltClassEntry { name: "reflex_tokenize", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     BuiltClassEntry { name: "reflex_detokenize", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },

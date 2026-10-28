@@ -1143,6 +1143,9 @@ pub(super) fn parse_mutate_decl(pair: Pair<Rule>) -> Result<Declaration, ParseEr
     let mut new_examples: Vec<(Expr, Expr)> = Vec::new();
     let mut rollback_threshold: Option<f64> = None;
     let mut rollback_op: Option<CompareOp> = None;
+    // №826 (ADR-0216): the metric NAME (the grammar accepts an IDENT —
+    // the old `accuracy` literal parses as the registered name).
+    let mut rollback_metric: Option<String> = None;
 
     if let Some(body_pair) = find_child(&children, Rule::mutate_body) {
         let body_children = children_of(&body_pair);
@@ -1177,6 +1180,13 @@ pub(super) fn parse_mutate_decl(pair: Pair<Rule>) -> Result<Declaration, ParseEr
             {
                 rollback_threshold = Some(float_pair.as_str().parse().unwrap_or(0.0));
             }
+            // №826 (ADR-0216): the metric NAME — validated against
+            // METRIC_REGISTRY at the semantic check, resolved to
+            // `accuracy`-free defaulting NOWHERE (the name is present
+            // exactly when the clause is).
+            if let Some(ident_pair) = rb_children.iter().find(|c| c.as_rule() == Rule::IDENT) {
+                rollback_metric = Some(ident_pair.as_str().to_string());
+            }
         }
     }
 
@@ -1186,6 +1196,7 @@ pub(super) fn parse_mutate_decl(pair: Pair<Rule>) -> Result<Declaration, ParseEr
         new_examples,
         rollback_threshold,
         rollback_op,
+        rollback_metric,
     }))
 }
 

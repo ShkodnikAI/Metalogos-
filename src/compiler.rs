@@ -1025,6 +1025,7 @@ impl Compiler {
                         example_count: m.new_examples.len(),
                         rollback_threshold: m.rollback_threshold,
                         rollback_op,
+                        rollback_metric: m.rollback_metric.clone(),
                     })));
                 }
                 Declaration::Flow(f) => {

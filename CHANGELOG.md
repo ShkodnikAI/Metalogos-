@@ -6,6 +6,39 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№826 (Wave 68, P1 — the W2′ metric registry, ADR-0216):** the
+  `rollback_if` gate reads honest quality signals. `METRIC_REGISTRY`
+  grows `macro_f1` and `min_class_recall` beside `accuracy` (the same
+  `MetricSpec` form, no new `Value` variants); the math is the
+  `metalogos-reflex` SSOT (№545) — the class-space bodies behind both
+  the registry adapters and the gate's label conversion (an unanswered
+  held-out task is the residual `<no-answer>` class: no metric looks
+  good by ignoring the tasks the backend failed to answer). The
+  grammar accepts a metric NAME: `rollback_if: macro_f1 > 0.8` — and
+  the old literal form `rollback_if: accuracy OP x` stays valid
+  (`accuracy` is a registered name; the golden corpus output is
+  byte-unchanged, pinned). An unregistered name is a LOUD semantic
+  refusal (`mutate: unknown metric '...'. Registered metrics: ...` —
+  the `reflex_train` convention), on both lanes by construction (the
+  check runs on the AST before any backend compiles it). Every GATED
+  decision is accompanied by the **majority baseline** — the same
+  metric evaluated on the always-majority predictor over the same
+  held-out labels (the №485 distill-gate pattern; the computed
+  on-the-spot surface, not a stale-prone grammar field) — and a gating
+  rule with NO held-out evidence has no baseline: a LOUD refusal on
+  both lanes, never a keep. The message builder is ONE body for both
+  lanes (byte parity pinned); for the default `accuracy` the string is
+  byte-identical to the pre-№826 formats — the №375 mock pins hold
+  without edits; the mock stub stays 0.95 for any metric (the
+  mechanism exercise, ADR-0112) with no baseline segment (no evidence
+  surface in mock mode — fabricating one would be a silent lie).
+  Contract tests: `tests/naryad_826_metric_registry.rs` (the six
+  contracts, RED-first per форма №772 — 9/11 red on the unpatched
+  main). security: no new egress or taint surface — the registry is a
+  closed name set validated at the check; the gate refuses
+  fail-closed (no baseline → no keep); the mock-mode stub is loudly
+  documented and unchanged.
+
 - **№825 (Wave 68, P1 — the W1 Reflex attestation, ADR-0200):** the
   provenance certificate for trained Reflex weights. `reflex_save`
   now writes a canonical-JSON certificate (keys sorted: the

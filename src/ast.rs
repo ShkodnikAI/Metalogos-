@@ -1026,7 +1026,12 @@ pub struct OnDenyDecl {
 
 // ── Mutate (P2) ─────────────────────────────────────────────────
 
-/// `mutate PatternName { add_example("in", "out") rollback_if: accuracy op threshold }`
+/// `mutate PatternName { add_example("in", "out") rollback_if: METRIC op threshold }`
+///
+/// №826 (ADR-0216): METRIC is a registry NAME (the old literal-accuracy
+/// form parses as the registered name `accuracy`). `None` = no
+/// `rollback_if` clause; `Some(name)` with an unregistered name is a
+/// loud semantic refusal (never a silent fallback).
 #[derive(Debug, Clone)]
 pub struct MutateDecl {
     pub span: Span,
@@ -1034,6 +1039,9 @@ pub struct MutateDecl {
     pub new_examples: Vec<(Expr, Expr)>,
     pub rollback_threshold: Option<f64>,
     pub rollback_op: Option<CompareOp>,
+    /// №826 (ADR-0216): the gating metric's registry name (present
+    /// exactly when the `rollback_if` clause is present).
+    pub rollback_metric: Option<String>,
 }
 
 // ── Test Declaration (Наряд №120) ──────────────────────────────────────

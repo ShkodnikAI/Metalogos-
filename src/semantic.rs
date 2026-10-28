@@ -7310,6 +7310,23 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                         format!("mutate: learnable pattern '{}' not found", m.pattern_name),
                     ));
                 }
+                // №826 (ADR-0216): the `rollback_if` metric NAME must be
+                // registered — a LOUD refusal at the check, never a silent
+                // fallback (the reflex_train convention,
+                // `builtins/reflex.rs`). `accuracy` is registered, so the
+                // old literal form passes unchanged.
+                if let Some(metric) = &m.rollback_metric {
+                    if crate::nn::find_metric(metric).is_none() {
+                        result.errors.push(with_line_prefix(
+                            decl,
+                            format!(
+                                "mutate: unknown metric '{}'. Registered metrics: {}",
+                                metric,
+                                crate::nn::metric_names().join(", ")
+                            ),
+                        ));
+                    }
+                }
             }
             Declaration::Eval(e) => {
                 if !learnable_names.contains(&e.pattern_name) {

@@ -1616,6 +1616,7 @@ impl Vm {
                         example_count,
                         rollback_threshold,
                         rollback_op,
+                        rollback_metric,
                     } = &**md;
                     // Pop example_count pairs of (input, output)
                     let mut new_examples = Vec::new();
@@ -1641,6 +1642,7 @@ impl Vm {
                         new_examples,
                         *rollback_threshold,
                         *rollback_op,
+                        rollback_metric.as_deref(),
                     )?;
                     self.mutate_log.push(msg.clone());
                     // Наряд №41 Block 2: audit parity with interpreter
@@ -4200,6 +4202,7 @@ impl Vm {
         new_examples: Vec<(String, String)>,
         rollback_threshold: Option<f64>,
         rollback_op: Option<ConditionOp>,
+        rollback_metric: Option<&str>,
     ) -> Result<String, String> {
         // Find the learnable
         let idx = self
@@ -4221,10 +4224,16 @@ impl Vm {
         // the TW path additionally merges ADR-0050 eval datasets; the
         // difference is documented in the наряд report). The answer path is
         // the pattern's real LLM call; errors count as incorrect.
+        // №826 (ADR-0216): the gating metric NAME (the registry resolves
+        // it; the semantic check refused unregistered names before the
+        // compile). The stub is metric-agnostic — the MECHANISM exercise
+        // (ADR-0112); the mock message carries no baseline.
+        let metric_name = rollback_metric.unwrap_or("accuracy");
+        let gated = matches!((rollback_op, rollback_threshold), (Some(_), Some(_)));
         let mock_mode = crate::llm::mock_llm_requested();
-        let (accuracy, battery_note) = if mock_mode {
+        let (accuracy, battery_note, battery_report) = if mock_mode {
             // Mock accuracy (always 0.95 for MockLlm) — test mode only.
-            (0.95, String::new())
+            (0.95, String::new(), None)
         } else {
             let report = crate::interpreter::learnable::measure_battery_accuracy(
                 &original,
@@ -4245,13 +4254,33 @@ impl Vm {
                     ""
                 }
             );
-            if report.held_out == 0 {
+            if report.held_out == 0 && !gated {
+                // №826: with a rollback condition the baseline-less gate
+                // refuses below with its own loud message.
                 eprintln!(
                     "[MUTATE] WARNING: no held-out battery tasks for '{}' — accuracy counts as 0.0 (no evidence, no keep)",
                     pattern_name
                 );
             }
-            (report.accuracy, note)
+            (report.accuracy, note, Some(report))
+        };
+
+        // №826 (ADR-0216): the gate reads the METRIC'S OWN value + the
+        // majority baseline over the same held-out surface; no held-out
+        // evidence → LOUD refusal (never a keep). The decision mapping
+        // below stays the №510 TW-parity mapping (interpreter/hooks.rs
+        // handle_mutate is the source of truth for the kept-table).
+        let (gate_value, baseline) = if mock_mode {
+            (accuracy, None)
+        } else if gated {
+            let report = battery_report
+                .as_ref()
+                .ok_or_else(|| "VM mutate: the gate battery vanished".to_string())?;
+            let (value, baseline) =
+                crate::interpreter::learnable::gate_metric_value(report, metric_name)?;
+            (value, Some(baseline))
+        } else {
+            (accuracy, None)
         };
 
         // №510: the kept-table now MIRRORS the TW interpreter's rollback
@@ -4261,32 +4290,30 @@ impl Vm {
         // missing entirely (fell into the always-keep default) — the VM
         // disagreed with the TW for every operator except Lt/Le.
         let kept = match (&rollback_op, &rollback_threshold) {
-            (Some(ConditionOp::Lt), Some(threshold)) => accuracy >= *threshold,
-            (Some(ConditionOp::Le), Some(threshold)) => accuracy > *threshold,
-            (Some(ConditionOp::Gt), Some(threshold)) => accuracy <= *threshold,
-            (Some(ConditionOp::Ge), Some(threshold)) => accuracy < *threshold,
-            (Some(ConditionOp::Eq), Some(threshold)) => (accuracy - threshold).abs() >= 1e-9,
-            (Some(ConditionOp::Ne), Some(threshold)) => (accuracy - threshold).abs() < 1e-9,
+            (Some(ConditionOp::Lt), Some(threshold)) => gate_value >= *threshold,
+            (Some(ConditionOp::Le), Some(threshold)) => gate_value > *threshold,
+            (Some(ConditionOp::Gt), Some(threshold)) => gate_value <= *threshold,
+            (Some(ConditionOp::Ge), Some(threshold)) => gate_value < *threshold,
+            (Some(ConditionOp::Eq), Some(threshold)) => (gate_value - threshold).abs() >= 1e-9,
+            (Some(ConditionOp::Ne), Some(threshold)) => (gate_value - threshold).abs() < 1e-9,
             _ => true,
         };
 
+        // №826: the ONE message builder — byte parity with the TW lane.
+        let msg = crate::interpreter::learnable::mutate_gate_message(
+            pattern_name,
+            metric_name,
+            gate_value,
+            kept,
+            rollback_threshold.unwrap_or(0.0),
+            baseline,
+            &battery_note,
+        );
         if kept {
-            Ok(format!(
-                "[MUTATE] {}: accuracy={}, kept (>= {:.1}){}",
-                pattern_name,
-                accuracy,
-                rollback_threshold.unwrap_or(0.0),
-                battery_note
-            ))
+            Ok(msg)
         } else {
             self.learnables[idx].1 = original;
-            Ok(format!(
-                "[MUTATE] {}: accuracy={}, rolled back (below {:.1}){}",
-                pattern_name,
-                accuracy,
-                rollback_threshold.unwrap_or(0.0),
-                battery_note
-            ))
+            Ok(msg)
         }
     }
 

@@ -146,6 +146,7 @@ fn n780_main_only_set_is_pinned() {
             example_count: 0,
             rollback_threshold: None,
             rollback_op: None,
+            rollback_metric: None,
         })),
         Instruction::ExecuteRules,
         Instruction::Halt,

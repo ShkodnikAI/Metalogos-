@@ -56,6 +56,18 @@ pub struct Compiler {
     /// index space the way the map-`len()` allocator did for patterns).
     /// Mirrors the RegisterLearnable emission 1:1.
     learnable_body_next_idx: usize,
+    /// №829: the session-base offset (0 on the program path). On the REPL
+    /// session path (`with_session`) the seed names resolve positionally
+    /// into the LIVE VM's base tables — their slots are NOT the chunk-local
+    /// `pattern_bodies` positions (a chunk's Program::patterns carries only
+    /// the chunk's own bodies — the n800 REPL cross-line pin caught the
+    /// loud gate reading a base name against an empty chunk table). The
+    /// loud dispatch gate skips the base range and checks only the
+    /// chunk-declared names against the chunk-local tables (the slot minus
+    /// the base offset).
+    session_pattern_base: usize,
+    /// №829: the learnable twin of `session_pattern_base`.
+    session_learnable_base: usize,
     /// Builtin name -> index in builtin table.
     builtin_indices: HashMap<String, usize>,
     /// Struct type name -> field names (in declaration order).
@@ -339,6 +351,8 @@ impl Compiler {
             tool_names: HashSet::new(),
             learnable_indices: HashMap::new(),
             learnable_body_next_idx: 0,
+            session_pattern_base: 0,
+            session_learnable_base: 0,
             builtin_indices,
             struct_fields: HashMap::new(),
             rules: Vec::new(),
@@ -400,6 +414,10 @@ impl Compiler {
         // end — the chunk's bodies append after the base in the live VM
         // (run_chunk appends), so the next body slot IS the base length.
         compiler.pattern_body_next_idx = base.pattern_names.len();
+        // №829: the loud gate's base offset — the base names resolve into
+        // the live VM's tables, not the chunk-local bodies (see the field
+        // doc).
+        compiler.session_pattern_base = base.pattern_names.len();
         compiler.learnable_indices = base
             .learnable_names
             .iter()
@@ -407,6 +425,7 @@ impl Compiler {
             .map(|(i, name)| (name.clone(), i))
             .collect();
         compiler.learnable_body_next_idx = base.learnable_names.len();
+        compiler.session_learnable_base = base.learnable_names.len();
         compiler.struct_fields = base.struct_fields;
         compiler
     }
@@ -492,7 +511,15 @@ impl Compiler {
         // №264 backstop contract: bytecode past the check fails loudly,
         // never silently.
         for (name, &idx) in &self.pattern_indices {
-            match self.pattern_bodies.get(idx) {
+            // №829: the session-base range resolves into the LIVE VM's
+            // tables (the seed map was built positionally from the base —
+            // the chunk-local body table holds only the chunk's own
+            // bodies); the gate checks the CHUNK-DECLARED names only.
+            if idx < self.session_pattern_base {
+                continue;
+            }
+            let local = idx - self.session_pattern_base;
+            match self.pattern_bodies.get(local) {
                 Some(body) if body.name == *name => {}
                 Some(body) => {
                     return Err(format!(
@@ -578,7 +605,13 @@ impl Compiler {
                 })
                 .collect();
             for (name, &idx) in &self.learnable_indices {
-                match learnable_bodies.get(idx) {
+                // №829: the session-base range — the live VM's tables (see
+                // the pattern arm above); the chunk-declared names only.
+                if idx < self.session_learnable_base {
+                    continue;
+                }
+                let local = idx - self.session_learnable_base;
+                match learnable_bodies.get(local) {
                     Some(info) if info.name == *name => {}
                     Some(info) => {
                         return Err(format!(

@@ -69,8 +69,8 @@ fn n763_agent_index_gate_blocks() {
     //    count the gen_metrics machine prints).
     let llms = std::fs::read_to_string(repo_root().join("llms.txt")).expect("llms.txt readable");
     assert!(
-        llms.contains("526 builtins"),
-        "llms.txt must state the live builtins count (526 — the registry scan)"
+        llms.contains("527 builtins"),
+        "llms.txt must state the live builtins count (527 — the registry scan)"
     );
     assert!(
         !llms.contains("409 builtins"),

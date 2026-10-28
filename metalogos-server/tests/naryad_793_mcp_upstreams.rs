@@ -161,7 +161,7 @@ fn n793_upstream_death_loud_reconnect() {
         }
         let detail = r["result"]["content"][0]["text"].as_str().unwrap_or("");
         assert!(
-            detail.contains("Error:"),
+            detail.contains("Error:") || detail.contains("[SCHEMA_DIGEST_MISMATCH]"),
             "a failed attempt must be the loud error envelope, not a hang: {}",
             r
         );

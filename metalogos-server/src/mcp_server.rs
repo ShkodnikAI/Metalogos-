@@ -119,6 +119,19 @@ pub struct McpServer {
     /// №801: the one-time loud notes for unpoliced upstream tools (the
     /// stderr noise fires ONCE per tool, not per call).
     unpoliced_warned: Mutex<std::collections::HashSet<String>>,
+    /// №828 (the gateway G5): the session schema-digest pins — upstream
+    /// name → (upstream-local tool name → SHA-256 hex over the pinned
+    /// representation). Recorded at EVERY client-facing `tools/list`
+    /// (the explicit re-pin the naryad names) and, for a first use
+    /// without a listing, at the call-time re-list itself — LOUDLY (the
+    /// `mcp.pin` ledger record + stderr), never silently. Every upstream
+    /// `tools/call` verifies the CURRENT representation against the pin:
+    /// a divergence is a fail-closed refusal + a `mcp.call.denied` ledger
+    /// record (the rug-pull / tool-poisoning class — the mcp-hangar
+    /// digest-pinning reference). The pin only NARROWS: the allowlist
+    /// stays the only publishing control (the №297 posture).
+    digest_pins:
+        Mutex<std::collections::HashMap<String, std::collections::HashMap<String, String>>>,
 }
 
 /// №801: the compiled class of one upstream tool.
@@ -321,6 +334,7 @@ impl McpServer {
             policy,
             session_label: Mutex::new(metalogos::labels::Label::bottom()),
             unpoliced_warned: Mutex::new(std::collections::HashSet::new()),
+            digest_pins: Mutex::new(std::collections::HashMap::new()),
         })
     }
 
@@ -416,6 +430,38 @@ impl McpServer {
                         match s.tools_list_json() {
                             Ok(tools_json) => {
                                 if let Some(arr) = tools_json.as_array() {
+                                    // ── №828 (the gateway G5): the re-pin ──
+                                    // The client-facing listing re-pins the
+                                    // session: the digest of every tool the
+                                    // client JUST SAW is recorded, one
+                                    // `mcp.pin` ledger record per tool (the
+                                    // pin is visible in the tape — the naryad
+                                    // observability clause). The map REPLACES
+                                    // the upstream's previous pins: a tool
+                                    // that vanished from the listing loses its
+                                    // pin (a call to it refuses fail-closed on
+                                    // the call-time re-list).
+                                    let mut pins = std::collections::HashMap::new();
+                                    for tool in arr.iter() {
+                                        if let Some(name) =
+                                            tool.get("name").and_then(|n| n.as_str())
+                                        {
+                                            let digest = tool_schema_digest(tool);
+                                            pins.insert(name.to_string(), digest.clone());
+                                            metalogos::ledger::record(
+                                                "mcp.pin",
+                                                "mcp-gateway",
+                                                &format!("{}.{}", s.name(), name),
+                                                &format!(
+                                                    "pinned schema digest={} (client listing re-pin, G5)",
+                                                    &digest[..16]
+                                                ),
+                                            );
+                                        }
+                                    }
+                                    if let Ok(mut store) = self.digest_pins.lock() {
+                                        store.insert(s.name().to_string(), pins);
+                                    }
                                     for tool in arr {
                                         let mut entry = tool.clone();
                                         if let Some(name) = entry
@@ -550,6 +596,31 @@ impl McpServer {
                         let mut proxy = None;
                         if let Ok(mut pool) = self.upstreams.lock() {
                             if let Some(s) = pool.iter_mut().find(|s| s.name() == upstream_name) {
+                                // ── №828 (the gateway G5): the schema digest
+                                // pin verification — BEFORE the forward. The
+                                // CURRENT representation is re-listed from the
+                                // live upstream (ensure_alive reconnects
+                                // loudly on a dead one — the G1 contract rides
+                                // through) and compared against the pin. A
+                                // divergence (or an unverified schema) is a
+                                // fail-closed refusal + a G3 ledger record —
+                                // «молча пропустить» запрещён.
+                                if let Err(reason) =
+                                    self.verify_upstream_schema_pin(s, upstream_tool)
+                                {
+                                    ledger_mcp_record(false, tool_name, &reason);
+                                    return serde_json::json!({
+                                        "jsonrpc": "2.0",
+                                        "id": id,
+                                        "result": {
+                                            "content": [{"type": "text", "text": format!(
+                                                "[SCHEMA_DIGEST_MISMATCH] upstream tool '{}' is refused: {}. The pinned schema is the machine link between what the listing showed and what executes; re-list the tools to re-pin the session (the legitimate path back).",
+                                                tool_name, reason
+                                            )}],
+                                            "isError": true
+                                        }
+                                    });
+                                }
                                 proxy = Some(
                                     match s.tools_call_text(upstream_tool, arguments.clone()) {
                                         Ok(text) => Ok(text),
@@ -854,6 +925,113 @@ fn ledger_mcp_record(allowed: bool, tool: &str, outcome: &str) {
     };
     let detail = format!("tool={} outcome={} label=pre-G2", tool, outcome);
     metalogos::ledger::record(action, "mcp-gateway", tool, &detail);
+}
+
+/// №828 (the gateway G5): the digest over the DETERMINISTIC representation
+/// of one upstream tool entry — the four fields the naryad pins (name +
+/// description + inputSchema + `_meta`), serialized through serde_json's
+/// BTreeMap (sorted keys — an upstream reordering its JSON keys cannot
+/// rotate the digest). The hash is SHA-256 from the EXISTING dep graph
+/// (`metalogos::ledger::sha256_hex` — the same primitive the ledger chain
+/// itself uses; no new crate, the ADR-0168 D3 form).
+fn tool_schema_digest(entry: &serde_json::Value) -> String {
+    let repr = serde_json::json!({
+        "name": entry.get("name"),
+        "description": entry.get("description"),
+        "inputSchema": entry.get("inputSchema"),
+        "_meta": entry.get("_meta"),
+    });
+    let bytes = serde_json::to_vec(&repr).unwrap_or_default();
+    metalogos::ledger::sha256_hex(&bytes)
+}
+
+impl McpServer {
+    /// №828 (the gateway G5): verify the session's schema pin for one
+    /// upstream tool against its CURRENT representation (re-listed from the
+    /// live upstream — the mcp-hangar discipline: the call-time view, not a
+    /// stale cache).
+    ///
+    /// - pin present + digest equal → forward;
+    /// - pin present + digest different → the rug-pull refusal (fail-closed);
+    /// - the tool vanished from the current listing → the same mismatch
+    ///   class (the schema the client saw is gone);
+    /// - the re-list itself failed → fail-closed (an unverified schema is
+    ///   not forwarded);
+    /// - NO pin (a first use without a client-facing listing) → the
+    ///   baseline is established FROM the current representation — LOUDLY:
+    ///   the `mcp.pin` ledger record + the stderr note. The pin only
+    ///   NARROWS (the call was already allowed by the allowlist/policy);
+    ///   every LATER call verifies against it.
+    fn verify_upstream_schema_pin(
+        &self,
+        s: &mut metalogos::mcp_session::McpSession,
+        upstream_tool: &str,
+    ) -> Result<(), String> {
+        let pinned = {
+            let store = self.digest_pins.lock().unwrap_or_else(|p| p.into_inner());
+            store
+                .get(s.name())
+                .and_then(|m| m.get(upstream_tool))
+                .cloned()
+        };
+
+        let listing = match s.tools_list_json() {
+            Ok(l) => l,
+            Err(e) => {
+                return Err(format!(
+                    "schema unverified — the upstream re-list failed: {}",
+                    e
+                ));
+            }
+        };
+        let current_entry = listing
+            .as_array()
+            .and_then(|arr| {
+                arr.iter()
+                    .find(|t| t.get("name").and_then(|n| n.as_str()) == Some(upstream_tool))
+            })
+            .cloned();
+        let Some(current_entry) = current_entry else {
+            return Err(format!(
+                "schema digest mismatch — tool '{}' is absent from the current upstream listing",
+                upstream_tool
+            ));
+        };
+        let current_digest = tool_schema_digest(&current_entry);
+
+        match pinned {
+            None => {
+                eprintln!(
+                    "[mcp-upstream] G5: pinned `{}.{}` schema digest {} (first use without a listing — the baseline rides the ledger)",
+                    s.name(),
+                    upstream_tool,
+                    &current_digest[..16]
+                );
+                metalogos::ledger::record(
+                    "mcp.pin",
+                    "mcp-gateway",
+                    &format!("{}.{}", s.name(), upstream_tool),
+                    &format!(
+                        "pinned schema digest={} (first-use baseline, G5)",
+                        &current_digest[..16]
+                    ),
+                );
+                if let Ok(mut store) = self.digest_pins.lock() {
+                    store
+                        .entry(s.name().to_string())
+                        .or_default()
+                        .insert(upstream_tool.to_string(), current_digest);
+                }
+                Ok(())
+            }
+            Some(p) if p == current_digest => Ok(()),
+            Some(p) => Err(format!(
+                "schema digest mismatch (pinned {}, current {})",
+                &p[..16],
+                &current_digest[..16]
+            )),
+        }
+    }
 }
 
 fn collect_exposed_tools(declarations: &[Declaration], allowlist: &[String]) -> Vec<ExposedTool> {

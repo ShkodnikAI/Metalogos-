@@ -3279,6 +3279,57 @@ impl Vm {
     /// `reflex_names`. The neural-network logic is NOT reimplemented — only
     /// the argument marshalling and registry access differ from the
     /// interpreter path.
+    ///
+    /// №825 (ADR-0200): `attest_verify` joins the intercept family — the
+    /// attestation input comes from the VM's own `learnables` +
+    /// `distill_states` (the SAME field mapping the TW uses over
+    /// `CompiledLearnable`; the canonical form lives in `nn::attest`).
+    fn vm_attest_input_for_model(
+        &self,
+        model_name: &str,
+    ) -> Option<crate::nn::attest::AttestInput> {
+        let (info, _) = self
+            .learnables
+            .iter()
+            .find(|(info, _)| info.distill_to.as_deref() == Some(model_name))?;
+        let distill_to = info.distill_to.as_ref()?;
+        let examples = self
+            .distill_states
+            .get(&info.name)
+            .map(|s| s.examples.clone())
+            .unwrap_or_default();
+        Some(crate::builtins::attest::attest_input_from_learnable(
+            &info.name,
+            &info.prompt,
+            distill_to,
+            info.distill_after,
+            info.fallback_if
+                .as_ref()
+                .map(|(op, v)| (crate::builtins::attest::condition_op_word(op), *v)),
+            info.distill_min_accuracy.unwrap_or(0.85),
+            info.distill_margin.unwrap_or(0.05),
+            examples,
+        ))
+    }
+
+    /// №825: resolve the model name from the first argument (handle or
+    /// String) and build the attestation input for it.
+    fn attest_input_for_args(&self, args: &[Value]) -> Option<crate::nn::attest::AttestInput> {
+        let first = args.first()?;
+        // №532: no wildcard arm — the deny(lint) form, if/let chains only.
+        let model_name: String = if let Value::Reflex(id) = first {
+            self.reflex_names
+                .iter()
+                .find(|(_, rid)| **rid == *id)
+                .map(|(name, _)| name.clone())?
+        } else if let Value::String(name) = first {
+            name.clone()
+        } else {
+            return None;
+        };
+        self.vm_attest_input_for_model(&model_name)
+    }
+
     fn call_reflex_builtin(&mut self, name: &str, args: &[Value]) -> Option<Result<Value, String>> {
         if name == crate::reflex_ops::NAME_REFLEX_TRAIN {
             return Some(crate::builtins::reflex_train_dispatch(
@@ -3293,18 +3344,37 @@ impl Vm {
             ));
         }
         if name == crate::reflex_ops::NAME_REFLEX_SAVE {
+            // №825: the attestation input built from the VM's own compiled
+            // learnables + distill states (the SAME field mapping the TW
+            // uses — the canonical form lives in nn::attest).
+            let attest_input = self.attest_input_for_args(args);
             return Some(crate::builtins::reflex_save_dispatch(
                 &self.reflex_registry,
                 &self.reflex_names,
                 self.memory_persist_path.as_deref(),
+                attest_input.as_ref(),
                 args,
             ));
         }
         if name == crate::reflex_ops::NAME_REFLEX_LOAD {
+            let attest_input = self.attest_input_for_args(args);
             return Some(crate::builtins::reflex_load_dispatch(
                 &mut self.reflex_registry,
                 &self.reflex_names,
                 self.memory_persist_path.as_deref(),
+                attest_input.as_ref(),
+                args,
+            ));
+        }
+        // Наряд №825 (ADR-0200): attest_verify — read-only provenance
+        // verification (tier experimental, поправка (г)).
+        if name == crate::builtins::NAME_ATTEST_VERIFY {
+            let attest_input = self.attest_input_for_args(args);
+            return Some(crate::builtins::attest_verify_dispatch(
+                &self.reflex_registry,
+                &self.reflex_names,
+                self.memory_persist_path.as_deref(),
+                attest_input.as_ref(),
                 args,
             ));
         }

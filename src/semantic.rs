@@ -10647,6 +10647,10 @@ fn is_name_reference_builtin(name: &str) -> bool {
             | crate::reflex_ops::NAME_REFLEX_SAVE
             | crate::reflex_ops::NAME_REFLEX_METRICS
             | crate::reflex_ops::NAME_REFLEX_GENERATE
+            // №825 (ADR-0200): attest_verify(Model) — the same bare-Ident
+            // name-reference form (the reflex-group marshaling shape; the
+            // runtime resolves the model through reflex_names → Value::Reflex).
+            | crate::builtins::NAME_ATTEST_VERIFY
     )
 }
 

@@ -623,6 +623,10 @@ OVERRIDES = {
     "reflex_save": ("Sink", "Internal", "Reversible", "persists weights to SQLite (ADR-0116)"),
     "reflex_load": ("Source", "Internal", "Pure", "ingests persisted weights from SQLite"),
     "reflex_list": ("Source", "Internal", "Pure", "reads the Reflex registry state"),
+    # №825 (ADR-0200): the attestation verifier — reads the certificate
+    # from the persistent store (the runtime's own DB), no egress, no
+    # mutation; Source × Internal × Pure per the naryad.
+    "attest_verify": ("Source", "Internal", "Pure", "reads the attestation certificate from the persistent store (ADR-0200, №825)"),
     "reflex_predict": ("Pure", "Public", "Pure", "local model compute on passed values"),
     "reflex_metrics": ("Pure", "Public", "Pure", "local compute on a passed model handle"),
     "reflex_generate": ("Source", "Internal", "Pure", "ingests untrusted model output (LlmOutput-equivalent per №201)"),

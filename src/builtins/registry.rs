@@ -852,6 +852,13 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // reflex_list returns names of all declared reflex/reflex_seq models.
     spec!("reflex_metrics", 1, "reflex"; builtin_reflex_metrics_stub, "stable"),
     spec!("reflex_list", 0, "reflex"; builtin_reflex_list_stub, "List<String>", "stable"), // №748 (gh#1392, Wave 55, lane α): the LIVE path is the shared reflex_list_dispatch — it precedes the registry row on BOTH lanes (TW execution.rs:578/2038, VM vm.rs:2918-2923; the №717 "loud Err stub" anchor reflex.rs:112-117 named only the shadowed fallback arm — the №736 intercept-walk lesson) and answers the List of the declared reflex/reflex_seq model names as Strings (reflex.rs:1220-1241: the names sorted by ReflexId.0 — the registration order, deterministic; the empty registry answers the honest empty List — the vision_list №744 form); the spelling names the ONLY reachable Ok arm (the №539 guard by construction: no other Ok arm exists on either lane); the registry stub stays byte-for-byte as the shadowed fail-closed fallback (the query №740 posture — the type is the INTERCEPT's shape, not the fallback's)
+    // ── Наряд №825 (ADR-0200): the attest_verify builtin — поправка (г):
+    // tier `experimental` (the №809 C3-a T1 gate), Source × Internal × Pure
+    // in builtins_classification.rs. Same intercept shape as the reflex
+    // group: the live dispatch (src/builtins/attest.rs) precedes the row
+    // on BOTH lanes (TW execution.rs, VM call_reflex_builtin); the stub
+    // stays as the shadowed fail-closed fallback (the №748 posture).
+    spec!("attest_verify", 1, "reflex"; builtin_attest_verify_stub, "Struct", "experimental"),
     // ── Наряд №193: text generation (ADR-0120) ──
     // №799 (T2, gh#1488): the parked row gates with `candle` (the live Ok
     // arm is candle-gated, №748) — the default build refuses at CHECK via

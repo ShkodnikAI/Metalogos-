@@ -955,6 +955,7 @@ pub fn reflex_save_dispatch(
     registry: &ReflexRegistry,
     model_name_to_id: &std::collections::HashMap<String, ReflexId>,
     persist_path: Option<&str>,
+    attest: Option<&crate::nn::attest::AttestInput>,
     args: &[Value],
 ) -> Result<Value, String> {
     if args.len() != 1 {
@@ -1015,6 +1016,7 @@ pub fn reflex_save_dispatch(
                 model,
                 &model_name,
                 std::path::Path::new(persist_path),
+                attest,
             )?;
             Ok(Value::Unit)
         }
@@ -1059,6 +1061,7 @@ pub fn reflex_load_dispatch(
     registry: &mut ReflexRegistry,
     model_name_to_id: &std::collections::HashMap<String, ReflexId>,
     persist_path: Option<&str>,
+    attest: Option<&crate::nn::attest::AttestInput>,
     args: &[Value],
 ) -> Result<Value, String> {
     if args.len() != 1 {
@@ -1109,6 +1112,8 @@ pub fn reflex_load_dispatch(
         id,
         &name,
         std::path::Path::new(persist_path),
+        attest,
+        crate::nn::attest::AttestPolicy::from_env(),
     )?;
 
     Ok(Value::Reflex(id))

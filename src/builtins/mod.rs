@@ -505,6 +505,11 @@ pub mod likeness;
 // Naryad #393 (ADR-0167): Action Ledger v1 builtins — count/head introspection,
 // the two FILE-EGRESS export profiles (classified Sink), rotation, snapshot.
 pub mod ledger;
+// Наряд №825 (ADR-0200): the attest_verify builtin — read-only provenance
+// verification of a declared Reflex model against its stored certificate.
+pub mod attest;
+use attest::builtin_attest_verify_stub;
+pub use attest::{attest_verify_dispatch, NAME_ATTEST_VERIFY};
 // Наряд №275 (ADR-0137): LLM streaming builtins — llm_stream_open/next/close.
 // Module is NOT feature-gated: the opaque handle + registry + SSE parser
 // live in `crate::llm` (always available); HTTP streaming requires

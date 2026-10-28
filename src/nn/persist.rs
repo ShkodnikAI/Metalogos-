@@ -182,12 +182,23 @@ pub fn deserialize_into_model(model: &mut ReflexModel, data: &[u8]) -> Result<()
 /// `name` is the model identifier (from the `reflex Name { ... }` declaration).
 /// `db_path` is the SQLite file path (set by `memory { persist: "..." }`).
 ///
+/// №825 (ADR-0200): when `attest` is `Some`, the save also writes the
+/// attestation certificate (`reflex_attestation` row + the `reflex.attest`
+/// ledger anchor) in the SAME transaction — a ledger write failure is a
+/// loud save error (the attestation is the artifact, never a silent side
+/// effect), and the weights are never stored without their certificate.
+///
 /// Returns `Ok(())` on success. The model is keyed by `name` — saving twice
 /// under the same name overwrites (matching `memorize`/`recall` semantics).
-pub fn save_model_to_db(model: &ReflexModel, name: &str, db_path: &Path) -> Result<(), String> {
+pub fn save_model_to_db(
+    model: &ReflexModel,
+    name: &str,
+    db_path: &Path,
+    attest: Option<&crate::nn::attest::AttestInput>,
+) -> Result<(), String> {
     // №500: the weights store (reflex_save — engine storage).
     #[allow(clippy::disallowed_methods)]
-    let conn = rusqlite::Connection::open(db_path).map_err(|e| {
+    let mut conn = rusqlite::Connection::open(db_path).map_err(|e| {
         format!(
             "reflex_save: failed to open db '{}': {}",
             db_path.display(),
@@ -209,7 +220,16 @@ pub fn save_model_to_db(model: &ReflexModel, name: &str, db_path: &Path) -> Resu
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
 
-    conn.execute(
+    // №825: the weights row and the certificate land atomically — either
+    // both persist or neither does.
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("reflex_save: transaction: {}", e))?;
+    if let Some(attest_input) = attest {
+        crate::nn::attest::write_attestation(&tx, model, attest_input)
+            .map_err(|e| format!("reflex_save: {}", e))?;
+    }
+    tx.execute(
         "INSERT OR REPLACE INTO reflex_models \
          (name, weights, input_size, labels, seed, last_metric, updated_at, feature_signature) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -225,8 +245,20 @@ pub fn save_model_to_db(model: &ReflexModel, name: &str, db_path: &Path) -> Resu
         ],
     )
     .map_err(|e| format!("reflex_save: failed to insert row: {}", e))?;
+    tx.commit()
+        .map_err(|e| format!("reflex_save: commit: {}", e))?;
 
     Ok(())
+}
+
+/// The attestation side of a load (№825): what the certificate check
+/// decided. The caller may surface it; the loud lines are already on
+/// stderr inside `verify_attestation`.
+#[derive(Debug, Clone, Default)]
+pub struct LoadAttestReport {
+    /// `Some` when a certificate row exists (the verify verdict);
+    /// `None` — no certificate (saved before W1, the transitional window).
+    pub verdict: Option<crate::nn::attest::AttestVerdict>,
 }
 
 /// Load a model's weights from SQLite and apply them to the runtime model
@@ -234,12 +266,21 @@ pub fn save_model_to_db(model: &ReflexModel, name: &str, db_path: &Path) -> Resu
 ///
 /// Block 3: shape verification happens inside `deserialize_into_model`
 /// before any weight mutation — silent corruption is impossible.
+///
+/// №825 (ADR-0200): when `attest` is `Some`, the stored certificate is
+/// verified against the CURRENT declarations before the load returns —
+/// weights-hash and embed-signature mismatches are always loud refusals,
+/// a stale spec is a refusal unless `policy.allow_stale` (loudly audited),
+/// and the certificate's absence follows owner decision 4 (warn +
+/// `cert: none`; `policy.strict` refuses).
 pub fn load_model_from_db(
     registry: &mut ReflexRegistry,
     id: ReflexId,
     name: &str,
     db_path: &Path,
-) -> Result<(), String> {
+    attest: Option<&crate::nn::attest::AttestInput>,
+    policy: crate::nn::attest::AttestPolicy,
+) -> Result<LoadAttestReport, String> {
     // №500: the weights store (reflex_load — engine storage).
     #[allow(clippy::disallowed_methods)]
     let conn = rusqlite::Connection::open(db_path).map_err(|e| {
@@ -371,6 +412,64 @@ pub fn load_model_from_db(
         ));
     }
 
+    // №504: the effective signature — a row saved by a pre-№504 binary
+    // carries NULL → the legacy byte-position extractor. The gate below
+    // verifies the certificate against THIS value (what the weights were
+    // actually trained against); the loud migration warning fires after
+    // the gate (the weights stay readable either way).
+    let effective_signature = saved_signature
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| crate::embeddings::LEGACY_FEATURE_SIGNATURE.to_string());
+
+    // ── №825 (ADR-0200): the attestation gate — BEFORE deserialize ─────
+    // The weights BYTES are the certificate's subject: the hash/embed
+    // verdicts must fire on the raw BLOB, not be masked by a deserialize
+    // error on a tampered blob (the tamper contract is the weights hash,
+    // not the serializer's magic check).
+    let report = match attest {
+        None => LoadAttestReport { verdict: None },
+        Some(attest_input) => {
+            let current_spec = crate::nn::attest::canonical_spec_json(model, &attest_input.spec);
+            let s_hash = crate::vision::provenance::sha256_hex(current_spec.as_bytes());
+            let verdict = crate::nn::attest::verify_attestation(
+                &conn,
+                name,
+                &weights_blob,
+                &effective_signature,
+                &current_spec,
+                &s_hash,
+                &attest_input.examples,
+                attest_input.spec.pattern_name.as_deref(),
+                policy,
+            )?;
+            // The informational data-change line is loud on the load path
+            // too (the builtin surfaces the same fact via `reason`).
+            if verdict
+                .reason
+                .contains(crate::nn::attest::CODE_DATA_CHANGED)
+            {
+                eprintln!("[reflex] note: model '{}': {}", name, verdict.reason);
+            }
+            // The gate: a certificate ABSENT (level "none") follows owner
+            // decision 4 — lenient continues (warned), strict refuses.
+            // Any OTHER not-ok verdict (weights/embed/hash tamper, an
+            // un-bypassed stale spec, a strict unsigned) REFUSES the load.
+            if verdict.level == "none" {
+                if policy.strict {
+                    return Err(verdict.reason);
+                }
+                LoadAttestReport { verdict: None }
+            } else {
+                if !verdict.ok {
+                    return Err(verdict.reason);
+                }
+                LoadAttestReport {
+                    verdict: Some(verdict),
+                }
+            }
+        }
+    };
+
     // Block 3 + actual deserialize (atomic: shape check happens before
     // any layer mutation).
     deserialize_into_model(model, &weights_blob)?;
@@ -385,9 +484,6 @@ pub fn load_model_from_db(
     // mismatch is announced LOUDLY and stamped on the model: the distill
     // paths refuse the confident answer for a model whose features
     // changed — the retrain is the only way back to distilled answers.
-    let effective_signature = saved_signature
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| crate::embeddings::LEGACY_FEATURE_SIGNATURE.to_string());
     if effective_signature != crate::embeddings::DISTILL_FEATURE_SIGNATURE {
         eprintln!(
             "[reflex] warning: saved model '{}' was trained on feature signature '{}', \
@@ -400,7 +496,7 @@ pub fn load_model_from_db(
             crate::embeddings::DISTILL_FEATURE_SIGNATURE,
         );
     }
-    model.feature_signature = effective_signature;
+    model.feature_signature = effective_signature.clone();
 
-    Ok(())
+    Ok(report)
 }

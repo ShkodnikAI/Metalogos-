@@ -6,6 +6,40 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№825 (Wave 68, P1 — the W1 Reflex attestation, ADR-0200):** the
+  provenance certificate for trained Reflex weights. `reflex_save`
+  now writes a canonical-JSON certificate (keys sorted: the
+  attestation_version, model, pattern, spec_hash, data_hash,
+  embed_signature, weights_sha256, teacher — null with the reason
+  until W3b, dataset{rows, filter:"none", provenance}, eval —
+  `uncalibrated` until E3, rollback_if — null with the reason until
+  W5, toolchain, ledger_seq) + the `reflex.attest` ledger anchor
+  (cert_sha256 in the Ed25519 chain — tamper-EVIDENT per ADR-0167)
+  in the SAME transaction as the weights row; a ledger write failure
+  is a LOUD save error (the artifact rule — ADR-0200 §4), never a
+  silent save. The `reflex_attestation` history table (append-only,
+  + the spec_json snapshot column the changed-field contract
+  consumes); `reflex_load` verifies before deserialize: weights/embed
+  mismatches always refuse, a stale spec refuses with the CHANGED
+  FIELD NAMED unless `--allow-stale`/`METALOGOS_ATTEST_ALLOW_STALE`
+  (loudly audited + a ledger record), data changes are informational
+  (`[ATTESTATION_DATA_CHANGED]`), pre-W1 weights warn and continue
+  with `cert: none`, and `METALOGOS_ATTEST_STRICT=1` refuses both the
+  missing and the `unsigned` certificates (owner decision 4; the
+  default flips strict one release after W1). The new
+  `attest_verify(model) -> Struct{ok, level, spec_hash, reason}`
+  builtin (tier `experimental`, поправка (г); Source × Internal ×
+  Pure) answers on BOTH lanes identically (the VM intercept joins the
+  reflex-group shape; `ok: true` means provenance consistency —
+  NEVER quality, decision 5; `level: unfiltered` while every W1
+  dataset is unfiltered). The new `mlog attest verify <file.mlog>
+  [--model=Name] [--allow-stale] [--json]` CLI — pure parse + SQLite
+  read, the program is NOT executed. Contract tests:
+  `tests/naryad_825_attest.rs` (the eight contracts). security: the
+  attestation is a trust surface — the honest boundary is ADR-0200 §2
+  (not a quality proof, not tamper-PROOF); the REFERENCE rows and the
+  ADR-0200 implementation record carry the boundary verbatim.
+
 - **№823 (gh#1600, Wave 68 — the E1–E4 measured baseline for the
   W4–W6 line, ADR-0200):** the distillation experiments, measurements
   only — the embed speed (the SSOT TF-IDF backend: ~11–12 µs/line

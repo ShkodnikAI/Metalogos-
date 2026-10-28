@@ -77,7 +77,7 @@ fn save_load_roundtrip_preserves_predictions() {
     // Save model A.
     {
         let model = registry_a.get_dense(id_a).expect("model");
-        persist::save_model_to_db(model, "roundtrip_model", &db_path).expect("save");
+        persist::save_model_to_db(model, "roundtrip_model", &db_path, None).expect("save");
     }
 
     // Phase 2: create a NEW registry, register a NEW model with the SAME
@@ -100,7 +100,15 @@ fn save_load_roundtrip_preserves_predictions() {
     );
 
     // Load saved weights into the new model.
-    persist::load_model_from_db(&mut registry_b, id_b, "roundtrip_model", &db_path).expect("load");
+    persist::load_model_from_db(
+        &mut registry_b,
+        id_b,
+        "roundtrip_model",
+        &db_path,
+        None,
+        metalogos::nn::attest::AttestPolicy::lenient(),
+    )
+    .expect("load");
 
     // Phase 3: predictions on the new model should now be bitwise-identical
     // to the original trained model's predictions.
@@ -164,12 +172,20 @@ fn save_load_roundtrip_multiple_inputs() {
 
     {
         let model = registry_a.get_dense(id_a).expect("model");
-        persist::save_model_to_db(model, "roundtrip_model", &db_path).expect("save");
+        persist::save_model_to_db(model, "roundtrip_model", &db_path, None).expect("save");
     }
 
     let mut registry_b = ReflexRegistry::new();
     let id_b = registry_b.register(make_model_2class(99));
-    persist::load_model_from_db(&mut registry_b, id_b, "roundtrip_model", &db_path).expect("load");
+    persist::load_model_from_db(
+        &mut registry_b,
+        id_b,
+        "roundtrip_model",
+        &db_path,
+        None,
+        metalogos::nn::attest::AttestPolicy::lenient(),
+    )
+    .expect("load");
 
     for (i, inp) in test_inputs.iter().enumerate() {
         let after = registry_b.get_dense(id_b).expect("model").forward(inp);

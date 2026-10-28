@@ -12,7 +12,7 @@
 
 ## Reference and formal specifications
 
-- [REFERENCE.md](REFERENCE.md): the full language reference — §3 Syntax (operators, control constructs, expressions), §4 Built-in Functions (526 builtins, 100% coverage, 0 TODO, SSOT-regenerated from `src/builtins/registry.rs`), §6 the generated index.
+- [REFERENCE.md](REFERENCE.md): the full language reference — §3 Syntax (operators, control constructs, expressions), §4 Built-in Functions (527 builtins, 100% coverage, 0 TODO, SSOT-regenerated from `src/builtins/registry.rs`), §6 the generated index.
 - [docs/spec/tools.md](docs/spec/tools.md): the normative tools/abstraction spec (the №645 protocol — every norm probed).
 - [docs/limitations.md](docs/limitations.md): the index of the known limitations — the truth lives in the primary sources (ADRs, the sources, the naryad reports).
 - [src/grammar.pest](src/grammar.pest): the formal PEG grammar (530+ lines) — the exhaustive specification of the .mlog syntax. It is the compiler's source, not documentation — if it diverges from REFERENCE.md, the grammar is authoritative.

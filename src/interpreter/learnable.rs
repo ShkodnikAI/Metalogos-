@@ -1472,6 +1472,11 @@ pub(crate) struct BatteryReport {
     pub held_out: usize,
     pub correct: usize,
     pub below_minimum: bool,
+    /// №826 (ADR-0216): the held-out (expected, actual) pairs in the
+    /// measured order — the label surface the №826 gate metrics and the
+    /// majority baseline read. `None` actual = the backend errored (the
+    /// task was not answered — it counts as incorrect everywhere).
+    pub held_pairs: Vec<(String, Option<String>)>,
 }
 
 /// Measure the mutated pattern's accuracy on the held-out golden tasks.
@@ -1495,15 +1500,20 @@ pub(crate) fn measure_battery_accuracy(
 
     let held_out = held.len();
     let mut correct = 0usize;
+    // №826 (ADR-0216): the (expected, actual) pairs feed the named gate
+    // metrics; a backend error stays `None` — unanswered, incorrect.
+    let mut held_pairs: Vec<(String, Option<String>)> = Vec::with_capacity(held_out);
     for (input, expected) in &held {
         match answer(input) {
             Ok(actual) => {
                 if actual.trim() == expected.trim() {
                     correct += 1;
                 }
+                held_pairs.push((expected.clone(), Some(actual)));
             }
             Err(_) => {
                 // Backend error = the task was not answered = incorrect.
+                held_pairs.push((expected.clone(), None));
             }
         }
     }
@@ -1518,7 +1528,135 @@ pub(crate) fn measure_battery_accuracy(
         held_out,
         correct,
         below_minimum: battery_size < MIN_BATTERY_TASKS,
+        held_pairs,
     }
+}
+
+/// №826 (ADR-0216): the gate metric surface — the metric's own value AND
+/// its majority baseline over the SAME held-out evidence.
+///
+/// The held-out pairs are converted to the shared class space (sorted
+/// distinct trimmed labels; an errored answer is the residual
+/// `<no-answer>` class — unanswered tasks ARE failures for every
+/// metric), and every metric — including `accuracy` — routes through the
+/// ONE registry compute (argmax over one-hot rows recovers the class).
+/// The baseline is the same metric evaluated on the always-majority
+/// predictor (ties → the smallest label — deterministic), the №485
+/// pattern brought to the mutate gate.
+///
+/// `held_out == 0` → `Err`: no held-out evidence → no baseline → a
+/// gating rule without a baseline is a LOUD refusal, never a keep.
+pub(crate) fn gate_metric_value(
+    report: &BatteryReport,
+    metric_name: &str,
+) -> Result<(f64, f64), String> {
+    let spec = crate::nn::find_metric(metric_name).ok_or_else(|| {
+        format!(
+            "mutate: unknown metric '{}'. Registered metrics: {}",
+            metric_name,
+            crate::nn::metric_names().join(", ")
+        )
+    })?;
+    if report.held_out == 0 {
+        return Err(format!(
+            "mutate: rollback gate '{}' has no majority baseline — no held-out evidence (battery {} tasks, all covered by the mutation's own inputs); a gating metric without a baseline is refused, not kept",
+            metric_name, report.battery_size
+        ));
+    }
+    // Label space: sorted distinct trimmed truths + answered actuals; the
+    // residual `<no-answer>` class only when some task went unanswered.
+    let no_answer = "<no-answer>";
+    let mut labels: Vec<String> = Vec::new();
+    let push_label = |labels: &mut Vec<String>, l: &str| {
+        if !labels.iter().any(|x| x == l) {
+            labels.push(l.to_string());
+        }
+    };
+    for (expected, actual) in &report.held_pairs {
+        push_label(&mut labels, expected.trim());
+        if let Some(a) = actual {
+            push_label(&mut labels, a.trim());
+        }
+    }
+    if report.held_pairs.iter().any(|(_, a)| a.is_none()) {
+        push_label(&mut labels, no_answer);
+    }
+    labels.sort();
+    let class_of = |l: &str| labels.iter().position(|x| x == l).unwrap_or(0);
+    let n_classes = labels.len();
+    let truth: Vec<usize> = report
+        .held_pairs
+        .iter()
+        .map(|(e, _)| class_of(e.trim()))
+        .collect();
+    let pred: Vec<usize> = report
+        .held_pairs
+        .iter()
+        .map(|(_, a)| match a {
+            Some(x) => class_of(x.trim()),
+            None => class_of(no_answer),
+        })
+        .collect();
+    // ONE scoring body: the registry compute over one-hot rows (the argmax
+    // recovers the class — identical math for every registered metric).
+    let one_hot = |c: usize| {
+        let mut v = vec![0.0; n_classes];
+        v[c] = 1.0;
+        v
+    };
+    let preds: Vec<Vec<f64>> = pred.iter().map(|&c| one_hot(c)).collect();
+    let value = (spec.compute)(&preds, &truth);
+    // The majority baseline: the most frequent TRUTH class (ties → the
+    // smallest label — the sorted order), predicted everywhere.
+    let mut counts = vec![0usize; n_classes];
+    for &t in &truth {
+        counts[t] += 1;
+    }
+    let mut majority = 0usize;
+    let mut best = 0usize;
+    for (i, &c) in counts.iter().enumerate() {
+        if c > best {
+            best = c;
+            majority = i;
+        }
+    }
+    let baseline_preds: Vec<Vec<f64>> = truth.iter().map(|_| one_hot(majority)).collect();
+    let baseline = (spec.compute)(&baseline_preds, &truth);
+    Ok((value, baseline))
+}
+
+/// №826 (ADR-0216): the ONE mutate-verdict message builder for both lanes
+/// (TW `interpreter::hooks` and VM) — byte parity is a pinned contract
+/// (`tests/naryad_826_metric_registry.rs` contract 6).
+///
+/// Shape: `[MUTATE] {pattern}: {metric}={value}, kept|rolled back ...`
+/// — for the default `accuracy` metric the string is byte-identical to
+/// the pre-№826 formats (the №375 mock pins). The majority baseline
+/// segment appears ONLY on a real gated decision (a real battery, a
+/// rollback condition present) — the mock stub mode carries no baseline
+/// (the mechanism exercise, ADR-0112/№375), and a mutation with no
+/// rollback condition does not gate at all.
+pub(crate) fn mutate_gate_message(
+    pattern: &str,
+    metric: &str,
+    value: f64,
+    kept: bool,
+    threshold: f64,
+    baseline: Option<f64>,
+    battery_note: &str,
+) -> String {
+    let verdict = if kept {
+        format!("kept (>= {:.1})", threshold)
+    } else {
+        format!("rolled back (below {:.1})", threshold)
+    };
+    let baseline_segment = baseline
+        .map(|b| format!(" (majority baseline {}={:.3})", metric, b))
+        .unwrap_or_default();
+    format!(
+        "[MUTATE] {}: {}={}, {}{}{}",
+        pattern, metric, value, verdict, baseline_segment, battery_note
+    )
 }
 
 // ── №489: the distill training core, shared by the synchronous seam

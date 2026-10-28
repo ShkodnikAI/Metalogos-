@@ -218,7 +218,13 @@ EVAL_KW          = @{ "eval" }
 mutate_decl      = { MUTATE_KW ~ IDENT ~ LBRACE ~ mutate_body ~ RBRACE }
 mutate_body      = { mutate_add_example* ~ mutate_rollback? }
 mutate_add_example = { "add_example" ~ "(" ~ expression ~ COMMA ~ expression ~ ")" }
-mutate_rollback    = { "rollback_if" ~ ":" ~ "accuracy" ~ compare_op ~ FLOAT_LITERAL }
+// №826 (ADR-0216): the metric NAME (an IDENT resolved against
+// METRIC_REGISTRY at the semantic check) replaces the `accuracy`
+// literal. The old form `rollback_if: accuracy OP x` stays valid —
+// `accuracy` is a registered name. An unregistered name is a LOUD
+// semantic refusal, never a silent fallback (the reflex_train
+// convention).
+mutate_rollback    = { "rollback_if" ~ ":" ~ IDENT ~ compare_op ~ FLOAT_LITERAL }
 
 // ── Entity: struct type ───────────────────────────────────────────────
 // Disambiguates from simple entity: IDENT followed by '{' not ":"

@@ -154,11 +154,20 @@ impl Interpreter {
         // established Q→A behavior) — and accuracy is measured ONLY on
         // held-out tasks (inputs that are NOT the mutation's own new
         // examples). The answer path is the pattern's real LLM call.
+        // №826 (ADR-0216): the gating metric NAME — the registry resolves
+        // it (the semantic check refused unregistered names before the
+        // run); the default stays `accuracy` (the old form parses as the
+        // registered name).
+        let metric_name = m.rollback_metric.as_deref().unwrap_or("accuracy");
         let mock_mode = crate::llm::mock_llm_requested();
         let pattern_name = m.pattern_name.clone();
-        let (accuracy, battery_note) = if mock_mode {
+        let gated = matches!((&m.rollback_op, &m.rollback_threshold), (Some(_), Some(_)));
+        let (accuracy, battery_note, battery_report) = if mock_mode {
             // Compute mock accuracy (always 0.95 for MockLlm) — test mode only.
-            (0.95, String::new())
+            // №826: the stub is metric-agnostic — the rollback MECHANISM is
+            // exercised, not a quality signal (ADR-0112); the mock message
+            // carries the metric's own name and NO baseline segment.
+            (0.95, String::new(), None)
         } else {
             // Battery: eval-block datasets for this pattern first, then the
             // pre-mutation few-shot; dedup by input (first wins).
@@ -198,47 +207,77 @@ impl Interpreter {
                     ""
                 }
             );
-            if report.held_out == 0 {
+            if report.held_out == 0 && !gated {
+                // №826: with a rollback condition the baseline-less gate
+                // refuses below with its own loud message; the 0.0-accuracy
+                // warning stays for the measured-but-ungated case.
                 eprintln!(
                     "[MUTATE] WARNING: no held-out battery tasks for '{}' — accuracy counts as 0.0 (no evidence, no keep)",
                     pattern_name
                 );
             }
-            (report.accuracy, note)
+            (report.accuracy, note, Some(report))
+        };
+
+        // №826 (ADR-0216): the gate reads the METRIC'S OWN value and its
+        // majority baseline over the same held-out surface. A gating rule
+        // without held-out evidence has no baseline → LOUD refusal (never
+        // a keep); the audit surface below keeps reporting `accuracy=`
+        // only for the default metric — named metrics report themselves.
+        let (gate_value, baseline) = if mock_mode {
+            // Mock mode: the stub value, no baseline (ADR-0112/№375 — the
+            // mechanism exercise; the mock message carries no baseline).
+            (accuracy, None)
+        } else if gated {
+            let report = battery_report
+                .as_ref()
+                .ok_or_else(|| "mutate: the gate battery vanished".to_string())?;
+            let (value, baseline) =
+                crate::interpreter::learnable::gate_metric_value(report, metric_name)?;
+            (value, Some(baseline))
+        } else {
+            // No rollback condition — measured, reported, always kept
+            // (the №375 no-condition contract).
+            (accuracy, None)
         };
 
         // Check against threshold
         // "kept = true" means the mutation is KEPT (not rolled back).
-        // rollback_if: accuracy OP threshold → roll back if condition is TRUE.
-        // So kept = NOT (accuracy OP threshold).
+        // rollback_if: METRIC OP threshold → roll back if condition is TRUE.
+        // So kept = NOT (METRIC OP threshold).
         let kept = match (&m.rollback_op, &m.rollback_threshold) {
             (Some(op), Some(threshold)) => match op {
-                CompareOp::Lt => accuracy >= *threshold, // rollback if <, keep if >=
-                CompareOp::Le => accuracy > *threshold,  // rollback if <=, keep if >
-                CompareOp::Gt => accuracy <= *threshold, // rollback if >, keep if <=
-                CompareOp::Ge => accuracy < *threshold,  // rollback if >=, keep if <
+                CompareOp::Lt => gate_value >= *threshold, // rollback if <, keep if >=
+                CompareOp::Le => gate_value > *threshold,  // rollback if <=, keep if >
+                CompareOp::Gt => gate_value <= *threshold, // rollback if >, keep if <=
+                CompareOp::Ge => gate_value < *threshold,  // rollback if >=, keep if <
                 // Наряд №206: Eq/Ne were inverted (bug since n148).
-                // rollback_if: accuracy == 0.95 → roll back if equal, keep if different.
-                CompareOp::Eq => (accuracy - threshold).abs() >= 1e-9,
-                // rollback_if: accuracy != 0.95 → roll back if different, keep if equal.
-                CompareOp::Ne => (accuracy - threshold).abs() < 1e-9,
+                // rollback_if: METRIC == t → roll back if equal, keep if different.
+                CompareOp::Eq => (gate_value - threshold).abs() >= 1e-9,
+                // rollback_if: METRIC != t → roll back if different, keep if equal.
+                CompareOp::Ne => (gate_value - threshold).abs() < 1e-9,
             },
             _ => true, // No rollback condition → always keep
         };
 
+        // №826: the ONE message builder (both lanes, byte parity) — the
+        // baseline segment only on a real gated decision.
+        let msg = Ok(crate::interpreter::learnable::mutate_gate_message(
+            &m.pattern_name,
+            metric_name,
+            gate_value,
+            kept,
+            m.rollback_threshold.unwrap_or(0.0),
+            baseline,
+            &battery_note,
+        ));
+
         if kept {
             // Keep the new examples (already in place)
-            let msg = Ok(format!(
-                "[MUTATE] {}: accuracy={}, kept (>= {:.1}){}",
-                m.pattern_name,
-                accuracy,
-                m.rollback_threshold.unwrap_or(0.0),
-                battery_note
-            ));
             // Phase 7.5: Audit log for mutate operations (after releasing mutable borrow)
             self.push_audit(format!(
-                "[AUDIT] mutate {}: {} examples, accuracy={}",
-                m.pattern_name, num_examples, accuracy
+                "[AUDIT] mutate {}: {} examples, {}={}",
+                m.pattern_name, num_examples, metric_name, gate_value
             ));
             msg
         } else {
@@ -250,17 +289,10 @@ impl Interpreter {
                     format!("mutate: learnable pattern '{}' not found", m.pattern_name)
                 })?;
             learnable.few_shot = original_few_shot;
-            let msg = Ok(format!(
-                "[MUTATE] {}: accuracy={}, rolled back (below {:.1}){}",
-                m.pattern_name,
-                accuracy,
-                m.rollback_threshold.unwrap_or(0.0),
-                battery_note
-            ));
             // Phase 7.5: Audit log for mutate operations (rolled back)
             self.push_audit(format!(
-                "[AUDIT] mutate {}: {} examples, accuracy={} (rolled back)",
-                m.pattern_name, num_examples, accuracy
+                "[AUDIT] mutate {}: {} examples, {}={} (rolled back)",
+                m.pattern_name, num_examples, metric_name, gate_value
             ));
             msg
         }

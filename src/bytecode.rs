@@ -409,6 +409,11 @@ pub struct MutateData {
     pub example_count: usize,
     pub rollback_threshold: Option<f64>,
     pub rollback_op: Option<ConditionOp>,
+    /// №826 (ADR-0216): the gating metric's registry name (present
+    /// exactly when the `rollback_if` clause is present; resolved
+    /// against METRIC_REGISTRY — an unregistered name is refused at the
+    /// semantic check before compilation).
+    pub rollback_metric: Option<String>,
 }
 
 /// Payload of `Instruction::StoreAssignLocal` (the №264 loud backstop).

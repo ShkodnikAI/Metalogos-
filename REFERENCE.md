@@ -2053,10 +2053,10 @@ sandbox safe_executor {
   timeout: 5
 }
 
-// Mutate (adaptation with rollback)
+// Mutate (adaptation with rollback; №826 — the metric is a REGISTRY NAME)
 mutate Classify {
   add_example("new input", "new output")
-  rollback_if: accuracy < 0.7
+  rollback_if: macro_f1 < 0.7
 }
 
 // Adapt (adding an example)
@@ -2088,7 +2088,7 @@ environment, so pattern parameters and locals are visible. Both backends
 into garbage statements — "token soup" — and failed only at runtime).
 Top-level placement remains a declaration evaluated against global entities.
 
-**Note on `accuracy` in `rollback_if` (Naryad #375 — real battery metric)**: since №375 the accuracy is REAL in real mode — the mutated pattern is measured on a golden-task battery (the pattern's eval-block datasets per ADR-0050 + its pre-mutation few-shot), held-out split (tasks whose inputs are NOT the mutation's own examples), deterministic seeded order; the LLM backend answers each held-out task and backend errors count as incorrect. The battery surface is reported loudly in the mutate log (`(battery: N tasks, held-out H, correct C[, BELOW MINIMUM 20])`). Mock mode (`METALOGOS_MOCK_LLM=1|true`, explicit-only since №454 — the default is the real, fail-loud backend) keeps the fixed 0.95 value — the rollback mechanism is exercised, not a quality signal (ADR-0112 addendum). A mutation with NO held-out evidence scores 0.0 — a self-modifying system does not keep changes it cannot evaluate.
+**Note on the `rollback_if` metric (Naryad #375 real battery; №826 — the metric registry)**: the metric in `rollback_if: METRIC OP threshold` is a **registry NAME** (ADR-0216), resolved against `METRIC_REGISTRY` at the semantic check — the registered set is `accuracy`, `macro_f1`, `min_class_recall`; an unregistered name is a LOUD refusal (`mutate: unknown metric '...'`), never a silent fallback, and the old literal form `rollback_if: accuracy OP x` stays valid (`accuracy` is a registered name). Since №375 the value is REAL in real mode — the mutated pattern is measured on a golden-task battery (the pattern's eval-block datasets per ADR-0050 + its pre-mutation few-shot), held-out split (tasks whose inputs are NOT the mutation's own examples), deterministic seeded order; the LLM backend answers each held-out task and backend errors count as incorrect (an unanswered task is the residual `<no-answer>` class for the named metrics). The battery surface is reported loudly in the mutate log (`(battery: N tasks, held-out H, correct C[, BELOW MINIMUM 20])`). Every GATED decision is accompanied by the **majority baseline** — the same metric evaluated on the always-majority predictor over the same held-out labels (the №485 distill-gate pattern; `(majority baseline METRIC=V)` in the mutate log) — and a gating rule with NO held-out evidence has no baseline: it is refused loudly, not kept. Edge semantics: `macro_f1` skips a class present in neither truth nor predictions and counts a predictions-only class at F1 = 0; `min_class_recall` skips truth-less classes (undefined, not zero). Mock mode (`METALOGOS_MOCK_LLM=1|true`, explicit-only since №454 — the default is the real, fail-loud backend) keeps the fixed 0.95 value for any metric — the rollback mechanism is exercised, not a quality signal (ADR-0112 addendum); the mock message carries no baseline. A mutation with NO rollback condition is still measured and reported but always kept.
 
 **Sandbox `timeout` caveat**: `timeout > 0` cancels BOTH the calling thread's wait AND the underlying LLM request at the deadline, on every call path: SmartRouter routes via the HTTP client timeout (real TCP drop; Naryad №156); the legacy backend via `call_with_deadline` (Naryad №248 — RealLlm drops the TCP connection at min(deadline, 120s), the mock sleeps min(delay, deadline)). External on-demand abort is out of scope — revisit when a real use case appears (server client-disconnect or a language construct).
 

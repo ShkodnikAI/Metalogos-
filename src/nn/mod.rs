@@ -47,7 +47,10 @@ pub use metalogos_reflex::nn::{
 pub use activation::{Activation, ActivationKind};
 pub use dense::Dense;
 pub use layer::{Layer, LayerSpec, LAYER_REGISTRY};
-pub use metric::{compute_accuracy, find_metric, metric_names, MetricSpec, METRIC_REGISTRY};
+pub use metric::{
+    compute_accuracy, compute_macro_f1, compute_min_class_recall, find_metric, macro_f1_labels,
+    metric_names, min_class_recall_labels, MetricSpec, METRIC_REGISTRY,
+};
 // Наряд №183: re-export SequenceLayer types when candle feature is on.
 // №545 (б): the spec surface (registry + builders) moved to
 // sequence_spec; the public paths are preserved.

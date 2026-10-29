@@ -21,6 +21,19 @@ fn findings_for(src: &str) -> Vec<(String, String)> {
         .collect()
 }
 
+/// The Category-A ERROR findings for one program (№831: the SQL_DYNAMIC
+/// gate emits an Info success-marker for the covered carriers — the
+/// bridge orthogonality question is the ERROR lane, the same filter the
+/// №831 suite itself uses).
+fn errors_for(src: &str) -> Vec<(String, String)> {
+    let decls = metalogos::parser::parse(src.trim()).expect("parses");
+    audit_category_a(&decls, "")
+        .into_iter()
+        .filter(|f| f.severity == Severity::Error)
+        .map(|f| (f.check_id.to_string(), f.message))
+        .collect()
+}
+
 fn has_class(src: &str, class: &str) -> bool {
     findings_for(src).iter().any(|(id, _)| id == class)
 }
@@ -172,10 +185,16 @@ pattern P(_t: String) -> String {
 }
 flow Main { input: String = "t" -> P -> output }
 "#;
-    let fs = findings_for(src);
+    // №831 (wave 70): db_execute_with_grant is now a CLASSIFIED SQL
+    // carrier (arg 1) — the literal SQL template emits the gate's Info
+    // success-marker ("all N SQL-carrier calls use literal SQL ✓"). The
+    // orthogonality contract is the ERROR lane: the bridge adds no static
+    // ERROR finding for the granted action (its gates are runtime-only,
+    // №390). The Info marker is the №831 coverage evidence, not a denial.
+    let fs = errors_for(src);
     assert!(
         fs.is_empty(),
-        "granted actions carry no bridge findings: {:?}",
+        "granted actions carry no bridge error findings: {:?}",
         fs.iter().map(|(id, _)| id).collect::<Vec<_>>()
     );
     // …and the runtime grant gates are still the ones that refuse.

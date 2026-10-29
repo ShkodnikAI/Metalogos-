@@ -835,11 +835,23 @@ fn check_hardcoded_secrets(
     }
 }
 
-// ── Check: SQL_DYNAMIC — non-literal SQL in query()/db_execute() ──────────
+// ── Check: SQL_DYNAMIC — non-literal SQL in EVERY classified SQL carrier
+//    (№831: the SSOT position table) + the db_insert identifier arm ──────
 
-/// Check that all query() and db_execute() calls use literal SQL strings.
-/// db_execute has no safe non-literal path (same as query: parameterized
-/// queries require a literal SQL template with ?/$N placeholders).
+/// Check that all SQL carriers use literal SQL strings — the position of
+/// the SQL template comes from the classification SSOT
+/// (`builtins_classification::SQL_ARG_POSITIONS`, №831): `query` /
+/// `query_row` / `query_scalar` / `db_execute` at argument 0,
+/// `db_execute_with_grant` at argument 1 (the grant handle occupies arg
+/// 0). Every SQL carrier classifies itself in the SSOT table and the
+/// gate covers it by construction — the №544 pair (query/db_execute)
+/// was the H-2 gap the merged audit named.
+///
+/// `db_insert` carries the separate identifier arm (see
+/// `check_db_insert_identifiers`): its SQL is CONSTRUCTED from the
+/// table/column identifiers, so the template question does not apply —
+/// the table must be a literal and the column structure must not arrive
+/// from an untrusted source.
 ///
 /// №544 step 2: the SQL lane is typed — the verdict is the TYPE question
 /// [`crate::sql_label::is_literal_sql`]: the argument must carry the
@@ -855,6 +867,104 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
     let mut all_literal = true;
     let mut literal_count = 0usize;
 
+    /// №831 (H-2): the db_insert identifier arm. The SQL is CONSTRUCTED
+    /// (`INSERT INTO {table} ({cols}) VALUES (?, ...)`, db_ops.rs) — the
+    /// VALUES stay parameterized, but the identifiers substitute into the
+    /// SQL text:
+    /// - arg 0 (the table) — ONLY the string literal, else the loud
+    ///   refusal before run (a one-operator modification vector);
+    /// - arg 1 (the data struct) — the struct LITERAL is the whitelist
+    ///   (the grammar's `struct_field_init` keys are IDENTs: statically
+    ///   known columns, no declared schema needed — the office's literal
+    ///   forms pass unchanged); a non-literal structure refuses when it
+    ///   derives from an untrusted source (json_body/query_param/... —
+    ///   mass assignment + column-name injection); a trusted dynamic
+    ///   shape rides the runtime `quote_identifier` hardening (db_ops.rs).
+    fn check_db_insert_identifiers(
+        args: &[Expr],
+        source: &str,
+        findings: &mut Vec<AuditFinding>,
+        tracker: &TaintTracker,
+    ) {
+        let mut push_finding = |snippet: String, what: &str| {
+            let line = find_line(source, &snippet);
+            findings.push(AuditFinding {
+                severity: Severity::Error,
+                check_id: "SQL_DYNAMIC",
+                line,
+                message: format!("SQL injection risk — db_insert() {} ({})", what, snippet),
+            });
+        };
+        // Arg 0 — the table identifier: literal-only.
+        match args.first() {
+            Some(Expr::StringLit { .. }) => {}
+            Some(other) => {
+                let snippet = match other {
+                    Expr::Ident { name: id, .. } => id.clone(),
+                    Expr::BinaryOp { .. } => "dynamic expression".to_string(),
+                    Expr::FnCall { name: n, .. } => format!("{}()", n),
+                    _ => "non-literal".to_string(),
+                };
+                push_finding(
+                    snippet,
+                    "table name must be a string literal (the identifier is substituted into the SQL text)",
+                );
+            }
+            None => {}
+        }
+        // Arg 1 — the column structure: the literal whitelist, else the
+        // untrusted-source taint refusal.
+        match args.get(1) {
+            Some(Expr::StructLit { .. }) => {}
+            Some(other) if db_insert_arg_untrusted(other, tracker) => {
+                let snippet = match other {
+                    Expr::Ident { name: id, .. } => id.clone(),
+                    Expr::FnCall { name: n, .. } => format!("{}()", n),
+                    _ => "non-literal structure".to_string(),
+                };
+                push_finding(
+                    snippet,
+                    "column structure from an untrusted source — mass assignment / column-name injection (use a struct literal)",
+                );
+            }
+            Some(_) => {}
+            None => {}
+        }
+    }
+
+    /// №831: the two-layer untrusted question for the db_insert column
+    /// structure (the №140/№685 conductor form): the DIRECT source call
+    /// (the shallow name layer — `get_expr_taint` alone misses a direct
+    /// `json_body()` whose arguments are clean) + the tracker layer for
+    /// the let-bound sources. The UserInput and LlmOutput kinds are
+    /// untrusted; `Sanitized` is the sanctioned path and never refuses.
+    fn db_insert_arg_untrusted(expr: &Expr, tracker: &TaintTracker) -> bool {
+        if expr_is_user_input_tainted(expr, tracker) {
+            return true;
+        }
+        if let Expr::FnCall { name, .. } = expr {
+            if matches!(
+                name.as_str(),
+                "http_get"
+                    | "read_file"
+                    | "mcp_call"
+                    | "feed_parse"
+                    | "sitemap_parse"
+                    | "xml_parse"
+                    | "call_llm"
+                    | "call_claude"
+                    | "call_llm_schema"
+                    | "reflex_generate"
+            ) {
+                return true;
+            }
+        }
+        matches!(
+            get_expr_taint(expr, tracker),
+            Some(TaintKind::UserInput) | Some(TaintKind::LlmOutput)
+        )
+    }
+
     fn check_stmts(
         stmts: &[Statement],
         source: &str,
@@ -868,6 +978,9 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
         // the verdict parity rests on the type rules, not on the env.
         let mut sql_vars: std::collections::HashMap<String, Type> =
             std::collections::HashMap::new();
+        // №831: the binding taint map for the db_insert identifier arm
+        // (the same seeding pattern the leak checks use — binding_taint).
+        let mut tracker = TaintTracker::new();
 
         fn walk_query(
             expr: &Expr,
@@ -876,10 +989,14 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
             all_literal: &mut bool,
             literal_count: &mut usize,
             sql_vars: &mut std::collections::HashMap<String, Type>,
+            tracker: &TaintTracker,
         ) {
             if let Expr::FnCall { name, args, .. } = expr {
-                if name == "query" || name == "db_execute" {
-                    if let Some(arg) = args.first() {
+                // №831 (H-2): the gate reads the SQL position from the
+                // classification SSOT — 5 carriers, not 2;
+                // db_execute_with_grant carries its SQL in arg 1.
+                if let Some(sql_pos) = crate::builtins_classification::sql_arg_position(name) {
+                    if let Some(arg) = args.get(sql_pos) {
                         // №544 step 2: the question is the TYPE — is the
                         // argument's type the literal string template?
                         if crate::sql_label::is_literal_sql(&crate::sql_label::sql_type_of_expr(
@@ -900,30 +1017,67 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
                                 check_id: "SQL_DYNAMIC",
                                 line,
                                 message: format!(
-                                    "SQL injection risk — {}() with non-literal SQL ({})",
-                                    name, snippet
+                                    "SQL injection risk — {}() with non-literal SQL at argument {} ({})",
+                                    name, sql_pos, snippet
                                 ),
                             });
                         }
                     }
                 }
+                // №831 (H-2): the db_insert identifier arm — the table
+                // literal-only, the column structure not untrusted.
+                if name == "db_insert" {
+                    check_db_insert_identifiers(args, source, findings, tracker);
+                }
                 // Recurse into args to find nested query() calls
                 for arg in args {
-                    walk_query(arg, source, findings, all_literal, literal_count, sql_vars);
+                    walk_query(
+                        arg,
+                        source,
+                        findings,
+                        all_literal,
+                        literal_count,
+                        sql_vars,
+                        tracker,
+                    );
                 }
             } else {
                 // Recurse into other expression types
                 match expr {
                     Expr::QualifiedCall { args, .. } => {
                         for arg in args {
-                            walk_query(arg, source, findings, all_literal, literal_count, sql_vars);
+                            walk_query(
+                                arg,
+                                source,
+                                findings,
+                                all_literal,
+                                literal_count,
+                                sql_vars,
+                                tracker,
+                            );
                         }
                     }
                     Expr::BinaryOp {
                         left: l, right: r, ..
                     } => {
-                        walk_query(l, source, findings, all_literal, literal_count, sql_vars);
-                        walk_query(r, source, findings, all_literal, literal_count, sql_vars);
+                        walk_query(
+                            l,
+                            source,
+                            findings,
+                            all_literal,
+                            literal_count,
+                            sql_vars,
+                            tracker,
+                        );
+                        walk_query(
+                            r,
+                            source,
+                            findings,
+                            all_literal,
+                            literal_count,
+                            sql_vars,
+                            tracker,
+                        );
                     }
                     _ => {}
                 }
@@ -936,6 +1090,7 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
             all_literal: &mut bool,
             literal_count: &mut usize,
             sql_vars: &mut std::collections::HashMap<String, Type>,
+            tracker: &mut TaintTracker,
         ) {
             match stmt {
                 Statement::LetBinding { name, value, .. } => {
@@ -946,6 +1101,7 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
                         all_literal,
                         literal_count,
                         sql_vars,
+                        tracker,
                     );
                     // №544 step 2: the type follows the binding (or is
                     // dropped when the initializer proves nothing — the
@@ -959,6 +1115,13 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
                             sql_vars.remove(name);
                         }
                     }
+                    // №831: the taint follows the binding (the db_insert
+                    // identifier lane reads it).
+                    if let Some(taint) = binding_taint(value, tracker) {
+                        tracker.taint(name, taint);
+                    } else {
+                        tracker.untaint(name);
+                    }
                 }
                 Statement::Assign { name, value, .. } => {
                     walk_query(
@@ -968,6 +1131,7 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
                         all_literal,
                         literal_count,
                         sql_vars,
+                        tracker,
                     );
                     match crate::sql_label::binding_sql_type(value, sql_vars) {
                         Some(ty) => {
@@ -977,21 +1141,54 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
                             sql_vars.remove(name);
                         }
                     }
+                    if let Some(taint) = binding_taint(value, tracker) {
+                        tracker.taint(name, taint);
+                    } else {
+                        tracker.untaint(name);
+                    }
                 }
-                Statement::ExprStmt { expr, .. } => {
-                    walk_query(expr, source, findings, all_literal, literal_count, sql_vars)
-                }
-                Statement::Return { value: expr, .. } => {
-                    walk_query(expr, source, findings, all_literal, literal_count, sql_vars)
-                }
+                Statement::ExprStmt { expr, .. } => walk_query(
+                    expr,
+                    source,
+                    findings,
+                    all_literal,
+                    literal_count,
+                    sql_vars,
+                    tracker,
+                ),
+                Statement::Return { value: expr, .. } => walk_query(
+                    expr,
+                    source,
+                    findings,
+                    all_literal,
+                    literal_count,
+                    sql_vars,
+                    tracker,
+                ),
                 Statement::Each { body, .. } => {
                     for s in body {
-                        walk_stmt(s, source, findings, all_literal, literal_count, sql_vars);
+                        walk_stmt(
+                            s,
+                            source,
+                            findings,
+                            all_literal,
+                            literal_count,
+                            sql_vars,
+                            tracker,
+                        );
                     }
                 }
                 Statement::While { body, .. } => {
                     for s in body {
-                        walk_stmt(s, source, findings, all_literal, literal_count, sql_vars);
+                        walk_stmt(
+                            s,
+                            source,
+                            findings,
+                            all_literal,
+                            literal_count,
+                            sql_vars,
+                            tracker,
+                        );
                     }
                 }
                 Statement::IfElseBlock {
@@ -1001,22 +1198,54 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
                     ..
                 } => {
                     for s in then_body {
-                        walk_stmt(s, source, findings, all_literal, literal_count, sql_vars);
+                        walk_stmt(
+                            s,
+                            source,
+                            findings,
+                            all_literal,
+                            literal_count,
+                            sql_vars,
+                            tracker,
+                        );
                     }
                     for (_, body) in else_ifs {
                         for s in body {
-                            walk_stmt(s, source, findings, all_literal, literal_count, sql_vars);
+                            walk_stmt(
+                                s,
+                                source,
+                                findings,
+                                all_literal,
+                                literal_count,
+                                sql_vars,
+                                tracker,
+                            );
                         }
                     }
                     if let Some(body) = else_body {
                         for s in body {
-                            walk_stmt(s, source, findings, all_literal, literal_count, sql_vars);
+                            walk_stmt(
+                                s,
+                                source,
+                                findings,
+                                all_literal,
+                                literal_count,
+                                sql_vars,
+                                tracker,
+                            );
                         }
                     }
                 }
                 Statement::IfThen { body, .. } => {
                     for s in body {
-                        walk_stmt(s, source, findings, all_literal, literal_count, sql_vars);
+                        walk_stmt(
+                            s,
+                            source,
+                            findings,
+                            all_literal,
+                            literal_count,
+                            sql_vars,
+                            tracker,
+                        );
                     }
                 }
                 _ => {}
@@ -1030,6 +1259,7 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
                 all_literal,
                 literal_count,
                 &mut sql_vars,
+                &mut tracker,
             );
         }
     }
@@ -1083,7 +1313,7 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
             check_id: "SQL_DYNAMIC",
             line: 1,
             message: format!(
-                "all {} query()/db_execute() calls use literal SQL \u{2713}",
+                "all {} SQL-carrier calls use literal SQL \u{2713}",
                 literal_count
             ),
         });
@@ -5604,7 +5834,10 @@ fn check_canary_leak(declarations: &[Declaration], source: &str, findings: &mut 
 /// `mlog check`/`mlog run`/`mlog serve`/`mlog compile` by Наряд №98.
 ///
 /// Category A (Наряд №98, expanded Наряд #157, #201):
-///   - SQL_DYNAMIC: query()/db_execute() with non-literal SQL (SQL injection vector)
+///   - SQL_DYNAMIC: every classified SQL carrier with non-literal SQL at the
+///     SSOT position (№831: query/query_row/query_scalar/db_execute — arg 0;
+///     db_execute_with_grant — arg 1) + the db_insert identifier arm (the
+///     table literal-only, the column structure not untrusted)
 ///   - SECRET_LEAK: env() result passed to sink (respond/write_file/http_post/reflex_train)
 ///   - HTML_INJECTION: LLM output to respond() without sanitization (XSS)
 ///   - UNTRUSTED_TRAINING_DATA: json_body()/query_param() to reflex_train data/labels (Наряд #201)

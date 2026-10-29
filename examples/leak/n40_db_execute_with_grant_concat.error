@@ -1,0 +1,1 @@
+EXPECTED: SQL_DYNAMIC — a query_param concatenated into the db_execute_with_grant SQL (arg 1)

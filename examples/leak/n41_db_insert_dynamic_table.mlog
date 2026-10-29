@@ -1,0 +1,7 @@
+// Threat: the table identifier substituted from the request parameter.
+// Attack: column-name/table injection — the one-operator modification (№831, H-2).
+pattern Send(data: String) -> String {
+  let _ = db_insert(query_param("t"), { v: data })
+  return "done"
+}
+flow Main { input: String = data -> Send -> output }

@@ -109,6 +109,84 @@ All notable changes to the Metalogos project.
   (the №551 rule). security: no — the audit tooling hardening, no
   product security surface changes.
 
+## [0.34.1] - 2026-10-29
+
+The unscheduled fix-release (ADR-0189 §2.6): the published 0.34.0 build
+carries the VM mis-dispatch at `profile legacy` (the H-1 of the merged
+audit `METALOGOS_MERGED_AUDIT_24fde8a`) and the SQL gate covered 2 of
+the 5 classified carriers (the H-2) — the defects cannot wait for the
+next Monday window (the office prod-transition contour runs on this
+line). No new features: the wave-68 feature rows (№825/№826) stay in
+[Unreleased] for the next scheduled train.
+
+### Security
+
+- **№831 (gh#1625, Wave 70, P1 — the H-2 of the merged audit
+  `METALOGOS_MERGED_AUDIT_24fde8a`; the behavior change, fail-closed;
+  AFFECTS programs that pass non-literal SQL to `query_row` /
+  `query_scalar` / `db_execute_with_grant` — they compile clean on
+  0.34.0 and refuse at check on 0.34.1; the audit guard scenario: the
+  SQL_DYNAMIC gate read exactly `name == "query" || name == "db_execute"`
+  (src/audit.rs:881 @ `24fde8a`) — 2 of the 5 classified SQL carriers,
+  so `query_row("SELECT * FROM u WHERE name='" + query_param("n") + "'")`
+  passed `mlog check` without findings):** the gate now reads the SQL
+  position from the classification SSOT (`builtins_classification::
+  SQL_ARG_POSITIONS`) — `query` / `query_row` / `query_scalar` /
+  `db_execute` at argument 0, `db_execute_with_grant` at argument 1
+  (the grant handle occupies arg 0) — 5/5 carriers, both contours by
+  construction (the gate lives in `audit.rs`; the classification table
+  is GENERATED into the `gen_classification.py` template — the №777
+  freshness gate refuses hand edits). `db_insert` carries the separate
+  identifier arm: the table must be a string literal (the identifier
+  substitutes into the SQL text — a one-operator modification vector);
+  the column structure refuses when it derives from an untrusted source
+  (`json_body()` / `query_param()` / … — mass assignment + column-name
+  injection), the struct literal stays the whitelist, and the trusted
+  dynamic shape rides the runtime `quote_identifier` hardening
+  (the SQLite double-quote escaping in `db_ops.rs`) as the second
+  layer. The leak-suite negatives grow 49 → 54 (n29 `query_row`, n39
+  `query_scalar`, n40 `db_execute_with_grant` — all compiled clean on
+  unpatched main; n41 dynamic `db_insert` table, n42 `db_insert`
+  `json_body()` struct). Pins: `tests/naryad_831_sql_gate.rs` (11
+  contracts, RED-first per форма №772). The fix lands 2026-10-29 (this
+  PR; the published v0.34.0 tag is affected — no re-tag, the №620
+  precedent). security: yes — the H-2 closure; the language promise
+  («нелитеральный SQL — отказ до запуска») now covers the whole SQL
+  contour.
+
+### Fixed
+
+- **№829 (gh#1622, Wave 69, P1 — the H-1 of the merged audit
+  `METALOGOS_MERGED_AUDIT_24fde8a`, gh#1616 + gh#1618 — one class, one
+  hearth; the behavior change, fail-closed; AFFECTS 0.34.0 AND EARLIER
+  on the VM backend; the audit guard scenario: after a top-level
+  `profile legacy` declaration a call to a pattern defined EARLIER in
+  the file could execute a DIFFERENT pattern — typically the one
+  defined immediately before the callee; matching arity silently
+  routed the arguments and completed with WRONG RESULTS and NO error,
+  mismatching arity named the wrong pattern (`pattern _Mark expects 2
+  args, got 0`); `mlog check` did not flag it — the divergence was
+  runtime-only and VM-only, the TW oracle dispatched by name
+  correctly):** the VM pattern dispatch no longer depends on the
+  declaration-order artifacts — the body-count index allocator assigns
+  stable dispatch indices, the dispatch-table gate is LOUD (a table
+  inconsistency refuses at compile time instead of the silent
+  corruption), and the last-match name resolution restores the
+  by-name callee identity for backward-reference calls. Red-before:
+  the office v3 battery 16/19 files red on the VM lane; the public
+  repros (test_n553v3 / test_n556v3 / test_n565v3 / test_n566v3 /
+  test_n559v3 / test_n588_night / test_forge3v3) green on both lanes
+  after the fix; two negative controls (the profile does not affect
+  the dispatch; the TW lane unchanged). Pins: `tests/` per the №829
+  PR (gh#1629). The fix merged to main before this release; the
+  published v0.34.0 build predates it — the [!WARNING] block on the
+  0.34.0 release notes (№830) is stamped fixed-in-0.34.1, the
+  limitations row closed with this release link. The fix lands
+  2026-10-29 (this release; no re-tag — the №620 precedent). security:
+  no — the defect mis-delivers a VALUE in a pattern call (the
+  integrity class), it neither widens a sink nor weakens a gate (the
+  №800 row verdict form).
+
 ## [0.34.0] - 2026-11-02
 
 ### Migration

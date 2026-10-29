@@ -11,7 +11,7 @@ construction.
 | Metric | Value (generated — do not hand-edit) |
 | ------ | ------------------------------------- |
 | Version | 0.34.0 |
-| Leak Suite | 49 negatives / 27 positives (examples/leak/ — the BLOCKING gate) |
+| Leak Suite | 54 negatives / 27 positives (examples/leak/ — the BLOCKING gate) |
 | Built-in Functions | 527 functions across 47 modules |
 | Typed Signatures | 374/527 (70.96%) — precise 243/527 (46.11%) |
 | Typed Signatures (stable tier — the PRIMARY definition, №809/ADR-0199) | 363/483 (75.15%) — the full-registry figure beside: 374/527 (70.96%) |

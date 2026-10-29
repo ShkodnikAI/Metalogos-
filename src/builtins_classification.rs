@@ -653,7 +653,7 @@ pub static BUILTIN_CLASSES: &[BuiltClassEntry] = &[
 ];
 
 // ── SQL-argument positions (№831, the H-2 finding of the merged audit
-//    `24fde8a`, the wave-70 dispatch) ─────────────────────────────────
+//    `24fde8a`, the wave-70 dispatch) ────────────────────────────────
 //
 // The SQL_DYNAMIC gate's SSOT: for every builtin whose execution feeds an
 // SQL template into the engine, the position of that template argument.

@@ -386,6 +386,31 @@ pub fn compile_program(source: &str) -> Result<bytecode::Program, String> {
 /// the session path — one gate body, both entry points.
 fn enforce_compile_gates(declarations: &[ast::Declaration]) -> Result<(), String> {
     // Наряд №98: enforce Category A security invariants before compilation.
+    // №839 (ADR-0202 §2.3, wave 71 — W-A): LICENSE_CLASS_NOT_ALLOWED —
+    // the license-class × profile permit rule. The PRECISE selection-site
+    // refusal leads the compile error (the specific-over-general
+    // precedence: when this rule fires, its dedicated code names the
+    // class and the permit; the audit lane keeps reporting weights-id
+    // literal mentions on every path it always did). A statically-visible
+    // backend selection (a literal `backend_select` ladder rung, a
+    // `vision` model field) whose license class the program's profile
+    // does not permit refuses compilation BEFORE run, on BOTH backends
+    // (the shared walker — the same rules `check_program` applies; the
+    // permit predicate is the ONE decision point shared with the №333
+    // audit gate). The audit lane still reports weights-id literal
+    // mentions — the lanes are independent postures, not duplicates.
+    {
+        let violations = semantic::license_class_violations(declarations);
+        if !violations.is_empty() {
+            let lines: Vec<String> = violations.iter().map(|v| v.message.clone()).collect();
+            return Err(format!(
+                "[{}] Compilation error (Naryad #839): license-class findings block compilation:\n{}",
+                semantic::CODE_LICENSE_CLASS_NOT_ALLOWED,
+                lines.join("\n")
+            ));
+        }
+    }
+
     // Same as run_program_with_dir: call audit_category_a directly,
     // not check_program — the compiler handles its own semantic errors.
     let cat_a = audit_category_a(declarations, "");

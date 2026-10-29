@@ -4,6 +4,13 @@
 // Degraded(t): типизированный результат с кодом BACKEND_DEGRADED —
 // не падение и не тихий мок. Каждый шаг лестницы — событие аудита
 // (stderr [BACKEND_SELECT] + attempts в результате).
+// №839 (ADR-0202 §2.3): the ladder rungs are NonOsi (nemotron-omni) and
+// Restrictive (wall-oss) — the program-level selection rule requires the
+// NAMED class permits (the named unlock, ADR-0202; the audited blanket
+// bridge stays the alternative form). The runtime behavior is unchanged
+// (the .expected is untouched).
+profile licensing { allow_license_class: "non-osi" allow_license_class: "restrictive" }
+
 pattern Pick(_tick: String) -> String {
   // Статически проверяемая лестница: обе ступени — omni-класс.
   // Приоритет побеждает: первая доступная ступень выбирается, вторая

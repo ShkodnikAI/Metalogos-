@@ -1,0 +1,13 @@
+// №839 (ADR-0202 §2.3): the ladder rung names a NonOsi backend and the
+// program carries NO license-class permit — a loud refusal before run
+// with the dedicated code. The №333 audit lane never sees ladder rungs
+// (they are backend NAMES, not weights ids) — this selection-site rule
+// is the gate that catches the class.
+pattern Pick(_tick: String) -> String {
+  let sel = backend_select("omni", ["nemotron-omni"])
+  if sel.ok {
+    return "selected:" + sel.backend
+  }
+  return "degraded"
+}
+flow Main { input: String = "x" -> Pick -> output }

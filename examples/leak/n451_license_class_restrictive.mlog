@@ -1,0 +1,12 @@
+// №839 (ADR-0202 §2.3): the ladder rung names a Restrictive backend
+// (wall-oss-0.5 — license NOT verified in-tree, the default-deny class)
+// and the program carries no restrictive permit — a loud refusal before
+// run. The named-permit unlock must name the class explicitly.
+pattern Pick(_tick: String) -> String {
+  let sel = backend_select("omni", ["wall-oss"])
+  if sel.ok {
+    return "selected:" + sel.backend
+  }
+  return "degraded"
+}
+flow Main { input: String = "x" -> Pick -> output }

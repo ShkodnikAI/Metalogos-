@@ -1,0 +1,1 @@
+EXPECTED: LICENSE_CLASS_NOT_ALLOWED — the ladder rung names a NonOsi backend without a license-class permit in the program's profile (the named unlock is 'profile licensing { allow_license_class: "non-osi" }'; the default posture allows Osi only)

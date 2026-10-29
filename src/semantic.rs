@@ -3273,6 +3273,313 @@ fn check_backend_select_ladders(declarations: &[Declaration], errors: &mut Vec<S
     }
 }
 
+// ── License-class × profile permit rule (№839, ADR-0202 §2.3) ────────
+//
+// The Phase-2 composition rule (the plan's 2.3): "non-osi only in a
+// profile that explicitly permits it". The №333 audit gate matches
+// WEIGHTS-ID literals; the ladder rungs are backend NAMES — the audit
+// lane never sees them (the w1_degrade golden rode that gap). This rule
+// closes it at the SELECTION sites: every statically-visible
+// `backend_select` ladder rung (by name) and every `vision` model field
+// (by weights id) resolves in the №333 registry; a `NonOsi` /
+// `Restrictive` (including the unverified default-deny) record whose
+// license class is NOT permitted by the program's profile is a LOUD
+// refusal BEFORE run, with the dedicated code `LICENSE_CLASS_NOT_ALLOWED`
+// (the stable check id on every path — the compile gate, `mlog check`,
+// and the audit Category-A companion).
+//
+// The permit predicate is `ResolvedProfiles::license_allows` — the
+// SINGLE decision point shared with the audit gate: `Osi` always; the
+// named `allow_license_class` permits (№839); the advisory bridge
+// implies the blanket unlock it always carried (backward compat — the
+// ADR-0163 surface is unchanged). The default posture (no licensing
+// profile) allows `Osi` only; the default-deny (`MODEL_WEIGHTS_UNSAFE`,
+// unverified → restrictive) is not weakened — the named permit sits on
+// top of it, never instead of it.
+//
+// Раскладка (the PR report): MODEL_WEIGHTS_UNSAFE = the runtime fetch
+// posture (the allowlist + SSRF-guard + SHA-pin, №334 — WHERE weights
+// may be loaded from); BACKEND_LICENSE_DISTRIBUTION = the audit lane
+// over ALL weights-id literal mentions (the distribution posture);
+// THIS rule = the program-level selection posture (which license
+// classes the program's backend selections may use, named per class).
+
+/// The stable error code of the №839 rule (the `[CODE]` prefix shape of
+/// the compile gates — the №673 family).
+pub const CODE_LICENSE_CLASS_NOT_ALLOWED: &str = "LICENSE_CLASS_NOT_ALLOWED";
+
+/// One statically-visible selection whose license class the profile
+/// does not permit.
+#[derive(Debug, Clone)]
+pub struct LicenseClassViolation {
+    pub message: String,
+    pub span: Span,
+}
+
+fn push_license_class_violation(
+    profiles: &crate::profile::ResolvedProfiles,
+    site: &str,
+    backend_name: &str,
+    entry: &crate::backends::BackendEntry,
+    span: &Span,
+    out: &mut Vec<LicenseClassViolation>,
+) {
+    if profiles.license_allows(entry.license) {
+        return;
+    }
+    let message = format!(
+        "{site}: backend '{backend_name}' resolves to a {} record — \
+         license class {} is not permitted by the program's profile \
+         (license: {}). Add an explicit permit: 'profile licensing {{ \
+         allow_license_class: \"{}\" }}' (the named class unlock, \
+         ADR-0202; the default posture allows Osi only). The permit \
+         failure is fail-closed before run — the runtime weight gates \
+         (MODEL_WEIGHTS_UNSAFE, SHA-pin №334) stay independent.",
+        entry.class.as_str(),
+        entry.license.as_str(),
+        entry.license_note,
+        entry.license.as_str(),
+    );
+    out.push(LicenseClassViolation {
+        message: format!("[{}] {}", CODE_LICENSE_CLASS_NOT_ALLOWED, message),
+        span: span.clone(),
+    });
+}
+
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
+fn check_license_class_stmts(
+    stmts: &[Statement],
+    profiles: &crate::profile::ResolvedProfiles,
+    out: &mut Vec<LicenseClassViolation>,
+) {
+    for st in stmts {
+        match st {
+            Statement::LetBinding { value, .. } | Statement::Assign { value, .. } => {
+                check_license_class_expr(value, profiles, out)
+            }
+            Statement::ExprStmt { expr, .. } | Statement::Return { value: expr, .. } => {
+                check_license_class_expr(expr, profiles, out)
+            }
+            Statement::Each { iterable, body, .. }
+            | Statement::EachWithIndex { iterable, body, .. } => {
+                check_license_class_expr(iterable, profiles, out);
+                check_license_class_stmts(body, profiles, out);
+            }
+            Statement::While {
+                condition, body, ..
+            } => {
+                check_license_class_expr(condition, profiles, out);
+                check_license_class_stmts(body, profiles, out);
+            }
+            Statement::IfElseBlock {
+                condition,
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                check_license_class_expr(condition, profiles, out);
+                check_license_class_stmts(then_body, profiles, out);
+                for (c, b) in else_ifs {
+                    check_license_class_expr(c, profiles, out);
+                    check_license_class_stmts(b, profiles, out);
+                }
+                if let Some(eb) = else_body {
+                    check_license_class_stmts(eb, profiles, out);
+                }
+            }
+            Statement::IfThen {
+                condition, body, ..
+            } => {
+                check_license_class_expr(condition, profiles, out);
+                check_license_class_stmts(body, profiles, out);
+            }
+            Statement::Match {
+                scrutinee,
+                arms,
+                else_body,
+                ..
+            } => {
+                check_license_class_expr(scrutinee, profiles, out);
+                for arm in arms {
+                    check_license_class_stmts(arm.body(), profiles, out);
+                }
+                if let Some(eb) = else_body {
+                    check_license_class_stmts(eb, profiles, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
+fn check_license_class_expr(
+    expr: &Expr,
+    profiles: &crate::profile::ResolvedProfiles,
+    out: &mut Vec<LicenseClassViolation>,
+) {
+    match expr {
+        Expr::FnCall { name, args, span } => {
+            if name == "backend_select" {
+                // The same literal-ladder shape the №336 verifier reads:
+                // args[0] = the class word, args[1] = the literal list of
+                // rung names. Non-literal ladders stay with the runtime.
+                let rungs: Option<Vec<String>> = match args.get(1) {
+                    Some(Expr::List { items, .. }) => {
+                        let mut names = Vec::with_capacity(items.len());
+                        let mut literal = true;
+                        for i in items {
+                            match i {
+                                Expr::StringLit { value, .. } => names.push(value.clone()),
+                                _ => {
+                                    literal = false;
+                                    break;
+                                }
+                            }
+                        }
+                        literal.then_some(names)
+                    }
+                    _ => None,
+                };
+                if let Some(names) = rungs {
+                    for name in names {
+                        if let Some(entry) = crate::backends::find_by_name(&name) {
+                            push_license_class_violation(
+                                profiles,
+                                "backend_select ladder",
+                                &name,
+                                entry,
+                                span,
+                                out,
+                            );
+                        }
+                    }
+                }
+            }
+            for a in args {
+                check_license_class_expr(a, profiles, out);
+            }
+        }
+        Expr::QualifiedCall { args, .. } => {
+            for a in args {
+                check_license_class_expr(a, profiles, out);
+            }
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            check_license_class_expr(left, profiles, out);
+            check_license_class_expr(right, profiles, out);
+        }
+        Expr::IfElse {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            check_license_class_expr(condition, profiles, out);
+            check_license_class_expr(then_branch, profiles, out);
+            check_license_class_expr(else_branch, profiles, out);
+        }
+        Expr::List { items, .. } => {
+            for i in items {
+                check_license_class_expr(i, profiles, out);
+            }
+        }
+        Expr::FieldAccess { object, .. } => check_license_class_expr(object, profiles, out),
+        Expr::IndexAccess { object, index, .. } => {
+            check_license_class_expr(object, profiles, out);
+            check_license_class_expr(index, profiles, out);
+        }
+        Expr::StructLit { fields, .. } => {
+            for v in fields.values() {
+                check_license_class_expr(v, profiles, out);
+            }
+        }
+        Expr::BlockIfElse {
+            condition,
+            then_body,
+            else_ifs,
+            else_body,
+            ..
+        } => {
+            check_license_class_expr(condition, profiles, out);
+            check_license_class_stmts(then_body, profiles, out);
+            for (c, body) in else_ifs {
+                check_license_class_expr(c, profiles, out);
+                check_license_class_stmts(body, profiles, out);
+            }
+            if let Some(eb) = else_body {
+                check_license_class_stmts(eb, profiles, out);
+            }
+        }
+        Expr::MatchExpr {
+            scrutinee,
+            arms,
+            else_body,
+            ..
+        } => {
+            check_license_class_expr(scrutinee, profiles, out);
+            for arm in arms {
+                check_license_class_stmts(arm.body(), profiles, out);
+            }
+            if let Some(eb) = else_body {
+                check_license_class_stmts(eb, profiles, out);
+            }
+        }
+        Expr::Try { expr, .. } => check_license_class_expr(expr, profiles, out),
+        Expr::ProvBind { inner, .. } => check_license_class_expr(inner, profiles, out),
+        Expr::HandleSource { .. }
+        | Expr::StringLit { .. }
+        | Expr::FloatLit { .. }
+        | Expr::BoolLit { .. }
+        | Expr::Ident { .. } => {}
+        _ => {}
+    }
+}
+
+/// The №839 violations over one program (the shared walker — the
+/// compile gate, `mlog check`, and the audit companion read the SAME
+/// rule).
+#[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
+pub fn license_class_violations(declarations: &[Declaration]) -> Vec<LicenseClassViolation> {
+    let profiles = crate::profile::resolve(declarations);
+    let mut out: Vec<LicenseClassViolation> = Vec::new();
+    for decl in declarations {
+        match decl {
+            Declaration::Pattern(p) => check_license_class_stmts(&p.body, &profiles, &mut out),
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    check_license_class_stmts(&m.body, &profiles, &mut out);
+                }
+            }
+            Declaration::MlogServer(srv) => {
+                for r in &srv.routes {
+                    check_license_class_stmts(&r.body, &profiles, &mut out);
+                }
+            }
+            Declaration::Hook(h) => check_license_class_stmts(&h.body, &profiles, &mut out),
+            Declaration::Flow(f) => check_license_class_expr(&f.source, &profiles, &mut out),
+            Declaration::Vision(v) => {
+                // The declaration model field is the canonical reference
+                // position (the vision model is a WEIGHTS id — the same
+                // key the №333 gate matches).
+                if let Some(entry) = crate::backends::find_by_weights_id_ci(&v.model) {
+                    push_license_class_violation(
+                        &profiles,
+                        "vision declaration",
+                        &v.model,
+                        entry,
+                        &v.span,
+                        &mut out,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 /// One statically-verifiable ladder defect. `kind` separates the two
 /// Category-A check ids: a malformed ladder (BACKEND_SELECT_INVALID)
 /// vs a ladder unverifiable for the production device profile
@@ -7007,6 +7314,16 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
     // `device { mode: production }` profile refuses unverifiable
     // (PendingNo334) rungs at BUILD time.
     check_backend_select_ladders(declarations, &mut result.errors);
+
+    // №839 (ADR-0202 §2.3, wave 71 — W-A): the license-class × profile
+    // permit rule — a statically-visible backend selection (a literal
+    // ladder rung, a `vision` model field) whose license class the
+    // program's profile does not permit is a LOUD refusal before run
+    // (the dedicated `LICENSE_CLASS_NOT_ALLOWED` code; the permit
+    // predicate is shared with the №333 audit gate).
+    for v in license_class_violations(declarations) {
+        result.errors.push(SpannedError::at(v.message, v.span));
+    }
 
     // Наряд №392: deny-event handlers — class validation, handler scope
     // of deny_event()/deny_reason(), exhaustive matching over the deny

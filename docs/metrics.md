@@ -18,7 +18,7 @@ construction.
 | SVG/Graphics | 44 builtins, hand-rolled in pure Rust |
 | Grammar | 344 rules |
 | Architecture Decisions | 195 ADRs |
-| Example Programs | 254 .mlog programs |
+| Example Programs | 253 .mlog programs |
 | Reference | REFERENCE.md (~337 KB) — 100% registry coverage |
 | Changelog | CHANGELOG.md (~174 KB) — every wave documented |
 <!-- END GENERATED METRICS -->

@@ -242,4 +242,5 @@ real ADRs (№309/№320/№412) before the booking.
 | 0198 | The Error Model — the Loud Failure + `_or` + `try`; `Result<T>`/`Option<T>` in the Type Layer Without New `Value` Variants (the C6 R-b decision, ACCEPTED 2026-10-23 by the owner's verbatim; SUPERSEDES ADR-0106) | Accepted** (2026-10-23 |
 | 0199 | The Typed-Signature Metric Reads by Maturity Tier — the STABLE-Tier Share Is the PRIMARY Definition; the Full-Registry Figure Stays Beside (the C3-a T3 decision) | Accepted** (the C3-a T3 owner decision of 2026-10-23, |
 | 0200 | The Provable Tier-Lowering Line — the Reflex Attestation Plan, the Owner Decisions 1–6, and the W1–W9 + E1–E4 Roadmap | Accepted** (the owner decisions of 2026-10-27 |
+| 0201 | Phase 8 "Verifiable Compliance & Trust" — the Through-Line, the Subphase Train 0.35–0.47, and the ADR Booking 0201–0215 | Accepted** (the owner decision R38 of 2026-10-28, |
 | 0216 | The `rollback_if` Metric Is a Registry Name — the Gate Reads the Metric's Own Value and Carries the Majority Baseline (the W2′ Grammar Semantics) | Accepted** (the наряд-mandated ADR-запись |

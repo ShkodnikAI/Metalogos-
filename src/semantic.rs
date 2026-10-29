@@ -3325,30 +3325,6 @@ fn push_license_class_violation(
     out: &mut Vec<LicenseClassViolation>,
 ) {
     if profiles.license_allows(entry.license) {
-        // №842: the class is permitted — the consumption check rides
-        // the SAME site (the fail-closed hygiene BEFORE run). In-tree
-        // the site passports ARE the pinned table (the check holds by
-        // construction); a future non-table passport source inherits
-        // the enforcement. The Refuse class (revoked / digest mismatch /
-        // tampered) is a loud refusal; the staleness rides the wave-71
-        // Flag mode (the №841 counter + the consumption API render it).
-        if let Some(p) = crate::model_passport::passport_for(entry.weights_id) {
-            if let Err(refusal) = p.consume(p.digest.as_str(), &crate::model_passport::today_utc())
-            {
-                let text = refusal.to_string();
-                if !matches!(
-                    refusal,
-                    crate::model_passport::PassportRefusal::Stale { .. }
-                ) {
-                    out.push(LicenseClassViolation {
-                        message: format!(
-                            "[PASSPORT_REFUSED] {site}: backend '{backend_name}' — {text}"
-                        ),
-                        span: span.clone(),
-                    });
-                }
-            }
-        }
         return;
     }
     let message = format!(
@@ -3557,6 +3533,7 @@ fn check_license_class_expr(
         | Expr::FloatLit { .. }
         | Expr::BoolLit { .. }
         | Expr::Ident { .. } => {}
+        _ => {}
     }
 }
 

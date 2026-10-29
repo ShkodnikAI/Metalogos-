@@ -257,7 +257,7 @@ pub fn resolve(declarations: &[Declaration]) -> ResolvedProfiles {
                     // `allow_license_class` option names ONE class; the
                     // repeatable spelling is the multi-class permit. `osi`
                     // is explicitly legal and redundant (always allowed).
-                    for (_, v) in p.options.iter().filter(|(k, _)| k == "allow_license_class") {
+                    for (k, v) in p.options.iter().filter(|(k, _)| k == "allow_license_class") {
                         match normalize_license_class(v) {
                             Some(LicenseClass::NonOsi) => resolved.license_allow_nonosi = true,
                             Some(LicenseClass::Restrictive) => {

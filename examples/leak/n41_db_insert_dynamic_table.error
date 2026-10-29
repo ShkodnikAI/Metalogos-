@@ -1,0 +1,1 @@
+EXPECTED: SQL_DYNAMIC — a query_param as the db_insert table identifier

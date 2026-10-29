@@ -1,0 +1,7 @@
+// Threat: a SQL injection through the request parameter glued into the query_scalar SQL text.
+// Attack: the classic web-parameter injection on the VM-native DB read (№831, H-2).
+pattern Send(data: String) -> String {
+  let _ = query_scalar("SELECT count(*) FROM users WHERE name='" + query_param("name") + "'")
+  return "done"
+}
+flow Main { input: String = data -> Send -> output }

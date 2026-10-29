@@ -982,6 +982,15 @@ jobs:
       # same sources (the pinning test: naryad_566_plan_summary_numbers).
       - name: Validate the generated metrics blocks (README + PLAN-SUMMARY)
         run: python3 scripts/gen_metrics.py --check
+      # №841 (gh#1643, wave 71 — W-A): the 8D-1 machine facts ride the
+      # same gate — the only-up floors (gate_033_goals.txt) are checked
+      # inside --check, and the RED harness (the tamper traps) proves the
+      # checkers catch the fabricated records (the same posture as the
+      # other gates' --tamper-test modes).
+      - name: The №841 fact floors + the tamper traps
+        run: |
+          python3 scripts/gen_metrics.py --check
+          python3 scripts/gen_metrics.py --tamper-test
       # Наряд №786 (gh#1484, the owner directive 23.10): the grant-application
       # (funding-programme) mentions are swept out of the docs — the M1
       # milestone is closed (#1135) and every wave dispatch used to re-plant

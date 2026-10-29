@@ -932,6 +932,8 @@ owner's ADR gate.
 | --- | --- |
 | Typed-signature floor — the 0.28-gate line (ADR-0179) | 7096 bp — 374/527 = 70.96% (precise 243/527 = 46.11%) |
 | BUILTIN_REGISTRY rows | 527 |
+| LICENSED_FLOOR — the 8D-1 machine fact (№841) | 10000 bp |
+| PASSPORT_FRESH — the 8D-1 machine fact (№841) | 10000 bp |
 <!-- END GENERATED NUMBERS -->
 
 ## Acceptance criteria (public part of the methodology)

@@ -1,0 +1,21 @@
+// №839 (ADR-0202 §2.3): the NAMED license-class permit — the positive.
+// The nemotron ladder rung (NonOsi) is statically visible to the
+// LICENSE_CLASS_NOT_ALLOWED rule; the explicit per-class permit unlocks
+// the compile. The ladder pattern is declared but never called (the
+// static rule sees every declaration; the runtime never selects), so
+// the golden run is deterministic and weight-free.
+profile licensing { allow_license_class: "non-osi" }
+
+pattern NemotronLadder() -> String {
+  let sel = backend_select("omni", ["nemotron-omni"])
+  if sel.ok {
+    return "selected:" + sel.backend
+  }
+  return "degraded"
+}
+
+pattern Serve(_x: String) -> String {
+  return "non-osi-allowed"
+}
+
+flow Main { input: String = "x" -> Serve -> output }

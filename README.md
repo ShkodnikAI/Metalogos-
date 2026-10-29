@@ -137,7 +137,7 @@ Each line is a refusal class with its pinned negative — a program in the BLOCK
 | Metric | Value (generated — do not hand-edit) |
 | ------ | ------------------------------------- |
 | Version | 0.34.1 |
-| Leak Suite | 54 negatives / 27 positives (the BLOCKING gate) |
+| Leak Suite | 56 negatives / 27 positives (the BLOCKING gate) |
 | Full metrics | [docs/metrics.md](docs/metrics.md) — the generated table |
 <!-- END GENERATED METRICS -->
 

@@ -6659,7 +6659,13 @@ fn check_backend_license(
         }
     }
 
-    let permissive = crate::profile::resolve(declarations).backend_license_permissive();
+    // №839 (ADR-0202 §2.3): the permit predicate is the ONE decision
+    // point shared with the semantic selection rule. The named class
+    // permits (`allow_license_class`) and the advisory bridge
+    // (`backends: permissive_with_audit`) both imply "allowed" here —
+    // audited as Info events, never silent; the default posture (no
+    // licensing profile) stays the loud distribution refusal it was.
+    let profiles = crate::profile::resolve(declarations);
 
     for decl in declarations {
         let mut strings: Vec<&String> = Vec::new();
@@ -6712,13 +6718,17 @@ fn check_backend_license(
             };
             let snippet = crate::util::safe_byte_truncate(s, 24);
             let line = find_line(source, snippet);
-            if permissive {
+            if profiles.license_allows(entry.license) {
+                // Allowed — but NEVER silent (the №333 posture): the
+                // usage stays an Info audit event naming the permit form
+                // (the named class permit of №839, or the audited bridge
+                // it implies).
                 findings.push(AuditFinding {
                     severity: Severity::Info,
                     check_id: "BACKEND_LICENSE",
                     line,
                     message: format!(
-                        "[audit-event] non-osi/restrictive backend weights '{}' ({}),                          license: {} — allowed by profile licensing (bridge, not residence;                          ADR-0163)",
+                        "[audit-event] non-osi/restrictive backend weights '{}' ({}),                          license: {} — allowed by profile licensing (the named class                          permit / the audited bridge; ADR-0202 + ADR-0163)",
                         entry.weights_id,
                         entry.class.as_str(),
                         entry.license_note
@@ -6732,12 +6742,14 @@ fn check_backend_license(
                     message: format!(
                         "backend weights '{}' (class {}) are {} and FORBIDDEN in the \
                          distribution profile — license: {}. Unlock explicitly with \
-                         'profile licensing {{ backends: permissive_with_audit }}' \
-                         (audited bridge, ADR-0163)",
+                         'profile licensing {{ allow_license_class: \"{}\" }}' (the \
+                         named class permit, ADR-0202) or with 'profile licensing {{ \
+                         backends: permissive_with_audit }}' (audited bridge, ADR-0163)",
                         entry.weights_id,
                         entry.class.as_str(),
                         entry.license.as_str(),
-                        entry.license_note
+                        entry.license_note,
+                        entry.license.as_str()
                     ),
                 });
             }

@@ -16,6 +16,14 @@
 //!   (`BACKEND_LICENSE_DISTRIBUTION`) runs ADVISORY for non-osi /
 //!   restrictive weights references — allowed, but audited as events
 //!   (never silent). Distribution (the default) refuses them.
+//!   №839 (ADR-0202 §2.3, wave 71 — W-A) adds the NAMED class permit:
+//!   `profile licensing { allow_license_class: "non-osi" }` (repeatable;
+//!   the ADR-0163 vocabulary `osi` / `non-osi` / `restrictive`). The
+//!   program-level selection rule (`LICENSE_CLASS_NOT_ALLOWED`, the
+//!   semantic lane) refuses a backend whose license class is NOT
+//!   permitted: absence of the key = only `Osi` is allowed. The named
+//!   permit is the MINIMAL unlock (per class); the advisory bridge stays
+//!   the blanket unlock it always was (implied by `license_allows`).
 //! - `device` (№336/ADR-0165): `profile device { mode: production }` —
 //!   every statically-visible `backend_select` ladder rung must be
 //!   SHA-pinnable; `ShaPin::PendingNo334` backends are UNVERIFIABLE for
@@ -28,6 +36,7 @@
 //! `device` does not touch either gate. A program may declare all three.
 
 use crate::ast::Declaration;
+use crate::backends::LicenseClass;
 
 /// What modes the static gates run in for one program (№325 + №333).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -53,6 +62,13 @@ pub struct ResolvedProfiles {
     /// ADR-0172) — the static carrier for the №349 rule that makes
     /// network sinks compile errors in duty mode.
     pub duty_surfaces_local_only: bool,
+    /// №839 (ADR-0202 §2.3): the NAMED license-class permits of the
+    /// `licensing` profile — `allow_license_class: "non-osi"` and
+    /// `allow_license_class: "restrictive"` (each repeatable; `osi` is
+    /// always allowed and needs no key). Absence = only `Osi` for the
+    /// program's backend selections (the default-deny posture, named).
+    pub license_allow_nonosi: bool,
+    pub license_allow_restrictive: bool,
 }
 
 impl ResolvedProfiles {
@@ -65,6 +81,27 @@ impl ResolvedProfiles {
     /// compilation (audit events instead).
     pub fn backend_license_permissive(&self) -> bool {
         self.backend_license_permissive_with_audit
+    }
+
+    /// №839 (ADR-0202 §2.3): the license-class permit predicate — the
+    /// SINGLE decision point shared by the selection rule (the semantic
+    /// lane, `LICENSE_CLASS_NOT_ALLOWED`) and the №333 audit gate (the
+    /// distribution posture). `Osi` is unconditionally allowed; the
+    /// named permits unlock their class; the advisory bridge
+    /// (`backends: permissive_with_audit`) implies the blanket unlock it
+    /// always carried (the ADR-0163 surface, unchanged — backward
+    /// compatibility). The default posture (no licensing profile)
+    /// allows `Osi` only.
+    pub fn license_allows(&self, class: LicenseClass) -> bool {
+        match class {
+            LicenseClass::Osi => true,
+            LicenseClass::NonOsi => {
+                self.license_allow_nonosi || self.backend_license_permissive_with_audit
+            }
+            LicenseClass::Restrictive => {
+                self.license_allow_restrictive || self.backend_license_permissive_with_audit
+            }
+        }
     }
 }
 
@@ -83,7 +120,41 @@ pub fn validate(p: &crate::ast::ProfileDecl) -> Result<(), String> {
             Ok(())
         }
         "licensing" => {
-            validate_options(p, "backends", &["permissive_with_audit"])?;
+            // №333 (the bridge) + №839 (the named class permits): two
+            // option families on one profile. At least one option is
+            // required — a licensing declaration without either is a
+            // no-op mistake, and no-ops must be loud (the §16.0 honesty
+            // rule). The class words are the ADR-0163 vocabulary
+            // (`as_str`); the IDENT spelling `non_osi` is the accepted
+            // compat form of the hyphenated canonical.
+            if p.options.is_empty() {
+                return Err(
+                    "profile 'licensing' requires options (backends: permissive_with_audit; allow_license_class: osi|non-osi|restrictive)"
+                        .to_string(),
+                );
+            }
+            for (k, v) in &p.options {
+                match (k.as_str(), v.as_str()) {
+                    ("backends", "permissive_with_audit") => {}
+                    ("backends", other) => {
+                        return Err(format!(
+                            "unknown licensing-profile mode '{other}' for 'backends' (available: permissive_with_audit)",
+                        ));
+                    }
+                    ("allow_license_class", word) => {
+                        if normalize_license_class(word).is_none() {
+                            return Err(format!(
+                                "unknown license class '{word}' for 'allow_license_class' (available: osi, non-osi, restrictive — the ADR-0163 vocabulary)",
+                            ));
+                        }
+                    }
+                    (other, _) => {
+                        return Err(format!(
+                            "unknown profile option '{other}' for 'licensing' (available: backends, allow_license_class)",
+                        ));
+                    }
+                }
+            }
             Ok(())
         }
         "device" => {
@@ -175,10 +246,26 @@ pub fn resolve(declarations: &[Declaration]) -> ResolvedProfiles {
                         .any(|(k, v)| k == "egress" && v == "permissive_with_audit");
                 }
                 "licensing" => {
-                    resolved.backend_license_permissive_with_audit = p
-                        .options
+                    // №333: the audited blanket bridge (unchanged).
+                    if p.options
                         .iter()
-                        .any(|(k, v)| k == "backends" && v == "permissive_with_audit");
+                        .any(|(k, v)| k == "backends" && v == "permissive_with_audit")
+                    {
+                        resolved.backend_license_permissive_with_audit = true;
+                    }
+                    // №839 (ADR-0202 §2.3): the named class permits — each
+                    // `allow_license_class` option names ONE class; the
+                    // repeatable spelling is the multi-class permit. `osi`
+                    // is explicitly legal and redundant (always allowed).
+                    for (_, v) in p.options.iter().filter(|(k, _)| k == "allow_license_class") {
+                        match normalize_license_class(v) {
+                            Some(LicenseClass::NonOsi) => resolved.license_allow_nonosi = true,
+                            Some(LicenseClass::Restrictive) => {
+                                resolved.license_allow_restrictive = true;
+                            }
+                            _ => {}
+                        }
+                    }
                 }
                 "device" => {
                     resolved.device_mode_production = p
@@ -209,4 +296,17 @@ pub fn resolve(declarations: &[Declaration]) -> ResolvedProfiles {
         }
     }
     resolved
+}
+
+/// №839: the canonical license-class word — the ADR-0163 vocabulary
+/// (`LicenseClass::as_str`); the IDENT spelling `non_osi` is the
+/// accepted compat form of the hyphenated canonical (the STRING form
+/// `"non-osi"` is the primary spelling, the parser carries both).
+fn normalize_license_class(word: &str) -> Option<LicenseClass> {
+    match word {
+        "osi" => Some(LicenseClass::Osi),
+        "non-osi" | "non_osi" => Some(LicenseClass::NonOsi),
+        "restrictive" => Some(LicenseClass::Restrictive),
+        _ => None,
+    }
 }

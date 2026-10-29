@@ -1,0 +1,1 @@
+EXPECTED: LICENSE_CLASS_NOT_ALLOWED — the ladder rung names a Restrictive (default-deny) backend without a restrictive permit in the program's profile (unverified licenses stay restrictive until a license record lands, ADR-0163; the named unlock is 'profile licensing { allow_license_class: "restrictive" }')

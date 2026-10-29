@@ -57,6 +57,11 @@ fn compile_err(source: &str) -> String {
 // ── (1) The first available rung wins; the mode is visible ──────────
 
 const SELECT_PROG: &str = r#"
+// №839 (ADR-0202 §2.3): the ladder rungs are NonOsi + Restrictive — the
+// named class permits unlock the compile (the ladder mechanics are the
+// test's subject, not the license posture).
+profile licensing { allow_license_class: "non-osi" allow_license_class: "restrictive" }
+
 pattern Pick(_tick: String) -> String {
   let sel = backend_select("omni", ["nemotron-omni", "wall-oss"])
   if sel.ok {
@@ -143,6 +148,9 @@ fn real_mode_exhausts_honestly_never_a_mock() {
                                                 // weights on disk (PARKED №294): the result must be Degraded —
                                                 // ok=false — and MUST NOT carry mode "mock".
     let src = r#"
+// №839: the named class permits (the rungs are NonOsi + Restrictive).
+profile licensing { allow_license_class: "non-osi" allow_license_class: "restrictive" }
+
 pattern R(_t: String) -> String {
   let sel = backend_select("omni", ["nemotron-omni", "wall-oss"])
   if sel.ok {
@@ -301,6 +309,10 @@ fn device_production_profile_refuses_unverifiable_rungs_at_build_time() {
     // wall-oss is Restrictive-license AND PendingNo334 — unverifiable
     // for a production device profile: COMPILE error (ADR-0165 §2.4).
     let bad = r#"
+// №839: the named class permits — the license rule passes, the device
+// production profile still refuses the unverifiable rung (the profiles
+// are INDEPENDENT gates, ADR-0172 posture).
+profile licensing { allow_license_class: "non-osi" allow_license_class: "restrictive" }
 profile device { mode: production }
 pattern P5(_x: String) -> String {
   let sel = backend_select("omni", ["wall-oss", "nemotron-omni"])
@@ -324,6 +336,9 @@ flow Main { input: String = "t" -> P5 -> output }
     );
     // The same ladder compiles under development (no device profile).
     let dev = r#"
+// №839: the named class permits (the license rule is independent of
+// the device profile; development keeps no ladder constraints).
+profile licensing { allow_license_class: "non-osi" allow_license_class: "restrictive" }
 pattern P6(_x: String) -> String {
   let sel = backend_select("omni", ["wall-oss", "nemotron-omni"])
   return sel.backend

@@ -333,6 +333,11 @@ pub struct ModelPassport {
     pub verified_at: String,
     /// The origin-chain link (ADR-0164 posture).
     pub origin: String,
+    /// №842: the revocation status — consumption refuses while it
+    /// stands; cleared ONLY by the explicit re-pin transaction.
+    pub revoked: bool,
+    /// №842: the revocation note (the why, carried in the refusal).
+    pub revocation_note: String,
     /// The record digest captured at construction (private — the
     /// integrity anchor; re-derivable via [`ModelPassport::record_digest`]).
     record_anchor: String,
@@ -392,6 +397,8 @@ impl ModelPassport {
             }
         }
         Ok(Self {
+            revoked: false,
+            revocation_note: String::new(),
             record_anchor: record_digest_of(&fields),
             digest_anchor: fields.digest.clone(),
             identity: fields.identity,
@@ -520,4 +527,264 @@ pub fn all_passports() -> &'static [ModelPassport] {
 /// The passport for a weights id (the same key the №333 gate matches).
 pub fn passport_for(weights_id: &str) -> Option<&'static ModelPassport> {
     all_passports().iter().find(|p| p.identity == weights_id)
+}
+
+// ── №842 (wave 71 — W-A, the R38(4) decision): the passport hygiene ──
+//
+// The G5 pattern (№828, merged `694e0a2`) brought to the passport:
+// fail-closed on the digest mismatch, re-pin ONLY by an explicit update,
+// revocation as a consumption refusal. The hygiene lives at the passport
+// level — BEFORE the runtime weight gates (the SSRF-guard / SHA-pin lane
+// of №334 decides WHERE weights may load from; the passport decides
+// whether the RECORD is trusted at all). No auto-refresh, no automatic
+// re-validation of external sources — every state change is an explicit
+// transaction.
+//
+// The wave-71 mode constant (the choice fixed in the PR report): the
+// staleness mode is `Flag` — a stale passport raises the loud flag but
+// does not refuse, because the in-tree verification dates would
+// otherwise hard-refuse every program on day one (the honest reading of
+// "по умолчанию флаг + отказ на публичных путях": the REFUSAL class —
+// revoked and digest-mismatch — is fail-closed on EVERY path and every
+// mode; the staleness escalation to Refuse is the owner's explicit act,
+// a future naryad flips the constant).
+
+/// The freshness window (days) — the wave-71 constant. A passport whose
+/// `verified_at` is older than the window (against the consumption
+/// date) is STALE. The №841 PASSPORT_FRESH counter mirrors this exact
+/// rule (the same constant, the Python twin).
+pub const PASSPORT_FRESHNESS_DAYS: i64 = 180;
+
+/// The staleness mode — the wave-71 constant (see the module note):
+/// `Flag` by default (the loud flag, no refusal); `Refuse` is the
+/// owner's explicit escalation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StalenessMode {
+    /// The stale passport raises the loud flag (the refusal carries the
+    /// flag text; the compile-path wiring reports it, the consumption
+    /// verdict names it) — but does NOT refuse.
+    Flag,
+    /// The stale passport refuses consumption (the owner's escalation).
+    Refuse,
+}
+
+pub const PASSPORT_STALENESS_MODE: StalenessMode = StalenessMode::Flag;
+
+/// The consumption refusal classes (fail-closed — the «отказ потребления»
+/// family of the naryad). The Display text names the class explicitly:
+/// «passport digest mismatch» for the digest class (the G5 wording).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PassportRefusal {
+    /// The passport is revoked — consumption refuses; the un-revocation
+    /// is only an explicit update (the re-pin transaction clears it).
+    Revoked(String),
+    /// The passport's digest does not match the pinned context's digest.
+    /// Fail-closed, never a warning.
+    DigestMismatch { expected: String, actual: String },
+    /// The passport is stale (only fires when the mode is `Refuse`; the
+    /// `Flag` mode carries the same data as the loud flag text).
+    Stale {
+        verified_at: String,
+        window_days: i64,
+    },
+    /// The passport failed its own integrity check (the detempo-guard —
+    /// a post-construction mutation).
+    Tampered(String),
+}
+
+impl std::fmt::Display for PassportRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PassportRefusal::Revoked(note) => {
+                write!(f, "passport revoked — consumption refused ({note}); the un-revocation is only an explicit update (the re-pin transaction, ADR-0202 §2.4)")
+            }
+            PassportRefusal::DigestMismatch { expected, actual } => {
+                write!(
+                    f,
+                    "passport digest mismatch — the pinned context expects {}, the passport carries {} (fail-closed, №842; the re-pin is only an explicit update)",
+                    &expected[..16.min(expected.len())],
+                    &actual[..16.min(actual.len())]
+                )
+            }
+            PassportRefusal::Stale {
+                verified_at,
+                window_days,
+            } => {
+                write!(
+                    f,
+                    "passport stale — verified_at {verified_at} is older than the freshness window ({window_days} days); re-pin by the explicit update (new digest + new verification date in one transaction)"
+                )
+            }
+            PassportRefusal::Tampered(why) => {
+                write!(
+                    f,
+                    "passport digest mismatch — {why} (the integrity check is fail-closed)"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for PassportRefusal {}
+
+/// Parse `YYYY-MM-DD` to the (year, month, day) triple — the mirror of
+/// the constructor's date validation (the light, std-only shape).
+fn parse_verification_date(s: &str) -> Option<(i32, i32, i32)> {
+    let b = s.as_bytes();
+    if b.len() != 10 || b[4] != b'-' || b[7] != b'-' {
+        return None;
+    }
+    let all_digits = b
+        .iter()
+        .enumerate()
+        .all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit());
+    if !all_digits {
+        return None;
+    }
+    Some((
+        s[..4].parse().ok()?,
+        s[5..7].parse().ok()?,
+        s[8..10].parse().ok()?,
+    ))
+}
+
+/// The days-since-epoch arithmetic (the civil-date algorithm, std-only —
+/// no external date crate; the same convention both twins use).
+fn days_from_civil(y: i32, m: i32, d: i32) -> i64 {
+    let y = i64::from(y);
+    let m = i64::from(m);
+    let d = i64::from(d);
+    let (y, m) = if m <= 2 { (y - 1, m + 12) } else { (y, m) };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let doy = (153 * (m - 3) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe
+}
+
+impl ModelPassport {
+    /// The days between the passport's `verified_at` and `today` (both
+    /// `YYYY-MM-DD`). `None` = an unparseable date (the constructor
+    /// forbids it — `None` here is the fail-closed reading).
+    pub fn age_days(&self, today: &str) -> Option<i64> {
+        let (y1, m1, d1) = parse_verification_date(&self.verified_at)?;
+        let (y2, m2, d2) = parse_verification_date(today)?;
+        Some(days_from_civil(y2, m2, d2) - days_from_civil(y1, m1, d1))
+    }
+
+    /// Is the passport fresh against `today` (the №842 rule: the age
+    /// within [`PASSPORT_FRESHNESS_DAYS`])? An unparseable date is NOT
+    /// fresh (fail-closed).
+    pub fn is_fresh(&self, today: &str) -> bool {
+        match self.age_days(today) {
+            Some(age) => (0..=PASSPORT_FRESHNESS_DAYS).contains(&age),
+            None => false,
+        }
+    }
+
+    /// The explicit RE-PIN transaction (№842 §3): the new digest AND the
+    /// new verification date land in ONE call — never one without the
+    /// other, never automatic. Validates both (the same constructor
+    /// rules), re-captures the integrity anchors (the re-pin IS the
+    /// explicit act that re-anchors), and clears the revocation (the
+    /// un-revocation rides the same explicit transaction — the naryad's
+    /// "снятие ревокации — только явным обновлением").
+    pub fn re_pin(
+        &mut self,
+        new_digest: String,
+        new_verified_at: String,
+    ) -> Result<(), PassportError> {
+        // Validate BEFORE mutating (the transaction is all-or-nothing).
+        let digest_ok = new_digest.len() == 64
+            && new_digest
+                .bytes()
+                .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c));
+        if !digest_ok {
+            return Err(PassportError::BadDigest(
+                "the re-pin digest must be 64 lowercase hex chars (the ADR-0163 contract)"
+                    .to_string(),
+            ));
+        }
+        if !is_valid_verification_date(&new_verified_at) {
+            return Err(PassportError::BadVerificationDate(new_verified_at));
+        }
+        self.digest = new_digest;
+        self.verified_at = new_verified_at;
+        // The record fields changed → the record anchor re-captures; the
+        // digest anchor follows the explicit new pin.
+        self.record_anchor = self.record_digest();
+        self.digest_anchor = self.digest.clone();
+        self.revoked = false;
+        Ok(())
+    }
+
+    /// The explicit REVOCATION (№842 §4): consumption refuses while the
+    /// status stands. The un-revocation is ONLY the explicit re-pin
+    /// transaction above — no automatic path exists.
+    pub fn revoke(&mut self, note: String) {
+        self.revoked = true;
+        self.revocation_note = note;
+    }
+
+    /// The consumption verdict (№842 §1–§4): the fail-closed gate a
+    /// consumer passes BEFORE trusting the passport. `pinned_digest` =
+    /// the digest the pin context recorded (the static table's digest
+    /// for the in-tree passports); `today` = the consumption date
+    /// (`YYYY-MM-DD`). Order: revoked → mismatch → integrity → staleness
+    /// (per the mode constant). Fresh + matching + not-revoked = Ok.
+    pub fn consume(&self, pinned_digest: &str, today: &str) -> Result<(), PassportRefusal> {
+        if self.revoked {
+            return Err(PassportRefusal::Revoked(self.revocation_note.clone()));
+        }
+        if self.digest != pinned_digest {
+            return Err(PassportRefusal::DigestMismatch {
+                expected: pinned_digest.to_string(),
+                actual: self.digest.clone(),
+            });
+        }
+        if let Err(e) = self.verify_integrity() {
+            return Err(PassportRefusal::Tampered(e.to_string()));
+        }
+        if !self.is_fresh(today) {
+            match PASSPORT_STALENESS_MODE {
+                StalenessMode::Refuse => {
+                    return Err(PassportRefusal::Stale {
+                        verified_at: self.verified_at.clone(),
+                        window_days: PASSPORT_FRESHNESS_DAYS,
+                    });
+                }
+                StalenessMode::Flag => {
+                    // The loud flag rides the refusal TEXT (the caller
+                    // renders it), but the verdict is Ok — the flag-only
+                    // posture of the wave-71 constant.
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The inverse civil-date algorithm (the twin of `days_from_civil`).
+fn civil_from_days(z: i64) -> (i64, i64, i64) {
+    let z = z + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    (y + i64::from(m <= 2), m, d)
+}
+
+/// The consumption date of the compile path (`YYYY-MM-DD`, UTC) — std
+/// only, no external date crate.
+pub fn today_utc() -> String {
+    let days = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64 / 86_400)
+        .unwrap_or(0);
+    let (y, m, d) = civil_from_days(days);
+    format!("{y:04}-{m:02}-{d:02}")
 }

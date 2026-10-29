@@ -1313,7 +1313,7 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
             check_id: "SQL_DYNAMIC",
             line: 1,
             message: format!(
-                "all {} query()/db_execute() calls use literal SQL \u{2713}",
+                "all {} SQL-carrier calls use literal SQL \u{2713}",
                 literal_count
             ),
         });

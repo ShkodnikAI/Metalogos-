@@ -50,6 +50,7 @@
 |---|---|---|
 | Text generation — out of scope for initial Reflex stages | [ADR-0117](adr/0117-reflex-distillation-semantics.md) §3 | Amended by [ADR-0120](adr/0120-text-generation.md) — opening text generation accepted |
 | VM parity for Reflex — VM-owned state, not shared `RuntimeContext` | [ADR-0121](adr/0121-vm-reflex-parity.md) | Accepted (closed gap) |
+| The W1 attestation anchor is verifiable only where the ledger record lives (the №832 rule): the runtime ledger is process-local (ADR-0167), so `level: signed` means «the ledger key was configured at save AND the anchor verified at load» — a CROSS-PROCESS `mlog attest verify` honestly reports `anchor not found` (level `unsigned`) because the in-memory ledger does not carry the record; the external audit rides the exported chain (`ledger_export` → `mlog ledger verify --expect-key`). The anchor check itself is live since №832 (H-3): a DB-only tamper (weights BLOB + rewritten cert row) refuses `[ATTESTATION_ANCHOR_MISMATCH]` at load and at the CLI — the tamper-RED pins it | [ADR-0200](adr/0200-provable-lowering.md) §6.3 (revised) §8; [src/nn/attest.rs](../src/nn/attest.rs) (`check_anchor`, the provisional-view hash); [tests/naryad_832_attest_anchor.rs](../tests/naryad_832_attest_anchor.rs) | Removal condition: a PERSISTENT ledger (the W-lane boundary extension — a path in `memory { persist }` / env) makes the anchor cross-process — then the row closes with the storage rule moved to the persistence contract |
 
 ## Self-Hosting (ADR-0023)
 

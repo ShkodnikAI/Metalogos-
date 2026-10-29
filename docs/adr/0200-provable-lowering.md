@@ -234,3 +234,36 @@ silent):
    the naryad's fixture sizes — the < 200 ms contract holds with ~5
    orders of magnitude of headroom (the measurement rides the contract
    tests).
+
+## §8. Revision — the anchor verification (№832, 2026-10-29; the wave-70 audit H-3)
+
+A separate revision under §6.3 (the owner verdicts above are untouched —
+this sharpens the tamper-evident boundary, it does not re-issue it):
+
+**§6.3 (revised).** «Tamper-evident» holds ONLY where the anchor is
+actually checked. Since №832 both verify paths (`reflex_load` /
+`attest_verify` and `mlog attest verify`) locate the `reflex.attest`
+ledger record by the certificate's `ledger_seq` and compare its
+`args_hash` against the sha256 of the certificate's PROVISIONAL view
+(the exact bytes the save hashed). Three outcomes: the anchor agrees;
+`anchor not found` (the level claim demotes to `unsigned`, loudly,
+strict refuses); `[ATTESTATION_ANCHOR_MISMATCH]` (positive tamper
+evidence — a loud refusal under both policies). The pre-№832 shape
+(a DB-only attacker rewriting the weights BLOB and the certificate row
+passed verify without the ledger key) is closed; the H-3 tamper test
+pins it red-before/green-after.
+
+**The storage rule (the choice recorded per the №832 naryad).** The
+runtime ledger stays process-local (ADR-0167 unchanged — no persistent
+ledger in the W1 boundary): `signed` is verifiable only where the anchor
+record lives; a cross-process verify honestly reports `anchor not
+found`; the external audit rides the EXPORTED chain (`ledger_export` →
+`mlog ledger verify --expect-key`). A persistent ledger (a path in
+`memory { persist }` / env) remains the W-lane future work — it is a
+boundary extension and does not ride a fix naryad.
+
+**The honest level word.** `level: "signed"` means «the ledger key was
+configured at save AND the anchor record verified at load» — never
+merely «a key existed at save». The `level_for_output` data dominance
+(decision 5: `unfiltered` while W1 datasets are unfiltered) is
+unchanged; the anchor state rides the reason line and the strict gate.

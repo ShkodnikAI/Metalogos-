@@ -450,6 +450,34 @@ pub fn all_records() -> Result<Vec<LedgerRecord>, String> {
     Ok(out)
 }
 
+/// The record at `seq`, or `None` when the process-local ledger does not
+/// carry it (№832: the attestation anchor lookup — a cross-process
+/// verify hits an empty runtime ledger, which is the honest
+/// anchor-not-found outcome, never a fake match).
+pub fn record_at(seq: u64) -> Result<Option<LedgerRecord>, String> {
+    let guard = ledger_state()
+        .lock()
+        .map_err(|e| format!("action ledger lock: {}", e))?;
+    let conn = guard
+        .conn
+        .as_ref()
+        .ok_or_else(|| "action ledger unavailable".to_string())?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT seq, ts, kind, actor, action, scope, args_hash, prev_hash, new_pubkey, key_id, pubkey, hash, sig
+             FROM action_ledger WHERE seq = ?1",
+        )
+        .map_err(|e| format!("action ledger lookup: {}", e))?;
+    let mut rows = stmt
+        .query_map([seq as i64], map_row)
+        .map_err(|e| format!("action ledger lookup: {}", e))?;
+    match rows.next() {
+        Some(Ok(r)) => Ok(Some(r)),
+        Some(Err(e)) => Err(format!("action ledger lookup: {}", e)),
+        None => Ok(None),
+    }
+}
+
 fn map_row(row: &rusqlite::Row) -> rusqlite::Result<LedgerRecord> {
     Ok(LedgerRecord {
         seq: row.get::<_, i64>(0)?.max(0) as u64,

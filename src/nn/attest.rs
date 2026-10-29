@@ -29,6 +29,33 @@
 //! A weights-byte mismatch (`weights_sha256`) is a fourth, always-loud
 //! refusal: `[ATTESTATION_WEIGHTS_CHANGED]`.
 //!
+//! ## The ledger anchor (№832, the H-3 finding)
+//!
+//! Verify LOCATES the `reflex.attest` ledger record by the certificate's
+//! `ledger_seq` and compares its `args_hash` against the sha256 of the
+//! certificate's PROVISIONAL view — the exact bytes `write_attestation`
+//! hashed at save (the stored cert with `ledger_seq: null`,
+//! `level: "unsigned"`, the `level_reason` word restored; the sorted-key
+//! serialization reproduces them exactly). Three outcomes:
+//!
+//! - the anchor agrees → the verify carries on (the level claim stands);
+//! - the record cannot be found (a cross-process verify against the
+//!   in-memory runtime ledger, ADR-0167 — or no `ledger_seq` at all) →
+//!   `anchor not found`: the level claim demotes to `unsigned`, loudly;
+//!   `METALOGOS_ATTEST_STRICT=1` refuses;
+//! - a record EXISTS at that seq and its hash disagrees — positive
+//!   tamper evidence (the attestation table was rewritten under a live
+//!   anchor): `[ATTESTATION_ANCHOR_MISMATCH]`, loud refusal, both
+//!   policies.
+//!
+//! `level: "signed"` means «the ledger key was configured at save AND
+//! the anchor record verified at load» — never merely «a key existed».
+//! The runtime ledger is process-local (ADR-0167): cross-process verify
+//! honestly reports `anchor not found`; the exported chain rides
+//! `ledger verify --expect-key` for the external audit. The storage
+//! rule is the DOCUMENTED one (ADR-0200 §6.3 revision) — a persistent
+//! ledger stays out of the W1 boundary.
+//!
 //! ## The changed-field name
 //!
 //! The `[ATTESTATION_STALE]` reason names the changed field — which
@@ -67,6 +94,21 @@ pub const CODE_EMBED_MISMATCH: &str = "[ATTESTATION_EMBED_MISMATCH]";
 pub const CODE_WEIGHTS_CHANGED: &str = "[ATTESTATION_WEIGHTS_CHANGED]";
 pub const CODE_NONE: &str = "[ATTESTATION_NONE]";
 pub const CODE_UNSIGNED: &str = "[ATTESTATION_UNSIGNED]";
+/// №832 (H-3): the certificate's anchor diverges from the ledger record
+/// it points at — positive tamper evidence, a loud refusal.
+pub const CODE_ANCHOR_MISMATCH: &str = "[ATTESTATION_ANCHOR_MISMATCH]";
+/// №832 (H-3): the reason word when the anchor record cannot be located
+/// (the process-local ledger does not carry `ledger_seq` — the honest
+/// cross-process shape per ADR-0167).
+pub const ANCHOR_NOT_FOUND: &str = "anchor not found";
+
+/// The save-time `level_reason` word for the provisional (unanchored)
+/// certificate — the exact string `build_certificate` inserts when
+/// `ledger_seq` is `None`. №832 restores it when re-hashing the
+/// provisional view; a change here must ride an ATTESTATION_VERSION bump
+/// (it changes every anchor hash).
+const PROVISIONAL_LEVEL_REASON: &str =
+    "the reflex.attest ledger record could not anchor this certificate";
 
 /// `METALOGOS_ATTEST_STRICT=1` — the absence of a certificate and an
 /// `unsigned` certificate become load refusals (owner decision 4).
@@ -629,6 +671,121 @@ pub fn first_changed_field(old_spec_json: &str, new_spec_json: &str) -> String {
     "spec".to_string()
 }
 
+// ── The ledger anchor check (№832, the H-3 finding) ──────────────────
+
+/// The outcome of the anchor check over one stored certificate.
+enum AnchorCheck {
+    /// The record exists, is a `reflex.attest` row for this model, and
+    /// its `args_hash` equals the sha256 of the certificate's provisional
+    /// view — the same bytes `write_attestation` hashed at save.
+    Anchored,
+    /// No anchor evidence: the cert carries no `ledger_seq`, or the
+    /// process-local ledger does not carry that seq (the cross-process
+    /// shape), or the lookup failed. The level demotes to `unsigned`
+    /// (loud), never a fake match.
+    NotFound { reason: String },
+    /// A record EXISTS at `ledger_seq` and disagrees with the
+    /// certificate — positive tamper evidence (a DB-only attacker
+    /// rewrote the cert under a live anchor). Loud refusal.
+    Mismatch { reason: String },
+}
+
+/// The sha256 of the certificate's PROVISIONAL view: the stored cert
+/// with the anchor fields restored to the save-time `ledger_seq: None`
+/// form (`ledger_seq: null`, `level: "unsigned"`, the `level_reason`
+/// word). serde_json's Map is a BTreeMap (keys sorted) — the restored
+/// serialization reproduces the exact provisional bytes the save hashed,
+/// independent of the version that verifies (the toolchain fields ride
+/// the STORED cert, not a rebuild).
+fn provisional_view_hash(stored_cert_json: &str) -> Option<String> {
+    let mut cert: serde_json::Value = serde_json::from_str(stored_cert_json).ok()?;
+    let map = cert.as_object_mut()?;
+    map.insert("ledger_seq".into(), serde_json::Value::Null);
+    map.insert("level".into(), serde_json::json!("unsigned"));
+    map.insert(
+        "level_reason".into(),
+        serde_json::json!(PROVISIONAL_LEVEL_REASON),
+    );
+    let s = serde_json::to_string(&cert).ok()?;
+    Some(sha256_hex(s.as_bytes()))
+}
+
+/// The anchor check: locate the `reflex.attest` record by the cert's
+/// `ledger_seq` and compare its `args_hash` against the provisional-view
+/// hash. The action/scope words must name THIS model's attestation — a
+/// record reused from another model (or another kind) is a mismatch,
+/// not a match.
+fn check_anchor(stored_cert_json: &str, model_name: &str) -> AnchorCheck {
+    let cert: serde_json::Value = match serde_json::from_str(stored_cert_json) {
+        Ok(v) => v,
+        Err(e) => {
+            return AnchorCheck::NotFound {
+                reason: format!(
+                    "{} — the stored certificate does not parse ({})",
+                    ANCHOR_NOT_FOUND, e
+                ),
+            }
+        }
+    };
+    let Some(seq) = cert.get("ledger_seq").and_then(|s| s.as_u64()) else {
+        return AnchorCheck::NotFound {
+            reason: format!(
+                "{} — the certificate carries no ledger_seq anchor",
+                ANCHOR_NOT_FOUND
+            ),
+        };
+    };
+    let record = match crate::ledger::record_at(seq) {
+        Ok(None) => {
+            return AnchorCheck::NotFound {
+                reason: format!(
+                    "{} — no ledger record at seq {} (the process-local ledger does not \
+                     carry it: a cross-process verify against an in-memory ledger, \
+                     ADR-0167; the exported chain rides `ledger verify`)",
+                    ANCHOR_NOT_FOUND, seq
+                ),
+            }
+        }
+        Ok(Some(r)) => r,
+        Err(e) => {
+            return AnchorCheck::NotFound {
+                reason: format!("{} — the ledger lookup failed: {}", ANCHOR_NOT_FOUND, e),
+            }
+        }
+    };
+    if record.action != "reflex.attest" || record.scope != model_name {
+        return AnchorCheck::Mismatch {
+            reason: format!(
+                "{} the ledger record at seq {} is '{}'/scope '{}' — expected \
+                 'reflex.attest'/scope '{}'",
+                CODE_ANCHOR_MISMATCH, seq, record.action, record.scope, model_name
+            ),
+        };
+    }
+    let Some(expected) = provisional_view_hash(stored_cert_json) else {
+        return AnchorCheck::NotFound {
+            reason: format!(
+                "{} — the certificate cannot be re-hashed into the provisional view",
+                ANCHOR_NOT_FOUND
+            ),
+        };
+    };
+    if record.args_hash != expected {
+        return AnchorCheck::Mismatch {
+            reason: format!(
+                "{} the ledger anchor hash at seq {} does not match the certificate's \
+                 provisional view — the attestation table was rewritten under a live anchor \
+                 (the DB-only tamper the H-3 audit named); the cert claims {}, the anchor pins {}",
+                CODE_ANCHOR_MISMATCH,
+                seq,
+                &expected[..16.min(expected.len())],
+                &record.args_hash[..16.min(record.args_hash.len())],
+            ),
+        };
+    }
+    AnchorCheck::Anchored
+}
+
 /// The full verify pass over an OPENED database connection.
 ///
 /// `weights_blob` — the exact stored BLOB bytes (the hash must match the
@@ -686,11 +843,52 @@ pub fn verify_attestation(
         .and_then(|v| v.get("level").and_then(|l| l.as_str()).map(String::from))
         .unwrap_or_else(|| "unsigned".to_string());
 
+    // 0. The ledger anchor (№832, the H-3 finding): the check runs FIRST
+    //    — the DB-only tamper produces a self-consistent certificate, and
+    //    the ledger record it points at is the only evidence outside the
+    //    attacker's reach. A mismatch is the loud refusal; a missing
+    //    anchor demotes the level claim to `unsigned` (loud, strict
+    //    refuses) — the honest cross-process shape per ADR-0167.
+    let anchor_missing_reason: Option<String> = match check_anchor(&stored.cert_json, model_name) {
+        AnchorCheck::Anchored => None,
+        AnchorCheck::Mismatch { reason } => {
+            return Ok(AttestVerdict {
+                ok: false,
+                level: "unsigned".to_string(),
+                spec_hash: current_s_hash.to_string(),
+                reason,
+                cert_json: stored.cert_json.clone(),
+            });
+        }
+        AnchorCheck::NotFound { reason } => {
+            if policy.strict {
+                return Ok(AttestVerdict {
+                    ok: false,
+                    level: "unsigned".to_string(),
+                    spec_hash: current_s_hash.to_string(),
+                    reason: format!(
+                        "{} — METALOGOS_ATTEST_STRICT=1 refuses the unanchored certificate",
+                        reason
+                    ),
+                    cert_json: stored.cert_json.clone(),
+                });
+            }
+            eprintln!(
+                "[reflex] warning: model '{}' attestation {} — loading with the level \n             claim demoted to unsigned (METALOGOS_ATTEST_STRICT=1 refuses)",
+                model_name, reason
+            );
+            Some(reason)
+        }
+    };
+
     // The output level: the data level dominates while every W1 dataset
-    // is unfiltered; signed/unsigned surface from W4 on.
+    // is unfiltered; signed/unsigned surface from W4 on. The anchor-not
+    // -found demotion (№832) applies on the same axis as the cert level.
     let level_for_output = |data_unfiltered: bool| -> String {
         if data_unfiltered {
             "unfiltered".to_string()
+        } else if anchor_missing_reason.is_some() {
+            "unsigned".to_string()
         } else {
             cert_level.clone()
         }
@@ -821,6 +1019,16 @@ pub fn verify_attestation(
         );
     }
 
+    // №832: the anchor-not-found reason leads the final reason (the
+    // data-change information appends after it — both facts surface).
+    if let Some(anchor_reason) = &anchor_missing_reason {
+        if reason.is_empty() {
+            reason = anchor_reason.clone();
+        } else {
+            reason = format!("{}; {}", anchor_reason, reason);
+        }
+    }
+
     Ok(AttestVerdict {
         ok: true,
         level: level_for_output(data_unfiltered),
@@ -859,6 +1067,26 @@ pub fn verify_from_db_only(
             ),
             model: model_name.to_string(),
         });
+    };
+    // №832 (H-3): the anchor check rides the CLI route too — a mismatch
+    // is the loud refusal; a missing anchor demotes the report to the
+    // honest `unsigned` state AFTER the consistency lanes (the ordering
+    // is fail-closed: a tamper report never hides behind the demotion).
+    // The process-local ledger does not carry the record cross-process
+    // (ADR-0167) — the exported chain rides `ledger verify --expect-key`
+    // for the external audit.
+    let anchor_missing_reason: Option<String> = match check_anchor(&stored.cert_json, model_name) {
+        AnchorCheck::Anchored => None,
+        AnchorCheck::Mismatch { reason } => {
+            return Ok(CliVerifyReport {
+                ok: false,
+                level: "unsigned".to_string(),
+                spec_hash: s_hash.to_string(),
+                reason,
+                model: model_name.to_string(),
+            });
+        }
+        AnchorCheck::NotFound { reason } => Some(reason),
     };
     // Weights: read the BLOB and hash it.
     let blob: Vec<u8> = {
@@ -942,7 +1170,7 @@ pub fn verify_from_db_only(
     }
     // Data change — informational.
     let manifest = data_manifest(conn, None, &[]);
-    let reason = if manifest.hash != stored.data_hash {
+    let mut reason = if manifest.hash != stored.data_hash {
         format!(
             "{} the training-set manifest changed since save (informational, not a refusal)",
             CODE_DATA_CHANGED
@@ -950,9 +1178,20 @@ pub fn verify_from_db_only(
     } else {
         String::new()
     };
+    // №832: the anchor-not-found reason leads the report (the honest
+    // `unsigned` state; the data-change information appends after it).
+    let mut level = "unfiltered".to_string();
+    if let Some(anchor_reason) = &anchor_missing_reason {
+        level = "unsigned".to_string();
+        if reason.is_empty() {
+            reason = anchor_reason.clone();
+        } else {
+            reason = format!("{}; {}", anchor_reason, reason);
+        }
+    }
     Ok(CliVerifyReport {
         ok: true,
-        level: "unfiltered".to_string(),
+        level,
         spec_hash: s_hash.to_string(),
         reason,
         model: model_name.to_string(),

@@ -94,6 +94,97 @@ impl From<crate::bytecode::ConditionOp> for CompareOp {
     }
 }
 
+// ── №840 (wave 71 — W-A, the R38(4) decision): the distillation
+// firewall — SHADOW-first, non-blocking by construction ────────────────
+//
+// The lesson of №581 (R44): hardening without negative controls breaks
+// legitimate paths. Before ANY blocking mode exists, the shadow contour
+// must prove zero interference: the hub records every distill-path
+// event (donor → recipient, the examples, the passport when one
+// applies) into a bounded in-process ring and mirrors it to stderr —
+// pure observation, no gate, no refusal, no behavior change. The
+// blocking mode is EXPLICITLY OUT of this naryad: it switches on only
+// by the owner's separate decision after the shadow data validates
+// (the checkbox in the dispatch).
+
+/// One shadow observation of the distill path. `kind` vocabulary:
+/// `teach` (an example lands in the ledger), `teaching-fallback` (the
+/// call falls through to the LLM), `distilled-answer` (the trained head
+/// answered), `train-scheduled` / `retrain-scheduled`, `train-done` /
+/// `train-failed` (the background verdict).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DistillShadowEvent {
+    /// Unix seconds (std only — the hub is tokio-free by contract).
+    pub ts_unix: u64,
+    pub kind: &'static str,
+    /// The donor side of the path (the LLM teacher, or the pattern's
+    /// example ledger for the train events).
+    pub donor: String,
+    /// The recipient side (the pattern's ledger, or the reflex head).
+    pub recipient: String,
+    /// The examples in play (the ledger size at the event).
+    pub examples: usize,
+    /// The free-form detail — the passport note when a registered model
+    /// applies (№838), else the honest in-tree statement. The format
+    /// makes NO claim on the ledger JSON schema (the naryad boundary).
+    pub note: String,
+}
+
+/// The ring bound (bounded memory — the shadow never grows unbounded).
+const SHADOW_RING: usize = 1024;
+
+/// The passport note of a distill event: the №838 passports resolve by
+/// weights id — a reflex head is in-tree, so the honest default is
+/// `none`; the resolution slot exists for the day a distill path names
+/// a registered model.
+fn passport_note(name: &str) -> String {
+    match crate::model_passport::passport_for(name) {
+        Some(p) => format!(
+            "passport={} ({} — {})",
+            p.identity,
+            p.license.as_str(),
+            p.version
+        ),
+        None => "passport=none (the in-tree reflex weights, no external model)".to_string(),
+    }
+}
+
+fn shadow_push(
+    shared: &HubShared,
+    kind: &'static str,
+    donor: &str,
+    recipient: &str,
+    examples: usize,
+    note: String,
+) {
+    let ts_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let event = DistillShadowEvent {
+        ts_unix,
+        kind,
+        donor: donor.to_string(),
+        recipient: recipient.to_string(),
+        examples,
+        note: note.clone(),
+    };
+    {
+        let mut ring = shared.shadow.lock().unwrap_or_else(|e| e.into_inner());
+        if ring.len() >= SHADOW_RING {
+            ring.remove(0);
+        }
+        ring.push(event);
+    }
+    // The local reporting surface (the same stderr posture as the
+    // [AUDIT]/[REDACT]/[BACKEND_SELECT] event lines — visible in every
+    // serve console, plain text, no schema claims).
+    eprintln!(
+        "[DISTILL_SHADOW] kind={} donor='{}' recipient='{}' examples={} {}",
+        kind, donor, recipient, examples, note
+    );
+}
+
 /// №495: the trait both backends call — the `DbAccess` sample
 /// (№474/№484). The implementation holds ALL distill state at the
 /// server level; the trait object rides on the per-request interpreter
@@ -126,6 +217,14 @@ pub trait DistillAccess: Send + Sync {
     /// Test/observability snapshot: `(example_count, mode)` for one
     /// pattern. `None` = the hub never saw this pattern.
     fn snapshot(&self, pattern_name: &str) -> Option<(usize, DistillMode)>;
+
+    /// №840: the local summary of the shadow distill paths (the plain
+    /// text report — the serve console / the tool surface; the format
+    /// makes NO claim on the ledger JSON schema). The default is the
+    /// honest empty: only a hub that records shadow events answers.
+    fn shadow_summary(&self) -> String {
+        String::new()
+    }
 }
 
 /// The state + registry + audit + persistence shared between the request
@@ -147,6 +246,9 @@ struct HubShared {
     /// `distill_samples` persistence — `Some` only when the server has a
     /// memory-persist SQLite file (the same file, one additive table).
     persist: Option<Mutex<rusqlite::Connection>>,
+    /// №840: the SHADOW ring — the distill-path observations (bounded,
+    /// pure observation, never a gate).
+    shadow: Mutex<Vec<DistillShadowEvent>>,
 }
 
 struct HubInner {
@@ -230,6 +332,7 @@ impl DistillHub {
             names,
             audit,
             persist,
+            shadow: Mutex::new(Vec::new()),
         });
 
         // Load the persisted examples (honest migration: existing saved
@@ -318,6 +421,40 @@ impl DistillHub {
                                 job.pattern_name, outcome.switched
                             ),
                         ),
+                    }
+                    // №840: the shadow observation — the train verdict
+                    // (the donor is the pattern's example ledger, the
+                    // recipient is the reflex head).
+                    {
+                        let shared_ref: &HubShared = &worker_shared;
+                        let (kind, note) = match &outcome.error {
+                            Some(e) => (
+                                "train-failed",
+                                format!("error: {} — staying TEACHING; {}", e, passport_note(&job.spec.reflex_name)),
+                            ),
+                            None if outcome.switched => (
+                                "train-done",
+                                format!(
+                                    "switched=true (the weights swapped in); {}",
+                                    passport_note(&job.spec.reflex_name)
+                                ),
+                            ),
+                            None => (
+                                "train-done",
+                                format!(
+                                    "switched=false (the stay-put verdict); {}",
+                                    passport_note(&job.spec.reflex_name)
+                                ),
+                            ),
+                        };
+                        shadow_push(
+                            shared_ref,
+                            kind,
+                            &job.pattern_name,
+                            &job.spec.reflex_name,
+                            job.examples.len(),
+                            note,
+                        );
                     }
                     if outcome.switched {
                         if let Some(s) = inner.states.get_mut(&job.pattern_name) {
@@ -418,6 +555,57 @@ impl DistillHub {
     pub fn reflex_id_for_tests(&self, name: &str) -> Option<crate::nn::ReflexId> {
         self.shared.names.get(name).copied()
     }
+
+    /// №840: the shadow ring snapshot (the bounded observations — the
+    /// test/tool surface).
+    pub fn shadow_events(&self) -> Vec<DistillShadowEvent> {
+        self.shared
+            .shadow
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// №840: the plain-text summary of the distill paths (the local
+    /// reporting surface — the serve console, the tools; no schema
+    /// claims). Aggregated per donor → recipient pair, the kind counts
+    /// beside.
+    pub fn shadow_summary(&self) -> String {
+        let events = self.shadow_events();
+        if events.is_empty() {
+            return "distill shadow: no events recorded (the ring is empty)".to_string();
+        }
+        let mut order: Vec<(String, String)> = Vec::new();
+        let mut agg: HashMap<(String, String), HashMap<&'static str, usize>> = HashMap::new();
+        for e in &events {
+            let key = (e.donor.clone(), e.recipient.clone());
+            if !agg.contains_key(&key) {
+                order.push(key.clone());
+            }
+            *agg.entry(key).or_default().entry(e.kind).or_insert(0) += 1;
+        }
+        let mut lines = vec![format!(
+            "distill shadow paths (the №840 ring, {} event(s), bounded at {}):",
+            events.len(),
+            SHADOW_RING
+        )];
+        for (donor, recipient) in &order {
+            let counts = &agg[&(donor.clone(), recipient.clone())];
+            let mut kinds: Vec<&'static str> = counts.keys().copied().collect();
+            kinds.sort_unstable();
+            let detail: Vec<String> = kinds
+                .iter()
+                .map(|k| format!("{}={}", k, counts[k]))
+                .collect();
+            lines.push(format!(
+                "  '{}' -> '{}': {}",
+                donor,
+                recipient,
+                detail.join(", ")
+            ));
+        }
+        lines.join("\n")
+    }
 }
 
 impl DistillAccess for DistillHub {
@@ -488,6 +676,16 @@ impl DistillAccess for DistillHub {
                                 examples.len()
                             ),
                         );
+                        // №840: the shadow observation — the train
+                        // scheduling on the teaching path.
+                        shadow_push(
+                            &self.shared,
+                            "train-scheduled",
+                            pattern_name,
+                            &spec.reflex_name,
+                            examples.len(),
+                            passport_note(&spec.reflex_name),
+                        );
                         // The bookkeeping order the mirrors pin: mark the
                         // attempt BEFORE handing the job over (a failed send
                         // still counts as an attempt — the retry cadence
@@ -522,6 +720,16 @@ impl DistillAccess for DistillHub {
                 }
                 // Not enough examples yet (or first call) — the outer call
                 // path invokes the LLM and records the example after.
+                // №840: the shadow observation — the teaching fallback
+                // (the LLM carries this call).
+                shadow_push(
+                    &self.shared,
+                    "teaching-fallback",
+                    pattern_name,
+                    &spec.reflex_name,
+                    count,
+                    passport_note(&spec.reflex_name),
+                );
                 Ok(None)
             }
             DistillMode::Distilled => {
@@ -569,6 +777,16 @@ impl DistillAccess for DistillHub {
                                 new_since_train,
                                 examples.len()
                             ),
+                        );
+                        // №840: the shadow observation — the retrain
+                        // scheduling on the distilled path.
+                        shadow_push(
+                            &self.shared,
+                            "retrain-scheduled",
+                            pattern_name,
+                            &spec.reflex_name,
+                            examples.len(),
+                            passport_note(&spec.reflex_name),
                         );
                         {
                             let mut inner =
@@ -681,11 +899,61 @@ impl DistillAccess for DistillHub {
                 // is no longer barrier-free.
                 let (op, threshold) = spec.fallback_if.unwrap_or((CompareOp::Lt, 0.7));
                 if op.compare(best_prob, threshold) {
+                    // №840: the shadow observation — the confident answer
+                    // refused by the barrier; the LLM path follows.
+                    let count = {
+                        let inner = self.shared.inner.lock().unwrap_or_else(|e| e.into_inner());
+                        inner
+                            .states
+                            .get(pattern_name)
+                            .map(|s| s.examples.len())
+                            .unwrap_or(0)
+                    };
+                    shadow_push(
+                        &self.shared,
+                        "teaching-fallback",
+                        pattern_name,
+                        &spec.reflex_name,
+                        count,
+                        format!(
+                            "confidence {:.3} failed the barrier ({:?} {:?}) — the LLM path follows; {}",
+                            best_prob, op, threshold,
+                            passport_note(&spec.reflex_name)
+                        ),
+                    );
                     return Ok(None);
+                }
+                // №840: the shadow observation — the trained head answered
+                // (the distilled path REALLY carried the call).
+                {
+                    let count = {
+                        let inner = self.shared.inner.lock().unwrap_or_else(|e| e.into_inner());
+                        inner
+                            .states
+                            .get(pattern_name)
+                            .map(|s| s.examples.len())
+                            .unwrap_or(0)
+                    };
+                    shadow_push(
+                        &self.shared,
+                        "distilled-answer",
+                        pattern_name,
+                        &spec.reflex_name,
+                        count,
+                        format!(
+                            "confidence {:.3} passed the barrier — no LLM call; {}",
+                            best_prob,
+                            passport_note(&spec.reflex_name)
+                        ),
+                    );
                 }
                 Ok(Some(Value::String(best_label)))
             }
         }
+    }
+
+    fn shadow_summary(&self) -> String {
+        DistillHub::shadow_summary(self)
     }
 
     fn record_example(&self, pattern_name: &str, input: &str, output: &str) {
@@ -699,6 +967,17 @@ impl DistillAccess for DistillHub {
                 last_train_attempt: 0,
             });
         state.examples.push((input.to_string(), output.to_string()));
+        // №840: the shadow observation — the teach event (pure
+        // observation, after the ledger append; zero behavior weight).
+        let examples = state.examples.len();
+        shadow_push(
+            &self.shared,
+            "teach",
+            "llm-teacher (the outer call path)",
+            pattern_name,
+            examples,
+            passport_note(pattern_name),
+        );
         // Persist the example (the №166 plan shape with the `source`
         // provenance column). A failed INSERT is loud in the audit trail
         // but never fails the request: the in-process ledger already

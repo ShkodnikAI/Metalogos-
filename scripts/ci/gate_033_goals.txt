@@ -1,0 +1,20 @@
+# gate_033_goals.txt — the wave-71 W-A machine-fact floors (naryad №841)
+# =============================================================================
+# The №841 floor file: the ONLY-UP gates over the 8D-1 machine facts —
+# the same discipline as the gate_028..032 goal records. The START floors
+# = the values at the №841 merge commit; the TARGET floors for the 0.35
+# gate are the OWNER's decision at the subphase issuance (the wave
+# dispatch's acceptance section — the owner's point, not self-fixed).
+#
+# The facts and their machine sources (both --check twins):
+#   goal_licensed_floor_bp   licensed_floor_bp()   — src/backends.rs rows
+#   goal_passport_fresh_bp   passport_fresh_bp()   — the №838 passports
+#                            (src/model_passport.rs PASSPORT_META), the
+#                            №842 freshness rule (180 days, inclusive)
+#
+# A floor breach is a CI failure: the records fix it (an explicit
+# re-pin rides the №842 transaction — never a silent floor edit).
+# Format: <goal-name> <floor-value-bps> — one per line, # comments.
+
+goal_licensed_floor_bp 10000
+goal_passport_fresh_bp 10000

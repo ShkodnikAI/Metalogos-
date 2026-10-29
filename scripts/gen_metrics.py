@@ -25,6 +25,7 @@ Run from the repo root:
     --check   exit 1 if regeneration would change the file (CI-style gate)
 """
 
+import datetime as _dt
 import re
 import sys
 from pathlib import Path
@@ -33,6 +34,15 @@ REPO = Path(__file__).resolve().parent.parent
 README = REPO / "README.md"
 METRICS_DOC = REPO / "docs" / "metrics.md"
 PLAN_SUMMARY = REPO / "docs" / "PLAN-SUMMARY.md"
+BACKENDS_RS = REPO / "src" / "backends.rs"
+MODEL_PASSPORT_RS = REPO / "src" / "model_passport.rs"
+GATE_033_GOALS = REPO / "scripts" / "ci" / "gate_033_goals.txt"
+
+# №841 (gh#1643, wave 71 — W-A): the 8D-1 machine facts — the wave's
+# freshness window, the PYTHON TWIN of the №842 Rust constant
+# (src/model_passport.rs::PASSPORT_FRESHNESS_DAYS). The two must move
+# together — the tamper-test pins the twin relationship by value.
+PASSPORT_FRESHNESS_DAYS = 180
 
 BEGIN = "<!-- BEGIN GENERATED METRICS (scripts/gen_metrics.py — do not edit inside) -->"
 END = "<!-- END GENERATED METRICS -->"
@@ -169,6 +179,200 @@ def leak_counts() -> tuple[int, int]:
     return neg, pos
 
 
+# ── №841 (gh#1643, wave 71 — W-A): the 8D-1 machine facts ────────────
+#
+# LICENSED_FLOOR (bps, only-up): the share of the backend-registry
+# entries whose license class is EXPLICIT and whose license_note is
+# filled (the ADR-0163 terminology, verbatim). The data source is the
+# SSOT file (src/backends.rs) parsed the same way the other counters
+# parse their sources — a record without the explicit class or with an
+# empty note LOWERS the floor (the tamper-test proves the checker
+# catches it).
+#
+# PASSPORT_FRESH (bps, only-up): the share of the №838 passports whose
+# verification date is fresh — the №842 rule (the age within
+# PASSPORT_FRESHNESS_DAYS; the boundary inclusive; an unparseable date
+# is NOT fresh — fail-closed). The data source is the PASSPORT_META
+# table of src/model_passport.rs (the const names resolved).
+#
+# Both ride --check (the checkist: the floors of gate_033_goals.txt,
+# only-up) and --tamper-test (the RED harness — the checker must catch
+# the fabricated records). The text follows ADR-0202's terminology.
+
+
+def _registry_license_rows(content: str) -> list[tuple[str | None, str | None]]:
+    """The BackendEntry rows of the registry SSOT: (class word, note)."""
+    try:
+        block = content[content.index("pub const BACKEND_REGISTRY"):]
+        block = block[: block.index("\n];")]
+    except ValueError:
+        return []
+    rows: list[tuple[str | None, str | None]] = []
+    for chunk in block.split("BackendEntry {")[1:]:
+        lic = re.search(r"license:\s*LicenseClass::(\w+)", chunk)
+        note = re.search(r'license_note:\s*"((?:[^"\\]|\\.)*)"', chunk, re.S)
+        rows.append((lic.group(1) if lic else None, note.group(1) if note else None))
+    return rows
+
+
+def licensed_floor_bp(content: str | None = None) -> int:
+    """LICENSED_FLOOR — the explicit-class + filled-note share, bps."""
+    if content is None:
+        content = BACKENDS_RS.read_text(encoding="utf-8")
+    rows = _registry_license_rows(content)
+    if not rows:
+        return 0
+    licensed = sum(
+        1
+        for lic, note in rows
+        if lic in ("Osi", "NonOsi", "Restrictive") and note and note.strip()
+    )
+    return licensed * 10000 // len(rows)
+
+
+def _passport_verified_dates(content: str) -> list[str | None]:
+    """The verified_at values of the PASSPORT_META table (the const
+    names resolved; a missing/unresolvable value = None — fail-closed)."""
+    try:
+        block = content[content.index("const PASSPORT_META"):]
+        block = block[: block.index("\n];")]
+    except ValueError:
+        return []
+    consts = dict(re.findall(r'const ([A-Z_]+): &str = "([^"]+)"', content))
+    dates: list[str | None] = []
+    for chunk in block.split("PassportMeta {")[1:]:
+        m = re.search(r'verified_at:\s*(?:"([^"]+)"|([A-Z_]+))', chunk)
+        if not m:
+            dates.append(None)
+        elif m.group(1) is not None:
+            dates.append(m.group(1))
+        else:
+            dates.append(consts.get(m.group(2)))
+    return dates
+
+
+def _parse_iso_date(value: str | None) -> _dt.date | None:
+    if not value:
+        return None
+    try:
+        return _dt.date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def passport_fresh_bp(
+    today: _dt.date | None = None, content: str | None = None
+) -> int:
+    """PASSPORT_FRESH — the fresh-verification-date share, bps (the
+    №842 rule: the age within PASSPORT_FRESHNESS_DAYS, inclusive)."""
+    if content is None:
+        content = MODEL_PASSPORT_RS.read_text(encoding="utf-8")
+    today = today or _dt.date.today()
+    rows = _passport_verified_dates(content)
+    if not rows:
+        return 0
+    fresh = 0
+    for raw in rows:
+        date = _parse_iso_date(raw)
+        if date is None:
+            continue
+        age = (today - date).days
+        if 0 <= age <= PASSPORT_FRESHNESS_DAYS:
+            fresh += 1
+    return fresh * 10000 // len(rows)
+
+
+def load_floors(path: Path = GATE_033_GOALS) -> dict[str, int]:
+    """The floor file: `goal_<name> <value>` lines (the only-up floors)."""
+    floors: dict[str, int] = {}
+    if not path.exists():
+        return floors
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        if len(parts) == 2 and parts[0].startswith("goal_"):
+            try:
+                floors[parts[0]] = int(parts[1])
+            except ValueError:
+                pass
+    return floors
+
+
+def tamper_test() -> int:
+    """The RED harness (№841): the checkers MUST catch the fabricated
+    records. Every trap asserts the floor DROPS under the tamper —
+    a checker that stays silent under a stub record is a liar checker
+    (the exit 1), and CI fails."""
+    good_backends = BACKENDS_RS.read_text(encoding="utf-8")
+    good_passports = MODEL_PASSPORT_RS.read_text(encoding="utf-8")
+    full_lic = licensed_floor_bp(good_backends)
+    full_pass = passport_fresh_bp(content=good_passports)
+
+    # Trap 1: the empty license_note lowers LICENSED_FLOOR.
+    stub_note = good_backends.replace(
+        'license_note: "Chatterbox (Resemble AI) — MIT (osi)"', 'license_note: ""', 1
+    )
+    if stub_note == good_backends:
+        print("tamper-test: TRAP FAILED — the note anchor drifted (the fixture is stale)", file=sys.stderr)
+        return 1
+    if licensed_floor_bp(stub_note) >= full_lic:
+        print("tamper-test: TRAP FAILED — the empty license_note did NOT lower LICENSED_FLOOR", file=sys.stderr)
+        return 1
+
+    # Trap 2: a fabricated unknown class word lowers LICENSED_FLOOR.
+    stub_class = good_backends.replace("license: LicenseClass::Osi,", "license: LicenseClass::Unknown,", 1)
+    if stub_class == good_backends:
+        print("tamper-test: TRAP FAILED — the class anchor drifted", file=sys.stderr)
+        return 1
+    if licensed_floor_bp(stub_class) >= full_lic:
+        print("tamper-test: TRAP FAILED — the unknown class did NOT lower LICENSED_FLOOR", file=sys.stderr)
+        return 1
+
+    # Trap 3: an aged verification date lowers PASSPORT_FRESH (the №842
+    # window). The aged record is fabricated IN MEMORY (the real tree
+    # stays untouched).
+    aged = good_passports.replace(
+        'const PIN_VERIFIED_AT: &str = "2026-09-16";',
+        'const PIN_VERIFIED_AT: &str = "2020-01-01";',
+        1,
+    )
+    if aged == good_passports:
+        print("tamper-test: TRAP FAILED — the PIN_VERIFIED_AT anchor drifted", file=sys.stderr)
+        return 1
+    if passport_fresh_bp(content=aged) >= full_pass:
+        print("tamper-test: TRAP FAILED — the aged date did NOT lower PASSPORT_FRESH", file=sys.stderr)
+        return 1
+
+    # Trap 4: an unparseable date is NOT fresh (fail-closed).
+    broken = good_passports.replace(
+        'const PIN_VERIFIED_AT: &str = "2026-09-16";',
+        'const PIN_VERIFIED_AT: &str = "not-a-date";',
+        1,
+    )
+    if passport_fresh_bp(content=broken) >= full_pass:
+        print("tamper-test: TRAP FAILED — the unparseable date did NOT lower PASSPORT_FRESH", file=sys.stderr)
+        return 1
+
+    # The twin pin: the Python window equals the №842 Rust constant.
+    rust = (REPO / "src" / "model_passport.rs").read_text(encoding="utf-8")
+    m = re.search(r"PASSPORT_FRESHNESS_DAYS: i64 = (\d+)", rust)
+    if not m or int(m.group(1)) != PASSPORT_FRESHNESS_DAYS:
+        print(
+            "tamper-test: TRAP FAILED — the freshness-window twins drifted "
+            f"(python={PASSPORT_FRESHNESS_DAYS}, rust={m.group(1) if m else 'absent'})",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(
+        "tamper-test: OK — the checkers catch the fabricated records "
+        f"(LICENSED_FLOOR {full_lic} bp, PASSPORT_FRESH {full_pass} bp; the traps lowered both)"
+    )
+    return 0
+
+
 def full_block() -> str:
     """№804: the FULL generated table — docs/metrics.md (the one honest
     place for every machine number; the README front page links here)."""
@@ -201,6 +405,8 @@ def full_block() -> str:
         f"| Example Programs | {examples} .mlog programs |\n"
         f"| Reference | REFERENCE.md (~{reference_kb} KB) — 100% registry coverage |\n"
         f"| Changelog | CHANGELOG.md (~{changelog_kb} KB) — every wave documented |\n"
+        f"| LICENSED_FLOOR (the 8D-1 machine fact, №841) | {licensed_floor_bp()} bp — the license class explicit + the license_note filled over the backend registry (ADR-0163/ADR-0202 terms) |\n"
+        f"| PASSPORT_FRESH (the 8D-1 machine fact, №841) | {passport_fresh_bp()} bp — the passports fresh within the {PASSPORT_FRESHNESS_DAYS}-day verification window (the №842 rule) |\n"
     )
 
 
@@ -264,6 +470,8 @@ def plan_summary_block() -> str:
         f"| {typed_bp} bp — {typed}/{total_fns} = {typed_bp / 100:.2f}% "
         f"(precise {precise}/{total_fns} = {precise_bp / 100:.2f}%) |\n"
         f"| BUILTIN_REGISTRY rows | {total_fns} |\n"
+        f"| LICENSED_FLOOR — the 8D-1 machine fact (№841) | {licensed_floor_bp()} bp |\n"
+        f"| PASSPORT_FRESH — the 8D-1 machine fact (№841) | {passport_fresh_bp()} bp |\n"
     )
 
 
@@ -345,6 +553,52 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
+
+    # №841: the floors checkist (the only-up gates of gate_033_goals.txt)
+    # ride --check — a floor breach is a CI failure exactly like a stale
+    # block. The target floors for the 0.35 gate are the owner's decision
+    # at the subphase issuance; the START floors = the values at the №841
+    # merge commit.
+    if check:
+        floors = load_floors()
+        if not floors:
+            print(
+                "ERROR: scripts/ci/gate_033_goals.txt is missing or empty "
+                "(the №841 floors must exist — the only-up gates)",
+                file=sys.stderr,
+            )
+            return 2
+        current = {
+            "goal_licensed_floor_bp": licensed_floor_bp(),
+            "goal_passport_floor_bp": passport_fresh_bp(),
+            "goal_passport_fresh_bp": passport_fresh_bp(),
+        }
+        breached = []
+        for name, floor in sorted(floors.items()):
+            value = current.get(name)
+            if value is None:
+                breached.append(f"{name}: the counter is missing")
+            elif value < floor:
+                breached.append(f"{name}: current {value} bp < floor {floor} bp (only-up)")
+        if breached:
+            print(
+                "FLOOR BREACH: the №841 machine facts dropped below the only-up floors: "
+                + "; ".join(breached)
+                + " — re-pin the passports explicitly (№842) or fix the records",
+                file=sys.stderr,
+            )
+            return 1
+        print(
+            "OK: the №841 floors hold — LICENSED_FLOOR "
+            f"{current['goal_licensed_floor_bp']} bp, PASSPORT_FRESH {current['goal_passport_fresh_bp']} bp"
+        )
+
+    # №841: the RED harness (the tamper traps) — an explicit mode, run by
+    # CI beside the --check (the same posture as the other gates'
+    # --tamper-test modes).
+    if "--tamper-test" in sys.argv:
+        return tamper_test()
+
     return 0
 
 

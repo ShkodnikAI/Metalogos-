@@ -1,0 +1,1 @@
+EXPECTED: SQL_DYNAMIC — json_body() as the db_insert column structure (mass assignment)

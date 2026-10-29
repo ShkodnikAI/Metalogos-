@@ -635,6 +635,15 @@ pub fn query_row(db: &mut impl DbAccess, args: &[Value]) -> Result<Value, String
     }
 }
 
+/// №831 (H-2): the SQLite identifier quoting — the name goes into double
+/// quotes, every `"` inside doubles (`"weird""name"`). The escaped
+/// identifier cannot terminate its quoted position, so a quote-carrying
+/// table/column name can no longer inject SQL text. The static gate
+/// (audit.rs) is the first layer; this is the runtime second.
+pub(crate) fn quote_identifier(name: &str) -> String {
+    format!("\"{}\"", name.replace('"', "\"\""))
+}
+
 /// `db_insert(table, struct)` — the ONE implementation for both backends
 /// (№540): the state arrives through the `DbAccess` trait — the №409 lazy
 /// open fires on the VM lane and is a no-op through the TW adapter (the
@@ -645,6 +654,16 @@ pub fn query_row(db: &mut impl DbAccess, args: &[Value]) -> Result<Value, String
 /// gains the detail; behavior-neutral, an Err outcome with a fuller
 /// message, the №484 richer-text discipline). Inserts the struct fields
 /// as one row, returns the last-inserted rowid as a Float.
+///
+/// №831 (H-2): the table and column IDENTIFIERS are quoted with the
+/// SQLite double-quote escaping (`"` → `""` inside `"..."`) — the
+/// identifier that carries a quote character can no longer break out of
+/// its position into the SQL text. The static gate (audit.rs, the
+/// db_insert arm) refuses the non-literal table and the untrusted column
+/// structure BEFORE the run; this runtime layer hardens the residual
+/// trusted-dynamic shape. Quoting is behavior-neutral for the legal
+/// identifiers (SQLite matches `"name"` case-insensitively — the office
+/// forms run unchanged).
 pub fn db_insert(db: &mut impl DbAccess, args: &[Value]) -> Result<Value, String> {
     let table = match args.first() {
         Some(Value::String(s)) => s.clone(),
@@ -675,10 +694,14 @@ pub fn db_insert(db: &mut impl DbAccess, args: &[Value]) -> Result<Value, String
         .ok_or_else(|| db_not_open_error(loud, "db_insert"))?;
     let col_names: Vec<String> = fields.keys().cloned().collect();
     let placeholders: Vec<String> = col_names.iter().map(|_| "?".to_string()).collect();
+    // №831 (H-2): quote the identifiers — the SQLite double-quote escaping
+    // (the `"` inside the name doubles); the VALUES stay parameterized (?).
+    let quoted_table = quote_identifier(&table);
+    let quoted_cols: Vec<String> = col_names.iter().map(|c| quote_identifier(c)).collect();
     let sql = format!(
         "INSERT INTO {} ({}) VALUES ({})",
-        table,
-        col_names.join(", "),
+        quoted_table,
+        quoted_cols.join(", "),
         placeholders.join(", ")
     );
     let params: Vec<Box<dyn rusqlite::types::ToSql>> = fields

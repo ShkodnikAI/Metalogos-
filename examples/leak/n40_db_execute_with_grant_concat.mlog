@@ -1,0 +1,8 @@
+// Threat: a SQL injection through the request parameter glued into the granted SQL statement.
+// Attack: the grant legitimizes the ACTION, not the DATA — the SQL text rides arg 1 (№831, H-2).
+pattern Send(data: String) -> String {
+  let g = grant_issue("delete", "logs")
+  let _ = db_execute_with_grant(g, "DELETE FROM logs WHERE id=" + query_param("id"))
+  return "done"
+}
+flow Main { input: String = data -> Send -> output }

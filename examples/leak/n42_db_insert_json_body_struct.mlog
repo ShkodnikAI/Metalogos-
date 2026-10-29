@@ -1,0 +1,7 @@
+// Threat: mass assignment — the column structure arrives from an untrusted body.
+// Attack: attacker-chosen keys become the INSERT column list (№831, H-2).
+pattern Send(data: String) -> String {
+  let _ = db_insert("users", json_body())
+  return "done"
+}
+flow Main { input: String = data -> Send -> output }

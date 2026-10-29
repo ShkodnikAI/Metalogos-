@@ -652,6 +652,42 @@ pub static BUILTIN_CLASSES: &[BuiltClassEntry] = &[
     BuiltClassEntry { name: "normal_sample", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
 ];
 
+// ── SQL-argument positions (№831, the H-2 finding of the merged audit
+//    `24fde8a`, the wave-70 dispatch) ─────────────────────────────────
+//
+// The SQL_DYNAMIC gate's SSOT: for every builtin whose execution feeds an
+// SQL template into the engine, the position of that template argument.
+// The gate — `audit.rs::check_sql_dynamic`, the ONE body both contours
+// consume (`mlog audit` calls it directly; the compile path rides it
+// through `audit_category_a` — semantic.rs №98 and lib.rs
+// enforce_compile_gates) — reads THIS table, never a name list: a new
+// SQL carrier classifies itself HERE and the gate covers it by
+// construction.
+//
+// `db_insert` is deliberately NOT in this table: its SQL is CONSTRUCTED
+// internally from the table/column IDENTIFIERS (db_ops.rs), not passed
+// as a template — the identifiers carry their own arm of the same gate
+// (the table literal-only rule + the untrusted-structure taint refusal)
+// plus the runtime `quote_identifier` hardening.
+pub static SQL_ARG_POSITIONS: &[(&str, usize)] = &[
+    ("query", 0),
+    ("query_row", 0),
+    ("query_scalar", 0),
+    ("db_execute", 0),
+    // The grant handle occupies arg 0 — the SQL template is arg 1.
+    ("db_execute_with_grant", 1),
+];
+
+/// The SQL-template position for `name`, or `None` when the builtin does
+/// not take SQL (№831: the gate covers ALL classified SQL carriers — 5/5,
+/// not the №544 pair).
+pub fn sql_arg_position(name: &str) -> Option<usize> {
+    SQL_ARG_POSITIONS
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, pos)| *pos)
+}
+
 #[cfg(test)]
 // №475: the test mods exercise the REAL filesystem for fixtures — the
 // ratchet targets production I/O (see clippy.toml).
@@ -742,6 +778,63 @@ mod tests {
             .filter(|n| !seen.insert(*n))
             .collect();
         assert!(dupes.is_empty(), "duplicate classifications: {:?}", dupes);
+    }
+
+    /// №831 (H-2): every SQL-argument position names a REGISTERED builtin
+    /// that is classified in the map — the gate's SSOT cannot name a
+    /// phantom function.
+    #[test]
+    fn sql_positions_name_registered_classified_builtins() {
+        let registry = registry_names();
+        let map: HashSet<&str> = BUILTIN_CLASSES.iter().map(|e| e.name).collect();
+        for (name, _) in SQL_ARG_POSITIONS {
+            assert!(
+                registry.contains(*name),
+                "SQL_ARG_POSITIONS names '{}' — not in the registry source",
+                name
+            );
+            assert!(
+                map.contains(name),
+                "SQL_ARG_POSITIONS names '{}' — not classified in BUILTIN_CLASSES",
+                name
+            );
+        }
+    }
+
+    /// №831 (H-2): the position table is unique and covers the audited
+    /// SQL surface — the five SQL carriers of the merged audit (4 at arg
+    /// 0, db_execute_with_grant at arg 1). A NEW SQL carrier must join
+    /// THIS table (the gate consumes it) — dropping below the audited
+    /// five is the H-2 regression.
+    #[test]
+    fn sql_positions_unique_and_complete() {
+        let mut seen = HashSet::new();
+        for (name, _) in SQL_ARG_POSITIONS {
+            assert!(seen.insert(*name), "duplicate SQL position: {}", name);
+        }
+        for name in [
+            "query",
+            "query_row",
+            "query_scalar",
+            "db_execute",
+            "db_execute_with_grant",
+        ] {
+            assert!(
+                sql_arg_position(name).is_some(),
+                "{} lost its SQL position — the H-2 gate regression",
+                name
+            );
+        }
+        assert_eq!(sql_arg_position("db_execute_with_grant"), Some(1));
+        for name in ["query", "query_row", "query_scalar", "db_execute"] {
+            assert_eq!(sql_arg_position(name), Some(0));
+        }
+        assert_eq!(
+            sql_arg_position("db_insert"),
+            None,
+            "db_insert is NOT a template carrier — its identifiers carry the separate arm"
+        );
+        assert_eq!(sql_arg_position("format"), None);
     }
 
     /// №316: the named minimum classes from the issue are present.

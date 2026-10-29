@@ -46,6 +46,20 @@ pub struct WeightsManifest {
 }
 
 impl WeightsManifest {
+    /// №838 (ADR-0202): the passport link. The manifest is RUNTIME data
+    /// loaded from a local directory; the passport is the STATIC SSOT
+    /// (one table, keyed by the weights id — `crate::model_passport`).
+    /// Reading THROUGH the key keeps exactly one source of truth about
+    /// the model — the manifest never carries a second copy of the
+    /// license facts (the ADR-0202 §2.2 decision). The 1:1 between the
+    /// manifest sources and the passports is pinned by the №838 arity
+    /// test (every `WEIGHTS_SOURCES` repo equals its passport's source).
+    pub fn passport_for_model(
+        weights_id: &str,
+    ) -> Option<&'static crate::model_passport::ModelPassport> {
+        crate::model_passport::passport_for(weights_id)
+    }
+
     /// Load a manifest from `{dir}/manifest.json`. Returns `None` if the file
     /// doesn't exist (callers may proceed without verification — but should
     /// log that verification was skipped).

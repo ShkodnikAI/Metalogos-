@@ -3533,6 +3533,7 @@ fn check_license_class_expr(
         | Expr::FloatLit { .. }
         | Expr::BoolLit { .. }
         | Expr::Ident { .. } => {}
+        _ => {}
     }
 }
 

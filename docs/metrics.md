@@ -10,7 +10,7 @@ construction.
 <!-- BEGIN GENERATED METRICS (scripts/gen_metrics.py — do not edit inside) -->
 | Metric | Value (generated — do not hand-edit) |
 | ------ | ------------------------------------- |
-| Version | 0.34.0 |
+| Version | 0.34.1 |
 | Leak Suite | 54 negatives / 27 positives (examples/leak/ — the BLOCKING gate) |
 | Built-in Functions | 527 functions across 47 modules |
 | Typed Signatures | 374/527 (70.96%) — precise 243/527 (46.11%) |
@@ -20,5 +20,5 @@ construction.
 | Architecture Decisions | 193 ADRs |
 | Example Programs | 253 .mlog programs |
 | Reference | REFERENCE.md (~337 KB) — 100% registry coverage |
-| Changelog | CHANGELOG.md (~170 KB) — every wave documented |
+| Changelog | CHANGELOG.md (~174 KB) — every wave documented |
 <!-- END GENERATED METRICS -->

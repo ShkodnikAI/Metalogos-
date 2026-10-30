@@ -105,6 +105,10 @@ pub struct Compiler {
     conversation_config: crate::interpreter::types::ConversationConfig,
     /// Database URL extracted from db declaration (for VM).
     db_url: Option<String>,
+    /// №845 (ADR-0203 §2.4): the capability permit roster — the
+    /// `profile capability { allow_carrier: … }` declarations, collected
+    /// in `compile()` and emitted into `Program::capability_permits`.
+    capability_permits: Vec<String>,
     /// №758: the NAME part of `db { url: env("NAME") }` — resolved by
     /// the VM at the first db access (runtime semantics, no credential
     /// in the bytecode).
@@ -367,6 +371,7 @@ impl Compiler {
             memory_persist_path: None,
             conversation_config: Default::default(),
             db_url: None,
+            capability_permits: Vec::new(),
             db_url_env: None,
             schema_ddl: Vec::new(),
             std_root,
@@ -485,6 +490,12 @@ impl Compiler {
                 all_decls.push(decl);
             }
         }
+
+        // №845 (ADR-0203 §2.4): the capability permit roster rides the
+        // Program (the VM lane's copy of the TW run() resolution — the
+        // same declarations, the same roster; the TW/VM parity by
+        // construction, the №829 lesson).
+        self.capability_permits = crate::capability::permits_from_declarations(&all_decls).to_vec();
 
         // Phase 2: two-pass compilation
         // Pass 1: collect struct types, pattern names, learnable names, global slots
@@ -653,6 +664,7 @@ impl Compiler {
             origin_decls: std::mem::take(&mut self.origin_decls),
             deny_handlers: std::mem::take(&mut self.deny_handlers),
             db_url: self.db_url.take(),
+            capability_permits: std::mem::take(&mut self.capability_permits),
             db_url_env: self.db_url_env.take(),
             memory_persist_path: self.memory_persist_path.take(),
             conversation_config: self.conversation_config.clone(),

@@ -54,8 +54,12 @@ use std::sync::{Arc, Mutex};
 // ── eval_expr (the №261 lekało) ──────────────────────────────────────
 
 fn eval_expr(src: &str) -> Result<String, String> {
+    // №845 (ADR-0203 §2.4): the harness permit — these tests pin the
+    // DELIVERY-MECHANICS contracts (opts mapping, the wire format) against
+    // a local mock; the capability layer requires the explicit carrier
+    // permits for the delivery builtins (ADR-0203 §2.4).
     let full = format!(
-        "pattern __eval(input: String) -> String {{ return {} }}\nflow Main {{ input: String = \"x\" -> __eval -> output }}",
+        "profile capability {{ allow_carrier: \"send_message\" allow_carrier: \"send_photo\" }}\npattern __eval(input: String) -> String {{ return {} }}\nflow Main {{ input: String = \"x\" -> __eval -> output }}",
         src
     );
     match metalogos::run_program(&full) {
@@ -71,7 +75,7 @@ fn eval_expr(src: &str) -> Result<String, String> {
 fn eval_expr_vm(src: &str) -> Result<String, String> {
     let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let declarations = metalogos::parser::parse(&format!(
-        "pattern __eval(input: String) -> String {{ return {} }}\nflow Main {{ input: String = \"x\" -> __eval -> output }}",
+        "profile capability {{ allow_carrier: \"send_message\" allow_carrier: \"send_photo\" }}\npattern __eval(input: String) -> String {{ return {} }}\nflow Main {{ input: String = \"x\" -> __eval -> output }}",
         src
     ))
     .map_err(|e| format!("parse error: {e}"))?;

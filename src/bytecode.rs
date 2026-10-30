@@ -704,6 +704,14 @@ pub struct Program {
     pub deny_handlers: Vec<CompiledDenyHandler>,
     /// Database URL (if declared). Enables db_insert, query_scalar, etc.
     pub db_url: Option<String>,
+    /// №845 (ADR-0203 §2.4): the program's capability permit roster — the
+    /// `profile capability { allow_carrier: … }` declarations, resolved by
+    /// the compiler and consumed by `Vm::load_program` (the TW lane
+    /// resolves the same roster in `Interpreter::run`). `#[serde(default)]`
+    /// — old .mbc files deserialize cleanly (an empty roster = the named
+    /// standard posture, the fail-closed default).
+    #[serde(default)]
+    pub capability_permits: Vec<String>,
     /// №758: the NAME part of `db { url: env("NAME") }` — the URL is
     /// resolved by the VM at the first db access (the interpreter's
     /// runtime semantics), never embedded into the bytecode: a

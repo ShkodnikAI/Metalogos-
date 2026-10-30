@@ -523,6 +523,11 @@ fn gen_program(seed: u64) -> String {
 
     // №479: the db declaration — in-memory SQLite, deterministic, no disk.
     src.push_str("db { url: \"sqlite::memory:\" }\n");
+    // №845 (ADR-0203 §2.4): the harness permit — the generated programs
+    // exercise the smtp_send CONFIG-refusal (the honest MockSmtp, no
+    // network); without the permit the capability gate would fire first
+    // and the fuzz corpus would compare refusals, not executions.
+    src.push_str("profile capability { allow_carrier: \"smtp_send\" }\n");
 
     // Entities (top-level initializers).
     for i in 0..2 {

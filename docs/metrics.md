@@ -18,7 +18,7 @@ construction.
 | SVG/Graphics | 44 builtins, hand-rolled in pure Rust |
 | Grammar | 344 rules |
 | Architecture Decisions | 196 ADRs |
-| Example Programs | 254 .mlog programs |
+| Example Programs | 257 .mlog programs |
 | Reference | REFERENCE.md (~339 KB) — 100% registry coverage |
 | Changelog | CHANGELOG.md (~174 KB) — every wave documented |
 | LICENSED_FLOOR (the 8D-1 machine fact, №841) | 10000 bp — the license class explicit + the license_note filled over the backend registry (ADR-0163/ADR-0202 terms) |

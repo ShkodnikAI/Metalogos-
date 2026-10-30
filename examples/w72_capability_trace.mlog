@@ -1,0 +1,63 @@
+// Naryad №847 (ADR-0203 §2, wave 72 — W-B, dispatch gh#1666): the
+// capability CONTRACT end-to-end — issue → use → revoke → deny, the full
+// typed trace in the Action Ledger (the wave-3 acceptance form, №395,
+// continued onto the capability layer).
+//
+// The scenario: a capability token meters a DESTRUCTIVE-FS carrier
+// (delete_file — ProfilePermit-sharp, №845). The covering grant
+// (scope `builtin:delete_file`) authorizes the action through the
+// capability gate — and CONSUMES one use (ADR-0203 §2.2: "a valid token
+// consumes" — the single consume point, the ledger is the SSOT). The
+// revocation flips the decision fail-closed: the SECOND delete refuses
+// BEFORE the run (DenyEvent IRREVERSIBLE_NO_GRANT, the on_deny(file)
+// handler degrades it to Unit — the refused deletion never touches the
+// file). The surviving payload IS the proof: the refusal precedes the
+// action.
+//
+// The ungranted deny (IRREVERSIBLE_NO_GRANT on bare db_execute with
+// destructive SQL) is unchanged — see examples/leak/ for that side of
+// the gate; the w2 grant examples cover the GrantAlways SQL contour.
+// This example exercises the NEW contour: the ProfilePermit-sharp
+// carrier authorized by a typed capability token (№844) and refused by
+// the capability layer (№845).
+on_deny(file) {
+  match deny_reason() {
+    "VOICE_EGRESS_UNCONSENTED" then { print("deny:VOICE_EGRESS_UNCONSENTED") }
+    "IRREVERSIBLE_NO_GRANT" then { print("deny:IRREVERSIBLE_NO_GRANT") }
+    "UNTRUSTED_EXEC_DECISION" then { print("deny:UNTRUSTED_EXEC_DECISION") }
+    "SECRET_TO_EXEC" then { print("deny:SECRET_TO_EXEC") }
+    "SECRET_EGRESS_VCS" then { print("deny:SECRET_EGRESS_VCS") }
+    "SECRET_EGRESS_NETWORK" then { print("deny:SECRET_EGRESS_NETWORK") }
+    "PII_EGRESS_NETWORK" then { print("deny:PII_EGRESS_NETWORK") }
+    "PII_EGRESS_OUTPUT" then { print("deny:PII_EGRESS_OUTPUT") }
+    "UNTRUSTED_EGRESS_NETWORK" then { print("deny:UNTRUSTED_EGRESS_NETWORK") }
+    "UNTRUSTED_FILE_PATH" then { print("deny:UNTRUSTED_FILE_PATH") }
+    "SINK_CLEARANCE" then { print("deny:SINK_CLEARANCE") }
+    "HTML_INJECTION" then { print("deny:HTML_INJECTION") }
+    "TAINT_PERSISTENCE" then { print("deny:TAINT_PERSISTENCE") }
+    "SECRET_LEAK" then { print("deny:SECRET_LEAK") }
+  }
+}
+
+pattern CapabilityTrace(_tick: String) -> String {
+  // (1) ISSUE: mint the capability token — the typed carrier (№844),
+  // scope covers the carrier, N(2) quota.
+  let cap = grant_issue("builtin:delete_file", 600, "n", 2)
+  // (2) USE: the covering grant authorizes the destructive carrier
+  // through the capability gate — the gate consumes one use (the
+  // ledger journals grant.issued + grant.used).
+  let _w1 = write_file("w72_capability_trace.tmp", "first-payload")
+  let d1 = delete_file("w72_capability_trace.tmp")
+  // (3) REVOKE: the cascading revocation (the ledger journals
+  // grant.revoked).
+  let rev = grant_revoke(cap)
+  // (4) DENY: the repeat action refuses BEFORE the run — the capability
+  // gate refuses, on_deny(file) degrades to Unit, the FILE SURVIVES
+  // (the refusal precedes the action; the ledger journals
+  // deny.IRREVERSIBLE_NO_GRANT).
+  let _w2 = write_file("w72_capability_trace.tmp", "must-survive-the-deny")
+  let d2 = delete_file("w72_capability_trace.tmp")
+  let survived = read_file("w72_capability_trace.tmp")
+  return "use:" + type_of(d1) + "|revoked:" + to_string(rev) + "|deny:" + type_of(d2) + "|survived:" + survived
+}
+flow Main { input: String = "tick" -> CapabilityTrace -> output }

@@ -384,16 +384,26 @@ pub fn authorize_call(name: &str, permits: &CapabilityPermits) -> Result<(), Str
     if host_permitted(name) {
         return Ok(());
     }
-    // A covering capability grant: the scope `builtin:<name>` or wider
-    // (the №801 lookup — the strongest active covering grant; the caller
-    // consumes through the carrier's own use path).
-    if crate::grants::lookup_active_covering(&format!("builtin:{name}")).is_some() {
-        return Ok(());
-    }
     if BASELINE_STANDARD.contains(&name) {
         // The named `standard` posture permits this carrier (machine
-        // roster, totality-checked — honest limits, not silence).
+        // roster, totality-checked — honest limits, not silence). The
+        // baseline route sits BEFORE the grant route: a covering grant
+        // must not burn a use on a carrier that never needed it.
         return Ok(());
+    }
+    // The covering capability grant (ADR-0203 §2.2: "a valid token
+    // CONSUMES"): the scope `builtin:<name>` or wider — the strongest
+    // active covering grant (the №801 lookup), and the authorization
+    // consumes ONE use through the single consume point (`grant_use` —
+    // the ledger is the SSOT; the Once/N quota is metered HERE, the same
+    // way the №801 gateway consumes for `mcp:<tool>`). A failed consume
+    // (raced/missing) falls through to the refusal — fail-closed.
+    let action_scope = format!("builtin:{name}");
+    if let Some(handle) = crate::grants::lookup_active_covering(&action_scope) {
+        if crate::grants::grant_use(&handle, &format!("capability gate consume for {name}")).is_ok()
+        {
+            return Ok(());
+        }
     }
     Err(refusal(name))
 }

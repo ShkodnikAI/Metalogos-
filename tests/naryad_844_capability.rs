@@ -120,8 +120,7 @@ flow Main {{ input: String = "t" -> T -> output }}
 
 #[test]
 fn revoked_capability_refuses_before_the_action_on_both_lanes() {
-    let runners: [(&str, LaneRunner); 2] =
-        [("tw", run_tw), ("vm", run_vm)];
+    let runners: [(&str, LaneRunner); 2] = [("tw", run_tw), ("vm", run_vm)];
     for (name, runner) in runners {
         let err = runner(&format!(
             r#"
@@ -152,8 +151,7 @@ fn revoked_capability_deny_event_fires_and_the_table_survives() {
     // call degrades to Unit and execution CONTINUES (the w2_deny_exhaustive
     // contract), and the DESTRUCTIVE SQL never executes: the row inserted
     // before the refusal is still there.
-    let runners: [(&str, LaneRunner); 2] =
-        [("tw", run_tw), ("vm", run_vm)];
+    let runners: [(&str, LaneRunner); 2] = [("tw", run_tw), ("vm", run_vm)];
     for (name, runner) in runners {
         let out = runner(&format!(
             r#"
@@ -188,8 +186,7 @@ flow Main {{ input: String = "t" -> T -> output }}
 
 #[test]
 fn expired_capability_refuses_before_the_action_on_both_lanes() {
-    let runners: [(&str, LaneRunner); 2] =
-        [("tw", run_tw), ("vm", run_vm)];
+    let runners: [(&str, LaneRunner); 2] = [("tw", run_tw), ("vm", run_vm)];
     for (name, runner) in runners {
         let err = runner(&format!(
             r#"
@@ -215,8 +212,7 @@ flow Main {{ input: String = "t" -> T -> output }}
 
 #[test]
 fn capability_consume_writes_the_ledger_trace() {
-    let runners: [(&str, LaneRunner); 2] =
-        [("tw", run_tw), ("vm", run_vm)];
+    let runners: [(&str, LaneRunner); 2] = [("tw", run_tw), ("vm", run_vm)];
     for (name, runner) in runners {
         let out = runner(&format!(
             r#"
@@ -255,8 +251,7 @@ flow Main {{ input: String = "t" -> T -> output }}
 
 #[test]
 fn capability_state_is_the_live_ledger_read_on_both_lanes() {
-    let runners: [(&str, LaneRunner); 2] =
-        [("tw", run_tw), ("vm", run_vm)];
+    let runners: [(&str, LaneRunner); 2] = [("tw", run_tw), ("vm", run_vm)];
     for (name, runner) in runners {
         let out = runner(&format!(
             r#"
@@ -285,8 +280,7 @@ flow Main {{ input: String = "t" -> T -> output }}
 
 #[test]
 fn capability_state_refuses_an_unknown_token_fail_closed() {
-    let runners: [(&str, LaneRunner); 2] =
-        [("tw", run_tw), ("vm", run_vm)];
+    let runners: [(&str, LaneRunner); 2] = [("tw", run_tw), ("vm", run_vm)];
     for (name, runner) in runners {
         let err = runner(
             r#"
@@ -309,8 +303,7 @@ flow Main { input: String = "t" -> T -> output }
 
 #[test]
 fn the_view_is_read_only_never_moves_the_quota() {
-    let runners: [(&str, LaneRunner); 2] =
-        [("tw", run_tw), ("vm", run_vm)];
+    let runners: [(&str, LaneRunner); 2] = [("tw", run_tw), ("vm", run_vm)];
     for (name, runner) in runners {
         // capability_state × many (and copies of the token) never move
         // the quota — the view is a read, the consume points are not it.
@@ -340,8 +333,7 @@ flow Main {{ input: String = "t" -> T -> output }}
 
 #[test]
 fn copying_the_token_does_not_duplicate_power() {
-    let runners: [(&str, LaneRunner); 2] =
-        [("tw", run_tw), ("vm", run_vm)];
+    let runners: [(&str, LaneRunner); 2] = [("tw", run_tw), ("vm", run_vm)];
     for (name, runner) in runners {
         // A COPY of the token is the SAME grant: the once linearity lives
         // in the LEDGER — the second consume refuses GRANT_REUSED (the
@@ -380,8 +372,7 @@ flow Main {{ input: String = "t" -> T -> output }}
 
 #[test]
 fn profile_legacy_does_not_weaken_the_capability_refusal() {
-    let runners: [(&str, LaneRunner); 2] =
-        [("tw", run_tw), ("vm", run_vm)];
+    let runners: [(&str, LaneRunner); 2] = [("tw", run_tw), ("vm", run_vm)];
     for (name, runner) in runners {
         let err = runner(&format!(
             r#"
@@ -409,8 +400,7 @@ flow Main {{ input: String = "t" -> T -> output }}
 
 #[test]
 fn subgrant_mints_the_typed_carrier_and_stays_attenuation_only() {
-    let runners: [(&str, LaneRunner); 2] =
-        [("tw", run_tw), ("vm", run_vm)];
+    let runners: [(&str, LaneRunner); 2] = [("tw", run_tw), ("vm", run_vm)];
     for (name, runner) in runners {
         let err = runner(&format!(
             r#"

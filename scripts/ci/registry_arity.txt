@@ -48,6 +48,7 @@ call_llm_schema|2|3
 canary_check|2|3
 canary_insert|1|2
 cancel_remind|1|1
+capability_state|1|1
 capitalize|1|1
 card_connect|3|3
 card_contacts|2|2

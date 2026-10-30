@@ -714,6 +714,14 @@ pub fn grant_use(handle: &GrantHandle, note: &str) -> Result<i64, String> {
     })
 }
 
+/// №844 (ADR-0203 §2.1): the public read of one ledger record — the SSOT
+/// read behind the typed Capability view (`capability::state_view`). The
+/// record is a snapshot; every authority check still goes through
+/// `check_record` at use time.
+pub fn record_of(grant_id: &str) -> Result<GrantRecord, String> {
+    with_conn(|conn| load_record(conn, grant_id))
+}
+
 /// Non-consuming validity check (the `db_execute_with_grant` pre-check:
 /// the consumption happens only after the SQL statement succeeded).
 pub fn check_active(handle: &GrantHandle) -> Result<GrantRecord, String> {

@@ -770,6 +770,11 @@ OVERRIDES = {
     "ledger_snapshot": ("Lift", "Public", "Irreversible", "appends a snapshot record pinning the head (ADR-0167 §3.2) — the archive anchor is a permanent chain record"),
     # ── Naryad #415 (P1, security/ledger): the runtime verify hook ──
     "ledger_verify": ("Source", "Internal", "Pure", "reads an exported JSONL chain from a sandboxed path and returns the structural verification verdict (№415) — ingress of the signed trail for verification; the runtime ledger is never written and nothing egresses"),
+    # №844 (ADR-0203 §2.1, wave 72 — W-B): the capability_state LIVE view —
+    # a state read over the grant ledger (the runtime's own persistent
+    # store → Source, provenance-carried), no external effect (Pure), the
+    # record metadata is Internal. Read-only: the view consumes NOTHING.
+    "capability_state": ("Source", "Internal", "Pure", "the LIVE typed view over the grant ledger record (ADR-0203 §2.1, №844) — scope/class/ttl/quota/revoked/state read AT CALL TIME; a state read carries provenance (the №316 Source semantics), the view is read-only and consumes nothing (the single consume points stay grant_use and the carrier gates)"),
     # ── media (№331, ADR-0162 / №332, ADR-0164) ──
     "media_store_image": ("Lift", "Internal", "Reversible", "wraps provided bytes into an opaque Image handle in the media store (ADR-0162) — no egress; declared sensitivity drives at-rest AES-GCM sealing and the runtime backstop"),
     "media_store_audio": ("Lift", "Internal", "Reversible", "wraps provided bytes into an opaque Audio handle in the media store (ADR-0162) — no egress; declared sensitivity drives at-rest AES-GCM sealing and the runtime backstop"),

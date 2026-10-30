@@ -687,7 +687,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 527 registered builtins (527 of 527): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 528 registered builtins (528 of 528): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -1217,8 +1217,8 @@ allowed only inside the grant scope, metered by the ledger, and audited.
 
 | Function | Signature | Return | Description |
 |---------|-----------|---------|----------|
-| `grant_issue(scope, ttl, class?, uses?)` | `String, Number[, String, Number] -> Grant` | Grant | Mints a capability. class: "once" (default) / "n" + uses / "unlimited"; ttl in seconds |
-| `grant_subgrant(parent, scope, ttl, class?, uses?)` | `Grant, String, Number[, ...] -> Grant` | Grant | Attenuation-only derivation: narrower scope, shorter TTL, lower class power; a Once parent is consumed by the split |
+| `grant_issue(scope, ttl, class?, uses?)` | `String, Number[, String, Number] -> Capability` | Capability | Mints a capability — the typed carrier (ADR-0203 §2.1, №844): the read-only view {scope, class, ttl, quota, revoked, grant} over the ledger row. class: "once" (default) / "n" + uses / "unlimited"; ttl in seconds |
+| `grant_subgrant(parent, scope, ttl, class?, uses?)` | `Grant, String, Number[, ...] -> Capability` | Capability | Attenuation-only derivation: narrower scope, shorter TTL, lower class power; a Once parent is consumed by the split. Returns the typed Capability view (№844) |
 | `grant_revoke(g)` | `Grant -> Number` | Number | Cascading revocation — the grant and every descendant become revoked; returns the count |
 | `grant_use(g)` | `Grant -> Number` | Number | Consumes one use; returns the remaining count (-1 = unlimited) |
 | `db_execute_with_grant(g, sql, params?)` | `Grant, String[, List] -> String` | String | Executes SQL under the grant: ledger state, TTL, scope coverage of the destructive ops and quota are enforced at runtime; consumption happens only after success |
@@ -2225,20 +2225,20 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 527 registered builtins — the three maturity tiers: stable 483 / experimental 23 / parked 21 (№809: the C3(a) levels)
+## 6. Builtin Index — 528 registered builtins — the three maturity tiers: stable 484 / experimental 23 / parked 21 (№809: the C3(a) levels)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest. The sections read by MATURITY TIER (№809): the `stable` tier is the primary reference; `experimental` and `parked` are explicitly separated so a reader never mistakes a gated builtin for an always-available one.
 
-### Tier `stable` — the primary reference (483)
+### Tier `stable` — the primary reference (484)
 
 #### `action` — 5 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
 | `db_execute_with_grant(...)` | 2..3 | `Grant, String[, List] -> String` | Executes SQL under the grant: ledger state, TTL, scope coverage of the destructive ops and quota are enforced at runtime; consumption happens only after success | stable |
-| `grant_issue(...)` | 2..4 | `String, Number[, String, Number] -> Grant` | Mints a capability. class: "once" (default) / "n" + uses / "unlimited"; ttl in seconds | stable |
+| `grant_issue(...)` | 2..4 | `String, Number[, String, Number] -> Capability` | Mints a capability — the typed carrier (ADR-0203 §2.1, №844): the read-only view {scope, class, ttl, quota, revoked, grant} over the ledger row. class: "once" (default) / "n" + uses / "unlimited"; ttl in seconds | stable |
 | `grant_revoke(...)` | 1 | `Grant -> Number` | Cascading revocation — the grant and every descendant become revoked; returns the count | stable |
-| `grant_subgrant(...)` | 3..5 | `Grant, String, Number[, ...] -> Grant` | Attenuation-only derivation: narrower scope, shorter TTL, lower class power; a Once parent is consumed by the split | stable |
+| `grant_subgrant(...)` | 3..5 | `Grant, String, Number[, ...] -> Capability` | Attenuation-only derivation: narrower scope, shorter TTL, lower class power; a Once parent is consumed by the split. Returns the typed Capability view (№844) | stable |
 | `grant_use(...)` | 1 | `Grant -> Number` | Consumes one use; returns the remaining count (-1 = unlimited) | stable |
 
 #### `bot` — 36 builtin(s)
@@ -2663,12 +2663,13 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `backend_list(...)` | variadic | — | `backend_list()` — the static backend registry as `List[Struct { name, class, weights_id, pin, license, license_note }]`. | stable |
 | `backend_select(...)` | 2 | — | `backend_select(class, ladder)` — the backend try-chain (Наряд №336, ADR-0165). Walks the ladder in priority order over the №333 registry SSOT; every rung attempt is an audit event (stderr line + the program-visible `attempts` list, №326 posture). | stable |
 
-#### `security` — 15 builtin(s)
+#### `security` — 16 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
 | `canary_check(...)` | 2..3 | `String, String[, Struct] -> Struct` | Runtime leak detector: checks the LLM response for the canary marker — exact occurrence + resistant to trivial distortions (case, splitting by whitespace/punctuation). opts: `mode` ("exact" default; "zwsp" additionally ignores zero-width chars U+200B/200C/200D/2060/FEFF inside the marker — in "exact" they DELIBERATELY break the match). Returns `{leaked, id, position}` — position is the CHAR index of the first occurrence in the original text, -1.0 when clean. Leak → runtime CANARY_LEAK warning (stderr) + `llm_usage().canary_leaks` counter; statically, inside `if (r.leaked) {...}` the response is labeled «compromised channel» and sink usage warns CANARY_LEAK. Detector, NOT a gate. Unknown/malformed canary_id (a secret is not a canary) — loud error (№284) | stable |
 | `canary_insert(...)` | 1..2 | `String[, Struct] -> Struct` | Embeds a random canary marker (`MLOG-CANARY-` + 26 base32 chars, 128-bit entropy) into untrusted text BEFORE sending it to the LLM. Returns `{marked_text, canary_id}`. opts: `count` (1..=4, default 1 — same id inserted count times), `position` ("random" | stable |
+| `capability_state(...)` | 1 | — | `capability_state(c) -> Struct<CapabilityState>` — №844 (ADR-0203 §2.1): the LIVE typed view over the grant ledger — scope, class, ttl (the expiry instant), quota (the remaining uses NOW), revoked, state (active\|consumed\|revoked). Read-only: the view consumes NOTHING — the single consume points stay `grant_use` and the carrier gates' own post-success consumption. Accepts the Capability view and the opaque Grant handle (the migration 1:1 seam); an unknown id refuses GRANT_MISSING (fail-closed — a dead token does not fabricate a state). | stable |
 | `consent_grant(...)` | 2..4 | — | `consent_grant(value, scope, subject?, ttl_seconds?)` — record the grant in the ledger; the value passes through with its consent scope extended (static: semantic.rs label_source). | stable |
 | `consent_ledger_export(...)` | 1 | — | `consent_ledger_export(path)` — dump the ledger as JSON to a sandboxed path (FILE EGRESS — classified Sink, audited). Returns the written path. | stable |
 | `consent_revoke(...)` | 1..2 | — | `consent_revoke(value, scope?)` — record the revocation (scope or ALL); the value is returned under the quarantine label — the flat cascade poisons every derivative through lattice absorption. | stable |
@@ -3561,6 +3562,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `date_diff_days` | pure | public | pure | — |
 | `date_format_iso` | pure | public | pure | — |
 | `normal_sample` | pure | public | pure | — |
+| `capability_state` | source | internal | pure | the LIVE typed view over the grant ledger record (ADR-0203 §2.1, №844) — scope/class/ttl/quota/revoked/state read AT CALL TIME; a state read carries provenance (the №316 Source semantics), the view is read-only and consumes nothing (the single consume points stay grant_use and the carrier gates) |
 
 <!-- END GENERATED BUILTIN CLASSIFICATION -->
 

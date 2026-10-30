@@ -12,14 +12,14 @@ construction.
 | ------ | ------------------------------------- |
 | Version | 0.34.1 |
 | Leak Suite | 56 negatives / 27 positives (examples/leak/ — the BLOCKING gate) |
-| Built-in Functions | 527 functions across 47 modules |
-| Typed Signatures | 374/527 (70.96%) — precise 243/527 (46.11%) |
-| Typed Signatures (stable tier — the PRIMARY definition, №809/ADR-0199) | 363/483 (75.15%) — the full-registry figure beside: 374/527 (70.96%) |
+| Built-in Functions | 528 functions across 47 modules |
+| Typed Signatures | 375/528 (71.02%) — precise 243/528 (46.02%) |
+| Typed Signatures (stable tier — the PRIMARY definition, №809/ADR-0199) | 364/484 (75.20%) — the full-registry figure beside: 375/528 (71.02%) |
 | SVG/Graphics | 44 builtins, hand-rolled in pure Rust |
 | Grammar | 344 rules |
 | Architecture Decisions | 196 ADRs |
 | Example Programs | 254 .mlog programs |
-| Reference | REFERENCE.md (~337 KB) — 100% registry coverage |
+| Reference | REFERENCE.md (~338 KB) — 100% registry coverage |
 | Changelog | CHANGELOG.md (~174 KB) — every wave documented |
 | LICENSED_FLOOR (the 8D-1 machine fact, №841) | 10000 bp — the license class explicit + the license_note filled over the backend registry (ADR-0163/ADR-0202 terms) |
 | PASSPORT_FRESH (the 8D-1 machine fact, №841) | 10000 bp — the passports fresh within the 180-day verification window (the №842 rule) |

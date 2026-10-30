@@ -262,12 +262,6 @@ pub struct CapabilityPermits {
 }
 
 impl CapabilityPermits {
-    pub fn from_iter<I: IntoIterator<Item = String>>(names: I) -> Self {
-        CapabilityPermits {
-            carriers: names.into_iter().collect(),
-        }
-    }
-
     pub fn allow_carrier(&self, name: &str) -> bool {
         self.carriers.contains(name)
     }
@@ -284,6 +278,17 @@ impl CapabilityPermits {
 
     pub fn is_empty(&self) -> bool {
         self.carriers.is_empty()
+    }
+}
+
+/// The trait form (the clippy `should_implement_trait` posture): the
+/// permits roster is collected from the declaration options through the
+/// standard `FromIterator` — the call sites keep reading naturally.
+impl std::iter::FromIterator<String> for CapabilityPermits {
+    fn from_iter<I: IntoIterator<Item = String>>(names: I) -> Self {
+        CapabilityPermits {
+            carriers: names.into_iter().collect(),
+        }
     }
 }
 

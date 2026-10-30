@@ -169,7 +169,11 @@ def self_test() -> int:
     traps: list[tuple[str, callable]] = [
         (
             "a stale builtins counter",
-            lambda text: text.replace("(527 builtins", "(999 builtins"),
+            # №844+: the counter moves with the registry (527→528 at
+            # capability_state) — the trap is MACHINE-SHAPED (any current
+            # count flips to 999), never a frozen literal (a frozen
+            # literal is itself the drift class this gate guards against).
+            lambda text: re.sub(r"\(\d+ builtins", "(999 builtins", text),
         ),
         (
             "a broken bridge copy",
@@ -211,7 +215,9 @@ def self_test() -> int:
         # Trap 1: the stale counter.
         llms = (repo_copy / "llms.txt").read_text(encoding="utf-8")
         (repo_copy / "llms.txt").write_text(
-            llms.replace("(527 builtins", "(999 builtins"),
+            # №844+: the tamper is MACHINE-SHAPED (any current
+            # count flips to 999), never a frozen literal.
+            re.sub(r"\(\d+ builtins", "(999 builtins", llms),
             encoding="utf-8",
         )
         if not check_repo(repo_copy):

@@ -65,12 +65,23 @@ fn n763_agent_index_gate_blocks() {
     );
 
     // 4. The llms.txt numbers stay machine-verifiable in Rust too (a
-    //    cheap grep twin: the builtins line names 526 — the registry SSOT
-    //    count the gen_metrics machine prints).
+    //    cheap grep twin: the builtins line names the LIVE registry
+    //    count — №844+: the machine number, never a frozen literal (the
+    //    frozen literal is itself the drift class this twin guards).
+    //    The count contract is the gen_metrics machine's own: the
+    //    spec!( rows of BUILTIN_REGISTRY (one row may expand to several
+    //    specs — the array length is NOT the count).
     let llms = std::fs::read_to_string(repo_root().join("llms.txt")).expect("llms.txt readable");
+    let registry_src = include_str!("../src/builtins/registry.rs");
+    let live = registry_src.matches("spec!(").count();
     assert!(
-        llms.contains("527 builtins"),
-        "llms.txt must state the live builtins count (527 — the registry scan)"
+        live > 0,
+        "the registry source must be readable (the count contract)"
+    );
+    assert!(
+        llms.contains(&format!("{} builtins", live)),
+        "llms.txt must state the live builtins count ({} — the registry scan)",
+        live
     );
     assert!(
         !llms.contains("409 builtins"),

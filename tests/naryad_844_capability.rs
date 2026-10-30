@@ -24,6 +24,11 @@
 
 use std::path::Path;
 
+/// The lane-runner type — the TW/VM parity harness form (№748/№829);
+/// the named alias keeps the clippy type_complexity lint honest (the
+/// inline copies collapsed into one definition).
+type LaneRunner = fn(&str) -> Result<Option<String>, String>;
+
 const MANIFEST: &str = env!("CARGO_MANIFEST_DIR");
 
 fn run_tw(source: &str) -> Result<Option<String>, String> {
@@ -115,7 +120,7 @@ flow Main {{ input: String = "t" -> T -> output }}
 
 #[test]
 fn revoked_capability_refuses_before_the_action_on_both_lanes() {
-    let runners: [(&str, fn(&str) -> Result<Option<String>, String>); 2] =
+    let runners: [(&str, LaneRunner); 2] =
         [("tw", run_tw), ("vm", run_vm)];
     for (name, runner) in runners {
         let err = runner(&format!(
@@ -147,7 +152,7 @@ fn revoked_capability_deny_event_fires_and_the_table_survives() {
     // call degrades to Unit and execution CONTINUES (the w2_deny_exhaustive
     // contract), and the DESTRUCTIVE SQL never executes: the row inserted
     // before the refusal is still there.
-    let runners: [(&str, fn(&str) -> Result<Option<String>, String>); 2] =
+    let runners: [(&str, LaneRunner); 2] =
         [("tw", run_tw), ("vm", run_vm)];
     for (name, runner) in runners {
         let out = runner(&format!(
@@ -183,7 +188,7 @@ flow Main {{ input: String = "t" -> T -> output }}
 
 #[test]
 fn expired_capability_refuses_before_the_action_on_both_lanes() {
-    let runners: [(&str, fn(&str) -> Result<Option<String>, String>); 2] =
+    let runners: [(&str, LaneRunner); 2] =
         [("tw", run_tw), ("vm", run_vm)];
     for (name, runner) in runners {
         let err = runner(&format!(
@@ -210,7 +215,7 @@ flow Main {{ input: String = "t" -> T -> output }}
 
 #[test]
 fn capability_consume_writes_the_ledger_trace() {
-    let runners: [(&str, fn(&str) -> Result<Option<String>, String>); 2] =
+    let runners: [(&str, LaneRunner); 2] =
         [("tw", run_tw), ("vm", run_vm)];
     for (name, runner) in runners {
         let out = runner(&format!(
@@ -250,7 +255,7 @@ flow Main {{ input: String = "t" -> T -> output }}
 
 #[test]
 fn capability_state_is_the_live_ledger_read_on_both_lanes() {
-    let runners: [(&str, fn(&str) -> Result<Option<String>, String>); 2] =
+    let runners: [(&str, LaneRunner); 2] =
         [("tw", run_tw), ("vm", run_vm)];
     for (name, runner) in runners {
         let out = runner(&format!(
@@ -280,7 +285,7 @@ flow Main {{ input: String = "t" -> T -> output }}
 
 #[test]
 fn capability_state_refuses_an_unknown_token_fail_closed() {
-    let runners: [(&str, fn(&str) -> Result<Option<String>, String>); 2] =
+    let runners: [(&str, LaneRunner); 2] =
         [("tw", run_tw), ("vm", run_vm)];
     for (name, runner) in runners {
         let err = runner(
@@ -304,7 +309,7 @@ flow Main { input: String = "t" -> T -> output }
 
 #[test]
 fn the_view_is_read_only_never_moves_the_quota() {
-    let runners: [(&str, fn(&str) -> Result<Option<String>, String>); 2] =
+    let runners: [(&str, LaneRunner); 2] =
         [("tw", run_tw), ("vm", run_vm)];
     for (name, runner) in runners {
         // capability_state × many (and copies of the token) never move
@@ -335,7 +340,7 @@ flow Main {{ input: String = "t" -> T -> output }}
 
 #[test]
 fn copying_the_token_does_not_duplicate_power() {
-    let runners: [(&str, fn(&str) -> Result<Option<String>, String>); 2] =
+    let runners: [(&str, LaneRunner); 2] =
         [("tw", run_tw), ("vm", run_vm)];
     for (name, runner) in runners {
         // A COPY of the token is the SAME grant: the once linearity lives
@@ -375,7 +380,7 @@ flow Main {{ input: String = "t" -> T -> output }}
 
 #[test]
 fn profile_legacy_does_not_weaken_the_capability_refusal() {
-    let runners: [(&str, fn(&str) -> Result<Option<String>, String>); 2] =
+    let runners: [(&str, LaneRunner); 2] =
         [("tw", run_tw), ("vm", run_vm)];
     for (name, runner) in runners {
         let err = runner(&format!(
@@ -404,7 +409,7 @@ flow Main {{ input: String = "t" -> T -> output }}
 
 #[test]
 fn subgrant_mints_the_typed_carrier_and_stays_attenuation_only() {
-    let runners: [(&str, fn(&str) -> Result<Option<String>, String>); 2] =
+    let runners: [(&str, LaneRunner); 2] =
         [("tw", run_tw), ("vm", run_vm)];
     for (name, runner) in runners {
         let err = runner(&format!(

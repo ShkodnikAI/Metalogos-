@@ -249,8 +249,12 @@ fn measure_annotation_share(source: &str) -> (usize, usize, Vec<String>) {
 fn n329_annotation_share_is_under_the_go_threshold() {
     let src = dogfood_source();
     let (total, annotated, lines) = measure_annotation_share(&src);
+    // №845: the capability permit joins the inventory — the contour now
+    // needs THREE declaration-level items: the capability profile over
+    // the two irreversible carriers, the trust-restoring sanitizer, and
+    // the one-way redact. The share stays under the Go threshold.
     assert_eq!(
-        annotated, 2,
+        annotated, 3,
         "the minimal annotation inventory is pinned: {lines:?}"
     );
     assert!(total >= 10, "the contour must not shrink below a real body");
@@ -283,7 +287,13 @@ fn n329_annotation_inventory_by_place() {
             .any(|l| l.contains("redact(env(\"FOSVED_WEBHOOK_TOKEN\"), \"hash_keyed\")")),
         "annotation 2: the one-way redact on the webhook secret: {lines:?}"
     );
-    assert_eq!(lines.len(), 2, "no other ceremony is required: {lines:?}");
+    assert!(
+        lines.iter().any(|l| l.contains(
+            "profile capability { allow_carrier: \"send_message\" allow_carrier: \"http_post\" }"
+        )),
+        "annotation 3 (№845): the capability permit over the irreversible carriers: {lines:?}"
+    );
+    assert_eq!(lines.len(), 3, "no other ceremony is required: {lines:?}");
 }
 
 #[test]

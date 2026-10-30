@@ -143,6 +143,7 @@ fn n415_legacy_wire_still_loads_and_runs() {
             Instruction::Halt,
         ],
         collections_loaded: false,
+        capability_permits: Vec::new(), // №845: the standard posture (empty roster)
         shared_cache: metalogos::bytecode::ProgramSharedCache::new(),
     };
     let snap = program.pre_registered_patterns();
@@ -186,6 +187,7 @@ fn n415_out_of_range_ref_fails_loudly() {
         main_code: vec![Instruction::RegisterPatternRef(7), Instruction::Halt],
         collections_loaded: false,
         shared_cache: metalogos::bytecode::ProgramSharedCache::new(),
+        capability_permits: Vec::new(), // №845: the standard posture (empty roster)
     };
     let err = metalogos::run_bytecode(program).expect_err("out-of-range ref must fail loudly");
     assert!(

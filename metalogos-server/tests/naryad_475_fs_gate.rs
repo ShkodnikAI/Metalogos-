@@ -32,7 +32,11 @@ fn n475_smtp_env_attachment_refused() {
     std::env::set_var("SMTP_PASS", "p");
     std::env::set_var("SMTP_FROM", "sender@example.com");
     std::fs::write(".env", "N475_ENV_MARKER_SECRET=1").expect("write the .env fixture");
+    // №845: smtp_send is an irreversible carrier — the permit admits the
+    // call so the №475 sensitive-path refusal stays the thing under test.
     let source = r#"
+profile capability { allow_carrier: "smtp_send" }
+
 pattern Exfil(_x: String) -> String {
   return smtp_send("victim@example.com", "leak", "body", "[\".env\"]")
 }
@@ -69,6 +73,8 @@ fn n475_smtp_pem_attachment_refused() {
     std::env::set_var("SMTP_FROM", "sender@example.com");
     std::fs::write("server.pem", "N475_PEM_MARKER").expect("write the pem fixture");
     let source = r#"
+profile capability { allow_carrier: "smtp_send" }
+
 pattern Exfil(_x: String) -> String {
   return smtp_send("victim@example.com", "leak", "body", "[\"server.pem\"]")
 }
@@ -184,7 +190,11 @@ flow Main { input: String = "x" -> W -> output }
 #[serial]
 fn n475_delete_app_db_refused() {
     std::env::remove_var("METALOGOS_SENSITIVE_PATH_ALLOWLIST");
+    // №845: the capability permit admits the call so the №475
+    // sensitive-path refusal stays the thing under test.
     let source = r#"
+profile capability { allow_carrier: "delete_file" }
+
 pattern D(_x: String) -> String {
   return delete_file("app.db")
 }
@@ -205,7 +215,11 @@ flow Main { input: String = "x" -> D -> output }
 #[serial]
 fn n475_delete_app_db_wal_refused() {
     std::env::remove_var("METALOGOS_SENSITIVE_PATH_ALLOWLIST");
+    // №845: the capability permit admits the call so the №475
+    // sensitive-path refusal stays the thing under test.
     let source = r#"
+profile capability { allow_carrier: "delete_file" }
+
 pattern D(_x: String) -> String {
   return delete_file("app.db-wal")
 }

@@ -218,6 +218,7 @@ fn test_z21_startswith_instruction_vm() {
         ],
         collections_loaded: false,
         shared_cache: metalogos::bytecode::ProgramSharedCache::new(),
+        capability_permits: Vec::new(), // №845: the standard posture (empty roster)
     };
     let result = vm.run(program).expect("run should succeed");
     assert!(result.is_none()); // Halt consumes the value, but instruction executes OK
@@ -257,6 +258,7 @@ fn test_z21_startswith_in_pattern_body() {
                 main_code: vec![],
                 collections_loaded: false,
                 shared_cache: metalogos::bytecode::ProgramSharedCache::new(),
+                capability_permits: Vec::new(), // №845: the standard posture (empty roster)
             },
         )
         .expect("execute_code should succeed");
@@ -296,6 +298,7 @@ fn test_z21_startswith_negative() {
         ],
         collections_loaded: false,
         shared_cache: metalogos::bytecode::ProgramSharedCache::new(),
+        capability_permits: Vec::new(), // №845: the standard posture (empty roster)
     };
     let result = vm.run(program).expect("run should succeed");
     assert!(result.is_none());
@@ -376,6 +379,7 @@ fn test_z22_make_list_in_pattern_body() {
                 main_code: vec![],
                 collections_loaded: false,
                 shared_cache: metalogos::bytecode::ProgramSharedCache::new(),
+                capability_permits: Vec::new(), // №845: the standard posture (empty roster)
             },
         )
         .expect("execute_code should succeed");
@@ -419,6 +423,7 @@ fn test_z22_pop_in_pattern_body() {
                 main_code: vec![],
                 collections_loaded: false,
                 shared_cache: metalogos::bytecode::ProgramSharedCache::new(),
+                capability_permits: Vec::new(), // №845: the standard posture (empty roster)
             },
         )
         .expect("execute_code should succeed");
@@ -462,6 +467,7 @@ fn test_z22_contains_in_pattern_body() {
                 main_code: vec![],
                 collections_loaded: false,
                 shared_cache: metalogos::bytecode::ProgramSharedCache::new(),
+                capability_permits: Vec::new(), // №845: the standard posture (empty roster)
             },
         )
         .expect("execute_code should succeed");
@@ -510,6 +516,7 @@ fn test_z22_index_access_in_pattern_body() {
                 main_code: vec![],
                 collections_loaded: false,
                 shared_cache: metalogos::bytecode::ProgramSharedCache::new(),
+                capability_permits: Vec::new(), // №845: the standard posture (empty roster)
             },
         )
         .expect("execute_code should succeed");
@@ -557,6 +564,7 @@ fn test_z22_struct_in_pattern_body() {
                 main_code: vec![],
                 collections_loaded: false,
                 shared_cache: metalogos::bytecode::ProgramSharedCache::new(),
+                capability_permits: Vec::new(), // №845: the standard posture (empty roster)
             },
         )
         .expect("execute_code should succeed");

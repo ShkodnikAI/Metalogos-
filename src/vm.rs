@@ -49,6 +49,11 @@ pub struct Vm {
     /// Runtime label environment (Наряд №328): variable → ADR-0154
     /// label. Seeded by LabelJoin, consulted by SinkCheck.
     label_env: std::collections::BTreeMap<String, crate::labels::Label>,
+    /// №845 (ADR-0203 §2.4): the program's capability permit roster —
+    /// loaded from `Program::capability_permits` in `load_program`
+    /// (the TW twin lives on Interpreter::capability_permits); consulted
+    /// by `capability::authorize_call` at the call_builtin choke point.
+    capability_permits: crate::capability::CapabilityPermits,
     /// №782 (audit-23.10 A3): the native-recursion depth of execute_code
     /// entries (CallPattern in both loops, run_deny_handler, the value-
     /// expression calls, routes). Reset at the run()/execute_route_code
@@ -390,6 +395,7 @@ impl Vm {
     pub fn new() -> Self {
         Vm {
             label_env: std::collections::BTreeMap::new(),
+            capability_permits: crate::capability::CapabilityPermits::default(),
             call_depth: 0,
             value_registers: Vec::new(),
             globals: Vec::new(),
@@ -478,6 +484,13 @@ impl Vm {
         // per-request — the isolation boundary is unchanged.
         self.global_names = program.global_names_shared();
         self.collections_loaded = program.collections_loaded;
+        // №845 (ADR-0203 §2.4): the capability permit roster rides the
+        // Program — the same resolution the TW run() performs (the
+        // parity by construction; an empty roster = the named standard
+        // posture, the fail-closed default).
+        self.capability_permits = crate::capability::CapabilityPermits::from_iter(
+            program.capability_permits.iter().cloned(),
+        );
         // №392: lift the deny handler table onto the VM (flow steps run
         // pattern bodies against a synthetic empty Program — see
         // invoke_step — so the deny path reads the VM's own table).
@@ -1227,6 +1240,30 @@ impl Vm {
                     // loud typed error is unchanged.
                     let result = match self.call_builtin(&name, &args) {
                         Ok(r) => r,
+                        // №845: the capability-gate refusal — the deny
+                        // event carries the carrier's OWN sink class (the
+                        // №392 event surface; the db-class sql wrap below
+                        // stays for the typed GRANT_* carrier errors).
+                        Err(e) if e.starts_with("IRREVERSIBLE_NO_GRANT") => {
+                            let handled = self.vm_fire_on_deny(
+                                program,
+                                &name,
+                                "call",
+                                crate::audit::sink_kind(&name),
+                                "IRREVERSIBLE_NO_GRANT",
+                                "bottom",
+                                0.0,
+                                &e,
+                                &mut stack,
+                                &mut call_stack,
+                                ip + 1,
+                            )?;
+                            if handled {
+                                ip += 1;
+                                continue;
+                            }
+                            return Err(e);
+                        }
                         Err(e) if e.starts_with("GRANT_") => {
                             let handled = self.vm_fire_on_deny(
                                 program,
@@ -2128,6 +2165,28 @@ impl Vm {
                     // same contract as the main-code dispatch site.
                     let result = match self.call_builtin(&name, &args) {
                         Ok(r) => r,
+                        // №845: the capability-gate refusal (the handler-
+                        // body twin of the main-code arm above).
+                        Err(e) if e.starts_with("IRREVERSIBLE_NO_GRANT") => {
+                            let handled = self.vm_fire_on_deny(
+                                program,
+                                &name,
+                                "call",
+                                crate::audit::sink_kind(&name),
+                                "IRREVERSIBLE_NO_GRANT",
+                                "bottom",
+                                0.0,
+                                &e,
+                                stack,
+                                call_stack,
+                                ip + 1,
+                            )?;
+                            if handled {
+                                ip += 1;
+                                continue;
+                            }
+                            return Err(e);
+                        }
                         Err(e) if e.starts_with("GRANT_") => {
                             let handled = self.vm_fire_on_deny(
                                 program,
@@ -2838,6 +2897,15 @@ impl Vm {
     }
     #[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
     fn call_builtin(&mut self, name: &str, args: &[Value]) -> Result<Value, String> {
+        // ── №845 (ADR-0203 §2.4): the capability decision BEFORE the
+        // action. The refusal error carries the IRREVERSIBLE_NO_GRANT
+        // prefix — the CallBuiltin dispatch arms (and invoke_step) catch
+        // it and fire the runtime deny event with the carrier's sink
+        // class (audit::sink_kind — the SSOT mapping). ONE decision
+        // surface shared with the TW lane — the parity by construction
+        // (the №829 lesson).
+        crate::capability::authorize_call(name, &self.capability_permits)?;
+
         // ── Наряд №392: the DenyEvent surface ──────────────────────
         // Handler-scoped, runtime-constructed. The analyzer blocks usage
         // outside an on_deny handler at compile time; this runtime gate
@@ -4138,10 +4206,11 @@ impl Vm {
                 reflex_gen_decls: Vec::new(),
                 vision_decls: Vec::new(),
                 deny_handlers: Vec::new(),
+                db_url: None,
+                capability_permits: Vec::new(),
+                db_url_env: None,
                 memory_persist_path: None,
                 conversation_config: Default::default(),
-                db_url: None,
-                db_url_env: None,
                 schema_ddl: Vec::new(),
                 main_code: Vec::new(),
                 collections_loaded: false,
@@ -4155,8 +4224,60 @@ impl Vm {
             return Self::vm_wrap_with_confidence(result, self.propagated_confidence);
         }
 
-        // Check builtins
-        self.call_builtin(name, &args)
+        // Check builtins — №845 (ADR-0203 §2.4): the capability-gate
+        // refusal fires the deny event here too (the flow-step parity leg:
+        // the CallBuiltin arms carry the same wrap; a refusal the handler
+        // degrades to Unit, without one the loud typed error fires).
+        match self.call_builtin(name, &args) {
+            Err(e) if e.starts_with("IRREVERSIBLE_NO_GRANT") => {
+                let mut stack: Vec<Value> = Vec::new();
+                let mut call_stack: Vec<CallFrame> = vec![CallFrame {
+                    return_ip: 0,
+                    base_bp: 0,
+                }];
+                let empty_program = Program {
+                    globals: Vec::new(),
+                    patterns: std::sync::Arc::new(Vec::new()),
+                    learnables: Vec::new(),
+                    rules: Vec::new(),
+                    skill_indices: Vec::new(),
+                    reflex_decls: Vec::new(),
+                    origin_decls: Vec::new(),
+                    reflex_seq_decls: Vec::new(),
+                    reflex_gen_decls: Vec::new(),
+                    vision_decls: Vec::new(),
+                    deny_handlers: Vec::new(),
+                    db_url: None,
+                    capability_permits: Vec::new(),
+                    db_url_env: None,
+                    memory_persist_path: None,
+                    conversation_config: Default::default(),
+                    schema_ddl: Vec::new(),
+                    main_code: Vec::new(),
+                    collections_loaded: false,
+                    shared_cache: crate::bytecode::ProgramSharedCache::new(),
+                };
+                let handled = self.vm_fire_on_deny(
+                    &empty_program,
+                    name,
+                    "call",
+                    crate::audit::sink_kind(name),
+                    "IRREVERSIBLE_NO_GRANT",
+                    "bottom",
+                    0.0,
+                    &e,
+                    &mut stack,
+                    &mut call_stack,
+                    0,
+                )?;
+                if handled {
+                    Ok(Value::Unit)
+                } else {
+                    Err(e)
+                }
+            }
+            other => other,
+        }
     }
 
     /// Execute all registered rules with priority-ordered, first-wins semantics.
@@ -5246,6 +5367,7 @@ mod n403_reset_tests {
         &Option<String>,
         &HashMap<String, crate::interpreter::types::DistillRuntimeState>,
         &Option<std::sync::Arc<dyn crate::distill_hub::DistillAccess>>,
+        &crate::capability::CapabilityPermits,
     ) {
         let Vm {
             label_env,
@@ -5293,6 +5415,7 @@ mod n403_reset_tests {
             memory_persist_path,
             distill_states,
             distill_hub,
+            capability_permits,
         } = vm;
         // Note: `label_env` sits in a private type alias position; the
         // tuple returns references so nothing here runs — this function
@@ -5343,6 +5466,7 @@ mod n403_reset_tests {
             memory_persist_path,
             distill_states,
             distill_hub,
+            capability_permits,
         );
         (
             label_env,
@@ -5387,6 +5511,7 @@ mod n403_reset_tests {
             memory_persist_path,
             distill_states,
             distill_hub,
+            capability_permits,
         )
     }
 

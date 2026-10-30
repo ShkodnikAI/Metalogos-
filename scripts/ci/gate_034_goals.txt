@@ -1,0 +1,24 @@
+# gate_034_goals.txt — the wave-72 W-B machine-fact floor (naryad №846)
+# =============================================================================
+# The №846 floor file: the ONLY-UP gate over the 8B-1 machine fact —
+# the same discipline as the gate_033 goal record (№841). The floor value
+# is the plan §23 number (the owner revision R38, 2026-10-28):
+# 0.36 = 8B-1 (C2, GRANT_COVERAGE 10000 bp = 100.00%) — the point was
+# accepted by the owner at the revision, no further decision is needed
+# at the naryad level.
+#
+# The fact and its machine source (the --check twin):
+#   goal_grant_coverage_bp   grant_coverage_bp()   — the classification
+#                            SSOT (src/builtins_classification.rs, the
+#                            Irreversible set) × the №845 disposition
+#                            rosters (src/capability.rs) + the MCP
+#                            gateway decision site (mcp_server.rs, №801)
+#
+# A floor breach is a CI failure: a NEW irreversible carrier must land
+# WITH its capability disposition (an explicit roster transaction —
+# never a silent floor edit). The floor is ONLY-UP: the checker pins the
+# plan §23 constant — a lowering edit in this file is refused loudly
+# (the №776 transaction discipline; the re-pin is an owner decision).
+# Format: <goal-name> <floor-value-bps> — one per line, # comments.
+
+goal_grant_coverage_bp 10000

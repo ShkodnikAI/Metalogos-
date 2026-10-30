@@ -20,13 +20,13 @@
 
 ## Examples
 
-- [examples/](examples/): 254 working `.mlog` files covering all the language pillars — the basic syntax (m1-m5), fluid types, control flow, HTTP server + routes, crypto/secrets, cyrillic identifiers, context loading, knowledge graph, hooks lifecycle, schema, skill index, reflex (classification + generation), vision, pattern composition, full apps. Most carry a `.expected` pair (the output) or `.error` (the expected error) — executable documentation.
+- [examples/](examples/): 257 working `.mlog` files covering all the language pillars — the basic syntax (m1-m5), fluid types, control flow, HTTP server + routes, crypto/secrets, cyrillic identifiers, context loading, knowledge graph, hooks lifecycle, schema, skill index, reflex (classification + generation), vision, pattern composition, full apps. Most carry a `.expected` pair (the output) or `.error` (the expected error) — executable documentation.
 
 ## Architecture
 
 - [README.md](README.md): the general overview — features, project structure, milestones, roadmap, quickstart, links.
 - [docs/PLAN-SUMMARY.md](docs/PLAN-SUMMARY.md): the public digest of the wave plan (a derived artifact, the access mode §16.0-7).
-- [CHANGELOG.md](CHANGELOG.md): the full change history (naryads №1-№844), the SSOT for "what's new".
+- [CHANGELOG.md](CHANGELOG.md): the full change history (naryads №1-№848), the SSOT for "what's new".
 - [docs/adr/](docs/adr/): 196 ADR (Architecture Decision Records) — every architectural decision with the context, the alternatives and the consequences. The index in `docs/adr/README.md`.
 - [docs/threat-model.md](docs/threat-model.md): the single, maintained point about the security limitations.
 - [docs/privacy.md](docs/privacy.md): the engineering privacy policy — what data is stored, where, how it is deleted (the CONFIRMED/PARTIAL/ABSENT markers; №519).

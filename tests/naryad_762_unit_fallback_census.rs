@@ -76,6 +76,7 @@ fn bare_program(main_code: Vec<Instruction>) -> Program {
         main_code,
         collections_loaded: false,
         shared_cache: metalogos::bytecode::ProgramSharedCache::new(),
+        capability_permits: Vec::new(), // №845: the standard posture (empty roster)
     }
 }
 

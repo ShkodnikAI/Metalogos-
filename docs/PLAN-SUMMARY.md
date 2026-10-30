@@ -114,6 +114,21 @@ MINOR), №639 (15.10) / №648 (01.12) outside the wave.
 
 ## Current wave — the open machine tail (2026-10-23)
 
+Wave 72 EXECUTED (the dispatch gh#1666 — the 8B-1 subphase, the 0.36 =
+C2 "Capability/Grant Runtime" line): №843 → №844 → №845 → №846 → №847 →
+№848 (strictly last). The phase line: the typed capability token
+(ADR-0203 Accepted; the read-only typed carrier over the grant ledger,
+the 1:1 migration), the fail-closed coverage rule on every irreversible
+carrier (the named `standard` baseline posture for the runtime-state and
+own-channel classes; the sharp delivery/host set requires a covering
+capability grant or an explicit `profile capability` permit — the
+refusal BEFORE the action, the existing `IRREVERSIBLE_NO_GRANT` deny
+class), the GRANT_COVERAGE machine fact with the gate_034 only-up floor
+10000 bp (the plan §23 number), the acceptance e2e (issue → use →
+revoke → deny) with the ordered Ledger golden on both executors. The
+machine record: the generated §6.72 (the verbatim counters, the
+merge-CI verdicts).
+
 Wave 66 EXECUTED (the dispatch gh#1569): №805 → №806 → №807 → №808 → №809 → №810 → №811 → №812. The machine record: the generated §6.66 (the verbatim counters, the merge-CI verdicts).
 Wave 65 EXECUTED (the dispatch gh#1552): №799 → №800 → №801 → №802 → №803 → №804. The machine record: the generated §6.65 (the verbatim counters, the merge-CI verdicts).
 
@@ -934,6 +949,7 @@ owner's ADR gate.
 | BUILTIN_REGISTRY rows | 528 |
 | LICENSED_FLOOR — the 8D-1 machine fact (№841) | 10000 bp |
 | PASSPORT_FRESH — the 8D-1 machine fact (№841) | 10000 bp |
+| GRANT_COVERAGE — the 8B-1 machine fact (№846) | 10000 bp |
 <!-- END GENERATED NUMBERS -->
 
 ## Acceptance criteria (public part of the methodology)

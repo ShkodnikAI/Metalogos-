@@ -1,0 +1,20 @@
+// Naryad №847 (wave 72 — W-B, dispatch gh#1666): the NEGATIVE — the
+// sharp carrier (delete_file, ProfilePermit-sharp, №845) with NO
+// capability surface: no covering grant, no profile permit. The
+// capability gate refuses BEFORE the action — the file survives, the
+// DenyEvent is IRREVERSIBLE_NO_GRANT. The .error sidecar pins the
+// refusal text (the loud typed error without a handler).
+on_deny(file) {
+  match deny_reason() {
+    "IRREVERSIBLE_NO_GRANT" then { print("deny:IRREVERSIBLE_NO_GRANT") }
+    else { print("deny:OTHER") }
+  }
+}
+
+pattern NoGrant(_tick: String) -> String {
+  let _w = write_file("w72_deny_no_grant.tmp", "must-survive")
+  let d = delete_file("w72_deny_no_grant.tmp")
+  let survived = read_file("w72_deny_no_grant.tmp")
+  return "type:" + type_of(d) + "|survived:" + survived
+}
+flow Main { input: String = "tick" -> NoGrant -> output }

@@ -36,6 +36,7 @@ fn empty_program() -> Program {
         main_code: vec![],
         collections_loaded: false,
         shared_cache: metalogos::bytecode::ProgramSharedCache::new(),
+        capability_permits: Vec::new(), // №845: the standard posture (empty roster)
     }
 }
 

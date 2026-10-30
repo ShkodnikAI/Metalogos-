@@ -1,6 +1,11 @@
 // N3 (gh#1212, PE-1): the send_photo caption contract — Telegram refuses
 // captions beyond 1024 characters, so the builtin refuses them LOUD
 // BEFORE any wire traffic (no token, no request, no partial delivery).
+// №845: send_photo is an irreversible carrier — the capability permit
+// lets the run reach the carrier's OWN loud error (the gate must not
+// shadow the contract this example pins).
+profile capability { allow_carrier: "send_photo" }
+
 pattern Send(input: String) -> String {
   let _ = send_photo("chat-1", "https://example.org/cat.jpg", repeat("x", 1025.0))
   return "sent"

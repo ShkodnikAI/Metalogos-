@@ -57,6 +57,7 @@ fn test_make_list_instruction() {
         ],
         collections_loaded: false,
         shared_cache: metalogos::bytecode::ProgramSharedCache::new(),
+        capability_permits: Vec::new(), // №845: the standard posture (empty roster)
     };
     let result = vm.run(program).expect("vm run should succeed");
     // No flow output, but list was created on stack (discarded by Halt)
@@ -92,6 +93,7 @@ fn test_list_len_instruction() {
         ],
         collections_loaded: false,
         shared_cache: metalogos::bytecode::ProgramSharedCache::new(),
+        capability_permits: Vec::new(), // №845: the standard posture (empty roster)
     };
     let result = vm.run(program).expect("vm run should succeed");
     assert!(result.is_none());
@@ -125,6 +127,7 @@ fn test_pop_instruction() {
         ],
         collections_loaded: false,
         shared_cache: metalogos::bytecode::ProgramSharedCache::new(),
+        capability_permits: Vec::new(), // №845: the standard posture (empty roster)
     };
     let result = vm.run(program).expect("vm run should succeed");
     assert!(result.is_none());

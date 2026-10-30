@@ -1,3 +1,7 @@
+// №845: delete_file is an irreversible carrier — the capability permit
+// meters the destructive step (write/read stay ungated).
+profile capability { allow_carrier: "delete_file" }
+
 pattern WriteAndRead(content: String) -> String {
   write_file("v05_test.txt", content)
   let read_back = read_file("v05_test.txt")

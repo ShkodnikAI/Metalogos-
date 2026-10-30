@@ -104,6 +104,12 @@ struct StructType {
 
 /// The interpreter holds all runtime state.
 pub struct Interpreter {
+    /// №845 (ADR-0203 §2.4): the program's capability permit roster — the
+    /// `profile capability { allow_carrier: … }` declarations, resolved in
+    /// `run()` (the TW lane). The VM lane carries the same roster through
+    /// `Program::capability_permits` (the wire field). consulted by
+    /// `capability::authorize_call` at every builtin dispatch site.
+    pub capability_permits: crate::capability::CapabilityPermits,
     /// Global variable store.
     // №567: pub for the metalogos-server transport (the route-state merge).
     pub variables: HashMap<String, Value>,
@@ -333,6 +339,7 @@ impl Interpreter {
         let (distill_tx, distill_rx) = std::sync::mpsc::channel();
         Interpreter {
             variables: HashMap::new(),
+            capability_permits: crate::capability::CapabilityPermits::default(),
             call_depth: std::sync::atomic::AtomicUsize::new(0),
             struct_types: HashMap::new(),
             patterns: HashMap::new(),

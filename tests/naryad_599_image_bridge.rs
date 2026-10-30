@@ -327,6 +327,7 @@ fn private_label_joins_the_bridge_result_statically() {
 // ── (5) The consent scope rides the carrier (№335 + the bridge) ──────
 
 const CONSENT_RIDE_PROG: &str = r#"
+profile capability { allow_carrier: "tts_send" }
 origin feed { kind: generation, media: image, label: public }
 pattern Describe(_tick: String) -> String {
   let tok = env("MLOG_599_TEST_TOKEN")
@@ -343,6 +344,7 @@ flow Main { input: String = "x" -> Describe -> output }
 "#;
 
 const NO_CONSENT_PROG: &str = r#"
+profile capability { allow_carrier: "tts_send" }
 origin feed { kind: generation, media: image, label: public }
 pattern Describe(_tick: String) -> String {
   let tok = env("MLOG_599_TEST_TOKEN")

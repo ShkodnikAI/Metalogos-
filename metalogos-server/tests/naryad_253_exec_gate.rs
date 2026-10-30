@@ -92,9 +92,12 @@ async fn tw_serve_route_exec_denied_without_flags() {
     let (status, body) = http_get(port, "/sh").await;
 
     assert_eq!(status, 500, "exec без флагов должен быть отказан: {}", body);
+    // №845: the CAPABILITY gate refuses first — the stable code is
+    // IRREVERSIBLE_NO_GRANT (the vocabulary does not grow, ADR-0203
+    // §2.4), and the remedy names the CONTEXT-EXACT flag (№253).
     assert!(
-        body.contains("EXEC_NOT_PERMITTED"),
-        "ошибка должна нести стабильный код EXEC_NOT_PERMITTED, got: {}",
+        body.contains("IRREVERSIBLE_NO_GRANT"),
+        "ошибка должна нести стабильный код IRREVERSIBLE_NO_GRANT, got: {}",
         body
     );
     assert!(
@@ -122,7 +125,14 @@ async fn tw_serve_route_exec_process_flag_does_not_apply_to_routes() {
         "METALOGOS_ALLOW_EXEC=1 не должен открывать exec в телах роутов: {}",
         body
     );
-    assert!(body.contains("EXEC_NOT_PERMITTED"), "got: {}", body);
+    // №845: the capability host permit rides the №253 context resolution
+    // — the process flag does not reach routes, the gate refuses first.
+    assert!(body.contains("IRREVERSIBLE_NO_GRANT"), "got: {}", body);
+    assert!(
+        body.contains("METALOGOS_SERVE_ALLOW_EXEC=1"),
+        "got: {}",
+        body
+    );
 }
 
 // ── 3. TW: serve-флаг открывает exec + запись в аудите ─────────────
@@ -172,9 +182,15 @@ async fn vm_serve_route_exec_denied_without_flags() {
     let (status, body) = http_get(port, "/sh").await;
 
     assert_eq!(status, 500, "VM-путь: exec без флагов отказан: {}", body);
+    // №845: the capability gate refuses first — IRREVERSIBLE_NO_GRANT.
     assert!(
-        body.contains("EXEC_NOT_PERMITTED"),
-        "VM-путь: код EXEC_NOT_PERMITTED в ошибке, got: {}",
+        body.contains("IRREVERSIBLE_NO_GRANT"),
+        "VM-путь: код IRREVERSIBLE_NO_GRANT в ошибке, got: {}",
+        body
+    );
+    assert!(
+        body.contains("METALOGOS_SERVE_ALLOW_EXEC=1"),
+        "VM-путь: точный флаг контекста в отказе, got: {}",
         body
     );
 }
@@ -210,12 +226,18 @@ fn process_context_uses_process_flag_as_before() {
         out
     );
 
-    // без флага — громкий отказ с кодом (проза №97 теперь несёт EXEC_NOT_PERMITTED)
+    // без флага — громкий отказ; №845: код даёт capability-гейт раньше
+    // (проза №97 остаётся внутри носителя как второй контур).
     std::env::remove_var("METALOGOS_ALLOW_EXEC");
     let err = metalogos::run_program(PROCESS_EXEC_PROGRAM).unwrap_err();
     assert!(
-        err.contains("EXEC_NOT_PERMITTED"),
-        "ошибка процесс-контекста должна нести EXEC_NOT_PERMITTED, got: {}",
+        err.contains("IRREVERSIBLE_NO_GRANT"),
+        "ошибка процесс-контекста должна нести IRREVERSIBLE_NO_GRANT, got: {}",
+        err
+    );
+    assert!(
+        err.contains("METALOGOS_ALLOW_EXEC=1"),
+        "точный флаг процесс-контекста в отказе, got: {}",
         err
     );
 }

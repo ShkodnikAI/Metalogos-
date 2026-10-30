@@ -91,6 +91,36 @@ All notable changes to the Metalogos project.
   serve route lane's smart-router gap, the VM list-clone loop
   artifact) are recorded in the document, no behavior changed.
 
+- **№844–№847 (Wave 72, P1/P2 — the 8B-1 subphase, the C2
+  "Capability/Grant Runtime" line, ADR-0203):** the capability token
+  lands. №844 — the TYPED carrier: `grant_issue`/`grant_subgrant` mint
+  the read-only `Capability` view `{scope, class, ttl, quota, revoked,
+  grant}` over the grant ledger (the ledger stays the SSOT — the token
+  is an untrusted cache); the new `capability_state(c)` builtin is the
+  LIVE ledger view; every grant-argument extractor accepts both the
+  opaque Grant and the typed Capability (the 1:1 migration — existing
+  programs byte-unchanged). №845 — the coverage RULE: every
+  irreversible carrier passes the capability decision BEFORE the run on
+  both executors; the named standard baseline posture permits the
+  runtime-state and own-channel classes; the sharp set (exec, exec_argv,
+  delete_file, git_push, http_post, http_post_multipart, send_message,
+  send_photo, send_document, smtp_send, smtp_send_html, tts_send)
+  refuses without a covering capability grant (scope `builtin:<name>`),
+  an explicit `profile capability { allow_carrier: "..." }` permit, or
+  (exec) the host permit — the refusal rides the existing
+  `IRREVERSIBLE_NO_GRANT` deny class (the vocabulary stays 14); the
+  `memory_forget_cascade`/`forget` linear actions keep their
+  grant-always contract (no profile can weaken it). №846 — the machine
+  fact: `GRANT_COVERAGE` in `gen_metrics --check` with the gate_034
+  only-up floor `10000 bp` (the plan §23 number); the strict loader
+  refuses a corrupted floor file, the checker refuses a floor lowering.
+  №847 — the acceptance e2e: issue → use → revoke → deny with the
+  ordered Ledger golden (`examples/w72_capability_trace.mlog`), the
+  negatives (no grant / expired token / Once linearity / N(2) quota at
+  the gate) on both executors. The e2e surfaced the §2.2 consume
+  semantics: the gate's grant route consumes one use through the single
+  consume point (`grant_use`) — the Once/N quota is metered at the gate.
+
 ### Fixed
 
 - **№824 (gh#1592, Wave 68 — the CI hygiene, the №809 follow-up):**

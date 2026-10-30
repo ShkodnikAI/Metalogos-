@@ -142,6 +142,12 @@ flow Main { input: String = "t" -> T -> output }
 fn exec_runs_with_a_covering_capability_grant() {
     // The grant path: a capability token whose scope covers
     // `builtin:exec` authorizes the carrier (the №801 lookup machinery).
+    // The token SELF-REVOKES inside the program: a grant that outlives
+    // its need is a leaked authority — the ledger is process-global
+    // here, and an active leftover `builtin:exec` grant would authorize
+    // the refusal tests below (the nondeterministic test order made
+    // this a flake: the refusal saw the leftover covering grant and
+    // returned Ok).
     std::env::set_var("METALOGOS_ALLOW_EXEC", "1");
     for (name, runner) in runners() {
         let out = runner(
@@ -149,6 +155,7 @@ fn exec_runs_with_a_covering_capability_grant() {
 pattern T(_t: String) -> String {
   let g = grant_issue("builtin:exec", 600, "n", 2)
   let out = exec("echo n845-granted")
+  let _r = grant_revoke(g)
   return out
 }
 flow Main { input: String = "t" -> T -> output }

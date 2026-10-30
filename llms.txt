@@ -12,7 +12,7 @@
 
 ## Reference and formal specifications
 
-- [REFERENCE.md](REFERENCE.md): the full language reference — §3 Syntax (operators, control constructs, expressions), §4 Built-in Functions (527 builtins, 100% coverage, 0 TODO, SSOT-regenerated from `src/builtins/registry.rs`), §6 the generated index.
+- [REFERENCE.md](REFERENCE.md): the full language reference — §3 Syntax (operators, control constructs, expressions), §4 Built-in Functions (528 builtins, 100% coverage, 0 TODO, SSOT-regenerated from `src/builtins/registry.rs`), §6 the generated index.
 - [docs/spec/tools.md](docs/spec/tools.md): the normative tools/abstraction spec (the №645 protocol — every norm probed).
 - [docs/limitations.md](docs/limitations.md): the index of the known limitations — the truth lives in the primary sources (ADRs, the sources, the naryad reports).
 - [src/grammar.pest](src/grammar.pest): the formal PEG grammar (530+ lines) — the exhaustive specification of the .mlog syntax. It is the compiler's source, not documentation — if it diverges from REFERENCE.md, the grammar is authoritative.
@@ -26,8 +26,8 @@
 
 - [README.md](README.md): the general overview — features, project structure, milestones, roadmap, quickstart, links.
 - [docs/PLAN-SUMMARY.md](docs/PLAN-SUMMARY.md): the public digest of the wave plan (a derived artifact, the access mode §16.0-7).
-- [CHANGELOG.md](CHANGELOG.md): the full change history (naryads №1-№842), the SSOT for "what's new".
-- [docs/adr/](docs/adr/): 195 ADR (Architecture Decision Records) — every architectural decision with the context, the alternatives and the consequences. The index in `docs/adr/README.md`.
+- [CHANGELOG.md](CHANGELOG.md): the full change history (naryads №1-№844), the SSOT for "what's new".
+- [docs/adr/](docs/adr/): 196 ADR (Architecture Decision Records) — every architectural decision with the context, the alternatives and the consequences. The index in `docs/adr/README.md`.
 - [docs/threat-model.md](docs/threat-model.md): the single, maintained point about the security limitations.
 - [docs/privacy.md](docs/privacy.md): the engineering privacy policy — what data is stored, where, how it is deleted (the CONFIRMED/PARTIAL/ABSENT markers; №519).
 

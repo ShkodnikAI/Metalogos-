@@ -12,10 +12,14 @@
 // caches). Five builtins, appended to BUILTIN_REGISTRY (bytecode indices
 // must not shift):
 //
-//   grant_issue(scope, ttl, class?, uses?) -> Grant
+//   grant_issue(scope, ttl, class?, uses?) -> Capability
 //       class: "once" (default) | "n" (requires `uses`) | "unlimited";
 //       ttl in seconds (>= 1 recommended; 0 = born expired, tests only).
-//   grant_subgrant(parent, scope, ttl, class?, uses?) -> Grant
+//       №844 (ADR-0203 §2.1): the mint returns the TYPED carrier — the
+//       read-only Capability view over the ledger row; the opaque Grant
+//       handle rides in the `grant` field (extractors accept both forms —
+//       the migration 1:1).
+//   grant_subgrant(parent, scope, ttl, class?, uses?) -> Capability
 //       attenuation-only (ADR-0155 §3.3 rule 4): narrower scope, shorter
 //       TTL, class power only down; widening attempts fail with
 //       GRANT_ESCALATION. Once parents are consumed by the split (linear
@@ -32,23 +36,33 @@
 //       state, TTL, scope coverage of the SQL's destructive ops
 //       (GRANT_SCOPE_MISMATCH), quota. Consumption happens only after
 //       the statement succeeded; every use is a ledger event.
+//   capability_state(c) -> Struct<CapabilityState> (№844, ADR-0203 §2.1)
+//       the LIVE typed view over the ledger record — scope, class, ttl,
+//       quota (the remaining uses NOW), revoked, state. Read-only.
 //
 // Display/serialization refusal (rule 2) lives in the Value layer
 // (is_nonprintable + the "[GRANT]" serde marker), not here.
 
+use crate::capability;
 use crate::grants::{self, GrantClass, GrantHandle};
 use crate::interpreter::values::Value;
 
+/// №844 (ADR-0203 §2.1, the migration 1:1 seam): a grant argument accepts
+/// BOTH the opaque `Value::Grant` (the pre-№844 form) and the typed
+/// Capability view. The refusal text keeps the historical "must be a
+/// Grant" wording (the №390 contract tests pin it).
 fn expect_grant_arg(fn_name: &str, args: &[Value], idx: usize) -> Result<GrantHandle, String> {
-    match args.get(idx) {
-        Some(Value::Grant(h)) => Ok(h.clone()),
-        Some(other) => Err(format!(
-            "{}: argument {} must be a Grant, got {}",
-            fn_name,
-            idx + 1,
-            other.type_name()
-        )),
-        None => Err(format!("{}: missing argument {} (Grant)", fn_name, idx + 1)),
+    match args.get(idx).and_then(capability::grant_from_value) {
+        Some(h) => Ok(h),
+        None => match args.get(idx) {
+            Some(other) => Err(format!(
+                "{}: argument {} must be a Grant, got {}",
+                fn_name,
+                idx + 1,
+                other.type_name()
+            )),
+            None => Err(format!("{}: missing argument {} (Grant)", fn_name, idx + 1)),
+        },
     }
 }
 
@@ -152,7 +166,13 @@ pub(crate) fn builtin_grant_issue(args: &[Value]) -> Result<Value, String> {
     let ttl = expect_ttl_arg(fn_name, args, 1)?;
     let class = parse_class_tail(fn_name, args, 2)?;
     let handle = grants::issue(&scope, ttl, &class, "program")?;
-    Ok(handle.to_value())
+    // №844 (ADR-0203 §2.1): the mint returns the TYPED carrier — the
+    // read-only Capability view over the ledger row (the handle rides in
+    // the `grant` field; extractors accept both forms — 1:1 migration).
+    Ok(capability::mint_view(
+        &handle,
+        capability::initial_remaining(&class),
+    ))
 }
 
 /// `grant_subgrant(parent, scope, ttl, class?, uses?) -> Grant`
@@ -170,7 +190,11 @@ pub(crate) fn builtin_grant_subgrant(args: &[Value]) -> Result<Value, String> {
     let ttl = expect_ttl_arg(fn_name, args, 2)?;
     let class = parse_class_tail(fn_name, args, 3)?;
     let handle = grants::subgrant(&parent, &scope, ttl, &class)?;
-    Ok(handle.to_value())
+    // №844: the typed carrier, same posture as grant_issue.
+    Ok(capability::mint_view(
+        &handle,
+        capability::initial_remaining(&class),
+    ))
 }
 
 /// `grant_revoke(g) -> Number` — cascading; returns the revoked count.
@@ -213,4 +237,25 @@ pub(crate) fn builtin_db_execute_with_grant(args: &[Value]) -> Result<Value, Str
         "db_execute_with_grant() error: no database connection. Declare db { url: \"sqlite::memory:\" } first."
             .to_string(),
     )
+}
+
+/// `capability_state(c) -> Struct<CapabilityState>` — №844 (ADR-0203
+/// §2.1): the LIVE typed view over the grant ledger — scope, class, ttl
+/// (the expiry instant), quota (the remaining uses NOW), revoked, state
+/// (active|consumed|revoked). Read-only: the view consumes NOTHING — the
+/// single consume points stay `grant_use` and the carrier gates' own
+/// post-success consumption. Accepts the Capability view and the opaque
+/// Grant handle (the migration 1:1 seam); an unknown id refuses
+/// GRANT_MISSING (fail-closed — a dead token does not fabricate a state).
+pub(crate) fn builtin_capability_state(args: &[Value]) -> Result<Value, String> {
+    let fn_name = "capability_state";
+    if args.len() != 1 {
+        return Err(format!(
+            "{}: expects 1 argument (capability), got {}",
+            fn_name,
+            args.len()
+        ));
+    }
+    let handle = expect_grant_arg(fn_name, args, 0)?;
+    capability::state_view(&handle)
 }

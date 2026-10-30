@@ -389,21 +389,28 @@ pub fn db_execute(db: &mut impl DbAccess, args: &[Value]) -> Result<Value, Strin
 /// audit events ride the shared success path (the same one-process
 /// ledger on both lanes).
 pub fn db_execute_with_grant(db: &mut impl DbAccess, args: &[Value]) -> Result<Value, String> {
+    // №844 (ADR-0203 §2.1, the migration 1:1 seam): the grant argument
+    // accepts BOTH the opaque Value::Grant and the typed Capability view
+    // (capability::grant_from_value) — existing programs keep working.
+    // The historical refusal texts keep their exact wording (the №466
+    // contract tests pin them verbatim).
     let handle = match args.first() {
-        Some(Value::Grant(h)) => h.clone(),
-        Some(other) => {
-            return Err(format!(
-                "{}() first argument must be a Grant, got {}",
-                NAME_DB_EXECUTE_WITH_GRANT,
-                other.type_name()
-            ))
-        }
         None => {
             return Err(format!(
                 "{}() missing grant argument",
                 NAME_DB_EXECUTE_WITH_GRANT
             ))
         }
+        Some(v) => match crate::capability::grant_from_value(v) {
+            Some(h) => h,
+            None => {
+                return Err(format!(
+                    "{}() first argument must be a Grant, got {}",
+                    NAME_DB_EXECUTE_WITH_GRANT,
+                    v.type_name()
+                ))
+            }
+        },
     };
     let sql = match args.get(1) {
         Some(Value::String(s)) => s.clone(),

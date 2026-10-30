@@ -37,6 +37,17 @@ PLAN_SUMMARY = REPO / "docs" / "PLAN-SUMMARY.md"
 BACKENDS_RS = REPO / "src" / "backends.rs"
 MODEL_PASSPORT_RS = REPO / "src" / "model_passport.rs"
 GATE_033_GOALS = REPO / "scripts" / "ci" / "gate_033_goals.txt"
+# №846 (wave 72 — W-B): the 8B-1 machine fact — GRANT_COVERAGE with its
+# own only-up floor file. The floor VALUE 10000 bp = 100.00% is the plan
+# §23 number (the owner revision R38, 2026-10-28) — the checker pins it
+# as the OWNER constant: the gate file can RAISE the floor, never lower
+# it silently (the lowering attempt is the loud refusal below — the
+# №776 transaction discipline).
+GATE_034_GOALS = REPO / "scripts" / "ci" / "gate_034_goals.txt"
+GRANT_COVERAGE_FLOOR_OWNER_BP = 10000
+CAPABILITY_RS = REPO / "src" / "capability.rs"
+BUILTINS_CLASSIFICATION_RS = REPO / "src" / "builtins_classification.rs"
+MCP_SERVER_RS = REPO / "metalogos-server" / "src" / "mcp_server.rs"
 
 # №841 (gh#1643, wave 71 — W-A): the 8D-1 machine facts — the wave's
 # freshness window, the PYTHON TWIN of the №842 Rust constant
@@ -300,6 +311,128 @@ def load_floors(path: Path = GATE_033_GOALS) -> dict[str, int]:
     return floors
 
 
+# ── №846 (wave 72 — W-B, ADR-0203 §2.7): the GRANT_COVERAGE machine ────
+
+def _irreversible_carriers(content: str | None = None) -> list[str]:
+    """The classification SSOT (the machine source): every builtin the
+    static map marks Reversibility::Irreversible. The parse covers the
+    committed array ONLY (the test module after #[cfg(test)] is cut —
+    the test asserts are not carriers)."""
+    if content is None:
+        content = BUILTINS_CLASSIFICATION_RS.read_text(encoding="utf-8")
+    try:
+        block = content[content.index("pub static BUILTIN_CLASSES"):]
+        block = block[: block.index("#[cfg(test)]")]
+    except ValueError:
+        return []
+    names: list[str] = []
+    for chunk in block.split("BuiltClassEntry {")[1:]:
+        name = re.search(r'name:\s*"([^"]+)"', chunk)
+        if not name:
+            continue
+        if "Reversibility::Irreversible" in chunk:
+            names.append(name.group(1))
+    return names
+
+
+def _capability_rosters(content: str | None = None) -> dict[str, list[str]]:
+    """The disposition rosters of the capability layer (№845): the three
+    named consts, parsed from src/capability.rs — the machine source the
+    Rust totality test pins against the classification."""
+    if content is None:
+        content = CAPABILITY_RS.read_text(encoding="utf-8")
+    rosters: dict[str, list[str]] = {}
+    for const in ("GRANT_ALWAYS", "PROFILE_PERMIT_SHARP", "BASELINE_STANDARD"):
+        try:
+            start = content.index(f"pub const {const}")
+            block = content[start:]
+            block = block[: block.index("];")]
+            rosters[const] = re.findall(r'"([a-z0-9_]+)"', block)
+        except ValueError:
+            rosters[const] = []
+    return rosters
+
+
+def _mcp_gateway_decision_site(content: str | None = None) -> bool:
+    """The MCP class unit: the gateway's capability DECISION SITE — the
+    covering-grant lookup over the `mcp:<tool>` action scope in the tool
+    dispatch path (№801). The exposed tools are program-declared (the
+    policy compiler computes `irreversible` from the SAME classification),
+    so the machine-checkable unit is the decision site itself: if the
+    gateway stops demanding the grant decision, the class is uncovered
+    and the coverage drops (that is the gate working)."""
+    if content is None:
+        content = MCP_SERVER_RS.read_text(encoding="utf-8")
+    return 'lookup_active_covering(&action_scope)' in content and '"mcp:{}"' in content
+
+
+def grant_coverage_bp(
+    carriers: list[str] | None = None,
+    rosters: dict[str, list[str]] | None = None,
+    mcp_decision_site: bool | None = None,
+) -> int:
+    """GRANT_COVERAGE — the share of the irreversible carriers whose
+    rights decision passes the capability layer, bps.
+
+    Numerator: the classified-Irreversible builtins sitting in ONE of the
+    №845 disposition rosters (GrantAlways / ProfilePermit-sharp / the
+    named standard baseline) + the MCP irreversible-tool class when its
+    gateway decision site is in place. Denominator: ALL classified
+    Irreversible carriers + the MCP class. Both sides come from the
+    machine sources (the classification SSOT, the capability rosters, the
+    gateway source) — never a hand list. After №845 the coverage is 100%
+    by construction; a NEW carrier added without its disposition drops
+    the number and reddens the CI (the gate).
+    """
+    if carriers is None:
+        carriers = _irreversible_carriers()
+    if rosters is None:
+        rosters = _capability_rosters()
+    if mcp_decision_site is None:
+        mcp_decision_site = _mcp_gateway_decision_site()
+    covered_roster = set(rosters.get("GRANT_ALWAYS", [])) | set(
+        rosters.get("PROFILE_PERMIT_SHARP", [])
+    ) | set(rosters.get("BASELINE_STANDARD", []))
+    language_total = len(carriers)
+    language_covered = sum(1 for c in carriers if c in covered_roster)
+    total = language_total + 1  # + the MCP irreversible-tool class
+    covered = language_covered + (1 if mcp_decision_site else 0)
+    if total == 0:
+        return 0
+    return covered * 10000 // total
+
+
+def load_floors_strict(path: Path) -> dict[str, int]:
+    """The №846 strict loader (fail-closed, the negative control (а)):
+    a missing/empty file is a loud refusal, and EVERY non-comment line
+    must parse as `goal_<name> <int>` — a corrupted floor file can never
+    silently shrink to zero gates (the №776 discipline)."""
+    if not path.exists():
+        raise ValueError(f"{path.name}: the floor file is missing (the only-up gates must exist)")
+    floors: dict[str, int] = {}
+    for lineno, raw in enumerate(
+        path.read_text(encoding="utf-8").splitlines(), start=1
+    ):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        if len(parts) != 2 or not parts[0].startswith("goal_"):
+            raise ValueError(
+                f"{path.name}:{lineno}: malformed floor line '{raw}' "
+                "(expected 'goal_<name> <value-bps>')"
+            )
+        try:
+            floors[parts[0]] = int(parts[1])
+        except ValueError:
+            raise ValueError(
+                f"{path.name}:{lineno}: non-numeric floor value '{parts[1]}'"
+            ) from None
+    if not floors:
+        raise ValueError(f"{path.name}: no floors (the empty gate file is a refusal)")
+    return floors
+
+
 def tamper_test() -> int:
     """The RED harness (№841): the checkers MUST catch the fabricated
     records. Every trap asserts the floor DROPS under the tamper —
@@ -355,6 +488,52 @@ def tamper_test() -> int:
         print("tamper-test: TRAP FAILED — the unparseable date did NOT lower PASSPORT_FRESH", file=sys.stderr)
         return 1
 
+    # ── №846 traps: the coverage machine catches the tamper ───────────
+    good_capability = CAPABILITY_RS.read_text(encoding="utf-8")
+    full_cov = grant_coverage_bp()
+    if full_cov != GRANT_COVERAGE_FLOOR_OWNER_BP:
+        print(
+            "tamper-test: TRAP FAILED — the coverage is not at the owner floor "
+            f"({full_cov} bp != {GRANT_COVERAGE_FLOOR_OWNER_BP} bp): the rosters drifted "
+            "from the classification (fix the disposition, never the floor)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 5: a carrier REMOVED from its roster lowers GRANT_COVERAGE —
+    # the silent-roster-edit class (the forged authority would run).
+    stub_roster = good_capability.replace('"memory_forget_cascade"', '""', 1)
+    if stub_roster == good_capability:
+        print("tamper-test: TRAP FAILED — the GRANT_ALWAYS roster anchor drifted", file=sys.stderr)
+        return 1
+    if grant_coverage_bp(rosters=_capability_rosters(stub_roster)) >= full_cov:
+        print(
+            "tamper-test: TRAP FAILED — the un-rostered carrier did NOT lower GRANT_COVERAGE",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 6: the gateway decision site removed lowers GRANT_COVERAGE —
+    # the MCP class is uncovered (the silent bypass class).
+    if grant_coverage_bp(mcp_decision_site=False) >= full_cov:
+        print(
+            "tamper-test: TRAP FAILED — the missing gateway decision site did NOT lower GRANT_COVERAGE",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 7 (the negative control (б)): the gate file LOWERED below the
+    # owner constant is a loud refusal — the floor is only-up (plan §23).
+    strict = load_floors_strict(GATE_034_GOALS)
+    value = strict.get("goal_grant_coverage_bp")
+    if value is None or value < GRANT_COVERAGE_FLOOR_OWNER_BP:
+        print(
+            "tamper-test: TRAP FAILED — the gate_034 floor is below the owner constant "
+            f"(plan §23, revision R38: {GRANT_COVERAGE_FLOOR_OWNER_BP} bp) — the lowering is refused",
+            file=sys.stderr,
+        )
+        return 1
+
     # The twin pin: the Python window equals the №842 Rust constant.
     rust = (REPO / "src" / "model_passport.rs").read_text(encoding="utf-8")
     m = re.search(r"PASSPORT_FRESHNESS_DAYS: i64 = (\d+)", rust)
@@ -407,6 +586,7 @@ def full_block() -> str:
         f"| Changelog | CHANGELOG.md (~{changelog_kb} KB) — every wave documented |\n"
         f"| LICENSED_FLOOR (the 8D-1 machine fact, №841) | {licensed_floor_bp()} bp — the license class explicit + the license_note filled over the backend registry (ADR-0163/ADR-0202 terms) |\n"
         f"| PASSPORT_FRESH (the 8D-1 machine fact, №841) | {passport_fresh_bp()} bp — the passports fresh within the {PASSPORT_FRESHNESS_DAYS}-day verification window (the №842 rule) |\n"
+        f"| GRANT_COVERAGE (the 8B-1 machine fact, №846) | {grant_coverage_bp()} bp — the irreversible carriers whose rights decision passes the capability layer (ADR-0203 §2.7; the gate_034 floor) |\n"
     )
 
 
@@ -472,6 +652,7 @@ def plan_summary_block() -> str:
         f"| BUILTIN_REGISTRY rows | {total_fns} |\n"
         f"| LICENSED_FLOOR — the 8D-1 machine fact (№841) | {licensed_floor_bp()} bp |\n"
         f"| PASSPORT_FRESH — the 8D-1 machine fact (№841) | {passport_fresh_bp()} bp |\n"
+        f"| GRANT_COVERAGE — the 8B-1 machine fact (№846) | {grant_coverage_bp()} bp |\n"
     )
 
 
@@ -591,6 +772,47 @@ def main() -> int:
         print(
             "OK: the №841 floors hold — LICENSED_FLOOR "
             f"{current['goal_licensed_floor_bp']} bp, PASSPORT_FRESH {current['goal_passport_fresh_bp']} bp"
+        )
+
+    # №846: the GRANT_COVERAGE floor twin (the only-up gate_034) — the
+    # STRICT loader (fail-closed on a missing/empty/corrupted file — the
+    # negative control (а)) and the owner-pinned lowering refusal (the
+    # negative control (б): the plan §23 floor can rise, never fall).
+    if check:
+        try:
+            cov_floors = load_floors_strict(GATE_034_GOALS)
+        except ValueError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        floor = cov_floors.get("goal_grant_coverage_bp")
+        if floor is None:
+            print(
+                "ERROR: gate_034_goals.txt carries no goal_grant_coverage_bp floor",
+                file=sys.stderr,
+            )
+            return 2
+        if floor < GRANT_COVERAGE_FLOOR_OWNER_BP:
+            print(
+                "FLOOR LOWERING REFUSED: gate_034 "
+                f"({floor} bp) is below the owner constant "
+                f"({GRANT_COVERAGE_FLOOR_OWNER_BP} bp — plan §23, revision R38); "
+                "the floor is only-up — the change is an explicit owner transaction",
+                file=sys.stderr,
+            )
+            return 1
+        coverage = grant_coverage_bp()
+        if coverage < floor:
+            print(
+                f"FLOOR BREACH: GRANT_COVERAGE {coverage} bp < the gate_034 floor {floor} bp "
+                "(only-up) — an irreversible carrier landed WITHOUT its capability "
+                "disposition (add it to GRANT_ALWAYS / PROFILE_PERMIT_SHARP / "
+                "BASELINE_STANDARD in src/capability.rs — never a silent gate edit)",
+                file=sys.stderr,
+            )
+            return 1
+        print(
+            f"OK: the №846 floor holds — GRANT_COVERAGE {coverage} bp "
+            f"(gate_034 floor {floor} bp)"
         )
 
     # №841: the RED harness (the tamper traps) — an explicit mode, run by

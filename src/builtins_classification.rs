@@ -650,6 +650,7 @@ pub static BUILTIN_CLASSES: &[BuiltClassEntry] = &[
     BuiltClassEntry { name: "date_diff_days", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     BuiltClassEntry { name: "date_format_iso", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     BuiltClassEntry { name: "normal_sample", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
+    BuiltClassEntry { name: "capability_state", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "the LIVE typed view over the grant ledger record (ADR-0203 §2.1, №844) — scope/class/ttl/quota/revoked/state read AT CALL TIME; a state read carries provenance (the №316 Source semantics), the view is read-only and consumes nothing (the single consume points stay grant_use and the carrier gates)" } },
 ];
 
 // ── SQL-argument positions (№831, the H-2 finding of the merged audit

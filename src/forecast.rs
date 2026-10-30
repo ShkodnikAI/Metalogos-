@@ -418,13 +418,15 @@ pub fn series_pull(fn_name: &str, args: &[Value]) -> Result<Value, String> {
             args.len()
         ));
     }
-    let handle = match &args[0] {
-        Value::Grant(g) => g.clone(),
-        other => {
+    // №844 (ADR-0203 §2.1, the migration 1:1 seam): the grant argument
+    // accepts BOTH the opaque Value::Grant and the typed Capability view.
+    let handle = match args.first().and_then(crate::capability::grant_from_value) {
+        Some(g) => g,
+        None => {
             return Err(format!(
                 "{}: the pull is grant-gated — argument 1 must be a Grant handle, got {} (an ungated external source is a design error, not a degraded mode)",
                 fn_name,
-                other.type_name()
+                args.first().map(|v| v.type_name()).unwrap_or("nothing")
             ))
         }
     };

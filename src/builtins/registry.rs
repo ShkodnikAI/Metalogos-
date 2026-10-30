@@ -68,10 +68,11 @@ use super::consent::{
     builtin_quarantine_write,
 };
 // Naryad #390 (ADR-0155): Grant algebra builtins — issue/subgrant/revoke/use
-// + the granted destructive-SQL action surface.
+// + the granted destructive-SQL action surface. №844 (ADR-0203): the
+// capability_state LIVE typed view joins the surface.
 use super::grants::{
-    builtin_db_execute_with_grant, builtin_grant_issue, builtin_grant_revoke,
-    builtin_grant_subgrant, builtin_grant_use,
+    builtin_capability_state, builtin_db_execute_with_grant, builtin_grant_issue,
+    builtin_grant_revoke, builtin_grant_subgrant, builtin_grant_use,
 };
 // Naryad #393 (ADR-0167): Action Ledger v1 surface — count/head/export/
 // export_intoto/rotate/snapshot.
@@ -1262,6 +1263,16 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // would shift existing CallBuiltin indices (.mbc contract).
     // Registry 515→516 (append-only).
     spec!("normal_sample", 2, "math"; builtin_normal_sample, "Float", "stable"),
+    // ── Naryad №844 (wave 72 — W-B, ADR-0203 §2.1): the capability_state
+    // LIVE typed view — scope/class/ttl/quota/revoked/state read from the
+    // grant ledger AT CALL TIME (the ledger stays the SSOT; the view is
+    // read-only and consumes NOTHING — the single consume points stay
+    // grant_use and the carrier gates' own post-success consumption).
+    // Every field is the in-tree ledger read → internal (the ledger_verify
+    // verdict posture). APPENDED at the end — inserting mid-array would
+    // shift existing CallBuiltin indices (.mbc contract).
+    // Registry 516→517 (append-only).
+    spec!("capability_state", 1, "security"; builtin_capability_state, "Struct<CapabilityState>{scope:internal,class:internal,ttl:internal,quota:internal,revoked:internal,state:internal}", "stable"),
 ];
 
 /// Total number of registered builtins.

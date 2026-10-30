@@ -353,13 +353,15 @@ pub(crate) fn builtin_memory_forget_cascade(args: &[Value]) -> Result<Value, Str
     }
     let handle_id = memory_typed::container_id_arg(fn_name, args, 0)?;
     let key = expect_string_arg(fn_name, args, 1)?;
-    let grant = match &args[2] {
-        Value::Grant(h) => h.clone(),
-        other => {
+    // №844 (ADR-0203 §2.1, the migration 1:1 seam): the grant argument
+    // accepts BOTH the opaque Value::Grant and the typed Capability view.
+    let grant = match args.get(2).and_then(crate::capability::grant_from_value) {
+        Some(h) => h,
+        None => {
             return Err(format!(
                 "GRANT_MISSING: {} requires a Grant as argument 3 (issue it with grant_issue(scope, ttl, class) — scope \"memory:forget:<container>\"), got {}",
                 fn_name,
-                other.type_name()
+                args.get(2).map(|v| v.type_name()).unwrap_or("nothing")
             ))
         }
     };
@@ -460,13 +462,15 @@ pub(crate) fn builtin_forget(args: &[Value]) -> Result<Value, String> {
     }
     let handle_id = memory_typed::container_id_arg(fn_name, args, 0)?;
     let key = expect_string_arg(fn_name, args, 1)?;
-    let grant = match &args[2] {
-        Value::Grant(h) => h.clone(),
-        other => {
+    // №844 (ADR-0203 §2.1, the migration 1:1 seam): the grant argument
+    // accepts BOTH the opaque Value::Grant and the typed Capability view.
+    let grant = match args.get(2).and_then(crate::capability::grant_from_value) {
+        Some(h) => h,
+        None => {
             return Err(format!(
                 "GRANT_MISSING: {} requires a Grant as argument 3 (issue it with grant_issue(scope, ttl, class) — scope \"memory:forget:<container>\"), got {}",
                 fn_name,
-                other.type_name()
+                args.get(2).map(|v| v.type_name()).unwrap_or("nothing")
             ))
         }
     };

@@ -475,12 +475,20 @@ const FROZEN_SCCS: &[FrozenScc] = &[
     // types, and the interpreter holds the hub handle; it adds NO edge
     // to a forbidden layer (C1/C2/C3/C5/C6 stay clean). The inventory
     // moves with ownership (AGENTS.md §7), one PR.
+    // №844/№845 (wave 72, ADR-0203): src/capability.rs and src/grants.rs
+    // join the tangle deliberately — the capability gate (the
+    // authorize_call decision surface) consumes the grant ledger's
+    // covering lookup, and the execution core calls the gate on every
+    // irreversible carrier; the ring closes capability ↔ grants ↔ the
+    // core. No forbidden layer gains an edge (C1/C2/C3/C5/C6 stay clean).
     FrozenScc {
         files: &[
             "src/ast.rs",
             "src/builtins/mod.rs",
             "src/bytecode.rs",
+            "src/capability.rs",
             "src/distill_hub.rs",
+            "src/grants.rs",
             "src/interpreter/mod.rs",
             "src/llm.rs",
         ],
@@ -488,6 +496,11 @@ const FROZEN_SCCS: &[FrozenScc] = &[
             &["src/ast.rs", "src/interpreter/mod.rs"],
             &["src/builtins/mod.rs", "src/interpreter/mod.rs"],
             &["src/bytecode.rs", "src/ast.rs"],
+            &["src/capability.rs", "src/ast.rs"],
+            &["src/capability.rs", "src/grants.rs"],
+            &["src/capability.rs", "src/interpreter/mod.rs"],
+            &["src/grants.rs", "src/interpreter/mod.rs"],
+            &["src/interpreter/mod.rs", "src/capability.rs"],
             &["src/bytecode.rs", "src/interpreter/mod.rs"],
             &["src/distill_hub.rs", "src/ast.rs"],
             &["src/distill_hub.rs", "src/bytecode.rs"],

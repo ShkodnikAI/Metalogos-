@@ -31,7 +31,14 @@ use std::sync::Mutex;
 
 fn eval_expr(src: &str) -> Result<String, String> {
     let full = format!(
-        "pattern __eval(input: String) -> String {{ return {} }}\nflow Main {{ input: String = \"x\" -> __eval -> output }}",
+        // №845: http_post_multipart is an irreversible carrier — the
+        // capability permit admits the call so THIS file's contract (the
+        // №254 sandbox semantics: traversal/absolute/symlink refuse
+        // LOUDLY, the in-sandbox path is sent) stays the thing under
+        // test; the capability layer has its own suite (naryad_845).
+        "profile capability {{ allow_carrier: \"http_post_multipart\" }}\n\
+         pattern __eval(input: String) -> String {{ return {} }}\n\
+         flow Main {{ input: String = \"x\" -> __eval -> output }}",
         src
     );
     match metalogos::run_program(&full) {

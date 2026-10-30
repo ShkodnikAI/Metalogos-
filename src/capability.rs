@@ -321,15 +321,41 @@ fn host_permitted(name: &str) -> bool {
     if name != "exec" && name != "exec_argv" {
         return false;
     }
-    std::env::var("METALOGOS_ALLOW_EXEC").as_deref() == Ok("1")
+    // The №253 SSOT semantics — the host flag is CONTEXT-DEPENDENT
+    // ("замена", not AND): a serve-route body opens ONLY through the
+    // serve flag (the process-level flag does NOT reach route bodies),
+    // and the process context opens ONLY through the process flag. The
+    // capability host permit rides the same context resolution —
+    // otherwise the gate would either bypass Variant A (the process
+    // flag opening a route) or lock the serve flag out.
+    match crate::builtins::io::current_exec_context() {
+        crate::builtins::io::ExecContext::ServeRoute => {
+            std::env::var("METALOGOS_SERVE_ALLOW_EXEC").as_deref() == Ok("1")
+        }
+        crate::builtins::io::ExecContext::Process => {
+            std::env::var("METALOGOS_ALLOW_EXEC").as_deref() == Ok("1")
+        }
+    }
 }
 
 /// The refusal text (the typed deny surface: the reason class is
 /// IRREVERSIBLE_NO_GRANT — the vocabulary does not grow, ADR-0203 §2.4 —
 /// and this human sentence carries the remedy verbatim).
 fn refusal(name: &str) -> String {
+    // The remedy names the CONTEXT-EXACT flag (№253): a serve-route body
+    // is opened by the serve flag, the process context — by the process
+    // flag; naming the wrong one would send the operator chasing a flag
+    // that cannot help.
     let host_note = if name == "exec" || name == "exec_argv" {
-        ", or the named host permit (METALOGOS_ALLOW_EXEC=1)"
+        match crate::builtins::io::current_exec_context() {
+            crate::builtins::io::ExecContext::ServeRoute => {
+                ", or the named host permit (METALOGOS_SERVE_ALLOW_EXEC=1 — the \
+                 process-level METALOGOS_ALLOW_EXEC does NOT apply to route bodies, №253)"
+            }
+            crate::builtins::io::ExecContext::Process => {
+                ", or the named host permit (METALOGOS_ALLOW_EXEC=1)"
+            }
+        }
     } else {
         ""
     };

@@ -41,7 +41,12 @@ use metalogos::builtins::{check_url_ssrf, is_blocked_address};
 
 fn eval_expr(src: &str) -> Result<String, String> {
     let full = format!(
-        "pattern __eval(input: String) -> String {{ return {} }}\nflow Main {{ input: String = \"x\" -> __eval -> output }}",
+        // №845: http_post is an irreversible carrier — the permit admits
+        // the call so THIS file's contract (the SSRF pack: redirects,
+        // metadata endpoints, deny-lists) stays the thing under test.
+        "profile capability {{ allow_carrier: \"http_post\" }}\n\
+         pattern __eval(input: String) -> String {{ return {} }}\n\
+         flow Main {{ input: String = \"x\" -> __eval -> output }}",
         src
     );
     match metalogos::run_program(&full) {

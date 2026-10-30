@@ -15,6 +15,8 @@
 
 use std::path::{Path, PathBuf};
 
+use serial_test::serial;
+
 const MANIFEST: &str = env!("CARGO_MANIFEST_DIR");
 
 const TRACE_EXAMPLE: &str = "examples/w72_capability_trace.mlog";
@@ -66,6 +68,7 @@ fn cleanup() {
 // ── The acceptance trace: issue → use → revoke → deny ──────────────────
 
 #[test]
+#[serial]
 fn capability_trace_example_matches_the_golden_on_both_backends() {
     cleanup();
     let src = read_repo_file(TRACE_EXAMPLE);
@@ -92,6 +95,7 @@ fn capability_trace_example_matches_the_golden_on_both_backends() {
 }
 
 #[test]
+#[serial]
 fn capability_trace_ledger_golden_is_the_signed_trail() {
     // The №832 w1_attest anchor form: the committed golden pins the
     // ORDERED action sequence the run must journal — issue → use →
@@ -143,6 +147,7 @@ fn capability_trace_ledger_golden_is_the_signed_trail() {
 // ── The negatives: every refusal is explained and written ──────────────
 
 #[test]
+#[serial]
 fn no_grant_refusal_degrades_and_the_file_survives_on_both_backends() {
     cleanup();
     let src = read_repo_file(NO_GRANT_EXAMPLE);
@@ -174,6 +179,7 @@ fn no_grant_refusal_degrades_and_the_file_survives_on_both_backends() {
 }
 
 #[test]
+#[serial]
 fn expired_token_refuses_fail_closed_on_both_backends() {
     cleanup();
     let src = read_repo_file(EXPIRED_EXAMPLE);
@@ -197,6 +203,7 @@ fn expired_token_refuses_fail_closed_on_both_backends() {
 }
 
 #[test]
+#[serial]
 fn once_token_is_linear_through_the_gate_on_both_backends() {
     // A Once capability authorizes exactly ONE carrier use: the FIRST
     // delete consumes it (the gate consumes through the single consume
@@ -236,6 +243,7 @@ flow Main { input: String = "t" -> T -> output }
 }
 
 #[test]
+#[serial]
 fn the_grant_route_consumes_one_use_per_authorized_call() {
     // N(2) quota: two authorized deletes consume the quota; the THIRD
     // refuses (GRANT_EXHAUSTED → the capability refusal — the quota is

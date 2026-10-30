@@ -446,6 +446,7 @@ fn n385_vm_runtime_sink_refusal_carries_classifier_stamp() {
         ],
         collections_loaded: false,
         shared_cache: metalogos::bytecode::ProgramSharedCache::new(),
+        capability_permits: Vec::new(), // №845: the standard posture (empty roster)
     };
     let err = Vm::new()
         .run(program)

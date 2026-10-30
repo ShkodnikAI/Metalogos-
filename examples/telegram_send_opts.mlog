@@ -1,5 +1,9 @@
 // N3 (gh#1212, PE-1): the send_message opts + send_photo — the no-token
 // stub contract pinned off-server.
+// №845: both carriers are irreversible — the capability permit admits
+// the run (the stub path stays: no token, the audit line on stderr).
+profile capability { allow_carrier: "send_message" allow_carrier: "send_photo" }
+
 //
 // In a real deployment the family delivers through the Telegram Bot API:
 //

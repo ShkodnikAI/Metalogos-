@@ -314,6 +314,10 @@ fn n279_tts_send_delegates_synthesis_fails_at_delivery() {
     // exactly what the test pins).
     const SEND_PROGRAM: &str = r#"
 profile legacy { egress: permissive_with_audit }
+// №845 (ADR-0203 §2.4): the delivery carrier needs the explicit permit —
+// the legacy compatibility profile does NOT exempt it (the capability
+// profiles are independent flags; this coexistence IS the (б) control).
+profile capability { allow_carrier: "tts_send" }
 pattern S(x: String) -> String {
   let r = tts_send("text", "alloy", "123:fake-token", "42")
   return r

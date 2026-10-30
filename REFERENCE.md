@@ -992,7 +992,8 @@ let cfg = read_file_or("config.txt", "default-value")  // explicit fallback (№
 append_file("data.txt", "\nmore")     // "ok"
 file_exists("data.txt")               // true
 let files = list_dir(".")             // ["data.txt", ...]
-delete_file("data.txt")               // "ok"
+let cap = grant_issue("builtin:delete_file", 600, "n", 1)  // №845/ADR-0203: the destructive carrier is metered by a capability grant
+delete_file("data.txt")               // "ok" — the covering grant authorizes the irreversible carrier
 ```
 
 ### 4.9. Memory (KV store)

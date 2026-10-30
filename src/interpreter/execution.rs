@@ -14,6 +14,13 @@ impl Interpreter {
         let _contour_budget_scope = crate::builtins::embed_seam::ContourBudgetScope::new();
         let mut output: Option<String> = None;
 
+        // №845 (ADR-0203 §2.4): resolve the capability permit roster BEFORE
+        // anything runs — the `profile capability { allow_carrier: … }
+        // declarations. The VM lane resolves the same roster in the
+        // compiler (Program::capability_permits → Vm::load_program) —
+        // the TW/VM parity by construction (the №829 lesson).
+        self.capability_permits = crate::capability::permits_from_declarations(&declarations);
+
         // Наряд №119: build type alias map for runtime resolution
         let (type_alias_map, alias_errors) = crate::ast::build_type_alias_map(&declarations);
         if !alias_errors.is_empty() {
@@ -1029,6 +1036,26 @@ impl Interpreter {
                     }
                 }
             }
+            // №845 (ADR-0203 §2.4): the capability decision BEFORE the
+            // action — a ProfilePermit sharp carrier without a covering
+            // grant / explicit permit / (exec) host permit refuses here;
+            // the refusal is a runtime deny event (the on_deny handler
+            // degrades to Unit; without one the loud typed error fires).
+            if let Err(e) = crate::capability::authorize_call(name, &self.capability_permits) {
+                let handled = self.fire_on_deny(crate::deny::DenyEventArgs {
+                    reason: "IRREVERSIBLE_NO_GRANT".into(),
+                    class: crate::audit::sink_kind(name).into(),
+                    sink: name.to_string(),
+                    argument: "call".into(),
+                    label: "bottom".into(),
+                    line: 0.0,
+                    human: e.clone(),
+                })?;
+                if handled {
+                    return Ok(Value::Unit);
+                }
+                return Err(e);
+            }
             // O-2: Fire on_write hooks before mutating builtins
             if Self::is_write_builtin(name) {
                 self.fire_on_write_hooks(name, &args);
@@ -1924,6 +1951,26 @@ impl Interpreter {
                             }
                         }
                     }
+                    // №845 (ADR-0203 §2.4): the capability decision BEFORE
+                    // the action (the QualifiedCall expression path — the
+                    // same contract as the invoke flow-step site above).
+                    if let Err(e) =
+                        crate::capability::authorize_call(function, &self.capability_permits)
+                    {
+                        let handled = self.fire_on_deny(crate::deny::DenyEventArgs {
+                            reason: "IRREVERSIBLE_NO_GRANT".into(),
+                            class: crate::audit::sink_kind(function).into(),
+                            sink: function.clone(),
+                            argument: "call".into(),
+                            label: "bottom".into(),
+                            line: 0.0,
+                            human: e.clone(),
+                        })?;
+                        if handled {
+                            return Ok(Value::Unit);
+                        }
+                        return Err(e);
+                    }
                     // O-2: Fire on_write hooks before mutating builtins
                     if Self::is_write_builtin(function) {
                         self.fire_on_write_hooks(function, &eval_args);
@@ -2706,6 +2753,26 @@ impl Interpreter {
                                 return Err(format!("exec() forbidden in sandbox '{}'", sb.name));
                             }
                         }
+                    }
+                    // №845 (ADR-0203 §2.4): the capability decision BEFORE
+                    // the action (the FnCall expression path — the same
+                    // contract as the invoke and QualifiedCall sites).
+                    if let Err(e) =
+                        crate::capability::authorize_call(name, &self.capability_permits)
+                    {
+                        let handled = self.fire_on_deny(crate::deny::DenyEventArgs {
+                            reason: "IRREVERSIBLE_NO_GRANT".into(),
+                            class: crate::audit::sink_kind(name).into(),
+                            sink: name.clone(),
+                            argument: "call".into(),
+                            label: "bottom".into(),
+                            line: 0.0,
+                            human: e.clone(),
+                        })?;
+                        if handled {
+                            return Ok(Value::Unit);
+                        }
+                        return Err(e);
                     }
                     // O-2: Fire on_write hooks before mutating builtins
                     if Self::is_write_builtin(name) {

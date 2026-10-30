@@ -194,9 +194,12 @@ fn exec_in_tool_method_names_the_serve_flag_and_ignores_the_process_flag() {
 
     let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
     assert_eq!(resp["result"]["isError"], true, "{}", resp);
+    // №845: the capability gate refuses first — IRREVERSIBLE_NO_GRANT;
+    // the serve-context posture (№253) holds through the host-permit
+    // context resolution.
     assert!(
-        text.contains("EXEC_NOT_PERMITTED"),
-        "the refusal must carry the №253 code: {}",
+        text.contains("IRREVERSIBLE_NO_GRANT"),
+        "the refusal must carry the capability code: {}",
         text
     );
     assert!(

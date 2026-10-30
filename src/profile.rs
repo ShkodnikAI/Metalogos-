@@ -30,10 +30,24 @@
 //!   a production profile and fail compilation (the §11.2 build-time
 //!   rule, ADR-0165 §2.4). Default (absent) = development: no static
 //!   ladder constraints.
+//! - `capability` (№845/ADR-0203 §2.4): `profile capability {
+//!   allow_carrier: "exec" }` (repeatable) — the EXPLICIT permit roster
+//!   for the ProfilePermit sharp carriers (delivery / egress /
+//!   host-effect): without the permit (or a covering grant, or the exec
+//!   host permit) the carrier refuses BEFORE the action. The permit word
+//!   must name an irreversible carrier by the classification SSOT (a
+//!   typo is a loud error, never a silent no-op). The ABSENCE of the
+//!   profile = the named `standard` baseline posture (the machine
+//!   roster in capability::BASELINE_STANDARD) — a named decision, not
+//!   silence.
 //!
 //! The profiles are INDEPENDENT flags: `licensing` does not weaken
 //! the №325 gate, `legacy` does not unlock non-OSI backends, and
 //! `device` does not touch either gate. A program may declare all three.
+//! `capability` (№845) is orthogonal to all of them: it widens the
+//! ProfilePermit carrier roster ONLY — it cannot weaken the
+//! GrantAlways disposition (the ADR-0203 §2.4 rule) and `legacy` does
+//! not weaken the capability refusals (the №845 negative control (б)).
 
 use crate::ast::Declaration;
 use crate::backends::LicenseClass;
@@ -161,6 +175,36 @@ pub fn validate(p: &crate::ast::ProfileDecl) -> Result<(), String> {
             validate_options(p, "mode", &["production", "development"])?;
             Ok(())
         }
+        "capability" => {
+            // №845 (ADR-0203 §2.4): the explicit permit roster for the
+            // ProfilePermit sharp carriers. At least one option — a
+            // capability declaration without either is a no-op mistake,
+            // and no-ops must be loud (the §16.0 honesty rule). The
+            // carrier word is machine-checked (a stale/typo'd name is a
+            // loud refusal, never a silent permit).
+            if p.options.is_empty() {
+                return Err(
+                    "profile 'capability' requires options (allow_carrier: \"<irreversible carrier name>\", repeatable)".to_string(),
+                );
+            }
+            for (k, v) in &p.options {
+                match (k.as_str(), v.as_str()) {
+                    ("allow_carrier", word) => {
+                        if !crate::capability::is_carrier_name(word) {
+                            return Err(format!(
+                                "unknown carrier '{word}' for 'allow_carrier' (the roster is the classification SSOT's Irreversible set — see capability::PROFILE_PERMIT_SHARP / BASELINE_STANDARD)",
+                            ));
+                        }
+                    }
+                    (other, _) => {
+                        return Err(format!(
+                            "unknown profile option '{other}' for 'capability' (available: allow_carrier)",
+                        ));
+                    }
+                }
+            }
+            Ok(())
+        }
         "duty" => {
             // Two independent knobs (ADR-0172 §5): materialization of
             // private handles and network surfaces. At least one is
@@ -193,7 +237,7 @@ pub fn validate(p: &crate::ast::ProfileDecl) -> Result<(), String> {
             Ok(())
         }
         other => Err(format!(
-            "unknown compatibility profile '{}' (available: legacy, licensing, device, duty)",
+            "unknown compatibility profile '{}' (available: legacy, licensing, device, duty, capability)",
             other
         )),
     }

@@ -12,8 +12,11 @@
 // нарушение, "нет_такого…" — всегда отсутствует. CWD никем не меняется.
 
 fn eval_expr(src: &str) -> Result<String, String> {
+    // №845 (ADR-0203 §2.4): the harness permit — this file pins the
+    // fs_gate/sandbox contracts (soft-failure, traversal refusal), the
+    // capability layer needs the explicit carrier permit for delete_file.
     let full = format!(
-        "pattern __eval(input: String) -> String {{ return {} }}\nflow Main {{ input: String = \"x\" -> __eval -> output }}",
+        "profile capability {{ allow_carrier: \"delete_file\" }}\npattern __eval(input: String) -> String {{ return {} }}\nflow Main {{ input: String = \"x\" -> __eval -> output }}",
         src
     );
     match metalogos::run_program(&full) {

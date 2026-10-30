@@ -26,6 +26,11 @@
 // audit-stub path (an [AUDIT] line on stderr). The static gate sees both
 // branches identically — dead code is still gated code.
 
+// №845: send_message and http_post are irreversible carriers — the
+// capability permit covers both (the dead webhook branch is gated
+// statically too — dead code is still gated code).
+profile capability { allow_carrier: "send_message" allow_carrier: "http_post" }
+
 pattern Dispatch(task: String) -> String {
   let draft = call_llm(task)
   let safe = escape_html(draft)

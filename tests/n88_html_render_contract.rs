@@ -231,12 +231,15 @@ fn n88_html_render_audit_log_on_missing_binary() {
 #[test]
 #[serial]
 fn n97_exec_denied_by_default() {
-    // Without METALOGOS_ALLOW_EXEC=1, exec() must be denied in ALL contexts
+    // Without METALOGOS_ALLOW_EXEC=1, exec() must be denied in ALL contexts.
+    // №845 (ADR-0203 §2.4): the OUTER gate is now the capability layer —
+    // the refusal fires BEFORE the action and names the same host permit
+    // remedy (the №97 contract preserved, the vocabulary extended).
     std::env::remove_var("METALOGOS_ALLOW_EXEC");
     let result = eval_expr_err("exec(\"echo should_not_run\")");
     assert!(
-        result.contains("disabled by default"),
-        "exec() should be denied by default, got: {:?}",
+        result.starts_with("IRREVERSIBLE_NO_GRANT"),
+        "exec() should be denied by default (the capability gate), got: {:?}",
         result
     );
     assert!(
@@ -249,12 +252,18 @@ fn n97_exec_denied_by_default() {
 #[test]
 #[serial]
 fn n97_exec_argv_denied_by_default() {
-    // Without METALOGOS_ALLOW_EXEC=1, exec_argv() must also be denied
+    // Without METALOGOS_ALLOW_EXEC=1, exec_argv() must also be denied —
+    // the same capability-gate refusal (№845, before the №97 handler).
     std::env::remove_var("METALOGOS_ALLOW_EXEC");
     let result = eval_expr_err("exec_argv(\"echo\", [\"hello\"])");
     assert!(
-        result.contains("disabled by default"),
-        "exec_argv() should be denied by default, got: {:?}",
+        result.starts_with("IRREVERSIBLE_NO_GRANT"),
+        "exec_argv() should be denied by default (the capability gate), got: {:?}",
+        result
+    );
+    assert!(
+        result.contains("METALOGOS_ALLOW_EXEC=1"),
+        "error should mention METALOGOS_ALLOW_EXEC=1, got: {:?}",
         result
     );
 }

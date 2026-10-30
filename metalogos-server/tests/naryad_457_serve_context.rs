@@ -181,9 +181,13 @@ async fn n457_cron_tick_exec_gated_by_the_server_flag_not_the_process_flag() {
     let err = tick_exec_call()
         .await
         .expect_err("the process flag must NOT open exec() in a cron tick");
+    // №845: the CAPABILITY gate refuses first — IRREVERSIBLE_NO_GRANT
+    // (the vocabulary does not grow, ADR-0203 §2.4); the Variant A
+    // contract holds (the process flag does NOT open the tick), and the
+    // remedy names the context-exact serve flag (№253).
     assert!(
-        err.contains("EXEC_NOT_PERMITTED"),
-        "the refusal must carry the stable №253 code, got: {}",
+        err.contains("IRREVERSIBLE_NO_GRANT"),
+        "the refusal must carry the stable capability code, got: {}",
         err
     );
     assert!(

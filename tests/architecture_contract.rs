@@ -497,6 +497,7 @@ const FROZEN_SCCS: &[FrozenScc] = &[
             &["src/builtins/mod.rs", "src/interpreter/mod.rs"],
             &["src/bytecode.rs", "src/ast.rs"],
             &["src/capability.rs", "src/ast.rs"],
+            &["src/capability.rs", "src/builtins/mod.rs"],
             &["src/capability.rs", "src/grants.rs"],
             &["src/capability.rs", "src/interpreter/mod.rs"],
             &["src/grants.rs", "src/interpreter/mod.rs"],

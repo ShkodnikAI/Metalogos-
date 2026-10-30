@@ -934,6 +934,7 @@ owner's ADR gate.
 | BUILTIN_REGISTRY rows | 528 |
 | LICENSED_FLOOR — the 8D-1 machine fact (№841) | 10000 bp |
 | PASSPORT_FRESH — the 8D-1 machine fact (№841) | 10000 bp |
+| GRANT_COVERAGE — the 8B-1 machine fact (№846) | 10000 bp |
 <!-- END GENERATED NUMBERS -->
 
 ## Acceptance criteria (public part of the methodology)

@@ -38,7 +38,11 @@ fn run_vm(source: &str) -> Result<Option<String>, String> {
     vm.run(program)
 }
 
-fn runners() -> [(&'static str, fn(&str) -> Result<Option<String>, String>); 2] {
+/// The lane-runner type — the TW/VM parity harness form (№748/№829);
+/// the named alias keeps the clippy type_complexity lint honest.
+type LaneRunner = fn(&str) -> Result<Option<String>, String>;
+
+fn runners() -> [(&'static str, LaneRunner); 2] {
     [("tw", run_tw), ("vm", run_vm)]
 }
 

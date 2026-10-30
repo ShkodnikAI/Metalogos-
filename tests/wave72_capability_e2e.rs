@@ -15,11 +15,8 @@
 
 use std::path::{Path, PathBuf};
 
-<<<<<<< HEAD
 use serial_test::serial;
 
-=======
->>>>>>> 1b209ddd (Naryad №847 (issue #1664, wave 72 — W-B, P2, [testing][security]): the acceptance e2e — issue → use → revoke → deny on both contours + the Ledger golden)
 const MANIFEST: &str = env!("CARGO_MANIFEST_DIR");
 
 const TRACE_EXAMPLE: &str = "examples/w72_capability_trace.mlog";
@@ -43,15 +40,11 @@ fn run_vm(source: &str) -> Result<Option<String>, String> {
     vm.run(program)
 }
 
-<<<<<<< HEAD
 /// The lane-runner type — the TW/VM parity harness form (№748/№829);
 /// the named alias keeps the clippy type_complexity lint honest.
 type LaneRunner = fn(&str) -> Result<Option<String>, String>;
 
 fn runners() -> [(&'static str, LaneRunner); 2] {
-=======
-fn runners() -> [(&'static str, fn(&str) -> Result<Option<String>, String>); 2] {
->>>>>>> 1b209ddd (Naryad №847 (issue #1664, wave 72 — W-B, P2, [testing][security]): the acceptance e2e — issue → use → revoke → deny on both contours + the Ledger golden)
     [("tw", run_tw), ("vm", run_vm)]
 }
 
@@ -75,10 +68,7 @@ fn cleanup() {
 // ── The acceptance trace: issue → use → revoke → deny ──────────────────
 
 #[test]
-<<<<<<< HEAD
 #[serial]
-=======
->>>>>>> 1b209ddd (Naryad №847 (issue #1664, wave 72 — W-B, P2, [testing][security]): the acceptance e2e — issue → use → revoke → deny on both contours + the Ledger golden)
 fn capability_trace_example_matches_the_golden_on_both_backends() {
     cleanup();
     let src = read_repo_file(TRACE_EXAMPLE);
@@ -105,10 +95,7 @@ fn capability_trace_example_matches_the_golden_on_both_backends() {
 }
 
 #[test]
-<<<<<<< HEAD
 #[serial]
-=======
->>>>>>> 1b209ddd (Naryad №847 (issue #1664, wave 72 — W-B, P2, [testing][security]): the acceptance e2e — issue → use → revoke → deny on both contours + the Ledger golden)
 fn capability_trace_ledger_golden_is_the_signed_trail() {
     // The №832 w1_attest anchor form: the committed golden pins the
     // ORDERED action sequence the run must journal — issue → use →
@@ -160,10 +147,7 @@ fn capability_trace_ledger_golden_is_the_signed_trail() {
 // ── The negatives: every refusal is explained and written ──────────────
 
 #[test]
-<<<<<<< HEAD
 #[serial]
-=======
->>>>>>> 1b209ddd (Naryad №847 (issue #1664, wave 72 — W-B, P2, [testing][security]): the acceptance e2e — issue → use → revoke → deny on both contours + the Ledger golden)
 fn no_grant_refusal_degrades_and_the_file_survives_on_both_backends() {
     cleanup();
     let src = read_repo_file(NO_GRANT_EXAMPLE);
@@ -195,10 +179,7 @@ fn no_grant_refusal_degrades_and_the_file_survives_on_both_backends() {
 }
 
 #[test]
-<<<<<<< HEAD
 #[serial]
-=======
->>>>>>> 1b209ddd (Naryad №847 (issue #1664, wave 72 — W-B, P2, [testing][security]): the acceptance e2e — issue → use → revoke → deny on both contours + the Ledger golden)
 fn expired_token_refuses_fail_closed_on_both_backends() {
     cleanup();
     let src = read_repo_file(EXPIRED_EXAMPLE);
@@ -222,10 +203,7 @@ fn expired_token_refuses_fail_closed_on_both_backends() {
 }
 
 #[test]
-<<<<<<< HEAD
 #[serial]
-=======
->>>>>>> 1b209ddd (Naryad №847 (issue #1664, wave 72 — W-B, P2, [testing][security]): the acceptance e2e — issue → use → revoke → deny on both contours + the Ledger golden)
 fn once_token_is_linear_through_the_gate_on_both_backends() {
     // A Once capability authorizes exactly ONE carrier use: the FIRST
     // delete consumes it (the gate consumes through the single consume
@@ -265,10 +243,7 @@ flow Main { input: String = "t" -> T -> output }
 }
 
 #[test]
-<<<<<<< HEAD
 #[serial]
-=======
->>>>>>> 1b209ddd (Naryad №847 (issue #1664, wave 72 — W-B, P2, [testing][security]): the acceptance e2e — issue → use → revoke → deny on both contours + the Ledger golden)
 fn the_grant_route_consumes_one_use_per_authorized_call() {
     // N(2) quota: two authorized deletes consume the quota; the THIRD
     // refuses (GRANT_EXHAUSTED → the capability refusal — the quota is

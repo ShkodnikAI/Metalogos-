@@ -1,0 +1,10 @@
+# The №847 ledger golden (the №832 w1_attest anchor form): the ORDERED
+# action sequence the capability-trace run must journal — issue → use →
+# revoke → deny (the full typed trace of the capability contract,
+# ADR-0203 §2). One action per line; the run's trail may carry
+# additional ACTION-path records between them (write/read are journaled
+# too), but the capability lifecycle must appear in exactly this order.
+grant.issued
+grant.used
+grant.revoked
+deny.IRREVERSIBLE_NO_GRANT

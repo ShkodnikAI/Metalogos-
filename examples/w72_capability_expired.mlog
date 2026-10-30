@@ -1,0 +1,19 @@
+// Naryad №847 (wave 72 — W-B, dispatch gh#1666): the NEGATIVE — the
+// EXPIRED capability token (ttl 0 = born expired; the deterministic
+// expiry shape of the ADR-0155 §3.1 tests). The gate's covering-grant
+// lookup skips expired grants (the ledger is the SSOT — a stale token
+// cannot revive power), so the carrier refuses BEFORE the action.
+on_deny(file) {
+  match deny_reason() {
+    "IRREVERSIBLE_NO_GRANT" then { print("deny:IRREVERSIBLE_NO_GRANT") }
+    else { print("deny:OTHER") }
+  }
+}
+
+pattern Expired(_tick: String) -> String {
+  let cap = grant_issue("builtin:delete_file", 0, "n", 2)
+  let _w = write_file("w72_expired.tmp", "must-survive")
+  let d = delete_file("w72_expired.tmp")
+  return "type:" + type_of(d)
+}
+flow Main { input: String = "tick" -> Expired -> output }

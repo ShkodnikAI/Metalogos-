@@ -30,7 +30,23 @@ the full spec page lands with №858 (`docs/spec/refusal-algebra.md`).
 
 The reusable GitHub Action (`policy-check`, №856) consumes this facade
 through the same boundary — a repository runs refusal policies through
-the algebra in its own CI.
+the algebra in its own CI:
+
+```yaml
+- uses: ShkodnikAI/Metalogos-@main
+  with:
+    policy: path/to/policy.json        # required
+    wasm: path/to/refusal_wasm.wasm    # optional — a prebuilt artifact
+    source-checkout: 'true'            # optional — self-contained mode
+```
+
+Outputs: `verdict` (deny if ANY request denies, else allow) and `code`
+(the join — the MOST severe cause — across the denying requests,
+computed by the algebra itself). The consumer implementation is one
+file shared by the smoke and the Action: `consume.mjs`. The dogfood
+(`policy-check-dogfood (blocking)` in this repo's CI) is the living
+external consumer — the Action runs against this repository's own
+sample policy (`scripts/ci/policy_sample.json`) on every push.
 
 ## Honest limits (ADR-0204 §6)
 

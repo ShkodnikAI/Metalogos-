@@ -5,7 +5,7 @@
 # metalogos, so the consumer edge lives in the transport crate itself
 # (the bin links the language crate for the core; the root became a
 # pure library).
-members = [".", "metalogos-server", "mlogpkg", "mlog-lsp", "metalogos-reflex"]
+members = [".", "metalogos-server", "mlogpkg", "mlog-lsp", "metalogos-reflex", "refusal-wasm"]
 resolver = "2"
 
 [workspace.package]

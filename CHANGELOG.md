@@ -3,6 +3,17 @@
 All notable changes to the Metalogos project.
 
 ## [Unreleased]
+## [0.36.0] - 2026-10-30
+
+The scheduled train (ADR-0189): the 0.36 window — the 8B-1 subphase
+of Phase 8 (the C2 «Capability/Grant Runtime» line, ADR-0203, the
+wave-72 naryads №843-№848). The honest-tag note: the №844-№847 code
+was already present in the 0.35.0 tree (the wave-72 merge preceded
+the 0.35.0 tag — the train order recorded in [0.35.0]); the 0.36.0
+tag differs from 0.35.0 by the version bump and this CHANGELOG row —
+0.36.0 is the first release whose notes document the capability
+token (the №497 rule: the notes and the changelog can never
+disagree).
 
 ### Added
 

@@ -494,16 +494,22 @@ def sema_external(
         counted.append("policy-check action")
     else:
         skipped.append("policy-check action (needs action.yml + the live ci.yml dogfood job)")
-    # (в) the spec page — the topic + the Topics-table row + the pairs.
+    # (в) the spec page — the topic + the Topics-table row + the pairs,
+    # RUN LIVE by the blocking conformance job (the pairs without a live
+    # runner are a static file, not a proof).
     if (
         spec_page is not None
         and spec_readme is not None
         and "refusal-algebra.md" in spec_readme
         and sra_pairs
+        and "conformance (blocking)" in ci_content
     ):
         counted.append("spec page")
     else:
-        skipped.append("spec page (needs docs/spec/refusal-algebra.md + the Topics row + the S-RA pairs)")
+        skipped.append(
+            "spec page (needs docs/spec/refusal-algebra.md + the Topics row "
+            "+ the S-RA pairs + the live conformance (blocking) runner)"
+        )
     return {"count": len(counted), "counted": counted, "skipped": skipped}
 
 

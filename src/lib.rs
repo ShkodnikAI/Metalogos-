@@ -45,7 +45,12 @@ pub mod likeness;
 // Naryad #392: DenyEvent — the typed deny-reason vocabulary + event
 // contract shared by the static gate, the TW interpreter and the VM.
 pub mod deny;
+// №854 (ADR-0204, wave 74 — W-C): the Portable Refusal Algebra — the
+// refusal as a VALUE of a finite lattice (join/meet over the frozen
+// №392 vocabulary); dependency-free by contract (ADR-0204 §3) so the
+// №855 WASM facade compiles this very source for wasm32.
 pub mod distill_hub;
+pub mod refusal_algebra;
 // Naryad #393 (ADR-0167): Action Ledger v1 — signed append-only journal
 // of actions (prev-hash chain + Ed25519 per-record signatures; the
 // in-toto/PROV export profile is ADR-0157). The external verifier

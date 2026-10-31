@@ -43,31 +43,12 @@
 use crate::interpreter::values::Value;
 use std::collections::HashMap;
 
-/// The canonical deny-reason vocabulary — exhaustive over every reason
-/// the gates can emit. The seven core classes first, then the extending
-/// pair, the №455 file-path class, the generic class, then the legacy
-/// corpus classes.
-pub const DENY_REASONS: [&str; 14] = [
-    // ── the seven core classes (№392) ─────────────────────────────
-    "VOICE_EGRESS_UNCONSENTED",
-    "IRREVERSIBLE_NO_GRANT",
-    "UNTRUSTED_EXEC_DECISION",
-    "SECRET_TO_EXEC",
-    "SECRET_EGRESS_VCS",
-    "SECRET_EGRESS_NETWORK",
-    "PII_EGRESS_NETWORK",
-    // ── extending classes (same gate dictionary) ──────────────────
-    "PII_EGRESS_OUTPUT",
-    "UNTRUSTED_EGRESS_NETWORK",
-    // ── №455: the file-ingest gate ────────────────────────────────
-    "UNTRUSTED_FILE_PATH",
-    // ── the generic class ──────────────────────────────────────────
-    "SINK_CLEARANCE",
-    // ── legacy corpus classes (same gate, historical names) ───────
-    "HTML_INJECTION",
-    "TAINT_PERSISTENCE",
-    "SECRET_LEAK",
-];
+// №854 (ADR-0204, wave 74 — W-C): the vocabulary's SSOT moved to
+// `refusal_algebra.rs` — the Portable Refusal Algebra is CLOSED over
+// this exact table, and the WASM facade (№855) compiles the algebra
+// source directly. The re-export keeps every `crate::deny::DENY_REASONS`
+// path byte-stable.
+pub use crate::refusal_algebra::DENY_REASONS;
 
 /// The sink-class words the `on_deny(...)` selector accepts — the same
 /// mapping `audit.rs::sink_kind` uses to classify sink builtins.
@@ -118,6 +99,15 @@ pub struct DenyEventArgs {
 /// failed clearance — "bottom" when the gate is content-driven),
 /// `line` (source line, 0 when unknown), `human` (the full sentence a
 /// human reads — carries the typed GRANT_* detail for grant refusals).
+///
+/// №854 (ADR-0204 §2/§6): the construction goes through the Portable
+/// Refusal Algebra — the reason word is parsed into a ranked lattice
+/// element and the verdict is built by the algebra; the rendered event
+/// is byte-identical to the pre-№854 form (the parity test pins all 14
+/// words). A NON-vocabulary word is impossible from the runtime gate
+/// dictionary (every construction site passes a `DENY_REASONS` word);
+/// the legacy passthrough keeps even that impossible path
+/// byte-identical instead of inventing a new failure mode.
 #[allow(clippy::too_many_arguments)]
 pub fn make_event(
     reason: &str,
@@ -128,8 +118,16 @@ pub fn make_event(
     line: f64,
     human: &str,
 ) -> Value {
+    let reason_word = match crate::refusal_algebra::Verdict::deny(reason) {
+        // The algebra-backed path: the ranked cause renders (the word is
+        // the same frozen string — the №854 parity test pins it).
+        Some(crate::refusal_algebra::Verdict::Deny { cause, .. }) => cause.word(),
+        // Unreachable arms, kept 1:1 on purpose: `deny(word)` never
+        // yields `Allow`; `None` is the non-vocabulary legacy passthrough.
+        _ => reason,
+    };
     let mut fields: HashMap<String, Value> = HashMap::new();
-    fields.insert("reason".to_string(), Value::String(reason.to_string()));
+    fields.insert("reason".to_string(), Value::String(reason_word.to_string()));
     fields.insert("sink".to_string(), Value::String(sink.to_string()));
     fields.insert("class".to_string(), Value::String(class.to_string()));
     fields.insert("argument".to_string(), Value::String(argument.to_string()));

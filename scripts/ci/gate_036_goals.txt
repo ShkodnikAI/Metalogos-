@@ -1,0 +1,33 @@
+# gate_036_goals.txt — the wave-75 W-D machine-fact floor (naryad №862)
+# =============================================================================
+# The №862 floor file: the ONLY-UP gate over the 8B-2 machine fact —
+# the same discipline as the gate_034 goal record (№846) and the
+# gate_035 goals (№857). The floor value is the plan §23 number (the
+# owner revision R38, 2026-10-28):
+# 0.38 = 8B-2 (C11, APPROVAL_COVERAGE 10000 bp) — the point was accepted
+# by the owner at the revision, no further decision is needed at the
+# naryad level.
+#
+# The fact and its machine source (the --check twin):
+#   goal_approval_coverage_bp  approval_coverage_bp()  — the share of
+#                            the human-oversight carriers covered by
+#                            the fail-closed approval gate (№861), in
+#                            bp (ADR-0205 §4). Numerator: the roster
+#                            names that are CLASSIFIED Irreversible
+#                            carriers, counted only when the gate's
+#                            composition site (the approval decision
+#                            composed inside capability::authorize_call)
+#                            is in place. Denominator: the whole
+#                            HUMAN_OVERSIGHT roster (the explicit
+#                            registry transaction in src/approval.rs).
+#
+# The floor is ONLY-UP: the value below is the owner constant pinned by
+# the checker (gen_metrics.py APPROVAL_COVERAGE_FLOOR_OWNER_BP); a
+# lowered floor in this file is refused with a loud FLOOR LOWERING
+# REFUSED (the №776 transaction discipline — a re-pin is an OWNER
+# decision, never a silent gate edit). The breach branch names the
+# remedy: keep the roster total over the classification and the
+# composition site present — never a silent gate edit.
+#
+# Fields (machine-read by scripts/gen_metrics.py load_floors_strict):
+goal_approval_coverage_bp 10000

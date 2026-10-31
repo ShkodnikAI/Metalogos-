@@ -950,6 +950,7 @@ owner's ADR gate.
 | LICENSED_FLOOR — the 8D-1 machine fact (№841) | 10000 bp |
 | PASSPORT_FRESH — the 8D-1 machine fact (№841) | 10000 bp |
 | GRANT_COVERAGE — the 8B-1 machine fact (№846) | 10000 bp |
+| SEMA_EXTERNAL — the 8F-1 machine fact (№857) | 2 |
 <!-- END GENERATED NUMBERS -->
 
 ## Acceptance criteria (public part of the methodology)

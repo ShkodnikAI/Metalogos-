@@ -1,0 +1,23 @@
+[package]
+name = "refusal-wasm"
+# №855 (issue #1680, wave 74 — W-C): the WASM contour of the Portable
+# Refusal Algebra (ADR-0204 §3/§4). The facade is a LEAF: it compiles
+# the dependency-free algebra source (src/refusal_algebra.rs of the
+# root crate) via #[path] and adds ONLY the serde/serde_json JSON
+# boundary — no pull of the language dependency tree (the №567
+# discipline applied to the facade).
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.93.1"
+description = "The wasm32 facade of the METALOGOS Portable Refusal Algebra — join/meet over the frozen deny-reason vocabulary behind a C-ABI/JSON boundary"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[lib]
+# cdylib — the wasm32 artifact the hosts consume; rlib — the host-side
+# unit tests (the same code path the CI smoke covers).
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

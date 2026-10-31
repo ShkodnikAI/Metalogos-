@@ -37,6 +37,9 @@ COPY metalogos-reflex/Cargo.toml metalogos-reflex/
 # №567: the transport crate's manifest joins the dependency layer —
 # it now carries the heavy stack (axum/tokio/...) AND the mlog bin.
 COPY metalogos-server/Cargo.toml metalogos-server/
+# №855: the wasm-facade member's manifest joins the dependency layer —
+# the workspace manifest load needs EVERY member's manifest.
+COPY refusal-wasm/Cargo.toml refusal-wasm/
 
 # Create stub sources so dependency layer compiles.
 # src/lib.rs stub: mlogpkg and mlog-lsp depend on the metalogos lib target.
@@ -47,7 +50,9 @@ COPY metalogos-server/Cargo.toml metalogos-server/
 #   metalogos-server (the root crate has NO bin anymore — no src/main.rs).
 # benches/ stub: core_benchmarks.rs is the root's only bench (the №567
 # stage4 bench moved to metalogos-server/benches/).
-RUN mkdir -p src mlogpkg/src mlog-lsp/src metalogos-reflex/src metalogos-server/src/bin metalogos-server/benches benches && \
+# refusal-wasm stub: the №855 workspace member — the facade lib stub for
+#   the dependency layer (the workspace manifest load needs EVERY member).
+RUN mkdir -p src mlogpkg/src mlog-lsp/src metalogos-reflex/src metalogos-server/src/bin metalogos-server/benches benches refusal-wasm/src && \
     echo "" > src/lib.rs && \
     echo "fn main() {}" > mlogpkg/src/main.rs && \
     echo "" > mlog-lsp/src/main.rs && \
@@ -56,11 +61,12 @@ RUN mkdir -p src mlogpkg/src mlog-lsp/src metalogos-reflex/src metalogos-server/
     echo "fn main() {}" > metalogos-server/src/bin/mlog.rs && \
     echo "" > benches/core_benchmarks.rs && \
     echo "" > metalogos-server/benches/stage4_benchmark.rs && \
+    echo "" > refusal-wasm/src/lib.rs && \
     cargo build --release --bin mlog -p metalogos-server
 
 # Copy real source and rebuild (only application code changes)
 COPY . .
-RUN touch src/lib.rs metalogos-server/src/lib.rs metalogos-server/src/bin/mlog.rs mlogpkg/src/main.rs mlog-lsp/src/main.rs && \
+RUN touch src/lib.rs metalogos-server/src/lib.rs metalogos-server/src/bin/mlog.rs mlogpkg/src/main.rs mlog-lsp/src/main.rs refusal-wasm/src/lib.rs && \
     cargo build --release --bin mlog -p metalogos-server
 
 # ── Runtime image ────────────────────────────────────

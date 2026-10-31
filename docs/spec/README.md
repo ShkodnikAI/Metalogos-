@@ -58,9 +58,11 @@ Each norm's test is a pair `<id>.mlog` + `<id>.expected` in
 | 4. Routes and the HTTP egress | [routes.md](routes.md) | S-RT-001 … S-RT-006 |
 | 5. State and memory | [state.md](state.md) | S-ST-001 … S-ST-003 |
 | 6. Tools and the abstraction | [tools.md](tools.md) | S-TOOL-001 … S-TOOL-007 |
+| 7. The Portable Refusal Algebra | [refusal-algebra.md](refusal-algebra.md) | S-RA-001 … S-RA-002 |
 
-**The normative core: 49 norms** (13 value-semantics + 14 blocks/control
-flow + 6 errors/try + 6 routes/HTTP-egress + 3 state/memory + 7 tools),
+**The normative core: 51 norms** (13 value-semantics + 14 blocks/control
+flow + 6 errors/try + 6 routes/HTTP-egress + 3 state/memory + 7 tools
++ 2 refusal-algebra),
 every one
 probed on both backends per the №645 protocol; the probe of topic 2
 made three honest findings recorded in its «Honest limits»
@@ -73,4 +75,9 @@ limits» cite the mirrored by-design boundaries); the probe of topic 6
 (№696, the №684 contract) found NO cross-backend divergence in the
 language-facing tool facts — its honest findings are the codeless
 negative-path refusals (the «Honest limits» of tools.md — the №385
-additive lane would unlock the refusal norms).
+additive lane would unlock the refusal norms); the probe of topic 7
+(№858, the ADR-0204 contract) found NO cross-backend divergence — the
+deny-event construction is the ONE shared algebra-backed choke point
+(`deny.rs::make_event`, №854), so the refusal surface is shared-code
+parity by construction (the topic's «Honest limits» record what the
+algebra deliberately does NOT do).

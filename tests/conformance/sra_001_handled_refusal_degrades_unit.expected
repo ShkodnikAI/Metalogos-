@@ -1,0 +1,6 @@
+# S-RA-001 (№858, ADR-0204 §7) — the handled refusal degrades the
+# refused call to Unit and the pattern continues; the refused DELETE
+# never runs (first=1: the granted delete affected 1 row; degraded=Unit:
+# the exhausted second call degrades, it does not kill the program).
+STATUS: ok
+OUT: first=1|degraded=Unit

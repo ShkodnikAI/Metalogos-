@@ -3,6 +3,48 @@
 All notable changes to the Metalogos project.
 
 ## [Unreleased]
+
+### Added
+
+- **№853–№858 (Wave 74, P1/P2 — the 8F-1 subphase, the C6
+  "Portable Refusal Algebra" line, ADR-0204):** the refusal becomes a
+  portable VALUE. №853 — ADR-0204 before the code: the refusal is a
+  value of a finite lattice over the frozen 14-word `DENY_REASONS`
+  vocabulary (№392), `join` = the more severe cause / `meet` = the less
+  severe, the verdict `Allow | Deny { code, cause }` with the frozen
+  codes BY REFERENCE (№385/ADR-0169 — no new codes); the
+  portable-kernel boundary (in: the lattice, the codes, the verdict,
+  the JSON rendering; out: IO, the Ledger, the network, the language
+  compiler) and the `SEMA_EXTERNAL` machine-fact definition. №854 — the
+  algebra in code: `src/refusal_algebra.rs` (the dependency-free SSOT —
+  the vocabulary table moves there, `deny.rs` re-exports it), the
+  `DenyEvent` construction migrated 1:1 through the algebra (the same
+  events, the same Ledger records — the parity test pins all 14 words
+  byte-identical; the ledger-golden and conformance suites green with
+  zero golden edits). №855 — the WASM contour: the `refusal-wasm`
+  facade compiles the SAME dependency-free kernel source for
+  `wasm32-unknown-unknown` behind a C-ABI/JSON boundary
+  (`rw_alloc`/`rw_eval`/`rw_reset`, the JSON verdict contract); the
+  `wasm-facade (blocking)` CI job builds it and the host smoke consumer
+  (`node refusal-wasm/smoke.mjs` — no Rust in the loop) drives it on
+  every push. №856 — the reusable `policy-check` Action (the root
+  `action.yml`): any repository evaluates a refusal policy (a JSON of
+  lattice requests) through the algebra in its own CI; the outputs are
+  `verdict` + `code` (the join — the MOST severe cause — across the
+  denying requests, computed by the algebra itself); the
+  `policy-check-dogfood (blocking)` job is the living external consumer.
+  №857 — the machine fact: `SEMA_EXTERNAL` in `gen_metrics --check`
+  (the live external-consumption artifacts, each counted ONLY on the
+  real existence + the live blocking-CI wiring) with the gate_035
+  only-up floor ≥ 1 (the plan §23 number); the tamper traps catch the
+  placeholder, deletion and definition-substitution classes. №858 — the
+  spec topic 7 (`docs/spec/refusal-algebra.md`): the norms S-RA-001
+  (the handled refusal degrades, the refused action never executes) and
+  S-RA-002 (the frozen codes stamped at position 0) with the
+  conformance pairs on BOTH backends, the consumption contract
+  (WASM/Action/SEMA), the honest-limits section; the sanitized 0.37
+  phase line (this entry and the PLAN-SUMMARY row).
+
 ## [0.36.0] - 2026-10-30
 
 The scheduled train (ADR-0189): the 0.36 window — the 8B-1 subphase

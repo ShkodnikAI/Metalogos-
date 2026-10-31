@@ -1,0 +1,5 @@
+# S-RA-002 (№858, ADR-0204 §7) — the frozen stable refusal code at
+# position 0: the static Once-linearity gate refuses before anything
+# runs (the wording is deliberately not pinned — the code is).
+STATUS: error
+CODE: GRANT_REUSED

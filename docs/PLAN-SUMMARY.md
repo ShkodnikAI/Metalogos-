@@ -961,8 +961,8 @@ owner's ADR gate.
 <!-- BEGIN GENERATED NUMBERS (scripts/gen_metrics.py — do not edit inside) -->
 | Machine fact (generated — do not hand-edit) | Value |
 | --- | --- |
-| Typed-signature floor — the 0.28-gate line (ADR-0179) | 7102 bp — 375/528 = 71.02% (precise 243/528 = 46.02%) |
-| BUILTIN_REGISTRY rows | 528 |
+| Typed-signature floor — the 0.28-gate line (ADR-0179) | 7113 bp — 377/530 = 71.13% (precise 244/530 = 46.03%) |
+| BUILTIN_REGISTRY rows | 530 |
 | LICENSED_FLOOR — the 8D-1 machine fact (№841) | 10000 bp |
 | PASSPORT_FRESH — the 8D-1 machine fact (№841) | 10000 bp |
 | GRANT_COVERAGE — the 8B-1 machine fact (№846) | 10000 bp |

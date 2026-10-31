@@ -687,7 +687,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 528 registered builtins (528 of 528): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 530 registered builtins (530 of 530): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -2226,11 +2226,11 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 528 registered builtins — the three maturity tiers: stable 484 / experimental 23 / parked 21 (№809: the C3(a) levels)
+## 6. Builtin Index — 530 registered builtins — the three maturity tiers: stable 486 / experimental 23 / parked 21 (№809: the C3(a) levels)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest. The sections read by MATURITY TIER (№809): the `stable` tier is the primary reference; `experimental` and `parked` are explicitly separated so a reader never mistakes a gated builtin for an always-available one.
 
-### Tier `stable` — the primary reference (484)
+### Tier `stable` — the primary reference (486)
 
 #### `action` — 5 builtin(s)
 
@@ -2664,10 +2664,12 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `backend_list(...)` | variadic | — | `backend_list()` — the static backend registry as `List[Struct { name, class, weights_id, pin, license, license_note }]`. | stable |
 | `backend_select(...)` | 2 | — | `backend_select(class, ladder)` — the backend try-chain (Наряд №336, ADR-0165). Walks the ladder in priority order over the №333 registry SSOT; every rung attempt is an audit event (stderr line + the program-visible `attempts` list, №326 posture). | stable |
 
-#### `security` — 16 builtin(s)
+#### `security` — 18 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description | Tier |
 |---|---|---|---|---|
+| `approval_issue(...)` | 3 | — | `approval_issue(actor, target, ttl_seconds) -> Struct<TypedApproval>` — record the human's approval decision over `target` as a typed mandate. `ttl_seconds` 0 = no expiry window (the consent-ledger convention). The mandate covers the human-oversight carriers whose gate target matches (`carrier:<name>` — the wave-75 registry transaction); the gate verifies the window, the digest and the revocation AT CALL TIME. | stable |
+| `approval_revoke(...)` | 1 | — | `approval_revoke(target) -> Float` — the human withdraws the consent: every LIVE mandate over `target` is marked revoked (permanent — a revoked mandate never revives). Idempotent; returns the revoked count. | stable |
 | `canary_check(...)` | 2..3 | `String, String[, Struct] -> Struct` | Runtime leak detector: checks the LLM response for the canary marker — exact occurrence + resistant to trivial distortions (case, splitting by whitespace/punctuation). opts: `mode` ("exact" default; "zwsp" additionally ignores zero-width chars U+200B/200C/200D/2060/FEFF inside the marker — in "exact" they DELIBERATELY break the match). Returns `{leaked, id, position}` — position is the CHAR index of the first occurrence in the original text, -1.0 when clean. Leak → runtime CANARY_LEAK warning (stderr) + `llm_usage().canary_leaks` counter; statically, inside `if (r.leaked) {...}` the response is labeled «compromised channel» and sink usage warns CANARY_LEAK. Detector, NOT a gate. Unknown/malformed canary_id (a secret is not a canary) — loud error (№284) | stable |
 | `canary_insert(...)` | 1..2 | `String[, Struct] -> Struct` | Embeds a random canary marker (`MLOG-CANARY-` + 26 base32 chars, 128-bit entropy) into untrusted text BEFORE sending it to the LLM. Returns `{marked_text, canary_id}`. opts: `count` (1..=4, default 1 — same id inserted count times), `position` ("random" | stable |
 | `capability_state(...)` | 1 | — | `capability_state(c) -> Struct<CapabilityState>` — №844 (ADR-0203 §2.1): the LIVE typed view over the grant ledger — scope, class, ttl (the expiry instant), quota (the remaining uses NOW), revoked, state (active\|consumed\|revoked). Read-only: the view consumes NOTHING — the single consume points stay `grant_use` and the carrier gates' own post-success consumption. Accepts the Capability view and the opaque Grant handle (the migration 1:1 seam); an unknown id refuses GRANT_MISSING (fail-closed — a dead token does not fabricate a state). | stable |
@@ -3564,6 +3566,8 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `date_format_iso` | pure | public | pure | — |
 | `normal_sample` | pure | public | pure | — |
 | `capability_state` | source | internal | pure | the LIVE typed view over the grant ledger record (ADR-0203 §2.1, №844) — scope/class/ttl/quota/revoked/state read AT CALL TIME; a state read carries provenance (the №316 Source semantics), the view is read-only and consumes nothing (the single consume points stay grant_use and the carrier gates) |
+| `approval_issue` | sink | internal | reversible | records the human's approval decision as a typed mandate (№861, ADR-0205 §3 — the in-process consent store; the verify side is the approval gate composed inside authorize_call, the refusal BEFORE the action) |
+| `approval_revoke` | sink | internal | reversible | the human withdraws the consent — every live mandate over the target is marked revoked, permanent (№861, ADR-0205 §3: the consent is withdrawable by the human) |
 
 <!-- END GENERATED BUILTIN CLASSIFICATION -->
 

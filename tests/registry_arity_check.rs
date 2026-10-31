@@ -216,6 +216,8 @@ fn registry_arity_exhaustive() {
         // cron_list is variadic (arity=0) — not tested here, see registry_sync_check
         ("cron_remove", 1, 1),
         ("cron_run", 1, 1),
+        ("approval_issue", 3, 3),
+        ("approval_revoke", 1, 1),
         // ── Event stubs ──
         ("events_since", 1, 1),
         ("event_sum", 2, 2),

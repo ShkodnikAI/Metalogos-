@@ -496,6 +496,10 @@ pub(crate) mod forecast;
 // Наряд №335 (spec §7.2 v2): consent grant/revoke + quarantine sink +
 // ledger export — the consent component's language surface.
 pub mod consent;
+// Naryad №861 (wave 75 — W-D, ADR-0205 §3): the typed-approval consent
+// surface — approval_issue / approval_revoke (the verify side is the
+// approval gate composed inside capability::authorize_call).
+pub(crate) mod approval;
 // Naryad #390 (ADR-0155): Grant algebra builtins — issue/subgrant/revoke/use
 // + the granted destructive-SQL action surface.
 pub mod grants;

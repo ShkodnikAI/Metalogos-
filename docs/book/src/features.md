@@ -164,6 +164,9 @@ Cron scheduler, recurring and one-shot jobs, dispatches both builtins and user p
 pattern Demo() -> List {
   let nightly = cron_add("*/30 * * * *", "HealthCheck")   // every 30 min
   cron_add("0 9 * * 1-5", "MorningReport")                // weekdays 09:00
+  // cron_run is a human-oversight carrier (№861): a live approval
+  // mandate must cover the run before it fires
+  let _m = approval_issue("owner", "carrier:cron_run", 600)
   cron_run(nightly.id)   // force a run outside the schedule
   return cron_list()     // list all jobs
 }

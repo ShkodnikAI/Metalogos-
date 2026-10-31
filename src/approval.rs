@@ -126,6 +126,168 @@ pub fn target_digest(parts: &[&str]) -> String {
     hex
 }
 
+// ── Naryad №861 (wave 75 — W-D, P1, [consent][core]): the coverage rule ─
+//
+// The runtime contour of the typed approval: the human-oversight roster,
+// the in-process mandate store, and the fail-closed gate. This section is
+// the EXECUTOR SEAM — it is NOT the portable kernel of ADR-0204 §3 (it
+// reads the wall clock and keeps process state; the pure carrier above
+// stays pure). The gate composes into `capability::authorize_call` — ONE
+// decision surface shared by BOTH backends at every dispatch choke point,
+// so the TW/VM parity is by construction (the №829 lesson) and no
+// dispatch site changes.
+//
+// The roster is an EXPLICIT registry transaction (the №845 form — no
+// silent shelves): the wave-75 class opens with `cron_run` — the trigger
+// of autonomous scheduled execution, the canonical C11 human-oversight
+// point (a scheduled run fires only while the human's oversight mandate
+// is live). The voice / delivery / destroy classes stay on their EXISTING
+// consent gates (the VOICE_EGRESS_UNCONSENTED lineage — the leak-suite
+// n14 class; the capability sharp permits of №845): layering a second
+// consent refusal on them would muddle the frozen vocabulary classes.
+// `ask_approval` stays the REQUEST surface, its semantics untouched
+// (ADR-0205 §6). Extending the class = a future explicit transaction
+// with the same totality discipline (the test below reddens any carrier
+// the gate cannot reach).
+
+/// The human-oversight carrier roster (the wave-75 registry transaction,
+/// №861/ADR-0205 §2.6): carriers whose execution additionally demands a
+/// LIVE approval mandate. Every name here must be an irreversible
+/// ProfilePermit carrier (the totality test pins the reachability —
+/// a GrantAlways or non-carrier name here would silently bypass the
+/// gate composition and fail the test loudly).
+pub const HUMAN_OVERSIGHT: &[&str] = &["cron_run"];
+
+/// The gate's canonical target for a carrier: the wave-75 transaction
+/// binds the mandate to the CARRIER — the action class (`carrier:cron_run`),
+/// not the full call digest (the finer binding is a future transaction;
+/// documented honestly here).
+fn carrier_target(name: &str) -> String {
+    format!("carrier:{name}")
+}
+
+fn now_epoch() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// The in-process mandate store — the consent-layer SSOT for the run
+/// (append-only; issue adds, revoke MARKS — a revocation never deletes
+/// the record, the same loud-bookkeeping posture as the consent ledger
+/// of №335). The gate reads it AT CALL TIME: a stored mandate is an
+/// untrusted cache of the human decision, the live check is `verify`.
+/// The lock error propagates (the house `with_conn` form of grants.rs) —
+/// the gate turns it into the fail-closed refusal, never a silent pass.
+fn mandates() -> &'static std::sync::Mutex<Vec<TypedApproval>> {
+    static MANDATES: std::sync::OnceLock<std::sync::Mutex<Vec<TypedApproval>>> =
+        std::sync::OnceLock::new();
+    MANDATES.get_or_init(|| std::sync::Mutex::new(Vec::new()))
+}
+
+fn lock_store() -> Result<std::sync::MutexGuard<'static, Vec<TypedApproval>>, String> {
+    mandates()
+        .lock()
+        .map_err(|e| format!("the mandate store lock: {}", e))
+}
+
+/// Record the human's approval decision as a typed mandate over `target`
+/// (the runtime seam: `granted_at` is the wall clock NOW). Returns the
+/// stored carrier.
+pub fn mandate_issue(actor: &str, target: &str, ttl_seconds: u64) -> Result<TypedApproval, String> {
+    let mandate = TypedApproval::issue(actor, &target_digest(&[target]), now_epoch(), ttl_seconds);
+    lock_store()?.push(mandate.clone());
+    Ok(mandate)
+}
+
+/// Revoke every LIVE mandate over `target` — the human withdraws consent.
+/// Idempotent; returns the number of mandates revoked by this call (a
+/// revoked mandate never revives — the stale-token posture of ADR-0205 §3).
+pub fn mandate_revoke(target: &str) -> Result<usize, String> {
+    let digest = target_digest(&[target]);
+    let now = now_epoch();
+    let mut store = lock_store()?;
+    let mut n = 0;
+    for m in store.iter_mut() {
+        if m.target_digest == digest && m.verify(now, &digest) == Verdict::Allow {
+            m.revoke();
+            n += 1;
+        }
+    }
+    Ok(n)
+}
+
+/// The live mandate count over `target` (the diagnostic read — the
+/// `capability_state` posture: a read consumes and mutates nothing).
+/// A lock error reads 0 (a diagnostic never lies loudly — the honest
+/// count is the store's, the gate does not consume this number).
+pub fn mandate_live_count(target: &str) -> usize {
+    let Ok(store) = lock_store() else {
+        return 0;
+    };
+    let digest = target_digest(&[target]);
+    let now = now_epoch();
+    store
+        .iter()
+        .filter(|m| m.verify(now, &digest) == Verdict::Allow)
+        .count()
+}
+
+/// The test-harness reset seam: the store is process-global, the serial
+/// e2e harness resets it between scenarios (a serve process never calls
+/// this — documented, the №845 env-permit seam posture). A lock error is
+/// tolerated here: the harness owns the store, the next scenario re-arms.
+pub fn mandate_store_reset() {
+    if let Ok(mut store) = lock_store() {
+        store.clear();
+    }
+}
+
+/// The refusal text (the typed deny surface): the SAME reason class as
+/// the capability gate — the vocabulary does not grow (№385) — with the
+/// human remedy verbatim (the honest refusal form of №845).
+fn approval_refusal(name: &str) -> String {
+    format!(
+        "IRREVERSIBLE_NO_GRANT: approval gate: '{name}' is a human-oversight carrier — no live \
+         approval mandate (record the human's decision with approval_issue(\"actor\", \
+         \"carrier:{name}\", ttl_seconds) after the human approves; the refusal is BEFORE the \
+         action — ADR-0205 §2.6, №861: fail-closed, a silent pass is forbidden)"
+    )
+}
+
+/// THE approval decision (№861/ADR-0205 §2.6): a human-oversight carrier
+/// without a LIVE mandate refuses BEFORE the action. Composed at the tail
+/// of `capability::authorize_call` — every dispatch site that authorizes
+/// the capability layer approval-gates too, both backends, one surface.
+/// A carrier outside the class resolves trivially (`Ok`).
+pub fn authorize_overseen_call(name: &str) -> Result<(), String> {
+    if !HUMAN_OVERSIGHT.contains(&name) {
+        return Ok(());
+    }
+    let digest = target_digest(&[&carrier_target(name)]);
+    let now = now_epoch();
+    match lock_store() {
+        Ok(store) => {
+            if store
+                .iter()
+                .any(|m| m.verify(now, &digest) == Verdict::Allow)
+            {
+                return Ok(());
+            }
+        }
+        // The gate cannot verify the live state → fail-closed (the same
+        // posture as an unreadable coverage record: never a silent pass).
+        Err(e) => {
+            return Err(format!(
+                "{} (the mandate store is unavailable: {e})",
+                approval_refusal(name)
+            ))
+        }
+    }
+    Err(approval_refusal(name))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

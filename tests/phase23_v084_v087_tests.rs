@@ -85,6 +85,7 @@ fn test_cron_mark_fired_resets_force_run() {
         test "cron mark fired" {
             sleep(1.1)
             let job = cron_add("0 0 * * *", "TestJobMF488")
+            let _m = approval_issue("phase23-suite", "carrier:cron_run", 600)
             cron_run(job.id)
             cron_mark_fired(job.id)
             let after = cron_list()

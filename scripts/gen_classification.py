@@ -775,6 +775,11 @@ OVERRIDES = {
     # store → Source, provenance-carried), no external effect (Pure), the
     # record metadata is Internal. Read-only: the view consumes NOTHING.
     "capability_state": ("Source", "Internal", "Pure", "the LIVE typed view over the grant ledger record (ADR-0203 §2.1, №844) — scope/class/ttl/quota/revoked/state read AT CALL TIME; a state read carries provenance (the №316 Source semantics), the view is read-only and consumes nothing (the single consume points stay grant_use and the carrier gates)"),
+    # №861 (wave 75 — W-D, ADR-0205 §3): the typed-approval consent surface —
+    # the human's decision recorded as a typed mandate (issue / revoke); the
+    # verify side is the approval gate composed inside authorize_call.
+    "approval_issue": ("Sink", "Internal", "Reversible", "records the human's approval decision as a typed mandate (№861, ADR-0205 §3 — the in-process consent store; the verify side is the approval gate composed inside authorize_call, the refusal BEFORE the action)"),
+    "approval_revoke": ("Sink", "Internal", "Reversible", "the human withdraws the consent — every live mandate over the target is marked revoked, permanent (№861, ADR-0205 §3: the consent is withdrawable by the human)"),
     # ── media (№331, ADR-0162 / №332, ADR-0164) ──
     "media_store_image": ("Lift", "Internal", "Reversible", "wraps provided bytes into an opaque Image handle in the media store (ADR-0162) — no egress; declared sensitivity drives at-rest AES-GCM sealing and the runtime backstop"),
     "media_store_audio": ("Lift", "Internal", "Reversible", "wraps provided bytes into an opaque Audio handle in the media store (ADR-0162) — no egress; declared sensitivity drives at-rest AES-GCM sealing and the runtime backstop"),

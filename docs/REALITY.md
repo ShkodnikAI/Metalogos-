@@ -442,13 +442,13 @@ shifted on main are recorded in this table and in section 0.
 ## 6. The current machine truth (generated — the verbatim machine outputs)
 
 ```
-typed signatures: 372/526 (70.72%)
-precise signatures: 242/526 (46.00%) — №560: the two shares side by side
-parameterized signatures: 97/127 (76.37%) — №623: the third share (among List/Struct)
-field-label signatures: 59/61 (96.72%) — №627: the fourth share (among the parameterized Struct rows)
-stable typed signatures: 363/483 (75.15%) — №809: the PRIMARY definition (ADR-0199; the full-526 figure above stays beside it)
-sensitive-surface coverage: 110/145 (7586 bp) — №644: the fixed-denominator share among Role::Source ∧ label ≠ Public
-  the denominator by label: Internal 109, Network 31, Secret 5 (the Public sources 5 excluded by the definition)
+typed signatures: 377/530 (71.13%)
+precise signatures: 244/530 (46.03%) — №560: the two shares side by side
+parameterized signatures: 100/130 (76.92%) — №623: the third share (among List/Struct)
+field-label signatures: 62/64 (96.87%) — №627: the fourth share (among the parameterized Struct rows)
+stable typed signatures: 366/486 (75.30%) — №809: the PRIMARY definition (ADR-0199; the full-526 figure above stays beside it)
+sensitive-surface coverage: 112/147 (7619 bp) — №644: the fixed-denominator share among Role::Source ∧ label ≠ Public
+  the denominator by label: Internal 111, Network 31, Secret 5 (the Public sources 5 excluded by the definition)
   the uncovered by reason: struct-no-meta 2, typed-coarse 1, untyped 32 — the covered = typed ∧ (scalar ∨ parameterized) ∧ (¬Struct ∨ fields labeled)
 ignore: 8
 ignore_todo: 0
@@ -470,8 +470,8 @@ The §6.x wave-record sections moved to the monthly archive by №810 (the C4-a 
 | Archive | Sections | Range |
 |---|---|---|
 | [docs/reality/2026-09.md](reality/2026-09.md) | 13 | 6.1 … 6.29 |
-| [docs/reality/2026-10.md](reality/2026-10.md) | 38 | 6.13 … 6.66 |
-| **total** | **51** | |
+| [docs/reality/2026-10.md](reality/2026-10.md) | 46 | 6.13 … 6.74 |
+| **total** | **59** | |
 
 <!-- END GENERATED REALITY STUB -->
 

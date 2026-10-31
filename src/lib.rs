@@ -15,6 +15,7 @@
 /// compatibility contract.
 pub const GRAMMAR_REV: u32 = 1;
 
+pub mod approval; // №860 (ADR-0205, wave 75 — W-D): the typed approval mandate — the pure carrier of the human consent/oversight decision over the grant contour
 pub mod ast;
 pub mod capability; // №844 (ADR-0203, wave 72 — W-B): the typed capability carrier — the read-only view over the grant ledger (the single consumption contract)
 use crate::audit::{audit_category_a, Severity};

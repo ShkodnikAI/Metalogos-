@@ -82,6 +82,7 @@ mlogserver {{
   }}
   route "/force" method=POST {{
     let body = json_body()
+    let _m = approval_issue("serve-operator", "carrier:cron_run", 600)
     let r = cron_run(body.id)
     return r.status
   }}

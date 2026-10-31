@@ -70,6 +70,7 @@ use super::consent::{
 // Naryad #390 (ADR-0155): Grant algebra builtins — issue/subgrant/revoke/use
 // + the granted destructive-SQL action surface. №844 (ADR-0203): the
 // capability_state LIVE typed view joins the surface.
+use super::approval::{builtin_approval_issue, builtin_approval_revoke};
 use super::grants::{
     builtin_capability_state, builtin_db_execute_with_grant, builtin_grant_issue,
     builtin_grant_revoke, builtin_grant_subgrant, builtin_grant_use,
@@ -1273,6 +1274,15 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // shift existing CallBuiltin indices (.mbc contract).
     // Registry 516→517 (append-only).
     spec!("capability_state", 1, "security"; builtin_capability_state, "Struct<CapabilityState>{scope:internal,class:internal,ttl:internal,quota:internal,revoked:internal,state:internal}", "stable"),
+    // ── Naryad №861 (wave 75 — W-D, ADR-0205 §3): the typed-approval
+    // consent surface — the human's decision recorded as a typed mandate
+    // (issue / revoke); the verify side is the approval GATE composed
+    // inside capability::authorize_call (the fail-closed layer on the
+    // human-oversight carriers). APPENDED at the end — inserting
+    // mid-array would shift existing CallBuiltin indices (.mbc contract).
+    // Registry 528→530 (append-only).
+    spec!("approval_issue", 3, "security"; builtin_approval_issue, "Struct<TypedApproval>{actor:internal,target_digest:internal,granted_at:internal,expires_at:internal,revoked:internal}", "stable"),
+    spec!("approval_revoke", 1, "security"; builtin_approval_revoke, "Float", "stable"),
 ];
 
 /// Total number of registered builtins.

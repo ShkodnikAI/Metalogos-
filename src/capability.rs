@@ -369,7 +369,22 @@ fn refusal(name: &str) -> String {
 /// the TW expression dispatch sites; VM call_builtin). TW/VM parity by
 /// construction — the №829 lesson. The decision is BEFORE the action:
 /// the carrier's handler never runs on a refusal.
+///
+/// №861 (ADR-0205 §2.6): the decision is COMPOSED — the capability layer
+/// first, then the approval gate (`approval::authorize_overseen_call`):
+/// a human-oversight carrier additionally demands a LIVE mandate. One
+/// composed surface for both backends — no dispatch site changes, the
+/// parity stays by construction.
 pub fn authorize_call(name: &str, permits: &CapabilityPermits) -> Result<(), String> {
+    authorize_capability_call(name, permits)?;
+    // №861 (ADR-0205 §2.6): the approval gate — the human-oversight class
+    // additionally demands a live mandate; carriers outside the class
+    // resolve trivially (Ok). The composed surface keeps the TW/VM
+    // parity and the deny-event wiring of the №845 refusal path.
+    crate::approval::authorize_overseen_call(name)
+}
+
+fn authorize_capability_call(name: &str, permits: &CapabilityPermits) -> Result<(), String> {
     let Some(Disposition::ProfilePermit) = disposition(name) else {
         // Not a carrier, or GrantAlways: the GrantAlways carriers carry
         // their typed grant-argument contract at the call itself
@@ -600,5 +615,78 @@ mod tests {
         assert_eq!(initial_remaining(&GrantClass::Once), 1);
         assert_eq!(initial_remaining(&GrantClass::N(7)), 7);
         assert_eq!(initial_remaining(&GrantClass::Unlimited), -1);
+    }
+}
+
+// ── №861 (wave 75 — W-D, ADR-0205 §2.6): the approval-gate composition
+// tests. They live HERE (not in approval.rs) so the test-only reference
+// to this module does not create a capability→approval→capability
+// module cycle — the C4 acyclicity ratchet (the architecture contract)
+// counts code edges, and the composed gate must stay a DAG edge:
+// capability → approval, never back.
+#[cfg(test)]
+mod gate_tests {
+    use super::*;
+    use crate::approval::{
+        authorize_overseen_call, mandate_issue, mandate_revoke, mandate_store_reset,
+        HUMAN_OVERSIGHT,
+    };
+
+    #[test]
+    fn the_roster_is_total_over_reachable_profile_permit_carriers() {
+        // The №861 composition totality: every human-oversight name is an
+        // irreversible ProfilePermit carrier — the ONLY shape the gate
+        // composition in authorize_call actually reaches (a GrantAlways
+        // or non-carrier name in the roster would bypass the approval
+        // check and this test reddens loudly — no silent shelves).
+        for name in HUMAN_OVERSIGHT {
+            let d = disposition(name)
+                .unwrap_or_else(|| panic!("{name}: the roster name must be a disposed carrier"));
+            assert_eq!(
+                d,
+                Disposition::ProfilePermit,
+                "{name}: the class composition must stay reachable by the authorize_call tail"
+            );
+            let class = crate::builtins_classification::classify(name)
+                .unwrap_or_else(|| panic!("{name}: must be classified"));
+            assert_eq!(
+                class.reversibility,
+                crate::builtins_classification::Reversibility::Irreversible,
+                "{name}: the oversight class rides on irreversible carriers"
+            );
+        }
+        assert!(!HUMAN_OVERSIGHT.is_empty(), "the class must not be vacuous");
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn the_gate_refuses_without_a_mandate_and_passes_with_one() {
+        mandate_store_reset();
+        // fail-closed: no mandate → the loud refusal with the remedy.
+        let err = authorize_overseen_call("cron_run").unwrap_err();
+        assert!(err.starts_with("IRREVERSIBLE_NO_GRANT"), "got: {err}");
+        assert!(err.contains("approval_issue"), "got: {err}");
+        assert!(err.contains("carrier:cron_run"), "got: {err}");
+        // a mandate over a foreign target does NOT cover the carrier.
+        mandate_issue("owner", "carrier:other", 600).unwrap();
+        assert!(authorize_overseen_call("cron_run").is_err());
+        // the mandate over the carrier target passes.
+        mandate_issue("owner", "carrier:cron_run", 600).unwrap();
+        assert!(authorize_overseen_call("cron_run").is_ok());
+        // the mandate store resets clean (the harness seam).
+        mandate_store_reset();
+        assert!(authorize_overseen_call("cron_run").is_err());
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn a_revoked_mandate_stops_covering_the_carrier() {
+        mandate_store_reset();
+        mandate_issue("owner", "carrier:cron_run", 600).unwrap();
+        assert!(authorize_overseen_call("cron_run").is_ok());
+        assert_eq!(mandate_revoke("carrier:cron_run").unwrap(), 1);
+        assert!(authorize_overseen_call("cron_run").is_err());
+        assert_eq!(mandate_revoke("carrier:cron_run").unwrap(), 0, "idempotent");
+        mandate_store_reset();
     }
 }

@@ -100,7 +100,7 @@ zeroize = "1"
 ed25519-dalek = "3"
 
 # Phase 7.4: Real sessions & CSRF
-rusqlite = { version = "0.40", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
 
 # Наряд №272 (ADR-0134): sqlite-vec 0.1.9 (asg017, MIT) — KNN-ускоритель
 # semantic recall поверх rusqlite. Статическая регистрация через

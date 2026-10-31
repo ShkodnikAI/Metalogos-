@@ -967,6 +967,7 @@ owner's ADR gate.
 | PASSPORT_FRESH — the 8D-1 machine fact (№841) | 10000 bp |
 | GRANT_COVERAGE — the 8B-1 machine fact (№846) | 10000 bp |
 | SEMA_EXTERNAL — the 8F-1 machine fact (№857) | 3 |
+| APPROVAL_COVERAGE — the 8B-2 machine fact (№862) | 10000 bp |
 <!-- END GENERATED NUMBERS -->
 
 ## Acceptance criteria (public part of the methodology)

@@ -61,6 +61,21 @@ MCP_SERVER_RS = REPO / "metalogos-server" / "src" / "mcp_server.rs"
 # silently (the №846 discipline, verbatim).
 GATE_035_GOALS = REPO / "scripts" / "ci" / "gate_035_goals.txt"
 SEMA_EXTERNAL_FLOOR_OWNER = 1
+
+# №862 (wave 75 — W-D): the 8B-2 machine fact — APPROVAL_COVERAGE with
+# its own only-up floor file. The floor VALUE 10000 bp = 100.00% is the
+# plan §23 number (the owner revision R38 fixed the 0.38 gate: C11,
+# APPROVAL_COVERAGE 10000 bp). The definition lives in ADR-0205 §4: the
+# share of the human-oversight carriers covered by the fail-closed
+# approval gate (№861) — counted over the LIVE registry (the roster is
+# the explicit registry transaction in src/approval.rs; the gate's
+# composition site in capability.rs is the wiring the counter demands —
+# the fact rides with its checker, №735). The checker pins the owner
+# constant: the gate file can RAISE the floor, never lower it silently
+# (the №846 discipline, verbatim).
+GATE_036_GOALS = REPO / "scripts" / "ci" / "gate_036_goals.txt"
+APPROVAL_COVERAGE_FLOOR_OWNER_BP = 10000
+APPROVAL_RS = REPO / "src" / "approval.rs"
 CI_YML = REPO / ".github" / "workflows" / "ci.yml"
 POLICY_ACTION_YML = REPO / "action.yml"
 FACADE_TOML = REPO / "refusal-wasm" / "Cargo.toml"
@@ -544,6 +559,66 @@ def load_floors_strict(path: Path) -> dict[str, int]:
     return floors
 
 
+# ── №862 (wave 75 — W-D, ADR-0205 §4): the APPROVAL_COVERAGE machine ──
+
+def _human_oversight_roster(content: str | None = None) -> list[str]:
+    """The wave-75 human-oversight roster (№861): the EXPLICIT registry
+    transaction in src/approval.rs — the machine source the Rust
+    totality test pins against the classification (a name here that is
+    not a classified Irreversible carrier reddens the Rust test AND
+    lowers this coverage — no silent shelves)."""
+    if content is None:
+        content = APPROVAL_RS.read_text(encoding="utf-8")
+    try:
+        start = content.index("pub const HUMAN_OVERSIGHT")
+        block = content[start:]
+        block = block[: block.index("];")]
+        return re.findall(r'"([a-z0-9_]+)"', block)
+    except ValueError:
+        return []
+
+
+def _approval_gate_composition_site(content: str | None = None) -> bool:
+    """The gate's composition site (№861): the approval decision is
+    composed INSIDE capability::authorize_call — the ONE decision
+    surface both backends dispatch through (TW invoke/QualifiedCall/
+    FnCall + VM call_builtin). If the composition is removed, NO roster
+    carrier is gated — the coverage reads 0 (the gate working, not a
+    pass)."""
+    if content is None:
+        content = CAPABILITY_RS.read_text(encoding="utf-8")
+    return "crate::approval::authorize_overseen_call(name)" in content
+
+
+def approval_coverage_bp(
+    roster: list[str] | None = None,
+    classification: list[str] | None = None,
+    composition_site: bool | None = None,
+) -> int:
+    """APPROVAL_COVERAGE — the share of the human-oversight carriers
+    covered by the fail-closed approval gate, bps (№862, ADR-0205 §4).
+
+    Numerator: the roster names that are CLASSIFIED Irreversible
+    carriers, counted only when the gate's composition site is in
+    place. Denominator: the whole roster. An empty roster is 0 bp (a
+    vacuous class is a gate failure, never a pass); a roster name
+    outside the classification is UNCOVERED (a forged name lowers the
+    coverage — the machine source is the classification, never the
+    roster alone)."""
+    if roster is None:
+        roster = _human_oversight_roster()
+    if classification is None:
+        classification = _irreversible_carriers()
+    if composition_site is None:
+        composition_site = _approval_gate_composition_site()
+    total = len(roster)
+    if total == 0 or not composition_site:
+        return 0
+    classified = set(classification)
+    covered = sum(1 for name in roster if name in classified)
+    return covered * 10000 // total
+
+
 def tamper_test() -> int:
     """The RED harness (№841): the checkers MUST catch the fabricated
     records. Every trap asserts the floor DROPS under the tamper —
@@ -708,6 +783,72 @@ def tamper_test() -> int:
         )
         return 1
 
+    # ── №862 traps: the APPROVAL_COVERAGE machine catches the tamper ──
+    good_approval = APPROVAL_RS.read_text(encoding="utf-8")
+    full_appr = approval_coverage_bp()
+    if full_appr != APPROVAL_COVERAGE_FLOOR_OWNER_BP:
+        print(
+            "tamper-test: TRAP FAILED — the approval coverage is not at the owner floor "
+            f"({full_appr} bp != {APPROVAL_COVERAGE_FLOOR_OWNER_BP} bp): the roster or "
+            "the gate composition drifted (fix the gate, never the floor)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 12 (the placeholder/roster-substitution class): a roster name
+    # replaced with a FORGED name (not in the classification) lowers the
+    # coverage — the machine source is the classification, never the
+    # roster alone.
+    stub_appr = good_approval.replace('"cron_run"', '"cron_run_fake"', 1)
+    if stub_appr == good_approval:
+        print(
+            "tamper-test: TRAP FAILED — the HUMAN_OVERSIGHT roster anchor drifted",
+            file=sys.stderr,
+        )
+        return 1
+    if approval_coverage_bp(roster=_human_oversight_roster(stub_appr)) >= full_appr:
+        print(
+            "tamper-test: TRAP FAILED — the forged roster name did NOT lower APPROVAL_COVERAGE",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 13 (the deletion class): the gate's composition site removed
+    # zeroes the coverage — the class is uncovered (the silent-bypass
+    # class of №846 Trap 6).
+    if approval_coverage_bp(composition_site=False) != 0:
+        print(
+            "tamper-test: TRAP FAILED — the removed composition site did NOT zero APPROVAL_COVERAGE",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 14 (the definition-substitution control): a counter that
+    # counted by roster EXISTENCE alone would stay at the floor with an
+    # EMPTY classification — the real one reads the classification and
+    # reports 0 (the fact is checked, not declared).
+    if approval_coverage_bp(classification=[]) != 0:
+        print(
+            "tamper-test: TRAP FAILED — the counter answered without the classification "
+            "check (the definition was substituted)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 15 (the negative control (б), the №846/№857 form): the
+    # gate_036 floor LOWERED below the owner constant is a loud refusal
+    # (the floor is only-up — plan §23, revision R38).
+    appr_strict = load_floors_strict(GATE_036_GOALS)
+    appr_value = appr_strict.get("goal_approval_coverage_bp")
+    if appr_value is None or appr_value < APPROVAL_COVERAGE_FLOOR_OWNER_BP:
+        print(
+            "tamper-test: TRAP FAILED — the gate_036 floor is below the owner constant "
+            f"(plan §23, revision R38: {APPROVAL_COVERAGE_FLOOR_OWNER_BP} bp) — "
+            "the lowering is refused",
+            file=sys.stderr,
+        )
+        return 1
+
     # The twin pin: the Python window equals the №842 Rust constant.
     rust = (REPO / "src" / "model_passport.rs").read_text(encoding="utf-8")
     m = re.search(r"PASSPORT_FRESHNESS_DAYS: i64 = (\d+)", rust)
@@ -721,7 +862,8 @@ def tamper_test() -> int:
 
     print(
         "tamper-test: OK — the checkers catch the fabricated records "
-        f"(LICENSED_FLOOR {full_lic} bp, PASSPORT_FRESH {full_pass} bp; the traps lowered both)"
+        f"(LICENSED_FLOOR {full_lic} bp, PASSPORT_FRESH {full_pass} bp, "
+        f"APPROVAL_COVERAGE {full_appr} bp; the traps lowered all)"
     )
     return 0
 
@@ -829,6 +971,7 @@ def plan_summary_block() -> str:
         f"| PASSPORT_FRESH — the 8D-1 machine fact (№841) | {passport_fresh_bp()} bp |\n"
         f"| GRANT_COVERAGE — the 8B-1 machine fact (№846) | {grant_coverage_bp()} bp |\n"
         f"| SEMA_EXTERNAL — the 8F-1 machine fact (№857) | {sema_external()['count']} |\n"
+        f"| APPROVAL_COVERAGE — the 8B-2 machine fact (№862) | {approval_coverage_bp()} bp |\n"
     )
 
 
@@ -1034,6 +1177,50 @@ def main() -> int:
             f"(gate_035 floor {sema_floor}, only-up) — counted: "
             f"{', '.join(sema['counted']) or 'none'}; not counted yet: "
             f"{'; '.join(sema['skipped']) or 'none'}"
+        )
+
+    # №862: the APPROVAL_COVERAGE floor twin (the only-up gate_036) —
+    # the STRICT loader (fail-closed on a missing/empty/corrupted file)
+    # and the owner-pinned lowering refusal (the plan §23 floor can
+    # rise, never fall). The report names the roster and the gate
+    # composition state (the №468 honest form).
+    if check:
+        try:
+            appr_floors = load_floors_strict(GATE_036_GOALS)
+        except ValueError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        appr_floor = appr_floors.get("goal_approval_coverage_bp")
+        if appr_floor is None:
+            print(
+                "ERROR: gate_036_goals.txt carries no goal_approval_coverage_bp floor",
+                file=sys.stderr,
+            )
+            return 2
+        if appr_floor < APPROVAL_COVERAGE_FLOOR_OWNER_BP:
+            print(
+                "FLOOR LOWERING REFUSED: gate_036 "
+                f"({appr_floor} bp) is below the owner constant "
+                f"({APPROVAL_COVERAGE_FLOOR_OWNER_BP} bp — plan §23, revision R38); "
+                "the floor is only-up — the change is an explicit owner transaction",
+                file=sys.stderr,
+            )
+            return 1
+        appr_cov = approval_coverage_bp()
+        if appr_cov < appr_floor:
+            print(
+                f"FLOOR BREACH: APPROVAL_COVERAGE {appr_cov} bp < the gate_036 floor {appr_floor} bp "
+                "(only-up) — a human-oversight carrier landed WITHOUT the approval gate "
+                "(keep the roster total over the classification and the composition "
+                "site in capability.rs — never a silent gate edit)",
+                file=sys.stderr,
+            )
+            return 1
+        print(
+            f"OK: the №862 floor holds — APPROVAL_COVERAGE {appr_cov} bp "
+            f"(gate_036 floor {appr_floor} bp, only-up) — roster: "
+            f"{', '.join(_human_oversight_roster()) or 'none'}; "
+            f"composition site: {'present' if _approval_gate_composition_site() else 'MISSING'}"
         )
 
     # №841: the RED harness (the tamper traps) — an explicit mode, run by

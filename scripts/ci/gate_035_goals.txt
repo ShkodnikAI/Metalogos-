@@ -1,0 +1,33 @@
+# gate_035_goals.txt — the wave-74 W-C machine-fact floor (naryad №857)
+# =============================================================================
+# The №857 floor file: the ONLY-UP gate over the 8F-1 machine fact —
+# the same discipline as the gate_034 goal record (№846) and the
+# gate_033 goals (№841). The floor value is the plan §23 number (the
+# owner revision R38, 2026-10-28):
+# 0.37 = 8F-1 (C6, SEMA_EXTERNAL ≥ 1) — the point was accepted by the
+# owner at the revision, no further decision is needed at the naryad
+# level.
+#
+# The fact and its machine source (the --check twin):
+#   goal_sema_external_owner   sema_external()   — the externally
+#                            consumable artifacts of the Portable
+#                            Refusal Algebra that EXIST AND ARE LIVE
+#                            on main (ADR-0204 §5): the WASM facade
+#                            (the crate + the live ci.yml build job +
+#                            the host smoke step), the reusable
+#                            policy-check Action (action.yml + the
+#                            live ci.yml dogfood job), the spec page
+#                            (docs/spec/refusal-algebra.md + the
+#                            Topics row + the S-RA conformance pairs,
+#                            №858). Every candidate counts ONLY on the
+#                            real existence check + the live blocking-
+#                            CI wiring — no self-declaration.
+#
+# A floor breach is a CI failure: a live artifact disappeared (or its
+# blocking-CI wiring was cut) — restore the artifact, never edit the
+# floor. The floor is ONLY-UP: the checker pins the plan §23 constant —
+# a lowering edit in this file is refused loudly (the №776 transaction
+# discipline; the re-pin is an owner decision).
+# Format: <goal-name> <floor-value> — one per line, # comments.
+
+goal_sema_external_owner 1

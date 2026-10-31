@@ -1,0 +1,40 @@
+// S-RA-001 (№858, ADR-0204 §7): a handled runtime refusal DEGRADES the
+// refused call to Unit, execution CONTINUES, and the refused action
+// never executes. The N(1) grant meters ONE destructive delete; the
+// second granted call refuses (the IRREVERSIBLE_NO_GRANT cause — the
+// typed GRANT_EXHAUSTED detail rides the event's `human` field, №390),
+// the on_deny(db) handler matches the reason over the FULL frozen
+// 14-word vocabulary (the analyzer enforces exhaustiveness), and the
+// pattern returns normally. The Portable Refusal Algebra (№854) backs
+// this surface: the same cause renders byte-identically on both
+// backends.
+on_deny(db) {
+  match deny_reason() {
+    "VOICE_EGRESS_UNCONSENTED" then { print("deny:VOICE_EGRESS_UNCONSENTED") }
+    "IRREVERSIBLE_NO_GRANT" then { print("deny:IRREVERSIBLE_NO_GRANT") }
+    "UNTRUSTED_EXEC_DECISION" then { print("deny:UNTRUSTED_EXEC_DECISION") }
+    "SECRET_TO_EXEC" then { print("deny:SECRET_TO_EXEC") }
+    "SECRET_EGRESS_VCS" then { print("deny:SECRET_EGRESS_VCS") }
+    "SECRET_EGRESS_NETWORK" then { print("deny:SECRET_EGRESS_NETWORK") }
+    "PII_EGRESS_NETWORK" then { print("deny:PII_EGRESS_NETWORK") }
+    "PII_EGRESS_OUTPUT" then { print("deny:PII_EGRESS_OUTPUT") }
+    "UNTRUSTED_EGRESS_NETWORK" then { print("deny:UNTRUSTED_EGRESS_NETWORK") }
+    "UNTRUSTED_FILE_PATH" then { print("deny:UNTRUSTED_FILE_PATH") }
+    "SINK_CLEARANCE" then { print("deny:SINK_CLEARANCE") }
+    "HTML_INJECTION" then { print("deny:HTML_INJECTION") }
+    "TAINT_PERSISTENCE" then { print("deny:TAINT_PERSISTENCE") }
+    "SECRET_LEAK" then { print("deny:SECRET_LEAK") }
+  }
+}
+
+db { url: "sqlite::memory:" }
+
+pattern p(_t: String) -> String {
+  db_execute("CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY, user TEXT)")
+  db_execute("INSERT INTO notes (user) VALUES ('alice')")
+  let g = grant_issue("db:delete:notes", 60, "n", 1)
+  let first = db_execute_with_grant(g, "DELETE FROM notes WHERE user = 'alice'")
+  let second = db_execute_with_grant(g, "DELETE FROM notes")
+  return "first=" + first + "|degraded=" + type_of(second)
+}
+flow Main { input: String = "go" -> p -> output }

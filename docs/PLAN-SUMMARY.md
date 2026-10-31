@@ -114,6 +114,22 @@ MINOR), №639 (15.10) / №648 (01.12) outside the wave.
 
 ## Current wave — the open machine tail (2026-10-23)
 
+Wave 74 EXECUTED (the dispatch gh#1684 — the 8F-1 subphase, the 0.37 =
+C6 "Portable Refusal Algebra" line): №853 → №854 → №855 → №856 → №857 →
+№858 (strictly last). The phase line: ADR-0204 — the refusal is a value
+of a finite lattice over the frozen deny-reason vocabulary (ADR before
+the code, the codes BY REFERENCE to the frozen №385/ADR-0169 set); the
+algebra in code with the 1:1 DenyEvent migration (the event surface and
+the Ledger records byte-identical); the WASM contour (the dependency-
+free kernel facade for wasm32-unknown-unknown behind the C-ABI/JSON
+boundary + the host smoke consumer in blocking CI); the reusable
+`policy-check` Action with the blocking dogfood (the living external
+consumer); the SEMA_EXTERNAL machine fact with the gate_035 only-up
+floor ≥ 1 (the plan §23 number); the spec topic 7 with the conformance
+pairs on both backends and the honest-limits section. The machine
+record: the generated §6.74 (the verbatim counters, the merge-CI
+verdicts).
+
 Wave 72 EXECUTED (the dispatch gh#1666 — the 8B-1 subphase, the 0.36 =
 C2 "Capability/Grant Runtime" line): №843 → №844 → №845 → №846 → №847 →
 №848 (strictly last). The phase line: the typed capability token
@@ -950,6 +966,7 @@ owner's ADR gate.
 | LICENSED_FLOOR — the 8D-1 machine fact (№841) | 10000 bp |
 | PASSPORT_FRESH — the 8D-1 machine fact (№841) | 10000 bp |
 | GRANT_COVERAGE — the 8B-1 machine fact (№846) | 10000 bp |
+| SEMA_EXTERNAL — the 8F-1 machine fact (№857) | 3 |
 <!-- END GENERATED NUMBERS -->
 
 ## Acceptance criteria (public part of the methodology)

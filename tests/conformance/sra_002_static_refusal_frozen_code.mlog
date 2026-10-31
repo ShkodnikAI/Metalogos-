@@ -1,0 +1,15 @@
+// S-RA-002 (№858, ADR-0204 §7): the refusal codes are the FROZEN stable
+// codes (№385/ADR-0169) — the static Once-linearity gate refuses the
+// second consumption of a Once grant with [GRANT_REUSED] at position 0
+// on BOTH backends (the machine consumers read the class, not the
+// prose). The Portable Refusal Algebra (№854) aggregates the frozen
+// codes; it never extends them (ADR-0204 §6 — no new codes).
+db { url: "sqlite::memory:" }
+
+pattern p(_t: String) -> String {
+  let g = grant_issue("db:delete:users", 3600)
+  let a = db_execute_with_grant(g, "DELETE FROM users WHERE id = 1")
+  let b = db_execute_with_grant(g, "DELETE FROM users WHERE id = 2")
+  return a
+}
+flow Main { input: String = "go" -> p -> output }

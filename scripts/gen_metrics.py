@@ -49,6 +49,25 @@ CAPABILITY_RS = REPO / "src" / "capability.rs"
 BUILTINS_CLASSIFICATION_RS = REPO / "src" / "builtins_classification.rs"
 MCP_SERVER_RS = REPO / "metalogos-server" / "src" / "mcp_server.rs"
 
+# №857 (wave 74 — W-C): the 8F-1 machine fact — SEMA_EXTERNAL with its
+# own only-up floor file. The floor VALUE 1 is the plan §23 number (the
+# owner revision R38 fixed the 0.37 gate: SEMA_EXTERNAL ≥ 1). The
+# definition lives in ADR-0204 §5: the number of EXTERNALLY consumable
+# artifacts of the Portable Refusal Algebra that EXIST AND ARE LIVE on
+# main — each counted ONLY on a real existence check plus a live wiring
+# in the blocking CI workflow (no self-declaration; the tamper traps
+# below prove the counter catches placeholders). The checker pins the
+# owner constant: the gate file can RAISE the floor, never lower it
+# silently (the №846 discipline, verbatim).
+GATE_035_GOALS = REPO / "scripts" / "ci" / "gate_035_goals.txt"
+SEMA_EXTERNAL_FLOOR_OWNER = 1
+CI_YML = REPO / ".github" / "workflows" / "ci.yml"
+POLICY_ACTION_YML = REPO / "action.yml"
+FACADE_TOML = REPO / "refusal-wasm" / "Cargo.toml"
+SPEC_ALGEBRA_PAGE = REPO / "docs" / "spec" / "refusal-algebra.md"
+SPEC_README = REPO / "docs" / "spec" / "README.md"
+CONFORMANCE_DIR = REPO / "tests" / "conformance"
+
 # №841 (gh#1643, wave 71 — W-A): the 8D-1 machine facts — the wave's
 # freshness window, the PYTHON TWIN of the №842 Rust constant
 # (src/model_passport.rs::PASSPORT_FRESHNESS_DAYS). The two must move
@@ -402,6 +421,98 @@ def grant_coverage_bp(
     return covered * 10000 // total
 
 
+# ── №857 (wave 74 — W-C, ADR-0204 §5): the SEMA_EXTERNAL machine ───────
+
+def _sra_conformance_pairs(directory: Path | None = None) -> list[str]:
+    """The topic-7 conformance pairs (the S-RA-*.mlog stems) — the spec
+    page counts ONLY with its checked-in pairs (ADR-0204 §5/§7)."""
+    directory = directory or CONFORMANCE_DIR
+    if not directory.exists():
+        return []
+    return sorted(
+        p.stem for p in directory.iterdir() if p.suffix == ".mlog" and p.stem.startswith("sra_")
+    )
+
+
+def sema_external(
+    ci_content: str | None = None,
+    facade_toml: str | None = None,
+    action_yml: str | None = None,
+    spec_page: str | None = None,
+    spec_readme: str | None = None,
+    sra_pairs: list[str] | None = None,
+) -> dict:
+    """SEMA_EXTERNAL — the number of externally consumable artifacts of
+    the Portable Refusal Algebra that EXIST AND ARE LIVE on main
+    (ADR-0204 §5).
+
+    Candidates (the three legs of the external artifact, R38):
+      (а) the WASM facade: the crate exists AND the ci.yml build job is
+          active AND the host smoke-consumer step is wired;
+      (б) the reusable Action: action.yml exists AND the ci.yml
+          dogfood job is wired (the living external consumer);
+      (в) the spec page: docs/spec/refusal-algebra.md exists AND the
+          Topics table references it AND the S-RA conformance pairs are
+          checked in (№858).
+
+    Every candidate counts ONLY when BOTH sides hold — the artifact AND
+    the live blocking-CI wiring. All inputs are parameterized so the
+    tamper traps can prove the counter catches placeholders, deletions
+    and definition substitutions without touching the real tree.
+    """
+    if ci_content is None:
+        ci_content = CI_YML.read_text(encoding="utf-8")
+    if facade_toml is None:
+        facade_toml = FACADE_TOML.read_text(encoding="utf-8") if FACADE_TOML.exists() else None
+    if action_yml is None:
+        action_yml = POLICY_ACTION_YML.read_text(encoding="utf-8") if POLICY_ACTION_YML.exists() else None
+    if spec_page is None:
+        spec_page = SPEC_ALGEBRA_PAGE.read_text(encoding="utf-8") if SPEC_ALGEBRA_PAGE.exists() else None
+    if spec_readme is None:
+        spec_readme = SPEC_README.read_text(encoding="utf-8") if SPEC_README.exists() else None
+    if sra_pairs is None:
+        sra_pairs = _sra_conformance_pairs()
+    counted: list[str] = []
+    skipped: list[str] = []
+    # (а) the WASM facade — the crate + the live build job + the smoke.
+    if (
+        facade_toml is not None
+        and "wasm-facade" in ci_content
+        and "wasm32-unknown-unknown" in ci_content
+        and "refusal-wasm/smoke.mjs" in ci_content
+    ):
+        counted.append("wasm-facade")
+    else:
+        skipped.append("wasm-facade (needs the crate + the live ci.yml build job + the smoke step)")
+    # (б) the reusable Action — action.yml + the live dogfood job.
+    if (
+        action_yml is not None
+        and "policy-check" in action_yml
+        and "policy-check-dogfood" in ci_content
+        and "uses: ./" in ci_content
+    ):
+        counted.append("policy-check action")
+    else:
+        skipped.append("policy-check action (needs action.yml + the live ci.yml dogfood job)")
+    # (в) the spec page — the topic + the Topics-table row + the pairs,
+    # RUN LIVE by the blocking conformance job (the pairs without a live
+    # runner are a static file, not a proof).
+    if (
+        spec_page is not None
+        and spec_readme is not None
+        and "refusal-algebra.md" in spec_readme
+        and sra_pairs
+        and "conformance (blocking)" in ci_content
+    ):
+        counted.append("spec page")
+    else:
+        skipped.append(
+            "spec page (needs docs/spec/refusal-algebra.md + the Topics row "
+            "+ the S-RA pairs + the live conformance (blocking) runner)"
+        )
+    return {"count": len(counted), "counted": counted, "skipped": skipped}
+
+
 def load_floors_strict(path: Path) -> dict[str, int]:
     """The №846 strict loader (fail-closed, the negative control (а)):
     a missing/empty file is a loud refusal, and EVERY non-comment line
@@ -534,6 +645,69 @@ def tamper_test() -> int:
         )
         return 1
 
+    # ── №857 traps: the SEMA_EXTERNAL machine catches the tamper ──────
+    good_ci = CI_YML.read_text(encoding="utf-8")
+    full_sema = sema_external()
+    if full_sema["count"] < SEMA_EXTERNAL_FLOOR_OWNER:
+        print(
+            "tamper-test: TRAP FAILED — SEMA_EXTERNAL is below the owner floor on the "
+            f"clean tree ({full_sema['count']} < {SEMA_EXTERNAL_FLOOR_OWNER}): the wave "
+            "artifacts drifted (fix the artifacts, never the floor)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 8 (the placeholder class): the facade file WITHOUT the live
+    # ci.yml wiring is NOT counted — a file is not an adoption.
+    no_wasm_job = "\n".join(
+        line for line in good_ci.splitlines() if "wasm-facade" not in line
+    )
+    if no_wasm_job == good_ci:
+        print("tamper-test: TRAP FAILED — the ci.yml wasm-facade anchor drifted", file=sys.stderr)
+        return 1
+    if sema_external(ci_content=no_wasm_job)["count"] >= full_sema["count"]:
+        print(
+            "tamper-test: TRAP FAILED — the placeholder facade (no live ci.yml job) "
+            "was COUNTED — the self-declaration hole is open",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 9 (the deletion class): an action.yml stripped of the
+    # policy-check surface (the deleted/gutted file) lowers the count —
+    # the gate reddens while the floor stands. (The empty string IS the
+    # deleted-file simulation: None would mean "load the real file".)
+    if sema_external(action_yml="")["count"] >= full_sema["count"]:
+        print(
+            "tamper-test: TRAP FAILED — the stripped action.yml did NOT lower SEMA_EXTERNAL",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 10 (the definition-substitution control): a counter that
+    # counted by file EXISTENCE alone would report a nonzero number
+    # with all artifacts present but NO live CI wiring — the real one
+    # reports 0 (the existence check is actually wired, not declared).
+    if sema_external(ci_content="")["count"] != 0:
+        print(
+            "tamper-test: TRAP FAILED — the counter answered without the live-CI "
+            "existence check (the definition was substituted)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 11 (the negative control (б), the №846 form): the gate_035
+    # floor LOWERED below the owner constant is a loud refusal.
+    sema_strict = load_floors_strict(GATE_035_GOALS)
+    sema_value = sema_strict.get("goal_sema_external_owner")
+    if sema_value is None or sema_value < SEMA_EXTERNAL_FLOOR_OWNER:
+        print(
+            "tamper-test: TRAP FAILED — the gate_035 floor is below the owner constant "
+            f"(plan §23, revision R38: {SEMA_EXTERNAL_FLOOR_OWNER}) — the lowering is refused",
+            file=sys.stderr,
+        )
+        return 1
+
     # The twin pin: the Python window equals the №842 Rust constant.
     rust = (REPO / "src" / "model_passport.rs").read_text(encoding="utf-8")
     m = re.search(r"PASSPORT_FRESHNESS_DAYS: i64 = (\d+)", rust)
@@ -587,6 +761,7 @@ def full_block() -> str:
         f"| LICENSED_FLOOR (the 8D-1 machine fact, №841) | {licensed_floor_bp()} bp — the license class explicit + the license_note filled over the backend registry (ADR-0163/ADR-0202 terms) |\n"
         f"| PASSPORT_FRESH (the 8D-1 machine fact, №841) | {passport_fresh_bp()} bp — the passports fresh within the {PASSPORT_FRESHNESS_DAYS}-day verification window (the №842 rule) |\n"
         f"| GRANT_COVERAGE (the 8B-1 machine fact, №846) | {grant_coverage_bp()} bp — the irreversible carriers whose rights decision passes the capability layer (ADR-0203 §2.7; the gate_034 floor) |\n"
+        f"| SEMA_EXTERNAL (the 8F-1 machine fact, №857) | {sema_external()['count']} — the live external-consumption artifacts of the Portable Refusal Algebra (ADR-0204 §5; the gate_035 only-up floor ≥ 1): {', '.join(sema_external()['counted']) or 'none yet'} |\n"
     )
 
 
@@ -653,6 +828,7 @@ def plan_summary_block() -> str:
         f"| LICENSED_FLOOR — the 8D-1 machine fact (№841) | {licensed_floor_bp()} bp |\n"
         f"| PASSPORT_FRESH — the 8D-1 machine fact (№841) | {passport_fresh_bp()} bp |\n"
         f"| GRANT_COVERAGE — the 8B-1 machine fact (№846) | {grant_coverage_bp()} bp |\n"
+        f"| SEMA_EXTERNAL — the 8F-1 machine fact (№857) | {sema_external()['count']} |\n"
     )
 
 
@@ -813,6 +989,51 @@ def main() -> int:
         print(
             f"OK: the №846 floor holds — GRANT_COVERAGE {coverage} bp "
             f"(gate_034 floor {floor} bp)"
+        )
+
+    # №857: the SEMA_EXTERNAL floor twin (the only-up gate_035) — the
+    # STRICT loader (fail-closed on a missing/empty/corrupted file) and
+    # the owner-pinned lowering refusal (the plan §23 floor can rise,
+    # never fall). The report carries the honest composition — WHAT
+    # exactly is counted (the №468 form): the counted artifacts, and
+    # the candidates still missing their live wiring.
+    if check:
+        try:
+            sema_floors = load_floors_strict(GATE_035_GOALS)
+        except ValueError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        sema_floor = sema_floors.get("goal_sema_external_owner")
+        if sema_floor is None:
+            print(
+                "ERROR: gate_035_goals.txt carries no goal_sema_external_owner floor",
+                file=sys.stderr,
+            )
+            return 2
+        if sema_floor < SEMA_EXTERNAL_FLOOR_OWNER:
+            print(
+                "FLOOR LOWERING REFUSED: gate_035 "
+                f"({sema_floor}) is below the owner constant "
+                f"({SEMA_EXTERNAL_FLOOR_OWNER} — plan §23, revision R38); "
+                "the floor is only-up — the change is an explicit owner transaction",
+                file=sys.stderr,
+            )
+            return 1
+        sema = sema_external()
+        if sema["count"] < sema_floor:
+            print(
+                f"FLOOR BREACH: SEMA_EXTERNAL {sema['count']} < the gate_035 floor {sema_floor} "
+                "(only-up) — a live external-consumption artifact of the Portable "
+                "Refusal Algebra disappeared (restore the crate/action/spec page "
+                "or its blocking-CI wiring — never a silent floor edit)",
+                file=sys.stderr,
+            )
+            return 1
+        print(
+            f"OK: the №857 floor holds — SEMA_EXTERNAL {sema['count']} "
+            f"(gate_035 floor {sema_floor}, only-up) — counted: "
+            f"{', '.join(sema['counted']) or 'none'}; not counted yet: "
+            f"{'; '.join(sema['skipped']) or 'none'}"
         )
 
     # №841: the RED harness (the tamper traps) — an explicit mode, run by

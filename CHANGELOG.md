@@ -6,6 +6,104 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№853–№858 (Wave 74, P1/P2 — the 8F-1 subphase, the C6
+  "Portable Refusal Algebra" line, ADR-0204):** the refusal becomes a
+  portable VALUE. №853 — ADR-0204 before the code: the refusal is a
+  value of a finite lattice over the frozen 14-word `DENY_REASONS`
+  vocabulary (№392), `join` = the more severe cause / `meet` = the less
+  severe, the verdict `Allow | Deny { code, cause }` with the frozen
+  codes BY REFERENCE (№385/ADR-0169 — no new codes); the
+  portable-kernel boundary (in: the lattice, the codes, the verdict,
+  the JSON rendering; out: IO, the Ledger, the network, the language
+  compiler) and the `SEMA_EXTERNAL` machine-fact definition. №854 — the
+  algebra in code: `src/refusal_algebra.rs` (the dependency-free SSOT —
+  the vocabulary table moves there, `deny.rs` re-exports it), the
+  `DenyEvent` construction migrated 1:1 through the algebra (the same
+  events, the same Ledger records — the parity test pins all 14 words
+  byte-identical; the ledger-golden and conformance suites green with
+  zero golden edits). №855 — the WASM contour: the `refusal-wasm`
+  facade compiles the SAME dependency-free kernel source for
+  `wasm32-unknown-unknown` behind a C-ABI/JSON boundary
+  (`rw_alloc`/`rw_eval`/`rw_reset`, the JSON verdict contract); the
+  `wasm-facade (blocking)` CI job builds it and the host smoke consumer
+  (`node refusal-wasm/smoke.mjs` — no Rust in the loop) drives it on
+  every push. №856 — the reusable `policy-check` Action (the root
+  `action.yml`): any repository evaluates a refusal policy (a JSON of
+  lattice requests) through the algebra in its own CI; the outputs are
+  `verdict` + `code` (the join — the MOST severe cause — across the
+  denying requests, computed by the algebra itself); the
+  `policy-check-dogfood (blocking)` job is the living external consumer.
+  №857 — the machine fact: `SEMA_EXTERNAL` in `gen_metrics --check`
+  (the live external-consumption artifacts, each counted ONLY on the
+  real existence + the live blocking-CI wiring) with the gate_035
+  only-up floor ≥ 1 (the plan §23 number); the tamper traps catch the
+  placeholder, deletion and definition-substitution classes. №858 — the
+  spec topic 7 (`docs/spec/refusal-algebra.md`): the norms S-RA-001
+  (the handled refusal degrades, the refused action never executes) and
+  S-RA-002 (the frozen codes stamped at position 0) with the
+  conformance pairs on BOTH backends, the consumption contract
+  (WASM/Action/SEMA), the honest-limits section; the sanitized 0.37
+  phase line (this entry and the PLAN-SUMMARY row).
+
+## [0.36.0] - 2026-10-30
+
+The scheduled train (ADR-0189): the 0.36 window — the 8B-1 subphase
+of Phase 8 (the C2 «Capability/Grant Runtime» line, ADR-0203, the
+wave-72 naryads №843-№848). The honest-tag note: the №844-№847 code
+was already present in the 0.35.0 tree (the wave-72 merge preceded
+the 0.35.0 tag — the train order recorded in [0.35.0]); the 0.36.0
+tag differs from 0.35.0 by the version bump and this CHANGELOG row —
+0.36.0 is the first release whose notes document the capability
+token (the №497 rule: the notes and the changelog can never
+disagree).
+
+### Added
+
+- **№844–№847 (Wave 72, P1/P2 — the 8B-1 subphase, the C2
+  "Capability/Grant Runtime" line, ADR-0203):** the capability token
+  lands. №844 — the TYPED carrier: `grant_issue`/`grant_subgrant` mint
+  the read-only `Capability` view `{scope, class, ttl, quota, revoked,
+  grant}` over the grant ledger (the ledger stays the SSOT — the token
+  is an untrusted cache); the new `capability_state(c)` builtin is the
+  LIVE ledger view; every grant-argument extractor accepts both the
+  opaque Grant and the typed Capability (the 1:1 migration — existing
+  programs byte-unchanged). №845 — the coverage RULE: every
+  irreversible carrier passes the capability decision BEFORE the run on
+  both executors; the named standard baseline posture permits the
+  runtime-state and own-channel classes; the sharp set (exec, exec_argv,
+  delete_file, git_push, http_post, http_post_multipart, send_message,
+  send_photo, send_document, smtp_send, smtp_send_html, tts_send)
+  refuses without a covering capability grant (scope `builtin:<name>`),
+  an explicit `profile capability { allow_carrier: "..." }` permit, or
+  (exec) the host permit — the refusal rides the existing
+  `IRREVERSIBLE_NO_GRANT` deny class (the vocabulary stays 14); the
+  `memory_forget_cascade`/`forget` linear actions keep their
+  grant-always contract (no profile can weaken it). №846 — the machine
+  fact: `GRANT_COVERAGE` in `gen_metrics --check` with the gate_034
+  only-up floor `10000 bp` (the plan §23 number); the strict loader
+  refuses a corrupted floor file, the checker refuses a floor lowering.
+  №847 — the acceptance e2e: issue → use → revoke → deny with the
+  ordered Ledger golden (`examples/w72_capability_trace.mlog`), the
+  negatives (no grant / expired token / Once linearity / N(2) quota at
+  the gate) on both executors. The e2e surfaced the §2.2 consume
+  semantics: the gate's grant route consumes one use through the single
+  consume point (`grant_use`) — the Once/N quota is metered at the gate.
+
+
+## [0.35.0] - 2026-10-30
+
+The scheduled train (ADR-0189): the 0.35 window — the 8D-1 subphase
+of Phase 8 (the C4 «License-Typed Model Layer» line, ADR-0201 +
+ADR-0202, the wave-71 naryads №836-№842) plus the wave-68 feature
+rows that waited for the train (№823/№825/№826 — ADR-0200/ADR-0216,
+№824 — the CI hygiene fix). The train-reality note: the wave-72
+capability-token work (№844-№847) was merged to main BEFORE the
+0.35.0 tag was cut — the 0.35.0 binary carries that code, and its
+CHANGELOG row ships with [0.36.0] (the honest-notes rule: the notes
+and the changelog can never disagree, №497).
+
+### Added
+
 - **№826 (Wave 68, P1 — the W2′ metric registry, ADR-0216):** the
   `rollback_if` gate reads honest quality signals. `METRIC_REGISTRY`
   grows `macro_f1` and `min_class_recall` beside `accuracy` (the same
@@ -91,35 +189,38 @@ All notable changes to the Metalogos project.
   serve route lane's smart-router gap, the VM list-clone loop
   artifact) are recorded in the document, no behavior changed.
 
-- **№844–№847 (Wave 72, P1/P2 — the 8B-1 subphase, the C2
-  "Capability/Grant Runtime" line, ADR-0203):** the capability token
-  lands. №844 — the TYPED carrier: `grant_issue`/`grant_subgrant` mint
-  the read-only `Capability` view `{scope, class, ttl, quota, revoked,
-  grant}` over the grant ledger (the ledger stays the SSOT — the token
-  is an untrusted cache); the new `capability_state(c)` builtin is the
-  LIVE ledger view; every grant-argument extractor accepts both the
-  opaque Grant and the typed Capability (the 1:1 migration — existing
-  programs byte-unchanged). №845 — the coverage RULE: every
-  irreversible carrier passes the capability decision BEFORE the run on
-  both executors; the named standard baseline posture permits the
-  runtime-state and own-channel classes; the sharp set (exec, exec_argv,
-  delete_file, git_push, http_post, http_post_multipart, send_message,
-  send_photo, send_document, smtp_send, smtp_send_html, tts_send)
-  refuses without a covering capability grant (scope `builtin:<name>`),
-  an explicit `profile capability { allow_carrier: "..." }` permit, or
-  (exec) the host permit — the refusal rides the existing
-  `IRREVERSIBLE_NO_GRANT` deny class (the vocabulary stays 14); the
-  `memory_forget_cascade`/`forget` linear actions keep their
-  grant-always contract (no profile can weaken it). №846 — the machine
-  fact: `GRANT_COVERAGE` in `gen_metrics --check` with the gate_034
-  only-up floor `10000 bp` (the plan §23 number); the strict loader
-  refuses a corrupted floor file, the checker refuses a floor lowering.
-  №847 — the acceptance e2e: issue → use → revoke → deny with the
-  ordered Ledger golden (`examples/w72_capability_trace.mlog`), the
-  negatives (no grant / expired token / Once linearity / N(2) quota at
-  the gate) on both executors. The e2e surfaced the §2.2 consume
-  semantics: the gate's grant route consumes one use through the single
-  consume point (`grant_use`) — the Once/N quota is metered at the gate.
+- **№836-№842 (Wave 71, P1/P2 — the 8D-1 subphase, the C4
+  "License-Typed Model Layer" line, ADR-0201 + ADR-0202):** the model
+  passport lands. №836 — the through-line ADR: Phase 8 «Verifiable
+  Compliance & Trust», the train 0.35-0.47, the ADR booking 0201-0215
+  (the owner's R38 gate: the ADR ships after the 0.34.0 window).
+  №837 — the passport ADR: one typed artifact instead of the
+  scattered license-class / digest / provenance holders. №838 — the
+  CODE: `src/model_passport.rs` introduces the `ModelPassport` type
+  (identity, digest, license class + note, the freshness/verification
+  date) and migrates the two existing holders 1:1 —
+  `BackendEntry`/`WeightsFile`/`WeightsSource` (`src/backends.rs`) and
+  `WeightsManifest` (`src/vision/weights.rs`) — no behavior growth
+  (the №545 stop-list). №839 — the RULE: the license-class x profile
+  permit coupling on the compile path — `non-osi`/`restrictive`
+  backends load ONLY in a profile that explicitly permits the class,
+  the refusal happens BEFORE the run (fail-closed; the negative
+  controls ride the leak suite). №840 — the distillation firewall,
+  shadow-first (the owner decision R38(4)): the distill events (the
+  donor, the acceptor, the weights/passports involved) are observed
+  and logged, the contour is NON-blocking by construction until
+  validated — the №581 lesson (hardening without negative controls
+  breaks legitimate paths) is the design constraint. №841 — the
+  machine facts: `LICENSED_FLOOR` (the explicit-class + filled-note
+  share of the backend registry, bps) and `PASSPORT_FRESH` (the share
+  of the №838 passports within `PASSPORT_FRESHNESS_DAYS = 180`) in
+  `gen_metrics --check`, the gate_033 only-up floors. №842 — the
+  hygiene: the passport freshness/revocation reads are fail-closed
+  («passport digest mismatch» refuses; the re-pin goes through an
+  explicit update only — the G5 digest-pinning pattern, №828).
+  security: yes — the license-typed layer is a trust boundary of the
+  model supply chain; the default-deny posture `MODEL_WEIGHTS_UNSAFE`
+  (№334) stays, the rule adds the class dimension the posture lacked.
 
 ### Fixed
 
@@ -138,6 +239,7 @@ All notable changes to the Metalogos project.
   Script + driver test + the maintainers.md checklist move together
   (the №551 rule). security: no — the audit tooling hardening, no
   product security surface changes.
+
 
 ## [0.34.1] - 2026-10-29
 

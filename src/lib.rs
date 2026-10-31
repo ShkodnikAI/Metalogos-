@@ -15,6 +15,7 @@
 /// compatibility contract.
 pub const GRAMMAR_REV: u32 = 1;
 
+pub mod approval; // №860 (ADR-0205, wave 75 — W-D): the typed approval mandate — the pure carrier of the human consent/oversight decision over the grant contour
 pub mod ast;
 pub mod capability; // №844 (ADR-0203, wave 72 — W-B): the typed capability carrier — the read-only view over the grant ledger (the single consumption contract)
 use crate::audit::{audit_category_a, Severity};
@@ -45,7 +46,12 @@ pub mod likeness;
 // Naryad #392: DenyEvent — the typed deny-reason vocabulary + event
 // contract shared by the static gate, the TW interpreter and the VM.
 pub mod deny;
+// №854 (ADR-0204, wave 74 — W-C): the Portable Refusal Algebra — the
+// refusal as a VALUE of a finite lattice (join/meet over the frozen
+// №392 vocabulary); dependency-free by contract (ADR-0204 §3) so the
+// №855 WASM facade compiles this very source for wasm32.
 pub mod distill_hub;
+pub mod refusal_algebra;
 // Naryad #393 (ADR-0167): Action Ledger v1 — signed append-only journal
 // of actions (prev-hash chain + Ed25519 per-record signatures; the
 // in-toto/PROV export profile is ADR-0157). The external verifier

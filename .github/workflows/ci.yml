@@ -103,6 +103,67 @@ jobs:
 # the four (blocking) contexts from the required set, so the every-push copies
 # here were pure duplication (№809-move tail). No check is weakened.
 
+  # ── №855 (issue #1680, wave 74 — W-C): the WASM contour of the
+  # Portable Refusal Algebra (ADR-0204 §3/§4) — the dependency-free
+  # algebra facade builds for wasm32-unknown-unknown, the smoke
+  # consumer runs from the HOST (node only — no Rust in the consumption
+  # path). Blocking: the leg is one of the three SEMA_EXTERNAL
+  # artifacts (№857 counts it only while this job is live).
+  wasm-facade:
+    name: wasm-facade (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      # №445 wave-infra note: a cache failure is a performance loss,
+      # never a correctness signal.
+      - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          prefix-key: v2
+          key: wasm-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+      - name: Build the facade for wasm32-unknown-unknown
+        run: cargo build -p refusal-wasm --target wasm32-unknown-unknown --release
+      - name: Facade unit tests (the host rlib build)
+        run: cargo test -p refusal-wasm --lib
+      - name: Smoke consumption from the host (node — no Rust in the loop)
+        run: node refusal-wasm/smoke.mjs target/wasm32-unknown-unknown/release/refusal_wasm.wasm
+      - name: Upload the built facade artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: refusal-wasm-wasm32
+          path: target/wasm32-unknown-unknown/release/refusal_wasm.wasm
+
+  # ── №856 (issue #1681, wave 74 — W-C): the dogfood of the reusable
+  # `policy-check` Action (ADR-0204 §4) — the living external consumer:
+  # THIS repository runs its own sample policy through the algebra in
+  # its own CI. Blocking: the leg is one of the three SEMA_EXTERNAL
+  # artifacts (№857 counts it only while this job is live and green).
+  policy-check-dogfood:
+    name: policy-check-dogfood (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          prefix-key: v2
+          key: policy-dogfood-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+      - id: policy
+        uses: ./
+        with:
+          policy: scripts/ci/policy_sample.json
+      - name: The dogfood outputs carry the aggregate verdict
+        run: |
+          echo "outputs: verdict=${{ steps.policy.outputs.verdict }} code=${{ steps.policy.outputs.code }}"
+          test "${{ steps.policy.outputs.verdict }}" = "deny"
+          test "${{ steps.policy.outputs.code }}" = "IRREVERSIBLE_NO_GRANT"
+
   html-tests:
     name: html-tests (blocking)
     runs-on: ubuntu-latest

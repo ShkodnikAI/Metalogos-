@@ -1,0 +1,30 @@
+{
+  "requests": [
+    {
+      "name": "the core grant class dominates the legacy leak (join)",
+      "op": "join",
+      "reasons": ["IRREVERSIBLE_NO_GRANT", "SECRET_LEAK"],
+      "expect": "deny",
+      "expect_code": "IRREVERSIBLE_NO_GRANT"
+    },
+    {
+      "name": "the less severe cause survives the meet",
+      "op": "meet",
+      "reasons": ["SECRET_LEAK", "SINK_CLEARANCE"],
+      "expect": "deny",
+      "expect_code": "SECRET_LEAK"
+    },
+    {
+      "name": "an empty request is allowed",
+      "op": "verdict",
+      "reasons": [],
+      "expect": "allow"
+    },
+    {
+      "name": "an unknown word is a loud error (the closed-set rule)",
+      "op": "verdict",
+      "reasons": ["NOT_A_REASON"],
+      "expect": "error"
+    }
+  ]
+}

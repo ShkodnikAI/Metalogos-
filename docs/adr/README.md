@@ -245,4 +245,6 @@ real ADRs (№309/№320/№412) before the booking.
 | 0201 | Phase 8 "Verifiable Compliance & Trust" — the Through-Line, the Subphase Train 0.35–0.47, and the ADR Booking 0201–0215 | Accepted** (the owner decision of 2026-10-28 |
 | 0202 | ModelPassport — the Passport of a Model as a Typed Artifact (the License-Typed Model Layer, the 8D-1 Subphase Record) | Accepted** (the owner decision of 2026-10-28 |
 | 0203 | Capability-Token — the Typed Carrier of a Grant and the Single Consumption Contract (the 8B-1 Subphase Record) | Accepted** (the owner decision of 2026-10-28 |
+| 0204 | Portable Refusal Algebra — the Refusal Algebra as a Portable Artifact (the 8F-1 / C6 Subphase Record) | Accepted** (the owner decision of 2026-10-28 |
+| 0205 | Typed Approval — the Human Mandate as a Typed Carrier of Consent and Oversight (the 8B-2 / C11 Subphase Record) | Proposed** (the ACCEPTED path is the wave-75 acceptance |
 | 0216 | The `rollback_if` Metric Is a Registry Name — the Gate Reads the Metric's Own Value and Carries the Majority Baseline (the W2′ Grammar Semantics) | Accepted** (the наряд-mandated ADR-запись |

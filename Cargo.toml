@@ -5,11 +5,11 @@
 # metalogos, so the consumer edge lives in the transport crate itself
 # (the bin links the language crate for the core; the root became a
 # pure library).
-members = [".", "metalogos-server", "mlogpkg", "mlog-lsp", "metalogos-reflex"]
+members = [".", "metalogos-server", "mlogpkg", "mlog-lsp", "metalogos-reflex", "refusal-wasm"]
 resolver = "2"
 
 [workspace.package]
-version = "0.34.1"
+version = "0.36.0"
 edition = "2021"
 # №528 (issue #837; audit 30.09 Д-4+N-5): the MSRV lives in the build
 # contract — the resolver refuses older toolchains with a clear error.

@@ -10,18 +10,19 @@ construction.
 <!-- BEGIN GENERATED METRICS (scripts/gen_metrics.py — do not edit inside) -->
 | Metric | Value (generated — do not hand-edit) |
 | ------ | ------------------------------------- |
-| Version | 0.34.1 |
+| Version | 0.36.0 |
 | Leak Suite | 56 negatives / 27 positives (examples/leak/ — the BLOCKING gate) |
 | Built-in Functions | 528 functions across 47 modules |
 | Typed Signatures | 375/528 (71.02%) — precise 243/528 (46.02%) |
 | Typed Signatures (stable tier — the PRIMARY definition, №809/ADR-0199) | 364/484 (75.20%) — the full-registry figure beside: 375/528 (71.02%) |
 | SVG/Graphics | 44 builtins, hand-rolled in pure Rust |
 | Grammar | 344 rules |
-| Architecture Decisions | 196 ADRs |
+| Architecture Decisions | 198 ADRs |
 | Example Programs | 257 .mlog programs |
 | Reference | REFERENCE.md (~339 KB) — 100% registry coverage |
-| Changelog | CHANGELOG.md (~176 KB) — every wave documented |
+| Changelog | CHANGELOG.md (~182 KB) — every wave documented |
 | LICENSED_FLOOR (the 8D-1 machine fact, №841) | 10000 bp — the license class explicit + the license_note filled over the backend registry (ADR-0163/ADR-0202 terms) |
 | PASSPORT_FRESH (the 8D-1 machine fact, №841) | 10000 bp — the passports fresh within the 180-day verification window (the №842 rule) |
 | GRANT_COVERAGE (the 8B-1 machine fact, №846) | 10000 bp — the irreversible carriers whose rights decision passes the capability layer (ADR-0203 §2.7; the gate_034 floor) |
+| SEMA_EXTERNAL (the 8F-1 machine fact, №857) | 3 — the live external-consumption artifacts of the Portable Refusal Algebra (ADR-0204 §5; the gate_035 only-up floor ≥ 1): wasm-facade, policy-check action, spec page |
 <!-- END GENERATED METRICS -->

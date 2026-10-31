@@ -3,11 +3,12 @@
 // Portable Refusal Algebra's WASM facade — runs from the HOST with
 // node only (no Rust toolchain in the consumption path). The CI
 // `wasm-facade (blocking)` job runs this against the freshly built
-// artifact on every push.
+// artifact on every push. The consumer logic lives in consume.mjs
+// (the same module the №856 policy-check Action drives).
 //
 // usage: node refusal-wasm/smoke.mjs <path-to-refusal_wasm.wasm>
-import fs from 'node:fs';
 import process from 'node:process';
+import { loadFacade } from './consume.mjs';
 
 const [, , wasmPath] = process.argv;
 if (!wasmPath) {
@@ -15,25 +16,7 @@ if (!wasmPath) {
   process.exit(2);
 }
 
-const bytes = fs.readFileSync(wasmPath);
-const { instance } = await WebAssembly.instantiate(bytes, {});
-const e = instance.exports;
-const enc = new TextEncoder();
-const dec = new TextDecoder();
-
-async function call(req) {
-  const raw = enc.encode(JSON.stringify(req));
-  if (raw.length > e.rw_pool_len()) throw new Error('request exceeds the input pool');
-  const off = e.rw_alloc(raw.length);
-  if (off === 0xffffffff) throw new Error('rw_alloc refused the request');
-  new Uint8Array(e.memory.buffer).set(raw, off);
-  const packed = e.rw_eval(off, raw.length);
-  const ptr = Number(packed >> 32n);
-  const len = Number(packed & 0xffffffffn);
-  const out = dec.decode(new Uint8Array(e.memory.buffer, ptr, len));
-  e.rw_reset();
-  return JSON.parse(out);
-}
+const evalRequest = await loadFacade(wasmPath);
 
 const cases = [
   // join — the MORE SEVERE cause dominates (SINK_CLEARANCE rank 10 < SECRET_LEAK rank 13)
@@ -53,7 +36,7 @@ const cases = [
 
 let fails = 0;
 for (const [req, ok] of cases) {
-  const r = await call(req);
+  const r = await evalRequest(req);
   if (ok(r)) {
     console.log(`smoke ok: ${JSON.stringify(req)} -> ${JSON.stringify(r)}`);
   } else {

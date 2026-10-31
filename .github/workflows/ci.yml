@@ -136,6 +136,34 @@ jobs:
           name: refusal-wasm-wasm32
           path: target/wasm32-unknown-unknown/release/refusal_wasm.wasm
 
+  # ── №856 (issue #1681, wave 74 — W-C): the dogfood of the reusable
+  # `policy-check` Action (ADR-0204 §4) — the living external consumer:
+  # THIS repository runs its own sample policy through the algebra in
+  # its own CI. Blocking: the leg is one of the three SEMA_EXTERNAL
+  # artifacts (№857 counts it only while this job is live and green).
+  policy-check-dogfood:
+    name: policy-check-dogfood (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          prefix-key: v2
+          key: policy-dogfood-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+      - id: policy
+        uses: ./
+        with:
+          policy: scripts/ci/policy_sample.json
+      - name: The dogfood outputs carry the aggregate verdict
+        run: |
+          echo "outputs: verdict=${{ steps.policy.outputs.verdict }} code=${{ steps.policy.outputs.code }}"
+          test "${{ steps.policy.outputs.verdict }}" = "deny"
+          test "${{ steps.policy.outputs.code }}" = "IRREVERSIBLE_NO_GRANT"
+
   html-tests:
     name: html-tests (blocking)
     runs-on: ubuntu-latest

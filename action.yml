@@ -1,0 +1,85 @@
+name: 'policy-check'
+# №856 (issue #1681, wave 74 — W-C): the reusable GitHub Action over the
+# Portable Refusal Algebra (ADR-0204 §4) — any repository evaluates a
+# refusal policy (a JSON of lattice requests) in its own CI through the
+# wasm32 facade. THE HONEST LIMIT (ADR-0204 §6): the action checks
+# policy THROUGH the algebra — it does not compile or run the METALOGOS
+# language, and the algebra is closed over the frozen 14-word vocabulary
+# (№385/ADR-0169): no new codes, ever.
+description: >-
+  Evaluate a refusal policy through the METALOGOS Portable Refusal
+  Algebra (join/meet over the frozen deny-reason vocabulary). The
+  aggregate verdict + the most severe code are exposed as outputs; a
+  request whose result mismatches its expectation fails the step.
+inputs:
+  policy:
+    description: >-
+      Path to the policy JSON:
+      {"requests":[{"name"?, "op":"join"|"meet"|"verdict",
+      "reasons":["WORD",...], "expect"?:"deny"|"allow"|"error",
+      "expect_code"?:"WORD"}]}. A request with an `expect` field is
+      checked (a mismatch fails the step); one without is reported.
+    required: true
+  wasm:
+    description: >-
+      Path to a prebuilt refusal_wasm.wasm (skips the build — the
+      recommended mode for external consumers with an artifact).
+    required: false
+    default: ''
+  source-checkout:
+    description: >-
+      'true' — when no prebuilt wasm is given, fetch this repository
+      and build the facade from source (the self-contained external
+      mode). 'false' (default) — build from the CURRENT workspace
+      (the dogfood mode: the caller IS the Metalogos- repo).
+    required: false
+    default: 'false'
+outputs:
+  verdict:
+    description: >-
+      The aggregate verdict: deny if ANY request denies, else allow.
+    value: ${{ steps.eval.outputs.verdict }}
+  code:
+    description: >-
+      The aggregate deny code — the join (the MOST severe cause,
+      ADR-0204 §2) across the denying requests, computed by the algebra
+      itself; empty when the aggregate verdict is allow.
+    value: ${{ steps.eval.outputs.code }}
+runs:
+  using: composite
+  steps:
+    # ── the self-contained external mode: fetch + build from source ──
+    - if: inputs.wasm == '' && inputs.source-checkout == 'true'
+      uses: actions/checkout@v7
+      with:
+        repository: ShkodnikAI/Metalogos-
+        path: _metalogos-src
+    - if: inputs.wasm == '' && inputs.source-checkout == 'true'
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: wasm32-unknown-unknown
+    - if: inputs.wasm == '' && inputs.source-checkout == 'true'
+      run: cargo build --manifest-path _metalogos-src/Cargo.toml -p refusal-wasm --target wasm32-unknown-unknown --release
+      shell: bash
+    # ── the dogfood mode: the current workspace IS the Metalogos- repo ──
+    - if: inputs.wasm == '' && inputs.source-checkout != 'true'
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: wasm32-unknown-unknown
+    - if: inputs.wasm == '' && inputs.source-checkout != 'true'
+      run: cargo build -p refusal-wasm --target wasm32-unknown-unknown --release
+      shell: bash
+    # ── the evaluation: one consumer implementation (consume.mjs), the
+    # outputs + the job summary + the expect-check exit code ──
+    - id: eval
+      run: |
+        WASM="${{ inputs.wasm }}"
+        if [ -z "$WASM" ]; then
+          if [ "${{ inputs.source-checkout }}" = "true" ]; then
+            WASM="_metalogos-src/target/wasm32-unknown-unknown/release/refusal_wasm.wasm"
+          else
+            WASM="target/wasm32-unknown-unknown/release/refusal_wasm.wasm"
+          fi
+        fi
+        node "${{ github.action_path }}/refusal-wasm/consume.mjs" "$WASM" "${{ inputs.policy }}" --summary --outputs
+      shell: bash

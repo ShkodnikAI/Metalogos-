@@ -5,6 +5,19 @@
 # cargo-llvm-cov measurement) — the same "the floor follows the fact"
 # shape the debt counters ride (№569) and the goals read (ADR-0181 §3).
 #
+# Pinned re-pin (№863, wave 75 — W-D, the В74 honest tail 1): floor 78
+# <- the live fact 78.04% @ main 8e40e02e, measured by the pinned
+# command (cargo llvm-cov --workspace --all-targets --summary-only) in
+# the CI coverage job 124557143974 (run 41208061952, 2026-10-31) and
+# confirmed by its own floor check line: "coverage floor: line 78.04%
+# vs floor 76.00% — MET (advisory)". Cause: the refusal-wasm crate
+# (№855) entered the workspace denominator; the honest fact-check found
+# the advisory ::warning NOT reproducing on the wave head (the floor
+# was already MET) — the record follows the fact UP (the «the floor
+# follows the fact» form of №569; the №575 down-follow precedent is
+# unchanged), so the record's own «the floor is the CURRENT FACT»
+# invariant stays true and the stale October pin does not lie.
+#
 # mode: advisory — the CI coverage job (non-blocking, №445 shape)
 #   compares the live line % against the floor via
 #   scripts/ci/coverage_floor_check.py: a below-floor prints a LOUD
@@ -24,7 +37,7 @@
 #   test move together (№535).
 #
 # The fields (machine-read by scripts/ci/coverage_floor_check.py):
-floor_line_pct: 76
+floor_line_pct: 78
 mode: advisory
 blocking_after_stable_waves: 2
 stable_waves_confirmed: 0

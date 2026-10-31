@@ -114,6 +114,27 @@ MINOR), №639 (15.10) / №648 (01.12) outside the wave.
 
 ## Current wave — the open machine tail (2026-10-23)
 
+Wave 75 EXECUTED (the dispatch gh#1699 — the 8B-2 subphase, the 0.38 =
+C11 "Typed Consent & Human Oversight" line): №859 → №860 → №861 → №862 →
+№863 → №864 (strictly last). The phase line: ADR-0205 — the human
+mandate is a typed carrier of the consent/oversight decision (ADR before
+the code; a condition of action for a grant of the human-oversight
+class, not a new grant mechanism and not a replacement of the
+ADR-0203/ADR-0155 contour); the TypedApproval carrier in code (pure,
+the W-C algebra verdict, the frozen `IRREVERSIBLE_NO_GRANT` class — the
+1:1 migration, the event surface and the Ledger records unchanged); the
+fail-closed approval gate composed into `authorize_call` on both
+backends (the explicit `HUMAN_OVERSIGHT` registry transaction opens
+with `cron_run`) + the e2e trace request → approve → execute →
+revoke/expire → deny; the APPROVAL_COVERAGE machine fact with the
+gate_036 only-up floor 10000 bp (the plan §23 number); the
+coverage-floor record re-pinned by the fact (the «the floor follows the
+fact» form of №569); the catch-up weekly records for waves 67–74 (the
+generator №789). The machine record: the catch-up §6.67–§6.74 generated
+this naryad (the verbatim counters, the merge-CI verdicts); the wave-75
+§-record rides the next weekly run (the wave was still open at this
+run).
+
 Wave 74 EXECUTED (the dispatch gh#1684 — the 8F-1 subphase, the 0.37 =
 C6 "Portable Refusal Algebra" line): №853 → №854 → №855 → №856 → №857 →
 №858 (strictly last). The phase line: ADR-0204 — the refusal is a value
@@ -130,6 +151,8 @@ pairs on both backends and the honest-limits section. The machine
 record: the generated §6.74 (the verbatim counters, the merge-CI
 verdicts).
 
+Wave 73 EXECUTED (the dispatch gh#1677): №849 → №850 → №851 → №852. The machine record: the generated §6.73 (the verbatim counters, the merge-CI verdicts).
+
 Wave 72 EXECUTED (the dispatch gh#1666 — the 8B-1 subphase, the 0.36 =
 C2 "Capability/Grant Runtime" line): №843 → №844 → №845 → №846 → №847 →
 №848 (strictly last). The phase line: the typed capability token
@@ -144,6 +167,16 @@ class), the GRANT_COVERAGE machine fact with the gate_034 only-up floor
 revoke → deny) with the ordered Ledger golden on both executors. The
 machine record: the generated §6.72 (the verbatim counters, the
 merge-CI verdicts).
+
+Wave 67 EXECUTED (the dispatch gh#1590): №816 → №817 → №818 → №819 → №820 → №821. The machine record: the generated §6.67 (the verbatim counters, the merge-CI verdicts).
+
+Wave 68 EXECUTED (the dispatch gh#1601): №822 → №823 → №824. The machine record: the generated §6.68 (the verbatim counters, the merge-CI verdicts).
+
+Wave 69 EXECUTED (the dispatch gh#1621): №829. The machine record: the generated §6.69 (the verbatim counters, the merge-CI verdicts).
+
+Wave 70 EXECUTED (the dispatch gh#1623): №830 → №831 → №832 → №833 → №834. The machine record: the generated §6.70 (the verbatim counters, the merge-CI verdicts).
+
+Wave 71 EXECUTED (the dispatch gh#1645): №836 → №837 → №838 → №839 → №840 → №841 → №842. The machine record: the generated §6.71 (the verbatim counters, the merge-CI verdicts).
 
 Wave 66 EXECUTED (the dispatch gh#1569): №805 → №806 → №807 → №808 → №809 → №810 → №811 → №812. The machine record: the generated §6.66 (the verbatim counters, the merge-CI verdicts).
 Wave 65 EXECUTED (the dispatch gh#1552): №799 → №800 → №801 → №802 → №803 → №804. The machine record: the generated §6.65 (the verbatim counters, the merge-CI verdicts).

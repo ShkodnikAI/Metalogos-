@@ -6,6 +6,40 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№859–№864 (Wave 75, P1/P2 — the 8B-2 subphase, the C11
+  "Typed Consent & Human Oversight" line, ADR-0205):** the human
+  mandate becomes a typed VALUE. №859 — ADR-0205 before the code: the
+  mandate is a typed carrier of the human consent/oversight decision
+  (actor, target digest, the window, revocation) — a condition of
+  action for a grant of the human-oversight class, NOT a new grant
+  mechanism and NOT a replacement of the ADR-0203/ADR-0155 contour; the
+  refusal value comes from the frozen W-C algebra (ADR-0204), the
+  existing `IRREVERSIBLE_NO_GRANT` class, no new codes (№385).
+  №860 — the carrier in code: the pure `TypedApproval` (the portable-
+  kernel boundary of ADR-0204 §3), the issue / verify / revoke
+  constructors, the «2 negative controls» (the foreign digest, the
+  expired/revoked mandate — both deny BEFORE the action); the 1:1
+  migration (the DenyEvent surface and the Ledger records unchanged).
+  №861 — the coverage rule: the fail-closed approval gate composed into
+  `capability::authorize_call` on BOTH backends (one decision surface —
+  the TW/VM parity by construction), the explicit `HUMAN_OVERSIGHT`
+  registry transaction opens with `cron_run` (the autonomous-run
+  trigger), the consent surface `approval_issue` / `approval_revoke`
+  (registry 528→530, append-only), the e2e trace request → approve →
+  execute → revoke/expire → deny green on both lanes, the Ledger
+  journals the existing deny form. №862 — the `APPROVAL_COVERAGE`
+  machine fact (the share of the human-oversight carriers covered by
+  the gate, over the live roster and the composition site) with the
+  gate_036 only-up floor 10000 bp (the plan §23 number) and the tamper
+  traps (the forged name, the removed site, the substituted definition,
+  the lowered floor). №863 — the coverage-floor record re-pinned by the
+  fact (78.04% @ `8e40e02e` — the «the floor follows the fact» form).
+  №864 — the catch-up weekly records for waves 67–74 (the generator
+  №789) and this sanitized 0.38 phase line. Honest limits (ADR-0205 §5):
+  the mandate is not a signature, not a legal act, not an audit
+  mechanism, not IO/UI; the class extension is an explicit registry
+  transaction.
+
 - **№853–№858 (Wave 74, P1/P2 — the 8F-1 subphase, the C6
   "Portable Refusal Algebra" line, ADR-0204):** the refusal becomes a
   portable VALUE. №853 — ADR-0204 before the code: the refusal is a

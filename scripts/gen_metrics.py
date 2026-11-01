@@ -74,7 +74,25 @@ SEMA_EXTERNAL_FLOOR_OWNER = 1
 # constant: the gate file can RAISE the floor, never lower it silently
 # (the №846 discipline, verbatim).
 GATE_036_GOALS = REPO / "scripts" / "ci" / "gate_036_goals.txt"
+# №869 (wave 76 — W-E): the 8A-1 machine-fact floor record (the
+# gate_036 form — the fact and its --check twin).
+GATE_037_GOALS = REPO / "scripts" / "ci" / "gate_037_goals.txt"
+# The compiled compliance package (the №868 compiler output) — the
+# ATTEST_MAP machine source.
+PACKAGE_0206 = REPO / "docs" / "compliance" / "attestation-map-v1.txt"
 APPROVAL_COVERAGE_FLOOR_OWNER_BP = 10000
+
+# №869 (wave 76 — W-E): the 8A-1 machine fact — ATTEST_MAP with its
+# gate_037 floor (the №857/№862 form: the fact rides with its checker,
+# the floor only-up, the tamper traps live). The definition lives in
+# ADR-0206 §4: the count of the LIVE attestation rows in the compiled
+# compliance package (docs/compliance/attestation-map-v1.txt — the №868
+# compiler output), counted from the RAW rows STRUCTURALLY (the №565
+# lesson: reproducibility is structural — never from a summary header).
+# The floor is the wave's start floor (the №841 form: the start floors
+# are pinned by the naryad; raising the floor is an explicit owner
+# transaction — lowering is refused).
+ATTEST_MAP_FLOOR_OWNER = 30
 APPROVAL_RS = REPO / "src" / "approval.rs"
 CI_YML = REPO / ".github" / "workflows" / "ci.yml"
 POLICY_ACTION_YML = REPO / "action.yml"
@@ -619,6 +637,61 @@ def approval_coverage_bp(
     return covered * 10000 // total
 
 
+# ── №869 (wave 76 — W-E, ADR-0206 §4): the ATTEST_MAP machine ─────────
+
+_ROW_STATUSES = ("live", "expired", "revoked")
+_ROW_REQUIRED_FIELDS = (
+    "claim=",
+    "subject=",
+    "subject_digest=",
+    "evidence=",
+    "verifier=",
+    "window=",
+    "actor=",
+)
+
+
+def _package_raw_rows(package_text: str | None = None) -> list[dict]:
+    """The structural parse of the v1 package rows (the №868 line
+    contract): a line counts as a row ONLY when it carries a 64-hex
+    row digest, a known status and ALL seven key=value fields — a
+    corrupted or summary line can never inflate the fact (the №565
+    lesson: the reproducibility is structural)."""
+    if package_text is None:
+        if not PACKAGE_0206.exists():
+            return []
+        package_text = PACKAGE_0206.read_text(encoding="utf-8")
+    rows: list[dict] = []
+    for line in package_text.splitlines():
+        if not line.startswith("row "):
+            continue
+        parts = line.split(" ")
+        if len(parts) < 3 + len(_ROW_REQUIRED_FIELDS):
+            continue
+        digest, status = parts[1], parts[2]
+        if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+            continue
+        if status not in _ROW_STATUSES:
+            continue
+        body_parts = parts[3:]
+        if not all(
+            any(p.startswith(field) for p in body_parts)
+            for field in _ROW_REQUIRED_FIELDS
+        ):
+            continue
+        rows.append({"digest": digest, "status": status})
+    return rows
+
+
+def attest_map_live(package_text: str | None = None) -> int:
+    """ATTEST_MAP — the number of LIVE attestation rows in the compiled
+    compliance package (№869, ADR-0206 §4). Revoked rows stay in the
+    package for the audit trail but attest nothing; expired rows are
+    past their freshness window — neither counts. The count is over the
+    RAW rows structurally parsed, never over a summary header."""
+    return sum(1 for r in _package_raw_rows(package_text) if r["status"] == "live")
+
+
 def tamper_test() -> int:
     """The RED harness (№841): the checkers MUST catch the fabricated
     records. Every trap asserts the floor DROPS under the tamper —
@@ -860,10 +933,92 @@ def tamper_test() -> int:
         )
         return 1
 
+    # ── №869 traps: the ATTEST_MAP machine catches the tamper ─────────
+    full_att = attest_map_live()
+    if full_att < ATTEST_MAP_FLOOR_OWNER:
+        print(
+            "tamper-test: TRAP FAILED — ATTEST_MAP is below the owner floor on the "
+            f"clean tree ({full_att} < {ATTEST_MAP_FLOOR_OWNER}): the compliance "
+            "package drifted (re-attest with the №868 compiler, never the floor)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 16 (the summary-substitution class, the №565 lesson): a
+    # package whose header CLAIMS a row count but carries NO raw row
+    # lines counts 0 — the fact reads the raw rows structurally, never
+    # the summary.
+    fake_summary = (
+        "# METALOGOS compliance package v1\n"
+        "# package_digest: " + "a" * 64 + "\n"
+        "# rows_total: 999\n"
+        "# rows_live: 999\n"
+    )
+    if attest_map_live(fake_summary) != 0:
+        print(
+            "tamper-test: TRAP FAILED — the summary-only package was COUNTED "
+            "(the fact read the header, not the raw rows)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 17 (the deletion class): an empty / row-less package counts 0.
+    if attest_map_live("") != 0:
+        print(
+            "tamper-test: TRAP FAILED — the empty package did NOT count 0",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 18 (the definition-substitution class): a counter counting
+    # ALL rows (revoked/expired included) would overcount the fact —
+    # the real one counts LIVE rows only (a revoked row attests
+    # nothing, the ADR-0206 §2.2 append-only semantics).
+    sample = (
+        "# package v1\n"
+        "row " + "a" * 64 + " live claim=c subject=s subject_digest=" + "b" * 64
+        + " evidence=artifact:x@" + "c" * 64 + " verifier=v window=0-0 actor=a\n"
+        "row " + "d" * 64 + " revoked claim=c2 subject=s2 subject_digest=" + "e" * 64
+        + " evidence=artifact:y@" + "f" * 64 + " verifier=v window=0-0 actor=a\n"
+        "row " + "1" * 64 + " expired claim=c3 subject=s3 subject_digest=" + "2" * 64
+        + " evidence=artifact:z@" + "3" * 64 + " verifier=v window=0-9 actor=a\n"
+    )
+    if attest_map_live(sample) != 1:
+        print(
+            "tamper-test: TRAP FAILED — the counter did not distinguish the LIVE "
+            "rows from the revoked/expired ones (the definition was substituted)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 19 (the corrupted-row class): a row line missing a required
+    # field is NOT a row — it cannot inflate the fact.
+    corrupted = "row " + "a" * 64 + " live claim=c subject=s\n"
+    if attest_map_live(corrupted) != 0:
+        print(
+            "tamper-test: TRAP FAILED — the corrupted row (missing fields) was COUNTED",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 20 (the negative control (б), the №846/№857 form): the
+    # gate_037 floor LOWERED below the owner constant is a loud refusal
+    # (the floor is only-up — the wave start floor).
+    attest_strict = load_floors_strict(GATE_037_GOALS)
+    attest_value = attest_strict.get("goal_attest_map")
+    if attest_value is None or attest_value < ATTEST_MAP_FLOOR_OWNER:
+        print(
+            "tamper-test: TRAP FAILED — the gate_037 floor is below the owner constant "
+            f"(the wave-76 start floor: {ATTEST_MAP_FLOOR_OWNER}) — the lowering is refused",
+            file=sys.stderr,
+        )
+        return 1
+
     print(
         "tamper-test: OK — the checkers catch the fabricated records "
         f"(LICENSED_FLOOR {full_lic} bp, PASSPORT_FRESH {full_pass} bp, "
-        f"APPROVAL_COVERAGE {full_appr} bp; the traps lowered all)"
+        f"APPROVAL_COVERAGE {full_appr} bp, ATTEST_MAP {full_att} live rows; "
+        "the traps lowered all)"
     )
     return 0
 
@@ -972,6 +1127,7 @@ def plan_summary_block() -> str:
         f"| GRANT_COVERAGE — the 8B-1 machine fact (№846) | {grant_coverage_bp()} bp |\n"
         f"| SEMA_EXTERNAL — the 8F-1 machine fact (№857) | {sema_external()['count']} |\n"
         f"| APPROVAL_COVERAGE — the 8B-2 machine fact (№862) | {approval_coverage_bp()} bp |\n"
+        f"| ATTEST_MAP — the 8A-1 machine fact (№869) | {attest_map_live()} live attestation rows |\n"
     )
 
 
@@ -1221,6 +1377,50 @@ def main() -> int:
             f"(gate_036 floor {appr_floor} bp, only-up) — roster: "
             f"{', '.join(_human_oversight_roster()) or 'none'}; "
             f"composition site: {'present' if _approval_gate_composition_site() else 'MISSING'}"
+        )
+
+    # №869: the ATTEST_MAP floor twin (the only-up gate_037) — the
+    # STRICT loader (fail-closed on a missing/empty/corrupted file) and
+    # the owner-pinned lowering refusal (the wave-76 start floor can
+    # rise, never fall). The fact counts the LIVE attestation rows in
+    # the compiled package STRUCTURALLY (the №565 lesson) — a summary
+    # header, a corrupted line or a revoked row cannot inflate it.
+    if check:
+        try:
+            attest_floors = load_floors_strict(GATE_037_GOALS)
+        except ValueError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        attest_floor = attest_floors.get("goal_attest_map")
+        if attest_floor is None:
+            print(
+                "ERROR: gate_037_goals.txt carries no goal_attest_map floor",
+                file=sys.stderr,
+            )
+            return 2
+        if attest_floor < ATTEST_MAP_FLOOR_OWNER:
+            print(
+                "FLOOR LOWERING REFUSED: gate_037 "
+                f"({attest_floor}) is below the owner constant "
+                f"({ATTEST_MAP_FLOOR_OWNER} — the wave-76 start floor); "
+                "the floor is only-up — the change is an explicit owner transaction",
+                file=sys.stderr,
+            )
+            return 1
+        attest_live = attest_map_live()
+        if attest_live < attest_floor:
+            print(
+                f"FLOOR BREACH: ATTEST_MAP {attest_live} live rows < the gate_037 floor "
+                f"{attest_floor} (only-up) — the compliance package lost live rows "
+                "(re-attest with the №868 compiler (METALOGOS_GEN_COMPLIANCE=1 "
+                "cargo test --test naryad_868_package) — never a silent gate edit)",
+                file=sys.stderr,
+            )
+            return 1
+        print(
+            f"OK: the №869 floor holds — ATTEST_MAP {attest_live} live rows "
+            f"(gate_037 floor {attest_floor}, only-up) — source: "
+            f"{PACKAGE_0206.relative_to(REPO)} (the raw rows, structurally counted)"
         )
 
     # №841: the RED harness (the tamper traps) — an explicit mode, run by

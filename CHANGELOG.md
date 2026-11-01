@@ -144,7 +144,7 @@ precedent).
   (WASM/Action/SEMA), the honest-limits section; the sanitized 0.37
   phase line (this entry and the PLAN-SUMMARY row).
 
-## [0.36.0] - 2026-10-30
+## [0.36.0] - 2026-10-31
 
 The scheduled train (ADR-0189): the 0.36 window — the 8B-1 subphase
 of Phase 8 (the C2 «Capability/Grant Runtime» line, ADR-0203, the
@@ -213,7 +213,7 @@ disagree).
   consume point (`grant_use`) — the Once/N quota is metered at the gate.
 
 
-## [0.35.0] - 2026-10-30
+## [0.35.0] - 2026-10-31
 
 The scheduled train (ADR-0189): the 0.35 window — the 8D-1 subphase
 of Phase 8 (the C4 «License-Typed Model Layer» line, ADR-0201 +
@@ -364,7 +364,7 @@ and the changelog can never disagree, №497).
   product security surface changes.
 
 
-## [0.34.1] - 2026-10-29
+## [0.34.1] - 2026-10-30
 
 The unscheduled fix-release (ADR-0189 §2.6): the published 0.34.0 build
 carries the VM mis-dispatch at `profile legacy` (the H-1 of the merged

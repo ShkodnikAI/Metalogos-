@@ -3,7 +3,7 @@
 > Publisher's derived artifact (access mode §16.0-7 of plan canon v2): the list of phases,
 > the current wave, criteria. The plan canon is held by the coordinator (private office repo); the public
 > repository does not contain the canon. Updated by the publisher in sync with canon edits.
-> Updated: 2026-10-03.
+> Updated: 2026-11-01.
 
 ## Status
 
@@ -134,6 +134,22 @@ generator №789). The machine record: the catch-up §6.67–§6.74 generated
 this naryad (the verbatim counters, the merge-CI verdicts); the wave-75
 §-record rides the next weekly run (the wave was still open at this
 run).
+
+The release line — the train rides; the publication is the owner's act
+(§6.5): 0.34.0 PUBLISHED 2026-10-28T00:06Z, 0.34.1 → 2026-10-30T02:09Z,
+0.35.0 → 2026-10-31T06:14Z, 0.36.0 → 2026-10-31T06:53Z, **0.38.0
+PUBLISHED 2026-11-01T04:22:46Z** — the owner's in-chat directive
+(«Публикуй 0.38») executed by the office machine: the tag `v0.38.0` on
+the merge commit `67b005fe`, the Build & Release run #28
+`41272867173` success, the 4 assets per release.yml (the binary
+`mlog-linux-x86_64`, the CycloneDX SBOM, `BUILD-INFO.txt`,
+`SHA256SUMS`), the merge-commit CI verdict 52 check-runs = 51 success
++ 1 skipped, 0 failures. The post-release sync — this record (the
+№646 form, item 9). The honest section dates ride in the same PR (the
+№865 item-4 class): the CHANGELOG sections [0.34.1], [0.35.0],
+[0.36.0] re-dated to the publication dates (the section date = the
+publication date; the published note bodies carry no date line — the
+№497 verbatim intact).
 
 Wave 74 EXECUTED (the dispatch gh#1684 — the 8F-1 subphase, the 0.37 =
 C6 "Portable Refusal Algebra" line): №853 → №854 → №855 → №856 → №857 →

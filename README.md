@@ -47,6 +47,7 @@ cargo build --release
 ```
 
 Every subcommand: [Quick Start — the Full CLI Tour](docs/book/src/quickstart.md).
+Upgrading an existing program across versions (0.34 → 0.38: the capability sharp set, the `cron_run` mandate, the model passport): [docs/upgrade.md](docs/upgrade.md).
 
 ## A Taste
 

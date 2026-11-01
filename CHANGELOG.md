@@ -3,6 +3,41 @@
 All notable changes to the Metalogos project.
 
 ## [Unreleased]
+
+### Added
+
+- **№865 (issue #1707, P0 — the migration honesty 0.35–0.38, out-of-wave
+  on the owner's directive 2026-11-01):** `docs/upgrade.md` — the
+  0.34 → 0.38 migration recipe (the inventory, the minimal
+  `allow_carrier` path, the strict grant path, the `cron_run` mandate
+  example, the exec host permit, the 0.35 model-passport check), the
+  repeat-gate `scripts/ci/breaking_change_gate.py` (the blocking
+  `breaking-change-gate` CI job): a tag range that adds a deny-path
+  name to `GRANT_ALWAYS` / `PROFILE_PERMIT_SHARP` / `HUMAN_OVERSIGHT`
+  without a `### Changed` BREAKING row naming it in the pending
+  CHANGELOG section is RED (the mutation self-test pins the red), and
+  `tests/naryad_865_migration_path.rs` — the 0.34.1-shaped program
+  (http_post + send_message + cron_run) run unmigrated (the named
+  refusal) and migrated (both gates pass) on BOTH backends. The README
+  Quick Start and [docs/limitations.md](docs/limitations.md) carry the
+  one-line pointer. security: no — docs/process (the capability and
+  approval rule code is not touched; the refusals already named the
+  carrier and the resolution paths — verified, cited in the PR).
+
+### Changed
+
+- **№865 (retroactive):** the [0.36.0] and [0.38.0] sections carry
+  their `### Changed` BREAKING rows (the №845 sharp set, the №861
+  `cron_run` mandate) — the deny rules themselves are NOT changed and
+  the Added rows stay verbatim; each BREAKING row cross-references its
+  Added row (the closed is not deleted silently, it is read together).
+
+### Fixed
+
+- **№865:** the [0.34.0] date-stamp re-cut to the actual publication
+  date 2026-10-28 (the форма №721 re-cut that never ran; the
+  planned-window 2026-11-02 stamp was a lie the release notes carried).
+
 ## [0.38.0] - 2026-11-01
 
 The scheduled train (ADR-0189): the 0.38 window — the 8B-2 subphase
@@ -16,6 +51,23 @@ this cut, moved verbatim — the train order recorded here (the
 [0.35.0] form). The publication is the OWNER act (ADR-0186 §4.5)
 executed by the office machine on the explicit directive (the 0.36.0
 precedent).
+
+### Changed
+
+- **BREAKING (№865 — the migration-honesty verdict 2026-11-01; the rule
+  is №861, ADR-0205 §2.6):** `cron_run` is a human-oversight carrier
+  (`HUMAN_OVERSIGHT`, `src/approval.rs`): a call without a LIVE
+  approval mandate refuses BEFORE the action with
+  `IRREVERSIBLE_NO_GRANT` — record the human's decision with
+  `approval_issue(actor, "carrier:cron_run", ttl_seconds)` (the
+  mandate is bound to the CARRIER, not the call digest; it expires by
+  ttl; `approval_revoke("carrier:cron_run")` withdraws it). A 0.34-era
+  program that fires `cron_run` refuses at the first call on 0.38.0.
+  The migration recipe: [docs/upgrade.md](docs/upgrade.md) (§
+  "0.34 → 0.38", the cron_run step). The `### Added` row below stays
+  verbatim — read the two rows together (the rule shipped in the Added
+  prose without the BREAKING mark; that omission is what this row
+  fixes).
 
 ### Added
 
@@ -103,6 +155,30 @@ tag differs from 0.35.0 by the version bump and this CHANGELOG row —
 0.36.0 is the first release whose notes document the capability
 token (the №497 rule: the notes and the changelog can never
 disagree).
+
+### Changed
+
+- **BREAKING (№865 — the migration-honesty verdict 2026-11-01; the rule
+  is №845, ADR-0203 §2.4):** the sharp set refuses BEFORE the run —
+  12 carriers (`exec`, `exec_argv`, `delete_file`, `git_push`,
+  `http_post`, `http_post_multipart`, `send_message`, `send_photo`,
+  `send_document`, `smtp_send`, `smtp_send_html`, `tts_send`) fail
+  with `IRREVERSIBLE_NO_GRANT` without one of the THREE legal paths:
+  (1) a covering capability grant (issue with scope `builtin:<name>`
+  — the strict path, TTL/quota metered at the gate), (2) `profile
+  capability { allow_carrier: "<name>" }` (the minimal path),
+  (3) (exec/exec_argv) the host permit — `METALOGOS_ALLOW_EXEC=1` in
+  the process context, `METALOGOS_SERVE_ALLOW_EXEC=1` in a
+  serve-route body. `profile legacy` does NOT bypass the rule. A
+  0.34-era program calling any sharp carrier refuses at the first
+  call on 0.36.0. The migration recipe:
+  [docs/upgrade.md](docs/upgrade.md) (§ "0.34 → 0.38"). The `### Added`
+  row below stays verbatim: its "existing programs byte-unchanged"
+  clause refers to the №844 grant-carrier migration (the typed
+  Capability view over the same ledger), NOT to the №845 coverage
+  rule — read the two rows together (the rule shipped in the Added
+  prose without the BREAKING mark; that omission is what this row
+  fixes).
 
 ### Added
 
@@ -366,7 +442,7 @@ line). No new features: the wave-68 feature rows (№825/№826) stay in
   integrity class), it neither widens a sink nor weakens a gate (the
   №800 row verdict form).
 
-## [0.34.0] - 2026-11-02
+## [0.34.0] - 2026-10-28
 
 ### Migration
 

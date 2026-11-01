@@ -177,6 +177,7 @@ impl Attestation {
     /// an evidence digest (not a 64-hex SHA-256) refuses at
     /// construction; (3) a dangling parent reference refuses through
     /// the resolver; (4) the row digest pins the row (the G5 form).
+    #[allow(clippy::too_many_arguments)]
     pub fn issue(
         actor: &str,
         subject: &str,
@@ -490,9 +491,9 @@ mod kernel_tests {
             .unwrap();
         let dg = att.row_digest.clone();
         assert_eq!(map.issue(att.clone()).unwrap(), 0);
-        assert_eq!(
+        assert!(
             map.issue(att).unwrap_err().contains("already in the map"),
-            true
+            "the exact duplicate refuses"
         );
         assert_eq!(map.live_count(), 1);
         assert_eq!(map.revoke(&dg).unwrap(), 0);

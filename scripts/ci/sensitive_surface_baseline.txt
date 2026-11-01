@@ -353,4 +353,15 @@ recorded, never enforced; the live floor is the №740 line below)
 # (110*10000)//145 = 7586 bp; the fact twin and the floor raised in
 # the SAME PR (the №757/№613 procedure — the machine's own note «raise
 # the baseline floor to 7586 in the same-PR move»).
-# threshold_bp: 7586
+# threshold_bp was 7586 — superseded by the №870 move below (the
+gate parser reads the FIRST "# threshold_bp: N" line — the history
+line stays outside the match)
+
+# ── №870 (wave 76 — W-E, P2, the ride — the №863 form): the
+# sensitive-surface coverage moved with the live classification — the
+# machine's own advisory note names the same-PR raise. The machine
+# read: (112*10000)//147 = 7619 bp; the floor raised in the SAME PR
+# (the №757/№613 procedure — the machine's own note).
+# covered: 112
+# sensitive: 147
+# threshold_bp: 7619

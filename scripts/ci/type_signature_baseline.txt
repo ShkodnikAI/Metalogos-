@@ -365,4 +365,18 @@
 # №757/№613 procedure — the machine's own note).
 # typed: 372
 # total: 526
-# threshold_bp: 7072
+# threshold_bp was 7072 — superseded by the №870 move below (the
+gate parser reads the FIRST "# threshold_bp: N" line — the history
+line stays outside the match)
+
+# ── №870 (wave 76 — W-E, P2, the ride — the «the floor follows the fact»
+# form of №863): the general typed-signature share moved with the live
+# registry — the machine's own advisory note names the raise. The
+# machine read: (377*10000)//530 = 7113 bp; the floor raised in the
+# SAME PR (the №757/№613 procedure — the machine's own note). The ride
+# fact: the wave-76 kernel modules (src/compliance.rs, src/compliance_pack.rs)
+# are NOT registry rows — the counter is registry-based, the share
+# moved with the wave-75/76 registry drift alone.
+# typed: 377
+# total: 530
+# threshold_bp: 7113

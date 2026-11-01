@@ -1,0 +1,36 @@
+# gate_037_goals.txt — the wave-76 W-E machine-fact floor (naryad №869)
+# =============================================================================
+# The №869 floor file: the ONLY-UP gate over the 8A-1 machine fact —
+# the same discipline as the gate_034 goal record (№846), the gate_035
+# goals (№857) and the gate_036 record (№862). The floor value is the
+# wave's START floor (the №841 form: the start floors are pinned by the
+# naryad; the goals of the subphase are the owner's decision at the
+# acceptance dispatch — the floor can rise, never fall):
+# 0.39 = 8A-1 (C1, ATTEST_MAP >= 30) — the point was accepted by the
+# owner in the wave-76 dispatch gh#1714, no further decision is needed
+# at the naryad level.
+#
+# The fact and its machine source (the --check twin):
+#   goal_attest_map  attest_map_live()  — the number of LIVE
+#                      attestation rows in the compiled compliance
+#                      package (docs/compliance/attestation-map-v1.txt —
+#                      the №868 compiler output), counted from the RAW
+#                      rows STRUCTURALLY (the №565 lesson: every row
+#                      must carry a 64-hex digest, a known status and
+#                      all seven v1 fields — a summary header, a
+#                      corrupted line, a revoked or expired row cannot
+#                      inflate the fact). Revoked rows stay in the
+#                      package for the audit trail but attest nothing
+#                      (the ADR-0206 §2.2 append-only semantics).
+#
+# The floor is ONLY-UP: the value below is the wave start constant
+# pinned by the checker (gen_metrics.py ATTEST_MAP_FLOOR_OWNER); a
+# lowered floor in this file is refused with a loud FLOOR LOWERING
+# REFUSED (the №776 transaction discipline — a re-pin is an OWNER
+# decision, never a silent gate edit). The breach branch names the
+# remedy: re-attest with the №868 compiler
+# (METALOGOS_GEN_COMPLIANCE=1 cargo test --test naryad_868_package) —
+# never a silent gate edit.
+#
+# Fields (machine-read by scripts/gen_metrics.py load_floors_strict):
+goal_attest_map 30

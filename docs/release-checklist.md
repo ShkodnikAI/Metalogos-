@@ -44,17 +44,25 @@ publishes when satisfied.
    (`0.30.x`); Added/Changed present → a MINOR cut (`0.31.0`).
 3. **The gate read** — `unfreeze_gate.py --gate-target <target>
    --strict` must exit 0 for the record the number class names.
-4. **No open release-block** (ADR-0179 §4) against the target — an open
+4. **The BREAKING read (№865)** —
+   `python3 scripts/ci/breaking_change_gate.py` must exit 0: a tag
+   range that adds a deny-path name to `GRANT_ALWAYS` /
+   `PROFILE_PERMIT_SHARP` / `HUMAN_OVERSIGHT` holds the cut until the
+   version section carries a `### Changed` BREAKING row naming the
+   carriers and the migration path ([docs/upgrade.md](upgrade.md) —
+   the 0.36.0/0.38.0 lesson: the deny rule shipped as `### Added` and
+   broke the 0.34-era programs at the first call).
+5. **No open release-block** (ADR-0179 §4) against the target — an open
    one holds the train; the hold is recorded in the owning wave's
    dispatch thread.
-5. **The lockstep PR** (the №646 shape: version + `Cargo.lock` ×5 +
+6. **The lockstep PR** (the №646 shape: version + `Cargo.lock` ×5 +
    badge sync + the generated Version line + the CHANGELOG date-stamp),
    CI green, squash-merge.
-6. **The tag** on the merge commit; **the build** (release.yml — the
+7. **The tag** on the merge commit; **the build** (release.yml — the
    assets, the SBOM, the attestations).
-7. **The publication** — the OWNER's act, always (ADR-0186 §4.5/§6.5;
+8. **The publication** — the OWNER's act, always (ADR-0186 §4.5/§6.5;
    the machine never publishes).
-8. **The post-release sync** — the CHANGELOG links, the REALITY line
+9. **The post-release sync** — the CHANGELOG links, the REALITY line
    STAGED→PUBLISHED (the №646 form).
 
 An unscheduled security cut (the 0.28.1 shape) stays a PERMITTED

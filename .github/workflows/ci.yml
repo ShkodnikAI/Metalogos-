@@ -809,6 +809,28 @@ jobs:
           python3 scripts/ci/release_gap_gate.py
           python3 scripts/ci/release_gap_gate.py --self-test
 
+  # №865 (issue #1707; the migration-honesty P0, the owner directive
+  # 2026-11-01): the repeat-gate — the 0.36.0/0.38.0 lesson (the №845
+  # sharp set and the №861 cron_run mandate shipped as `### Added`
+  # without a BREAKING mark and broke the 0.34-era programs at the
+  # first call). A tag range that adds a deny-path name to GRANT_ALWAYS
+  # / PROFILE_PERMIT_SHARP / HUMAN_OVERSIGHT without a `### Changed`
+  # BREAKING row naming it in the pending CHANGELOG section is RED.
+  # fetch-depth: 0 + fetch-tags — the roster diff needs the previous
+  # release tag. Pure Python — no Rust toolchain needed.
+  breaking-change-gate:
+    name: breaking-change-gate (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: "Gate — the deny-path growth carries its BREAKING row (№865)"
+        run: |
+          python3 scripts/ci/breaking_change_gate.py
+          python3 scripts/ci/breaking_change_gate.py --self-test
+
   # №645 (issue #1132; the audit §6.2 R1): the conformance suite — the
   # spec/ pairs run on BOTH backends; the cross-backend agreement is the
   # oracle. BLOCKING explicitly (the №535 cell +1: the

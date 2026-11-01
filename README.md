@@ -9,7 +9,7 @@
 [![Rust](https://img.shields.io/badge/rust-1.93.1-orange.svg)](https://www.rust-lang.org/)
 [![Version](https://img.shields.io/badge/v0.38.0-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/releases)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-green.svg)](#license)
-[![CI](https://github.com/ShkodnikAI/Metalogos-/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ShkodnikAI/Metalogos-/actions/workflows/ci.yml) — the real workflow status (44 blocking jobs on every push and PR; light/dark adaptive)
+[![CI](https://github.com/ShkodnikAI/Metalogos-/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ShkodnikAI/Metalogos-/actions/workflows/ci.yml) — the real workflow status (45 blocking jobs on every push and PR; light/dark adaptive)
 [![Open Collective](https://img.shields.io/opencollective/all/metalogos?label=Backers&logo=open-collective&color=7fadf2)](https://opencollective.com/metalogos)
 
 </div>
@@ -47,6 +47,7 @@ cargo build --release
 ```
 
 Every subcommand: [Quick Start — the Full CLI Tour](docs/book/src/quickstart.md).
+Upgrading an existing program across versions (0.34 → 0.38: the capability sharp set, the `cron_run` mandate, the model passport): [docs/upgrade.md](docs/upgrade.md).
 
 ## A Taste
 

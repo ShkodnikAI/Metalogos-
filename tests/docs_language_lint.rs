@@ -43,6 +43,11 @@ const ALLOWLIST: &[&str] = &[
     // language). Growing this list stays an explicit, reviewed PR edit.
     "docs/reality/2026-09.md",
     "docs/reality/2026-10.md",
+    // №871 (the №810 class carried forward — the same owner decision):
+    // the November REALITY archive opens with the wave-76 record — the
+    // verbatim Russian prose stays the RECORD content (the monthly
+    // archive is a historical record, not the documentation language).
+    "docs/reality/2026-11.md",
 ];
 
 /// Minimum Cyrillic letters in one file for it to be flagged.

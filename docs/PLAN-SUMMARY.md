@@ -1001,6 +1001,7 @@ owner's ADR gate.
 | GRANT_COVERAGE — the 8B-1 machine fact (№846) | 10000 bp |
 | SEMA_EXTERNAL — the 8F-1 machine fact (№857) | 3 |
 | APPROVAL_COVERAGE — the 8B-2 machine fact (№862) | 10000 bp |
+| ATTEST_MAP — the 8A-1 machine fact (№869) | 45 live attestation rows |
 <!-- END GENERATED NUMBERS -->
 
 ## Acceptance criteria (public part of the methodology)

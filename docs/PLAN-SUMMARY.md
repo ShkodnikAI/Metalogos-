@@ -151,6 +151,23 @@ the merge commit `67b005fe`, the Build & Release run #28
 publication date; the published note bodies carry no date line — the
 №497 verbatim intact).
 
+Wave 76 EXECUTED (the dispatch gh#1714 — the 8A-1 subphase, the 0.39 =
+C1 «Compliance Evidence Compiler» line): №866 → №867 → №868 → №869 →
+№870 → №871 (strictly last). The phase line: ADR-0206 — the
+attestation map as a typed, verifiable, sellable artifact (the mandate
+→ the attested claim → the digest-pinned package); the Attestation
+carrier in code (the pure kernel, the append-only map over the
+referenced parents); the evidence-package compiler (the deterministic
+v1 export, the fail-closed drifted-digest resolution, NO wall clock —
+the freshness verdict is the consumer's window comparison); the
+ATTEST_MAP machine fact + the gate_037 start floor 30 (45 live rows
+hold, only-up); the baselines re-pinned under the fact (7072→7113 /
+7637→7692 / 7586→7619 bp — the floors follow the fact, the №863
+form). The machine record: the generated §6.76 (the verbatim
+counters, the merge-CI verdicts). The honest finding rides: the
+pinned-source discipline works — the №868 fail-closed refusal caught
+the baseline re-pin drift, the package re-compiled in the same PR.
+
 Wave 74 EXECUTED (the dispatch gh#1684 — the 8F-1 subphase, the 0.37 =
 C6 "Portable Refusal Algebra" line): №853 → №854 → №855 → №856 → №857 →
 №858 (strictly last). The phase line: ADR-0204 — the refusal is a value

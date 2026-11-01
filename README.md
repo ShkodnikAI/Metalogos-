@@ -7,7 +7,7 @@
 **A language for AI agents where data cannot reach actions it is not cleared for: secret leaks, injection and unauthorized irreversible actions are rejected before the program runs.** The irreversible-actions refusal is a static gate pinned by the BLOCKING leak suite (`[IRREVERSIBLE_NO_GRANT]` — [examples/leak/n18_db_drop_no_grant.error](examples/leak/n18_db_drop_no_grant.error)). Written in Rust.
 
 [![Rust](https://img.shields.io/badge/rust-1.93.1-orange.svg)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/v0.36.0-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/releases)
+[![Version](https://img.shields.io/badge/v0.38.0-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/releases)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-green.svg)](#license)
 [![CI](https://github.com/ShkodnikAI/Metalogos-/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ShkodnikAI/Metalogos-/actions/workflows/ci.yml) — the real workflow status (44 blocking jobs on every push and PR; light/dark adaptive)
 [![Open Collective](https://img.shields.io/opencollective/all/metalogos?label=Backers&logo=open-collective&color=7fadf2)](https://opencollective.com/metalogos)
@@ -136,7 +136,7 @@ Each line is a refusal class with its pinned negative — a program in the BLOCK
 <!-- BEGIN GENERATED METRICS (scripts/gen_metrics.py — do not edit inside) -->
 | Metric | Value (generated — do not hand-edit) |
 | ------ | ------------------------------------- |
-| Version | 0.36.0 |
+| Version | 0.38.0 |
 | Leak Suite | 56 negatives / 27 positives (the BLOCKING gate) |
 | Full metrics | [docs/metrics.md](docs/metrics.md) — the generated table |
 <!-- END GENERATED METRICS -->

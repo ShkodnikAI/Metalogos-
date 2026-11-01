@@ -3,6 +3,19 @@
 All notable changes to the Metalogos project.
 
 ## [Unreleased]
+## [0.38.0] - 2026-11-01
+
+The scheduled train (ADR-0189): the 0.38 window — the 8B-2 subphase
+of Phase 8 (the C11 «Typed Consent & Human Oversight» line, ADR-0205,
+the wave-75 naryads №859-№864). The honest-tag note: this cut carries
+TWO pending phase lines — [Unreleased] held the wave-74 row (the 0.37
+line, №853-№858, ADR-0204) and the wave-75 row (the 0.38 line,
+№859-№864); no 0.37.0 tag was published (the owner directive
+2026-11-01 «Публикуй 0.38» named 0.38 only), so BOTH rows ride in
+this cut, moved verbatim — the train order recorded here (the
+[0.35.0] form). The publication is the OWNER act (ADR-0186 §4.5)
+executed by the office machine on the explicit directive (the 0.36.0
+precedent).
 
 ### Added
 

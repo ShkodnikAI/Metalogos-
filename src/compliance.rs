@@ -89,6 +89,14 @@ pub enum EvidenceKind {
     /// The MCP policy gateway digest (ADR-0196, the G5 pinning of
     /// №828) — the reference is the gateway artifact name.
     Gateway,
+    /// The checked-in toolchain artifact — a source file, a gate
+    /// record, a baseline, a golden, an ADR (the reference is the
+    /// repo-relative path). The kind lands WITH the evidence-package
+    /// compiler (№868) — the explicit transaction the closedness rule
+    /// of this enum requires (ADR-0206 §2.3: the parents are named by
+    /// kind plus digest; the toolchain's own artifacts are the C1
+    /// seed's evidence surface).
+    Artifact,
 }
 
 impl EvidenceKind {
@@ -99,6 +107,7 @@ impl EvidenceKind {
             EvidenceKind::Passport => "passport",
             EvidenceKind::Capability => "capability",
             EvidenceKind::Gateway => "gateway",
+            EvidenceKind::Artifact => "artifact",
         }
     }
 }

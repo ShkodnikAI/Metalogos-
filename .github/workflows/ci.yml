@@ -364,10 +364,19 @@ jobs:
       # Metalogos job — freeing it is the honest guard; zero check is
       # weakened (the same steps run after; the №445 posture: the infra
       # failure is handled in-repo, never by weakening a check).
-      - name: Free runner disk (the №712 ENOSPC guard)
+      - name: Free runner disk (the №712 ENOSPC guard, the №868 list extension)
         run: |
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeTracking /opt/hostedtoolcache/Ruby /usr/local/share/boost /usr/local/swift
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeTracking /opt/hostedtoolcache/Ruby /usr/local/share/boost /usr/local/swift /opt/hostedtoolcache/CodeQL /usr/local/share/powershell /usr/lib/jvm /opt/hostedtoolcache/PyPy
           df -h /
+      # №868 ride (the В48 class, 2 deterministic failures on this
+      # branch: the ld signal-7 Bus error at the artifact step's
+      # feature-unified rebuild, then the rerun's lost log blob — the
+      # disk filled between the №712 guard and the late link): the №712
+      # list extended — CodeQL, powershell, the JVM, PyPy (none needed
+      # by any Metalogos job; the soak.yml guard already freed CodeQL).
+      # No check weakened: the same steps run after (the №445 posture —
+      # the infra failure is handled in-repo, never by weakening a
+      # check).
       - uses: dtolnay/rust-toolchain@stable
       # №445 wave-infra: the rust-cache restore for the heavy jobs
       # (clippy + the feature-gated test jobs) died deterministically in

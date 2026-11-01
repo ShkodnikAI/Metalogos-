@@ -159,4 +159,15 @@
 # (the №757/№613 procedure — the machine's own note).
 # parameterized: 97
 # LS rows: 127
-# threshold_bp: 7637
+# threshold_bp was 7637 — superseded by the №870 move below (the
+gate parser reads the FIRST "# threshold_bp: N" line — the history
+line stays outside the match)
+
+# ── №870 (wave 76 — W-E, P2, the ride — the №863 form): the
+# parameterized share moved with the live registry — the machine's own
+# advisory note names the raise. The machine read:
+# (100*10000)//130 = 7692 bp; the floor raised in the SAME PR
+# (the №757/№613 procedure — the machine's own note).
+# parameterized: 100
+# LS rows: 130
+# threshold_bp: 7692

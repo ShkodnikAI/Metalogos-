@@ -165,9 +165,11 @@ flow Main { input: String = "t" -> T -> output }
 
 #[test]
 fn check_lane_passes_both_the_migrated_and_the_unmigrated_program() {
-    let root = Path::new(MANIFEST).to_path_buf();
     for (label, source) in [("unmigrated", UNMIGRATED), ("migrated", MIGRATED_MINIMAL)] {
-        let result = metalogos::check_program_with_root(source.trim(), Some(root.as_path()))
+        // no imports in the fixtures — the root FILE stays None (the
+        // second argument is the entry .mlog for import resolution, not
+        // the project directory)
+        let result = metalogos::check_program_with_root(source.trim(), None)
             .unwrap_or_else(|e| panic!("{label}: check_program errored: {e}"));
         assert!(
             result.is_ok(),
@@ -231,11 +233,16 @@ flow Main { input: String = "t" -> T -> output }
 #[test]
 #[serial_test::serial]
 fn strict_grant_migration_passes_the_capability_gate() {
+    // The "once" quota ON PURPOSE: the grant ledger is process-global,
+    // and a single-use grant EXHAUSTS at the gate consume — the leftover
+    // state cannot cover a later test's http_post (the test hygiene:
+    // the strict test self-cleans, the unmigrated refusals stay
+    // refusals regardless of the libtest run order).
     for (name, runner) in runners() {
         match runner(
             r#"
 pattern T(_t: String) -> String {
-  let cap = grant_issue("builtin:http_post", 600, "n", 3)
+  let cap = grant_issue("builtin:http_post", 600, "once")
   let _h = http_post("https://strict.example.invalid/hook", "ping")
   return type_of(cap)
 }

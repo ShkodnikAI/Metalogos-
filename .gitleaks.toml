@@ -27,3 +27,17 @@ regexes = [
   '''SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJVadQssw5c''',
   '''my-api-key-''',
 ]
+
+# №868 (wave 76 — W-E, ADR-0206): the compliance evidence package — the
+# `subject_digest=` / `evidence=@` / row-digest fields are PUBLIC SHA-256
+# digests of PUBLIC in-repo artifacts (the whole point of the attestation
+# map is verifiability: every digest recomputes from the referenced
+# file). The generic-api-key rule trips on the `key=<64-hex>` SHAPE of
+# the v1 line contract — not on a secret. The package path is
+# allowlisted; real credential shapes stay outside this rule (the file
+# header above holds).
+[[allowlists]]
+description = "The compliance evidence package v1 — public digests of public artifacts (№868, ADR-0206)"
+paths = [
+  '''docs/compliance/attestation-map-v1\.txt''',
+]

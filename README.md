@@ -127,6 +127,8 @@ Each line is a refusal class with its pinned negative — a program in the BLOCK
 | [docs/limitations.md](docs/limitations.md) | The honest boundaries — enforced, not aspirational |
 | [docs/threat-model.md](docs/threat-model.md) | The security model: checks, gates, audit classes |
 | [docs/privacy.md](docs/privacy.md) | The engineering privacy policy — what is stored, where, how it is deleted |
+| [docs/upgrade.md](docs/upgrade.md) | The migration recipes between the versions (0.34 → 0.38) |
+| [docs/compliance/attestation-map-v1.txt](docs/compliance/attestation-map-v1.txt) | The compliance evidence package (ADR-0206): the digest-pinned attestation map an external auditor consumes without lifting the runtime |
 | [CHANGELOG.md](CHANGELOG.md) | Every wave, every change |
 | [SECURITY.md](SECURITY.md) | How to report vulnerabilities |
 | [docs/feature-gates.md](docs/feature-gates.md) | The feature-flag surface and the heavy tier per gate |
@@ -141,6 +143,36 @@ Each line is a refusal class with its pinned negative — a program in the BLOCK
 | Leak Suite | 56 negatives / 27 positives (the BLOCKING gate) |
 | Full metrics | [docs/metrics.md](docs/metrics.md) — the generated table |
 <!-- END GENERATED METRICS -->
+
+## Consuming the compliance evidence package (for external auditors)
+
+The repository compiles its own compliance attestation map into a
+deterministic, digest-pinned package: [docs/compliance/attestation-map-v1.txt](docs/compliance/attestation-map-v1.txt)
+(ADR-0206 — the claim → evidence-digest → verifier → freshness-window
+rows over the toolchain's own records). What an auditor does with it —
+no runtime needed:
+
+1. **Integrity.** Every `row` line carries the SHA-256 of its claim
+   fields; re-deriving the digest from the line's own fields must
+   match (the machine check: `compliance_pack::verify_row_digests` —
+   an edited package refuses).
+2. **Evidence.** Every row names its evidence as
+   `evidence=<kind>:<reference>@<sha256>` — recompute the SHA-256 of
+   the referenced file and compare with the pin (a mismatch is a loud
+   failure, never «compliant»).
+3. **Freshness.** Each row carries `window=<issued>-<expires>` (unix
+   seconds; `9223372036854775807` = no window). Compare against YOUR
+   verification date — the package carries no wall clock by design.
+4. **Re-run the verifier.** Each row names the check (`verifier=…`) a
+   third party can re-run (the gate reads, the golden suites, the
+   parity pins).
+
+The package is compiled by the deterministic compiler (two runs of the
+same inputs are byte-identical; the header `package_digest` covers the
+row block). It aggregates the existing traces — the Action Ledger, the
+typed mandates, the passports, the capability rosters, the gateway
+policy — and creates no new rights, no new refusal vocabulary and no
+legal claims (the honest limits of ADR-0206 §5).
 
 ## The Newcomer Contract (2-minute read)
 

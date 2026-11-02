@@ -416,6 +416,54 @@ pub fn emit(carrier: &str, bytes: &[u8]) -> Result<ProvenanceManifest, String> {
     ingest(carrier, bytes)
 }
 
+// ── №874 (wave 77 — W-F, P1, [provenance][core]): the coverage rule ──
+//
+// The fail-closed egress gate (ADR-0207 §2.5): an egress carrier whose
+// boundary record did not land does NOT perform the side effect — the
+// refusal is loud, names «provenance missing», and journals itself
+// through the EXISTING Ledger ACTION path (`ledger::record`, the
+// fire_on_deny form of ADR-0167 §3.4 — no new record kind, the
+// action/detail ride the existing fields). The deny CLASS stays the
+// frozen SINK_CLEARANCE (№385 — the 14-word vocabulary does not grow).
+// The ingress side of the rule is the USE-site check (`require` /
+// `verify_origin`): a value whose crossing is not recorded refuses ON
+// USE — «молча пропустить» is forbidden (the №584/№601 posture).
+
+/// The canonical egress refusal text (the frozen class word + the
+/// typed detail — the honest refusal form of №845/№861).
+fn provenance_missing_refusal(carrier: &str, why: &str) -> String {
+    format!(
+        "SINK_CLEARANCE: provenance missing: '{carrier}' performed no live boundary record \
+         ({why}) — the egress side effect is refused (ADR-0207 §2.5, №874: fail-closed, \
+         a silent pass is forbidden)"
+    )
+}
+
+/// THE coverage gate for the EGRESS carriers (№874/ADR-0207 §2.5):
+/// the boundary record MUST land before the side effect completes.
+/// `Ok(manifest)` — the record is live, the side effect may proceed;
+/// `Err` — the fail-closed refusal: the caller MUST NOT perform the
+/// side effect, the refusal already journaled itself through the
+/// existing Ledger ACTION path (action `deny.SINK_CLEARANCE`, scope
+/// `provenance`, the typed detail hashed into args — the №393 form).
+pub fn gate_emit(carrier: &str, bytes: &[u8]) -> Result<ProvenanceManifest, String> {
+    match emit(carrier, bytes) {
+        Ok(m) => Ok(m),
+        Err(e) => {
+            crate::ledger::record(
+                "deny.SINK_CLEARANCE",
+                "runtime",
+                "provenance",
+                &format!("{carrier}|provenance missing|{e}"),
+            );
+            eprintln!(
+                "[PROVENANCE] {carrier}: the egress record failed — the side effect is refused: {e}"
+            );
+            Err(provenance_missing_refusal(carrier, &e))
+        }
+    }
+}
+
 /// The use-site lookup (ADR-0207 §2.4): at least one recorded row
 /// vouches for the digest, or the use refuses «provenance missing».
 /// The refusal TEXT names the remedy; the deny CLASS stays the frozen

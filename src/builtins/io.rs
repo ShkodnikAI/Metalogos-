@@ -166,13 +166,9 @@ pub(crate) fn builtin_print(args: &[Value]) -> Result<Value, String> {
         super::forecast::check_print_forecast(arg)?;
     }
     let s = expect_string_arg("print", args, 0)?;
-    // №873 (ADR-0207 §2.2): the EGRESS boundary record BEFORE the
-    // stdout side effect. Record failure is loud stderr but never
-    // flips the outcome (the №393 posture; №874 owns the fail-closed
-    // flip — no record, no print).
-    if let Err(pe) = crate::provenance::emit("print", s.as_bytes()) {
-        eprintln!("[PROVENANCE] print: the egress record failed: {pe}");
-    }
+    // №874 (ADR-0207 §2.5): the fail-closed egress gate — no live
+    // boundary record, no print (the side effect is refused).
+    crate::provenance::gate_emit("print", s.as_bytes())?;
     eprintln!("[print] {}", s);
     Ok(Value::String(s))
 }
@@ -747,13 +743,10 @@ pub(crate) fn builtin_write_file(args: &[Value]) -> Result<Value, String> {
     // crane + the serve data-dir containment + the TOCTOU-safe open.
     // Group A of the audit: writing app.mlog/.env was UNGATED.
     let mut file = crate::fs_gate::open_write(&path, "write_file", false)?;
-    // №873 (ADR-0207 §2.2): the EGRESS boundary record BEFORE the side
-    // effect completes. Record failure is loud stderr but never flips
-    // the outcome here (the №393 posture; №874 owns the fail-closed
-    // flip — no record, no write).
-    if let Err(pe) = crate::provenance::emit("write_file", content.as_bytes()) {
-        eprintln!("[PROVENANCE] write_file: the egress record failed: {pe}");
-    }
+    // №874 (ADR-0207 §2.5): the fail-closed egress gate — no live
+    // boundary record, no write. The refusal journals through the
+    // existing Ledger ACTION path (inside the gate).
+    crate::provenance::gate_emit("write_file", content.as_bytes())?;
     match file.write_all(content.as_bytes()) {
         Ok(_) => Ok(Value::String("ok".to_string())),
         Err(_) => Ok(Value::String(String::new())), // soft-failure (OS-level)

@@ -1013,10 +1013,22 @@ jobs:
           # 2026-11-17); the removal trigger: the first candle-core
           # release with zip ^9 — the ignore dies in the same PR (the
           # №459 removal form).
+          #
+          # RUSTSEC-2026-0429 (the ride-audit-unblock 2026-11-02): the
+          # FOURTH zip advisory joins the same candle-core path —
+          # ZipArchive::extract aborts on a symlink entry with a large
+          # declared size (CVE-2026-115909, DoS class, patched >= 9.0.0
+          # only; crates.io checked 2026-11-02 — no 8.x fix exists, the
+          # 8.x line ends at 8.6.0). The same upstream-blocked posture:
+          # candle is a NON-default feature, the vulnerable path is not
+          # reachable in the default build; the ignore rides the same
+          # №707 trigger (the first candle-core with zip ^9, review
+          # 2026-11-17).
           cargo audit \
             --ignore RUSTSEC-2026-0367 \
             --ignore RUSTSEC-2026-0368 \
-            --ignore RUSTSEC-2026-0369
+            --ignore RUSTSEC-2026-0369 \
+            --ignore RUSTSEC-2026-0429
 
   cargo-deny:
     name: cargo-deny (blocking)

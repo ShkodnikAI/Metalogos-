@@ -93,6 +93,29 @@ APPROVAL_COVERAGE_FLOOR_OWNER_BP = 10000
 # are pinned by the naryad; raising the floor is an explicit owner
 # transaction — lowering is refused).
 ATTEST_MAP_FLOOR_OWNER = 30
+
+# №875 (wave 77 — W-F): the 8C/C3 machine fact — PROVENANCE_SHARE with
+# its own only-up floor file. The floor VALUE 10000 bp = 100.00% is the
+# wave-77 dispatch constant (gh#1729: the 0.40 gate, PROVENANCE_SHARE
+# 10000 bp). The definition lives in ADR-0207 §4: the share of the
+# registered I/O carriers whose boundary provenance record is LIVE-wired
+# — counted over the EXPLICIT registry (PROVENANCE_CARRIERS in
+# src/provenance.rs is the machine source, the №862 roster form), each
+# carrier counted ONLY on a live boundary call in its implementation
+# file (crate::provenance::ingest/gate_emit with the carrier's own name
+# — no self-declaration; the tamper traps below prove the counter
+# catches the removed wiring and the forged roster). The egress gate's
+# composition site (`pub fn gate_emit` in src/provenance.rs) is the
+# wiring the counter demands — if it is removed, NO egress carrier is
+# gated and the share reads 0 (the gate working, not a pass). The
+# checker pins the owner constant: the gate file can RAISE the floor,
+# never lower it silently (the №846 discipline, verbatim).
+GATE_038_GOALS = REPO / "scripts" / "ci" / "gate_038_goals.txt"
+PROVENANCE_SHARE_FLOOR_OWNER_BP = 10000
+PROVENANCE_RS = REPO / "src" / "provenance.rs"
+BUILTINS_IO_RS = REPO / "src" / "builtins" / "io.rs"
+BUILTINS_HTTP_RS = REPO / "src" / "builtins" / "http.rs"
+
 APPROVAL_RS = REPO / "src" / "approval.rs"
 CI_YML = REPO / ".github" / "workflows" / "ci.yml"
 POLICY_ACTION_YML = REPO / "action.yml"
@@ -692,6 +715,114 @@ def attest_map_live(package_text: str | None = None) -> int:
     return sum(1 for r in _package_raw_rows(package_text) if r["status"] == "live")
 
 
+# ── №875 (wave 77 — W-F, ADR-0207 §4): the PROVENANCE_SHARE machine ────
+
+def _provenance_registry(content: str | None = None) -> list[str]:
+    """The wave-77 carrier registry (№873): the EXPLICIT registry
+    transaction in src/provenance.rs — the machine source the Rust
+    totality test pins against the classification (a name here that is
+    not a classified Source/Sink carrier reddens the Rust test AND
+    lowers this share — no silent shelves)."""
+    if content is None:
+        content = PROVENANCE_RS.read_text(encoding="utf-8")
+    try:
+        start = content.index("pub const PROVENANCE_CARRIERS")
+        block = content[start:]
+        block = block[: block.index("];")]
+        return re.findall(r'name:\s*"([a-z0-9_]+)"', block)
+    except ValueError:
+        return []
+
+
+def _classified_carrier_names(content: str | None = None) -> set[str]:
+    """The classification SSOT (the machine source): every builtin the
+    static map marks Role::Source or Role::Sink — the two I/O roles of
+    the shared layer (the ingest sources, the egress sinks). The parse
+    covers the committed array ONLY (the test module after
+    #[cfg(test)] is cut — the test asserts are not carriers)."""
+    if content is None:
+        content = BUILTINS_CLASSIFICATION_RS.read_text(encoding="utf-8")
+    try:
+        block = content[content.index("pub static BUILTIN_CLASSES"):]
+        block = block[: block.index("#[cfg(test)]")]
+    except ValueError:
+        return set()
+    names: set[str] = set()
+    for chunk in block.split("BuiltClassEntry {")[1:]:
+        name = re.search(r'name:\s*"([^"]+)"', chunk)
+        if not name:
+            continue
+        if "Role::Source" in chunk or "Role::Sink" in chunk:
+            names.add(name.group(1))
+    return names
+
+
+def _provenance_gate_composition_site(content: str | None = None) -> bool:
+    """The egress gate's composition site (№874): the fail-closed gate
+    (`pub fn gate_emit`) lives in src/provenance.rs — the ONE surface
+    the egress carriers dispatch through. If the composition is
+    removed, NO egress carrier is gated — the share reads 0 (the gate
+    working, not a pass)."""
+    if content is None:
+        content = PROVENANCE_RS.read_text(encoding="utf-8")
+    return "pub fn gate_emit(carrier: &str" in content
+
+
+def _provenance_boundary_wired(name: str, io_text: str, http_text: str) -> bool:
+    """The LIVE wiring evidence of one carrier (the №862 form — the
+    composition site fixed): the carrier's OWN boundary call with its
+    OWN name in its implementation file. read_file/http_get record
+    through `ingest`; the egress carriers record through the
+    fail-closed `gate_emit`. A removed or renamed call un-wires the
+    carrier — the share drops (the tamper traps prove the counter
+    catches it)."""
+    ingest_call = f'crate::provenance::ingest("{name}"'
+    emit_call = f'crate::provenance::gate_emit("{name}"'
+    return (
+        ingest_call in io_text
+        or ingest_call in http_text
+        or emit_call in io_text
+        or emit_call in http_text
+    )
+
+
+def provenance_share_bp(
+    registry: list[str] | None = None,
+    classification: set[str] | None = None,
+    io_text: str | None = None,
+    http_text: str | None = None,
+    composition_site: bool | None = None,
+) -> int:
+    """PROVENANCE_SHARE — the share of the registered I/O carriers
+    whose boundary provenance record is LIVE-wired, bps (№875, ADR-0207
+    §4). Numerator: the registry names that are CLASSIFIED Source/Sink
+    carriers AND carry the live boundary call in their implementation
+    file. Denominator: the whole registry. An empty registry is 0 bp (a
+    vacuous class is a gate failure, never a pass); a forged registry
+    name (not classified) is UNCOVERED — the machine source is the
+    classification, never the registry alone; a missing composition
+    site zeroes the share (the gate working, not a pass)."""
+    if registry is None:
+        registry = _provenance_registry()
+    if classification is None:
+        classification = _classified_carrier_names()
+    if io_text is None:
+        io_text = BUILTINS_IO_RS.read_text(encoding="utf-8")
+    if http_text is None:
+        http_text = BUILTINS_HTTP_RS.read_text(encoding="utf-8")
+    if composition_site is None:
+        composition_site = _provenance_gate_composition_site()
+    total = len(registry)
+    if total == 0 or not composition_site:
+        return 0
+    covered = sum(
+        1
+        for name in registry
+        if name in classification and _provenance_boundary_wired(name, io_text, http_text)
+    )
+    return covered * 10000 // total
+
+
 def tamper_test() -> int:
     """The RED harness (№841): the checkers MUST catch the fabricated
     records. Every trap asserts the floor DROPS under the tamper —
@@ -1014,11 +1145,85 @@ def tamper_test() -> int:
         )
         return 1
 
+    # ── №875 traps: the PROVENANCE_SHARE machine catches the tamper ───
+    full_prov = provenance_share_bp()
+    if full_prov != PROVENANCE_SHARE_FLOOR_OWNER_BP:
+        print(
+            "tamper-test: TRAP FAILED — the provenance share is not at the owner floor on the "
+            f"clean tree ({full_prov} bp != {PROVENANCE_SHARE_FLOOR_OWNER_BP} bp): the registry "
+            "or the boundary wiring drifted (fix the wiring, never the floor)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 21 (the roster-substitution class, the №862 Trap 12 form): a
+    # registry name replaced with a FORGED name (not in the
+    # classification) lowers the share — the machine source is the
+    # classification, never the registry alone.
+    stub_registry = [
+        name if name != "print" else "print_forged" for name in _provenance_registry()
+    ]
+    if provenance_share_bp(registry=stub_registry) >= full_prov:
+        print(
+            "tamper-test: TRAP FAILED — the forged registry name did NOT lower PROVENANCE_SHARE",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 22 (the deletion class): a boundary call removed from the
+    # carrier's implementation un-wires the carrier — the share drops
+    # (the silent-bypass class of №846 Trap 5/№862 Trap 13).
+    good_io = BUILTINS_IO_RS.read_text(encoding="utf-8")
+    stub_io = good_io.replace(
+        'crate::provenance::gate_emit("write_file"',
+        'crate::provenance::MISSING_GATE("write_file"',
+        1,
+    )
+    if stub_io == good_io:
+        print(
+            "tamper-test: TRAP FAILED — the write_file wiring anchor drifted (the fixture is stale)",
+            file=sys.stderr,
+        )
+        return 1
+    if provenance_share_bp(io_text=stub_io) >= full_prov:
+        print(
+            "tamper-test: TRAP FAILED — the removed write_file wiring did NOT lower PROVENANCE_SHARE",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 23 (the definition-substitution control, the №857 Trap 10
+    # form): a counter counting by registry EXISTENCE alone would stay
+    # at the floor with the gate's composition site removed — the real
+    # one reads the composition and reports 0 (the fact is checked,
+    # not declared).
+    if provenance_share_bp(composition_site=False) != 0:
+        print(
+            "tamper-test: TRAP FAILED — the counter answered without the gate composition "
+            "site (the definition was substituted)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 24 (the negative control (б), the №846/№857 form): the
+    # gate_038 floor LOWERED below the owner constant is a loud refusal
+    # (the floor is only-up — the wave-77 dispatch constant).
+    prov_strict = load_floors_strict(GATE_038_GOALS)
+    prov_value = prov_strict.get("goal_provenance_share_bp")
+    if prov_value is None or prov_value < PROVENANCE_SHARE_FLOOR_OWNER_BP:
+        print(
+            "tamper-test: TRAP FAILED — the gate_038 floor is below the owner constant "
+            f"(the wave-77 dispatch constant: {PROVENANCE_SHARE_FLOOR_OWNER_BP} bp) — "
+            "the lowering is refused",
+            file=sys.stderr,
+        )
+        return 1
+
     print(
         "tamper-test: OK — the checkers catch the fabricated records "
         f"(LICENSED_FLOOR {full_lic} bp, PASSPORT_FRESH {full_pass} bp, "
-        f"APPROVAL_COVERAGE {full_appr} bp, ATTEST_MAP {full_att} live rows; "
-        "the traps lowered all)"
+        f"APPROVAL_COVERAGE {full_appr} bp, ATTEST_MAP {full_att} live rows, "
+        f"PROVENANCE_SHARE {full_prov} bp; the traps lowered all)"
     )
     return 0
 
@@ -1059,6 +1264,7 @@ def full_block() -> str:
         f"| PASSPORT_FRESH (the 8D-1 machine fact, №841) | {passport_fresh_bp()} bp — the passports fresh within the {PASSPORT_FRESHNESS_DAYS}-day verification window (the №842 rule) |\n"
         f"| GRANT_COVERAGE (the 8B-1 machine fact, №846) | {grant_coverage_bp()} bp — the irreversible carriers whose rights decision passes the capability layer (ADR-0203 §2.7; the gate_034 floor) |\n"
         f"| SEMA_EXTERNAL (the 8F-1 machine fact, №857) | {sema_external()['count']} — the live external-consumption artifacts of the Portable Refusal Algebra (ADR-0204 §5; the gate_035 only-up floor ≥ 1): {', '.join(sema_external()['counted']) or 'none yet'} |\n"
+        f"| PROVENANCE_SHARE (the 8C/C3 machine fact, №875) | {provenance_share_bp()} bp — the registered I/O carriers whose boundary provenance record is LIVE-wired (ADR-0207 §4; the gate_038 floor 10000 bp, only-up) |\n"
     )
 
 
@@ -1128,6 +1334,7 @@ def plan_summary_block() -> str:
         f"| SEMA_EXTERNAL — the 8F-1 machine fact (№857) | {sema_external()['count']} |\n"
         f"| APPROVAL_COVERAGE — the 8B-2 machine fact (№862) | {approval_coverage_bp()} bp |\n"
         f"| ATTEST_MAP — the 8A-1 machine fact (№869) | {attest_map_live()} live attestation rows |\n"
+        f"| PROVENANCE_SHARE — the 8C/C3 machine fact (№875) | {provenance_share_bp()} bp |\n"
     )
 
 
@@ -1421,6 +1628,52 @@ def main() -> int:
             f"OK: the №869 floor holds — ATTEST_MAP {attest_live} live rows "
             f"(gate_037 floor {attest_floor}, only-up) — source: "
             f"{PACKAGE_0206.relative_to(REPO)} (the raw rows, structurally counted)"
+        )
+
+    # №875: the PROVENANCE_SHARE floor twin (the only-up gate_038) —
+    # the STRICT loader (fail-closed on a missing/empty/corrupted file)
+    # and the owner-pinned lowering refusal (the wave-77 dispatch
+    # constant can rise, never fall). The fact counts the registered
+    # carriers whose boundary record is LIVE-wired (the №862 roster
+    # form — the registry is the machine source, the composition site
+    # fixed, the wiring per carrier).
+    if check:
+        try:
+            prov_floors = load_floors_strict(GATE_038_GOALS)
+        except ValueError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        prov_floor = prov_floors.get("goal_provenance_share_bp")
+        if prov_floor is None:
+            print(
+                "ERROR: gate_038_goals.txt carries no goal_provenance_share_bp floor",
+                file=sys.stderr,
+            )
+            return 2
+        if prov_floor < PROVENANCE_SHARE_FLOOR_OWNER_BP:
+            print(
+                "FLOOR LOWERING REFUSED: gate_038 "
+                f"({prov_floor} bp) is below the owner constant "
+                f"({PROVENANCE_SHARE_FLOOR_OWNER_BP} bp — the wave-77 dispatch constant, "
+                "gh#1729); the floor is only-up — the change is an explicit owner transaction",
+                file=sys.stderr,
+            )
+            return 1
+        prov_share = provenance_share_bp()
+        if prov_share < prov_floor:
+            print(
+                f"FLOOR BREACH: PROVENANCE_SHARE {prov_share} bp < the gate_038 floor "
+                f"{prov_floor} bp (only-up) — a registered carrier lost its live boundary "
+                "record (restore the crate::provenance::ingest/gate_emit call with the "
+                "carrier's own name in its implementation — never a silent gate edit)",
+                file=sys.stderr,
+            )
+            return 1
+        print(
+            f"OK: the №875 floor holds — PROVENANCE_SHARE {prov_share} bp "
+            f"(gate_038 floor {prov_floor} bp, only-up) — registry: "
+            f"{', '.join(_provenance_registry()) or 'none'}; gate composition site: "
+            f"{'present' if _provenance_gate_composition_site() else 'MISSING'}"
         )
 
     # №841: the RED harness (the tamper traps) — an explicit mode, run by

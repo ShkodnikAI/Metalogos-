@@ -22,4 +22,19 @@
 # value. The full-registry figure at the same date: 372/526 (70.72%).
 # typed (stable): 363
 # total (stable): 483
-# threshold_bp: 7515
+# threshold_bp was 7515 — superseded by the №876 move below (the
+gate parser reads the FIRST "# threshold_bp: N" line — the history
+line stays outside the match)
+
+# ── №876 (wave 77 — W-F, P2, the ride — the «the floor follows the fact»
+# form of №863): the stable typed-signature share (the PRIMARY
+# definition, ADR-0199) moved with the live registry — the machine's
+# own advisory note names the raise. The machine read:
+# (366*10000)//486 = 7530 bp; the floor raised in the SAME PR
+# (the №757/№613 procedure — the machine's own note). The ride fact:
+# the wave-77 kernel module (src/provenance.rs) is NOT a registry row —
+# the counter is registry-based, the share moved with the wave-76/77
+# registry drift alone.
+# typed (stable): 366
+# total (stable): 486
+# threshold_bp: 7530

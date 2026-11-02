@@ -1,0 +1,47 @@
+# gate_038_goals.txt — the wave-77 W-F machine-fact floor (naryad №875)
+# =============================================================================
+# The №875 floor file: the ONLY-UP gate over the 8C/C3 machine fact —
+# the same discipline as the gate_034 goal record (№846), the gate_035
+# goals (№857), the gate_036 record (№862) and the gate_037 record
+# (№869). The floor value is the wave's START floor = the wave-77
+# dispatch constant (gh#1729: 0.40 = 8C (C3, PROVENANCE_SHARE 10000 bp)
+# — the point was accepted by the owner in the dispatch, no further
+# decision is needed at the naryad level; the №841 form — the floor can
+# rise, never fall):
+# 0.40 = 8C (C3, PROVENANCE_SHARE 10000 bp).
+#
+# The fact and its machine source (the --check twin):
+#   goal_provenance_share_bp  provenance_share_bp()  — the share of the
+#                      registered I/O carriers whose boundary provenance
+#                      record is LIVE-wired, bps (ADR-0207 §4). The
+#                      denominator is the EXPLICIT registry
+#                      (PROVENANCE_CARRIERS in src/provenance.rs — the
+#                      №873 registry transaction, the №862 roster
+#                      form); the numerator counts a carrier ONLY when
+#                      BOTH hold: (1) the name is a classified
+#                      Source/Sink builtin (the classification SSOT is
+#                      the machine source — a forged registry name is
+#                      uncovered), and (2) the carrier's OWN boundary
+#                      call (crate::provenance::ingest/gate_emit with
+#                      the carrier's own name) is LIVE in its
+#                      implementation file (src/builtins/io.rs /
+#                      src/builtins/http.rs — no self-declaration; the
+#                      tamper traps prove the counter catches the
+#                      removed wiring and the forged roster). The
+#                      egress gate's composition site (pub fn gate_emit
+#                      in src/provenance.rs — the №874 fail-closed
+#                      gate) is the wiring the counter demands: if it
+#                      is removed, NO egress carrier is gated and the
+#                      share reads 0 (the gate working, not a pass).
+#
+# The floor is ONLY-UP: the value below is the wave-77 dispatch
+# constant pinned by the checker (gen_metrics.py
+# PROVENANCE_SHARE_FLOOR_OWNER_BP); a lowered floor in this file is
+# refused with a loud FLOOR LOWERING REFUSED (the №776 transaction
+# discipline — a re-pin is an OWNER decision, never a silent gate
+# edit). The breach branch names the remedy: restore the boundary call
+# with the carrier's own name in its implementation — never a silent
+# gate edit.
+#
+# Fields (machine-read by scripts/gen_metrics.py load_floors_strict):
+goal_provenance_share_bp 10000

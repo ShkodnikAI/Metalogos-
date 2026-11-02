@@ -166,6 +166,13 @@ pub(crate) fn builtin_print(args: &[Value]) -> Result<Value, String> {
         super::forecast::check_print_forecast(arg)?;
     }
     let s = expect_string_arg("print", args, 0)?;
+    // №873 (ADR-0207 §2.2): the EGRESS boundary record BEFORE the
+    // stdout side effect. Record failure is loud stderr but never
+    // flips the outcome (the №393 posture; №874 owns the fail-closed
+    // flip — no record, no print).
+    if let Err(pe) = crate::provenance::emit("print", s.as_bytes()) {
+        eprintln!("[PROVENANCE] print: the egress record failed: {pe}");
+    }
     eprintln!("[print] {}", s);
     Ok(Value::String(s))
 }
@@ -693,7 +700,21 @@ fn read_file_impl(
     use std::io::Read;
     let mut content = String::new();
     match file.read_to_string(&mut content) {
-        Ok(_) => Ok(Value::String(content)),
+        Ok(_) => {
+            // №873 (ADR-0207 §2.2): the INGRESS boundary record — the
+            // shared-layer provenance rides the read family body
+            // (read_file / read_file_or share this body — one record
+            // site, two carriers; read_file_tokens has its OWN body in
+            // builtins/office/text.rs and joins the registry via an
+            // explicit future transaction — the honest-limits note of
+            // the wave-77 report). Record failure is loud stderr but
+            // never flips the outcome (the №393 ledger-write posture;
+            // №874 owns the fail-closed flip).
+            if let Err(pe) = crate::provenance::ingest("read_file", content.as_bytes()) {
+                eprintln!("[PROVENANCE] {name}: the ingress record failed: {pe}");
+            }
+            Ok(Value::String(content))
+        }
         // №481: a read failure on an OPENED file (encoding/IO) is loud —
         // the old silent "" swallowed the config error.
         Err(e) => Err(crate::interpreter::values::coded_error(
@@ -726,6 +747,13 @@ pub(crate) fn builtin_write_file(args: &[Value]) -> Result<Value, String> {
     // crane + the serve data-dir containment + the TOCTOU-safe open.
     // Group A of the audit: writing app.mlog/.env was UNGATED.
     let mut file = crate::fs_gate::open_write(&path, "write_file", false)?;
+    // №873 (ADR-0207 §2.2): the EGRESS boundary record BEFORE the side
+    // effect completes. Record failure is loud stderr but never flips
+    // the outcome here (the №393 posture; №874 owns the fail-closed
+    // flip — no record, no write).
+    if let Err(pe) = crate::provenance::emit("write_file", content.as_bytes()) {
+        eprintln!("[PROVENANCE] write_file: the egress record failed: {pe}");
+    }
     match file.write_all(content.as_bytes()) {
         Ok(_) => Ok(Value::String("ok".to_string())),
         Err(_) => Ok(Value::String(String::new())), // soft-failure (OS-level)

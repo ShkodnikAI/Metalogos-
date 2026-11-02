@@ -249,4 +249,5 @@ real ADRs (№309/№320/№412) before the booking.
 | 0205 | Typed Approval — the Human Mandate as a Typed Carrier of Consent and Oversight (the 8B-2 / C11 Subphase Record) | Proposed** (the ACCEPTED path is the wave-75 acceptance |
 | 0206 | Compliance Evidence Compiler — the Attestation Map as a Typed, Verifiable, Sellable Artifact (the 8A-1 / C1 Subphase Record) | Proposed** (the ACCEPTED path is the wave-76 acceptance |
 | 0207 | Provenance-Native I/O — the I/O Boundary as a Provenance Carrier (the 8C / C3 Subphase Record) | Proposed** (the ACCEPTED path is the wave-77 acceptance |
+| 0208 | Provider-Agnostic Local-First — the LLM Layer as a Provider-Agnostic Contract (the 8E-1 / C5 Subphase Record) | Proposed** (the ACCEPTED path is the wave-78 acceptance |
 | 0216 | The `rollback_if` Metric Is a Registry Name — the Gate Reads the Metric's Own Value and Carries the Majority Baseline (the W2′ Grammar Semantics) | Accepted** (the наряд-mandated ADR-запись |

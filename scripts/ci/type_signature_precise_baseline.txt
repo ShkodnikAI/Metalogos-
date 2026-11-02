@@ -164,4 +164,18 @@
 # №757/№613 procedure; the PRECISE_TYPES definition is untouched.
 # precise: 242
 # total: 526
-# threshold_bp: 4600
+# threshold_bp was 4600 — superseded by the №876 move below (the
+gate parser reads the FIRST "# threshold_bp: N" line — the history
+line stays outside the match)
+
+# ── №876 (wave 77 — W-F, P2, the ride — the «the floor follows the fact»
+# form of №863): the precise typed-signature share moved with the live
+# registry — the machine's own advisory note names the raise. The
+# machine read: (244*10000)//530 = 4603 bp; the floor raised in the
+# SAME PR (the №757/№613 procedure — the machine's own note). The ride
+# fact: the wave-77 kernel module (src/provenance.rs) is NOT a registry
+# row — the counter is registry-based, the share moved with the
+# wave-76/77 registry drift alone.
+# precise: 244
+# total: 530
+# threshold_bp: 4603

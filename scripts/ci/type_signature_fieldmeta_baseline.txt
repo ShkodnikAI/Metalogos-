@@ -87,7 +87,9 @@
 #   the same PR).
 # field-label: 42
 # Struct rows: 44
-# threshold_bp: 9565
+# threshold_bp was 9565 — superseded by the №876 move below (the
+gate parser reads the FIRST "# threshold_bp: N" line — the history
+lines stay outside the match)
 
 # №661 (issue #1162, 2026-10-09; the К-Б stage-2 verdict gh#1144):
 # canary_check ships WITH the 3-entry field_meta — the FIRST PRIVATE
@@ -107,8 +109,19 @@
 
 # field-label: 45
 # Struct rows: 47
-# threshold_bp: 9574
+# threshold_bp was 9574 — the history line (superseded; see the №876
+# move at the end of the file — the parser reads the FIRST match)
 
 # 2026-10-13 N7-merge (gh#1217): the merged tree — set_header ships the
 # 4-entry field_meta (all internal) — 46/48, the floor 9574 → 9583.
-# threshold_bp: 9583
+# threshold_bp was 9583 — the history line (superseded; see the №876
+# move at the end of the file — the parser reads the FIRST match)
+
+# ── №876 (wave 77 — W-F, P2, the ride — the №863 form): the
+# field-label share moved with the live registry — the machine's own
+# advisory note names the raise. The machine read:
+# (62*10000)//64 = 9687 bp; the floor raised in the SAME PR
+# (the №757/№613 procedure — the machine's own note).
+# field-label: 62
+# Struct rows: 64
+# threshold_bp: 9687

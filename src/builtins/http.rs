@@ -155,6 +155,14 @@ pub(crate) fn builtin_respond(args: &[Value]) -> Result<Value, String> {
         let status_body = expect_string_arg("respond", args, 0)?;
         parse_status_line(&status_body)
     };
+    // №873 (ADR-0207 §2.2): the EGRESS boundary record BEFORE the
+    // response value exists (the server materializes it — the record
+    // pins the body bytes at the boundary). Record failure is loud
+    // stderr but never flips the outcome (the №393 posture; №874 owns
+    // the fail-closed flip).
+    if let Err(pe) = crate::provenance::emit("respond", body.as_bytes()) {
+        eprintln!("[PROVENANCE] respond: the egress record failed: {pe}");
+    }
     Ok(Value::HttpResponse {
         status,
         body,
@@ -1360,6 +1368,15 @@ pub(crate) fn builtin_http_post(args: &[Value]) -> Result<Value, String> {
         _ => 30,
     };
 
+    // №873 (ADR-0207 §2.2): the EGRESS boundary record BEFORE the
+    // network side effect (one record per call — the body does not
+    // change across the retry attempts). Record failure is loud
+    // stderr but never flips the outcome here (the №393 posture;
+    // №874 owns the fail-closed flip — no record, no send).
+    if let Err(pe) = crate::provenance::emit("http_post", body.as_bytes()) {
+        eprintln!("[PROVENANCE] http_post: the egress record failed: {pe}");
+    }
+
     // Наряд №261: redirect-политика none() — reqwest по умолчанию ходит по 30x
     // (до 10 хопов) и каждый хоп резолвит DNS заново БЕЗ повторного SSRF-пина
     // (обход пина одним редиректом) плюс утечка Authorization кросс-хосту.
@@ -1674,6 +1691,13 @@ pub(crate) fn builtin_http_get(args: &[Value]) -> Result<Value, String> {
             ));
         }
 
+        // №873 (ADR-0207 §2.2): the INGRESS boundary record — the
+        // response body entered the program through the network
+        // channel. Record failure is loud stderr but never flips the
+        // outcome (the №393 posture; №874 owns the fail-closed flip).
+        if let Err(pe) = crate::provenance::ingest("http_get", resp_body.as_bytes()) {
+            eprintln!("[PROVENANCE] http_get: the ingress record failed: {pe}");
+        }
         return Ok(Value::String(resp_body));
     }
 

@@ -95,6 +95,7 @@ pub mod media_ops;
 pub mod memory_graph;
 pub mod memory_ops;
 pub mod memory_store;
+pub mod provenance; // №873 (ADR-0207, wave 77 — W-F): ProvenanceManifest — the typed provenance fact of an I/O boundary crossing + the append-only map over the crossings (the 8C/C3 shared-layer kernel; the vision/provenance C2PA domain and the ADR-0206 attest contour stay untouched — the dedup guard)
 pub mod recipe_ops;
 pub mod runtime_ops;
 // Наряд №350: the typed Memory<K> layer — label-typed containers over

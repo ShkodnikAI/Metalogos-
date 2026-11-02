@@ -151,6 +151,30 @@ the merge commit `67b005fe`, the Build & Release run #28
 publication date; the published note bodies carry no date line — the
 №497 verbatim intact).
 
+Wave 77 EXECUTED (the dispatch gh#1729 — the 8C/C3 subphase, the 0.40 =
+C3 «Provenance-Native I/O» line): №872 → №873 → №874 → №875 → №876 →
+№877 (strictly last). The phase line: ADR-0207 — the I/O boundary as a
+provenance carrier (the origin digest + the channel + the revision +
+the record fact; ADR before the code, the №1 form); the provenance in
+code — the pure ProvenanceManifest carrier, the append-only map, the
+explicit six-carrier registry, the boundary records wired 1:1 into
+read_file/write_file/http_get/http_post/respond/print (no signature,
+no golden, no Ledger-shape change — the happy path adds no Ledger
+rows); the coverage rule — the fail-closed egress gate (gate_emit: no
+live boundary record → the side effect refused + the Ledger ACTION row
+deny.SINK_CLEARANCE) + the ingress use-check (require/verify_origin —
+the refusal ON USE, the G5 substitution control), the e2e trace both
+lanes (action → ingress → processing → egress → manifest); the
+PROVENANCE_SHARE machine fact in gen_metrics.py + the gate_038 floor
+10000 bp (only-up, the tamper traps 21-24 — the gate_036/037 pattern);
+the type_signature/sensitive_surface baselines re-pinned under the
+provenance type (the floors follow the fact, the №863 form). The
+machine record: the generated §6.77 (the verbatim counters, the
+merge-CI verdicts). The honest findings ride in the record: the
+merge-chain rebuild needed the novel-commit-only transplant (the
+stack-base drift across №872; the tree-identity check kept the PR
+diffs clean) and the auto-merge arming moves to the post-rebuild step.
+
 Wave 76 EXECUTED (the dispatch gh#1714 — the 8A-1 subphase, the 0.39 =
 C1 «Compliance Evidence Compiler» line): №866 → №867 → №868 → №869 →
 №870 → №871 (strictly last). The phase line: ADR-0206 — the

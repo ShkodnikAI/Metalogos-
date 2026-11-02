@@ -48,6 +48,7 @@ ignore = [
     { id = "RUSTSEC-2026-0367", reason = "zip SUID/SGID extraction — candle-core 0.11.0 pins zip ^8.6.0, no upstream zip-9 release path exists (review 2026-11-17 or at the first candle-core zip-^9 release)" },
     { id = "RUSTSEC-2026-0368", reason = "zip symlink escape on extract — candle-core 0.11.0 pins zip ^8.6.0, no upstream zip-9 release path exists (review 2026-11-17 or at the first candle-core zip-^9 release)" },
     { id = "RUSTSEC-2026-0369", reason = "zip symlink unix-permissions — candle-core 0.11.0 pins zip ^8.6.0, no upstream zip-9 release path exists (review 2026-11-17 or at the first candle-core zip-^9 release)" },
+    { id = "RUSTSEC-2026-0429", reason = "zip ZipArchive::extract abort on a symlink entry with a large declared size (DoS, CVE-2026-115909) — the FOURTH zip advisory on the same candle-core path: patched >= 9.0.0 only, the 8.x line ends at 8.6.0 (crates.io checked 2026-11-02); candle is a non-default feature, the path is not reachable in the default build (review 2026-11-17 or at the first candle-core zip-^9 release)" },
 ]
 
 [licenses]

@@ -26,7 +26,7 @@
 
 - [README.md](README.md): the general overview — features, project structure, milestones, roadmap, quickstart, links.
 - [docs/PLAN-SUMMARY.md](docs/PLAN-SUMMARY.md): the public digest of the wave plan (a derived artifact, the access mode §16.0-7).
-- [CHANGELOG.md](CHANGELOG.md): the full change history (naryads №1-№871), the SSOT for "what's new".
+- [CHANGELOG.md](CHANGELOG.md): the full change history (naryads №1-№873), the SSOT for "what's new".
 - [docs/upgrade.md](docs/upgrade.md): the migration recipes between the versions (the 0.34 → 0.38 form: the capability sharp set, the `cron_run` mandate, the model passport) — the inventory, the minimal and the strict paths.
 - [docs/adr/](docs/adr/): 199 ADR (Architecture Decision Records) — every architectural decision with the context, the alternatives and the consequences. The index in `docs/adr/README.md`.
 - [docs/threat-model.md](docs/threat-model.md): the single, maintained point about the security limitations.

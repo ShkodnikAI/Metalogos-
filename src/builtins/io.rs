@@ -166,6 +166,9 @@ pub(crate) fn builtin_print(args: &[Value]) -> Result<Value, String> {
         super::forecast::check_print_forecast(arg)?;
     }
     let s = expect_string_arg("print", args, 0)?;
+    // №874 (ADR-0207 §2.5): the fail-closed egress gate — no live
+    // boundary record, no print (the side effect is refused).
+    crate::provenance::gate_emit("print", s.as_bytes())?;
     eprintln!("[print] {}", s);
     Ok(Value::String(s))
 }
@@ -693,7 +696,21 @@ fn read_file_impl(
     use std::io::Read;
     let mut content = String::new();
     match file.read_to_string(&mut content) {
-        Ok(_) => Ok(Value::String(content)),
+        Ok(_) => {
+            // №873 (ADR-0207 §2.2): the INGRESS boundary record — the
+            // shared-layer provenance rides the read family body
+            // (read_file / read_file_or share this body — one record
+            // site, two carriers; read_file_tokens has its OWN body in
+            // builtins/office/text.rs and joins the registry via an
+            // explicit future transaction — the honest-limits note of
+            // the wave-77 report). Record failure is loud stderr but
+            // never flips the outcome (the №393 ledger-write posture;
+            // №874 owns the fail-closed flip).
+            if let Err(pe) = crate::provenance::ingest("read_file", content.as_bytes()) {
+                eprintln!("[PROVENANCE] {name}: the ingress record failed: {pe}");
+            }
+            Ok(Value::String(content))
+        }
         // №481: a read failure on an OPENED file (encoding/IO) is loud —
         // the old silent "" swallowed the config error.
         Err(e) => Err(crate::interpreter::values::coded_error(
@@ -726,6 +743,10 @@ pub(crate) fn builtin_write_file(args: &[Value]) -> Result<Value, String> {
     // crane + the serve data-dir containment + the TOCTOU-safe open.
     // Group A of the audit: writing app.mlog/.env was UNGATED.
     let mut file = crate::fs_gate::open_write(&path, "write_file", false)?;
+    // №874 (ADR-0207 §2.5): the fail-closed egress gate — no live
+    // boundary record, no write. The refusal journals through the
+    // existing Ledger ACTION path (inside the gate).
+    crate::provenance::gate_emit("write_file", content.as_bytes())?;
     match file.write_all(content.as_bytes()) {
         Ok(_) => Ok(Value::String("ok".to_string())),
         Err(_) => Ok(Value::String(String::new())), // soft-failure (OS-level)

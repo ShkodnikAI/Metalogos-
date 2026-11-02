@@ -155,6 +155,10 @@ pub(crate) fn builtin_respond(args: &[Value]) -> Result<Value, String> {
         let status_body = expect_string_arg("respond", args, 0)?;
         parse_status_line(&status_body)
     };
+    // №874 (ADR-0207 §2.5): the fail-closed egress gate — no live
+    // boundary record, no response value (the server would have
+    // nothing pinned at the boundary).
+    crate::provenance::gate_emit("respond", body.as_bytes())?;
     Ok(Value::HttpResponse {
         status,
         body,
@@ -1360,6 +1364,12 @@ pub(crate) fn builtin_http_post(args: &[Value]) -> Result<Value, String> {
         _ => 30,
     };
 
+    // №874 (ADR-0207 §2.5): the fail-closed egress gate — no live
+    // boundary record, no send (one record per call — the body does
+    // not change across the retry attempts; the refusal journals
+    // through the existing Ledger ACTION path inside the gate).
+    crate::provenance::gate_emit("http_post", body.as_bytes())?;
+
     // Наряд №261: redirect-политика none() — reqwest по умолчанию ходит по 30x
     // (до 10 хопов) и каждый хоп резолвит DNS заново БЕЗ повторного SSRF-пина
     // (обход пина одним редиректом) плюс утечка Authorization кросс-хосту.
@@ -1674,6 +1684,13 @@ pub(crate) fn builtin_http_get(args: &[Value]) -> Result<Value, String> {
             ));
         }
 
+        // №873 (ADR-0207 §2.2): the INGRESS boundary record — the
+        // response body entered the program through the network
+        // channel. Record failure is loud stderr but never flips the
+        // outcome (the №393 posture; №874 owns the fail-closed flip).
+        if let Err(pe) = crate::provenance::ingest("http_get", resp_body.as_bytes()) {
+            eprintln!("[PROVENANCE] http_get: the ingress record failed: {pe}");
+        }
         return Ok(Value::String(resp_body));
     }
 

@@ -71,6 +71,7 @@ pub mod doc_tests;
 pub mod embeddings;
 pub mod error;
 pub mod interpreter;
+pub mod jurisdiction; // №886 (ADR-0209, wave 79 — W-H): the jurisdiction-aware policy compilation — JurisdictionRule + the append-only JurisdictionMatrix + the fail-closed compile site (the 8D-2/C10 kernel; the KPI C10 — 100% of the rules carry norm_ref + checked_at — is a machine check; the refusal rides the existing classes, №385 frozen; the rights SSOT ADR-0203 never widened, the egress SSOT ADR-0207 never duplicated)
 pub mod labels;
 pub mod llm;
 pub mod mcp_session; // №793: the MCP stdio session layer (the gateway upstream pool form)

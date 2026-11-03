@@ -307,10 +307,25 @@ mod tests {
         assert_eq!(r["verdict"], "error");
     }
 
+    // The two C-ABI legs below share the process-global POOL/OUT
+    // statics (ONE linear memory + ONE response buffer per test
+    // binary), and the harness runs tests in parallel threads — an
+    // interleaved rw_eval overwrites OUT between the packed return
+    // and the read-back. Observed on CI (the №884 docs merge
+    // 2eee92df, 03.11): the 81-byte deny response raced the 67-byte
+    // pool-bounds error response (`range end index 81 out of range
+    // for slice of length 67` — the roundtrip test read its own
+    // rlen=81 over the pool-bounds test's 67-byte OUT). The guard
+    // serializes ONLY these two legs (the algebra legs stay
+    // parallel); the production surface is untouched — the wasm
+    // consumer is single-threaded by contract (№855).
+    static TEST_CABI_SER: Mutex<()> = Mutex::new(());
+
     #[test]
     fn the_c_abi_roundtrip_works_on_the_host() {
         // The same path the wasm smoke drives: rw_alloc → write →
         // rw_eval → read the packed response.
+        let _cabi = TEST_CABI_SER.lock().unwrap_or_else(|e| e.into_inner());
         let raw = br#"{"op":"join","reasons":["IRREVERSIBLE_NO_GRANT","SECRET_LEAK"]}"#;
         rw_reset();
         let base = pool().buf.as_ptr() as u32;
@@ -329,6 +344,7 @@ mod tests {
 
     #[test]
     fn the_pool_bounds_refuse_loud_not_trap() {
+        let _cabi = TEST_CABI_SER.lock().unwrap_or_else(|e| e.into_inner());
         rw_reset();
         // The address is computed BEFORE the call — the pool guard must
         // not be alive across rw_eval (a non-reentrant Mutex would

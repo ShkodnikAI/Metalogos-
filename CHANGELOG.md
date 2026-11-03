@@ -6,6 +6,22 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№884 (issue #1744, wave 78 — W-G, P2, [docs], strictly last):** the
+  weekly record of wave 78 — the generated §6.78 in
+  docs/reality/2026-11.md (the №789 generator, the C4-a T1 form: the
+  verbatim counters, the merge-CI verdicts — №878 `3af43db2`/PR #1750,
+  №879 `a1f76ded`/PR #1747, №880 `3bc702c0`/PR #1748, №881
+  `c3492d3e`/PR #1749, №882 `e17c02df`/PR #1754, №883 `b2eccbd8`/PR
+  #1755 — all GREEN on the merge commits; the №884 self-reference row
+  in the №877 form); the honest-findings section carries the seven
+  HONEST-FINDING markers from the chain executor's acceptance comments
+  (the parallel-iteration supersession, the terminal `[m` display
+  artifact, the GLOBAL_SMART_ROUTER persistence, the never-CI'd stack
+  liability, the goals-file two-class loader, the no-drift projection
+  lesson, the dependabot blind-spot class). The REALITY stub follows
+  (2026-11: 3 sections, total 62). The sanitized 0.41 phase line in
+  PLAN-SUMMARY (8E-1/C5, the dispatch gh#1745, the OFFLINE_SUITE
+  fact). llms.txt range №883 → №884.
 - **№882 (issue #1742, wave 78 — W-G, P2, ride [hygiene][ci], the №863
   form):** the baseline re-pin ride under the wave-78 llm-contract types
   — the verification pass over ALL five surface gates on the wave's

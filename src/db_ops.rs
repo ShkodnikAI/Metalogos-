@@ -276,7 +276,7 @@ pub fn query_tw(db: &Mutex<Option<rusqlite::Connection>>, args: &[Value]) -> Res
         let mut stmt = conn
             .prepare(&sql)
             .map_err(|e| sql_err("query() SQL error", e))?;
-        let col_names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
+        let col_names: Vec<String> = stmt.column_names().map(|s| s.to_string()).collect();
         // ADR-0194 packages A(c)+B(i), №734: the TW SELECT loop MIRRORS
         // the VM lane (the loud-fail CONTRACT, the №523/№531 posture):
         // the cell error names the column (the db_ops.rs:773 mirror),
@@ -620,7 +620,7 @@ pub fn query_row(db: &mut impl DbAccess, args: &[Value]) -> Result<Value, String
     let col_count = stmt.column_count();
     // №787: the lossy-integer refusal names the column — the row sites
     // carry the column names for the same conversion as query_tw.
-    let col_names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
+    let col_names: Vec<String> = stmt.column_names().map(|s| s.to_string()).collect();
     let mut rows = stmt
         .query_map(rusqlite::params_from_iter(params.iter()), |row| {
             let mut vals = Vec::with_capacity(col_count);
@@ -838,7 +838,7 @@ pub fn query_vm(vm: &mut impl DbAccess, args: &[Value]) -> Result<Value, String>
     let mut stmt = conn
         .prepare(&sql)
         .map_err(|e| sql_err("query() SQL error", e))?;
-    let col_names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
+    let col_names: Vec<String> = stmt.column_names().map(|s| s.to_string()).collect();
     let mut rows = stmt
         .query(rusqlite::params_from_iter(params.iter()))
         .map_err(|e| sql_err("query() execution error", e))?;

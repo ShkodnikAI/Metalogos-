@@ -171,6 +171,31 @@ All notable changes to the Metalogos project.
 
 ### Fixed
 
+- **№865:** the [0.34.0] date-stamp re-cut to the actual publication
+  date 2026-10-28 (the форма №721 re-cut that never ran; the
+  planned-window 2026-11-02 stamp was a lie the release notes carried).
+
+## [0.38.1] - 2026-11-03
+
+The unscheduled patch cut (the 0.28.1/0.30.1 shape — ADR-0189: an
+unscheduled cut is a PERMITTED exception when a defect cannot wait for
+the next Monday window, with the reason recorded in the release
+notes). The reason: issue #1735 — P0, out of the release train (the
+owner's decision 03.11). The office production (v0.38.0) had its
+native cron ticks down since the 0.38 switch: every `http_post` from a
+tick refused `IRREVERSIBLE_NO_GRANT` on a VALID
+`profile capability { allow_carrier: … }` declaration (the night
+cycle, night report, morning brief, admin reply and LZ daily slots
+silently dead), and interpreter-backend route bodies refused the same
+way. The owner ruled the office stays on v0.38.0 and waits for this
+fix (no rollback to 0.34.1). Fixed-only: the [Unreleased] wave-78 rows
+(Added/Changed) stay pending for the next minor train — the patch cut
+does not carry them (the 0.30.1 form). The publication is the OWNER
+act (ADR-0186 §4.5); release.yml attaches the binary, the SBOM, the
+attestations and SHA256SUMS on publish.
+
+### Fixed
+
 - **issue #1735 (P0 — out of the release train, the owner's decision
   03.11):** the entry's `profile capability { allow_carrier: … }` roster
   is applied again by the serve paths that lost it — the permit roster
@@ -195,13 +220,11 @@ All notable changes to the Metalogos project.
   (`naryad_1735_tick_capability_context.rs`: the declared tick and the
   route round-trip; the undeclared tick and route refuse with the
   local receiver seeing NO ping — the refusal is BEFORE the action),
-  plus the merge-union unit pin (add-only, empty-safe). AFFECTS serve
+  plus the merge-union unit pin (add-only, empty-safe). **AFFECTS serve
   consumers: native cron ticks and interpreter-backend routes regain
-  the declared carriers; the office pins the 0.38.1 patch after the
-  release (the office naryad, separate).
-- **№865:** the [0.34.0] date-stamp re-cut to the actual publication
-  date 2026-10-28 (the форма №721 re-cut that never ran; the
-  planned-window 2026-11-02 stamp was a lie the release notes carried).
+  the declared carriers on 0.38.0 → 0.38.1; the office pins the 0.38.1
+  patch in a separate office naryad after the release (the owner's
+  decision 03.11).**
 
 ## [0.38.0] - 2026-11-01
 

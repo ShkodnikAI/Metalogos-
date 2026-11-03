@@ -116,6 +116,24 @@ PROVENANCE_RS = REPO / "src" / "provenance.rs"
 BUILTINS_IO_RS = REPO / "src" / "builtins" / "io.rs"
 BUILTINS_HTTP_RS = REPO / "src" / "builtins" / "http.rs"
 
+# №881 (wave 78 — W-G): the 8E-1/C5 machine fact — OFFLINE_SUITE with
+# its own only-up floor file. The floor VALUE 8000 bp is the wave-78
+# dispatch constant (gh#1745: the 0.41 gate, OFFLINE_SUITE ≥ 8000 bp).
+# The definition lives in ADR-0208 §2.5: the share, in basis points, of
+# the REGISTERED LLM-surface checks that execute WITHOUT the external
+# network (the local provider, the deterministic mock fault seam №385,
+# the loopback stub servers — the №819/n812 fixture form). The machine
+# source is the EXPLICIT registry (scripts/ci/gate_039_goals.txt — the
+# №862 roster form): a row counts ONLY when BOTH hold — (1) the row
+# carries offline=yes, and (2) the check file EXISTS (tests/<name>.rs
+# or metalogos-server/tests/<name>.rs — the count is CHECKED, not
+# declared; a forged row is uncovered); an empty registry is 0 bp (a
+# vacuous class is a gate failure, never a pass). The checker pins the
+# owner constant: the gate file can RAISE the floor, never lower it
+# silently (the №846 discipline, verbatim).
+GATE_039_GOALS = REPO / "scripts" / "ci" / "gate_039_goals.txt"
+OFFLINE_SUITE_FLOOR_OWNER_BP = 8000
+
 APPROVAL_RS = REPO / "src" / "approval.rs"
 CI_YML = REPO / ".github" / "workflows" / "ci.yml"
 POLICY_ACTION_YML = REPO / "action.yml"
@@ -573,7 +591,14 @@ def load_floors_strict(path: Path) -> dict[str, int]:
     """The №846 strict loader (fail-closed, the negative control (а)):
     a missing/empty file is a loud refusal, and EVERY non-comment line
     must parse as `goal_<name> <int>` — a corrupted floor file can never
-    silently shrink to zero gates (the №776 discipline)."""
+    silently shrink to zero gates (the №776 discipline).
+
+    №881 (wave 78 — W-G): the gate_039 goals file carries a SECOND data
+    class — the registry rows (`check <name> offline=yes|no`, the №862
+    roster form, machine-read by _offline_suite_registry). The loader
+    SKIPS those rows: they are roster data, never floors; every other
+    non-comment line must still parse as a goal_ floor or the file is
+    refused (the strictness for the floor fields is unchanged)."""
     if not path.exists():
         raise ValueError(f"{path.name}: the floor file is missing (the only-up gates must exist)")
     floors: dict[str, int] = {}
@@ -582,6 +607,9 @@ def load_floors_strict(path: Path) -> dict[str, int]:
     ):
         line = raw.strip()
         if not line or line.startswith("#"):
+            continue
+        if line.startswith("check "):
+            # The №881 registry row — roster data, not a floor.
             continue
         parts = line.split()
         if len(parts) != 2 or not parts[0].startswith("goal_"):
@@ -820,6 +848,60 @@ def provenance_share_bp(
         for name in registry
         if name in classification and _provenance_boundary_wired(name, io_text, http_text)
     )
+    return covered * 10000 // total
+
+
+# ── №881 (wave 78 — W-G, ADR-0208 §2.5): the OFFLINE_SUITE machine ────
+
+def _offline_suite_registry(content: str | None = None) -> list[tuple[str, bool]]:
+    """The wave-78 LLM-surface check registry (№881): the EXPLICIT
+    roster in scripts/ci/gate_039_goals.txt — the machine source. Each
+    row is `check <name> offline=yes|no`; the counter counts a row ONLY
+    on the offline=yes field AND the check file's EXISTENCE (see
+    _offline_check_exists — the count is checked, not declared)."""
+    if content is None:
+        content = GATE_039_GOALS.read_text(encoding="utf-8")
+    rows: list[tuple[str, bool]] = []
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("check "):
+            continue
+        parts = stripped.split()
+        if len(parts) != 3 or parts[2] not in ("offline=yes", "offline=no"):
+            continue
+        rows.append((parts[1], parts[2] == "offline=yes"))
+    return rows
+
+
+def _offline_check_exists(name: str, repo: Path | None = None) -> bool:
+    """The existence half of the machine source: a registered check
+    must BE a real test file — tests/<name>.rs or
+    metalogos-server/tests/<name>.rs. A forged row (a name with no
+    file behind it) is UNCOVERED — the declaration alone never counts
+    (the №862 no-self-declaration form)."""
+    base = repo if repo is not None else REPO
+    return (base / "tests" / f"{name}.rs").is_file() or (
+        base / "metalogos-server" / "tests" / f"{name}.rs"
+    ).is_file()
+
+
+def offline_suite_bp(
+    registry: list[tuple[str, bool]] | None = None,
+    repo: Path | None = None,
+) -> int:
+    """OFFLINE_SUITE — the share, in basis points, of the registered
+    LLM-surface checks that execute WITHOUT the external network (№881,
+    ADR-0208 §2.5). Numerator: the rows that carry offline=yes AND
+    whose check file exists. Denominator: the whole registry. An empty
+    registry is 0 bp (a vacuous class is a gate failure, never a
+    pass); a forged row (offline=yes with no file) is UNCOVERED — the
+    machine source is the filesystem, never the declaration alone."""
+    if registry is None:
+        registry = _offline_suite_registry()
+    total = len(registry)
+    if total == 0:
+        return 0
+    covered = sum(1 for name, offline in registry if offline and _offline_check_exists(name, repo))
     return covered * 10000 // total
 
 
@@ -1219,11 +1301,75 @@ def tamper_test() -> int:
         )
         return 1
 
+    # ── №881 traps: the OFFLINE_SUITE machine catches the tamper ────
+    full_off = offline_suite_bp()
+    if full_off < OFFLINE_SUITE_FLOOR_OWNER_BP:
+        print(
+            "tamper-test: TRAP FAILED — the offline suite is below the owner floor on the "
+            f"clean tree ({full_off} bp < {OFFLINE_SUITE_FLOOR_OWNER_BP} bp): the registry or "
+            "the check files drifted (fix the roster, never the floor)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 25 (the field-flip class): a registry row flipped offline=yes
+    # → no LOWERS the share — the counter must READ the field (a counter
+    # counting rows alone would stay at the floor).
+    good_registry = _offline_suite_registry()
+    stub_registry = [
+        (name, False) if name == "naryad_880_failover_coverage" else (name, offline)
+        for name, offline in good_registry
+    ]
+    if offline_suite_bp(registry=stub_registry) >= full_off:
+        print(
+            "tamper-test: TRAP FAILED — the offline=yes→no flip did NOT lower OFFLINE_SUITE",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 26 (the forged-row class, the №862 Trap 12 form): a row whose
+    # name has NO check file behind it is UNCOVERED — the machine source
+    # is the filesystem, never the declaration alone.
+    forged_registry = good_registry + [("n999_forged_llm_check", True)]
+    if offline_suite_bp(registry=forged_registry) >= full_off:
+        print(
+            "tamper-test: TRAP FAILED — the forged registry row (no check file) did NOT "
+            "lower OFFLINE_SUITE",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 27 (the vacuous-registry control, the №875 Trap 23 form): an
+    # empty registry reads 0 bp — a vacuous class is a gate failure,
+    # never a pass.
+    if offline_suite_bp(registry=[]) != 0:
+        print(
+            "tamper-test: TRAP FAILED — the empty registry must read 0 bp (the vacuous "
+            "class is a failure, never a pass)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 28 (the negative control (б), the №846/№857/№875 form): the
+    # gate_039 floor LOWERED below the owner constant is a loud refusal
+    # (the floor is only-up — the wave-78 dispatch constant).
+    off_strict = load_floors_strict(GATE_039_GOALS)
+    off_value = off_strict.get("goal_offline_suite_bp")
+    if off_value is None or off_value < OFFLINE_SUITE_FLOOR_OWNER_BP:
+        print(
+            "tamper-test: TRAP FAILED — the gate_039 floor is below the owner constant "
+            f"(the wave-78 dispatch constant: {OFFLINE_SUITE_FLOOR_OWNER_BP} bp) — "
+            "the lowering is refused",
+            file=sys.stderr,
+        )
+        return 1
+
     print(
         "tamper-test: OK — the checkers catch the fabricated records "
         f"(LICENSED_FLOOR {full_lic} bp, PASSPORT_FRESH {full_pass} bp, "
         f"APPROVAL_COVERAGE {full_appr} bp, ATTEST_MAP {full_att} live rows, "
-        f"PROVENANCE_SHARE {full_prov} bp; the traps lowered all)"
+        f"PROVENANCE_SHARE {full_prov} bp, OFFLINE_SUITE {full_off} bp; "
+        "the traps lowered all)"
     )
     return 0
 
@@ -1265,6 +1411,7 @@ def full_block() -> str:
         f"| GRANT_COVERAGE (the 8B-1 machine fact, №846) | {grant_coverage_bp()} bp — the irreversible carriers whose rights decision passes the capability layer (ADR-0203 §2.7; the gate_034 floor) |\n"
         f"| SEMA_EXTERNAL (the 8F-1 machine fact, №857) | {sema_external()['count']} — the live external-consumption artifacts of the Portable Refusal Algebra (ADR-0204 §5; the gate_035 only-up floor ≥ 1): {', '.join(sema_external()['counted']) or 'none yet'} |\n"
         f"| PROVENANCE_SHARE (the 8C/C3 machine fact, №875) | {provenance_share_bp()} bp — the registered I/O carriers whose boundary provenance record is LIVE-wired (ADR-0207 §4; the gate_038 floor 10000 bp, only-up) |\n"
+        f"| OFFLINE_SUITE (the 8E-1/C5 machine fact, №881) | {offline_suite_bp()} bp — the registered LLM-surface checks that execute without the external network (ADR-0208 §2.5; the gate_039 floor 8000 bp, only-up) |\n"
     )
 
 
@@ -1335,6 +1482,7 @@ def plan_summary_block() -> str:
         f"| APPROVAL_COVERAGE — the 8B-2 machine fact (№862) | {approval_coverage_bp()} bp |\n"
         f"| ATTEST_MAP — the 8A-1 machine fact (№869) | {attest_map_live()} live attestation rows |\n"
         f"| PROVENANCE_SHARE — the 8C/C3 machine fact (№875) | {provenance_share_bp()} bp |\n"
+        f"| OFFLINE_SUITE — the 8E-1/C5 machine fact (№881) | {offline_suite_bp()} bp |\n"
     )
 
 
@@ -1674,6 +1822,54 @@ def main() -> int:
             f"(gate_038 floor {prov_floor} bp, only-up) — registry: "
             f"{', '.join(_provenance_registry()) or 'none'}; gate composition site: "
             f"{'present' if _provenance_gate_composition_site() else 'MISSING'}"
+        )
+
+    # №881: the OFFLINE_SUITE floor twin (the only-up gate_039) — the
+    # STRICT loader (fail-closed on a missing/empty/corrupted file) and
+    # the owner-pinned lowering refusal (the wave-78 dispatch constant
+    # can rise, never fall). The fact counts the registered LLM-surface
+    # checks that execute without the external network (ADR-0208 §2.5)
+    # — a row counts ONLY on offline=yes AND the check file's existence
+    # (the count is checked, not declared; the №862 roster form).
+    if check:
+        try:
+            off_floors = load_floors_strict(GATE_039_GOALS)
+        except ValueError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        off_floor = off_floors.get("goal_offline_suite_bp")
+        if off_floor is None:
+            print(
+                "ERROR: gate_039_goals.txt carries no goal_offline_suite_bp floor",
+                file=sys.stderr,
+            )
+            return 2
+        if off_floor < OFFLINE_SUITE_FLOOR_OWNER_BP:
+            print(
+                "FLOOR LOWERING REFUSED: gate_039 "
+                f"({off_floor} bp) is below the owner constant "
+                f"({OFFLINE_SUITE_FLOOR_OWNER_BP} bp — the wave-78 dispatch constant, "
+                "gh#1745); the floor is only-up — the change is an explicit owner transaction",
+                file=sys.stderr,
+            )
+            return 1
+        off_suite = offline_suite_bp()
+        if off_suite < off_floor:
+            print(
+                f"FLOOR BREACH: OFFLINE_SUITE {off_suite} bp < the gate_039 floor "
+                f"{off_floor} bp (only-up) — a registered LLM-surface check went offline=no "
+                "or its file vanished (fix the roster honestly — register the check with "
+                "its TRUE offline posture, or restore the file; never a silent gate edit)",
+                file=sys.stderr,
+            )
+            return 1
+        off_rows = _offline_suite_registry()
+        print(
+            f"OK: the №881 floor holds — OFFLINE_SUITE {off_suite} bp "
+            f"(gate_039 floor {off_floor} bp, only-up) — registry: "
+            f"{len(off_rows)} registered LLM-surface checks "
+            f"({sum(1 for _, ok in off_rows if ok)} offline=yes, "
+            f"{sum(1 for _, ok in off_rows if not ok)} offline=no)"
         )
 
     # №841: the RED harness (the tamper traps) — an explicit mode, run by

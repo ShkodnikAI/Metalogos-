@@ -1,0 +1,58 @@
+# gate_039_goals.txt — the wave-78 W-G machine-fact floor (naryad №881)
+# =============================================================================
+# The №881 floor file: the ONLY-UP gate over the 8E-1/C5 machine fact —
+# the same discipline as the gate_034 goal record (№846), the gate_035
+# goals (№857), the gate_036 record (№862), the gate_037 record (№869)
+# and the gate_038 record (№875). The floor value is the wave's START
+# floor = the wave-78 dispatch constant (gh#1745: 0.41 = 8E-1 (C5,
+# OFFLINE_SUITE >= 8000 bp) — the point was accepted by the owner in
+# the dispatch, no further decision is needed at the naryad level; the
+# №841 form — the floor can rise, never fall):
+# 0.41 = 8E-1 (C5, OFFLINE_SUITE 8000 bp).
+#
+# THE REGISTRY (the №862 roster form — the machine source): the
+# registered LLM-surface checks, one row each, with the offline field.
+# ADR-0208 §2.5 (the definition): OFFLINE_SUITE is the share, in basis
+# points, of the registered LLM-surface checks that EXECUTE WITHOUT
+# THE EXTERNAL NETWORK — the local provider (the №879 composition and
+# the local rung of №880), the deterministic mock fault seam (№385),
+# and the loopback stub servers (the №819/n812 fixture form) all count
+# as offline; only a check that must reach a host outside the
+# process/loopback counts as online. Every row below is offline=yes —
+# the №401 test hygiene guarantees no real network call ever fires in
+# CI (a key is REMOVED, not emptied, in every env-mutating test).
+#
+# The count is CHECKED, not declared: a row counts ONLY when its check
+# file EXISTS (tests/<name>.rs or metalogos-server/tests/<name>.rs) —
+# a forged row (a name with no file behind it) is UNCOVERED and lowers
+# the share; an empty registry is 0 bp (a vacuous class is a gate
+# failure, never a pass). The tamper traps in gen_metrics.py
+# (--tamper-test) prove the counter catches the field flip, the forged
+# row and the floor lowering.
+#
+# The floor is ONLY-UP: the value below is the wave-78 dispatch
+# constant pinned by the checker (gen_metrics.py
+# OFFLINE_SUITE_FLOOR_OWNER_BP); a lowered floor in this file is
+# refused with a loud FLOOR LOWERING REFUSED (the №776 transaction
+# discipline — a re-pin is an OWNER decision, never a silent gate
+# edit). Adding rows is a RAISE of coverage, never a lower; a future
+# online check (a credential-gated on-demand run) registers with
+# offline=no honestly — the share then names the true offline posture.
+#
+# Fields (machine-read by scripts/gen_metrics.py load_floors_strict):
+goal_offline_suite_bp 8000
+#
+# The registry rows (machine-read by scripts/gen_metrics.py
+# _offline_suite_registry):
+check llm_cache_contract offline=yes
+check naryad_248_llm_cancellation offline=yes
+check naryad_757_llm_limits offline=yes
+check naryad_819_provider_model offline=yes
+check naryad_478_mock_unification offline=yes
+check naryad_879_provider_contract offline=yes
+check naryad_880_failover_coverage offline=yes
+check naryad_275_stream offline=yes
+check naryad_385_try_codes offline=yes
+check naryad_n12_model_choice offline=yes
+check naryad_n13_reasoning_content offline=yes
+check mock_llm_not_default_in_serve offline=yes

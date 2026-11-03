@@ -6,6 +6,28 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№881 (issue #1741, wave 78 — W-G, P1, [testing][ci], ADR-0208 §2.5):**
+  the OFFLINE_SUITE machine fact + gate_039 (the 0.41 gate): the share,
+  in basis points, of the REGISTERED LLM-surface checks that execute
+  WITHOUT the external network — the explicit registry
+  `scripts/ci/gate_039_goals.txt` (12 checks, the offline=yes/no field
+  per row: the local provider of №879, the local rung of №880, the
+  deterministic mock fault seam №385, the loopback stub servers of
+  №819/n812 — every row offline=yes, the №401 test hygiene), counted by
+  `offline_suite_bp()` in `gen_metrics.py` (the count is CHECKED, not
+  declared: a row counts ONLY on offline=yes AND the check file's
+  EXISTENCE — tests/<name>.rs or metalogos-server/tests/<name>.rs; a
+  forged row is uncovered, an empty registry reads 0 bp). The
+  GENERATED rows land in docs/metrics.md + the PLAN-SUMMARY numbers
+  block (the №875 form); the gate_039 floor is the wave-78 dispatch
+  constant — 8000 bp, only-up (the owner-pinned lowering refusal); the
+  tamper traps 25–28 (the field flip, the forged row, the
+  vacuous-registry control, the floor lowering — the gate_036/037/038
+  лекало); the `load_floors_strict` loader skips the registry rows
+  (roster data, never floors — the strictness for goal_ lines
+  unchanged). The wiring rides the EXISTING docs-metrics job (the cell
+  does not grow — №535): `gen_metrics.py --check` + `--tamper-test`.
+  The double `--check` run is deterministic.
 - **№880 (issue #1740, wave 78 — W-G, P1, [llm][core], ADR-0208 §4):** the
   coverage rule — the fail-closed gate on provider dependence: an LLM
   call addressed to an external provider must END in a covered local

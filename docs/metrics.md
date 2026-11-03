@@ -20,10 +20,11 @@ construction.
 | Architecture Decisions | 201 ADRs |
 | Example Programs | 257 .mlog programs |
 | Reference | REFERENCE.md (~340 KB) — 100% registry coverage |
-| Changelog | CHANGELOG.md (~193 KB) — every wave documented |
+| Changelog | CHANGELOG.md (~195 KB) — every wave documented |
 | LICENSED_FLOOR (the 8D-1 machine fact, №841) | 10000 bp — the license class explicit + the license_note filled over the backend registry (ADR-0163/ADR-0202 terms) |
 | PASSPORT_FRESH (the 8D-1 machine fact, №841) | 10000 bp — the passports fresh within the 180-day verification window (the №842 rule) |
 | GRANT_COVERAGE (the 8B-1 machine fact, №846) | 10000 bp — the irreversible carriers whose rights decision passes the capability layer (ADR-0203 §2.7; the gate_034 floor) |
 | SEMA_EXTERNAL (the 8F-1 machine fact, №857) | 3 — the live external-consumption artifacts of the Portable Refusal Algebra (ADR-0204 §5; the gate_035 only-up floor ≥ 1): wasm-facade, policy-check action, spec page |
 | PROVENANCE_SHARE (the 8C/C3 machine fact, №875) | 10000 bp — the registered I/O carriers whose boundary provenance record is LIVE-wired (ADR-0207 §4; the gate_038 floor 10000 bp, only-up) |
+| OFFLINE_SUITE (the 8E-1/C5 machine fact, №881) | 10000 bp — the registered LLM-surface checks that execute without the external network (ADR-0208 §2.5; the gate_039 floor 8000 bp, only-up) |
 <!-- END GENERATED METRICS -->

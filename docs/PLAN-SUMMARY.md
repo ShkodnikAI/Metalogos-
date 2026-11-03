@@ -1060,6 +1060,7 @@ owner's ADR gate.
 | APPROVAL_COVERAGE — the 8B-2 machine fact (№862) | 10000 bp |
 | ATTEST_MAP — the 8A-1 machine fact (№869) | 45 live attestation rows |
 | PROVENANCE_SHARE — the 8C/C3 machine fact (№875) | 10000 bp |
+| OFFLINE_SUITE — the 8E-1/C5 machine fact (№881) | 10000 bp |
 <!-- END GENERATED NUMBERS -->
 
 ## Acceptance criteria (public part of the methodology)

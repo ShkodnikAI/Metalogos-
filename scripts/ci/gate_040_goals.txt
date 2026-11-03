@@ -1,0 +1,48 @@
+# gate_040_goals.txt — the wave-79 W-H machine-fact floor (naryad №888)
+# =============================================================================
+# The №888 floor file: the ONLY-UP gate over the 8D-2/C10 machine fact —
+# the same discipline as the gate_034 goal record (№846), the gate_035
+# goals (№857), the gate_036 record (№862), the gate_037 record (№869),
+# the gate_038 record (№875) and the gate_039 record (№881). The floor
+# value is the wave's START floor = the wave-79 dispatch constant
+# (gh#1764: 0.42 = 8D-2 (C10, JURISDICTION_MATRIX >= 3) — the point was
+# accepted by the owner in the dispatch, no further decision is needed
+# at the naryad level; the №841 form — the floor can rise, never fall):
+# 0.42 = 8D-2 (C10, JURISDICTION_MATRIX 3).
+#
+# THE REGISTRY (the №862 roster form — the machine source): the
+# registered matrix jurisdictions, one row each. ADR-0209 §4 (the
+# definition): JURISDICTION_MATRIX is the number of registered
+# jurisdictions that carry >= 1 LIVE rule in the compiled jurisdiction
+# matrix — the seed matrix of №886 (src/jurisdiction.rs, the
+# seed_matrix() constructor; the seed rules are code data: each names a
+# real norm pointer and a verification date — the KPI C10).
+#
+# The count is CHECKED, not declared: a row counts ONLY when its
+# jurisdiction code is PRESENT in the LIVE seed matrix source
+# (src/jurisdiction.rs — a quoted code inside the seed_matrix()
+# constructor body; the seed calls are rustfmt-normalized, so the check
+# pins the quoted code inside the seed region, not a call shape) —
+# a forged row (a code with no seed rule behind it) is UNCOVERED and
+# never raises the count; an empty registry is 0 (a vacuous class is a
+# gate failure, never a pass). The tamper traps in gen_metrics.py
+# (--tamper-test) prove the counter catches the forged row, the row
+# loss and the floor lowering.
+#
+# The floor is ONLY-UP: the value below is the wave-79 dispatch
+# constant pinned by the checker (gen_metrics.py
+# JURISDICTION_MATRIX_FLOOR_OWNER); a lowered floor in this file is
+# refused with a loud FLOOR LOWERING REFUSED (the №776 transaction
+# discipline — a re-pin is an OWNER decision, never a silent gate
+# edit). Adding a jurisdiction is a RAISE of coverage, never a lower;
+# a future seed row appends BOTH the seed rule (src/jurisdiction.rs,
+# append-only — the ADR-0209 discipline) AND its registry row here.
+#
+# Fields (machine-read by scripts/gen_metrics.py load_floors_strict):
+goal_jurisdiction_matrix 3
+#
+# The registry rows (machine-read by scripts/gen_metrics.py
+# _jurisdiction_registry):
+jurisdiction EU
+jurisdiction RU
+jurisdiction US-CA

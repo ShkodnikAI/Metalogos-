@@ -134,6 +134,23 @@ BUILTINS_HTTP_RS = REPO / "src" / "builtins" / "http.rs"
 GATE_039_GOALS = REPO / "scripts" / "ci" / "gate_039_goals.txt"
 OFFLINE_SUITE_FLOOR_OWNER_BP = 8000
 
+# №888 (wave 79 — W-H): the 8D-2/C10 machine fact — JURISDICTION_MATRIX
+# with its own only-up floor file. The floor VALUE 3 is the wave-79
+# dispatch constant (gh#1764: the 0.42 gate, JURISDICTION_MATRIX ≥ 3).
+# The definition lives in ADR-0209 §4 (the №886 seed): the number of
+# DISTINCT jurisdictions in the compiled jurisdiction matrix that carry
+# ≥ 1 live rule — the machine source is the EXPLICIT registry
+# (scripts/ci/gate_040_goals.txt — the №862 roster form): a row counts
+# ONLY when the jurisdiction code is PRESENT in the LIVE seed matrix
+# source (src/jurisdiction.rs — the issue("<code>" call; the count is
+# CHECKED, not declared; a forged row is uncovered); an empty registry
+# is 0 (a vacuous class is a gate failure, never a pass). The checker
+# pins the owner constant: the gate file can RAISE the floor, never
+# lower it silently (the №846 discipline, verbatim).
+GATE_040_GOALS = REPO / "scripts" / "ci" / "gate_040_goals.txt"
+JURISDICTION_MATRIX_FLOOR_OWNER = 3
+JURISDICTION_RS = REPO / "src" / "jurisdiction.rs"
+
 APPROVAL_RS = REPO / "src" / "approval.rs"
 CI_YML = REPO / ".github" / "workflows" / "ci.yml"
 POLICY_ACTION_YML = REPO / "action.yml"
@@ -598,7 +615,11 @@ def load_floors_strict(path: Path) -> dict[str, int]:
     roster form, machine-read by _offline_suite_registry). The loader
     SKIPS those rows: they are roster data, never floors; every other
     non-comment line must still parse as a goal_ floor or the file is
-    refused (the strictness for the floor fields is unchanged)."""
+    refused (the strictness for the floor fields is unchanged).
+
+    №888 (wave 79 — W-H): the same skip covers the gate_040 registry
+    rows (`jurisdiction <code>`, machine-read by _jurisdiction_registry)
+    — roster data, never floors (the wave-79 dispatch form)."""
     if not path.exists():
         raise ValueError(f"{path.name}: the floor file is missing (the only-up gates must exist)")
     floors: dict[str, int] = {}
@@ -610,6 +631,9 @@ def load_floors_strict(path: Path) -> dict[str, int]:
             continue
         if line.startswith("check "):
             # The №881 registry row — roster data, not a floor.
+            continue
+        if line.startswith("jurisdiction "):
+            # The №888 registry row — roster data, not a floor.
             continue
         parts = line.split()
         if len(parts) != 2 or not parts[0].startswith("goal_"):
@@ -903,6 +927,62 @@ def offline_suite_bp(
         return 0
     covered = sum(1 for name, offline in registry if offline and _offline_check_exists(name, repo))
     return covered * 10000 // total
+
+
+# ── №888 (wave 79 — W-H, ADR-0209 §4): the JURISDICTION_MATRIX machine ──
+
+def _jurisdiction_registry(content: str | None = None) -> list[str]:
+    """The wave-79 jurisdiction registry (№888): the EXPLICIT roster in
+    scripts/ci/gate_040_goals.txt — the machine source. Each row is
+    `jurisdiction <code>`; the counter counts a row ONLY on the code's
+    PRESENCE in the live seed matrix source (see
+    _jurisdiction_in_source — the count is checked, not declared)."""
+    if content is None:
+        content = GATE_040_GOALS.read_text(encoding="utf-8")
+    codes: list[str] = []
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("jurisdiction "):
+            continue
+        parts = stripped.split()
+        if len(parts) != 2:
+            continue
+        codes.append(parts[1])
+    return codes
+
+
+def _jurisdiction_in_source(code: str, source: str | None = None) -> bool:
+    """The presence half of the machine source: a registered jurisdiction
+    must BE a real seed row — a quoted code inside the LIVE seed_matrix
+    constructor (src/jurisdiction.rs, the function body between the
+    `pub fn seed_matrix` anchor and the test module). The seed calls are
+    rustfmt-normalized (the arguments reflow across lines), so the check
+    pins the QUOTED CODE inside the seed region — not a call shape. A
+    forged row (a code with no seed rule behind it) is UNCOVERED — the
+    declaration alone never counts (the №862 no-self-declaration form)."""
+    if source is None:
+        source = JURISDICTION_RS.read_text(encoding="utf-8")
+    start = source.find("pub fn seed_matrix")
+    if start < 0:
+        return False
+    end = source.find("#[cfg(test)]", start)
+    body = source[start : end if end > start else len(source)]
+    return f'"{code}"' in body
+
+
+def jurisdiction_matrix_count(
+    registry: list[str] | None = None,
+    source: str | None = None,
+) -> int:
+    """JURISDICTION_MATRIX — the number of registered jurisdictions that
+    carry ≥ 1 live rule in the compiled matrix (№888, ADR-0209 §4). A
+    row counts ONLY on its code's presence in the live seed source. An
+    empty registry is 0 (a vacuous class is a gate failure, never a
+    pass); a forged row (a code with no seed rule) is UNCOVERED — the
+    machine source is the code, never the declaration alone."""
+    if registry is None:
+        registry = _jurisdiction_registry()
+    return sum(1 for code in registry if _jurisdiction_in_source(code, source))
 
 
 def tamper_test() -> int:
@@ -1364,12 +1444,77 @@ def tamper_test() -> int:
         )
         return 1
 
+    # ── №888 traps: the JURISDICTION_MATRIX machine catches the tamper ──
+    jur_registry = _jurisdiction_registry()
+    full_jur = jurisdiction_matrix_count()
+
+    # Trap 29 (the clean-tree assertion, the №1306 form): the seed on
+    # the clean tree carries the owner-constant jurisdictions.
+    if full_jur < JURISDICTION_MATRIX_FLOOR_OWNER:
+        print(
+            "tamper-test: TRAP FAILED — the clean tree carries fewer live "
+            f"jurisdictions ({full_jur}) than the owner constant "
+            f"({JURISDICTION_MATRIX_FLOOR_OWNER}): the seed matrix or the "
+            "registry drifted",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 30 (the vacuous-registry control, the №875 Trap 27 form): an
+    # empty registry reads 0 — a vacuous class is a gate failure, never
+    # a pass.
+    if jurisdiction_matrix_count(registry=[]) != 0:
+        print(
+            "tamper-test: TRAP FAILED — the empty registry must read 0 (the vacuous "
+            "class is a failure, never a pass)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 31 (the forged row, the №862 no-self-declaration form): a
+    # registry row whose jurisdiction has NO seed rule behind it is
+    # UNCOVERED — the count does NOT rise on the forgery.
+    forged = jur_registry + ["XX"]
+    if jurisdiction_matrix_count(registry=forged) != full_jur:
+        print(
+            "tamper-test: TRAP FAILED — a forged jurisdiction row (no seed rule "
+            "behind it) RAISED the count — the declaration counted, not the code",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 32 (the row-loss control): removing a live jurisdiction from
+    # the registry LOWERS the count — the machine follows the source.
+    if len(jur_registry) > 0:
+        shrunk = jur_registry[:-1]
+        if jurisdiction_matrix_count(registry=shrunk) >= full_jur:
+            print(
+                "tamper-test: TRAP FAILED — dropping a registered jurisdiction did NOT "
+                "lower JURISDICTION_MATRIX",
+                file=sys.stderr,
+            )
+            return 1
+
+    # Trap 33 (the negative control (б), the №846 form): the gate_040
+    # floor LOWERED below the owner constant is a loud refusal (the
+    # floor is only-up — the wave-79 dispatch constant).
+    jur_strict = load_floors_strict(GATE_040_GOALS)
+    jur_value = jur_strict.get("goal_jurisdiction_matrix")
+    if jur_value is None or jur_value < JURISDICTION_MATRIX_FLOOR_OWNER:
+        print(
+            "tamper-test: TRAP FAILED — the gate_040 floor is below the owner constant "
+            f"(the wave-79 dispatch constant: {JURISDICTION_MATRIX_FLOOR_OWNER}) — "
+            "the lowering is refused",
+            file=sys.stderr,
+        )
+        return 1
+
     print(
         "tamper-test: OK — the checkers catch the fabricated records "
         f"(LICENSED_FLOOR {full_lic} bp, PASSPORT_FRESH {full_pass} bp, "
         f"APPROVAL_COVERAGE {full_appr} bp, ATTEST_MAP {full_att} live rows, "
-        f"PROVENANCE_SHARE {full_prov} bp, OFFLINE_SUITE {full_off} bp; "
-        "the traps lowered all)"
+        f"PROVENANCE_SHARE {full_prov} bp, OFFLINE_SUITE {full_off} bp, "
+        f"JURISDICTION_MATRIX {full_jur}; the traps lowered all)"
     )
     return 0
 
@@ -1412,6 +1557,7 @@ def full_block() -> str:
         f"| SEMA_EXTERNAL (the 8F-1 machine fact, №857) | {sema_external()['count']} — the live external-consumption artifacts of the Portable Refusal Algebra (ADR-0204 §5; the gate_035 only-up floor ≥ 1): {', '.join(sema_external()['counted']) or 'none yet'} |\n"
         f"| PROVENANCE_SHARE (the 8C/C3 machine fact, №875) | {provenance_share_bp()} bp — the registered I/O carriers whose boundary provenance record is LIVE-wired (ADR-0207 §4; the gate_038 floor 10000 bp, only-up) |\n"
         f"| OFFLINE_SUITE (the 8E-1/C5 machine fact, №881) | {offline_suite_bp()} bp — the registered LLM-surface checks that execute without the external network (ADR-0208 §2.5; the gate_039 floor 8000 bp, only-up) |\n"
+        f"| JURISDICTION_MATRIX (the 8D-2/C10 machine fact, №888) | {jurisdiction_matrix_count()} — the registered jurisdictions with ≥ 1 live rule in the seed matrix (ADR-0209 §4; the gate_040 floor 3, only-up) |\n"
     )
 
 
@@ -1483,6 +1629,7 @@ def plan_summary_block() -> str:
         f"| ATTEST_MAP — the 8A-1 machine fact (№869) | {attest_map_live()} live attestation rows |\n"
         f"| PROVENANCE_SHARE — the 8C/C3 machine fact (№875) | {provenance_share_bp()} bp |\n"
         f"| OFFLINE_SUITE — the 8E-1/C5 machine fact (№881) | {offline_suite_bp()} bp |\n"
+        f"| JURISDICTION_MATRIX — the 8D-2/C10 machine fact (№888) | {jurisdiction_matrix_count()} jurisdictions |\n"
     )
 
 
@@ -1870,6 +2017,53 @@ def main() -> int:
             f"{len(off_rows)} registered LLM-surface checks "
             f"({sum(1 for _, ok in off_rows if ok)} offline=yes, "
             f"{sum(1 for _, ok in off_rows if not ok)} offline=no)"
+        )
+
+    # №888: the JURISDICTION_MATRIX floor twin (the only-up gate_040) —
+    # the STRICT loader (fail-closed on a missing/empty/corrupted file)
+    # and the owner-pinned lowering refusal (the wave-79 dispatch
+    # constant can rise, never fall). The fact counts the registered
+    # jurisdictions that carry ≥ 1 live rule in the seed matrix
+    # (ADR-0209 §4) — a row counts ONLY on the code's presence in the
+    # LIVE src/jurisdiction.rs (the count is checked, not declared; the
+    # №862 roster form).
+    if check:
+        try:
+            jur_floors = load_floors_strict(GATE_040_GOALS)
+        except ValueError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        jur_floor = jur_floors.get("goal_jurisdiction_matrix")
+        if jur_floor is None:
+            print(
+                "ERROR: gate_040_goals.txt carries no goal_jurisdiction_matrix floor",
+                file=sys.stderr,
+            )
+            return 2
+        if jur_floor < JURISDICTION_MATRIX_FLOOR_OWNER:
+            print(
+                "FLOOR LOWERING REFUSED: gate_040 "
+                f"({jur_floor}) is below the owner constant "
+                f"({JURISDICTION_MATRIX_FLOOR_OWNER} — the wave-79 dispatch constant, "
+                "gh#1764); the floor is only-up — the change is an explicit owner transaction",
+                file=sys.stderr,
+            )
+            return 1
+        jur_count = jurisdiction_matrix_count()
+        if jur_count < jur_floor:
+            print(
+                f"FLOOR BREACH: JURISDICTION_MATRIX {jur_count} < the gate_040 floor "
+                f"{jur_floor} (only-up) — a registered jurisdiction lost its live seed "
+                "rule (restore the seed row honestly — never a silent gate edit)",
+                file=sys.stderr,
+            )
+            return 1
+        jur_rows = _jurisdiction_registry()
+        print(
+            f"OK: the №888 floor holds — JURISDICTION_MATRIX {jur_count} "
+            f"(gate_040 floor {jur_floor}, only-up) — registry: "
+            f"{len(jur_rows)} registered jurisdictions "
+            f"({jur_count} live in src/jurisdiction.rs)"
         )
 
     # №841: the RED harness (the tamper traps) — an explicit mode, run by

@@ -802,6 +802,31 @@ impl Interpreter {
                 target.deny_handlers.push(d.clone());
             }
         }
+        // №1735 (issue #1735, P0 — the serve merge + tick context,
+        // 03.11): the capability permit roster propagates with the SAME
+        // merge discipline as every definition class above (№332/№387 —
+        // UNION, add-only, an empty roster contributes nothing; the
+        // boot merge runs ONE declaration per throwaway interpreter, so
+        // an overwrite would wipe the roster the `profile capability`
+        // declaration contributed with the next merge). The consumer
+        // evidence: BOTH serve context builders go through THIS method —
+        // the boot merge (`merge_interpreter` →
+        // `from.clone_definitions_into`) and the fresh program context
+        // (`fresh_program_context`, used by the native cron ticks AND
+        // the TW route bodies) — and before this fix neither leg
+        // carried `capability_permits`, so a correctly declared office
+        // refused every sharp carrier from a native cron tick with
+        // IRREVERSIBLE_NO_GRANT under BOTH serve backends (the tick
+        // executes on the tree-walking interpreter whatever the serve
+        // backend is — №426). The roster's ORIGIN is unchanged: only
+        // `permits_from_declarations` (the entry's `profile capability
+        // { allow_carrier: … }`) and the VM wire field produce it — an
+        // undeclared program propagates an empty roster and refuses
+        // exactly as before (the gate stays fail-closed by default,
+        // ADR-0203 §2.4; PROFILE_PERMIT_SHARP / GRANT_ALWAYS untouched).
+        target
+            .capability_permits
+            .merge_union(&self.capability_permits);
         // ADR-0053: copy conversation config (conversations themselves are per-session).
         // №521: CONDITIONAL on the source actually having SEEN a
         // `conversation {}` declaration — the boot merge runs ONE

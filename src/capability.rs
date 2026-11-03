@@ -279,6 +279,26 @@ impl CapabilityPermits {
     pub fn is_empty(&self) -> bool {
         self.carriers.is_empty()
     }
+
+    /// №1735 (issue #1735, P0 — the serve merge + tick context, 03.11):
+    /// the add-only UNION merge — the PROPAGATION lane's discipline (the
+    /// №332/№387 definition-class merge posture: UNION, never overwrite,
+    /// an empty roster contributes nothing). The serve boot runs ONE
+    /// declaration per throwaway interpreter (`tmp.run(vec![decl])`) and
+    /// merges it into the shared context, so an overwrite here would let
+    /// any later declaration's EMPTY roster wipe the carriers the
+    /// `profile capability { allow_carrier: … }` declaration contributed.
+    /// This is NOT a grant source and NOT a gate change: the carriers
+    /// originate only in `permits_from_declarations` (the TW run() pre-pass
+    /// and the compiler wire field alike) — `authorize_call`, the
+    /// GrantAlways classes and the refusal vocabulary are untouched; an
+    /// undeclared program propagates an empty roster and refuses exactly
+    /// as before (fail-closed by default, ADR-0203 §2.4).
+    pub fn merge_union(&mut self, other: &CapabilityPermits) {
+        for name in &other.carriers {
+            self.carriers.insert(name.clone());
+        }
+    }
 }
 
 /// The trait form (the clippy `should_implement_trait` posture): the
@@ -505,6 +525,45 @@ mod coverage_tests {
 mod tests {
     use super::*;
     use crate::grants;
+
+    /// №1735 (issue #1735, P0 — the serve merge + tick context): the
+    /// propagation merge is ADD-ONLY — an empty roster contributes
+    /// nothing (the boot chain merges ONE declaration per throwaway
+    /// interpreter, so the next merge must not wipe the accumulated
+    /// carriers), and the union accumulates across merges.
+    #[test]
+    fn merge_union_is_add_only_and_empty_safe() {
+        let declared =
+            permits_from_declarations(&[profile_capability_decl(&["http_post", "send_message"])]);
+        let mut shared = CapabilityPermits::default();
+        assert!(shared.is_empty());
+        // A later NON-capability declaration merges an EMPTY roster:
+        // the accumulated carriers must survive (no overwrite).
+        shared.merge_union(&declared);
+        shared.merge_union(&CapabilityPermits::default());
+        assert!(shared.allow_carrier("http_post"));
+        assert!(shared.allow_carrier("send_message"));
+        // A further capability declaration ACCUMULATES (the roster grows).
+        let more = permits_from_declarations(&[profile_capability_decl(&["exec"])]);
+        shared.merge_union(&more);
+        assert!(shared.allow_carrier("exec"));
+        assert!(shared.allow_carrier("http_post"));
+        // No grant source appears out of thin air.
+        assert!(!shared.allow_carrier("git_push"));
+    }
+
+    /// The declaration builder for the merge tests (the `span` is
+    /// irrelevant here — `permits_from_declarations` reads names only).
+    fn profile_capability_decl(carriers: &[&str]) -> crate::ast::Declaration {
+        crate::ast::Declaration::Profile(crate::ast::ProfileDecl {
+            span: crate::ast::Span::unknown(),
+            name: "capability".to_string(),
+            options: carriers
+                .iter()
+                .map(|c| ("allow_carrier".to_string(), c.to_string()))
+                .collect(),
+        })
+    }
 
     #[test]
     fn mint_view_carries_the_adr_fields() {

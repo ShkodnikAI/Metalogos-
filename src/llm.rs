@@ -284,7 +284,10 @@ impl Provider {
 // ── Real LLM Backend ─────────────────────────────────────────────────
 
 /// Maximum number of retries on transient errors (rate limit, server errors).
-const MAX_RETRIES: u32 = 3;
+/// №879 (ADR-0208 §2.1): pub(crate) — the provider contract's limits
+/// view reports the legacy lane's retry ladder from THIS constant (the
+/// single source, never a mirrored magic number).
+pub(crate) const MAX_RETRIES: u32 = 3;
 
 /// Real LLM backend — HTTP POST to Anthropic, OpenAI, or Ollama API.
 ///
@@ -848,23 +851,60 @@ pub fn resolve_model(alias: &str) -> String {
     env::var(&env_key).unwrap_or_else(|_| alias.to_string())
 }
 
+/// №879 (ADR-0208 §2.2, wave 78 — W-G): the external-declaration
+/// predicate of the local-first composition. The LLM layer is
+/// LOCAL-FIRST: the absence of external configuration is the NORMAL
+/// operating mode (the local provider — deterministic, offline, the
+/// visible marker), and the network is an OPTIMIZATION layered on top
+/// by EXPLICIT declaration. A declaration is any of the external
+/// configuration surfaces: `METALOGOS_LLM_PROVIDER` (the provider
+/// env), `METALOGOS_API_KEY` (the credential env),
+/// `METALOGOS_OPENAI_BASE_URL` (the custom endpoint env). The `llm {}
+/// block with providers is the in-program declaration surface — it
+/// installs the SmartRouter and never reaches this predicate.
+/// Every DECLARED configuration keeps its exact pre-№879 semantics
+/// (ADR-0208 §6: the one composition-site change is the
+/// nothing-declared case only).
+pub fn external_llm_declared() -> bool {
+    env::var("METALOGOS_LLM_PROVIDER").is_ok()
+        || env::var("METALOGOS_API_KEY").is_ok()
+        || env::var("METALOGOS_OPENAI_BASE_URL").is_ok()
+}
+
 /// Create an LLM backend based on environment configuration.
 ///
 /// - If `METALOGOS_MOCK_LLM=1` or `METALOGOS_MOCK_LLM=true`: returns MockLlm (for tests)
-/// - Otherwise: returns RealLlm configured from env vars
+/// - If an EXTERNAL declaration exists (`METALOGOS_LLM_PROVIDER` /
+///   `METALOGOS_API_KEY` / `METALOGOS_OPENAI_BASE_URL`): returns RealLlm
+///   configured from env vars — fail-loud without keys (the №454
+///   posture, preserved ON THE DECLARED LANE)
+/// - Otherwise: returns the LOCAL provider (MockLlm) — the local-first
+///   default (ADR-0208 §2.2, №879)
 ///
-/// **Defaults to RealLlm, fail-loud** (Наряд №454, audit 25.09 finding 3.1):
-/// the old mock-by-default silently answered every learnable/conversation
-/// call with the echoed prompt (instructions + memory + history) and made
-/// production deployments confidently wrong. Without credentials the real
-/// backend now fails loudly at the first call. Tests and CI that need the
-/// mock must set `METALOGOS_MOCK_LLM=1|true` explicitly — see
-/// `mock_llm_requested()`.
+/// **Local-first default (ADR-0208 §2.2/§5, №879):** the absence of
+/// external configuration is the NORMAL mode, not an emergency — the
+/// system runs without any external network, and the answer is the
+/// LOCAL provider's deterministic, non-echo marker (`[mock-llm:<hex>]`,
+/// №454/№487). The №454 loudness lesson is PRESERVED: a local-first
+/// answer is VISIBLE as such (the frozen marker names the local
+/// provider in the value itself — never a silent stand-in for an
+/// external voice, never an echo of the prompt). The loud
+/// fail-without-credentials posture of №454/№478 lives on the DECLARED
+/// external lane: an explicit provider/key/base-url declaration
+/// without credentials still fails LOUDLY at the first call, naming
+/// `METALOGOS_API_KEY`.
 pub fn create_llm_backend() -> Box<dyn LlmBackend> {
     if mock_llm_requested() {
         Box::new(MockLlm)
-    } else {
+    } else if external_llm_declared() {
         Box::new(RealLlm::new())
+    } else {
+        // The local-first default (ADR-0208 §2.2): nothing external is
+        // declared — the local provider answers. MockLlm IS the local
+        // provider here (a full-right member of the implementation
+        // roster, ADR-0208 §2.1): deterministic, offline, the visible
+        // marker in every answer.
+        Box::new(MockLlm)
     }
 }
 
@@ -2044,7 +2084,7 @@ pub fn set_block_llm_limits(max_tokens: Option<u32>, temperature: Option<f64>) {
 /// values warn once and fall back to the default (the №481 class-wide
 /// loud-env naryad will tighten the whole family; a NEW silent env
 /// default is deliberately not introduced here).
-fn env_max_tokens() -> Option<u32> {
+pub(crate) fn env_max_tokens() -> Option<u32> {
     let raw = env::var("METALOGOS_LLM_MAX_TOKENS").ok()?;
     match raw.trim().parse::<u32>() {
         Ok(n) if n >= 1 => Some(n),
@@ -3213,22 +3253,60 @@ mod tests {
     // ── Factory ────────────────────────────────────────────────────
 
     #[test]
-    fn test_create_llm_backend_default_is_real_fail_loud() {
-        // Н454: without the variable the factory returns the REAL backend —
-        // which fails loudly at the first call (no credentials). No network
-        // is touched: the key check fires before any request.
+    fn test_create_llm_backend_default_is_local_first() {
+        // №879 (ADR-0208 §2.2): with NOTHING declared — no mock flag, no
+        // provider/key/base-url env — the composition resolves to the
+        // LOCAL provider: the deterministic, non-echo, offline marker.
+        // The №454 security essence holds: the answer reveals nothing
+        // about the prompt (the marker never echoes) and is VISIBLE as
+        // a local answer.
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         env::remove_var("METALOGOS_MOCK_LLM");
+        env::remove_var("METALOGOS_LLM_PROVIDER");
+        env::remove_var("METALOGOS_API_KEY");
+        env::remove_var("METALOGOS_OPENAI_BASE_URL");
+        assert!(
+            !external_llm_declared(),
+            "nothing declared — the local-first mode"
+        );
+        let backend = create_llm_backend();
+        let answer = backend
+            .call("prompt", "input")
+            .expect("the local provider answers");
+        assert!(
+            answer.starts_with("[mock-llm:") && answer.ends_with("]"),
+            "the local-first answer must be the visible deterministic marker, got: {}",
+            answer
+        );
+        assert!(
+            !answer.contains("prompt"),
+            "the marker never echoes the prompt (№454)"
+        );
+    }
+
+    #[test]
+    fn test_create_llm_backend_declared_external_fails_loud() {
+        // №879 (ADR-0208 §2.2/§5): an EXPLICIT external declaration
+        // without credentials keeps the №454 fail-loud posture EXACTLY
+        // — the real backend refuses at the first call, naming the
+        // missing key. No network is touched: the key check fires
+        // before any request.
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        env::remove_var("METALOGOS_MOCK_LLM");
+        env::remove_var("METALOGOS_API_KEY");
+        env::set_var("METALOGOS_LLM_PROVIDER", "anthropic");
+        assert!(external_llm_declared(), "the provider env IS a declaration");
         let backend = create_llm_backend();
         let result = backend.call("prompt", "input");
         assert!(
             result.is_err(),
-            "default backend must be the real one, fail-loud (№454)"
+            "the DECLARED external lane must stay fail-loud without keys (№454)"
         );
         assert!(
             result.unwrap_err().contains("METALOGOS_API_KEY"),
-            "loud failure must point at the missing credentials"
+            "the loud failure must point at the missing credentials"
         );
+        env::remove_var("METALOGOS_LLM_PROVIDER");
     }
 
     #[test]

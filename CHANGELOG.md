@@ -6,6 +6,20 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№890 (issue #1763, wave 79 — W-H, P2, [docs], strictly last):** the
+  weekly record of wave 79 — the generated §6.79 in
+  docs/reality/2026-11.md (the №789 generator, the C4-a T1 form: the
+  verbatim counters, the merge-CI verdicts — №885 `9568a39e`/PR #1765,
+  №886 `8a842e76`/PR #1768, №887 `206e785b`/PR #1769, №888
+  `5f411679`/PR #1770, №889 `d9b87957`/PR #1771 — all GREEN on the
+  merge commits; the №890 self-reference row in the №877/№884 form);
+  the honest-findings section carries the three HONEST-FINDING markers
+  from the chain executor's acceptance comments (the agent-index
+  range-bump lesson, the clippy/fmt first-round catches, the №868
+  re-attest on the pinned-file extension). The REALITY stub follows
+  (2026-11: 4 sections, total 63). The sanitized 0.42 phase line in
+  PLAN-SUMMARY (8D-2/C10, the dispatch gh#1764, the JURISDICTION_MATRIX
+  fact). llms.txt range №889 → №890.
 - **№889 (issue #1762, wave 79 — W-H, P2, ride [hygiene][ci], the
   №863/№882 form):** the baseline re-pin ride under the wave-79
   jurisdiction kernel — the verification pass over ALL five surface
@@ -25,6 +39,58 @@ All notable changes to the Metalogos project.
   this ride — the floors stand; the ride's product is the verified
   record itself (the gates re-run green on the wave's tree, cited in
   the PR).
+- **№888 (issue #1761, wave 79 — W-H, P2, [testing][ci]):** the
+  JURISDICTION_MATRIX fact machine + gate_040 — the explicit registry
+  (scripts/ci/gate_040_goals.txt: the goal_jurisdiction_matrix 3 floor
+  + the EU/RU/US-CA rows, the №862 roster form); a row counts ONLY on
+  the code's PRESENCE in the live seed_matrix constructor (the count is
+  checked, not declared; a forged row is uncovered; an empty registry
+  is 0 — a vacuous class is a failure, never a pass); the floor twin
+  ≥3 only-up (the wave-79 dispatch constant); the GENERATED rows in
+  PLAN-SUMMARY + docs/metrics.md (the №881 form); the tamper traps
+  29–33 (the clean-tree assertion, the vacuous registry, the forged
+  row, the row loss, the floor lowering); load_floors_strict skips the
+  jurisdiction roster rows (the two-class data file, the №881 form).
+- **№887 (issue #1760, wave 79 — W-H, P1):** the coverage rule — the
+  fail-closed jurisdiction gate at the consumption site:
+  jurisdiction_verdict refuses an uncovered carrier («молчаливый
+  пропуск невозможен», the №845 form; the KPI C10 on the consumed
+  path); the MCP composition (ADR-0196 × ADR-0209) — jurisdiction_gate
+  rides the compiled ToolPolicy's audited sinks BEFORE any run (a deny
+  refuses, a limit rides as the mark the consumer honors); the e2e
+  trace jurisdiction → rule (norm+date) → compilation → ToolPolicy
+  decision → carrier verdict on BOTH backends (TW + VM byte-identical,
+  the №880/№829 form); the gate report double-run byte-identity; the
+  refusals reuse the kernel's jurisdiction classes (the frozen №385
+  vocabulary not extended). The №868 re-attest ride included (the
+  mcp_policy extension re-pins the gateway-policy evidence row).
+- **№886 (issue #1759, wave 79 — W-H, P1):** the jurisdiction kernel
+  in code — JurisdictionId (the validated code), JurisdictionRule
+  (norm_ref + checked_at pinned by the canonical-row digest, the
+  №828/№868 form) + the append-only JurisdictionMatrix
+  (issue/query/digest; the exact duplicate refuses; the supersede is a
+  new row, strictest-wins) + the fail-closed compile site (an unknown
+  jurisdiction refuses; a deserialized incomplete rule refuses — the
+  KPI C10 is a machine check on the compiled path) + the seed matrix
+  ≥3 jurisdictions (EU/RU/US-CA — real norm pointers: GDPR Art. 17,
+  152-ФЗ ст. 21, Cal. Civ. Code §1798.105 (CPRA), GDPR Art. 5(1)(c);
+  the code data, never attached to a runtime by default — the ADR-0209
+  frame: a configuration of limits, not legal advice); the 1:1
+  migration — no grammar, no builtin-registry, no golden change.
+- **№885 (issue #1758, wave 79 — W-H, P1, ADR before the code):**
+  ADR-0209 Jurisdiction-Aware Policy Compilation — the jurisdiction
+  limit-configuration as a typed, verifiable artifact (the frame: a
+  configuration of limits, NOT legal advice — the contents of the
+  norms are never interpreted, the rules carry references only); the
+  package rule = JurisdictionRule {jurisdiction, carrier, effect,
+  norm_ref, checked_at, source}; the KPI C10 (100% of the package
+  rules carry a norm reference and a verification date) as a
+  fail-closed compile-site check; the parents consumed by reference
+  (feature-gates №676, mcp_policy ADR-0196, capability ADR-0203,
+  passports ADR-0202, attestations ADR-0206, egress ADR-0207 — never
+  duplicated); the refusal vocabulary stays frozen (№385). The
+  agent-index lesson: every chain naryad carries its own llms.txt
+  range bump.
 - **№884 (issue #1744, wave 78 — W-G, P2, [docs], strictly last):** the
   weekly record of wave 78 — the generated §6.78 in
   docs/reality/2026-11.md (the №789 generator, the C4-a T1 form: the

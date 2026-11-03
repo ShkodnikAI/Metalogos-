@@ -1603,6 +1603,21 @@ impl SmartRouter {
         }
     }
 
+    /// The coverage-rule probe (№880, ADR-0208 §4, wave 78 — W-G): does
+    /// the roster END in a covered local fallback? A `local` rung in
+    /// the failover chain is the EXPLICIT coverage; the EMPTY roster is
+    /// covered by construction (the №879 empty-chain seam composes the
+    /// local provider when nothing external is declared — the
+    /// local-first default IS coverage). The machine-checkable half of
+    /// the rule; the honest-refusal half is the existing exhaustion
+    /// class (LLM_PROVIDER_UNAVAILABLE / the loud "All LLM providers
+    /// failed", the frozen №385 vocabulary — no new codes): a call
+    /// addressed to an external provider either ends in this covered
+    /// fallback or in that refusal — never in a silent degradation.
+    pub fn has_covered_local_fallback(&self) -> bool {
+        self.providers.iter().any(|(_, t, ..)| t == "local") || self.providers.is_empty()
+    }
+
     /// Call the LLM with smart routing.
     /// 1. Pick best available provider (by health_score)
     /// 2. Try it; on failure, try next available provider (failover)
@@ -1673,6 +1688,23 @@ impl SmartRouter {
 
             let (ref _alias, ref provider_type, ref api_key, ref url, ref provider_model) =
                 self.providers[idx];
+            // №880 (ADR-0208 §4, wave 78 — W-G): the pre-network refusal
+            // half of the coverage rule — a rung whose provider class
+            // REQUIRES an API key (anthropic) refuses BEFORE any HTTP
+            // wait (the RealLlm early-key-check semantics, lifted to the
+            // router dispatch; the keyless OpenAI-compatible rungs keep
+            // the proxy use case untouched — the №819/№757 stubs run as
+            // before). The refusal rides the EXISTING
+            // LLM_PROVIDER_UNAVAILABLE class (№385 — no new code), and
+            // the chain walks on (the covered roster answers on its
+            // local rung; the uncovered one exhausts honestly).
+            if provider_type == "anthropic" && api_key.is_none() {
+                last_error = crate::interpreter::values::coded_error(
+                    crate::interpreter::values::CODE_LLM_PROVIDER_UNAVAILABLE,
+                    "anthropic requires an API key (METALOGOS_API_KEY) — the rung refuses before any HTTP attempt",
+                );
+                continue;
+            }
             // №819 (#1302): the priority chain — the call model wins, then
             // the provider's own field, then default_model.
             let resolved_model = model_override
@@ -1789,6 +1821,13 @@ impl SmartRouter {
     /// finish_reason/stop_reason/done_reason is extracted alongside the
     /// text (None = the provider did not report one) and the body carries
     /// the router's configurable max_tokens/temperature, not 1024/0.0.
+    /// №880 (ADR-0208 §4, wave 78 — W-G): the LOCAL rung — the covered
+    /// local fallback of the failover chain. The provider name `local`
+    /// in the llm {} roster dispatches HERE, before any HTTP client is
+    /// built: the local provider's answer is the frozen deterministic
+    /// non-echo marker (MockLlm's own answer, №454/№487) — no network,
+    /// no key, no request body. Usage and finish_reason are honestly
+    /// None (nothing was dialed; the marker is computed).
     #[allow(clippy::too_many_arguments)]
     fn call_provider(
         &self,
@@ -1800,6 +1839,10 @@ impl SmartRouter {
         resolved_model: &str,
         timeout_override: Option<Duration>,
     ) -> Result<(String, Option<ProviderTokenUsage>, Option<String>), String> {
+        // №880: the local rung — the covered local fallback (ADR-0208 §4).
+        if provider_type == "local" {
+            return Ok((mock_response(prompt), None, None));
+        }
         let effective_timeout = match timeout_override {
             Some(override_dur) => {
                 let config_dur = Duration::from_secs(self.timeout.max(5) as u64);
@@ -2401,6 +2444,16 @@ impl SmartRouter {
             }
             let (ref alias, ref provider_type, ref api_key, ref url, ref provider_model) =
                 self.providers[idx];
+            // №880 (ADR-0208 §4, wave 78 — W-G): the pre-network refusal
+            // (the stream-path parity of the call loop's gate) — the
+            // keyless anthropic rung refuses BEFORE any HTTP wait.
+            if provider_type == "anthropic" && api_key.is_none() {
+                last_error = crate::interpreter::values::coded_error(
+                    crate::interpreter::values::CODE_LLM_PROVIDER_UNAVAILABLE,
+                    "anthropic requires an API key (METALOGOS_API_KEY) — the rung refuses before any HTTP attempt",
+                );
+                continue;
+            }
             // №819 (#1302): the same priority chain as the non-streaming
             // path — per provider, not once for the whole loop.
             let resolved_model = model_override
@@ -2455,6 +2508,11 @@ impl SmartRouter {
     /// Open one provider's stream — issues the POST, returns the blocking
     /// Response on 2xx. The body is shaped per provider, identical to
     /// `SmartRouter::call_provider` but with `stream: true`.
+    /// №880 (ADR-0208 §4, wave 78 — W-G): the LOCAL rung refuses LOUDLY
+    /// on the stream path — the local provider answers in ONE piece via
+    /// `call()` (the frozen deterministic marker, №454/№487); it does
+    /// not stream. The refusal names the fix: drop to the call path for
+    /// the local rung — never a silent empty stream.
     #[allow(clippy::too_many_arguments)]
     fn stream_open_provider(
         &self,
@@ -2465,6 +2523,17 @@ impl SmartRouter {
         resolved_model: &str,
         timeout_override: Option<Duration>,
     ) -> Result<reqwest::blocking::Response, String> {
+        // №880: the LOCAL rung does not stream — the loud refusal (the
+        // local provider answers in one piece via call(); the covered
+        // streaming roster declares an external streaming rung).
+        if provider_type == "local" {
+            return Err(
+                "llm_stream_open(): STREAM_UNSUPPORTED — the local rung does not stream \
+                 (the ADR-0208 local-first provider answers in one piece via call()); \
+                 declare an external streaming rung or drop to the call path"
+                    .to_string(),
+            );
+        }
         let effective_timeout = match timeout_override {
             Some(override_dur) => {
                 let config_dur = Duration::from_secs(self.timeout.max(5) as u64);

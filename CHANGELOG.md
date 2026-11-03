@@ -114,6 +114,23 @@ All notable changes to the Metalogos project.
 
 ### Changed
 
+- **№883 (issue #1743, wave 78 — W-G, P2, ride [deps][ci]):** rusqlite
+  0.40.2 → 0.41.0 (the dependabot PR #1658, the owner's verdict of
+  2026-11-02 «Рекомендация принимается» — the bump rides the wave's
+  merge chain with the full CI: libsqlite3-sys 0.38.2 → 0.39.1 rides
+  the same lock entry; the msrv floor 1.93.1 and the docker build
+  re-verified by the blocking jobs). The rustyline blocker (#1544)
+  re-checked on the execution date 2026-11-03: crates.io still lists
+  ONLY 19.0.0 (published 2026-10-17, not yanked, no stable-msrv
+  follow-up) — the nightly-only `cfg_select!` build stands, the pin
+  stays at 18.0.1, and #1544 remains open with the dated check
+  comment (the honest re-date form). The 0.40→0.41 migration honesty:
+  `Statement::column_names()` now returns an iterator (was
+  `Vec<&str>`) — the THREE internal call sites in `src/db_ops.rs`
+  (db_ops.rs:279/623/841) adapted (`.iter()` dropped; zero observable
+  surface change, the language/registry rows untouched); no BREAKING
+  row — the deny-path rosters are untouched (the №865 breaking-change
+  gate stays green) and the language surface is byte-identical.
 - **№879 (ADR-0208 §2.2/§5 — the ONE intentional posture change):**
   `create_llm_backend()` is LOCAL-FIRST: with NOTHING declared (no
   `METALOGOS_MOCK_LLM`, no `METALOGOS_LLM_PROVIDER`, no

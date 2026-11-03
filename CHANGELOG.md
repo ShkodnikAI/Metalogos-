@@ -6,6 +6,25 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№889 (issue #1762, wave 79 — W-H, P2, ride [hygiene][ci], the
+  №863/№882 form):** the baseline re-pin ride under the wave-79
+  jurisdiction kernel — the verification pass over ALL five surface
+  gates on the wave's merge chain: `type_signature_baseline.txt`
+  (377/530, 71.13%), `type_signature_precise_baseline.txt` (244/530,
+  46.03%), `type_signature_stable_baseline.txt` (366/486, 75.30% — the
+  PRIMARY definition, ADR-0199), `--enforce-fieldmeta` (62/64, 96.87%)
+  and `sensitive_surface_baseline.txt` (112/147, 7619 bp, the №644
+  fixed-denominator share). The honest outcome — the №882/№876
+  precedent form: NO DRIFT. The wave-79 naryads (№886/№887/№888) add
+  ZERO `BUILTIN_REGISTRY` rows (the jurisdiction kernel lives in
+  `src/jurisdiction.rs` + the server-side composition in
+  `metalogos-server/src/mcp_policy.rs` + the python metrics machine —
+  the typed-signature and sensitive-surface counters read the REGISTRY,
+  not the module tree), so every floor already equals the fact and the
+  advisory `::warning` is absent from main. No baseline file changes in
+  this ride — the floors stand; the ride's product is the verified
+  record itself (the gates re-run green on the wave's tree, cited in
+  the PR).
 - **№884 (issue #1744, wave 78 — W-G, P2, [docs], strictly last):** the
   weekly record of wave 78 — the generated §6.78 in
   docs/reality/2026-11.md (the №789 generator, the C4-a T1 form: the

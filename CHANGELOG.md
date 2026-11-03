@@ -6,6 +6,29 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№879 (issue #1739, wave 78 — W-G, P1, [core][llm], ADR-0208):** the
+  provider-agnostic contract in code — `src/provider_contract.rs`:
+  `ProviderContract` (capabilities + limits + health semantics — the
+  NAMED VIEW over the `Provider`/`RealLlm`/`MockLlm`/`ProviderHealth`/
+  `SmartRouter` parents, the dedup guard keeps it apart from the
+  `Provider` roster enum), the closed-roster lookup
+  `contract_for_name` (an unaddressable name refuses LOUDLY through the
+  EXISTING `LLM_PROVIDER_UNAVAILABLE` class — №385 frozen), the
+  deterministic canonical `report()` (the double-run is byte-identical
+  by construction), and the local-first composition predicate
+  `external_llm_declared()`. The negative controls:
+  `tests/naryad_879_provider_contract.rs` (the local-first default on
+  BOTH lanes — TW and the VM — over the learnable and `call_llm`
+  seams; the empty `llm { }` block at the router's empty-chain seam;
+  the declared-external fail-loud lane; the report determinism; the
+  roster refusal) and the module unit tests (the config view honors
+  the block's `circuit_breaker`/`timeout`/`max_tokens`/`failover`
+  fields). The №454/№478 pins re-pinned to the ADR-0208 contract
+  (see Changed) — the №454 SECURITY essence is preserved and stronger:
+  the prompt material NEVER reaches the caller in ANY mode. security:
+  no — the media/perception lanes ride the untouched
+  `mock_llm_requested()` predicate; the egress contour of №874 is not
+  duplicated (the rule layer is №880).
 - **№865 (issue #1707, P0 — the migration honesty 0.35–0.38, out-of-wave
   on the owner's directive 2026-11-01):** `docs/upgrade.md` — the
   0.34 → 0.38 migration recipe (the inventory, the minimal
@@ -26,6 +49,22 @@ All notable changes to the Metalogos project.
 
 ### Changed
 
+- **№879 (ADR-0208 §2.2/§5 — the ONE intentional posture change):**
+  `create_llm_backend()` is LOCAL-FIRST: with NOTHING declared (no
+  `METALOGOS_MOCK_LLM`, no `METALOGOS_LLM_PROVIDER`, no
+  `METALOGOS_API_KEY`, no `METALOGOS_OPENAI_BASE_URL`) the composition
+  resolves to the LOCAL provider — `MockLlm`, a full-right member of
+  the implementation roster: the deterministic, non-echo, offline
+  `[mock-llm:<hex>]` marker (№454/№487), VISIBLE as a local answer.
+  Every DECLARED configuration keeps its exact pre-№879 semantics: the
+  explicit mock flag (the `[MOCK: …]` lane of `call_llm`), the env
+  provider/key/base-url (the REAL path — fail-loud without keys, the
+  №454 posture preserved ON THE DECLARED LANE), the `llm {}` block
+  (the SmartRouter). The re-pinned pins:
+  `tests/naryad_478_mock_unification.rs` (both surfaces — `call_llm`
+  and office-human) and
+  `metalogos-server/tests/mock_llm_not_default_in_serve.rs` (the serve
+  repro + the VM flow parity; the declared-external cases added).
 - **№865 (retroactive):** the [0.36.0] and [0.38.0] sections carry
   their `### Changed` BREAKING rows (the №845 sharp set, the №861
   `cron_run` mandate) — the deny rules themselves are NOT changed and

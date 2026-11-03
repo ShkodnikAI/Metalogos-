@@ -6,11 +6,21 @@
 //! and conversation state — every LLM-backed route handed that material
 //! back to the HTTP client as if it were a model answer.
 //!
-//! Red → green contract (audit repro: `mock_llm_not_default_in_serve`):
-//!   * WITHOUT the variable: the route runs the REAL backend, which fails
-//!     LOUDLY at the first call (no credentials) — the prompt marker never
-//!     reaches the client, and the failure names the missing config
-//!     instead of producing a confident wrong answer.
+//! Red → green contract (audit repro: `mock_llm_not_default_in_serve`),
+//! re-pinned by №879 (wave 78 — W-G, ADR-0208 §2.2/§5 — the ONE
+//! intentional posture change):
+//!   * WITHOUT any declaration (no variable, no provider/key/base-url
+//!     env): the route answers on the LOCAL provider — the
+//!     deterministic, non-echo, offline `[mock-llm:<8 hex>]` marker. The
+//!     №454 SECURITY property is preserved and STRONGER: the prompt
+//!     marker NEVER reaches the client in ANY mode, and the local
+//!     answer is VISIBLE as such (never a silent stand-in for an
+//!     external voice).
+//!   * WITH a DECLARED external provider (`METALOGOS_LLM_PROVIDER` set)
+//!     and no credentials: the route fails LOUDLY at the first call —
+//!     the prompt marker never reaches the client, and the failure
+//!     names the missing configuration (the №454 fail-loud posture,
+//!     preserved on the declared lane).
 //!   * WITH `METALOGOS_MOCK_LLM=1`: the mock answers with the
 //!     deterministic non-echo marker `[mock-llm:<8 hex>]` — useful for
 //!     tests, reveals nothing about the prompt.
@@ -44,6 +54,16 @@ use metalogos_server::server::{run_test_server_with_backend, ServeBackend};
 /// Serialize real-socket servers AND process-global env mutations across
 /// the test binary (one port per run; the mock flag is read per call).
 static N454_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// №879/№401 hygiene: clear EVERY declaration surface after each case —
+/// a leftover provider/key env would silently flip the next test's
+/// composition to the external lane.
+fn clear_serve_env() {
+    std::env::remove_var("METALOGOS_MOCK_LLM");
+    std::env::remove_var("METALOGOS_LLM_PROVIDER");
+    std::env::remove_var("METALOGOS_API_KEY");
+    std::env::remove_var("METALOGOS_OPENAI_BASE_URL");
+}
 
 /// The prompt channel the old default mock echoed back verbatim: the
 /// literal context stands in for the instruction/memory/history block.
@@ -100,27 +120,59 @@ fn run_vm(source: &str) -> Result<Option<String>, String> {
     vm.run(program)
 }
 
-// ── (1) THE audit repro — serve, default env (no variable): fail-loud ──
+// ── (1) THE audit repro — serve, nothing declared: the local-first ──
+// answer (№879/ADR-0208 §2.2: the visible marker, never the old echo)
 
 #[tokio::test]
-async fn n454_mock_not_default_in_serve() {
+async fn n454_nothing_declared_answers_on_the_local_provider() {
     let _guard = N454_LOCK.lock().await;
     std::env::remove_var("METALOGOS_MOCK_LLM");
+    std::env::remove_var("METALOGOS_LLM_PROVIDER");
+    std::env::remove_var("METALOGOS_API_KEY");
+    std::env::remove_var("METALOGOS_OPENAI_BASE_URL");
     let (port, handle) = run_test_server_with_backend(N454_PROGRAM, ServeBackend::Interpreter)
         .await
         .expect("test server must start");
     let (status, body) = http_get(port, "/tag?q=tell-me").await;
     handle.abort();
+    clear_serve_env();
+    assert_no_marker(&body, "serve nothing-declared");
+    assert_eq!(
+        status, 200,
+        "the local-first default must serve the route (ADR-0208 §2.2) — body: {}",
+        body
+    );
+    assert!(
+        body.contains("[mock-llm:"),
+        "the local-first answer must be the VISIBLE deterministic marker — body: {}",
+        body
+    );
+}
+
+// ── (1b) Serve, DECLARED external provider without a key: fail-loud ──
+
+#[tokio::test]
+async fn n454_declared_external_fails_loud_in_serve() {
+    let _guard = N454_LOCK.lock().await;
     std::env::remove_var("METALOGOS_MOCK_LLM");
-    assert_no_marker(&body, "serve default");
+    std::env::remove_var("METALOGOS_API_KEY");
+    std::env::remove_var("METALOGOS_OPENAI_BASE_URL");
+    std::env::set_var("METALOGOS_LLM_PROVIDER", "anthropic");
+    let (port, handle) = run_test_server_with_backend(N454_PROGRAM, ServeBackend::Interpreter)
+        .await
+        .expect("test server must start");
+    let (status, body) = http_get(port, "/tag?q=tell-me").await;
+    handle.abort();
+    clear_serve_env();
+    assert_no_marker(&body, "serve declared-external");
     assert_ne!(
         status, 200,
-        "without credentials the LLM call must fail loudly, not answer — body: {}",
+        "a DECLARED external provider without credentials must fail loudly, not answer — body: {}",
         body
     );
     assert!(
         body.contains("METALOGOS_API_KEY"),
-        "the loud failure must name the missing configuration (real backend, not a silent mock) — body: {}",
+        "the loud failure must name the missing configuration (the №454 posture on the declared lane) — body: {}",
         body
     );
 }
@@ -150,16 +202,41 @@ async fn n454_explicit_mock_answers_non_echo_marker_in_serve() {
     );
 }
 
-// ── (3) Flow-path parity, default env: real backend fails loudly — VM ──
+// ── (3) Flow-path parity, nothing declared: the local provider answers ──
 
 #[test]
-fn n454_flow_default_fail_loud_vm() {
+fn n454_flow_nothing_declared_answers_on_the_local_provider_vm() {
     let _guard = N454_LOCK.blocking_lock();
     std::env::remove_var("METALOGOS_MOCK_LLM");
+    std::env::remove_var("METALOGOS_LLM_PROVIDER");
+    std::env::remove_var("METALOGOS_API_KEY");
+    std::env::remove_var("METALOGOS_OPENAI_BASE_URL");
     let result = run_vm(N454_FLOW);
+    clear_serve_env();
+    let out = result
+        .expect("VM flow with nothing declared answers on the local provider (№879)")
+        .unwrap_or_default();
+    assert_no_marker(&out, "VM flow nothing-declared");
+    assert!(
+        out.starts_with("[mock-llm:") && out.ends_with("]"),
+        "VM parity: the visible deterministic local marker, got: {}",
+        out
+    );
+}
+
+// ── (3b) Flow-path parity, DECLARED external: the loud real path ──
+
+#[test]
+fn n454_flow_declared_external_fails_loud_vm() {
+    let _guard = N454_LOCK.blocking_lock();
     std::env::remove_var("METALOGOS_MOCK_LLM");
-    let err = result.expect_err("VM flow without credentials must fail loudly (№454)");
-    assert_no_marker(&err, "VM flow default");
+    std::env::remove_var("METALOGOS_API_KEY");
+    std::env::remove_var("METALOGOS_OPENAI_BASE_URL");
+    std::env::set_var("METALOGOS_LLM_PROVIDER", "anthropic");
+    let result = run_vm(N454_FLOW);
+    clear_serve_env();
+    let err = result.expect_err("VM flow on the declared-external lane must fail loudly (№454)");
+    assert_no_marker(&err, "VM flow declared-external");
     assert!(
         err.contains("METALOGOS_API_KEY"),
         "VM parity: the loud failure names the missing configuration — err: {}",

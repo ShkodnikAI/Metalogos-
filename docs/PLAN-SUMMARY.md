@@ -151,6 +151,29 @@ the merge commit `67b005fe`, the Build & Release run #28
 publication date; the published note bodies carry no date line — the
 №497 verbatim intact).
 
+Wave 79 EXECUTED (the dispatch gh#1764 — the 8D-2 subphase, the 0.42 =
+C10 «Jurisdiction-Aware Policy Compilation» line): №885 → №886 → №887 →
+№888 → №889 → №890 (strictly last). The phase line: ADR-0209 — the
+jurisdiction limit-configuration as a typed, verifiable artifact (the
+frame: a configuration of limits, NOT legal advice; ADR before the
+code, the №1 form); the kernel in code — JurisdictionRule (norm_ref +
+checked_at pinned by the canonical-row digest, the №828/№868 form) +
+the append-only JurisdictionMatrix (issue/query/digest, the
+strictest-wins supersede) + the seed of ≥3 jurisdictions (EU/RU/US-CA
+— the real norm pointers, the code data, never attached to a runtime
+by default); the coverage rule — the fail-closed consumption gate
+(jurisdiction_verdict refuses an uncovered carrier — «молчаливый
+пропуск невозможен», the №845 form; the MCP composition
+jurisdiction_gate rides the compiled ToolPolicy's audited sinks BEFORE
+any run — a deny refuses, a limit rides as the mark the consumer
+honors; the e2e trace green on both backends, the №829 form); the
+machine fact JURISDICTION_MATRIX 3 (the explicit registry, the count
+checked not declared against the live seed source) + the gate_040
+floor 3 only-up (the wave-79 dispatch constant); the baseline ride —
+NO DRIFT (the counters are registry-scoped, the wave adds zero
+registry rows). The machine record: the generated §6.79 (the verbatim
+counters, the merge-CI verdicts).
+
 Wave 78 EXECUTED (the dispatch gh#1745 — the 8E-1 subphase, the 0.41 =
 C5 «Provider-Agnostic Local-First» line): №878 → №879 → №880 → №881 →
 №882 → №883 → №884 (strictly last). The phase line: ADR-0208 — the

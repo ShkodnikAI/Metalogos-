@@ -489,6 +489,80 @@ fn collect_idents_in_stmt(stmt: &Statement, out: &mut Vec<String>) {
     }
 }
 
+// ── The jurisdiction composition (№887, ADR-0209 §4 × ADR-0196) ────────
+//
+// The compiled ToolPolicy rides the jurisdiction gate BEFORE any run:
+// every audited sink carrier (the ADR-0196 SSOT of what the method can
+// touch) must carry a jurisdiction verdict from the compiled
+// JurisdictionPolicy. Fail-closed on both axes (the №845/№874 forms):
+//   - a sink covered by NO jurisdiction rule refuses — «молчаливый
+//     пропуск невозможен», an uncovered carrier cannot pass as an
+//     implicit allow (the kernel's jurisdiction_verdict refuses);
+//   - a deny verdict over an audited sink refuses the composition —
+//     the run never launches under deny.
+// A limit rides as the MARK the consumer honors (the kernel does not
+// interpret the norm — ADR-0209 §5); an allow passes. The refusal
+// strings reuse the kernel's jurisdiction classes — the frozen №385
+// refusal vocabulary is NOT extended.
+
+/// One carrier's verdict row in the composed gate report.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct GateVerdict {
+    /// The audited sink carrier (the builtin name).
+    pub carrier: String,
+    /// The jurisdiction effect — "allow" | "limit" | "deny" (the
+    /// kernel's vocabulary, PolicyEffect::as_str).
+    pub effect: String,
+}
+
+/// The auditable composed decision: the compiled ToolPolicy (ADR-0196)
+/// × the compiled jurisdiction policy (ADR-0209). The report is the
+/// byte-pinned artifact the consumer logs before any run — the
+/// double-run serialization byte-identity is the №880 acceptance form.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct JurisdictionGateReport {
+    /// The jurisdiction the gate compiled under.
+    pub jurisdiction: String,
+    /// The matrix digest the verdicts were resolved from (the №828 pin).
+    pub matrix_digest: String,
+    /// The per-carrier verdicts over the audited sinks, in sink order.
+    pub verdicts: Vec<GateVerdict>,
+}
+
+/// Compose the compiled ToolPolicy with the compiled jurisdiction
+/// policy (№887). Every audited sink carrier of the tool MUST carry a
+/// jurisdiction verdict; an uncovered carrier refuses; a deny over an
+/// audited sink refuses BEFORE any run.
+pub fn jurisdiction_gate(
+    tool: &ToolPolicy,
+    policy: &metalogos::jurisdiction::JurisdictionPolicy,
+) -> Result<JurisdictionGateReport, String> {
+    let mut verdicts: Vec<GateVerdict> = Vec::new();
+    for sc in &tool.sink_calls {
+        let effect = metalogos::jurisdiction::jurisdiction_verdict(policy, &sc.builtin)?;
+        verdicts.push(GateVerdict {
+            carrier: sc.builtin.clone(),
+            effect: effect.as_str().to_string(),
+        });
+    }
+    let denied: Vec<&str> = verdicts
+        .iter()
+        .filter(|v| v.effect == "deny")
+        .map(|v| v.carrier.as_str())
+        .collect();
+    if !denied.is_empty() {
+        return Err(format!(
+            "jurisdiction: the deny effect covers an audited sink — the composition refuses before any run (fail-closed; carriers: {})",
+            denied.join(", ")
+        ));
+    }
+    Ok(JurisdictionGateReport {
+        jurisdiction: policy.jurisdiction.as_str().to_string(),
+        matrix_digest: policy.matrix_digest.clone(),
+        verdicts,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -3428,6 +3428,13 @@ pub(crate) fn merge_interpreter(from: Interpreter, mut into: Interpreter) -> Int
         into.set_memory_persist_path(Some(path));
     }
     // Merge patterns, struct types, learnable patterns, rules, sandboxes, module namespaces
+    // №1735 (issue #1735, P0): the capability permit roster rides the
+    // definition clone below (the UNION add-only merge inside
+    // `clone_definitions_into`) — the serve boot's
+    // `merge_interpreter(tmp, interp)` is the leg that carried the
+    // entry's `profile capability { allow_carrier: … }` roster into the
+    // shared interpreter; do not replace the clone with a hand-rolled
+    // copy that omits it (the №480 one-constructor rule).
     from.clone_definitions_into(&mut into);
     into
 }

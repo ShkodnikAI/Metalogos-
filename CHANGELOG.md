@@ -171,6 +171,34 @@ All notable changes to the Metalogos project.
 
 ### Fixed
 
+- **issue #1735 (P0 — out of the release train, the owner's decision
+  03.11):** the entry's `profile capability { allow_carrier: … }` roster
+  is applied again by the serve paths that lost it — the permit roster
+  propagates into the serve-boot interpreter merge
+  (`merge_interpreter` → `clone_definitions_into`, the UNION add-only
+  discipline of the №332 definition class) and into the fresh program
+  context (`fresh_program_context` — the №426 native cron-tick executor
+  AND the TW route bodies). On 0.38.0 neither leg carried
+  `Interpreter::capability_permits`, so a correctly declared program
+  refused every sharp carrier from a native cron tick with
+  IRREVERSIBLE_NO_GRANT under BOTH serve backends (the tick executes on
+  the tree-walking interpreter whatever the backend is), and the TW
+  route bodies refused the same way — the issue's original 500 row.
+  The consumer evidence: the FOSVED office night cycle, night report,
+  morning brief, admin reply and LZ daily were silently down since the
+  0.38 switch. The gate is untouched: no new grant source (the roster
+  originates only in `permits_from_declarations` / the VM wire field),
+  PROFILE_PERMIT_SHARP / GRANT_ALWAYS / the refusal vocabulary do not
+  move (ADR-0203 §2.4) — the same program WITHOUT the declaration still
+  refuses IRREVERSIBLE_NO_GRANT, fail-closed by default. Pinned on the
+  REAL `mlog serve` process, BOTH backends
+  (`naryad_1735_tick_capability_context.rs`: the declared tick and the
+  route round-trip; the undeclared tick and route refuse with the
+  local receiver seeing NO ping — the refusal is BEFORE the action),
+  plus the merge-union unit pin (add-only, empty-safe). AFFECTS serve
+  consumers: native cron ticks and interpreter-backend routes regain
+  the declared carriers; the office pins the 0.38.1 patch after the
+  release (the office naryad, separate).
 - **№865:** the [0.34.0] date-stamp re-cut to the actual publication
   date 2026-10-28 (the форма №721 re-cut that never ran; the
   planned-window 2026-11-02 stamp was a lie the release notes carried).

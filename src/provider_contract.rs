@@ -220,10 +220,14 @@ impl ProviderContract {
             name: "router",
             kind,
             capabilities: ProviderCapabilities {
-                // The chain's determinism is the WEAKEST rung's: an
-                // external rung answers through the network. Only the
-                // local-first chain (empty providers) is deterministic.
-                deterministic_answer: config.providers.is_empty(),
+                // №880 (the honest refinement): the chain's determinism is
+                // the guarantee EVERY rung shares — an all-local roster
+                // is deterministic (each rung answers the frozen marker);
+                // ANY external rung answers through the network and
+                // breaks the guarantee. The empty roster (the №879
+                // local-first default) is the all-local case by
+                // construction.
+                deterministic_answer: config.providers.iter().all(|p| p.provider == "local"),
                 per_call_model: true,
                 deadline_cancellation: true,
             },

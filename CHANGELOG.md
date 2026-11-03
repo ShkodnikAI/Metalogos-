@@ -6,6 +6,32 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№880 (issue #1740, wave 78 — W-G, P1, [llm][core], ADR-0208 §4):** the
+  coverage rule — the fail-closed gate on provider dependence: an LLM
+  call addressed to an external provider must END in a covered local
+  fallback path (a `local` rung in the failover roster —
+  `SmartRouter::has_covered_local_fallback()`: a local rung OR the
+  empty roster, the №879 local-first default IS coverage) or in the
+  honest refusal (the EXISTING exhaustion class — the loud "All LLM
+  providers failed" / `LLM_PROVIDER_UNAVAILABLE`, the frozen №385
+  vocabulary: no new deny codes); never a silent degradation. The
+  `local` rung dispatches inside `call_provider` BEFORE any HTTP client
+  is built (the frozen deterministic marker — no network, no key); the
+  stream path refuses the local rung LOUDLY (`STREAM_UNSUPPORTED` —
+  the local provider answers in one piece via `call()`); the
+  pre-network refusal half — a keyless `anthropic` rung refuses BEFORE
+  any HTTP wait (the RealLlm early-key-check semantics, lifted to the
+  router dispatch on BOTH the call and the stream loops; the keyless
+  OpenAI-compatible rungs keep the proxy use case untouched). The
+  e2e trace green on BOTH backends (TW + VM, the №825 two-lane form):
+  request → the deterministic external refusal (the unreachable
+  loopback stub) → the failover chain → the local fallback → the
+  result; the double run byte-identical. The №880 refinement: the
+  contract view's `deterministic_answer` reads the ALL-LOCAL roster
+  honestly. security: no — the egress contour of №874/ADR-0207 is NOT
+  duplicated (the rule governs the LLM fallback paths, not the network
+  boundary); the media domain untouched. Verified by
+  `tests/naryad_880_failover_coverage.rs`.
 - **№879 (issue #1739, wave 78 — W-G, P1, [core][llm], ADR-0208):** the
   provider-agnostic contract in code — `src/provider_contract.rs`:
   `ProviderContract` (capabilities + limits + health semantics — the

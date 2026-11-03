@@ -349,6 +349,25 @@ impl JurisdictionPolicy {
     }
 }
 
+/// The gate verdict over ONE carrier (№887 — the coverage rule, the
+/// №845 form): the fail-closed resolution at the CONSUMPTION point.
+/// An uncovered carrier CANNOT resolve to an implicit allow — «молча
+/// пропустить» is forbidden: the verdict refuses, and the consumer
+/// (the MCP composition, ADR-0196) refuses the run with it. The KPI
+/// C10 stays a machine check on the consumed path, not a declaration.
+pub fn jurisdiction_verdict(
+    policy: &JurisdictionPolicy,
+    carrier: &str,
+) -> Result<PolicyEffect, String> {
+    match policy.effect_of(carrier) {
+        Some(effect) => Ok(effect),
+        None => Err(format!(
+            "jurisdiction: no rule covers '{carrier}' in {} — the gate verdict refuses an uncovered carrier (fail-closed, KPI C10; the №845 form)",
+            policy.jurisdiction.as_str()
+        )),
+    }
+}
+
 /// Compile the per-jurisdiction policy view — FAIL-CLOSED (ADR-0209
 /// §2.3): an unknown jurisdiction refuses; a rule without its norm
 /// reference or its verification date refuses the compilation BEFORE
@@ -652,5 +671,52 @@ mod kernel_tests {
         c.issue(rule("US-CA", "http_post", PolicyEffect::Limit))
             .unwrap();
         assert_ne!(a.digest(), c.digest());
+    }
+
+    #[test]
+    fn verdict_resolves_the_covered_carriers() {
+        let p = compile_jurisdiction_policy(&seed_matrix(), "EU").unwrap();
+        assert_eq!(
+            jurisdiction_verdict(&p, "http_post").unwrap(),
+            PolicyEffect::Limit
+        );
+        assert_eq!(
+            jurisdiction_verdict(&p, "forget").unwrap(),
+            PolicyEffect::Allow
+        );
+    }
+
+    #[test]
+    fn verdict_refuses_an_uncovered_carrier_fail_closed() {
+        // «Молчаливый пропуск невозможен»: an uncovered carrier cannot
+        // pass as an implicit allow — the verdict refuses (№887, the
+        // №845 form; the KPI C10 on the consumed path).
+        let p = compile_jurisdiction_policy(&seed_matrix(), "EU").unwrap();
+        let err = jurisdiction_verdict(&p, "exec").unwrap_err();
+        assert!(err.contains("no rule covers"), "{err}");
+        assert!(err.contains("fail-closed"), "{err}");
+        assert!(err.contains("KPI C10"), "{err}");
+    }
+
+    #[test]
+    fn verdict_refusal_names_the_jurisdiction_and_tracks_the_supersede() {
+        // US-CA covers forget, NOT http_post — the refusal names the
+        // jurisdiction the consumer compiled under.
+        let p = compile_jurisdiction_policy(&seed_matrix(), "US-CA").unwrap();
+        assert_eq!(
+            jurisdiction_verdict(&p, "forget").unwrap(),
+            PolicyEffect::Allow
+        );
+        let err = jurisdiction_verdict(&p, "http_post").unwrap_err();
+        assert!(err.contains("US-CA"), "{err}");
+        // a supersede row re-shapes the verdict (strictest wins)
+        let mut m = seed_matrix();
+        m.issue(rule("EU", "http_post", PolicyEffect::Deny))
+            .unwrap();
+        let p2 = compile_jurisdiction_policy(&m, "EU").unwrap();
+        assert_eq!(
+            jurisdiction_verdict(&p2, "http_post").unwrap(),
+            PolicyEffect::Deny
+        );
     }
 }

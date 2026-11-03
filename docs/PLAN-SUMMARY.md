@@ -151,6 +151,27 @@ the merge commit `67b005fe`, the Build & Release run #28
 publication date; the published note bodies carry no date line — the
 №497 verbatim intact).
 
+Wave 78 EXECUTED (the dispatch gh#1745 — the 8E-1 subphase, the 0.41 =
+C5 «Provider-Agnostic Local-First» line): №878 → №879 → №880 → №881 →
+№882 → №883 → №884 (strictly last). The phase line: ADR-0208 — the
+LLM layer as a provider-agnostic contract (the capabilities + the
+limits + the health semantics; ADR before the code, the №1 form); the
+contract in code — ProviderContract (the NAMED VIEW over the
+Provider/RealLlm/MockLlm/ProviderHealth/SmartRouter parents) + the
+local-first default at BOTH composition seams (the nothing-declared
+composition resolves to the local provider — the visible frozen
+marker; the №454 fail-loud preserved on the declared lane); the
+coverage rule — the fail-closed gate on provider dependence (the
+local rung in the failover roster + the pre-network refusal of the
+keyless rung; the e2e trace green on both backends); the machine fact
+OFFLINE_SUITE (the explicit 12-check registry, the count checked not
+declared) + the gate_039 floor 8000 bp only-up; the baseline ride — NO
+DRIFT (the counters are registry-scoped, the wave adds zero registry
+rows); the deps ride — rusqlite 0.41.0 (the owner's verdict, the
+column_names iterator adaptation) + the rustyline re-check dated. The
+machine record: the generated §6.78 (the verbatim counters, the
+merge-CI verdicts).
+
 Wave 77 EXECUTED (the dispatch gh#1729 — the 8C/C3 subphase, the 0.40 =
 C3 «Provenance-Native I/O» line): №872 → №873 → №874 → №875 → №876 →
 №877 (strictly last). The phase line: ADR-0207 — the I/O boundary as a

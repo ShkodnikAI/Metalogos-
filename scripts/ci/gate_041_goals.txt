@@ -1,0 +1,58 @@
+# gate_041_goals.txt — the wave-80 W-I machine-fact floor (naryad №894)
+# =============================================================================
+# The №894 floor file: the ONLY-UP gate over the 8G/C8 machine fact —
+# the same discipline as the gate_034 goal record (№846), the gate_035
+# goals (№857), the gate_036 record (№862), the gate_037 record (№869),
+# the gate_038 record (№875), the gate_039 record (№881) and the
+# gate_040 record (№888). The floor value is the wave's START floor =
+# the wave-80 dispatch constant (gh#1779: 0.43 = 8G (C8, REPLAY_MATCH
+# >= 10000 bp) — the point was accepted by the owner in the dispatch,
+# no further decision is needed at the naryad level; the №841 form —
+# the floor can rise, never fall):
+# 0.43 = 8G (C8, REPLAY_MATCH 10000 bp).
+#
+# THE REGISTRY (the №862 roster form — the machine source): the
+# registered decision carriers, one row each. ADR-0210 §3-4 (the
+# definition): REPLAY_MATCH is the share (bp) of the registered
+# decision carriers whose decision trace is WRITTEN through the live
+# Ledger ACTION contour (record_trace, ADR-0167) AND verified by the
+# replay_gate REPLAY_MATCH contract (the №893 coverage rule) — the
+# сверка of the claim against the record, never a bit-for-bit replay
+# (honest-limits №588).
+#
+# The count is CHECKED, not declared: a row counts ONLY when its
+# decision name is PRESENT in the LIVE e2e wiring source
+# (tests/naryad_893_replay_coverage.rs — a quoted decision literal
+# inside the trace-record/gate-reconcile region) AND the gate
+# composition site (`pub fn replay_gate` — the №874 form) is alive in
+# src/decision_trace.rs (the composition removed → NOTHING is gated →
+# the share reads 0 — the gate working, not a pass) — a forged row (a
+# decision with no live wiring behind it) is UNCOVERED and never raises
+# the share; an empty registry is 0 bp (a vacuous class is a gate
+# failure, never a pass). The tamper traps in gen_metrics.py
+# (--tamper-test) prove the counter catches the forged row, the row
+# loss, the dead composition and the floor lowering.
+#
+# The floor is ONLY-UP: the value below is the wave-80 dispatch
+# constant pinned by the checker (gen_metrics.py
+# REPLAY_MATCH_FLOOR_OWNER_BP); a lowered floor in this file is
+# refused with a loud FLOOR LOWERING REFUSED (the №776 transaction
+# discipline — a re-pin is an OWNER decision, never a silent gate
+# edit). Registering a NEW decision carrier is a RAISE of coverage
+# only when its live wiring lands in the SAME transaction (a
+# wired=no roadmap row holds the denominator and LOWERS the share
+# below this floor — the honest signal to wire it first, then
+# register); a future carrier appends BOTH the live wiring (the e2e
+# form of №893) AND its registry row here.
+#
+# Fields (machine-read by scripts/gen_metrics.py load_floors_strict):
+goal_replay_match_bp 10000
+#
+# The registry rows (machine-read by scripts/gen_metrics.py
+# _replay_registry): the two execution roads of the №893 e2e — the
+# traced decision carriers of the wave-80 kernel (each road's run is
+# traced: the source digest in, the output digest out; the trace
+# journals through the Ledger ACTION contour; the gate reconciles the
+# claim on both roads — the byte-in-byte double run).
+decision run_program@tw wired=yes
+decision run_program@vm wired=yes

@@ -28,4 +28,5 @@ construction.
 | PROVENANCE_SHARE (the 8C/C3 machine fact, №875) | 10000 bp — the registered I/O carriers whose boundary provenance record is LIVE-wired (ADR-0207 §4; the gate_038 floor 10000 bp, only-up) |
 | OFFLINE_SUITE (the 8E-1/C5 machine fact, №881) | 10000 bp — the registered LLM-surface checks that execute without the external network (ADR-0208 §2.5; the gate_039 floor 8000 bp, only-up) |
 | JURISDICTION_MATRIX (the 8D-2/C10 machine fact, №888) | 3 — the registered jurisdictions with ≥ 1 live rule in the seed matrix (ADR-0209 §4; the gate_040 floor 3, only-up) |
+| REPLAY_MATCH (the 8G/C8 machine fact, №894) | 10000 bp — the registered decision carriers whose trace is written through the Ledger ACTION contour and verified by the replay_gate REPLAY_MATCH contract (ADR-0210 §3-4; the gate_041 floor 10000 bp, only-up) |
 <!-- END GENERATED METRICS -->

@@ -842,7 +842,6 @@ pub fn resolve_import_groups(
         &mut reserved,
         &mut merged,
         &mut groups,
-        None,
     )?;
     Ok((merged, groups))
 }
@@ -850,10 +849,10 @@ pub fn resolve_import_groups(
 /// DFS over `Declaration::Import` nodes: parse each module file once
 /// (visited-set on the trimmed import path), recurse into sub-imports,
 /// and append the module's own declarations (deduplicated) to `out`.
-/// `own_source` is `None` for the ENTRY file's invocation and
-/// `Some(source)` for an imported module's invocation — an imported
-/// module records its landing group (№897); the entry records none
-/// (the entry surface is the caller's own argument).
+/// Each resolved import records its landing group (№897) AT THE SITE
+/// THAT READ THE FILE: the declarations appended by this iteration
+/// belong to the module whose source was just read (sub-imports landed
+/// in their own groups during the recursion above).
 #[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 fn collect_import_decls(
     declarations: &[Declaration],
@@ -862,12 +861,7 @@ fn collect_import_decls(
     reserved: &mut HashSet<(String, String)>,
     out: &mut Vec<Declaration>,
     groups: &mut Vec<ImportModuleGroup>,
-    own_source: Option<&str>,
 ) -> Result<(), String> {
-    // The landing group of THIS invocation's module (№897): the
-    // declarations that reach the merged surface from THIS file only —
-    // sub-imports land in their own groups during the recursion below.
-    let mut group_decls: Vec<Declaration> = Vec::new();
     for decl in declarations {
         if let Declaration::Import(import) = decl {
             // Parser may include trailing whitespace in `import_path` when
@@ -894,15 +888,12 @@ fn collect_import_decls(
             })?;
             let module_decls = crate::parser::parse(&source)
                 .map_err(|e| format!("parse error in module '{}': {}", module_path, e))?;
-            collect_import_decls(
-                &module_decls,
-                base_dir,
-                visited,
-                reserved,
-                out,
-                groups,
-                Some(source.as_str()),
-            )?;
+            collect_import_decls(&module_decls, base_dir, visited, reserved, out, groups)?;
+            // №897: the landing group of THIS import — the declarations
+            // appended by THIS iteration belong to the module whose
+            // source was read above (the collision-filtered landing,
+            // byte-identical to what reaches the merged surface).
+            let mut module_group: Vec<Declaration> = Vec::new();
             for module_decl in module_decls {
                 match &module_decl {
                     // Sub-imports were handled by the recursion above.
@@ -916,22 +907,20 @@ fn collect_import_decls(
                         Some(key) => {
                             reserved.insert(key);
                             out.push(module_decl.clone());
-                            group_decls.push(module_decl);
+                            module_group.push(module_decl);
                         }
                         None => {
                             out.push(module_decl.clone());
-                            group_decls.push(module_decl);
+                            module_group.push(module_decl);
                         }
                     },
                 }
             }
+            groups.push(ImportModuleGroup {
+                declarations: module_group,
+                source,
+            });
         }
-    }
-    if let Some(source) = own_source {
-        groups.push(ImportModuleGroup {
-            declarations: group_decls,
-            source: source.to_string(),
-        });
     }
     Ok(())
 }

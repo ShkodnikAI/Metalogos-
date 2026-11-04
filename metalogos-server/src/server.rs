@@ -1476,7 +1476,24 @@ fn build_router(state: ServerState) -> Router {
         .iter()
         .any(|r| r.path == "/health" || r.path == "/health/");
     if !program_declares_health {
-        app = app.route("/health", get(|| async { (StatusCode::OK, "ok") }));
+        // №898: the built-in /health names the LLM posture in the
+        // `x-llm-mode` header (mock = METALOGOS_MOCK_LLM=1 — the loud
+        // [serve] warning rides the startup too; declared = an external
+        // provider is configured; unconfigured = every LLM call will
+        // refuse at the first call). The BODY stays exactly "ok" (the
+        // №511 docker/uptime pins and the probes are untouched — the
+        // header is the operator-visible addition, not a contract break).
+        let llm_mode = if metalogos::llm::mock_llm_requested() {
+            "mock"
+        } else if metalogos::llm::external_llm_declared() {
+            "declared"
+        } else {
+            "unconfigured"
+        };
+        app = app.route(
+            "/health",
+            get(move || async move { (StatusCode::OK, [("x-llm-mode", llm_mode)], "ok") }),
+        );
     }
 
     // Наряд №250 (ADR-0122 #208 family — n206 VM-serve verification debt):

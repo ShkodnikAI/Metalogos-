@@ -878,33 +878,76 @@ pub fn external_llm_declared() -> bool {
 ///   `METALOGOS_API_KEY` / `METALOGOS_OPENAI_BASE_URL`): returns RealLlm
 ///   configured from env vars — fail-loud without keys (the №454
 ///   posture, preserved ON THE DECLARED LANE)
-/// - Otherwise: returns the LOCAL provider (MockLlm) — the local-first
-///   default (ADR-0208 §2.2, №879)
+/// - Otherwise: **refuses loudly at the first call** (`UnconfiguredLlm`,
+///   №898 — the owner decision 04.11): the №879 silent local-first
+///   default is ROLLED BACK. The absence of LLM configuration is not a
+///   mock authorization: a value a program builds on is never a mock
+///   marker mistaken for a model answer (the №454 lesson). The
+///   deterministic offline mock stays available as an EXPLICIT choice:
+///   `METALOGOS_MOCK_LLM=1`, or the in-program explicit local rung
+///   (`llm { providers: [{ alias: "mock", provider: "local" }] }` —
+///   the SmartRouter's covered local fallback, ADR-0208 §4).
 ///
-/// **Local-first default (ADR-0208 §2.2/§5, №879):** the absence of
-/// external configuration is the NORMAL mode, not an emergency — the
-/// system runs without any external network, and the answer is the
-/// LOCAL provider's deterministic, non-echo marker (`[mock-llm:<hex>]`,
-/// №454/№487). The №454 loudness lesson is PRESERVED: a local-first
-/// answer is VISIBLE as such (the frozen marker names the local
-/// provider in the value itself — never a silent stand-in for an
-/// external voice, never an echo of the prompt). The loud
-/// fail-without-credentials posture of №454/№478 lives on the DECLARED
-/// external lane: an explicit provider/key/base-url declaration
-/// without credentials still fails LOUDLY at the first call, naming
-/// `METALOGOS_API_KEY`.
+/// **The №454 loudness lesson (both lanes):** a DECLARED provider
+/// without its key refuses loudly at the first call, naming
+/// `METALOGOS_API_KEY`; an UNCONFIGURED program refuses at the first
+/// call, naming every configuration surface. Neither value ever
+/// masquerades as a model answer.
+/// №898 (owner decision 04.11): the loud unconfigured posture — the
+/// rollback of the №879 silent local-first default (BREAKING). A
+/// program that calls `call_llm` with NO LLM configuration anywhere
+/// (no `METALOGOS_LLM_PROVIDER` / `METALOGOS_API_KEY` /
+/// `METALOGOS_OPENAI_BASE_URL`, no `llm {}` block) now REFUSES at the
+/// first call, naming every configuration surface — the value a
+/// program builds on is never a mock marker mistaken for a model
+/// answer (the №454 lesson: a silent mock-by-default leaked prompts).
+/// The deterministic offline mock remains a FIRST-CLASS, explicit
+/// choice: `METALOGOS_MOCK_LLM=1` (the test fixture flag) or the
+/// in-program explicit local rung
+/// (`llm { providers: [{ alias: "mock", provider: "local" }] }` — the
+/// SmartRouter's covered local fallback, ADR-0208 §4).
+pub struct UnconfiguredLlm;
+
+/// The loud refusal text of the unconfigured posture (№898). Names
+/// EVERY configuration surface — a user reading the refusal can act
+/// without reading the docs; the frozen refusal vocabulary is not
+/// extended (the text rides the plain call error channel, not a new
+/// code).
+pub fn unconfigured_llm_error() -> String {
+    "LLM is not configured — `call_llm` refuses (№898: no LLM env var and no \
+     `llm {}` declaration is set, and the silent mock default is rolled back). \
+     Configure ONE of: `METALOGOS_LLM_PROVIDER` (+ `METALOGOS_API_KEY` for \
+     anthropic/openai), `METALOGOS_OPENAI_BASE_URL`, an `llm { providers: [...] }` \
+     block in the program — or opt in EXPLICITLY to the deterministic offline \
+     mock with `METALOGOS_MOCK_LLM=1` (or the in-program local rung \
+     `llm { providers: [{ alias: \"mock\", provider: \"local\" }] }`)."
+        .to_string()
+}
+
+impl LlmBackend for UnconfiguredLlm {
+    fn call(&self, _prompt: &str, _input: &str) -> Result<String, String> {
+        Err(unconfigured_llm_error())
+    }
+}
+
 pub fn create_llm_backend() -> Box<dyn LlmBackend> {
     if mock_llm_requested() {
+        // The EXPLICIT mock lane: METALOGOS_MOCK_LLM=1 (the test
+        // fixture flag; serve prints the loud MOCK MODE ACTIVE line).
         Box::new(MockLlm)
     } else if external_llm_declared() {
+        // The DECLARED external lane: the №454 fail-loud posture
+        // (a declared provider without its key refuses at the first
+        // call, naming METALOGOS_API_KEY).
         Box::new(RealLlm::new())
     } else {
-        // The local-first default (ADR-0208 §2.2): nothing external is
-        // declared — the local provider answers. MockLlm IS the local
-        // provider here (a full-right member of the implementation
-        // roster, ADR-0208 §2.1): deterministic, offline, the visible
-        // marker in every answer.
-        Box::new(MockLlm)
+        // №898 (owner decision 04.11): nothing declared is NOT a mock
+        // authorization — the first `call_llm` refuses loudly, naming
+        // the configuration surfaces (the №879 silent local-first
+        // default is rolled back; ADR-0208 §2.2 reads local-first as
+        // the EXPLICIT local provider choice from here on).
+        // posture-default (create_llm_backend): refuse
+        Box::new(UnconfiguredLlm)
     }
 }
 
@@ -3322,13 +3365,15 @@ mod tests {
     // ── Factory ────────────────────────────────────────────────────
 
     #[test]
-    fn test_create_llm_backend_default_is_local_first() {
-        // №879 (ADR-0208 §2.2): with NOTHING declared — no mock flag, no
-        // provider/key/base-url env — the composition resolves to the
-        // LOCAL provider: the deterministic, non-echo, offline marker.
-        // The №454 security essence holds: the answer reveals nothing
-        // about the prompt (the marker never echoes) and is VISIBLE as
-        // a local answer.
+    fn test_create_llm_backend_default_refuses_unconfigured() {
+        // №898 (the owner decision 04.11): with NOTHING declared — no
+        // mock flag, no provider/key/base-url env, no `llm {}` block —
+        // the composition REFUSES at the first call. The №879 silent
+        // local-first default is rolled back (BREAKING): a value a
+        // program builds on is never a mock marker mistaken for a model
+        // answer (the №454 lesson). The explicit mock stays first-class:
+        // METALOGOS_MOCK_LLM=1 (the next test) or the in-program local
+        // rung (the №898 suite in tests/).
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         env::remove_var("METALOGOS_MOCK_LLM");
         env::remove_var("METALOGOS_LLM_PROVIDER");
@@ -3336,21 +3381,21 @@ mod tests {
         env::remove_var("METALOGOS_OPENAI_BASE_URL");
         assert!(
             !external_llm_declared(),
-            "nothing declared — the local-first mode"
+            "nothing declared — the loud unconfigured mode"
         );
         let backend = create_llm_backend();
-        let answer = backend
-            .call("prompt", "input")
-            .expect("the local provider answers");
-        assert!(
-            answer.starts_with("[mock-llm:") && answer.ends_with("]"),
-            "the local-first answer must be the visible deterministic marker, got: {}",
-            answer
+        let err = backend.call("prompt", "input").expect_err(
+            "the unconfigured default must REFUSE (№898) — a mock \
+                         marker here would be the rolled-back №879 posture; the \
+                         mutation probe: restore MockLlm into the default branch, \
+                         this test and the tests/ №898 suite go RED",
         );
         assert!(
-            !answer.contains("prompt"),
-            "the marker never echoes the prompt (№454)"
+            err.contains("METALOGOS_LLM_PROVIDER") && err.contains("METALOGOS_MOCK_LLM"),
+            "the refusal names the configuration surfaces, got: {}",
+            err
         );
+        assert_eq!(err, unconfigured_llm_error());
     }
 
     #[test]

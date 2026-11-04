@@ -323,6 +323,27 @@ All notable changes to the Metalogos project.
 
 ### Changed
 
+- **BREAKING — №898 (issue #1792, P1, [core][llm][process]): `call_llm`
+  without any LLM configuration now REFUSES at the first call (the
+  silent mock default is rolled back).** The `create_llm_backend`
+  composition no longer answers with the local mock marker when
+  NOTHING is declared (the №879 local-first default is rolled back —
+  the owner decision 04.11): a program calling `call_llm` with no
+  `METALOGOS_LLM_PROVIDER` / `METALOGOS_API_KEY` /
+  `METALOGOS_OPENAI_BASE_URL` and no `llm {}` block gets a loud
+  refusal naming every configuration surface — a value a program
+  builds on is never a mock marker mistaken for a model answer (the
+  №454 lesson). **What to check on upgrade:** every program that calls
+  `call_llm` must now declare ONE of — `METALOGOS_LLM_PROVIDER` (+
+  `METALOGOS_API_KEY` for anthropic/openai), `METALOGOS_OPENAI_BASE_URL`,
+  an `llm { providers: [...] }` block, or the EXPLICIT offline mock:
+  `METALOGOS_MOCK_LLM=1` (test fixtures) / the in-program explicit
+  local rung `llm { providers: [{alias: mock, provider: local}] }`.
+  `mlog serve` prints the `[serve] LLM UNCONFIGURED` line at startup
+  and the built-in `/health` carries the `x-llm-mode` header (mock /
+  declared / unconfigured). A DECLARED provider without its key keeps
+  the №454 loud failure — no change on the declared lane.
+
 - **№883 (issue #1743, wave 78 — W-G, P2, ride [deps][ci]):** rusqlite
   0.40.2 → 0.41.0 (the dependabot PR #1658, the owner's verdict of
   2026-11-02 «Рекомендация принимается» — the bump rides the wave's

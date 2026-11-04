@@ -62,7 +62,7 @@ fn clear_llm_env() {
 }
 
 #[test]
-fn n478_call_llm_default_is_the_local_first_provider() {
+fn n478_call_llm_default_refuses_unconfigured() {
     let _env = lock_env();
     clear_llm_env();
     let src = r#"
@@ -73,26 +73,24 @@ flow Main {
   input: String = "hi" -> Ask -> output
 }
 "#;
-    // (a) Nothing declared → the LOCAL provider (ADR-0208 §2.2): the
-    // visible deterministic marker — never an echo, never the old loud
-    // real-backend failure, never the explicit-mock [MOCK:] lane.
-    let out = metalogos::run_program(src)
-        .expect("call_llm with nothing declared answers on the local provider (№879)")
-        .unwrap_or_default();
-    assert!(
-        out.starts_with("[mock-llm:") && out.ends_with("]"),
-        "the local-first answer must be the visible deterministic marker, got: {}",
-        out
+    // (a) Nothing declared → the LOUD refusal (№898, the owner decision
+    // 04.11 — the №879 silent local-first default is ROLLED BACK): the
+    // refusal names every configuration surface — a value a program
+    // builds on is never a mock marker mistaken for a model answer.
+    let err = metalogos::run_program(src).expect_err(
+        "call_llm with nothing declared must REFUSE (№898) — a marker here \
+         would be the rolled-back №879 posture; the mutation probe: restore \
+         MockLlm into the default branch and this test goes RED",
     );
     assert!(
-        !out.contains("[MOCK:"),
-        "the [MOCK:] lane is the EXPLICIT opt-in only — got: {}",
-        out
+        err.contains("METALOGOS_LLM_PROVIDER") && err.contains("METALOGOS_MOCK_LLM"),
+        "the unconfigured refusal must name the configuration surfaces, got: {}",
+        err
     );
     assert!(
-        !out.contains("Answer:") && !out.contains("hi"),
-        "the local answer reveals NOTHING about the prompt/input (№454) — got: {}",
-        out
+        !err.contains("[MOCK:"),
+        "the refusal must NOT carry a mock answer — got: {}",
+        err
     );
 
     // (b) The DECLARED external lane keeps the №454 fail-loud posture:
@@ -126,7 +124,7 @@ flow Main {
 }
 
 #[test]
-fn n478_office_human_default_is_the_local_first_provider() {
+fn n478_office_human_default_refuses_unconfigured() {
     let _env = lock_env();
     clear_llm_env();
     let src = r#"
@@ -141,18 +139,19 @@ flow Main {
     // (a) Nothing declared → the office-human surface answers on the
     // LOCAL provider: the visible deterministic marker — never the
     // silent persona stand-in of the mock branch.
-    let out = metalogos::run_program(src)
-        .expect("human_respond with nothing declared answers on the local provider (№879)")
-        .unwrap_or_default();
-    assert!(
-        out.starts_with("[mock-llm:") && out.ends_with("]"),
-        "the local-first human answer must be the visible marker, got: {}",
-        out
+    let err = metalogos::run_program(src).expect_err(
+        "human_respond with nothing declared must REFUSE (№898) — a marker \
+         here would be the rolled-back №879 posture",
     );
     assert!(
-        !out.contains("[n478_probe"),
+        err.contains("METALOGOS_LLM_PROVIDER") && err.contains("METALOGOS_MOCK_LLM"),
+        "the unconfigured office-human refusal must name the surfaces, got: {}",
+        err
+    );
+    assert!(
+        !err.contains("[n478_probe"),
         "the output must NOT contain the silent mock persona answer: {}",
-        out
+        err
     );
 
     // (b) The DECLARED external lane keeps the loud real-path refusal

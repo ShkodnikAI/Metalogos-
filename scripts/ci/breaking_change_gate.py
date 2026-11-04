@@ -60,6 +60,21 @@ ROSTERS: list[tuple[str, str]] = [
 ROSTER_RE = r"pub\s+const\s+{name}\s*:\s*&\[&str\]\s*=\s*&\[(.*?)\];"
 NAME_RE = re.compile(r'"([^"]+)"')
 
+# №898 (issue #1792, P1): the POSTURE-DEFAULT sites — the composition
+# sites whose DEFAULT branch decides refuse-vs-serve for an EXISTING
+# surface (the №879 lesson: the silent serve↔refuse default flip of
+# `create_llm_backend` shipped inside an `### Added`-only release).
+# Each site pins its live posture in the code with a marker line:
+#   // posture-default (create_llm_backend): refuse
+#   // posture-default (create_llm_backend): serve
+# A diff (tag..worktree) that ADDS, REMOVES or FLIPS such a marker is a
+# DEFAULT-POSTURE CHANGE: the pending CHANGELOG section must carry a
+# BREAKING row NAMING the site — the same migration-honesty contract
+# the deny-path rosters ride (the check reuses breaking_covers
+# verbatim). The first site rides the №898 rollback itself.
+POSTURE_FILES: list[str] = ["src/llm.rs"]
+POSTURE_MARKER_RE = re.compile(r"posture-default\s*\(([^)]+)\)\s*:\s*(serve|refuse)")
+
 
 def extract_roster(source: str, const_name: str) -> list[str] | None:
     """The quoted names of one roster constant, or None when the const
@@ -136,6 +151,45 @@ def added_deny_names(base_rev: str) -> dict[str, list[str]]:
     return added
 
 
+def posture_markers_at(rev: str | None) -> dict[str, list[tuple[str, str]]]:
+    """The (site, posture) pairs per posture file at a revision (None =
+    the worktree). A missing file reads as an empty set (it did not
+    exist yet); an unreadable HEAD file is a loud failure."""
+    result: dict[str, list[tuple[str, str]]] = {}
+    for path in POSTURE_FILES:
+        if rev is None:
+            f = ROOT / path
+            if not f.is_file():
+                raise RuntimeError(f"the posture site is unreadable at HEAD: {path}")
+            source = f.read_text(encoding="utf-8")
+        else:
+            probe = subprocess.run(
+                ["git", "cat-file", "-e", f"{rev}:{path}"],
+                cwd=ROOT, capture_output=True, text=True,
+            )
+            if probe.returncode != 0:
+                result[path] = []
+                continue
+            source = git("show", f"{rev}:{path}")
+        result[path] = POSTURE_MARKER_RE.findall(source)
+    return result
+
+
+def changed_posture_sites(base_rev: str) -> list[str]:
+    """The sites whose posture marker was added, removed or flipped
+    between the base revision and the worktree — each is a DEFAULT-
+    POSTURE CHANGE on an existing surface (the №898 class)."""
+    base = posture_markers_at(base_rev)
+    head = posture_markers_at(None)
+    changed: set[str] = set()
+    for path, head_pairs in head.items():
+        old = set(base.get(path) or [])
+        new = set(head_pairs)
+        touched = {s for s, _ in (new - old)} | {s for s, _ in (old - new)}
+        changed |= touched
+    return sorted(changed)
+
+
 def pending_section(changelog: str) -> tuple[str, str]:
     """The pending version section: [Unreleased] when it carries
     content, else the first stamped `## [X.Y.Z]` section. Returns
@@ -182,22 +236,31 @@ def check(base_rev: str | None, changelog_text: str) -> tuple[str, str]:
         added = added_deny_names(base_rev)
     except RuntimeError as e:
         return ("fail", f"the roster diff is unreadable (fail-closed): {e}")
-    if not added:
+    try:
+        posture = changed_posture_sites(base_rev)
+    except RuntimeError as e:
+        return ("fail", f"the posture diff is unreadable (fail-closed): {e}")
+    if not added and not posture:
         return ("ok",
-                f"no deny-path name added to the rosters since {base_rev} "
-                "— nothing to document")
-    all_names = sorted(n for names in added.values() for n in names)
-    roster_note = "; ".join(
-        f"{roster}: {', '.join(names)}" for roster, names in added.items()
+                f"no deny-path name added and no posture-default marker "
+                f"touched since {base_rev} — nothing to document")
+    all_names = sorted(
+        {n for names in added.values() for n in names} | set(posture)
     )
+    parts = [
+        f"{roster}: {', '.join(names)}" for roster, names in added.items()
+    ]
+    if posture:
+        parts.append("posture-default: " + ", ".join(posture))
+    roster_note = "; ".join(parts)
     try:
         label, body = pending_section(changelog_text)
     except RuntimeError as e:
         return ("fail", f"the CHANGELOG is unparsable (fail-closed): {e}")
     ok, why = breaking_covers(body, all_names)
     detail = (
-        f"the range {base_rev}..HEAD adds deny-path names ({roster_note}); "
-        f"the pending section [{label}]: {why}"
+        f"the range {base_rev}..HEAD changes the deny/posture surface "
+        f"({roster_note}); the pending section [{label}]: {why}"
     )
     return ("ok" if ok else "fail", detail)
 
@@ -205,10 +268,12 @@ def check(base_rev: str | None, changelog_text: str) -> tuple[str, str]:
 def self_test() -> int:
     ok = True
 
-    def run_case(name, base, head_rosters, changelog, expect, substr=None):
+    def run_case(name, base, head_rosters, changelog, expect, substr=None,
+                 base_posture=None, head_posture=None):
         nonlocal ok
         real_rosters_at = rosters_at
         real_latest = latest_tag
+        real_posture_at = posture_markers_at
         try:
             # pin the fixture world: rosters_at(rev) — the base state,
             # rosters_at(None) — the head state (the rev argument is
@@ -223,12 +288,25 @@ def self_test() -> int:
                     ("src/approval.rs", "HUMAN_OVERSIGHT"):
                         extract_roster(src, "HUMAN_OVERSIGHT"),
                 }
+
+            def fake_posture_at(rev):
+                # the fixture posture world: base vs head marker sets
+                # (a missing head posture means "no posture change").
+                if rev is not None:
+                    return {"src/llm.rs": list(base_posture or [])}
+                effective = (
+                    head_posture if head_posture is not None else base_posture
+                )
+                return {"src/llm.rs": list(effective or [])}
+
             # rebind the module-level helpers the check() reads
             globals()["rosters_at"] = fake_rosters_at
+            globals()["posture_markers_at"] = fake_posture_at
             globals()["latest_tag"] = lambda: "v9.9.9"
             status, detail = check("v9.8.0", changelog)
         finally:
             globals()["rosters_at"] = real_rosters_at
+            globals()["posture_markers_at"] = real_posture_at
             globals()["latest_tag"] = real_latest
         if status == expect and (substr is None or substr in detail):
             print(f"[{name}] {status}: {detail[:90]}")
@@ -287,6 +365,43 @@ def self_test() -> int:
         "# Changelog\n\n## [Unreleased]\n\n## [0.2.0] - 2026-02-01\n\n"
         "### Changed\n\n- **BREAKING:** `ssh_exec` refuses\n",
         "ok", "pending section [0.2.0]",
+    )
+
+    # ── №898 posture-default cases ──
+    base_posture = [("create_llm_backend", "serve")]
+    run_case(
+        "posture-clean-tree",
+        base_rs, base_rs,
+        "# Changelog\n\n## [Unreleased]\n\n## [0.1.0] - 2026-01-01\n",
+        "ok", "no deny-path name added and no posture-default marker",
+        base_posture=base_posture, head_posture=base_posture,
+    )
+    run_case(
+        "posture-flip-without-row",
+        base_rs, base_rs,
+        "# Changelog\n\n## [Unreleased]\n\n### Added\n\n- something new\n"
+        "\n## [0.1.0] - 2026-01-01\n",
+        "fail", "posture-default: create_llm_backend",
+        base_posture=base_posture,
+        head_posture=[("create_llm_backend", "refuse")],
+    )
+    run_case(
+        "posture-flip-with-row",
+        base_rs, base_rs,
+        "# Changelog\n\n## [Unreleased]\n\n### Changed\n\n- **BREAKING:**"
+        " `create_llm_backend` now refuses when nothing is declared\n"
+        "\n## [0.1.0] - 2026-01-01\n",
+        "ok", "covers every added carrier",
+        base_posture=base_posture,
+        head_posture=[("create_llm_backend", "refuse")],
+    )
+    run_case(
+        "posture-marker-removed",
+        base_rs, base_rs,
+        "# Changelog\n\n## [Unreleased]\n\n### Added\n\n- something new\n"
+        "\n## [0.1.0] - 2026-01-01\n",
+        "fail", "posture-default: create_llm_backend",
+        base_posture=base_posture, head_posture=[],
     )
 
     print("SELF-TEST OK" if ok else "SELF-TEST FAILED")

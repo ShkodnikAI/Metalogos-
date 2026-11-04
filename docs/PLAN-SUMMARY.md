@@ -1137,6 +1137,7 @@ owner's ADR gate.
 | OFFLINE_SUITE — the 8E-1/C5 machine fact (№881) | 10000 bp |
 | JURISDICTION_MATRIX — the 8D-2/C10 machine fact (№888) | 3 jurisdictions |
 | REPLAY_MATCH — the 8G/C8 machine fact (№894) | 10000 bp |
+| TAINT_SATURATION — the 8F-2/C9 machine fact (№906) | 324241748923742258252688 |
 <!-- END GENERATED NUMBERS -->
 
 ## Acceptance criteria (public part of the methodology)

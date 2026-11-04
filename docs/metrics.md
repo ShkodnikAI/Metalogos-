@@ -29,4 +29,5 @@ construction.
 | OFFLINE_SUITE (the 8E-1/C5 machine fact, №881) | 10000 bp — the registered LLM-surface checks that execute without the external network (ADR-0208 §2.5; the gate_039 floor 8000 bp, only-up) |
 | JURISDICTION_MATRIX (the 8D-2/C10 machine fact, №888) | 3 — the registered jurisdictions with ≥ 1 live rule in the seed matrix (ADR-0209 §4; the gate_040 floor 3, only-up) |
 | REPLAY_MATCH (the 8G/C8 machine fact, №894) | 10000 bp — the registered decision carriers whose trace is written through the Ledger ACTION contour and verified by the replay_gate REPLAY_MATCH contract (ADR-0210 §3-4; the gate_041 floor 10000 bp, only-up) |
+| TAINT_SATURATION (the 8F-2/C9 machine fact, №906) | 324241748923742258252688 — the exact reachable taint-program space of the wave-81 generator, the integer product over the live anchors (ADR-0217 §2; the gate_042 floor 10^9, only-up) |
 <!-- END GENERATED METRICS -->

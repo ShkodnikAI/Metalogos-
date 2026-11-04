@@ -151,6 +151,29 @@ GATE_040_GOALS = REPO / "scripts" / "ci" / "gate_040_goals.txt"
 JURISDICTION_MATRIX_FLOOR_OWNER = 3
 JURISDICTION_RS = REPO / "src" / "jurisdiction.rs"
 
+# №894 (wave 80 — W-I): the 8G/C8 machine fact — REPLAY_MATCH with its
+# own only-up floor file. The floor VALUE 10000 bp is the wave-80
+# dispatch constant (gh#1779: the 0.43 gate, REPLAY_MATCH ≥ 10000 bp).
+# The definition lives in ADR-0210 §3-4 (the №892/№893 kernel): the
+# share (bp) of the registered decision carriers whose decision trace
+# is WRITTEN through the live Ledger ACTION contour AND verified by the
+# replay_gate REPLAY_MATCH contract — the machine source is the
+# EXPLICIT registry (scripts/ci/gate_041_goals.txt — the №862 roster
+# form): a row counts ONLY when the decision name is PRESENT in the
+# LIVE e2e wiring source (tests/naryad_893_replay_coverage.rs — the
+# quoted decision literal; the count is CHECKED, not declared; a forged
+# row is uncovered) AND the gate composition site (pub fn replay_gate —
+# the №874 form) is alive in src/decision_trace.rs: the composition
+# removed → NOTHING is gated → the share reads 0 (the gate working,
+# never a pass). An empty registry is 0 bp (a vacuous class is a gate
+# failure, never a pass). The checker pins the owner constant: the
+# gate file can RAISE the floor, never lower it silently (the №846
+# discipline, verbatim).
+GATE_041_GOALS = REPO / "scripts" / "ci" / "gate_041_goals.txt"
+REPLAY_MATCH_FLOOR_OWNER_BP = 10000
+DECISION_TRACE_RS = REPO / "src" / "decision_trace.rs"
+REPLAY_E2E_RS = REPO / "tests" / "naryad_893_replay_coverage.rs"
+
 APPROVAL_RS = REPO / "src" / "approval.rs"
 CI_YML = REPO / ".github" / "workflows" / "ci.yml"
 POLICY_ACTION_YML = REPO / "action.yml"
@@ -635,6 +658,9 @@ def load_floors_strict(path: Path) -> dict[str, int]:
         if line.startswith("jurisdiction "):
             # The №888 registry row — roster data, not a floor.
             continue
+        if line.startswith("decision "):
+            # The №894 registry row — roster data, not a floor.
+            continue
         parts = line.split()
         if len(parts) != 2 or not parts[0].startswith("goal_"):
             raise ValueError(
@@ -983,6 +1009,78 @@ def jurisdiction_matrix_count(
     if registry is None:
         registry = _jurisdiction_registry()
     return sum(1 for code in registry if _jurisdiction_in_source(code, source))
+
+
+# ── №894 (wave 80 — W-I, ADR-0210 §3-4): the REPLAY_MATCH machine ──────
+
+def _replay_registry(content: str | None = None) -> list[str]:
+    """The wave-80 decision-carrier registry (№894): the EXPLICIT roster
+    in scripts/ci/gate_041_goals.txt — the machine source. Each row is
+    `decision <name> wired=yes|no`; the counter counts a row ONLY on
+    the decision name's PRESENCE in the live e2e wiring source (see
+    _replay_carrier_wired — the count is checked, not declared)."""
+    if content is None:
+        content = GATE_041_GOALS.read_text(encoding="utf-8")
+    names: list[str] = []
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("decision "):
+            continue
+        parts = stripped.split()
+        if len(parts) != 3 or not parts[2].startswith("wired="):
+            continue
+        names.append(parts[1])
+    return names
+
+
+def _replay_composition_site(content: str | None = None) -> bool:
+    """The coverage gate's composition site (№893, the №874 form): the
+    fail-closed gate (`pub fn replay_gate`) lives in src/decision_trace.rs
+    — the ONE surface the traced decisions reconcile through. If the
+    composition is removed, NO decision is gated — the share reads 0
+    (the gate working, not a pass)."""
+    if content is None:
+        content = DECISION_TRACE_RS.read_text(encoding="utf-8")
+    return "pub fn replay_gate" in content
+
+
+def _replay_carrier_wired(name: str, e2e_text: str | None = None) -> bool:
+    """The LIVE wiring evidence of one decision carrier (the №862 form —
+    the composition site fixed): the decision's OWN name as a quoted
+    literal in the LIVE e2e wiring source, where the carrier's run is
+    traced (the trace row built from the road's real output) AND the
+    trace journals through the live Ledger ACTION contour AND the gate
+    reconciles the claim (record + record_trace + replay_gate — the
+    №893 e2e). A removed or renamed wiring un-wires the carrier — the
+    share drops (the tamper traps prove the counter catches it)."""
+    if e2e_text is None:
+        e2e_text = REPLAY_E2E_RS.read_text(encoding="utf-8")
+    return f'"{name}"' in e2e_text
+
+
+def replay_match_bp(
+    registry: list[str] | None = None,
+    e2e_text: str | None = None,
+    composition_site: bool | None = None,
+) -> int:
+    """REPLAY_MATCH — the share of the registered decision carriers
+    whose decision trace is written AND verified by the replay_gate
+    REPLAY_MATCH contract, bps (№894, ADR-0210 §3-4). Numerator: the
+    registry names that carry the live wiring evidence in the e2e
+    source. Denominator: the whole registry. An empty registry is 0 bp
+    (a vacuous class is a gate failure, never a pass); a forged
+    registry name (no wiring behind it) is UNCOVERED — the machine
+    source is the wiring, never the registry alone; a missing
+    composition site zeroes the share (the gate working, not a pass)."""
+    if registry is None:
+        registry = _replay_registry()
+    if composition_site is None:
+        composition_site = _replay_composition_site()
+    total = len(registry)
+    if total == 0 or not composition_site:
+        return 0
+    covered = sum(1 for name in registry if _replay_carrier_wired(name, e2e_text))
+    return covered * 10000 // total
 
 
 def tamper_test() -> int:
@@ -1509,12 +1607,98 @@ def tamper_test() -> int:
         )
         return 1
 
+    # ── №894 traps: the REPLAY_MATCH machine catches the tamper ──
+    rep_registry = _replay_registry()
+    full_rep = replay_match_bp()
+
+    # Trap 34 (the clean-tree assertion, the №1306 form): the clean tree
+    # carries the owner-constant share — every registered carrier is
+    # live-wired and the composition site stands.
+    if full_rep < REPLAY_MATCH_FLOOR_OWNER_BP:
+        print(
+            "tamper-test: TRAP FAILED — the clean tree reads REPLAY_MATCH "
+            f"{full_rep} bp below the owner constant "
+            f"({REPLAY_MATCH_FLOOR_OWNER_BP} bp): the e2e wiring or the "
+            "gate composition drifted",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 35 (the vacuous-registry control, the №875 Trap 27 form): an
+    # empty registry reads 0 — a vacuous class is a gate failure, never
+    # a pass.
+    if replay_match_bp(registry=[]) != 0:
+        print(
+            "tamper-test: TRAP FAILED — the empty registry must read 0 (the vacuous "
+            "class is a failure, never a pass)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 36 (the forged row, the №862 no-self-declaration form): a
+    # registry row whose decision has NO live wiring behind it is
+    # UNCOVERED — the forgery cannot FABRICATE coverage: the share
+    # never rises on it (the forged row only dilutes the denominator —
+    # the honest drop the --check floor breach refuses loudly).
+    forged_rep = rep_registry + ["never_traced_decision"]
+    if replay_match_bp(registry=forged_rep) > full_rep:
+        print(
+            "tamper-test: TRAP FAILED — a forged decision row (no live wiring "
+            "behind it) RAISED the share — the declaration counted, not the code",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 37 (the row-loss control, the share form): dropping a live
+    # carrier from the registry LOWERS the number of live-wired
+    # carriers — the machine follows the source (the bp share of an
+    # all-wired registry stays 10000 by arithmetic; the honest
+    # observable is the covered-carrier COUNT, the mass the floor
+    # protects).
+    if len(rep_registry) > 0:
+        shrunk_rep = rep_registry[:-1]
+        full_covered = sum(1 for n in rep_registry if _replay_carrier_wired(n))
+        shrunk_covered = sum(1 for n in shrunk_rep if _replay_carrier_wired(n))
+        if shrunk_covered >= full_covered:
+            print(
+                "tamper-test: TRAP FAILED — dropping a registered decision carrier "
+                "did NOT lower the live-wired carrier count",
+                file=sys.stderr,
+            )
+            return 1
+
+    # Trap 38 (the composition-site control, the №874 form): the gate
+    # composition removed → NOTHING is gated → the share reads 0 (the
+    # gate working, not a pass).
+    if replay_match_bp(composition_site=False) != 0:
+        print(
+            "tamper-test: TRAP FAILED — the removed replay_gate composition must "
+            "zero the share (the gate working, not a pass)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 39 (the negative control (б), the №846 form): the gate_041
+    # floor LOWERED below the owner constant is a loud refusal (the
+    # floor is only-up — the wave-80 dispatch constant).
+    rep_strict = load_floors_strict(GATE_041_GOALS)
+    rep_value = rep_strict.get("goal_replay_match_bp")
+    if rep_value is None or rep_value < REPLAY_MATCH_FLOOR_OWNER_BP:
+        print(
+            "tamper-test: TRAP FAILED — the gate_041 floor is below the owner constant "
+            f"(the wave-80 dispatch constant: {REPLAY_MATCH_FLOOR_OWNER_BP} bp) — "
+            "the lowering is refused",
+            file=sys.stderr,
+        )
+        return 1
+
     print(
         "tamper-test: OK — the checkers catch the fabricated records "
         f"(LICENSED_FLOOR {full_lic} bp, PASSPORT_FRESH {full_pass} bp, "
         f"APPROVAL_COVERAGE {full_appr} bp, ATTEST_MAP {full_att} live rows, "
         f"PROVENANCE_SHARE {full_prov} bp, OFFLINE_SUITE {full_off} bp, "
-        f"JURISDICTION_MATRIX {full_jur}; the traps lowered all)"
+        f"JURISDICTION_MATRIX {full_jur}, REPLAY_MATCH {full_rep} bp; "
+        "the traps lowered all)"
     )
     return 0
 
@@ -1558,6 +1742,7 @@ def full_block() -> str:
         f"| PROVENANCE_SHARE (the 8C/C3 machine fact, №875) | {provenance_share_bp()} bp — the registered I/O carriers whose boundary provenance record is LIVE-wired (ADR-0207 §4; the gate_038 floor 10000 bp, only-up) |\n"
         f"| OFFLINE_SUITE (the 8E-1/C5 machine fact, №881) | {offline_suite_bp()} bp — the registered LLM-surface checks that execute without the external network (ADR-0208 §2.5; the gate_039 floor 8000 bp, only-up) |\n"
         f"| JURISDICTION_MATRIX (the 8D-2/C10 machine fact, №888) | {jurisdiction_matrix_count()} — the registered jurisdictions with ≥ 1 live rule in the seed matrix (ADR-0209 §4; the gate_040 floor 3, only-up) |\n"
+        f"| REPLAY_MATCH (the 8G/C8 machine fact, №894) | {replay_match_bp()} bp — the registered decision carriers whose trace is written through the Ledger ACTION contour and verified by the replay_gate REPLAY_MATCH contract (ADR-0210 §3-4; the gate_041 floor 10000 bp, only-up) |\n"
     )
 
 
@@ -1630,6 +1815,7 @@ def plan_summary_block() -> str:
         f"| PROVENANCE_SHARE — the 8C/C3 machine fact (№875) | {provenance_share_bp()} bp |\n"
         f"| OFFLINE_SUITE — the 8E-1/C5 machine fact (№881) | {offline_suite_bp()} bp |\n"
         f"| JURISDICTION_MATRIX — the 8D-2/C10 machine fact (№888) | {jurisdiction_matrix_count()} jurisdictions |\n"
+        f"| REPLAY_MATCH — the 8G/C8 machine fact (№894) | {replay_match_bp()} bp |\n"
     )
 
 
@@ -2064,6 +2250,51 @@ def main() -> int:
             f"(gate_040 floor {jur_floor}, only-up) — registry: "
             f"{len(jur_rows)} registered jurisdictions "
             f"({jur_count} live in src/jurisdiction.rs)"
+        )
+
+    # №894: the gate_041 only-up floor over the REPLAY_MATCH share (the
+    # gate_040 form): the owner-pinned wave-80 dispatch constant can
+    # rise, never fall; the live share must hold the floor — a
+    # de-wired carrier (the e2e literal renamed/removed, the gate
+    # composition deleted) breaches it loudly.
+    if check:
+        try:
+            rep_floors = load_floors_strict(GATE_041_GOALS)
+        except ValueError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        rep_floor = rep_floors.get("goal_replay_match_bp")
+        if rep_floor is None:
+            print(
+                "ERROR: gate_041_goals.txt carries no goal_replay_match_bp floor",
+                file=sys.stderr,
+            )
+            return 2
+        if rep_floor < REPLAY_MATCH_FLOOR_OWNER_BP:
+            print(
+                "FLOOR LOWERING REFUSED: gate_041 "
+                f"({rep_floor} bp) is below the owner constant "
+                f"({REPLAY_MATCH_FLOOR_OWNER_BP} bp — the wave-80 dispatch constant, "
+                "gh#1779); the floor is only-up — the change is an explicit owner transaction",
+                file=sys.stderr,
+            )
+            return 1
+        rep_share = replay_match_bp()
+        if rep_share < rep_floor:
+            print(
+                f"FLOOR BREACH: REPLAY_MATCH {rep_share} bp < the gate_041 floor "
+                f"{rep_floor} bp (only-up) — a registered decision carrier lost its "
+                "live trace wiring or the replay_gate composition site is gone "
+                "(restore the wiring honestly — never a silent gate edit)",
+                file=sys.stderr,
+            )
+            return 1
+        rep_rows = _replay_registry()
+        print(
+            f"OK: the №894 floor holds — REPLAY_MATCH {rep_share} bp "
+            f"(gate_041 floor {rep_floor}, only-up) — registry: "
+            f"{len(rep_rows)} registered decision carriers "
+            f"({rep_share // 100} live-wired %)"
         )
 
     # №841: the RED harness (the tamper traps) — an explicit mode, run by

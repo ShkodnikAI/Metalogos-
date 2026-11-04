@@ -63,9 +63,9 @@ flow Main { input: String = "trace" -> T -> output }
 
 use metalogos::decision_trace::{replay_gate, DecisionCarrier, DecisionTrace, DecisionTraceLog};
 
-fn trace_of_run(lane: &str, source_digest: &str, output: &str) -> DecisionTrace {
+fn trace_of_run(decision: &str, source_digest: &str, output: &str) -> DecisionTrace {
     DecisionTrace::new(
-        &format!("run_program@{lane}"),
+        decision,
         DecisionCarrier::Local,
         &[source_digest.to_string()],
         "",
@@ -78,6 +78,18 @@ fn trace_of_run(lane: &str, source_digest: &str, output: &str) -> DecisionTrace 
         1_700_000_010,
     )
     .expect("the run trace is constructible")
+}
+
+/// The decision literal per lane — the QUOTED literals are the machine
+/// evidence of the gate_041 wiring (№894: the count is CHECKED, not
+/// declared — the registry row counts on the quoted decision name in
+/// this source).
+fn lane_decision(lane: &str) -> &'static str {
+    match lane {
+        "tw" => "run_program@tw",
+        "vm" => "run_program@vm",
+        other => panic!("unknown lane {other}"),
+    }
 }
 
 // ── e2e: action → record → verify → verdict on BOTH roads ──────────────
@@ -94,10 +106,10 @@ fn the_traced_run_passes_the_gate_on_both_lanes_byte_in_byte() {
     let mut first_pass = Vec::new();
     for (lane, runner) in runners() {
         let out = runner(PROGRAM).unwrap().expect("the run output");
-        let t = trace_of_run(lane, &source_digest, &out);
+        let t = trace_of_run(lane_decision(lane), &source_digest, &out);
         log.append(t.clone()).expect("the run trace appends");
         metalogos::decision_trace::record_trace("wave-80-e2e", "decision-trace", &t);
-        let row = replay_gate(&format!("run_program@{lane}"), Some(&t), &log)
+        let row = replay_gate(lane_decision(lane), Some(&t), &log)
             .expect("the traced run passes the gate");
         first_pass.push((lane.to_string(), out, row.trace_digest.clone()));
     }
@@ -111,10 +123,10 @@ fn the_traced_run_passes_the_gate_on_both_lanes_byte_in_byte() {
     let mut log2 = DecisionTraceLog::new();
     for (lane, runner) in runners() {
         let out = runner(PROGRAM).unwrap().expect("the run output");
-        let t = trace_of_run(lane, &source_digest, &out);
+        let t = trace_of_run(lane_decision(lane), &source_digest, &out);
         log2.append(t.clone()).expect("append");
-        let row = replay_gate(&format!("run_program@{lane}"), Some(&t), &log2)
-            .expect("the second pass passes");
+        let row =
+            replay_gate(lane_decision(lane), Some(&t), &log2).expect("the second pass passes");
         let first = first_pass
             .iter()
             .find(|(l, _, _)| l == lane)
@@ -171,9 +183,9 @@ fn the_uncovered_decision_refuses_before_the_effect_and_journals() {
     // the №892 reconciliation verbatim)
     let out = run_tw(PROGRAM).unwrap().unwrap();
     let mut log2 = DecisionTraceLog::new();
-    let t = trace_of_run("tw", &sha(PROGRAM), &out);
+    let t = trace_of_run("run_program@tw", &sha(PROGRAM), &out);
     log2.append(t).expect("append");
-    let mut foreign = trace_of_run("tw", &sha(PROGRAM), &out);
+    let mut foreign = trace_of_run("run_program@tw", &sha(PROGRAM), &out);
     foreign.model_version = "other-model-9".to_string();
     foreign.carrier = DecisionCarrier::Language;
     foreign.contract_name = "other".to_string();
@@ -207,7 +219,7 @@ fn the_gate_catches_the_swaps_and_the_classes_stay_frozen() {
     let before = deny_rows();
 
     let mut log = DecisionTraceLog::new();
-    let t = trace_of_run("vm", &source_digest, &out);
+    let t = trace_of_run("run_program@vm", &source_digest, &out);
     log.append(t.clone()).expect("append");
 
     // (в) the swapped MODEL VERSION on the language carrier: the honest

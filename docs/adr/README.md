@@ -251,4 +251,5 @@ real ADRs (№309/№320/№412) before the booking.
 | 0207 | Provenance-Native I/O — the I/O Boundary as a Provenance Carrier (the 8C / C3 Subphase Record) | Proposed** (the ACCEPTED path is the wave-77 acceptance |
 | 0208 | Provider-Agnostic Local-First — the LLM Layer as a Provider-Agnostic Contract (the 8E-1 / C5 Subphase Record) | Proposed** (the ACCEPTED path is the wave-78 acceptance |
 | 0209 | Jurisdiction-Aware Policy Compilation — the Jurisdiction Limit-Configuration as a Typed, Verifiable Artifact (the 8D-2 / C10 Subphase Record) | Proposed** (the ACCEPTED path is the wave-79 acceptance |
+| 0210 | Deterministic Replay & Forensic Ledger — the Decision Trace as a Typed, Append-Only, Verifiable Artifact (the 8G / C8 Subphase Record) | Proposed** (the ACCEPTED path is the wave-80 acceptance |
 | 0216 | The `rollback_if` Metric Is a Registry Name — the Gate Reads the Metric's Own Value and Carries the Majority Baseline (the W2′ Grammar Semantics) | Accepted** (the наряд-mandated ADR-запись |

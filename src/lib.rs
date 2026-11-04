@@ -20,6 +20,7 @@ pub mod ast;
 pub mod capability; // №844 (ADR-0203, wave 72 — W-B): the typed capability carrier — the read-only view over the grant ledger (the single consumption contract)
 pub mod compliance; // №867 (ADR-0206, wave 76 — W-E): the compliance attestation — the pure carrier of a verifiable claim + the append-only attestation map over the referenced parents (the C1 kernel; the nn/attest C4 domain stays untouched — the dedup guard)
 pub mod compliance_pack; // №868 (ADR-0206, wave 76 — W-E): the evidence-package compiler — the deterministic, digest-pinned export of the attestation map (the sellable artifact; the v1 line contract)
+pub mod decision_trace; // №892 (ADR-0210, wave 80 — W-I): DecisionTrace — the typed, append-only, verifiable trace of one irreversible decision (the 8G/C8 kernel; REPLAY_MATCH is the RECONCILIATION of a claim against the record, never a bit-for-bit replay — honest-limits №588; the trace rides the existing Ledger ACTION contour ADR-0167, never a parallel store; the version line reads through the ProviderContract №879; the refusal classes stay the frozen №385 set; privacy — digests, never raw payloads)
 use crate::audit::{audit_category_a, Severity};
 pub mod audit;
 pub mod audit_ops;

@@ -764,6 +764,28 @@ pub fn safe_pipe_violations(declarations: &[Declaration]) -> Vec<SpannedError> {
     errors
 }
 
+/// №897: one resolved import module — the declarations that LANDED in
+/// the merged surface (post collision-filter, the same list the merged
+/// check walked) plus the module's own source text (where its
+/// allow-comments live).
+#[derive(Debug, Clone)]
+pub struct ImportModuleGroup {
+    pub declarations: Vec<Declaration>,
+    pub source: String,
+}
+
+/// Наряд №523: statically resolve a program's import tree so the
+/// semantic pass sees every symbol the interpreter will have at runtime
+/// (the full WHY/mechanics contract lives on `resolve_import_groups`
+/// below — this wrapper keeps the №523/№465/№622/№629/conformance
+/// callers' signature and feeds the same walk).
+pub fn resolve_imports_statically(
+    declarations: &[Declaration],
+    base_dir: &std::path::Path,
+) -> Result<Vec<Declaration>, String> {
+    Ok(resolve_import_groups(declarations, base_dir)?.0)
+}
+
 /// Наряд №523: statically resolve a program's import tree so the
 /// semantic pass sees every symbol the interpreter will have at runtime.
 ///
@@ -793,14 +815,25 @@ pub fn safe_pipe_violations(declarations: &[Declaration]) -> Vec<SpannedError> {
 /// The result is the module-side declaration list to be PREPENDED to the
 /// program's own declarations before `check_program`. This is a gate
 /// helper: it never executes anything, it only parses.
-pub fn resolve_imports_statically(
+///
+/// №897: the run-gate's grouped resolution — the SAME static walk as
+/// `resolve_imports_statically` (the №558 one-search rule, the same
+/// visited/collision semantics), plus the per-module landing groups.
+/// The FIRST tuple element is the module-side declaration list (the
+/// same contract the wrapper returns — the caller prepends the entry's
+/// own declarations to build the merged check surface, exactly as the
+/// №523 gate does), so each group's findings computed under the merged
+/// callables surface are byte-identical to its segment of the merged
+/// UNCHECKED block.
+pub fn resolve_import_groups(
     declarations: &[Declaration],
     base_dir: &std::path::Path,
-) -> Result<Vec<Declaration>, String> {
+) -> Result<(Vec<Declaration>, Vec<ImportModuleGroup>), String> {
     // Reserve the importing file's names first — main wins.
     let mut reserved: HashSet<(String, String)> =
         declarations.iter().filter_map(decl_import_ident).collect();
     let mut merged: Vec<Declaration> = Vec::new();
+    let mut groups: Vec<ImportModuleGroup> = Vec::new();
     let mut visited: HashSet<String> = HashSet::new();
     collect_import_decls(
         declarations,
@@ -808,13 +841,18 @@ pub fn resolve_imports_statically(
         &mut visited,
         &mut reserved,
         &mut merged,
+        &mut groups,
     )?;
-    Ok(merged)
+    Ok((merged, groups))
 }
 
 /// DFS over `Declaration::Import` nodes: parse each module file once
 /// (visited-set on the trimmed import path), recurse into sub-imports,
 /// and append the module's own declarations (deduplicated) to `out`.
+/// Each resolved import records its landing group (№897) AT THE SITE
+/// THAT READ THE FILE: the declarations appended by this iteration
+/// belong to the module whose source was just read (sub-imports landed
+/// in their own groups during the recursion above).
 #[allow(clippy::wildcard_enum_match_arm)] // №532 tail: report/parse-only catch-all, no security decision reads this arm (docs/wildcard-tail-ledger.md)
 fn collect_import_decls(
     declarations: &[Declaration],
@@ -822,6 +860,7 @@ fn collect_import_decls(
     visited: &mut HashSet<String>,
     reserved: &mut HashSet<(String, String)>,
     out: &mut Vec<Declaration>,
+    groups: &mut Vec<ImportModuleGroup>,
 ) -> Result<(), String> {
     for decl in declarations {
         if let Declaration::Import(import) = decl {
@@ -841,18 +880,6 @@ fn collect_import_decls(
             // (interpreter/modules.rs) and the bytecode compiler's
             // `resolve_import` carry the same justification.
             #[allow(clippy::disallowed_methods)]
-            // №475: the import source loader — compile-time, AUTHOR-controlled
-            // source text (the same trust domain as the file being checked);
-            // the sandbox targets PROGRAM-RUNTIME I/O. The runtime loader
-            // (interpreter/modules.rs) and the bytecode compiler's
-            // `resolve_import` carry the same justification.
-            #[allow(clippy::disallowed_methods)]
-            // №475: the import source loader — compile-time, AUTHOR-controlled
-            // source text (the same trust domain as the file being checked);
-            // the sandbox targets PROGRAM-RUNTIME I/O. The runtime loader
-            // (interpreter/modules.rs) and the bytecode compiler's
-            // `resolve_import` carry the same justification.
-            #[allow(clippy::disallowed_methods)]
             let source = std::fs::read_to_string(&file_path).map_err(|e| {
                 format!(
                     "import '{}': cannot read {:?}: {} (the №523 semantic gate resolves imports statically with the same file-lookup rule as the runtime loader)",
@@ -861,7 +888,12 @@ fn collect_import_decls(
             })?;
             let module_decls = crate::parser::parse(&source)
                 .map_err(|e| format!("parse error in module '{}': {}", module_path, e))?;
-            collect_import_decls(&module_decls, base_dir, visited, reserved, out)?;
+            collect_import_decls(&module_decls, base_dir, visited, reserved, out, groups)?;
+            // №897: the landing group of THIS import — the declarations
+            // appended by THIS iteration belong to the module whose
+            // source was read above (the collision-filtered landing,
+            // byte-identical to what reaches the merged surface).
+            let mut module_group: Vec<Declaration> = Vec::new();
             for module_decl in module_decls {
                 match &module_decl {
                     // Sub-imports were handled by the recursion above.
@@ -874,12 +906,20 @@ fn collect_import_decls(
                         Some(key) if reserved.contains(&key) => {}
                         Some(key) => {
                             reserved.insert(key);
-                            out.push(module_decl);
+                            out.push(module_decl.clone());
+                            module_group.push(module_decl);
                         }
-                        None => out.push(module_decl),
+                        None => {
+                            out.push(module_decl.clone());
+                            module_group.push(module_decl);
+                        }
                     },
                 }
             }
+            groups.push(ImportModuleGroup {
+                declarations: module_group,
+                source,
+            });
         }
     }
     Ok(())
@@ -12087,39 +12127,49 @@ fn walk_stmts_unchecked(
     }
 }
 
-/// №802: the entry — walk every statement-bearing declaration body.
+/// №897: the per-declaration UNCHECKED walk — the ONE body of the
+/// №802 entry below, factored out so the run gate's per-module
+/// suppression can re-walk a single module's declarations under the
+/// MERGED callables surface. The walk is per-declaration by
+/// construction (a fresh `UncheckedFlow` per statement-bearing body;
+/// the callables map is read-only), so a module's findings computed
+/// here are byte-identical to its segment of the merged check's
+/// UNCHECKED block.
 #[allow(clippy::wildcard_enum_match_arm)] // №802 tail: the walker descends only into the statement-bearing bodies (the deny-pass coverage set); the silent arm is the documented no-body set (learnable templates, flows, entity/schema declaratives) — a future declaration with statements JOINS this match at the next audit
-pub fn check_unchecked_uses(declarations: &[Declaration], errors: &mut Vec<SpannedError>) {
-    let callables = UncheckedCallables::collect(declarations);
+fn unchecked_findings_for(
+    declarations: &[Declaration],
+    callables: &UncheckedCallables,
+) -> Vec<SpannedError> {
+    let mut errors: Vec<SpannedError> = Vec::new();
     for decl in declarations {
         match decl {
             Declaration::Pattern(p) => {
                 let mut flow = UncheckedFlow::default();
-                walk_stmts_unchecked(&p.body, &mut flow, &callables, errors);
+                walk_stmts_unchecked(&p.body, &mut flow, callables, &mut errors);
             }
             Declaration::Tool(t) => {
                 for m in &t.methods {
                     let mut flow = UncheckedFlow::default();
-                    walk_stmts_unchecked(&m.body, &mut flow, &callables, errors);
+                    walk_stmts_unchecked(&m.body, &mut flow, callables, &mut errors);
                 }
             }
             Declaration::Test(t) => {
                 let mut flow = UncheckedFlow::default();
-                walk_stmts_unchecked(&t.body, &mut flow, &callables, errors);
+                walk_stmts_unchecked(&t.body, &mut flow, callables, &mut errors);
             }
             Declaration::Hook(h) => {
                 let mut flow = UncheckedFlow::default();
-                walk_stmts_unchecked(&h.body, &mut flow, &callables, errors);
+                walk_stmts_unchecked(&h.body, &mut flow, callables, &mut errors);
             }
             Declaration::MlogServer(srv) => {
                 for r in &srv.routes {
                     let mut flow = UncheckedFlow::default();
-                    walk_stmts_unchecked(&r.body, &mut flow, &callables, errors);
+                    walk_stmts_unchecked(&r.body, &mut flow, callables, &mut errors);
                 }
             }
             Declaration::OnDeny(d) => {
                 let mut flow = UncheckedFlow::default();
-                walk_stmts_unchecked(&d.body, &mut flow, &callables, errors);
+                walk_stmts_unchecked(&d.body, &mut flow, callables, &mut errors);
             }
             // Learnable patterns are prompt templates (no statement
             // body); flows are declarative; everything else carries no
@@ -12127,6 +12177,13 @@ pub fn check_unchecked_uses(declarations: &[Declaration], errors: &mut Vec<Spann
             _ => {}
         }
     }
+    errors
+}
+
+/// №802: the entry — walk every statement-bearing declaration body.
+pub fn check_unchecked_uses(declarations: &[Declaration], errors: &mut Vec<SpannedError>) {
+    let callables = UncheckedCallables::collect(declarations);
+    errors.extend(unchecked_findings_for(declarations, &callables));
 }
 
 /// №802: the suppression filter — removes the [UNCHECKED_RESULT] /
@@ -12276,6 +12333,100 @@ pub fn filter_suppressed_unchecked(errors: Vec<SpannedError>, source: &str) -> V
                 kept.push(err);
             }
             None => kept.push(err),
+        }
+    }
+    kept
+}
+
+/// №897: the run/serve gate's per-module suppression surface — the
+/// №802 multi-file honest limitation is closed on the run path.
+///
+/// The bug shape: the №523 gate checked the MERGED surface (entry ++
+/// statically-resolved imports) but ran `filter_suppressed_unchecked`
+/// against the ENTRY source text only — an allow-comment sitting in an
+/// imported module was invisible to the gate, so a program that is
+/// clean under `mlog check` refused at `mlog run` (the checked surface
+/// and the run gate disagreed — exactly what lib.rs's №802 note
+/// forbids).
+///
+/// THE FIX CONTRACT (the naryad ask): the suppression filter applies
+/// PER MODULE — each finding is sanctioned only by the allow-comments
+/// of ITS OWN module's source. The mechanism is exact, not heuristic:
+/// the UNCHECKED walk is per-declaration (a fresh `UncheckedFlow` per
+/// statement-bearing body; the callables map is read-only), so a
+/// module's findings computed under the MERGED callables surface are
+/// byte-identical to its segment of the merged check's UNCHECKED block.
+/// The unchanged `filter_suppressed_unchecked` (per-line quota,
+/// non-empty-reason rule) runs per module source; the gate's own error
+/// list keeps its order — an UNCHECKED finding survives iff its
+/// module's own filter kept an identical finding (the message-multiset
+/// consumption), every other kind passes through untouched. One module's
+/// allow-comment cannot launder another module's access (the
+/// №802 multi-line laundering rule, now also cross-file).
+pub fn filter_suppressed_unchecked_per_module(
+    errors: Vec<SpannedError>,
+    entry_declarations: &[Declaration],
+    entry_source: &str,
+    module_groups: &[ImportModuleGroup],
+) -> Vec<SpannedError> {
+    // The merged callables surface: groups ++ entry == the merged list
+    // the №523 gate checked (the collision-filtered landing included).
+    let mut merged_surface: Vec<Declaration> = Vec::new();
+    for group in module_groups {
+        merged_surface.extend(group.declarations.iter().cloned());
+    }
+    merged_surface.extend(entry_declarations.iter().cloned());
+    let callables = UncheckedCallables::collect(&merged_surface);
+
+    // The per-module SANCTIONED-multiset: the №802 filter runs UNCHANGED
+    // per module source; the findings it DROPPED (the sanctioned ones)
+    // are counted by message (the total-minus-kept multiset difference).
+    // The scan below then removes from the gate's own error list exactly
+    // those UNCHECKED findings some module's own comments sanction.
+    let mut sanctioned: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut bank = |findings: Vec<SpannedError>, source: &str| {
+        let mut total: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        for e in &findings {
+            *total.entry(e.message.clone()).or_insert(0) += 1;
+        }
+        let kept = filter_suppressed_unchecked(findings, source);
+        let mut keptm: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        for e in kept {
+            *keptm.entry(e.message).or_insert(0) += 1;
+        }
+        for (msg, c) in total {
+            let k = keptm.get(&msg).copied().unwrap_or(0);
+            if c > k {
+                *sanctioned.entry(msg).or_insert(0) += c - k;
+            }
+        }
+    };
+    for group in module_groups {
+        let findings = unchecked_findings_for(&group.declarations, &callables);
+        bank(findings, &group.source);
+    }
+    let entry_findings = unchecked_findings_for(entry_declarations, &callables);
+    bank(entry_findings, entry_source);
+
+    // Scan the gate's errors IN ORDER: an UNCHECKED finding (the same
+    // message-marker class the №802 filter matches) is dropped iff its
+    // module's own filter sanctioned it; every other kind passes
+    // through untouched.
+    let mut kept = Vec::with_capacity(errors.len());
+    for err in errors {
+        let is_unchecked_class = err.message.contains("[UNCHECKED_RESULT]")
+            || err.message.contains("[UNCHECKED_OPTION]");
+        if is_unchecked_class {
+            let left = sanctioned.get_mut(&err.message);
+            match left {
+                Some(count) if *count > 0 => {
+                    *count -= 1; // the module's own comment sanctions this finding
+                    continue;
+                }
+                _ => kept.push(err),
+            }
+        } else {
+            kept.push(err);
         }
     }
     kept

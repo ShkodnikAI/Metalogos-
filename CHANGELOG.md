@@ -343,6 +343,52 @@ All notable changes to the Metalogos project.
   date 2026-10-28 (the форма №721 re-cut that never ran; the
   planned-window 2026-11-02 stamp was a lie the release notes carried).
 
+## [0.38.2] - 2026-11-04
+
+The unscheduled patch cut (the 0.28.1/0.30.1/0.38.1 shape — ADR-0189:
+an unscheduled cut is a PERMITTED exception when a defect cannot wait
+for the next Monday window, with the reason recorded in the release
+notes). The reason: the №523 run/serve gate disagrees with the №802
+check surface on imported modules — a program clean under `mlog check`
+refuses at `mlog run` when the allow-comment sits in an IMPORTED
+module (the consumer evidence: fosved-acc carries 22 sanctioned
+allow-comments in 10 imported modules — guards written through the
+`redact(…,"hash_only")` barrier because the native `if r.ok` form on
+`parse_json(read_file/http)` is refused by UNTRUSTED_DECISION; on
+v0.38.1 app.mlog and all polygons fail to start, the consumer stays
+pinned at v0.33.2). Fixed-only: the [Unreleased] wave-80 rows stay
+pending for the next minor train — the patch cut does not carry them
+(the 0.30.1 form). The publication is the OWNER act (ADR-0186 §4.5);
+release.yml attaches the binary, the SBOM, the attestations and
+SHA256SUMS on publish.
+
+### Fixed
+
+- **№897 (issue #ISSUE_NUM — [process][bugfix]):** the №523 run/serve
+  gate applies the №802 allow-comment suppression PER MODULE — each
+  finding is sanctioned only by its own module's source text. The bug:
+  `enforce_run_gates` checked the MERGED surface (entry ++
+  statically-resolved imports) but ran `filter_suppressed_unchecked`
+  against the ENTRY source only, so an
+  `[UNCHECKED_RESULT]`/`[UNCHECKED_OPTION]` finding inside an imported
+  module never matched its comment and blocked `mlog run`/`mlog serve`
+  while `mlog check` passed the same program (the lib.rs №802 note
+  states the opposite intent: "the checked surface and the run gate
+  must agree — a suppressed-at-check program must not refuse at run").
+  The fix is exact, not heuristic: the UNCHECKED walk is
+  per-declaration (a fresh flow per statement-bearing body, the
+  callables map read-only), so a module's findings computed under the
+  MERGED callables surface are byte-identical to its segment of the
+  merged check's UNCHECKED block; the unchanged №802 filter (the
+  per-line quota, the non-empty-reason rule) runs per module source and
+  the gate's own error list keeps its order — one module's
+  allow-comment cannot launder another module's access (the №802
+  multi-line laundering rule, now also cross-file). The no-import
+  programs behave byte-identically to 0.38.1 (the empty-group case
+  degenerates to the old filter). Pinned by the regression pair and
+  the laundering/quota/dedicated-form pins
+  (`naryad_897_per_module_suppression.rs`, 6 tests).
+
 ## [0.38.1] - 2026-11-03
 
 The unscheduled patch cut (the 0.28.1/0.30.1 shape — ADR-0189: an

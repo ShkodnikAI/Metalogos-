@@ -236,7 +236,7 @@ fn enforce_run_gates(
     // historical false-positive class that once justified NOT blocking
     // (see the №98 note above) is gone.
     {
-        let module_decls = semantic::resolve_imports_statically(declarations, base_dir)
+        let (module_decls, module_groups) = semantic::resolve_import_groups(declarations, base_dir)
             .map_err(|e| format!("Compilation error (Naryad #523): {}", e))?;
         let mut merged_decls = module_decls;
         merged_decls.extend(declarations.to_vec());
@@ -244,8 +244,17 @@ fn enforce_run_gates(
         // №802: the allow-comment suppressions are honored on the run
         // path too (the checked surface and the run gate must agree —
         // a suppressed-at-check program must not refuse at run).
+        // №897: the suppressions apply PER MODULE — each finding is
+        // matched against its own module's source text (the №802
+        // multi-file honest limitation is closed; one module's
+        // allow-comment cannot launder another module's access).
         let mut sem_errors = sem_result.errors;
-        sem_errors = semantic::filter_suppressed_unchecked(sem_errors, source);
+        sem_errors = semantic::filter_suppressed_unchecked_per_module(
+            sem_errors,
+            declarations,
+            source,
+            &module_groups,
+        );
         let blocking: Vec<&semantic::SpannedError> = sem_errors
             .iter()
             .filter(|err| !semantic::is_exempt_from_blocking(err.kind))

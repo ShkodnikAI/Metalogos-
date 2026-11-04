@@ -151,6 +151,36 @@ the merge commit `67b005fe`, the Build & Release run #28
 publication date; the published note bodies carry no date line — the
 №497 verbatim intact).
 
+Wave 80 EXECUTED (the dispatch gh#1779 — the 8G subphase, the 0.43 =
+C8 «Deterministic Replay & Forensic Ledger» line): №891 → №892 → №893 →
+№894 → №895 → №896 (strictly last). The phase line: ADR-0210 — the
+deterministic decision trace as a typed, append-only, verifiable
+artifact (the frame R38(5): REPLAY_MATCH — the reconciliation of the
+claim against the record, the bit-for-bit replay struck as
+unfulfillable, honest-limits №588; ADR before the code, the №1 form);
+the kernel in code — DecisionTrace (the digest-only privacy boundary
+enforced at the constructor, the №879 version line mandatory on the
+language carrier, the refusal words validated against the frozen №385
+vocabulary) + the append-only DecisionTraceLog (the exact-duplicate
+refusal, supersede = a new row) + verify_replay (the claim-side and
+record-side digest re-derivation, the field-by-field divergence
+naming); the coverage rule — the fail-closed replay_gate (an
+irreversible decision without a live verify-passing trace refuses
+BEFORE the effect, the fire_on_deny form of №874 — the Ledger deny row
+rides the existing action path, the happy path journals nothing,
+«молчаливый пропуск невозможен», the №845 form; the e2e trace green on
+both execution roads byte-in-byte, the №880 form); the machine fact
+REPLAY_MATCH 10000 bp (the explicit decision-carrier registry, the
+count checked not declared against the live e2e wiring and the alive
+composition site) + the gate_041 floor 10000 bp only-up (the wave-80
+dispatch constant); the baseline ride — NO DRIFT (the counters are
+registry-scoped, the wave adds zero registry rows). The honest record
+of the parked-features nightly RED on 0.38.0 (the C3-a T3 rule — a red
+nightly does not block a tag, it is RECORDED; the follow-up nights
+GREEN on the later heads; gh#1737 closed dated at the wave edition).
+The machine record: the generated §6.80 (the verbatim counters, the
+merge-CI verdicts).
+
 Wave 79 EXECUTED (the dispatch gh#1764 — the 8D-2 subphase, the 0.42 =
 C10 «Jurisdiction-Aware Policy Compilation» line): №885 → №886 → №887 →
 №888 → №889 → №890 (strictly last). The phase line: ADR-0209 — the

@@ -6,6 +6,67 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№896 (issue #1778, wave 80 — W-I, P2, [docs], strictly last):** the
+  weekly record of wave 80 — the generated §6.80 in
+  docs/reality/2026-11.md (the №789 generator, the C4-a T1 form: the
+  verbatim counters, the merge-CI verdicts — №891 `accef188`/PR #1780,
+  №892 `ee719bf6`/PR #1781, №893 `5a580d80`/PR #1782, №894
+  `38430258`/PR #1783, №895 `7d125d6f`/PR #1784; the №896
+  self-reference row in the №877/№884 form); the honest-findings
+  section carries the chain executor's HONEST-FINDING markers (the
+  agent-index range-bump pattern confirmed again, the verify
+  forged-claim catch, the Ledger-row args-hash race lesson, the
+  composition-site generic-paren trap, the share-form trap
+  re-derivation, the CHANGELOG-size metrics re-pin). The sanitized
+  0.43 phase line in PLAN-SUMMARY (8G/C8, the dispatch gh#1779, the
+  REPLAY_MATCH fact). The parked-features nightly RED on 0.38.0
+  (93c18673) recorded honestly per the C3-a T3 rule — the release
+  line: the parked-features nightly was RED on 0.38.0 (93c18673, run
+  41415574569); the follow-up nights ran
+  GREEN on `feed2030`, `2e4725a8`, `06ede970` — transient, tracked by
+  gh#1737, closed dated at this wave's edition. llms.txt range
+  №895 → №896.
+- **№891 (issue #1773, wave 80 — W-I, P1, [process][adr][replay]):**
+  ADR-0210 Deterministic Replay & Forensic Ledger — the decision trace
+  as a typed, append-only, verifiable artifact; the frame R38(5):
+  REPLAY_MATCH is the deterministic DECISION TRACE reconciliation, the
+  bit-for-bit replay struck as unfulfillable (honest-limits №588); the
+  trace lives IN the Ledger ACTION contour (ADR-0167) — never a
+  parallel store; the versions read through the ProviderContract
+  (№879); the refusal classes stay the frozen №385 set; the privacy
+  boundary — digests, never raw prompts; ADR before the code.
+- **№892 (issue #1774, wave 80 — W-I, P1, [core][replay]):** the
+  DecisionTrace kernel (the №886 form) — the fail-closed constructor
+  (a trace without input digests refuses; the Language carrier without
+  the №879 version line refuses; raw payloads where a digest belongs
+  refuse; foreign refusal words refuse — the №385 vocabulary does not
+  grow), the canonical serialization + the G5 row digest (№828), the
+  append-only DecisionTraceLog (the exact-duplicate refusal, supersede
+  = a new row), the REPLAY_MATCH verify_replay (the claim-side and
+  record-side digest re-derivation, the field-by-field divergence
+  naming, the fail-closed no-recorded-trace refusal); `record_trace`
+  rides the LIVE Ledger ACTION contour — the 1:1 migration, the
+  zero-surface-drift rule.
+- **№893 (issue #1775, wave 80 — W-I, P1, [replay][core]):** the
+  coverage rule — the fail-closed decision-trace gate `replay_gate`
+  (the fire_on_deny form of №874, the №845 rule): the irreversible
+  decision without a live verify-passing trace refuses BEFORE the
+  effect (SINK_CLEARANCE — the frozen class); every refused gate
+  journals ONE Ledger deny row through the EXISTING action path; the
+  happy path journals nothing; the only Ok exit IS the verified
+  recorded row; the verify-side rule — the outputless claim and the
+  outputless recorded row refuse at verify; the e2e on both execution
+  roads byte-in-byte (the №880 form).
+- **№894 (issue #1776, wave 80 — W-I, P1, [testing][ci]):** the
+  REPLAY_MATCH machine fact + gate_041 — the explicit decision-carrier
+  registry (scripts/ci/gate_041_goals.txt, the №862 roster form; the
+  count CHECKED, not declared — the quoted decision literal in the
+  live e2e wiring source + the alive `replay_gate` composition site,
+  the №874 form); the seeds `run_program@tw` + `run_program@vm` (both
+  live-wired, 10000 bp); the GENERATED rows in docs/metrics.md +
+  docs/PLAN-SUMMARY.md; the floor enforcement in --check (FLOOR
+  LOWERING REFUSED / FLOOR BREACH); the tamper traps 34–39; the double
+  --check run deterministic.
 - **№895 (issue #1777, wave 80 — W-I, P2, ride ygiene][ci], the
   №863/№889 form):** the baseline re-pin ride under the wave-80 replay
   kernel — the verification pass over ALL five surface gates on the

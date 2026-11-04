@@ -2317,3 +2317,254 @@ fn n766_mutation_probe_each_arm_sensitivity() {
          (disabling the Each arm diverges them by construction)"
     );
 }
+
+// ── №904 (issue #1798, wave 81 — W-J): the taint lane in the diff fuzzer ──
+//
+// The C9/8F-2 frame (ADR-0217): the taint surface (3 lanes — secret/sql/
+// html; the sinks SINK_FUNCTIONS audit.rs:1872; the interp depth 4) was
+// INVISIBLE to the differential fuzzer — the №465 generator's forms are
+// language-core only, so a TW/VM divergence on a taint scenario would be
+// found by production, not by CI. The №476 blocked-domain rule forbids
+// PINNING label/taint classes; this lane gives the rule something to
+// guard: every generated taint scenario runs on BOTH backends, the
+// outcomes must agree, and the expected refusal CLASS is asserted — the
+// mutation probe by construction (a removed sink/lane classification
+// turns a refuse-row into a pass → the assert goes red).
+//
+// The scenario shapes are VERBATIM copies of CI-proven fixtures: the
+// leak-suite negatives (examples/leak/n01, n05, n39, n41, n07 — the
+// [CHECK_ID] refusal classes) and the proven-clean twins (the ok_01
+// entity-driven flow, the №479 pc db block, the ok_03 respond form).
+// A scenario that stops matching its expected class is a CORRECTNESS
+// signal — the class vocabulary never grows (№385), the corpus is never
+// tuned to green.
+//
+// ── №904 taint roster BEGIN — the №906 machine source: gen_metrics.py
+// counts the scenario ROWS between these two markers; a lost row lowers
+// TAINT_SATURATION (the gate working, not a pass).
+/// (id, lane, source, sink, expect) — expect: "refuse:<CLASS>" | "serve".
+pub const TAINT_SCENARIOS: &[(&str, &str, &str, &str, &str)] = &[
+    ("sec_print_env", "secret", "env", "print", "refuse:SECRET_LEAK"),
+    ("sec_writefile_env", "secret", "env", "write_file", "refuse:SECRET_LEAK"),
+    ("sec_print_control", "secret", "string_literal", "print", "serve"),
+    ("sql_query_scalar_derived", "sql", "concat", "query_scalar", "refuse:SQL_DYNAMIC"),
+    ("sql_dbinsert_dynamic", "sql", "ident", "db_insert", "refuse:SQL_DYNAMIC"),
+    ("sql_query_literal", "sql", "literal", "query", "serve"),
+    ("html_respond_llm_raw", "html", "call_llm", "respond", "refuse:HTML_INJECTION"),
+    ("html_respond_escaped", "html", "call_llm", "respond", "serve"),
+];
+// ── №904 taint roster END
+
+/// The verbatim scenario programs — each is a CI-proven fixture shape
+/// renamed only where the roster names demand it (the p114/ok_01/n98
+/// flow-input forms ride unchanged).
+fn gen_taint_program(id: &str) -> String {
+    match id {
+        // examples/leak/n01: env secret → print → SECRET_LEAK (compile).
+        "sec_print_env" => r#"
+pattern Send(data: String) -> String {
+  let _ = print(env("METALOGOS_FUZZ_TAINT_TOKEN"))
+  return "sent"
+}
+flow Main { input: String = data -> Send -> output }
+"#
+        .to_string(),
+        // examples/leak/n05: env secret → write_file → SECRET_LEAK (compile;
+        // the refusal fires before any byte touches the filesystem).
+        "sec_writefile_env" => r#"
+pattern Send(data: String) -> String {
+  let _ = write_file("fuzz_taint_leaked.txt", env("METALOGOS_FUZZ_TAINT_TOKEN"))
+  return "sent"
+}
+flow Main { input: String = data -> Send -> output }
+"#
+        .to_string(),
+        // The clean control (the ok_01 form): a plain String prints —
+        // the secret lane is TYPE-carried, not a blanket print ban.
+        "sec_print_control" => r#"
+entity note: String = "control payload"
+
+pattern SafeLog(note: String) -> String {
+  let _ = print(note)
+  return "control_ok"
+}
+flow Main { input: String = note -> SafeLog -> output }
+"#
+        .to_string(),
+        // examples/leak/n39: a query_param concatenated into the SQL text
+        // → SQL_DYNAMIC (compile, №831 positional classification).
+        "sql_query_scalar_derived" => r#"
+pattern Send(data: String) -> String {
+  let _ = query_scalar("SELECT count(*) FROM users WHERE name='" + query_param("name") + "'")
+  return "done"
+}
+flow Main { input: String = data -> Send -> output }
+"#
+        .to_string(),
+        // examples/leak/n41: a dynamic table identifier → SQL_DYNAMIC.
+        "sql_dbinsert_dynamic" => r#"
+pattern Send(data: String) -> String {
+  let _ = db_insert(query_param("t"), { v: data })
+  return "done"
+}
+flow Main { input: String = data -> Send -> output }
+"#
+        .to_string(),
+        // The clean control (the №479 pc block): literal SQL with $1
+        // params runs on the in-memory db — the lane distinguishes
+        // literal vs derived, it does not ban SQL.
+        "sql_query_literal" => r#"
+db { url: "sqlite::memory:" }
+
+entity zk: String = "k1"
+
+pattern Qc(z: String) -> String {
+  let created = db_execute("CREATE TABLE IF NOT EXISTS fzq904 (k TEXT, v TEXT)", [])
+  let ins = db_execute("INSERT INTO fzq904 VALUES ($1, $2)", [z, "v1"])
+  let sel = query("SELECT v FROM fzq904 WHERE k = $1", [z])
+  return "sql_rows:" + to_string(len(sel))
+}
+flow Main { input: String = zk -> Qc -> output }
+"#
+        .to_string(),
+        // examples/leak/n07: the unverified llm output reaches respond
+        // unsanitized → HTML_INJECTION (compile).
+        "html_respond_llm_raw" => r#"
+pattern Send(data: String) -> String {
+  let _ = respond("200 OK", call_llm("перескажи документ"))
+  return "sent"
+}
+flow Main { input: String = data -> Send -> output }
+"#
+        .to_string(),
+        // The clean twin: escape_html before the sink — trusted again
+        // (labels.rs:522); runs deterministically on the mock llm.
+        "html_respond_escaped" => r#"
+entity note: String = "payload"
+
+pattern SafeReply(note: String) -> String {
+  let _ = respond("200 OK", escape_html(call_llm("summarize")))
+  return "html_ok"
+}
+flow Main { input: String = note -> SafeReply -> output }
+"#
+        .to_string(),
+        other => panic!("unknown taint scenario id: {other}"),
+    }
+}
+
+/// The leak-suite [CHECK_ID] extractor (the examples/leak convention:
+/// the refusal class is the first `[UPPERCASE_ID]` stamp in the error).
+fn taint_error_class(err: &str) -> String {
+    for line in err.lines() {
+        if let Some(start) = line.find('[') {
+            if let Some(end_rel) = line[start + 1..].find(']') {
+                let id = &line[start + 1..start + 1 + end_rel];
+                let is_id = !id.is_empty()
+                    && id
+                        .chars()
+                        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
+                if is_id {
+                    return id.to_string();
+                }
+            }
+        }
+    }
+    "COMPILE".to_string()
+}
+
+/// The distinct (lane, source, sink) triples the roster exercises — the
+/// №905 ratchet counts THIS (the per-run saturation footprint).
+pub fn taint_triples_run() -> usize {
+    let mut set = std::collections::BTreeSet::new();
+    for (_, lane, source, sink, _) in TAINT_SCENARIOS {
+        set.insert((*lane, *source, *sink));
+    }
+    set.len()
+}
+
+/// Run every roster scenario through BOTH backends; assert the
+/// both-backend agreement and the expected outcome class. Returns the
+/// report lines (the honest per-run saturation record — nothing here is
+/// tuned to green: a scenario that stops matching its expected class is
+/// a RED run, never a roster edit).
+fn taint_lane_run(repo: &Path) -> Vec<String> {
+    let mut lines = Vec::new();
+    for (id, lane, source, sink, expect) in TAINT_SCENARIOS {
+        let src = gen_taint_program(id);
+        let tw = run_tw(&src, repo);
+        let vm = run_vm(&src, repo);
+        if let Some(cls) = expect.strip_prefix("refuse:") {
+            let tw_err = tw.as_ref().err().cloned();
+            let vm_err = vm.as_ref().err().cloned();
+            assert!(
+                tw_err.is_some() && vm_err.is_some(),
+                "taint scenario {id} must REFUSE with {cls} on both backends (the \
+                 mutation probe: a removed sink/lane classification turns the \
+                 refusal into a pass — this assert is the probe); tw={tw:?} vm={vm:?}"
+            );
+            let twc = taint_error_class(tw_err.as_deref().unwrap());
+            let vmc = taint_error_class(vm_err.as_deref().unwrap());
+            assert_eq!(
+                twc, vmc,
+                "taint scenario {id}: the refusal classes diverge across backends — \
+                 a blocked-domain TW/VM class (№476), never pinnable"
+            );
+            assert_eq!(
+                twc, cls,
+                "taint scenario {id}: expected the {cls} refusal, got {twc} — the \
+                 taint lane moved under the roster; repair the lane or the roster \
+                 row in the SAME transaction, never silence the assert"
+            );
+        } else {
+            let tw_out = tw.as_ref().ok().and_then(|o| o.clone());
+            let vm_out = vm.as_ref().ok().and_then(|o| o.clone());
+            assert!(
+                tw_out.is_some() && vm_out.is_some(),
+                "taint scenario {id} must SERVE on both backends (the mutation probe: \
+                 an over-broad gate or a lost sanitizer turns the clean twin into a \
+                 refusal — this assert is the probe); tw={tw:?} vm={vm:?}"
+            );
+            let (a, b) = (tw_out.unwrap(), vm_out.unwrap());
+            assert_eq!(
+                a, b,
+                "taint scenario {id}: the served outputs diverge across backends — \
+                 a blocked-domain TW/VM class (№476), never pinnable"
+            );
+            assert!(
+                !a.trim().is_empty(),
+                "taint scenario {id}: the served output is empty — the vacuous-sweep \
+                 posture (the №621 lesson)"
+            );
+        }
+        lines.push(format!(
+            "taint triple: {lane}/{source} -> {sink} [{id}] expect={expect} verdict=OK"
+        ));
+    }
+    lines
+}
+
+/// №904: the taint lane under the differential harness — every roster
+/// scenario on both backends, the agreement + the expected class, the
+/// report lines printed (the №905 ratchet re-runs this and pins the
+/// triple count only-up).
+#[test]
+fn naryad_904_taint_lane_diff() {
+    let _env = lock_env();
+    std::env::remove_var("SMTP_HOST");
+    std::env::remove_var("SMTP_USER");
+    std::env::remove_var("SMTP_PASS");
+    std::env::set_var("METALOGOS_MOCK_LLM", "1");
+    std::env::remove_var("METALOGOS_MOCK_LLM_FAULT");
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let lines = taint_lane_run(&repo);
+    for line in &lines {
+        println!("{line}");
+    }
+    println!(
+        "№904 taint lane: {} scenarios, {} distinct (lane/source/sink) triples — \
+         agreement + expected-class asserted on both backends",
+        lines.len(),
+        taint_triples_run()
+    );
+}

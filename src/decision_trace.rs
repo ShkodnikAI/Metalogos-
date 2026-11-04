@@ -375,6 +375,16 @@ pub fn verify_replay<'a>(
             trace.decision
         ));
     }
+    // №893 (б): a trace without a verifiable output refuses AT VERIFY —
+    // the reconciliation confirms the recorded outputs; an empty output
+    // set has nothing to confirm, so the claim is not replayable
+    // (fail-closed, the same frozen class).
+    if trace.outputs.is_empty() {
+        return Err(format!(
+            "REPLAY_MATCH: the claimed trace of '{0}' carries no verifiable output — the reconciliation refuses at verify (UNTRUSTED_EXEC_DECISION, fail-closed)",
+            trace.decision
+        ));
+    }
     // Defense in depth: a recorded row must re-derive its own digest —
     // an internally tampered row (fields edited without the digest
     // recompute) refuses before any reconciliation.
@@ -383,6 +393,14 @@ pub fn verify_replay<'a>(
             return Err(format!(
                 "REPLAY_MATCH: the recorded trace {} does not re-derive its digest — the record was altered after the write (UNTRUSTED_EXEC_DECISION, fail-closed)",
                 row.trace_digest
+            ));
+        }
+        // №893 (б) on the record side: a recorded row without outputs
+        // cannot be reconciled either — the record is incomplete.
+        if row.outputs.is_empty() {
+            return Err(format!(
+                "REPLAY_MATCH: the recorded trace {} of '{}' carries no verifiable output — the record cannot be reconciled (UNTRUSTED_EXEC_DECISION, fail-closed)",
+                row.trace_digest, row.decision
             ));
         }
     }
@@ -445,6 +463,45 @@ pub fn verify_replay<'a>(
 /// flips the decision's outcome.
 pub fn record_trace(actor: &str, scope: &str, trace: &DecisionTrace) {
     crate::ledger::record("decision_trace", actor, scope, &trace.trace_digest);
+}
+
+/// The fail-closed coverage gate over ONE irreversible decision (№893,
+/// the fire_on_deny form of №874, the №845 rule): the gate runs BEFORE
+/// the effect — an irreversible decision without a live, verify-passing
+/// trace refuses and NEVER reaches the side effect.
+///
+/// * `None` claim — no trace offered at the consumption site: the
+///   immediate fail-closed refusal (SINK_CLEARANCE — the frozen
+///   generic class, №385 does not grow);
+/// * `Some(claim)` — the REPLAY_MATCH reconciliation of the claim
+///   against the log (the forged claim, the altered record, the
+///   outputless trace, the field divergence — every refusal carries
+///   an EXISTING frozen class).
+///
+/// The fire_on_deny posture (ADR-0167 §3.4, the №874 form): every
+/// refused gate journals ONE Ledger deny row through the EXISTING
+/// action path — action `deny.SINK_CLEARANCE`, scope `decision-trace`,
+/// the refusal text rides the hashed args (no new record kind). The
+/// happy path journals NOTHING (the record-on-refusal-only posture —
+/// the golden traces are untouched).
+///
+/// «Молча пропустить» is impossible (the №845/№887 form): the only Ok
+/// exit IS the verified recorded row — there is no allow-without-trace
+/// branch to fall into.
+pub fn replay_gate<'a>(
+    decision: &str,
+    claim: Option<&DecisionTrace>,
+    log: &'a DecisionTraceLog,
+) -> Result<&'a DecisionTrace, String> {
+    match claim {
+        Some(claim) => verify_replay(claim, log),
+        None => Err(format!(
+            "REPLAY_MATCH: no recorded trace covers decision '{decision}' — the irreversible decision refuses BEFORE the effect (SINK_CLEARANCE, fail-closed; the №845/№874 form; ADR-0210)"
+        )),
+    }
+    .inspect_err(|e| {
+        crate::ledger::record("deny.SINK_CLEARANCE", "replay-gate", "decision-trace", e);
+    })
 }
 
 #[cfg(test)]
@@ -643,6 +700,121 @@ mod kernel_tests {
         let err = verify_replay(&claim, &log).expect_err("the altered record refuses");
         assert!(err.contains("does not re-derive its digest"), "{err}");
         assert!(err.contains("UNTRUSTED_EXEC_DECISION"), "{err}");
+    }
+
+    #[test]
+    fn verify_refuses_the_outputless_trace_on_both_sides() {
+        // The claim side: a re-derived, internally consistent trace
+        // with NO outputs refuses at verify (№893 б).
+        let log = DecisionTraceLog::new();
+        let claim = DecisionTrace::new(
+            "decide",
+            DecisionCarrier::Local,
+            &[D.to_string()],
+            "",
+            "",
+            "",
+            &[],
+            &[],
+            &[],
+            &[],
+            1,
+        )
+        .expect("the constructor allows the empty outputs (the decision not yet materialized)");
+        let err = verify_replay(&claim, &log).expect_err("no verifiable output");
+        assert!(err.contains("carries no verifiable output"), "{err}");
+        assert!(err.contains("refuses at verify"), "{err}");
+        assert!(err.contains("UNTRUSTED_EXEC_DECISION"), "{err}");
+
+        // The record side: a recorded outputless row cannot be
+        // reconciled either — the record is incomplete.
+        let mut record = trace("decide", &[E.to_string()]);
+        record.outputs = Vec::new();
+        record.trace_digest = canonical_trace_digest(&record);
+        let mut log2 = DecisionTraceLog::new();
+        log2.append(record).expect("append the incomplete row");
+        let claim2 = trace("decide", &[E.to_string()]);
+        let err = verify_replay(&claim2, &log2).expect_err("the incomplete record");
+        assert!(err.contains("cannot be reconciled"), "{err}");
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn gate_refuses_the_none_claim_and_journals_the_deny_row() {
+        let log = DecisionTraceLog::new();
+        let err = replay_gate("uncovered_decision", None, &log).expect_err("no trace — no effect");
+        assert!(err.contains("refuses BEFORE the effect"), "{err}");
+        assert!(err.contains("SINK_CLEARANCE"), "{err}");
+        assert!(err.contains("uncovered_decision"), "{err}");
+        // The fire_on_deny form (№874): the refusal journals through
+        // the EXISTING action path — action deny.SINK_CLEARANCE, scope
+        // decision-trace, the text rides the hashed args. The exact
+        // row is pinned by its args hash (the serial lock orders the
+        // ledger-touching tests, not the whole binary — the earlier
+        // tests' deny rows stay in the ribbon).
+        let rows = crate::ledger::all_records().unwrap_or_default();
+        let row = rows
+            .iter()
+            .find(|r| {
+                r.action == "deny.SINK_CLEARANCE"
+                    && r.scope == "decision-trace"
+                    && r.args_hash == crate::ledger::args_hash_of(&err)
+            })
+            .expect("THIS refusal must be visible in the Ledger ribbon");
+        assert_eq!(row.kind, "action");
+        assert_eq!(row.args_hash, crate::ledger::args_hash_of(&err));
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn gate_passes_the_verified_claim_silently() {
+        let mut log = DecisionTraceLog::new();
+        let t = trace("covered_decision", &[E.to_string()]);
+        log.append(t.clone()).expect("append");
+        let deny_rows = || {
+            crate::ledger::all_records()
+                .unwrap_or_default()
+                .iter()
+                .filter(|r| r.scope == "decision-trace")
+                .count()
+        };
+        let before = deny_rows();
+        let row =
+            replay_gate("covered_decision", Some(&t), &log).expect("the covered decision passes");
+        assert_eq!(row.trace_digest, t.trace_digest);
+        assert_eq!(
+            deny_rows(),
+            before,
+            "the happy path journals NOTHING (the record-on-refusal-only posture)"
+        );
+        // The second gate run is the same verdict byte-in-byte (the
+        // deterministic reconciliation, the №880 form).
+        let row2 = replay_gate("covered_decision", Some(&t), &log).expect("the second run passes");
+        assert_eq!(row.trace_digest, row2.trace_digest);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn gate_surfaces_the_verify_refusals_through_the_same_deny_class() {
+        let mut log = DecisionTraceLog::new();
+        let t = trace("decide", &[E.to_string()]);
+        log.append(t.clone()).expect("append");
+        // The forged claim keeps the old digest — the gate refuses and
+        // the refusal rides the SAME deny row shape.
+        let mut forged = trace("decide", &[D.to_string()]);
+        forged.trace_digest = t.trace_digest.clone();
+        let err = replay_gate("decide", Some(&forged), &log).expect_err("the forged claim");
+        assert!(err.contains("does not re-derive its digest"), "{err}");
+        let rows = crate::ledger::all_records().unwrap_or_default();
+        let last = rows
+            .iter()
+            .find(|r| {
+                r.action == "deny.SINK_CLEARANCE"
+                    && r.scope == "decision-trace"
+                    && r.args_hash == crate::ledger::args_hash_of(&err)
+            })
+            .expect("THIS verify refusal must be journaled too");
+        assert_eq!(last.args_hash, crate::ledger::args_hash_of(&err));
     }
 
     #[test]

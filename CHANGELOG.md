@@ -6,6 +6,28 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№895 (issue #1777, wave 80 — W-I, P2, ride ygiene][ci], the
+  №863/№889 form):** the baseline re-pin ride under the wave-80 replay
+  kernel — the verification pass over ALL five surface gates on the
+  wave's merge chain (the base `38430258`):
+  `type_signature_baseline.txt` (377/530, 71.13%),
+  `type_signature_precise_baseline.txt` (244/530, 46.03%),
+  `type_signature_stable_baseline.txt` (366/486, 75.30% — the PRIMARY
+  definition, ADR-0199), `--enforce-fieldmeta` (62/64, 96.87%) and
+  `sensitive_surface_baseline.txt` (112/147, 7619 bp, the №644
+  fixed-denominator share). The honest outcome — the №889/№882/№876
+  precedent form: NO DRIFT. The wave-80 naryads (№891 the ADR-0210
+  record, №892 the `src/decision_trace.rs` kernel, №893 the coverage
+  gate + the e2e, №894 the metrics machine + gate_041) add ZERO
+  `BUILTIN_REGISTRY` rows (the decision-trace kernel lives in
+  `src/decision_trace.rs` + the python metrics machine + the e2e
+  suites — the typed-signature and sensitive-surface counters read the
+  REGISTRY, not the module tree), so every floor already equals the
+  fact and the advisory `::warning` is absent from main; the double
+  `gen_metrics --check` run on the wave's tree is green and
+  deterministic. No baseline file changes in this ride — the floors
+  stand; the ride's product is the verified record itself (the gates
+  re-run green on the wave's tree, cited in the PR).
 - **№890 (issue #1763, wave 79 — W-H, P2, [docs], strictly last):** the
   weekly record of wave 79 — the generated §6.79 in
   docs/reality/2026-11.md (the №789 generator, the C4-a T1 form: the

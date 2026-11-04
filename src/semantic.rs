@@ -12389,13 +12389,30 @@ pub fn filter_suppressed_unchecked_per_module(
     merged_surface.extend(entry_declarations.iter().cloned());
     let callables = UncheckedCallables::collect(&merged_surface);
 
-    // The per-module kept-multiset: the №802 filter runs UNCHANGED per
-    // module source; its survivors are counted by message.
-    let mut kept_counts: std::collections::HashMap<String, usize> =
+    // The per-module SANCTIONED-multiset: the №802 filter runs UNCHANGED
+    // per module source; the findings it DROPPED (the sanctioned ones)
+    // are counted by message (the total-minus-kept multiset difference).
+    // The scan below then removes from the gate's own error list exactly
+    // those UNCHECKED findings some module's own comments sanction.
+    let mut sanctioned: std::collections::HashMap<String, usize> =
         std::collections::HashMap::new();
     let mut bank = |findings: Vec<SpannedError>, source: &str| {
-        for err in filter_suppressed_unchecked(findings, source) {
-            *kept_counts.entry(err.message).or_insert(0) += 1;
+        let mut total: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for e in &findings {
+            *total.entry(e.message.clone()).or_insert(0) += 1;
+        }
+        let kept = filter_suppressed_unchecked(findings, source);
+        let mut keptm: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for e in kept {
+            *keptm.entry(e.message).or_insert(0) += 1;
+        }
+        for (msg, c) in total {
+            let k = keptm.get(&msg).copied().unwrap_or(0);
+            if c > k {
+                *sanctioned.entry(msg).or_insert(0) += c - k;
+            }
         }
     };
     for group in module_groups {
@@ -12406,18 +12423,18 @@ pub fn filter_suppressed_unchecked_per_module(
     bank(entry_findings, entry_source);
 
     // Scan the gate's errors IN ORDER: an UNCHECKED finding (the same
-    // message-marker class the №802 filter matches) survives iff its
-    // module's own filter kept an identical finding; every other kind
-    // passes through untouched.
+    // message-marker class the №802 filter matches) is dropped iff its
+    // module's own filter sanctioned it; every other kind passes
+    // through untouched.
     let mut kept = Vec::with_capacity(errors.len());
     for err in errors {
         let is_unchecked_class = err.message.contains("[UNCHECKED_RESULT]")
             || err.message.contains("[UNCHECKED_OPTION]");
         if is_unchecked_class {
-            let spent = kept_counts.get_mut(&err.message);
-            match spent {
+            let left = sanctioned.get_mut(&err.message);
+            match left {
                 Some(count) if *count > 0 => {
-                    *count -= 1; // the module's own comment spends its sanction
+                    *count -= 1; // the module's own comment sanctions this finding
                     continue;
                 }
                 _ => kept.push(err),

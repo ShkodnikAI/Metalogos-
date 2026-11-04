@@ -80,9 +80,7 @@ fn run_in_dir(main_source: &str, dir: &Path) -> Result<Option<String>, String> {
 /// the repro shape (the finding fires from the MODULE's body at the
 /// static gate, before any execution).
 fn main_calling(module: &str, stage: &str) -> String {
-    format!(
-        "import {module}\nflow Main {{ input: String = \"x\" -> {stage} -> output }}\n"
-    )
+    format!("import {module}\nflow Main {{ input: String = \"x\" -> {stage} -> output }}\n")
 }
 
 // ── T1: the regression pair, positive arm — runs ────────────────────
@@ -173,10 +171,7 @@ fn n897_one_module_comment_cannot_launder_another() {
 fn n897_check_and_run_surfaces_agree() {
     let check = metalogos::check_program(DEP_SANCTIONED).expect("the module must parse");
     assert!(
-        !check
-            .errors
-            .iter()
-            .any(|e| e.message.contains("UNCHECKED")),
+        !check.errors.iter().any(|e| e.message.contains("UNCHECKED")),
         "the sanctioned module is clean at check, got: {:?}",
         check.errors.iter().map(|e| &e.message).collect::<Vec<_>>()
     );

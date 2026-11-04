@@ -236,9 +236,8 @@ fn enforce_run_gates(
     // historical false-positive class that once justified NOT blocking
     // (see the №98 note above) is gone.
     {
-        let (module_decls, module_groups) =
-            semantic::resolve_import_groups(declarations, base_dir)
-                .map_err(|e| format!("Compilation error (Naryad #523): {}", e))?;
+        let (module_decls, module_groups) = semantic::resolve_import_groups(declarations, base_dir)
+            .map_err(|e| format!("Compilation error (Naryad #523): {}", e))?;
         let mut merged_decls = module_decls;
         merged_decls.extend(declarations.to_vec());
         let sem_result = semantic::check_program(&merged_decls);

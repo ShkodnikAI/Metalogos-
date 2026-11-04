@@ -457,10 +457,42 @@ mlogserver {
 }
 "#;
 
+// ── №904 (issue #1798, wave 81 — W-J): the taint seeds — the html lane
+// on the route surface. The raw form is the n98 shape verbatim: the
+// unverified llm output reaches respond unsanitized — both backends must
+// refuse with the SAME class (the oracle treats a same-class refusal as
+// a legal outcome; the load-bearing class assertion lives in the №904
+// core lane). The escaped twin serves deterministically: escape_html
+// before the sink is trusted again (labels.rs:522), the mock llm answer
+// is fixed, and the (status, body) pairs must be identical across the
+// backends — a taint-shaped divergence on the HTTP surface cannot land
+// silently (the №476 rule names label/taint classes un-pinnable).
+const SEED_ROUTE_HTML_RAW: &str = r#"
+mlogserver {
+  port: 0
+  route "/taint-html-raw" method=GET {
+    let data = form_data()
+    let reply = call_llm(data.question)
+    respond(reply)
+  }
+}
+"#;
+
+const SEED_ROUTE_HTML_ESCAPED: &str = r#"
+mlogserver {
+  port: 0
+  route "/taint-html-clean" method=GET {
+    respond(escape_html(call_llm("summarize")))
+  }
+}
+"#;
+
 const SEEDS: &[(&str, &str)] = &[
     ("seed_route_guard_bare", SEED_GUARD_BARE),
     ("seed_route_let_tail", SEED_LET_TAIL),
     ("seed_route_guard_return", SEED_GUARD_RETURN),
+    ("seed_route_html_raw", SEED_ROUTE_HTML_RAW),
+    ("seed_route_html_escaped", SEED_ROUTE_HTML_ESCAPED),
 ];
 
 #[tokio::test]

@@ -2344,14 +2344,56 @@ fn n766_mutation_probe_each_arm_sensitivity() {
 // TAINT_SATURATION (the gate working, not a pass).
 /// (id, lane, source, sink, expect) — expect: "refuse:<CLASS>" | "serve".
 pub const TAINT_SCENARIOS: &[(&str, &str, &str, &str, &str)] = &[
-    ("sec_print_env", "secret", "env", "print", "refuse:SECRET_LEAK"),
-    ("sec_writefile_env", "secret", "env", "write_file", "refuse:SECRET_LEAK"),
-    ("sec_print_control", "secret", "string_literal", "print", "serve"),
-    ("sql_query_scalar_derived", "sql", "concat", "query_scalar", "refuse:SQL_DYNAMIC"),
-    ("sql_dbinsert_dynamic", "sql", "ident", "db_insert", "refuse:SQL_DYNAMIC"),
+    (
+        "sec_print_env",
+        "secret",
+        "env",
+        "print",
+        "refuse:SECRET_LEAK",
+    ),
+    (
+        "sec_writefile_env",
+        "secret",
+        "env",
+        "write_file",
+        "refuse:SECRET_LEAK",
+    ),
+    (
+        "sec_print_control",
+        "secret",
+        "string_literal",
+        "print",
+        "serve",
+    ),
+    (
+        "sql_query_scalar_derived",
+        "sql",
+        "concat",
+        "query_scalar",
+        "refuse:SQL_DYNAMIC",
+    ),
+    (
+        "sql_dbinsert_dynamic",
+        "sql",
+        "ident",
+        "db_insert",
+        "refuse:SQL_DYNAMIC",
+    ),
     ("sql_query_literal", "sql", "literal", "query", "serve"),
-    ("html_respond_llm_raw", "html", "call_llm", "respond", "refuse:HTML_INJECTION"),
-    ("html_respond_escaped", "html", "call_llm", "respond", "serve"),
+    (
+        "html_respond_llm_raw",
+        "html",
+        "call_llm",
+        "respond",
+        "refuse:HTML_INJECTION",
+    ),
+    (
+        "html_respond_escaped",
+        "html",
+        "call_llm",
+        "respond",
+        "serve",
+    ),
 ];
 // ── №904 taint roster END
 

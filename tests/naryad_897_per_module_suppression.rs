@@ -147,9 +147,8 @@ fn n897_one_module_comment_cannot_launder_another() {
     let dir = tempfile::tempdir().expect("tempdir");
     write_module(dir.path(), "dep_ok.mlog", DEP_SANCTIONED);
     write_module(dir.path(), "dep_dirty.mlog", DEP_DIRTY);
-    let main = format!(
-        "import dep_ok\nimport dep_dirty\nflow Main {{ input: String = \"x\" -> ReadDirty -> output }}\n"
-    );
+    let main =
+        "import dep_ok\nimport dep_dirty\nflow Main { input: String = \"x\" -> ReadDirty -> output }\n".to_string();
     let run = run_in_dir(&main, dir.path());
     match run {
         Ok(_) => panic!(

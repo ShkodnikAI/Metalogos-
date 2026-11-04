@@ -6,6 +6,31 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№908 (issue #1802, wave 81 — W-J, P2, [process][ci], the
+  №863/№889/№895 form):** the baseline re-pin ride under the wave-81
+  taint lane — the verification pass over ALL surface gates on the
+  wave's merge chain (the head `340d928f`):
+  `type_signature_baseline.txt` (377/530, 71.13%),
+  `type_signature_precise_baseline.txt` (244/530, 46.03%),
+  `type_signature_parameterized_baseline.txt` (100/130, 76.92%),
+  `--enforce-fieldmeta` (62/64, 96.87%),
+  `type_signature_stable_baseline.txt` (366/486, 75.30% — the PRIMARY
+  definition, ADR-0199), `sensitive_surface_baseline.txt` (112/147,
+  7619 bp, the №644 fixed-denominator share), the src/ mirror gate
+  (6, at its threshold 6 — movement only down) and the debt gate (dup
+  0/0, ignore 8/8, ignore_todo 0, dead_code 15/15, example_uncovered
+  0, read_file_soft_missing 0). The honest outcome — the №889/№895
+  precedent form: NO DRIFT. The wave-81 naryads (№904 the test-only
+  taint lane in the differential fuzzer, №905 the triples ratchet,
+  №906 the gen_metrics machine + gate_042, №907 the audit report +
+  the limitations/threat-model sync) add ZERO `BUILTIN_REGISTRY` rows
+  and zero grammar/golden surface — the type-signature and
+  sensitive-surface counters read the REGISTRY, not the module tree —
+  so every floor already equals the fact and no baseline file
+  changed; the double `gen_metrics --check` run on the wave's head is
+  green and deterministic; no floor lowering — the floors stand, the
+  ride's product is the verified record itself.
+
 - **№896 (issue #1778, wave 80 — W-I, P2, [docs], strictly last):** the
   weekly record of wave 80 — the generated §6.80 in
   docs/reality/2026-11.md (the №789 generator, the C4-a T1 form: the

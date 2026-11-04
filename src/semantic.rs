@@ -12394,17 +12394,14 @@ pub fn filter_suppressed_unchecked_per_module(
     // are counted by message (the total-minus-kept multiset difference).
     // The scan below then removes from the gate's own error list exactly
     // those UNCHECKED findings some module's own comments sanction.
-    let mut sanctioned: std::collections::HashMap<String, usize> =
-        std::collections::HashMap::new();
+    let mut sanctioned: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     let mut bank = |findings: Vec<SpannedError>, source: &str| {
-        let mut total: std::collections::HashMap<String, usize> =
-            std::collections::HashMap::new();
+        let mut total: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
         for e in &findings {
             *total.entry(e.message.clone()).or_insert(0) += 1;
         }
         let kept = filter_suppressed_unchecked(findings, source);
-        let mut keptm: std::collections::HashMap<String, usize> =
-            std::collections::HashMap::new();
+        let mut keptm: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
         for e in kept {
             *keptm.entry(e.message).or_insert(0) += 1;
         }

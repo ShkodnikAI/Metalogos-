@@ -10,7 +10,7 @@ construction.
 <!-- BEGIN GENERATED METRICS (scripts/gen_metrics.py — do not edit inside) -->
 | Metric | Value (generated — do not hand-edit) |
 | ------ | ------------------------------------- |
-| Version | 0.38.1 |
+| Version | 0.38.2 |
 | Leak Suite | 56 negatives / 27 positives (examples/leak/ — the BLOCKING gate) |
 | Built-in Functions | 530 functions across 47 modules |
 | Typed Signatures | 377/530 (71.13%) — precise 244/530 (46.03%) |
@@ -20,7 +20,11 @@ construction.
 | Architecture Decisions | 203 ADRs |
 | Example Programs | 257 .mlog programs |
 | Reference | REFERENCE.md (~340 KB) — 100% registry coverage |
+<<<<<<< HEAD
 | Changelog | CHANGELOG.md (~212 KB) — every wave documented |
+=======
+| Changelog | CHANGELOG.md (~211 KB) — every wave documented |
+>>>>>>> 6de65f14 (Naryad №897 (fix round 1, the В79 lesson live): E0382 in the T1 pin (output moved before the assert-format use) + the generated docs/metrics.md block re-rendered under 0.38.2)
 | LICENSED_FLOOR (the 8D-1 machine fact, №841) | 10000 bp — the license class explicit + the license_note filled over the backend registry (ADR-0163/ADR-0202 terms) |
 | PASSPORT_FRESH (the 8D-1 machine fact, №841) | 10000 bp — the passports fresh within the 180-day verification window (the №842 rule) |
 | GRANT_COVERAGE (the 8B-1 machine fact, №846) | 10000 bp — the irreversible carriers whose rights decision passes the capability layer (ADR-0203 §2.7; the gate_034 floor) |

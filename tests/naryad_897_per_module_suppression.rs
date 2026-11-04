@@ -97,11 +97,14 @@ fn n897_imported_module_allow_comment_runs() {
     let main = main_calling("dep", "ReadSanctioned");
     let run = run_in_dir(&main, dir.path());
     match run {
-        Ok(output) => assert!(
-            output.unwrap_or_default().contains("hello"),
-            "the sanctioned module must run to its output, got: {:?}",
-            output
-        ),
+        Ok(output) => {
+            let text = output.unwrap_or_default();
+            assert!(
+                text.contains("hello"),
+                "the sanctioned module must run to its output, got: {:?}",
+                text
+            );
+        }
         Err(msg) => panic!(
             "the module's own allow-comment must sanction the run path, refused with: {}",
             msg

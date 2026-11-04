@@ -1,0 +1,49 @@
+# gate_042_goals.txt — the wave-81 W-J machine-fact floor (naryad №906)
+# =============================================================================
+# The №906 floor file: the ONLY-UP gate over the 8F-2/C9 machine fact —
+# the same discipline as the gate_034 goal record (№846), the gate_035
+# goals (№857), the gate_036 record (№862), the gate_037 record (№869),
+# the gate_038 record (№875), the gate_039 record (№881), the gate_040
+# record (№888) and the gate_041 record (№894). The floor value is the
+# wave's START floor = the wave-81 dispatch constant (gh#1803: 0.44 =
+# 8F-2/C9 (TAINT_SATURATION >= 10^9 + the audit report) — the point was
+# accepted by the owner in the dispatch, no further decision is needed
+# at the naryad level; the №841 form — the floor can rise, never fall):
+# 0.44 = 8F-2/C9 (TAINT_SATURATION 10^9).
+#
+# THE DEFINITION (ADR-0217 §2, the №903 record): TAINT_SATURATION is the
+# EXACT count of distinct taint-relevant programs the wave-81 generator
+# can emit — the integer product over LIVE anchors:
+#   Space = ScenarioVariants × SequenceSpace;
+#   ScenarioVariants = T × L × S × K × Z (the №904 roster rows × the
+#   three lane modules × the roster's distinct cross-checked sources ×
+#   the SINK_FUNCTIONS + SQL_ARG_POSITIONS sinks × the escape_html
+#   sanitizer entry);
+#   SequenceSpace = Σ_{k=0..B} F^k (the FORM_* roster to the statement
+#   budget, both read from the live fuzzer source).
+# It is NOT an execution count — no CI run executes the space; the
+# number is the guarantee that the corpus cannot memorize a tiny space
+# (the honesty form of №894: the count is CHECKED, not declared).
+#
+# The count is CHECKED, not declared: every factor is read from the
+# LIVE tree with a precise anchor (the quoted roster region in
+# tests/naryad_465_diff_fuzzer.rs, the lane-module presence, the
+# SINK_FUNCTIONS / SQL_ARG_POSITIONS statics, the escape_html
+# classification entry, the FORM_* roster and the budget constant) —
+# a dead anchor ZEROES the space (a vacuous class is a gate failure,
+# never a pass). The tamper traps in gen_metrics.py (--tamper-test)
+# prove the machine catches the roster row loss, the dead anchor
+# region, the removed lane/sink/sanitizer, the vacuum roster and the
+# floor lowering.
+#
+# The floor is ONLY-UP: the value below is the wave-81 dispatch
+# constant pinned by the checker (gen_metrics.py
+# TAINT_SATURATION_FLOOR_OWNER); a lowered floor in this file is
+# refused with a loud FLOOR LOWERING REFUSED (the №776 transaction
+# discipline — a re-pin is an OWNER decision, never a silent gate
+# edit). If the live product falls below the floor, the honest repair
+# is to RAISE the generator's reach (a real capability raise), never
+# to loosen the formula (ADR-0217 §2, verbatim).
+#
+# Fields (machine-read by scripts/gen_metrics.py load_floors_strict):
+goal_taint_saturation_min 1000000000

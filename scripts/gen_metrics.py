@@ -174,6 +174,49 @@ REPLAY_MATCH_FLOOR_OWNER_BP = 10000
 DECISION_TRACE_RS = REPO / "src" / "decision_trace.rs"
 REPLAY_E2E_RS = REPO / "tests" / "naryad_893_replay_coverage.rs"
 
+# №906 (wave 81 — W-J): the 8F-2/C9 machine fact — TAINT_SATURATION with
+# its own only-up floor file. The floor VALUE 10⁹ is the wave-81 dispatch
+# constant (gh#1803: the 0.44 gate, TAINT_SATURATION >= 10^9). The
+# definition lives in ADR-0217 §2 (the №903 record): the EXACT count of
+# distinct taint-relevant programs the wave-81 generator can emit — an
+# integer product over LIVE anchors, never declared (the №894 form: the
+# count is CHECKED, not declared). Every factor is read from the live
+# tree with a precise anchor:
+#   T — the scenario templates of the №904 roster (the quoted region in
+#       tests/naryad_465_diff_fuzzer.rs — the №862 quoted-region form);
+#   L — the live label lanes (the PRESENCE of the three lane modules —
+#       a removed lane module zeroes the factor);
+#   S — the live sources (the roster's distinct source fields, each
+#       cross-checked against the live label/classification/audit files);
+#   K — the live sinks (SINK_FUNCTIONS in src/audit.rs — the №565 list —
+#       plus the sql entry points SQL_ARG_POSITIONS in
+#       src/builtins_classification.rs — the №831 SSOT table);
+#   Z — the live sanitizer (the escape_html classification entry,
+#       src/builtins_classification.rs — the :142 anchor);
+#   F, B — the generator's statement forms (the FORM_* roster) and the
+#       statement budget (the budget constant), both in the live fuzzer
+#       source (the №766/№465 file).
+#   Space = ScenarioVariants × SequenceSpace;
+#   ScenarioVariants = T × L × S × K × Z;
+#   SequenceSpace = Σ_{k=0..B} F^k (python int — no overflow).
+GATE_042_GOALS = REPO / "scripts" / "ci" / "gate_042_goals.txt"
+TAINT_SATURATION_FLOOR_OWNER = 1_000_000_000
+TAINT_FUZZER_RS = REPO / "tests" / "naryad_465_diff_fuzzer.rs"
+TAINT_LANE_MODULES = (
+    REPO / "src" / "html_label.rs",
+    REPO / "src" / "sql_label.rs",
+    REPO / "src" / "secret_label.rs",
+)
+TAINT_SOURCE_ANCHORS = (
+    REPO / "src" / "html_label.rs",
+    REPO / "src" / "sql_label.rs",
+    REPO / "src" / "secret_label.rs",
+    REPO / "src" / "builtins_classification.rs",
+    REPO / "src" / "audit.rs",
+)
+AUDIT_RS = REPO / "src" / "audit.rs"
+CLASSIFICATION_RS = REPO / "src" / "builtins_classification.rs"
+
 APPROVAL_RS = REPO / "src" / "approval.rs"
 CI_YML = REPO / ".github" / "workflows" / "ci.yml"
 POLICY_ACTION_YML = REPO / "action.yml"
@@ -1083,6 +1126,185 @@ def replay_match_bp(
     return covered * 10000 // total
 
 
+# ── №906 (wave 81 — W-J, ADR-0217 §2): the TAINT_SATURATION machine ─────
+
+def _taint_roster_rows(fuzzer_text: str | None = None) -> list[tuple[str, ...]]:
+    """The №904 scenario roster (the №862 quoted-region form): the rows
+    between the `№904 taint roster BEGIN/END` markers in the LIVE fuzzer
+    source. The scan is TUPLE-based (a `(` followed — after any
+    whitespace, rustfmt may wrap the row — by a quote, closed at depth
+    0), every block must carry exactly 5 string fields; a lost marker
+    or a malformed block is a loud fail-closed panic — the count cannot
+    silently shrink."""
+    if fuzzer_text is None:
+        fuzzer_text = TAINT_FUZZER_RS.read_text(encoding="utf-8")
+    begin = fuzzer_text.find("№904 taint roster BEGIN")
+    if begin < 0:
+        raise ValueError(
+            "the roster marker BEGIN is lost from "
+            f"{TAINT_FUZZER_RS.name} — the machine source is unparsable"
+        )
+    rel_end = fuzzer_text[begin:].find("№904 taint roster END")
+    if rel_end < 0:
+        raise ValueError(
+            "the roster marker END is lost from " f"{TAINT_FUZZER_RS.name}"
+        )
+    section = fuzzer_text[begin : begin + rel_end]
+    # ALL scanning runs in BYTE coordinates (the markers' region carries
+    # multi-byte №/─ characters — mixing byte indices with str indices
+    # desynchronizes the block boundaries; bytes only, decode at the end).
+    b = section.encode("utf-8")
+    rows: list[tuple[str, ...]] = []
+    i = 0
+    while i < len(b):
+        first = i + 1
+        while first < len(b) and chr(b[first]).isspace():
+            first += 1
+        if b[i] == 0x28 and first < len(b) and b[first] == 0x22:
+            depth = 1
+            j = i + 1
+            while j < len(b) and depth > 0:
+                if b[j] == 0x28:
+                    depth += 1
+                elif b[j] == 0x29:
+                    depth -= 1
+                j += 1
+            block = b[i + 1 : j - 1].decode("utf-8")
+            fields = re.findall(r'"([^"]*)"', block)
+            if len(fields) != 5:
+                raise ValueError(
+                    "a roster row must carry exactly 5 fields (id, lane, "
+                    f"source, sink, expect), got {len(fields)}: {block!r}"
+                )
+            rows.append(tuple(fields))
+            i = j
+        else:
+            i += 1
+    return rows
+
+
+def _taint_lanes_alive() -> int:
+    """The live label lanes (ADR-0217 §2): L = the three lane modules
+    PRESENT — a removed lane module zeroes the factor (fail-closed:
+    a partially removed lane surface is not a smaller number, it is
+    zero — the lane semantics the generator rides on are gone)."""
+    return 3 if all(p.exists() for p in TAINT_LANE_MODULES) else 0
+
+
+def _taint_sources_alive(rows: list[tuple[str, ...]] | None = None) -> int:
+    """The live sources (ADR-0217 §2): S = the roster's DISTINCT source
+    fields, each cross-checked against the live label/classification/
+    audit files — a source the engine no longer names is not a source
+    (the factor drops to 0: a generator over dead names is a vacuum)."""
+    if rows is None:
+        rows = _taint_roster_rows()
+    if not rows:
+        return 0
+    anchor_text = " ".join(
+        p.read_text(encoding="utf-8") for p in TAINT_SOURCE_ANCHORS if p.exists()
+    )
+    sources = {row[2] for row in rows}
+    if any(s not in anchor_text for s in sources):
+        return 0
+    return len(sources)
+
+
+def _taint_sinks_alive(
+    audit_text: str | None = None, class_text: str | None = None
+) -> int:
+    """The live sinks (ADR-0217 §2): K = |SINK_FUNCTIONS| (the №565 list
+    in src/audit.rs) + |SQL_ARG_POSITIONS| (the №831 SSOT table in
+    src/builtins_classification.rs) — both parsed from the LIVE static
+    initializers, so a removed sink name lowers K (the tamper trap (в))."""
+    if audit_text is None:
+        audit_text = AUDIT_RS.read_text(encoding="utf-8")
+    if class_text is None:
+        class_text = CLASSIFICATION_RS.read_text(encoding="utf-8")
+    m = re.search(
+        r"const SINK_FUNCTIONS:\s*&\[&str\]\s*=\s*&\[(.*?)\];",
+        audit_text,
+        re.S,
+    )
+    if not m:
+        return 0
+    sinks = re.findall(r'"([^"]+)"', m.group(1))
+    m = re.search(
+        r"static SQL_ARG_POSITIONS:\s*&\[\(&str,\s*usize\)\]\s*=\s*&\[(.*?)\];",
+        class_text,
+        re.S,
+    )
+    if not m:
+        return 0
+    sql_points = re.findall(r'\("([^"]+)",\s*\d+\)', m.group(1))
+    return len(sinks) + len(sql_points)
+
+
+def _taint_sanitizer_alive(class_text: str | None = None) -> int:
+    """The live sanitizer (ADR-0217 §2): Z = 1 while the escape_html
+    classification entry stands (src/builtins_classification.rs — the
+    :142 anchor, the Sanitized stamp per audit.rs), else 0."""
+    if class_text is None:
+        class_text = CLASSIFICATION_RS.read_text(encoding="utf-8")
+    entry = re.search(
+        r'BuiltClassEntry \{ name: "escape_html",[^}]*rationale: '
+        r'"[^"]*[Ss]anitiz',
+        class_text,
+    )
+    return 1 if entry else 0
+
+
+def _taint_generator_fb(fuzzer_text: str | None = None) -> tuple[int, int]:
+    """The generator's statement forms and budget (ADR-0217 §2): F = the
+    FORM_* roster size, B = the statement budget constant — both read
+    from the LIVE fuzzer source (the №766/№465 file)."""
+    if fuzzer_text is None:
+        fuzzer_text = TAINT_FUZZER_RS.read_text(encoding="utf-8")
+    forms = re.findall(r"^const FORM_[A-Z_]+: u8", fuzzer_text, re.M)
+    m = re.search(r"let mut budget = (\d+)u32", fuzzer_text)
+    if not forms or not m:
+        return 0, 0
+    return len(forms), int(m.group(1))
+
+
+def taint_saturation(
+    roster: list[tuple[str, ...]] | None = None,
+    lanes: int | None = None,
+    sinks: int | None = None,
+    sanitizers: int | None = None,
+    forms: int | None = None,
+    budget: int | None = None,
+) -> int:
+    """TAINT_SATURATION — the exact count of distinct taint-relevant
+    programs the wave-81 generator can emit, an integer product over
+    LIVE anchors (№906, ADR-0217 §2):
+
+        Space = ScenarioVariants × SequenceSpace
+        ScenarioVariants = T × L × S × K × Z
+        SequenceSpace = Σ_{k=0..B} F^k
+
+    Every factor is READ from the live tree (the anchors in the module
+    docstring) — the count is CHECKED, not declared. A dead anchor
+    zeroes the space (a removed roster region, a removed lane module,
+    a removed sanitizer entry, a dead generator roster) — the vacuous
+    class is a gate failure, never a pass; python int — no overflow."""
+    rows = _taint_roster_rows() if roster is None else roster
+    t_variants = len(rows)
+    l_lanes = _taint_lanes_alive() if lanes is None else lanes
+    s_sources = _taint_sources_alive(rows)
+    k_sinks = _taint_sinks_alive() if sinks is None else sinks
+    z_sanitizers = _taint_sanitizer_alive() if sanitizers is None else sanitizers
+    f_forms, b_budget = _taint_generator_fb()
+    if forms is not None:
+        f_forms = forms
+    if budget is not None:
+        b_budget = budget
+    if 0 in (t_variants, l_lanes, s_sources, k_sinks, z_sanitizers, f_forms, b_budget):
+        return 0
+    scenario_variants = t_variants * l_lanes * s_sources * k_sinks * z_sanitizers
+    sequence_space = sum(f_forms**k for k in range(b_budget + 1))
+    return scenario_variants * sequence_space
+
+
 def tamper_test() -> int:
     """The RED harness (№841): the checkers MUST catch the fabricated
     records. Every trap asserts the floor DROPS under the tamper —
@@ -1692,12 +1914,115 @@ def tamper_test() -> int:
         )
         return 1
 
+    # ── №906 traps: the TAINT_SATURATION machine catches the tamper ──
+    # (the наряд-трэпы (а)–(д): the roster row loss, the dead anchor
+    # region, the removed lane/sink, the lowered floor, the vacuum).
+    full_taint = taint_saturation()
+
+    # Trap 40 (the clean-tree assertion, the №1306 form): the clean tree
+    # carries a space at or above the owner constant (the wave-81
+    # dispatch floor: 10^9).
+    if full_taint < TAINT_SATURATION_FLOOR_OWNER:
+        print(
+            "tamper-test: TRAP FAILED — the clean tree reads TAINT_SATURATION "
+            f"{full_taint} below the owner constant "
+            f"({TAINT_SATURATION_FLOOR_OWNER}): a live anchor or the "
+            "generator's reach drifted",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 41 (the vacuum control, the наряд-трэп (д), the №875 Trap 27
+    # form): an EMPTY roster reads 0 — a vacuous class is a gate
+    # failure, never a pass (the №621 lesson).
+    if taint_saturation(roster=[]) != 0:
+        print(
+            "tamper-test: TRAP FAILED — the empty roster must read 0 (the vacuous "
+            "class is a failure, never a pass)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 42 (the row-loss control, the наряд-трэп (а), the №894 Trap 37
+    # form): dropping a live scenario from the roster LOWERS the space —
+    # the machine follows the source. (The honest observable is the
+    # strict drop, not a floor breach: the live space is ~10^23, orders
+    # above the 10^9 floor — a single lost scenario cannot breach the
+    # floor arithmetically; the machine still MUST move with the source.)
+    if len(_taint_roster_rows()) > 0:
+        shrunk_roster = _taint_roster_rows()[:-1]
+        if taint_saturation(roster=shrunk_roster) >= full_taint:
+            print(
+                "tamper-test: TRAP FAILED — dropping a roster scenario did NOT "
+                "lower the saturation space (the declaration counted, not the code)",
+                file=sys.stderr,
+            )
+            return 1
+
+    # Trap 43 (the dead-anchor control, the наряд-трэп (б)): the roster
+    # region removed (the markers gone) is a LOUD failure — the machine
+    # refuses to read a dead source, it never silently passes.
+    try:
+        _taint_roster_rows("no markers here")
+        print(
+            "tamper-test: TRAP FAILED — the removed roster region must be a loud "
+            "failure, not a silent read",
+            file=sys.stderr,
+        )
+        return 1
+    except ValueError:
+        pass
+
+    # Trap 44 (the lane/sink removal, the наряд-трэп (в)): a removed lane
+    # module zeroes the L factor; a removed sink name lowers K — both
+    # move the machine (the lane-zero is the ADR's fail-closed form).
+    if taint_saturation(lanes=0) != 0:
+        print(
+            "tamper-test: TRAP FAILED — a removed lane module must ZERO the space "
+            "(the lane semantics are gone — the ADR-0217 fail-closed form)",
+            file=sys.stderr,
+        )
+        return 1
+    if taint_saturation(sinks=_taint_sinks_alive() - 1) >= full_taint:
+        print(
+            "tamper-test: TRAP FAILED — a removed sink name did NOT lower the "
+            "saturation space",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 45 (the sanitizer removal): the escape_html entry gone → the
+    # clean-twin half of the roster is unsanitizable → the space reads 0
+    # (the Z factor is the ADR's fail-closed form).
+    if taint_saturation(sanitizers=0) != 0:
+        print(
+            "tamper-test: TRAP FAILED — a removed sanitizer entry must ZERO the "
+            "space (the ADR-0217 fail-closed form)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 46 (the negative control, the наряд-трэп (г), the №846 form):
+    # the gate_042 floor LOWERED below the owner constant is a loud
+    # refusal (the floor is only-up — the wave-81 dispatch constant 10^9).
+    rep42_strict = load_floors_strict(GATE_042_GOALS)
+    taint_floor = rep42_strict.get("goal_taint_saturation_min")
+    if taint_floor is None or taint_floor < TAINT_SATURATION_FLOOR_OWNER:
+        print(
+            "tamper-test: TRAP FAILED — the gate_042 floor is below the owner "
+            "constant (the wave-81 dispatch constant: "
+            f"{TAINT_SATURATION_FLOOR_OWNER}) — the lowering is refused",
+            file=sys.stderr,
+        )
+        return 1
+
     print(
         "tamper-test: OK — the checkers catch the fabricated records "
         f"(LICENSED_FLOOR {full_lic} bp, PASSPORT_FRESH {full_pass} bp, "
         f"APPROVAL_COVERAGE {full_appr} bp, ATTEST_MAP {full_att} live rows, "
         f"PROVENANCE_SHARE {full_prov} bp, OFFLINE_SUITE {full_off} bp, "
-        f"JURISDICTION_MATRIX {full_jur}, REPLAY_MATCH {full_rep} bp; "
+        f"JURISDICTION_MATRIX {full_jur}, REPLAY_MATCH {full_rep} bp, "
+        f"TAINT_SATURATION {full_taint}; "
         "the traps lowered all)"
     )
     return 0
@@ -1743,6 +2068,7 @@ def full_block() -> str:
         f"| OFFLINE_SUITE (the 8E-1/C5 machine fact, №881) | {offline_suite_bp()} bp — the registered LLM-surface checks that execute without the external network (ADR-0208 §2.5; the gate_039 floor 8000 bp, only-up) |\n"
         f"| JURISDICTION_MATRIX (the 8D-2/C10 machine fact, №888) | {jurisdiction_matrix_count()} — the registered jurisdictions with ≥ 1 live rule in the seed matrix (ADR-0209 §4; the gate_040 floor 3, only-up) |\n"
         f"| REPLAY_MATCH (the 8G/C8 machine fact, №894) | {replay_match_bp()} bp — the registered decision carriers whose trace is written through the Ledger ACTION contour and verified by the replay_gate REPLAY_MATCH contract (ADR-0210 §3-4; the gate_041 floor 10000 bp, only-up) |\n"
+        f"| TAINT_SATURATION (the 8F-2/C9 machine fact, №906) | {taint_saturation()} — the exact reachable taint-program space of the wave-81 generator, the integer product over the live anchors (ADR-0217 §2; the gate_042 floor 10^9, only-up) |\n"
     )
 
 
@@ -1816,6 +2142,7 @@ def plan_summary_block() -> str:
         f"| OFFLINE_SUITE — the 8E-1/C5 machine fact (№881) | {offline_suite_bp()} bp |\n"
         f"| JURISDICTION_MATRIX — the 8D-2/C10 machine fact (№888) | {jurisdiction_matrix_count()} jurisdictions |\n"
         f"| REPLAY_MATCH — the 8G/C8 machine fact (№894) | {replay_match_bp()} bp |\n"
+        f"| TAINT_SATURATION — the 8F-2/C9 machine fact (№906) | {taint_saturation()} |\n"
     )
 
 
@@ -2295,6 +2622,52 @@ def main() -> int:
             f"(gate_041 floor {rep_floor}, only-up) — registry: "
             f"{len(rep_rows)} registered decision carriers "
             f"({rep_share // 100} live-wired %)"
+        )
+
+    # №906: the gate_042 only-up floor over the TAINT_SATURATION space
+    # (the gate_040/041 form): the owner-pinned wave-81 dispatch constant
+    # (10^9) can rise, never fall; the live product must hold the floor —
+    # a dead anchor (the roster region, a lane module, the sanitizer
+    # entry, a sink name) breaches it loudly.
+    if check:
+        try:
+            taint_floors = load_floors_strict(GATE_042_GOALS)
+        except ValueError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        taint_floor = taint_floors.get("goal_taint_saturation_min")
+        if taint_floor is None:
+            print(
+                "ERROR: gate_042_goals.txt carries no goal_taint_saturation_min floor",
+                file=sys.stderr,
+            )
+            return 2
+        if taint_floor < TAINT_SATURATION_FLOOR_OWNER:
+            print(
+                "FLOOR LOWERING REFUSED: gate_042 "
+                f"({taint_floor}) is below the owner constant "
+                f"({TAINT_SATURATION_FLOOR_OWNER} — the wave-81 dispatch constant, "
+                "gh#1803); the floor is only-up — the change is an explicit owner transaction",
+                file=sys.stderr,
+            )
+            return 1
+        taint_space = taint_saturation()
+        if taint_space < taint_floor:
+            print(
+                f"FLOOR BREACH: TAINT_SATURATION {taint_space} < the gate_042 floor "
+                f"{taint_floor} (only-up) — a live anchor of the saturation product "
+                "died (the roster region, a lane module, the sanitizer entry, a "
+                "sink name) or the generator's reach collapsed "
+                "(restore the anchor honestly — never a silent gate edit)",
+                file=sys.stderr,
+            )
+            return 1
+        t_roster = _taint_roster_rows()
+        print(
+            f"OK: the №906 floor holds — TAINT_SATURATION {taint_space} "
+            f"(gate_042 floor {taint_floor}, only-up) — roster: "
+            f"{len(t_roster)} scenario rows, "
+            f"{len({row[2] for row in t_roster})} live sources"
         )
 
     # №841: the RED harness (the tamper traps) — an explicit mode, run by

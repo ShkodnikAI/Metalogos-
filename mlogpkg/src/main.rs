@@ -1246,7 +1246,7 @@ fn name_document_divergence(expected_doc: &str, stored_doc: &str) {
             let sha = part
                 .split("\"sha256\":\"")
                 .nth(1)
-                .and_then(|s| s.split('\').next())
+                .and_then(|s| s.split('\\').next())
                 .unwrap_or("")
                 .to_string();
             rows.push((path, sha));

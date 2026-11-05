@@ -787,7 +787,7 @@ fn cmd_add(pkg: &str, version: Option<&str>) {
     }
 
     if let Some(old) = prev {
-        println!("Updated dependency: {} (was {})", pkg, old);
+        println!("Updated dependency: {} (was {})", pkg, old.version());
     } else {
         println!("Added dependency: {} = {}", pkg, resolved_version);
     }
@@ -1512,6 +1512,7 @@ mod tests {
                 edition: "2024".to_string(),
             },
             dependencies: deps_map,
+            registry: None,
         };
         let toml_str = toml::to_string_pretty(&manifest).unwrap();
         fs::write(pkg_dir.join("mlog.toml"), toml_str).unwrap();
@@ -1530,7 +1531,7 @@ mod tests {
         let manifest = Manifest {
             package: Package::default(),
             dependencies: HashMap::new(),
-        registry: None,
+            registry: None,
         };
         let graph = resolve_graph(&manifest, &registry).unwrap();
         assert!(graph.packages.is_empty());
@@ -1548,7 +1549,7 @@ mod tests {
         let manifest = Manifest {
             package: Package::default(),
             dependencies: deps,
-        registry: None,
+            registry: None,
         };
 
         let graph = resolve_graph(&manifest, &registry).unwrap();
@@ -1572,7 +1573,7 @@ mod tests {
         let manifest = Manifest {
             package: Package::default(),
             dependencies: deps,
-        registry: None,
+            registry: None,
         };
 
         let graph = resolve_graph(&manifest, &registry).unwrap();
@@ -1608,7 +1609,7 @@ mod tests {
         let manifest = Manifest {
             package: Package::default(),
             dependencies: deps,
-        registry: None,
+            registry: None,
         };
 
         let err = resolve_graph(&manifest, &registry).unwrap_err();
@@ -1632,7 +1633,7 @@ mod tests {
         let manifest = Manifest {
             package: Package::default(),
             dependencies: deps,
-        registry: None,
+            registry: None,
         };
 
         let err = resolve_graph(&manifest, &registry).unwrap_err();
@@ -1656,7 +1657,7 @@ mod tests {
         let manifest = Manifest {
             package: Package::default(),
             dependencies: deps,
-        registry: None,
+            registry: None,
         };
 
         let err = resolve_graph(&manifest, &registry).unwrap_err();
@@ -1688,7 +1689,7 @@ mod tests {
         let manifest = Manifest {
             package: Package::default(),
             dependencies: deps,
-        registry: None,
+            registry: None,
         };
 
         let graph1 = resolve_graph(&manifest, &registry).unwrap();

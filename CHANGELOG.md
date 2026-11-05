@@ -6,6 +6,24 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№913 (issue #1815, wave 82 — W-K, P2, [security][docs]):** the C7
+  trigger-readiness report — docs/audits/repro-readiness-2026-11.md
+  (the №907 form; the «отчёт аудита» artifact of the 0.45 line): the
+  roster table with the machine verdicts (REPRO_BITFORBIT 10000 bp,
+  11/11 live-wired — every number regenerable by gen_metrics), the
+  release digest chain audited from the workflow source (the locked
+  build, the BUILD-INFO toolchain record, the SBOM-for-exactly-that-
+  binary binding, the SHA256SUMS attach, the Sigstore keyless
+  attestations), the C7 trigger contract VERBATIM (R38(8): the first
+  gov/bank pilot fires the bit-for-bit toolchain lane; Nix stays closed
+  until then), the honest limits (ADR-0218 §5), the prior art (the
+  kamerton cycle №618, the deterministic lockfile №198). The sync:
+  docs/limitations.md — the Package Registry Integrity section (the
+  pinned-chain model, NOT a PKI; the trigger-gated toolchain lane);
+  docs/threat-model.md — the supply-chain boundary (what the signed
+  registry catches / what remains). The external audit is NOT procured
+  by this wave — the kamerton form stays the owner-forwarded channel.
+
 - **№912 (issue #1814, wave 82 — W-K, P1, [testing][ci]):** the
   REPRO_BITFORBIT machine fact + gate_043 (ADR-0218 §2 — the machine
   builds the ADR's definition, never its own). The roster

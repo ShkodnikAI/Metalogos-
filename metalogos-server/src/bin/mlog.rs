@@ -1236,6 +1236,14 @@ fn cmd_serve(file: PathBuf) {
         eprintln!(
             "[serve] LLM MOCK MODE ACTIVE (METALOGOS_MOCK_LLM) — every LLM call returns a deterministic mock marker, NOT a model answer"
         );
+    } else if !metalogos::llm::external_llm_declared() {
+        // №898: the unconfigured posture is loud at the serve startup
+        // too (the №454 лекало above): a program calling call_llm
+        // under this server will REFUSE at the first call — the
+        // operator sees the refusal class before the first request.
+        eprintln!(
+            "[serve] LLM UNCONFIGURED — every LLM call will refuse at the first call (№898). Configure one of: METALOGOS_LLM_PROVIDER (+ METALOGOS_API_KEY), METALOGOS_OPENAI_BASE_URL, an llm {{ providers: [...] }} block in the program — or opt in explicitly to the deterministic offline mock with METALOGOS_MOCK_LLM=1. The /health x-llm-mode header carries: unconfigured"
+        );
     }
 
     let rt = tokio::runtime::Builder::new_multi_thread()

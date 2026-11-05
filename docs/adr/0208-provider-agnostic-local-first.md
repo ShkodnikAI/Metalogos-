@@ -1,8 +1,12 @@
 # ADR-0208: Provider-Agnostic Local-First — the LLM Layer as a Provider-Agnostic Contract (the 8E-1 / C5 Subphase Record)
 
-- Status: **Proposed** (the ACCEPTED path is the wave-78 acceptance —
-  the dispatch gh#1745 issued the subphase's naryads the same week; the
-  wave acceptance fixes the ADR status as Accepted)
+- Status: **Accepted** (2026-11-05, WITH the №898 amendment — the
+  owner decision 04.11: the §2 п.2 local-first default is re-read as
+  the EXPLICIT local provider choice; the silent nothing-declared
+  serve is rolled back. The earlier Proposed note: the wave-78
+  acceptance was the acceptance path; №898 lands the amendment in the
+  same transaction as the status move — an Accepted ADR cannot keep a
+  decision its owner has reversed)
 - Date: 2026-11-02
 - Deciders: the OWNER (the R38 train — 0.41 = 8E-1 (C5, OFFLINE_SUITE
   ≥ 8000 bp); the wave-78 dispatch gh#1745; the «Заливай следующую
@@ -83,17 +87,33 @@ The honest gaps this record closes:
    The local provider (`MockLlm`, the deterministic non-echo backend
    of №454/№487) is a FULL-RIGHT member of the implementation roster,
    not a test stub.
-2. **Local-first: the absence of external configuration is the NORMAL
-   operating mode.** A program with no `llm { providers: … }` block
-   and no explicit external-provider declaration runs on the local
-   provider — the deterministic answer, zero network. The network is
-   an OPTIMIZATION layered on top by explicit declaration (`llm{}` or
+2. **Local-first: the EXPLICIT local provider choice — amended by
+   №898 (the owner decision 04.11, BREAKING; the original №879 wording
+   — «the absence of external configuration is the NORMAL operating
+   mode» — is REVERSED).** Local-first means the LOCAL PROVIDER is a
+   first-class, explicitly selectable member of the implementation
+   roster — it does NOT mean the absence of configuration silently
+   selects it. A program with no `llm { providers: … }` block and no
+   explicit external declaration gets a LOUD REFUSAL at the first
+   `call_llm` naming every configuration surface
+   (`METALOGOS_LLM_PROVIDER` / `METALOGOS_API_KEY` /
+   `METALOGOS_OPENAI_BASE_URL` / the `llm {}` block) — a value a
+   program builds on is never a mock marker mistaken for a model
+   answer (the №454 lesson at full strength). The deterministic local
+   provider answers when EXPLICITLY chosen: `METALOGOS_MOCK_LLM=1`
+   (the test fixture flag, the loud `[serve] LLM MOCK MODE ACTIVE`
+   line at startup, the `x-llm-mode: mock` /health header) or the
+   in-program explicit local rung
+   (`llm { providers: [{alias: mock, provider: local}] }` — the
+   SmartRouter's covered local fallback, №880 §4). The network is an
+   OPTIMIZATION layered on top by explicit declaration (`llm{}` or
    the `METALOGOS_LLM_PROVIDER` env — the existing declaration
    surfaces, unchanged); it is never a precondition of the surface
-   working. The №454 loudness lesson is preserved: the local answer
-   carries the deterministic marker of the local provider (`mock_response`) in the value
-   itself — a local-first answer is VISIBLE as such, never a silent
-   stand-in for an external voice.
+   working — the refusal names the cheapest working configuration.
+   The №454 loudness lesson is preserved on BOTH lanes: the local
+   answer carries the deterministic marker of the local provider
+   (`mock_response`) in the value itself — a local answer is VISIBLE
+   as such, never a silent stand-in for an external voice.
 3. **The failover chain is a contract behavior, not a provider
    behavior.** The `failover: auto` cycle (grammar.pest:39) and the
    `circuit_breaker` threshold (grammar.pest:40) are SEMANTICS OF THE

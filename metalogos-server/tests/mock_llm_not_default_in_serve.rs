@@ -124,7 +124,7 @@ fn run_vm(source: &str) -> Result<Option<String>, String> {
 // answer (№879/ADR-0208 §2.2: the visible marker, never the old echo)
 
 #[tokio::test]
-async fn n454_nothing_declared_answers_on_the_local_provider() {
+async fn n454_nothing_declared_refuses_in_serve() {
     let _guard = N454_LOCK.lock().await;
     std::env::remove_var("METALOGOS_MOCK_LLM");
     std::env::remove_var("METALOGOS_LLM_PROVIDER");
@@ -137,14 +137,18 @@ async fn n454_nothing_declared_answers_on_the_local_provider() {
     handle.abort();
     clear_serve_env();
     assert_no_marker(&body, "serve nothing-declared");
-    assert_eq!(
+    // №898: the nothing-declared serve lane answers the route with the
+    // LOUD LLM refusal (500-class, the unconfigured posture) — the body
+    // names the configuration surfaces; a mock marker never materializes
+    // from an unconfigured system (the №879 default is rolled back).
+    assert_ne!(
         status, 200,
-        "the local-first default must serve the route (ADR-0208 §2.2) — body: {}",
+        "the unconfigured serve lane must NOT answer 200 with a marker — body: {}",
         body
     );
     assert!(
-        body.contains("[mock-llm:"),
-        "the local-first answer must be the VISIBLE deterministic marker — body: {}",
+        body.contains("METALOGOS_LLM_PROVIDER") && body.contains("METALOGOS_MOCK_LLM"),
+        "the unconfigured serve body must name the configuration surfaces — body: {}",
         body
     );
 }
@@ -205,7 +209,7 @@ async fn n454_explicit_mock_answers_non_echo_marker_in_serve() {
 // ── (3) Flow-path parity, nothing declared: the local provider answers ──
 
 #[test]
-fn n454_flow_nothing_declared_answers_on_the_local_provider_vm() {
+fn n454_flow_nothing_declared_refuses_vm() {
     let _guard = N454_LOCK.blocking_lock();
     std::env::remove_var("METALOGOS_MOCK_LLM");
     std::env::remove_var("METALOGOS_LLM_PROVIDER");
@@ -213,14 +217,15 @@ fn n454_flow_nothing_declared_answers_on_the_local_provider_vm() {
     std::env::remove_var("METALOGOS_OPENAI_BASE_URL");
     let result = run_vm(N454_FLOW);
     clear_serve_env();
-    let out = result
-        .expect("VM flow with nothing declared answers on the local provider (№879)")
-        .unwrap_or_default();
-    assert_no_marker(&out, "VM flow nothing-declared");
+    let err = result.expect_err(
+        "VM flow with nothing declared must REFUSE (№898) — a marker \
+                     here would be the rolled-back №879 posture",
+    );
+    assert_no_marker(&err, "VM flow nothing-declared");
     assert!(
-        out.starts_with("[mock-llm:") && out.ends_with("]"),
-        "VM parity: the visible deterministic local marker, got: {}",
-        out
+        err.contains("METALOGOS_LLM_PROVIDER") && err.contains("METALOGOS_MOCK_LLM"),
+        "the VM parity refusal names the configuration surfaces — err: {}",
+        err
     );
 }
 

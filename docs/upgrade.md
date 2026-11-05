@@ -156,6 +156,44 @@ local weights:
   days (`PASSPORT_FRESHNESS_DAYS`) — a stale verification is a
   re-verification task, not a silent pass.
 
+## 0.38 → next (№898 — the LLM loud posture, BREAKING)
+
+`call_llm` without ANY LLM configuration now REFUSES at the first call.
+The silent local-first mock default (№879) is rolled back (the owner
+decision 04.11; ADR-0208 §2 п.2 is amended — the Accepted text): a value
+a program builds on is never a mock marker mistaken for a model answer.
+
+**The refusal** names every configuration surface:
+
+```
+LLM is not configured — `call_llm` refuses (№898: no LLM env var and no
+`llm {}` declaration is set, and the silent mock default is rolled back).
+Configure ONE of: `METALOGOS_LLM_PROVIDER` (+ `METALOGOS_API_KEY` for
+anthropic/openai), `METALOGOS_OPENAI_BASE_URL`, an `llm { providers: [...] }`
+block in the program — or opt in EXPLICITLY to the deterministic offline
+mock with `METALOGOS_MOCK_LLM=1` (or the in-program local rung
+`llm { providers: [{alias: mock, provider: local}] }`).
+```
+
+**The migration** — pick ONE per program:
+
+| You had | You do |
+|---|---|
+| relied on the silent mock answer (the `mock-llm:<hex>` marker) | add `METALOGOS_MOCK_LLM=1` to the environment, or declare the explicit local rung in the program: `llm { providers: [{alias: mock, provider: local}] }` |
+| called a real provider through env | set `METALOGOS_LLM_PROVIDER` (+ `METALOGOS_API_KEY` for anthropic/openai) or `METALOGOS_OPENAI_BASE_URL` — unchanged from №454 |
+| routed through an `llm { providers: [...] }` block | nothing — the declared lane is untouched (the SmartRouter composition never read the rolled-back default) |
+
+**The operator surfaces** (serve): the startup prints
+`[serve] LLM UNCONFIGURED — every LLM call will refuse at the first call`
+when nothing is declared; the built-in `/health` carries the
+`x-llm-mode` header — `mock` / `declared` / `unconfigured` (the body
+stays exactly `ok`, the №511 probe pin is untouched).
+
+**What did NOT change:** a DECLARED provider without its key still fails
+loudly naming `METALOGOS_API_KEY` (№454, on the declared lane); the
+SmartRouter `llm {}` semantics, the failover/circuit-breaker contract and
+the marker format (`[mock-llm:<hex>]`, №487) are byte-identical.
+
 ### The machine that keeps this honest
 
 - `scripts/ci/breaking_change_gate.py` (the blocking
@@ -163,7 +201,12 @@ local weights:
   `GRANT_ALWAYS` / `PROFILE_PERMIT_SHARP` / `HUMAN_OVERSIGHT` without a
   `### Changed` BREAKING row naming it in the pending CHANGELOG section
   is RED. The next deny-path lands with its migration row or does not
-  land.
+  land. №898 extends the same gate to the POSTURE-DEFAULT sites (the
+  composition sites whose default branch decides refuse-vs-serve —
+  `create_llm_backend` is the first): a tag range that adds, removes or
+  flips a `posture-default (<site>): serve|refuse` marker without a
+  BREAKING row naming the site is RED — a silent default flip cannot
+  ship undocumented (the №879 lesson).
 - `tests/naryad_865_migration_path.rs`: the 0.34.1-shaped program
   (`http_post` + `send_message` + `cron_run`) — unmigrated it refuses
   with the named carrier and paths; migrated per this page it passes

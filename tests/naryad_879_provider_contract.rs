@@ -83,36 +83,44 @@ fn assert_no_marker(text: &str, what: &str) {
     );
 }
 
-fn assert_visible_local(answer: &str, what: &str) {
-    assert!(
-        answer.starts_with("[mock-llm:") && answer.ends_with("]"),
-        "{}: the local-first answer must be the VISIBLE deterministic marker (ADR-0208 §2.2), got: {}",
-        what,
-        answer
-    );
-    assert_no_marker(answer, what);
-}
-
 // ── T1: the local-first default, both lanes ──────────────────────────
 
 #[test]
-fn n879_t1_local_first_default_tw_lane() {
+fn n879_t1_unconfigured_default_refuses_tw_lane() {
     let _env = lock_env();
     clear_llm_env();
-    let out = metalogos::run_program(N879_LEARNABLE)
-        .expect("the local-first default must answer (ADR-0208 §2.2)")
-        .unwrap_or_default();
-    assert_visible_local(&out, "TW lane local-first");
+    // №898 (the owner decision 04.11): the nothing-declared default
+    // REFUSES on the TW lane — the №879 silent local-first serve is
+    // rolled back; the explicit local rung (T5) is the visible local
+    // answer path now.
+    let err = metalogos::run_program(N879_LEARNABLE).expect_err(
+        "the unconfigured default must REFUSE (№898) — a marker \
+                     here would be the rolled-back №879 posture; the mutation \
+                     probe: restore MockLlm into the default branch, this test \
+                     goes RED",
+    );
+    assert!(
+        err.contains("METALOGOS_LLM_PROVIDER") && err.contains("METALOGOS_MOCK_LLM"),
+        "the unconfigured refusal names the configuration surfaces — got: {}",
+        err
+    );
+    assert_no_marker(&err, "TW unconfigured");
 }
 
 #[test]
-fn n879_t1_local_first_default_vm_lane() {
+fn n879_t1_unconfigured_default_refuses_vm_lane() {
     let _env = lock_env();
     clear_llm_env();
-    let out = run_vm(N879_LEARNABLE)
-        .expect("the VM lane answers on the local-first default too (the shared seam)")
-        .unwrap_or_default();
-    assert_visible_local(&out, "VM lane local-first");
+    // №898: the VM lane carries the same loud posture (the shared seam —
+    // the parity with T2's declared-external refusal).
+    let err = run_vm(N879_LEARNABLE)
+        .expect_err("the VM lane refuses on the unconfigured default too (№898)");
+    assert!(
+        err.contains("METALOGOS_LLM_PROVIDER") && err.contains("METALOGOS_MOCK_LLM"),
+        "the VM parity refusal names the configuration surfaces — got: {}",
+        err
+    );
+    assert_no_marker(&err, "VM unconfigured");
 }
 
 // ── T2: the declared external lane keeps the №454 fail-loud posture ──
@@ -154,21 +162,26 @@ fn n879_t2_declared_external_fails_loud_vm_lane() {
 // ── T3: the empty llm{} block — the router's empty-chain seam ────────
 
 #[test]
-fn n879_t3_empty_llm_block_runs_local_first() {
+fn n879_t3_empty_llm_block_refuses_unconfigured() {
     let _env = lock_env();
     clear_llm_env();
     // A clean install: clear any router a previous test left behind —
     // the empty block under test installs its own.
     metalogos::llm::clear_global_smart_router();
-    // An `llm { }` block with NO provider entries: the block declares
-    // nothing external — the empty-chain seam composes the local
-    // provider (ADR-0208 §2.2; the SmartRouter empty-providers branch
-    // rides create_llm_backend).
+    // №898: an `llm { }` block with NO provider entries declares
+    // NOTHING external — the empty-chain seam composes through
+    // create_llm_backend and carries the SAME loud refusal (an empty
+    // roster is not a mock authorization; the explicit local rung —
+    // provider: local — is the visible-answer path now).
     let src = format!("llm {{ }}\n{}", N879_LEARNABLE);
-    let out = metalogos::run_program(&src)
-        .expect("the empty llm{} block is the local-first default, never an error")
-        .unwrap_or_default();
-    assert_visible_local(&out, "empty llm{} block");
+    let err = metalogos::run_program(&src)
+        .expect_err("the empty llm{} block refuses on the unconfigured posture (№898)");
+    assert!(
+        err.contains("METALOGOS_LLM_PROVIDER") && err.contains("METALOGOS_MOCK_LLM"),
+        "the empty-block refusal names the configuration surfaces — got: {}",
+        err
+    );
+    assert_no_marker(&err, "empty llm{} block");
 }
 
 // ── T4: the call_llm builtin's fallback seam ─────────────────────────
@@ -189,17 +202,20 @@ pattern Ask(question: String) -> String {
 }
 flow Main { input: String = "hi" -> Ask -> output }
 "#;
-    // Nothing declared → the fallback seam composes the LOCAL provider:
-    // the visible marker, never the old loud real-backend failure and
-    // never the explicit-mock echo lane.
-    let out = metalogos::run_program(src)
-        .expect("call_llm with nothing declared answers on the local provider")
-        .unwrap_or_default();
-    assert_visible_local(&out, "call_llm fallback seam");
+    // №898: Nothing declared → the fallback seam carries the LOUD
+    // refusal (the same composition site as the router-less path).
+    let err = metalogos::run_program(src)
+        .expect_err("call_llm with nothing declared refuses on the fallback seam (№898)");
     assert!(
-        !out.contains("[MOCK:"),
+        err.contains("METALOGOS_LLM_PROVIDER") && err.contains("METALOGOS_MOCK_LLM"),
+        "the fallback-seam refusal names the configuration surfaces — got: {}",
+        err
+    );
+    assert_no_marker(&err, "call_llm fallback seam");
+    assert!(
+        !err.contains("[MOCK:"),
         "the [MOCK:] lane is the EXPLICIT opt-in only (№478 declared semantics) — got: {}",
-        out
+        err
     );
 
     // The explicit mock opt-in keeps its exact declared semantics (1:1,

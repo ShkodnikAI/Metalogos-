@@ -123,9 +123,12 @@ pattern verify_admin(user: String) -> String {
         .expect("the fixture must parse cleanly (the gate is the semantic pass)");
     // The gate runs BEFORE the allowlist check and BEFORE the stdin loop:
     // the refusal returns without ever reading stdin — safe to call here.
-    let err =
-        metalogos_server::mcp_server::run_mcp_server(&declarations, &["access.check".to_string()])
-            .expect_err("mcp-serve must refuse at startup: is_admn is undefined");
+    let err = metalogos_server::mcp_server::run_mcp_server(
+        &declarations,
+        src,
+        &["access.check".to_string()],
+    )
+    .expect_err("mcp-serve must refuse at startup: is_admn is undefined");
     let text = err.to_string();
     assert!(
         text.contains("Naryad #557"),
@@ -144,7 +147,7 @@ pattern verify_admin(user: String) -> String {
     );
     // The same refusal through the gate function directly (the
     // entrypoint-independent contract).
-    assert!(metalogos_server::mcp_server::enforce_semantic_startup(&declarations).is_err());
+    assert!(metalogos_server::mcp_server::enforce_semantic_startup(&declarations, src).is_err());
 }
 
 // ── mcp-serve|semantic|import-resolution — blocks (№557 proper) ──────
@@ -161,7 +164,7 @@ tool greets {
 }
 "#;
     let declarations = metalogos::parser::parse(src).expect("the fixture must parse");
-    let err = metalogos_server::mcp_server::enforce_semantic_startup(&declarations)
+    let err = metalogos_server::mcp_server::enforce_semantic_startup(&declarations, src)
         .expect_err("a statically-unresolvable import must refuse the mcp-serve startup");
     let text = err.to_string();
     assert!(
@@ -170,9 +173,12 @@ tool greets {
         text
     );
     // The entrypoint refuses too — BEFORE the stdin loop (never blocks).
-    let err =
-        metalogos_server::mcp_server::run_mcp_server(&declarations, &["greets.hello".to_string()])
-            .expect_err("the stdio entrypoint must refuse the missing import");
+    let err = metalogos_server::mcp_server::run_mcp_server(
+        &declarations,
+        src,
+        &["greets.hello".to_string()],
+    )
+    .expect_err("the stdio entrypoint must refuse the missing import");
     assert!(
         err.to_string().contains("Naryad #557"),
         "the entrypoint refusal is the coded gate refusal: {}",
@@ -192,7 +198,7 @@ tool greets {
 }
 "#;
     let declarations = metalogos::parser::parse(src).expect("the clean fixture must parse");
-    metalogos_server::mcp_server::enforce_semantic_startup(&declarations)
+    metalogos_server::mcp_server::enforce_semantic_startup(&declarations, src)
         .expect("a clean tool file passes the semantic gate");
     // And the Cat A gate agrees (the both-gates posture).
     metalogos_server::mcp_server::enforce_category_a_startup(&declarations)
@@ -209,7 +215,7 @@ fn n557_every_entrypoint_carries_both_gates() {
         .matches("enforce_category_a_startup(declarations)?;")
         .count();
     let semantic_calls = src
-        .matches("enforce_semantic_startup(declarations)?;")
+        .matches("enforce_semantic_startup(declarations, source)?;")
         .count();
     assert!(
         cat_a_calls >= 3,

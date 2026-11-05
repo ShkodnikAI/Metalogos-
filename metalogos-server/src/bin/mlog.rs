@@ -1035,7 +1035,9 @@ fn cmd_mcp_serve(
                 "[mcp-serve] note: --bind/--auth-token apply to http/sse only; ignoring for stdio"
             );
         }
-        if let Err(e) = metalogos_server::mcp_server::run_mcp_server(&declarations, allowlist) {
+        if let Err(e) =
+            metalogos_server::mcp_server::run_mcp_server(&declarations, &source, allowlist)
+        {
             eprintln!("error: {}", e);
             std::process::exit(1);
         }
@@ -1063,6 +1065,7 @@ fn cmd_mcp_serve(
     {
         if let Err(e) = metalogos_server::mcp_server::run_mcp_server_network(
             &declarations,
+            &source,
             allowlist,
             transport,
             &bind_addr,

@@ -256,8 +256,12 @@ fn stdio_entrypoint_enforces_the_startup_gate() {
     // run_mcp_server gates BEFORE the stdin loop — a dirty file is
     // refused for what it IS, not for what it exposes.
     let decls = parse(DYNAMIC_SQL_TOOL_SOURCE);
-    let err = metalogos_server::mcp_server::run_mcp_server(&decls, &["admin.wipe".to_string()])
-        .expect_err("the stdio entrypoint must refuse the dirty file");
+    let err = metalogos_server::mcp_server::run_mcp_server(
+        &decls,
+        DYNAMIC_SQL_TOOL_SOURCE,
+        &["admin.wipe".to_string()],
+    )
+    .expect_err("the stdio entrypoint must refuse the dirty file");
     assert!(err.contains("Category A"), "{}", err);
     assert!(err.contains("SQL_DYNAMIC"), "{}", err);
 }
@@ -273,6 +277,7 @@ mod network {
         // sync call that returns before any serving starts.
         let err = metalogos_server::mcp_server::run_mcp_server_network(
             &decls,
+            LITERAL_SQL_TOOL_SOURCE,
             &["admin.wipe".to_string()],
             "http",
             "127.0.0.1:0",
@@ -290,6 +295,7 @@ mod network {
         let decls = parse(DYNAMIC_SQL_TOOL_SOURCE);
         let err = metalogos_server::mcp_server::run_test_mcp_server(
             &decls,
+            DYNAMIC_SQL_TOOL_SOURCE,
             &["admin.wipe".to_string()],
             &McpAuth::OpenLocal,
         )

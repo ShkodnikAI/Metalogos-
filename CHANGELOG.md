@@ -485,6 +485,57 @@ All notable changes to the Metalogos project.
   date 2026-10-28 (the форма №721 re-cut that never ran; the
   planned-window 2026-11-02 stamp was a lie the release notes carried).
 
+## [0.38.3] - 2026-11-05
+
+The unscheduled patch cut (the 0.28.1/0.30.1/0.38.1/0.38.2 shape —
+ADR-0189: an unscheduled cut is a PERMITTED exception when a defect
+cannot wait for the next Monday window, with the reason recorded in
+the release notes). The reason: the №897 fix stopped at the RUN gate —
+the №523 serve gate (metalogos-server/src/server.rs:811) still
+filtered against the ENTRY source text only, and the №557 mcp-serve
+gate (metalogos-server/src/mcp_server.rs `enforce_semantic_startup`)
+held the UNFILTERED refusal surface (the №802-era "no source threading
+through the MCP entrypoints" note): a program clean under
+`mlog check` — and running under `mlog run` since 0.38.2 — refused at
+`mlog serve`/mcp-serve startup when the allow-comment sat in an
+IMPORTED module (the same consumer evidence as №897: fosved-acc
+carries 22 sanctioned allow-comments in 10 imported modules; on
+v0.38.2 the serve-path polygons stay down). Fixed-only: the
+[Unreleased] wave rows stay pending for the next minor train — the
+patch cut does not carry them (the 0.30.1 form). The publication is
+the OWNER act (ADR-0186 §4.5); release.yml attaches the binary, the
+SBOM, the attestations and SHA256SUMS on publish.
+
+### Fixed
+
+- **№915 (issue #1819 — [process][bugfix]):** the №897 per-module
+  suppression surface completes the check ↔ run ↔ serve triangle —
+  every startup gate now applies the same
+  `filter_suppressed_unchecked_per_module` over the same
+  `resolve_import_groups` landing: the №523 serve gate
+  (metalogos-server/src/server.rs) swaps the entry-only filter for the
+  groups form, and the №557 mcp-serve gate
+  (metalogos-server/src/mcp_server.rs `enforce_semantic_startup`) takes
+  the entry source threaded through all three entrypoints (the stdio
+  loop, the http/sse network transport, the test harness — the bin
+  caller reads the file before parse, so the threading is a parameter,
+  not an I/O change) and applies the same per-module filter — the
+  №802-era fail-closed asymmetry note ("no source threading through
+  the MCP entrypoints in this naryad") is CLOSED. The filter itself is
+  unchanged (the per-line quota, the non-empty-reason rule); one
+  module's allow-comment cannot launder another module's access (the
+  №802 laundering rule, now pinned on the serve path too); no-import
+  programs behave byte-identically to 0.38.2 (the empty-group case
+  degenerates to the old entry-only filter). Pinned by the serve/mcp
+  regression battery
+  (`metalogos-server/tests/naryad_915_serve_gate_suppression.rs`,
+  6 tests) with the RED-before run on main 8bcee429: the three
+  positive arms refused with "semantic findings block serve
+  startup"/"block mcp-serve startup", the negative arms and the
+  laundering pin held. The process honesty ride: the №897 row in
+  [0.38.2] carried the placeholder "issue #ISSUE_NUM" — pinned
+  retroactively to gh#1789 (the index must not carry lies).
+
 ## [0.38.2] - 2026-11-04
 
 The unscheduled patch cut (the 0.28.1/0.30.1/0.38.1 shape — ADR-0189:
@@ -506,7 +557,7 @@ SHA256SUMS on publish.
 
 ### Fixed
 
-- **№897 (issue #ISSUE_NUM — [process][bugfix]):** the №523 run/serve
+- **№897 (issue #1789 — [process][bugfix]):** the №523 run/serve
   gate applies the №802 allow-comment suppression PER MODULE — each
   finding is sanctioned only by its own module's source text. The bug:
   `enforce_run_gates` checked the MERGED surface (entry ++

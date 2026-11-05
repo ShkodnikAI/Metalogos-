@@ -6,6 +6,30 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№912 (issue #1814, wave 82 — W-K, P1, [testing][ci]):** the
+  REPRO_BITFORBIT machine fact + gate_043 (ADR-0218 §2 — the machine
+  builds the ADR's definition, never its own). The roster
+  (scripts/ci/gate_043_goals.txt, the №862/№894 form): 11 registered
+  reproduction carriers — the mlogpkg package path (the pack-twice byte
+  identity, sign→verify happy, the digest-verify tamper/foreign-key
+  refusals, the lockfile determinism, the pinned-happy build, the
+  tamper-before-semantic-check order, the advisory-after-integrity
+  order) plus the release digest chain (the SHA256SUMS attach, the
+  CycloneDX SBOM, the Sigstore keyless attestations in release.yml).
+  The count is CHECKED, not declared: a row counts ONLY on its needle
+  literal in the named live source AND both composition sites
+  (`fn verify_dependency_integrity` + `fn build_digest_document`, the
+  №874 form) standing in mlogpkg/src/main.rs. The floor 10000 bp
+  only-up (the wave-82 dispatch constant gh#1817; FLOOR LOWERING
+  REFUSED / FLOOR BREACH in --check); the tamper traps 40–45 (the
+  clean tree, the vacuous roster, the forged row, the row loss — the
+  №894 Trap-37 honest covered-count observable, the dead composition,
+  the floor lowering); the GENERATED rows in docs/metrics.md +
+  docs/PLAN-SUMMARY.md; the double --check run deterministic.
+  The honest scope (ADR-0218 §5): the registry package path + the
+  release digest chain — NOT the bit-for-bit toolchain build (the C7
+  trigger R38(8)).
+
 - **№911 (issue #1813, wave 82 — W-K, P1, [registry][core]):** the build
   integrity gate (ADR-0218 §4.2) — the fail-closed coverage rule:
   `mlog.toml [dependencies]` grows the pinned form

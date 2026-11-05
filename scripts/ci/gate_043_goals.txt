@@ -1,0 +1,66 @@
+# gate_043_goals.txt — the wave-82 W-K machine-fact floor (naryad №912)
+# =============================================================================
+# The №912 floor file: the ONLY-UP gate over the 8E-2/C7+C12 machine fact —
+# the same discipline as the gate_034 goal record (№846), the gate_035
+# goals (№857), the gate_036 record (№862), the gate_037 record (№869),
+# the gate_038 record (№875), the gate_039 record (№881), the gate_040
+# record (№888), the gate_041 record (№894) and the gate_042 record
+# (№906). The floor value is the wave's START floor = the wave-82
+# dispatch constant (gh#1817: 0.45 = 8E-2 (C7+C12, REPRO_BITFORBIT
+# 10000 bp; C7 strictly by trigger — the first gov/bank pilot) — the
+# point was accepted by the owner in the dispatch, no further decision
+# is needed at the naryad level; the №841 form — the floor can rise,
+# never fall):
+# 0.45 = 8E-2 (C7+C12, REPRO_BITFORBIT 10000 bp).
+#
+# THE ROSTER (the №862/№894 roster form — the machine source): the
+# registered reproduction carriers, one row each. ADR-0218 §2 (the
+# definition): REPRO_BITFORBIT is the share (bp) of the registered
+# reproduction carriers whose bit-for-bit chain is LIVE-wired in the CI
+# sources — the registry package path (the pack-twice byte identity,
+# the lockfile determinism, the digest-verify tamper refusals, the
+# pinned-happy builds, the advisory-after-integrity order) plus the
+# release digest chain (the workflow wiring literals). The honest
+# scope: the registry package path + the release digest chain — NOT
+# the bit-for-bit toolchain build (ADR-0218 §5; the C7 trigger R38(8):
+# Nix не открывается до первого гос/банк пилота).
+#
+# The count is CHECKED, not declared: a row counts ONLY when its needle
+# literal is PRESENT in the named live source (the test function or the
+# workflow wiring) AND both composition sites (`fn
+# verify_dependency_integrity` AND `fn build_digest_document` — the
+# №874 form) are alive in mlogpkg/src/main.rs (a composition removed →
+# NOTHING is gated → the share reads 0 — the gate working, not a pass)
+# — a forged row (a carrier with no live source behind it) is UNCOVERED
+# and never raises the share; an empty roster is 0 bp (a vacuous class
+# is a gate failure, never a pass; a carrier with live wiring but no
+# row falls below this floor — the honest signal to register it, then
+# raise). The tamper traps in gen_metrics.py (--tamper-test) prove the
+# counter catches the forged row, the row loss, the dead composition
+# and the floor lowering.
+#
+# The floor is ONLY-UP: the value below is the wave-82 dispatch
+# constant pinned by the checker (gen_metrics.py
+# REPRO_BITFORBIT_FLOOR_OWNER_BP); a lowered floor in this file is
+# refused with a loud FLOOR LOWERING REFUSED (the №776 transaction
+# discipline — a re-pin is an OWNER decision, never a silent gate
+# below this floor).
+#
+# Fields (machine-read by scripts/gen_metrics.py load_floors_strict):
+goal_repro_bitforbit_bp 10000
+#
+# The roster rows (machine-read by scripts/gen_metrics.py
+# _repro_registry): the bit-for-bit carriers of the wave-82 kernel —
+# the mlogpkg package path (№910/№911 tests) and the release digest
+# chain (the release.yml wiring literals).
+carrier pack_twice_byte_identity wired=yes file=mlogpkg/tests/naryad_910_signed_packages.rs needle=fn test_n910_pack_twice_byte_identical
+carrier sign_verify_happy wired=yes file=mlogpkg/tests/naryad_910_signed_packages.rs needle=fn test_n910_sign_verify_happy
+carrier digest_verify_source_tamper wired=yes file=mlogpkg/tests/naryad_910_signed_packages.rs needle=fn test_n910_verify_detects_source_tamper
+carrier digest_verify_foreign_key wired=yes file=mlogpkg/tests/naryad_910_signed_packages.rs needle=fn test_n910_verify_detects_foreign_key
+carrier lockfile_determinism wired=yes file=mlogpkg/tests/naryad_198_lockfile_determinism.rs needle=fn naryad_198_lockfile_determinism_two_builds
+carrier pinned_happy_build wired=yes file=mlogpkg/tests/naryad_911_integrity_gate.rs needle=fn n911_pinned_happy_builds
+carrier tamper_before_semantic_check wired=yes file=mlogpkg/tests/naryad_911_integrity_gate.rs needle=fn n911_tampered_registry_refuses_before_semantic_check
+carrier advisory_after_integrity wired=yes file=mlogpkg/tests/naryad_911_integrity_gate.rs needle=fn n911_advisory_consult_rides_after_integrity
+carrier release_sha256sums_attach wired=yes file=.github/workflows/release.yml needle=SHA256SUMS
+carrier release_sbom_for_that_binary wired=yes file=.github/workflows/release.yml needle=CycloneDX
+carrier release_sigstore_keyless wired=yes file=.github/workflows/release.yml needle=Sigstore

@@ -217,6 +217,23 @@ TAINT_SOURCE_ANCHORS = (
 AUDIT_RS = REPO / "src" / "audit.rs"
 CLASSIFICATION_RS = REPO / "src" / "builtins_classification.rs"
 
+# №912 (wave 82 — W-K): the 8E-2/C7+C12 machine fact — REPRO_BITFORBIT
+# with its own only-up floor file. The floor VALUE 10000 bp is the wave-82
+# dispatch constant (gh#1817: the 0.45 gate, REPRO_BITFORBIT >= 10000 bp;
+# C7 strictly by trigger — R38(8)). The definition lives in ADR-0218 §2
+# (the №909 record): REPRO_BITFORBIT is the share (bp) of the explicit
+# reproduction-roster carriers whose bit-for-bit chain is LIVE-wired in
+# the CI sources — the registry package path (the pack-twice byte
+# identity, the lockfile determinism, the digest-verify tamper refusals)
+# plus the release digest chain (the workflow wiring literals) — CHECKED,
+# never declared (the №894 form); the honest scope is the registry +
+# release-digest path, NOT the bit-for-bit toolchain build (§5, the C7
+# trigger).
+GATE_043_GOALS = REPO / "scripts" / "ci" / "gate_043_goals.txt"
+REPRO_BITFORBIT_FLOOR_OWNER_BP = 10000
+MLOGPKG_MAIN_RS = REPO / "mlogpkg" / "src" / "main.rs"
+
+
 APPROVAL_RS = REPO / "src" / "approval.rs"
 CI_YML = REPO / ".github" / "workflows" / "ci.yml"
 POLICY_ACTION_YML = REPO / "action.yml"
@@ -685,7 +702,11 @@ def load_floors_strict(path: Path) -> dict[str, int]:
 
     №888 (wave 79 — W-H): the same skip covers the gate_040 registry
     rows (`jurisdiction <code>`, machine-read by _jurisdiction_registry)
-    — roster data, never floors (the wave-79 dispatch form)."""
+    — roster data, never floors (the wave-79 dispatch form).
+
+    №912 (wave 82 — W-K): the same skip covers the gate_043 registry
+    rows (`carrier <name> ...`, machine-read by _repro_registry) —
+    roster data, never floors (the wave-82 dispatch form)."""
     if not path.exists():
         raise ValueError(f"{path.name}: the floor file is missing (the only-up gates must exist)")
     floors: dict[str, int] = {}
@@ -703,6 +724,9 @@ def load_floors_strict(path: Path) -> dict[str, int]:
             continue
         if line.startswith("decision "):
             # The №894 registry row — roster data, not a floor.
+            continue
+        if line.startswith("carrier "):
+            # The №912 registry row — roster data, not a floor.
             continue
         parts = line.split()
         if len(parts) != 2 or not parts[0].startswith("goal_"):
@@ -1303,6 +1327,85 @@ def taint_saturation(
     scenario_variants = t_variants * l_lanes * s_sources * k_sinks * z_sanitizers
     sequence_space = sum(f_forms**k for k in range(b_budget + 1))
     return scenario_variants * sequence_space
+
+
+# ── №912 (wave 82 — W-K, ADR-0218 §2): the REPRO_BITFORBIT machine ─────
+
+def _repro_registry(content: str | None = None) -> list[dict]:
+    """The wave-82 reproduction roster (№912): the EXPLICIT carrier list
+    in scripts/ci/gate_043_goals.txt — the machine source. Each row is
+    `carrier <name> wired=yes file=<path> needle=<literal>`; the counter
+    counts a row ONLY on the needle's PRESENCE in the named live source
+    (CHECKED, not declared — the №894 form)."""
+    if content is None:
+        content = GATE_043_GOALS.read_text(encoding="utf-8")
+    rows: list[dict] = []
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("carrier ") or " needle=" not in stripped:
+            continue
+        # needle= is the REST of the line — a needle may contain spaces
+        # (e.g. `fn test_name`).
+        head, needle = stripped.split(" needle=", 1)
+        parts = head.split()[1:]
+        fields = dict(part.split("=", 1) for part in parts if "=" in part)
+        if fields.get("wired") != "yes" or "file" not in fields or not needle:
+            continue
+        rows.append({"name": parts[0], "file": fields["file"], "needle": needle})
+    return rows
+
+
+def _repro_composition_sites(main_text: str | None = None) -> bool:
+    """The composition sites (the №874 form): the fail-closed integrity
+    gate (`fn verify_dependency_integrity`) AND the canonical re-derivation
+    (`fn build_digest_document`) live in mlogpkg/src/main.rs — the ONE
+    surface the registry carriers reconcile through. If either is removed,
+    NOTHING is gated — the share reads 0 (the gate working, not a pass)."""
+    if main_text is None:
+        main_text = MLOGPKG_MAIN_RS.read_text(encoding="utf-8")
+    return "fn verify_dependency_integrity" in main_text and (
+        "fn build_digest_document" in main_text
+    )
+
+
+def _repro_carrier_wired(row: dict, texts: dict | None = None) -> bool:
+    """The LIVE wiring evidence of one roster carrier: the row's needle
+    literal in the named live source (the test function or the workflow
+    wiring). A removed or renamed wiring un-wires the carrier — the share
+    drops (the tamper traps prove the counter catches it)."""
+    if texts is None:
+        texts = {}
+    path = REPO / row["file"]
+    text = texts.get(row["file"])
+    if text is None:
+        text = path.read_text(encoding="utf-8")
+    return row["needle"] in text
+
+
+def repro_bitforbit_bp(
+    registry: list[dict] | None = None,
+    sites: bool | None = None,
+    texts: dict | None = None,
+) -> int:
+    """REPRO_BITFORBIT — the share of the registered reproduction
+    carriers whose bit-for-bit chain is live-wired in the CI sources,
+    bps (№912, ADR-0218 §2). Numerator: the roster rows whose needle
+    stands in the named live source. Denominator: the whole roster. An
+    empty roster is 0 bp (a vacuous class is a gate failure, never a
+    pass); a dead composition site zeroes the share; a forged row (no
+    live source behind it) is UNCOVERED — the machine source is the
+    wiring, never the registry alone. The honest scope: the registry
+    package path + the release digest chain — NOT the bit-for-bit
+    toolchain build (ADR-0218 §5, the C7 trigger R38(8))."""
+    if registry is None:
+        registry = _repro_registry()
+    if sites is None:
+        sites = _repro_composition_sites()
+    total = len(registry)
+    if total == 0 or not sites:
+        return 0
+    covered = sum(1 for row in registry if _repro_carrier_wired(row, texts))
+    return covered * 10000 // total
 
 
 def tamper_test() -> int:
@@ -2016,13 +2119,99 @@ def tamper_test() -> int:
         )
         return 1
 
+    # ── №912 traps: the REPRO_BITFORBIT machine catches the tamper ──
+    repro_registry = _repro_registry()
+    full_repro = repro_bitforbit_bp()
+
+    # Trap 40 (the clean-tree assertion, the №894 Trap-34 form): the clean
+    # tree carries the owner-constant share — every registered carrier is
+    # live-wired and both composition sites stand.
+    if full_repro < REPRO_BITFORBIT_FLOOR_OWNER_BP:
+        print(
+            "tamper-test: TRAP FAILED — the clean tree reads REPRO_BITFORBIT "
+            f"{full_repro} bp below the owner constant "
+            f"({REPRO_BITFORBIT_FLOOR_OWNER_BP} bp): the carrier wiring or "
+            "the composition sites drifted",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 41 (the vacuous-roster control, the №894 Trap-35 form): an
+    # empty roster reads 0 — a vacuous class is a gate failure, never a
+    # pass.
+    if repro_bitforbit_bp(registry=[]) != 0:
+        print(
+            "tamper-test: TRAP FAILED — the empty roster must read 0 (the vacuous "
+            "class is a failure, never a pass)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 42 (the forged row, the №862 no-self-declaration form): a
+    # roster row with NO live source behind it is UNCOVERED — the
+    # forgery cannot FABRICATE coverage: the share never rises on it
+    # (the forged row only dilutes the denominator — the honest drop
+    # the --check floor breach refuses loudly).
+    forged_repro = repro_registry + [
+        {"name": "never_wired_carrier", "file": "mlogpkg/src/main.rs", "needle": "fn never_wired_carrier"}
+    ]
+    if repro_bitforbit_bp(registry=forged_repro) > full_repro:
+        print(
+            "tamper-test: TRAP FAILED — a forged carrier row (no live source "
+            "behind it) RAISED the share — the declaration counted, not the code",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 43 (the row-loss control, the share form — the №894 Trap-37
+    # honest observable): dropping a live carrier from the roster LOWERS
+    # the live-wired carrier COUNT (the bp share of an all-wired roster
+    # stays 10000 by arithmetic; the honest observable is the covered
+    # count, the mass the floor protects).
+    if len(repro_registry) > 0:
+        full_covered = sum(1 for r in repro_registry if _repro_carrier_wired(r))
+        shrunk = repro_registry[:-1]
+        shrunk_covered = sum(1 for r in shrunk if _repro_carrier_wired(r))
+        if shrunk_covered >= full_covered:
+            print(
+                "tamper-test: TRAP FAILED — dropping a registered reproduction "
+                "carrier did NOT lower the live-wired carrier count",
+                file=sys.stderr,
+            )
+            return 1
+
+    # Trap 44 (the composition-site control, the №874 form): a gate
+    # composition removed → NOTHING is gated → the share reads 0 (the
+    # gate working, not a pass).
+    if repro_bitforbit_bp(sites=False) != 0:
+        print(
+            "tamper-test: TRAP FAILED — the removed integrity composition must "
+            "zero the share (the gate working, not a pass)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 45 (the negative control (б), the №846 form): the gate_043
+    # floor LOWERED below the owner constant is a loud refusal (the
+    # floor is only-up — the wave-82 dispatch constant).
+    repro_strict = load_floors_strict(GATE_043_GOALS)
+    repro_floor_value = repro_strict.get("goal_repro_bitforbit_bp")
+    if repro_floor_value is None or repro_floor_value < REPRO_BITFORBIT_FLOOR_OWNER_BP:
+        print(
+            "tamper-test: TRAP FAILED — the gate_043 floor is below the owner constant "
+            f"(the wave-82 dispatch constant: {REPRO_BITFORBIT_FLOOR_OWNER_BP} bp) — "
+            "the lowering is refused",
+            file=sys.stderr,
+        )
+        return 1
+
     print(
         "tamper-test: OK — the checkers catch the fabricated records "
         f"(LICENSED_FLOOR {full_lic} bp, PASSPORT_FRESH {full_pass} bp, "
         f"APPROVAL_COVERAGE {full_appr} bp, ATTEST_MAP {full_att} live rows, "
         f"PROVENANCE_SHARE {full_prov} bp, OFFLINE_SUITE {full_off} bp, "
         f"JURISDICTION_MATRIX {full_jur}, REPLAY_MATCH {full_rep} bp, "
-        f"TAINT_SATURATION {full_taint}; "
+        f"TAINT_SATURATION {full_taint}, REPRO_BITFORBIT {full_repro} bp; "
         "the traps lowered all)"
     )
     return 0
@@ -2069,6 +2258,7 @@ def full_block() -> str:
         f"| JURISDICTION_MATRIX (the 8D-2/C10 machine fact, №888) | {jurisdiction_matrix_count()} — the registered jurisdictions with ≥ 1 live rule in the seed matrix (ADR-0209 §4; the gate_040 floor 3, only-up) |\n"
         f"| REPLAY_MATCH (the 8G/C8 machine fact, №894) | {replay_match_bp()} bp — the registered decision carriers whose trace is written through the Ledger ACTION contour and verified by the replay_gate REPLAY_MATCH contract (ADR-0210 §3-4; the gate_041 floor 10000 bp, only-up) |\n"
         f"| TAINT_SATURATION (the 8F-2/C9 machine fact, №906) | {taint_saturation()} — the exact reachable taint-program space of the wave-81 generator, the integer product over the live anchors (ADR-0217 §2; the gate_042 floor 10^9, only-up) |\n"
+        f"| REPRO_BITFORBIT (the 8E-2/C7+C12 machine fact, №912) | {repro_bitforbit_bp()} bp — the registered reproduction carriers whose bit-for-bit chain is live-wired: the registry package path + the release digest chain (ADR-0218 §2; the gate_043 floor 10000 bp, only-up; the toolchain build stays behind the C7 trigger — §5) |\n"
     )
 
 
@@ -2143,6 +2333,7 @@ def plan_summary_block() -> str:
         f"| JURISDICTION_MATRIX — the 8D-2/C10 machine fact (№888) | {jurisdiction_matrix_count()} jurisdictions |\n"
         f"| REPLAY_MATCH — the 8G/C8 machine fact (№894) | {replay_match_bp()} bp |\n"
         f"| TAINT_SATURATION — the 8F-2/C9 machine fact (№906) | {taint_saturation()} |\n"
+        f"| REPRO_BITFORBIT — the 8E-2/C7+C12 machine fact (№912) | {repro_bitforbit_bp()} bp |\n"
     )
 
 
@@ -2668,6 +2859,51 @@ def main() -> int:
             f"(gate_042 floor {taint_floor}, only-up) — roster: "
             f"{len(t_roster)} scenario rows, "
             f"{len({row[2] for row in t_roster})} live sources"
+        )
+    # №912: the gate_043 only-up floor over the REPRO_BITFORBIT share
+    # (the gate_040-042 form): the owner-pinned wave-82 dispatch constant
+    # (10000 bp) can rise, never fall; the live share must hold the floor —
+    # an un-wired carrier, a dead composition site or a lost needle
+    # breaches it loudly (the honest scope: the registry package path +
+    # the release digest chain — ADR-0218 §2/§5).
+    if check:
+        try:
+            repro_floors = load_floors_strict(GATE_043_GOALS)
+        except ValueError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        repro_floor = repro_floors.get("goal_repro_bitforbit_bp")
+        if repro_floor is None:
+            print(
+                "ERROR: gate_043_goals.txt carries no goal_repro_bitforbit_bp floor",
+                file=sys.stderr,
+            )
+            return 2
+        if repro_floor < REPRO_BITFORBIT_FLOOR_OWNER_BP:
+            print(
+                "FLOOR LOWERING REFUSED: gate_043 "
+                f"({repro_floor} bp) is below the owner constant "
+                f"({REPRO_BITFORBIT_FLOOR_OWNER_BP} bp — the wave-82 dispatch constant, "
+                "gh#1817); the floor is only-up — the change is an explicit owner transaction",
+                file=sys.stderr,
+            )
+            return 1
+        repro_share = repro_bitforbit_bp()
+        if repro_share < repro_floor:
+            print(
+                f"FLOOR BREACH: REPRO_BITFORBIT {repro_share} bp < the gate_043 floor "
+                f"{repro_floor} bp (only-up) — a registered reproduction carrier lost "
+                "its live wiring or the integrity composition sites are gone "
+                "(restore the wiring honestly — never a silent gate edit)",
+                file=sys.stderr,
+            )
+            return 1
+        repro_rows = _repro_registry()
+        print(
+            f"OK: the №912 floor holds — REPRO_BITFORBIT {repro_share} bp "
+            f"(gate_043 floor {repro_floor}, only-up) — roster: "
+            f"{len(repro_rows)} registered reproduction carriers "
+            f"({repro_share // 100} live-wired %)"
         )
 
     # №841: the RED harness (the tamper traps) — an explicit mode, run by

@@ -48,6 +48,35 @@ fn write_pkg(registry: &Path, name: &str, version: &str) {
     .unwrap();
 }
 
+/// №911: pack the package at `pkg_dir`, return its printed digest.
+fn pack_digest(pkg_dir: &Path) -> String {
+    let output = Command::new(mlogpkg_bin())
+        .arg("pack")
+        .current_dir(pkg_dir)
+        .output()
+        .expect("failed to run mlogpkg pack");
+    assert!(output.status.success(), "pack failed in {:?}", pkg_dir);
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .next()
+        .unwrap()
+        .trim_start_matches("digest: ")
+        .trim()
+        .to_string()
+}
+
+/// №911: rewrite `name = "version"` into the pinned inline-table form.
+fn pin_dependency(manifest_path: &Path, name: &str, version: &str, digest: &str) {
+    let content = fs::read_to_string(manifest_path).unwrap();
+    let bare = format!("{} = \"{}\"", name, version);
+    let pinned = format!(
+        "{} = {{ version = \"{}\", digest = \"{}\" }}",
+        name, version, digest
+    );
+    assert!(content.contains(&bare), "bare dep not found: {}", bare);
+    fs::write(manifest_path, content.replace(&bare, &pinned)).unwrap();
+}
+
 fn run_mlogpkg(args: &[&str], cwd: &Path, registry: &Path) -> (bool, String, String) {
     let output = Command::new(mlogpkg_bin())
         .args(args)
@@ -135,6 +164,15 @@ fn naryad_198_simple_project_single_direct_dep() {
         manifest.contains("1.0.0"),
         "mlog.toml must contain the version:\n{}",
         manifest
+    );
+
+    // №911: pin the digest before build — `add` records the version only.
+    let digest = pack_digest(&registry.join("lonely-lib"));
+    pin_dependency(
+        &project_dir.join("mlog.toml"),
+        "lonely-lib",
+        "1.0.0",
+        &digest,
     );
 
     // Build must succeed.

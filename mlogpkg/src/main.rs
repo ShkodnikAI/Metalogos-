@@ -112,11 +112,52 @@ enum Commands {
 }
 
 /// mlog.toml manifest structure.
+/// The dependency specification (№911, ADR-0218 §4.2): the pinned form is
+/// the build contract — a bare version refuses at build with the name of
+/// the missing pin (the honest migration of the local-registry era).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+enum DependencySpec {
+    /// Legacy form: version only. Refuses at `build` (№911).
+    Bare(String),
+    /// The pinned form: { version = "...", digest = "<64 hex>" }.
+    Pinned { version: String, digest: String },
+}
+
+impl DependencySpec {
+    fn version(&self) -> &str {
+        match self {
+            Self::Bare(v) => v,
+            Self::Pinned { version, .. } => version,
+        }
+    }
+
+    fn digest(&self) -> Option<&str> {
+        match self {
+            Self::Bare(_) => None,
+            Self::Pinned { digest, .. } => Some(digest),
+        }
+    }
+}
+
+/// `[registry]` consumer configuration (№911): the pinned verification key.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct RegistryCfg {
+    /// Path (relative to the consumer project) to the hex verification key.
+    /// When set, every dependency must carry a VERIFIED signature
+    /// (the digest pin alone no longer satisfies the integrity pass).
+    #[serde(default)]
+    verify_key: Option<String>,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct Manifest {
     package: Package,
     #[serde(default)]
-    dependencies: HashMap<String, String>,
+    dependencies: HashMap<String, DependencySpec>,
+    /// №911: the optional `[registry]` table (verify_key pin).
+    #[serde(default)]
+    registry: Option<RegistryCfg>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -296,10 +337,10 @@ fn resolve_graph(manifest: &Manifest, registry: &Path) -> Result<ResolvedGraph, 
     let mut stack: Vec<String> = Vec::new();
 
     let root_name = manifest.package.name.clone();
-    for (dep_name, dep_version) in &manifest.dependencies {
+    for (dep_name, dep_spec) in &manifest.dependencies {
         resolve_recursive(
             dep_name,
-            dep_version,
+            dep_spec.version(),
             &root_name,
             registry,
             &mut resolved,
@@ -385,10 +426,10 @@ fn resolve_recursive(
     stack.push(name.to_string());
 
     // Recursively resolve this package's dependencies.
-    for (trans_name, trans_version) in &pkg_manifest.dependencies {
+    for (trans_name, trans_spec) in &pkg_manifest.dependencies {
         resolve_recursive(
             trans_name,
-            trans_version,
+            trans_spec.version(),
             name,
             registry,
             resolved,
@@ -410,6 +451,122 @@ fn resolve_recursive(
         },
     );
 
+    Ok(())
+}
+
+// ── Build integrity gate (Наряд №911, ADR-0218 §4.2) ───────────────────
+//
+// The fail-closed coverage rule: BEFORE any effect (the lock, the
+// semantic check), every dependency — transitively — must pin its digest
+// and the registry tree must re-derive byte-for-byte. A pinned
+// verify_key demands a verified signature. The advisory consult (№198)
+// runs strictly AFTER this pass in cmd_build — a tampered package
+// refuses as INTEGRITY, never as an advisory hit.
+
+/// One node of the integrity walk.
+fn verify_dependency_integrity(manifest: &Manifest, registry: &Path) -> Result<(), String> {
+    let verify_key: Option<String> = manifest
+        .registry
+        .as_ref()
+        .and_then(|r| r.verify_key.clone());
+    let root = manifest.package.name.clone();
+    let mut seen: Vec<String> = Vec::new();
+    for (name, spec) in &manifest.dependencies {
+        verify_integrity_node(
+            name,
+            spec,
+            &root,
+            registry,
+            verify_key.as_deref(),
+            &mut seen,
+        )?;
+    }
+    Ok(())
+}
+
+fn verify_integrity_node(
+    name: &str,
+    spec: &DependencySpec,
+    required_by: &str,
+    registry: &Path,
+    verify_key: Option<&str>,
+    seen: &mut Vec<String>,
+) -> Result<(), String> {
+    if seen.iter().any(|n| n == name) {
+        return Ok(()); // already verified on this path — cycles refuse in resolve_graph
+    }
+    seen.push(name.to_string());
+
+    // 1. The pin must exist.
+    let pinned = spec.digest().ok_or_else(|| {
+        format!(
+            "digest pin missing for '{}' (required by '{}') — pin it in mlog.toml [dependencies]: \
+             {} = {{ version = \"{}\", digest = \"<64 hex>\" }} (№911, ADR-0218 §4.2)",
+            name,
+            required_by,
+            name,
+            spec.version()
+        )
+    })?;
+
+    // 2. The package must exist and re-derive to the pinned digest.
+    let pkg_dir = registry.join(name);
+    if !pkg_dir.exists() {
+        return Err(format!(
+            "package '{}' (required by '{}') not found in local registry",
+            name, required_by
+        ));
+    }
+    let (_doc, actual) = build_digest_document(&pkg_dir)
+        .map_err(|e| format!("integrity: cannot re-derive '{}': {}", name, e))?;
+    if actual != pinned {
+        return Err(format!(
+            "digest pin mismatch for '{}': pinned {}, registry tree re-derives {}",
+            name, pinned, actual
+        ));
+    }
+
+    // 3. The signature (the strengthening): when the consumer pins a
+    //    verify_key, the package document must carry a VERIFIED signature.
+    let doc_path = pkg_dir.join(format!("{}.mlogpkg.json", name));
+    match (doc_path.exists(), verify_key) {
+        (true, Some(vk)) => {
+            let stored = fs::read_to_string(&doc_path)
+                .map_err(|e| format!("integrity: cannot read {}: {}", doc_path.display(), e))?;
+            let mut lines = stored.lines();
+            let _hashed_line = lines.next().unwrap_or("");
+            let trailer = lines.next().unwrap_or("");
+            let sig_hex = trailer
+                .strip_prefix("signature: ")
+                .ok_or_else(|| {
+                    format!(
+                        "signature required for '{}' (verify_key is pinned) but the package document has none — run `mlogpkg sign`",
+                        name
+                    )
+                })?;
+            let key = read_key_file(vk)?;
+            let digest_bytes =
+                hex::decode(actual).map_err(|_| "integrity: internal digest decode".to_string())?;
+            let expected = sign_digest(&key, &digest_bytes);
+            if !ct_eq(expected.as_bytes(), sig_hex.trim().as_bytes()) {
+                return Err(format!("signature mismatch for '{}'", name));
+            }
+        }
+        (false, Some(_)) => {
+            return Err(format!(
+                "signature required for '{}' (verify_key is pinned) but the package document is missing — run `mlogpkg pack` + `mlogpkg sign`",
+                name
+            ));
+        }
+        _ => {}
+    }
+
+    // 4. Recurse into the package's own dependencies (transitively pinned).
+    let pkg_manifest = read_manifest_optional(&pkg_dir.join("mlog.toml"))
+        .ok_or_else(|| format!("integrity: cannot read manifest of '{}'", name))?;
+    for (trans_name, trans_spec) in &pkg_manifest.dependencies {
+        verify_integrity_node(trans_name, trans_spec, name, registry, verify_key, seen)?;
+    }
     Ok(())
 }
 
@@ -538,6 +695,7 @@ fn cmd_init(name: Option<String>) {
             edition: "2024".to_string(),
         },
         dependencies: HashMap::new(),
+        registry: None,
     };
 
     let toml_str = toml::to_string_pretty(&manifest).expect("failed to serialize manifest");
@@ -600,9 +758,12 @@ fn cmd_add(pkg: &str, version: Option<&str>) {
     // Read current manifest, add the dep, then resolve the full graph
     // to detect conflicts BEFORE writing mlog.toml.
     let mut manifest = read_manifest(&manifest_path);
-    let prev = manifest
-        .dependencies
-        .insert(pkg.to_string(), resolved_version.clone());
+    let prev = manifest.dependencies.insert(
+        pkg.to_string(),
+        DependencySpec::Bare(resolved_version.clone()),
+    );
+    // №911: `add` records the version only — `build` refuses until the
+    // digest is pinned ({ version = "..", digest = "<64 hex>" }).
 
     // Pre-flight: resolve the full graph with this new dep included.
     // If it fails, restore the previous state of dependencies and exit.
@@ -632,7 +793,7 @@ fn cmd_add(pkg: &str, version: Option<&str>) {
     }
 
     if let Some(old) = prev {
-        println!("Updated dependency: {} (was {})", pkg, old);
+        println!("Updated dependency: {} (was {})", pkg, old.version());
     } else {
         println!("Added dependency: {} = {}", pkg, resolved_version);
     }
@@ -640,7 +801,7 @@ fn cmd_add(pkg: &str, version: Option<&str>) {
     write_manifest(&manifest_path, &manifest);
     println!("Dependencies:");
     for (dep_name, dep_ver) in &manifest.dependencies {
-        println!("  {} = {}", dep_name, dep_ver);
+        println!("  {} = {}", dep_name, dep_ver.version());
     }
 }
 
@@ -662,8 +823,17 @@ fn cmd_build() {
     let entry = find_entry_point();
     println!("  entry: {}", entry.display());
 
-    // 2. Resolve full dependency graph (transitive closure + conflict detection).
+    // 2. №911 (ADR-0218 §4.2): the integrity pass — BEFORE any effect:
+    //    every dependency (transitively) must pin its digest, the tree must
+    //    re-derive byte-for-byte, and a pinned verify_key demands a verified
+    //    signature. Failures name themselves and refuse.
     let registry = registry_dir();
+    if let Err(e) = verify_dependency_integrity(&manifest, &registry) {
+        eprintln!("error: integrity gate: {}", e);
+        std::process::exit(1);
+    }
+
+    // 3. Resolve full dependency graph (transitive closure + conflict detection).
     let resolved = match resolve_graph(&manifest, &registry) {
         Ok(g) => g,
         Err(e) => {
@@ -671,17 +841,44 @@ fn cmd_build() {
             std::process::exit(1);
         }
     };
+
+    // 4. №911: the advisory consult (№198) rides strictly AFTER the
+    //    integrity pass — a tampered package refuses as INTEGRITY, even
+    //    when an advisory row also matches it.
+    let (db, db_path) = AdvisoryDb::load();
+    let mut advisory_hits = 0;
+    for (name, pkg) in &resolved.packages {
+        for adv in db.find_advisories(name, &pkg.version) {
+            eprintln!(
+                "error: advisory {}: {} {} — {} ({})",
+                adv.id, adv.package, adv.version, adv.title, adv.severity
+            );
+            advisory_hits += 1;
+        }
+    }
+    if advisory_hits > 0 {
+        eprintln!(
+            "error: build refused: {} advisory hit(s) (db: {})",
+            advisory_hits,
+            if db_path.as_os_str().is_empty() {
+                "(bundled/none)"
+            } else {
+                db_path.to_str().unwrap_or("?")
+            }
+        );
+        std::process::exit(1);
+    }
     println!("  dependencies resolved: {}", resolved.packages.len());
     for (name, p) in &resolved.packages {
         println!("    {} = {}", name, p.version);
     }
 
-    // 3. Collect all source files.
+    // 5. Collect all source files.
     let mut all_sources = Vec::new();
     collect_sources(PathBuf::from("src"), &mut all_sources);
     println!("  source files: {}", all_sources.len());
 
-    // 4. Semantic check each source file.
+    // 6. Semantic check each source file.
     let mut errors = 0;
     for src in &all_sources {
         match fs::read_to_string(src) {
@@ -704,7 +901,7 @@ fn cmd_build() {
         }
     }
 
-    // 5. Write lockfile (mlogpkg.lock — Наряд №198).
+    // 7. Write lockfile (mlogpkg.lock — Наряд №198).
     let lock = LockFile::from_resolved(&resolved);
     let lock_path = PathBuf::from("mlogpkg.lock");
     if let Err(e) = lock.write_to(&lock_path) {
@@ -741,8 +938,18 @@ fn cmd_info() {
         println!("Dependencies: (none)");
     } else {
         println!("Dependencies:");
-        for (name, ver) in &manifest.dependencies {
-            println!("  {} = {}", name, ver);
+        for (name, spec) in &manifest.dependencies {
+            match spec {
+                DependencySpec::Bare(v) => {
+                    println!("  {} = {} (UNPINNED — build refuses, №911)", name, v)
+                }
+                DependencySpec::Pinned { version, digest } => {
+                    println!(
+                        "  {} = {{ version = \"{}\", digest = \"{}\" }}",
+                        name, version, digest
+                    )
+                }
+            }
         }
     }
     let entry = find_entry_point();
@@ -1300,7 +1507,9 @@ mod tests {
         fs::create_dir_all(&pkg_dir).unwrap();
         let mut deps_map = HashMap::new();
         for (d, v) in deps {
-            deps_map.insert(d.to_string(), v.to_string());
+            // The unit tests exercise RESOLUTION (versions only) — the
+            // integrity pass lives in cmd_build, not in resolve_graph.
+            deps_map.insert(d.to_string(), DependencySpec::Bare(v.to_string()));
         }
         let manifest = Manifest {
             package: Package {
@@ -1309,6 +1518,7 @@ mod tests {
                 edition: "2024".to_string(),
             },
             dependencies: deps_map,
+            registry: None,
         };
         let toml_str = toml::to_string_pretty(&manifest).unwrap();
         fs::write(pkg_dir.join("mlog.toml"), toml_str).unwrap();
@@ -1327,6 +1537,7 @@ mod tests {
         let manifest = Manifest {
             package: Package::default(),
             dependencies: HashMap::new(),
+            registry: None,
         };
         let graph = resolve_graph(&manifest, &registry).unwrap();
         assert!(graph.packages.is_empty());
@@ -1339,11 +1550,12 @@ mod tests {
         write_pkg_to_registry(&registry, "bar", "0.5.0", &[]);
 
         let mut deps = HashMap::new();
-        deps.insert("foo".to_string(), "1.0.0".to_string());
-        deps.insert("bar".to_string(), "0.5.0".to_string());
+        deps.insert("foo".to_string(), DependencySpec::Bare("1.0.0".to_string()));
+        deps.insert("bar".to_string(), DependencySpec::Bare("0.5.0".to_string()));
         let manifest = Manifest {
             package: Package::default(),
             dependencies: deps,
+            registry: None,
         };
 
         let graph = resolve_graph(&manifest, &registry).unwrap();
@@ -1360,10 +1572,14 @@ mod tests {
         write_pkg_to_registry(&registry, "lib_a", "1.0.0", &[("lib_b", "2.0.0")]);
 
         let mut deps = HashMap::new();
-        deps.insert("lib_a".to_string(), "1.0.0".to_string());
+        deps.insert(
+            "lib_a".to_string(),
+            DependencySpec::Bare("1.0.0".to_string()),
+        );
         let manifest = Manifest {
             package: Package::default(),
             dependencies: deps,
+            registry: None,
         };
 
         let graph = resolve_graph(&manifest, &registry).unwrap();
@@ -1388,11 +1604,18 @@ mod tests {
         write_pkg_to_registry(&registry, "pkg_b", "1.0.0", &[("shared", "2.0.0")]);
 
         let mut deps = HashMap::new();
-        deps.insert("pkg_a".to_string(), "1.0.0".to_string());
-        deps.insert("pkg_b".to_string(), "1.0.0".to_string());
+        deps.insert(
+            "pkg_a".to_string(),
+            DependencySpec::Bare("1.0.0".to_string()),
+        );
+        deps.insert(
+            "pkg_b".to_string(),
+            DependencySpec::Bare("1.0.0".to_string()),
+        );
         let manifest = Manifest {
             package: Package::default(),
             dependencies: deps,
+            registry: None,
         };
 
         let err = resolve_graph(&manifest, &registry).unwrap_err();
@@ -1412,10 +1635,11 @@ mod tests {
         write_pkg_to_registry(&registry, "b", "1.0.0", &[("a", "1.0.0")]);
 
         let mut deps = HashMap::new();
-        deps.insert("a".to_string(), "1.0.0".to_string());
+        deps.insert("a".to_string(), DependencySpec::Bare("1.0.0".to_string()));
         let manifest = Manifest {
             package: Package::default(),
             dependencies: deps,
+            registry: None,
         };
 
         let err = resolve_graph(&manifest, &registry).unwrap_err();
@@ -1432,10 +1656,14 @@ mod tests {
     fn test_resolve_graph_missing_package() {
         let (_dir, registry) = setup_test_registry("resolve_missing");
         let mut deps = HashMap::new();
-        deps.insert("nonexistent".to_string(), "1.0.0".to_string());
+        deps.insert(
+            "nonexistent".to_string(),
+            DependencySpec::Bare("1.0.0".to_string()),
+        );
         let manifest = Manifest {
             package: Package::default(),
             dependencies: deps,
+            registry: None,
         };
 
         let err = resolve_graph(&manifest, &registry).unwrap_err();
@@ -1455,12 +1683,19 @@ mod tests {
         write_pkg_to_registry(&registry, "mid", "1.0.0", &[]);
 
         let mut deps = HashMap::new();
-        deps.insert("zeta".to_string(), "1.0.0".to_string());
-        deps.insert("alpha".to_string(), "1.0.0".to_string());
-        deps.insert("mid".to_string(), "1.0.0".to_string());
+        deps.insert(
+            "zeta".to_string(),
+            DependencySpec::Bare("1.0.0".to_string()),
+        );
+        deps.insert(
+            "alpha".to_string(),
+            DependencySpec::Bare("1.0.0".to_string()),
+        );
+        deps.insert("mid".to_string(), DependencySpec::Bare("1.0.0".to_string()));
         let manifest = Manifest {
             package: Package::default(),
             dependencies: deps,
+            registry: None,
         };
 
         let graph1 = resolve_graph(&manifest, &registry).unwrap();

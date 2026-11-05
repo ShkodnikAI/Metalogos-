@@ -1,0 +1,54 @@
+# gate_044_goals.txt — the wave-83 W-L1 machine-fact floor (naryad №918)
+# =============================================================================
+# The №918 floor file: the ONLY-UP gate over the 8H-1/C13б machine fact —
+# the same discipline as the gate_036 record (№862), the gate_041 record
+# (№894), the gate_042 record (№906) and the gate_043 record (№912). The
+# floor value is the wave's START floor = the wave-83 dispatch constant
+# (gh#1834: 0.46 = 8H-1 (C13б юр-щит, INSTITUTIONAL_READY 12/12 — the
+# FULL roster, the items are CHECKED anchors, not declarations) — the
+# point was accepted by the owner in the dispatch, no further decision
+# is needed at the naryad level; the №841 form — the floor can rise,
+# never fall):
+# 0.46 = 8H-1/C13б (INSTITUTIONAL_READY 12).
+#
+# THE DEFINITION (ADR-0219 §2, the №916 record — the definition literal
+# is machine-pinned in the ADR itself): INSTITUTIONAL_READY is the count
+# of CHECKED items (0–12) over the 12-item institutional roster — each
+# item a STRUCTURAL anchor (the section heading + the mandatory
+# sub-anchor) in a LIVE carrier file. CHECKED, not declared — the №894
+# form.
+#
+# THE COMPOSITION SITES (the fail-closed form, the №874/№912 lineage):
+# the ADR-0219 definition literal (`INSTITUTIONAL_READY :=`) must stand
+# in docs/adr/0219-institutional-contour-legal-shield.md — a dead
+# definition → NOTHING is anchored → the count reads 0 (the gate
+# working, not a pass). A carrier file that is missing or lost its
+# anchors reads unchecked — the floor breach is the gate's honest RED.
+#
+# THE ROSTER (the №862/№894 roster form — the dispatch gh#1834 roster
+# verbatim; the row format mirrors gate_043):
+#   carrier <id> wired=yes file=<path> needle=<section heading> [sub=<mandatory sub-anchor>]
+# A row counts ONLY when the needle AND the sub literal stand in the
+# named live file; the needle is the section heading (the structure,
+# not a declaration), the sub is the content-bearing literal beneath it
+# — an emptied section fails the sub and drops the count.
+
+goal_institutional_ready_min 12
+
+# ── TRADEMARK.md — the items 1–4 (the neutral-use policy) ───────────
+carrier inst-01-tm-scope wired=yes file=TRADEMARK.md needle=## 1. Scope — the name and the logo sub=This policy covers
+carrier inst-02-tm-permitted wired=yes file=TRADEMARK.md needle=## 2. Permitted use sub=No prior permission is needed for
+carrier inst-03-tm-forbidden wired=yes file=TRADEMARK.md needle=## 3. Forbidden use and the anti-endorsement rule sub=The anti-endorsement rule
+carrier inst-04-tm-channel wired=yes file=TRADEMARK.md needle=## 4. The permission-request channel sub=trademark request:
+
+# ── docs/SUCCESSION.md — the items 5–9 (the succession protocol) ────
+carrier inst-05-suc-triggers wired=yes file=docs/SUCCESSION.md needle=## 1. Activation triggers sub=T1 — unavailability
+carrier inst-06-suc-chain wired=yes file=docs/SUCCESSION.md needle=## 2. The authority chain (consumed by reference — never duplicated) sub=maintainers.md
+carrier inst-07-suc-matrix wired=yes file=docs/SUCCESSION.md needle=## 3. The recovery matrix sub=The release signing keys
+carrier inst-08-suc-quorum wired=yes file=docs/SUCCESSION.md needle=## 4. Quorum and decision continuity sub=does not invent a council
+carrier inst-09-suc-journal wired=yes file=docs/SUCCESSION.md needle=## 5. The activation journal (append-only) sub=No activations recorded
+
+# ── docs/GOVERNANCE.md — the items 10–12 (the Phase-2 frame) ────────
+carrier inst-10-gov-frame wired=yes file=docs/GOVERNANCE.md needle=### The neutral-structure criteria sub=Jurisdictional neutrality
+carrier inst-11-gov-cross wired=yes file=docs/GOVERNANCE.md needle=### Cross-consistency with TRADEMARK.md and SUCCESSION.md sub=../TRADEMARK.md
+carrier inst-12-gov-boundary wired=yes file=docs/GOVERNANCE.md needle=### Honest limits — the owner's acts (the repo ↔ acts boundary) sub=R38(9)

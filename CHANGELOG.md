@@ -6,6 +6,31 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№918 (issue #1832, wave 83 — W-L1, P1, [testing][ci]):** the
+  INSTITUTIONAL_READY fact machine in gen_metrics.py + gate_044 — the
+  13th machine fact of the №841 family: the count of CHECKED items
+  (0–12) over the explicit 12-item institutional roster
+  (scripts/ci/gate_044_goals.txt, the №862/№894 form: id, carrier,
+  needle = the section heading, sub = the mandatory content-bearing
+  literal — a row counts only when BOTH stand in the named live file);
+  the composition site is the ADR-0219 definition literal
+  (`INSTITUTIONAL_READY :=` — the №916 mutation contract: a dead
+  definition zeroes the count); the floor 12 only-up (the wave-83
+  dispatch gh#1834 constant — a lowering below the owner constant is a
+  loud refusal); the blocking `gate-044` CI job (the double --check —
+  two consecutive runs must agree byte-for-byte, the determinism
+  contract; + the tamper traps); the blocking_checks.tsv row
+  (check|all|institutional-roster, bound to the
+  naryad_918_institutional_gate test; fact_blocking_check_cells 33 → 34
+  in the gate_028/029/030 records — the growth is explicit, the check
+  landed in the same PR); the GENERATED rows in docs/metrics.md +
+  docs/PLAN-SUMMARY.md (the №900 denominator form — «12/12»); the
+  tamper traps №46–№50 prove the dispatch classes (а)–(г) red: the
+  removed section, the emptied section, the broken cross-reference,
+  the dead ADR definition, the lowered floor. INSTITUTIONAL_READY
+  12/12 — the 0.46 gate is up; the machine verifies the PRESENCE and
+  STRUCTURE of the policies, not their legal force (ADR-0219 §5).
+
 - **№917 (issue #1831, wave 83 — W-L1, P1, [governance][docs]):** the
   institutional corpus in the tree — the three carriers of the
   ADR-0219 roster: TRADEMARK.md (the neutral-use policy of the

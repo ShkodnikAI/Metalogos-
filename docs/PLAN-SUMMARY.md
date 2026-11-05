@@ -1144,6 +1144,7 @@ owner's ADR gate.
 | REPLAY_MATCH — the 8G/C8 machine fact (№894) | 10000 bp (2/2) |
 | TAINT_SATURATION — the 8F-2/C9 machine fact (№906) | 324241748923742258252688 |
 | REPRO_BITFORBIT — the 8E-2/C7+C12 machine fact (№912) | 10000 bp (11/11) |
+| INSTITUTIONAL_READY — the 8H-1/C13б machine fact (№918) | 12/12 items |
 <!-- END GENERATED NUMBERS -->
 
 ## Acceptance criteria (public part of the methodology)

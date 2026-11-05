@@ -1142,6 +1142,27 @@ jobs:
       - name: No stale grant-application references (№786)
         run: python3 scripts/ci/no_stale_grant_refs.py
 
+  gate-044:
+    name: gate-044 institutional roster (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # №918 (gh#1832, Wave 83 — W-L1): the INSTITUTIONAL_READY fact
+      # machine (ADR-0219 §2) — the 12-item institutional roster over the
+      # live carriers (TRADEMARK.md / docs/SUCCESSION.md / the GOVERNANCE
+      # Phase-2 frame), every item a CHECKED structural anchor, the floor
+      # 12 only-up (the dispatch gh#1834 constant). The double --check:
+      # two consecutive runs must agree (the determinism contract — a
+      # hand-edited GENERATED row diverges the second run); the tamper
+      # traps prove the counter catches the removed section, the emptied
+      # section, the broken cross-reference and the dead ADR-0219
+      # definition (the №916 mutation contract).
+      - name: "Gate — the INSTITUTIONAL_READY roster (№918: double --check + the tamper traps)"
+        run: |
+          python3 scripts/gen_metrics.py --check
+          python3 scripts/gen_metrics.py --check
+          python3 scripts/gen_metrics.py --tamper-test
+
   # Наряд №256 (part B, PR #284's ready block): дымовой фаззинг новых целей
   # (2 минуты бюджета на цель). НЕ блокирующий: паники, найденные фаззером,
   # чинятся в нарядах, но дымовой прогон не должен держать мержи

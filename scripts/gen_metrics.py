@@ -231,6 +231,16 @@ CLASSIFICATION_RS = REPO / "src" / "builtins_classification.rs"
 # trigger).
 GATE_043_GOALS = REPO / "scripts" / "ci" / "gate_043_goals.txt"
 REPRO_BITFORBIT_FLOOR_OWNER_BP = 10000
+
+# №918 (wave 83 — W-L1): the 8H-1/C13б machine fact — INSTITUTIONAL_READY
+# (ADR-0219 §2). The fact is a COUNT (0–12): the CHECKED items of the
+# 12-item institutional roster over the live carriers; the floor is the
+# wave-83 dispatch constant (gh#1834: the FULL roster 12) — only-up.
+GATE_044_GOALS = REPO / "scripts" / "ci" / "gate_044_goals.txt"
+INSTITUTIONAL_READY_FLOOR_OWNER = 12
+INSTITUTIONAL_ADR_0219 = (
+    REPO / "docs" / "adr" / "0219-institutional-contour-legal-shield.md"
+)
 MLOGPKG_MAIN_RS = REPO / "mlogpkg" / "src" / "main.rs"
 
 
@@ -1471,6 +1481,105 @@ def taint_saturation(
     return scenario_variants * sequence_space
 
 
+# ── №918 (wave 83 — W-L1, ADR-0219 §2): the INSTITUTIONAL_READY machine ──
+
+def _institutional_registry(content: str | None = None) -> list[dict]:
+    """The wave-83 institutional roster (№918): the EXPLICIT carrier list
+    in scripts/ci/gate_044_goals.txt — the machine source. Each row is
+    `carrier <id> wired=yes file=<path> needle=<heading> [sub=<literal>]`;
+    the counter counts a row ONLY when the needle AND the sub literal
+    stand in the named live file (CHECKED, not declared — the №894
+    form). The needle is the section heading (the structure), the sub
+    is the content-bearing literal beneath it — an emptied section
+    fails the sub and drops the count."""
+    if content is None:
+        content = GATE_044_GOALS.read_text(encoding="utf-8")
+    rows: list[dict] = []
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("carrier ") or " needle=" not in stripped:
+            continue
+        head, rest = stripped.split(" needle=", 1)
+        sub = ""
+        if " sub=" in rest:
+            rest, sub = rest.split(" sub=", 1)
+        needle = rest
+        parts = head.split()[1:]
+        fields = dict(part.split("=", 1) for part in parts if "=" in part)
+        if fields.get("wired") != "yes" or "file" not in fields or not needle:
+            continue
+        rows.append(
+            {"name": parts[0], "file": fields["file"], "needle": needle, "sub": sub}
+        )
+    return rows
+
+
+def _institutional_composition_alive(adr_text: str | None = None) -> bool:
+    """The composition site (the №874/№912 form): the ADR-0219 definition
+    literal (`INSTITUTIONAL_READY :=`) stands in the record file — a dead
+    definition → NOTHING is anchored → the count reads 0 (the gate
+    working, not a pass; the №916 mutation contract)."""
+    if adr_text is None:
+        if not INSTITUTIONAL_ADR_0219.exists():
+            return False
+        adr_text = INSTITUTIONAL_ADR_0219.read_text(encoding="utf-8")
+    return "INSTITUTIONAL_READY :=" in adr_text
+
+
+def _institutional_carrier_checked(row: dict, texts: dict | None = None) -> bool:
+    """The LIVE anchor evidence of one roster item: the row's needle (the
+    section heading) AND the sub literal stand in the named live file. A
+    removed section, an emptied section or a broken cross-reference
+    un-checks the item — the count drops (the tamper traps prove the
+    counter catches each class). A missing carrier file reads unchecked
+    — the floor breach is the gate's honest RED."""
+    if texts is None:
+        texts = {}
+    path = REPO / row["file"]
+    text = texts.get(row["file"])
+    if text is None:
+        if not path.exists():
+            return False
+        text = path.read_text(encoding="utf-8")
+    if row["needle"] not in text:
+        return False
+    return (not row["sub"]) or (row["sub"] in text)
+
+
+def institutional_ready(
+    registry: list[dict] | None = None,
+    adr_ok: bool | None = None,
+    texts: dict | None = None,
+) -> int:
+    """INSTITUTIONAL_READY — the count of CHECKED items (0–12) over the
+    12-item institutional roster (№918, ADR-0219 §2). A dead ADR
+    definition zeroes the count; a missing carrier file reads unchecked;
+    an empty roster is 0 (a vacuous class is a gate failure, never a
+    pass). The machine verifies the PRESENCE and STRUCTURE of the
+    policies and their integrity — NOT their legal force (ADR-0219 §5:
+    the documents are not the owner's acts)."""
+    checked, _total = institutional_ready_pair(registry, adr_ok, texts)
+    return checked
+
+
+def institutional_ready_pair(
+    registry: list[dict] | None = None,
+    adr_ok: bool | None = None,
+    texts: dict | None = None,
+) -> tuple[int, int]:
+    """INSTITUTIONAL_READY — (checked, roster total); №900: the pair
+    rides the printed fact. A dead definition reads (0, total)."""
+    if registry is None:
+        registry = _institutional_registry()
+    if adr_ok is None:
+        adr_ok = _institutional_composition_alive()
+    total = len(registry)
+    if not adr_ok:
+        return 0, total
+    checked = sum(1 for row in registry if _institutional_carrier_checked(row, texts))
+    return checked, total
+
+
 # ── №912 (wave 82 — W-K, ADR-0218 §2): the REPRO_BITFORBIT machine ─────
 
 def _repro_registry(content: str | None = None) -> list[dict]:
@@ -2365,13 +2474,137 @@ def tamper_test() -> int:
         )
         return 1
 
+    # ── №918 traps: the institutional roster (the in-memory texts — the
+    # real tree stays untouched; the dispatch gh#1834 classes (а)–(г) +
+    # the №916 ADR-definition contract) ────────────────────────────────
+    inst_registry = _institutional_registry()
+    inst_full = institutional_ready(registry=inst_registry)
+    if inst_full != 12 or len(inst_registry) != 12:
+        print(
+            f"tamper-test: TRAP FAILED — the live institutional roster reads "
+            f"{inst_full}/{len(inst_registry)}, expected 12/12 (the carriers "
+            "or the gate_044 floor file drifted)",
+            file=sys.stderr,
+        )
+        return 1
+
+    def _inst_text(fname: str) -> str:
+        return (REPO / fname).read_text(encoding="utf-8")
+
+    # Trap 46 (the removal class (а)): a removed SUCCESSION section
+    # heading un-checks its item — the count drops.
+    suc = _inst_text("docs/SUCCESSION.md")
+    cut = suc.replace(
+        "## 5. The activation journal (append-only)", "## 5. (removed)", 1
+    )
+    if cut == suc:
+        print(
+            "tamper-test: TRAP FAILED — the SUCCESSION §5 anchor drifted "
+            "(the fixture is stale)",
+            file=sys.stderr,
+        )
+        return 1
+    if (
+        institutional_ready(registry=inst_registry, texts={"docs/SUCCESSION.md": cut})
+        >= inst_full
+    ):
+        print(
+            "tamper-test: TRAP FAILED — the removed section did NOT drop "
+            "INSTITUTIONAL_READY",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 47 (the emptying class (б)): an emptied TRADEMARK section
+    # (the sub-anchor gone) un-checks its item.
+    tm = _inst_text("TRADEMARK.md")
+    emptied = tm.replace("No prior permission is needed for:", "(emptied)", 1)
+    if emptied == tm:
+        print(
+            "tamper-test: TRAP FAILED — the TRADEMARK §2 sub-anchor drifted",
+            file=sys.stderr,
+        )
+        return 1
+    if (
+        institutional_ready(registry=inst_registry, texts={"TRADEMARK.md": emptied})
+        >= inst_full
+    ):
+        print(
+            "tamper-test: TRAP FAILED — the emptied section did NOT drop "
+            "INSTITUTIONAL_READY",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 48 (the broken-reference class (в)): a broken cross-reference
+    # in the GOVERNANCE frame un-checks the cross-consistency item.
+    gov = _inst_text("docs/GOVERNANCE.md")
+    broken = gov.replace("../TRADEMARK.md", "../BROKEN.md", 1)
+    if broken == gov:
+        print(
+            "tamper-test: TRAP FAILED — the GOVERNANCE cross-ref anchor drifted",
+            file=sys.stderr,
+        )
+        return 1
+    if (
+        institutional_ready(registry=inst_registry, texts={"docs/GOVERNANCE.md": broken})
+        >= inst_full
+    ):
+        print(
+            "tamper-test: TRAP FAILED — the broken cross-ref did NOT drop "
+            "INSTITUTIONAL_READY",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 49 (the dead-definition class, the №916 mutation contract):
+    # the ADR-0219 definition literal removed → the composition site is
+    # dead → the count ZEROES (nothing is anchored).
+    adr = _inst_text("docs/adr/0219-institutional-contour-legal-shield.md")
+    dead = adr.replace(
+        "INSTITUTIONAL_READY := the count of CHECKED items",
+        "INSTITUTIONAL_READY [definition removed]",
+        1,
+    )
+    if dead == adr:
+        print(
+            "tamper-test: TRAP FAILED — the ADR-0219 definition anchor drifted",
+            file=sys.stderr,
+        )
+        return 1
+    if institutional_ready(
+        registry=inst_registry, adr_ok=_institutional_composition_alive(dead)
+    ) != 0:
+        print(
+            "tamper-test: TRAP FAILED — the dead definition did NOT zero "
+            "INSTITUTIONAL_READY",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 50 (the negative control (б), the №846 form): the gate_044
+    # floor LOWERED below the owner constant is a loud refusal (the
+    # floor is only-up — the wave-83 dispatch constant).
+    inst_strict = load_floors_strict(GATE_044_GOALS)
+    inst_floor_value = inst_strict.get("goal_institutional_ready_min")
+    if inst_floor_value is None or inst_floor_value < INSTITUTIONAL_READY_FLOOR_OWNER:
+        print(
+            "tamper-test: TRAP FAILED — the gate_044 floor is below the owner constant "
+            f"(the wave-83 dispatch constant: {INSTITUTIONAL_READY_FLOOR_OWNER}) — "
+            "the lowering is refused",
+            file=sys.stderr,
+        )
+        return 1
+
     print(
         "tamper-test: OK — the checkers catch the fabricated records "
+
         f"(LICENSED_FLOOR {full_lic} bp, PASSPORT_FRESH {full_pass} bp, "
         f"APPROVAL_COVERAGE {full_appr} bp, ATTEST_MAP {full_att} live rows, "
         f"PROVENANCE_SHARE {full_prov} bp, OFFLINE_SUITE {full_off} bp, "
         f"JURISDICTION_MATRIX {full_jur}, REPLAY_MATCH {full_rep} bp, "
-        f"TAINT_SATURATION {full_taint}, REPRO_BITFORBIT {full_repro} bp; "
+        f"TAINT_SATURATION {full_taint}, REPRO_BITFORBIT {full_repro} bp, "
+        f"INSTITUTIONAL_READY {inst_full}/12; "
         "the traps lowered all)"
     )
     return 0
@@ -2404,6 +2637,7 @@ def full_block() -> str:
     n_off, t_off = offline_suite_pair()
     n_repl, t_repl = replay_match_pair()
     n_repro, t_repro = repro_bitforbit_pair()
+    n_inst, t_inst = institutional_ready_pair()
     return (
         f"| Metric | Value (generated — do not hand-edit) |\n"
         f"| ------ | ------------------------------------- |\n"
@@ -2428,6 +2662,7 @@ def full_block() -> str:
         f"| REPLAY_MATCH (the 8G/C8 machine fact, №894) | {replay_match_bp()} bp ({n_repl}/{t_repl}) — the registered decision carriers whose trace is written through the Ledger ACTION contour and verified by the replay_gate REPLAY_MATCH contract (ADR-0210 §3-4; the gate_041 floor 10000 bp, only-up) |\n"
         f"| TAINT_SATURATION (the 8F-2/C9 machine fact, №906) | {taint_saturation()} — the exact reachable taint-program space of the wave-81 generator, the integer product over the live anchors (ADR-0217 §2; the gate_042 floor 10^9, only-up) |\n"
         f"| REPRO_BITFORBIT (the 8E-2/C7+C12 machine fact, №912) | {repro_bitforbit_bp()} bp ({n_repro}/{t_repro}) — the registered reproduction carriers whose bit-for-bit chain is live-wired: the registry package path + the release digest chain (ADR-0218 §2; the gate_043 floor 10000 bp, only-up; the toolchain build stays behind the C7 trigger — §5) |\n"
+        f"| INSTITUTIONAL_READY (the 8H-1/C13б machine fact, №918) | {institutional_ready()}/{t_inst} — the CHECKED items of the 12-item institutional roster over the live carriers: TRADEMARK.md + docs/SUCCESSION.md + the GOVERNANCE Phase-2 frame (ADR-0219 §2; the gate_044 floor 12, only-up; the documents ≠ the owner's acts — §5) |\n"
     )
 
 
@@ -2494,6 +2729,7 @@ def plan_summary_block() -> str:
     n_jur, t_jur = jurisdiction_matrix_pair()
     n_repl, t_repl = replay_match_pair()
     n_repro, t_repro = repro_bitforbit_pair()
+    n_inst, t_inst = institutional_ready_pair()
     return (
         f"| Machine fact (generated — do not hand-edit) | Value |\n"
         f"| --- | --- |\n"
@@ -2513,6 +2749,7 @@ def plan_summary_block() -> str:
         f"| REPLAY_MATCH — the 8G/C8 machine fact (№894) | {replay_match_bp()} bp ({n_repl}/{t_repl}) |\n"
         f"| TAINT_SATURATION — the 8F-2/C9 machine fact (№906) | {taint_saturation()} |\n"
         f"| REPRO_BITFORBIT — the 8E-2/C7+C12 machine fact (№912) | {repro_bitforbit_bp()} bp ({n_repro}/{t_repro}) |\n"
+        f"| INSTITUTIONAL_READY — the 8H-1/C13б machine fact (№918) | {institutional_ready()}/{t_inst} items |\n"
     )
 
 
@@ -3168,6 +3405,50 @@ def main() -> int:
             f"(gate_043 floor {repro_floor}, only-up) — roster: "
             f"{len(repro_rows)} registered reproduction carriers "
             f"({repro_share // 100} live-wired %)"
+        )
+
+    # №918: the gate_044 only-up floor over the INSTITUTIONAL_READY count
+    # (the gate_040–043 form): the owner-pinned wave-83 dispatch constant
+    # (12) can rise, never fall; the live count must hold the floor —
+    # a lost anchor, an emptied section, a broken cross-reference, a
+    # missing carrier or a dead ADR definition breaches it loudly.
+    if check:
+        try:
+            inst_floors = load_floors_strict(GATE_044_GOALS)
+        except ValueError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        inst_floor = inst_floors.get("goal_institutional_ready_min")
+        if inst_floor is None:
+            print(
+                "ERROR: gate_044_goals.txt carries no goal_institutional_ready_min floor",
+                file=sys.stderr,
+            )
+            return 2
+        if inst_floor < INSTITUTIONAL_READY_FLOOR_OWNER:
+            print(
+                "FLOOR LOWERING REFUSED: gate_044 "
+                f"({inst_floor}) is below the owner constant "
+                f"({INSTITUTIONAL_READY_FLOOR_OWNER} — the wave-83 dispatch constant, "
+                "gh#1834); the floor is only-up — the change is an explicit owner transaction",
+                file=sys.stderr,
+            )
+            return 1
+        inst_count, inst_total = institutional_ready_pair()
+        if inst_count < inst_floor:
+            print(
+                f"FLOOR BREACH: INSTITUTIONAL_READY {inst_count}/{inst_total} < the gate_044 floor "
+                f"{inst_floor} (only-up) — an institutional anchor died (a removed section, "
+                "an emptied section, a broken cross-reference, a missing carrier or the "
+                "dead ADR-0219 definition) "
+                "(restore the anchor honestly — never a silent gate edit)",
+                file=sys.stderr,
+            )
+            return 1
+        print(
+            f"OK: the №918 floor holds — INSTITUTIONAL_READY {inst_count}/{inst_total} "
+            f"(gate_044 floor {inst_floor}, only-up) — roster: "
+            f"{len(_institutional_registry())} institutional items over the live carriers"
         )
 
     # №841: the RED harness (the tamper traps) — an explicit mode, run by

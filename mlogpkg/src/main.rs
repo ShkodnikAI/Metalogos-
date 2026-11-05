@@ -963,14 +963,18 @@ fn collect_package_files(dir: &Path) -> Vec<PathBuf> {
     let src = dir.join("src");
     let mut stack = vec![src.clone()];
     while let Some(d) = stack.pop() {
-        let Ok(entries) = fs::read_dir(&d) else { continue };
+        let Ok(entries) = fs::read_dir(&d) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let p = entry.path();
             if p.is_dir() {
                 stack.push(p);
             } else {
                 let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                if name == "mlogpkg.lock" || name.ends_with(".mlogpkg.json") || name.ends_with(".sig")
+                if name == "mlogpkg.lock"
+                    || name.ends_with(".mlogpkg.json")
+                    || name.ends_with(".sig")
                 {
                     continue;
                 }
@@ -1031,8 +1035,8 @@ fn pack_doc_path(dir: &Path) -> Result<PathBuf, String> {
 fn sign_digest(key_bytes: &[u8], digest_bytes: &[u8]) -> String {
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
-    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(key_bytes)
-        .expect("HMAC accepts any key length");
+    let mut mac =
+        <Hmac<Sha256> as Mac>::new_from_slice(key_bytes).expect("HMAC accepts any key length");
     mac.update(digest_bytes);
     hex::encode(mac.finalize().into_bytes())
 }

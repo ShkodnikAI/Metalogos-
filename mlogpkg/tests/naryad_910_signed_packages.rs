@@ -80,7 +80,10 @@ fn test_n910_pack_twice_byte_identical() {
     assert!(ok2, "re-pack should succeed: {}", err2);
     let bytes2 = fs::read(pack_doc(&dir)).unwrap();
 
-    assert_eq!(bytes1, bytes2, "re-pack must be byte-identical (ADR-0218 §2.1)");
+    assert_eq!(
+        bytes1, bytes2,
+        "re-pack must be byte-identical (ADR-0218 §2.1)"
+    );
     assert_eq!(out1, out2, "the digest is deterministic");
 }
 

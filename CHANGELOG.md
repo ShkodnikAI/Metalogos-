@@ -6,6 +6,24 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№909 (issue #1811, wave 82 — W-K, P1, [process][adr][registry]):**
+  ADR-0218 Reproducible Build & Signed Package Registry — the 8E-2/C7+C12
+  subphase record. The fact definition BEFORE code (the №891/№903 form):
+  REPRO_BITFORBIT := the verified share of the explicit reproduction
+  roster (gate_043) — the registry package path (the pack-twice byte
+  identity, the lockfile determinism, the digest-verify tamper refusals)
+  plus the release digest chain (the SHA256SUMS / SBOM-binding / Sigstore
+  keyless wiring literals, CHECKED not declared — the №894 form). The
+  signature covers the digest (the №828 form): the canonical digest
+  document (sorted keys, LF, no timestamps), sign = HMAC-SHA256 over the
+  32 digest bytes, verify = re-derive + byte-for-byte + constant-time.
+  The contour boundary — the registry refusals are mlogpkg CLI errors
+  (the №475 trust domain); the №385 vocabulary and the language surface
+  do not move. The C7 trigger contract verbatim (R38(8)): the bit-for-bit
+  toolchain lane (and Nix) opens ONLY at the first gov/bank pilot — the
+  fact counts what IS verifiable today, honest-limits №588. ADR before
+  the code (N1); llms.txt 204 → 205.
+
 - **№908 (issue #1802, wave 81 — W-J, P2, [process][ci], the
   №863/№889/№895 form):** the baseline re-pin ride under the wave-81
   taint lane — the verification pass over ALL surface gates on the

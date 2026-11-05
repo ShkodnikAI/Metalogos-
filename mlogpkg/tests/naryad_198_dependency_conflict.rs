@@ -71,10 +71,20 @@ fn setup_registry_with_conflict(registry: &Path) -> String {
     write_pkg(registry, "shared", "1.0.0", &[]);
     let d_shared = pack_digest(&registry.join("shared"));
     // pkg_a depends on shared@1.0.0 — matches registry.
-    write_pkg(registry, "pkg_a", "1.0.0", &[("shared", "1.0.0", &d_shared)]);
+    write_pkg(
+        registry,
+        "pkg_a",
+        "1.0.0",
+        &[("shared", "1.0.0", &d_shared)],
+    );
     let d_a = pack_digest(&registry.join("pkg_a"));
     // pkg_b depends on shared@2.0.0 — does NOT match registry's 1.0.0.
-    write_pkg(registry, "pkg_b", "1.0.0", &[("shared", "2.0.0", &d_shared)]);
+    write_pkg(
+        registry,
+        "pkg_b",
+        "1.0.0",
+        &[("shared", "2.0.0", &d_shared)],
+    );
     d_a
 }
 

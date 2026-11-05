@@ -689,6 +689,7 @@ fn cmd_init(name: Option<String>) {
             edition: "2024".to_string(),
         },
         dependencies: HashMap::new(),
+        registry: None,
     };
 
     let toml_str = toml::to_string_pretty(&manifest).expect("failed to serialize manifest");
@@ -794,7 +795,7 @@ fn cmd_add(pkg: &str, version: Option<&str>) {
     write_manifest(&manifest_path, &manifest);
     println!("Dependencies:");
     for (dep_name, dep_ver) in &manifest.dependencies {
-        println!("  {} = {}", dep_name, dep_ver);
+        println!("  {} = {}", dep_name, dep_ver.version());
     }
 }
 
@@ -1529,6 +1530,7 @@ mod tests {
         let manifest = Manifest {
             package: Package::default(),
             dependencies: HashMap::new(),
+        registry: None,
         };
         let graph = resolve_graph(&manifest, &registry).unwrap();
         assert!(graph.packages.is_empty());
@@ -1546,6 +1548,7 @@ mod tests {
         let manifest = Manifest {
             package: Package::default(),
             dependencies: deps,
+        registry: None,
         };
 
         let graph = resolve_graph(&manifest, &registry).unwrap();
@@ -1569,6 +1572,7 @@ mod tests {
         let manifest = Manifest {
             package: Package::default(),
             dependencies: deps,
+        registry: None,
         };
 
         let graph = resolve_graph(&manifest, &registry).unwrap();
@@ -1604,6 +1608,7 @@ mod tests {
         let manifest = Manifest {
             package: Package::default(),
             dependencies: deps,
+        registry: None,
         };
 
         let err = resolve_graph(&manifest, &registry).unwrap_err();
@@ -1627,6 +1632,7 @@ mod tests {
         let manifest = Manifest {
             package: Package::default(),
             dependencies: deps,
+        registry: None,
         };
 
         let err = resolve_graph(&manifest, &registry).unwrap_err();
@@ -1650,6 +1656,7 @@ mod tests {
         let manifest = Manifest {
             package: Package::default(),
             dependencies: deps,
+        registry: None,
         };
 
         let err = resolve_graph(&manifest, &registry).unwrap_err();
@@ -1681,6 +1688,7 @@ mod tests {
         let manifest = Manifest {
             package: Package::default(),
             dependencies: deps,
+        registry: None,
         };
 
         let graph1 = resolve_graph(&manifest, &registry).unwrap();

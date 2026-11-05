@@ -1033,10 +1033,10 @@ fn pack_doc_path(dir: &Path) -> Result<PathBuf, String> {
 
 /// HMAC-SHA256 over the raw 32 digest bytes.
 fn sign_digest(key_bytes: &[u8], digest_bytes: &[u8]) -> String {
-    use hmac::{Hmac, Mac};
-    use sha2::Sha256;
-    let mut mac =
-        <Hmac<Sha256> as Mac>::new_from_slice(key_bytes).expect("HMAC accepts any key length");
+    type HmacSha256 = hmac::Hmac<sha2::Sha256>;
+    // The root-crate form (src/builtins/crypto.rs:285) — new_from_slice
+    // resolves through the supertrait chain on the TYPE, not via `as Mac`.
+    let mut mac = HmacSha256::new_from_slice(key_bytes).expect("HMAC accepts any key length");
     mac.update(digest_bytes);
     hex::encode(mac.finalize().into_bytes())
 }

@@ -6,6 +6,29 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№920 (issue #1839, wave 84 — W-L2, P1, [process][adr][governance]):**
+  ADR-0220 Vertical Profiles — the 8H-2/C13а subphase record (ADR before
+  the code, the ADR-0201 §2.4 rule; the №891/№916 form): the fact
+  definition `VERTICAL_PROFILES :=` the count of CHECKED anchors of the
+  12-element vertical roster (2 profiles — payments + public-sector per
+  R38(5) — × 6 mandatory contour anchors: jurisdiction coverage,
+  human-oversight/approval, decision-trace verify, taint floor,
+  license class, the frozen №385 refusal vocabulary as the version-pin;
+  medicine — backlog until the PHI expertise), every anchor CHECKED,
+  not declared (the №862/№894/№918 form), the floor 12 only-up (the
+  dispatch gh#1842 constant); fail-closed consumption — a package
+  declaring a vertical in mlog.toml `[vertical]` (id + digest, the
+  №910 [registry] shape) with an unknown id / a digest mismatch / an
+  unverifiable contour refuses BEFORE any effect with the divergence
+  named (the №874/№845/№911 form), no default attach — a manifest
+  without `[vertical]` never gets a profile (zero behavioral
+  mutations); the carrier digest pin (the G5/№828 form — SHA-256 over
+  the canonical serialization); the C10 honesty frame (the profile is
+  a configuration of limits and mandatory contours — NOT
+  certification, NOT legal advice, NOT a regulator's acceptance; the
+  C7 trigger is not ignited by a profile — R38(8)/№913); the run-path
+  composition — the honest §5 limit, outside this wave.
+
 - **№919 (issue #1833, wave 83 — W-L1, P2, [governance][docs][audit]):**
   the institutional-readiness report — docs/audits/institutional-readiness-2026-11.md
   (the №907/№913 form; the closing artifact of the 8H-1 subphase): the

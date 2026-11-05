@@ -6,6 +6,36 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№914 (issue #1816, wave 82 — W-K, P2, [process][ci], the
+  №863/№889/№895/№908 form):** the baseline re-pin ride under the
+  wave-82 signed-package kernel — the verification pass over ALL
+  surface gates on the wave's merge chain (the head `408b2cc6`, re-run
+  on the post-patch head `54f8c041` after the out-of-train №915):
+  `type_signature_baseline.txt` (377/530, 71.13%),
+  `type_signature_precise_baseline.txt` (244/530, 46.03%),
+  `type_signature_parameterized_baseline.txt` (100/130, 76.92%),
+  `--enforce-fieldmeta` (62/64, 96.87%),
+  `type_signature_stable_baseline.txt` (366/486, 75.30% — the PRIMARY
+  definition, ADR-0199), `sensitive_surface_baseline.txt` (112/147,
+  7619 bp, the №644 fixed-denominator share), the src/ mirror gate
+  (6, at its threshold 6 — movement only down) and the debt gate (dup
+  0/0, ignore 8/8, ignore_todo 0, dead_code 15/15, example_uncovered
+  0, read_file_soft_missing 0). The honest outcome — the №889/№895/№908
+  precedent form: NO DRIFT. The wave-82 naryads (№909 the ADR-0218
+  record, №910 the mlogpkg kernel in a SEPARATE crate — the trust
+  domain №475, №911 the build integrity gate, №912 the gen_metrics
+  machine + gate_043, №913 the C7 readiness report; the out-of-train
+  patch №915 — the serve/mcp-serve per-module suppression) add ZERO
+  `BUILTIN_REGISTRY` rows and zero grammar/golden surface — the
+  type-signature and sensitive-surface counters read the REGISTRY, not
+  the module tree, and the mlogpkg diff does not touch the counted
+  surface — so every floor already equals the fact and no baseline
+  file changed; the double `gen_metrics --check` run on both heads is
+  green and deterministic (the №912 REPRO_BITFORBIT gate_043 floor
+  10000 bp holds — the wave's own machine rides the same pass); no
+  floor lowering — the floors stand, the ride's product is the
+  verified record itself.
+
 - **№913 (issue #1815, wave 82 — W-K, P2, [security][docs]):** the C7
   trigger-readiness report — docs/audits/repro-readiness-2026-11.md
   (the №907 form; the «отчёт аудита» artifact of the 0.45 line): the

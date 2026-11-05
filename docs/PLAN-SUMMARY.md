@@ -1138,6 +1138,7 @@ owner's ADR gate.
 | JURISDICTION_MATRIX — the 8D-2/C10 machine fact (№888) | 3 jurisdictions |
 | REPLAY_MATCH — the 8G/C8 machine fact (№894) | 10000 bp |
 | TAINT_SATURATION — the 8F-2/C9 machine fact (№906) | 324241748923742258252688 |
+| REPRO_BITFORBIT — the 8E-2/C7+C12 machine fact (№912) | 10000 bp |
 <!-- END GENERATED NUMBERS -->
 
 ## Acceptance criteria (public part of the methodology)

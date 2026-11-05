@@ -44,7 +44,26 @@ All notable changes to the Metalogos project.
   live tree — a pair edited apart from its bp function is a red
   drift. The floor mentions in the prose (the gate floor constants)
   are not facts and stay as they were.
-### Added
+- **№902 (issue #1796, P2, [process][hygiene]):** the process hygiene —
+  the docs-naryad «strictly last» clause is MACHINE-ENFORCED retired:
+  the wave-record generator (`gen_wave_record.py`) reds a dispatch
+  carrying the retired clause (the C4 rule, gh#1473; the record belongs
+  to the weekly generator run — the waves 81–82 repetition ends); the
+  placeholder gate (`scripts/ci/changelog_placeholder_gate.py`,
+  blocking in ci.yml) refuses the unfilled template-token family in
+  CHANGELOG.md and the release-notes documents — the issue-number slot
+  (the exact token the №897 row shipped with), the unrendered
+  GitHub-expression form, the dispatch and naryad-number slots — the
+  №897/0.38.2 shipped-placeholder lesson is now a machine-caught
+  impossibility; the gh#1751 M-1 verdict: the
+  four fast-path merges (10.31–11.02) closed with the root cause (the
+  executor merged before the run registered), the containment (the
+  `mergeable_state == clean` gate since 02.11 — the proof by
+  measurement: PR #1750 50/50 success) and the mechanical elimination
+  (the GitHub auto-merge button disabled on the repo — merges go
+  through the executor's verified green-state path only); the 0.37
+  skip recorded in docs/upgrade.md («v0.37 was never tagged — the
+  criteria shipped inside v0.38.0»; the numbering gate rides №899).### Added
 
 - **№914 (issue #1816, wave 82 — W-K, P2, [process][ci], the
   №863/№889/№895/№908 form):** the baseline re-pin ride under the
@@ -603,8 +622,9 @@ SBOM, the attestations and SHA256SUMS on publish.
   positive arms refused with "semantic findings block serve
   startup"/"block mcp-serve startup", the negative arms and the
   laundering pin held. The process honesty ride: the №897 row in
-  [0.38.2] carried the placeholder "issue #ISSUE_NUM" — pinned
-  retroactively to gh#1789 (the index must not carry lies).
+  [0.38.2] shipped with the issue-number placeholder left unresolved —
+  pinned retroactively to gh#1789 (the index must not carry lies; the
+  №902 gate now refuses the class).
 
 ## [0.38.2] - 2026-11-04
 

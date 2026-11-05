@@ -690,6 +690,24 @@ jobs:
         run: |
           python3 scripts/ci/release_train_gate.py --self-test
 
+  changelog-placeholder-gate:
+    name: changelog-placeholder-gate (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      # №902 (gh#1796; the R50 lesson repeated): the release documents
+      # never ship an unfilled template token — the released 0.38.2
+      # CHANGELOG carried the №897 row with the issue-number placeholder
+      # through composition, review and CI. The gate refuses the family
+      # (#ISSUE_NUM / gh#{...} / {DISPATCH} / {N}) in CHANGELOG.md and
+      # the release-notes documents.
+      - uses: actions/checkout@v7
+      - name: "Gate — the release-document placeholders (№902: the shipped template token is refused)"
+        run: |
+          python3 scripts/ci/changelog_placeholder_gate.py
+      - name: "Negative test — the traps spring (the №535 sync form)"
+        run: |
+          python3 scripts/ci/changelog_placeholder_gate.py --self-test
+
   registry-bounds:
     name: registry-bounds (blocking)
     runs-on: ubuntu-latest

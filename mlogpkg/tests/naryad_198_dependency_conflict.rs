@@ -89,9 +89,9 @@ fn setup_registry_with_conflict(registry: &Path) -> String {
 }
 
 /// №911: a dependency row carries its digest pin.
-type Dep = (&'static str, &'static str, &'static str);
+type Dep<'a> = (&'a str, &'a str, &'a str);
 
-fn write_pkg(registry: &Path, name: &str, version: &str, deps: &[Dep]) {
+fn write_pkg(registry: &Path, name: &str, version: &str, deps: &[Dep<'_>]) {
     let pkg_dir = registry.join(name);
     fs::create_dir_all(&pkg_dir).unwrap();
 
@@ -121,7 +121,7 @@ fn write_pkg(registry: &Path, name: &str, version: &str, deps: &[Dep]) {
     .unwrap();
 }
 
-fn write_manifest(path: &Path, name: &str, deps: &[Dep]) {
+fn write_manifest(path: &Path, name: &str, deps: &[Dep<'_>]) {
     let mut deps_toml = String::new();
     if !deps.is_empty() {
         deps_toml.push_str("\n[dependencies]\n");

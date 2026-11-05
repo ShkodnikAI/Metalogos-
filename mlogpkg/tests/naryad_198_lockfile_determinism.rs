@@ -28,7 +28,7 @@ fn temp_dir(name: &str) -> PathBuf {
 }
 
 /// №911: a dependency row carries its digest pin.
-type Dep = (&'static str, &'static str, &'static str);
+type Dep<'a> = (&'a str, &'a str, &'a str);
 
 /// №911: pack the package at `pkg_dir`, return its printed digest.
 fn pack_digest(pkg_dir: &Path) -> String {
@@ -47,7 +47,7 @@ fn pack_digest(pkg_dir: &Path) -> String {
         .to_string()
 }
 
-fn write_pkg(registry: &Path, name: &str, version: &str, deps: &[Dep]) {
+fn write_pkg(registry: &Path, name: &str, version: &str, deps: &[Dep<'_>]) {
     let pkg_dir = registry.join(name);
     fs::create_dir_all(&pkg_dir).unwrap();
 
@@ -96,7 +96,7 @@ fn setup_registry(registry: &Path) -> (String, String) {
     (d_a, d_d)
 }
 
-fn write_manifest(path: &Path, name: &str, deps: &[Dep]) {
+fn write_manifest(path: &Path, name: &str, deps: &[Dep<'_>]) {
     let mut deps_toml = String::new();
     if !deps.is_empty() {
         deps_toml.push_str("\n[dependencies]\n");

@@ -1643,7 +1643,10 @@ mod tests {
     fn test_resolve_graph_missing_package() {
         let (_dir, registry) = setup_test_registry("resolve_missing");
         let mut deps = HashMap::new();
-        deps.insert("nonexistent".to_string(), DependencySpec::Bare("1.0.0".to_string()));
+        deps.insert(
+            "nonexistent".to_string(),
+            DependencySpec::Bare("1.0.0".to_string()),
+        );
         let manifest = Manifest {
             package: Package::default(),
             dependencies: deps,
@@ -1666,8 +1669,14 @@ mod tests {
         write_pkg_to_registry(&registry, "mid", "1.0.0", &[]);
 
         let mut deps = HashMap::new();
-        deps.insert("zeta".to_string(), DependencySpec::Bare("1.0.0".to_string()));
-        deps.insert("alpha".to_string(), DependencySpec::Bare("1.0.0".to_string()));
+        deps.insert(
+            "zeta".to_string(),
+            DependencySpec::Bare("1.0.0".to_string()),
+        );
+        deps.insert(
+            "alpha".to_string(),
+            DependencySpec::Bare("1.0.0".to_string()),
+        );
         deps.insert("mid".to_string(), DependencySpec::Bare("1.0.0".to_string()));
         let manifest = Manifest {
             package: Package::default(),

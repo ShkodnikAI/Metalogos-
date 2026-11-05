@@ -108,7 +108,11 @@ fn n911_bare_version_refuses_with_missing_pin() {
     )
     .unwrap();
     fs::create_dir_all(dir.join("src")).unwrap();
-    fs::write(dir.join("src/main.mlog"), "entity v: String = \"\"\nflow Main { input: String = v -> output }\n").unwrap();
+    fs::write(
+        dir.join("src/main.mlog"),
+        "entity v: String = \"\"\nflow Main { input: String = v -> output }\n",
+    )
+    .unwrap();
 
     let (ok, _out, err) = run_mlogpkg(&["build"], &dir, Some(&registry));
     assert!(!ok, "build must REFUSE a bare version");
@@ -141,7 +145,11 @@ fn n911_pinned_happy_builds() {
     )
     .unwrap();
     fs::create_dir_all(dir.join("src")).unwrap();
-    fs::write(dir.join("src/main.mlog"), "entity v: String = \"\"\nflow Main { input: String = v -> output }\n").unwrap();
+    fs::write(
+        dir.join("src/main.mlog"),
+        "entity v: String = \"\"\nflow Main { input: String = v -> output }\n",
+    )
+    .unwrap();
 
     let (ok, out, err) = run_mlogpkg(&["build"], &dir, Some(&registry));
     assert!(ok, "pinned build must succeed: {} / {}", err, out);
@@ -205,7 +213,11 @@ fn n911_advisory_consult_rides_after_integrity() {
     )
     .unwrap();
     fs::create_dir_all(dir.join("src")).unwrap();
-    fs::write(dir.join("src/main.mlog"), "entity v: String = \"\"\nflow Main { input: String = v -> output }\n").unwrap();
+    fs::write(
+        dir.join("src/main.mlog"),
+        "entity v: String = \"\"\nflow Main { input: String = v -> output }\n",
+    )
+    .unwrap();
 
     // The advisory matches lib@1.0.0 — but the tree is TAMPERED: the
     // refusal must name the INTEGRITY divergence, not the advisory.
@@ -258,16 +270,16 @@ fn n911_verify_key_pinned_demands_verified_signature() {
     )
     .unwrap();
     fs::create_dir_all(dir.join("src")).unwrap();
-    fs::write(dir.join("src/main.mlog"), "entity v: String = \"\"\nflow Main { input: String = v -> output }\n").unwrap();
+    fs::write(
+        dir.join("src/main.mlog"),
+        "entity v: String = \"\"\nflow Main { input: String = v -> output }\n",
+    )
+    .unwrap();
 
     // 1. No package document at all → refusal.
     let (ok, _o, err) = run_mlogpkg(&["build"], &dir, Some(&registry));
     assert!(!ok, "verify_key pinned + no document must refuse");
-    assert!(
-        err.contains("signature required"),
-        "stderr: {}",
-        err
-    );
+    assert!(err.contains("signature required"), "stderr: {}", err);
 
     // 2. Document without a signature → refusal.
     let (ok, _o, e) = run_mlogpkg(&["pack"], &registry.join("lib"), None);
@@ -277,7 +289,11 @@ fn n911_verify_key_pinned_demands_verified_signature() {
     assert!(err.contains("signature required"), "stderr: {}", err);
 
     // 3. Signed with the right key → green.
-    let (ok, _o, e) = run_mlogpkg(&["sign", "--key", key.to_str().unwrap()], &registry.join("lib"), None);
+    let (ok, _o, e) = run_mlogpkg(
+        &["sign", "--key", key.to_str().unwrap()],
+        &registry.join("lib"),
+        None,
+    );
     assert!(ok, "sign: {}", e);
     let (ok, out, err) = run_mlogpkg(&["build"], &dir, Some(&registry));
     assert!(ok, "signed + pinned key must build: {} / {}", err, out);
@@ -318,7 +334,11 @@ fn n911_transitive_pin_required() {
     )
     .unwrap();
     fs::create_dir_all(mid_dir.join("src")).unwrap();
-    fs::write(mid_dir.join("src/main.mlog"), "entity v: String = \"\"\nflow Main { input: String = v -> output }\n").unwrap();
+    fs::write(
+        mid_dir.join("src/main.mlog"),
+        "entity v: String = \"\"\nflow Main { input: String = v -> output }\n",
+    )
+    .unwrap();
     let dmid = pack_digest(&mid_dir);
 
     // The consumer pins mid only — leaf's pin rides mid's manifest.
@@ -331,7 +351,11 @@ fn n911_transitive_pin_required() {
     )
     .unwrap();
     fs::create_dir_all(dir.join("src")).unwrap();
-    fs::write(dir.join("src/main.mlog"), "entity v: String = \"\"\nflow Main { input: String = v -> output }\n").unwrap();
+    fs::write(
+        dir.join("src/main.mlog"),
+        "entity v: String = \"\"\nflow Main { input: String = v -> output }\n",
+    )
+    .unwrap();
 
     let (ok, out, err) = run_mlogpkg(&["build"], &dir, Some(&registry));
     assert!(ok, "the transitive chain must build: {} / {}", err, out);

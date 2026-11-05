@@ -55,7 +55,10 @@ fn write_pkg(registry: &Path, name: &str, version: &str, deps: &[Dep]) {
     if !deps.is_empty() {
         deps_toml.push_str("\n[dependencies]\n");
         for (d, v, dg) in deps {
-            deps_toml.push_str(&format!("{} = {{ version = \"{}\", digest = \"{}\" }}\n", d, v, dg));
+            deps_toml.push_str(&format!(
+                "{} = {{ version = \"{}\", digest = \"{}\" }}\n",
+                d, v, dg
+            ));
         }
     }
 
@@ -98,7 +101,10 @@ fn write_manifest(path: &Path, name: &str, deps: &[Dep]) {
     if !deps.is_empty() {
         deps_toml.push_str("\n[dependencies]\n");
         for (d, v, dg) in deps {
-            deps_toml.push_str(&format!("{} = {{ version = \"{}\", digest = \"{}\" }}\n", d, v, dg));
+            deps_toml.push_str(&format!(
+                "{} = {{ version = \"{}\", digest = \"{}\" }}\n",
+                d, v, dg
+            ));
         }
     }
     let manifest = format!(

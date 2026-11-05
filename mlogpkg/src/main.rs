@@ -529,30 +529,37 @@ fn verify_integrity_node(
     // 3. The signature (the strengthening): when the consumer pins a
     //    verify_key, the package document must carry a VERIFIED signature.
     let doc_path = pkg_dir.join(format!("{}.mlogpkg.json", name));
-    if doc_path.exists() && verify_key.is_some() {
-        let stored = fs::read_to_string(&doc_path)
-            .map_err(|e| format!("integrity: cannot read {}: {}", doc_path.display(), e))?;
-        let mut lines = stored.lines();
-        let _hashed_line = lines.next().unwrap_or("");
-        let trailer = lines.next().unwrap_or("");
-        let sig_hex = trailer.strip_prefix("signature: ").ok_or_else(|| {
-            format!(
-                "signature required for '{}' (verify_key is pinned) but the package document has none — run `mlogpkg sign`",
-                name
-            )
-        })?;
-        let key = read_key_file(verify_key.unwrap())?;
-        let digest_bytes =
-            hex::decode(actual).map_err(|_| "integrity: internal digest decode".to_string())?;
-        let expected = sign_digest(&key, &digest_bytes);
-        if !ct_eq(expected.as_bytes(), sig_hex.trim().as_bytes()) {
-            return Err(format!("signature mismatch for '{}'", name));
+    match (doc_path.exists(), verify_key) {
+        (true, Some(vk)) => {
+            let stored = fs::read_to_string(&doc_path).map_err(|e| {
+                format!("integrity: cannot read {}: {}", doc_path.display(), e)
+            })?;
+            let mut lines = stored.lines();
+            let _hashed_line = lines.next().unwrap_or("");
+            let trailer = lines.next().unwrap_or("");
+            let sig_hex = trailer
+                .strip_prefix("signature: ")
+                .ok_or_else(|| {
+                    format!(
+                        "signature required for '{}' (verify_key is pinned) but the package document has none — run `mlogpkg sign`",
+                        name
+                    )
+                })?;
+            let key = read_key_file(vk)?;
+            let digest_bytes = hex::decode(actual)
+                .map_err(|_| "integrity: internal digest decode".to_string())?;
+            let expected = sign_digest(&key, &digest_bytes);
+            if !ct_eq(expected.as_bytes(), sig_hex.trim().as_bytes()) {
+                return Err(format!("signature mismatch for '{}'", name));
+            }
         }
-    } else if !doc_path.exists() && verify_key.is_some() {
-        return Err(format!(
-            "signature required for '{}' (verify_key is pinned) but the package document is missing — run `mlogpkg pack` + `mlogpkg sign`",
-            name
-        ));
+        (false, Some(_)) => {
+            return Err(format!(
+                "signature required for '{}' (verify_key is pinned) but the package document is missing — run `mlogpkg pack` + `mlogpkg sign`",
+                name
+            ));
+        }
+        _ => {}
     }
 
     // 4. Recurse into the package's own dependencies (transitively pinned).

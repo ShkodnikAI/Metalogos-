@@ -64,7 +64,29 @@ All notable changes to the Metalogos project.
   through the executor's verified green-state path only); the 0.37
   skip recorded in docs/upgrade.md («v0.37 was never tagged — the
   criteria shipped inside v0.38.0»; the numbering gate rides №899).### Added
-
+- **№901 (issue #1795, P1, [security][consent][adr]):** ADR-0211 — the
+  verifiable mandate actor (ADR BEFORE the code, the owner's N4
+  decision): the fact — `approval_issue(actor, target, ttl)` is a
+  normal builtin whose `actor` is any non-empty String, so a program
+  can issue a mandate naming any human and the fail-closed approval
+  gate honors it (ADR-0205 §5's honest «not a signature» record; the
+  APPROVAL_COVERAGE 10000 bp does not distinguish «a human approved»
+  from «a program wrote a name»); the three variants compared over the
+  trust anchor, the reachable surface, the runtime delta, the
+  verified-mode path and the honest limits — (а) the Ed25519-signed
+  mandate (the key in the host environment, the runtime verifies),
+  (б) the out-of-program issuance (the host CLI `mlog approve …`/the
+  secret endpoint; the program only reads), (в) the
+  `actor_verified=false` marking that never counts; **the
+  recommendation: (б) with (в)'s marking as the mechanic** — the trust
+  anchor stays outside the machine (the ADR-0186 §4.5 lineage), the
+  fail-closed direction is structural (the counted class is born
+  outside the program's reach), the coverage becomes a checked fact
+  about humans, not about strings; (а) stays the strengthening lane
+  for the multi-host contour (the trigger, not a schedule). Status
+  **Proposed** — the owner's variant choice closes the ADR as Accepted
+  and opens the code naryad (the test mutation: `approval_issue` from
+  `.mlog` does not pass the `cron_run` gate in the verified mode).### Added
 - **№914 (issue #1816, wave 82 — W-K, P2, [process][ci], the
   №863/№889/№895/№908 form):** the baseline re-pin ride under the
   wave-82 signed-package kernel — the verification pass over ALL

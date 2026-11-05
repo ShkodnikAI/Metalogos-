@@ -11,6 +11,13 @@ row in the CHANGELOG reddens CI.
 
 ## 0.34 → 0.38
 
+> **The version line:** `v0.37` was never tagged — the 0.37-numbered
+> train (the wave-74 «Portable Refusal Algebra» lane) shipped its
+> criteria INSIDE `v0.38.0` (the R38-era subphase→minor binding
+> produced a numbered skip; recorded in the [0.38.0] release notes).
+> From 0.39.0 the numbering is machine-enforced: the release-train
+> gate (№899, the ADR-0189 amendment) refuses a minor gap.
+
 Two runtime postures landed between 0.34 and 0.38, and both refuse
 BEFORE the action (fail-closed). A 0.34-era program that calls an
 affected carrier without the matching surface refuses at the first

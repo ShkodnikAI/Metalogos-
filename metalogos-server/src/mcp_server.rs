@@ -813,20 +813,44 @@ pub fn enforce_category_a_startup(declarations: &[Declaration]) -> Result<(), St
 /// the №523 serve gate uses (identical to the runtime loader's lookup),
 /// and the refusal carries the FIRST blocking finding's stable code at
 /// position 0 (the №479 posture), in the serve refusal's format.
-pub fn enforce_semantic_startup(declarations: &[Declaration]) -> Result<(), String> {
+///
+/// №915: the gate takes the ENTRY source text and applies the №897
+/// per-module suppression surface — each finding is sanctioned only by
+/// its own module's allow-comments (the №802 rule, now on every startup
+/// surface: run, serve, mcp-serve). The №802-era note ("no source
+/// threading through the MCP entrypoints in this naryad — the
+/// fail-closed asymmetry is recorded") is CLOSED here: the source is
+/// threaded through every entrypoint (the bin callers read it before
+/// parse; the test callers hold the fixture string), so a program clean
+/// under `mlog check` no longer refuses at mcp-serve startup. The
+/// filter itself is unchanged (the per-line quota, the non-empty-reason
+/// rule); one module's comment cannot launder another module's access.
+pub fn enforce_semantic_startup(
+    declarations: &[Declaration],
+    entry_source: &str,
+) -> Result<(), String> {
     let base_dir = std::path::PathBuf::from(".");
-    let module_decls = metalogos::semantic::resolve_imports_statically(declarations, &base_dir)
-        .map_err(|e| format!("Compilation error (Naryad #557): {}", e))?;
+    let (module_decls, module_groups) =
+        metalogos::semantic::resolve_import_groups(declarations, &base_dir)
+            .map_err(|e| format!("Compilation error (Naryad #557): {}", e))?;
     let mut merged_decls = module_decls;
     merged_decls.extend(declarations.to_vec());
     let sem_result = metalogos::semantic::check_program(&merged_decls);
-    // №802 note: the mcp-serve startup keeps the UNFILTERED refusal
-    // surface (no source threading through the MCP entrypoints in this
-    // naryad) — a suppressed-at-check program may refuse here; the
-    // asymmetry is fail-closed (stricter, never looser) and is recorded
-    // in the naryad report.
-    let blocking: Vec<&metalogos::semantic::SpannedError> = sem_result
-        .errors
+    // №802 + №897 + №915: the allow-comment suppressions are honored at
+    // mcp-serve startup too — PER MODULE, the same filter the run gate
+    // (lib.rs) and the serve gate (server.rs) keep. The old posture held
+    // the UNFILTERED refusal surface: even the ENTRY file's own
+    // sanctioned comments were invisible here (stricter, never looser —
+    // honest, but a check ↔ mcp-serve disagreement of exactly the shape
+    // №897 closed for run). No-import programs behave byte-identically
+    // (the empty-group case degenerates to the old entry-only filter).
+    let sem_errors = metalogos::semantic::filter_suppressed_unchecked_per_module(
+        sem_result.errors,
+        declarations,
+        entry_source,
+        &module_groups,
+    );
+    let blocking: Vec<&metalogos::semantic::SpannedError> = sem_errors
         .iter()
         .filter(|err| !metalogos::semantic::is_exempt_from_blocking(err.kind))
         .collect();
@@ -851,13 +875,21 @@ pub fn enforce_semantic_startup(declarations: &[Declaration]) -> Result<(), Stri
 
 /// Run the MCP server loop over stdio: read JSON-RPC from stdin, write
 /// to stdout. Behavior identical to №297 (the default transport).
-pub fn run_mcp_server(declarations: &[Declaration], allowlist: &[String]) -> Result<(), String> {
+/// №915: `source` is the ENTRY file's text — the per-module suppression
+/// surface needs it (the gate's `entry_source`); the bin caller reads it
+/// before parse, the test callers hold the fixture string.
+pub fn run_mcp_server(
+    declarations: &[Declaration],
+    source: &str,
+    allowlist: &[String],
+) -> Result<(), String> {
     // gh#536 Finding 2: the gate runs BEFORE the allowlist check — a
     // dangerous file is refused for what it IS, not for what it exposes.
     enforce_category_a_startup(declarations)?;
     // №557: the semantic gate — a lying tool never serves (the №523 serve
-    // posture on the MCP surface).
-    enforce_semantic_startup(declarations)?;
+    // posture on the MCP surface). №915: the suppression surface is
+    // per-module (the №897 form) — the source rides along.
+    enforce_semantic_startup(declarations, source)?;
     let server = McpServer::new(declarations, allowlist)?;
 
     let stdin = io::stdin();
@@ -1178,6 +1210,7 @@ type SseOutbox = tokio::sync::mpsc::UnboundedSender<serde_json::Value>;
 #[cfg(feature = "server")]
 pub fn run_mcp_server_network(
     declarations: &[Declaration],
+    source: &str,
     allowlist: &[String],
     transport: &str,
     bind: &str,
@@ -1188,8 +1221,9 @@ pub fn run_mcp_server_network(
     // front door).
     enforce_category_a_startup(declarations)?;
     // №557: the semantic gate — the transports cannot drift on it either
-    // (the same posture the stdio front door carries).
-    enforce_semantic_startup(declarations)?;
+    // (the same posture the stdio front door carries). №915: per-module
+    // suppression, the source rides along (the stdio form).
+    enforce_semantic_startup(declarations, source)?;
     let server = std::sync::Arc::new(McpServer::new(declarations, allowlist)?);
 
     // ── The loud auth posture (№263 WARN precedent, Naryad #394 §4) ──
@@ -1380,6 +1414,7 @@ fn mcp_router(server: std::sync::Arc<McpServer>, auth: &McpAuth) -> axum::Router
 #[cfg(feature = "server")]
 pub async fn run_test_mcp_server(
     declarations: &[Declaration],
+    source: &str,
     allowlist: &[String],
     auth: &McpAuth,
 ) -> Result<
@@ -1395,7 +1430,8 @@ pub async fn run_test_mcp_server(
     enforce_category_a_startup(declarations)?;
     // №557: the semantic gate — the same posture on the test harness (it
     // walks the REAL entrypoint surface, so it carries BOTH gates).
-    enforce_semantic_startup(declarations)?;
+    // №915: per-module suppression, the source rides along.
+    enforce_semantic_startup(declarations, source)?;
     let server = std::sync::Arc::new(McpServer::new(declarations, allowlist)?);
     let app = mcp_router(server, auth);
 

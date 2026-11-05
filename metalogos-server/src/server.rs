@@ -799,16 +799,35 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
     // interpreters ("." — identical to the runtime loader's lookup).
     {
         let base_dir = std::path::PathBuf::from(".");
-        let module_decls =
-            metalogos::semantic::resolve_imports_statically(&declarations, &base_dir)
+        // №915: the GROUPS form (the same walk the run gate keeps since
+        // №897) — each resolved import lands with its own declarations AND
+        // its own source text, so the suppression filter below can match
+        // every finding against ITS OWN module's comments.
+        let (module_decls, module_groups) =
+            metalogos::semantic::resolve_import_groups(&declarations, &base_dir)
                 .map_err(|e| format!("Compilation error (Naryad #523): {}", e))?;
         let mut merged_decls = module_decls;
         merged_decls.extend(declarations.clone());
         let sem_result = metalogos::semantic::check_program(&merged_decls);
         // №802: the allow-comment suppressions are honored at serve
         // startup too (the same agreement the №523 run gate keeps).
+        // №915: the suppressions apply PER MODULE — the №897 fix, now on
+        // the serve path. The old call filtered against the ENTRY source
+        // text only, so an allow-comment sitting in an imported module was
+        // invisible to the gate and a program clean under `mlog check`
+        // refused at `mlog serve` (the check ↔ run ↔ serve agreement the
+        // №802 note requires). One module's allow-comment cannot launder
+        // another module's access; the per-line quota and the
+        // non-empty-reason rule are unchanged; no-import programs behave
+        // byte-identically (the empty-group case degenerates to the old
+        // entry-only filter).
         let mut sem_errors = sem_result.errors;
-        sem_errors = metalogos::semantic::filter_suppressed_unchecked(sem_errors, source);
+        sem_errors = metalogos::semantic::filter_suppressed_unchecked_per_module(
+            sem_errors,
+            &declarations,
+            source,
+            &module_groups,
+        );
         let blocking: Vec<&metalogos::semantic::SpannedError> = sem_errors
             .iter()
             .filter(|err| !metalogos::semantic::is_exempt_from_blocking(err.kind))

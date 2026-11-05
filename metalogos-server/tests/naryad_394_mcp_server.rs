@@ -270,6 +270,7 @@ mod network {
         let decls = parse(TOOL_SOURCE);
         let (port, handle) = run_test_mcp_server(
             &decls,
+            TOOL_SOURCE,
             &["notify.send".to_string(), "stats".to_string()],
             &McpAuth::OpenLocal,
         )
@@ -323,6 +324,7 @@ mod network {
         let decls = parse(TOOL_SOURCE);
         let (port, handle) = run_test_mcp_server(
             &decls,
+            TOOL_SOURCE,
             &["notify.send".to_string()],
             &McpAuth::Bearer("s3cret".to_string()),
         )
@@ -373,10 +375,14 @@ mod network {
         // POSTs JSON-RPC to that endpoint and reads the response as a
         // `message` event on the same stream.
         let decls = parse(TOOL_SOURCE);
-        let (port, handle) =
-            run_test_mcp_server(&decls, &["notify.send".to_string()], &McpAuth::OpenLocal)
-                .await
-                .expect("test server starts");
+        let (port, handle) = run_test_mcp_server(
+            &decls,
+            TOOL_SOURCE,
+            &["notify.send".to_string()],
+            &McpAuth::OpenLocal,
+        )
+        .await
+        .expect("test server starts");
 
         let client = reqwest::Client::new();
         let mut stream = client

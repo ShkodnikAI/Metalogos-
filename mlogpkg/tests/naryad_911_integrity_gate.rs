@@ -74,23 +74,6 @@ fn pack_digest(pkg_dir: &Path) -> String {
         .to_string()
 }
 
-/// Rewrite `name = "version"` into the pinned inline-table form.
-fn pin_dependency(manifest_path: &Path, name: &str, version: &str, digest: &str) {
-    let content = fs::read_to_string(manifest_path).unwrap();
-    let bare = format!("{} = \"{}\"", name, version);
-    let pinned = format!(
-        "{} = {{ version = \"{}\", digest = \"{}\" }}",
-        name, version, digest
-    );
-    assert!(
-        content.contains(&bare),
-        "manifest must contain the bare dep to pin: {}\n{}",
-        bare,
-        content
-    );
-    fs::write(manifest_path, content.replace(&bare, &pinned)).unwrap();
-}
-
 fn write_advisory_db(path: &Path, package: &str, version: &str) {
     let content = format!(
         "# test advisory db (№911)\n[[advisory]]\nid = \"MLOG-911\"\npackage = \"{}\"\nversion = \"{}\"\nseverity = \"high\"\ntitle = \"the canary advisory\"\ndescription = \"\"\nurl = \"\"\n",

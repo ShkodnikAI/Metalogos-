@@ -77,13 +77,6 @@ fn setup_registry_with_conflict(registry: &Path) -> String {
     write_pkg(registry, "pkg_b", "1.0.0", &[("shared", "2.0.0", &d_shared)]);
     d_a
 }
-    // shared@1.0.0 (only one version per package name in v1 registry).
-    write_pkg(registry, "shared", "1.0.0", &[]);
-    // pkg_a depends on shared@1.0.0 — matches registry.
-    write_pkg(registry, "pkg_a", "1.0.0", &[("shared", "1.0.0")]);
-    // pkg_b depends on shared@2.0.0 — does NOT match registry's 1.0.0.
-    write_pkg(registry, "pkg_b", "1.0.0", &[("shared", "2.0.0")]);
-}
 
 /// №911: a dependency row carries its digest pin.
 type Dep = (&'static str, &'static str, &'static str);

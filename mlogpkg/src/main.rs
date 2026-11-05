@@ -531,9 +531,8 @@ fn verify_integrity_node(
     let doc_path = pkg_dir.join(format!("{}.mlogpkg.json", name));
     match (doc_path.exists(), verify_key) {
         (true, Some(vk)) => {
-            let stored = fs::read_to_string(&doc_path).map_err(|e| {
-                format!("integrity: cannot read {}: {}", doc_path.display(), e)
-            })?;
+            let stored = fs::read_to_string(&doc_path)
+                .map_err(|e| format!("integrity: cannot read {}: {}", doc_path.display(), e))?;
             let mut lines = stored.lines();
             let _hashed_line = lines.next().unwrap_or("");
             let trailer = lines.next().unwrap_or("");
@@ -546,8 +545,8 @@ fn verify_integrity_node(
                     )
                 })?;
             let key = read_key_file(vk)?;
-            let digest_bytes = hex::decode(actual)
-                .map_err(|_| "integrity: internal digest decode".to_string())?;
+            let digest_bytes =
+                hex::decode(actual).map_err(|_| "integrity: internal digest decode".to_string())?;
             let expected = sign_digest(&key, &digest_bytes);
             if !ct_eq(expected.as_bytes(), sig_hex.trim().as_bytes()) {
                 return Err(format!("signature mismatch for '{}'", name));

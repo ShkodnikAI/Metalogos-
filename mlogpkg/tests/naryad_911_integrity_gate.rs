@@ -48,7 +48,10 @@ fn write_pkg(registry: &Path, name: &str, version: &str) {
     fs::create_dir_all(&pkg_dir).unwrap();
     fs::write(
         pkg_dir.join("mlog.toml"),
-        format!("[package]\nname = \"{}\"\nversion = \"{}\"\nedition = \"2024\"\n", name, version),
+        format!(
+            "[package]\nname = \"{}\"\nversion = \"{}\"\nedition = \"2024\"\n",
+            name, version
+        ),
     )
     .unwrap();
     fs::create_dir_all(pkg_dir.join("src")).unwrap();
@@ -175,7 +178,11 @@ fn n911_tampered_registry_refuses_before_semantic_check() {
     fs::create_dir_all(dir.join("src")).unwrap();
     // The CONSUMER source is deliberately broken — if the semantic check
     // runs, the test fails (the integrity gate must fire FIRST).
-    fs::write(dir.join("src/main.mlog"), "entity m: UnknownType = { text: \"hi\" }").unwrap();
+    fs::write(
+        dir.join("src/main.mlog"),
+        "entity m: UnknownType = { text: \"hi\" }",
+    )
+    .unwrap();
 
     // Tamper the REGISTRY tree after packing.
     let src = registry.join("lib/src/main.mlog");

@@ -6,6 +6,26 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№911 (issue #1813, wave 82 — W-K, P1, [registry][core]):** the build
+  integrity gate (ADR-0218 §4.2) — the fail-closed coverage rule:
+  `mlog.toml [dependencies]` grows the pinned form
+  `{ version = "..", digest = "<64 hex>" }` (the №828 form); `mlogpkg
+  build` runs the integrity pass BEFORE any effect — every dependency
+  (transitively) must pin its digest, the registry tree must re-derive
+  byte-for-byte, and a pinned `[registry] verify_key` demands a VERIFIED
+  signature; the advisory consult (№198) rides strictly AFTER the
+  integrity pass — a tampered package refuses as INTEGRITY, never as an
+  advisory hit. BREAKING (the honest migration of the local-registry
+  era): a bare version (`lib = "1.0.0"`) refuses at build with the
+  missing-pin message naming the pinned form; `add` records the version
+  only — pin before build. Refusals: digest pin missing / digest pin
+  mismatch (pinned vs re-derived) / signature required / signature
+  mismatch. The №198 suite runs pinned (the topological pack→pin order);
+  the new naryad_911_integrity_gate.rs battery: bare-refusal, pinned
+  happy, tamper-before-semantic-check, advisory-after-integrity,
+  verify_key contract (no doc / unsigned / signed / foreign key),
+  transitive pin + tamper-through-the-chain.
+
 - **№910 (issue #1812, wave 82 — W-K, P1, [core][registry]):** the signed
   package kernel (ADR-0218 §2/§4.1) — `mlogpkg pack` (the canonical digest
   document: sorted keys, LF, no timestamps; re-pack of the same tree is

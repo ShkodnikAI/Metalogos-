@@ -46,7 +46,37 @@ fn temp_dir(name: &str) -> PathBuf {
 /// The other form is: pkg_a requires shared@1.0.0, pkg_b requires
 /// shared@1.0.0 (same version) but the resolved version (from a third
 /// dep) is different. Both forms must produce a clear error.
-fn setup_registry_with_conflict(registry: &Path) {
+/// №911: pack the package at `pkg_dir`, return its printed digest.
+fn pack_digest(pkg_dir: &Path) -> String {
+    let output = Command::new(mlogpkg_bin())
+        .arg("pack")
+        .current_dir(pkg_dir)
+        .output()
+        .expect("failed to run mlogpkg pack");
+    assert!(output.status.success(), "pack failed in {:?}", pkg_dir);
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .next()
+        .unwrap()
+        .trim_start_matches("digest: ")
+        .trim()
+        .to_string()
+}
+
+fn setup_registry_with_conflict(registry: &Path) -> String {
+    // shared@1.0.0 (only one version per package name in v1 registry).
+    // №911: the pins are the shared tree's digest — the VERSION conflict
+    // (shared@2.0.0 requested vs shared@1.0.0 present) fires later, in
+    // resolve_graph, after the integrity gate passes.
+    write_pkg(registry, "shared", "1.0.0", &[]);
+    let d_shared = pack_digest(&registry.join("shared"));
+    // pkg_a depends on shared@1.0.0 — matches registry.
+    write_pkg(registry, "pkg_a", "1.0.0", &[("shared", "1.0.0", &d_shared)]);
+    let d_a = pack_digest(&registry.join("pkg_a"));
+    // pkg_b depends on shared@2.0.0 — does NOT match registry's 1.0.0.
+    write_pkg(registry, "pkg_b", "1.0.0", &[("shared", "2.0.0", &d_shared)]);
+    d_a
+}
     // shared@1.0.0 (only one version per package name in v1 registry).
     write_pkg(registry, "shared", "1.0.0", &[]);
     // pkg_a depends on shared@1.0.0 — matches registry.
@@ -55,15 +85,21 @@ fn setup_registry_with_conflict(registry: &Path) {
     write_pkg(registry, "pkg_b", "1.0.0", &[("shared", "2.0.0")]);
 }
 
-fn write_pkg(registry: &Path, name: &str, version: &str, deps: &[(&str, &str)]) {
+/// №911: a dependency row carries its digest pin.
+type Dep = (&'static str, &'static str, &'static str);
+
+fn write_pkg(registry: &Path, name: &str, version: &str, deps: &[Dep]) {
     let pkg_dir = registry.join(name);
     fs::create_dir_all(&pkg_dir).unwrap();
 
     let mut deps_toml = String::new();
     if !deps.is_empty() {
         deps_toml.push_str("\n[dependencies]\n");
-        for (d, v) in deps {
-            deps_toml.push_str(&format!("{} = \"{}\"\n", d, v));
+        for (d, v, dg) in deps {
+            deps_toml.push_str(&format!(
+                "{} = {{ version = \"{}\", digest = \"{}\" }}\n",
+                d, v, dg
+            ));
         }
     }
 
@@ -82,12 +118,15 @@ fn write_pkg(registry: &Path, name: &str, version: &str, deps: &[(&str, &str)]) 
     .unwrap();
 }
 
-fn write_manifest(path: &Path, name: &str, deps: &[(&str, &str)]) {
+fn write_manifest(path: &Path, name: &str, deps: &[Dep]) {
     let mut deps_toml = String::new();
     if !deps.is_empty() {
         deps_toml.push_str("\n[dependencies]\n");
-        for (d, v) in deps {
-            deps_toml.push_str(&format!("{} = \"{}\"\n", d, v));
+        for (d, v, dg) in deps {
+            deps_toml.push_str(&format!(
+                "{} = {{ version = \"{}\", digest = \"{}\" }}\n",
+                d, v, dg
+            ));
         }
     }
     let manifest = format!(
@@ -103,13 +142,15 @@ fn naryad_198_dependency_conflict_at_build() {
     let project_dir = temp_dir("build_conflict");
     let registry = project_dir.join("registry");
     fs::create_dir_all(&registry).unwrap();
-    setup_registry_with_conflict(&registry);
+    let d_a = setup_registry_with_conflict(&registry);
+    // pkg_b's own digest — re-pack is byte-identical (№910).
+    let d_b = pack_digest(&registry.join("pkg_b"));
 
-    // Write mlog.toml that depends on both pkg_a and pkg_b.
+    // Write mlog.toml that depends on both pkg_a and pkg_b (pinned, №911).
     write_manifest(
         &project_dir.join("mlog.toml"),
         "testapp",
-        &[("pkg_a", "1.0.0"), ("pkg_b", "1.0.0")],
+        &[("pkg_a", "1.0.0", &d_a), ("pkg_b", "1.0.0", &d_b)],
     );
     fs::create_dir_all(project_dir.join("src")).unwrap();
     fs::write(

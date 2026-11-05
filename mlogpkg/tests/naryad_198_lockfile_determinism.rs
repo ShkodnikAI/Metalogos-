@@ -27,15 +27,35 @@ fn temp_dir(name: &str) -> PathBuf {
     dir
 }
 
-fn write_pkg(registry: &Path, name: &str, version: &str, deps: &[(&str, &str)]) {
+/// №911: a dependency row carries its digest pin.
+type Dep = (&'static str, &'static str, &'static str);
+
+/// №911: pack the package at `pkg_dir`, return its printed digest.
+fn pack_digest(pkg_dir: &Path) -> String {
+    let output = Command::new(mlogpkg_bin())
+        .arg("pack")
+        .current_dir(pkg_dir)
+        .output()
+        .expect("failed to run mlogpkg pack");
+    assert!(output.status.success(), "pack failed in {:?}", pkg_dir);
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .next()
+        .unwrap()
+        .trim_start_matches("digest: ")
+        .trim()
+        .to_string()
+}
+
+fn write_pkg(registry: &Path, name: &str, version: &str, deps: &[Dep]) {
     let pkg_dir = registry.join(name);
     fs::create_dir_all(&pkg_dir).unwrap();
 
     let mut deps_toml = String::new();
     if !deps.is_empty() {
         deps_toml.push_str("\n[dependencies]\n");
-        for (d, v) in deps {
-            deps_toml.push_str(&format!("{} = \"{}\"\n", d, v));
+        for (d, v, dg) in deps {
+            deps_toml.push_str(&format!("{} = {{ version = \"{}\", digest = \"{}\" }}\n", d, v, dg));
         }
     }
 
@@ -52,23 +72,33 @@ fn write_pkg(registry: &Path, name: &str, version: &str, deps: &[(&str, &str)]) 
     .unwrap();
 }
 
-fn setup_registry(registry: &Path) {
+fn setup_registry(registry: &Path) -> (String, String) {
     // Build a 3-level transitive graph so the test exercises the full
     // resolution, not just direct deps:
     //   app -> lib_a (1.0.0) -> lib_b (2.0.0) -> lib_c (3.0.0)
     //   app -> lib_d (1.5.0) -> lib_c (3.0.0)  (diamond — same version)
+    // №911: every edge carries the digest pin — the leaves pack first,
+    // the parents pin their children, then pack themselves.
     write_pkg(registry, "lib_c", "3.0.0", &[]);
-    write_pkg(registry, "lib_b", "2.0.0", &[("lib_c", "3.0.0")]);
-    write_pkg(registry, "lib_a", "1.0.0", &[("lib_b", "2.0.0")]);
-    write_pkg(registry, "lib_d", "1.5.0", &[("lib_c", "3.0.0")]);
+    let d_c = pack_digest(&registry.join("lib_c"));
+
+    write_pkg(registry, "lib_b", "2.0.0", &[("lib_c", "3.0.0", &d_c)]);
+    let d_b = pack_digest(&registry.join("lib_b"));
+
+    write_pkg(registry, "lib_d", "1.5.0", &[("lib_c", "3.0.0", &d_c)]);
+    let d_d = pack_digest(&registry.join("lib_d"));
+
+    write_pkg(registry, "lib_a", "1.0.0", &[("lib_b", "2.0.0", &d_b)]);
+    let d_a = pack_digest(&registry.join("lib_a"));
+    (d_a, d_d)
 }
 
-fn write_manifest(path: &Path, name: &str, deps: &[(&str, &str)]) {
+fn write_manifest(path: &Path, name: &str, deps: &[Dep]) {
     let mut deps_toml = String::new();
     if !deps.is_empty() {
         deps_toml.push_str("\n[dependencies]\n");
-        for (d, v) in deps {
-            deps_toml.push_str(&format!("{} = \"{}\"\n", d, v));
+        for (d, v, dg) in deps {
+            deps_toml.push_str(&format!("{} = {{ version = \"{}\", digest = \"{}\" }}\n", d, v, dg));
         }
     }
     let manifest = format!(
@@ -108,7 +138,7 @@ fn naryad_198_lockfile_determinism_two_builds() {
     let project_dir = temp_dir("det_main");
     let registry = project_dir.join("registry");
     fs::create_dir_all(&registry).unwrap();
-    setup_registry(&registry);
+    let (d_a, d_d) = setup_registry(&registry);
 
     // ── Build #1 ─────────────────────────────────────────────────────
     let dir1 = temp_dir("det_build1");
@@ -121,7 +151,7 @@ fn naryad_198_lockfile_determinism_two_builds() {
     write_manifest(
         &dir1.join("mlog.toml"),
         "det_test",
-        &[("lib_a", "1.0.0"), ("lib_d", "1.5.0")],
+        &[("lib_a", "1.0.0", &d_a), ("lib_d", "1.5.0", &d_d)],
     );
 
     let lock1 = build_project_and_get_lockfile(&dir1, &registry);
@@ -137,7 +167,7 @@ fn naryad_198_lockfile_determinism_two_builds() {
     write_manifest(
         &dir2.join("mlog.toml"),
         "det_test",
-        &[("lib_a", "1.0.0"), ("lib_d", "1.5.0")],
+        &[("lib_a", "1.0.0", &d_a), ("lib_d", "1.5.0", &d_d)],
     );
 
     let lock2 = build_project_and_get_lockfile(&dir2, &registry);
@@ -157,7 +187,7 @@ fn naryad_198_lockfile_determinism_rebuild_same_dir() {
     let project_dir = temp_dir("det_rebuild");
     let registry = project_dir.join("registry");
     fs::create_dir_all(&registry).unwrap();
-    setup_registry(&registry);
+    let (d_a, d_d) = setup_registry(&registry);
 
     let dir = project_dir.join("project");
     fs::create_dir_all(dir.join("src")).unwrap();
@@ -169,7 +199,7 @@ fn naryad_198_lockfile_determinism_rebuild_same_dir() {
     write_manifest(
         &dir.join("mlog.toml"),
         "det_rebuild_test",
-        &[("lib_a", "1.0.0"), ("lib_d", "1.5.0")],
+        &[("lib_a", "1.0.0", &d_a), ("lib_d", "1.5.0", &d_d)],
     );
 
     // ── Build #1 ─────────────────────────────────────────────────────
@@ -197,7 +227,7 @@ fn naryad_198_lockfile_includes_transitive_deps() {
     let project_dir = temp_dir("lock_transitive");
     let registry = project_dir.join("registry");
     fs::create_dir_all(&registry).unwrap();
-    setup_registry(&registry);
+    let (d_a, d_d) = setup_registry(&registry);
 
     let dir = project_dir.join("project");
     fs::create_dir_all(dir.join("src")).unwrap();
@@ -210,7 +240,7 @@ fn naryad_198_lockfile_includes_transitive_deps() {
     write_manifest(
         &dir.join("mlog.toml"),
         "transitive_test",
-        &[("lib_a", "1.0.0"), ("lib_d", "1.5.0")],
+        &[("lib_a", "1.0.0", &d_a), ("lib_d", "1.5.0", &d_d)],
     );
 
     let lock = build_project_and_get_lockfile(&dir, &registry);

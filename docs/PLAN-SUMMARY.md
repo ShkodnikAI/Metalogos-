@@ -3,7 +3,12 @@
 > Publisher's derived artifact (access mode §16.0-7 of plan canon v2): the list of phases,
 > the current wave, criteria. The plan canon is held by the coordinator (private office repo); the public
 > repository does not contain the canon. Updated by the publisher in sync with canon edits.
-> Updated: 2026-11-01.
+> Updated: 2026-11-05.
+>
+> The R38 subphase→minor-version binding is REPLACED (the plan-canon
+> §13.13; the owner's decision, gh#1793 / naryad №899 — the ADR-0189
+> amendment): subphases are enumerated in the release notes of the train
+> that carries them; the wave records below keep the subphase names only.
 
 ## Status
 
@@ -114,8 +119,8 @@ MINOR), №639 (15.10) / №648 (01.12) outside the wave.
 
 ## Current wave — the open machine tail (2026-10-23)
 
-Wave 75 EXECUTED (the dispatch gh#1699 — the 8B-2 subphase, the 0.38 =
-C11 "Typed Consent & Human Oversight" line): №859 → №860 → №861 → №862 →
+Wave 75 EXECUTED (the dispatch gh#1699 — the 8B-2 subphase, the
+"Typed Consent & Human Oversight" line): №859 → №860 → №861 → №862 →
 №863 → №864 (strictly last). The phase line: ADR-0205 — the human
 mandate is a typed carrier of the consent/oversight decision (ADR before
 the code; a condition of action for a grant of the human-oversight
@@ -151,8 +156,8 @@ the merge commit `67b005fe`, the Build & Release run #28
 publication date; the published note bodies carry no date line — the
 №497 verbatim intact).
 
-Wave 80 EXECUTED (the dispatch gh#1779 — the 8G subphase, the 0.43 =
-C8 «Deterministic Replay & Forensic Ledger» line): №891 → №892 → №893 →
+Wave 80 EXECUTED (the dispatch gh#1779 — the 8G subphase, the
+«Deterministic Replay & Forensic Ledger» line): №891 → №892 → №893 →
 №894 → №895 → №896 (strictly last). The phase line: ADR-0210 — the
 deterministic decision trace as a typed, append-only, verifiable
 artifact (the frame R38(5): REPLAY_MATCH — the reconciliation of the
@@ -181,8 +186,8 @@ GREEN on the later heads; gh#1737 closed dated at the wave edition).
 The machine record: the generated §6.80 (the verbatim counters, the
 merge-CI verdicts).
 
-Wave 79 EXECUTED (the dispatch gh#1764 — the 8D-2 subphase, the 0.42 =
-C10 «Jurisdiction-Aware Policy Compilation» line): №885 → №886 → №887 →
+Wave 79 EXECUTED (the dispatch gh#1764 — the 8D-2 subphase, the
+«Jurisdiction-Aware Policy Compilation» line): №885 → №886 → №887 →
 №888 → №889 → №890 (strictly last). The phase line: ADR-0209 — the
 jurisdiction limit-configuration as a typed, verifiable artifact (the
 frame: a configuration of limits, NOT legal advice; ADR before the
@@ -204,8 +209,8 @@ NO DRIFT (the counters are registry-scoped, the wave adds zero
 registry rows). The machine record: the generated §6.79 (the verbatim
 counters, the merge-CI verdicts).
 
-Wave 78 EXECUTED (the dispatch gh#1745 — the 8E-1 subphase, the 0.41 =
-C5 «Provider-Agnostic Local-First» line): №878 → №879 → №880 → №881 →
+Wave 78 EXECUTED (the dispatch gh#1745 — the 8E-1 subphase, the
+«Provider-Agnostic Local-First» line): №878 → №879 → №880 → №881 →
 №882 → №883 → №884 (strictly last). The phase line: ADR-0208 — the
 LLM layer as a provider-agnostic contract (the capabilities + the
 limits + the health semantics; ADR before the code, the №1 form); the
@@ -225,8 +230,8 @@ column_names iterator adaptation) + the rustyline re-check dated. The
 machine record: the generated §6.78 (the verbatim counters, the
 merge-CI verdicts).
 
-Wave 77 EXECUTED (the dispatch gh#1729 — the 8C/C3 subphase, the 0.40 =
-C3 «Provenance-Native I/O» line): №872 → №873 → №874 → №875 → №876 →
+Wave 77 EXECUTED (the dispatch gh#1729 — the 8C/C3 subphase, the
+«Provenance-Native I/O» line): №872 → №873 → №874 → №875 → №876 →
 №877 (strictly last). The phase line: ADR-0207 — the I/O boundary as a
 provenance carrier (the origin digest + the channel + the revision +
 the record fact; ADR before the code, the №1 form); the provenance in
@@ -249,8 +254,8 @@ merge-chain rebuild needed the novel-commit-only transplant (the
 stack-base drift across №872; the tree-identity check kept the PR
 diffs clean) and the auto-merge arming moves to the post-rebuild step.
 
-Wave 76 EXECUTED (the dispatch gh#1714 — the 8A-1 subphase, the 0.39 =
-C1 «Compliance Evidence Compiler» line): №866 → №867 → №868 → №869 →
+Wave 76 EXECUTED (the dispatch gh#1714 — the 8A-1 subphase, the
+«Compliance Evidence Compiler» line): №866 → №867 → №868 → №869 →
 №870 → №871 (strictly last). The phase line: ADR-0206 — the
 attestation map as a typed, verifiable, sellable artifact (the mandate
 → the attested claim → the digest-pinned package); the Attestation
@@ -266,8 +271,8 @@ counters, the merge-CI verdicts). The honest finding rides: the
 pinned-source discipline works — the №868 fail-closed refusal caught
 the baseline re-pin drift, the package re-compiled in the same PR.
 
-Wave 74 EXECUTED (the dispatch gh#1684 — the 8F-1 subphase, the 0.37 =
-C6 "Portable Refusal Algebra" line): №853 → №854 → №855 → №856 → №857 →
+Wave 74 EXECUTED (the dispatch gh#1684 — the 8F-1 subphase, the
+"Portable Refusal Algebra" line): №853 → №854 → №855 → №856 → №857 →
 №858 (strictly last). The phase line: ADR-0204 — the refusal is a value
 of a finite lattice over the frozen deny-reason vocabulary (ADR before
 the code, the codes BY REFERENCE to the frozen №385/ADR-0169 set); the
@@ -284,8 +289,8 @@ verdicts).
 
 Wave 73 EXECUTED (the dispatch gh#1677): №849 → №850 → №851 → №852. The machine record: the generated §6.73 (the verbatim counters, the merge-CI verdicts).
 
-Wave 72 EXECUTED (the dispatch gh#1666 — the 8B-1 subphase, the 0.36 =
-C2 "Capability/Grant Runtime" line): №843 → №844 → №845 → №846 → №847 →
+Wave 72 EXECUTED (the dispatch gh#1666 — the 8B-1 subphase, the
+"Capability/Grant Runtime" line): №843 → №844 → №845 → №846 → №847 →
 №848 (strictly last). The phase line: the typed capability token
 (ADR-0203 Accepted; the read-only typed carrier over the grant ledger,
 the 1:1 migration), the fail-closed coverage rule on every irreversible

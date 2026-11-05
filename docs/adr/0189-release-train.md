@@ -1,11 +1,16 @@
 # ADR-0189: The release train — the Monday cadence, the window, and the honest-content rule
 
-**Status:** Accepted — the owner's verdict, 2026-10-08 (the verbatim
-authorization core: «Каденс поезда принимаю (Proposed → Accepted): окно
+**Status:** Accepted — the owner's verdict, 2026-10-08; **AMENDED
+2026-11-05** (№899, gh#1793 — the owner's calendar-train decision: the
+Saturday rc candidate, the Sunday office stand, the Monday publication;
+the R38 «subphase = minor version» rule is REPLACED by the plan-canon
+§13.13). §5 below is the amendment; §2.1/§2.2 read through it. (The
+original verbatim authorization core: «Каденс поезда принимаю (Proposed → Accepted): окно
 — понедельник»; the FULL verdict text lives at the source — gh#1148,
 comment 2026-10-08T08:03:41Z, and the canonical «гейты-0810» record п.4
 — the docs-language lint №383 keeps the .md form English-only, the
-ADR-0181 §1 authorization-record shape). The window rule, the
+ADR-0181 §1 authorization-record shape).)
+The window rule, the
 no-empty-train rule, the security-cut exception and the first-window
 candidate (12.10: a `### Security` entry in [Unreleased] → 0.30.1) are
 accepted AS WRITTEN below.
@@ -119,3 +124,75 @@ release-time SSOT.
   is never outrun by a calendar.
 - Nothing in this ADR changes the publication authority: the owner
   publishes, the machine prepares (ADR-0186 §4.5 stands).
+
+## 5. The amendment — the calendar train (2026-11-05, №899)
+
+**Decision source:** the owner's calendar-train decision of 2026-11-04,
+recorded in [gh#1793](https://github.com/ShkodnikAI/Metalogos-/issues/1793)
+(№899); the plan-canon §13.13 is the registry-side record. The
+foundation facts: the R38-era rule «one subphase = one minor version»
+produced FOUR minor releases in three days (30.10–01.11) and the 0.37
+number skip; the №861-class serve regression (gh#1735 — the
+`allow_carrier` loss in cron ticks and routes) was caught only by the
+office's own stand AFTER a publication. The train gains a verification
+stage BEFORE the publication.
+
+### 5.1 The weekly cycle (replaces §2.1–§2.2 for every week after 2026-11-03)
+
+| Day | Step |
+|---|---|
+| Mon–Sat | the work; the number of waves does not set a release |
+| **Sat 12:00 MSK** | the candidate `vX.Y.0-rc.N` cut from main (the machine: the `unfreeze_gate.py --strict` gate read, the lockstep, the rc tag, the DRAFT prerelease with the assets — release.yml, the rc path) |
+| **Sun** | the office-stand verification: the rc pinned on the stand (FOSVED-office-v2), the e2e battery, the `mlog check` baseline; a defect → the fix → `rc.N+1` |
+| **Mon** | the final tag on **the same commit**; the publication is the OWNER's act (ADR-0186 §4.5 stands) |
+
+### 5.2 The rules
+
+- **The empty week departs nothing** (§2.3 stands): no content in
+  `[Unreleased]` → no rc, no release, no blame.
+- **A red Sunday skips the week** — without a Tuesday carry: the defect
+  that failed the stand holds the train to the NEXT week's cycle (a
+  forced Tuesday publication is exactly the ad-hoc trigger §1 refused).
+- **The numbers run consecutively** — a new minor tag equals the
+  previous minor + 1; a gap is RED (the machine gate:
+  `scripts/ci/release_train_gate.py`, blocking in ci.yml and in the
+  release build). The rc numbers run consecutively within a train too
+  (`-rc.1`, `-rc.2`, …).
+- **The final tag does not rebuild a different commit** — the final
+  `vX.Y.0` tag's SHA must equal the SHA of the LAST `vX.Y.0-rc.N`
+  candidate of the same train (the commit the stand verified); a
+  mismatch is RED. Security and P0 fixes stay patch cuts on ANY day
+  (§2.6 stands) — a patch cut does not require an rc.
+- **R38 is replaced**: the subphase→minor-version binding is cancelled
+  (the plan-canon §13.13). Phase-8 subphases are enumerated in the
+  release notes of the weekly train that carries them — the notes
+  template block «Вошедшие подфазы» (docs/release-checklist.md). The
+  version number classifies the CONTENT (§2.4 stands: Fixed → patch,
+  Added/Changed → minor), never a subphase identity.
+
+### 5.3 The machine wiring (this amendment's deliverables)
+
+- `release.yml`: the `-rc.N` tags are FIRST-CLASS — the same
+  assets/SBOM/attestations; the rc cut creates a DRAFT prerelease with
+  the assets attached (the machine never publishes — the draft sits
+  until the owner acts); `BUILD-INFO.txt` records the prerelease
+  posture. The final-tag build runs the train gate BEFORE any asset is
+  produced.
+- `scripts/ci/release_train_gate.py` — the numbering gate (no gaps;
+  the rc↔final SHA equality) with the `--self-test` fixtures; blocking
+  in ci.yml (push/PR, full tag history via `fetch-depth: 0`) and in the
+  release build.
+- `docs/release-checklist.md` — the train section carries the calendar
+  cycle and the release-notes template blocks («Вошедшие подфазы»,
+  «Проверено на стенде офиса: <дата, результат>»).
+
+### 5.4 Consequences of the amendment
+
+- The publication is preceded by a VERIFIED candidate on the consumer's
+  own stand — the gh#1735 class (a serve regression published before
+  any stand contact) is structurally closed.
+- The version line stays monotonic and gapless; the 0.37-class skip
+  becomes a machine-caught impossibility for the post-amendment trains.
+- The subphase identity moves out of the version namespace: the minor
+  number measures the content class, the release notes name the
+  subphases.

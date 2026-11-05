@@ -91,6 +91,7 @@ REQUIRED_CHECKS = [
     "test-llm-cache-contract (blocking)",
     "vscode-extension (blocking)",
     "xml-tests (blocking)",
+    "release-train-gate (blocking)",  # №899 (issue #1793, 2026-11-05) — the calendar-train gate
 ]
 
 MERGE_PR_RE = re.compile(r"\(#(\d+)\)\s*$")

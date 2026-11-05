@@ -277,6 +277,8 @@ document records the checklist; the executor cannot apply it. Settings
       owner's №1593 toggle dropped the four pillar contexts)):
       `test-lib (blocking)`, `test-integration (blocking)`,
       `crosscheck (blocking)`, `clippy (blocking)`, `fmt (blocking)`,
+      `release-train-gate (blocking)` (№899, gh#1793, 2026-11-05 — the calendar-train numbering and the rc↔final SHA gate),
+
       `cargo-audit (blocking)`, `cargo-deny (blocking)`,
       `gitleaks (blocking)`, `gate-facts-sync (blocking)`,
       `blocking-checks-sync (blocking)`,

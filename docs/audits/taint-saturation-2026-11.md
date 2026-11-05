@@ -1,7 +1,8 @@
 # The taint saturation audit: the wave-81 method, the evidence, the honest limits
 
 **Naryad №907 (gh#1801, wave 81 — W-J, P2, class [security][docs]).** The
-audit-report artifact of the 0.44 subphase (the R38 train: «TAINT_SATURATION
+audit-report artifact of the saturation subphase (8F-2; the release-train
+binding was replaced — the ADR-0189 amendment, №899: «TAINT_SATURATION
 ≥ 10⁹ + the audit report», the dispatch [gh#1803](https://github.com/ShkodnikAI/Metalogos-/issues/1803)).
 This is the INTERNAL saturation audit — the method, the evidence and the
 honest limits of the wave-81 taint lane — NOT an external paid audit (an
@@ -158,7 +159,7 @@ cargo test --test naryad_905_taint_triples_ratchet -- --nocapture
 
 ## 6. The verdict
 
-The 0.44 subphase fact holds: **TAINT_SATURATION = 324241748923742258252688
+The saturation subphase fact (8F-2) holds: **TAINT_SATURATION = 324241748923742258252688
 (≈ 3.24 × 10²³) ≥ 10⁹**, machine-checked over live anchors, tamper-trapped,
 only-up floored; the run lane is both-backend pinned with the class
 asserts; the honest limits are explicit. The next level of assurance — the

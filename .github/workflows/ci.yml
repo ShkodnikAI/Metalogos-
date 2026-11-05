@@ -670,6 +670,26 @@ jobs:
         run: |
           python3 scripts/ci/agent_index_gate.py --self-test
 
+  release-train-gate:
+    name: release-train-gate (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      # №899 (gh#1793; the ADR-0189 amendment §5 — the calendar train):
+      # the minor numbers run consecutively (the 0.37-class skip is
+      # refused), the post-amendment final trains sit on the SAME commit
+      # as their last stand-verified rc candidate, the rc numbers run
+      # 1..N without gaps. fetch-depth: 0 — the gate reads the full tag
+      # history (the creatordate grandfathering, the ref SHAs).
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: "Gate — the release-train numbering (№899: the gap and the rc↔final SHA are refused)"
+        run: |
+          python3 scripts/ci/release_train_gate.py
+      - name: "Negative test — the traps spring (the №535 sync form)"
+        run: |
+          python3 scripts/ci/release_train_gate.py --self-test
+
   registry-bounds:
     name: registry-bounds (blocking)
     runs-on: ubuntu-latest

@@ -4,6 +4,33 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Changed
+
+- **№899 (issue #1793, P1, [process][release][adr]):** the calendar
+  release train — the ADR-0189 amendment (§5): the rc candidate is cut
+  on SATURDAY 12:00 MSK from main (the machine: the `unfreeze_gate.py
+  --strict` read, the lockstep, the rc tag, the DRAFT prerelease with
+  the assets), the office stand verifies on SUNDAY (the e2e battery +
+  the `mlog check` baseline; a defect → the fix → `rc.N+1`), the final
+  tag sits on the SAME commit on MONDAY and the owner publishes. The
+  rules: an empty week departs nothing; a red Sunday skips the week
+  (no Tuesday carry); the minor numbers run consecutively (the
+  0.37-class skip is now a machine-caught impossibility —
+  `scripts/ci/release_train_gate.py`, blocking in ci.yml and in the
+  release build, the `--self-test` fixtures); the final tag must sit on
+  the SAME commit as the last stand-verified rc candidate (the
+  rc↔final SHA equality, enforced before any asset is built);
+  security/P0 patch cuts stay legal on any day. The `-rc.N` tags are
+  first-class in release.yml (the same assets/SBOM/attestations,
+  `BUILD-INFO.txt` records the prerelease posture, the draft is
+  created by the machine and published by the owner). The R38
+  «subphase = minor version» rule is REPLACED (the plan-canon
+  §13.13): the subphases are enumerated in the release notes of the
+  train that carries them (the notes template «Вошедшие подфазы» +
+  «Проверено на стенде офиса» in docs/release-checklist.md); the
+  version bindings are stripped from PLAN-SUMMARY, the limitations
+  rows and the wave audits (the subphase names stay).
+
 ### Added
 
 - **№914 (issue #1816, wave 82 — W-K, P2, [process][ci], the

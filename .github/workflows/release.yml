@@ -76,13 +76,38 @@ jobs:
             echo "::error::upload=true requires a release tag"
             exit 1
           fi
+          # №899 (the ADR-0189 amendment §5): the -rc.N tags are
+          # first-class — the same assets/SBOM/attestations, marked
+          # prerelease; the DRAFT prerelease with the assets is created
+          # for an rc upload when the release does not exist yet (the
+          # machine never publishes — the draft sits until the owner
+          # acts; ADR-0186 §4.5).
+          case "$tag" in
+            *-rc.*) prerelease=true ;;
+            *)      prerelease=false ;;
+          esac
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "upload=$upload" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v7
         with:
+          # fetch-depth: 0 — the train gate scans the full tag history
+          # (the creatordate grandfathering and the rc↔final SHA
+          # equality read the refs, not the checkout).
+          fetch-depth: 0
           ref: ${{ steps.tag.outputs.tag || github.sha }}
           persist-credentials: false
+
+      - name: "Train gate — the numbering and the rc↔final SHA (№899, the ADR-0189 §5.2)"
+        if: steps.tag.outputs.tag != ''
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          case "$TAG" in
+            *-rc.*) python3 scripts/ci/release_train_gate.py ;;
+            *)      python3 scripts/ci/release_train_gate.py --final-tag "$TAG" ;;
+          esac
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -131,9 +156,14 @@ jobs:
           echo "components: $(jq '.components | length' "$f")"
 
       - name: Record the exact toolchain
+        env:
+          PRERELEASE: ${{ steps.tag.outputs.prerelease }}
+          TAG: ${{ steps.tag.outputs.tag }}
         run: |
           {
             echo "source commit: $(git rev-parse HEAD)"
+            echo "tag: ${TAG:-none}"
+            echo "prerelease: $PRERELEASE"
             rustc -Vv
             cargo -V
             echo "runner image: ${ImageOS:-unknown} ${ImageVersion:-unknown}"
@@ -188,7 +218,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.tag.outputs.tag }}
-        run: gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+          PRERELEASE: ${{ steps.tag.outputs.prerelease }}
+        run: |
+          # №899 (the ADR-0189 amendment §5.1): an rc cut lands as a
+          # DRAFT PRERELEASE with the assets — the stand pins the draft
+          # on Sunday, the owner publishes (the machine never publishes,
+          # ADR-0186 §4.5). A final tag keeps the №497 path: the release
+          # already exists (the owner published it) and the assets ride
+          # the `release: published` trigger.
+          if [ "$PRERELEASE" = "true" ] && ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create "$TAG" --draft --prerelease --verify-tag \
+              --title "$TAG — the release-train candidate (the office-stand verification pending)" \
+              --notes "The machine-cut candidate (the ADR-0189 amendment §5.1). The assets are attached; the publication is the OWNER's act after the Sunday stand verdict." \
+              --repo "$GITHUB_REPOSITORY"
+          fi
+          gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
 
       - name: Summary
         env:

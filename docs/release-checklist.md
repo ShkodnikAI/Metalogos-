@@ -28,20 +28,27 @@ what each step closes.
 5. **The owner's read.** The OWNER reads the summary and decides the
    publication. The machine never lifts a gate and never publishes.
 
-## The train (ADR-0189, Accepted 2026-10-08 — gh#1148)
+## The train (ADR-0189, Accepted 2026-10-08 — gh#1148; AMENDED 2026-11-05 — №899/gh#1793)
 
-The release rhythm: MONDAYS. **Activated: the first window is
-2026-10-12 — train №1** (the owner's verdict verbatim in the ADR
-header). The window is a working block of the day, not a minute-exact
-schedule; the executor prepares everything machine-side, the owner
-publishes when satisfied.
+The release rhythm: the CALENDAR TRAIN (the ADR-0189 amendment §5) —
+the work runs Mon–Sat, the candidate is cut on SATURDAY 12:00 MSK, the
+office stand verifies on SUNDAY, the final tag sits on the SAME commit
+and the owner publishes on MONDAY. **Activated: the first amended
+cycle is the week of 2026-11-09 — the candidate `v0.39.0-rc.1` on
+Saturday 2026-11-07 12:00 MSK** (the owner's directive on gh#1793). The
+window is a working block of the day, not a minute-exact schedule; the
+executor prepares everything machine-side, the owner publishes when
+satisfied.
 
 1. **Check [Unreleased]** — is there content? An empty `[Unreleased]`
    means the window is SKIPPED without blame (the honest-content rule:
    a train without content does not depart — never a version bump with
    no user-visible change).
 2. **Class the version number** — Security/Fixed only → a PATCH cut
-   (`0.30.x`); Added/Changed present → a MINOR cut (`0.31.0`).
+   (`0.30.x`); Added/Changed present → a MINOR cut (`0.31.0`). The
+   version classifies the CONTENT only: the R38 «subphase = minor
+   version» rule is REPLACED (the plan-canon §13.13) — the subphases
+   are named in the release notes (the template below).
 3. **The gate read** — `unfreeze_gate.py --gate-target <target>
    --strict` must exit 0 for the record the number class names.
 4. **The BREAKING read (№865)** —
@@ -58,17 +65,48 @@ publishes when satisfied.
 6. **The lockstep PR** (the №646 shape: version + `Cargo.lock` ×5 +
    badge sync + the generated Version line + the CHANGELOG date-stamp),
    CI green, squash-merge.
-7. **The tag** on the merge commit; **the build** (release.yml — the
-   assets, the SBOM, the attestations).
-8. **The publication** — the OWNER's act, always (ADR-0186 §4.5/§6.5;
-   the machine never publishes).
-9. **The post-release sync** — the CHANGELOG links, the REALITY line
-   STAGED→PUBLISHED (the №646 form).
+7. **The Saturday candidate** — the rc tag `vX.Y.0-rc.N` on the merge
+   commit; the machine cut: a `workflow_dispatch` on release.yml
+   (`tag` = the rc tag, `upload` = true) — the DRAFT PRERELEASE with
+   the binary, the SBOM, the attestations and `SHA256SUMS` attached;
+   the train gate reads the numbering before any asset is built. The
+   machine never publishes — the draft sits until the owner acts.
+8. **The Sunday stand** — the office stand (FOSVED-office-v2) pins the
+   rc draft: the e2e battery, the `mlog check` baseline. A defect →
+   the fix → `rc.N+1` (the numbering gate enforces 1..N without gaps).
+9. **The Monday final** — the final tag `vX.Y.0` on the SAME commit the
+   stand verified (the rc↔final SHA equality is machine-enforced:
+   `scripts/ci/release_train_gate.py` blocks the release build and the
+   ci.yml lane); the publication is the OWNER's act, always
+   (ADR-0186 §4.5/§6.5; the machine never publishes); the assets ride
+   the `release: published` build (the №497 path).
+10. **The post-release sync** — the CHANGELOG links, the REALITY line
+    STAGED→PUBLISHED (the №646 form).
+
+### The release-notes template (the minor trains — the amendment §5.2)
+
+Every minor-train release body carries the two blocks (the body is the
+CHANGELOG section verbatim — `scripts/ci/release_notes.py`; the blocks
+live in the version section of the CHANGELOG):
+
+```markdown
+Вошедшие подфазы: <the Phase-8 subphases carried by this train; "none" if empty>
+
+Проверено на стенде офиса: <the date and the verdict — the e2e battery
+plus the `mlog check` baseline over the rc candidate; "not verified" =
+the train does not depart>
+```
+
+The block TITLES are verbatim Russian (the owner's template on gh#1793
+— they surface in the published release notes as-is); the placeholders
+are described in English here, filled in the actual notes. The R38
+replacement in one line: the subphase identity lives in the release
+notes of the train that carries it, never in the version number.
 
 An unscheduled security cut (the 0.28.1 shape) stays a PERMITTED
-exception when a defect cannot wait for the next Monday window — with
-the reason recorded in the release notes (the №620/№629 ADVISORY
-precedent).
+exception when a defect cannot wait for the next window — with the
+reason recorded in the release notes (the №620/№629 ADVISORY
+precedent); a patch cut does not require an rc candidate.
 
 ## After the owner publishes
 

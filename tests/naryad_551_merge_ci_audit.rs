@@ -46,8 +46,10 @@ const SCRIPT: &str = include_str!("../scripts/ci/merge_ci_audit.py");
 /// one PR, never alone. (`msrv (blocking)` joined by №555, issue #916;
 /// `release-gap (blocking)` by №562; the other ten joined by №824,
 /// issue #1592 — the live-protection read of 2026-10-28, 23 contexts,
-/// the pillar four dropped by the owner's №1593 toggle.)
-const REQUIRED_SET: [&str; 23] = [
+/// the pillar four dropped by the owner's №1593 toggle;
+/// `release-train-gate (blocking)` joined by №899, issue #1793 — the
+/// live-protection read of 2026-11-05, 24 contexts.)
+const REQUIRED_SET: [&str; 24] = [
     "test-lib (blocking)",
     "test-integration (blocking)",
     "crosscheck (blocking)",
@@ -71,6 +73,7 @@ const REQUIRED_SET: [&str; 23] = [
     "test-llm-cache-contract (blocking)",
     "vscode-extension (blocking)",
     "xml-tests (blocking)",
+    "release-train-gate (blocking)",
 ];
 
 #[test]
@@ -190,7 +193,7 @@ fn merge_ci_audit_tripwire_is_green_on_live_workflows() {
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
-        stdout.contains("TRIPWIRE OK: all 23"),
-        "the tripwire must cover all 23 required contexts, got: {stdout}"
+        stdout.contains("TRIPWIRE OK: all 24"),
+        "the tripwire must cover all 24 required contexts, got: {stdout}"
     );
 }

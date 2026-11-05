@@ -1,8 +1,9 @@
-# Repro-readiness report: the C7 trigger contract and the verified bit-for-bit roster (v0.45 line)
+# Repro-readiness report: the C7 trigger contract and the verified bit-for-bit roster (the 8E-2 subphase)
 
 **Naryad №913 (gh#1815, wave 82 — W-K), class [security][docs].** The
-«отчёт аудита» artifact of the 0.45 subphase (the R38 train line:
-0.45 = 8E-2 (C7+C12, REPRO_BITFORBIT 10000 bp; C7 строго по триггеру)).
+«отчёт аудита» artifact of the reproducibility subphase (8E-2; C7+C12,
+REPRO_BITFORBIT 10000 bp; C7 строго по триггеру — the R38 version
+binding was replaced by the ADR-0189 amendment, №899).
 Every number below is regenerable by the machine (`scripts/gen_metrics.py
 --check`) or readable verbatim in the named live source — no prose
 numbers.

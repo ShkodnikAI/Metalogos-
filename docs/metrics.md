@@ -20,7 +20,7 @@ construction.
 | Architecture Decisions | 207 ADRs |
 | Example Programs | 257 .mlog programs |
 | Reference | REFERENCE.md (~340 KB) — 100% registry coverage |
-| Changelog | CHANGELOG.md (~236 KB) — every wave documented |
+| Changelog | CHANGELOG.md (~238 KB) — every wave documented |
 | LICENSED_FLOOR (the 8D-1 machine fact, №841) | 10000 bp (16/16) — the license class explicit + the license_note filled over the backend registry (ADR-0163/ADR-0202 terms; №900: the denominator rides the fact) |
 | PASSPORT_FRESH (the 8D-1 machine fact, №841) | 10000 bp (16/16) — the passports fresh within the 180-day verification window (the №842 rule) |
 | GRANT_COVERAGE (the 8B-1 machine fact, №846) | 10000 bp (44/44) — the irreversible carriers whose rights decision passes the capability layer (ADR-0203 §2.7; the gate_034 floor) |
@@ -31,4 +31,5 @@ construction.
 | REPLAY_MATCH (the 8G/C8 machine fact, №894) | 10000 bp (2/2) — the registered decision carriers whose trace is written through the Ledger ACTION contour and verified by the replay_gate REPLAY_MATCH contract (ADR-0210 §3-4; the gate_041 floor 10000 bp, only-up) |
 | TAINT_SATURATION (the 8F-2/C9 machine fact, №906) | 324241748923742258252688 — the exact reachable taint-program space of the wave-81 generator, the integer product over the live anchors (ADR-0217 §2; the gate_042 floor 10^9, only-up) |
 | REPRO_BITFORBIT (the 8E-2/C7+C12 machine fact, №912) | 10000 bp (11/11) — the registered reproduction carriers whose bit-for-bit chain is live-wired: the registry package path + the release digest chain (ADR-0218 §2; the gate_043 floor 10000 bp, only-up; the toolchain build stays behind the C7 trigger — §5) |
+| INSTITUTIONAL_READY (the 8H-1/C13б machine fact, №918) | 12/12 — the CHECKED items of the 12-item institutional roster over the live carriers: TRADEMARK.md + docs/SUCCESSION.md + the GOVERNANCE Phase-2 frame (ADR-0219 §2; the gate_044 floor 12, only-up; the documents ≠ the owner's acts — §5) |
 <!-- END GENERATED METRICS -->

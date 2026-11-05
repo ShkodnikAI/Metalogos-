@@ -16,6 +16,12 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 toml = "1.1"
 thiserror = "2.0"
+# №910 (ADR-0218): the digest signature — all three are ALREADY in the
+# workspace graph (the root crate's crypto builtins), so Cargo.lock grows
+# by ZERO entries (the supply-chain surface does not move).
+hmac = "0.13"
+sha2 = "0.11"
+hex = "0.4"
 
 [dev-dependencies]
 # tempfile for unit tests that need a temporary registry directory.

@@ -15,6 +15,10 @@
 // `mlogpkg audit`             — checks dependencies against local advisory DB
 //                                (Наряд №198, Block 2 — limited scope)
 // `mlogpkg info`              — show current project info
+// `mlogpkg pack`              — canonical digest document of the tree (№910)
+// `mlogpkg keygen --out F`    — 32-byte signing key (hex, 0o600)
+// `mlogpkg sign --key F`      — HMAC-SHA256 over the package digest
+// `mlogpkg verify --key F`    — fail-closed digest+signature verification
 //
 // Local registry: packages stored in ~/.mlog/registry/<pkg-name>/
 // No remote server at this phase.
@@ -31,6 +35,12 @@
 // Limitation (Block 2): the advisory DB is a manually-maintained local
 // file, not an integration with an external CVE database. This is
 // explicitly documented in README and in the advisory-db.toml header.
+//
+// Honest limits (№910, ADR-0218 §5): the package signature is an
+// INTEGRITY chain (pinned digest + pinned verification key), not a PKI
+// trust web; keygen requires /dev/urandom (unix); the tar/archive and
+// bit-for-bit toolchain lanes stay behind the C7 trigger (R38(8)) and
+// are NOT opened here.
 
 use clap::Parser;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -74,6 +84,31 @@ enum Commands {
     Info,
     /// Audit dependencies against the local advisory database (Наряд №198)
     Audit,
+    /// Build the canonical digest document of the package tree (Наряд №910,
+    /// ADR-0218): re-pack of the same tree is byte-identical.
+    Pack,
+    /// Generate a 32-byte signing key (hex, 0o600) — /dev/urandom (unix).
+    Keygen {
+        /// Output file for the hex key.
+        #[arg(long)]
+        out: String,
+    },
+    /// Sign the package digest: HMAC-SHA256(key, digest); the signature
+    /// trailer is excluded from the hashed document (a signature never
+    /// signs itself).
+    Sign {
+        /// Path to the hex key file (see keygen).
+        #[arg(long)]
+        key: String,
+    },
+    /// Verify the package: re-derive the digest document byte-for-byte,
+    /// then recompute the HMAC in constant time. Fail-closed: every
+    /// divergence names itself (ADR-0218 §4.1).
+    Verify {
+        /// Path to the hex verification key.
+        #[arg(long)]
+        key: String,
+    },
 }
 
 /// mlog.toml manifest structure.
@@ -474,6 +509,10 @@ fn main() {
         Commands::Build => cmd_build(),
         Commands::Info => cmd_info(),
         Commands::Audit => cmd_audit(),
+        Commands::Pack => cmd_pack(),
+        Commands::Keygen { out } => cmd_keygen(&out),
+        Commands::Sign { key } => cmd_sign(&key),
+        Commands::Verify { key } => cmd_verify(&key),
     }
 }
 
@@ -867,6 +906,382 @@ fn collect_sources(dir: PathBuf, files: &mut Vec<PathBuf>) {
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
+
+// ── Signed packages (Наряд №910, ADR-0218 §2) ──────────────────────────
+//
+// The package artifact of this phase is the canonical digest document:
+// a JSON line with alphabetically sorted keys, LF, no timestamps:
+//
+//   {"files":[{"path":"mlog.toml","sha256":".."},...],"package":{"name":"..","version":".."}}
+//
+// package digest = sha256 of the document bytes. The signature covers
+// the DIGEST (the №828 digest-pinning form): sign = HMAC-SHA256(key,
+// 32 digest bytes), written as a trailer line AFTER the hashed line —
+// the signature never signs itself. verify is fail-closed: the tree is
+// re-derived and compared byte-for-byte, the HMAC is recomputed in
+// constant time, and every divergence names itself.
+//
+// Honest limits (ADR-0218 §5): the trust anchor is the explicit key pin,
+// not a PKI; keygen reads /dev/urandom (unix); the tar/toolchain lane is
+// behind the C7 trigger (R38(8)) and is NOT opened here.
+
+/// JSON string escape (RFC 8259) — minimal and deterministic.
+fn json_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                out.push_str(&format!("\\u{:04x}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(bytes);
+    hex::encode(h.finalize())
+}
+
+/// Collect the package files: `mlog.toml` + everything under `src/`,
+/// relative forward-slash paths, sorted. Generated files (mlogpkg.lock,
+/// *.mlogpkg.json, *.sig) are excluded.
+fn collect_package_files(dir: &Path) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = Vec::new();
+    let manifest = dir.join("mlog.toml");
+    if manifest.is_file() {
+        files.push(manifest);
+    }
+    let src = dir.join("src");
+    let mut stack = vec![src.clone()];
+    while let Some(d) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&d) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else {
+                let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if name == "mlogpkg.lock"
+                    || name.ends_with(".mlogpkg.json")
+                    || name.ends_with(".sig")
+                {
+                    continue;
+                }
+                files.push(p);
+            }
+        }
+    }
+    files.sort();
+    files.dedup();
+    files
+}
+
+/// Build the canonical digest document (single JSON line, sorted keys)
+/// and the package digest (sha256 of the document bytes).
+fn build_digest_document(dir: &Path) -> Result<(String, String), String> {
+    let manifest_path = dir.join("mlog.toml");
+    if !manifest_path.is_file() {
+        return Err("mlog.toml not found — run `mlogpkg init` first".to_string());
+    }
+    let manifest = read_manifest(&manifest_path);
+    let files = collect_package_files(dir);
+    if files.is_empty() {
+        return Err("package tree is empty".to_string());
+    }
+    let mut doc = String::from("{\"files\":[");
+    for (i, p) in files.iter().enumerate() {
+        if i > 0 {
+            doc.push(',');
+        }
+        let rel = p
+            .strip_prefix(dir)
+            .map_err(|_| "path prefix error".to_string())?
+            .to_string_lossy()
+            .replace('\\', "/");
+        let bytes = fs::read(p).map_err(|e| format!("file missing: {}: {}", rel, e))?;
+        doc.push_str(&format!(
+            "{{\"path\":\"{}\",\"sha256\":\"{}\"}}",
+            json_escape(&rel),
+            sha256_hex(&bytes)
+        ));
+    }
+    doc.push_str(&format!(
+        "],\"package\":{{\"name\":\"{}\",\"version\":\"{}\"}}}}",
+        json_escape(&manifest.package.name),
+        json_escape(&manifest.package.version)
+    ));
+    let digest = sha256_hex(doc.as_bytes());
+    Ok((doc, digest))
+}
+
+/// The pack document file name: <package-name>.mlogpkg.json.
+fn pack_doc_path(dir: &Path) -> Result<PathBuf, String> {
+    let manifest = read_manifest(&dir.join("mlog.toml"));
+    Ok(dir.join(format!("{}.mlogpkg.json", manifest.package.name)))
+}
+
+/// HMAC-SHA256 over the raw 32 digest bytes.
+fn sign_digest(key_bytes: &[u8], digest_bytes: &[u8]) -> String {
+    // The root-crate form (src/builtins/crypto.rs:282) — KeyInit must be
+    // IN SCOPE: new_from_slice is a KeyInit method, not a Mac one.
+    use hmac::{Hmac, KeyInit, Mac};
+    use sha2::Sha256;
+    let mut mac = Hmac::<Sha256>::new_from_slice(key_bytes).expect("HMAC accepts any key length");
+    mac.update(digest_bytes);
+    hex::encode(mac.finalize().into_bytes())
+}
+
+fn read_key_file(path: &str) -> Result<Vec<u8>, String> {
+    let hex_key =
+        fs::read_to_string(path).map_err(|e| format!("key file missing: {}: {}", path, e))?;
+    let hex_key = hex_key.trim();
+    hex::decode(hex_key).map_err(|e| format!("malformed key file {}: {}", path, e))
+}
+
+/// Constant-time byte comparison (no early exit on mismatch).
+fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+fn read_urandom_32() -> Vec<u8> {
+    use std::io::Read;
+    let mut buf = vec![0u8; 32];
+    match std::fs::File::open("/dev/urandom") {
+        Ok(mut f) => f
+            .read_exact(&mut buf)
+            .unwrap_or_else(|e| panic!("/dev/urandom short read: {}", e)),
+        Err(e) => panic!("keygen requires /dev/urandom (unix): {}", e),
+    }
+    buf
+}
+
+/// `mlogpkg pack` — build the canonical digest document of the cwd tree.
+fn cmd_pack() {
+    let dir = PathBuf::from(".");
+    let (doc, digest) = match build_digest_document(&dir) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+    };
+    let doc_path = match pack_doc_path(&dir) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+    };
+    if let Err(e) = fs::write(&doc_path, format!("{}\n", doc)) {
+        eprintln!("error: failed to write {}: {}", doc_path.display(), e);
+        std::process::exit(1);
+    }
+    println!("digest: {}", digest);
+    println!("document: {}", doc_path.display());
+}
+
+/// `mlogpkg keygen --out <file>` — 32 bytes from /dev/urandom, hex, 0o600.
+fn cmd_keygen(out: &str) {
+    let key = read_urandom_32();
+    let hex_key = hex::encode(&key);
+    if let Err(e) = fs::write(out, &hex_key) {
+        eprintln!("error: failed to write key {}: {}", out, e);
+        std::process::exit(1);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(out, fs::Permissions::from_mode(0o600));
+    }
+    // The fingerprint identifies the key without revealing it.
+    let fp = sha256_hex(&key);
+    println!("key written: {}", out);
+    println!("fingerprint: {}", &fp[..16]);
+}
+
+/// `mlogpkg sign --key <file>` — HMAC over the digest; the trailer is
+/// excluded from the hashed line. Fail-closed: the pack document must
+/// exist and match the re-derived tree (a stale document refuses).
+fn cmd_sign(key_path: &str) {
+    let dir = PathBuf::from(".");
+    let (doc, digest) = match build_digest_document(&dir) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+    };
+    let doc_path = match pack_doc_path(&dir) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+    };
+    let stored = match fs::read_to_string(&doc_path) {
+        Ok(s) => s,
+        Err(_) => {
+            eprintln!(
+                "error: pack document missing ({}) — run `mlogpkg pack` first",
+                doc_path.display()
+            );
+            std::process::exit(1);
+        }
+    };
+    let stored_line = stored.lines().next().unwrap_or("");
+    if stored_line != doc {
+        eprintln!("error: digest document is stale — run `mlogpkg pack` first");
+        std::process::exit(1);
+    }
+    let key = match read_key_file(key_path) {
+        Ok(k) => k,
+        Err(e) => {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+    };
+    let digest_bytes = match hex::decode(&digest) {
+        Ok(d) => d,
+        Err(_) => unreachable!("digest is produced by hex::encode"),
+    };
+    let sig = sign_digest(&key, &digest_bytes);
+    if let Err(e) = fs::write(&doc_path, format!("{}\nsignature: {}\n", doc, sig)) {
+        eprintln!("error: failed to write {}: {}", doc_path.display(), e);
+        std::process::exit(1);
+    }
+    println!("signed: {}", digest);
+    println!("signature: {}", &sig[..16]);
+}
+
+/// `mlogpkg verify --key <file>` — fail-closed verification (ADR-0218 §4.1):
+/// tree re-derivation → byte-for-byte document comparison → constant-time
+/// HMAC recomputation. Every divergence names itself; any refusal exits 1.
+fn cmd_verify(key_path: &str) {
+    let dir = PathBuf::from(".");
+    let (doc, digest) = match build_digest_document(&dir) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+    };
+    let doc_path = match pack_doc_path(&dir) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+    };
+    let stored = match fs::read_to_string(&doc_path) {
+        Ok(s) => s,
+        Err(_) => {
+            eprintln!(
+                "error: pack document missing ({}) — run `mlogpkg pack` first",
+                doc_path.display()
+            );
+            std::process::exit(1);
+        }
+    };
+    let mut lines = stored.lines();
+    let stored_line = lines.next().unwrap_or("");
+    let trailer = lines.next().unwrap_or("");
+
+    // 1. The re-derived tree document must match the stored document
+    //    byte-for-byte, and every divergence must name itself.
+    if stored_line != doc {
+        name_document_divergence(&doc, stored_line);
+        eprintln!("error: verify FAILED (the digest document does not match the tree)");
+        std::process::exit(1);
+    }
+
+    // 2. The signature trailer must be present and well-formed.
+    let sig_hex = match trailer.strip_prefix("signature: ") {
+        Some(s) if !s.trim().is_empty() => s.trim().to_string(),
+        _ => {
+            eprintln!("error: no signature — run `mlogpkg sign --key <file>`");
+            std::process::exit(1);
+        }
+    };
+
+    // 3. Constant-time HMAC recomputation over the digest bytes.
+    let key = match read_key_file(key_path) {
+        Ok(k) => k,
+        Err(e) => {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+    };
+    let digest_bytes = match hex::decode(&digest) {
+        Ok(d) => d,
+        Err(_) => unreachable!("digest is produced by hex::encode"),
+    };
+    let expected = sign_digest(&key, &digest_bytes);
+    if !ct_eq(expected.as_bytes(), sig_hex.as_bytes()) {
+        eprintln!("error: signature mismatch");
+        std::process::exit(1);
+    }
+    println!("verify OK: digest {}", digest);
+}
+
+/// Name the first divergence between the re-derived and stored documents.
+fn name_document_divergence(expected_doc: &str, stored_doc: &str) {
+    let parse_rows = |doc: &str| -> Vec<(String, String)> {
+        // Rows look like {"path":"..","sha256":".."} inside "files":[...].
+        let mut rows = Vec::new();
+        for part in doc.split("{\"path\":\"").skip(1) {
+            let path = part.split("\"").next().unwrap_or("").to_string();
+            let sha = part
+                .split("\"sha256\":\"")
+                .nth(1)
+                .and_then(|s| s.split('\\').next())
+                .unwrap_or("")
+                .to_string();
+            rows.push((path, sha));
+        }
+        rows
+    };
+    let expected = parse_rows(expected_doc);
+    let stored = parse_rows(stored_doc);
+    for (path, sha) in &expected {
+        match stored.iter().find(|(p, _)| p == path) {
+            None => {
+                eprintln!("error: file missing: {}", path);
+                return;
+            }
+            Some((_, s)) if s != sha => {
+                eprintln!("error: file digest divergence: {}", path);
+                return;
+            }
+            _ => {}
+        }
+    }
+    for (path, _) in &stored {
+        if !expected.iter().any(|(p, _)| p == path) {
+            eprintln!("error: unexpected file: {}", path);
+            return;
+        }
+    }
+    // Files identical — the manifest block (name/version) moved.
+    eprintln!("error: manifest divergence (package name or version)");
+}
 
 #[cfg(test)]
 mod tests {

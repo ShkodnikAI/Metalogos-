@@ -6,6 +6,22 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№910 (issue #1812, wave 82 — W-K, P1, [core][registry]):** the signed
+  package kernel (ADR-0218 §2/§4.1) — `mlogpkg pack` (the canonical digest
+  document: sorted keys, LF, no timestamps; re-pack of the same tree is
+  byte-identical), `mlogpkg keygen` (32 bytes from /dev/urandom, hex,
+  0o600), `mlogpkg sign --key` (HMAC-SHA256 over the 32 digest bytes; the
+  signature trailer is excluded from the hashed line — a signature never
+  signs itself), `mlogpkg verify --key` (fail-closed: the tree
+  re-derivation is compared byte-for-byte, the HMAC is recomputed in
+  constant time, and every divergence names itself — file missing, file
+  digest divergence, manifest divergence, no signature, signature
+  mismatch, stale document). Init/Add/Build/Info/Audit untouched (the
+  №198 suite runs unmodified). Cargo.lock grows by ZERO entries (hmac/
+  sha2/hex already in the workspace graph). Honest limits in the crate
+  header (ADR-0218 §5): an integrity chain, not a PKI; /dev/urandom
+  unix-only; the tar/toolchain lane stays behind the C7 trigger.
+
 - **№909 (issue #1811, wave 82 — W-K, P1, [process][adr][registry]):**
   ADR-0218 Reproducible Build & Signed Package Registry — the 8E-2/C7+C12
   subphase record. The fact definition BEFORE code (the №891/№903 form):

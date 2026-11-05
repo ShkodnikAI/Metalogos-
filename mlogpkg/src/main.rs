@@ -464,10 +464,7 @@ fn resolve_recursive(
 // refuses as INTEGRITY, never as an advisory hit.
 
 /// One node of the integrity walk.
-fn verify_dependency_integrity(
-    manifest: &Manifest,
-    registry: &Path,
-) -> Result<(), String> {
+fn verify_dependency_integrity(manifest: &Manifest, registry: &Path) -> Result<(), String> {
     let verify_key: Option<String> = manifest
         .registry
         .as_ref()
@@ -475,7 +472,14 @@ fn verify_dependency_integrity(
     let root = manifest.package.name.clone();
     let mut seen: Vec<String> = Vec::new();
     for (name, spec) in &manifest.dependencies {
-        verify_integrity_node(name, spec, &root, registry, verify_key.as_deref(), &mut seen)?;
+        verify_integrity_node(
+            name,
+            spec,
+            &root,
+            registry,
+            verify_key.as_deref(),
+            &mut seen,
+        )?;
     }
     Ok(())
 }
@@ -538,8 +542,8 @@ fn verify_integrity_node(
             )
         })?;
         let key = read_key_file(verify_key.unwrap())?;
-        let digest_bytes = hex::decode(actual)
-            .map_err(|_| "integrity: internal digest decode".to_string())?;
+        let digest_bytes =
+            hex::decode(actual).map_err(|_| "integrity: internal digest decode".to_string())?;
         let expected = sign_digest(&key, &digest_bytes);
         if !ct_eq(expected.as_bytes(), sig_hex.trim().as_bytes()) {
             return Err(format!("signature mismatch for '{}'", name));
@@ -747,9 +751,10 @@ fn cmd_add(pkg: &str, version: Option<&str>) {
     // Read current manifest, add the dep, then resolve the full graph
     // to detect conflicts BEFORE writing mlog.toml.
     let mut manifest = read_manifest(&manifest_path);
-    let prev = manifest
-        .dependencies
-        .insert(pkg.to_string(), DependencySpec::Bare(resolved_version.clone()));
+    let prev = manifest.dependencies.insert(
+        pkg.to_string(),
+        DependencySpec::Bare(resolved_version.clone()),
+    );
     // №911: `add` records the version only — `build` refuses until the
     // digest is pinned ({ version = "..", digest = "<64 hex>" }).
 
@@ -839,11 +844,7 @@ fn cmd_build() {
         for adv in db.find_advisories(name, &pkg.version) {
             eprintln!(
                 "error: advisory {}: {} {} — {} ({})",
-                adv.id,
-                adv.package,
-                adv.version,
-                adv.title,
-                adv.severity
+                adv.id, adv.package, adv.version, adv.title, adv.severity
             );
             advisory_hits += 1;
         }
@@ -936,7 +937,10 @@ fn cmd_info() {
                     println!("  {} = {} (UNPINNED — build refuses, №911)", name, v)
                 }
                 DependencySpec::Pinned { version, digest } => {
-                    println!("  {} = {{ version = \"{}\", digest = \"{}\" }}", name, version, digest)
+                    println!(
+                        "  {} = {{ version = \"{}\", digest = \"{}\" }}",
+                        name, version, digest
+                    )
                 }
             }
         }
@@ -1558,7 +1562,10 @@ mod tests {
         write_pkg_to_registry(&registry, "lib_a", "1.0.0", &[("lib_b", "2.0.0")]);
 
         let mut deps = HashMap::new();
-        deps.insert("lib_a".to_string(), DependencySpec::Bare("1.0.0".to_string()));
+        deps.insert(
+            "lib_a".to_string(),
+            DependencySpec::Bare("1.0.0".to_string()),
+        );
         let manifest = Manifest {
             package: Package::default(),
             dependencies: deps,
@@ -1586,8 +1593,14 @@ mod tests {
         write_pkg_to_registry(&registry, "pkg_b", "1.0.0", &[("shared", "2.0.0")]);
 
         let mut deps = HashMap::new();
-        deps.insert("pkg_a".to_string(), DependencySpec::Bare("1.0.0".to_string()));
-        deps.insert("pkg_b".to_string(), DependencySpec::Bare("1.0.0".to_string()));
+        deps.insert(
+            "pkg_a".to_string(),
+            DependencySpec::Bare("1.0.0".to_string()),
+        );
+        deps.insert(
+            "pkg_b".to_string(),
+            DependencySpec::Bare("1.0.0".to_string()),
+        );
         let manifest = Manifest {
             package: Package::default(),
             dependencies: deps,

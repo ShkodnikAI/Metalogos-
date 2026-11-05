@@ -4,6 +4,29 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added
+
+- **№916 (issue #1830, wave 83 — W-L1, P1, [process][adr][governance]):**
+  ADR-0219 — the institutional contour & the legal shield (the
+  8H-1/C13б subphase record, ADR before the code — the №891 form): the
+  fact is INSTITUTIONAL_READY := the CHECKED count (0–12) over the
+  12-item institutional roster — TRADEMARK.md (the name/logo scope, the
+  permitted use, the forbidden use + the anti-endorsement rule, the
+  request channel), docs/SUCCESSION.md (the activation triggers, the
+  authority chain → maintainers.md №471/CODEOWNERS by reference, the
+  recovery matrix, the quorum, the append-only activation journal),
+  the GOVERNANCE.md Phase-2 neutral-structure frame (the criteria, the
+  cross-consistency, the owner-acts boundary); the floor 12 only-up
+  (the dispatch gh#1834 constant); the three shield parts (the TM
+  policy + the succession protocol + the neutral-structure FRAME — not
+  a legal entity, not legal advice, the C10 verbatim) and the contour
+  boundary (the trademark filing, the incorporation, the banking, the
+  partner contacts — the owner's acts outside the repo, R38(9); the
+  renaming №503 strictly last); the consumption contracts №917–№919;
+  status Proposed — the wave-83 acceptance is the ACCEPTED path; the
+  ADR index and llms.txt regenerated (207 ADRs, the counters
+  regenerated).
+
 ### Changed
 
 - **№899 (issue #1793, P1, [process][release][adr]):** the calendar

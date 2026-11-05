@@ -419,19 +419,28 @@ def _registry_license_rows(content: str) -> list[tuple[str | None, str | None]]:
     return rows
 
 
-def licensed_floor_bp(content: str | None = None) -> int:
-    """LICENSED_FLOOR — the explicit-class + filled-note share, bps."""
+def licensed_floor_pair(content: str | None = None) -> tuple[int, int]:
+    """LICENSED_FLOOR — (licensed, registry total); №900: every bp/%
+    fact prints WITH its denominator, so the machine exposes the pair."""
     if content is None:
         content = BACKENDS_RS.read_text(encoding="utf-8")
     rows = _registry_license_rows(content)
     if not rows:
-        return 0
+        return 0, 0
     licensed = sum(
         1
         for lic, note in rows
         if lic in ("Osi", "NonOsi", "Restrictive") and note and note.strip()
     )
-    return licensed * 10000 // len(rows)
+    return licensed, len(rows)
+
+
+def licensed_floor_bp(content: str | None = None) -> int:
+    """LICENSED_FLOOR — the explicit-class + filled-note share, bps."""
+    licensed, total = licensed_floor_pair(content)
+    if not total:
+        return 0
+    return licensed * 10000 // total
 
 
 def _passport_verified_dates(content: str) -> list[str | None]:
@@ -464,17 +473,17 @@ def _parse_iso_date(value: str | None) -> _dt.date | None:
         return None
 
 
-def passport_fresh_bp(
+def passport_fresh_pair(
     today: _dt.date | None = None, content: str | None = None
-) -> int:
-    """PASSPORT_FRESH — the fresh-verification-date share, bps (the
-    №842 rule: the age within PASSPORT_FRESHNESS_DAYS, inclusive)."""
+) -> tuple[int, int]:
+    """PASSPORT_FRESH — (fresh, passports total); №900: the pair rides
+    the printed fact."""
     if content is None:
         content = MODEL_PASSPORT_RS.read_text(encoding="utf-8")
     today = today or _dt.date.today()
     rows = _passport_verified_dates(content)
     if not rows:
-        return 0
+        return 0, 0
     fresh = 0
     for raw in rows:
         date = _parse_iso_date(raw)
@@ -483,7 +492,18 @@ def passport_fresh_bp(
         age = (today - date).days
         if 0 <= age <= PASSPORT_FRESHNESS_DAYS:
             fresh += 1
-    return fresh * 10000 // len(rows)
+    return fresh, len(rows)
+
+
+def passport_fresh_bp(
+    today: _dt.date | None = None, content: str | None = None
+) -> int:
+    """PASSPORT_FRESH — the fresh-verification-date share, bps (the
+    №842 rule: the age within PASSPORT_FRESHNESS_DAYS, inclusive)."""
+    fresh, total = passport_fresh_pair(today, content)
+    if not total:
+        return 0
+    return fresh * 10000 // total
 
 
 def load_floors(path: Path = GATE_033_GOALS) -> dict[str, int]:
@@ -559,13 +579,12 @@ def _mcp_gateway_decision_site(content: str | None = None) -> bool:
     return 'lookup_active_covering(&action_scope)' in content and '"mcp:{}"' in content
 
 
-def grant_coverage_bp(
-    carriers: list[str] | None = None,
-    rosters: dict[str, list[str]] | None = None,
-    mcp_decision_site: bool | None = None,
-) -> int:
-    """GRANT_COVERAGE — the share of the irreversible carriers whose
-    rights decision passes the capability layer, bps.
+def _grant_coverage_pairs(
+    carriers: list[str] | None,
+    rosters: dict[str, list[str]] | None,
+    mcp_decision_site: bool | None,
+) -> tuple[int, int]:
+    """The GRANT_COVERAGE computation core (№900): (covered, total).
 
     Numerator: the classified-Irreversible builtins sitting in ONE of the
     №845 disposition rosters (GrantAlways / ProfilePermit-sharp / the
@@ -590,6 +609,34 @@ def grant_coverage_bp(
     language_covered = sum(1 for c in carriers if c in covered_roster)
     total = language_total + 1  # + the MCP irreversible-tool class
     covered = language_covered + (1 if mcp_decision_site else 0)
+    return covered, total
+
+
+def grant_coverage_pair(
+    carriers: list[str] | None = None,
+    rosters: dict[str, list[str]] | None = None,
+    mcp_decision_site: bool | None = None,
+) -> tuple[int, int]:
+    """GRANT_COVERAGE — (covered, total); №900: the pair rides the
+    printed fact."""
+    return _grant_coverage_pairs(carriers, rosters, mcp_decision_site)
+
+
+def grant_coverage_bp(
+    carriers: list[str] | None = None,
+    rosters: dict[str, list[str]] | None = None,
+    mcp_decision_site: bool | None = None,
+) -> int:
+    """GRANT_COVERAGE — the share of the irreversible carriers whose
+    rights decision passes the capability layer, bps (№900: the pair
+    via _grant_coverage_pairs)."""
+    if carriers is None:
+        carriers = _irreversible_carriers()
+    if rosters is None:
+        rosters = _capability_rosters()
+    if mcp_decision_site is None:
+        mcp_decision_site = _mcp_gateway_decision_site()
+    covered, total = _grant_coverage_pairs(carriers, rosters, mcp_decision_site)
     if total == 0:
         return 0
     return covered * 10000 // total
@@ -805,6 +852,27 @@ def approval_coverage_bp(
     return covered * 10000 // total
 
 
+def approval_coverage_pair(
+    roster: list[str] | None = None,
+    classification: list[str] | None = None,
+    composition_site: bool | None = None,
+) -> tuple[int, int]:
+    """APPROVAL_COVERAGE — (covered, roster total); №900: the pair rides
+    the printed fact. A dead composition site reads (0, total) — the
+    displayed zero never inflates."""
+    if roster is None:
+        roster = _human_oversight_roster()
+    if classification is None:
+        classification = _irreversible_carriers()
+    if composition_site is None:
+        composition_site = _approval_gate_composition_site()
+    total = len(roster)
+    if total == 0 or not composition_site:
+        return 0, total
+    classified = set(classification)
+    return sum(1 for name in roster if name in classified), total
+
+
 # ── №869 (wave 76 — W-E, ADR-0206 §4): the ATTEST_MAP machine ─────────
 
 _ROW_STATUSES = ("live", "expired", "revoked")
@@ -968,6 +1036,36 @@ def provenance_share_bp(
     return covered * 10000 // total
 
 
+def provenance_share_pair(
+    registry: list[str] | None = None,
+    classification: set[str] | None = None,
+    io_text: str | None = None,
+    http_text: str | None = None,
+    composition_site: bool | None = None,
+) -> tuple[int, int]:
+    """PROVENANCE_SHARE — (live-wired, registry total); №900: the pair
+    rides the printed fact. A dead composition site reads (0, total)."""
+    if registry is None:
+        registry = _provenance_registry()
+    if classification is None:
+        classification = _classified_carrier_names()
+    if io_text is None:
+        io_text = BUILTINS_IO_RS.read_text(encoding="utf-8")
+    if http_text is None:
+        http_text = BUILTINS_HTTP_RS.read_text(encoding="utf-8")
+    if composition_site is None:
+        composition_site = _provenance_gate_composition_site()
+    total = len(registry)
+    if total == 0 or not composition_site:
+        return 0, total
+    covered = sum(
+        1
+        for name in registry
+        if name in classification and _provenance_boundary_wired(name, io_text, http_text)
+    )
+    return covered, total
+
+
 # ── №881 (wave 78 — W-G, ADR-0208 §2.5): the OFFLINE_SUITE machine ────
 
 def _offline_suite_registry(content: str | None = None) -> list[tuple[str, bool]]:
@@ -1020,6 +1118,21 @@ def offline_suite_bp(
         return 0
     covered = sum(1 for name, offline in registry if offline and _offline_check_exists(name, repo))
     return covered * 10000 // total
+
+
+def offline_suite_pair(
+    registry: list[tuple[str, bool]] | None = None,
+    repo: Path | None = None,
+) -> tuple[int, int]:
+    """OFFLINE_SUITE — (offline-covered, registry total); №900: the
+    pair rides the printed fact."""
+    if registry is None:
+        registry = _offline_suite_registry()
+    total = len(registry)
+    if total == 0:
+        return 0, 0
+    covered = sum(1 for name, offline in registry if offline and _offline_check_exists(name, repo))
+    return covered, total
 
 
 # ── №888 (wave 79 — W-H, ADR-0209 §4): the JURISDICTION_MATRIX machine ──
@@ -1076,6 +1189,17 @@ def jurisdiction_matrix_count(
     if registry is None:
         registry = _jurisdiction_registry()
     return sum(1 for code in registry if _jurisdiction_in_source(code, source))
+
+
+def jurisdiction_matrix_pair(
+    registry: list[str] | None = None,
+    source: str | None = None,
+) -> tuple[int, int]:
+    """JURISDICTION_MATRIX — (jurisdictions with ≥ 1 live rule, the
+    declared roster total); №900: the pair rides the printed fact."""
+    if registry is None:
+        registry = _jurisdiction_registry()
+    return jurisdiction_matrix_count(registry, source), len(registry)
 
 
 # ── №894 (wave 80 — W-I, ADR-0210 §3-4): the REPLAY_MATCH machine ──────
@@ -1148,6 +1272,24 @@ def replay_match_bp(
         return 0
     covered = sum(1 for name in registry if _replay_carrier_wired(name, e2e_text))
     return covered * 10000 // total
+
+
+def replay_match_pair(
+    registry: list[str] | None = None,
+    e2e_text: str | None = None,
+    composition_site: bool | None = None,
+) -> tuple[int, int]:
+    """REPLAY_MATCH — (verified, registry total); №900: the pair rides
+    the printed fact. A dead composition site reads (0, total)."""
+    if registry is None:
+        registry = _replay_registry()
+    if composition_site is None:
+        composition_site = _replay_composition_site()
+    total = len(registry)
+    if total == 0 or not composition_site:
+        return 0, total
+    covered = sum(1 for name in registry if _replay_carrier_wired(name, e2e_text))
+    return covered, total
 
 
 # ── №906 (wave 81 — W-J, ADR-0217 §2): the TAINT_SATURATION machine ─────
@@ -1406,6 +1548,24 @@ def repro_bitforbit_bp(
         return 0
     covered = sum(1 for row in registry if _repro_carrier_wired(row, texts))
     return covered * 10000 // total
+
+
+def repro_bitforbit_pair(
+    registry: list[dict] | None = None,
+    sites: bool | None = None,
+    texts: dict | None = None,
+) -> tuple[int, int]:
+    """REPRO_BITFORBIT — (live-wired, roster total); №900: the pair
+    rides the printed fact. A dead composition site reads (0, total)."""
+    if registry is None:
+        registry = _repro_registry()
+    if sites is None:
+        sites = _repro_composition_sites()
+    total = len(registry)
+    if total == 0 or not sites:
+        return 0, total
+    covered = sum(1 for row in registry if _repro_carrier_wired(row, texts))
+    return covered, total
 
 
 def tamper_test() -> int:
@@ -2235,6 +2395,15 @@ def full_block() -> str:
     stable_typed, stable_total = count_stable_typed()
     stable_bp = (stable_typed * 10000) // stable_total if stable_total else 0
     neg, pos = leak_counts()
+    # №900: the denominators ride the printed facts — the pairs are
+    # computed HERE, once, beside the bp values.
+    n_lic, t_lic = licensed_floor_pair()
+    n_pas, t_pas = passport_fresh_pair()
+    n_grant, t_grant = grant_coverage_pair()
+    n_prov, t_prov = provenance_share_pair()
+    n_off, t_off = offline_suite_pair()
+    n_repl, t_repl = replay_match_pair()
+    n_repro, t_repro = repro_bitforbit_pair()
     return (
         f"| Metric | Value (generated — do not hand-edit) |\n"
         f"| ------ | ------------------------------------- |\n"
@@ -2249,16 +2418,16 @@ def full_block() -> str:
         f"| Example Programs | {examples} .mlog programs |\n"
         f"| Reference | REFERENCE.md (~{reference_kb} KB) — 100% registry coverage |\n"
         f"| Changelog | CHANGELOG.md (~{changelog_kb} KB) — every wave documented |\n"
-        f"| LICENSED_FLOOR (the 8D-1 machine fact, №841) | {licensed_floor_bp()} bp — the license class explicit + the license_note filled over the backend registry (ADR-0163/ADR-0202 terms) |\n"
-        f"| PASSPORT_FRESH (the 8D-1 machine fact, №841) | {passport_fresh_bp()} bp — the passports fresh within the {PASSPORT_FRESHNESS_DAYS}-day verification window (the №842 rule) |\n"
-        f"| GRANT_COVERAGE (the 8B-1 machine fact, №846) | {grant_coverage_bp()} bp — the irreversible carriers whose rights decision passes the capability layer (ADR-0203 §2.7; the gate_034 floor) |\n"
+        f"| LICENSED_FLOOR (the 8D-1 machine fact, №841) | {licensed_floor_bp()} bp ({n_lic}/{t_lic}) — the license class explicit + the license_note filled over the backend registry (ADR-0163/ADR-0202 terms; №900: the denominator rides the fact) |\n"
+        f"| PASSPORT_FRESH (the 8D-1 machine fact, №841) | {passport_fresh_bp()} bp ({n_pas}/{t_pas}) — the passports fresh within the {PASSPORT_FRESHNESS_DAYS}-day verification window (the №842 rule) |\n"
+        f"| GRANT_COVERAGE (the 8B-1 machine fact, №846) | {grant_coverage_bp()} bp ({n_grant}/{t_grant}) — the irreversible carriers whose rights decision passes the capability layer (ADR-0203 §2.7; the gate_034 floor) |\n"
         f"| SEMA_EXTERNAL (the 8F-1 machine fact, №857) | {sema_external()['count']} — the live external-consumption artifacts of the Portable Refusal Algebra (ADR-0204 §5; the gate_035 only-up floor ≥ 1): {', '.join(sema_external()['counted']) or 'none yet'} |\n"
-        f"| PROVENANCE_SHARE (the 8C/C3 machine fact, №875) | {provenance_share_bp()} bp — the registered I/O carriers whose boundary provenance record is LIVE-wired (ADR-0207 §4; the gate_038 floor 10000 bp, only-up) |\n"
-        f"| OFFLINE_SUITE (the 8E-1/C5 machine fact, №881) | {offline_suite_bp()} bp — the registered LLM-surface checks that execute without the external network (ADR-0208 §2.5; the gate_039 floor 8000 bp, only-up) |\n"
+        f"| PROVENANCE_SHARE (the 8C/C3 machine fact, №875) | {provenance_share_bp()} bp ({n_prov}/{t_prov}) — the registered I/O carriers whose boundary provenance record is LIVE-wired (ADR-0207 §4; the gate_038 floor 10000 bp, only-up) |\n"
+        f"| OFFLINE_SUITE (the 8E-1/C5 machine fact, №881) | {offline_suite_bp()} bp ({n_off}/{t_off}) — the registered LLM-surface checks that execute without the external network (ADR-0208 §2.5; the gate_039 floor 8000 bp, only-up) |\n"
         f"| JURISDICTION_MATRIX (the 8D-2/C10 machine fact, №888) | {jurisdiction_matrix_count()} — the registered jurisdictions with ≥ 1 live rule in the seed matrix (ADR-0209 §4; the gate_040 floor 3, only-up) |\n"
-        f"| REPLAY_MATCH (the 8G/C8 machine fact, №894) | {replay_match_bp()} bp — the registered decision carriers whose trace is written through the Ledger ACTION contour and verified by the replay_gate REPLAY_MATCH contract (ADR-0210 §3-4; the gate_041 floor 10000 bp, only-up) |\n"
+        f"| REPLAY_MATCH (the 8G/C8 machine fact, №894) | {replay_match_bp()} bp ({n_repl}/{t_repl}) — the registered decision carriers whose trace is written through the Ledger ACTION contour and verified by the replay_gate REPLAY_MATCH contract (ADR-0210 §3-4; the gate_041 floor 10000 bp, only-up) |\n"
         f"| TAINT_SATURATION (the 8F-2/C9 machine fact, №906) | {taint_saturation()} — the exact reachable taint-program space of the wave-81 generator, the integer product over the live anchors (ADR-0217 §2; the gate_042 floor 10^9, only-up) |\n"
-        f"| REPRO_BITFORBIT (the 8E-2/C7+C12 machine fact, №912) | {repro_bitforbit_bp()} bp — the registered reproduction carriers whose bit-for-bit chain is live-wired: the registry package path + the release digest chain (ADR-0218 §2; the gate_043 floor 10000 bp, only-up; the toolchain build stays behind the C7 trigger — §5) |\n"
+        f"| REPRO_BITFORBIT (the 8E-2/C7+C12 machine fact, №912) | {repro_bitforbit_bp()} bp ({n_repro}/{t_repro}) — the registered reproduction carriers whose bit-for-bit chain is live-wired: the registry package path + the release digest chain (ADR-0218 §2; the gate_043 floor 10000 bp, only-up; the toolchain build stays behind the C7 trigger — §5) |\n"
     )
 
 
@@ -2315,25 +2484,35 @@ def plan_summary_block() -> str:
     typed, total_fns, precise = count_typed_signatures()
     typed_bp = (typed * 10000) // total_fns if total_fns else 0
     precise_bp = (precise * 10000) // total_fns if total_fns else 0
+    # №900: the denominators ride the printed facts.
+    n_lic, t_lic = licensed_floor_pair()
+    n_pas, t_pas = passport_fresh_pair()
+    n_grant, t_grant = grant_coverage_pair()
+    n_appr, t_appr = approval_coverage_pair()
+    n_prov, t_prov = provenance_share_pair()
+    n_off, t_off = offline_suite_pair()
+    n_jur, t_jur = jurisdiction_matrix_pair()
+    n_repl, t_repl = replay_match_pair()
+    n_repro, t_repro = repro_bitforbit_pair()
     return (
         f"| Machine fact (generated — do not hand-edit) | Value |\n"
         f"| --- | --- |\n"
         f"| Typed-signature floor — the 0.28-gate line (ADR-0179) "
-        f"| {typed_bp} bp — {typed}/{total_fns} = {typed_bp / 100:.2f}% "
+        f"| {typed_bp} bp ({typed}/{total_fns}) — {typed}/{total_fns} = {typed_bp / 100:.2f}% "
         f"(precise {precise}/{total_fns} = {precise_bp / 100:.2f}%) |\n"
         f"| BUILTIN_REGISTRY rows | {total_fns} |\n"
-        f"| LICENSED_FLOOR — the 8D-1 machine fact (№841) | {licensed_floor_bp()} bp |\n"
-        f"| PASSPORT_FRESH — the 8D-1 machine fact (№841) | {passport_fresh_bp()} bp |\n"
-        f"| GRANT_COVERAGE — the 8B-1 machine fact (№846) | {grant_coverage_bp()} bp |\n"
+        f"| LICENSED_FLOOR — the 8D-1 machine fact (№841) | {licensed_floor_bp()} bp ({n_lic}/{t_lic}) |\n"
+        f"| PASSPORT_FRESH — the 8D-1 machine fact (№841) | {passport_fresh_bp()} bp ({n_pas}/{t_pas}) |\n"
+        f"| GRANT_COVERAGE — the 8B-1 machine fact (№846) | {grant_coverage_bp()} bp ({n_grant}/{t_grant}) |\n"
         f"| SEMA_EXTERNAL — the 8F-1 machine fact (№857) | {sema_external()['count']} |\n"
-        f"| APPROVAL_COVERAGE — the 8B-2 machine fact (№862) | {approval_coverage_bp()} bp |\n"
+        f"| APPROVAL_COVERAGE — the 8B-2 machine fact (№862) | {approval_coverage_bp()} bp ({n_appr}/{t_appr}) |\n"
         f"| ATTEST_MAP — the 8A-1 machine fact (№869) | {attest_map_live()} live attestation rows |\n"
-        f"| PROVENANCE_SHARE — the 8C/C3 machine fact (№875) | {provenance_share_bp()} bp |\n"
-        f"| OFFLINE_SUITE — the 8E-1/C5 machine fact (№881) | {offline_suite_bp()} bp |\n"
-        f"| JURISDICTION_MATRIX — the 8D-2/C10 machine fact (№888) | {jurisdiction_matrix_count()} jurisdictions |\n"
-        f"| REPLAY_MATCH — the 8G/C8 machine fact (№894) | {replay_match_bp()} bp |\n"
+        f"| PROVENANCE_SHARE — the 8C/C3 machine fact (№875) | {provenance_share_bp()} bp ({n_prov}/{t_prov}) |\n"
+        f"| OFFLINE_SUITE — the 8E-1/C5 machine fact (№881) | {offline_suite_bp()} bp ({n_off}/{t_off}) |\n"
+        f"| JURISDICTION_MATRIX — the 8D-2/C10 machine fact (№888) | {jurisdiction_matrix_count()} ({n_jur}/{t_jur}) jurisdictions |\n"
+        f"| REPLAY_MATCH — the 8G/C8 machine fact (№894) | {replay_match_bp()} bp ({n_repl}/{t_repl}) |\n"
         f"| TAINT_SATURATION — the 8F-2/C9 machine fact (№906) | {taint_saturation()} |\n"
-        f"| REPRO_BITFORBIT — the 8E-2/C7+C12 machine fact (№912) | {repro_bitforbit_bp()} bp |\n"
+        f"| REPRO_BITFORBIT — the 8E-2/C7+C12 machine fact (№912) | {repro_bitforbit_bp()} bp ({n_repro}/{t_repro}) |\n"
     )
 
 
@@ -2351,9 +2530,94 @@ def upsert_block(path: Path, begin: str, end: str, generated: str, label: str) -
     return current == fresh, current
 
 
+# ── №900 (issue #1794): the denominator gate ────────────────────────────
+# Every bp/%-fact VALUE cell in a generated table prints WITH its
+# denominator: «10000 bp (1/1)». A value cell that OPENS with «N bp»
+# and carries no (n/N) is a lie the reader expands to «100% of
+# everything» — the generator refuses to emit it (the mutation: drop a
+# denominator from an emitter → this gate reds the run).
+
+_ROW_RE = re.compile(r"^\|([^|]+)\|([^|]+)\|", re.M)
+_BP_CELL_RE = re.compile(r"^\s*(\d+) bp\b")
+
+
+def denominator_violations(table: str) -> list[str]:
+    hits: list[str] = []
+    for m in _ROW_RE.finditer(table):
+        name = m.group(1).strip()[:60]
+        cell = m.group(2)
+        if _BP_CELL_RE.match(cell) and not re.search(r"\d+ bp \(\d+/\d+\)", cell):
+            hits.append(f"{name}: '{cell.strip()[:80]}' — the bp fact carries no (n/N) denominator")
+    return hits
+
+
+def denominator_gate(table: str, label: str) -> None:
+    """Loud refusal: a generated table carrying a denominatorless bp
+    fact never reaches the document."""
+    hits = denominator_violations(table)
+    if hits:
+        print(
+            f"DENOMINATOR GATE: {label} would emit {len(hits)} bp fact(s) "
+            "without the (n/N) denominator (№900, issue #1794):",
+            file=sys.stderr,
+        )
+        for h in hits:
+            print(f"  - {h}", file=sys.stderr)
+        raise SystemExit(1)
+
+
+def denominator_gate_self_test() -> int:
+    """№900: the traps spring AND the pairs agree with the bp functions
+    on the live tree (a pair edited apart from its bp function is a
+    drift = red)."""
+    ok = True
+    good = "| FACT (the machine fact) | 10000 bp (1/1) — the share row |\n"
+    bad = "| FACT (the machine fact) | 10000 bp — the share row |\n"
+    if denominator_violations(good):
+        ok = False
+        print("  TRAP DID NOT SPRING (good row red)", file=sys.stderr)
+    else:
+        print("  ok: the denominatored row passes")
+    if not denominator_violations(bad):
+        ok = False
+        print("  TRAP DID NOT SPRING (bad row passed)", file=sys.stderr)
+    else:
+        print("  ok: the denominatorless row is refused")
+    # the pair↔bp consistency over the live tree
+    for name, pair_fn, bp_fn in [
+        ("LICENSED_FLOOR", licensed_floor_pair, licensed_floor_bp),
+        ("PASSPORT_FRESH", passport_fresh_pair, passport_fresh_bp),
+        ("GRANT_COVERAGE", grant_coverage_pair, grant_coverage_bp),
+        ("APPROVAL_COVERAGE", approval_coverage_pair, approval_coverage_bp),
+        ("PROVENANCE_SHARE", provenance_share_pair, provenance_share_bp),
+        ("OFFLINE_SUITE", offline_suite_pair, offline_suite_bp),
+        ("REPLAY_MATCH", replay_match_pair, replay_match_bp),
+        ("REPRO_BITFORBIT", repro_bitforbit_pair, repro_bitforbit_bp),
+    ]:
+        n, t = pair_fn()
+        derived = (n * 10000 // t) if t else 0
+        live = bp_fn()
+        if derived != live:
+            ok = False
+            print(
+                f"  PAIR↔BP DRIFT: {name} pair {n}/{t} derives {derived}, "
+                f"the bp function reads {live}",
+                file=sys.stderr,
+            )
+        else:
+            print(f"  ok: {name} pair ({n}/{t}) == bp {live}")
+    print("SELF-TEST OK" if ok else "SELF-TEST FAILED")
+    return 0 if ok else 1
+
+
 def main() -> int:
     check = "--check" in sys.argv
+    if "--denominator-self-test" in sys.argv:
+        return denominator_gate_self_test()
     stale = []
+    denominator_gate(full_block(), "docs/metrics.md")
+    denominator_gate(plan_summary_block(), "docs/PLAN-SUMMARY.md")
+
     ok, current = upsert_block(README, BEGIN, END, block(), "metrics")
     if check:
         if ok:

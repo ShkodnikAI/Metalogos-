@@ -73,7 +73,7 @@ fn pin_dependency(manifest_path: &Path, name: &str, version: &str, digest: &str)
         "{} = {{ version = \"{}\", digest = \"{}\" }}",
         name, version, digest
     );
-    assert!(content.contains(&bare), "bare dep not found: {}");
+    assert!(content.contains(&bare), "bare dep not found: {}", bare);
     fs::write(manifest_path, content.replace(&bare, &pinned)).unwrap();
 }
 

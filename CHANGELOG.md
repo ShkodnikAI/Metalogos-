@@ -6,6 +6,26 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№917 (issue #1831, wave 83 — W-L1, P1, [governance][docs]):** the
+  institutional corpus in the tree — the three carriers of the
+  ADR-0219 roster: TRADEMARK.md (the neutral-use policy of the
+  name/logo — the scope, the permitted use, the forbidden use + the
+  anti-endorsement rule, the permission-request channel on the
+  repo's existing surfaces — a GitHub issue titled `trademark
+  request:`; no invented addresses; the MIT/Apache-2.0 code license
+  ≠ the right to the name), docs/SUCCESSION.md (the written authority
+  for a bus-factor event — the activation triggers T1/T2/T3, the
+  authority chain consuming maintainers.md №471 + CODEOWNERS BY
+  REFERENCE, the recovery matrix incl. the Sigstore keyless release
+  keys (ADR-0218), the quorum read from the LIVE holders (the lane
+  №774 verified-wait reality, no fantasy council), the append-only
+  activation journal — empty by design), and the GOVERNANCE.md
+  Phase-2 neutral-structure frame (APPENDED after the existing
+  content — the Phase-1 BDFL text byte-identical; the three
+  criteria, the cross-consistency with TRADEMARK/SUCCESSION, the
+  honest-limits owner-acts boundary). No stubs — every section a
+  working policy; the language surface — 0 mutations.
+
 - **№916 (issue #1830, wave 83 — W-L1, P1, [process][adr][governance]):**
   ADR-0219 — the institutional contour & the legal shield (the
   8H-1/C13б subphase record, ADR before the code — the №891 form): the

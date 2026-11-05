@@ -101,3 +101,63 @@ This governance document is licensed under CC-BY-4.0.
 ---
 
 *Last updated: 2026-08-09*
+
+## Institutional Phase-2 Frame: the Neutral Structure (the 8H-1 / C13б subphase)
+
+Added by the wave-83 institutional contour (ADR-0219,
+docs/adr/0219-institutional-contour-legal-shield.md). This section
+APPENDS to the governance document; the Phase-1 text above is
+unchanged byte-for-byte (the 1:1 migration discipline).
+
+### The neutral-structure criteria
+
+If and when the project's assets (the repository, the domains, the
+release infrastructure) are moved into a holding structure, the
+structure must satisfy ALL of the following criteria — the criteria
+are the frame, not a structure:
+
+1. **Jurisdictional neutrality** — the structure's jurisdiction is
+   chosen so the project's legal existence does not concentrate in a
+   single high-risk point tied to one person's residence or one
+   regulator's mood; the criteria here configure the constraints and
+   name no jurisdiction («конфигурация ограничений, не юридический
+   совет» — the C10 frame, ADR-0209 §5).
+2. **Protection from a single point of jurisdictional pressure** — no
+   single court or regulator action in one jurisdiction can seize or
+   stall the whole contour (the documents, the name, the release
+   chain) without visible recourse; the assets and the decision
+   authority must not share one failure domain.
+3. **Continuity of asset ownership** — the structure has its own
+   succession path that maps onto the repository's succession
+   protocol ([docs/SUCCESSION.md](SUCCESSION.md) — the triggers, the
+   authority chain, the append-only journal) instead of depending on
+   one natural person.
+
+The structure itself — the incorporation, the bank, the filings — is
+an OWNER ACT outside this repository; it is never opened as a naryad
+and never recorded here (see the honest limits below).
+
+### Cross-consistency with TRADEMARK.md and SUCCESSION.md
+
+- [TRADEMARK.md](../TRADEMARK.md) — the name/logo policy: a holding
+  structure does not become a trademark licensee by default; the
+  structure's documents must not conflict with the trademark policy's
+  neutral-use rules.
+- [docs/SUCCESSION.md](SUCCESSION.md) — the succession protocol: the
+  structure's own succession path must CONSUME it (the triggers, the
+  authority chain by reference, the journal), never duplicate or
+  restate it.
+- The Phase-1 text of this document (above) stays authoritative for
+  the decision-making process; this frame adds the institutional
+  boundary and does not alter any Phase-1 rule.
+
+### Honest limits — the owner's acts (the repo ↔ acts boundary)
+
+The repository carries DOCUMENTS, not legal acts. The following are
+the owner's acts and live OUTSIDE the repository (ADR-0219 §5;
+R38(9)): the trademark filing, the neutral-structure incorporation,
+the banking, and the partner contacts (the audit firms → C1, the
+insurers → C2 — the partner track is the owner's time). Nothing in
+this section is legal advice; the machine gates (the gate_044
+institutional roster) verify the PRESENCE and STRUCTURE of these
+documents and their cross-consistency — not their legal force.

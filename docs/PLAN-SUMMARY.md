@@ -1130,20 +1130,20 @@ owner's ADR gate.
 <!-- BEGIN GENERATED NUMBERS (scripts/gen_metrics.py — do not edit inside) -->
 | Machine fact (generated — do not hand-edit) | Value |
 | --- | --- |
-| Typed-signature floor — the 0.28-gate line (ADR-0179) | 7113 bp — 377/530 = 71.13% (precise 244/530 = 46.03%) |
+| Typed-signature floor — the 0.28-gate line (ADR-0179) | 7113 bp (377/530) — 377/530 = 71.13% (precise 244/530 = 46.03%) |
 | BUILTIN_REGISTRY rows | 530 |
-| LICENSED_FLOOR — the 8D-1 machine fact (№841) | 10000 bp |
-| PASSPORT_FRESH — the 8D-1 machine fact (№841) | 10000 bp |
-| GRANT_COVERAGE — the 8B-1 machine fact (№846) | 10000 bp |
+| LICENSED_FLOOR — the 8D-1 machine fact (№841) | 10000 bp (16/16) |
+| PASSPORT_FRESH — the 8D-1 machine fact (№841) | 10000 bp (16/16) |
+| GRANT_COVERAGE — the 8B-1 machine fact (№846) | 10000 bp (44/44) |
 | SEMA_EXTERNAL — the 8F-1 machine fact (№857) | 3 |
-| APPROVAL_COVERAGE — the 8B-2 machine fact (№862) | 10000 bp |
+| APPROVAL_COVERAGE — the 8B-2 machine fact (№862) | 10000 bp (1/1) |
 | ATTEST_MAP — the 8A-1 machine fact (№869) | 45 live attestation rows |
-| PROVENANCE_SHARE — the 8C/C3 machine fact (№875) | 10000 bp |
-| OFFLINE_SUITE — the 8E-1/C5 machine fact (№881) | 10000 bp |
-| JURISDICTION_MATRIX — the 8D-2/C10 machine fact (№888) | 3 jurisdictions |
-| REPLAY_MATCH — the 8G/C8 machine fact (№894) | 10000 bp |
+| PROVENANCE_SHARE — the 8C/C3 machine fact (№875) | 10000 bp (6/6) |
+| OFFLINE_SUITE — the 8E-1/C5 machine fact (№881) | 10000 bp (12/12) |
+| JURISDICTION_MATRIX — the 8D-2/C10 machine fact (№888) | 3 (3/3) jurisdictions |
+| REPLAY_MATCH — the 8G/C8 machine fact (№894) | 10000 bp (2/2) |
 | TAINT_SATURATION — the 8F-2/C9 machine fact (№906) | 324241748923742258252688 |
-| REPRO_BITFORBIT — the 8E-2/C7+C12 machine fact (№912) | 10000 bp |
+| REPRO_BITFORBIT — the 8E-2/C7+C12 machine fact (№912) | 10000 bp (11/11) |
 <!-- END GENERATED NUMBERS -->
 
 ## Acceptance criteria (public part of the methodology)

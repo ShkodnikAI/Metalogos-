@@ -30,7 +30,20 @@ All notable changes to the Metalogos project.
   «Проверено на стенде офиса» in docs/release-checklist.md); the
   version bindings are stripped from PLAN-SUMMARY, the limitations
   rows and the wave audits (the subphase names stay).
-
+- **№900 (issue #1794, P2, [metrics][docs]):** the denominator rides
+  every bp/% fact — «10000 bp (1/1)» instead of a bare «100%» (the
+  N3 decision): gen_metrics exposes the (numerator, denominator) pair
+  for every machine fact (the eight bp facts + the jurisdiction
+  matrix), the generated tables (docs/metrics.md, the PLAN-SUMMARY
+  numbers block) print the fact WITH its denominator, and the
+  DENOMINATOR GATE refuses to emit a bp fact without the (n/N) —
+  the mutation test: strip a denominator from an emitter → red
+  (verified: the PROVENANCE_SHARE strip → the gate names the fact and
+  exits 1); the pair↔bp consistency machine
+  (`--denominator-self-test`) re-derives every bp from its pair on the
+  live tree — a pair edited apart from its bp function is a red
+  drift. The floor mentions in the prose (the gate floor constants)
+  are not facts and stay as they were.
 ### Added
 
 - **№914 (issue #1816, wave 82 — W-K, P2, [process][ci], the

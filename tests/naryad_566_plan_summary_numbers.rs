@@ -103,16 +103,19 @@ fn n566_generated_block_matches_the_independent_recomputation() {
         "exactly ONE generated block in the digest"
     );
 
-    // The floor row: "<typed_bp> bp — <typed>/<total> = <share>% (precise
-    // <precise>/<total> = <precise_share>%)" — every number from
-    // the independent recomputation.
+    // The floor row: "<typed_bp> bp (<typed>/<total>) — <typed>/<total> =
+    // <share>% (precise <precise>/<total> = <precise_share>%)" — every
+    // number from the independent recomputation (№900: the denominator
+    // rides the fact — the parenthesized (n/N) right after the bp token).
     let floor_row = block
         .lines()
         .find(|l| l.contains("Typed-signature floor"))
         .expect("the generated block must carry the typed-signature floor row");
     let expected = format!(
-        "| {} bp — {}/{} = {:.2}% (precise {}/{} = {:.2}%) |",
+        "| {} bp ({}/{}) — {}/{} = {:.2}% (precise {}/{} = {:.2}%) |",
         typed_bp,
+        n_typed,
+        n_total,
         n_typed,
         n_total,
         typed_bp as f64 / 100.0,

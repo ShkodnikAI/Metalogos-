@@ -20,15 +20,15 @@ construction.
 | Architecture Decisions | 205 ADRs |
 | Example Programs | 257 .mlog programs |
 | Reference | REFERENCE.md (~340 KB) — 100% registry coverage |
-| Changelog | CHANGELOG.md (~230 KB) — every wave documented |
-| LICENSED_FLOOR (the 8D-1 machine fact, №841) | 10000 bp — the license class explicit + the license_note filled over the backend registry (ADR-0163/ADR-0202 terms) |
-| PASSPORT_FRESH (the 8D-1 machine fact, №841) | 10000 bp — the passports fresh within the 180-day verification window (the №842 rule) |
-| GRANT_COVERAGE (the 8B-1 machine fact, №846) | 10000 bp — the irreversible carriers whose rights decision passes the capability layer (ADR-0203 §2.7; the gate_034 floor) |
+| Changelog | CHANGELOG.md (~231 KB) — every wave documented |
+| LICENSED_FLOOR (the 8D-1 machine fact, №841) | 10000 bp (16/16) — the license class explicit + the license_note filled over the backend registry (ADR-0163/ADR-0202 terms; №900: the denominator rides the fact) |
+| PASSPORT_FRESH (the 8D-1 machine fact, №841) | 10000 bp (16/16) — the passports fresh within the 180-day verification window (the №842 rule) |
+| GRANT_COVERAGE (the 8B-1 machine fact, №846) | 10000 bp (44/44) — the irreversible carriers whose rights decision passes the capability layer (ADR-0203 §2.7; the gate_034 floor) |
 | SEMA_EXTERNAL (the 8F-1 machine fact, №857) | 3 — the live external-consumption artifacts of the Portable Refusal Algebra (ADR-0204 §5; the gate_035 only-up floor ≥ 1): wasm-facade, policy-check action, spec page |
-| PROVENANCE_SHARE (the 8C/C3 machine fact, №875) | 10000 bp — the registered I/O carriers whose boundary provenance record is LIVE-wired (ADR-0207 §4; the gate_038 floor 10000 bp, only-up) |
-| OFFLINE_SUITE (the 8E-1/C5 machine fact, №881) | 10000 bp — the registered LLM-surface checks that execute without the external network (ADR-0208 §2.5; the gate_039 floor 8000 bp, only-up) |
+| PROVENANCE_SHARE (the 8C/C3 machine fact, №875) | 10000 bp (6/6) — the registered I/O carriers whose boundary provenance record is LIVE-wired (ADR-0207 §4; the gate_038 floor 10000 bp, only-up) |
+| OFFLINE_SUITE (the 8E-1/C5 machine fact, №881) | 10000 bp (12/12) — the registered LLM-surface checks that execute without the external network (ADR-0208 §2.5; the gate_039 floor 8000 bp, only-up) |
 | JURISDICTION_MATRIX (the 8D-2/C10 machine fact, №888) | 3 — the registered jurisdictions with ≥ 1 live rule in the seed matrix (ADR-0209 §4; the gate_040 floor 3, only-up) |
-| REPLAY_MATCH (the 8G/C8 machine fact, №894) | 10000 bp — the registered decision carriers whose trace is written through the Ledger ACTION contour and verified by the replay_gate REPLAY_MATCH contract (ADR-0210 §3-4; the gate_041 floor 10000 bp, only-up) |
+| REPLAY_MATCH (the 8G/C8 machine fact, №894) | 10000 bp (2/2) — the registered decision carriers whose trace is written through the Ledger ACTION contour and verified by the replay_gate REPLAY_MATCH contract (ADR-0210 §3-4; the gate_041 floor 10000 bp, only-up) |
 | TAINT_SATURATION (the 8F-2/C9 machine fact, №906) | 324241748923742258252688 — the exact reachable taint-program space of the wave-81 generator, the integer product over the live anchors (ADR-0217 §2; the gate_042 floor 10^9, only-up) |
-| REPRO_BITFORBIT (the 8E-2/C7+C12 machine fact, №912) | 10000 bp — the registered reproduction carriers whose bit-for-bit chain is live-wired: the registry package path + the release digest chain (ADR-0218 §2; the gate_043 floor 10000 bp, only-up; the toolchain build stays behind the C7 trigger — §5) |
+| REPRO_BITFORBIT (the 8E-2/C7+C12 machine fact, №912) | 10000 bp (11/11) — the registered reproduction carriers whose bit-for-bit chain is live-wired: the registry package path + the release digest chain (ADR-0218 §2; the gate_043 floor 10000 bp, only-up; the toolchain build stays behind the C7 trigger — §5) |
 <!-- END GENERATED METRICS -->

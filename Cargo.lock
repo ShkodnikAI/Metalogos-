@@ -2608,9 +2608,12 @@ name = "mlogpkg"
 version = "0.38.2"
 dependencies = [
  "clap",
+ "hex",
+ "hmac",
  "metalogos",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "thiserror 2.0.21",
  "toml",

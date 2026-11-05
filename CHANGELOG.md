@@ -6,6 +6,27 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№919 (issue #1833, wave 83 — W-L1, P2, [governance][docs][audit]):**
+  the institutional-readiness report — docs/audits/institutional-readiness-2026-11.md
+  (the №907/№913 form; the closing artifact of the 8H-1 subphase): the
+  methodology (the gate_044 machine + the live sources), the
+  12/12 roster-verdict table (every row = the CHECKED anchor pair of
+  the live carrier), the three shield parts audited from the sources
+  (the trademark policy, the succession protocol, the neutral-structure
+  frame), the repo↔owner-acts boundary (the owner's acts named per
+  R38(9): the trademark filing, the incorporation, the banking, the
+  partner contacts — each with its status «the owner's act, outside
+  the repo» and what the repo carries instead), the partner-contact
+  REGISTRY STRUCTURE (the columns + the readiness criteria — no
+  stub records: the contact registry is empty by design), the honest
+  limits (what the succession coverage does NOT close — the legal
+  force, the single-holder fact, the never-walked journal); the sync
+  rows in docs/limitations.md (the institutional-contour section) and
+  docs/threat-model.md (the known-boundaries bullet). The mutation
+  boundary: the report is an ARTIFACT — deleting its boundary section
+  does not red the machine (the fact lives in the carriers №917 and
+  the machine №918), but the wave acceptance requires the report.
+
 - **№918 (issue #1832, wave 83 — W-L1, P1, [testing][ci]):** the
   INSTITUTIONAL_READY fact machine in gen_metrics.py + gate_044 — the
   13th machine fact of the №841 family: the count of CHECKED items

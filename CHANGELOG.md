@@ -40,7 +40,14 @@ All notable changes to the Metalogos project.
   broken digest refused named, the unknown id refused named, the
   undeclared path zero-mutation). VERTICAL_PROFILES 12/12 — the 0.47
   gate is up; the machine verifies the PRESENCE and STRUCTURE of the
-  profiles, not their certification force (ADR-0220 §5).
+  profiles, not their certification force (ADR-0220 §5). The
+  environment ride: the №868 compliance package re-attested in the
+  same PR (the gate_028/029/030 rows re-pinned after the cells 34 → 35
+  — the №863 form, the compiler replication proven byte-for-byte); the
+  №12 httpbin tests carry the bounded transport retry (3 attempts over
+  the connection-class error only — the third-party endpoint
+  rate-limits the datacenter runner IPs; the semantic assertions
+  unchanged, a persistent outage stays red).
 
 - **№920 (issue #1839, wave 84 — W-L2, P1, [process][adr][governance]):**
   ADR-0220 Vertical Profiles — the 8H-2/C13а subphase record (ADR before

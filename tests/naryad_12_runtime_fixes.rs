@@ -9,7 +9,40 @@
 #[cfg(test)]
 mod tests {
 
+    use metalogos::interpreter::Value;
+
     // ── Bug 2: http_post() 4th parameter for auth headers ──
+
+    /// The bounded transport retry over the shared external endpoint
+    /// (the №921 environment ride: httpbin.org rate-limits the
+    /// datacenter runner IPs — the connection-class error is an
+    /// ENVIRONMENT verdict, not a language verdict; the retry preserves
+    /// the test's semantics — the same assertions run after a
+    /// successful transport. A persistent outage stays LOUD: after the
+    /// last attempt the error surfaces verbatim, the test stays red —
+    /// no fake green. The semantic errors (the request-class verdicts
+    /// the builtin returns) never retry.)
+    fn httpbin_post_with_retry<F: Fn(&[Value]) -> Result<Value, String>>(
+        http_post: F,
+        args: &[Value],
+    ) -> Result<Value, String> {
+        let mut last = Err(String::from("the retry loop never ran"));
+        for attempt in 0..3 {
+            match http_post(args) {
+                Ok(v) => return Ok(v),
+                Err(e) => {
+                    if !e.contains("HTTP_CONNECT") {
+                        return Err(e); // a semantic verdict — never retry
+                    }
+                    last = Err(e);
+                    if attempt < 2 {
+                        std::thread::sleep(std::time::Duration::from_millis(2000));
+                    }
+                }
+            }
+        }
+        last
+    }
 
     #[test]
     fn test_bug2_http_post_backward_compatible_3_args() {
@@ -20,7 +53,7 @@ mod tests {
         let http_post = builtins.get("http_post").expect("http_post builtin exists");
 
         // 3 args should still work (backward compatible)
-        let result = http_post(&[
+        let result = httpbin_post_with_retry(*http_post, &[
             Value::String("https://httpbin.org/post".to_string()),
             Value::String("{\"test\": true}".to_string()),
             Value::String("application/json".to_string()),
@@ -91,12 +124,15 @@ mod tests {
         let builtins = Builtins::new();
         let http_post = builtins.get("http_post").expect("http_post builtin exists");
 
-        let result = http_post(&[
-            Value::String("https://httpbin.org/post".to_string()),
-            Value::String("{}".to_string()),
-            Value::String("application/json".to_string()),
-            Value::Float(42.0),
-        ]);
+        let result = httpbin_post_with_retry(
+            *http_post,
+            &[
+                Value::String("https://httpbin.org/post".to_string()),
+                Value::String("{}".to_string()),
+                Value::String("application/json".to_string()),
+                Value::Float(42.0),
+            ],
+        );
         // 4th arg Float is silently ignored (headers not applied, no error)
         // The request still goes through — only connection errors are returned
         match result {

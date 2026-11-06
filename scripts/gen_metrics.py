@@ -243,6 +243,16 @@ INSTITUTIONAL_ADR_0219 = (
 )
 MLOGPKG_MAIN_RS = REPO / "mlogpkg" / "src" / "main.rs"
 
+# №921 (wave 84 — W-L2): the 8H-2/C13а machine fact — VERTICAL_PROFILES
+# (ADR-0220 §2). The fact is a COUNT (0–12): the CHECKED anchors of the
+# vertical roster (2 profiles × 6 mandatory contour anchors) over the
+# live kernel src/vertical.rs; the floor is the wave-84 dispatch
+# constant (gh#1842: the FULL roster 12) — only-up.
+GATE_045_GOALS = REPO / "scripts" / "ci" / "gate_045_goals.txt"
+VERTICAL_PROFILES_FLOOR_OWNER = 12
+VERTICAL_ADR_0220 = REPO / "docs" / "adr" / "0220-vertical-profiles.md"
+VERTICAL_RS = REPO / "src" / "vertical.rs"
+
 
 APPROVAL_RS = REPO / "src" / "approval.rs"
 CI_YML = REPO / ".github" / "workflows" / "ci.yml"
@@ -1580,6 +1590,162 @@ def institutional_ready_pair(
     return checked, total
 
 
+# ── №921 (wave 84 — W-L2, ADR-0220 §2): the VERTICAL_PROFILES machine ──
+
+def _vertical_registry(content: str | None = None) -> list[dict]:
+    """The wave-84 vertical roster (№921): the EXPLICIT anchor list in
+    scripts/ci/gate_045_goals.txt — the machine source. Each row is
+    `carrier <id> wired=yes file=<path> region=<seed fn marker>
+    needle=<profile-scoped contour anchor> sub=<typed contour variant>`;
+    the counter counts a row ONLY when the needle AND the sub literal
+    stand INSIDE the named seed region of the live file (CHECKED, not
+    declared — the №894 form; the region scoping is the gate_040 form:
+    the seed literals are pinned inside the seed function body, not a
+    call shape — a removed seeding un-checks its rows, an emptied
+    mandatory_contours drops the subs)."""
+    if content is None:
+        content = GATE_045_GOALS.read_text(encoding="utf-8")
+    rows: list[dict] = []
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("carrier ") or " needle=" not in stripped:
+            continue
+        head, rest = stripped.split(" needle=", 1)
+        sub = ""
+        if " sub=" in rest:
+            rest, sub = rest.split(" sub=", 1)
+        needle = rest
+        # The region marker may carry SPACES (`region=fn seed_payments`) —
+        # it is the TAIL of the head section (the field immediately
+        # before needle=), so it is read positionally, not by the
+        # whitespace token split (which would truncate it at the
+        # first space).
+        region = ""
+        if "region=" in head:
+            region = head.split("region=", 1)[1].strip()
+        parts = head.split()[1:]
+        fields = dict(part.split("=", 1) for part in parts if "=" in part)
+        if fields.get("wired") != "yes" or "file" not in fields or not needle:
+            continue
+        rows.append(
+            {
+                "name": parts[0],
+                "file": fields["file"],
+                "region": region,
+                "needle": needle,
+                "sub": sub,
+            }
+        )
+    return rows
+
+
+def _vertical_region(text: str, marker: str) -> str | None:
+    """The seed-region slice (the gate_040 form): from the marker (the
+    seed function signature) to the next top-level function definition
+    — rustfmt-normalized, so the marker and the boundary are stable.
+    A missing marker (a removed seeding) reads unchecked — the honest
+    RED."""
+    idx = text.find(marker)
+    if idx < 0:
+        return None
+    start = idx + len(marker)
+    ends = [
+        p for p in (text.find("\nfn ", start), text.find("\npub fn ", start)) if p >= 0
+    ]
+    end = min(ends) if ends else len(text)
+    return text[idx:end]
+
+
+def _vertical_composition_alive(
+    adr_text: str | None = None, vertical_rs: str | None = None
+) -> bool:
+    """The composition sites (the №874/№912/№918 form): (1) the ADR-0220
+    definition literal (`VERTICAL_PROFILES :=`) stands in the record
+    file — a dead definition → NOTHING is anchored → the count reads 0
+    (the №920 mutation contract); (2) the consumption site stands in
+    src/vertical.rs — the verdict function (`pub fn vertical_verdict`)
+    AND the digest-pin comparison (the «vertical: vertical digest pin
+    mismatch» refusal literal) — a dead consumption site → the verdict
+    cannot refuse → the count reads 0; (3) the registry composition
+    (`pub fn vertical_registry` gathering both seeds) stands."""
+    if adr_text is None:
+        if not VERTICAL_ADR_0220.exists():
+            return False
+        adr_text = VERTICAL_ADR_0220.read_text(encoding="utf-8")
+    if vertical_rs is None:
+        if not VERTICAL_RS.exists():
+            return False
+        vertical_rs = VERTICAL_RS.read_text(encoding="utf-8")
+    return (
+        "VERTICAL_PROFILES :=" in adr_text
+        and "pub fn vertical_verdict" in vertical_rs
+        and "vertical: vertical digest pin mismatch" in vertical_rs
+        and "pub fn vertical_registry" in vertical_rs
+        and "seed_payments()" in vertical_rs
+        and "seed_public_sector()" in vertical_rs
+    )
+
+
+def _vertical_carrier_checked(row: dict, texts: dict | None = None) -> bool:
+    """The LIVE anchor evidence of one roster item: the row's needle
+    (the profile-scoped contour anchor) AND the sub literal (the typed
+    contour variant) stand INSIDE the named seed region of the live
+    file. A removed seeding, an emptied mandatory_contours or a drifted
+    anchor un-checks the item — the count drops (the tamper traps prove
+    the counter catches each class). A missing carrier file reads
+    unchecked — the floor breach is the gate's honest RED."""
+    if texts is None:
+        texts = {}
+    path = REPO / row["file"]
+    text = texts.get(row["file"])
+    if text is None:
+        if not path.exists():
+            return False
+        text = path.read_text(encoding="utf-8")
+    if not row["region"]:
+        return row["needle"] in text and ((not row["sub"]) or (row["sub"] in text))
+    region = _vertical_region(text, row["region"])
+    if region is None:
+        return False
+    if row["needle"] not in region:
+        return False
+    return (not row["sub"]) or (row["sub"] in region)
+
+
+def vertical_profiles(
+    registry: list[dict] | None = None,
+    composition: bool | None = None,
+    texts: dict | None = None,
+) -> int:
+    """VERTICAL_PROFILES — the count of CHECKED anchors (0–12) of the
+    vertical roster (№921, ADR-0220 §2). A dead definition or a dead
+    consumption site zeroes the count; a missing seed region reads
+    unchecked; an empty roster is 0 (a vacuous class is a gate failure,
+    never a pass). The machine verifies the PRESENCE and STRUCTURE of
+    the profiles and their integrity — NOT their certification force
+    (ADR-0220 §5: the profile ≠ certification ≠ legal advice)."""
+    checked, _total = vertical_profiles_pair(registry, composition, texts)
+    return checked
+
+
+def vertical_profiles_pair(
+    registry: list[dict] | None = None,
+    composition: bool | None = None,
+    texts: dict | None = None,
+) -> tuple[int, int]:
+    """VERTICAL_PROFILES — (checked, roster total); №900: the pair
+    rides the printed fact. A dead composition reads (0, total)."""
+    if registry is None:
+        registry = _vertical_registry()
+    if composition is None:
+        composition = _vertical_composition_alive()
+    total = len(registry)
+    if not composition:
+        return 0, total
+    checked = sum(1 for row in registry if _vertical_carrier_checked(row, texts))
+    return checked, total
+
+
 # ── №912 (wave 82 — W-K, ADR-0218 §2): the REPRO_BITFORBIT machine ─────
 
 def _repro_registry(content: str | None = None) -> list[dict]:
@@ -2596,6 +2762,150 @@ def tamper_test() -> int:
         )
         return 1
 
+    # ── №921 traps: the vertical roster (the in-memory texts — the
+    # real tree stays untouched; the №918 form) ──────────────────────
+    vert_registry = _vertical_registry()
+    vert_full = vertical_profiles()
+    if vert_full != VERTICAL_PROFILES_FLOOR_OWNER:
+        print(
+            "tamper-test: TRAP FAILED — VERTICAL_PROFILES is not at the owner floor on "
+            f"the clean tree ({vert_full} != {VERTICAL_PROFILES_FLOOR_OWNER}): the "
+            "roster or the seed regions drifted (fix the carriers, never the floor)",
+            file=sys.stderr,
+        )
+        return 1
+
+    def _vert_text(rel: str) -> str:
+        return (REPO / rel).read_text(encoding="utf-8")
+
+    # Trap 51 (the removal class (а)): a removed payments seeding —
+    # the seed function AND the registry call deleted → the six
+    # payments rows lose their region AND the registry composition
+    # dies → the count ZEROES (nothing is anchored).
+    vrs = _vert_text("src/vertical.rs")
+    removed_profile = "\n".join(
+        line
+        for line in vrs.splitlines()
+        if "fn seed_payments" not in line and "seed_payments()" not in line
+    )
+    if removed_profile == vrs:
+        print(
+            "tamper-test: TRAP FAILED — the seed_payments anchor drifted",
+            file=sys.stderr,
+        )
+        return 1
+    if (
+        vertical_profiles(
+            registry=vert_registry,
+            composition=_vertical_composition_alive(vertical_rs=removed_profile),
+            texts={"src/vertical.rs": removed_profile},
+        )
+        != 0
+    ):
+        print(
+            "tamper-test: TRAP FAILED — the removed profile seeding did NOT zero "
+            "VERTICAL_PROFILES",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 52 (the emptying class (б)): the public-sector
+    # mandatory_contours EMPTIED — the typed contour variants vanish
+    # from the seed region → the six public-sector rows lose their
+    # subs → the count drops below the floor. (The surgery is
+    # REGION-SCOPED: the shared variant literals outside the public
+    # sector's seeding must not mask the emptying.)
+    pub_rows = [r for r in vert_registry if r["region"] == "fn seed_public_sector"]
+    region_start = vrs.find("fn seed_public_sector")
+    region_ends = [
+        p
+        for p in (
+            vrs.find("\nfn ", region_start + 1),
+            vrs.find("\npub fn ", region_start + 1),
+        )
+        if p >= 0
+    ]
+    region_end = min(region_ends) if region_ends else len(vrs)
+    tampered_region = vrs[region_start:region_end]
+    for r in pub_rows:
+        tampered_region = tampered_region.replace(r["sub"] + ",", "", 1)
+    tampered = vrs[:region_start] + tampered_region + vrs[region_end:]
+    if tampered == vrs:
+        print(
+            "tamper-test: TRAP FAILED — the mandatory_contours anchor drifted",
+            file=sys.stderr,
+        )
+        return 1
+    if (
+        vertical_profiles(
+            registry=vert_registry,
+            texts={"src/vertical.rs": tampered},
+        )
+        >= vert_full
+    ):
+        print(
+            "tamper-test: TRAP FAILED — the emptied mandatory_contours did NOT drop "
+            "VERTICAL_PROFILES",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 53 (the broken-digest-consumption class (в)): the digest-pin
+    # comparison removed from the verdict → the consumption site is
+    # dead → the count ZEROES (the verdict cannot refuse — the gate
+    # working, not a pass; the consumption-test class itself is the
+    # naryad_921 Rust probe).
+    broken_consumption = vrs.replace(
+        "vertical: vertical digest pin mismatch", "vertical: [consumption removed]", 1
+    )
+    if broken_consumption == vrs:
+        print(
+            "tamper-test: TRAP FAILED — the digest-pin consumption anchor drifted",
+            file=sys.stderr,
+        )
+        return 1
+    if (
+        vertical_profiles(
+            registry=vert_registry,
+            composition=_vertical_composition_alive(vertical_rs=broken_consumption),
+            texts={"src/vertical.rs": broken_consumption},
+        )
+        != 0
+    ):
+        print(
+            "tamper-test: TRAP FAILED — the dead digest consumption did NOT zero "
+            "VERTICAL_PROFILES",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 54 (the GENERATED-hand-edit class (г)): a hand-edited
+    # VERTICAL_PROFILES row must diverge the check — the compare
+    # flags the tampered block (the double --check determinism
+    # contract; the naryad_921 test pins the live double run).
+    fresh = full_block()
+    hand_edited = fresh.replace(
+        f"| VERTICAL_PROFILES (the 8H-2/C13а machine fact, №921) | {vert_full}/{len(vert_registry)}",
+        f"| VERTICAL_PROFILES (the 8H-2/C13а machine fact, №921) | 999/{len(vert_registry)}",
+        1,
+    )
+    if hand_edited == fresh:
+        print(
+            "tamper-test: TRAP FAILED — the VERTICAL_PROFILES GENERATED anchor drifted",
+            file=sys.stderr,
+        )
+        return 1
+    ok_current, _ = upsert_block(
+        REPO / "docs" / "metrics.md", MD_BEGIN, MD_END, hand_edited, "metrics table"
+    )
+    if ok_current:
+        print(
+            "tamper-test: TRAP FAILED — the hand-edited GENERATED row was NOT caught "
+            "by the compare (the determinism hole is open)",
+            file=sys.stderr,
+        )
+        return 1
+
     print(
         "tamper-test: OK — the checkers catch the fabricated records "
 
@@ -2604,7 +2914,7 @@ def tamper_test() -> int:
         f"PROVENANCE_SHARE {full_prov} bp, OFFLINE_SUITE {full_off} bp, "
         f"JURISDICTION_MATRIX {full_jur}, REPLAY_MATCH {full_rep} bp, "
         f"TAINT_SATURATION {full_taint}, REPRO_BITFORBIT {full_repro} bp, "
-        f"INSTITUTIONAL_READY {inst_full}/12; "
+        f"INSTITUTIONAL_READY {inst_full}/12, VERTICAL_PROFILES {vert_full}/12; "
         "the traps lowered all)"
     )
     return 0
@@ -2638,6 +2948,7 @@ def full_block() -> str:
     n_repl, t_repl = replay_match_pair()
     n_repro, t_repro = repro_bitforbit_pair()
     n_inst, t_inst = institutional_ready_pair()
+    n_vert, t_vert = vertical_profiles_pair()
     return (
         f"| Metric | Value (generated — do not hand-edit) |\n"
         f"| ------ | ------------------------------------- |\n"
@@ -2663,6 +2974,7 @@ def full_block() -> str:
         f"| TAINT_SATURATION (the 8F-2/C9 machine fact, №906) | {taint_saturation()} — the exact reachable taint-program space of the wave-81 generator, the integer product over the live anchors (ADR-0217 §2; the gate_042 floor 10^9, only-up) |\n"
         f"| REPRO_BITFORBIT (the 8E-2/C7+C12 machine fact, №912) | {repro_bitforbit_bp()} bp ({n_repro}/{t_repro}) — the registered reproduction carriers whose bit-for-bit chain is live-wired: the registry package path + the release digest chain (ADR-0218 §2; the gate_043 floor 10000 bp, only-up; the toolchain build stays behind the C7 trigger — §5) |\n"
         f"| INSTITUTIONAL_READY (the 8H-1/C13б machine fact, №918) | {institutional_ready()}/{t_inst} — the CHECKED items of the 12-item institutional roster over the live carriers: TRADEMARK.md + docs/SUCCESSION.md + the GOVERNANCE Phase-2 frame (ADR-0219 §2; the gate_044 floor 12, only-up; the documents ≠ the owner's acts — §5) |\n"
+        f"| VERTICAL_PROFILES (the 8H-2/C13а machine fact, №921) | {vertical_profiles()}/{t_vert} — the CHECKED anchors of the 12-element vertical roster (2 profiles × 6 mandatory contours) over the live kernel src/vertical.rs (ADR-0220 §2; the gate_045 floor 12, only-up; the profile ≠ certification ≠ legal advice — §5) |\n"
     )
 
 
@@ -2730,6 +3042,7 @@ def plan_summary_block() -> str:
     n_repl, t_repl = replay_match_pair()
     n_repro, t_repro = repro_bitforbit_pair()
     n_inst, t_inst = institutional_ready_pair()
+    n_vert, t_vert = vertical_profiles_pair()
     return (
         f"| Machine fact (generated — do not hand-edit) | Value |\n"
         f"| --- | --- |\n"
@@ -2750,6 +3063,7 @@ def plan_summary_block() -> str:
         f"| TAINT_SATURATION — the 8F-2/C9 machine fact (№906) | {taint_saturation()} |\n"
         f"| REPRO_BITFORBIT — the 8E-2/C7+C12 machine fact (№912) | {repro_bitforbit_bp()} bp ({n_repro}/{t_repro}) |\n"
         f"| INSTITUTIONAL_READY — the 8H-1/C13б machine fact (№918) | {institutional_ready()}/{t_inst} items |\n"
+        f"| VERTICAL_PROFILES — the 8H-2/C13а machine fact (№921) | {vertical_profiles()}/{t_vert} anchors |\n"
     )
 
 
@@ -3449,6 +3763,50 @@ def main() -> int:
             f"OK: the №918 floor holds — INSTITUTIONAL_READY {inst_count}/{inst_total} "
             f"(gate_044 floor {inst_floor}, only-up) — roster: "
             f"{len(_institutional_registry())} institutional items over the live carriers"
+        )
+
+    # №921: the gate_045 only-up floor over the VERTICAL_PROFILES count
+    # (the gate_040–044 form): the owner-pinned wave-84 dispatch constant
+    # (12) can rise, never fall; the live count must hold the floor —
+    # a removed seeding, an emptied mandatory_contours, a dead ADR-0220
+    # definition or a dead consumption site breaches it loudly.
+    if check:
+        try:
+            vert_floors = load_floors_strict(GATE_045_GOALS)
+        except ValueError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        vert_floor = vert_floors.get("goal_vertical_profiles_min")
+        if vert_floor is None:
+            print(
+                "ERROR: gate_045_goals.txt carries no goal_vertical_profiles_min floor",
+                file=sys.stderr,
+            )
+            return 2
+        if vert_floor < VERTICAL_PROFILES_FLOOR_OWNER:
+            print(
+                "FLOOR LOWERING REFUSED: gate_045 "
+                f"({vert_floor}) is below the owner constant "
+                f"({VERTICAL_PROFILES_FLOOR_OWNER} — the wave-84 dispatch constant, "
+                "gh#1842); the floor is only-up — the change is an explicit owner transaction",
+                file=sys.stderr,
+            )
+            return 1
+        vert_count, vert_total = vertical_profiles_pair()
+        if vert_count < vert_floor:
+            print(
+                f"FLOOR BREACH: VERTICAL_PROFILES {vert_count}/{vert_total} < the gate_045 floor "
+                f"{vert_floor} (only-up) — a vertical anchor died (a removed seeding, "
+                "an emptied mandatory_contours, a dead ADR-0220 definition or a dead "
+                "consumption site) "
+                "(restore the anchor honestly — never a silent gate edit)",
+                file=sys.stderr,
+            )
+            return 1
+        print(
+            f"OK: the №921 floor holds — VERTICAL_PROFILES {vert_count}/{vert_total} "
+            f"(gate_045 floor {vert_floor}, only-up) — roster: "
+            f"{len(_vertical_registry())} vertical anchors over the live kernel"
         )
 
     # №841: the RED harness (the tamper traps) — an explicit mode, run by

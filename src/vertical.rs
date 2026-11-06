@@ -236,15 +236,14 @@ impl VerticalProfile {
                 id.as_str()
             ));
         }
+        let mut anchors = [String::new(); 6];
+        for (i, s) in contour_anchor_literals.iter().enumerate() {
+            anchors[i] = s.to_string();
+        }
         let mut profile = Self {
             id,
             mandatory_contours: contours,
-            contour_anchor_literals: contour_anchor_literals
-                .iter()
-                .map(|s| s.to_string())
-                .collect::<Vec<_>>()
-                .try_into()
-                .expect("the anchor literals carry the fixed arity of six"),
+            contour_anchor_literals: anchors,
             refusal_vocabulary_version: refusal_vocabulary_version.to_string(),
             carrier_digest: String::new(),
         };
@@ -422,10 +421,16 @@ pub fn vertical_verdict(
     // re-checks the LIVE profile (a tamper that swapped the contour
     // set in code would fail here at the consumption site too; the
     // gate_045 roster anchors are the machine backstop).
+    let full_six = [
+        VerticalContour::JurisdictionCoverage,
+        VerticalContour::HumanOversightApproval,
+        VerticalContour::DecisionTraceVerify,
+        VerticalContour::TaintFloor,
+        VerticalContour::LicenseClass,
+        VerticalContour::RefusalVocabularyPin,
+    ];
     let full = profile.mandatory_contours.len() == 6
-        && [0usize, 1, 2, 3, 4, 5]
-            .iter()
-            .all(|k| profile.mandatory_contours.iter().any(|c| *c as usize == *k));
+        && full_six.iter().all(|c| profile.mandatory_contours.contains(c));
     if !full {
         return Err(format!(
             "{unverified} — profile '{name}' lost part of the six mandatory contours (ADR-0220 §2)",

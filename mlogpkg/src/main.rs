@@ -1491,7 +1491,7 @@ fn cmd_verify(key_path: &str) {
     // unverifiable contour → the named refusal BEFORE any effect); NO
     // `[vertical]` → no default attach, zero behavioral mutations (the
     // undeclared path verifies exactly as it did before this naryad).
-    if let Ok(Some(manifest)) = read_manifest_optional(&PathBuf::from("mlog.toml")) {
+    if let Some(manifest) = read_manifest_optional(&PathBuf::from("mlog.toml")) {
         if let Some(v) = &manifest.vertical {
             let decl = metalogos::vertical::VerticalDeclaration {
                 id: v.id.clone(),

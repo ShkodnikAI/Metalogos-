@@ -1,4 +1,8 @@
 #![allow(clippy::disallowed_methods)]
+// The №475 fs ratchet: this e2e is the package-manager's own test domain
+// (the mlogpkg/src/main.rs posture — the manifest/registry/loader files
+// it manipulates are argv-driven test fixtures, not program-influenced
+// runtime I/O).
 
 // ── mlogpkg/tests/naryad_921_vertical_e2e.rs ────────────────────────
 // №921 (Wave 84 — W-L2, ADR-0220 §2): the package-path e2e of the
@@ -114,7 +118,7 @@ fn a_declared_vertical_with_a_broken_digest_refuses_named() {
     let manifest = dir.join("mlog.toml");
     let text = fs::read_to_string(&manifest)
         .unwrap()
-        .replace("BROKEN_PIN_PLACEHOLDER", &format!("{}", "ab".repeat(32)));
+        .replace("BROKEN_PIN_PLACEHOLDER", &"ab".repeat(32));
     fs::write(&manifest, text).unwrap();
     let key = key_outside(&dir, "n921-broken-key.hex");
     pack_sign(&dir, &key);
@@ -135,7 +139,7 @@ fn a_declared_vertical_with_an_unknown_id_refuses_named() {
     let manifest = dir.join("mlog.toml");
     let text = fs::read_to_string(&manifest)
         .unwrap()
-        .replace("UNKNOWN_ID_PLACEHOLDER", &format!("{}", "00".repeat(32)));
+        .replace("UNKNOWN_ID_PLACEHOLDER", &"00".repeat(32));
     fs::write(&manifest, text).unwrap();
     let key = key_outside(&dir, "n921-unknown-key.hex");
     pack_sign(&dir, &key);

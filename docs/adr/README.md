@@ -257,3 +257,4 @@ real ADRs (№309/№320/№412) before the booking.
 | 0217 | Taint Saturation & the Formal-Guarantees Audit — the Reachable-Scenario Space as a Verified Artifact (the 8F-2 / C9 Subphase Record) | Proposed** (the ACCEPTED path is the wave-81 acceptance — |
 | 0218 | Reproducible Build & Signed Package Registry — the Registry Package Path as a Bit-for-Bit Verifiable Artifact (the 8E-2 / C7+C12 Subphase Record) | Proposed** (the ACCEPTED path is the wave-82 acceptance — |
 | 0219 | Institutional Contour & the Legal Shield — the Institutional-Readiness Fact as a Verified 12-Item Roster (the 8H-1 / C13б Subphase Record) | Proposed** (the ACCEPTED path is the wave-83 acceptance — |
+| 0220 | Vertical Profiles — the Vertical Contour (Payments + the Public Sector) as a Typed, Fail-Closed, Digest-Pinned Configuration of Mandatory Contours (the 8H-2 / C13а Subphase Record) | Proposed** (the ACCEPTED path is the wave-84 acceptance — |

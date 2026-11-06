@@ -86,4 +86,4 @@ fact_quorum_den: 8
 # Machine-verified by scripts/ci/blocking_checks_sync.py --count.
 # №918 (wave 83): 33 → 34 — the institutional-roster cell
 # (check|all|institutional-roster, the n918_institutional_gate binding).
-fact_blocking_check_cells: 35
+fact_blocking_check_cells: 36

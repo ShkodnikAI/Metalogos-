@@ -1186,6 +1186,32 @@ jobs:
           python3 scripts/gen_metrics.py --check
           python3 scripts/gen_metrics.py --tamper-test
 
+  gate-046:
+    name: gate-046 terminal-stop aggregate (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # №924 (gh#1851, Wave 85 — W-T): the TERMINAL_STOP aggregate — the
+      # ONE number of the 1.0 gate (ADR-0221 §2): the count of the GREEN
+      # capability slots (0–13), every slot answered by the LIVE fact
+      # machines (the №735 form — the aggregate calls the registered
+      # functions, never re-implements), each fact's own roster
+      # (gate_033–gate_045) strict-loaded, the ADR-0221 definition
+      # literal alive. Fail-closed, no synthesized green: a dead
+      # roster/anchor, a substituted checker or an exception leaves the
+      # slot uncounted (the gate working, never a pass). The floor 13
+      # only-up (the wave-85 dispatch constant gh#1853). The double
+      # --check: two consecutive runs must agree byte-for-byte (the
+      # determinism contract — a synthesized green diverges the second
+      # run); the tamper traps №55–№58 prove the dispatch classes
+      # (а)–(г) red: the fake-slot checker, the lost gate_046 roster,
+      # the dead ADR-0221 definition and the floor lowering.
+      - name: "Gate — the TERMINAL_STOP aggregate (№924: double --check + the tamper traps)"
+        run: |
+          python3 scripts/gen_metrics.py --check
+          python3 scripts/gen_metrics.py --check
+          python3 scripts/gen_metrics.py --tamper-test
+
   # Наряд №256 (part B, PR #284's ready block): дымовой фаззинг новых целей
   # (2 минуты бюджета на цель). НЕ блокирующий: паники, найденные фаззером,
   # чинятся в нарядах, но дымовой прогон не должен держать мержи

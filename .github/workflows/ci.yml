@@ -131,7 +131,7 @@ jobs:
       - name: Smoke consumption from the host (node — no Rust in the loop)
         run: node refusal-wasm/smoke.mjs target/wasm32-unknown-unknown/release/refusal_wasm.wasm
       - name: Upload the built facade artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: refusal-wasm-wasm32
           path: target/wasm32-unknown-unknown/release/refusal_wasm.wasm

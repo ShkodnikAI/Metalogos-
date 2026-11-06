@@ -6,6 +6,36 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№923 (issue #1850, wave 85 — W-T, P1, [process][adr][governance]):**
+  ADR-0221 Terminal Stop 1.0 — the 1.0 assembly record (ADR before the
+  code, the ADR-0201 §2.4 rule; the №891/№903/№916 form): the 1.0 gate
+  definition — all 13 capability slots GREEN (14 machine facts, each
+  through its own strict gate; a slot = AND over its facts: C4 =
+  LICENSED_FLOOR ∧ PASSPORT_FRESH, C13 = INSTITUTIONAL_READY ∧
+  VERTICAL_PROFILES, C7/C12 — the shared REPRO_BITFORBIT) + the
+  external-audit evidence + the paying-pilot evidence (the plan §23
+  verbatim; the R38 train exhausted — 0.47 = 8H-2 closed by wave 84,
+  the owner's directive of 2026-11-06 = the start-of-assembly gate
+  pass); the aggregate machine fact `TERMINAL_STOP :=` the count
+  (0–13) of GREEN slots — defined BEFORE the code, built OVER the
+  live strict checks (the №735 form — the fact together with its
+  checker), fail-closed (a dead roster/composition/checker → the slot
+  does not count; an empty roster is a gate failure, never a pass),
+  the floor 13 only-up (the dispatch gh#1853 constant; the №776
+  discipline); the digest-pinned evidence shapes (the G5/№828 form —
+  the audit-evidence bundle manifest and the pilot-evidence record;
+  the vendor/figures/schedule and the contract/invoice details stay
+  outside the repo — ADR-0201 §3.2, R38(3)/R38(9)); the release path
+  for 1.0.0 — the calendar train ADR-0189 §5 (Sat rc → Sun stand →
+  Mon final tag on the same commit; the publication is the owner's
+  act ADR-0186 §4.5; the empty-week rule stands); the honesty frame
+  (the 1.0 gate ≠ a service-quality guarantee ≠ a certification ≠ a
+  legal advice — the C10/В79 verbatim; the C7 trigger is not ignited
+  by the 1.0 gate — R38(8)/№913). The mutation contract for №924: the
+  test carries the quote-literal `TERMINAL_STOP :=` — deleting the
+  literal from the ADR makes the №924 test red. The index row 0221 in
+  docs/adr/README.md; llms.txt 208 → 209 ADR, the naryad range bump.
+
 - **№922 (issue #1841, wave 84 — W-L2, P2, [docs][audit]):**
   the verticals-readiness report — docs/audits/verticals-readiness-2026-11.md
   (the №907/№913/№919 form; the closing artifact of the 8H-2 subphase,

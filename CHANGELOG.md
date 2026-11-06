@@ -6,6 +6,42 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№921 (issue #1840, wave 84 — W-L2, P1, [core][registry][testing][ci]):**
+  the vertical-profiles kernel in code — the 8H-2/C13а kernel + the
+  VERTICAL_PROFILES fact machine (the 14th machine fact of the №841
+  family): src/vertical.rs — VerticalProfile (the fail-closed
+  constructor: a profile without the FULL six mandatory contours or
+  with a drifted roster needle refuses at construction, the №879/№888
+  form), the append-only registry (payments + public-sector per
+  R38(5), the seed-region literals are the gate_045 roster needles),
+  the carrier digest pin (the G5/№828 form — SHA-256 over the
+  canonical serialization, self-describing) and vertical_verdict (the
+  fail-closed consumption: an unknown id / a digest mismatch / an
+  unverifiable contour refuses BEFORE any effect with the divergence
+  NAMED — «vertical: unknown vertical id» / «vertical: vertical digest
+  pin mismatch» / «vertical: mandatory contour not verifiable»; no
+  default attach — a manifest without `[vertical]` verifies with ZERO
+  behavioral mutations); the mlogpkg package path inherits №911 — the
+  `[vertical]` manifest table (id + digest, the №910 [registry] shape)
+  is consumed in build (after the integrity pass, before the advisory)
+  and verify (after the signature chain); gate_045
+  (scripts/ci/gate_045_goals.txt — the explicit 12-element roster: id,
+  carrier, seed region, needle = the profile-scoped contour anchor,
+  sub = the typed contour variant; the blocking `gate-045` CI job with
+  the double --check + the tamper traps; the blocking_checks.tsv row —
+  fact_blocking_check_cells 34 → 35 in gate_028/029/030, badge
+  48 → 49); the tamper traps №51–№54 prove the dispatch classes
+  (а)–(г) red: the removed seeding, the emptied mandatory_contours,
+  the dead digest-pin consumption, the hand-edited GENERATED row (+
+  the dead ADR-0220 definition — the №920 mutation contract); the
+  tests tests/naryad_921_vertical_profiles.rs (the gate binding + the
+  kernel fail-closed probes) and mlogpkg/tests/naryad_921_vertical_e2e.rs
+  (the real-binary pack/sign/verify e2e: the live pin GREEN, the
+  broken digest refused named, the unknown id refused named, the
+  undeclared path zero-mutation). VERTICAL_PROFILES 12/12 — the 0.47
+  gate is up; the machine verifies the PRESENCE and STRUCTURE of the
+  profiles, not their certification force (ADR-0220 §5).
+
 - **№920 (issue #1839, wave 84 — W-L2, P1, [process][adr][governance]):**
   ADR-0220 Vertical Profiles — the 8H-2/C13а subphase record (ADR before
   the code, the ADR-0201 §2.4 rule; the №891/№916 form): the fact

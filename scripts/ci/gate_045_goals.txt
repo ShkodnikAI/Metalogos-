@@ -1,0 +1,65 @@
+# gate_045_goals.txt — the wave-84 W-L2 machine-fact floor (naryad №921)
+# =============================================================================
+# The №921 floor file: the ONLY-UP gate over the 8H-2/C13а machine fact —
+# the same discipline as the gate_036 record (№862), the gate_041 record
+# (№894), the gate_042 record (№906), the gate_043 record (№912) and the
+# gate_044 record (№918). The floor value is the wave's START floor = the
+# wave-84 dispatch constant (gh#1842: 0.47 = 8H-2 (C13а вертикали,
+# VERTICAL_PROFILES 12/12 — the FULL roster, 2 profiles × 6 contour
+# anchors, the items are CHECKED anchors, not declarations) — the point
+# was accepted by the owner in the dispatch, no further decision is
+# needed at the naryad level; the №841 form — the floor can rise, never
+# fall):
+# 0.47 = 8H-2/C13а (VERTICAL_PROFILES 12).
+#
+# THE DEFINITION (ADR-0220 §2, the №920 record — the definition literal
+# is machine-pinned in the ADR itself): VERTICAL_PROFILES is the count
+# of CHECKED anchors (0–12) of the vertical roster — 2 profiles
+# (payments, public-sector) × 6 mandatory contour anchors each
+# (jurisdiction coverage, human oversight/approval, decision-trace
+# verify, taint floor, license class, the frozen №385 refusal
+# vocabulary as the version-pin) — where every anchor is a structural
+# literal pair in the LIVE kernel file src/vertical.rs. CHECKED, not
+# declared — the №894 form.
+#
+# THE COMPOSITION SITES (the fail-closed form, the №874/№912/№918
+# lineage): (1) the ADR-0220 definition literal (`VERTICAL_PROFILES :=`)
+# must stand in docs/adr/0220-vertical-profiles.md — a dead definition →
+# NOTHING is anchored → the count reads 0 (the gate working, not a pass;
+# the №920 mutation contract); (2) the consumption site must stand in
+# src/vertical.rs — the verdict function (`pub fn vertical_verdict`)
+# AND the digest-pin comparison (the «vertical: vertical digest pin
+# mismatch» refusal literal) — a dead consumption site → the verdict
+# cannot refuse → the count reads 0; (3) the registry composition
+# (`pub fn vertical_registry` gathering both seeds) — a removed seeding
+# un-checks its six rows.
+#
+# THE ROSTER (the №862/№894/№918 roster form — the dispatch gh#1842
+# roster verbatim; the row format mirrors gate_044 with the seed-region
+# scoping of gate_040 — the check pins the quoted literals INSIDE the
+# named seed region, not a call shape):
+#   carrier <id> wired=yes file=<path> region=<seed fn marker> needle=<profile-scoped contour anchor> sub=<typed contour variant>
+# A row counts ONLY when the needle AND the sub literal stand in the
+# named seed region of the live file; the needle is the profile-scoped
+# contour anchor (the attestation wording the constructor verifies
+# against the canonical derivation), the sub is the typed contour
+# variant riding the profile's mandatory_contours — an emptied seeding
+# fails the sub and drops the count.
+
+goal_vertical_profiles_min 12
+
+# ── the payments profile — the rows 1–6 (seed_payments) ─────────────
+carrier vert-p1-jurisdiction wired=yes file=src/vertical.rs region=fn seed_payments needle=payments contour (1) jurisdiction-coverage — the JurisdictionMatrix package, strictest-wins (ADR-0209) sub=VerticalContour::JurisdictionCoverage
+carrier vert-p2-approval wired=yes file=src/vertical.rs region=fn seed_payments needle=payments contour (2) human-oversight-approval — the typed approval mandate (ADR-0205) sub=VerticalContour::HumanOversightApproval
+carrier vert-p3-trace wired=yes file=src/vertical.rs region=fn seed_payments needle=payments contour (3) decision-trace-verify — the replay/forensic ledger (ADR-0210) sub=VerticalContour::DecisionTraceVerify
+carrier vert-p4-taint wired=yes file=src/vertical.rs region=fn seed_payments needle=payments contour (4) taint-floor — the taint saturation lane (ADR-0217) sub=VerticalContour::TaintFloor
+carrier vert-p5-license wired=yes file=src/vertical.rs region=fn seed_payments needle=payments contour (5) license-class — the license-typed model layer (ADR-0202) sub=VerticalContour::LicenseClass
+carrier vert-p6-vocabulary wired=yes file=src/vertical.rs region=fn seed_payments needle=payments contour (6) refusal-vocabulary-pin — the frozen №385 dictionary, the version-pin sub=VerticalContour::RefusalVocabularyPin
+
+# ── the public-sector profile — the rows 7–12 (seed_public_sector) ──
+carrier vert-s1-jurisdiction wired=yes file=src/vertical.rs region=fn seed_public_sector needle=public-sector contour (1) jurisdiction-coverage — the JurisdictionMatrix package, strictest-wins (ADR-0209) sub=VerticalContour::JurisdictionCoverage
+carrier vert-s2-approval wired=yes file=src/vertical.rs region=fn seed_public_sector needle=public-sector contour (2) human-oversight-approval — the typed approval mandate (ADR-0205) sub=VerticalContour::HumanOversightApproval
+carrier vert-s3-trace wired=yes file=src/vertical.rs region=fn seed_public_sector needle=public-sector contour (3) decision-trace-verify — the replay/forensic ledger (ADR-0210) sub=VerticalContour::DecisionTraceVerify
+carrier vert-s4-taint wired=yes file=src/vertical.rs region=fn seed_public_sector needle=public-sector contour (4) taint-floor — the taint saturation lane (ADR-0217) sub=VerticalContour::TaintFloor
+carrier vert-s5-license wired=yes file=src/vertical.rs region=fn seed_public_sector needle=public-sector contour (5) license-class — the license-typed model layer (ADR-0202) sub=VerticalContour::LicenseClass
+carrier vert-s6-vocabulary wired=yes file=src/vertical.rs region=fn seed_public_sector needle=public-sector contour (6) refusal-vocabulary-pin — the frozen №385 dictionary, the version-pin sub=VerticalContour::RefusalVocabularyPin

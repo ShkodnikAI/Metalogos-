@@ -150,6 +150,20 @@ struct RegistryCfg {
     verify_key: Option<String>,
 }
 
+/// `[vertical]` declaration (№921, ADR-0220 §2, the №910 [registry]
+/// shape): the vertical the package is ATTESTED for — the id (the
+/// registry id: payments | public-sector) + the carrier digest pin of
+/// the profile (the G5 form — the trust anchor is an explicit pin in
+/// mlog.toml). The absence of the table NEVER attaches a profile (no
+/// default attach — the negative control); the presence of the table
+/// all-or-refuses at the verdict site (unknown id / digest mismatch /
+/// unverifiable contour → the named refusal BEFORE any effect).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct VerticalCfg {
+    id: String,
+    digest: String,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct Manifest {
     package: Package,
@@ -158,6 +172,9 @@ struct Manifest {
     /// №911: the optional `[registry]` table (verify_key pin).
     #[serde(default)]
     registry: Option<RegistryCfg>,
+    /// №921: the optional `[vertical]` declaration (ADR-0220 §2).
+    #[serde(default)]
+    vertical: Option<VerticalCfg>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -696,6 +713,7 @@ fn cmd_init(name: Option<String>) {
         },
         dependencies: HashMap::new(),
         registry: None,
+        vertical: None,
     };
 
     let toml_str = toml::to_string_pretty(&manifest).expect("failed to serialize manifest");
@@ -831,6 +849,25 @@ fn cmd_build() {
     if let Err(e) = verify_dependency_integrity(&manifest, &registry) {
         eprintln!("error: integrity gate: {}", e);
         std::process::exit(1);
+    }
+
+    // 2.5. №921 (ADR-0220 §2): the vertical verdict rides strictly AFTER
+    //    the integrity pass (a tampered package refuses as INTEGRITY
+    //    first) and BEFORE any effect (the advisory consult included —
+    //    a vertical divergence is a REFUSAL, never an advisory hit):
+    //    a declared `[vertical]` all-or-refuses (unknown id / digest
+    //    mismatch / unverifiable contour → the named refusal); NO
+    //    `[vertical]` → no default attach, zero behavioral mutations.
+    if let Some(v) = &manifest.vertical {
+        let decl = metalogos::vertical::VerticalDeclaration {
+            id: v.id.clone(),
+            digest: v.digest.clone(),
+        };
+        if let Err(e) = metalogos::vertical::vertical_verdict(Some(&decl)) {
+            eprintln!("error: vertical gate: {}", e);
+            std::process::exit(1);
+        }
+        println!("  vertical: {} verified (ADR-0220 §2)", v.id);
     }
 
     // 3. Resolve full dependency graph (transitive closure + conflict detection).
@@ -1445,6 +1482,29 @@ fn cmd_verify(key_path: &str) {
         eprintln!("error: signature mismatch");
         std::process::exit(1);
     }
+
+    // №921 (ADR-0220 §2): the vertical verdict rides strictly AFTER the
+    // integrity chain (the digest document + the signature are INTEGRITY —
+    // a tampered package refuses as INTEGRITY first, the ordering
+    // discipline of ADR-0218 §4) and BEFORE the success exit. A declared
+    // `[vertical]` all-or-refuses (unknown id / digest mismatch /
+    // unverifiable contour → the named refusal BEFORE any effect); NO
+    // `[vertical]` → no default attach, zero behavioral mutations (the
+    // undeclared path verifies exactly as it did before this naryad).
+    if let Ok(Some(manifest)) = read_manifest_optional(&PathBuf::from("mlog.toml")) {
+        if let Some(v) = &manifest.vertical {
+            let decl = metalogos::vertical::VerticalDeclaration {
+                id: v.id.clone(),
+                digest: v.digest.clone(),
+            };
+            if let Err(e) = metalogos::vertical::vertical_verdict(Some(&decl)) {
+                eprintln!("error: vertical gate: {}", e);
+                std::process::exit(1);
+            }
+            println!("vertical OK: {} verified (ADR-0220 §2)", v.id);
+        }
+    }
+
     println!("verify OK: digest {}", digest);
 }
 
@@ -1519,6 +1579,7 @@ mod tests {
             },
             dependencies: deps_map,
             registry: None,
+            vertical: None,
         };
         let toml_str = toml::to_string_pretty(&manifest).unwrap();
         fs::write(pkg_dir.join("mlog.toml"), toml_str).unwrap();
@@ -1538,6 +1599,7 @@ mod tests {
             package: Package::default(),
             dependencies: HashMap::new(),
             registry: None,
+            vertical: None,
         };
         let graph = resolve_graph(&manifest, &registry).unwrap();
         assert!(graph.packages.is_empty());
@@ -1556,6 +1618,7 @@ mod tests {
             package: Package::default(),
             dependencies: deps,
             registry: None,
+            vertical: None,
         };
 
         let graph = resolve_graph(&manifest, &registry).unwrap();
@@ -1580,6 +1643,7 @@ mod tests {
             package: Package::default(),
             dependencies: deps,
             registry: None,
+            vertical: None,
         };
 
         let graph = resolve_graph(&manifest, &registry).unwrap();
@@ -1616,6 +1680,7 @@ mod tests {
             package: Package::default(),
             dependencies: deps,
             registry: None,
+            vertical: None,
         };
 
         let err = resolve_graph(&manifest, &registry).unwrap_err();
@@ -1640,6 +1705,7 @@ mod tests {
             package: Package::default(),
             dependencies: deps,
             registry: None,
+            vertical: None,
         };
 
         let err = resolve_graph(&manifest, &registry).unwrap_err();
@@ -1664,6 +1730,7 @@ mod tests {
             package: Package::default(),
             dependencies: deps,
             registry: None,
+            vertical: None,
         };
 
         let err = resolve_graph(&manifest, &registry).unwrap_err();
@@ -1696,6 +1763,7 @@ mod tests {
             package: Package::default(),
             dependencies: deps,
             registry: None,
+            vertical: None,
         };
 
         let graph1 = resolve_graph(&manifest, &registry).unwrap();

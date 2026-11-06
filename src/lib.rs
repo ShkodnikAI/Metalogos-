@@ -101,7 +101,6 @@ pub mod provenance; // №873 (ADR-0207, wave 77 — W-F): ProvenanceManifest �
 pub mod provider_contract; // №879 (ADR-0208, wave 78 — W-G): ProviderContract — the provider-agnostic contract of the LLM layer (capabilities + limits + health semantics; the NAMED VIEW over the Provider/RealLlm/MockLlm/ProviderHealth/SmartRouter parents — the 8E-1/C5 kernel; the roster refusal rides the existing LLM_PROVIDER_UNAVAILABLE class)
 pub mod recipe_ops;
 pub mod runtime_ops;
-pub mod vertical; // №921 (ADR-0220, wave 84 — W-L2): the vertical-profiles kernel — VerticalProfile + the append-only vertical registry + the fail-closed vertical_verdict (the 8H-2/C13а kernel; the six mandatory contours consumed BY REFERENCE — jurisdiction №888, approval №862, trace №892, taint №905, license №841, the frozen №385 vocabulary as the version-pin; the carrier digest pin G5/№828; no default attach — the undeclared manifest verifies with zero behavioral mutations; the profile ≠ certification ≠ legal advice, the C10 frame)
 // Наряд №350: the typed Memory<K> layer — label-typed containers over
 // the process-global registry; at-rest AES-GCM under per-subject keys,
 // consent-gated private opens, audited sink reads/exports.
@@ -147,6 +146,16 @@ pub mod vision;
 pub mod vm;
 pub mod vm_pool;
 pub mod voice;
+
+// №921 (ADR-0220, wave 84 — W-L2): the vertical-profiles kernel —
+// VerticalProfile + the append-only vertical registry + the fail-closed
+// vertical_verdict (the 8H-2/C13а kernel; the six mandatory contours
+// consumed BY REFERENCE — jurisdiction №888, approval №862, trace №892,
+// taint №905, license №841, the frozen №385 vocabulary as the
+// version-pin; the carrier digest pin G5/№828; no default attach — the
+// undeclared manifest verifies with zero behavioral mutations; the
+// profile ≠ certification ≠ legal advice, the C10 frame).
+pub mod vertical;
 
 /// Parse and execute a .mlog program. Returns the flow output (if any),
 /// with mutate status messages prepended if present.

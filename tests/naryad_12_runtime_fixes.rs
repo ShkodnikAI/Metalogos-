@@ -9,8 +9,6 @@
 #[cfg(test)]
 mod tests {
 
-    use metalogos::interpreter::Value;
-
     // ── Bug 2: http_post() 4th parameter for auth headers ──
 
     /// The hermetic local POST endpoint (the №921 environment ride — the

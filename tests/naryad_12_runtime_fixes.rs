@@ -21,6 +21,12 @@ mod tests {
     /// request-construction / header-application / response-parsing
     /// path against 127.0.0.1 — no third party, no network dependency.
     fn spawn_local_post_server() -> (String, std::thread::JoinHandle<()>) {
+        // The SSRF guard (the №455-class posture) refuses the loopback
+        // targets — the hermetic endpoint IS the loopback. The opt-out
+        // is the guard's OWN documented form (http.rs: METALOGOS_HTTP_ALLOW_PRIVATE=1);
+        // the env var is process-scoped and every integration-test file
+        // is its own process, so the opt-out does not leak past this file.
+        std::env::set_var("METALOGOS_HTTP_ALLOW_PRIVATE", "1");
         let listener =
             std::net::TcpListener::bind("127.0.0.1:0").expect("the local listener binds");
         let port = listener.local_addr().expect("the local addr").port();

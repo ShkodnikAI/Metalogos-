@@ -44,10 +44,11 @@ All notable changes to the Metalogos project.
   environment ride: the №868 compliance package re-attested in the
   same PR (the gate_028/029/030 rows re-pinned after the cells 34 → 35
   — the №863 form, the compiler replication proven byte-for-byte); the
-  №12 httpbin tests carry the bounded transport retry (3 attempts over
-  the connection-class error only — the third-party endpoint
-  rate-limits the datacenter runner IPs; the semantic assertions
-  unchanged, a persistent outage stays red).
+  №12 httpbin tests made hermetic — a local 127.0.0.1 POST listener
+  replaces the third-party endpoint (it rate-limits the datacenter
+  runner IPs and flaked the blocking lane in the 02:11Z window; the
+  builtin's request-construction / header-application / response-
+  parsing path is exercised identically — no third party left).
 
 - **№920 (issue #1839, wave 84 — W-L2, P1, [process][adr][governance]):**
   ADR-0220 Vertical Profiles — the 8H-2/C13а subphase record (ADR before

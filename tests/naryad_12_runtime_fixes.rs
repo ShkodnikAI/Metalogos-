@@ -13,35 +13,35 @@ mod tests {
 
     // ── Bug 2: http_post() 4th parameter for auth headers ──
 
-    /// The bounded transport retry over the shared external endpoint
-    /// (the №921 environment ride: httpbin.org rate-limits the
-    /// datacenter runner IPs — the connection-class error is an
-    /// ENVIRONMENT verdict, not a language verdict; the retry preserves
-    /// the test's semantics — the same assertions run after a
-    /// successful transport. A persistent outage stays LOUD: after the
-    /// last attempt the error surfaces verbatim, the test stays red —
-    /// no fake green. The semantic errors (the request-class verdicts
-    /// the builtin returns) never retry.)
-    fn httpbin_post_with_retry<F: Fn(&[Value]) -> Result<Value, String>>(
-        http_post: F,
-        args: &[Value],
-    ) -> Result<Value, String> {
-        let mut last = Err(String::from("the retry loop never ran"));
-        for attempt in 0..3 {
-            match http_post(args) {
-                Ok(v) => return Ok(v),
-                Err(e) => {
-                    if !e.contains("HTTP_CONNECT") {
-                        return Err(e); // a semantic verdict — never retry
-                    }
-                    last = Err(e);
-                    if attempt < 2 {
-                        std::thread::sleep(std::time::Duration::from_millis(2000));
-                    }
-                }
+    /// The hermetic local POST endpoint (the №921 environment ride — the
+    /// systemic form): the №12 tests verify the http_post BUILTIN's
+    /// semantics (the headers parameter, the backward compatibility),
+    /// NOT httpbin.org's availability — the third-party endpoint
+    /// rate-limits the datacenter runner IPs and made the blocking lane
+    /// flaky (the 02:11Z window). The listener answers ONE POST with a
+    /// fixed JSON body and closes; the builtin exercises the SAME
+    /// request-construction / header-application / response-parsing
+    /// path against 127.0.0.1 — no third party, no network dependency.
+    fn spawn_local_post_server() -> (String, std::thread::JoinHandle<()>) {
+        let listener =
+            std::net::TcpListener::bind("127.0.0.1:0").expect("the local listener binds");
+        let port = listener.local_addr().expect("the local addr").port();
+        let handle = std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 4096];
+                let _ = std::io::Read::read(&mut stream, &mut buf);
+                let body = "{\"served\": true}";
+                let head = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n";
+                let resp = format!(
+                    "{head}Content-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = std::io::Write::write_all(&mut stream, resp.as_bytes());
+                let _ = std::io::Write::flush(&mut stream);
             }
-        }
-        last
+        });
+        (format!("http://127.0.0.1:{port}/post"), handle)
     }
 
     #[test]
@@ -51,18 +51,19 @@ mod tests {
 
         let builtins = Builtins::new();
         let http_post = builtins.get("http_post").expect("http_post builtin exists");
+        let (url, _server) = spawn_local_post_server();
 
         // 3 args should still work (backward compatible)
-        let result = httpbin_post_with_retry(
-            *http_post,
-            &[
-                Value::String("https://httpbin.org/post".to_string()),
-                Value::String("{\"test\": true}".to_string()),
-                Value::String("application/json".to_string()),
-            ],
-        );
+        let result = http_post(&[
+            Value::String(url),
+            Value::String("{\"test\": true}".to_string()),
+            Value::String("application/json".to_string()),
+        ]);
         match result {
-            Ok(Value::String(_)) => {}
+            Ok(Value::String(body)) => assert!(
+                body.contains("served"),
+                "the local endpoint's JSON body must ride through: {body}"
+            ),
             Err(e) => assert!(
                 e.contains("request failed") || e.contains("returned status"),
                 "Unexpected error type: {}",
@@ -80,6 +81,7 @@ mod tests {
 
         let builtins = Builtins::new();
         let http_post = builtins.get("http_post").expect("http_post builtin exists");
+        let (url, _server) = spawn_local_post_server();
 
         let mut fields = HashMap::new();
         fields.insert(
@@ -87,7 +89,7 @@ mod tests {
             Value::String("Bearer test-token".to_string()),
         );
         let result = http_post(&[
-            Value::String("https://httpbin.org/post".to_string()),
+            Value::String(url),
             Value::String("{\"test\": true}".to_string()),
             Value::String("application/json".to_string()),
             Value::Struct {
@@ -107,9 +109,10 @@ mod tests {
 
         let builtins = Builtins::new();
         let http_post = builtins.get("http_post").expect("http_post builtin exists");
+        let (url, _server) = spawn_local_post_server();
 
         let result = http_post(&[
-            Value::String("https://httpbin.org/post".to_string()),
+            Value::String(url),
             Value::String("{\"test\": true}".to_string()),
             Value::String("application/json".to_string()),
             Value::String("{\"Authorization\": \"Bearer test-token\"}".to_string()),
@@ -126,16 +129,14 @@ mod tests {
 
         let builtins = Builtins::new();
         let http_post = builtins.get("http_post").expect("http_post builtin exists");
+        let (url, _server) = spawn_local_post_server();
 
-        let result = httpbin_post_with_retry(
-            *http_post,
-            &[
-                Value::String("https://httpbin.org/post".to_string()),
-                Value::String("{}".to_string()),
-                Value::String("application/json".to_string()),
-                Value::Float(42.0),
-            ],
-        );
+        let result = http_post(&[
+            Value::String(url),
+            Value::String("{}".to_string()),
+            Value::String("application/json".to_string()),
+            Value::Float(42.0),
+        ]);
         // 4th arg Float is silently ignored (headers not applied, no error)
         // The request still goes through — only connection errors are returned
         match result {

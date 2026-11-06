@@ -53,11 +53,14 @@ mod tests {
         let http_post = builtins.get("http_post").expect("http_post builtin exists");
 
         // 3 args should still work (backward compatible)
-        let result = httpbin_post_with_retry(*http_post, &[
-            Value::String("https://httpbin.org/post".to_string()),
-            Value::String("{\"test\": true}".to_string()),
-            Value::String("application/json".to_string()),
-        ]);
+        let result = httpbin_post_with_retry(
+            *http_post,
+            &[
+                Value::String("https://httpbin.org/post".to_string()),
+                Value::String("{\"test\": true}".to_string()),
+                Value::String("application/json".to_string()),
+            ],
+        );
         match result {
             Ok(Value::String(_)) => {}
             Err(e) => assert!(

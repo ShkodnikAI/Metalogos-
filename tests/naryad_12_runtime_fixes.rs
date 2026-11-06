@@ -11,6 +11,43 @@ mod tests {
 
     // ── Bug 2: http_post() 4th parameter for auth headers ──
 
+    /// The hermetic local POST endpoint (the №921 environment ride — the
+    /// systemic form): the №12 tests verify the http_post BUILTIN's
+    /// semantics (the headers parameter, the backward compatibility),
+    /// NOT httpbin.org's availability — the third-party endpoint
+    /// rate-limits the datacenter runner IPs and made the blocking lane
+    /// flaky (the 02:11Z window). The listener answers ONE POST with a
+    /// fixed JSON body and closes; the builtin exercises the SAME
+    /// request-construction / header-application / response-parsing
+    /// path against 127.0.0.1 — no third party, no network dependency.
+    fn spawn_local_post_server() -> (String, std::thread::JoinHandle<()>) {
+        // The SSRF guard (the №455-class posture) refuses the loopback
+        // targets — the hermetic endpoint IS the loopback. The opt-out
+        // is the guard's OWN documented form (http.rs: METALOGOS_HTTP_ALLOW_PRIVATE=1);
+        // the env var is process-scoped and every integration-test file
+        // is its own process, so the opt-out does not leak past this file.
+        std::env::set_var("METALOGOS_HTTP_ALLOW_PRIVATE", "1");
+        let listener =
+            std::net::TcpListener::bind("127.0.0.1:0").expect("the local listener binds");
+        let port = listener.local_addr().expect("the local addr").port();
+        let handle = std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 4096];
+                let _ = std::io::Read::read(&mut stream, &mut buf);
+                let body = "{\"served\": true}";
+                let head = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n";
+                let resp = format!(
+                    "{head}Content-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = std::io::Write::write_all(&mut stream, resp.as_bytes());
+                let _ = std::io::Write::flush(&mut stream);
+            }
+        });
+        (format!("http://127.0.0.1:{port}/post"), handle)
+    }
+
     #[test]
     fn test_bug2_http_post_backward_compatible_3_args() {
         use metalogos::builtins::Builtins;
@@ -18,15 +55,19 @@ mod tests {
 
         let builtins = Builtins::new();
         let http_post = builtins.get("http_post").expect("http_post builtin exists");
+        let (url, _server) = spawn_local_post_server();
 
         // 3 args should still work (backward compatible)
         let result = http_post(&[
-            Value::String("https://httpbin.org/post".to_string()),
+            Value::String(url),
             Value::String("{\"test\": true}".to_string()),
             Value::String("application/json".to_string()),
         ]);
         match result {
-            Ok(Value::String(_)) => {}
+            Ok(Value::String(body)) => assert!(
+                body.contains("served"),
+                "the local endpoint's JSON body must ride through: {body}"
+            ),
             Err(e) => assert!(
                 e.contains("request failed") || e.contains("returned status"),
                 "Unexpected error type: {}",
@@ -44,6 +85,7 @@ mod tests {
 
         let builtins = Builtins::new();
         let http_post = builtins.get("http_post").expect("http_post builtin exists");
+        let (url, _server) = spawn_local_post_server();
 
         let mut fields = HashMap::new();
         fields.insert(
@@ -51,7 +93,7 @@ mod tests {
             Value::String("Bearer test-token".to_string()),
         );
         let result = http_post(&[
-            Value::String("https://httpbin.org/post".to_string()),
+            Value::String(url),
             Value::String("{\"test\": true}".to_string()),
             Value::String("application/json".to_string()),
             Value::Struct {
@@ -71,9 +113,10 @@ mod tests {
 
         let builtins = Builtins::new();
         let http_post = builtins.get("http_post").expect("http_post builtin exists");
+        let (url, _server) = spawn_local_post_server();
 
         let result = http_post(&[
-            Value::String("https://httpbin.org/post".to_string()),
+            Value::String(url),
             Value::String("{\"test\": true}".to_string()),
             Value::String("application/json".to_string()),
             Value::String("{\"Authorization\": \"Bearer test-token\"}".to_string()),
@@ -90,9 +133,10 @@ mod tests {
 
         let builtins = Builtins::new();
         let http_post = builtins.get("http_post").expect("http_post builtin exists");
+        let (url, _server) = spawn_local_post_server();
 
         let result = http_post(&[
-            Value::String("https://httpbin.org/post".to_string()),
+            Value::String(url),
             Value::String("{}".to_string()),
             Value::String("application/json".to_string()),
             Value::Float(42.0),

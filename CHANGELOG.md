@@ -6,6 +6,35 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№925 (issue #1852, wave 85 — W-T, P2, [audit][process]):**
+  the terminal-stop readiness report —
+  docs/audits/terminal-stop-readiness-2026-11.md (the №907/№913/№919/
+  №922 form; the closing artifact of the W-T wave, strictly last):
+  the methodology (every verdict regenerable by the machine —
+  gen_metrics --check, the gate_033–gate_046 rosters — or a verbatim
+  quote of a live source, no prose verdicts); the 13/13 slot-verdict
+  table (every slot = the AND of its facts — C4/C13 two facts each,
+  C7/C12 the shared REPRO_BITFORBIT — every verdict quoting the
+  GENERATED numbers block); the external-audit scope outline (the
+  funnel structure: the C1–C13 surfaces, the ADR chain 0201–0221, the
+  machine facts gate_033–046, the readiness criteria — no vendors, no
+  figures, no schedule: the partner track R38(9) is the owner's time,
+  ADR-0201 §3.2); the evidence-bundle manifest with the digest pin
+  (the G5/№828 form — sha256 over the manifest block, the re-hash
+  refuses a drift); the repo↔owner-acts boundary (the audit
+  procurement and the paying pilot — the owner's acts, R38(3)/R38(9);
+  the pilot-evidence form: the owner's record + the carrier digest,
+  the contract/invoice details never in the repo); the 1.0.0 release
+  path (the calendar train ADR-0189 §5, the v0.38.3 precedent, the
+  publication — the owner's act ADR-0186 §4.5); the cross-links (the
+  legal shield В83 — №919, the verticals В84 — №922, the C7 trigger —
+  №913 not ignited by the 1.0 gate); the honest limits (the gate
+  counts SLOT STATES — not the audit force, not the pilot validity,
+  not a certification); the sync rows in docs/limitations.md (the
+  terminal-stop section) and docs/threat-model.md (the terminal-stop
+  bullet — the fake-slot/lost-roster/dead-definition/floor-lowering
+  classes each named); llms.txt — the naryad range bump.
+
 - **№924 (issue #1851, wave 85 — W-T, P1, [core][testing][ci]):**
   the TERMINAL_STOP machine fact in gen_metrics.py + gate_046 — the
   13-slot aggregate over the live Phase-8 checks (ADR-0221 §2 — the

@@ -1146,6 +1146,7 @@ owner's ADR gate.
 | REPRO_BITFORBIT — the 8E-2/C7+C12 machine fact (№912) | 10000 bp (11/11) |
 | INSTITUTIONAL_READY — the 8H-1/C13б machine fact (№918) | 12/12 items |
 | VERTICAL_PROFILES — the 8H-2/C13а machine fact (№921) | 12/12 anchors |
+| TERMINAL_STOP — the W-T aggregate machine fact (№924) | 13/13 slots |
 <!-- END GENERATED NUMBERS -->
 
 ## Acceptance criteria (public part of the methodology)

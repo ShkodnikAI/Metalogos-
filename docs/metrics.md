@@ -20,7 +20,7 @@ construction.
 | Architecture Decisions | 209 ADRs |
 | Example Programs | 257 .mlog programs |
 | Reference | REFERENCE.md (~340 KB) — 100% registry coverage |
-| Changelog | CHANGELOG.md (~247 KB) — every wave documented |
+| Changelog | CHANGELOG.md (~250 KB) — every wave documented |
 | LICENSED_FLOOR (the 8D-1 machine fact, №841) | 10000 bp (16/16) — the license class explicit + the license_note filled over the backend registry (ADR-0163/ADR-0202 terms; №900: the denominator rides the fact) |
 | PASSPORT_FRESH (the 8D-1 machine fact, №841) | 10000 bp (16/16) — the passports fresh within the 180-day verification window (the №842 rule) |
 | GRANT_COVERAGE (the 8B-1 machine fact, №846) | 10000 bp (44/44) — the irreversible carriers whose rights decision passes the capability layer (ADR-0203 §2.7; the gate_034 floor) |
@@ -33,4 +33,5 @@ construction.
 | REPRO_BITFORBIT (the 8E-2/C7+C12 machine fact, №912) | 10000 bp (11/11) — the registered reproduction carriers whose bit-for-bit chain is live-wired: the registry package path + the release digest chain (ADR-0218 §2; the gate_043 floor 10000 bp, only-up; the toolchain build stays behind the C7 trigger — §5) |
 | INSTITUTIONAL_READY (the 8H-1/C13б machine fact, №918) | 12/12 — the CHECKED items of the 12-item institutional roster over the live carriers: TRADEMARK.md + docs/SUCCESSION.md + the GOVERNANCE Phase-2 frame (ADR-0219 §2; the gate_044 floor 12, only-up; the documents ≠ the owner's acts — §5) |
 | VERTICAL_PROFILES (the 8H-2/C13а machine fact, №921) | 12/12 — the CHECKED anchors of the 12-element vertical roster (2 profiles × 6 mandatory contours) over the live kernel src/vertical.rs (ADR-0220 §2; the gate_045 floor 12, only-up; the profile ≠ certification ≠ legal advice — §5) |
+| TERMINAL_STOP (the W-T aggregate machine fact, №924) | 13/13 — the GREEN capability slots C1–C13 over the live Phase-8 fact machines, every slot answered by the registered live checker (ADR-0221 §2; the gate_046 floor 13, only-up; the 1.0 gate ≠ a service-quality guarantee ≠ a certification ≠ a legal advice — §5) |
 <!-- END GENERATED METRICS -->

@@ -6,6 +6,46 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№924 (issue #1851, wave 85 — W-T, P1, [core][testing][ci]):**
+  the TERMINAL_STOP machine fact in gen_metrics.py + gate_046 — the
+  13-slot aggregate over the live Phase-8 checks (ADR-0221 §2 — the
+  №923 record's definition lands in code; the №735 form «факт вместе
+  со своим чекистом»): `TERMINAL_STOP :=` the count (0–13) of GREEN
+  capability slots, each slot answered by the REGISTERED live fact
+  function (the identity pin — a substituted checker never counts, the
+  fake-slot trap; the aggregate calls the same functions `--check`
+  uses and never re-implements a fact), the slot GREEN ⇔ every machine
+  fact of the slot holds its floor through its own LIVE strict check —
+  the slot's own roster (gate_033–gate_045) strict-loaded (a
+  dead/empty/corrupted roster is a refusal — the lost-roster class)
+  and the roster floor holding the owner constant (only-up) and the
+  live value holding the roster floor, plus the ADR-0221 definition
+  literal `TERMINAL_STOP :=` standing in the record file (a dead
+  definition → NOTHING is anchored → the aggregate reads 0 — the №923
+  mutation contract); fail-closed everywhere (an exception, a dead
+  anchor, a dead roster → the slot is NOT counted; an empty roster is
+  a gate failure, never a pass; no synthesized green); the floor 13
+  only-up (the wave-85 dispatch constant gh#1853, the TERMINAL_STOP_
+  FLOOR_OWNER constant — the №776 discipline; the lowering is the loud
+  FLOOR LOWERING REFUSED); gate_046 (scripts/ci/gate_046_goals.txt —
+  the explicit roster: the floor line machine-read by
+  load_floors_strict, the C1–C13 slot map as the human-readable twin);
+  the tamper traps №55–№58 prove the dispatch classes (а)–(г) red: the
+  fake-slot checker (the identity pin refuses a synthetic green), the
+  lost gate_046 roster (the strict loader refuses the vacuum), the
+  dead ADR-0221 definition (the aggregate zeroes — nothing is
+  anchored), the floor lowering (the loud refusal); the
+  blocking `gate-046` CI job (the double --check — the determinism
+  contract — plus the tamper traps; the blocking_checks.tsv row, the
+  fact_blocking_check_cells 35 → 36, the README badge 49 → 50); the
+  test naryad_924_terminal_stop.rs pins the machine (the check green +
+  the TERMINAL_STOP 13/13 verdict, the double --check byte-for-byte,
+  the tamper-test green, the ADR-0221 quote-literal, the gate_046
+  owner floor — the №535 row binds by name n924_terminal_stop_gate);
+  the GENERATED rows in docs/metrics.md and docs/PLAN-SUMMARY.md (the
+  №900 form «13/13»); the №900 denominators ride every fact row —
+  the aggregate adds the slot count row (n/t).
+
 - **№923 (issue #1850, wave 85 — W-T, P1, [process][adr][governance]):**
   ADR-0221 Terminal Stop 1.0 — the 1.0 assembly record (ADR before the
   code, the ADR-0201 §2.4 rule; the №891/№903/№916 form): the 1.0 gate

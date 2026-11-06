@@ -6,6 +6,33 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№922 (issue #1841, wave 84 — W-L2, P2, [docs][audit]):**
+  the verticals-readiness report — docs/audits/verticals-readiness-2026-11.md
+  (the №907/№913/№919 form; the closing artifact of the 8H-2 subphase,
+  strictly last in the wave): the methodology (the gate_045 machine +
+  the live kernel), the 12/12 roster-verdict table (every row = the
+  CHECKED anchor pair in its live seed region), the two verticals
+  audited from the sources (payments + public-sector — the six
+  mandatory contours consumed by reference, the self-describing digest
+  pins, the real-binary e2e verdicts), the profile ≠ certification ≠
+  owner-acts boundary (the owner's acts named per R38(9): the
+  PSP/acquiring integrations, the government contacts, the
+  certification audits — each with its status «the owner's act, outside
+  the repo» and what the repo carries instead; medicine — the backlog
+  until the PHI expertise, R38(5)), the vertical distribution track as
+  a REGISTRY STRUCTURE (the columns + the readiness criteria — no stub
+  records: the contact registry is empty by design), the cross-links
+  (the C7 trigger referenced but not ignited — R38(8)/№913; the
+  institutional shield preceding the verticals — ADR-0219/№919; the
+  Sigstore keyless release chain — ADR-0218; the package-path-only
+  consumption — the honest §5(4) limit), the honest limits (what the
+  vertical coverage does NOT close); the sync rows in
+  docs/limitations.md (the vertical-contour section) and
+  docs/threat-model.md (the known-boundaries bullet). The mutation
+  boundary: the report is an ARTIFACT — deleting its boundary section
+  does not red the machine (the fact lives in the kernel №921 and the
+  machine gate_045), but the wave acceptance requires the report.
+
 - **№921 (issue #1840, wave 84 — W-L2, P1, [core][registry][testing][ci]):**
   the vertical-profiles kernel in code — the 8H-2/C13а kernel + the
   VERTICAL_PROFILES fact machine (the 14th machine fact of the №841

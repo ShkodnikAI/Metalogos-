@@ -20,14 +20,14 @@
 // key is not package content).
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_mlogpkg")
 }
 
-fn run_in(dir: &PathBuf, args: &[&str]) -> (i32, String, String) {
+fn run_in(dir: &Path, args: &[&str]) -> (i32, String, String) {
     let out = Command::new(bin())
         .args(args)
         .current_dir(dir)
@@ -68,14 +68,14 @@ fn setup_package(vertical_table: Option<&str>) -> PathBuf {
     dir
 }
 
-fn key_outside(dir: &PathBuf, name: &str) -> PathBuf {
+fn key_outside(dir: &Path, name: &str) -> PathBuf {
     let key = dir.parent().unwrap().join(name);
     let (code, _, err) = run_in(dir, &["keygen", "--out", key.to_str().unwrap()]);
     assert_eq!(code, 0, "keygen must succeed: {err}");
     key
 }
 
-fn pack_sign(dir: &PathBuf, key: &PathBuf) {
+fn pack_sign(dir: &Path, key: &Path) {
     let (code, _, err) = run_in(dir, &["pack"]);
     assert_eq!(code, 0, "pack must succeed: {err}");
     let (code, _, err) = run_in(dir, &["sign", "--key", key.to_str().unwrap()]);

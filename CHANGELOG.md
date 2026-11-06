@@ -6,6 +6,77 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№922 (issue #1841, wave 84 — W-L2, P2, [docs][audit]):**
+  the verticals-readiness report — docs/audits/verticals-readiness-2026-11.md
+  (the №907/№913/№919 form; the closing artifact of the 8H-2 subphase,
+  strictly last in the wave): the methodology (the gate_045 machine +
+  the live kernel), the 12/12 roster-verdict table (every row = the
+  CHECKED anchor pair in its live seed region), the two verticals
+  audited from the sources (payments + public-sector — the six
+  mandatory contours consumed by reference, the self-describing digest
+  pins, the real-binary e2e verdicts), the profile ≠ certification ≠
+  owner-acts boundary (the owner's acts named per R38(9): the
+  PSP/acquiring integrations, the government contacts, the
+  certification audits — each with its status «the owner's act, outside
+  the repo» and what the repo carries instead; medicine — the backlog
+  until the PHI expertise, R38(5)), the vertical distribution track as
+  a REGISTRY STRUCTURE (the columns + the readiness criteria — no stub
+  records: the contact registry is empty by design), the cross-links
+  (the C7 trigger referenced but not ignited — R38(8)/№913; the
+  institutional shield preceding the verticals — ADR-0219/№919; the
+  Sigstore keyless release chain — ADR-0218; the package-path-only
+  consumption — the honest §5(4) limit), the honest limits (what the
+  vertical coverage does NOT close); the sync rows in
+  docs/limitations.md (the vertical-contour section) and
+  docs/threat-model.md (the known-boundaries bullet). The mutation
+  boundary: the report is an ARTIFACT — deleting its boundary section
+  does not red the machine (the fact lives in the kernel №921 and the
+  machine gate_045), but the wave acceptance requires the report.
+
+- **№921 (issue #1840, wave 84 — W-L2, P1, [core][registry][testing][ci]):**
+  the vertical-profiles kernel in code — the 8H-2/C13а kernel + the
+  VERTICAL_PROFILES fact machine (the 14th machine fact of the №841
+  family): src/vertical.rs — VerticalProfile (the fail-closed
+  constructor: a profile without the FULL six mandatory contours or
+  with a drifted roster needle refuses at construction, the №879/№888
+  form), the append-only registry (payments + public-sector per
+  R38(5), the seed-region literals are the gate_045 roster needles),
+  the carrier digest pin (the G5/№828 form — SHA-256 over the
+  canonical serialization, self-describing) and vertical_verdict (the
+  fail-closed consumption: an unknown id / a digest mismatch / an
+  unverifiable contour refuses BEFORE any effect with the divergence
+  NAMED — «vertical: unknown vertical id» / «vertical: vertical digest
+  pin mismatch» / «vertical: mandatory contour not verifiable»; no
+  default attach — a manifest without `[vertical]` verifies with ZERO
+  behavioral mutations); the mlogpkg package path inherits №911 — the
+  `[vertical]` manifest table (id + digest, the №910 [registry] shape)
+  is consumed in build (after the integrity pass, before the advisory)
+  and verify (after the signature chain); gate_045
+  (scripts/ci/gate_045_goals.txt — the explicit 12-element roster: id,
+  carrier, seed region, needle = the profile-scoped contour anchor,
+  sub = the typed contour variant; the blocking `gate-045` CI job with
+  the double --check + the tamper traps; the blocking_checks.tsv row —
+  fact_blocking_check_cells 34 → 35 in gate_028/029/030, badge
+  48 → 49); the tamper traps №51–№54 prove the dispatch classes
+  (а)–(г) red: the removed seeding, the emptied mandatory_contours,
+  the dead digest-pin consumption, the hand-edited GENERATED row (+
+  the dead ADR-0220 definition — the №920 mutation contract); the
+  tests tests/naryad_921_vertical_profiles.rs (the gate binding + the
+  kernel fail-closed probes) and mlogpkg/tests/naryad_921_vertical_e2e.rs
+  (the real-binary pack/sign/verify e2e: the live pin GREEN, the
+  broken digest refused named, the unknown id refused named, the
+  undeclared path zero-mutation). VERTICAL_PROFILES 12/12 — the 0.47
+  gate is up; the machine verifies the PRESENCE and STRUCTURE of the
+  profiles, not their certification force (ADR-0220 §5). The
+  environment ride: the №868 compliance package re-attested in the
+  same PR (the gate_028/029/030 rows re-pinned after the cells 34 → 35
+  — the №863 form, the compiler replication proven byte-for-byte); the
+  №12 httpbin tests made hermetic — a local 127.0.0.1 POST listener
+  replaces the third-party endpoint (it rate-limits the datacenter
+  runner IPs and flaked the blocking lane in the 02:11Z window; the
+  builtin's request-construction / header-application / response-
+  parsing path is exercised identically — no third party left).
+
 - **№920 (issue #1839, wave 84 — W-L2, P1, [process][adr][governance]):**
   ADR-0220 Vertical Profiles — the 8H-2/C13а subphase record (ADR before
   the code, the ADR-0201 §2.4 rule; the №891/№916 form): the fact

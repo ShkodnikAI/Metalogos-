@@ -147,6 +147,16 @@ pub mod vm;
 pub mod vm_pool;
 pub mod voice;
 
+// №921 (ADR-0220, wave 84 — W-L2): the vertical-profiles kernel —
+// VerticalProfile + the append-only vertical registry + the fail-closed
+// vertical_verdict (the 8H-2/C13а kernel; the six mandatory contours
+// consumed BY REFERENCE — jurisdiction №888, approval №862, trace №892,
+// taint №905, license №841, the frozen №385 vocabulary as the
+// version-pin; the carrier digest pin G5/№828; no default attach — the
+// undeclared manifest verifies with zero behavioral mutations; the
+// profile ≠ certification ≠ legal advice, the C10 frame).
+pub mod vertical;
+
 /// Parse and execute a .mlog program. Returns the flow output (if any),
 /// with mutate status messages prepended if present.
 /// [TW-ORACLE] №808: the TW entry — the REFERENCE oracle runner (ADR-0197):

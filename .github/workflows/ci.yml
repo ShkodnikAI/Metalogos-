@@ -1163,6 +1163,29 @@ jobs:
           python3 scripts/gen_metrics.py --check
           python3 scripts/gen_metrics.py --tamper-test
 
+  gate-045:
+    name: gate-045 vertical roster (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # №921 (gh#1840, Wave 84 — W-L2): the VERTICAL_PROFILES fact
+      # machine (ADR-0220 §2) — the 12-element vertical roster (2
+      # profiles × 6 mandatory contours) over the live kernel
+      # src/vertical.rs, every anchor a CHECKED literal pair (the
+      # profile-scoped contour anchor + the typed variant) inside its
+      # seed region, the floor 12 only-up (the dispatch gh#1842
+      # constant). The double --check: two consecutive runs must agree
+      # (the determinism contract — a hand-edited GENERATED row diverges
+      # the second run); the tamper traps prove the counter catches the
+      # removed seeding, the emptied mandatory_contours, the dead
+      # digest-pin consumption site, the hand-edited GENERATED row and
+      # the dead ADR-0220 definition (the №920 mutation contract).
+      - name: "Gate — the VERTICAL_PROFILES roster (№921: double --check + the tamper traps)"
+        run: |
+          python3 scripts/gen_metrics.py --check
+          python3 scripts/gen_metrics.py --check
+          python3 scripts/gen_metrics.py --tamper-test
+
   # Наряд №256 (part B, PR #284's ready block): дымовой фаззинг новых целей
   # (2 минуты бюджета на цель). НЕ блокирующий: паники, найденные фаззером,
   # чинятся в нарядах, но дымовой прогон не должен держать мержи

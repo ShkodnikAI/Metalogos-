@@ -236,7 +236,7 @@ impl VerticalProfile {
                 id.as_str()
             ));
         }
-        let mut anchors = [String::new(); 6];
+        let mut anchors = std::array::from_fn(|_| String::new());
         for (i, s) in contour_anchor_literals.iter().enumerate() {
             anchors[i] = s.to_string();
         }
@@ -473,50 +473,56 @@ mod tests {
 
     #[test]
     fn constructor_refuses_partial_contour_set_and_drifted_anchor() {
+        // The canonical anchors of the payments positions (the same
+        // derivation the seeds use — the test stays self-consistent
+        // without duplicating the roster strings).
+        let contours = live_contours();
+        let canonical: Vec<String> = (0..6)
+            .map(|i| canonical_anchor(&VerticalId::Payments, i, &contours[i]))
+            .collect();
+        let refs: [&str; 6] = [
+            &canonical[0],
+            &canonical[1],
+            &canonical[2],
+            &canonical[3],
+            &canonical[4],
+            &canonical[5],
+        ];
+        // A partial set (the duplicate contour) refuses at construction
+        // — the №879 form.
+        let mut partial_contours = live_contours();
+        partial_contours[5] = VerticalContour::JurisdictionCoverage;
         let partial = VerticalProfile::new(
             VerticalId::Payments,
-            [
-                VerticalContour::JurisdictionCoverage,
-                VerticalContour::HumanOversightApproval,
-                VerticalContour::DecisionTraceVerify,
-                VerticalContour::TaintFloor,
-                VerticalContour::LicenseClass,
-                VerticalContour::JurisdictionCoverage, // duplicate — the set is partial
-            ],
-            [
-                canonical_anchor(&VerticalId::Payments, 0, &VerticalContour::JurisdictionCoverage),
-                canonical_anchor(&VerticalId::Payments, 1, &VerticalContour::HumanOversightApproval),
-                canonical_anchor(&VerticalId::Payments, 2, &VerticalContour::DecisionTraceVerify),
-                canonical_anchor(&VerticalId::Payments, 3, &VerticalContour::TaintFloor),
-                canonical_anchor(&VerticalId::Payments, 4, &VerticalContour::LicenseClass),
-                canonical_anchor(&VerticalId::Payments, 5, &VerticalContour::JurisdictionCoverage),
-            ],
+            partial_contours,
+            refs,
             "385-frozen-2026-11",
         );
         assert!(partial.is_err(), "a partial set refuses at construction (№879 form)");
         // A drifted anchor literal refuses (the fail-closed literal
         // contract — the roster needle can never lie).
+        let mut drifted_refs = refs;
+        drifted_refs[0] = "payments contour (1) A COMPLETELY DIFFERENT CLAIM";
         let drifted = VerticalProfile::new(
             VerticalId::Payments,
-            [
-                VerticalContour::JurisdictionCoverage,
-                VerticalContour::HumanOversightApproval,
-                VerticalContour::DecisionTraceVerify,
-                VerticalContour::TaintFloor,
-                VerticalContour::LicenseClass,
-                VerticalContour::RefusalVocabularyPin,
-            ],
-            [
-                "payments contour (1) A COMPLETELY DIFFERENT CLAIM",
-                canonical_anchor(&VerticalId::Payments, 1, &VerticalContour::HumanOversightApproval),
-                canonical_anchor(&VerticalId::Payments, 2, &VerticalContour::DecisionTraceVerify),
-                canonical_anchor(&VerticalId::Payments, 3, &VerticalContour::TaintFloor),
-                canonical_anchor(&VerticalId::Payments, 4, &VerticalContour::LicenseClass),
-                canonical_anchor(&VerticalId::Payments, 5, &VerticalContour::RefusalVocabularyPin),
-            ],
+            live_contours(),
+            drifted_refs,
             "385-frozen-2026-11",
         );
         assert!(drifted.is_err(), "a drifted needle refuses at construction");
+    }
+
+    /// The live six-contour set (the test helper — the same order the
+    /// seeds use).
+    fn live_contours() -> [VerticalContour; 6] {
+        [
+            VerticalContour::JurisdictionCoverage,
+            VerticalContour::HumanOversightApproval,
+            VerticalContour::DecisionTraceVerify,
+            VerticalContour::TaintFloor,
+            VerticalContour::LicenseClass,
+            VerticalContour::RefusalVocabularyPin,
+        ]
     }
 
     #[test]

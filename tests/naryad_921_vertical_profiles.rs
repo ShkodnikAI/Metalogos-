@@ -121,8 +121,7 @@ fn the_registry_carries_the_two_r38_roster_profiles() {
         assert_eq!(p.carrier_digest.len(), 64, "hex(SHA-256)");
     }
     assert_ne!(
-        reg[0].carrier_digest,
-        reg[1].carrier_digest,
+        reg[0].carrier_digest, reg[1].carrier_digest,
         "the id discriminates the pins"
     );
 }
@@ -173,8 +172,7 @@ fn the_constructor_refuses_a_partial_contour_set_and_a_drifted_needle() {
     ];
     anchors[0] = "payments contour (1) A COMPLETELY DIFFERENT CLAIM";
     assert!(
-        VerticalProfile::new(VerticalId::Payments, live, anchors, "385-frozen-2026-11")
-            .is_err(),
+        VerticalProfile::new(VerticalId::Payments, live, anchors, "385-frozen-2026-11").is_err(),
         "a drifted needle refuses at construction"
     );
 }

@@ -133,15 +133,11 @@ impl VerticalContour {
             VerticalContour::JurisdictionCoverage => {
                 "the JurisdictionMatrix package, strictest-wins (ADR-0209)"
             }
-            VerticalContour::HumanOversightApproval => {
-                "the typed approval mandate (ADR-0205)"
-            }
+            VerticalContour::HumanOversightApproval => "the typed approval mandate (ADR-0205)",
             VerticalContour::DecisionTraceVerify => "the replay/forensic ledger (ADR-0210)",
             VerticalContour::TaintFloor => "the taint saturation lane (ADR-0217)",
             VerticalContour::LicenseClass => "the license-typed model layer (ADR-0202)",
-            VerticalContour::RefusalVocabularyPin => {
-                "the frozen №385 dictionary, the version-pin"
-            }
+            VerticalContour::RefusalVocabularyPin => "the frozen №385 dictionary, the version-pin",
         }
     }
 }
@@ -282,6 +278,7 @@ impl VerticalProfile {
 // pins the quoted literals inside the region, not a call shape).
 
 /// The payments profile seed (the roster rows 1–6, ADR-0220 §2).
+#[allow(clippy::expect_used)] // the seed constants are valid by construction: the fixed roster literals are verified against the canonical derivation at construction — the expect fires only on a programming error, never on data (the seed_matrix form of №886)
 fn seed_payments() -> VerticalProfile {
     VerticalProfile::new(
         VerticalId::Payments,
@@ -311,6 +308,7 @@ fn seed_payments() -> VerticalProfile {
 /// (the first gov/bank pilot — R38(8), the №913 contract); the
 /// profile does NOT ignite the trigger (the trigger is the owner's
 /// decision, never a configuration act).
+#[allow(clippy::expect_used)] // the seed constants are valid by construction: the fixed roster literals are verified against the canonical derivation at construction — the expect fires only on a programming error, never on data (the seed_matrix form of №886)
 fn seed_public_sector() -> VerticalProfile {
     VerticalProfile::new(
         VerticalId::PublicSector,
@@ -378,6 +376,7 @@ pub mod refusals {
 ///   generation);
 /// - a profile whose full-six contour set is not verifiable refuses
 ///   («mandatory contour not verifiable»).
+///
 /// The PACKAGE PATH composes this verdict AFTER the №911 integrity
 /// pass (a tampered package refuses as INTEGRITY first — the ordering
 /// discipline of ADR-0218 §4).
@@ -430,7 +429,9 @@ pub fn vertical_verdict(
         VerticalContour::RefusalVocabularyPin,
     ];
     let full = profile.mandatory_contours.len() == 6
-        && full_six.iter().all(|c| profile.mandatory_contours.contains(c));
+        && full_six
+            .iter()
+            .all(|c| profile.mandatory_contours.contains(c));
     if !full {
         return Err(format!(
             "{unverified} — profile '{name}' lost part of the six mandatory contours (ADR-0220 §2)",
@@ -498,7 +499,10 @@ mod tests {
             refs,
             "385-frozen-2026-11",
         );
-        assert!(partial.is_err(), "a partial set refuses at construction (№879 form)");
+        assert!(
+            partial.is_err(),
+            "a partial set refuses at construction (№879 form)"
+        );
         // A drifted anchor literal refuses (the fail-closed literal
         // contract — the roster needle can never lie).
         let mut drifted_refs = refs;

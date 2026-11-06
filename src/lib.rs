@@ -74,7 +74,6 @@ pub mod error;
 pub mod interpreter;
 pub mod jurisdiction; // №886 (ADR-0209, wave 79 — W-H): the jurisdiction-aware policy compilation — JurisdictionRule + the append-only JurisdictionMatrix + the fail-closed compile site (the 8D-2/C10 kernel; the KPI C10 — 100% of the rules carry norm_ref + checked_at — is a machine check; the refusal rides the existing classes, №385 frozen; the rights SSOT ADR-0203 never widened, the egress SSOT ADR-0207 never duplicated)
 pub mod labels;
-pub mod vertical; // №921 (ADR-0220, wave 84 — W-L2): the vertical-profiles kernel — VerticalProfile + the append-only vertical registry + the fail-closed vertical_verdict (the 8H-2/C13а kernel; the six mandatory contours consumed BY REFERENCE — jurisdiction №888, approval №862, trace №892, taint №905, license №841, the frozen №385 vocabulary as the version-pin; the carrier digest pin G5/№828; no default attach — the undeclared manifest verifies with zero behavioral mutations; the profile ≠ certification ≠ legal advice, the C10 frame)
 pub mod llm;
 pub mod mcp_session; // №793: the MCP stdio session layer (the gateway upstream pool form)
 pub mod model_passport; // №838 (ADR-0202, wave 71 — W-A): the model passport — the License-Typed Model Layer (the 8D-1 subphase)
@@ -83,6 +82,7 @@ pub mod model_passport; // №838 (ADR-0202, wave 71 — W-A): the model passpor
 /// must hold on every configuration; the gated template_render engine
 /// imports the same source — no second parser, no drift).
 pub(crate) mod template_scan;
+pub mod vertical; // №921 (ADR-0220, wave 84 — W-L2): the vertical-profiles kernel — VerticalProfile + the append-only vertical registry + the fail-closed vertical_verdict (the 8H-2/C13а kernel; the six mandatory contours consumed BY REFERENCE — jurisdiction №888, approval №862, trace №892, taint №905, license №841, the frozen №385 vocabulary as the version-pin; the carrier digest pin G5/№828; no default attach — the undeclared manifest verifies with zero behavioral mutations; the profile ≠ certification ≠ legal advice, the C10 frame)
 // №567 (gh#931; the crate-split stage 2): the transport modules
 // (`mcp_policy`, `mcp_server`, `server`) MOVED to the metalogos-server
 // crate (metalogos-server/src/lib.rs) together with the `mlog` bin and

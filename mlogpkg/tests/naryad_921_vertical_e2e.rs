@@ -94,10 +94,9 @@ fn a_declared_vertical_at_the_live_pin_verifies_green() {
         .carrier_digest
         .clone();
     let manifest = dir.join("mlog.toml");
-    let text = fs::read_to_string(&manifest).unwrap().replace(
-        "LIVE_PIN_PLACEHOLDER",
-        &live_pin,
-    );
+    let text = fs::read_to_string(&manifest)
+        .unwrap()
+        .replace("LIVE_PIN_PLACEHOLDER", &live_pin);
     fs::write(&manifest, text).unwrap();
     pack_sign(&dir, &key);
     let (code, out, err) = run_in(&dir, &["verify", "--key", key.to_str().unwrap()]);

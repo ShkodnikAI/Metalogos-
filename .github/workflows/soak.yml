@@ -16,6 +16,16 @@ jobs:
     name: soak-parity (nightly)
     runs-on: ubuntu-latest
     timeout-minutes: 350
+    # Наряд №932 (issue #1871, волна 88): the ENOSPC guard extension.
+    # CARGO_INCREMENTAL=0 — the incremental caches (target/debug/incremental)
+    # are the largest single consumer the №722 guard does not touch; a one-shot
+    # CI build gains nothing from them. CARGO_PROFILE_DEV_DEBUG=0 — the
+    # dev-profile debuginfo is multi-GB and the soak machine needs a working
+    # binary, not symbols; test behavior is unchanged (both settings are
+    # build-artifact hygiene, not test-logic changes).
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
     steps:
       - uses: actions/checkout@v7
 
@@ -24,8 +34,11 @@ jobs:
       # on device (os error 28)" after the three test phases (the В48
       # lesson class: the runner disk overflow). Free the pre-installed
       # runner bloat before the build phases; the df-h lines keep the
-      # hygiene provable in the log.
-      - name: Free runner disk (ENOSPC guard — №722, the В48 lesson)
+      # hygiene provable in the log. №932 (the 07.11 ENOSPC on c70e25af,
+      # AFTER this guard ran): the guard is necessary but not sufficient
+      # on the grown tree — the extension lives in the job env above and
+      # the inter-phase checkpoints below (the df-h hygiene stays provable).
+      - name: Free runner disk (ENOSPC guard — №722, the В48 lesson; extended by №932)
         run: |
           echo "=== disk before:"
           df -h /
@@ -47,11 +60,42 @@ jobs:
       - name: Lib tests
         run: cargo test --workspace --lib --no-fail-fast
 
+      - name: Inter-phase disk checkpoint 1/2 (№932)
+        run: |
+          echo "=== disk after lib tests (phase 1/5):"
+          df -h /
+          du -sh target/debug/incremental 2>/dev/null || echo "no incremental dir"
+          rm -rf target/debug/incremental || true
+
       - name: Parity crosscheck (№373 gate — no VM-uncovered exclusions)
         run: cargo test --workspace --test crosscheck_backends --test naryad_373_parity_gate --no-fail-fast
 
       - name: Integration tests (full)
         run: cargo test --workspace --tests --no-fail-fast
+
+      # №932: the inter-phase disk checkpoints — the df-h line after every
+      # cargo phase keeps the hygiene provable; the incremental-cache sweep
+      # between phases reclaims what the phases leave behind even when the
+      # env knobs above are bypassed by a future toolchain change.
+      - name: Inter-phase disk checkpoint 2/2 (№932)
+        run: |
+          echo "=== disk after integration tests (phase 4/5):"
+          df -h /
+          rm -rf target/debug/incremental || true
+          du -sh target 2>/dev/null || true
+
+      # №932: the loud threshold BEFORE the doc-tests build — a clear
+      # «ENOSPC PREVENTED» red here beats a disk-full crash mid-build
+      # (the 07.11 failure mode: os error 28 inside the build step).
+      - name: Pre-doc-tests disk threshold (№932 — fail fast, loud)
+        run: |
+          FREE_KB=$(df -k / | awk 'NR==2 {print $4}')
+          echo "free space before doc-tests: $((FREE_KB/1024)) MiB"
+          if [ "$FREE_KB" -lt 2097152 ]; then
+            echo "ENOSPC PREVENTED (№932 threshold): fewer than 2 GiB free before the doc-tests build — stopping here, loudly."
+            df -h /
+            exit 1
+          fi
 
       - name: Build debug binary for doc-tests/examples
         run: cargo build --workspace

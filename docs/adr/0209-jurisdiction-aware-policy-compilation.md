@@ -1,8 +1,8 @@
 # ADR-0209: Jurisdiction-Aware Policy Compilation — the Jurisdiction Limit-Configuration as a Typed, Verifiable Artifact (the 8D-2 / C10 Subphase Record)
 
-- Status: **Proposed** (the ACCEPTED path is the wave-79 acceptance —
-  the dispatch gh#1764 issued the subphase's naryads the same week; the
-  wave acceptance fixes the ADR status as Accepted)
+- Status: **Accepted** (the wave-79 acceptance — OFFLINE_SUITE
+  10000 bp at the floor 8000, gate_039; the dispatch gh#1764 closed
+  2026-11-03 with the acceptance comment)
 - Date: 2026-11-03
 - Deciders: the OWNER (the R38 train — 0.42 = 8D-2 (C10,
   JURISDICTION_MATRIX ≥ 3); the wave-79 dispatch gh#1764; the «Заливай

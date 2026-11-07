@@ -1,8 +1,8 @@
 # ADR-0210: Deterministic Replay & Forensic Ledger — the Decision Trace as a Typed, Append-Only, Verifiable Artifact (the 8G / C8 Subphase Record)
 
-- Status: **Proposed** (the ACCEPTED path is the wave-80 acceptance —
-  the dispatch gh#1779 issued the subphase's naryads the same week; the
-  wave acceptance fixes the ADR status as Accepted)
+- Status: **Accepted** (the wave-80 acceptance — JURISDICTION_MATRIX
+  3 at the floor ≥3, gate_040; the dispatch gh#1779 closed completed
+  2026-11-04 with the acceptance comment)
 - Date: 2026-11-04
 - Deciders: the OWNER (the R38 train — 0.43 = 8G (C8, REPLAY_MATCH
   ≥ 10000 bp); the wave-80 dispatch gh#1779; the «Почисти если нужно

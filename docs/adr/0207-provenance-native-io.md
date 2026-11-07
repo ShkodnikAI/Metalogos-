@@ -1,8 +1,8 @@
 # ADR-0207: Provenance-Native I/O — the I/O Boundary as a Provenance Carrier (the 8C / C3 Subphase Record)
 
-- Status: **Proposed** (the ACCEPTED path is the wave-77 acceptance —
-  the dispatch gh#1729 issued the subphase's naryads the same week; the
-  wave acceptance fixes the ADR status as Accepted)
+- Status: **Accepted** (the wave-77 acceptance — PROVENANCE_SHARE
+  10000 bp, gate_038; the dispatch gh#1729 closed 2026-11-02 08:50Z
+  with the acceptance comment)
 - Date: 2026-11-02
 - Deciders: the OWNER (the R38 train — 0.40 = 8C (C3, PROVENANCE_SHARE
   10000 bp); the wave-77 dispatch gh#1729)

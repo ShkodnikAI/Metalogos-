@@ -1,7 +1,7 @@
 # METALOGOS — Language Reference
 
-> **Version:** 0.20.0
-> **Synced with code:** 2026-09-16 (naryad №335) · 439 builtins · 156 ADR files (149 accepted + 7 reserved)
+> **Version:** 0.39.0
+> **Synced with code:** 2026-11-07 (naryad №928) · 530 builtins · 209 ADR files
 > **Single source of truth** for developers writing in Metalogos.
 > Contains the full list of built-in functions with signatures, types, descriptions, and examples,
 > as well as a reference for syntax, data types, and the CLI.
@@ -687,7 +687,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 530 registered builtins (530 of 530): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.39):** This section documents **100%** of the 530 registered builtins (530 of 530): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >

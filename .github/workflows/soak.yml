@@ -16,6 +16,17 @@ jobs:
     name: soak-parity (nightly)
     runs-on: ubuntu-latest
     timeout-minutes: 350
+    # Наряд №932 (wave 89 — W-U, перенесён из В88 №S2; gh#1871): the №722
+    # ENOSPC guard extension. The 07.11 soak-parity RED on c70e25af (run
+    # #54): ENOSPC again — AFTER the №722 guard — in "Build debug binary"
+    # for doc-tests (the В48 class returned: the tree grew, and the largest
+    # disk consumers are now the incremental caches and the dev-profile
+    # debuginfo, which the №722 runner-bloat purge never touches). For a
+    # one-shot CI build the incremental caches buy nothing and the soak
+    # machine needs no debuginfo symbols — the test behavior is unchanged.
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
     steps:
       - uses: actions/checkout@v7
 
@@ -44,17 +55,56 @@ jobs:
           date +%s > /tmp/soak_start
           echo "soak run started: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+      # №932 (continuation): inter-phase df-checkpoints (the №722 df-h
+      # hygiene — provable) + the incremental-cache purge between the
+      # phases, so an overflow cannot take down several phases silently.
+      - name: Disk checkpoint (№932)
+        run: |
+          echo "=== disk checkpoint (post-setup):"
+          df -h /
+
       - name: Lib tests
         run: cargo test --workspace --lib --no-fail-fast
+
+      - name: Disk checkpoint + purge incremental (№932)
+        run: |
+          rm -rf target/debug/incremental || true
+          echo "=== disk checkpoint (post lib tests):"
+          df -h /
 
       - name: Parity crosscheck (№373 gate — no VM-uncovered exclusions)
         run: cargo test --workspace --test crosscheck_backends --test naryad_373_parity_gate --no-fail-fast
 
+      - name: Disk checkpoint + purge incremental (№932)
+        run: |
+          rm -rf target/debug/incremental || true
+          echo "=== disk checkpoint (post crosscheck):"
+          df -h /
+
       - name: Integration tests (full)
         run: cargo test --workspace --tests --no-fail-fast
 
+      - name: Disk checkpoint + purge incremental (№932)
+        run: |
+          rm -rf target/debug/incremental || true
+          echo "=== disk checkpoint (post integration):"
+          df -h /
+
       - name: Build debug binary for doc-tests/examples
         run: cargo build --workspace
+
+      # №932: the loud pre-doc-tests floor — fail fast with a clear label
+      # instead of an ENOSPC in the middle of the doc-test build (2 GiB
+      # free is the observed minimum for the debug build + doc-tests).
+      - name: Pre-doc-tests disk floor 2 GiB (№932)
+        run: |
+          AVAIL_KB=$(df -k / | awk 'NR==2 {print $4}')
+          AVAIL_GB=$((AVAIL_KB / 1024 / 1024))
+          echo "free space before doc-tests: ${AVAIL_GB} GiB"
+          if [ "$AVAIL_KB" -lt 2097152 ]; then
+            echo "::error::ENOSPC guard (№932): less than 2 GiB free before the doc-tests build (${AVAIL_GB} GiB) — the №722/№932 guards were not enough, fail fast with the label instead of a mid-build ENOSPC"
+            exit 1
+          fi
 
       - name: Doc-tests on REFERENCE/README/docs (Naryad #287)
         run: ./target/debug/mlog test --docs

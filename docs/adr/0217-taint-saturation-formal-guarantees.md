@@ -1,8 +1,8 @@
 # ADR-0217: Taint Saturation & the Formal-Guarantees Audit — the Reachable-Scenario Space as a Verified Artifact (the 8F-2 / C9 Subphase Record)
 
-- Status: **Proposed** (the ACCEPTED path is the wave-81 acceptance —
-  the dispatch gh#1803 issued the subphase's naryads the same week; the
-  wave acceptance fixes the ADR status as Accepted)
+- Status: **Accepted** (the wave-81 acceptance — TAINT_SATURATION
+  ≥ 10⁹ closed at 3.24×10²³ against the floor 10⁹, gate_042; the
+  dispatch gh#1803 closed 2026-11-04 21:47Z with the acceptance table)
 - Date: 2026-11-04
 - Deciders: the OWNER (the R38 train — 0.44 = 8F-2 (C9, TAINT_SATURATION
   ≥ 10⁹ + the audit report); the wave-81 dispatch gh#1803; the «Заводи

@@ -1,8 +1,8 @@
 # ADR-0220: Vertical Profiles — the Vertical Contour (Payments + the Public Sector) as a Typed, Fail-Closed, Digest-Pinned Configuration of Mandatory Contours (the 8H-2 / C13а Subphase Record)
 
-- Status: **Proposed** (the ACCEPTED path is the wave-84 acceptance —
-  the dispatch gh#1842 issued the subphase's naryads the same week; the
-  wave acceptance fixes the ADR status as Accepted)
+- Status: **Accepted** (the wave-84 acceptance — VERTICAL_PROFILES
+  12/12 at the floor 12, gate_045; the dispatch gh#1842 closed
+  completed 2026-11-06 05:27Z with the acceptance comment)
 - Date: 2026-11-06
 - Deciders: the OWNER (the R38 train — 0.47 = 8H-2 (C13а — the
   verticals: payments + the public sector, VERTICAL_PROFILES — the

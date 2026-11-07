@@ -288,6 +288,23 @@ All notable changes to the Metalogos project.
 
 ### Changed
 
+- **№926 (issue #1857, wave 86 — W-P, P1, [process][adr][docs]):**
+  the ADR status pass — the separate status pass named by ADR-0221 §6
+  (the scope widened by the R65-бис full-ADR sweep): TEN records flip
+  Proposed → Accepted per their executed wave acceptances — ADR-0205
+  (wave 75), 0206 (76), 0207 (77), 0209 (79), 0210 (80), 0217 (81),
+  0218 (82), 0219 (83), 0220 (84), 0221 (85) — the dispatches
+  gh#1699/gh#1714/gh#1729/gh#1764/gh#1779/gh#1803/gh#1817/gh#1834/
+  gh#1842/gh#1853 closed with the acceptance comments; the wave-83
+  verbatim: the ADR file status lines wait «до отдельной статусной
+  проводки». The status lines only — the record bodies byte-identical;
+  the docs/adr/README.md index rows follow; llms.txt — the naryad
+  range №1-№926, the ADR count 209 unchanged. HONESTLY OUT OF SCOPE:
+  ADR-0187 (owner_fixed: false) and ADR-0211 (the owner's variant
+  choice, №901/gh#1795) stay Proposed — their acceptance gates are the
+  owner's and have not fired. The pass fixes the executed acceptances
+  — it re-evaluates nothing and adds no language surface.
+
 - **№899 (issue #1793, P1, [process][release][adr]):** the calendar
   release train — the ADR-0189 amendment (§5): the rc candidate is cut
   on SATURDAY 12:00 MSK from main (the machine: the `unfreeze_gate.py

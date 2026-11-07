@@ -1,8 +1,8 @@
 # ADR-0221: Terminal Stop 1.0 — the 1.0 Assembly Record: the Terminal Stop of the Phase 8 Train, the 1.0 Gate Definition, and the Aggregate Machine Fact TERMINAL_STOP (the W-T Wave Record)
 
-- Status: **Proposed** (the ACCEPTED path is the wave-85 acceptance —
-  the dispatch gh#1853 issues the assembly's naryads the same week; the
-  wave acceptance fixes the ADR status as Accepted)
+- Status: **Accepted** (the wave-85 acceptance — TERMINAL_STOP 13/13
+  at the floor 13, gate_046; the dispatch gh#1853 closed completed
+  2026-11-06 23:01Z with the acceptance comment)
 - Date: 2026-11-06
 - Deciders: the OWNER (the R38 train terminal stop — the owner's
   directive of 2026-11-06 «Заводи следующую волну нарядов согласно

@@ -1,8 +1,8 @@
 # ADR-0205: Typed Approval — the Human Mandate as a Typed Carrier of Consent and Oversight (the 8B-2 / C11 Subphase Record)
 
-- Status: **Proposed** (the ACCEPTED path is the wave-75 acceptance — the
-  dispatch gh#1699 issued the subphase's naryads the same week; the wave
-  acceptance fixes the ADR status as Accepted)
+- Status: **Accepted** (the wave-75 acceptance — APPROVAL_COVERAGE
+  10000 bp at the floor 10000, gate_036; the dispatch gh#1699 closed
+  2026-10-31 21:24Z with the acceptance comment)
 - Date: 2026-10-31
 - Deciders: the OWNER (the R38 revision (2) — C11 raised into the 8B
   stream as the 0.38 train slot with the APPROVAL_COVERAGE 10000 bp

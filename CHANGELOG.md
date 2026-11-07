@@ -4,6 +4,8 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- №928 (gh#1863, wave 87 — W-R, P1, [docs][reference][testing][ci]): the REFERENCE.md head re-synced with the machine — `Version: 0.20.0` → `0.39.0` (Cargo.toml `[workspace.package]`), `Synced with code` → `2026-11-07 (naryad №928) · 530 builtins · 209 ADR files` (the unverifiable «149 accepted + 7 reserved» split removed, the №900 form), the §4 coverage note stamp `(v0.20)` → `(v0.39)`; the head is now PINNED by `tests/reference_consistency.rs` (three asserts: Version == Cargo.toml, builtins == named `spec!` count, ADR == `docs/adr/*.md` − README index) — the «шапка вне пина» drift class (6 weeks of silent drift under a green 57/57 CI, the R67 find) is closed.
+
 ## [0.39.0] - 2026-11-09
 
 The amended calendar train (ADR-0189 §5 — the first amended cycle, the

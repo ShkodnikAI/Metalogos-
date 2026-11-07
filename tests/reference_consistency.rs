@@ -132,6 +132,116 @@ fn reference_has_no_unresolved_todo_markers() {
     );
 }
 
+// ── №928: the REFERENCE.md head pin (the «шапка вне пина» class closed) ──
+//
+// Lesson of the R67 fact-check (2026-11-07): the №270 gate covered the
+// §4/§6 BODY of the reference while the head silently drifted for six
+// weeks (Version 0.20.0 / 439 builtins / 156 ADR files against the
+// machine's 0.39.0 / 530 / 209) with a fully green 57/57 CI. A fact in
+// a reader surface lives together with its checker (the №735 class):
+// every head number is now pinned to its generating machine.
+//
+// The three head facts and their machines:
+//   1. `Version:`            == Cargo.toml `[workspace.package] version`
+//      (the same source the README badge reads);
+//   2. builtins in the `Synced with code` line == the named `spec!`
+//      count in the registry (the SAME convention as the §4 gate above —
+//      `spec!("name")` rows, deduplicated);
+//   3. ADR files == the `docs/adr/*.md` files minus the README index
+//      (the index itself is not a decision record).
+
+fn workspace_package_version() -> String {
+    let path = repo_root().join("Cargo.toml");
+    let content =
+        fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {:?}: {}", path, e));
+    // The `[workspace.package]` version — the workspace SSOT the README
+    // badge and the release lockstep read. Scoped to the section so a
+    // future per-crate `version =` row cannot shadow it.
+    let section = content
+        .split("[workspace.package]")
+        .nth(1)
+        .expect("Cargo.toml carries the [workspace.package] section");
+    let line = section
+        .lines()
+        .find(|l| l.trim_start().starts_with("version"))
+        .expect("the [workspace.package] section carries the version row");
+    line.split('"')
+        .nth(1)
+        .unwrap_or_else(|| panic!("unparsable version row: {line}"))
+        .to_string()
+}
+
+fn adr_file_count() -> usize {
+    let dir = repo_root().join("docs").join("adr");
+    std::fs::read_dir(&dir)
+        .unwrap_or_else(|e| panic!("cannot read {:?}: {}", dir, e))
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            let p = e.path();
+            p.is_file() && p.extension().map(|x| x == "md").unwrap_or(false)
+        })
+        .filter(|e| e.file_name() != "README.md")
+        .count()
+}
+
+#[test]
+fn reference_head_version_matches_cargo_workspace() {
+    let reference = reference_text();
+    let head = reference.lines().take(10).collect::<Vec<_>>().join("\n");
+    let version = workspace_package_version();
+    let expected = format!("> **Version:** {version}");
+    assert!(
+        head.contains(&expected),
+        "the REFERENCE.md head Version does not match the machine: the head must carry \
+         {expected:?} (from Cargo.toml [workspace.package]) — a stale head drifted past a \
+         green CI once already (the R67 lesson); sync it with naryad №928"
+    );
+}
+
+#[test]
+fn reference_head_builtin_count_matches_registry() {
+    let reference = reference_text();
+    let head = reference.lines().take(10).collect::<Vec<_>>().join("\n");
+    let count = registry_builtin_names().len();
+    let synced_re = Regex::new(r"\*\*Synced with code:\*\*[^\n]*?·\s*(\d+)\s+builtins").unwrap();
+    let got = synced_re
+        .captures(&head)
+        .unwrap_or_else(|| {
+            panic!("the REFERENCE.md head carries no «Synced with code … N builtins» line")
+        })
+        .get(1)
+        .unwrap()
+        .as_str()
+        .parse::<usize>()
+        .unwrap();
+    assert_eq!(
+        got, count,
+        "the REFERENCE.md head builtin count ({got}) does not match the registry named spec! \
+         count ({count}) — the head drifted (the R67 lesson); re-sync with naryad №928"
+    );
+}
+
+#[test]
+fn reference_head_adr_count_matches_files() {
+    let reference = reference_text();
+    let head = reference.lines().take(10).collect::<Vec<_>>().join("\n");
+    let count = adr_file_count();
+    let synced_re = Regex::new(r"\*\*Synced with code:\*\*[^\n]*?·\s*(\d+)\s+ADR files").unwrap();
+    let got = synced_re
+        .captures(&head)
+        .unwrap_or_else(|| panic!("the REFERENCE.md head carries no «… N ADR files» clause"))
+        .get(1)
+        .unwrap()
+        .as_str()
+        .parse::<usize>()
+        .unwrap();
+    assert_eq!(
+        got, count,
+        "the REFERENCE.md head ADR count ({got}) does not match docs/adr/*.md minus the \
+         README index ({count}) — the head drifted (the R67 lesson); re-sync with naryad №928"
+    );
+}
+
 // ── №809: the three-tier layout pin (the C3-a T3 owner decision) ────────
 //
 // The generated §6 index reads by MATURITY TIER: `stable` is the primary

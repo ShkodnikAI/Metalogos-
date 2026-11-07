@@ -4,6 +4,36 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+## [0.39.0] - 2026-11-09
+
+The amended calendar train (ADR-0189 §5 — the first amended cycle, the
+owner directive on gh#1793): the candidate `v0.39.0-rc.1` cut from main
+on Saturday 2026-11-07 (the lockstep, the №646 form), the office stand
+verifies the rc on Sunday 2026-11-08, the final tag sits on the SAME
+commit the stand verified (the rc↔final SHA equality is
+machine-enforced) and the publication is the OWNER act (ADR-0186
+§4.5). The section body = the [Unreleased] rows (the waves 76–86)
+moved verbatim — the two `### Changed` groups of [Unreleased] merged
+into one (rows verbatim, the internal order preserved). The
+«Вошедшие подфазы» block replaces the cancelled R38 subphase→version
+binding (the plan-canon §13.13): the version number classifies the
+CONTENT (Added/Changed → minor), the subphase identity lives here.
+
+Вошедшие подфазы: 8A-1/C1 (ADR-0206, wave 76); 8C/C3 (ADR-0207, wave
+77); 8E-1/C5 — the ADR-0208 §2.5/§4 continuation (wave 78); 8D-2/C10
+(ADR-0209, wave 79); 8G/C8 (ADR-0210, wave 80); 8F-2/C9 (ADR-0217,
+wave 81); 8E-2/C7+C12 (ADR-0218, wave 82); 8H-1/C13б (ADR-0219, wave
+83); 8H-2/C13а (ADR-0220, wave 84); the terminal stop of the Phase-8
+train (ADR-0221, wave 85 — TERMINAL_STOP 13/13, gate_046); the ADR
+status pass (wave 86 — ten records Proposed → Accepted per their
+executed wave acceptances; the record content re-evaluated by nobody).
+
+Проверено на стенде офиса: not verified — the Sunday stand
+(2026-11-08) is pending at the rc cut; «not verified» = the train does
+not depart (the release-checklist form). The verdict enters this block
+by the post-stand/post-release sync (the №646 form, item 10) — the
+tagged rc commit stays pinned.
+
 ### Added
 
 - **№925 (issue #1852, wave 85 — W-T, P2, [audit][process]):**
@@ -285,6 +315,7 @@ All notable changes to the Metalogos project.
   status Proposed — the wave-83 acceptance is the ACCEPTED path; the
   ADR index and llms.txt regenerated (207 ADRs, the counters
   regenerated).
+
 
 ### Changed
 
@@ -826,8 +857,6 @@ All notable changes to the Metalogos project.
   one-line pointer. security: no — docs/process (the capability and
   approval rule code is not touched; the refusals already named the
   carrier and the resolution paths — verified, cited in the PR).
-
-### Changed
 
 - **BREAKING — №898 (issue #1792, P1, [core][llm][process]): `call_llm`
   without any LLM configuration now REFUSES at the first call (the

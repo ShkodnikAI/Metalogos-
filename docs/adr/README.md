@@ -246,16 +246,16 @@ real ADRs (№309/№320/№412) before the booking.
 | 0202 | ModelPassport — the Passport of a Model as a Typed Artifact (the License-Typed Model Layer, the 8D-1 Subphase Record) | Accepted** (the owner decision of 2026-10-28 |
 | 0203 | Capability-Token — the Typed Carrier of a Grant and the Single Consumption Contract (the 8B-1 Subphase Record) | Accepted** (the owner decision of 2026-10-28 |
 | 0204 | Portable Refusal Algebra — the Refusal Algebra as a Portable Artifact (the 8F-1 / C6 Subphase Record) | Accepted** (the owner decision of 2026-10-28 |
-| 0205 | Typed Approval — the Human Mandate as a Typed Carrier of Consent and Oversight (the 8B-2 / C11 Subphase Record) | Proposed** (the ACCEPTED path is the wave-75 acceptance |
-| 0206 | Compliance Evidence Compiler — the Attestation Map as a Typed, Verifiable, Sellable Artifact (the 8A-1 / C1 Subphase Record) | Proposed** (the ACCEPTED path is the wave-76 acceptance — |
-| 0207 | Provenance-Native I/O — the I/O Boundary as a Provenance Carrier (the 8C / C3 Subphase Record) | Proposed** (the ACCEPTED path is the wave-77 acceptance — |
+| 0205 | Typed Approval — the Human Mandate as a Typed Carrier of Consent and Oversight (the 8B-2 / C11 Subphase Record) | Accepted** (the wave-75 acceptance |
+| 0206 | Compliance Evidence Compiler — the Attestation Map as a Typed, Verifiable, Sellable Artifact (the 8A-1 / C1 Subphase Record) | Accepted** (the wave-76 acceptance — |
+| 0207 | Provenance-Native I/O — the I/O Boundary as a Provenance Carrier (the 8C / C3 Subphase Record) | Accepted** (the wave-77 acceptance — |
 | 0208 | Provider-Agnostic Local-First — the LLM Layer as a Provider-Agnostic Contract (the 8E-1 / C5 Subphase Record) | Accepted** (2026-11-05, WITH the №898 amendment |
-| 0209 | Jurisdiction-Aware Policy Compilation — the Jurisdiction Limit-Configuration as a Typed, Verifiable Artifact (the 8D-2 / C10 Subphase Record) | Proposed** (the ACCEPTED path is the wave-79 acceptance — |
-| 0210 | Deterministic Replay & Forensic Ledger — the Decision Trace as a Typed, Append-Only, Verifiable Artifact (the 8G / C8 Subphase Record) | Proposed** (the ACCEPTED path is the wave-80 acceptance — |
+| 0209 | Jurisdiction-Aware Policy Compilation — the Jurisdiction Limit-Configuration as a Typed, Verifiable Artifact (the 8D-2 / C10 Subphase Record) | Accepted** (the wave-79 acceptance — |
+| 0210 | Deterministic Replay & Forensic Ledger — the Decision Trace as a Typed, Append-Only, Verifiable Artifact (the 8G / C8 Subphase Record) | Accepted** (the wave-80 acceptance — |
 | 0211 | The Verifiable Mandate Actor — a Program Cannot Approve Itself (the 8B-2 Continuation; ADR Before the Code) | Proposed** |
 | 0216 | The `rollback_if` Metric Is a Registry Name — the Gate Reads the Metric's Own Value and Carries the Majority Baseline (the W2′ Grammar Semantics) | Accepted** (the наряд-mandated ADR-запись |
-| 0217 | Taint Saturation & the Formal-Guarantees Audit — the Reachable-Scenario Space as a Verified Artifact (the 8F-2 / C9 Subphase Record) | Proposed** (the ACCEPTED path is the wave-81 acceptance — |
-| 0218 | Reproducible Build & Signed Package Registry — the Registry Package Path as a Bit-for-Bit Verifiable Artifact (the 8E-2 / C7+C12 Subphase Record) | Proposed** (the ACCEPTED path is the wave-82 acceptance — |
-| 0219 | Institutional Contour & the Legal Shield — the Institutional-Readiness Fact as a Verified 12-Item Roster (the 8H-1 / C13б Subphase Record) | Proposed** (the ACCEPTED path is the wave-83 acceptance — |
-| 0220 | Vertical Profiles — the Vertical Contour (Payments + the Public Sector) as a Typed, Fail-Closed, Digest-Pinned Configuration of Mandatory Contours (the 8H-2 / C13а Subphase Record) | Proposed** (the ACCEPTED path is the wave-84 acceptance — |
-| 0221 | Terminal Stop 1.0 — the 1.0 Assembly Record: the Terminal Stop of the Phase 8 Train, the 1.0 Gate Definition, and the Aggregate Machine Fact TERMINAL_STOP (the W-T Wave Record) | Proposed** (the ACCEPTED path is the wave-85 acceptance — |
+| 0217 | Taint Saturation & the Formal-Guarantees Audit — the Reachable-Scenario Space as a Verified Artifact (the 8F-2 / C9 Subphase Record) | Accepted** (the wave-81 acceptance — |
+| 0218 | Reproducible Build & Signed Package Registry — the Registry Package Path as a Bit-for-Bit Verifiable Artifact (the 8E-2 / C7+C12 Subphase Record) | Accepted** (the wave-82 acceptance — |
+| 0219 | Institutional Contour & the Legal Shield — the Institutional-Readiness Fact as a Verified 12-Item Roster (the 8H-1 / C13б Subphase Record) | Accepted** (the wave-83 acceptance — |
+| 0220 | Vertical Profiles — the Vertical Contour (Payments + the Public Sector) as a Typed, Fail-Closed, Digest-Pinned Configuration of Mandatory Contours (the 8H-2 / C13а Subphase Record) | Accepted** (the wave-84 acceptance — |
+| 0221 | Terminal Stop 1.0 — the 1.0 Assembly Record: the Terminal Stop of the Phase 8 Train, the 1.0 Gate Definition, and the Aggregate Machine Fact TERMINAL_STOP (the W-T Wave Record) | Accepted** (the wave-85 acceptance — |

@@ -1,8 +1,8 @@
 # ADR-0219: Institutional Contour & the Legal Shield — the Institutional-Readiness Fact as a Verified 12-Item Roster (the 8H-1 / C13б Subphase Record)
 
-- Status: **Proposed** (the ACCEPTED path is the wave-83 acceptance —
-  the dispatch gh#1834 issued the subphase's naryads the same week; the
-  wave acceptance fixes the ADR status as Accepted)
+- Status: **Accepted** (the wave-83 acceptance — INSTITUTIONAL_READY
+  12/12 at the floor 12, gate_044; the dispatch gh#1834 closed
+  2026-11-05 19:33Z with the acceptance comment)
 - Date: 2026-11-05
 - Deciders: the OWNER (the R38 train — 0.46 = 8H-1 (C13б — the legal
   shield: the trademark + the succession + the neutral structure —

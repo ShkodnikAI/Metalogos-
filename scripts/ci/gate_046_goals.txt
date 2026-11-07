@@ -1,0 +1,49 @@
+# gate_046_goals.txt — the wave-85 W-T machine-fact floor (naryad №924)
+# =============================================================================
+# The №924 floor file: the ONLY-UP gate over the TERMINAL_STOP aggregate —
+# the same discipline as the gate_036 record (№862), the gate_041 record
+# (№894), the gate_042 record (№906), the gate_043 record (№912), the
+# gate_044 record (№918) and the gate_045 record (№921). The floor value
+# is the wave's START floor = the wave-85 dispatch constant (gh#1853: the
+# 1.0 gate — TERMINAL_STOP 13/13, the FULL slot map; the №841 form — the
+# floor can rise, never fall):
+# 1.0 = TERMINAL_STOP 13.
+#
+# THE DEFINITION (ADR-0221 §2, the №923 record — the definition literal
+# is machine-pinned in the ADR itself): TERMINAL_STOP := the count of the
+# GREEN capability slots (0–13) — the slot GREEN ⇔ every machine fact of
+# the slot holds its floor through its LIVE strict check (the roster +
+# the composition sites; the №735 form — the aggregate calls the live
+# fact functions, never re-implements them).
+#
+# THE SLOT MAP (the dispatch gh#1853 roster verbatim — the slot = the AND
+# of its facts; C4 and C13 carry two facts each, C7/C12 share one fact):
+#   C1  = ATTEST_MAP                                (gate_037)
+#   C2  = GRANT_COVERAGE                            (gate_034)
+#   C3  = PROVENANCE_SHARE                          (gate_038)
+#   C4  = LICENSED_FLOOR ∧ PASSPORT_FRESH           (gate_033)
+#   C5  = OFFLINE_SUITE                             (gate_039)
+#   C6  = SEMA_EXTERNAL                             (gate_035)
+#   C7  = REPRO_BITFORBIT                           (gate_043)
+#   C8  = REPLAY_MATCH                              (gate_041)
+#   C9  = TAINT_SATURATION                          (gate_042)
+#   C10 = JURISDICTION_MATRIX                       (gate_040)
+#   C11 = APPROVAL_COVERAGE                         (gate_036)
+#   C12 = REPRO_BITFORBIT (the C7 fact rides both)  (gate_043)
+#   C13 = INSTITUTIONAL_READY ∧ VERTICAL_PROFILES   (gate_044 ∧ gate_045)
+#
+# THE COMPOSITION SITES (the fail-closed form, the №918/№920/№921
+# lineage): (1) the ADR-0221 definition literal (`TERMINAL_STOP :=`) must
+# stand in docs/adr/0221-terminal-stop-1-0.md — a dead definition →
+# NOTHING is anchored → the aggregate reads 0 (the №923 mutation
+# contract); (2) every slot verdict CALLS the registered live fact
+# function — a substituted checker never counts (the identity pin — the
+# fake-slot trap); (3) each fact's own roster (the gate_033–045 files)
+# must exist and parse STRICTLY — a dead roster is a refusal (the
+# lost-roster class), never a vacuous pass.
+#
+# THE ROSTER (the gate_045 field form — one floor line, machine-read by
+# load_floors_strict; the map above is the human-readable twin the
+# machine and the person read the same way):
+
+goal_terminal_stop_min 13

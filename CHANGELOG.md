@@ -6,6 +6,105 @@ All notable changes to the Metalogos project.
 
 ### Added
 
+- **№925 (issue #1852, wave 85 — W-T, P2, [audit][process]):**
+  the terminal-stop readiness report —
+  docs/audits/terminal-stop-readiness-2026-11.md (the №907/№913/№919/
+  №922 form; the closing artifact of the W-T wave, strictly last):
+  the methodology (every verdict regenerable by the machine —
+  gen_metrics --check, the gate_033–gate_046 rosters — or a verbatim
+  quote of a live source, no prose verdicts); the 13/13 slot-verdict
+  table (every slot = the AND of its facts — C4/C13 two facts each,
+  C7/C12 the shared REPRO_BITFORBIT — every verdict quoting the
+  GENERATED numbers block); the external-audit scope outline (the
+  funnel structure: the C1–C13 surfaces, the ADR chain 0201–0221, the
+  machine facts gate_033–046, the readiness criteria — no vendors, no
+  figures, no schedule: the partner track R38(9) is the owner's time,
+  ADR-0201 §3.2); the evidence-bundle manifest with the digest pin
+  (the G5/№828 form — sha256 over the manifest block, the re-hash
+  refuses a drift); the repo↔owner-acts boundary (the audit
+  procurement and the paying pilot — the owner's acts, R38(3)/R38(9);
+  the pilot-evidence form: the owner's record + the carrier digest,
+  the contract/invoice details never in the repo); the 1.0.0 release
+  path (the calendar train ADR-0189 §5, the v0.38.3 precedent, the
+  publication — the owner's act ADR-0186 §4.5); the cross-links (the
+  legal shield В83 — №919, the verticals В84 — №922, the C7 trigger —
+  №913 not ignited by the 1.0 gate); the honest limits (the gate
+  counts SLOT STATES — not the audit force, not the pilot validity,
+  not a certification); the sync rows in docs/limitations.md (the
+  terminal-stop section) and docs/threat-model.md (the terminal-stop
+  bullet — the fake-slot/lost-roster/dead-definition/floor-lowering
+  classes each named); llms.txt — the naryad range bump.
+
+- **№924 (issue #1851, wave 85 — W-T, P1, [core][testing][ci]):**
+  the TERMINAL_STOP machine fact in gen_metrics.py + gate_046 — the
+  13-slot aggregate over the live Phase-8 checks (ADR-0221 §2 — the
+  №923 record's definition lands in code; the №735 form «факт вместе
+  со своим чекистом»): `TERMINAL_STOP :=` the count (0–13) of GREEN
+  capability slots, each slot answered by the REGISTERED live fact
+  function (the identity pin — a substituted checker never counts, the
+  fake-slot trap; the aggregate calls the same functions `--check`
+  uses and never re-implements a fact), the slot GREEN ⇔ every machine
+  fact of the slot holds its floor through its own LIVE strict check —
+  the slot's own roster (gate_033–gate_045) strict-loaded (a
+  dead/empty/corrupted roster is a refusal — the lost-roster class)
+  and the roster floor holding the owner constant (only-up) and the
+  live value holding the roster floor, plus the ADR-0221 definition
+  literal `TERMINAL_STOP :=` standing in the record file (a dead
+  definition → NOTHING is anchored → the aggregate reads 0 — the №923
+  mutation contract); fail-closed everywhere (an exception, a dead
+  anchor, a dead roster → the slot is NOT counted; an empty roster is
+  a gate failure, never a pass; no synthesized green); the floor 13
+  only-up (the wave-85 dispatch constant gh#1853, the TERMINAL_STOP_
+  FLOOR_OWNER constant — the №776 discipline; the lowering is the loud
+  FLOOR LOWERING REFUSED); gate_046 (scripts/ci/gate_046_goals.txt —
+  the explicit roster: the floor line machine-read by
+  load_floors_strict, the C1–C13 slot map as the human-readable twin);
+  the tamper traps №55–№58 prove the dispatch classes (а)–(г) red: the
+  fake-slot checker (the identity pin refuses a synthetic green), the
+  lost gate_046 roster (the strict loader refuses the vacuum), the
+  dead ADR-0221 definition (the aggregate zeroes — nothing is
+  anchored), the floor lowering (the loud refusal); the
+  blocking `gate-046` CI job (the double --check — the determinism
+  contract — plus the tamper traps; the blocking_checks.tsv row, the
+  fact_blocking_check_cells 35 → 36, the README badge 49 → 50); the
+  test naryad_924_terminal_stop.rs pins the machine (the check green +
+  the TERMINAL_STOP 13/13 verdict, the double --check byte-for-byte,
+  the tamper-test green, the ADR-0221 quote-literal, the gate_046
+  owner floor — the №535 row binds by name n924_terminal_stop_gate);
+  the GENERATED rows in docs/metrics.md and docs/PLAN-SUMMARY.md (the
+  №900 form «13/13»); the №900 denominators ride every fact row —
+  the aggregate adds the slot count row (n/t).
+
+- **№923 (issue #1850, wave 85 — W-T, P1, [process][adr][governance]):**
+  ADR-0221 Terminal Stop 1.0 — the 1.0 assembly record (ADR before the
+  code, the ADR-0201 §2.4 rule; the №891/№903/№916 form): the 1.0 gate
+  definition — all 13 capability slots GREEN (14 machine facts, each
+  through its own strict gate; a slot = AND over its facts: C4 =
+  LICENSED_FLOOR ∧ PASSPORT_FRESH, C13 = INSTITUTIONAL_READY ∧
+  VERTICAL_PROFILES, C7/C12 — the shared REPRO_BITFORBIT) + the
+  external-audit evidence + the paying-pilot evidence (the plan §23
+  verbatim; the R38 train exhausted — 0.47 = 8H-2 closed by wave 84,
+  the owner's directive of 2026-11-06 = the start-of-assembly gate
+  pass); the aggregate machine fact `TERMINAL_STOP :=` the count
+  (0–13) of GREEN slots — defined BEFORE the code, built OVER the
+  live strict checks (the №735 form — the fact together with its
+  checker), fail-closed (a dead roster/composition/checker → the slot
+  does not count; an empty roster is a gate failure, never a pass),
+  the floor 13 only-up (the dispatch gh#1853 constant; the №776
+  discipline); the digest-pinned evidence shapes (the G5/№828 form —
+  the audit-evidence bundle manifest and the pilot-evidence record;
+  the vendor/figures/schedule and the contract/invoice details stay
+  outside the repo — ADR-0201 §3.2, R38(3)/R38(9)); the release path
+  for 1.0.0 — the calendar train ADR-0189 §5 (Sat rc → Sun stand →
+  Mon final tag on the same commit; the publication is the owner's
+  act ADR-0186 §4.5; the empty-week rule stands); the honesty frame
+  (the 1.0 gate ≠ a service-quality guarantee ≠ a certification ≠ a
+  legal advice — the C10/В79 verbatim; the C7 trigger is not ignited
+  by the 1.0 gate — R38(8)/№913). The mutation contract for №924: the
+  test carries the quote-literal `TERMINAL_STOP :=` — deleting the
+  literal from the ADR makes the №924 test red. The index row 0221 in
+  docs/adr/README.md; llms.txt 208 → 209 ADR, the naryad range bump.
+
 - **№922 (issue #1841, wave 84 — W-L2, P2, [docs][audit]):**
   the verticals-readiness report — docs/audits/verticals-readiness-2026-11.md
   (the №907/№913/№919 form; the closing artifact of the 8H-2 subphase,

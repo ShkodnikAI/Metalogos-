@@ -253,6 +253,18 @@ VERTICAL_PROFILES_FLOOR_OWNER = 12
 VERTICAL_ADR_0220 = REPO / "docs" / "adr" / "0220-vertical-profiles.md"
 VERTICAL_RS = REPO / "src" / "vertical.rs"
 
+# №924 (wave 85 — W-T): the TERMINAL_STOP aggregate — the ONE number of
+# the 1.0 gate (ADR-0221 §2, the №923 record): the count of the GREEN
+# capability slots (0–13), the slot GREEN ⇔ every machine fact of the
+# slot holds its floor through its LIVE strict check. The floor VALUE 13
+# is the wave-85 dispatch constant (gh#1853 — the owner gate-pass «the
+# start of the 1.0 assembly», the FULL slot map) — only-up (the №841
+# discipline: the floor can rise, never fall; the lowering is the loud
+# refusal — the terminal_stop_gate_check twin below).
+GATE_046_GOALS = REPO / "scripts" / "ci" / "gate_046_goals.txt"
+TERMINAL_STOP_FLOOR_OWNER = 13
+TERMINAL_ADR_0221 = REPO / "docs" / "adr" / "0221-terminal-stop-1-0.md"
+
 
 APPROVAL_RS = REPO / "src" / "approval.rs"
 CI_YML = REPO / ".github" / "workflows" / "ci.yml"
@@ -754,7 +766,7 @@ def sema_external(
     return {"count": len(counted), "counted": counted, "skipped": skipped}
 
 
-def load_floors_strict(path: Path) -> dict[str, int]:
+def load_floors_strict(path: Path, text: str | None = None) -> dict[str, int]:
     """The №846 strict loader (fail-closed, the negative control (а)):
     a missing/empty file is a loud refusal, and EVERY non-comment line
     must parse as `goal_<name> <int>` — a corrupted floor file can never
@@ -773,13 +785,18 @@ def load_floors_strict(path: Path) -> dict[str, int]:
 
     №912 (wave 82 — W-K): the same skip covers the gate_043 registry
     rows (`carrier <name> ...`, machine-read by _repro_registry) —
-    roster data, never floors (the wave-82 dispatch form)."""
-    if not path.exists():
-        raise ValueError(f"{path.name}: the floor file is missing (the only-up gates must exist)")
+    roster data, never floors (the wave-82 dispatch form).
+
+    №924 (wave 85 — W-T): the optional `text` rides the TERMINAL_STOP
+    tamper traps — an in-memory substituted roster reads through the
+    SAME parser (a trap that parsed differently would prove nothing);
+    None (the default) reads the live file, unchanged."""
+    if text is None:
+        if not path.exists():
+            raise ValueError(f"{path.name}: the floor file is missing (the only-up gates must exist)")
+        text = path.read_text(encoding="utf-8")
     floors: dict[str, int] = {}
-    for lineno, raw in enumerate(
-        path.read_text(encoding="utf-8").splitlines(), start=1
-    ):
+    for lineno, raw in enumerate(text.splitlines(), start=1):
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
@@ -1841,6 +1858,285 @@ def repro_bitforbit_pair(
         return 0, total
     covered = sum(1 for row in registry if _repro_carrier_wired(row, texts))
     return covered, total
+
+
+# ── №924 (wave 85 — W-T, ADR-0221 §2): the TERMINAL_STOP aggregate ──────
+# The 13-slot aggregate over the LIVE Phase-8 fact machines (the №735
+# form — the fact rides with its checker): the aggregate does NOT
+# re-implement any fact — every slot verdict CALLS the registered live
+# fact function (the identity pin — a substituted checker never counts,
+# the fake-slot trap), requires the fact's own roster to exist and parse
+# STRICTLY (the №846 loader — a dead/empty/corrupted roster is a
+# refusal, the lost-roster class) with a floor holding the owner
+# constant (only-up), and requires the ADR-0221 definition literal to
+# stand in the record file. Fail-closed: an exception, a dead anchor, a
+# dead roster → the slot is NOT counted; an empty roster is a gate
+# failure, never a pass. No synthesized green.
+
+
+def sema_external_count() -> int:
+    """SEMA_EXTERNAL — the count (the №924 slot-checker form: the dict
+    wrapper of the live fact function — the registered checker the slot
+    verdict calls; NOT a re-implementation)."""
+    return sema_external()["count"]
+
+
+TERMINAL_SLOT_MAP: dict[str, tuple[dict, ...]] = {
+    # The dispatch gh#1853 roster verbatim: the slot = the AND of its
+    # facts; C4 and C13 carry two facts each, C7/C12 share one fact.
+    "C1": (
+        {"name": "ATTEST_MAP", "checker": attest_map_live,
+         "roster": GATE_037_GOALS, "floor_key": "goal_attest_map",
+         "owner": ATTEST_MAP_FLOOR_OWNER},
+    ),
+    "C2": (
+        {"name": "GRANT_COVERAGE", "checker": grant_coverage_bp,
+         "roster": GATE_034_GOALS, "floor_key": "goal_grant_coverage_bp",
+         "owner": GRANT_COVERAGE_FLOOR_OWNER_BP},
+    ),
+    "C3": (
+        {"name": "PROVENANCE_SHARE", "checker": provenance_share_bp,
+         "roster": GATE_038_GOALS, "floor_key": "goal_provenance_share_bp",
+         "owner": PROVENANCE_SHARE_FLOOR_OWNER_BP},
+    ),
+    "C4": (
+        {"name": "LICENSED_FLOOR", "checker": licensed_floor_bp,
+         "roster": GATE_033_GOALS, "floor_key": "goal_licensed_floor_bp",
+         "owner": None},
+        {"name": "PASSPORT_FRESH", "checker": passport_fresh_bp,
+         "roster": GATE_033_GOALS, "floor_key": "goal_passport_fresh_bp",
+         "owner": None},
+    ),
+    "C5": (
+        {"name": "OFFLINE_SUITE", "checker": offline_suite_bp,
+         "roster": GATE_039_GOALS, "floor_key": "goal_offline_suite_bp",
+         "owner": OFFLINE_SUITE_FLOOR_OWNER_BP},
+    ),
+    "C6": (
+        {"name": "SEMA_EXTERNAL", "checker": sema_external_count,
+         "roster": GATE_035_GOALS, "floor_key": "goal_sema_external_owner",
+         "owner": SEMA_EXTERNAL_FLOOR_OWNER},
+    ),
+    "C7": (
+        {"name": "REPRO_BITFORBIT", "checker": repro_bitforbit_bp,
+         "roster": GATE_043_GOALS, "floor_key": "goal_repro_bitforbit_bp",
+         "owner": REPRO_BITFORBIT_FLOOR_OWNER_BP},
+    ),
+    "C8": (
+        {"name": "REPLAY_MATCH", "checker": replay_match_bp,
+         "roster": GATE_041_GOALS, "floor_key": "goal_replay_match_bp",
+         "owner": REPLAY_MATCH_FLOOR_OWNER_BP},
+    ),
+    "C9": (
+        {"name": "TAINT_SATURATION", "checker": taint_saturation,
+         "roster": GATE_042_GOALS, "floor_key": "goal_taint_saturation_min",
+         "owner": TAINT_SATURATION_FLOOR_OWNER},
+    ),
+    "C10": (
+        {"name": "JURISDICTION_MATRIX", "checker": jurisdiction_matrix_count,
+         "roster": GATE_040_GOALS, "floor_key": "goal_jurisdiction_matrix",
+         "owner": JURISDICTION_MATRIX_FLOOR_OWNER},
+    ),
+    "C11": (
+        {"name": "APPROVAL_COVERAGE", "checker": approval_coverage_bp,
+         "roster": GATE_036_GOALS, "floor_key": "goal_approval_coverage_bp",
+         "owner": APPROVAL_COVERAGE_FLOOR_OWNER_BP},
+    ),
+    "C12": (
+        {"name": "REPRO_BITFORBIT", "checker": repro_bitforbit_bp,
+         "roster": GATE_043_GOALS, "floor_key": "goal_repro_bitforbit_bp",
+         "owner": REPRO_BITFORBIT_FLOOR_OWNER_BP},
+    ),
+    "C13": (
+        {"name": "INSTITUTIONAL_READY", "checker": institutional_ready,
+         "roster": GATE_044_GOALS, "floor_key": "goal_institutional_ready_min",
+         "owner": INSTITUTIONAL_READY_FLOOR_OWNER},
+        {"name": "VERTICAL_PROFILES", "checker": vertical_profiles,
+         "roster": GATE_045_GOALS, "floor_key": "goal_vertical_profiles_min",
+         "owner": VERTICAL_PROFILES_FLOOR_OWNER},
+    ),
+}
+
+
+def _terminal_adr_definition_alive(adr_text: str | None = None) -> bool:
+    """The ADR-0221 composition site (the №916/№918/№920 mutation
+    contract over the aggregate): the definition literal
+    (`TERMINAL_STOP :=`) must stand in the record file — a dead
+    definition → NOTHING is anchored → every slot reads 0 and the
+    aggregate reads 0 (the gate working, not a pass)."""
+    if adr_text is None:
+        if not TERMINAL_ADR_0221.exists():
+            return False
+        adr_text = TERMINAL_ADR_0221.read_text(encoding="utf-8")
+    return "TERMINAL_STOP :=" in adr_text
+
+
+def _terminal_fact_green(
+    fact: dict, roster_texts: dict | None = None
+) -> tuple[bool, str]:
+    """The fail-closed verdict of ONE machine fact inside a slot (№924,
+    ADR-0221 §2): (1) the checker must BE the registered live fact
+    function — a substituted checker never counts (the fake-slot class
+    (а)); (2) the fact's own roster must exist and parse STRICTLY (the
+    №846 loader — a dead/empty/corrupted roster is a refusal, the
+    lost-roster class) and the roster floor must hold the owner
+    constant (only-up); (3) the live fact value must hold the roster
+    floor. An exception anywhere → NOT green (the honest RED is named)."""
+    roster_texts = roster_texts or {}
+    try:
+        checker = fact["checker"]
+        live = globals().get(getattr(checker, "__name__", ""))
+        if live is not checker:
+            return (
+                False,
+                f"{fact['name']}: the checker is not the registered live "
+                "fact function (a substituted checker never counts)",
+            )
+        roster_path = fact["roster"]
+        floors = load_floors_strict(
+            roster_path, text=roster_texts.get(roster_path)
+        )
+        floor = floors.get(fact["floor_key"])
+        if floor is None:
+            return (
+                False,
+                f"{fact['name']}: {roster_path.name} carries no "
+                f"{fact['floor_key']} floor",
+            )
+        owner = fact.get("owner")
+        if owner is not None and floor < owner:
+            return (
+                False,
+                f"{fact['name']}: the {roster_path.name} floor {floor} is "
+                f"below the owner constant {owner} — the lowering is "
+                "refused",
+            )
+        value = int(checker())
+        if value < floor:
+            return (
+                False,
+                f"{fact['name']}: {value} < the {roster_path.name} floor "
+                f"{floor}",
+            )
+        return True, f"{fact['name']}: {value} ≥ floor {floor}"
+    except Exception as exc:  # fail-closed: any error = the slot is NOT counted
+        return (
+            False,
+            f"{fact['name']}: the live check failed "
+            f"({type(exc).__name__}: {exc})",
+        )
+
+
+def _terminal_slot_verdict(
+    facts: tuple[dict, ...], roster_texts: dict | None = None
+) -> tuple[bool, str]:
+    """The slot verdict (ADR-0221 §2): the slot GREEN ⇔ EVERY machine
+    fact of the slot is green (the AND — the dispatch gh#1853 roster);
+    the reason names the first dead fact (the honest RED is named)."""
+    reasons = []
+    for fact in facts:
+        ok, why = _terminal_fact_green(fact, roster_texts)
+        if not ok:
+            return False, why
+        reasons.append(why)
+    return True, "; ".join(reasons)
+
+
+def terminal_stop_slots(
+    slot_map: dict | None = None,
+    roster_texts: dict | None = None,
+    adr_text: str | None = None,
+) -> dict[str, tuple[bool, str]]:
+    """TERMINAL_STOP — the 13-slot verdicts (№924, ADR-0221 §2): the
+    slot → (GREEN?, the named reason). Fail-closed: a dead ADR-0221
+    definition zeroes EVERY slot (nothing is anchored — the №923
+    mutation contract); a dead roster/anchor/checker leaves its slot
+    uncounted. The parameters ride the tamper traps (the in-memory
+    substitutions — the real tree stays untouched)."""
+    if slot_map is None:
+        slot_map = TERMINAL_SLOT_MAP
+    if not _terminal_adr_definition_alive(adr_text):
+        return {
+            slot: (
+                False,
+                "the ADR-0221 definition literal (`TERMINAL_STOP :=`) is "
+                "dead — nothing is anchored (the №923 mutation contract)",
+            )
+            for slot in slot_map
+        }
+    return {
+        slot: _terminal_slot_verdict(facts, roster_texts)
+        for slot, facts in slot_map.items()
+    }
+
+
+def terminal_stop_pair(
+    slot_map: dict | None = None,
+    roster_texts: dict | None = None,
+    adr_text: str | None = None,
+) -> tuple[int, int]:
+    """TERMINAL_STOP — (GREEN slots, 13); the №900 form: the pair rides
+    the printed fact."""
+    verdicts = terminal_stop_slots(slot_map, roster_texts, adr_text)
+    return sum(1 for ok, _ in verdicts.values() if ok), len(verdicts)
+
+
+def terminal_stop_gate_check(
+    floor_text: str | None = None,
+    slot_map: dict | None = None,
+    roster_texts: dict | None = None,
+    adr_text: str | None = None,
+) -> int:
+    """The gate_046 only-up floor over the TERMINAL_STOP aggregate —
+    the gate_040–045 form (№924): the STRICT loader (fail-closed on a
+    missing/empty/corrupted file — the lost-roster class (б)), the
+    owner-pinned lowering refusal (the wave-85 dispatch constant
+    gh#1853 — 13, only-up; the floor-lowering class (г)) and the live
+    13-slot verdict (the №735 aggregate — the same functions --check
+    uses). Returns 0 green / 1 red / 2 broken — the main --check exit
+    form; the tamper traps call it with the substituted texts."""
+    try:
+        term_floors = load_floors_strict(GATE_046_GOALS, text=floor_text)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    term_floor = term_floors.get("goal_terminal_stop_min")
+    if term_floor is None:
+        print(
+            "ERROR: gate_046_goals.txt carries no goal_terminal_stop_min floor",
+            file=sys.stderr,
+        )
+        return 2
+    if term_floor < TERMINAL_STOP_FLOOR_OWNER:
+        print(
+            "FLOOR LOWERING REFUSED: gate_046 "
+            f"({term_floor}) is below the owner constant "
+            f"({TERMINAL_STOP_FLOOR_OWNER} — the wave-85 dispatch constant, "
+            "gh#1853); the floor is only-up — the change is an explicit "
+            "owner transaction",
+            file=sys.stderr,
+        )
+        return 1
+    verdicts = terminal_stop_slots(slot_map, roster_texts, adr_text)
+    green = sum(1 for ok, _ in verdicts.values() if ok)
+    total = len(verdicts)
+    if green < term_floor:
+        dead = "; ".join(
+            f"{slot} ({why})" for slot, (ok, why) in verdicts.items() if not ok
+        )
+        print(
+            f"FLOOR BREACH: TERMINAL_STOP {green}/{total} < the gate_046 floor "
+            f"{term_floor} (only-up) — the dead slots: {dead} "
+            "(restore the anchor honestly — never a silent gate edit)",
+            file=sys.stderr,
+        )
+        return 1
+    print(
+        f"OK: the №924 floor holds — TERMINAL_STOP {green}/{total} "
+        f"(gate_046 floor {term_floor}, only-up) — the 13 capability "
+        "slots of the Phase-8 train (ADR-0221 §2)"
+    )
+    return 0
 
 
 def tamper_test() -> int:
@@ -2906,6 +3202,110 @@ def tamper_test() -> int:
         )
         return 1
 
+    # ── №924 traps: the TERMINAL_STOP aggregate (the in-memory texts —
+    # the real tree stays untouched; the №918/№921 form) ──────────────
+    term_full, term_total = terminal_stop_pair()
+    if (term_full, term_total) != (
+        TERMINAL_STOP_FLOOR_OWNER,
+        TERMINAL_STOP_FLOOR_OWNER,
+    ):
+        print(
+            "tamper-test: TRAP FAILED — TERMINAL_STOP is not at the owner "
+            f"floor on the clean tree ({term_full}/{term_total} != "
+            f"{TERMINAL_STOP_FLOOR_OWNER}/{TERMINAL_STOP_FLOOR_OWNER}): a "
+            "capability slot drifted (fix the fact, never the floor)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 55 (the fake-slot class (а)): (i) a SUBSTITUTED checker never
+    # counts — the slot verdict requires the REGISTERED live fact
+    # function (the identity pin), so a synthetic green value cannot buy
+    # the slot; (ii) a slot with a dead roster is NOT counted even when
+    # the live value reads green (the count is CHECKED, not declared).
+    fake_map = dict(TERMINAL_SLOT_MAP)
+    fake_map["C5"] = (
+        {
+            "name": "OFFLINE_SUITE",
+            "checker": lambda: OFFLINE_SUITE_FLOOR_OWNER_BP + 9999,
+            "roster": GATE_039_GOALS,
+            "floor_key": "goal_offline_suite_bp",
+            "owner": OFFLINE_SUITE_FLOOR_OWNER_BP,
+        },
+    )
+    if terminal_stop_pair(slot_map=fake_map)[0] >= term_full:
+        print(
+            "tamper-test: TRAP FAILED — the substituted checker STILL counted "
+            "the slot (the fake-slot hole is open)",
+            file=sys.stderr,
+        )
+        return 1
+    dead_roster = {GATE_037_GOALS: "# the roster emptied in memory\n"}
+    if terminal_stop_pair(roster_texts=dead_roster)[0] >= term_full:
+        print(
+            "tamper-test: TRAP FAILED — the emptied roster STILL counted "
+            "the slot (the vacuous-slot hole is open)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 56 (the lost-roster class (б)): the gate_046 roster itself
+    # lost (emptied in memory) — the STRICT loader refuses: the whole
+    # gate is RED (a refusal, never a vacuous pass).
+    if terminal_stop_gate_check(floor_text="") == 0:
+        print(
+            "tamper-test: TRAP FAILED — the empty gate_046 roster did NOT "
+            "refuse the gate (the vacuum passed)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 57 (the dead-composition class (в)): the ADR-0221 definition
+    # literal removed → NOTHING is anchored → the aggregate ZEROES
+    # (the №923 mutation contract over the aggregate; the №916/№920
+    # form).
+    adr_live = TERMINAL_ADR_0221.read_text(encoding="utf-8")
+    # The record carries the literal thrice (the definition §2, the
+    # test-quote contract and the mutation boundary) — the deletion
+    # takes ALL of them (the dead definition is the dead definition).
+    dead_adr = adr_live.replace(
+        "TERMINAL_STOP :=", "TERMINAL_STOP [definition removed]"
+    )
+    if dead_adr == adr_live:
+        print(
+            "tamper-test: TRAP FAILED — the ADR-0221 definition anchor drifted",
+            file=sys.stderr,
+        )
+        return 1
+    if terminal_stop_pair(adr_text=dead_adr)[0] != 0:
+        print(
+            "tamper-test: TRAP FAILED — the dead ADR-0221 definition did NOT "
+            "zero TERMINAL_STOP",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Trap 58 (the floor-lowering class (г)): the gate_046 floor LOWERED
+    # below the owner constant is a loud refusal (the floor is only-up —
+    # the wave-85 dispatch constant).
+    roster_live = GATE_046_GOALS.read_text(encoding="utf-8")
+    lowered = roster_live.replace(
+        "goal_terminal_stop_min 13", "goal_terminal_stop_min 12", 1
+    )
+    if lowered == roster_live:
+        print(
+            "tamper-test: TRAP FAILED — the gate_046 floor anchor drifted",
+            file=sys.stderr,
+        )
+        return 1
+    if terminal_stop_gate_check(floor_text=lowered) != 1:
+        print(
+            "tamper-test: TRAP FAILED — the lowered gate_046 floor was NOT "
+            "refused (the lowering passed)",
+            file=sys.stderr,
+        )
+        return 1
+
     print(
         "tamper-test: OK — the checkers catch the fabricated records "
 
@@ -2914,7 +3314,8 @@ def tamper_test() -> int:
         f"PROVENANCE_SHARE {full_prov} bp, OFFLINE_SUITE {full_off} bp, "
         f"JURISDICTION_MATRIX {full_jur}, REPLAY_MATCH {full_rep} bp, "
         f"TAINT_SATURATION {full_taint}, REPRO_BITFORBIT {full_repro} bp, "
-        f"INSTITUTIONAL_READY {inst_full}/12, VERTICAL_PROFILES {vert_full}/12; "
+        f"INSTITUTIONAL_READY {inst_full}/12, VERTICAL_PROFILES {vert_full}/12, "
+        f"TERMINAL_STOP {term_full}/{term_total}; "
         "the traps lowered all)"
     )
     return 0
@@ -2949,6 +3350,8 @@ def full_block() -> str:
     n_repro, t_repro = repro_bitforbit_pair()
     n_inst, t_inst = institutional_ready_pair()
     n_vert, t_vert = vertical_profiles_pair()
+    # №924: the aggregate rides the same GENERATED block (the №900 form).
+    n_term, t_term = terminal_stop_pair()
     return (
         f"| Metric | Value (generated — do not hand-edit) |\n"
         f"| ------ | ------------------------------------- |\n"
@@ -2975,6 +3378,7 @@ def full_block() -> str:
         f"| REPRO_BITFORBIT (the 8E-2/C7+C12 machine fact, №912) | {repro_bitforbit_bp()} bp ({n_repro}/{t_repro}) — the registered reproduction carriers whose bit-for-bit chain is live-wired: the registry package path + the release digest chain (ADR-0218 §2; the gate_043 floor 10000 bp, only-up; the toolchain build stays behind the C7 trigger — §5) |\n"
         f"| INSTITUTIONAL_READY (the 8H-1/C13б machine fact, №918) | {institutional_ready()}/{t_inst} — the CHECKED items of the 12-item institutional roster over the live carriers: TRADEMARK.md + docs/SUCCESSION.md + the GOVERNANCE Phase-2 frame (ADR-0219 §2; the gate_044 floor 12, only-up; the documents ≠ the owner's acts — §5) |\n"
         f"| VERTICAL_PROFILES (the 8H-2/C13а machine fact, №921) | {vertical_profiles()}/{t_vert} — the CHECKED anchors of the 12-element vertical roster (2 profiles × 6 mandatory contours) over the live kernel src/vertical.rs (ADR-0220 §2; the gate_045 floor 12, only-up; the profile ≠ certification ≠ legal advice — §5) |\n"
+        f"| TERMINAL_STOP (the W-T aggregate machine fact, №924) | {n_term}/{t_term} — the GREEN capability slots C1–C13 over the live Phase-8 fact machines, every slot answered by the registered live checker (ADR-0221 §2; the gate_046 floor 13, only-up; the 1.0 gate ≠ a service-quality guarantee ≠ a certification ≠ a legal advice — §5) |\n"
     )
 
 
@@ -3043,6 +3447,8 @@ def plan_summary_block() -> str:
     n_repro, t_repro = repro_bitforbit_pair()
     n_inst, t_inst = institutional_ready_pair()
     n_vert, t_vert = vertical_profiles_pair()
+    # №924: the aggregate rides the same GENERATED numbers block.
+    n_term, t_term = terminal_stop_pair()
     return (
         f"| Machine fact (generated — do not hand-edit) | Value |\n"
         f"| --- | --- |\n"
@@ -3064,6 +3470,7 @@ def plan_summary_block() -> str:
         f"| REPRO_BITFORBIT — the 8E-2/C7+C12 machine fact (№912) | {repro_bitforbit_bp()} bp ({n_repro}/{t_repro}) |\n"
         f"| INSTITUTIONAL_READY — the 8H-1/C13б machine fact (№918) | {institutional_ready()}/{t_inst} items |\n"
         f"| VERTICAL_PROFILES — the 8H-2/C13а machine fact (№921) | {vertical_profiles()}/{t_vert} anchors |\n"
+        f"| TERMINAL_STOP — the W-T aggregate machine fact (№924) | {n_term}/{t_term} slots |\n"
     )
 
 
@@ -3808,6 +4215,17 @@ def main() -> int:
             f"(gate_045 floor {vert_floor}, only-up) — roster: "
             f"{len(_vertical_registry())} vertical anchors over the live kernel"
         )
+
+    # №924: the gate_046 only-up floor over the TERMINAL_STOP aggregate
+    # (the gate_040–045 form): the owner-pinned wave-85 dispatch constant
+    # (13) can rise, never fall; the live 13-slot verdict must hold the
+    # floor — a dead fact anchor, a dead roster, a dead ADR-0221
+    # definition or a substituted checker leaves the slot uncounted and
+    # breaches it loudly (fail-closed, no synthesized green).
+    if check:
+        code = terminal_stop_gate_check()
+        if code:
+            return code
 
     # №841: the RED harness (the tamper traps) — an explicit mode, run by
     # CI beside the --check (the same posture as the other gates'

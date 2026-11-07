@@ -1,8 +1,8 @@
 # ADR-0206: Compliance Evidence Compiler — the Attestation Map as a Typed, Verifiable, Sellable Artifact (the 8A-1 / C1 Subphase Record)
 
-- Status: **Proposed** (the ACCEPTED path is the wave-76 acceptance —
-  the dispatch gh#1714 issued the subphase's naryads the same week; the
-  wave acceptance fixes the ADR status as Accepted)
+- Status: **Accepted** (the wave-76 acceptance — ATTEST_MAP 45 at the
+  floor ≥30, gate_037; the dispatch gh#1714 closed 2026-11-01 with the
+  acceptance comment)
 - Date: 2026-11-01
 - Deciders: the OWNER (the R38 revision (3) — C1 moved to the 0.39
   train slot: «превращает мандаты в продаваемый артефакт после

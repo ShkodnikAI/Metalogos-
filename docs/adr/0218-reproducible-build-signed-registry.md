@@ -1,8 +1,9 @@
 # ADR-0218: Reproducible Build & Signed Package Registry — the Registry Package Path as a Bit-for-Bit Verifiable Artifact (the 8E-2 / C7+C12 Subphase Record)
 
-- Status: **Proposed** (the ACCEPTED path is the wave-82 acceptance —
-  the dispatch gh#1817 issues the subphase's naryads the same week; the
-  wave acceptance fixes the ADR status as Accepted)
+- Status: **Accepted** (the wave-82 acceptance — REPRO_BITFORBIT
+  10000 bp at the floor 10000, gate_043, the roster 11/11 live-wired;
+  the dispatch gh#1817 closed 2026-11-05 10:45Z with the acceptance
+  comment)
 - Date: 2026-11-05
 - Deciders: the OWNER (the R38 train — 0.45 = 8E-2 (C7+C12,
   REPRO_BITFORBIT 10000 bp; C7 strictly by trigger — the first

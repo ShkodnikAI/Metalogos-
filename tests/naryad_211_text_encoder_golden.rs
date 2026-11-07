@@ -47,7 +47,7 @@ const PROMPT_1: &[u32] = &[1, 2, 3, 4, 5];
 const PROMPT_2: &[u32] = &[10, 20, 30];
 const PROMPT_3: &[u32] = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
-// ── Pinned golden records (naryad №230) ──────────────────────────────
+// ── Pinned golden records (naryad №230; re-pinned by №930) ───────────
 //
 // SHA-256 of the raw F32 bytes of the encoder output `[seq, hidden]`
 // tensor for each prompt. Anchor values are the 4 corner f32 elements
@@ -59,21 +59,34 @@ const PROMPT_3: &[u32] = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 // to `forward()` math, dtype policy, or the param_seed/SSOT-PRNG
 // contract MUST re-pin these via the Block 2 procedure.
 //
+// RE-PIN №930 (2026-11-07, gh#1868 — the Block 2 procedure, 3
+// bit-identical local runs on the main tree with candle-core 0.11.1):
+// the candle-core 0.11.0 → 0.11.1 bump (PR #1847, the W-P ride-пара
+// deps, the owner's «Рекомендация принимается» decision) shifted the
+// floating-point numerics of the tensor kernels — the last-ULP drift
+// flipped the golden hashes (the A/B proof: the golden test green on
+// the pre-bump ae49ef5c, red on the post-bump tree; the №928/№929 docs
+// wave touched no production code). The metalogos encoder math, the
+// PRNG SSOT and the seed contract are UNCHANGED — only the candle
+// kernel numerics under them moved. The parked-features nightly
+// caught it (the №809 rule: the red nightly is recorded at the next
+// release).
+//
 // P1 (seq=5, hidden=64) anchors:
-//   [0][0]=-0.58273077, [0][63]=-1.3008742, [4][0]=-0.17396767, [4][63]=-0.22194684
+//   [0][0]=-0.58273059, [0][63]=-1.30087435, [4][0]=-0.17396738, [4][63]=-0.22194676
 // P2 (seq=3, hidden=64) anchors:
-//   [0][0]= 0.825586,    [0][63]= 0.364239,  [2][0]=-1.2400694, [2][63]= 1.365883
+//   [0][0]= 0.82558608,  [0][63]= 0.36423934, [2][0]=-1.24006844, [2][63]= 1.36588275
 // P3 (seq=10, hidden=64) anchors:
-//   [0][0]=-0.58273077, [0][63]=-1.3008742, [9][0]= 1.951048,   [9][63]=-0.231560
+//   [0][0]=-0.58273059, [0][63]=-1.30087435, [9][0]= 1.95104861, [9][63]=-0.23155975
 // (decimal forms above are informational; bits below are the contract.)
 
-const GOLDEN_HASH_P1: &str = "163b87c0dd6caa9270a4c4c57536060b0220c766956ac49ca72106aef8465e4b";
-const GOLDEN_HASH_P2: &str = "4979c2f95e6208ecde097c84f8aaeb4e6eae36d9c2d761ab4429513727262557";
-const GOLDEN_HASH_P3: &str = "7f76c86dc4035db6635c6e870a653eab01201778aec29ca15f01e845cfd278c1";
+const GOLDEN_HASH_P1: &str = "fb43c9d6070c1c815217331e879b097b9afcfc534f51a851f1840c7cb4279e95";
+const GOLDEN_HASH_P2: &str = "ad01610e2f919c898425975658c0334e8f497edae22148594725adb45b8847de";
+const GOLDEN_HASH_P3: &str = "a61e7e8b8158239efcd729237a5c76f1516b73b66b503a1c03f124cf04e8811b";
 
-const GOLDEN_ANCHOR_BITS_P1: [u32; 4] = [3205836248, 3215360780, 3190957205, 3194177032];
-const GOLDEN_ANCHOR_BITS_P2: [u32; 4] = [1062427040, 1052409228, 3214850705, 1068422463];
-const GOLDEN_ANCHOR_BITS_P3: [u32; 4] = [3205836242, 3215360781, 1073331188, 3194822133];
+const GOLDEN_ANCHOR_BITS_P1: [u32; 4] = [3205836245, 3215360781, 3190957185, 3194177027];
+const GOLDEN_ANCHOR_BITS_P2: [u32; 4] = [1062427036, 1052409236, 3214850704, 1068422463];
+const GOLDEN_ANCHOR_BITS_P3: [u32; 4] = [3205836245, 3215360781, 1073331190, 3194822144];
 
 /// Compute SHA-256 of a tensor's raw bytes (F32).
 fn tensor_hash(t: &candle_core::Tensor) -> String {

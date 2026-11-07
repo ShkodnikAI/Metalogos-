@@ -4,6 +4,8 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- №929 (gh#1864, wave 87 — W-R, №R2, P2, [audit][docs][process]): the reader-surface drift sweep — `docs/audits/reference-drift-2026-11.md` (the №907 form): the methodology (machines, not prose — every verdict one reproducible command), the 15-surface roster (REFERENCE head RED→fixed by №928 / README badges / llms.txt / the ADR-index bijection + status sync / AGENTS↔CLAUDE №763 / spec-tools №645 / CHANGELOG — GREEN with numbers), the «шапка вне пина» lesson (6 weeks of silent head drift under a green 57/57 CI — the №928 pin closes the class), the pin verified on the wave merge commit `abedee052` (positive 7/7 + the negative control reproduced: ADR 209→208 → the named red); NO DRIFT (docs domain), no floors moved.
+
 - №928 (gh#1863, wave 87 — W-R, P1, [docs][reference][testing][ci]): the REFERENCE.md head re-synced with the machine — `Version: 0.20.0` → `0.39.0` (Cargo.toml `[workspace.package]`), `Synced with code` → `2026-11-07 (naryad №928) · 530 builtins · 209 ADR files` (the unverifiable «149 accepted + 7 reserved» split removed, the №900 form), the §4 coverage note stamp `(v0.20)` → `(v0.39)`; the head is now PINNED by `tests/reference_consistency.rs` (three asserts: Version == Cargo.toml, builtins == named `spec!` count, ADR == `docs/adr/*.md` − README index) — the «шапка вне пина» drift class (6 weeks of silent drift under a green 57/57 CI, the R67 find) is closed.
 
 ## [0.39.0] - 2026-11-09

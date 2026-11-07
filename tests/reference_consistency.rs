@@ -152,7 +152,8 @@ fn reference_has_no_unresolved_todo_markers() {
 
 fn workspace_package_version() -> String {
     let path = repo_root().join("Cargo.toml");
-    let content = fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {:?}: {}", path, e));
+    let content =
+        fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {:?}: {}", path, e));
     // The `[workspace.package]` version — the workspace SSOT the README
     // badge and the release lockstep read. Scoped to the section so a
     // future per-crate `version =` row cannot shadow it.
@@ -205,7 +206,9 @@ fn reference_head_builtin_count_matches_registry() {
     let synced_re = Regex::new(r"\*\*Synced with code:\*\*[^\n]*?·\s*(\d+)\s+builtins").unwrap();
     let got = synced_re
         .captures(&head)
-        .unwrap_or_else(|| panic!("the REFERENCE.md head carries no «Synced with code … N builtins» line"))
+        .unwrap_or_else(|| {
+            panic!("the REFERENCE.md head carries no «Synced with code … N builtins» line")
+        })
         .get(1)
         .unwrap()
         .as_str()

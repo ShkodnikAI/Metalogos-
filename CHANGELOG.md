@@ -4,6 +4,8 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+- №935 (gh#1879, wave 90 — W-V, №V2, P2, [docs][release][process]): the post-stand/post-release sync of 0.39.0 — the first amended-cycle sync (the №646 form, item 10): the stand verdict **GO** (the gh#1870 triage: check 37/37 GREEN · e2e 17/20 — 3 red = the stand/environment artifacts, byte-identical on the v0.38.3 control · `mlog check` baseline GREEN · sha256 ✓ `8f9b0e20…` · smoke/deploy/logs — the honest «не проверено» label) entered the [0.39.0] stand block; the publication recorded (2026-11-09 03:44Z, the owner's act ADR-0186 §4.5; the tag `v0.39.0` on the SAME commit `c70e25af` — the rc↔final SHA equality, `release_train_gate.py` exit 0 pre-cut and live); the 4 assets verified (SHA256SUMS 3/3; BUILD-INFO `prerelease: false`; the binary SHA256 byte-identical to the stand-verified rc binary — the build is reproducible across runs; SBOM `mlog 0.39.0`, 300 components; the attestation pairs 2× `slsa.dev/provenance/v1` + 2× `cyclonedx.org/bom` over one subject digest — the rc run + the final run); the release body PATCHed to the synced section (`release_notes.py` verbatim). Machine records of the publish path: the draft-publish landed on the placeholder `untagged-…` ref → the release PATCHed to the existing `v0.39.0` tag (the same SHA), the placeholder ref deleted; the `release:`-event build RED on the train-gate step (the honest gate refusing the untagged shape) → re-run by the checklist red-run path (`workflow_dispatch` tag=v0.39.0 upload=true) — success, 21 steps. The REALITY STAGED→PUBLISHED line re-checked on the live tree (AGENTS.md §1): no STAGED row exists — the №810 reality-split + the №789 generator retirement took the release-state rows out of the tree; the PUBLISHED fact is recorded in the [0.39.0] block + the release API + the tag. llms.txt №1–№935; NO DRIFT (docs domain).
+
 - №932 (gh#1871, wave 89 — W-U, №S2 carried from В88, P2, [ci][hygiene]): the nightly soak-parity lane hygiene — the №722 ENOSPC guard extension after the 07.11 RED (run #54 on `c70e25af`: ENOSPC os error 28 in "Build debug binary for doc-tests/examples" AFTER the №722 runner-bloat purge fired — the В48 class returned with the grown tree, and the largest disk consumers are now the incremental caches and the dev-profile debuginfo, which the №722 purge never touches): the job env `CARGO_INCREMENTAL=0` (no incremental caches for a one-shot CI build — test behavior unchanged) + `CARGO_PROFILE_DEV_DEBUG=0` (no dev debuginfo — the soak machine needs no symbols) + the inter-phase df-h checkpoints with `target/debug/incremental` purges between the cargo phases (the №722 df-h hygiene — provable in the log) + the loud pre-doc-tests floor (fail fast with the `::error` label below 2 GiB free instead of a mid-build ENOSPC); soak-parity is not a required lane — the nightly red is the signal (№809); the full acceptance verifies on the next nightly run after the merge. Carries the ledger-revision erratum chain (the №931 revision comment in gh#967 — the primary machine record): the ignore floor is machine-established at **8** `#[ignore = "..."]` attributes = 1 ledger lane (§4 PARKED) + 7 PERMANENT by-design (`golden.rs:377`, `naryad_393_ledger.rs:108`, `run_leak_suite.rs:267`, `metalogos-server/tests/naryad_160_vm_serve_full_verification.rs:594`, `src/llm.rs:3662/3683/3705`) — the R68 count of 5 missed the three `src/llm.rs` credential/endpoint-gated ignores, and the first R69 correction (7, the «naryad_160:594 phantom» claim) was itself wrong: the metalogos-server crate file exists and the root-tests rg scope missed it (git grep over all tracked *.rs is the machine). NO DRIFT (ci domain — grammar/builtins/goldens untouched).
 
 - №931 (gh#967, wave 88 — W-S, №S1, P2-hygiene, [docs][process]): the known-issue ledger dated revision — the 2026-11-08 window (the №639 form): all 7 lanes machine-verified against the live main `0105888e` — the §1/§2/§3/§5/§6/§7 RESOLVED marks stand (the №575/№574/№617/№634/№635/№662+№695 machines, the lane suites green on this PR's CI), the ignore floor = exactly 5 `#[ignore = "..."]` attributes: 1 ledger lane (§4 PARKED, `tests/phase18_compiler_statements.rs:186`, the gh#967 link alive) + 4 PERMANENT by-design outside the ledger (`golden.rs:377` browser-gate, `naryad_393_ledger.rs:108` release-only golden, `run_leak_suite.rs:267` calibration tooling, `metalogos-server/tests/naryad_160_vm_serve_full_verification.rs:594` KV_STORE process-global); the ledger issue STAYS OPEN — the §4 ignore links gh#967 in code and closing it would rot the link (the М3 rule: no wording-only closure); the revision comment carries the per-lane machine table (the dated-revision header 2026-11-08 in the issue body); NO DRIFT (docs domain), no floors moved.
@@ -38,11 +40,25 @@ train (ADR-0221, wave 85 — TERMINAL_STOP 13/13, gate_046); the ADR
 status pass (wave 86 — ten records Proposed → Accepted per their
 executed wave acceptances; the record content re-evaluated by nobody).
 
-Проверено на стенде офиса: not verified — the Sunday stand
-(2026-11-08) is pending at the rc cut; «not verified» = the train does
-not depart (the release-checklist form). The verdict enters this block
-by the post-stand/post-release sync (the №646 form, item 10) — the
-tagged rc commit stays pinned.
+Проверено на стенде офиса: 2026-11-08, вердикт **GO** (триаж
+gh#1870): check-набор rc-коммита — 37/37 GREEN; e2e-батарея — 17/20
+(3 красных — артефакты стенда/окружения, байт-в-байт на контроле
+v0.38.3); `mlog check` baseline — GREEN; sha256 бинаря ✓ `8f9b0e20…`
+(совпадает с SHA256SUMS rc-драфта); smoke/deploy/логи — честная метка
+«не проверено» (вне стенда офиса — офисная колея FOSVED-office-v2#655).
+
+Публикация: 2026-11-09 03:44Z — акт владельца (ADR-0186 §4.5); тег
+`v0.39.0` на том же коммите `c70e25af` (rc↔final SHA-равенство,
+`release_train_gate.py` exit 0 и pre-cut, и live); релиз —
+<https://github.com/ShkodnikAI/Metalogos-/releases/tag/v0.39.0>.
+Активы (4) верифицированы синком №935: SHA256SUMS 3/3 OK; BUILD-INFO —
+`prerelease: false`; бинарь SHA256 `8f9b0e20…` — байт-в-байт дайджест
+стенд-верифицированного rc-бинаря (сборка воспроизводима между
+прогонами); SBOM — `mlog 0.39.0`, 300 компонентов; аттестации — 2×
+`slsa.dev/provenance/v1` + 2× `cyclonedx.org/bom` на одном
+subject-дайджесте (rc-прогон + финальный прогон). Вердикт входит в
+этот блок пост-стенд/пост-релизным синком (форма №646, п.10) —
+затегированный rc-коммит остаётся запиненным.
 
 ### Added
 

@@ -81,7 +81,26 @@ fn capability_descriptors_pin_the_audio_inputs() {
 
     let audio_inputs = [MediaKind::Audio];
     let image_inputs = [MediaKind::Image];
+    let video_inputs = [MediaKind::VideoFrame];
     for entry in BACKEND_REGISTRY {
+        // №939 (ADR-0182 §3.3 step 3): the two named video-understanding
+        // records consume a VideoFrame handle (the class's third record,
+        // qwen25-vl-7b, is outside the step roster — text-only-declared).
+        if matches!(entry.name, "llava-video-7b" | "internvl3-8b") {
+            assert_eq!(
+                entry.inputs, video_inputs,
+                "record '{}' must declare exactly [VideoFrame] (№939 step 3)",
+                entry.name
+            );
+            continue;
+        }
+        if entry.name == "qwen25-vl-7b" {
+            assert!(
+                entry.inputs.is_empty(),
+                "qwen25-vl-7b is outside the №939 roster — it must stay text-only-declared"
+            );
+            continue;
+        }
         match entry.class {
             // №938 (this step): the STT/Omni records consume Audio.
             BackendClass::Stt | BackendClass::Omni => {
@@ -104,7 +123,8 @@ fn capability_descriptors_pin_the_audio_inputs() {
                 );
             }
             // The №939 step (VideoFrame) evolves the remaining pin when
-            // it lands; today every other record is text-only.
+            // it lands — the named-roster arm above carries it; every
+            // other record stays text-only.
             _ => {
                 assert!(
                     entry.inputs.is_empty(),

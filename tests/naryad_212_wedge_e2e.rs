@@ -86,11 +86,17 @@ fn tensor_sha256(t: &Tensor) -> String {
 
 const VAE_TINY_SEED: u64 = 21230;
 
-// Pinned after 3 bit-identical local runs on 2026-09-09.
-// n235: re-pinned after VAE structure fix (lpb+1 resnets all blocks, conv_norm_out+silu, shortcuts).
+// Re-pinned after 3 bit-identical local runs on 2026-11-09 — n936: the candle-core
+// 0.11.0 → 0.11.1 kernel-numerics drift (last-ULP; PR #1847) — the Block 2 procedure
+// (the №930 form): 3 bit-identical local runs (rustc 1.99.1/58cf8f9c3, CARGO_INCREMENTAL=0,
+// same rustc as the CI build per BUILD-INFO) + the local got == the CI got cross-check
+// (the parked dispatch run 42565855881 on f0e9724f); the A/B proof from the CI runs:
+// the pre-bump schedule run 42190812050 (29e3a0e3, 06.11) GREEN, the post-bump dispatch RED.
+// The anchor bits are UNCHANGED (the drift sits elsewhere in the tensor) — only the hash moved.
+// n235: re-pinned after VAE structure fix (lpb+1 resnets all blocks, conv_norm_out+silu, shortcuts) — the 2026-09-09 pin.
 // n232: 7f1ac218... (pre-structure-fix, n234 mid-attn placement)
 // n212: 3e8c058d... (original)
-const VAE_GOLDEN_HASH: &str = "85ef6a879d587d99ce07563bfdb274b7cb3061e9106b37a362d80348ea890702";
+const VAE_GOLDEN_HASH: &str = "779e1ceecbe7317ccaae06b936b8f3bdfef495ef59d963ea860af1b5cdad650b";
 const VAE_GOLDEN_ANCHOR_BITS: [u32; 4] = [1056994044, 1057002328, 1056597251, 1057092467];
 
 #[test]
@@ -172,13 +178,20 @@ use metalogos::vision::text_encoder::param_seed;
 /// (does not collide with PARAM_DIT_* 200..240).
 const SEED_DIT: u64 = 21201;
 
-// Pinned after 3 bit-identical local runs on 2026-09-08.
-// n233: re-pinned after RoPE wire-in (AxialRoPE::apply now called in attention path).
+// Re-pinned after 3 bit-identical local runs on 2026-11-09 — n936: the candle-core
+// 0.11.0 → 0.11.1 kernel-numerics drift (last-ULP; PR #1847) — the Block 2 procedure
+// (the №930 form): 3 bit-identical local runs (rustc 1.99.1/58cf8f9c3, CARGO_INCREMENTAL=0,
+// same rustc as the CI build per BUILD-INFO) + the local got == the CI got cross-check
+// (the parked dispatch run 42565855881 on f0e9724f); the A/B proof from the CI runs:
+// the pre-bump schedule run 42190812050 (29e3a0e3, 06.11) GREEN, the post-bump dispatch RED.
+// The anchor bits moved last-ULP: 3164026950→3164026958, 3162841220→3162841214,
+// 1013795100→1013795086; 3189363858 unchanged.
+// n233: re-pinned after RoPE wire-in (AxialRoPE::apply now called in attention path) — the 2026-09-08 pin.
 // n232: 211cf4f5... (pre-RoPE architecture)
 // n231: e686167b... (pre-rebuild architecture)
 const GOLDEN_DIT_TINY_HASH: &str =
-    "860c85b311905f6c23b90a4e9e3192928027a24bf3e4a00a08096336abad4b3c";
-const GOLDEN_DIT_TINY_ANCHOR_BITS: [u32; 4] = [3164026950, 3162841220, 1013795100, 3189363858];
+    "43648d1e3b8ba84e26f6142d017da7d8f2950faed347103127c669b48483a22a";
+const GOLDEN_DIT_TINY_ANCHOR_BITS: [u32; 4] = [3164026958, 3162841214, 1013795086, 3189363858];
 
 #[test]
 fn dit_tiny_forward_golden() {

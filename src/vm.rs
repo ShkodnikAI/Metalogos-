@@ -3669,6 +3669,17 @@ impl Vm {
                 &self.media_store,
                 args,
             )),
+            // №938 (ADR-0182 §3.3 step 2): the Audio media-input bridge —
+            // the store-carrying interception for the two audio-consuming
+            // backend builtins (the SAME shared dispatch functions the
+            // interpreter uses; the String form routes through unchanged).
+            crate::media_ops::STT_TRANSCRIBE => Some(crate::builtins::stt_transcribe_dispatch(
+                &self.media_store,
+                args,
+            )),
+            crate::media_ops::OMNI_ASK => {
+                Some(crate::builtins::omni_ask_dispatch(&self.media_store, args))
+            }
             // №397 (kitchen-camera e2e): consent as a RUNTIME credential —
             // the same shared dispatches the interpreter uses (the scope
             // lands on the VM's own store entry; the runtime twin of the

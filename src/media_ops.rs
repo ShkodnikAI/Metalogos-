@@ -11,6 +11,11 @@
 //! №483-transferred twenty, pinned EXACTLY by the naryad-483 test (a
 //! new member would be drift); the constants serve dispatch only.
 //!
+//! №938 (ADR-0182 §3.3 step 2): the Audio bridge constants
+//! (`STT_TRANSCRIBE`, `OMNI_ASK`) join the same discipline — the media
+//! input intercepts those names with the store in hand on BOTH
+//! backends; NOT members of `handles()`.
+//!
 //! The №480 boundary holds: this is a NAME transfer, not a logic
 //! unification — the per-backend dispatch bodies stay where they are
 //! (the TW keeps its interpreter-state dispatch in
@@ -80,6 +85,14 @@ pub const VISION_UNDERSTAND: &str = "vision_understand";
 /// bridge; the same `handles()`-excluded constant discipline as
 /// `VISION_UNDERSTAND`).
 pub const OCR_EXTRACT: &str = "ocr_extract";
+/// `stt_transcribe` — the STT backend surface (the №938 media-input
+/// bridge, ADR-0182 §3.3 step 2; the same `handles()`-excluded constant
+/// discipline as `VISION_UNDERSTAND`: the name is spelled ONCE outside
+/// `BUILTIN_REGISTRY`, the backends compare against the constant).
+pub const STT_TRANSCRIBE: &str = "stt_transcribe";
+/// `omni_ask` — the omni backend surface (the №938 media-input bridge;
+/// the same `handles()`-excluded constant discipline).
+pub const OMNI_ASK: &str = "omni_ask";
 
 /// The media/vision names this module owns — the live membership hook
 /// (the audit/semantic tooling and both backends' dispatch prologues ask

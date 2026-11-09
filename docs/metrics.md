@@ -18,8 +18,8 @@ construction.
 | SVG/Graphics | 44 builtins, hand-rolled in pure Rust |
 | Grammar | 344 rules |
 | Architecture Decisions | 209 ADRs |
-| Example Programs | 257 .mlog programs |
-| Reference | REFERENCE.md (~340 KB) — 100% registry coverage |
+| Example Programs | 258 .mlog programs |
+| Reference | REFERENCE.md (~341 KB) — 100% registry coverage |
 | Changelog | CHANGELOG.md (~265 KB) — every wave documented |
 | LICENSED_FLOOR (the 8D-1 machine fact, №841) | 10000 bp (16/16) — the license class explicit + the license_note filled over the backend registry (ADR-0163/ADR-0202 terms; №900: the denominator rides the fact) |
 | PASSPORT_FRESH (the 8D-1 machine fact, №841) | 10000 bp (16/16) — the passports fresh within the 180-day verification window (the №842 rule) |

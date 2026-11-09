@@ -31,10 +31,12 @@
 //!
 //! `inputs: &[MediaKind]` — the machine answer to "what media input does
 //! this backend accept" (empty = text-only). Filled per the §3.3 line:
-//! step 1 (this change) fills the VisionUnderstanding/Ocr records with
-//! `Image`; the Audio/VideoFrame steps (№600+) extend their own records.
+//! step 1 (№599) fills the VisionUnderstanding/Ocr records with `Image`;
+//! step 2 (№938, ADR-0182 §3.3.2) fills the Stt/Omni records with
+//! `Audio`; the VideoFrame step (№939) extends its own records.
 //! The field is the compile-time documentation of the media-input
-//! surface; record drift is caught by the table tests (naryad-599).
+//! surface; record drift is caught by the table tests (naryad-599,
+//! naryad-938).
 
 use crate::media::MediaKind;
 
@@ -229,7 +231,10 @@ pub const BACKEND_REGISTRY: &[BackendEntry] = &[
         pin: ShaPin::PendingNo334,
         license: LicenseClass::Restrictive,
         license_note: "license NOT verified in-tree — restrictive by default-deny (allowlist posture, ADR-0163 §2.1) until a license record lands",
-        inputs: &[],
+        // №938 (ADR-0182 §3.3 step 2): the capability descriptor — an
+        // omni record consumes an Audio handle (the `omni_ask` bridge
+        // media argument).
+        inputs: &[MediaKind::Audio],
     },
     BackendEntry {
         name: "nemotron-omni",
@@ -241,7 +246,9 @@ pub const BACKEND_REGISTRY: &[BackendEntry] = &[
         pin: ShaPin::Pinned("de952574c9189925ad15f8cf164184117b6e5eec2d8b7f092e1268c1f0872244"),
         license: LicenseClass::NonOsi,
         license_note: "Nemotron — NVIDIA Open Model License (non-osi; the MDL-3 test case)",
-        inputs: &[],
+        // №938: the canon omni wedge consumes an Audio handle (the
+        // `omni_ask` bridge media argument — the default model).
+        inputs: &[MediaKind::Audio],
     },
     // №334: the STT class joins the registry — the canon ASR wedge
     // (single-file artifact, the whole pin IS the artifact hash).
@@ -252,7 +259,10 @@ pub const BACKEND_REGISTRY: &[BackendEntry] = &[
         pin: ShaPin::Pinned("542566a422ae4f3fd23f1ba11add198fca01bbf82e66e6a2857b3f608b1eb9d1"),
         license: LicenseClass::Osi,
         license_note: "Whisper large-v3-turbo (OpenAI) — MIT (osi)",
-        inputs: &[],
+        // №938 (ADR-0182 §3.3 step 2): the canon STT wedge consumes an
+        // Audio handle (the `stt_transcribe` bridge input — the default
+        // model).
+        inputs: &[MediaKind::Audio],
     },
     // №407 (wave 4.5): the OCR class joins the registry — the canon
     // printed-text wedge (single-artifact manifest, the whisper-pin

@@ -20,7 +20,7 @@
 
 ## Examples
 
-- [examples/](examples/): 257 working `.mlog` files covering all the language pillars — the basic syntax (m1-m5), fluid types, control flow, HTTP server + routes, crypto/secrets, cyrillic identifiers, context loading, knowledge graph, hooks lifecycle, schema, skill index, reflex (classification + generation), vision, pattern composition, full apps. Most carry a `.expected` pair (the output) or `.error` (the expected error) — executable documentation.
+- [examples/](examples/): 258 working `.mlog` files covering all the language pillars — the basic syntax (m1-m5), fluid types, control flow, HTTP server + routes, crypto/secrets, cyrillic identifiers, context loading, knowledge graph, hooks lifecycle, schema, skill index, reflex (classification + generation), vision, pattern composition, full apps. Most carry a `.expected` pair (the output) or `.error` (the expected error) — executable documentation.
 
 ## Architecture
 

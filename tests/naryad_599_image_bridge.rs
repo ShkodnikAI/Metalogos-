@@ -75,7 +75,26 @@ fn capability_descriptors_pin_the_image_inputs() {
 
     let image_inputs = [MediaKind::Image];
     let audio_inputs = [MediaKind::Audio];
+    let video_inputs = [MediaKind::VideoFrame];
     for entry in BACKEND_REGISTRY {
+        // №939 (ADR-0182 §3.3 step 3): the two named video-understanding
+        // records consume a VideoFrame handle (the class's third record,
+        // qwen25-vl-7b, is outside the step roster — text-only-declared).
+        if matches!(entry.name, "llava-video-7b" | "internvl3-8b") {
+            assert_eq!(
+                entry.inputs, video_inputs,
+                "record '{}' must declare exactly [VideoFrame] (№939 step 3)",
+                entry.name
+            );
+            continue;
+        }
+        if entry.name == "qwen25-vl-7b" {
+            assert!(
+                entry.inputs.is_empty(),
+                "qwen25-vl-7b is outside the №939 roster — it must stay text-only-declared"
+            );
+            continue;
+        }
         match entry.class {
             BackendClass::VisionUnderstanding | BackendClass::Ocr => {
                 assert_eq!(

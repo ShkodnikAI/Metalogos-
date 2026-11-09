@@ -3680,6 +3680,17 @@ impl Vm {
             crate::media_ops::OMNI_ASK => {
                 Some(crate::builtins::omni_ask_dispatch(&self.media_store, args))
             }
+            // №939 (ADR-0182 §3.3 step 3): the VideoFrame media-input
+            // bridge — the store-carrying interception for the
+            // video-understanding backend builtin (the SAME shared
+            // dispatch function the interpreter uses; the String form
+            // routes through unchanged). The builtin's own `video` gate
+            // applies to the whole step.
+            #[cfg(feature = "video")]
+            crate::media_ops::VIDEO_UNDERSTAND => Some(crate::builtins::video_understand_dispatch(
+                &self.media_store,
+                args,
+            )),
             // №397 (kitchen-camera e2e): consent as a RUNTIME credential —
             // the same shared dispatches the interpreter uses (the scope
             // lands on the VM's own store entry; the runtime twin of the

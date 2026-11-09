@@ -93,6 +93,12 @@ pub const STT_TRANSCRIBE: &str = "stt_transcribe";
 /// `omni_ask` — the omni backend surface (the №938 media-input bridge;
 /// the same `handles()`-excluded constant discipline).
 pub const OMNI_ASK: &str = "omni_ask";
+/// `video_understand` — the video-understanding backend surface (the
+/// №939 media-input bridge, ADR-0182 §3.3 step 3; the same
+/// `handles()`-excluded constant discipline: the name is spelled ONCE
+/// outside `BUILTIN_REGISTRY`, the backends compare against the
+/// constant; the bridge interceptions are `video`-gated).
+pub const VIDEO_UNDERSTAND: &str = "video_understand";
 
 /// The media/vision names this module owns — the live membership hook
 /// (the audit/semantic tooling and both backends' dispatch prologues ask

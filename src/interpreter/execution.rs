@@ -736,6 +736,20 @@ impl Interpreter {
                 .map_err(|e| format!("media store poisoned: {}", e))?;
             return crate::builtins::omni_ask_dispatch(&store, &args);
         }
+        // №939 (ADR-0182 §3.3 step 3): the VideoFrame media-input bridge
+        // — the store-carrying interception for the video-understanding
+        // backend builtin (the builtin's own `video` gate applies to the
+        // whole step). The VideoFrame-handle form materializes through
+        // the sanctioned read path; the String form routes through
+        // unchanged (the same shared dispatch the VM uses).
+        #[cfg(feature = "video")]
+        if name == crate::media_ops::VIDEO_UNDERSTAND {
+            let store = self
+                .media_store
+                .lock()
+                .map_err(|e| format!("media store poisoned: {}", e))?;
+            return crate::builtins::video_understand_dispatch(&store, &args);
+        }
         // №397 (kitchen-camera e2e): consent as a RUNTIME credential —
         // the scope lands on the media entry (the runtime twin of the
         // static consented-egress rule; statement-position calls).
@@ -2282,6 +2296,18 @@ impl Interpreter {
                         .lock()
                         .map_err(|e| format!("media store poisoned: {}", e))?;
                     return crate::builtins::omni_ask_dispatch(&store, &eval_args);
+                }
+                // №939 (ADR-0182 §3.3 step 3): the VideoFrame media-input
+                // bridge — expression path, the same shared dispatch as
+                // the statement path above (лекало MEDIA_SAVE); the
+                // builtin's own `video` gate applies to the whole step.
+                #[cfg(feature = "video")]
+                if name == crate::media_ops::VIDEO_UNDERSTAND {
+                    let store = self
+                        .media_store
+                        .lock()
+                        .map_err(|e| format!("media store poisoned: {}", e))?;
+                    return crate::builtins::video_understand_dispatch(&store, &eval_args);
                 }
                 // №397 (kitchen-camera e2e): consent as a RUNTIME
                 // credential — expression path, the same shared dispatches

@@ -1884,6 +1884,30 @@ fn label_source(fn_name: &str, args: &[Expr], env: &BTreeMap<String, Label>) -> 
             }
             Some(out)
         }
+        // №939 (ADR-0182 §3.3 step 3): the VideoFrame media-input bridge
+        // — the same carrier rationale as the №599/№938 arms above:
+        // `video_understand`'s result label is the SEGMENT argument's
+        // label (the frame is the DATA carrier, so its conf, integrity
+        // AND consent scope ride into the description — «private frame
+        // in → private description out»), while the text parameters
+        // (prompt / model) contribute their conf and integrity
+        // conservatively but NOT their consent scopes. Pinned by the
+        // naryad-939 consent test; the string form's labels are
+        // unchanged — its literals carry bottom anyway. The name only
+        // occurs under the `video` feature (the builtin's own gate);
+        // the static rule is unconditional for simplicity.
+        "video_understand" => {
+            let mut out = args
+                .first()
+                .map(|a| expr_label(a, env))
+                .unwrap_or_else(Label::bottom);
+            for a in args.iter().skip(1) {
+                let l = expr_label(a, env);
+                out.conf = out.conf.join(l.conf);
+                out.integrity = out.integrity.join(l.integrity);
+            }
+            Some(out)
+        }
         _ => None,
     }
 }

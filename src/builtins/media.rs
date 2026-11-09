@@ -715,6 +715,91 @@ pub fn omni_ask_dispatch(store: &MediaStore, args: &[Value]) -> Result<Value, St
     crate::voice::backend::builtin_omni_ask(&args)
 }
 
+// ── №939 (ADR-0182 §3.3 step 3): the VideoFrame media-input bridge ────
+//
+// `video_understand(segment, …)` gains the VideoFrame-handle input form
+// (the №493 multi-form overload posture — the №599/№938 step
+// architecton verbatim): argument 1 may be a
+// `Value::Media(MediaHandle::VideoFrame(_))` — materialized through the
+// store's SANCTIONED read path and fed to the SAME stateless call body
+// the String form uses (one body per builtin over the shared registry;
+// the golden behavior of the String form is untouched — the №706 mock
+// golden and the №697 real-path posture included). The call is
+// PROCESSING, not byte egress: the handle's static label joins the
+// RESULT's label through the existing №323 inference (private frame in
+// → private description out) and the №325 sink gate keeps governing
+// every real egress. Any OTHER media kind is a LOUD fail-closed
+// refusal. The whole bridge is `video`-gated (the builtin's own gate).
+
+/// Loud fail-closed refusal for a foreign media kind on the VideoFrame
+/// bridge (№939) — the step-3 twin of the №599/№938 refusals.
+#[cfg(feature = "video")]
+fn video_frame_kind_refusal(fn_name: &str, handle: crate::media::MediaHandle) -> String {
+    format!(
+        "{}: segment input must be a VideoFrame handle (or a String payload reference), \
+         got {} {} — the Image input is the vision builtins' surface (№599); the Audio \
+         input is the voice builtins' surface (№938)",
+        fn_name,
+        handle.kind().type_name(),
+        handle
+    )
+}
+
+/// Resolve the `segment` argument (the first argument) of
+/// `video_understand` (№939). The String form passes through untouched
+/// (the golden path); the `MediaHandle::VideoFrame` form materializes
+/// through the store; any other media kind refuses loudly (fail-closed).
+#[cfg(feature = "video")]
+fn resolve_video_frame_input(
+    fn_name: &str,
+    store: &MediaStore,
+    args: &[Value],
+) -> Result<Vec<Value>, String> {
+    let Some(Value::Media(handle)) = args.first() else {
+        // String form (or an arity error the call body owns) — unchanged.
+        return Ok(args.to_vec());
+    };
+    if handle.kind() != crate::media::MediaKind::VideoFrame {
+        return Err(video_frame_kind_refusal(fn_name, *handle));
+    }
+    // Defense-in-depth: the entry behind the handle must be a
+    // VideoFrame entry too (a direct store misuse cannot launder
+    // through the sanctioned read path).
+    let entry_kind = store.entry(*handle)?.kind;
+    if entry_kind != crate::media::MediaKind::VideoFrame {
+        return Err(format!(
+            "{}: media entry behind {} is kind '{}', not video_frame — refusing loudly \
+             (fail-closed, №939)",
+            fn_name,
+            handle,
+            entry_kind.slug()
+        ));
+    }
+    let bytes = store.materialize(*handle)?;
+    let payload = String::from_utf8(bytes.to_vec()).map_err(|_| {
+        format!(
+            "{}: the payload of {} is not valid UTF-8 text — the sanctioned \
+             media constructions carry String payloads only; binary media \
+             ingestion is the real-inference path (PARKED by hardware, №294)",
+            fn_name, handle
+        )
+    })?;
+    let mut resolved = args.to_vec();
+    resolved[0] = Value::String(payload);
+    Ok(resolved)
+}
+
+/// `video_understand(segment, prompt?, model?)` — the store-backed input
+/// bridge (№939): resolves the VideoFrame-handle form through the store,
+/// then runs the stateless call body (the SSOT of the call contract).
+/// The String form routes through unchanged — the golden surface is
+/// shared.
+#[cfg(feature = "video")]
+pub fn video_understand_dispatch(store: &MediaStore, args: &[Value]) -> Result<Value, String> {
+    let args = resolve_video_frame_input("video_understand", store, args)?;
+    crate::video::understand::builtin_video_understand(&args)
+}
+
 // ── Registry last-resort handlers (лекало vision stubs) ──────────────
 //
 // The real paths are state-carrying: interpreter and VM intercept these

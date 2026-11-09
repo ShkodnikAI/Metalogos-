@@ -33,7 +33,10 @@
 //! this backend accept" (empty = text-only). Filled per the §3.3 line:
 //! step 1 (№599) fills the VisionUnderstanding/Ocr records with `Image`;
 //! step 2 (№938, ADR-0182 §3.3.2) fills the Stt/Omni records with
-//! `Audio`; the VideoFrame step (№939) extends its own records.
+//! `Audio`; step 3 (№939, ADR-0182 §3.3.3) fills the two
+//! VideoUnderstanding records llava-video-7b/internvl3-8b with
+//! `VideoFrame` (the class's third record `qwen25-vl-7b` is outside the
+//! step's roster and stays text-only-declared).
 //! The field is the compile-time documentation of the media-input
 //! surface; record drift is caught by the table tests (naryad-599,
 //! naryad-938).
@@ -308,7 +311,10 @@ pub const BACKEND_REGISTRY: &[BackendEntry] = &[
         pin: ShaPin::Pinned("2625213dd97a944180a7ba6776501709f6094e9c07295101518d69ca8ccfb5ad"),
         license: LicenseClass::Osi,
         license_note: "LLaVA-Video-7B-Qwen2 (lmms-lab) — Apache-2.0 (osi; HF cardData + tags)",
-        inputs: &[],
+        // №939 (ADR-0182 §3.3 step 3): the capability descriptor — a
+        // video-understanding record consumes a VideoFrame handle (the
+        // `video_understand` bridge input).
+        inputs: &[MediaKind::VideoFrame],
     },
     BackendEntry {
         name: "internvl3-8b",
@@ -317,7 +323,12 @@ pub const BACKEND_REGISTRY: &[BackendEntry] = &[
         pin: ShaPin::Pinned("7ea1f92eaae35cb927e7c7b0f87568ccc046a2446aa68066dfdccb7ebbe0c7f0"),
         license: LicenseClass::Osi,
         license_note: "InternVL3-8B (OpenGVLab) — Apache-2.0 per the HF card declaration (osi; cardData + tags; the naryad's MIT assumption was stale — no separate LICENSE text ships in the repo)",
-        inputs: &[],
+        // №939: the second video-understanding record of the step — the
+        // same VideoFrame capability (the `video_understand` bridge
+        // input). The third record of the class (`qwen25-vl-7b`) is NOT
+        // a target of this step (the naryad's explicit roster) — it
+        // stays text-only-declared until its own line.
+        inputs: &[MediaKind::VideoFrame],
     },
     // №355 (wave 10, registry В5 — Phase 5 «Embodied, sim-only»,
     // ADR-0159): the embodied-sim class joins the registry — the sim/
